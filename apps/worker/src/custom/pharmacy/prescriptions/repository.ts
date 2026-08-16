@@ -218,21 +218,21 @@ export async function submitPrescription(
   const now = nextIsoTimestamp(expectedUpdatedAt);
   const results = await db.batch([
     db.prepare(
-      `UPDATE pharmacy_prescription_submissions
+      `UPDATE pharmacy_prescription_submissions AS s
           SET status = 'received', active_revision = upload_revision,
               requested_at = ?, resubmission_reason_code = NULL, updated_at = ?
-        WHERE id = ? AND line_account_id = ? AND friend_id = ?
-          AND updated_at = ? AND status IN ('draft','needs_resubmission')
-          AND original_prescription_consent_at IS NOT NULL
-          AND readiness_notice_consent_at IS NOT NULL
+        WHERE s.id = ? AND s.line_account_id = ? AND s.friend_id = ?
+          AND s.updated_at = ? AND s.status IN ('draft','needs_resubmission')
+          AND s.original_prescription_consent_at IS NOT NULL
+          AND s.readiness_notice_consent_at IS NOT NULL
           AND (SELECT COUNT(*) FROM pharmacy_prescription_files f
-                WHERE f.submission_id = id AND f.revision = upload_revision)
+                WHERE f.submission_id = s.id AND f.revision = s.upload_revision)
               = (SELECT COUNT(*) FROM pharmacy_prescription_files f
-                  WHERE f.submission_id = id AND f.revision = upload_revision
+                  WHERE f.submission_id = s.id AND f.revision = s.upload_revision
                     AND f.state = 'ready')
           AND EXISTS (
             SELECT 1 FROM pharmacy_prescription_files f
-             WHERE f.submission_id = id AND f.revision = upload_revision
+             WHERE f.submission_id = s.id AND f.revision = s.upload_revision
                AND f.state = 'ready'
              GROUP BY f.submission_id, f.revision
             HAVING COUNT(*) BETWEEN 1 AND 4

@@ -246,6 +246,8 @@ describe('submitPrescription', () => {
     expect(calls[0].sql).toContain('original_prescription_consent_at IS NOT NULL');
     expect(calls[0].sql).toContain('readiness_notice_consent_at IS NOT NULL');
     expect(calls[0].sql).toContain("f.state = 'ready'");
+    expect(calls[0].sql).toContain('f.submission_id = s.id');
+    expect(calls[0].sql).not.toContain('f.submission_id = id');
     expect(calls[0].sql).toContain('MIN(f.position) = 1');
     expect(calls[0].sql).toContain('MAX(f.position) = COUNT(*)');
     expect(calls[0].sql).toContain('active_revision = upload_revision');
