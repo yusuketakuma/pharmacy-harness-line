@@ -103,16 +103,19 @@ jobs:
             run_d1 --file="$baseline_sql"
           fi
 
+          applied_migrations="$(mktemp)"
+          run_d1 --command "SELECT name FROM _migrations" --json \
+            | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));for(const row of d[0]?.results??[])console.log(row.name)" \
+            > "$applied_migrations"
+
           for f in $(ls packages/db/migrations/*.sql | sort); do
             name=$(basename "$f")
-            applied=$(run_d1 --command \
-              "SELECT name FROM _migrations WHERE name = '${name}'" --json \
-              | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
-            if [ "$applied" = "0" ]; then
+            if ! grep -Fxq "$name" "$applied_migrations"; then
               echo "Applying: $name"
               run_d1 --file="$f"
               run_d1 --command \
                 "INSERT INTO _migrations (name, applied_at) VALUES ('${name}', datetime('now'))"
+              printf '%s\n' "$name" >> "$applied_migrations"
             else
               echo "Skipped: $name"
             fi
