@@ -36,6 +36,14 @@ describe('development deployment workflow contract', () => {
     expect(workerDeploy).toContain('.r2_buckets |= map(if .binding == "IMAGES" then .bucket_name = $bucket else . end)');
   });
 
+  test('Worker bootstraps an empty D1 before applying future migrations', () => {
+    expect(workerDeploy).toContain("name='line_accounts'");
+    expect(workerDeploy).toContain('packages/db/bootstrap.sql');
+    expect(workerDeploy).toContain("name='_migrations'");
+    expect(workerDeploy).toContain('packages/db/bootstrap-meta.json');
+    expect(workerDeploy).toContain('if [ "$schema_exists" = "0" ] || [ "$ledger_exists" = "0" ]; then');
+  });
+
   test('Web CI gates Admin changes before deployment', () => {
     const workflow = read('.github/workflows/web-ci.yml');
     expect(workflow).toContain('pull_request:');
