@@ -1,0 +1,68 @@
+name: Publish Customer Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: customer-release
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: vars.LINE_HARNESS_SELLER_REPOSITORY == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate source and release policy
+        id: release
+        run: |
+          pnpm tsx scripts/release/customer-source-update.ts \
+            --policy customer-release.json \
+            --validate-only true
+          source_sha=$(git rev-parse HEAD^{commit})
+          test "$source_sha" = "$GITHUB_SHA"
+          version=$(node -e "const p=require('./customer-release.json');if(p.schema_version!==1)process.exit(1);process.stdout.write(p.version)")
+          previous_commit=$(node -e "process.stdout.write(require('./customer-release.json').previous_commit)")
+          tag="pharmacy-v${version}"
+          git merge-base --is-ancestor "$previous_commit" "$source_sha"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create immutable source tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            test "$(git rev-parse "$TAG^{commit}")" = "$SOURCE_SHA"
+          else
+            git tag -a "$TAG" "$SOURCE_SHA" -m "Customer release $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Dispatch existing release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          tag: ${{ steps.release.outputs.tag }}
+          source_sha: ${{ steps.release.outputs.source_sha }}
+        run: |
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh workflow run release.yml --ref "$tag" -f source_sha="$source_sha"
+          fi

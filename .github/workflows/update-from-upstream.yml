@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   update:
-    if: github.repository != 'Shudesu/line-harness-oss'
+    if: vars.LINE_HARNESS_SELLER_REPOSITORY == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

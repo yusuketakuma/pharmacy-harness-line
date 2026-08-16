@@ -10,10 +10,15 @@ export interface VerifyEnv {
   DB: D1Database;
 }
 
-export async function verifyCallerLineUserId(
+export interface VerifiedLineIdentity {
+  lineUserId: string;
+  loginChannelId: string;
+}
+
+export async function verifyCallerLineIdentity(
   authHeader: string | undefined,
   env: VerifyEnv,
-): Promise<string | null> {
+): Promise<VerifiedLineIdentity | null> {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const idToken = authHeader.slice('Bearer '.length).trim();
   if (!idToken) return null;
@@ -33,8 +38,17 @@ export async function verifyCallerLineUserId(
     });
     if (res.ok) {
       const verified = (await res.json()) as { sub?: string };
-      if (verified.sub) return verified.sub;
+      if (verified.sub) {
+        return { lineUserId: verified.sub, loginChannelId: channelId };
+      }
     }
   }
   return null;
+}
+
+export async function verifyCallerLineUserId(
+  authHeader: string | undefined,
+  env: VerifyEnv,
+): Promise<string | null> {
+  return (await verifyCallerLineIdentity(authHeader, env))?.lineUserId ?? null;
 }

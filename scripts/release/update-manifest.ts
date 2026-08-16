@@ -22,30 +22,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { argv, exit, stderr } from 'node:process';
+import { validateReleaseEntry } from '../../packages/update-engine/src/manifest.js';
+import type { Manifest, ReleaseEntry } from '../../packages/update-engine/src/types.js';
 
-export interface ReleaseEntry {
-  version: string;
-  released_at: string;
-  worker_hash: string;
-  admin_hash: string;
-  liff_hash: string;
-  worker_assets_hash?: string;
-  /** Byte hash of the final bundled worker/index.js. */
-  worker_bundle_hash?: string;
-  bundle_url: string;
-  bundle_size_bytes: number;
-  required_secrets: string[];
-  new_required_secrets: string[];
-  migrations: string[];
-  changelog_url: string;
-  min_from_version: string;
-}
-
-export interface Manifest {
-  schema_version: 1;
-  latest: string;
-  releases: ReleaseEntry[];
-}
+export type { Manifest, ReleaseEntry } from '../../packages/update-engine/src/types.js';
 
 export function updateManifest(opts: { manifestPath: string; release: ReleaseEntry }): void {
   const { manifestPath, release } = opts;
@@ -61,6 +41,8 @@ export function updateManifest(opts: { manifestPath: string; release: ReleaseEnt
   if (manifest.releases.some((r) => r.version === release.version)) {
     throw new Error(`release ${release.version} already exists in manifest`);
   }
+
+  validateReleaseEntry(release, manifest.releases[0]);
 
   manifest.releases = [release, ...manifest.releases];
   manifest.latest = release.version;

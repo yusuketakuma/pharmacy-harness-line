@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Worker
+name: Deploy Customer Cloudflare
 
 on:
   workflow_dispatch:
@@ -7,11 +7,21 @@ on:
     paths:
       - 'apps/worker/**'
       - 'apps/liff/**'
+      - 'apps/web/**'
       - 'packages/db/**'
       - 'packages/shared/**'
       - 'packages/line-sdk/**'
       - 'packages/update-engine/**'
-      - '.github/workflows/deploy-cloudflare-worker.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/deploy-cloudflare.yml'
+
+concurrency:
+  group: ${{ github.repository }}-cloudflare-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
@@ -22,16 +32,22 @@ jobs:
     env:
       DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Verify deployment target
         run: |
           expected_target="${{ github.ref_name == 'main' && 'production' || 'development' }}"
           test "$DEPLOY_TARGET" = "$expected_target"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: pnpm
@@ -39,94 +55,44 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/update-engine build
 
-      - name: Run pending D1 migrations
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME }}
-        run: |
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$D1_DATABASE_NAME"
-          if [ "$DEPLOY_TARGET" = "development" ]; then
-            case "$D1_DATABASE_NAME" in *-dev) ;; *) echo "Development D1 name must end in -dev"; exit 1 ;; esac
-          fi
-
-          run_d1() {
-            for attempt in 1 2 3; do
-              if output=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote "$@" 2>&1); then
-                printf '%s\n' "$output"
-                return 0
-              fi
-              if [ "$attempt" = "3" ]; then
-                printf '%s\n' "$output" >&2
-                return 1
-              fi
-              sleep $((attempt * 2))
-            done
-          }
-
-          schema_exists=$(run_d1 --command \
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
-            | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
-          ledger_exists=$(run_d1 --command \
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'" --json \
-            | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
-
-          seed_baseline=false
-          if [ "$schema_exists" = "0" ] || [ "$ledger_exists" = "0" ]; then
-            seed_baseline=true
-          fi
-
-          if [ "$schema_exists" = "0" ]; then
-            run_d1 --file=packages/db/bootstrap.sql
-            schema_exists=$(run_d1 --command \
-              "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
-              | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
-            test "$schema_exists" = "1"
-          fi
-
-          run_d1 --command \
-            "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
-
-          if [ "$seed_baseline" = "true" ]; then
-            baseline_sql="$(mktemp)"
-            node -e '
-              const { readFileSync } = require("node:fs");
-              const { includedMigrations } = JSON.parse(readFileSync("packages/db/bootstrap-meta.json", "utf8"));
-              const quote = String.fromCharCode(39);
-              process.stdout.write(includedMigrations.map((name) => {
-                const escaped = name.replaceAll(quote, quote + quote);
-                return `INSERT OR IGNORE INTO _migrations (name, applied_at) VALUES (${quote}${escaped}${quote}, datetime(${quote}now${quote}));`;
-              }).join("\n"));
-            ' > "$baseline_sql"
-            run_d1 --file="$baseline_sql"
-          fi
-
-          applied_migrations="$(mktemp)"
-          run_d1 --command "SELECT name FROM _migrations" --json \
-            | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));for(const row of d[0]?.results??[])console.log(row.name)" \
-            > "$applied_migrations"
-
-          for f in $(ls packages/db/migrations/*.sql | sort); do
-            name=$(basename "$f")
-            if ! grep -Fxq "$name" "$applied_migrations"; then
-              echo "Applying: $name"
-              run_d1 --file="$f"
-              run_d1 --command \
-                "INSERT INTO _migrations (name, applied_at) VALUES ('${name}', datetime('now'))"
-              printf '%s\n' "$name" >> "$applied_migrations"
-            else
-              echo "Skipped: $name"
-            fi
-          done
-
       - name: Build Worker and LIFF assets
         run: pnpm --filter worker build
         env:
           VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
           VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
           VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
+
+      - name: Capture build metadata
+        id: build-meta
+        run: echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Build Admin Panel
+        run: pnpm --filter web build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
+
+      - name: Capture pre-migration release state
+        id: before
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          WORKER_NAME: ${{ vars.WORKER_NAME || 'your-worker-name' }}
+          PAGES_PROJECT_NAME: ${{ vars.PAGES_PROJECT_NAME || 'your-admin-name' }}
+        run: |
+          state="$(pnpm tsx scripts/deploy/release-state.ts --with-bookmark)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      - name: Run pending D1 migrations
+        id: migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: |
+          result="$(pnpm tsx scripts/deploy/apply-migrations.ts)"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
 
       - name: Patch wrangler config
         env:
@@ -174,9 +140,63 @@ jobs:
           fi
 
       - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/worker
           command: deploy --config dist/line_harness/wrangler.json --name ${{ vars.WORKER_NAME || 'your-worker-name' }}
+
+      - name: Verify Worker health
+        env:
+          WORKER_URL: ${{ vars.WORKER_URL }}
+        run: |
+          test -n "$WORKER_URL"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${WORKER_URL%/}/api/health" >/dev/null
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PAGES_PROJECT_NAME: ${{ vars.PAGES_PROJECT_NAME || 'your-admin-name' }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          if [ "$DEPLOY_TARGET" = "development" ]; then
+            case "$PAGES_PROJECT_NAME" in *-dev) ;; *) echo "Development Pages project must end in -dev"; exit 1 ;; esac
+          fi
+          npx wrangler pages deploy apps/web/out \
+            --project-name="$PAGES_PROJECT_NAME" \
+            --commit-hash="$GITHUB_SHA" \
+            --commit-message="deploy $GITHUB_SHA"
+
+      - name: Verify Admin health
+        env:
+          ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
+        run: |
+          test -n "$ADMIN_ORIGIN"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${ADMIN_ORIGIN%/}/" >/dev/null
+
+      - name: Capture deployed release state
+        id: after
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_NAME: ${{ vars.WORKER_NAME || 'your-worker-name' }}
+          PAGES_PROJECT_NAME: ${{ vars.PAGES_PROJECT_NAME || 'your-admin-name' }}
+        run: |
+          state="$(pnpm tsx scripts/deploy/release-state.ts)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      - name: Record release evidence
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          SOURCE_SHA: ${{ github.sha }}
+          BEFORE_STATE: ${{ steps.before.outputs.state }}
+          AFTER_STATE: ${{ steps.after.outputs.state }}
+          MIGRATION_RESULT: ${{ steps.migrations.outputs.result }}
+        run: pnpm tsx scripts/deploy/record-release-evidence.ts

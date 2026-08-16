@@ -54,6 +54,8 @@ function app() {
   a.post('/api/forms/:id/submit', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/partial', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
   return a;
@@ -219,6 +221,20 @@ describe('Google OAuth callback boundary', () => {
       method: 'POST',
     }, crossSiteEnv());
     expect(post.status).toBe(401);
+  });
+});
+
+describe('prescription LIFF auth boundary', () => {
+  test('allows only the explicitly supported method through to LINE verification', async () => {
+    const post = await app().request('/api/liff/pharmacy/prescriptions', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(post.status).toBe(200);
+
+    const wrongMethod = await app().request('/api/liff/pharmacy/prescriptions', {
+      method: 'DELETE',
+    }, crossSiteEnv());
+    expect(wrongMethod.status).toBe(401);
   });
 });
 

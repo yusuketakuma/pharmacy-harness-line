@@ -1,0 +1,90 @@
+import { getIdToken, getLiffId } from '../../../lib/liff-auth.js';
+
+const BASE = import.meta.env.VITE_API_BASE ?? '';
+
+export interface PrescriptionSubmission {
+  id: string;
+  status: string;
+  active_revision: number | null;
+  upload_revision: number;
+  desired_pickup_at: string | null;
+  resubmission_reason_code: string | null;
+  requested_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const url = new URL(`${BASE}${path}`, origin);
+  url.searchParams.set('liffId', getLiffId());
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${getIdToken()}`,
+      ...init.headers,
+    },
+  });
+  const text = await response.text();
+  let body: unknown = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!response.ok) {
+    const error = new Error(`Prescription API ${response.status}`) as Error & {
+      status: number;
+      body: unknown;
+    };
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+function json<T>(path: string, method: 'POST', body: unknown): Promise<T> {
+  return request<T>(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export const prescriptionApi = {
+  reserve: (body: {
+    idempotencyKey: string;
+    desiredPickupAt: string | null;
+    originalPrescriptionConsent: boolean;
+    readinessNoticeConsent: boolean;
+  }) => json<{ submission: PrescriptionSubmission }>(
+    '/api/liff/pharmacy/prescriptions', 'POST', body,
+  ),
+  upload: (submissionId: string, position: number, image: Blob) =>
+    request<{ file: { id: string; revision: number; position: number; state: 'ready' } }>(
+      `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/files/${position}`,
+      { method: 'PUT', headers: { 'Content-Type': image.type }, body: image },
+    ),
+  submit: (submissionId: string, expectedUpdatedAt: string) =>
+    json<{ status: 'received' }>(
+      `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/submit`,
+      'POST',
+      { expectedUpdatedAt },
+    ),
+  history: () => request<{ submissions: PrescriptionSubmission[] }>(
+    '/api/liff/pharmacy/prescriptions/me',
+  ),
+  cancel: (submissionId: string, expectedUpdatedAt: string) =>
+    json<{ status: 'cancelled'; cleanupPending: boolean }>(
+      `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/cancel`,
+      'POST',
+      { expectedUpdatedAt },
+    ),
+  reserveResubmission: (submissionId: string, expectedUpdatedAt: string) =>
+    json<{ status: 'needs_resubmission' }>(
+      `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/resubmission`,
+      'POST',
+      { expectedUpdatedAt },
+    ),
+};

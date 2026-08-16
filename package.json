@@ -25,6 +25,7 @@
     "typescript": "^5.9.3",
     "wrangler": "4",
     "tsx": "^4.21.0",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "yaml": "^2.8.1"
   }
 }
