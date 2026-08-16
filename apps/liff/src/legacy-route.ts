@@ -31,6 +31,9 @@ export function legacyQueryTarget(search: string): string {
     case 'affiliate':
       pathname = '/affiliate';
       break;
+    case 'prescription':
+      pathname = '/prescriptions';
+      break;
     case 'book':
     case 'salon-book':
     case null:

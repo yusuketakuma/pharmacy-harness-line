@@ -25,4 +25,10 @@ describe('legacyQueryTarget', () => {
       '/booking?liffId=123',
     );
   });
+
+  it('opens the custom prescription page from a LIFF query link', () => {
+    expect(legacyQueryTarget('?page=prescription&liffId=123')).toBe(
+      '/prescriptions?liffId=123',
+    );
+  });
 });

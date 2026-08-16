@@ -8,6 +8,7 @@ import EventBookings from './pages/EventBookings.js';
 import Affiliate from './pages/Affiliate.js';
 import Webinar from './pages/Webinar.js';
 import { legacyQueryTarget } from './legacy-route.js';
+import PrescriptionPage from './custom/pharmacy/prescriptions/PrescriptionPage.js'; // custom:pharmacy-prescriptions
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -25,6 +26,7 @@ export default function App() {
       <Route path="/events/:id" element={<Event />} />
       <Route path="/affiliate" element={<Affiliate />} />
       <Route path="/webinar/:slug" element={<Webinar />} />
+      <Route path="/prescriptions" element={<PrescriptionPage />} /> {/* custom:pharmacy-prescriptions */}
       <Route path="/" element={<LegacyEntryRedirect />} />
       <Route
         path="*"
