@@ -1,12 +1,11 @@
 # LINE Harness Pharmacy Implementation Plan
 
-Status: implementation in progress; customer release/update and onboarding implemented locally
+Status: implementation complete and verified locally; not pushed, merged, or deployed
 
-Current evidence: commits `a8e7aaf`, `bf93daf`, and `782dc5e` plus the
-onboarding slice implement immutable seller metadata, verified customer update
-PRs, secretless customer policy, canary-gated compatible auto-merge, and
-seller-tag-clone to customer-repository conversion. No real customer
-repository, Cloudflare environment, or production resource has been changed.
+Current evidence: commits `a8e7aaf` through `24dd7f7` implement and test the
+customer release/update/onboarding/deployment controls and the complete
+prescription pre-send flow. No real customer repository, Cloudflare
+environment, LINE account, or production resource has been changed.
 
 This document is the implementation contract for the pharmacy prescription
 pre-send feature, customer delivery, and customer repository updates. The live
@@ -628,16 +627,55 @@ production Cloudflare mutation as test evidence.
 
 ## 8. Completion audit ledger
 
-For every requirement ID, record:
+All evidence below is local and synthetic. The latest matrix ran on 2026-08-17
+JST. `none` means no unresolved implementation or test exception; it does not
+authorize a push, merge, deployment, or use of real customer data.
 
-- implementation commit/PR;
-- exact test name and latest passing command;
-- development runtime evidence where required;
-- unresolved exception or `none`.
+| ID | Implementation commit | Direct passing evidence | Runtime evidence | Exception |
+| --- | --- | --- | --- | --- |
+| DIST-01 | `c549ebb` | `scripts/customer-onboarding/configure.test.ts`; `pnpm test:scripts` (99 tests) | Temporary private-style seller/customer Git repositories proved the immutable tag SHA. | none |
+| DIST-02 | `c549ebb` | `configure.test.ts`, `github-settings.test.ts`; `pnpm test:scripts` | Temporary checkout proved customer `origin`, fetch-only `vendor`, clean rerun, and no tracked secrets. | none |
+| DIST-03 | `c549ebb` | create-line-harness installer contract tests; `pnpm --filter create-line-harness test` (50 tests) | Synthetic onboarding used the existing source-checkout installer contract only. | none |
+| UPD-01 | `a8e7aaf` | `customer-source-update.test.ts`, `customer-release-workflows.test.ts`; `pnpm test:scripts` | Immutable source SHA, sequence, policy, migration digests, and seller-only release dispatch were parsed from generated metadata. | none |
+| UPD-02 | `bf93daf` | `prepare.test.ts`, `workflow.test.ts`; `pnpm test:scripts` | Temporary repositories proved exact-tag fetch, ancestry preservation, replay/downgrade rejection, and branch reuse. | none |
+| UPD-03 | `782dc5e` | `policy.test.ts`, `workflow.test.ts`; `pnpm test:scripts` | Synthetic compatible update reached the merge-eligible state only after required checks. | none |
+| UPD-04 | `782dc5e` | `policy.test.ts`; `pnpm test:scripts` | Synthetic breaking, configuration, permission, migration, conflict, and failed-check cases remained unmerged. | none |
+| UPD-05 | `782dc5e`, `1b5ffa8` | parsed customer update/deployment workflow tests; `pnpm test:scripts` | Synthetic workflow contracts keep seller/update jobs outside customer Cloudflare and LINE environments. | none |
+| DEP-01 | `782dc5e`, `1b5ffa8` | `workflow.test.ts`, `dev-deployment-workflows.test.ts`; `pnpm test:scripts` | Parsed PR jobs are read-only, secretless, environment-free, and non-deploying. | none |
+| DEP-02 | `1b5ffa8` | `dev-deployment-workflows.test.ts`; `pnpm test:scripts` | Parsed DAG proves build-before-mutation, shared serialization, and Worker-before-Admin/LIFF ordering. | none |
+| DEP-03 | `1b5ffa8` | `scripts/check-migrations.test.ts`, update-engine migration tests; `pnpm test:scripts`, `pnpm --filter @line-harness/update-engine test` (199 tests), `pnpm tsx scripts/check-migrations.ts` | Synthetic interrupted, replayed, concurrent, digest-mismatch, and ambiguous-result cases passed without real D1 mutation. | none |
+| DEP-04 | `1b5ffa8` | `scripts/deploy/release-evidence.test.ts`; `pnpm test:scripts` | Synthetic persisted evidence included source/release SHAs, migration set, bookmark, deployment IDs, smoke result, and rollback eligibility. | none |
+| RX-01 | `ee6f33d`, `e67e192`, `1a37634`, `adc4670` | Worker, LIFF, and Admin `boundary.test.ts`; package test commands below | Boundary enumeration accepts only feature-local files, marked seams, and `custom_001_pharmacy_prescriptions.sql`. | none |
+| RX-02 | `ee6f33d`, `e67e192` | `routes.test.ts`, `patient.test.ts`, `image.test.ts`, `PrescriptionPage.test.tsx`; Worker (1043 tests), LIFF (10 tests) | Actual bootstrap SQLite E2E reserved a scoped draft and stored ordered synthetic images in an in-memory R2 adapter. | none |
+| RX-03 | `ee6f33d`, `24dd7f7` | `repository.test.ts`, `routes.test.ts`, `custom_001_pharmacy_prescriptions.e2e.test.ts`; DB (146 tests), Worker (1043 tests) | Actual SQLite proved idempotent submission and tenant/friend/revision isolation. | none |
+| RX-04 | `ee6f33d`, `e67e192` | `patient.test.ts`, `PrescriptionPage.test.tsx`; Worker and LIFF test commands | Mobile UI tests require both notices and accessible acknowledgement controls before submission. | none |
+| RX-05 | `e67e192`, `24dd7f7` | `PrescriptionPage.test.tsx`, `repository.test.ts`, SQLite E2E; DB, Worker, and LIFF test commands | Actual SQLite kept revision 1 active after partial replacement and activated revision 2 only when complete; history contained no thumbnails. | none |
+| RX-06 | `1a37634` | `PrescriptionQueuePage.test.tsx`, Admin `api.test.ts`; `pnpm --filter web test` (22 tests) | Exported Admin `/prescriptions.html` returned HTTP 200 under an iPhone User-Agent; production build completed. | none |
+| RX-07 | `5d42f4e`, `24dd7f7` | `notifications.test.ts`, SQLite E2E; Worker and DB test commands | E2E emitted six automatic notifications with the correct account token and without the manual attribution header; manual chat behavior remains covered by the existing proxy tests. | none |
+| RX-08 | `adc4670`, `24dd7f7` | `cleanup.test.ts`, SQLite E2E; Worker and DB test commands | Existing six-hour cron path deleted three due synthetic R2 objects while preserving active revisions and retry state. | none |
+| RX-09 | `24dd7f7` | `custom_001_pharmacy_prescriptions.e2e.test.ts`, LIFF/Admin component tests; full matrix below | Actual SQLite plus synthetic R2/LINE covered submission, resubmission, admin completion, notification, and retention. Built LIFF `/prescriptions` and Admin `/prescriptions.html` each returned HTTP 200 under an iPhone User-Agent. | none |
 
-The Goal may be marked complete only when every row in section 1 has direct
-evidence and no implementation slice or ratification-dependent required item
-remains open.
+Latest complete command matrix:
+
+```text
+pnpm test:scripts                                      # 99 passed
+pnpm --filter @line-crm/db test                        # 146 passed
+pnpm --filter @line-crm/db typecheck                   # passed
+pnpm --filter @line-harness/update-engine test         # 199 passed
+pnpm --filter create-line-harness test                 # 50 passed
+pnpm --filter worker test                              # 1043 passed
+pnpm --filter worker typecheck                         # passed
+pnpm --filter liff test                                # 10 passed
+pnpm --filter liff build                               # passed
+pnpm --filter web test                                 # 22 passed
+NEXT_PUBLIC_API_URL=https://worker.example pnpm --filter web build  # passed
+pnpm tsx scripts/check-migrations.ts                   # 32 migrations passed
+pnpm --dir packages/db generate:bootstrap --check      # passed
+git diff --check                                       # passed
+```
+
+Every section 1 requirement now has direct implementation and test evidence,
+and no implementation slice or ratification-dependent item remains open.
 
 ## 9. Plan review record
 
