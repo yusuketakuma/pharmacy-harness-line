@@ -126,6 +126,35 @@ export async function reservePrescriptionFile(
     patient.friendId,
   ).run();
 
+  // Refresh the exact owned slot before R2 I/O. This fences retention cleanup:
+  // either this touch wins, or cleanup has already claimed the file as deleted.
+  const touch = await db.prepare(
+    `UPDATE pharmacy_prescription_files AS f
+        SET updated_at = ?
+      WHERE f.submission_id = ? AND f.position = ?
+        AND f.content_type = ? AND f.byte_size = ? AND f.sha256 = ?
+        AND f.state IN ('pending','ready')
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_prescription_submissions s
+           WHERE s.id = f.submission_id
+             AND s.line_account_id = ? AND s.friend_id = ?
+             AND f.revision = s.upload_revision
+             AND s.status IN ('draft','needs_resubmission')
+        )`,
+  ).bind(
+    now,
+    submissionId,
+    position,
+    image.contentType,
+    image.byteSize,
+    image.sha256,
+    patient.lineAccountId,
+    patient.friendId,
+  ).run();
+  if ((touch.meta?.changes ?? 0) !== 1) {
+    throw new Error('prescription file position conflict');
+  }
+
   const file = await db.prepare(
     `SELECT f.id, f.r2_key, f.content_type, f.byte_size, f.sha256,
             f.state, f.revision, f.position

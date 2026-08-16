@@ -16,4 +16,10 @@ it('keeps the Worker integration to one marked import and route mount', () => {
   expect(source).toContain(
     'await retryFailedPrescriptionNotifications(env.DB, { // custom:pharmacy-prescriptions',
   );
+  expect(source).toContain(
+    "import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions",
+  );
+  expect(source).toContain(
+    'await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions',
+  );
 });
