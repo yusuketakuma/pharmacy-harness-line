@@ -156,31 +156,37 @@ export async function applyD1Migrations(
   const execute = opts.execute ?? executeD1Query;
   const base = { creds: opts.creds, databaseId: opts.databaseId };
 
-  // Validate the whole manifest before touching D1. A malformed release must
-  // fail without leaving even the migration ledger behind.
+  // Validate manifest structure before D1 access. SQL safety checks happen
+  // after the trusted ledger identifies which migrations are still pending.
+  if (new Set(opts.names).size !== opts.names.length) {
+    throw new Error('migration manifest contains duplicate names');
+  }
+  const checksums = new Map<string, string>();
   const parsedStatements = new Map<string, string[]>();
   for (const name of opts.names) {
-    if (!opts.migrations.has(name)) {
-      throw new Error(`migration ${name} missing in bundle`);
-    }
-    parsedStatements.set(
-      name,
-      splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
-    );
+    const source = opts.migrations.get(name);
+    if (!source) throw new Error(`migration ${name} missing in bundle`);
+    checksums.set(name, migrationChecksum(source));
   }
   if (opts.names.length === 0) return [];
 
-  await opts.onMigrationStart?.(opts.names[0]);
   const ledger = await execute({
     ...base,
     sql: "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
     params: [MIGRATION_STATE_TABLE],
   });
   const legacyBaseline = firstResultValue(ledger, 'name') !== MIGRATION_STATE_TABLE;
+  const recordedNames = new Set<string>();
   if (legacyBaseline) {
     if (opts.requireChecksumLedger) {
       throw new Error(
         'migration checksum ledger missing; run trusted setup/baseline initialization before deployment',
+      );
+    }
+    for (const name of opts.names) {
+      parsedStatements.set(
+        name,
+        splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
       );
     }
     await execute({
@@ -189,27 +195,39 @@ export async function applyD1Migrations(
         `CREATE TABLE ${MIGRATION_STATE_TABLE} (` +
         'name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)',
     });
+  } else {
+    // Complete every checksum read and pending SQL safety check before the
+    // first migration write. Historical bytes are trusted only by exact
+    // ledger checksum and are never reinterpreted under newer SQL policy.
+    for (const name of opts.names) {
+      const recorded = await execute({
+        ...base,
+        sql: `SELECT checksum FROM ${MIGRATION_STATE_TABLE} WHERE name = ?`,
+        params: [name],
+      });
+      const priorChecksum = firstResultValue(recorded, 'checksum');
+      const checksum = checksums.get(name) as string;
+      if (typeof priorChecksum === 'string') {
+        if (priorChecksum !== checksum) {
+          throw new Error(
+            `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
+          );
+        }
+        recordedNames.add(name);
+      } else {
+        parsedStatements.set(
+          name,
+          splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
+        );
+      }
+    }
   }
 
   const results: MigrationApplyResult[] = [];
-  for (let migrationIndex = 0; migrationIndex < opts.names.length; migrationIndex += 1) {
-    const name = opts.names[migrationIndex];
-    const source = opts.migrations.get(name) as Buffer;
-
-    if (migrationIndex > 0) await opts.onMigrationStart?.(name);
-    const checksum = migrationChecksum(source);
-    const recorded = await execute({
-      ...base,
-      sql: `SELECT checksum FROM ${MIGRATION_STATE_TABLE} WHERE name = ?`,
-      params: [name],
-    });
-    const priorChecksum = firstResultValue(recorded, 'checksum');
-    if (typeof priorChecksum === 'string') {
-      if (priorChecksum !== checksum) {
-        throw new Error(
-          `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
-        );
-      }
+  for (const name of opts.names) {
+    await opts.onMigrationStart?.(name);
+    const checksum = checksums.get(name) as string;
+    if (recordedNames.has(name)) {
       const result: MigrationApplyResult = {
         name,
         alreadyApplied: true,

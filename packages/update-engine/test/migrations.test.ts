@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyD1Migrations,
   buildMigrationLedgerSql,
+  migrationChecksum,
   splitSqlStatements,
 } from '../src/migrations.js';
 
@@ -200,6 +201,59 @@ describe('applyD1Migrations', () => {
     expect(execute).toHaveBeenCalledTimes(2); // ledger existence + checksum SELECT
   });
 
+  it('skips a checksum-matched historical migration before parsing pending SQL', async () => {
+    const historical = Buffer.from('ALTER TABLE old_name RENAME TO current_name;');
+    const additive = Buffer.from('CREATE TABLE added (id TEXT);');
+    const writes: string[] = [];
+    const execute = vi.fn(async (opts: { sql: string; params?: unknown[] }) => {
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
+      if (opts.sql.includes('SELECT checksum')) {
+        return {
+          success: true,
+          result: [{
+            results: opts.params?.[0] === '040_historical.sql'
+              ? [{ checksum: migrationChecksum(historical) }]
+              : [],
+          }],
+        };
+      }
+      writes.push(opts.sql);
+      return { success: true, result: [] };
+    });
+
+    const results = await applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['040_historical.sql', '041_additive.sql'],
+      migrations: new Map([
+        ['040_historical.sql', historical],
+        ['041_additive.sql', additive],
+      ]),
+      requireChecksumLedger: true,
+      execute: execute as any,
+    });
+
+    expect(results).toEqual([
+      {
+        name: '040_historical.sql',
+        alreadyApplied: true,
+        executedStatements: 0,
+        skippedStatements: 0,
+      },
+      {
+        name: '041_additive.sql',
+        alreadyApplied: false,
+        executedStatements: 1,
+        skippedStatements: 0,
+      },
+    ]);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toContain('CREATE TABLE added');
+    expect(writes[0]).not.toContain('RENAME TO');
+  });
+
   it('fails before any D1 write when the bundle is missing a declared migration', async () => {
     const execute = vi.fn();
     await expect(
@@ -214,7 +268,83 @@ describe('applyD1Migrations', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('refuses to reuse a migration filename with different bytes', async () => {
+  it('fails before an earlier pending write when a later checksum mismatches', async () => {
+    const writes: string[] = [];
+    const onMigrationStart = vi.fn();
+    const execute = vi.fn(async (opts: { sql: string; params?: unknown[] }) => {
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
+      if (opts.sql.includes('SELECT checksum')) {
+        return {
+          success: true,
+          result: [{
+            results: opts.params?.[0] === '042_applied.sql'
+              ? [{ checksum: 'sha256:different' }]
+              : [],
+          }],
+        };
+      }
+      writes.push(opts.sql);
+      return { success: true, result: [] };
+    });
+
+    await expect(applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['041_pending.sql', '042_applied.sql'],
+      migrations: new Map([
+        ['041_pending.sql', Buffer.from('CREATE TABLE pending (id TEXT);')],
+        ['042_applied.sql', Buffer.from('CREATE TABLE applied (id TEXT);')],
+      ]),
+      requireChecksumLedger: true,
+      onMigrationStart,
+      execute: execute as any,
+    })).rejects.toThrow(/changed after it was applied/);
+    expect(writes).toEqual([]);
+    expect(onMigrationStart).not.toHaveBeenCalled();
+  });
+
+  it('fails before an earlier pending write when later pending SQL is destructive', async () => {
+    const writes: string[] = [];
+    const execute = vi.fn(async (opts: { sql: string }) => {
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
+      if (opts.sql.includes('SELECT checksum')) {
+        return { success: true, result: [{ results: [] }] };
+      }
+      writes.push(opts.sql);
+      return { success: true, result: [] };
+    });
+
+    await expect(applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['041_valid.sql', '042_destructive.sql'],
+      migrations: new Map([
+        ['041_valid.sql', Buffer.from('CREATE TABLE valid (id TEXT);')],
+        ['042_destructive.sql', Buffer.from('DROP TABLE users;')],
+      ]),
+      requireChecksumLedger: true,
+      execute: execute as any,
+    })).rejects.toThrow(/destructive schema changes/);
+    expect(writes).toEqual([]);
+  });
+
+  it('rejects duplicate migration names before D1 access', async () => {
+    const execute = vi.fn();
+    await expect(applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['041_demo.sql', '041_demo.sql'],
+      migrations: new Map([['041_demo.sql', Buffer.from('CREATE TABLE demo (id TEXT);')]]),
+      execute: execute as any,
+    })).rejects.toThrow(/duplicate names/);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses to bypass a checksum mismatch for historical destructive SQL', async () => {
     const execute = vi.fn(async (opts: { sql: string }) => {
       if (opts.sql.includes('sqlite_master')) {
         return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
@@ -234,7 +364,7 @@ describe('applyD1Migrations', () => {
         databaseId: 'db',
         names: ['041_demo.sql'],
         migrations: new Map([
-          ['041_demo.sql', Buffer.from('CREATE TABLE changed (id TEXT);')],
+          ['041_demo.sql', Buffer.from('ALTER TABLE old_name RENAME TO changed_name;')],
         ]),
         execute: execute as any,
       }),
