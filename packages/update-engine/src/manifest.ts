@@ -92,6 +92,30 @@ export function validateReleaseEntry(
   }
 }
 
+/** Validate release-manifest.json before any consumer trusts its contents. */
+export function validateManifest(value: unknown): asserts value is Manifest {
+  if (!value || typeof value !== 'object') {
+    throw new Error('invalid release manifest');
+  }
+  const body = value as Manifest;
+  if (body.schema_version !== 1) {
+    throw new Error(`unsupported manifest schema_version ${body.schema_version}`);
+  }
+  if (!Array.isArray(body.releases)) {
+    throw new Error('invalid release manifest: releases must be an array');
+  }
+  if (
+    body.revoked_release_ids !== undefined &&
+    (!Array.isArray(body.revoked_release_ids) ||
+      body.revoked_release_ids.some((id) => typeof id !== 'string'))
+  ) {
+    throw new Error('invalid release manifest: revoked_release_ids must be strings');
+  }
+  for (let index = 0; index < body.releases.length; index += 1) {
+    validateReleaseEntry(body.releases[index], body.releases[index + 1]);
+  }
+}
+
 /**
  * Fetch the release manifest from the given URL.
  *
@@ -107,18 +131,8 @@ export async function fetchManifest(url: string): Promise<Manifest> {
     );
   }
 
-  const body = (await res.json()) as Manifest;
-  if (body.schema_version !== 1) {
-    throw new Error(
-      `unsupported manifest schema_version ${body.schema_version}`,
-    );
-  }
-  if (!Array.isArray(body.releases)) {
-    throw new Error('invalid release manifest: releases must be an array');
-  }
-  for (let index = 0; index < body.releases.length; index += 1) {
-    validateReleaseEntry(body.releases[index], body.releases[index + 1]);
-  }
+  const body: unknown = await res.json();
+  validateManifest(body);
   return body;
 }
 

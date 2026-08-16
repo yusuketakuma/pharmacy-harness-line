@@ -55,6 +55,8 @@ export interface Manifest {
   schema_version: 1;
   latest: string;
   releases: ReleaseEntry[];
+  /** Mutable emergency deny-list for previously published immutable releases. */
+  revoked_release_ids?: string[];
 }
 
 export interface CurrentVersion {
