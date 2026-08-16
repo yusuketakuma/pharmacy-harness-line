@@ -1,5 +1,5 @@
 import type { CfApiCreds } from '../types.js';
-import { authHeader, d1QueryApiUrl, readBodyExcerpt } from './_shared.js';
+import { authHeader, d1QueryApiUrl, readBodyExcerpt, throwHttpError } from './_shared.js';
 
 /**
  * Cloudflare D1 Query API helper.
@@ -51,4 +51,18 @@ export async function executeD1Query(opts: {
   }
 
   return (await res.json()) as { success: boolean; result: any[] };
+}
+
+export async function getD1Bookmark(opts: {
+  creds: CfApiCreds;
+  databaseId: string;
+}): Promise<string> {
+  const base = d1QueryApiUrl(opts.creds.accountId, opts.databaseId).replace(/\/query$/, '');
+  const res = await fetch(`${base}/time_travel/bookmark`, {
+    headers: authHeader(opts.creds.apiToken),
+  });
+  if (!res.ok) await throwHttpError('GET D1 bookmark failed', res);
+  const body = (await res.json()) as { result?: { bookmark?: string } };
+  if (!body.result?.bookmark) throw new Error('GET D1 bookmark: missing bookmark');
+  return body.result.bookmark;
 }

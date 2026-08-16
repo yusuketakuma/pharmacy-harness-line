@@ -315,11 +315,23 @@ function makeFetch(
 
     // CF API: D1 query (preflight, migration, verify).
     if (url.includes(D1_QUERY_SUBSTR)) {
-      const o = overrides.d1Query ?? {
-        ok: true,
-        status: 200,
-        body: { success: true, result: [{ results: [{ ok: 1 }] }] },
-      };
+      const sql = JSON.parse(String(init?.body ?? '{}')).sql as string | undefined;
+      const o = overrides.d1Query ?? (sql?.includes('sqlite_master')
+        ? {
+            ok: true,
+            status: 200,
+            body: {
+              success: true,
+              result: [{ results: [{ name: '_line_harness_migrations' }] }],
+            },
+          }
+        : sql?.includes('SELECT checksum')
+          ? { ok: true, status: 200, body: { success: true, result: [{ results: [] }] } }
+          : {
+              ok: true,
+              status: 200,
+              body: { success: true, result: [{ results: [{ ok: 1 }] }] },
+            });
       return makeResponse(o);
     }
 

@@ -998,7 +998,7 @@ CREATE TABLE update_history (
   error                       TEXT,
   rollback_of                 TEXT REFERENCES update_history(id),
   rollback_expires_at         INTEGER
-);
+, release_evidence_json TEXT NOT NULL DEFAULT '{}');
 
 CREATE TABLE users (
   id           TEXT PRIMARY KEY,

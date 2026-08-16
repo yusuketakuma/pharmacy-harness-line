@@ -154,6 +154,18 @@ function makeRouter(routes: RouterRoutes): ReturnType<typeof vi.fn> {
 
     // D1 query (per migration call).
     if (url.includes(`/d1/database/${D1_ID}/query`)) {
+      const sql = JSON.parse(String(init?.body ?? '{}')).sql as string | undefined;
+      if (sql?.includes('sqlite_master')) {
+        return respond({
+          body: {
+            success: true,
+            result: [{ results: [{ name: '_line_harness_migrations' }] }],
+          },
+        });
+      }
+      if (sql?.includes('SELECT checksum')) {
+        return respond({ body: { success: true, result: [{ results: [] }] } });
+      }
       return respond(next('d1'));
     }
 

@@ -1,5 +1,7 @@
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { buildMigrationLedgerSql } from "@line-harness/update-engine";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wrangler, WranglerError } from "../lib/wrangler.js";
 
@@ -261,6 +263,28 @@ export async function createDatabase(
   } catch (err) {
       s.stop("テーブル検証失敗");
     throw err;
+  }
+
+  const migrationSources = new Map(
+    migrationFiles.map((file) => [file, readFileSync(join(migrationsDir, file))]),
+  );
+  const ledgerDir = mkdtempSync(join(tmpdir(), "line-harness-ledger-"));
+  const ledgerFile = join(ledgerDir, "baseline.sql");
+  try {
+    writeFileSync(
+      ledgerFile,
+      buildMigrationLedgerSql(migrationFiles, migrationSources),
+      { mode: 0o600 },
+    );
+    await runD1WithRetry(
+      ["d1", "execute", databaseName, "--remote", "--file", ledgerFile],
+      "migration checksum baseline 適用",
+    );
+  } catch (err) {
+    s.stop("migration checksum baseline 適用失敗");
+    throw err;
+  } finally {
+    rmSync(ledgerDir, { recursive: true, force: true });
   }
 
   s.stop("テーブル作成完了");

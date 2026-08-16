@@ -30,6 +30,21 @@ export interface SnapshotRow {
   error: string | null;
   rollback_of: string | null;
   rollback_expires_at: number | null;
+  release_evidence_json: string;
+}
+
+export interface ReleaseEvidence {
+  sourceSha: string;
+  vendorSha: string;
+  migrations: Array<{ name: string; checksum: string }>;
+  d1Bookmark: string | null;
+  previousWorkerVersionId: string | null;
+  newWorkerVersionId: string | null;
+  previousAdminDeploymentId: string | null;
+  newAdminDeploymentId: string | null;
+  smokeResults: { worker: 'passed' | 'failed'; admin: 'passed' | 'failed' };
+  updateClass: 'compatible' | 'manual';
+  rollbackEligible: boolean;
 }
 
 const ROLLBACK_WINDOW_MS = 7 * 86400 * 1000;
@@ -139,6 +154,17 @@ export async function setError(
   await d1
     .prepare('UPDATE update_history SET error = ? WHERE id = ?')
     .bind(error, id)
+    .run();
+}
+
+export async function setReleaseEvidence(
+  d1: D1Like,
+  id: string,
+  evidence: ReleaseEvidence,
+): Promise<void> {
+  await d1
+    .prepare('UPDATE update_history SET release_evidence_json = ? WHERE id = ?')
+    .bind(JSON.stringify(evidence), id)
     .run();
 }
 

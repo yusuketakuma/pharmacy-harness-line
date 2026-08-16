@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyD1Migrations,
+  buildMigrationLedgerSql,
   splitSqlStatements,
 } from '../src/migrations.js';
 
@@ -43,11 +44,104 @@ describe('splitSqlStatements', () => {
   });
 });
 
+describe('buildMigrationLedgerSql', () => {
+  it('creates an idempotent checksum baseline without overwriting prior evidence', () => {
+    const sql = buildMigrationLedgerSql(
+      ["041_patient's.sql"],
+      new Map([["041_patient's.sql", Buffer.from('SELECT 1;')]]),
+    );
+
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS _line_harness_migrations');
+    expect(sql).toContain('INSERT OR IGNORE INTO _line_harness_migrations');
+    expect(sql).toContain("041_patient''s.sql");
+    expect(sql).toMatch(/sha256:[0-9a-f]{64}/);
+  });
+});
+
 describe('applyD1Migrations', () => {
-  it('continues later statements after a duplicate column and records completion', async () => {
+  it('executes migration SQL and its checksum ledger insert atomically', async () => {
+    const calls: Array<{ sql: string; params?: any[] }> = [];
+    const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
+      calls.push(opts);
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
+      if (opts.sql.includes('SELECT checksum')) {
+        return { success: true, result: [{ results: [] }] };
+      }
+      return { success: true, result: [] };
+    });
+
+    await applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['041_demo.sql'],
+      migrations: new Map([
+        ['041_demo.sql', Buffer.from('CREATE TABLE one (id TEXT); CREATE TABLE two (id TEXT);')],
+      ]),
+      execute: execute as any,
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(calls[2].sql).toContain('CREATE TABLE one');
+    expect(calls[2].sql).toContain('CREATE TABLE two');
+    expect(calls[2].sql).toContain('INSERT INTO _line_harness_migrations');
+  });
+
+  it('fails closed before migration when an existing database has no checksum ledger', async () => {
+    const execute = vi.fn(async () => ({ success: true, result: [{ results: [] }] }));
+
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_demo.sql'],
+        migrations: new Map([['041_demo.sql', Buffer.from('CREATE TABLE demo (id TEXT);')]]),
+        requireChecksumLedger: true,
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/checksum ledger missing/);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts an ambiguous response only after rereading the matching checksum', async () => {
+    const source = Buffer.from('CREATE TABLE demo (id TEXT);');
+    const { createHash } = await import('node:crypto');
+    const checksum = `sha256:${createHash('sha256').update(source).digest('hex')}`;
+    let checksumReads = 0;
+    const execute = vi.fn(async (opts: { sql: string }) => {
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
+      if (opts.sql.includes('SELECT checksum')) {
+        checksumReads += 1;
+        return {
+          success: true,
+          result: [{ results: checksumReads === 1 ? [] : [{ checksum }] }],
+        };
+      }
+      throw new Error('network response lost');
+    });
+
+    const [result] = await applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['041_demo.sql'],
+      migrations: new Map([['041_demo.sql', source]]),
+      execute: execute as any,
+    });
+
+    expect(result).toMatchObject({ alreadyApplied: false, executedStatements: 1 });
+    expect(checksumReads).toBe(2);
+  });
+
+  it('fails atomically instead of guessing that a duplicate schema error is benign', async () => {
     const calls: Array<{ sql: string; params?: any[] }> = [];
     const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
       calls.push({ sql: opts.sql, params: opts.params });
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
       if (opts.sql.includes('SELECT checksum')) {
         return { success: true, result: [{ results: [] }] };
       }
@@ -57,28 +151,24 @@ describe('applyD1Migrations', () => {
       return { success: true, result: [] };
     });
 
-    const [result] = await applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['046_partial.sql'],
-      migrations: new Map([
-        [
-          '046_partial.sql',
-          Buffer.from(
-            'ALTER TABLE demo ADD COLUMN existing TEXT; ALTER TABLE demo ADD COLUMN missing TEXT;',
-          ),
-        ],
-      ]),
-      execute: execute as any,
-    });
-
-    expect(result).toMatchObject({
-      alreadyApplied: false,
-      executedStatements: 1,
-      skippedStatements: 1,
-    });
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['046_partial.sql'],
+        migrations: new Map([
+          [
+            '046_partial.sql',
+            Buffer.from(
+              'ALTER TABLE demo ADD COLUMN existing TEXT; ALTER TABLE demo ADD COLUMN missing TEXT;',
+            ),
+          ],
+        ]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/failed atomically: duplicate column/);
     expect(calls.some((call) => call.sql.includes('ADD COLUMN missing'))).toBe(true);
-    expect(calls.at(-1)?.sql).toContain('INSERT INTO _line_harness_migrations');
+    expect(calls.some((call) => call.sql.includes('INSERT INTO _line_harness_migrations'))).toBe(true);
   });
 
   it('skips a migration whose matching checksum is already recorded', async () => {
@@ -86,6 +176,9 @@ describe('applyD1Migrations', () => {
     const { createHash } = await import('node:crypto');
     const checksum = `sha256:${createHash('sha256').update(source).digest('hex')}`;
     const execute = vi.fn(async (opts: { sql: string }) => {
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
       if (opts.sql.includes('SELECT checksum')) {
         return {
           success: true,
@@ -104,7 +197,7 @@ describe('applyD1Migrations', () => {
     });
 
     expect(result.alreadyApplied).toBe(true);
-    expect(execute).toHaveBeenCalledTimes(2); // ledger CREATE + checksum SELECT
+    expect(execute).toHaveBeenCalledTimes(2); // ledger existence + checksum SELECT
   });
 
   it('fails before any D1 write when the bundle is missing a declared migration', async () => {
@@ -123,6 +216,9 @@ describe('applyD1Migrations', () => {
 
   it('refuses to reuse a migration filename with different bytes', async () => {
     const execute = vi.fn(async (opts: { sql: string }) => {
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
       if (opts.sql.includes('SELECT checksum')) {
         return {
           success: true,

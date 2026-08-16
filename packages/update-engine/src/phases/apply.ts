@@ -64,6 +64,7 @@ export async function runApply(
     databaseId: ctx.d1DatabaseId,
     names: ctx.target.migrations,
     migrations: bundle.migrations,
+    requireChecksumLedger: true,
     onMigrationStart: (name) =>
       ev.emit({ step: 'migration', status: 'running', name }),
     onMigrationDone: (result) =>

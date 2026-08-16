@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { executeD1Query } from '../../src/cf-api/d1.js';
+import { executeD1Query, getD1Bookmark } from '../../src/cf-api/d1.js';
 import type { CfApiCreds } from '../../src/types.js';
 
 const creds: CfApiCreds = {
@@ -145,5 +145,44 @@ describe('executeD1Query', () => {
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer tok_abc');
     expect(headers['Content-Type']).toBe('application/json');
+  });
+});
+
+describe('getD1Bookmark', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('captures the current Time Travel bookmark before migration', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, result: { bookmark: 'bookmark-123' } }),
+    } as Response);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(getD1Bookmark({ creds, databaseId: 'db123' })).resolves.toBe(
+      'bookmark-123',
+    );
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      'https://api.cloudflare.com/client/v4/accounts/acct123/d1/database/db123/time_travel/bookmark',
+    );
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok_abc');
+  });
+
+  it('fails when Cloudflare returns no bookmark', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, result: {} }),
+    } as Response) as unknown as typeof fetch;
+
+    await expect(getD1Bookmark({ creds, databaseId: 'db123' })).rejects.toThrow(
+      /missing bookmark/,
+    );
   });
 });
