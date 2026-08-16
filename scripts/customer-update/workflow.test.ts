@@ -53,5 +53,9 @@ describe('customer update policy workflow', () => {
     expect(policyWorkflow).toContain('github.event.pull_request.base.sha');
     expect(policyWorkflow).toContain('github.event.pull_request.head.sha');
     expect(policyWorkflow).toContain('scripts/customer-update/policy.ts');
+    expect(policyWorkflow).toContain('pnpm --dir candidate --filter worker test');
+    expect(policyWorkflow).toContain('pnpm --dir candidate --filter worker build');
+    expect(policyWorkflow).toContain('pnpm --dir candidate --filter web test');
+    expect(policyWorkflow).toContain('pnpm --dir candidate --filter web build');
   });
 });

@@ -1,12 +1,12 @@
 # LINE Harness Pharmacy Implementation Plan
 
-Status: implementation in progress; customer release/update slices A-C implemented locally
+Status: implementation in progress; customer release/update and onboarding implemented locally
 
-Current evidence: commits `a8e7aaf` and `bf93daf` plus the policy slice
-implement immutable seller metadata, verified customer update PRs,
-secretless customer policy, and canary-gated compatible auto-merge. No customer
-repository, protected branch, Cloudflare environment, or production resource
-has been changed yet.
+Current evidence: commits `a8e7aaf`, `bf93daf`, and `782dc5e` plus the
+onboarding slice implement immutable seller metadata, verified customer update
+PRs, secretless customer policy, canary-gated compatible auto-merge, and
+seller-tag-clone to customer-repository conversion. No real customer
+repository, Cloudflare environment, or production resource has been changed.
 
 This document is the implementation contract for the pharmacy prescription
 pre-send feature, customer delivery, and customer repository updates. The live
@@ -544,7 +544,9 @@ migration runner, pin actions, and extend existing `update_history`.
 
 Red tests cover clean-tag requirement, remote rewrite, no secret persistence,
 idempotent rerun, and refusal to overwrite unrelated remotes/dirty work.
-Green change adds the smallest command to existing `create-line-harness`.
+Green change adds the smallest checkout/GitHub commands under
+`scripts/customer-onboarding/` and reuses existing `create-line-harness
+--repo-dir --from-source` instead of adding a second installer.
 
 ### Slice F: `feature/prescription-foundation`
 
