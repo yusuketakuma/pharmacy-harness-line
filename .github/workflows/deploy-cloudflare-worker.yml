@@ -76,10 +76,17 @@ jobs:
             "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
 
           if [ "$seed_baseline" = "true" ]; then
-            while IFS= read -r name; do
-              npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command \
-                "INSERT OR IGNORE INTO _migrations (name, applied_at) VALUES ('${name}', datetime('now'))"
-            done < <(jq -r '.includedMigrations[]' packages/db/bootstrap-meta.json)
+            baseline_sql="$(mktemp)"
+            node -e '
+              const { readFileSync } = require("node:fs");
+              const { includedMigrations } = JSON.parse(readFileSync("packages/db/bootstrap-meta.json", "utf8"));
+              const quote = String.fromCharCode(39);
+              process.stdout.write(includedMigrations.map((name) => {
+                const escaped = name.replaceAll(quote, quote + quote);
+                return `INSERT OR IGNORE INTO _migrations (name, applied_at) VALUES (${quote}${escaped}${quote}, datetime(${quote}now${quote}));`;
+              }).join("\n"));
+            ' > "$baseline_sql"
+            npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --file="$baseline_sql"
           fi
 
           for f in $(ls packages/db/migrations/*.sql | sort); do

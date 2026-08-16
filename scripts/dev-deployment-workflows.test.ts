@@ -44,6 +44,12 @@ describe('development deployment workflow contract', () => {
     expect(workerDeploy).toContain('if [ "$schema_exists" = "0" ] || [ "$ledger_exists" = "0" ]; then');
   });
 
+  test('Worker seeds the migration baseline in one D1 request', () => {
+    expect(workerDeploy).toContain('baseline_sql="$(mktemp)"');
+    expect(workerDeploy).toContain('--file="$baseline_sql"');
+    expect(workerDeploy).not.toContain('while IFS= read -r name; do');
+  });
+
   test('Web CI gates Admin changes before deployment', () => {
     const workflow = read('.github/workflows/web-ci.yml');
     expect(workflow).toContain('pull_request:');
