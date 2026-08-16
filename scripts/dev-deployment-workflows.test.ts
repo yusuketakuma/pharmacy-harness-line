@@ -57,6 +57,13 @@ describe('development deployment workflow contract', () => {
     expect(workerDeploy).toContain('run_d1 --file="$baseline_sql"');
   });
 
+  test('Worker reads the migration ledger once per deployment', () => {
+    expect(workerDeploy).toContain('applied_migrations="$(mktemp)"');
+    expect(workerDeploy).toContain('"SELECT name FROM _migrations" --json');
+    expect(workerDeploy).toContain('grep -Fxq "$name" "$applied_migrations"');
+    expect(workerDeploy).not.toContain('"SELECT name FROM _migrations WHERE name =');
+  });
+
   test('Web CI gates Admin changes before deployment', () => {
     const workflow = read('.github/workflows/web-ci.yml');
     expect(workflow).toContain('pull_request:');
