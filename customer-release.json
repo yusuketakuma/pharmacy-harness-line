@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "version": "0.22.0",
+  "release_sequence": 1,
+  "previous_commit": "eedfd7ed3a147f425eb69b86b76cb1ab863efe35",
+  "update_class": "manual",
+  "manual_reasons": [
+    "initial commercial pharmacy release"
+  ],
+  "required_configuration": [],
+  "minimum_client_version": "0.21.3",
+  "rollback_compatible_from": "0.21.3",
+  "revoked": false
+}

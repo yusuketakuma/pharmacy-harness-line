@@ -85,6 +85,37 @@ describe('fetchManifest', () => {
       /unsupported manifest schema_version 2/,
     );
   });
+
+  it('rejects malformed customer source metadata at the network boundary', async () => {
+    const manifest = sampleManifest();
+    manifest.releases[2] = sampleRelease({
+      version: '0.7.0',
+      customer_source_update: {
+        release_id: 'vendor/repo@pharmacy-v0.7.0',
+        release_sequence: 7,
+        repository: 'vendor/repo',
+        commit: 'not-a-sha',
+        previous_commit: 'a'.repeat(40),
+        tag: 'pharmacy-v0.7.0',
+        update_class: 'compatible',
+        manual_reasons: [],
+        required_configuration: [],
+        privileged_paths: [],
+        new_migrations: [],
+        migration_digests: {},
+        minimum_client_version: '0.6.0',
+        rollback_compatible_from: '0.6.0',
+        revoked: false,
+      },
+    } as Partial<ReleaseEntry>);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => manifest,
+    } as Response);
+
+    await expect(fetchManifest('https://example.com/manifest.json')).rejects.toThrow(/commit/i);
+  });
 });
 
 describe('findRelease', () => {

@@ -1,3 +1,23 @@
+export type CustomerUpdateClass = 'compatible' | 'manual';
+
+export interface CustomerSourceUpdate {
+  release_id: string;
+  release_sequence: number;
+  repository: string;
+  commit: string;
+  previous_commit: string;
+  tag: string;
+  update_class: CustomerUpdateClass;
+  manual_reasons: string[];
+  required_configuration: string[];
+  privileged_paths: string[];
+  new_migrations: string[];
+  migration_digests: Record<string, string>;
+  minimum_client_version: string;
+  rollback_compatible_from: string;
+  revoked: boolean;
+}
+
 export interface ReleaseEntry {
   version: string;
   released_at: string;
@@ -27,6 +47,8 @@ export interface ReleaseEntry {
   migrations: string[];
   changelog_url: string;
   min_from_version: string;
+  /** Private-fork source release authority. Absent on official OSS releases. */
+  customer_source_update?: CustomerSourceUpdate;
 }
 
 export interface Manifest {
