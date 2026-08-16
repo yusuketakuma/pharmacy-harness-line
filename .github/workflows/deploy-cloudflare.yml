@@ -168,6 +168,7 @@ jobs:
           fi
           npx wrangler pages deploy apps/web/out \
             --project-name="$PAGES_PROJECT_NAME" \
+            --branch="$GITHUB_REF_NAME" \
             --commit-hash="$GITHUB_SHA" \
             --commit-message="deploy $GITHUB_SHA"
 
@@ -178,6 +179,8 @@ jobs:
           test -n "$ADMIN_ORIGIN"
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${ADMIN_ORIGIN%/}/" >/dev/null
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${ADMIN_ORIGIN%/}/prescriptions" >/dev/null
 
       - name: Capture deployed release state
         id: after

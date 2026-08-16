@@ -90,6 +90,11 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).toContain('SOURCE_SHA: ${{ github.sha }}');
   });
 
+  test('publishes and verifies the Admin route on the configured Pages branch', () => {
+    expect(customerDeploy).toContain('--branch="$GITHUB_REF_NAME"');
+    expect(customerDeploy).toContain('${ADMIN_ORIGIN%/}/prescriptions');
+  });
+
   test('Web CI gates Admin changes before deployment', () => {
     const workflow = read('.github/workflows/web-ci.yml');
     expect(workflow).toContain('pull_request:');
