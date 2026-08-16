@@ -52,11 +52,25 @@ jobs:
             case "$D1_DATABASE_NAME" in *-dev) ;; *) echo "Development D1 name must end in -dev"; exit 1 ;; esac
           fi
 
-          schema_exists=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
-            --command "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
+          run_d1() {
+            for attempt in 1 2 3; do
+              if output=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote "$@" 2>&1); then
+                printf '%s\n' "$output"
+                return 0
+              fi
+              if [ "$attempt" = "3" ]; then
+                printf '%s\n' "$output" >&2
+                return 1
+              fi
+              sleep $((attempt * 2))
+            done
+          }
+
+          schema_exists=$(run_d1 --command \
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
             | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
-          ledger_exists=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
-            --command "SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'" --json \
+          ledger_exists=$(run_d1 --command \
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'" --json \
             | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
 
           seed_baseline=false
@@ -65,14 +79,14 @@ jobs:
           fi
 
           if [ "$schema_exists" = "0" ]; then
-            npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --file=packages/db/bootstrap.sql
-            schema_exists=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
-              --command "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
+            run_d1 --file=packages/db/bootstrap.sql
+            schema_exists=$(run_d1 --command \
+              "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
               | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
             test "$schema_exists" = "1"
           fi
 
-          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command \
+          run_d1 --command \
             "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
 
           if [ "$seed_baseline" = "true" ]; then
@@ -86,18 +100,18 @@ jobs:
                 return `INSERT OR IGNORE INTO _migrations (name, applied_at) VALUES (${quote}${escaped}${quote}, datetime(${quote}now${quote}));`;
               }).join("\n"));
             ' > "$baseline_sql"
-            npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --file="$baseline_sql"
+            run_d1 --file="$baseline_sql"
           fi
 
           for f in $(ls packages/db/migrations/*.sql | sort); do
             name=$(basename "$f")
-            applied=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
-              --command "SELECT name FROM _migrations WHERE name = '${name}'" --json \
+            applied=$(run_d1 --command \
+              "SELECT name FROM _migrations WHERE name = '${name}'" --json \
               | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
             if [ "$applied" = "0" ]; then
               echo "Applying: $name"
-              npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --file="$f"
-              npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command \
+              run_d1 --file="$f"
+              run_d1 --command \
                 "INSERT INTO _migrations (name, applied_at) VALUES ('${name}', datetime('now'))"
             else
               echo "Skipped: $name"

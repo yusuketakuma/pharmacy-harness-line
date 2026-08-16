@@ -50,6 +50,13 @@ describe('development deployment workflow contract', () => {
     expect(workerDeploy).not.toContain('while IFS= read -r name; do');
   });
 
+  test('Worker retries transient D1 API failures', () => {
+    expect(workerDeploy).toContain('run_d1() {');
+    expect(workerDeploy).toContain('for attempt in 1 2 3; do');
+    expect(workerDeploy).toContain('schema_exists=$(run_d1 --command');
+    expect(workerDeploy).toContain('run_d1 --file="$baseline_sql"');
+  });
+
   test('Web CI gates Admin changes before deployment', () => {
     const workflow = read('.github/workflows/web-ci.yml');
     expect(workflow).toContain('pull_request:');
