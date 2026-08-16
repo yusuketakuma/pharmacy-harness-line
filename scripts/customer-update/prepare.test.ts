@@ -48,7 +48,7 @@ function release(overrides: Partial<ReleaseEntry['customer_source_update']> = {}
 }
 
 function state(overrides: Partial<VendorState> = {}): VendorState {
-  return {
+  const value = {
     schema_version: 1,
     repository: 'seller/pharmacy',
     release_id: 'seller/pharmacy@pharmacy-v0.21.3',
@@ -56,6 +56,20 @@ function state(overrides: Partial<VendorState> = {}): VendorState {
     commit: sha('1'),
     version: '0.21.3',
     ...overrides,
+  };
+  return {
+    ...value,
+    release: overrides.release ?? {
+      ...release({
+        release_id: value.release_id,
+        release_sequence: value.release_sequence,
+        repository: value.repository,
+        commit: value.commit,
+        previous_commit: sha('0'),
+        tag: `pharmacy-v${value.version}`,
+      }),
+      version: value.version,
+    },
   };
 }
 

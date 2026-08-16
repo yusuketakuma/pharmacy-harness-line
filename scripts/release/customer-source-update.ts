@@ -28,12 +28,13 @@ const PRIVILEGED_PATHS = [
   /^\.github\//,
   /(^|\/)CODEOWNERS$/,
   /^scripts\/(?:release|customer-update)\//,
-  /^customer-release\.json$/,
   /^(?:package\.json|pnpm-lock\.yaml)$/,
   /^packages\/db\//,
   /^apps\/worker\/wrangler(?:\.|$)/,
-  /^apps\/worker\/src\/middleware\/(?:auth|admin-auth-config)/,
-  /^apps\/worker\/src\/routes\/admin-auth/,
+  /^apps\/worker\/src\//,
+  /^(?:apps\/web|apps\/liff)\/.*(?:^|[\/._-])(?:auth|session|csrf|oauth)(?:[\/._-]|$)/i,
+  /^(?:apps\/worker|apps\/web|apps\/liff)\/.*(?:line-scope|callback|permissions?|secrets?|config(?:uration)?|env)(?:[\/._-]|$)/i,
+  /^scripts\/.*(?:deploy|migration|update)/i,
 ];
 
 export function findPrivilegedPaths(paths: string[]): string[] {

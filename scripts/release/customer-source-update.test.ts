@@ -63,8 +63,8 @@ describe('findPrivilegedPaths', () => {
     ]);
   });
 
-  it('treats the customer release policy itself as privileged', () => {
-    expect(findPrivilegedPaths(['customer-release.json'])).toEqual(['customer-release.json']);
+  it('does not treat validated non-executable release metadata as a customer runtime privilege', () => {
+    expect(findPrivilegedPaths(['customer-release.json'])).toEqual([]);
   });
 });
 

@@ -85,17 +85,25 @@ jobs:
           BRANCH: ${{ fromJson(steps.prepare.outputs.result).branch }}
         run: git -C customer push origin "$BRANCH"
 
+      - name: Read verified release classification
+        if: fromJson(steps.prepare.outputs.result).kind != 'noop'
+        id: classification
+        env:
+          MANIFEST: release/release-manifest.json
+        run: |
+          update_class=$(node -e "const fs=require('fs');const m=JSON.parse(fs.readFileSync(process.env.MANIFEST));const r=m.releases.find(x=>x.version===m.latest);process.stdout.write(r.customer_source_update.update_class)")
+          echo "update_class=$update_class" >> "$GITHUB_OUTPUT"
+
       - name: Open or reuse pull request
         if: fromJson(steps.prepare.outputs.result).kind != 'noop'
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ fromJson(steps.prepare.outputs.result).branch }}
           GH_REPO: ${{ github.repository }}
-          MANIFEST: release/release-manifest.json
+          UPDATE_CLASS: ${{ steps.classification.outputs.update_class }}
         run: |
-          update_class=$(node -e "const fs=require('fs');const m=JSON.parse(fs.readFileSync(process.env.MANIFEST));const r=m.releases.find(x=>x.version===m.latest);process.stdout.write(r.customer_source_update.update_class)")
           gh label create "vendor-update" --repo "$GH_REPO" --color 1d76db --force
-          gh label create "vendor-$update_class" --repo "$GH_REPO" --color fbca04 --force
+          gh label create "vendor-$UPDATE_CLASS" --repo "$GH_REPO" --color fbca04 --force
           if ! gh pr view "$BRANCH" --repo "$GH_REPO" >/dev/null 2>&1; then
             gh pr create \
               --repo "$GH_REPO" \
@@ -104,4 +112,16 @@ jobs:
               --title "chore: update pharmacy release" \
               --body "Imports one verified immutable seller release. Review and required checks remain authoritative."
           fi
-          gh pr edit "$BRANCH" --repo "$GH_REPO" --add-label "vendor-update,vendor-$update_class"
+          gh pr edit "$BRANCH" --repo "$GH_REPO" --add-label "vendor-update,vendor-$UPDATE_CLASS"
+
+      - name: Enable compatible auto-merge after canary approval
+        if: >-
+          fromJson(steps.prepare.outputs.result).kind != 'noop' &&
+          steps.classification.outputs.update_class == 'compatible' &&
+          vars.CUSTOMER_UPDATE_MODE == 'compatible-auto' &&
+          vars.CUSTOMER_UPDATE_CANARY_PASSED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ fromJson(steps.prepare.outputs.result).branch }}
+          GH_REPO: ${{ github.repository }}
+        run: gh pr merge "$BRANCH" --repo "$GH_REPO" --auto --merge

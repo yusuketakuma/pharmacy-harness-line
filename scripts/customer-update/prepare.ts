@@ -9,7 +9,7 @@ import {
   validateManifest,
   validateReleaseEntry,
 } from '../../packages/update-engine/src/manifest.js';
-import type { Manifest } from '../../packages/update-engine/src/types.js';
+import type { Manifest, ReleaseEntry } from '../../packages/update-engine/src/types.js';
 
 export interface VendorState {
   schema_version: 1;
@@ -18,6 +18,7 @@ export interface VendorState {
   release_sequence: number;
   commit: string;
   version: string;
+  release: ReleaseEntry;
 }
 
 export type CustomerUpdatePlan =
@@ -107,6 +108,7 @@ export function prepareCustomerUpdate(input: {
     release_sequence: source.release_sequence,
     commit: source.commit,
     version: release.version,
+    release,
   };
   if (refExists(input.customerDir, `refs/heads/${plan.branch}`)) {
     verifyTargetAndState(input.customerDir, plan.branch, source.commit, next);
@@ -129,7 +131,7 @@ export function prepareCustomerUpdate(input: {
   return plan;
 }
 
-function validateVendorState(state: VendorState): void {
+export function validateVendorState(state: VendorState): void {
   if (
     state.schema_version !== 1 ||
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(state.repository) ||
@@ -137,9 +139,22 @@ function validateVendorState(state: VendorState): void {
     !Number.isInteger(state.release_sequence) ||
     state.release_sequence < 1 ||
     !/^\d+\.\d+\.\d+$/.test(state.version) ||
-    state.release_id.length === 0
+    state.release_id.length === 0 ||
+    !state.release
   ) {
     throw new Error('invalid customer vendor state');
+  }
+  validateReleaseEntry(state.release);
+  const source = state.release.customer_source_update;
+  if (
+    !source ||
+    source.repository !== state.repository ||
+    source.release_id !== state.release_id ||
+    source.release_sequence !== state.release_sequence ||
+    source.commit !== state.commit ||
+    state.release.version !== state.version
+  ) {
+    throw new Error('customer vendor state does not match embedded release authority');
   }
 }
 

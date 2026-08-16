@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const workflow = readFileSync('.github/workflows/customer-update.yml', 'utf8');
+const policyWorkflow = readFileSync('.github/workflows/customer-update-policy.yml', 'utf8');
 
 describe('customer update workflow', () => {
   it('uses separate seller-read and customer-write credentials', () => {
@@ -30,5 +31,27 @@ describe('customer update workflow', () => {
     const uses = [...workflow.matchAll(/uses:\s+([^\s]+)/g)].map((match) => match[1]);
     expect(uses.length).toBeGreaterThan(0);
     expect(uses.every((use) => /^actions\/checkout@[0-9a-f]{40}$/.test(use))).toBe(true);
+  });
+
+  it('enables compatible auto-merge only after the explicit canary gate', () => {
+    expect(workflow).toContain("vars.CUSTOMER_UPDATE_MODE == 'compatible-auto'");
+    expect(workflow).toContain("vars.CUSTOMER_UPDATE_CANARY_PASSED == 'true'");
+    expect(workflow).toContain("steps.classification.outputs.update_class == 'compatible'");
+    expect(workflow).toContain('gh pr merge');
+    expect(workflow).toContain('--auto --merge');
+  });
+});
+
+describe('customer update policy workflow', () => {
+  it('always runs secretless from trusted customer main', () => {
+    expect(policyWorkflow).toContain('pull_request:');
+    expect(policyWorkflow).toContain('branches: [main]');
+    expect(policyWorkflow).not.toContain('paths:');
+    expect(policyWorkflow).toContain('contents: read');
+    expect(policyWorkflow).not.toContain('secrets.');
+    expect(policyWorkflow).not.toContain('environment:');
+    expect(policyWorkflow).toContain('github.event.pull_request.base.sha');
+    expect(policyWorkflow).toContain('github.event.pull_request.head.sha');
+    expect(policyWorkflow).toContain('scripts/customer-update/policy.ts');
   });
 });

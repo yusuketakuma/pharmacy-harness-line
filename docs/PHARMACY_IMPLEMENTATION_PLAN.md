@@ -1,6 +1,12 @@
 # LINE Harness Pharmacy Implementation Plan
 
-Status: reviewed and revised; implementation not started
+Status: implementation in progress; customer release/update slices A-C implemented locally
+
+Current evidence: commits `a8e7aaf` and `bf93daf` plus the policy slice
+implement immutable seller metadata, verified customer update PRs,
+secretless customer policy, and canary-gated compatible auto-merge. No customer
+repository, protected branch, Cloudflare environment, or production resource
+has been changed yet.
 
 This document is the implementation contract for the pharmacy prescription
 pre-send feature, customer delivery, and customer repository updates. The live
@@ -214,6 +220,12 @@ outbound network or telemetry destinations
 Every migration is manual even when additive. Narrow compatible auto-merge is
 limited to non-privileged application changes with no dependency, migration,
 permission, binding, configuration, authentication, or new egress change.
+`customer-release.json` is the validated, non-executable seller release
+description and is not itself a customer runtime privilege; its schema,
+sequence, ancestry, classification, and required configuration are validated
+separately at release and customer-consumption boundaries. All Worker runtime
+source changes remain manual so path naming cannot hide a new egress or
+authorization behavior.
 The client base branch owns `CODEOWNERS` and the policy workflow; update PRs
 cannot remove their own review requirement.
 
