@@ -30,7 +30,7 @@ export function prescriptionNotificationText(
 ): string {
   switch (status) {
     case 'received':
-      return '処方せん画像を受け付けました。薬局で確認後、LINEでお知らせします。処方せん原本は来局時にお持ちください。';
+      return '受付内容の確認待ちです。確認後、LINEでお知らせします。処方せん原本は来局時にお持ちください。';
     case 'accepted':
       return '処方せんを確認し、受付しました。お薬を準備しています。';
     case 'needs_resubmission':

@@ -187,6 +187,19 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission)$/.test(path));
   if (isPrescriptionPatientAction) return next();
 
+  // custom:pharmacy-intake — patient profiles and intake revisions verify the
+  // LINE ID token in their route middleware, just like prescription uploads.
+  const isPharmacyIntakePatientAction =
+    path === '/api/liff/pharmacy/patients' && (method === 'GET' || method === 'POST') ||
+    /^\/api\/liff\/pharmacy\/patients\/[^/]+(\/intake|\/archive)?$/.test(path) &&
+      (method === 'GET' || method === 'POST' || method === 'PATCH');
+  if (isPharmacyIntakePatientAction) return next();
+
+  // custom:pharmacy-continuity — the patient view verifies the LINE ID token
+  // in its route middleware; the admin collection remains staff-authenticated.
+  if ((method === 'GET' && path === '/api/liff/pharmacy/continuity') ||
+      (method === 'POST' && /^\/api\/liff\/pharmacy\/continuity\/[^/]+\/pause$/.test(path))) return next();
+
   if (
     path === '/webhook' ||
     path === '/docs' ||

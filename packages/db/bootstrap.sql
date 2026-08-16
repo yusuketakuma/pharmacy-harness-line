@@ -750,6 +750,108 @@ CREATE TABLE outgoing_webhooks (
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
+CREATE TABLE pharmacy_continuity_events (
+  id              TEXT PRIMARY KEY,
+  obligation_id   TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  event_type      TEXT NOT NULL CHECK (event_type IN
+    ('opened','linked','reminded','fulfilled','paused','ended')),
+  submission_id   TEXT,
+  actor_type      TEXT NOT NULL CHECK (actor_type IN ('staff','system','patient')),
+  actor_id        TEXT,
+  created_at      TEXT NOT NULL,
+  FOREIGN KEY (obligation_id, line_account_id)
+    REFERENCES pharmacy_continuity_obligations(id, line_account_id)
+);
+
+CREATE TABLE pharmacy_continuity_obligations (
+  id                    TEXT PRIMARY KEY,
+  line_account_id       TEXT NOT NULL,
+  owner_friend_id       TEXT NOT NULL,
+  patient_id            TEXT NOT NULL,
+  source_submission_id  TEXT NOT NULL,
+  candidate_submission_id TEXT,
+  status                TEXT NOT NULL CHECK (status IN
+    ('active','linked','fulfilled','paused','ended')),
+  expected_next_from    TEXT NOT NULL,
+  expected_next_to      TEXT NOT NULL,
+  next_contact_at       TEXT NOT NULL,
+  consent_at            TEXT NOT NULL,
+  last_reminded_at      TEXT,
+  reminder_count        INTEGER NOT NULL DEFAULT 0 CHECK (reminder_count >= 0),
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL,
+  UNIQUE (id, line_account_id, owner_friend_id),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id),
+  FOREIGN KEY (source_submission_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_prescription_submissions(id, line_account_id, friend_id),
+  FOREIGN KEY (candidate_submission_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_prescription_submissions(id, line_account_id, friend_id)
+);
+
+CREATE TABLE pharmacy_fulfillment_quotes (
+  id                    TEXT PRIMARY KEY,
+  submission_id         TEXT NOT NULL,
+  line_account_id       TEXT NOT NULL,
+  revision              INTEGER NOT NULL CHECK (revision >= 1),
+  decision              TEXT NOT NULL CHECK (decision IN
+    ('fulfillable','conditional','needs_confirmation','not_fulfillable')),
+  reason_codes_json     TEXT NOT NULL
+    CHECK (json_valid(reason_codes_json) AND length(reason_codes_json) BETWEEN 2 AND 4096),
+  requirements_json     TEXT NOT NULL
+    CHECK (json_valid(requirements_json) AND length(requirements_json) BETWEEN 2 AND 8192),
+  estimated_ready_at    TEXT,
+  valid_until           TEXT,
+  created_by            TEXT NOT NULL,
+  created_at            TEXT NOT NULL,
+  UNIQUE (submission_id, line_account_id, revision),
+  FOREIGN KEY (submission_id, line_account_id)
+    REFERENCES pharmacy_prescription_submissions(id, line_account_id)
+);
+
+CREATE TABLE pharmacy_patient_intake_responses (
+  id                          TEXT PRIMARY KEY,
+  line_account_id             TEXT NOT NULL,
+  owner_friend_id             TEXT NOT NULL,
+  patient_id                  TEXT NOT NULL,
+  revision                    INTEGER NOT NULL CHECK (revision >= 1),
+  schema_version              INTEGER NOT NULL CHECK (schema_version >= 1),
+  patient_snapshot_json       TEXT NOT NULL CHECK (json_valid(patient_snapshot_json)),
+  answers_json                TEXT NOT NULL
+    CHECK (json_valid(answers_json) AND length(answers_json) BETWEEN 2 AND 32768),
+  base_response_id            TEXT,
+  idempotency_key             TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+  representative_consent_at  TEXT NOT NULL,
+  privacy_consent_at          TEXT NOT NULL,
+  created_at                  TEXT NOT NULL,
+  UNIQUE (id, patient_id, line_account_id, owner_friend_id),
+  UNIQUE (line_account_id, patient_id, revision),
+  UNIQUE (line_account_id, owner_friend_id, patient_id, idempotency_key),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id),
+  FOREIGN KEY (base_response_id)
+    REFERENCES pharmacy_patient_intake_responses(id)
+);
+
+CREATE TABLE pharmacy_patients (
+  id               TEXT PRIMARY KEY,
+  line_account_id  TEXT NOT NULL REFERENCES line_accounts(id),
+  owner_friend_id  TEXT NOT NULL,
+  relationship     TEXT NOT NULL CHECK (relationship IN ('self','child','spouse','parent','other')),
+  name             TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 120),
+  name_kana        TEXT NOT NULL CHECK (length(trim(name_kana)) BETWEEN 1 AND 120),
+  birth_date       TEXT NOT NULL CHECK (length(birth_date) = 10),
+  sex              TEXT CHECK (sex IS NULL OR sex IN ('male','female','other','prefer_not_to_say')),
+  contact_phone    TEXT,
+  archived_at     TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  UNIQUE (id, line_account_id, owner_friend_id),
+  FOREIGN KEY (owner_friend_id, line_account_id)
+    REFERENCES friends(id, line_account_id)
+);
+
 CREATE TABLE pharmacy_prescription_events (
   id             TEXT PRIMARY KEY,
   submission_id  TEXT NOT NULL REFERENCES pharmacy_prescription_submissions(id) ON DELETE CASCADE,
@@ -785,6 +887,24 @@ CREATE TABLE pharmacy_prescription_files (
   UNIQUE (submission_id, revision, position)
 );
 
+CREATE TABLE pharmacy_prescription_patients (
+  submission_id      TEXT PRIMARY KEY,
+  line_account_id    TEXT NOT NULL,
+  owner_friend_id    TEXT NOT NULL,
+  patient_id         TEXT NOT NULL,
+  intake_response_id TEXT NOT NULL,
+  reviewed_at        TEXT,
+  reviewed_by        TEXT,
+  created_at         TEXT NOT NULL,
+  UNIQUE (submission_id, line_account_id, owner_friend_id),
+  FOREIGN KEY (submission_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_prescription_submissions(id, line_account_id, friend_id),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id),
+  FOREIGN KEY (intake_response_id, patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patient_intake_responses(id, patient_id, line_account_id, owner_friend_id)
+);
+
 CREATE TABLE pharmacy_prescription_submissions (
   id                               TEXT PRIMARY KEY,
   line_account_id                  TEXT NOT NULL REFERENCES line_accounts(id),
@@ -803,7 +923,8 @@ CREATE TABLE pharmacy_prescription_submissions (
   requested_at                     TEXT,
   closed_at                        TEXT,
   created_at                       TEXT NOT NULL,
-  updated_at                       TEXT NOT NULL,
+  updated_at                       TEXT NOT NULL, intake_required INTEGER NOT NULL DEFAULT 0
+  CHECK (intake_required IN (0, 1)),
   UNIQUE (line_account_id, friend_id, idempotency_key),
   FOREIGN KEY (friend_id, line_account_id)
     REFERENCES friends(id, line_account_id)
@@ -1391,11 +1512,52 @@ CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
 
+CREATE UNIQUE INDEX idx_pharmacy_continuity_account
+  ON pharmacy_continuity_obligations (id, line_account_id);
+
+CREATE INDEX idx_pharmacy_continuity_due
+  ON pharmacy_continuity_obligations (line_account_id, status, next_contact_at, last_reminded_at);
+
+CREATE INDEX idx_pharmacy_continuity_events_obligation
+  ON pharmacy_continuity_events (line_account_id, obligation_id, created_at, id);
+
+CREATE UNIQUE INDEX idx_pharmacy_continuity_open_patient
+  ON pharmacy_continuity_obligations (line_account_id, patient_id)
+  WHERE status IN ('active','linked');
+
+CREATE INDEX idx_pharmacy_continuity_patient
+  ON pharmacy_continuity_obligations (line_account_id, patient_id, created_at DESC, id);
+
+CREATE INDEX idx_pharmacy_fulfillment_quotes_decision
+  ON pharmacy_fulfillment_quotes (line_account_id, decision, created_at DESC);
+
+CREATE INDEX idx_pharmacy_fulfillment_quotes_submission
+  ON pharmacy_fulfillment_quotes (line_account_id, submission_id, revision DESC, created_at DESC);
+
+CREATE INDEX idx_pharmacy_intake_responses_patient
+  ON pharmacy_patient_intake_responses (line_account_id, patient_id, revision DESC, id DESC);
+
+CREATE UNIQUE INDEX idx_pharmacy_patients_active_self
+  ON pharmacy_patients (line_account_id, owner_friend_id)
+  WHERE relationship = 'self' AND archived_at IS NULL;
+
+CREATE INDEX idx_pharmacy_patients_owner
+  ON pharmacy_patients (line_account_id, owner_friend_id, archived_at, updated_at DESC, id);
+
 CREATE INDEX idx_pharmacy_prescription_events_submission
   ON pharmacy_prescription_events (submission_id, created_at, id);
 
 CREATE INDEX idx_pharmacy_prescription_files_revision
   ON pharmacy_prescription_files (submission_id, revision, position);
+
+CREATE INDEX idx_pharmacy_prescription_patients_patient
+  ON pharmacy_prescription_patients (line_account_id, patient_id, created_at DESC, submission_id);
+
+CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_account
+  ON pharmacy_prescription_submissions (id, line_account_id);
+
+CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_scope
+  ON pharmacy_prescription_submissions (id, line_account_id, friend_id);
 
 CREATE INDEX idx_pharmacy_prescriptions_account_status_requested
   ON pharmacy_prescription_submissions (line_account_id, status, requested_at, id);

@@ -1,4 +1,5 @@
 import type { PrescriptionPatient } from './patient.js';
+import { quoteAllowsAcceptance } from '../fulfillment/repository.js';
 import {
   nextPrescriptionStatus,
   type PrescriptionAction,
@@ -23,6 +24,8 @@ export interface ReserveDraftInput {
   desiredPickupAt: string | null;
   originalPrescriptionConsent: boolean;
   readinessNoticeConsent: boolean;
+  patientId?: string;
+  intakeResponseId?: string;
 }
 
 export async function reservePrescriptionDraft(
@@ -33,14 +36,19 @@ export async function reservePrescriptionDraft(
   if (!/^[A-Za-z0-9._:-]{8,128}$/.test(input.idempotencyKey)) {
     throw new Error('invalid idempotency key');
   }
+  if ((input.patientId && !input.intakeResponseId) ||
+      (!input.patientId && input.intakeResponseId)) {
+    throw new Error('invalid patient intake link');
+  }
+  const hasPatientLink = Boolean(input.patientId && input.intakeResponseId);
   const now = new Date().toISOString();
   const submissionId = crypto.randomUUID();
-  await db.batch([db.prepare(
+  const statements = [db.prepare(
     `INSERT INTO pharmacy_prescription_submissions
        (id, line_account_id, friend_id, idempotency_key, status,
         upload_revision, desired_pickup_at, original_prescription_consent_at,
-        readiness_notice_consent_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?)
+        readiness_notice_consent_at, intake_required, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING`,
   ).bind(
     submissionId,
@@ -50,6 +58,7 @@ export async function reservePrescriptionDraft(
     input.desiredPickupAt,
     input.originalPrescriptionConsent ? now : null,
     input.readinessNoticeConsent ? now : null,
+    hasPatientLink ? 1 : 0,
     now,
     now,
   ), db.prepare(
@@ -64,7 +73,37 @@ export async function reservePrescriptionDraft(
     submissionId,
     patient.lineAccountId,
     patient.friendId,
-  )]);
+  )];
+  if (hasPatientLink) {
+    statements.push(db.prepare(
+      `UPDATE pharmacy_prescription_submissions
+          SET intake_required = 1
+        WHERE idempotency_key = ? AND line_account_id = ? AND friend_id = ?
+          AND status = 'draft'`,
+    ).bind(input.idempotencyKey, patient.lineAccountId, patient.friendId));
+    statements.push(db.prepare(
+      `INSERT INTO pharmacy_prescription_patients
+         (submission_id, line_account_id, owner_friend_id, patient_id,
+          intake_response_id, created_at)
+       SELECT s.id, s.line_account_id, s.friend_id, r.patient_id, r.id, ?
+         FROM pharmacy_prescription_submissions s
+         INNER JOIN pharmacy_patient_intake_responses r
+           ON r.id = ? AND r.patient_id = ?
+          AND r.line_account_id = s.line_account_id
+          AND r.owner_friend_id = s.friend_id
+        WHERE s.idempotency_key = ? AND s.line_account_id = ? AND s.friend_id = ?
+          AND s.status = 'draft'
+       ON CONFLICT(submission_id) DO NOTHING`,
+    ).bind(
+      now,
+      input.intakeResponseId,
+      input.patientId,
+      input.idempotencyKey,
+      patient.lineAccountId,
+      patient.friendId,
+    ));
+  }
+  await db.batch(statements);
 
   const draft = await db.prepare(
     `SELECT id, status, upload_revision, updated_at
@@ -76,6 +115,20 @@ export async function reservePrescriptionDraft(
     input.idempotencyKey,
   ).first<PrescriptionDraft>();
   if (!draft) throw new Error('failed to reserve prescription draft');
+  if (hasPatientLink) {
+    const link = await db.prepare(
+      `SELECT patient_id, intake_response_id
+         FROM pharmacy_prescription_patients
+        WHERE submission_id = ? AND line_account_id = ? AND owner_friend_id = ?`,
+    ).bind(draft.id, patient.lineAccountId, patient.friendId).first<{
+      patient_id: string;
+      intake_response_id: string;
+    }>();
+    if (!link || link.patient_id !== input.patientId ||
+        link.intake_response_id !== input.intakeResponseId) {
+      throw new Error('prescription patient link conflict');
+    }
+  }
   return draft;
 }
 
@@ -543,17 +596,43 @@ export async function applyAdminPrescriptionAction(
   reasonCode: string | null,
 ): Promise<PrescriptionStatus> {
   const current = await db.prepare(
-    `SELECT status, updated_at
+    `SELECT status, updated_at, intake_required
        FROM pharmacy_prescription_submissions
       WHERE id = ? AND line_account_id = ?`,
   ).bind(submissionId, lineAccountId).first<{
     status: PrescriptionStatus;
     updated_at: string;
+    intake_required?: number;
   }>();
   if (!current || current.updated_at !== expectedUpdatedAt) {
     throw new Error('prescription admin action conflict');
   }
   const next = nextPrescriptionStatus(current.status, action);
+  if (action === 'admin_accept' && current.intake_required === 1) {
+    const quote = await db.prepare(
+      `SELECT decision, requirements_json
+         FROM pharmacy_fulfillment_quotes
+        WHERE submission_id = ? AND line_account_id = ?
+        ORDER BY revision DESC, created_at DESC, id DESC
+        LIMIT 1`,
+    ).bind(submissionId, lineAccountId).first<{
+      decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
+      requirements_json: string;
+    }>();
+    if (!quote) throw new Error('fulfillment quote required');
+    let requirements;
+    try {
+      requirements = JSON.parse(quote.requirements_json) as Array<{
+        code: string;
+        status: 'pending' | 'satisfied';
+      }>;
+    } catch {
+      throw new Error('fulfillment quote invalid');
+    }
+    if (!quoteAllowsAcceptance({ decision: quote.decision, requirements })) {
+      throw new Error('fulfillment quote not acceptable');
+    }
+  }
   if (
     action === 'admin_request_resubmission' &&
     (!reasonCode || !RESUBMISSION_REASONS.has(reasonCode))

@@ -9,6 +9,8 @@ import Affiliate from './pages/Affiliate.js';
 import Webinar from './pages/Webinar.js';
 import { legacyQueryTarget } from './legacy-route.js';
 import PrescriptionPage from './custom/pharmacy/prescriptions/PrescriptionPage.js'; // custom:pharmacy-prescriptions
+import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake
+import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -27,6 +29,8 @@ export default function App() {
       <Route path="/affiliate" element={<Affiliate />} />
       <Route path="/webinar/:slug" element={<Webinar />} />
       <Route path="/prescriptions" element={<PrescriptionPage />} /> {/* custom:pharmacy-prescriptions */}
+      <Route path="/pharmacy/patient-intake" element={<PatientIntakePage />} /> {/* custom:pharmacy-intake */}
+      <Route path="/pharmacy/continuity" element={<ContinuityPage />} /> {/* custom:pharmacy-continuity */}
       <Route path="/" element={<LegacyEntryRedirect />} />
       <Route
         path="*"

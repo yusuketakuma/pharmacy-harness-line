@@ -10,4 +10,13 @@ it('keeps LIFF integration to one marked import and route', () => {
   expect(source).toContain(
     '<Route path="/prescriptions" element={<PrescriptionPage />} /> {/* custom:pharmacy-prescriptions */}',
   );
+  expect(source).toContain(
+    "import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake",
+  );
+  expect(source).toContain(
+    '<Route path="/pharmacy/patient-intake" element={<PatientIntakePage />} /> {/* custom:pharmacy-intake */}',
+  );
+  expect(source).toContain(
+    "import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity",
+  );
 });

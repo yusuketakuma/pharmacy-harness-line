@@ -12,11 +12,13 @@ import {
   type PrescriptionQueueItem,
   type PrescriptionStats,
   type PrescriptionStatus,
+  type FulfillmentDecision,
+  type FulfillmentQuote,
 } from './api'
 
 const STATUS_LABELS: Record<PrescriptionStatus, string> = {
   draft: '下書き',
-  received: '受付待ち',
+  received: '受付内容の確認待ち',
   needs_resubmission: '再送依頼中',
   accepted: '受付済み',
   ready: '準備完了',
@@ -33,8 +35,23 @@ const REASON_LABELS: Record<string, string> = {
   admin_cancelled: '薬局でキャンセルしました',
 }
 
+const FULFILLMENT_DECISION_LABELS: Record<FulfillmentDecision, string> = {
+  fulfillable: '受付可能',
+  conditional: '条件付きで受付可能',
+  needs_confirmation: '追加確認が必要',
+  not_fulfillable: '今回は受付不可',
+}
+
+const FULFILLMENT_REASON_OPTIONS = [
+  ['original_required', '処方せん原本の確認'],
+  ['unclear_image', '画像の追加確認'],
+  ['stock_check', '在庫の確認'],
+  ['pickup_time', '受取時間の確認'],
+] as const;
+
 export const statusLabel = (status: PrescriptionStatus) => STATUS_LABELS[status]
 export const reasonLabel = (reason: string | null) => reason ? REASON_LABELS[reason] ?? reason : 'なし'
+export const fulfillmentDecisionLabel = (decision: FulfillmentDecision) => FULFILLMENT_DECISION_LABELS[decision]
 
 export interface StatusAction {
   id: PrescriptionAdminAction
@@ -44,7 +61,7 @@ export interface StatusAction {
 
 export function actionsForStatus(status: PrescriptionStatus): StatusAction[] {
   if (status === 'received') return [
-    { id: 'accept', label: '受付する' },
+    { id: 'accept', label: '確認して受付する' },
     { id: 'request_resubmission', label: '再送を依頼' },
     { id: 'cancel', label: 'キャンセル', danger: true },
   ]
@@ -148,7 +165,7 @@ export function PrescriptionImageViewer({
 
 const TABS: Array<{ value: 'all' | PrescriptionStatus; label: string }> = [
   { value: 'all', label: 'すべて' },
-  { value: 'received', label: '受付待ち' },
+  { value: 'received', label: '受付内容の確認待ち' },
   { value: 'accepted', label: '受付済み' },
   { value: 'needs_resubmission', label: '再送依頼中' },
   { value: 'ready', label: '準備完了' },
@@ -166,6 +183,11 @@ export default function PrescriptionQueuePage() {
   const [temporaryError, setTemporaryError] = useState(false)
   const [error, setError] = useState('')
   const [detail, setDetail] = useState<PrescriptionDetail | null>(null)
+  const [quote, setQuote] = useState<FulfillmentQuote | null>(null)
+  const [quoteDecision, setQuoteDecision] = useState<FulfillmentDecision>('needs_confirmation')
+  const [quoteReasons, setQuoteReasons] = useState<string[]>([])
+  const [quoteRequirements, setQuoteRequirements] = useState<Array<{ code: string; status: 'pending' | 'satisfied' }>>([])
+  const [quoteSaving, setQuoteSaving] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [acting, setActing] = useState(false)
   const [reason, setReason] = useState('blurred')
@@ -195,6 +217,7 @@ export default function PrescriptionQueuePage() {
   useEffect(() => {
     setItems([])
     setDetail(null)
+    setQuote(null)
     void load()
   }, [load, selectedAccountId])
 
@@ -203,7 +226,15 @@ export default function PrescriptionQueuePage() {
     setDetailLoading(true)
     setError('')
     try {
-      setDetail(await prescriptionAdminApi.detail(selectedAccountId, id))
+      const [nextDetail, nextQuote] = await Promise.all([
+        prescriptionAdminApi.detail(selectedAccountId, id),
+        prescriptionAdminApi.fulfillmentQuote(selectedAccountId, id),
+      ])
+      setDetail(nextDetail)
+      setQuote(nextQuote.quote)
+      setQuoteDecision(nextQuote.quote?.decision ?? 'needs_confirmation')
+      setQuoteReasons(nextQuote.quote?.reasonCodes ?? [])
+      setQuoteRequirements(nextQuote.quote?.requirements ?? [])
       setTemporaryError(false)
     } catch (caught) {
       setTemporaryError(isTemporaryDeploymentError(caught))
@@ -277,6 +308,31 @@ export default function PrescriptionQueuePage() {
     }
   }
 
+  const saveQuote = async () => {
+    if (!selectedAccountId || !detail || quoteSaving) return
+    setQuoteSaving(true)
+    setError('')
+    try {
+      const result = await prescriptionAdminApi.saveFulfillmentQuote(
+        selectedAccountId,
+        detail.submission.id,
+        {
+          decision: quoteDecision,
+          reasonCodes: quoteReasons,
+          requirements: quoteRequirements,
+          estimatedReadyAt: null,
+          validUntil: null,
+        },
+      )
+      setQuote(result.quote)
+      setQuoteRequirements(result.quote.requirements)
+    } catch {
+      setError('受付内容を保存できませんでした。')
+    } finally {
+      setQuoteSaving(false)
+    }
+  }
+
   if (accountLoading) return <p className="py-10 text-center text-gray-500">アカウントを読み込み中...</p>
   if (!selectedAccountId) return <p className="py-10 text-center text-gray-500">LINEアカウントを登録してください。</p>
 
@@ -285,14 +341,14 @@ export default function PrescriptionQueuePage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">処方せん事前送信</h1>
-          <p className="mt-1 text-sm text-gray-500">患者さんから届いた画像を確認し、受付状況を更新します。</p>
+          <p className="mt-1 text-sm text-gray-500">患者さんから届いた画像とアンケートを確認し、受付状況を更新します。</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-sm text-gray-500">受付待ち</p>
+          <p className="text-sm text-gray-500">受付内容の確認待ち</p>
           <p className="mt-1 text-2xl font-bold">{stats.pending_count}件</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -362,6 +418,37 @@ export default function PrescriptionQueuePage() {
                   {readyFiles.length === 0 && <p className="text-sm text-gray-500">表示できる画像はありません。</p>}
                 </div>
               </div>
+
+              {detail.submission.status === 'received' && (
+                <section className="rounded-lg border border-green-200 bg-green-50 p-4" aria-labelledby="fulfillment-quote-title">
+                  <h3 id="fulfillment-quote-title" className="font-semibold">受付内容の確認</h3>
+                  <p className="mt-1 text-sm text-gray-600">受付可否と必要条件を登録すると、患者さんの受付状態を更新できます。</p>
+                  <label className="mt-3 block text-sm font-medium">
+                    確認結果
+                    <select value={quoteDecision} onChange={(event) => {
+                      const value = event.target.value as FulfillmentDecision
+                      setQuoteDecision(value)
+                      if (value === 'conditional' && quoteRequirements.length === 0) {
+                        setQuoteRequirements([{ code: 'original_required', status: 'pending' }])
+                      }
+                    }} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2">
+                      {Object.entries(FULFILLMENT_DECISION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
+                  <fieldset className="mt-3 space-y-2">
+                    <legend className="text-sm font-medium">確認項目（自由記述なし）</legend>
+                    {FULFILLMENT_REASON_OPTIONS.map(([code, label]) => <label key={code} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={quoteReasons.includes(code)} onChange={(event) => {
+                      setQuoteReasons((current) => event.target.checked ? [...current, code] : current.filter((item) => item !== code))
+                      setQuoteRequirements((current) => event.target.checked
+                        ? current.some((item) => item.code === code) ? current : [...current, { code, status: 'pending' }]
+                        : current.filter((item) => item.code !== code))
+                    }} />{label}</label>)}
+                  </fieldset>
+                  {quoteRequirements.length > 0 && <div className="mt-3 space-y-2"><p className="text-sm font-medium">条件の状態</p>{quoteRequirements.map((requirement) => <label key={requirement.code} className="flex items-center justify-between gap-2 text-sm"><span>{FULFILLMENT_REASON_OPTIONS.find(([code]) => code === requirement.code)?.[1] ?? requirement.code}</span><select value={requirement.status} onChange={(event) => setQuoteRequirements((current) => current.map((item) => item.code === requirement.code ? { ...item, status: event.target.value as 'pending' | 'satisfied' } : item))} className="rounded border border-gray-300 bg-white px-2 py-1"><option value="pending">未確認</option><option value="satisfied">確認済み</option></select></label>)}</div>}
+                  {quote && <p className="mt-3 text-xs text-gray-600">第{quote.revision}版・{fulfillmentDecisionLabel(quote.decision)}</p>}
+                  <button type="button" onClick={() => void saveQuote()} disabled={quoteSaving} className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{quoteSaving ? '保存中…' : '受付内容を保存'}</button>
+                </section>
+              )}
 
               {actionsForStatus(detail.submission.status).some((action) => action.id === 'request_resubmission') && (
                 <label className="block max-w-md text-sm font-medium text-gray-700">

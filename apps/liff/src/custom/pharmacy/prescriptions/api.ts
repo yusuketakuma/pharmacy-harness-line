@@ -58,6 +58,8 @@ export const prescriptionApi = {
     desiredPickupAt: string | null;
     originalPrescriptionConsent: boolean;
     readinessNoticeConsent: boolean;
+    patientId?: string;
+    intakeResponseId?: string;
   }) => json<{ submission: PrescriptionSubmission }>(
     '/api/liff/pharmacy/prescriptions', 'POST', body,
   ),

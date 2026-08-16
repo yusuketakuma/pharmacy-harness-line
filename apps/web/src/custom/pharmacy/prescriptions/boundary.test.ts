@@ -14,4 +14,12 @@ it('keeps Admin integration to a thin route and marked sidebar seam', () => {
   )
   expect(sidebar).toContain("href: '/prescriptions'")
   expect(sidebar).toContain('<PrescriptionSidebarBadge active={active} />')
+  expect(readFileSync(join(process.cwd(), 'src', 'app', 'patient-intakes', 'page.tsx'), 'utf8').trim()).toBe(
+    "export { default } from '@/custom/pharmacy/intake/PatientIntakeAdminPage' // custom:pharmacy-intake",
+  )
+  expect(readFileSync(join(process.cwd(), 'src', 'app', 'continuity', 'page.tsx'), 'utf8').trim()).toBe(
+    "export { default } from '@/custom/pharmacy/continuity/ContinuityAdminPage' // custom:pharmacy-continuity",
+  )
+  expect(sidebar).toContain("href: '/patient-intakes'")
+  expect(sidebar).toContain("href: '/continuity'")
 })

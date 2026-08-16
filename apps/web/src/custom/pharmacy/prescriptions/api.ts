@@ -65,6 +65,26 @@ export interface PrescriptionStats {
   oldest_wait_at: string | null
 }
 
+export type FulfillmentDecision =
+  | 'fulfillable'
+  | 'conditional'
+  | 'needs_confirmation'
+  | 'not_fulfillable'
+
+export interface FulfillmentQuote {
+  id: string
+  submission_id: string
+  line_account_id: string
+  revision: number
+  decision: FulfillmentDecision
+  reasonCodes: string[]
+  requirements: Array<{ code: string; status: 'pending' | 'satisfied' }>
+  estimatedReadyAt: string | null
+  validUntil: string | null
+  created_by: string
+  created_at: string
+}
+
 const apiBase = process.env.NEXT_PUBLIC_API_URL
 if (!apiBase) throw new Error('NEXT_PUBLIC_API_URL is not set')
 
@@ -82,6 +102,17 @@ export const prescriptionAdminApi = {
   ),
   detail: (accountId: string, submissionId: string) => fetchApi<PrescriptionDetail>(
     `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+  ),
+  fulfillmentQuote: (accountId: string, submissionId: string) => fetchApi<{ quote: FulfillmentQuote | null }>(
+    `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+  ),
+  saveFulfillmentQuote: (
+    accountId: string,
+    submissionId: string,
+    body: Omit<FulfillmentQuote, 'id' | 'submission_id' | 'line_account_id' | 'revision' | 'created_by' | 'created_at'>,
+  ) => fetchApi<{ quote: FulfillmentQuote }>(
+    `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+    { method: 'POST', body: JSON.stringify(body) },
   ),
   action: (
     accountId: string,

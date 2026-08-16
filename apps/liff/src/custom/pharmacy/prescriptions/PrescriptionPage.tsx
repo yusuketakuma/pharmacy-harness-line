@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { prescriptionApi, type PrescriptionSubmission } from './api.js';
+import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -27,7 +29,7 @@ export function validatePrescriptionImages(
 
 const statusLabels: Record<string, string> = {
   draft: '送信準備中',
-  received: '薬局確認待ち',
+  received: '受付内容の確認待ち',
   needs_resubmission: '再撮影が必要',
   accepted: '受付済み',
   ready: 'お薬の準備完了',
@@ -52,6 +54,10 @@ export default function PrescriptionPage() {
   const [desiredPickupAt, setDesiredPickupAt] = useState('');
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [history, setHistory] = useState<PrescriptionSubmission[]>([]);
+  const [patients, setPatients] = useState<PharmacyPatient[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState('');
+  const [intakeResponseId, setIntakeResponseId] = useState('');
+  const [loadingPatients, setLoadingPatients] = useState(true);
   const [replacement, setReplacement] = useState<PrescriptionSubmission | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -74,6 +80,33 @@ export default function PrescriptionPage() {
 
   useEffect(() => { void refreshHistory(); }, [refreshHistory]);
   useEffect(() => {
+    let active = true;
+    void patientIntakeApi.list().then((result) => {
+      if (!active) return;
+      setPatients(result.patients);
+      setSelectedPatientId((current) => current || result.patients[0]?.id || '');
+    }).catch((err: unknown) => {
+      if (active) setError(err instanceof Error ? err.message : '患者情報を読み込めませんでした。');
+    }).finally(() => {
+      if (active) setLoadingPatients(false);
+    });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!selectedPatientId) {
+      setIntakeResponseId('');
+      return;
+    }
+    let active = true;
+    setIntakeResponseId('');
+    void patientIntakeApi.latest(selectedPatientId).then((result) => {
+      if (active) setIntakeResponseId(result.intake?.id ?? '');
+    }).catch((err: unknown) => {
+      if (active) setError(err instanceof Error ? err.message : 'アンケートを読み込めませんでした。');
+    });
+    return () => { active = false; };
+  }, [selectedPatientId]);
+  useEffect(() => {
     const urls = files.map((file) => URL.createObjectURL(file));
     setPreviews(urls);
     return () => urls.forEach((url) => URL.revokeObjectURL(url));
@@ -92,6 +125,10 @@ export default function PrescriptionPage() {
 
   async function send() {
     if (!canSubmitPrescription(files.length, originalConsent, noticeConsent, busy)) return;
+    if (!selectedPatientId || !intakeResponseId) {
+      setError('先に患者アンケートを回答してください。');
+      return;
+    }
     setBusy(true);
     setError(null);
     setSuccess(null);
@@ -101,6 +138,8 @@ export default function PrescriptionPage() {
         desiredPickupAt: desiredPickupAt ? new Date(desiredPickupAt).toISOString() : null,
         originalPrescriptionConsent: originalConsent,
         readinessNoticeConsent: noticeConsent,
+        patientId: selectedPatientId,
+        intakeResponseId,
       })).submission;
       for (const [index, file] of files.entries()) {
         await prescriptionApi.upload(submission.id, index + 1, file);
@@ -172,6 +211,17 @@ export default function PrescriptionPage() {
 
         {tab === 'send' ? (
           <section className="space-y-4" aria-labelledby="upload-heading">
+            <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
+              <h2 className="font-bold">患者を選択</h2>
+              {loadingPatients ? <p className="text-sm text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
+                <p className="text-sm text-gray-600"><Link to="/pharmacy/patient-intake" className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
+              ) : <>
+                <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block w-full rounded-lg border border-gray-300 p-3" disabled={busy} aria-label="処方せんの患者">
+                  {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}（{patient.birth_date}）</option>)}
+                </select>
+                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to="/pharmacy/patient-intake" className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
+              </>}
+            </div>
             <div className="rounded-xl bg-white p-4 shadow-sm">
               <h2 id="upload-heading" className="font-bold">{replacement ? '処方せんを再撮影' : '処方せん画像'}</h2>
               <p className="mt-1 text-xs text-gray-600">全体が入り、文字が読める明るい写真を1〜4枚選んでください。</p>
@@ -211,7 +261,7 @@ export default function PrescriptionPage() {
             <button type="button" onClick={() => void send()} disabled={!canSubmitPrescription(files.length, originalConsent, noticeConsent, busy)} className="w-full rounded-xl bg-green-600 px-4 py-4 font-bold text-white disabled:bg-gray-300">
               {busy ? '送信中…' : replacement ? '再提出する' : '薬局へ送信する'}
             </button>
-            <p className="text-xs leading-5 text-gray-600">この送信だけでは受付完了ではありません。薬局からの受付連絡をご確認ください。</p>
+            <p className="text-xs leading-5 text-gray-600">この送信だけでは受付完了ではありません。薬局の受付内容の確認連絡をご確認ください。</p>
           </section>
         ) : (
           <section aria-labelledby="history-heading">
