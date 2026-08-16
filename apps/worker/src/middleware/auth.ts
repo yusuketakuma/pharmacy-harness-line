@@ -177,6 +177,16 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
       /^\/api\/forms\/[^/]+\/partial$/.test(path));
   if (isPublicFormAction) return next();
 
+  // custom:pharmacy-prescriptions — these routes verify the LINE ID token
+  // themselves. Keep the exception method-aware so adding another route under
+  // this namespace cannot silently bypass staff authentication.
+  const isPrescriptionPatientAction =
+    (method === 'POST' && path === '/api/liff/pharmacy/prescriptions') ||
+    (method === 'GET' && path === '/api/liff/pharmacy/prescriptions/me') ||
+    (method === 'PUT' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/files\/[^/]+$/.test(path)) ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission)$/.test(path));
+  if (isPrescriptionPatientAction) return next();
+
   if (
     path === '/webhook' ||
     path === '/docs' ||
@@ -192,7 +202,8 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path.startsWith('/api/rich-menu-images/') ||
     // LINE 上 rich menu 画像 proxy (Authorization ヘッダなしで <img src> 経由表示)
     path.match(/^\/api\/rich-menu-groups\/external\/[^/]+\/image$/) ||
-    path.startsWith('/api/liff/') ||
+    (path.startsWith('/api/liff/') &&
+      !path.startsWith('/api/liff/pharmacy/prescriptions')) ||
     // Admin login/logout — issue/clear the session cookie before auth exists.
     path === '/api/auth/login' ||
     path === '/api/auth/logout' ||

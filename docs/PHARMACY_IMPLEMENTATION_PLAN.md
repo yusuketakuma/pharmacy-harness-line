@@ -325,7 +325,7 @@ apps/web/src/custom/pharmacy/prescriptions/
 apps/web/src/app/prescriptions/page.tsx
   thin re-export only
 
-packages/db/migrations/<next>_custom_pharmacy_prescriptions.sql
+packages/db/migrations/custom_001_pharmacy_prescriptions.sql
 ```
 
 Start with fewer feature files and split only when tests show one module has
