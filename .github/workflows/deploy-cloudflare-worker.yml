@@ -52,8 +52,35 @@ jobs:
             case "$D1_DATABASE_NAME" in *-dev) ;; *) echo "Development D1 name must end in -dev"; exit 1 ;; esac
           fi
 
+          schema_exists=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
+            --command "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
+            | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
+          ledger_exists=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
+            --command "SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'" --json \
+            | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
+
+          seed_baseline=false
+          if [ "$schema_exists" = "0" ] || [ "$ledger_exists" = "0" ]; then
+            seed_baseline=true
+          fi
+
+          if [ "$schema_exists" = "0" ]; then
+            npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --file=packages/db/bootstrap.sql
+            schema_exists=$(npx wrangler d1 execute "$D1_DATABASE_NAME" --remote \
+              --command "SELECT name FROM sqlite_master WHERE type='table' AND name='line_accounts'" --json \
+              | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d[0]?.results?.length||0)")
+            test "$schema_exists" = "1"
+          fi
+
           npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command \
             "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+
+          if [ "$seed_baseline" = "true" ]; then
+            while IFS= read -r name; do
+              npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --command \
+                "INSERT OR IGNORE INTO _migrations (name, applied_at) VALUES ('${name}', datetime('now'))"
+            done < <(jq -r '.includedMigrations[]' packages/db/bootstrap-meta.json)
+          fi
 
           for f in $(ls packages/db/migrations/*.sql | sort); do
             name=$(basename "$f")
