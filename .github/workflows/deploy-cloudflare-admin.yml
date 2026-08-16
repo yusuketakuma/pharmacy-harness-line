@@ -3,7 +3,7 @@ name: Deploy Cloudflare Admin
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'apps/web/**'
       - 'packages/shared/**'
@@ -14,10 +14,19 @@ on:
 
 jobs:
   deploy:
-    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true'
+    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true' && (github.ref_name == 'main' || github.ref_name == 'dev')
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'development' }}
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify deployment target
+        run: |
+          expected_target="${{ github.ref_name == 'main' && 'production' || 'development' }}"
+          test "$DEPLOY_TARGET" = "$expected_target"
 
       - uses: pnpm/action-setup@v4
 
@@ -49,6 +58,9 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$NEXT_PUBLIC_API_URL"
+          if [ "$DEPLOY_TARGET" = "development" ]; then
+            case "$PAGES_PROJECT_NAME" in *-dev) ;; *) echo "Development Pages project must end in -dev"; exit 1 ;; esac
+          fi
           npx wrangler pages deploy apps/web/out \
             --project-name="$PAGES_PROJECT_NAME" \
             --commit-message="deploy ${GITHUB_SHA}"
