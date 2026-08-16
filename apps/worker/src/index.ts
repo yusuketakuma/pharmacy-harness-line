@@ -89,6 +89,7 @@ import adminVersion from './routes/admin-version.js';
 import adminUpdate from './routes/admin-update.js';
 import { mediaInquiries } from './routes/media-inquiries.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
+import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -1065,6 +1066,21 @@ async function scheduled(
 
   // Booking expirer — runs only on the 6h cron tick.
   if (event.cron === '0 */6 * * *') {
+    try {
+      const result = await retryFailedPrescriptionNotifications(env.DB, { // custom:pharmacy-prescriptions
+        proxyBaseUrl:
+          env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(
+          `[prescription-notifications] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+        );
+      }
+    } catch (e) {
+      console.error('prescription-notifications error:', e);
+    }
+
     try {
       const result = await enqueueFollowingMileageMilestones(env.DB, {
         limitPerMilestone: 1000,

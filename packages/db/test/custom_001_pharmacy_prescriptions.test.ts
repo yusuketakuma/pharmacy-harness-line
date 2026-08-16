@@ -124,4 +124,16 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
       /CHECK constraint failed/,
     );
   });
+
+  it('supports immutable notification failure and delivery audit events', () => {
+    insertSubmission(db, 'submission-a', 'account-a', 'friend-a', 'key');
+    const insert = db.prepare(
+      `INSERT INTO pharmacy_prescription_events
+         (id, submission_id, actor_type, actor_id, event_type, to_status, created_at)
+       VALUES (?, 'submission-a', 'system', 'status-event-a', ?, 'received',
+               '2026-08-17T00:00:00Z')`,
+    );
+    expect(() => insert.run('failure-a', 'notification_failed')).not.toThrow();
+    expect(() => insert.run('sent-a', 'notification_sent')).not.toThrow();
+  });
 });

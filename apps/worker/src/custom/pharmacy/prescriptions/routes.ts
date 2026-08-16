@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
+import type { Env } from '../../../index.js';
+import { lineProxy } from '../../../routes/line-proxy.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { inspectPrescriptionImage } from './image.js';
 import { resolvePrescriptionPatient } from './patient.js';
+import { deliverPrescriptionNotification } from './notifications.js';
 import {
   applyAdminPrescriptionAction,
   cancelPrescription,
@@ -22,6 +25,7 @@ type PrescriptionBindings = {
   DB: D1Database;
   IMAGES?: R2Bucket;
   LINE_LOGIN_CHANNEL_ID?: string;
+  WORKER_PUBLIC_URL?: string;
 };
 
 type PrescriptionEnv = {
@@ -32,6 +36,15 @@ type PrescriptionEnv = {
 };
 
 export const prescriptionRoutes = new Hono<PrescriptionEnv>();
+
+function notificationOptions(requestUrl: string, env: PrescriptionBindings) {
+  return {
+    proxyBaseUrl: env.WORKER_PUBLIC_URL ?? new URL(requestUrl).origin,
+    proxyDispatch: (request: Request) => Promise.resolve(
+      lineProxy.fetch(request, env as Env['Bindings']),
+    ),
+  };
+}
 
 async function readExpectedUpdatedAt(request: { json<T>(): Promise<T> }): Promise<string | null> {
   try {
@@ -122,6 +135,11 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       patient,
       c.req.param('id'),
       body.expectedUpdatedAt,
+    );
+    await deliverPrescriptionNotification(
+      c.env.DB,
+      c.req.param('id'),
+      notificationOptions(c.req.url, c.env),
     );
     return c.json({ status: 'received' });
   } catch (error) {
@@ -410,6 +428,11 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
       body.expectedUpdatedAt,
       staff.id,
       typeof body.reasonCode === 'string' ? body.reasonCode : null,
+    );
+    await deliverPrescriptionNotification(
+      c.env.DB,
+      c.req.param('id'),
+      notificationOptions(c.req.url, c.env),
     );
     return c.json({ status });
   } catch (error) {

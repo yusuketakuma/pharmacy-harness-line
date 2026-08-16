@@ -58,7 +58,8 @@ CREATE TABLE pharmacy_prescription_events (
   actor_type     TEXT NOT NULL CHECK (actor_type IN ('patient','staff','system')),
   actor_id       TEXT,
   event_type     TEXT NOT NULL CHECK (event_type IN
-    ('status_changed','revision_reserved','revision_activated','file_deleted','notification_failed')),
+    ('status_changed','revision_reserved','revision_activated','file_deleted',
+     'notification_failed','notification_sent')),
   from_status    TEXT CHECK (from_status IS NULL OR from_status IN
     ('draft','received','needs_resubmission','accepted','ready','closed','cancelled')),
   to_status      TEXT CHECK (to_status IS NULL OR to_status IN

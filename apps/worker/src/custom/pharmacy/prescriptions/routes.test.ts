@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   adminDetail: vi.fn(),
   adminFile: vi.fn(),
   adminAction: vi.fn(),
+  notify: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -44,6 +45,9 @@ vi.mock('./repository.js', () => ({
 vi.mock('./image.js', () => ({
   inspectPrescriptionImage: mocks.inspectImage,
 }));
+vi.mock('./notifications.js', () => ({
+  deliverPrescriptionNotification: mocks.notify,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -64,6 +68,7 @@ function adminApp() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.notify.mockResolvedValue({ status: 'sent' });
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {
@@ -215,6 +220,29 @@ describe('admin prescription routes', () => {
       env.DB, 'account-1', 'submission-1', 'admin_accept',
       '2026-08-17T00:00:00.000Z', 'staff-1', null,
     );
+    expect(mocks.notify).toHaveBeenCalledWith(
+      env.DB,
+      'submission-1',
+      expect.objectContaining({ proxyDispatch: expect.any(Function) }),
+    );
+    expect(mocks.adminAction.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.notify.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps a committed action successful when notification delivery fails', async () => {
+    mocks.notify.mockResolvedValueOnce({ status: 'failed' });
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions/submission-1/actions/accept?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedUpdatedAt: '2026-08-17T00:00:00.000Z' }),
+      },
+      adminEnv,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'accepted' });
   });
 });
 
@@ -242,6 +270,11 @@ describe('POST /api/liff/pharmacy/prescriptions/:id/submit', () => {
       { lineAccountId: 'account-1', friendId: 'friend-1' },
       'submission-1',
       '2026-08-17T00:00:00.000Z',
+    );
+    expect(mocks.notify).toHaveBeenCalledWith(
+      env.DB,
+      'submission-1',
+      expect.objectContaining({ proxyDispatch: expect.any(Function) }),
     );
   });
 
