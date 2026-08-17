@@ -2,8 +2,11 @@ import { Hono } from 'hono';
 import {
   createFulfillmentQuote,
   getLatestFulfillmentQuote,
+  type FulfillmentMethod,
   type FulfillmentQuoteInput,
+  type FulfillmentStatus,
 } from './repository.js';
+import { getPharmacyAccountId } from '../account.js';
 
 type FulfillmentEnv = {
   Bindings: { DB: D1Database };
@@ -13,10 +16,6 @@ type FulfillmentEnv = {
 };
 
 export const fulfillmentRoutes = new Hono<FulfillmentEnv>();
-
-function accountId(c: { req: { query(name: string): string | undefined } }): string | null {
-  return c.req.query('line_account_id') || null;
-}
 
 async function jsonBody(c: { req: { json<T>(): Promise<T> } }): Promise<Record<string, unknown> | null> {
   try {
@@ -36,7 +35,13 @@ function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | nu
       (typeof body.estimatedReadyAt === 'string' && Number.isFinite(Date.parse(body.estimatedReadyAt)))
     ) ||
     !(body.validUntil === null ||
-      (typeof body.validUntil === 'string' && Number.isFinite(Date.parse(body.validUntil))))
+      (typeof body.validUntil === 'string' && Number.isFinite(Date.parse(body.validUntil)))) ||
+    (body.status !== undefined && typeof body.status !== 'string') ||
+    (body.fulfillmentMethod !== undefined && body.fulfillmentMethod !== null && typeof body.fulfillmentMethod !== 'string') ||
+    (body.constraints !== undefined && (!Array.isArray(body.constraints) ||
+      body.constraints.some((constraint) => typeof constraint !== 'string'))) ||
+    (body.reservationExpiresAt !== undefined && body.reservationExpiresAt !== null &&
+      (typeof body.reservationExpiresAt !== 'string' || !Number.isFinite(Date.parse(body.reservationExpiresAt))))
   ) return null;
   return {
     decision: body.decision as FulfillmentQuoteInput['decision'],
@@ -44,6 +49,14 @@ function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | nu
     requirements: body.requirements as FulfillmentQuoteInput['requirements'],
     estimatedReadyAt: body.estimatedReadyAt as string | null,
     validUntil: body.validUntil as string | null,
+    ...(typeof body.status === 'string' ? { status: body.status as FulfillmentStatus } : {}),
+    ...(body.fulfillmentMethod === null || typeof body.fulfillmentMethod === 'string'
+      ? { fulfillmentMethod: body.fulfillmentMethod as FulfillmentMethod | null }
+      : {}),
+    ...(Array.isArray(body.constraints) ? { constraints: body.constraints as string[] } : {}),
+    ...(body.reservationExpiresAt === null || typeof body.reservationExpiresAt === 'string'
+      ? { reservationExpiresAt: body.reservationExpiresAt as string | null }
+      : {}),
   };
 }
 
@@ -61,7 +74,7 @@ function mapError(error: unknown): { message: string; status: 400 | 404 | 409 } 
 }
 
 fulfillmentRoutes.get('/api/custom/pharmacy/fulfillment-quotes/:submissionId', async (c) => {
-  const lineAccountId = accountId(c);
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401);
   return c.json({ quote: await getLatestFulfillmentQuote(
@@ -70,7 +83,7 @@ fulfillmentRoutes.get('/api/custom/pharmacy/fulfillment-quotes/:submissionId', a
 });
 
 fulfillmentRoutes.post('/api/custom/pharmacy/fulfillment-quotes/:submissionId', async (c) => {
-  const lineAccountId = accountId(c);
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const staff = c.get('staff');
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);

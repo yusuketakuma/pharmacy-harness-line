@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getPharmacyAccountId } from '../account.js';
 import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import {
@@ -171,20 +172,16 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/archive', async (c) =
   }
 });
 
-function adminAccount(c: { req: { query(name: string): string | undefined } }): string | null {
-  return c.req.query('line_account_id') || null;
-}
-
 pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients', async (c) => {
   if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401);
-  const lineAccountId = adminAccount(c);
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   return c.json({ patients: await listAdminPharmacyPatients(c.env.DB, lineAccountId, true) });
 });
 
 pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id', async (c) => {
   if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401);
-  const lineAccountId = adminAccount(c);
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const patient = await getAdminPharmacyPatient(c.env.DB, lineAccountId, c.req.param('id'));
   return patient ? c.json({ patient }) : c.json({ error: 'Patient not found' }, 404);
@@ -192,7 +189,7 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id', async (c) => {
 
 pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/intake', async (c) => {
   if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401);
-  const lineAccountId = adminAccount(c);
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const patient = await getAdminPharmacyPatient(c.env.DB, lineAccountId, c.req.param('id'));
   if (!patient) return c.json({ error: 'Patient not found' }, 404);

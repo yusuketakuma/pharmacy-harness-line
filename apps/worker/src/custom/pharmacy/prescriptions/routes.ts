@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../../../index.js';
+import { getPharmacyAccountId } from '../account.js';
 import { lineProxy } from '../../../routes/line-proxy.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { inspectPrescriptionImage } from './image.js';
@@ -81,7 +82,7 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
 });
 
 prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) => {
-  const lineAccountId = c.req.query('line_account_id');
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();

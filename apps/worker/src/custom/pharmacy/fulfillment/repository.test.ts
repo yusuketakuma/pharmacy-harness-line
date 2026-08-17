@@ -72,6 +72,16 @@ describe('FulfillmentQuote repository', () => {
     expect(quoteAllowsAcceptance({ decision: 'needs_confirmation', requirements: [] })).toBe(false);
   });
 
+  it('does not accept a quote whose availability status is not actionable', () => {
+    const quote = {
+      decision: 'fulfillable' as const,
+      requirements: [],
+      status: 'UNAVAILABLE' as const,
+    };
+    expect(quoteAllowsAcceptance(quote)).toBe(false);
+    expect(quoteAllowsAcceptance({ ...quote, status: 'AVAILABLE' })).toBe(true);
+  });
+
   it('loads the newest quote inside the requested account', async () => {
     const quote = {
       id: 'quote-2', submission_id: 'submission-1', line_account_id: 'account-1',
@@ -84,5 +94,51 @@ describe('FulfillmentQuote repository', () => {
     });
     expect(calls[0].sql).toContain('line_account_id = ? AND submission_id = ?');
     expect(calls[0].values).toEqual(['account-1', 'submission-1']);
+  });
+
+  it('keeps FulfillmentQuote as one compatibility contract while projecting fulfillment fields', async () => {
+    const { db, calls } = fakeDb([
+      { id: 'submission-1', status: 'received' },
+      {
+        id: 'quote-3', submission_id: 'submission-1', line_account_id: 'account-1',
+        revision: 3, decision: 'fulfillable', reason_codes_json: '[]', requirements_json: '[]',
+        status: 'AVAILABLE', fulfillment_method: 'PICKUP', constraints_json: '["stock_check"]',
+        reservation_expires_at: '2026-08-17T12:00:00Z', confirmed_by: 'staff-1',
+        confirmed_at: '2026-08-17T10:00:00Z', estimated_ready_at: '2026-08-17T11:00:00Z',
+        valid_until: '2026-08-17T12:00:00Z', created_by: 'staff-1', created_at: '2026-08-17T10:00:00Z',
+      },
+    ]);
+    await expect(createFulfillmentQuote(db, 'account-1', 'submission-1', 'staff-1', {
+      decision: 'fulfillable', reasonCodes: [], requirements: [],
+      estimatedReadyAt: '2026-08-17T11:00:00Z', validUntil: '2026-08-17T12:00:00Z',
+      status: 'AVAILABLE', fulfillmentMethod: 'PICKUP', constraints: ['stock_check'],
+      reservationExpiresAt: '2026-08-17T12:00:00Z',
+    })).resolves.toMatchObject({
+      status: 'AVAILABLE', fulfillmentMethod: 'PICKUP', constraints: ['stock_check'],
+      confirmedBy: 'staff-1',
+    });
+    expect(calls[1].sql).toContain('constraints_json');
+    expect(calls[1].sql).toContain('confirmed_by');
+  });
+
+  it('records the quote-issued event for a Myna-linked submission', async () => {
+    const { db, calls } = fakeDb([
+      {
+        id: 'submission-1', status: 'received', source_handoff_id: 'handoff-1',
+        correlation_id: 'corr-1234',
+      },
+      {
+        id: 'quote-4', submission_id: 'submission-1', line_account_id: 'account-1',
+        revision: 1, decision: 'fulfillable', reason_codes_json: '[]', requirements_json: '[]',
+        status: 'AVAILABLE', fulfillment_method: 'PICKUP', constraints_json: '[]',
+        reservation_expires_at: null, confirmed_by: 'staff-1', confirmed_at: '2026-08-17T10:00:00Z',
+        estimated_ready_at: null, valid_until: null, created_by: 'staff-1', created_at: '2026-08-17T10:00:00Z',
+      },
+    ]);
+    await createFulfillmentQuote(db, 'account-1', 'submission-1', 'staff-1', {
+      decision: 'fulfillable', reasonCodes: [], requirements: [], estimatedReadyAt: null, validUntil: null,
+      status: 'AVAILABLE', fulfillmentMethod: 'PICKUP', constraints: [],
+    });
+    expect(calls.some((call) => call.sql.includes('FULFILLMENT_QUOTE_ISSUED'))).toBe(true);
   });
 });

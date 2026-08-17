@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getPharmacyAccountId } from '../account.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescriptions/patient.js';
 import { listContinuityObligations, listPatientContinuity, pausePatientContinuity } from './repository.js';
@@ -42,7 +43,7 @@ continuityRoutes.post('/api/liff/pharmacy/continuity/:id/pause', async (c) => {
 
 continuityRoutes.get('/api/custom/pharmacy/continuity', async (c) => {
   if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401);
-  const account = c.req.query('line_account_id');
+  const account = getPharmacyAccountId(c);
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
   return c.json({ obligations: await listContinuityObligations(c.env.DB, account) });
 });

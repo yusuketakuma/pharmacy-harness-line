@@ -1,5 +1,6 @@
 import type { PrescriptionPatient } from './patient.js';
 import { quoteAllowsAcceptance } from '../fulfillment/repository.js';
+import type { FulfillmentStatus } from '../fulfillment/repository.js';
 import {
   nextPrescriptionStatus,
   type PrescriptionAction,
@@ -596,21 +597,22 @@ export async function applyAdminPrescriptionAction(
   reasonCode: string | null,
 ): Promise<PrescriptionStatus> {
   const current = await db.prepare(
-    `SELECT status, updated_at, intake_required
+    `SELECT status, updated_at, intake_required, source_handoff_id
        FROM pharmacy_prescription_submissions
       WHERE id = ? AND line_account_id = ?`,
   ).bind(submissionId, lineAccountId).first<{
     status: PrescriptionStatus;
     updated_at: string;
     intake_required?: number;
+    source_handoff_id?: string | null;
   }>();
   if (!current || current.updated_at !== expectedUpdatedAt) {
     throw new Error('prescription admin action conflict');
   }
   const next = nextPrescriptionStatus(current.status, action);
-  if (action === 'admin_accept' && current.intake_required === 1) {
+  if (action === 'admin_accept' && (current.intake_required === 1 || current.source_handoff_id != null)) {
     const quote = await db.prepare(
-      `SELECT decision, requirements_json
+      `SELECT decision, requirements_json, status
          FROM pharmacy_fulfillment_quotes
         WHERE submission_id = ? AND line_account_id = ?
         ORDER BY revision DESC, created_at DESC, id DESC
@@ -618,6 +620,7 @@ export async function applyAdminPrescriptionAction(
     ).bind(submissionId, lineAccountId).first<{
       decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
       requirements_json: string;
+      status: FulfillmentStatus | null;
     }>();
     if (!quote) throw new Error('fulfillment quote required');
     let requirements;
@@ -629,7 +632,7 @@ export async function applyAdminPrescriptionAction(
     } catch {
       throw new Error('fulfillment quote invalid');
     }
-    if (!quoteAllowsAcceptance({ decision: quote.decision, requirements })) {
+    if (!quoteAllowsAcceptance({ decision: quote.decision, requirements, status: quote.status })) {
       throw new Error('fulfillment quote not acceptable');
     }
   }

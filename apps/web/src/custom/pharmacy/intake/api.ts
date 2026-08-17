@@ -1,4 +1,5 @@
 import { fetchApi } from '../../../lib/api'
+import { accountQuery } from '../api'
 
 export type PharmacyPatient = {
   id: string
@@ -24,8 +25,6 @@ export type PatientIntake = {
   privacy_consent_at: string
   created_at: string
 }
-
-const accountQuery = (accountId: string) => `line_account_id=${encodeURIComponent(accountId)}`
 
 export const pharmacyIntakeAdminApi = {
   list: (accountId: string) => fetchApi<{ patients: PharmacyPatient[] }>(

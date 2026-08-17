@@ -92,6 +92,7 @@ import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; 
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
 import { fulfillmentRoutes } from './custom/pharmacy/fulfillment/routes.js'; // custom:pharmacy-fulfillment
 import { continuityRoutes } from './custom/pharmacy/continuity/routes.js'; // custom:pharmacy-continuity
+import { mynaRoutes } from './custom/pharmacy/myna/routes.js'; // custom:pharmacy-myna
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
 import { claimDueContinuityReminders } from './custom/pharmacy/continuity/repository.js'; // custom:pharmacy-continuity
@@ -149,6 +150,8 @@ export type Env = {
     // the Worker keeps a refresh token and never needs a service-account key.
     GOOGLE_OAUTH_CLIENT_ID?: string;
     GOOGLE_OAUTH_CLIENT_SECRET?: string;
+    MYNA_ENDPOINT_ENCRYPTION_KEY?: string;
+    MYNA_ALLOWED_HOSTS?: string;
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
@@ -212,6 +215,7 @@ app.route('/', prescriptionRoutes); // custom:pharmacy-prescriptions
 app.route('/', pharmacyIntakeRoutes); // custom:pharmacy-intake
 app.route('/', fulfillmentRoutes); // custom:pharmacy-fulfillment
 app.route('/', continuityRoutes); // custom:pharmacy-continuity
+app.route('/', mynaRoutes); // custom:pharmacy-myna
 
 // Mount route groups — Round 3
 app.route('/', webhooks);

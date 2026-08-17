@@ -23,6 +23,13 @@ export interface DueContinuityReminder extends ContinuityObligation {
   channel_access_token: string;
 }
 
+const OBLIGATION_SELECT = `
+  SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
+         candidate_submission_id, status, expected_next_from, expected_next_to,
+         next_contact_at, consent_at, last_reminded_at, reminder_count,
+         created_at, updated_at
+    FROM pharmacy_continuity_obligations`;
+
 function dateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
@@ -109,11 +116,7 @@ export async function openContinuityObligation(
     ),
   ]);
   return db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-            candidate_submission_id, status, expected_next_from, expected_next_to,
-            next_contact_at, consent_at, last_reminded_at, reminder_count,
-            created_at, updated_at
-       FROM pharmacy_continuity_obligations
+    `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND source_submission_id = ?
       ORDER BY created_at DESC, id DESC LIMIT 1`,
   ).bind(lineAccountId, sourceSubmissionId).first<ContinuityObligation>();
@@ -136,11 +139,7 @@ export async function linkContinuitySubmission(
   }>();
   if (!patient) return null;
   const obligation = await db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-            candidate_submission_id, status, expected_next_from, expected_next_to,
-            next_contact_at, consent_at, last_reminded_at, reminder_count,
-            created_at, updated_at
-       FROM pharmacy_continuity_obligations
+    `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND patient_id = ? AND owner_friend_id = ?
         AND status = 'active'
       ORDER BY created_at DESC, id DESC LIMIT 1`,
@@ -175,11 +174,7 @@ export async function completeContinuityAfterClose(
   now = new Date(),
 ): Promise<ContinuityObligation | null> {
   const linked = await db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-            candidate_submission_id, status, expected_next_from, expected_next_to,
-            next_contact_at, consent_at, last_reminded_at, reminder_count,
-            created_at, updated_at
-       FROM pharmacy_continuity_obligations
+    `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND candidate_submission_id = ? AND status = 'linked'
       LIMIT 1`,
   ).bind(lineAccountId, submissionId).first<ContinuityObligation>();
@@ -205,11 +200,7 @@ export async function listContinuityObligations(
   lineAccountId: string,
 ): Promise<ContinuityObligation[]> {
   const result = await db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-            candidate_submission_id, status, expected_next_from, expected_next_to,
-            next_contact_at, consent_at, last_reminded_at, reminder_count,
-            created_at, updated_at
-       FROM pharmacy_continuity_obligations
+    `${OBLIGATION_SELECT}
       WHERE line_account_id = ?
       ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'linked' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,
                next_contact_at, id`,
@@ -223,11 +214,7 @@ export async function listPatientContinuity(
   ownerFriendId: string,
 ): Promise<ContinuityObligation[]> {
   const result = await db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-            candidate_submission_id, status, expected_next_from, expected_next_to,
-            next_contact_at, consent_at, last_reminded_at, reminder_count,
-            created_at, updated_at
-       FROM pharmacy_continuity_obligations
+    `${OBLIGATION_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ?
         AND status IN ('active','linked','paused')
       ORDER BY next_contact_at, id`,

@@ -1,4 +1,5 @@
 import { fetchApi } from '../../../lib/api'
+import { accountQuery } from '../api'
 
 export type ContinuityObligation = {
   id: string
@@ -15,6 +16,6 @@ export type ContinuityObligation = {
 
 export const continuityAdminApi = {
   list: (accountId: string) => fetchApi<{ obligations: ContinuityObligation[] }>(
-    `/api/custom/pharmacy/continuity?line_account_id=${encodeURIComponent(accountId)}`,
+    `/api/custom/pharmacy/continuity?${accountQuery(accountId)}`,
   ),
 }

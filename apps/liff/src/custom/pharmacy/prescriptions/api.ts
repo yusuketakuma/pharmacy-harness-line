@@ -1,6 +1,4 @@
-import { getIdToken, getLiffId } from '../../../lib/liff-auth.js';
-
-const BASE = import.meta.env.VITE_API_BASE ?? '';
+import { requestPharmacyLiff } from '../request.js';
 
 export interface PrescriptionSubmission {
   id: string;
@@ -19,16 +17,7 @@ async function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
-  const url = new URL(`${BASE}${path}`, origin);
-  url.searchParams.set('liffId', getLiffId());
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${getIdToken()}`,
-      ...init.headers,
-    },
-  });
+  const response = await requestPharmacyLiff(path, init);
   const text = await response.text();
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
@@ -44,9 +33,9 @@ async function request<T>(
   return body as T;
 }
 
-function json<T>(path: string, method: 'POST', body: unknown): Promise<T> {
+function json<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
-    method,
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -61,7 +50,7 @@ export const prescriptionApi = {
     patientId?: string;
     intakeResponseId?: string;
   }) => json<{ submission: PrescriptionSubmission }>(
-    '/api/liff/pharmacy/prescriptions', 'POST', body,
+    '/api/liff/pharmacy/prescriptions', body,
   ),
   upload: (submissionId: string, position: number, image: Blob) =>
     request<{ file: { id: string; revision: number; position: number; state: 'ready' } }>(
@@ -71,7 +60,6 @@ export const prescriptionApi = {
   submit: (submissionId: string, expectedUpdatedAt: string) =>
     json<{ status: 'received' }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/submit`,
-      'POST',
       { expectedUpdatedAt },
     ),
   history: () => request<{ submissions: PrescriptionSubmission[] }>(
@@ -80,13 +68,11 @@ export const prescriptionApi = {
   cancel: (submissionId: string, expectedUpdatedAt: string) =>
     json<{ status: 'cancelled'; cleanupPending: boolean }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/cancel`,
-      'POST',
       { expectedUpdatedAt },
     ),
   reserveResubmission: (submissionId: string, expectedUpdatedAt: string) =>
     json<{ status: 'needs_resubmission' }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/resubmission`,
-      'POST',
       { expectedUpdatedAt },
     ),
 };

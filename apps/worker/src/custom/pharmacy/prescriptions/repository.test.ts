@@ -139,6 +139,28 @@ describe('admin account-scoped repository', () => {
     expect(calls.every((call) => call.operation !== 'batch')).toBe(true);
   });
 
+  it('requires FulfillmentQuote for a Myna-linked submission even without intake_required', async () => {
+    const current = {
+      status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
+      intake_required: 0, source_handoff_id: 'handoff-1',
+    };
+    let firstCall = 0;
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => firstCall++ === 0 ? current : null,
+          run: async () => ({ meta: { changes: 1 } }),
+          all: async () => ({ results: [] }),
+        }),
+      }),
+      batch: async () => [],
+    } as unknown as D1Database;
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept',
+      '2026-08-17T00:00:00.000Z', 'staff-1', null,
+    )).rejects.toThrow('fulfillment quote required');
+  });
+
   it('lists a stable queue for one account without image keys or thumbnails', async () => {
     const { db, calls } = fakeDb([{ id: 'submission-1', status: 'received' }]);
     await expect(listAdminPrescriptionQueue(db, 'account-1', {

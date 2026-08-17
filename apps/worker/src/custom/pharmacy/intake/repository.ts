@@ -76,6 +76,15 @@ const ANSWER_KEYS = new Set([
 ]);
 const STATUS_VALUES = new Set(['none', 'yes', 'unknown']);
 const PREGNANCY_VALUES = new Set(['not_applicable', 'yes', 'no', 'unknown']);
+const PATIENT_SELECT = `
+  SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
+         birth_date, sex, contact_phone, archived_at, created_at, updated_at
+    FROM pharmacy_patients`;
+const INTAKE_SELECT = `
+  SELECT id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
+         patient_snapshot_json, answers_json, base_response_id, idempotency_key,
+         representative_consent_at, privacy_consent_at, created_at
+    FROM pharmacy_patient_intake_responses`;
 
 function boundedText(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.trim().length <= max;
@@ -185,9 +194,7 @@ export async function listPharmacyPatients(
 ): Promise<PharmacyPatient[]> {
   const archivedClause = includeArchived ? '' : ' AND archived_at IS NULL';
   const result = await db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
-            birth_date, sex, contact_phone, archived_at, created_at, updated_at
-       FROM pharmacy_patients
+    `${PATIENT_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ?${archivedClause}
       ORDER BY CASE relationship WHEN 'self' THEN 0 ELSE 1 END,
                updated_at DESC, id DESC`,
@@ -202,9 +209,7 @@ export async function listAdminPharmacyPatients(
 ): Promise<PharmacyPatient[]> {
   const archivedClause = includeArchived ? '' : ' AND archived_at IS NULL';
   const result = await db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
-            birth_date, sex, contact_phone, archived_at, created_at, updated_at
-       FROM pharmacy_patients
+    `${PATIENT_SELECT}
       WHERE line_account_id = ?${archivedClause}
       ORDER BY updated_at DESC, id DESC`,
   ).bind(lineAccountId).all<PharmacyPatient>();
@@ -217,9 +222,7 @@ export async function getPharmacyPatient(
   patientId: string,
 ): Promise<PharmacyPatient | null> {
   return db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
-            birth_date, sex, contact_phone, archived_at, created_at, updated_at
-       FROM pharmacy_patients
+    `${PATIENT_SELECT}
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?`,
   ).bind(patientId, owner.lineAccountId, owner.friendId).first<PharmacyPatient>();
 }
@@ -230,9 +233,7 @@ export async function getAdminPharmacyPatient(
   patientId: string,
 ): Promise<PharmacyPatient | null> {
   return db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
-            birth_date, sex, contact_phone, archived_at, created_at, updated_at
-       FROM pharmacy_patients
+    `${PATIENT_SELECT}
       WHERE id = ? AND line_account_id = ?`,
   ).bind(patientId, lineAccountId).first<PharmacyPatient>();
 }
@@ -266,13 +267,14 @@ export async function archivePharmacyPatient(
   patientId: string,
   expectedUpdatedAt: string,
 ): Promise<void> {
+  const now = new Date().toISOString();
   const result = await db.prepare(
     `UPDATE pharmacy_patients
         SET archived_at = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
         AND archived_at IS NULL AND updated_at = ?`,
   ).bind(
-    new Date().toISOString(), new Date().toISOString(), patientId,
+    now, now, patientId,
     owner.lineAccountId, owner.friendId, expectedUpdatedAt,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('patient archive conflict');
@@ -337,10 +339,7 @@ export async function createPatientIntakeResponse(
   ).first<PharmacyPatientIntakeResponse>();
   if (!inserted) {
     const existing = await db.prepare(
-      `SELECT id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
-              patient_snapshot_json, answers_json, base_response_id, idempotency_key,
-              representative_consent_at, privacy_consent_at, created_at
-         FROM pharmacy_patient_intake_responses
+      `${INTAKE_SELECT}
         WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
           AND idempotency_key = ?`,
     ).bind(
@@ -358,10 +357,7 @@ export async function getLatestPatientIntake(
   patientId: string,
 ): Promise<PharmacyPatientIntakeResponse | null> {
   return db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
-            patient_snapshot_json, answers_json, base_response_id, idempotency_key,
-            representative_consent_at, privacy_consent_at, created_at
-       FROM pharmacy_patient_intake_responses
+    `${INTAKE_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
       ORDER BY revision DESC, id DESC
       LIMIT 1`,
@@ -374,10 +370,7 @@ export async function getLatestAdminPatientIntake(
   patientId: string,
 ): Promise<PharmacyPatientIntakeResponse | null> {
   return db.prepare(
-    `SELECT id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
-            patient_snapshot_json, answers_json, base_response_id, idempotency_key,
-            representative_consent_at, privacy_consent_at, created_at
-       FROM pharmacy_patient_intake_responses
+    `${INTAKE_SELECT}
       WHERE line_account_id = ? AND patient_id = ?
       ORDER BY revision DESC, id DESC
       LIMIT 1`,

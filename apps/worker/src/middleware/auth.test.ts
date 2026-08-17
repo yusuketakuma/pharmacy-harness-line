@@ -56,6 +56,8 @@ function app() {
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
   return a;
@@ -235,6 +237,27 @@ describe('prescription LIFF auth boundary', () => {
       method: 'DELETE',
     }, crossSiteEnv());
     expect(wrongMethod.status).toBe(401);
+  });
+});
+
+describe('Myna LIFF auth boundary', () => {
+  test('allows only the supported patient actions through to LINE verification', async () => {
+    const post = await app().request('/api/liff/pharmacy/myna-handoffs', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(post.status).toBe(200);
+
+    const launch = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/launch', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(launch.status).toBe(200);
+  });
+
+  test('does not exempt the wrong method on a Myna patient action path', async () => {
+    const res = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/launch', {
+      method: 'DELETE',
+    }, crossSiteEnv());
+    expect(res.status).toBe(401);
   });
 });
 

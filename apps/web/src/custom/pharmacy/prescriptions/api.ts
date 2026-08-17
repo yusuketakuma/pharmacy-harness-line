@@ -1,4 +1,5 @@
 import { fetchApi, getCsrfToken } from '../../../lib/api'
+import { accountQuery } from '../api'
 
 export type PrescriptionStatus =
   | 'draft'
@@ -71,6 +72,19 @@ export type FulfillmentDecision =
   | 'needs_confirmation'
   | 'not_fulfillable'
 
+export type FulfillmentStatus =
+  | 'CHECKING'
+  | 'AVAILABLE'
+  | 'PARTIALLY_AVAILABLE'
+  | 'UNAVAILABLE'
+  | 'PHARMACIST_REVIEW_REQUIRED'
+
+export type FulfillmentMethod =
+  | 'PICKUP'
+  | 'DELIVERY'
+  | 'HOME_VISIT'
+  | 'FACILITY_DELIVERY'
+
 export interface FulfillmentQuote {
   id: string
   submission_id: string
@@ -79,6 +93,12 @@ export interface FulfillmentQuote {
   decision: FulfillmentDecision
   reasonCodes: string[]
   requirements: Array<{ code: string; status: 'pending' | 'satisfied' }>
+  status: FulfillmentStatus
+  fulfillmentMethod: FulfillmentMethod | null
+  constraints: string[]
+  reservationExpiresAt: string | null
+  confirmedBy: string | null
+  confirmedAt: string | null
   estimatedReadyAt: string | null
   validUntil: string | null
   created_by: string
@@ -87,8 +107,6 @@ export interface FulfillmentQuote {
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL
 if (!apiBase) throw new Error('NEXT_PUBLIC_API_URL is not set')
-
-const accountQuery = (accountId: string) => `line_account_id=${encodeURIComponent(accountId)}`
 
 export const prescriptionAdminApi = {
   list: (accountId: string, cursor?: string) => fetchApi<{
@@ -109,7 +127,8 @@ export const prescriptionAdminApi = {
   saveFulfillmentQuote: (
     accountId: string,
     submissionId: string,
-    body: Omit<FulfillmentQuote, 'id' | 'submission_id' | 'line_account_id' | 'revision' | 'created_by' | 'created_at'>,
+    body: Pick<FulfillmentQuote, 'decision' | 'reasonCodes' | 'requirements' | 'estimatedReadyAt' | 'validUntil'> &
+      Partial<Pick<FulfillmentQuote, 'status' | 'fulfillmentMethod' | 'constraints' | 'reservationExpiresAt'>>,
   ) => fetchApi<{ quote: FulfillmentQuote }>(
     `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
     { method: 'POST', body: JSON.stringify(body) },

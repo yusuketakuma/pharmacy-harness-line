@@ -13,6 +13,7 @@ import {
   type PrescriptionStats,
   type PrescriptionStatus,
   type FulfillmentDecision,
+  type FulfillmentMethod,
   type FulfillmentQuote,
 } from './api'
 
@@ -48,6 +49,17 @@ const FULFILLMENT_REASON_OPTIONS = [
   ['stock_check', '在庫の確認'],
   ['pickup_time', '受取時間の確認'],
 ] as const;
+
+const FULFILLMENT_METHOD_LABELS: Record<FulfillmentMethod, string> = {
+  PICKUP: '薬局で受け取り',
+  DELIVERY: '配送',
+  HOME_VISIT: '訪問',
+  FACILITY_DELIVERY: '施設へ配送',
+}
+
+function dateTimeInputValue(value: string | null | undefined): string {
+  return value ? value.slice(0, 16) : ''
+}
 
 export const statusLabel = (status: PrescriptionStatus) => STATUS_LABELS[status]
 export const reasonLabel = (reason: string | null) => reason ? REASON_LABELS[reason] ?? reason : 'なし'
@@ -187,6 +199,9 @@ export default function PrescriptionQueuePage() {
   const [quoteDecision, setQuoteDecision] = useState<FulfillmentDecision>('needs_confirmation')
   const [quoteReasons, setQuoteReasons] = useState<string[]>([])
   const [quoteRequirements, setQuoteRequirements] = useState<Array<{ code: string; status: 'pending' | 'satisfied' }>>([])
+  const [quoteReadyAt, setQuoteReadyAt] = useState('')
+  const [quoteValidUntil, setQuoteValidUntil] = useState('')
+  const [quoteMethod, setQuoteMethod] = useState<FulfillmentMethod | ''>('')
   const [quoteSaving, setQuoteSaving] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [acting, setActing] = useState(false)
@@ -235,6 +250,9 @@ export default function PrescriptionQueuePage() {
       setQuoteDecision(nextQuote.quote?.decision ?? 'needs_confirmation')
       setQuoteReasons(nextQuote.quote?.reasonCodes ?? [])
       setQuoteRequirements(nextQuote.quote?.requirements ?? [])
+      setQuoteReadyAt(dateTimeInputValue(nextQuote.quote?.estimatedReadyAt))
+      setQuoteValidUntil(dateTimeInputValue(nextQuote.quote?.validUntil))
+      setQuoteMethod(nextQuote.quote?.fulfillmentMethod ?? '')
       setTemporaryError(false)
     } catch (caught) {
       setTemporaryError(isTemporaryDeploymentError(caught))
@@ -320,8 +338,9 @@ export default function PrescriptionQueuePage() {
           decision: quoteDecision,
           reasonCodes: quoteReasons,
           requirements: quoteRequirements,
-          estimatedReadyAt: null,
-          validUntil: null,
+          estimatedReadyAt: quoteReadyAt ? new Date(quoteReadyAt).toISOString() : null,
+          validUntil: quoteValidUntil ? new Date(quoteValidUntil).toISOString() : null,
+          ...(quoteMethod ? { fulfillmentMethod: quoteMethod } : {}),
         },
       )
       setQuote(result.quote)
@@ -445,7 +464,12 @@ export default function PrescriptionQueuePage() {
                     }} />{label}</label>)}
                   </fieldset>
                   {quoteRequirements.length > 0 && <div className="mt-3 space-y-2"><p className="text-sm font-medium">条件の状態</p>{quoteRequirements.map((requirement) => <label key={requirement.code} className="flex items-center justify-between gap-2 text-sm"><span>{FULFILLMENT_REASON_OPTIONS.find(([code]) => code === requirement.code)?.[1] ?? requirement.code}</span><select value={requirement.status} onChange={(event) => setQuoteRequirements((current) => current.map((item) => item.code === requirement.code ? { ...item, status: event.target.value as 'pending' | 'satisfied' } : item))} className="rounded border border-gray-300 bg-white px-2 py-1"><option value="pending">未確認</option><option value="satisfied">確認済み</option></select></label>)}</div>}
-                  {quote && <p className="mt-3 text-xs text-gray-600">第{quote.revision}版・{fulfillmentDecisionLabel(quote.decision)}</p>}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-medium">準備予定時刻<input type="datetime-local" value={quoteReadyAt} onChange={(event) => setQuoteReadyAt(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2" /></label>
+                    <label className="text-sm font-medium">受取方法<select value={quoteMethod} onChange={(event) => setQuoteMethod(event.target.value as FulfillmentMethod | '')} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="">未定</option>{Object.entries(FULFILLMENT_METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                  </div>
+                  <label className="mt-3 block max-w-sm text-sm font-medium">回答の有効期限<input type="datetime-local" value={quoteValidUntil} onChange={(event) => setQuoteValidUntil(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2" /></label>
+                  {quote && <p className="mt-3 text-xs text-gray-600">第{quote.revision}版・{fulfillmentDecisionLabel(quote.decision)}・状態 {quote.status}</p>}
                   <button type="button" onClick={() => void saveQuote()} disabled={quoteSaving} className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{quoteSaving ? '保存中…' : '受付内容を保存'}</button>
                 </section>
               )}

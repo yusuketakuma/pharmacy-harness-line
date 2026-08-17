@@ -1,6 +1,4 @@
-import { getIdToken, getLiffId } from '../../../lib/liff-auth.js';
-
-const BASE = import.meta.env.VITE_API_BASE ?? '';
+import { requestPharmacyLiff } from '../request.js';
 
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
 export type PatientSex = 'male' | 'female' | 'other' | 'prefer_not_to_say';
@@ -40,16 +38,7 @@ export interface PatientIntakeAnswers {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
-  const url = new URL(`${BASE}${path}`, origin);
-  url.searchParams.set('liffId', getLiffId());
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${getIdToken()}`,
-      ...init.headers,
-    },
-  });
+  const response = await requestPharmacyLiff(path, init);
   const text = await response.text();
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
