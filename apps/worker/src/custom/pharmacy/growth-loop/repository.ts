@@ -498,7 +498,7 @@ export function summarizeCohorts(
     return !!submittedAt && Date.parse(submittedAt) >= Date.parse(occurredAt) && Date.parse(submittedAt) <= Date.parse(occurredAt) + 90 * 86400000;
   }).length;
   return {
-    measurableFollows: follows.size,
+    measurableFollows: followCohort.length,
     firstSubmissionRate: {
       numerator: firstSubmissionNumerator,
       denominator: followCohort.length,
@@ -561,7 +561,14 @@ export async function getGrowthDashboard(
       FROM pharmacy_fulfillment_quotes q
       INNER JOIN first_ready ON first_ready.submission_id = q.submission_id
      WHERE q.line_account_id = ? AND q.estimated_ready_at IS NOT NULL
-       AND q.created_at <= first_ready.ready_at AND q.decision <> 'not_fulfillable'`)
+       AND q.created_at <= first_ready.ready_at
+       AND q.decision IN ('fulfillable','conditional')
+       AND (q.status IS NULL OR q.status IN ('AVAILABLE','PARTIALLY_AVAILABLE'))
+       AND (q.valid_until IS NULL OR q.valid_until > first_ready.ready_at)
+       AND (q.decision = 'fulfillable' OR NOT EXISTS (
+         SELECT 1 FROM json_each(q.requirements_json)
+          WHERE json_extract(value, '$.status') <> 'satisfied'
+       ))`)
       .bind(lineAccountId, ...bounds, lineAccountId).all<GrowthPromiseRow>(),
     db.prepare(`SELECT COUNT(DISTINCT e.submission_id) AS count
                   FROM pharmacy_prescription_events e

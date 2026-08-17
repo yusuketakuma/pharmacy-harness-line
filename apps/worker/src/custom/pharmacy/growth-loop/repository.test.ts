@@ -39,6 +39,7 @@ describe('growth loop activation cohorts', () => {
       '2026-09-01T00:00:00.000Z',
       '2026-08-20T00:00:00.000Z',
     )).toMatchObject({
+      measurableFollows: 0,
       firstSubmissionRate: { denominator: 0, immatureCohort: 1 },
       secondSubmissionRate: { denominator: 0, immatureCohort: 1 },
     });
@@ -311,7 +312,11 @@ describe('growth dashboard', () => {
       unfollow: { exposedFriends: 1 },
     });
     expect(queries.find((sql) => sql.includes('pharmacy_submission_sources'))).toContain("accepted.event_type = 'status_changed'");
-    expect(queries.find((sql) => sql.includes('pharmacy_fulfillment_quotes'))).toContain("ready.event_type = 'status_changed'");
+    const promiseQuery = queries.find((sql) => sql.includes('pharmacy_fulfillment_quotes')) ?? '';
+    expect(promiseQuery).toContain("ready.event_type = 'status_changed'");
+    expect(promiseQuery).toContain("q.status IN ('AVAILABLE','PARTIALLY_AVAILABLE')");
+    expect(promiseQuery).toContain('q.valid_until > first_ready.ready_at');
+    expect(promiseQuery).toContain("q.decision IN ('fulfillable','conditional')");
     expect(queries.find((sql) => sql.includes('verified_validity'))).toContain('COALESCE(attr.is_synthetic, 0) = 0');
     expect(queries.find((sql) => sql.includes('exposed_friends'))).toContain("n.outcome = 'sent'");
   });
