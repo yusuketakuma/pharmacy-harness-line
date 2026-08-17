@@ -13,6 +13,9 @@ function db(pharmacyAccounts: string[]): D1Database {
       const statement = (binds: unknown[]) => ({
         first: async <T>() => {
           if (sql.includes('FROM pharmacy_account_capabilities')) {
+            if (sql.includes("WHERE mode = 'pharmacy'")) {
+              return (pharmacyAccounts.length > 0 ? { ok: 1 } : null) as T | null;
+            }
             return (pharmacyAccounts.includes(String(binds[0])) ? { mode: 'pharmacy' } : null) as T | null;
           }
           if (sql.includes('FROM broadcasts')) {
@@ -199,6 +202,54 @@ describe('pharmacy generic feature guard', () => {
     }, env);
 
     expect(response.status).toBe(403);
+  });
+
+  it('fails closed for identity sends whose friend has no account in a pharmacy install', async () => {
+    const database = {
+      prepare(sql: string) {
+        const statement = () => ({
+          first: async <T>() => {
+            if (sql.includes('FROM friends') && sql.includes('line_user_id')) {
+              return { line_account_id: null } as T;
+            }
+            if (sql.includes('FROM line_accounts')) return { id: 'generic-a' } as T;
+            if (sql.includes("WHERE mode = 'pharmacy'")) return { ok: 1 } as T;
+            return null;
+          },
+          all: async <T>() => ({ results: [] as T[] }),
+        });
+        return { bind: () => statement(), ...statement() };
+      },
+    } as unknown as D1Database;
+    const { root, env } = app(database);
+
+    const responses = await Promise.all([
+      root.request('/api/meet-callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_user_id: 'U-unowned', line_account_id: 'generic-a' }),
+      }, env),
+      root.request('/api/liff/send-form-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lineUserId: 'U-unowned', formId: 'form-1', lineAccountId: 'generic-a',
+        }),
+      }, env),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([403, 403]);
+  });
+
+  it('keeps unowned identity sends compatible when no pharmacy account exists', async () => {
+    const { root, env } = app(db([]));
+    const response = await root.request('/api/liff/send-form-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lineUserId: 'U-unowned', formId: 'form-1' }),
+    }, env);
+
+    expect(response.status).toBe(200);
   });
 
   it('denies generic booking, event, and form-link sends for pharmacy accounts', async () => {

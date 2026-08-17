@@ -3,6 +3,10 @@ import type { Env } from '../../../index.js';
 import { isPharmacyModeAccount } from './access.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const IDENTITY_SCOPED_SEND_PATHS = new Set([
+  '/api/meet-callback',
+  '/api/liff/send-form-link',
+]);
 
 export const PHARMACY_DISABLED_GENERIC_API_PREFIXES = [
   '/api/broadcasts',
@@ -123,18 +127,23 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
 
 export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): Promise<Response | void> {
   const path = new URL(c.req.url).pathname;
+  const requiresOwnedIdentity = IDENTITY_SCOPED_SEND_PATHS.has(path);
   const accountIds = new Set<string>();
   const friendIds = new Set<string>();
   const lineUserIds = new Set<string>();
-  for (const key of ['lineAccountId', 'line_account_id', 'accountId', 'account_id']) {
-    addAccountIds(accountIds, c.req.query(key));
+  if (!requiresOwnedIdentity) {
+    for (const key of ['lineAccountId', 'line_account_id', 'accountId', 'account_id']) {
+      addAccountIds(accountIds, c.req.query(key));
+    }
   }
 
   if (!SAFE_METHODS.has(c.req.method.toUpperCase()) && c.req.header('content-type')?.includes('application/json')) {
     const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
     if (body) {
-      for (const key of ['lineAccountId', 'line_account_id', 'accountId', 'account_id', 'accountIds']) {
-        addAccountIds(accountIds, body[key]);
+      if (!requiresOwnedIdentity) {
+        for (const key of ['lineAccountId', 'line_account_id', 'accountId', 'account_id', 'accountIds']) {
+          addAccountIds(accountIds, body[key]);
+        }
       }
       addAccountIds(friendIds, body.friendId);
       addAccountIds(friendIds, body.friend_id);
@@ -158,7 +167,7 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
 
   for (const accountId of await resourceAccountIds(c, path)) accountIds.add(accountId);
 
-  if (accountIds.size === 0) {
+  if (accountIds.size === 0 && !requiresOwnedIdentity) {
     const account = await c.env.DB.prepare(
       `SELECT id FROM line_accounts WHERE channel_id = ? AND is_active = 1`,
     ).bind(c.env.LINE_CHANNEL_ID).first<{ id: string }>();

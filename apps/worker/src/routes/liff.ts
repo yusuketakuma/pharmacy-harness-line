@@ -971,11 +971,13 @@ liffRoutes.get('/auth/callback', async (c) => {
         }
 
         const formAccountId = formAccount?.id ?? friend.line_account_id ?? null;
+        const pharmacyBlocked = (formAccountId
+          ? await isPharmacyModeAccount(db, formAccountId)
+          : false)
+          || (!friend.line_account_id && await hasPharmacyModeAccount(db));
         if (
           canSendGenericForm
-          && (formAccountId
-            ? await isPharmacyModeAccount(db, formAccountId)
-            : await hasPharmacyModeAccount(db))
+          && pharmacyBlocked
         ) {
           canSendGenericForm = false;
         }

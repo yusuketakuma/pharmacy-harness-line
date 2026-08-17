@@ -228,4 +228,24 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
       ),
     ).toBe(false);
   });
+
+  it('does not send a generic form link for an unowned friend in a pharmacy install', async () => {
+    dbMocks.getLineAccountByChannelId.mockResolvedValue({
+      id: 'generic-a',
+      login_channel_id: '2000000002',
+      login_channel_secret: 'generic-secret',
+      channel_access_token: 'generic-token',
+      liff_id: '1000000002-Generic',
+    });
+    dbMocks.getScenarios.mockResolvedValue([]);
+    pharmacyAccessMocks.hasPharmacyModeAccount.mockResolvedValue(true);
+
+    await callback({ form: 'form-1', account: 'CH-generic' });
+
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
+      ),
+    ).toBe(false);
+  });
 });
