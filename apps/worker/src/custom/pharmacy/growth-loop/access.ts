@@ -49,16 +49,13 @@ export async function canAccessPharmacyAccount(
     `SELECT id FROM line_accounts WHERE id = ? AND is_active = 1`,
   ).bind(lineAccountId).first<{ id: string }>();
   if (!account) return false;
-  if (staff.id === 'env-owner' || staff.role === 'owner') return true;
+  if (staff.id === 'env-owner') return true;
 
   const assigned = await db.prepare(
     `SELECT 1 AS ok FROM pharmacy_staff_accounts
       WHERE line_account_id = ? AND staff_id = ? AND is_active = 1
-     UNION ALL
-     SELECT 1 AS ok FROM staff
-      WHERE line_account_id = ? AND id = ? AND is_active = 1 AND deleted_at IS NULL
      LIMIT 1`,
-  ).bind(lineAccountId, staff.id, lineAccountId, staff.id).first<{ ok: number }>();
+  ).bind(lineAccountId, staff.id).first<{ ok: number }>();
   return Boolean(assigned);
 }
 

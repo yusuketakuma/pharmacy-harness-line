@@ -13,11 +13,24 @@ type DueValidity = {
 export async function processDuePrescriptionValidityReminders(
   db: D1Database,
   options: { proxyBaseUrl: string; proxyDispatch?: HarnessProxyDispatch; now?: Date; limit?: number },
-): Promise<{ sent: number; failed: number; skipped: number }> {
+): Promise<{ sent: number; failed: number; skipped: number; expiredReviewRequired: number }> {
   const now = options.now ?? new Date();
   const timestamp = now.toISOString();
+  const today = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const staleClaim = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? 50)));
+  const expired = await db.prepare(
+    `UPDATE pharmacy_prescription_validities
+        SET verification_status = 'expired_review_required',
+            reminder_claimed_at = NULL, updated_at = ?
+      WHERE verification_status = 'verified' AND valid_until IS NOT NULL AND valid_until < ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_prescription_submissions s
+           WHERE s.id = pharmacy_prescription_validities.submission_id
+             AND s.line_account_id = pharmacy_prescription_validities.line_account_id
+             AND s.status NOT IN ('closed','cancelled')
+        )`,
+  ).bind(timestamp, today).run();
   const rows = await db.prepare(
     `SELECT v.submission_id, v.line_account_id, s.friend_id, v.valid_until,
             f.line_user_id, la.channel_access_token
@@ -30,15 +43,21 @@ export async function processDuePrescriptionValidityReminders(
          ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
         AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'prescription_intake')
       WHERE v.verification_status = 'verified' AND v.valid_until IS NOT NULL
+        AND v.valid_until >= ?
         AND v.reminder_due_at IS NOT NULL AND v.reminder_due_at <= ?
         AND v.reminder_sent_at IS NULL
         AND (v.reminder_claimed_at IS NULL OR v.reminder_claimed_at < ?)
         AND s.status NOT IN ('closed','cancelled')
         AND f.is_following = 1 AND la.is_active = 1
       ORDER BY v.reminder_due_at, v.submission_id LIMIT ?`,
-  ).bind(timestamp, staleClaim, limit).all<DueValidity>();
+  ).bind(today, timestamp, staleClaim, limit).all<DueValidity>();
 
-  const result = { sent: 0, failed: 0, skipped: 0 };
+  const result = {
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+    expiredReviewRequired: expired.meta?.changes ?? 0,
+  };
   for (const row of rows.results ?? []) {
     const claim = await db.prepare(
       `UPDATE pharmacy_prescription_validities
@@ -46,8 +65,8 @@ export async function processDuePrescriptionValidityReminders(
         WHERE submission_id = ? AND line_account_id = ?
           AND verification_status = 'verified' AND reminder_sent_at IS NULL
           AND (reminder_claimed_at IS NULL OR reminder_claimed_at < ?)
-          AND valid_until IS NOT NULL`,
-    ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, staleClaim).run();
+          AND valid_until IS NOT NULL AND valid_until >= ?`,
+    ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, staleClaim, today).run();
     if ((claim.meta?.changes ?? 0) !== 1) {
       result.skipped++;
       continue;

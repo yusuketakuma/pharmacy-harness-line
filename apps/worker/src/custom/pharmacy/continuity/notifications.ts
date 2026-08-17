@@ -3,7 +3,7 @@ import type { DueContinuityReminder } from './repository.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
 
 export interface ContinuityNotificationOptions {
-  db?: D1Database;
+  db: D1Database;
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
 }

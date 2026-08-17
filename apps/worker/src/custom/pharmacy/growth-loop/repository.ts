@@ -18,6 +18,14 @@ function defaultPrescriptionValidUntil(issuedOn: string | null, validityBasis: '
   return date.toISOString().slice(0, 10);
 }
 
+function prescriptionReminderDueAt(validUntil: string | null): string | null {
+  if (!validUntil) return null;
+  const date = new Date(`${validUntil}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  // 00:00 UTC is 09:00 Asia/Tokyo, outside the initial quiet-hours window.
+  return date.toISOString();
+}
+
 function isCalendarDate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -138,12 +146,14 @@ export async function classifySubmissionSource(
   input: { lineAccountId: string; submissionId: string; sourceId: string | null; classification: 'primary' | 'other' | 'unknown'; staffId: string },
 ): Promise<void> {
   if (input.classification !== 'unknown' && !input.sourceId) throw new Error('source is required');
+  if (input.classification === 'unknown' && input.sourceId) throw new Error('unknown source must not reference a source id');
   if (input.sourceId) {
     const source = await db.prepare(
-      `SELECT id FROM pharmacy_medical_sources
+      `SELECT id, classification FROM pharmacy_medical_sources
         WHERE id = ? AND line_account_id = ? AND is_active = 1`,
-    ).bind(input.sourceId, input.lineAccountId).first<{ id: string }>();
+    ).bind(input.sourceId, input.lineAccountId).first<{ id: string; classification: 'primary' | 'other' }>();
     if (!source) throw new Error('medical source not found');
+    if (source.classification !== input.classification) throw new Error('medical source classification mismatch');
   }
   const timestamp = now();
   const result = await db.prepare(
@@ -180,26 +190,49 @@ export async function savePrescriptionValidity(
 ): Promise<void> {
   if (input.issuedOn && !isCalendarDate(input.issuedOn)) throw new Error('invalid issued date');
   if (input.validUntil && !isCalendarDate(input.validUntil)) throw new Error('invalid valid-until date');
-  const validUntil = input.validUntil ?? defaultPrescriptionValidUntil(input.issuedOn, input.validityBasis);
+  const defaultValidUntil = defaultPrescriptionValidUntil(input.issuedOn, input.validityBasis);
+  if (input.validityBasis === 'default_4_days' && input.validUntil && input.validUntil !== defaultValidUntil) {
+    throw new Error('default four-day validity cannot be overridden');
+  }
+  const validUntil = input.validityBasis === 'default_4_days' ? defaultValidUntil : input.validUntil;
   if (input.issuedOn && validUntil && validUntil < input.issuedOn) throw new Error('valid-until precedes issue date');
   if (input.verificationStatus !== 'unverified' && !input.staffId) throw new Error('staff verification is required');
+  if (input.verificationStatus !== 'unverified' && (!input.issuedOn || !validUntil)) {
+    throw new Error('verified dates are required');
+  }
   const timestamp = now();
+  const verifiedAt = input.verificationStatus === 'unverified' ? null : timestamp;
+  const reminderDueAt = input.verificationStatus === 'verified'
+    ? prescriptionReminderDueAt(validUntil)
+    : null;
   const result = await db.prepare(
     `INSERT INTO pharmacy_prescription_validities
       (submission_id, line_account_id, issued_on, valid_until, validity_basis,
        verification_status, verified_by, verified_at, reminder_due_at, created_at, updated_at)
-     SELECT ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'unverified' THEN NULL ELSE ? END,
-            CASE WHEN ? IS NULL THEN NULL ELSE datetime(?, '-1 day') END, ?, ?
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM pharmacy_prescription_submissions WHERE id = ? AND line_account_id = ?)
      ON CONFLICT(submission_id) DO UPDATE SET
        issued_on = excluded.issued_on, valid_until = excluded.valid_until,
        validity_basis = excluded.validity_basis, verification_status = excluded.verification_status,
        verified_by = excluded.verified_by, verified_at = excluded.verified_at,
-       reminder_due_at = excluded.reminder_due_at, updated_at = excluded.updated_at`,
+       reminder_due_at = excluded.reminder_due_at,
+       reminder_claimed_at = CASE
+         WHEN pharmacy_prescription_validities.issued_on IS excluded.issued_on
+          AND pharmacy_prescription_validities.valid_until IS excluded.valid_until
+          AND pharmacy_prescription_validities.validity_basis = excluded.validity_basis
+          AND pharmacy_prescription_validities.verification_status = excluded.verification_status
+         THEN pharmacy_prescription_validities.reminder_claimed_at ELSE NULL END,
+       reminder_sent_at = CASE
+         WHEN pharmacy_prescription_validities.issued_on IS excluded.issued_on
+          AND pharmacy_prescription_validities.valid_until IS excluded.valid_until
+          AND pharmacy_prescription_validities.validity_basis = excluded.validity_basis
+          AND pharmacy_prescription_validities.verification_status = excluded.verification_status
+         THEN pharmacy_prescription_validities.reminder_sent_at ELSE NULL END,
+       updated_at = excluded.updated_at`,
   ).bind(
     input.submissionId, input.lineAccountId, input.issuedOn, validUntil, input.validityBasis,
-    input.verificationStatus, input.staffId, input.verificationStatus, timestamp,
-    validUntil, validUntil, timestamp, timestamp, input.submissionId, input.lineAccountId,
+    input.verificationStatus, input.staffId, verifiedAt, reminderDueAt,
+    timestamp, timestamp, input.submissionId, input.lineAccountId,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('prescription submission not found');
 }
@@ -251,7 +284,7 @@ export function summarizePromiseMetrics(rows: GrowthPromiseRow[], graceMinutes =
       : candidates;
     if (!eligible.length) continue;
     const quote = [...eligible].sort((a, b) => b.revision - a.revision || b.quote_created_at.localeCompare(a.quote_created_at))[0];
-    promiseRevisionCount++;
+    promiseRevisionCount += eligible.length;
     if (!readyAt) {
       promiseWithoutReady++;
       continue;
@@ -280,20 +313,26 @@ type GrowthEventRow = { event_type: string; subject_key: string | null; occurred
 
 function summarizeCohorts(rows: GrowthEventRow[], from: string, to: string) {
   const follows = new Map<string, string>();
+  const firstFriendSubmissions = new Map<string, string>();
   const firstSubmissions = new Map<string, string>();
   const secondSubmissions = new Map<string, string>();
+  const rememberFirst = (target: Map<string, string>, key: string, value: string) => {
+    const current = target.get(key);
+    if (!current || value < current) target.set(key, value);
+  };
   for (const row of rows) {
     if (!row.subject_key) continue;
-    if (row.event_type === 'first_follow' && row.occurred_at >= from && row.occurred_at < to) follows.set(row.subject_key, row.occurred_at);
-    if (row.event_type === 'first_submission') firstSubmissions.set(row.subject_key, row.occurred_at);
-    if (row.event_type === 'second_submission') secondSubmissions.set(row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_follow') rememberFirst(follows, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_friend_submission') rememberFirst(firstFriendSubmissions, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_submission') rememberFirst(firstSubmissions, row.subject_key, row.occurred_at);
+    if (row.event_type === 'second_submission') rememberFirst(secondSubmissions, row.subject_key, row.occurred_at);
   }
   const followCohort = [...follows.entries()].filter(([, occurredAt]) => {
     const followAt = Date.parse(occurredAt);
     return followAt + 30 * 86400000 <= Date.parse(to);
   });
   const firstSubmissionNumerator = followCohort.filter(([subject, occurredAt]) => {
-    const submittedAt = firstSubmissions.get(subject);
+    const submittedAt = firstFriendSubmissions.get(subject);
     return !!submittedAt && Date.parse(submittedAt) >= Date.parse(occurredAt) && Date.parse(submittedAt) <= Date.parse(occurredAt) + 30 * 86400000;
   }).length;
   const firstSubmissionCohort = [...firstSubmissions.entries()].filter(([, occurredAt]) =>
@@ -304,8 +343,18 @@ function summarizeCohorts(rows: GrowthEventRow[], from: string, to: string) {
   }).length;
   return {
     measurableFollows: follows.size,
-    firstSubmissionRate: { numerator: firstSubmissionNumerator, denominator: followCohort.length, matureCohort: followCohort.length ? followCohort.length : 0 },
-    secondSubmissionRate: { numerator: secondSubmissionNumerator, denominator: firstSubmissionCohort.length, matureCohort: firstSubmissionCohort.length },
+    firstSubmissionRate: {
+      numerator: firstSubmissionNumerator,
+      denominator: followCohort.length,
+      matureCohort: followCohort.length,
+      immatureCohort: follows.size - followCohort.length,
+    },
+    secondSubmissionRate: {
+      numerator: secondSubmissionNumerator,
+      denominator: firstSubmissionCohort.length,
+      matureCohort: firstSubmissionCohort.length,
+      immatureCohort: firstSubmissions.size - firstSubmissionCohort.length,
+    },
   };
 }
 
@@ -316,46 +365,64 @@ export async function getGrowthDashboard(
   to: string,
 ): Promise<Record<string, unknown>> {
   const bounds = [from, to];
-  const cohortTo = new Date(Date.parse(to) + 90 * 86400000).toISOString();
-  const [entryEvents, sourceRows, promiseRows, readyCount, validity, notifications, unfollows] = await Promise.all([
+  const [entryEvents, sourceRows, promiseRows, readyCount, validity, notifications, unfollows, config] = await Promise.all([
     db.prepare(`SELECT event_type, subject_key, occurred_at
       FROM pharmacy_growth_events
       WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
-        AND event_type IN ('first_follow','first_submission','second_submission')`)
-      .bind(lineAccountId, from, cohortTo).all<GrowthEventRow>(),
+        AND event_type IN ('first_follow','first_friend_submission','first_submission','second_submission')`)
+      .bind(lineAccountId, from, to).all<GrowthEventRow>(),
     db.prepare(`SELECT COALESCE(ss.classification, 'unknown') AS classification, COUNT(DISTINCT s.id) AS count
       FROM pharmacy_prescription_submissions s
       INNER JOIN pharmacy_prescription_events accepted
-        ON accepted.submission_id = s.id AND accepted.to_status = 'accepted'
+        ON accepted.submission_id = s.id AND accepted.event_type = 'status_changed'
+       AND accepted.to_status = 'accepted'
       LEFT JOIN pharmacy_submission_sources ss
         ON ss.submission_id = s.id AND ss.line_account_id = s.line_account_id
+      LEFT JOIN pharmacy_submission_attributes attr
+        ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
       WHERE s.line_account_id = ? AND accepted.created_at >= ? AND accepted.created_at < ?
+        AND COALESCE(attr.is_synthetic, 0) = 0
       GROUP BY COALESCE(ss.classification, 'unknown')`).bind(lineAccountId, ...bounds).all<{ classification: string; count: number }>(),
-    db.prepare(`SELECT q.submission_id, q.revision, q.estimated_ready_at,
-                       q.created_at AS quote_created_at,
-                       MIN(CASE WHEN ready.to_status = 'ready' AND ready.created_at >= q.created_at
-                                THEN ready.created_at END) AS ready_at
-                  FROM pharmacy_fulfillment_quotes q
-                  LEFT JOIN pharmacy_prescription_events ready
-                    ON ready.submission_id = q.submission_id
-                 WHERE q.line_account_id = ? AND q.estimated_ready_at IS NOT NULL
-                   AND q.created_at >= ? AND q.created_at < ?
-                 GROUP BY q.id, q.submission_id, q.revision, q.estimated_ready_at, q.created_at`)
-      .bind(lineAccountId, ...bounds).all<GrowthPromiseRow>(),
+    db.prepare(`WITH first_ready AS (
+      SELECT s.id AS submission_id, MIN(ready.created_at) AS ready_at
+        FROM pharmacy_prescription_submissions s
+        INNER JOIN pharmacy_prescription_events ready
+          ON ready.submission_id = s.id AND ready.event_type = 'status_changed'
+         AND ready.to_status = 'ready'
+        LEFT JOIN pharmacy_submission_attributes attr
+          ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
+       WHERE s.line_account_id = ? AND ready.created_at >= ? AND ready.created_at < ?
+         AND s.status <> 'cancelled' AND COALESCE(attr.is_synthetic, 0) = 0
+       GROUP BY s.id
+    )
+    SELECT q.submission_id, q.revision, q.estimated_ready_at,
+           q.created_at AS quote_created_at, first_ready.ready_at
+      FROM pharmacy_fulfillment_quotes q
+      INNER JOIN first_ready ON first_ready.submission_id = q.submission_id
+     WHERE q.line_account_id = ? AND q.estimated_ready_at IS NOT NULL
+       AND q.created_at <= first_ready.ready_at AND q.decision <> 'not_fulfillable'`)
+      .bind(lineAccountId, ...bounds, lineAccountId).all<GrowthPromiseRow>(),
     db.prepare(`SELECT COUNT(DISTINCT e.submission_id) AS count
                   FROM pharmacy_prescription_events e
                   INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id AND s.line_account_id = ?
-                 WHERE e.to_status = 'ready' AND e.created_at >= ? AND e.created_at < ?`)
+                  LEFT JOIN pharmacy_submission_attributes attr
+                    ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
+                 WHERE e.event_type = 'status_changed' AND e.to_status = 'ready'
+                   AND e.created_at >= ? AND e.created_at < ?
+                   AND s.status <> 'cancelled' AND COALESCE(attr.is_synthetic, 0) = 0`)
       .bind(lineAccountId, ...bounds).first<{ count: number }>(),
     db.prepare(`SELECT
       SUM(CASE WHEN v.verification_status = 'verified' THEN 1 ELSE 0 END) AS verified_validity,
       SUM(CASE WHEN v.reminder_sent_at IS NOT NULL THEN 1 ELSE 0 END) AS reminder_sent,
       SUM(CASE WHEN v.verification_status = 'expired_review_required' THEN 1 ELSE 0 END) AS expired_review_required,
+      SUM(CASE WHEN v.verification_status = 'expired_confirmed' THEN 1 ELSE 0 END) AS confirmed_expired,
       SUM(CASE WHEN v.reminder_sent_at IS NOT NULL AND s.closed_at IS NOT NULL
                  AND substr(s.closed_at, 1, 10) <= v.valid_until THEN 1 ELSE 0 END) AS reminder_closed_in_time
       FROM pharmacy_prescription_validities v
       INNER JOIN pharmacy_prescription_submissions s
         ON s.id = v.submission_id AND s.line_account_id = v.line_account_id
+      LEFT JOIN pharmacy_submission_attributes attr
+        ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
       WHERE v.line_account_id = ? AND v.created_at >= ? AND v.created_at < ?`)
       .bind(lineAccountId, ...bounds).first<Record<string, number | null>>(),
     db.prepare(`SELECT category, outcome, COUNT(*) AS count
@@ -363,15 +430,19 @@ export async function getGrowthDashboard(
       GROUP BY category, outcome`).bind(lineAccountId, ...bounds).all<{ category: string; outcome: string; count: number }>(),
     db.prepare(`SELECT
       COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND n.friend_id IS NOT NULL THEN n.friend_id END) AS exposed_friends,
-      COUNT(DISTINCT CASE WHEN julianday(u.occurred_at) < julianday(n.occurred_at, '+24 hours') THEN u.subject_key END) AS unfollow_24h,
-      COUNT(DISTINCT CASE WHEN julianday(u.occurred_at) < julianday(n.occurred_at, '+72 hours') THEN u.subject_key END) AS unfollow_72h
+      COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND julianday(u.occurred_at) < julianday(n.occurred_at, '+24 hours') THEN u.subject_key END) AS unfollow_24h,
+      COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND julianday(u.occurred_at) < julianday(n.occurred_at, '+72 hours') THEN u.subject_key END) AS unfollow_72h
       FROM pharmacy_notification_events n
       LEFT JOIN pharmacy_growth_events u
         ON u.line_account_id = n.line_account_id AND u.event_type = 'unfollow'
-       AND u.subject_key = n.friend_id AND u.occurred_at >= n.occurred_at
+       AND u.subject_key = 'friend:' || n.friend_id AND u.occurred_at >= n.occurred_at
        AND julianday(u.occurred_at) < julianday(n.occurred_at, '+72 hours')
-      WHERE n.line_account_id = ? AND n.occurred_at >= ? AND n.occurred_at < ?`)
+      WHERE n.line_account_id = ? AND n.outcome = 'sent'
+        AND n.occurred_at >= ? AND n.occurred_at < ?`)
       .bind(lineAccountId, ...bounds).first<{ exposed_friends: number | null; unfollow_24h: number | null; unfollow_72h: number | null }>(),
+    db.prepare(`SELECT unfollow_alert_state FROM pharmacy_account_capabilities
+      WHERE line_account_id = ? AND mode = 'pharmacy'`)
+      .bind(lineAccountId).first<{ unfollow_alert_state: 'alert_only' | 'auto_pause' }>(),
   ]);
   const events = entryEvents.results ?? [];
   const cohort = summarizeCohorts(events, from, to);
@@ -384,6 +455,8 @@ export async function getGrowthDashboard(
   const primary = sourceCounts.primary ?? 0;
   const other = sourceCounts.other ?? 0;
   const sourceKnown = primary + other;
+  const unknown = sourceCounts.unknown ?? 0;
+  const sourceTotal = sourceKnown + unknown;
   return {
     from, to,
     entry: {
@@ -394,19 +467,35 @@ export async function getGrowthDashboard(
       firstSubmissionRate: cohort.firstSubmissionRate,
       secondSubmissionRate: cohort.secondSubmissionRate,
     },
-    sources: { primary, other, unknown: sourceCounts.unknown ?? 0, otherShare: sourceKnown ? other / sourceKnown : null, knownDenominator: sourceKnown },
+    sources: {
+      primary,
+      other,
+      unknown,
+      otherShare: sourceKnown ? other / sourceKnown : null,
+      knownDenominator: sourceKnown,
+      attributionCoverage: sourceTotal ? sourceKnown / sourceTotal : null,
+    },
     promises: { ...promise, readyEvents: readyCount?.count ?? 0, promiseWithoutQuote: Math.max(0, (readyCount?.count ?? 0) - promise.promised), graceMinutes: 0 },
     validity: {
       verified: validity?.verified_validity ?? 0,
       reminderSent: validity?.reminder_sent ?? 0,
       reminderClosedInTime: validity?.reminder_closed_in_time ?? 0,
       expiredReviewRequired: validity?.expired_review_required ?? 0,
+      confirmedExpired: validity?.confirmed_expired ?? 0,
     },
-    notifications: notificationCounts,
+    notifications: {
+      counts: notificationCounts,
+      proactiveCapBlocked: notificationCounts['proactive_noncare:blocked'] ?? 0,
+      attempted: Object.entries(notificationCounts)
+        .filter(([key]) => key.endsWith(':attempted'))
+        .reduce((sum, [, count]) => sum + count, 0),
+      alertState: config?.unfollow_alert_state ?? 'alert_only',
+    },
     unfollow: {
       exposedFriends: unfollows?.exposed_friends ?? 0,
       within24h: unfollows?.unfollow_24h ?? 0,
       within72h: unfollows?.unfollow_72h ?? 0,
+      sampleSize: unfollows?.exposed_friends ?? 0,
       interpretation: '推定される時間的関連（メッセージが原因とは断定しません）',
     },
   };

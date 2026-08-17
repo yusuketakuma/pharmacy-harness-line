@@ -107,9 +107,13 @@ function validateQuote(input: FulfillmentQuoteInput): void {
 
 export function quoteAllowsAcceptance(
   quote: (Pick<FulfillmentQuote, 'decision' | 'requirements'> &
-    { status?: FulfillmentStatus | null }) | null,
+    { status?: FulfillmentStatus | null; validUntil?: string | null }) | null,
+  at = new Date(),
 ): boolean {
   if (!quote) return false;
+  if (quote.validUntil && (
+    !Number.isFinite(Date.parse(quote.validUntil)) || Date.parse(quote.validUntil) <= at.getTime()
+  )) return false;
   if (quote.status && !['AVAILABLE', 'PARTIALLY_AVAILABLE'].includes(quote.status)) return false;
   if (quote.decision === 'fulfillable') return true;
   return quote.decision === 'conditional' &&

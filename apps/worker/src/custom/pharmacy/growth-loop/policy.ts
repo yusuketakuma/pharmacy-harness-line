@@ -64,6 +64,16 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
   'continuity_reminder_v1',
   'prescription_validity_reminder_v1',
 ]);
+const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'genericDate', 'genericTime']);
+const STATUSES = new Set(['received', 'accepted', 'needs_resubmission', 'ready', 'closed', 'cancelled']);
+const REASON_CODES = new Set(Object.keys(REASONS));
+const UNSAFE_RENDERED_TEXT = /薬剤名|疾患名|病名|医療機関名|医師名|患者名|自由記述|(?:病院|医院|診療所|クリニック|歯科)|(?:糖尿病|高血圧|がん|癌)|(?:ロキソニン|アムロジピン)|drug\s+name|diagnos(?:is|es)|hospital\s+name/i;
+
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
 
 /**
  * Approved templates are the primary control. This final check is a cheap
@@ -71,7 +81,7 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
  */
 export function assertPharmacyAutomatedText(text: string): void {
   if (!text || text.length > 500) throw new Error('pharmacy notification payload rejected');
-  if (/薬剤名|疾患名|病名|医療機関名|医師名|患者名|自由記述|drug\s+name|diagnos(?:is|es)|hospital\s+name/i.test(text)) {
+  if (UNSAFE_RENDERED_TEXT.test(text)) {
     throw new Error('pharmacy notification payload rejected');
   }
 }
@@ -81,15 +91,24 @@ export function buildApprovedPharmacyMessage(
   vars: PharmacyMessageVars = {},
 ): Message {
   if (!IDS.has(id)) throw new Error('unknown pharmacy notification message');
+  if (Object.keys(vars).some((key) => !VARIABLE_KEYS.has(key))) {
+    throw new Error('pharmacy notification variable rejected');
+  }
   for (const value of Object.values(vars)) {
     if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 64)) {
       throw new Error('pharmacy notification variable rejected');
     }
   }
-  if (vars.genericDate && !/^\d{4}-\d{2}-\d{2}$/.test(vars.genericDate)) {
+  if (vars.status && !STATUSES.has(vars.status)) {
     throw new Error('pharmacy notification variable rejected');
   }
-  if (vars.genericTime && !/^\d{2}:\d{2}$/.test(vars.genericTime)) {
+  if (vars.reasonCode && !REASON_CODES.has(vars.reasonCode)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.genericDate && !isDateOnly(vars.genericDate)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.genericTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(vars.genericTime)) {
     throw new Error('pharmacy notification variable rejected');
   }
   const text = textFor(id, vars);

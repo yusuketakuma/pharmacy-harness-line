@@ -15,6 +15,8 @@ function fakeDb(options: { recipient?: Record<string, unknown> | null; due?: unk
     revision: 1,
     line_user_id: 'U-patient',
     channel_access_token: 'account-token',
+    line_account_id: 'account-a',
+    friend_id: 'friend-a',
   } : options.recipient;
   const db = {
     prepare: (sql: string) => ({

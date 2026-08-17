@@ -459,6 +459,10 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
         message === 'fulfillment quote invalid') {
       return c.json({ error: '受付内容の確認が完了していません' }, 409);
     }
+    if (message === 'prescription validity verification required' ||
+        message === 'prescription validity expired') {
+      return c.json({ error: '処方せんの使用期限を確認してください' }, 409);
+    }
     if (message === 'invalid resubmission reason') {
       return c.json({ error: 'Invalid resubmission reason' }, 400);
     }

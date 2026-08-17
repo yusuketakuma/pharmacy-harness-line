@@ -15,15 +15,15 @@ export async function recordPharmacyFollow(input: {
   proxyDispatch?: HarnessProxyDispatch;
 }): Promise<void> {
   if (!input.lineAccountId || !(await hasPharmacyCapability(input.db, input.lineAccountId, 'prescription_intake'))) return;
-  const inserted = await recordGrowthEvent(input.db, {
+  await recordGrowthEvent(input.db, {
     lineAccountId: input.lineAccountId,
     eventType: 'first_follow',
     aggregateId: input.friendId,
-    subjectKey: input.friendId,
+    subjectKey: `friend:${input.friendId}`,
     occurredAt: input.firstFollowedAt,
     idempotencyKey: `first-follow:${input.friendId}:${input.firstFollowedAt}`,
   });
-  if (!inserted || !input.proxyBaseUrl || !input.accessToken) return;
+  if (!input.proxyBaseUrl || !input.accessToken) return;
   await sendPharmacyAutomatedPush({
     db: input.db,
     proxyBaseUrl: input.proxyBaseUrl,
@@ -54,7 +54,7 @@ export async function recordPharmacyUnfollowMetrics(input: {
     lineAccountId: input.lineAccountId,
     eventType: 'unfollow',
     aggregateId: updated.id,
-    subjectKey: updated.id,
+    subjectKey: `friend:${updated.id}`,
     occurredAt: updated.last_unfollowed_at,
     idempotencyKey: `unfollow:${updated.id}:${updated.last_unfollowed_at}`,
   });
@@ -67,25 +67,66 @@ export async function recordAcceptedSubmissionActivation(
 ): Promise<void> {
   if (!(await hasPharmacyCapability(db, lineAccountId, 'prescription_intake'))) return;
   const row = await db.prepare(
-    `SELECT friend_id, created_at FROM pharmacy_prescription_events e
+    `SELECT s.friend_id AS friend_id, pp.patient_id AS patient_id, e.created_at
+       FROM pharmacy_prescription_events e
       INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
-     WHERE e.submission_id = ? AND s.line_account_id = ? AND e.to_status = 'accepted'
+       LEFT JOIN pharmacy_prescription_patients pp
+         ON pp.submission_id = s.id AND pp.line_account_id = s.line_account_id
+        AND pp.owner_friend_id = s.friend_id
+     WHERE e.submission_id = ? AND s.line_account_id = ?
+       AND e.event_type = 'status_changed' AND e.to_status = 'accepted'
      ORDER BY e.created_at ASC LIMIT 1`,
-  ).bind(submissionId, lineAccountId).first<{ friend_id: string; created_at: string }>();
+  ).bind(submissionId, lineAccountId).first<{
+    friend_id: string;
+    patient_id: string | null;
+    created_at: string;
+  }>();
   if (!row) return;
-  const count = await db.prepare(
-    `SELECT COUNT(DISTINCT s.id) AS count
-       FROM pharmacy_prescription_submissions s
-       INNER JOIN pharmacy_prescription_events e ON e.submission_id = s.id AND e.to_status = 'accepted'
-      WHERE s.line_account_id = ? AND s.friend_id = ?`,
-  ).bind(lineAccountId, row.friend_id).first<{ count: number }>();
+  const count = row.patient_id
+    ? await db.prepare(
+      `SELECT COUNT(DISTINCT s.id) AS count
+         FROM pharmacy_prescription_submissions s
+         INNER JOIN pharmacy_prescription_events e
+           ON e.submission_id = s.id AND e.event_type = 'status_changed' AND e.to_status = 'accepted'
+         INNER JOIN pharmacy_prescription_patients pp
+           ON pp.submission_id = s.id AND pp.line_account_id = s.line_account_id
+          AND pp.owner_friend_id = s.friend_id
+        WHERE s.line_account_id = ? AND pp.patient_id = ?`,
+    ).bind(lineAccountId, row.patient_id).first<{ count: number }>()
+    : await db.prepare(
+      `SELECT COUNT(DISTINCT s.id) AS count
+         FROM pharmacy_prescription_submissions s
+         INNER JOIN pharmacy_prescription_events e
+           ON e.submission_id = s.id AND e.event_type = 'status_changed' AND e.to_status = 'accepted'
+         LEFT JOIN pharmacy_prescription_patients pp
+           ON pp.submission_id = s.id AND pp.line_account_id = s.line_account_id
+          AND pp.owner_friend_id = s.friend_id
+        WHERE s.line_account_id = ? AND s.friend_id = ? AND pp.patient_id IS NULL`,
+    ).bind(lineAccountId, row.friend_id).first<{ count: number }>();
   if (count?.count !== 1 && count?.count !== 2) return;
   await recordGrowthEvent(db, {
     lineAccountId,
     eventType: count.count === 1 ? 'first_submission' : 'second_submission',
     aggregateId: submissionId,
-    subjectKey: row.friend_id,
+    subjectKey: row.patient_id ? `patient:${row.patient_id}` : `friend:${row.friend_id}`,
     occurredAt: row.created_at,
     idempotencyKey: `accepted:${submissionId}`,
   });
+  const friendCount = await db.prepare(
+    `SELECT COUNT(DISTINCT s.id) AS count
+       FROM pharmacy_prescription_submissions s
+       INNER JOIN pharmacy_prescription_events e
+         ON e.submission_id = s.id AND e.event_type = 'status_changed' AND e.to_status = 'accepted'
+      WHERE s.line_account_id = ? AND s.friend_id = ?`,
+  ).bind(lineAccountId, row.friend_id).first<{ count: number }>();
+  if (friendCount?.count === 1) {
+    await recordGrowthEvent(db, {
+      lineAccountId,
+      eventType: 'first_friend_submission',
+      aggregateId: submissionId,
+      subjectKey: `friend:${row.friend_id}`,
+      occurredAt: row.created_at,
+      idempotencyKey: `friend-accepted:${submissionId}`,
+    });
+  }
 }

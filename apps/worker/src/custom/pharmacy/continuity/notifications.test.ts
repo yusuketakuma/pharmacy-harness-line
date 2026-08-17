@@ -31,7 +31,7 @@ describe('continuity reminder notifications', () => {
     expect(push).toHaveBeenCalledWith(
       'https://worker.example', 'token', 'U1',
       [{ type: 'text', text: continuityReminderText() }],
-      'continuity:obligation-1:1', undefined,
+      expect.stringMatching(/^[0-9a-f-]{36}$/), undefined,
     );
   });
 });

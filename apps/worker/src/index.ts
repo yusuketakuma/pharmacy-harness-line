@@ -100,6 +100,7 @@ import { claimDueContinuityReminders } from './custom/pharmacy/continuity/reposi
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
 import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
+import { pharmacyAccountGuard } from './custom/pharmacy/account.js'; // custom:pharmacy-tenant-boundary
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -159,6 +160,7 @@ export type Env = {
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
+    pharmacyLineAccountId: string;
   };
 };
 
@@ -196,6 +198,10 @@ app.use('*', rateLimitMiddleware);
 
 // Auth middleware — skips /webhook and /docs automatically
 app.use('*', authMiddleware);
+
+// Query parameters select a pharmacy account; this guard proves the signed-in
+// staff identity is assigned to that account before any pharmacy admin route runs.
+app.use('/api/custom/pharmacy/*', pharmacyAccountGuard);
 
 // Mount route groups — MVP & Round 2
 app.route('/', webhook);
