@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifySubmissionSource,
+  createMedicalSource,
   getGrowthDashboard,
+  savePharmacyCapabilityConfig,
   savePrescriptionValidity,
   setMedicalSourceActive,
   summarizeCohorts,
@@ -56,6 +58,33 @@ describe('growth loop promise metrics', () => {
 });
 
 describe('prescription validity', () => {
+  it('commits the validity mutation and PHI-free audit event in one D1 batch', async () => {
+    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        sql,
+        values,
+        run: async () => ({ meta: { changes: 1 } }),
+      }) }),
+      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        batches.push(statements);
+        return statements.map(() => ({ meta: { changes: 1 } }));
+      },
+    } as unknown as D1Database;
+
+    await savePrescriptionValidity(db, {
+      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
+      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
+    });
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(2);
+    expect(batches[0][1].sql).toContain('INSERT INTO pharmacy_growth_events');
+    expect(batches[0][1].values).toEqual(expect.arrayContaining([
+      'account-a', 'prescription_validity_updated', 'submission-a', '{"actor_id":"staff-a"}',
+    ]));
+  });
+
   it('derives the inclusive four-day default when the pharmacist has verified the issue date', async () => {
     const calls: Array<{ values: unknown[] }> = [];
     const db = {
@@ -65,6 +94,9 @@ describe('prescription validity', () => {
           first: async () => ({ line_account_id: 'account-a' }),
         }),
       }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
+        statements.map((statement) => statement.run()),
+      ),
     } as unknown as D1Database;
     await savePrescriptionValidity(db, {
       lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
@@ -99,6 +131,9 @@ describe('prescription validity', () => {
       prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
         run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
       }) }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
+        statements.map((statement) => statement.run()),
+      ),
     } as unknown as D1Database;
     await savePrescriptionValidity(db, {
       lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
@@ -110,15 +145,78 @@ describe('prescription validity', () => {
 });
 
 describe('medical source classification', () => {
+  it('commits capability and source mutations with account-scoped audit events', async () => {
+    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        sql,
+        values,
+        run: async () => ({ meta: { changes: 1 } }),
+        first: async () => ({
+          line_account_id: 'account-a', mode: 'pharmacy',
+          capabilities_json: '["pharmacy_dashboard"]', proactive_monthly_limit: 1,
+          unfollow_alert_state: 'alert_only', created_at: '2026-08-18', updated_at: '2026-08-18',
+        }),
+      }) }),
+      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        batches.push(statements);
+        return statements.map(() => ({ meta: { changes: 1 } }));
+      },
+    } as unknown as D1Database;
+
+    await savePharmacyCapabilityConfig(
+      db, 'account-a', ['pharmacy_dashboard'], 1, 'alert_only', 'staff-a',
+    );
+    await createMedicalSource(db, {
+      lineAccountId: 'account-a', displayName: 'Clinic A', classification: 'primary', staffId: 'staff-a',
+    });
+    await setMedicalSourceActive(db, 'account-a', 'source-a', false, 'staff-a');
+
+    expect(batches).toHaveLength(3);
+    expect(batches.map((batch) => batch[1].values[2])).toEqual([
+      'capability_config_updated', 'medical_source_created', 'medical_source_updated',
+    ]);
+    expect(batches.every((batch) => batch[1].values.includes('{"actor_id":"staff-a"}'))).toBe(true);
+  });
+
+  it('commits source classification and audit together', async () => {
+    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        sql,
+        values,
+        first: async () => ({ id: 'source-a', classification: 'primary' }),
+        run: async () => ({ meta: { changes: 1 } }),
+      }) }),
+      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        batches.push(statements);
+        return statements.map(() => ({ meta: { changes: 1 } }));
+      },
+    } as unknown as D1Database;
+
+    await classifySubmissionSource(db, {
+      lineAccountId: 'account-a', submissionId: 'submission-a', sourceId: 'source-a',
+      classification: 'primary', staffId: 'staff-a',
+    });
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0][1].values).toEqual(expect.arrayContaining([
+      'account-a', 'submission_source_classified', 'submission-a', '{"actor_id":"staff-a"}',
+    ]));
+  });
+
   it('changes source availability only inside its account', async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
       prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
         run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
       }) }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
+        statements.map((statement) => statement.run()),
+      ),
     } as unknown as D1Database;
 
-    await setMedicalSourceActive(db, 'account-a', 'source-a', false);
+    await setMedicalSourceActive(db, 'account-a', 'source-a', false, 'staff-a');
 
     expect(calls[0].sql).toContain('WHERE id = ? AND line_account_id = ?');
     expect(calls[0].values).toEqual([0, expect.any(String), 'source-a', 'account-a']);

@@ -127,23 +127,9 @@ describe('custom_008_pharmacy_growth_loop.sql', () => {
       .toThrow(/CHECK constraint failed/i);
   });
 
-  it('appends PHI-free audit events for manual classification and validity changes', () => {
-    db.prepare(`INSERT INTO pharmacy_submission_sources
-      (submission_id, line_account_id, source_id, classification, entered_by, entered_at, updated_at)
-      VALUES ('submission-a', 'account-a', NULL, 'unknown', 'staff-a', '2026-08-17', '2026-08-17')`).run();
-    db.prepare(`INSERT INTO pharmacy_prescription_validities
-      (submission_id, line_account_id, issued_on, valid_until, validity_basis,
-       verification_status, verified_by, verified_at, created_at, updated_at)
-      VALUES ('submission-a', 'account-a', '2026-08-17', '2026-08-20', 'default_4_days',
-              'verified', 'staff-a', '2026-08-17', '2026-08-17', '2026-08-17')`).run();
-
-    const events = db.prepare(`SELECT event_type, metadata_json FROM pharmacy_growth_events
-      WHERE line_account_id = 'account-a' ORDER BY event_type`).all() as Array<{
-        event_type: string; metadata_json: string;
-      }>;
-    expect(events.map((event) => event.event_type)).toEqual(expect.arrayContaining([
-      'submission_source_classified', 'prescription_validity_updated',
-    ]));
-    expect(events.every((event) => event.metadata_json === '{}')).toBe(true);
+  it('uses application-owned audit batches instead of unsupported migration triggers', () => {
+    const triggers = db.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name LIKE 'trg_pharmacy_%'`).all();
+    expect(triggers).toEqual([]);
   });
 });

@@ -11,6 +11,61 @@ function now(): string {
   return new Date().toISOString();
 }
 
+type GrowthEventInput = {
+  lineAccountId: string;
+  eventType: string;
+  aggregateId: string;
+  subjectKey?: string | null;
+  occurredAt?: string;
+  idempotencyKey: string;
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
+function prepareGrowthEvent(
+  db: D1Database,
+  input: GrowthEventInput,
+  options: {
+    ignoreDuplicate: boolean;
+    condition?: { sql: string; bindings: unknown[] };
+  },
+) {
+  if (!input.lineAccountId || !input.eventType || !input.aggregateId || !input.idempotencyKey) {
+    throw new Error('growth event identity is required');
+  }
+  const metadata = input.metadata ?? {};
+  if (Object.keys(metadata).some((key) => /message|body|drug|disease|patient|line_user|prescription/i.test(key))) {
+    throw new Error('growth event metadata rejected');
+  }
+  const occurredAt = input.occurredAt ?? now();
+  const condition = options.condition;
+  const verb = options.ignoreDuplicate ? 'INSERT OR IGNORE' : 'INSERT';
+  const select = condition ? `SELECT ?, ?, ?, ?, ?, 1, ?, ?, ?, ? WHERE ${condition.sql}` : 'VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)';
+  return db.prepare(
+    `${verb} INTO pharmacy_growth_events
+      (id, line_account_id, event_type, aggregate_id, subject_key,
+       schema_version, occurred_at, idempotency_key, metadata_json, created_at)
+     ${select}`,
+  ).bind(
+    crypto.randomUUID(), input.lineAccountId, input.eventType, input.aggregateId,
+    input.subjectKey ?? null, occurredAt, input.idempotencyKey, JSON.stringify(metadata), now(),
+    ...(condition?.bindings ?? []),
+  );
+}
+
+async function runAuditedMutation(
+  db: D1Database,
+  mutation: D1PreparedStatement,
+  event: GrowthEventInput,
+  condition: { sql: string; bindings: unknown[] },
+): Promise<boolean> {
+  const audit = prepareGrowthEvent(db, event, {
+    ignoreDuplicate: false,
+    condition,
+  });
+  const results = await db.batch([mutation, audit]);
+  return (results[0]?.meta?.changes ?? 0) === 1 && (results[1]?.meta?.changes ?? 0) === 1;
+}
+
 function defaultPrescriptionValidUntil(issuedOn: string | null, validityBasis: 'default_4_days' | 'prescriber_specified'): string | null {
   if (!issuedOn || validityBasis !== 'default_4_days') return null;
   const date = new Date(`${issuedOn}T00:00:00.000Z`);
@@ -68,6 +123,7 @@ export async function savePharmacyCapabilityConfig(
   capabilities: readonly string[],
   proactiveMonthlyLimit: number,
   unfollowAlertState: 'alert_only' | 'auto_pause',
+  actorId: string,
 ): Promise<PharmacyCapabilityConfig> {
   const allowed = capabilities.filter((value): value is PharmacyCapability =>
     (PHARMACY_CAPABILITIES as readonly string[]).includes(value),
@@ -78,7 +134,7 @@ export async function savePharmacyCapabilityConfig(
     throw new Error('invalid proactive monthly limit');
   }
   const timestamp = now();
-  await db.prepare(
+  const mutation = db.prepare(
     `INSERT INTO pharmacy_account_capabilities
       (line_account_id, mode, capabilities_json, proactive_monthly_limit,
        unfollow_alert_state, created_at, updated_at)
@@ -88,7 +144,20 @@ export async function savePharmacyCapabilityConfig(
        proactive_monthly_limit = excluded.proactive_monthly_limit,
        unfollow_alert_state = excluded.unfollow_alert_state,
        updated_at = excluded.updated_at`,
-  ).bind(lineAccountId, JSON.stringify(unique), proactiveMonthlyLimit, unfollowAlertState, timestamp, timestamp).run();
+  ).bind(lineAccountId, JSON.stringify(unique), proactiveMonthlyLimit, unfollowAlertState, timestamp, timestamp);
+  const changed = await runAuditedMutation(db, mutation, {
+    lineAccountId,
+    eventType: 'capability_config_updated',
+    aggregateId: lineAccountId,
+    occurredAt: timestamp,
+    idempotencyKey: `audit:${crypto.randomUUID()}`,
+    metadata: { actor_id: actorId },
+  }, {
+    sql: `EXISTS (SELECT 1 FROM pharmacy_account_capabilities
+                  WHERE line_account_id = ? AND updated_at = ?)`,
+    bindings: [lineAccountId, timestamp],
+  });
+  if (!changed) throw new Error('pharmacy capability config was not saved');
   const saved = await getPharmacyCapabilityConfig(db, lineAccountId);
   if (!saved) throw new Error('pharmacy capability config was not saved');
   return saved;
@@ -96,33 +165,9 @@ export async function savePharmacyCapabilityConfig(
 
 export async function recordGrowthEvent(
   db: D1Database,
-  input: {
-    lineAccountId: string;
-    eventType: string;
-    aggregateId: string;
-    subjectKey?: string | null;
-    occurredAt?: string;
-    idempotencyKey: string;
-    metadata?: Record<string, string | number | boolean | null>;
-  },
+  input: GrowthEventInput,
 ): Promise<boolean> {
-  if (!input.lineAccountId || !input.eventType || !input.aggregateId || !input.idempotencyKey) {
-    throw new Error('growth event identity is required');
-  }
-  const metadata = input.metadata ?? {};
-  if (Object.keys(metadata).some((key) => /message|body|drug|disease|patient|line_user|prescription/i.test(key))) {
-    throw new Error('growth event metadata rejected');
-  }
-  const timestamp = input.occurredAt ?? now();
-  const result = await db.prepare(
-    `INSERT OR IGNORE INTO pharmacy_growth_events
-      (id, line_account_id, event_type, aggregate_id, subject_key,
-       schema_version, occurred_at, idempotency_key, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-  ).bind(
-    crypto.randomUUID(), input.lineAccountId, input.eventType, input.aggregateId,
-    input.subjectKey ?? null, timestamp, input.idempotencyKey, JSON.stringify(metadata), now(),
-  ).run();
+  const result = await prepareGrowthEvent(db, input, { ignoreDuplicate: true }).run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
@@ -133,11 +178,25 @@ export async function createMedicalSource(
   const displayName = input.displayName.trim();
   if (!displayName || displayName.length > 120) throw new Error('invalid medical source name');
   const id = crypto.randomUUID();
-  await db.prepare(
+  const timestamp = now();
+  const mutation = db.prepare(
     `INSERT INTO pharmacy_medical_sources
       (id, line_account_id, display_name, classification, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, input.lineAccountId, displayName, input.classification, input.staffId, now(), now()).run();
+  ).bind(id, input.lineAccountId, displayName, input.classification, input.staffId, timestamp, timestamp);
+  const changed = await runAuditedMutation(db, mutation, {
+    lineAccountId: input.lineAccountId,
+    eventType: 'medical_source_created',
+    aggregateId: id,
+    occurredAt: timestamp,
+    idempotencyKey: `audit:${crypto.randomUUID()}`,
+    metadata: { actor_id: input.staffId },
+  }, {
+    sql: `EXISTS (SELECT 1 FROM pharmacy_medical_sources
+                  WHERE id = ? AND line_account_id = ? AND updated_at = ?)`,
+    bindings: [id, input.lineAccountId, timestamp],
+  });
+  if (!changed) throw new Error('medical source was not created');
   return { id, display_name: displayName, classification: input.classification };
 }
 
@@ -146,12 +205,26 @@ export async function setMedicalSourceActive(
   lineAccountId: string,
   sourceId: string,
   isActive: boolean,
+  actorId: string,
 ): Promise<void> {
-  const result = await db.prepare(
+  const timestamp = now();
+  const mutation = db.prepare(
     `UPDATE pharmacy_medical_sources SET is_active = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ?`,
-  ).bind(isActive ? 1 : 0, now(), sourceId, lineAccountId).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('medical source not found');
+  ).bind(isActive ? 1 : 0, timestamp, sourceId, lineAccountId);
+  const changed = await runAuditedMutation(db, mutation, {
+    lineAccountId,
+    eventType: 'medical_source_updated',
+    aggregateId: sourceId,
+    occurredAt: timestamp,
+    idempotencyKey: `audit:${crypto.randomUUID()}`,
+    metadata: { actor_id: actorId },
+  }, {
+    sql: `EXISTS (SELECT 1 FROM pharmacy_medical_sources
+                  WHERE id = ? AND line_account_id = ? AND updated_at = ?)`,
+    bindings: [sourceId, lineAccountId, timestamp],
+  });
+  if (!changed) throw new Error('medical source not found');
 }
 
 export async function classifySubmissionSource(
@@ -169,7 +242,7 @@ export async function classifySubmissionSource(
     if (source.classification !== input.classification) throw new Error('medical source classification mismatch');
   }
   const timestamp = now();
-  const result = await db.prepare(
+  const mutation = db.prepare(
     `INSERT INTO pharmacy_submission_sources
       (submission_id, line_account_id, source_id, classification, entered_by, entered_at, updated_at)
      SELECT ?, ?, ?, ?, ?, ?, ?
@@ -185,8 +258,20 @@ export async function classifySubmissionSource(
   ).bind(
     input.submissionId, input.lineAccountId, input.sourceId, input.classification,
     input.staffId, timestamp, timestamp, input.submissionId, input.lineAccountId,
-  ).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('prescription submission not found');
+  );
+  const changed = await runAuditedMutation(db, mutation, {
+    lineAccountId: input.lineAccountId,
+    eventType: 'submission_source_classified',
+    aggregateId: input.submissionId,
+    occurredAt: timestamp,
+    idempotencyKey: `audit:${crypto.randomUUID()}`,
+    metadata: { actor_id: input.staffId },
+  }, {
+    sql: `EXISTS (SELECT 1 FROM pharmacy_submission_sources
+                  WHERE submission_id = ? AND line_account_id = ? AND updated_at = ?)`,
+    bindings: [input.submissionId, input.lineAccountId, timestamp],
+  });
+  if (!changed) throw new Error('prescription submission not found');
 }
 
 export async function savePrescriptionValidity(
@@ -218,7 +303,7 @@ export async function savePrescriptionValidity(
   const reminderDueAt = input.verificationStatus === 'verified'
     ? prescriptionReminderDueAt(validUntil)
     : null;
-  const result = await db.prepare(
+  const mutation = db.prepare(
     `INSERT INTO pharmacy_prescription_validities
       (submission_id, line_account_id, issued_on, valid_until, validity_basis,
        verification_status, verified_by, verified_at, reminder_due_at, created_at, updated_at)
@@ -246,8 +331,20 @@ export async function savePrescriptionValidity(
     input.submissionId, input.lineAccountId, input.issuedOn, validUntil, input.validityBasis,
     input.verificationStatus, input.staffId, verifiedAt, reminderDueAt,
     timestamp, timestamp, input.submissionId, input.lineAccountId,
-  ).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('prescription submission not found');
+  );
+  const changed = await runAuditedMutation(db, mutation, {
+    lineAccountId: input.lineAccountId,
+    eventType: 'prescription_validity_updated',
+    aggregateId: input.submissionId,
+    occurredAt: timestamp,
+    idempotencyKey: `audit:${crypto.randomUUID()}`,
+    metadata: { actor_id: input.staffId },
+  }, {
+    sql: `EXISTS (SELECT 1 FROM pharmacy_prescription_validities
+                  WHERE submission_id = ? AND line_account_id = ? AND updated_at = ?)`,
+    bindings: [input.submissionId, input.lineAccountId, timestamp],
+  });
+  if (!changed) throw new Error('prescription submission not found');
 }
 
 export interface GrowthPromiseRow {

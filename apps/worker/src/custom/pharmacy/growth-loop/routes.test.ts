@@ -99,7 +99,9 @@ describe('pharmacy Growth Loop routes', () => {
       body: JSON.stringify({ capabilities: ['pharmacy_dashboard'] }),
     }, env);
     expect(allowed.status).toBe(200);
-    expect(mocks.saveConfig).toHaveBeenCalledWith(env.DB, 'account-a', ['pharmacy_dashboard'], 1, 'alert_only');
+    expect(mocks.saveConfig).toHaveBeenCalledWith(
+      env.DB, 'account-a', ['pharmacy_dashboard'], 1, 'alert_only', 'owner-1',
+    );
   });
 
   it('keeps unfollow monitoring alert-only until auto-pause has safety thresholds', async () => {
@@ -134,6 +136,8 @@ describe('pharmacy Growth Loop routes', () => {
     }, env);
 
     expect(response.status).toBe(200);
-    expect(mocks.setSourceActive).toHaveBeenCalledWith(env.DB, 'account-a', 'source-1', false);
+    expect(mocks.setSourceActive).toHaveBeenCalledWith(
+      env.DB, 'account-a', 'source-1', false, 'staff-1',
+    );
   });
 });

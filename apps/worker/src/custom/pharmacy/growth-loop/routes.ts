@@ -58,7 +58,9 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
   const limit = body.proactiveMonthlyLimit === undefined ? 1 : Number(body.proactiveMonthlyLimit);
   const alertState = 'alert_only';
   try {
-    const config = await savePharmacyCapabilityConfig(c.env.DB, scope.accountId, body.capabilities, limit, alertState);
+    const config = await savePharmacyCapabilityConfig(
+      c.env.DB, scope.accountId, body.capabilities, limit, alertState, scope.staff.id,
+    );
     return c.json({ success: true, data: config });
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'invalid config' }, 400);
@@ -125,7 +127,9 @@ pharmacyGrowthLoopRoutes.patch('/api/custom/pharmacy/growth/sources/:sourceId', 
     return c.json({ success: false, error: 'isActive must be boolean' }, 400);
   }
   try {
-    await setMedicalSourceActive(c.env.DB, scope.accountId, c.req.param('sourceId'), body.isActive);
+    await setMedicalSourceActive(
+      c.env.DB, scope.accountId, c.req.param('sourceId'), body.isActive, scope.staff.id,
+    );
     return c.json({ success: true });
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'source update failed' }, 404);
