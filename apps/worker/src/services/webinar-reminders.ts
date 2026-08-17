@@ -23,6 +23,7 @@ export type WebinarProxyDeliveryOptions = {
   defaultAccessToken: string;
   defaultLiffId: string | null;
   proxyDispatch?: HarnessProxyDispatch;
+  canProcessAccount?: (accountId: string | null) => Promise<boolean>;
 };
 
 export function buildWebinarUrl(
@@ -78,6 +79,7 @@ export async function processWebinarReminders(
   for (let i = 0; i < due.length; i++) {
     const reg = due[i];
     try {
+      if (options.canProcessAccount && !(await options.canProcessAccount(reg.account_id))) continue;
       if (i > 0) await sleep(addJitter(50, 200));
       const friend = await getFriendById(db, reg.friend_id);
       if (!friend || !friend.is_following) {
@@ -121,6 +123,7 @@ export async function sendWebinarRegistrationConfirmation(
   options: WebinarProxyDeliveryOptions,
 ): Promise<void> {
   try {
+    if (options.canProcessAccount && !(await options.canProcessAccount(webinar.account_id))) return;
     const friend = await getFriendById(db, friendId);
     if (!friend || !friend.is_following) return;
     const { accessToken, liffId } = await resolveDeliveryConfig(db, webinar.account_id, options);

@@ -39,6 +39,22 @@ beforeEach(() => {
 });
 
 describe('processWebinarReminders', () => {
+  test('pharmacy account is skipped by the scheduled capability gate', async () => {
+    dbMocks.getDueWebinarRegistrations.mockResolvedValue([REG]);
+    const canProcessAccount = vi.fn().mockResolvedValue(false);
+
+    const result = await processWebinarReminders({} as D1Database, {
+      ...OPTIONS,
+      canProcessAccount,
+    });
+
+    expect(result).toEqual({ sent: 0, failed: 0 });
+    expect(canProcessAccount).toHaveBeenCalledWith('acc-1');
+    expect(dbMocks.getFriendById).not.toHaveBeenCalled();
+    expect(dbMocks.markWebinarRegistrationNotified).not.toHaveBeenCalled();
+    expect(proxyFetch).not.toHaveBeenCalled();
+  });
+
   test('Harness proxy 経由で送信し、成功後に notified を刻む', async () => {
     dbMocks.getDueWebinarRegistrations.mockResolvedValue([REG]);
     const result = await processWebinarReminders({} as D1Database, OPTIONS);
@@ -108,6 +124,19 @@ describe('processWebinarReminders', () => {
 });
 
 describe('sendWebinarRegistrationConfirmation', () => {
+  test('pharmacy account confirmation is skipped by the capability gate', async () => {
+    await sendWebinarRegistrationConfirmation(
+      {} as D1Database,
+      { account_id: 'acc-1', title: 'テスト', slug: 'test-webinar' },
+      'friend-1',
+      NOW + 3600,
+      { ...OPTIONS, canProcessAccount: async () => false },
+    );
+
+    expect(dbMocks.getFriendById).not.toHaveBeenCalled();
+    expect(proxyFetch).not.toHaveBeenCalled();
+  });
+
   test('予約直後の確認も Harness proxy 経由で送り、履歴化する', async () => {
     await sendWebinarRegistrationConfirmation(
       {} as D1Database,

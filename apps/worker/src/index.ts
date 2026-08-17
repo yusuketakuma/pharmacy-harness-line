@@ -1034,6 +1034,8 @@ async function scheduled(
         defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
         defaultLiffId: liffMatch?.[1] ?? null,
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        canProcessAccount: async (accountId) =>
+          !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
       },
     );
     if (result.sent + result.failed > 0) {
@@ -1054,6 +1056,8 @@ async function scheduled(
       defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
       defaultLiffId: liffMatch?.[1] ?? null,
       proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      canProcessAccount: async (accountId) =>
+        !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
     });
     if (result.sent + result.failed > 0) {
       console.log(`[webinar-followups] sent=${result.sent} failed=${result.failed}`);
