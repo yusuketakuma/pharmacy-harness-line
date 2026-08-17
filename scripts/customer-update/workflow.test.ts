@@ -58,4 +58,10 @@ describe('customer update policy workflow', () => {
     expect(policyWorkflow).toContain('pnpm --dir candidate --filter web test');
     expect(policyWorkflow).toContain('pnpm --dir candidate --filter web build');
   });
+
+  it('bootstraps the policy script from the candidate on the first promotion', () => {
+    expect(policyWorkflow).toContain('policy_script="$GITHUB_WORKSPACE/trusted/scripts/customer-update/policy.ts"');
+    expect(policyWorkflow).toContain('policy_script="$GITHUB_WORKSPACE/candidate/scripts/customer-update/policy.ts"');
+    expect(policyWorkflow).toContain('if [ ! -f "$policy_script" ]');
+  });
 });
