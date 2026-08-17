@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getClient } from "../client.js";
+import { pinnedAccountId, requireConfirmation } from "../custom/pharmacy/rich-menu/guard.js";
 
 export function registerCreateRichMenu(server: McpServer): void {
   server.tool(
@@ -46,24 +47,45 @@ export function registerCreateRichMenu(server: McpServer): void {
         .boolean()
         .default(false)
         .describe("Set this as the default rich menu for all friends"),
+      accountId: z.string().optional().describe("Must match LINE_HARNESS_ACCOUNT_ID"),
+      dryRun: z.boolean().default(true).describe("Preview without changing LINE"),
+      confirm: z.boolean().default(false).describe("Required for live creation"),
     },
-    async ({ name, chatBarText, size, selected, areas, imageData, imageContentType, setAsDefault }) => {
+    async ({ name, chatBarText, size, selected, areas, imageData, imageContentType, setAsDefault, accountId, dryRun, confirm }) => {
       try {
+        const resolvedAccountId = pinnedAccountId(accountId);
+        const parsedAreas = JSON.parse(areas);
+        requireConfirmation(dryRun, confirm, "create_rich_menu");
+        if (dryRun) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({
+              success: true,
+              dryRun: true,
+              requiresConfirmation: true,
+              accountId: resolvedAccountId,
+              name,
+              size,
+              areaCount: Array.isArray(parsedAreas) ? parsedAreas.length : 0,
+              imageAttached: !!imageData,
+              setAsDefault,
+            }, null, 2) }],
+          };
+        }
         const client = getClient();
         const menu = await client.richMenus.create({
           name,
           chatBarText,
           size,
           selected,
-          areas: JSON.parse(areas),
-        });
+          areas: parsedAreas,
+        }, resolvedAccountId);
 
         if (imageData) {
-          await client.richMenus.uploadImage(menu.richMenuId, imageData, imageContentType);
+          await client.richMenus.uploadImage(menu.richMenuId, imageData, imageContentType, resolvedAccountId);
         }
 
         if (setAsDefault) {
-          await client.richMenus.setDefault(menu.richMenuId);
+          await client.richMenus.setDefault(menu.richMenuId, resolvedAccountId);
         }
 
         return {

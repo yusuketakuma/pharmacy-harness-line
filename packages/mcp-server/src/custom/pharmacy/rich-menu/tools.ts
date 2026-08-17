@@ -1,0 +1,192 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { getClient } from '../../../client.js';
+import { pinnedAccountId, requireConfirmation } from './guard.js';
+
+function result(payload: Record<string, unknown>, isError = false) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    ...(isError ? { isError: true } : {}),
+  };
+}
+
+export function registerPharmacyRichMenuTools(server: McpServer): void {
+  server.tool(
+    'manage_pharmacy_rich_menus',
+    '薬局用リッチメニューを管理する。画像保存とページ間切替を含み、アカウントはLINE_HARNESS_ACCOUNT_IDに固定され、変更操作はdry-runと確認を必須にする。',
+    {
+      action: z.enum(['list', 'inspect', 'prepare', 'publish', 'unpublish', 'delete', 'apply_to_tag', 'save_image', 'set_switch']),
+      groupId: z.string().optional(),
+      pageId: z.string().optional(),
+      sourcePageId: z.string().optional(),
+      areaId: z.string().optional(),
+      targetPageId: z.string().optional(),
+      accountId: z.string().optional(),
+      profileKey: z.string().optional(),
+      imageData: z.string().optional().describe('PNG/JPEG image data as base64 or a data URI'),
+      imageContentType: z.enum(['image/png', 'image/jpeg']).default('image/jpeg'),
+      mode: z.enum(['bulk-link', 'set-default']).optional(),
+      tagId: z.string().nullable().optional(),
+      dryRun: z.boolean().default(true),
+      confirm: z.boolean().default(false),
+      confirmationToken: z.string().optional(),
+      force: z.boolean().default(false),
+    },
+    async ({ action, groupId, pageId, sourcePageId, areaId, targetPageId, accountId, profileKey, imageData, imageContentType, mode, tagId, dryRun, confirm, confirmationToken, force }) => {
+      try {
+        const resolvedAccountId = pinnedAccountId(accountId);
+        const client = getClient();
+
+        if (action === 'list') {
+          return result({ success: true, accountId: resolvedAccountId, groups: await client.richMenuGroups.list(resolvedAccountId) });
+        }
+
+        if (action === 'prepare') {
+          return result({
+            success: true,
+            accountId: resolvedAccountId,
+            preparation: await client.richMenuGroups.preparePharmacy({ profileKey, initial: true }, resolvedAccountId),
+          });
+        }
+
+        if (!groupId) throw new Error('groupId is required for this action');
+        if (action === 'inspect') {
+          return result({ success: true, accountId: resolvedAccountId, group: await client.richMenuGroups.get(groupId, resolvedAccountId) });
+        }
+
+        if (action === 'save_image') {
+          if (!pageId) throw new Error('pageId is required for save_image');
+          if (!imageData) throw new Error('imageData is required for save_image');
+          requireConfirmation(dryRun, confirm, 'save_image');
+          if (dryRun) {
+            return result({
+              success: true,
+              dryRun: true,
+              requiresConfirmation: true,
+              operation: 'save_image',
+              accountId: resolvedAccountId,
+              groupId,
+              pageId,
+              imageContentType,
+              imageAttached: true,
+            });
+          }
+          const image = await client.richMenuGroups.uploadImage(
+            groupId,
+            pageId,
+            imageData,
+            imageContentType,
+            resolvedAccountId,
+          );
+          return result({
+            success: true,
+            operation: 'save_image',
+            accountId: resolvedAccountId,
+            groupId,
+            pageId,
+            image,
+          });
+        }
+
+        if (action === 'set_switch') {
+          if (!sourcePageId || !areaId || !targetPageId) {
+            throw new Error('sourcePageId, areaId, and targetPageId are required for set_switch');
+          }
+          if (sourcePageId === targetPageId) throw new Error('source and target pages must differ');
+          requireConfirmation(dryRun, confirm, 'set_switch');
+          const group = await client.richMenuGroups.get(groupId, resolvedAccountId);
+          const pages = group.pages ?? [];
+          const source = pages.find((page) => page.id === sourcePageId);
+          if (!source) throw new Error(`source page not found: ${sourcePageId}`);
+          if (!pages.some((page) => page.id === targetPageId)) {
+            throw new Error(`target page not found: ${targetPageId}`);
+          }
+          const area = source.areas.find((candidate) => candidate.id === areaId);
+          if (!area) throw new Error(`area not found on source page: ${areaId}`);
+          const nextPages = pages.map((page) => ({
+            id: page.id,
+            name: page.name,
+            orderIndex: page.orderIndex,
+            areas: page.areas.map((candidate) => {
+              const { id, ...areaInput } = candidate;
+              return page.id === sourcePageId && id === areaId
+                ? { ...areaInput, actionType: 'richmenuswitch' as const, actionData: { targetPageId } }
+                : areaInput;
+            }),
+          }));
+          if (dryRun) {
+            return result({
+              success: true,
+              dryRun: true,
+              requiresConfirmation: true,
+              operation: 'set_switch',
+              accountId: resolvedAccountId,
+              groupId,
+              sourcePageId,
+              areaId,
+              targetPageId,
+            });
+          }
+          const updated = await client.richMenuGroups.update(groupId, { pages: nextPages }, resolvedAccountId);
+          return result({
+            success: true,
+            operation: 'set_switch',
+            accountId: resolvedAccountId,
+            groupId,
+            sourcePageId,
+            areaId,
+            targetPageId,
+            group: updated,
+          });
+        }
+
+        if (action === 'publish' || action === 'unpublish' || action === 'delete') {
+          requireConfirmation(dryRun, confirm, action);
+          if (dryRun) {
+            const group = await client.richMenuGroups.get(groupId, resolvedAccountId);
+            return result({
+              success: true,
+              dryRun: true,
+              requiresConfirmation: true,
+              operation: action,
+              groupId,
+              status: group.status,
+              pageCount: group.pages?.length ?? 0,
+              imageReady: group.pages?.every((page) => !!page.imageR2Key) ?? false,
+            });
+          }
+          if (action === 'publish') {
+            return result({ success: true, operation: action, group: await client.richMenuGroups.publish(groupId, resolvedAccountId) });
+          }
+          if (action === 'unpublish') {
+            return result({ success: true, operation: action, group: await client.richMenuGroups.unpublish(groupId, resolvedAccountId) });
+          }
+          await client.richMenuGroups.delete(groupId, { force, accountId: resolvedAccountId });
+          return result({ success: true, operation: action, groupId });
+        }
+
+        if (action === 'apply_to_tag') {
+          if (!mode) throw new Error('mode is required for apply_to_tag');
+          const input = {
+            mode,
+            ...(mode === 'bulk-link' ? { tagId: tagId ?? null } : {}),
+            dryRun,
+            ...(confirmationToken ? { confirmationToken } : {}),
+          } as const;
+          if (!dryRun) requireConfirmation(false, confirm, 'apply_to_tag');
+          return result({
+            success: true,
+            accountId: resolvedAccountId,
+            operation: 'apply_to_tag',
+            groupId,
+            result: await client.richMenuGroups.applyToTag(groupId, input, resolvedAccountId),
+          });
+        }
+
+        throw new Error(`unsupported action: ${action}`);
+      } catch (error) {
+        return result({ success: false, error: String(error) }, true);
+      }
+    },
+  );
+}

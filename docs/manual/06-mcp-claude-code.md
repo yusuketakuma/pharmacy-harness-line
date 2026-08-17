@@ -2,12 +2,12 @@
 chapter: 6
 title: MCP × Claude Code で自動化
 tier: paid
-status: placeholder
+status: active
 ---
 
 # 第6章 MCP × Claude Code で自動化
 
-> 【tier: 🔒 有料】MCP 経由で Claude Code に LINE 運用を委譲する。配信案生成 → 確認 → 送信までを半自動化する設計パターン。
+MCP 経由で Claude Code / Codex から LINE 運用を操作する。送信・公開などの変更操作は、ツール側の dry-run と明示確認を通過してから実行する。
 
 ## 章の目的
 
@@ -29,6 +29,8 @@ status: placeholder
 - 6.3 配信案の自動生成 → 人間レビュー → 送信のフロー
 - 6.4 週次インサイト集計を Claude Code に投げる定型プロンプト
 - 6.5 「事前確認なし送信禁止」をツール設計で強制する
+- 6.6 薬局リッチメニューの初期作成とアカウント固定
+- 6.7 薬局リッチメニューの画像保存と画面切替
 
 ## 前提
 
@@ -40,5 +42,8 @@ status: placeholder
 
 第 7 章では、ここまでの運用で実際に踏んだ事故ナレッジ集を扱います。読み返しやすい辞書形式です。
 
----
-*このファイルはプレースホルダーです。本文は別セッションで執筆します。*
+## 6.7 薬局リッチメニューの画像保存と画面切替
+
+`manage_pharmacy_rich_menus` の `save_image` は、ページ画像をアカウント固定のSDK経由でR2へ保存します。公開操作と同様に、まず `dryRun=true` で内容を確認し、保存時だけ `dryRun=false, confirm=true` を指定します。
+
+画面切替は管理画面でページを追加し、エリアのアクションを `タブ切替 (richmenuswitch)` に設定します。公開時に内部ページIDがLINE aliasへ解決されるため、画面の追加・並び替え後も同じグループ内で切替先を保持できます。

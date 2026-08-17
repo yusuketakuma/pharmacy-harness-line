@@ -49,6 +49,8 @@ function serializeGroup(row: RichMenuGroup) {
     isDefaultForAll: row.is_default_for_all === 1,
     selected: row.selected === 1,
     status: row.status,
+    generatorKey: row.generator_key,
+    generatorVersion: row.generator_version,
     publishingAt: row.publishing_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -200,6 +202,12 @@ function parseCreateBody(raw: unknown): Parsed<CreateRichMenuGroupInput> {
   if (r.selected !== undefined && typeof r.selected !== 'boolean') {
     return { ok: false, error: 'selected must be boolean' };
   }
+  if (r.generatorKey !== undefined && (typeof r.generatorKey !== 'string' || r.generatorKey.length === 0 || r.generatorKey.length > 128)) {
+    return { ok: false, error: 'generatorKey must be 1..128 chars when present' };
+  }
+  if (r.generatorVersion !== undefined && (typeof r.generatorVersion !== 'string' || r.generatorVersion.length === 0 || r.generatorVersion.length > 32)) {
+    return { ok: false, error: 'generatorVersion must be 1..32 chars when present' };
+  }
   const pages = parsePages(r.pages);
   if (!pages.ok) return pages;
   return {
@@ -211,6 +219,8 @@ function parseCreateBody(raw: unknown): Parsed<CreateRichMenuGroupInput> {
       size: r.size as 'large' | 'compact',
       selected: r.selected === true,
       pages: pages.value,
+      generatorKey: r.generatorKey as string | undefined,
+      generatorVersion: r.generatorVersion as string | undefined,
     },
   };
 }
@@ -247,6 +257,17 @@ function parsePatchBody(raw: unknown): Parsed<{ meta: UpdateRichMenuGroupMetaInp
 }
 
 // ----- Routes -----
+
+function groupMatchesAccountScope(
+  c: { req: { query(name: string): string | undefined; header(name: string): string | undefined } },
+  group: Pick<RichMenuGroup, 'account_id'>,
+): boolean {
+  const requestedAccountId = c.req.query('accountId');
+  if (requestedAccountId) return requestedAccountId === group.account_id;
+  // Browser admin requests are scoped by the selected account in the session UI.
+  // Bearer callers (SDK/MCP) must always send accountId so an ID cannot cross tenants.
+  return !c.req.header('Authorization');
+}
 
 // LINE 上の rich menu の画像をプロキシで返す (Authorization が必要なため
 // admin 経由で取得して画面に流す)。
@@ -638,6 +659,7 @@ richMenuGroups.get('/api/rich-menu-groups/:groupId', async (c) => {
   const groupId = c.req.param('groupId');
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
+  if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
   return c.json({ success: true, data: serializeGroupWithPages(group) });
 });
 
@@ -650,6 +672,10 @@ richMenuGroups.post('/api/rich-menu-groups', async (c) => {
   }
   const parsed = parseCreateBody(body);
   if (!parsed.ok) return c.json({ success: false, error: parsed.error }, 400);
+  const requestedAccountId = c.req.query('accountId');
+  if (requestedAccountId && requestedAccountId !== parsed.value.accountId) {
+    return c.json({ success: false, error: 'accountId scope does not match request body' }, 403);
+  }
   const switcherRejection = rejectRichmenuswitchInCreate(parsed.value.pages);
   if (switcherRejection) return c.json({ success: false, error: switcherRejection }, 400);
   const created = await createRichMenuGroup(c.env.DB, parsed.value);
@@ -660,6 +686,7 @@ richMenuGroups.patch('/api/rich-menu-groups/:groupId', async (c) => {
   const groupId = c.req.param('groupId');
   const existing = await getRichMenuGroupById(c.env.DB, groupId);
   if (!existing) return c.json({ success: false, error: 'not found' }, 404);
+  if (!groupMatchesAccountScope(c, existing)) return c.json({ success: false, error: 'not found' }, 404);
 
   let body: unknown;
   try {
@@ -687,6 +714,7 @@ richMenuGroups.delete('/api/rich-menu-groups/:groupId', async (c) => {
   const force = c.req.query('force') === 'true';
   const existing = await getRichMenuGroupById(c.env.DB, groupId);
   if (!existing) return c.json({ success: false, error: 'not found' }, 404);
+  if (!groupMatchesAccountScope(c, existing)) return c.json({ success: false, error: 'not found' }, 404);
   if (existing.status === 'published' && !force) {
     return c.json(
       {
@@ -719,6 +747,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/pages/:pageId/image', async 
 
   const group = await getRichMenuGroupById(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'group not found' }, 404);
+  if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'group not found' }, 404);
 
   // group.size と画像サイズが一致してないと publish 時に LINE API でコンテンツアップロードが
   // 弾かれる (richmenu の宣言サイズと content の dimensions は一致必須)。事前に拒否する。
@@ -852,6 +881,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
   const groupId = c.req.param('groupId');
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
+  if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
   if (group.publishing_at) return c.json({ success: false, error: 'already publishing' }, 409);
 
   const account = await getLineAccountById(c.env.DB, group.account_id);
@@ -911,6 +941,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
   const groupId = c.req.param('groupId');
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
+  if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
 
   const account = await getLineAccountById(c.env.DB, group.account_id);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 500);
@@ -955,6 +986,10 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
 //     同 account 内の他 group の is_default_for_all は 0 にリセット。
 //
 // 前提: group が published かつ default_page に line_richmenu_id がセット済み。
+function applyConfirmationToken(groupId: string, mode: 'bulk-link' | 'set-default', tagId: string | null): string {
+  return `confirm:${groupId}:${mode}:${encodeURIComponent(tagId ?? 'all')}`;
+}
+
 richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => {
   const groupId = c.req.param('groupId');
   let body: unknown;
@@ -963,7 +998,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
   } catch {
     return c.json({ success: false, error: 'invalid JSON body' }, 400);
   }
-  const r = (body as { tagId?: unknown; mode?: unknown }) ?? {};
+  const r = (body as { tagId?: unknown; mode?: unknown; dryRun?: unknown; confirmationToken?: unknown }) ?? {};
   const mode = (r.mode as string | undefined) ?? 'bulk-link';
   if (mode !== 'bulk-link' && mode !== 'set-default') {
     return c.json({ success: false, error: "mode must be 'bulk-link' or 'set-default'" }, 400);
@@ -977,6 +1012,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
 
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
+  if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
   if (group.status !== 'published') {
     return c.json(
       { success: false, error: 'group must be published before applying to friends' },
@@ -992,6 +1028,27 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       { success: false, error: 'no published rich menu found for default page' },
       400,
     );
+  }
+
+  const confirmationToken = applyConfirmationToken(groupId, mode, tagId);
+  if (r.dryRun === true) {
+    const affected = mode === 'bulk-link'
+      ? (await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId)).length
+      : 0;
+    return c.json({
+      success: true,
+      data: {
+        dryRun: true,
+        confirmationToken,
+        mode,
+        tagId: mode === 'bulk-link' ? tagId : undefined,
+        affected,
+        chunks: Math.ceil(affected / 500),
+      },
+    });
+  }
+  if (r.dryRun === false && r.confirmationToken !== confirmationToken) {
+    return c.json({ success: false, error: 'valid confirmationToken from dry-run is required' }, 428);
   }
 
   const account = await getLineAccountById(c.env.DB, group.account_id);

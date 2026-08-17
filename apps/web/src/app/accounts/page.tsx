@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { api } from '@/lib/api'
 import Header from '@/components/layout/header'
 import CcPromptButton from '@/components/cc-prompt-button'
@@ -68,7 +69,13 @@ export default function AccountsPage() {
   const [form, setForm] = useState<AccountFormState>(emptyAccountFormState)
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [justCreated, setJustCreated] = useState<{ liffId: string | null } | null>(null)
+  const [preparingRichMenu, setPreparingRichMenu] = useState(false)
+  const [justCreated, setJustCreated] = useState<{
+    accountId: string
+    liffId: string | null
+    richMenuStatus: 'prepared' | 'configuration_required' | 'failed'
+    richMenuGroupId: string | null
+  } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -113,7 +120,30 @@ export default function AccountsPage() {
         ogDefaultDescription: form.ogDefaultDescription?.trim() || null,
       })
       if (res.success) {
-        setJustCreated({ liffId: form.liffId.trim() || null })
+        const accountId = res.data?.id
+        let richMenuStatus: 'prepared' | 'configuration_required' | 'failed' = 'failed'
+        let richMenuGroupId: string | null = null
+        if (accountId) {
+          try {
+            const menu = await api.richMenuGroups.preparePharmacy(accountId, { initial: true })
+            if (menu.success) {
+              richMenuStatus = menu.data.status === 'prepared' || menu.data.status === 'already_prepared'
+                ? 'prepared'
+                : 'configuration_required'
+              richMenuGroupId = menu.data.group?.id ?? null
+            } else if (menu.error?.toLowerCase().includes('liff')) {
+              richMenuStatus = 'configuration_required'
+            }
+          } catch {
+            richMenuStatus = form.liffId.trim() ? 'failed' : 'configuration_required'
+          }
+        }
+        setJustCreated({
+          accountId: accountId ?? '',
+          liffId: form.liffId.trim() || null,
+          richMenuStatus,
+          richMenuGroupId,
+        })
         setForm(emptyAccountFormState)
         setShowCreate(false)
         load()
@@ -136,6 +166,26 @@ export default function AccountsPage() {
   const handleToggle = async (id: string, currentActive: boolean) => {
     await api.lineAccounts.update(id, { isActive: !currentActive })
     load()
+  }
+
+  const prepareInitialRichMenu = async () => {
+    if (!justCreated?.accountId) return
+    setPreparingRichMenu(true)
+    try {
+      const menu = await api.richMenuGroups.preparePharmacy(justCreated.accountId, { initial: true })
+      const menuError = menu.success ? '' : menu.error ?? ''
+      setJustCreated((current) => current ? {
+        ...current,
+        richMenuStatus: menu.success && (menu.data.status === 'prepared' || menu.data.status === 'already_prepared')
+          ? 'prepared'
+          : menuError.toLowerCase().includes('liff') ? 'configuration_required' : 'failed',
+        richMenuGroupId: menu.success ? menu.data.group?.id ?? current.richMenuGroupId : current.richMenuGroupId,
+      } : current)
+    } catch {
+      setJustCreated((current) => current ? { ...current, richMenuStatus: 'failed' } : current)
+    } finally {
+      setPreparingRichMenu(false)
+    }
   }
 
   return (
@@ -184,6 +234,28 @@ export default function AccountsPage() {
             次に LINE Developers Console で以下の URL を貼り付けてください。
           </p>
           <AccountSetupUrls liffId={justCreated.liffId} heading="登録すべき URL" />
+          <p className="mt-3 text-xs text-green-700">
+            初期リッチメニュー:{' '}
+            {justCreated.richMenuStatus === 'prepared' ? (
+              justCreated.richMenuGroupId ? (
+                <Link href={`/rich-menus/edit?id=${justCreated.richMenuGroupId}`} className="underline">下書きを確認</Link>
+              ) : '準備済み'
+            ) : justCreated.richMenuStatus === 'configuration_required' ? (
+              'LIFF ID 登録後に準備できます'
+            ) : (
+              '準備に失敗しました。リッチメニュー画面から再実行してください'
+            )}
+          </p>
+          {justCreated.richMenuStatus !== 'prepared' && (
+            <button
+              type="button"
+              onClick={prepareInitialRichMenu}
+              disabled={preparingRichMenu || !justCreated.liffId}
+              className="mt-2 text-xs text-green-800 underline disabled:no-underline disabled:opacity-50"
+            >
+              {preparingRichMenu ? '初期メニューを準備中...' : '初期メニューを再実行'}
+            </button>
+          )}
           <button
             onClick={() => setJustCreated(null)}
             className="mt-3 text-xs text-green-700 underline"

@@ -31,4 +31,16 @@ describe('legacyQueryTarget', () => {
       '/prescriptions?liffId=123',
     );
   });
+
+  it('opens the pharmacy rich-menu destinations', () => {
+    expect(legacyQueryTarget('?page=pharmacy-receive&liffId=123')).toBe(
+      '/pharmacy/receive?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-intake&liffId=123')).toBe(
+      '/pharmacy/patient-intake?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-continuity&liffId=123')).toBe(
+      '/pharmacy/continuity?liffId=123',
+    );
+  });
 });
