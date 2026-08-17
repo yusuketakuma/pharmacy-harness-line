@@ -1,0 +1,85 @@
+import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
+import { sendPharmacyAutomatedPush } from './sender.js';
+
+type DueValidity = {
+  submission_id: string;
+  line_account_id: string;
+  friend_id: string;
+  valid_until: string;
+  line_user_id: string;
+  channel_access_token: string;
+};
+
+export async function processDuePrescriptionValidityReminders(
+  db: D1Database,
+  options: { proxyBaseUrl: string; proxyDispatch?: HarnessProxyDispatch; now?: Date; limit?: number },
+): Promise<{ sent: number; failed: number; skipped: number }> {
+  const now = options.now ?? new Date();
+  const timestamp = now.toISOString();
+  const staleClaim = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
+  const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? 50)));
+  const rows = await db.prepare(
+    `SELECT v.submission_id, v.line_account_id, s.friend_id, v.valid_until,
+            f.line_user_id, la.channel_access_token
+       FROM pharmacy_prescription_validities v
+       INNER JOIN pharmacy_prescription_submissions s
+         ON s.id = v.submission_id AND s.line_account_id = v.line_account_id
+       INNER JOIN friends f ON f.id = s.friend_id AND f.line_account_id = s.line_account_id
+       INNER JOIN line_accounts la ON la.id = s.line_account_id
+       INNER JOIN pharmacy_account_capabilities pc
+         ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
+        AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'prescription_intake')
+      WHERE v.verification_status = 'verified' AND v.valid_until IS NOT NULL
+        AND v.reminder_due_at IS NOT NULL AND v.reminder_due_at <= ?
+        AND v.reminder_sent_at IS NULL
+        AND (v.reminder_claimed_at IS NULL OR v.reminder_claimed_at < ?)
+        AND s.status NOT IN ('closed','cancelled')
+        AND f.is_following = 1 AND la.is_active = 1
+      ORDER BY v.reminder_due_at, v.submission_id LIMIT ?`,
+  ).bind(timestamp, staleClaim, limit).all<DueValidity>();
+
+  const result = { sent: 0, failed: 0, skipped: 0 };
+  for (const row of rows.results ?? []) {
+    const claim = await db.prepare(
+      `UPDATE pharmacy_prescription_validities
+          SET reminder_claimed_at = ?, updated_at = ?
+        WHERE submission_id = ? AND line_account_id = ?
+          AND verification_status = 'verified' AND reminder_sent_at IS NULL
+          AND (reminder_claimed_at IS NULL OR reminder_claimed_at < ?)
+          AND valid_until IS NOT NULL`,
+    ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, staleClaim).run();
+    if ((claim.meta?.changes ?? 0) !== 1) {
+      result.skipped++;
+      continue;
+    }
+    try {
+      await sendPharmacyAutomatedPush({
+        db,
+        proxyBaseUrl: options.proxyBaseUrl,
+        proxyDispatch: options.proxyDispatch,
+        accessToken: row.channel_access_token,
+        to: row.line_user_id,
+        lineAccountId: row.line_account_id,
+        friendId: row.friend_id,
+        messageId: 'prescription_validity_reminder_v1',
+        category: 'transactional_care',
+        vars: { genericDate: row.valid_until },
+        retryKey: `prescription-validity:${row.submission_id}:${row.valid_until}`,
+      });
+      await db.prepare(
+        `UPDATE pharmacy_prescription_validities
+            SET reminder_sent_at = ?, reminder_claimed_at = NULL, updated_at = ?
+          WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
+      ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, timestamp).run();
+      result.sent++;
+    } catch {
+      await db.prepare(
+        `UPDATE pharmacy_prescription_validities
+            SET reminder_claimed_at = NULL, updated_at = ?
+          WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
+      ).bind(timestamp, row.submission_id, row.line_account_id, timestamp).run();
+      result.failed++;
+    }
+  }
+  return result;
+}

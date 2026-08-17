@@ -24,6 +24,7 @@ import { awardActivityMileage } from '../services/activity-mileage.js';
 import { replyViaHarnessProxy } from '../services/line-proxy-send.js';
 import type { HarnessProxyDispatch } from '../services/line-proxy-send.js';
 import { dispatchLineProxyLocally } from '../services/local-line-proxy.js';
+import { recordPharmacyFollow, recordPharmacyUnfollowMetrics } from '../custom/pharmacy/growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
 
 const webhook = new Hono<Env>();
 
@@ -232,6 +233,21 @@ async function handleEvent(
       console.log(`[follow] line_account_id set to ${lineAccountId} for friend ${friend.id}`);
     }
 
+    try {
+      await recordPharmacyFollow({
+        db,
+        lineAccountId,
+        friendId: friend.id,
+        lineUserId: userId,
+        firstFollowedAt: friend.first_followed_at ?? friend.created_at,
+        proxyBaseUrl: workerUrl,
+        accessToken: lineAccessToken,
+        proxyDispatch,
+      });
+    } catch (error) {
+      console.error('[pharmacy-growth] follow metric failed', error instanceof Error ? error.message : 'unknown error');
+    }
+
     // 新規・再フォローのどちらでも、最初の友だち登録マイルを同じキーで非同期投入する。
     // first_followed_at を使うため再フォローやWebhook再送では二重加算されない。
     const firstFollowedAt = friend.first_followed_at ?? friend.created_at;
@@ -361,6 +377,11 @@ async function handleEvent(
     if (!userId) return;
 
     await updateFriendFollowStatus(db, userId, false);
+    try {
+      await recordPharmacyUnfollowMetrics({ db, lineAccountId, lineUserId: userId });
+    } catch (error) {
+      console.error('[pharmacy-growth] unfollow metric failed', error instanceof Error ? error.message : 'unknown error');
+    }
     return;
   }
 

@@ -1,8 +1,9 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
-import { pushViaHarnessProxy } from '../../../services/line-proxy-send.js';
 import type { DueContinuityReminder } from './repository.js';
+import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
 
 export interface ContinuityNotificationOptions {
+  db?: D1Database;
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
 }
@@ -17,14 +18,18 @@ export async function deliverContinuityReminder(
 ): Promise<'sent' | 'failed' | 'skipped'> {
   if (!reminder.line_user_id || !reminder.channel_access_token) return 'skipped';
   try {
-    await pushViaHarnessProxy(
-      options.proxyBaseUrl,
-      reminder.channel_access_token,
-      reminder.line_user_id,
-      [{ type: 'text', text: continuityReminderText() }],
-      `continuity:${reminder.id}:${reminder.reminder_count}`,
-      options.proxyDispatch,
-    );
+    await sendPharmacyAutomatedPush({
+      db: options.db,
+      proxyBaseUrl: options.proxyBaseUrl,
+      proxyDispatch: options.proxyDispatch,
+      accessToken: reminder.channel_access_token,
+      to: reminder.line_user_id,
+      lineAccountId: reminder.line_account_id,
+      friendId: reminder.owner_friend_id,
+      messageId: 'continuity_reminder_v1',
+      category: 'continuity',
+      retryKey: `continuity:${reminder.id}:${reminder.reminder_count}`,
+    });
     return 'sent';
   } catch {
     return 'failed';

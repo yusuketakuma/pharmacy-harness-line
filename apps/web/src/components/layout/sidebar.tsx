@@ -28,6 +28,7 @@ const menuSections = [
       { href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
       { href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
       { href: '/myna', label: 'マイナ受付', icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
+      { href: '/pharmacy-growth', label: '薬局Growth Loop', icon: 'M4 19h16M6 16V8m6 8V4m6 12v-6' }, // custom:pharmacy-growth-loop
     ],
   },
   {

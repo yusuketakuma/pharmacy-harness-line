@@ -260,6 +260,9 @@ export async function claimDueContinuityReminders(
        FROM pharmacy_continuity_obligations o
        INNER JOIN friends f ON f.id = o.owner_friend_id AND f.line_account_id = o.line_account_id
        INNER JOIN line_accounts la ON la.id = o.line_account_id
+       INNER JOIN pharmacy_account_capabilities pc
+         ON pc.line_account_id = o.line_account_id AND pc.mode = 'pharmacy'
+        AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'continuity')
       WHERE o.status = 'active' AND o.next_contact_at <= ?
         AND (o.last_reminded_at IS NULL OR o.last_reminded_at < ?)
         AND o.reminder_count < 3 AND f.is_following = 1 AND la.is_active = 1

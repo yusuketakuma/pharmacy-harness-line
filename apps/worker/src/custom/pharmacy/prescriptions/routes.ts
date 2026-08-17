@@ -9,6 +9,7 @@ import {
   type PrescriptionPatient,
 } from './patient.js';
 import { deliverPrescriptionNotification } from './notifications.js';
+import { recordAcceptedSubmissionActivation } from '../growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
 import {
   completeContinuityAfterClose,
   linkContinuitySubmission,
@@ -431,6 +432,14 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
       staff.id,
       typeof body.reasonCode === 'string' ? body.reasonCode : null,
     );
+    if (action === 'admin_accept') {
+      try {
+        await recordAcceptedSubmissionActivation(c.env.DB, lineAccountId, c.req.param('id'));
+      } catch (error) {
+        // Metrics are observability only; never turn a committed pharmacist action into a 500.
+        console.error('[pharmacy-growth] activation metric failed', error);
+      }
+    }
     if (action === 'admin_close') {
       await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);
     }

@@ -21,6 +21,9 @@ function fakeDb(options: { recipient?: Record<string, unknown> | null; due?: unk
       bind: (...values: unknown[]) => ({
         first: async () => {
           calls.push({ sql, values, operation: 'first' });
+          if (sql.includes('pharmacy_account_capabilities')) {
+            return { line_account_id: 'account-a', mode: 'pharmacy', capabilities_json: '["prescription_intake"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' };
+          }
           return recipient;
         },
         all: async () => {

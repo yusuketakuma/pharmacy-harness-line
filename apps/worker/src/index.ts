@@ -98,6 +98,8 @@ import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescrip
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
 import { claimDueContinuityReminders } from './custom/pharmacy/continuity/repository.js'; // custom:pharmacy-continuity
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
+import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
+import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -219,6 +221,7 @@ app.route('/', fulfillmentRoutes); // custom:pharmacy-fulfillment
 app.route('/', continuityRoutes); // custom:pharmacy-continuity
 app.route('/', mynaRoutes); // custom:pharmacy-myna
 app.route('/', pharmacyRichMenuRoutes); // custom:pharmacy-rich-menu
+app.route('/', pharmacyGrowthLoopRoutes); // custom:pharmacy-growth-loop
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
@@ -1115,6 +1118,7 @@ async function scheduled(
       const reminderResult = { sent: 0, failed: 0, skipped: 0 };
       for (const reminder of reminders) {
         const status = await deliverContinuityReminder(reminder, { // custom:pharmacy-continuity
+          db: env.DB,
           proxyBaseUrl:
             env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
           proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
@@ -1126,6 +1130,19 @@ async function scheduled(
       }
     } catch (e) {
       console.error('pharmacy-continuity error:', e);
+    }
+
+    try {
+      const result = await processDuePrescriptionValidityReminders(env.DB, {
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        now: new Date(event.scheduledTime),
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(`[pharmacy-validity] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`);
+      }
+    } catch (e) {
+      console.error('pharmacy-validity error:', e);
     }
 
     try {

@@ -81,7 +81,8 @@
     "custom_004_pharmacy_continuity.sql",
     "custom_005_pharmacy_myna.sql",
     "custom_006_pharmacy_rich_menu_auto_create.sql",
-    "custom_007_pharmacy_patient_profile.sql"
+    "custom_007_pharmacy_patient_profile.sql",
+    "custom_008_pharmacy_growth_loop.sql"
   ],
-  "migrationCount": 82
+  "migrationCount": 83
 }

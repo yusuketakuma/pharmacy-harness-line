@@ -1477,6 +1477,59 @@ export const api = {
     imageUrl: (key: string) =>
       `${API_URL}/api/rich-menu-images/${encodeURIComponent(key)}`,
   },
+  pharmacyGrowth: {
+    config: (accountId: string) =>
+      fetchApi<ApiResponse<{
+        line_account_id: string;
+        mode: 'pharmacy';
+        capabilities: string[];
+        proactive_monthly_limit: number;
+        unfollow_alert_state: 'alert_only' | 'auto_pause';
+      } | null>>(`/api/custom/pharmacy/growth/config?line_account_id=${encodeURIComponent(accountId)}`),
+    dashboard: (accountId: string, from?: string, to?: string) => {
+      const query = new URLSearchParams({ line_account_id: accountId });
+      if (from) query.set('from', from);
+      if (to) query.set('to', to);
+      return fetchApi<ApiResponse<{
+        from: string;
+        to: string;
+        entry: {
+          firstTimeFollows: number;
+          measurableFollows: number;
+          firstSubmissions: number;
+          secondSubmissions: number;
+          firstSubmissionRate: { numerator: number; denominator: number; matureCohort: number };
+          secondSubmissionRate: { numerator: number; denominator: number; matureCohort: number };
+        };
+        sources: { primary: number; other: number; unknown: number; otherShare: number | null; knownDenominator: number };
+        promises: {
+          promised: number;
+          onTime: number;
+          late: number;
+          onTimeRate: number | null;
+          p50LatenessMinutes: number | null;
+          p90LatenessMinutes: number | null;
+          promiseRevisionCount: number;
+          promiseWithoutReady: number;
+          readyEvents: number;
+          promiseWithoutQuote: number;
+          graceMinutes: number;
+        };
+        validity: { verified: number; reminderSent: number; reminderClosedInTime: number; expiredReviewRequired: number };
+        notifications: Record<string, number>;
+        unfollow: { exposedFriends: number; within24h: number; within72h: number; interpretation: string };
+      }>>(`/api/custom/pharmacy/growth/dashboard?${query.toString()}`);
+    },
+    sources: (accountId: string) =>
+      fetchApi<ApiResponse<Array<{ id: string; display_name: string; classification: 'primary' | 'other' }>>>(
+        `/api/custom/pharmacy/growth/sources?line_account_id=${encodeURIComponent(accountId)}`,
+      ),
+    createSource: (accountId: string, body: { displayName: string; classification: 'primary' | 'other' }) =>
+      fetchApi<ApiResponse<{ id: string }>>(`/api/custom/pharmacy/growth/sources?line_account_id=${encodeURIComponent(accountId)}`, {
+        method: 'POST', body: JSON.stringify(body),
+      }),
+  },
+
   messageTemplates: {
     list: () =>
       fetchApi<ApiResponse<Array<{

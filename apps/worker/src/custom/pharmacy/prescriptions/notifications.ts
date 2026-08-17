@@ -1,6 +1,6 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
-import { pushViaHarnessProxy } from '../../../services/line-proxy-send.js';
 import type { PrescriptionStatus } from './state.js';
+import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
 
 export interface PrescriptionNotificationOptions {
   proxyBaseUrl: string;
@@ -14,6 +14,8 @@ interface NotificationRecipient {
   revision: number | null;
   line_user_id: string;
   channel_access_token: string;
+  line_account_id: string;
+  friend_id: string;
 }
 
 const REASONS: Record<string, string> = {
@@ -54,6 +56,7 @@ export async function deliverPrescriptionNotification(
 ): Promise<{ status: 'sent' | 'failed' | 'skipped' }> {
   const recipient = await db.prepare(
     `SELECT e.id AS status_event_id, e.reason_code, e.revision, s.status,
+            s.line_account_id, s.friend_id,
             f.line_user_id, la.channel_access_token
        FROM pharmacy_prescription_submissions s
        INNER JOIN friends f
@@ -76,14 +79,22 @@ export async function deliverPrescriptionNotification(
   if (!recipient?.line_user_id || !recipient.channel_access_token) return { status: 'skipped' };
 
   try {
-    await pushViaHarnessProxy(
-      options.proxyBaseUrl,
-      recipient.channel_access_token,
-      recipient.line_user_id,
-      [{ type: 'text', text: prescriptionNotificationText(recipient.status, recipient.reason_code) }],
-      recipient.status_event_id,
-      options.proxyDispatch,
-    );
+    await sendPharmacyAutomatedPush({
+      db,
+      proxyBaseUrl: options.proxyBaseUrl,
+      proxyDispatch: options.proxyDispatch,
+      accessToken: recipient.channel_access_token,
+      to: recipient.line_user_id,
+      lineAccountId: recipient.line_account_id,
+      friendId: recipient.friend_id,
+      messageId: 'prescription_status_v1',
+      category: 'transactional_care',
+      vars: {
+        status: recipient.status === 'draft' ? undefined : recipient.status,
+        reasonCode: recipient.reason_code as 'blurred' | 'cropped' | 'glare' | 'unreadable' | 'missing_page' | undefined,
+      },
+      retryKey: recipient.status_event_id,
+    });
     await recordNotificationEvent(db, submissionId, recipient, 'notification_sent');
     return { status: 'sent' };
   } catch {
@@ -129,6 +140,9 @@ export async function retryFailedPrescriptionNotifications(
     `SELECT failed.submission_id, failed.actor_id AS status_event_id
        FROM pharmacy_prescription_events failed
        INNER JOIN pharmacy_prescription_submissions s ON s.id = failed.submission_id
+       INNER JOIN pharmacy_account_capabilities pc
+         ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
+        AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'prescription_intake')
        INNER JOIN pharmacy_prescription_events changed
          ON changed.id = failed.actor_id AND changed.to_status = s.status
       WHERE failed.event_type = 'notification_failed'
