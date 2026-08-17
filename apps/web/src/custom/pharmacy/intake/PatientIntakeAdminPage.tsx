@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
-import { pharmacyIntakeAdminApi, type PatientIntakeHistoryDetail, type PharmacyPatient, type PharmacyPatientHistory } from './api'
+import { pharmacyIntakeAdminApi, type PharmacyPatient, type PharmacyPatientHistory } from './api'
 
 const RELATIONSHIP_LABELS: Record<PharmacyPatient['relationship'], string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
@@ -53,13 +53,13 @@ export default function PatientIntakeAdminPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const [patients, setPatients] = useState<PharmacyPatient[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [intake, setIntake] = useState<PatientIntakeHistoryDetail | null>(null)
   const [history, setHistory] = useState<PharmacyPatientHistory | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const listRequestGate = useRef(createPatientListRequestGate()).current
 
-  const selected = useMemo(() => patients.find((patient) => patient.id === selectedId) ?? null, [patients, selectedId])
+  const selected = patients.find((patient) => patient.id === selectedId) ?? null
+  const intake = history?.latestIntake ?? null
   const answers = intake?.answers ?? {}
   const medicalHistoryTags = Array.isArray(answers.medicalHistoryTags)
     ? answers.medicalHistoryTags.map((tag) => MEDICAL_HISTORY_TAG_LABELS[String(tag)] ?? String(tag)).join('、')
@@ -94,19 +94,16 @@ export default function PatientIntakeAdminPage() {
 
   useEffect(() => {
     if (!selectedAccountId || !selectedId) {
-      setIntake(null)
       setHistory(null)
       return
     }
     let cancelled = false
     setHistory(null)
-    setIntake(null)
     setError('')
     void pharmacyIntakeAdminApi.history(selectedAccountId, selectedId)
       .then((result) => {
         if (cancelled) return
         setHistory(result.history)
-        setIntake(result.history.latestIntake)
       })
       .catch(() => {
         if (!cancelled) setError('患者情報・対応履歴を取得できませんでした。')

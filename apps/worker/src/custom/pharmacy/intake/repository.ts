@@ -610,7 +610,7 @@ export async function getAdminPharmacyPatientHistory(
                  WHERE line_account_id = ? AND patient_id = ?
                  ORDER BY created_at DESC, id DESC`)
       .bind(lineAccountId, patientId).all<PharmacyPatientHistory['continuity'][number]>(),
-    db.prepare(`SELECT e.event_type, e.from_status, e.to_status, e.created_at
+    db.prepare(`SELECT e.event_type, e.to_status, e.created_at
                   FROM pharmacy_prescription_events e
                   INNER JOIN pharmacy_prescription_submissions s
                     ON s.id = e.submission_id
@@ -619,19 +619,19 @@ export async function getAdminPharmacyPatientHistory(
                    AND pp.line_account_id = s.line_account_id
                  WHERE s.line_account_id = ? AND pp.patient_id = ?
                  ORDER BY e.created_at DESC, e.id DESC`)
-      .bind(lineAccountId, patientId).all<{ event_type: string; from_status: string | null; to_status: string | null; created_at: string }>(),
-    db.prepare(`SELECT e.event_type, o.status, e.created_at
+      .bind(lineAccountId, patientId).all<{ event_type: string; to_status: string | null; created_at: string }>(),
+    db.prepare(`SELECT o.status, e.created_at
                   FROM pharmacy_continuity_events e
                   INNER JOIN pharmacy_continuity_obligations o
                     ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
                  WHERE e.line_account_id = ? AND o.patient_id = ?
                  ORDER BY e.created_at DESC, e.id DESC`)
-      .bind(lineAccountId, patientId).all<{ event_type: string; status: string; created_at: string }>(),
-    db.prepare(`SELECT h.method, h.status, h.created_at, h.updated_at
+      .bind(lineAccountId, patientId).all<{ status: string; created_at: string }>(),
+    db.prepare(`SELECT h.status, h.created_at
                   FROM pharmacy_myna_handoffs h
                  WHERE h.line_account_id = ? AND h.patient_id = ?
                  ORDER BY h.created_at DESC, h.id DESC`)
-      .bind(lineAccountId, patientId).all<{ method: string; status: string; created_at: string; updated_at: string }>(),
+      .bind(lineAccountId, patientId).all<{ status: string; created_at: string }>(),
   ]);
 
   const intakeSummaries = intakes.results.map(toAdminIntakeSummary);
