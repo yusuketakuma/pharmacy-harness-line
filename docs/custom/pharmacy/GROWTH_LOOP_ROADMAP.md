@@ -1,10 +1,11 @@
 # Pharmacy Growth Loop roadmap
 
-Status (2026-08-18): Release 1 code exists only on
-`feature/growth-loop-release-1`. The current WIP is **GL-10 full verification
-and independent review**. No push, merge, release, deployment, LINE setting,
-production D1/R2 access, or production-data validation is evidence for this
-branch.
+Status (2026-08-18): Release 1 implementation, local verification, and
+independent review are complete on `feature/growth-loop-release-1`; the
+reviewed code snapshot is `707e04f`. The only WIP is the separately authorized,
+human-gated integration rehearsal. No push, merge, release, deployment, LINE
+setting, production D1/R2 access, or production-data validation is evidence
+for this branch.
 
 The repository package version (`0.21.3`) identifies the inherited OSS code
 line. Pharmacy tags such as `pharmacy-v0.23.1` identify seller releases. They
