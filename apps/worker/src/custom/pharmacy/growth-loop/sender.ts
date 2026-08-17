@@ -1,4 +1,3 @@
-import type { Message } from '@line-crm/line-sdk';
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { pushViaHarnessProxy } from '../../../services/line-proxy-send.js';
 import { getPharmacyCapabilityConfig } from './repository.js';
@@ -184,8 +183,4 @@ export async function sendPharmacyAutomatedPush(
     await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', new Date().toISOString());
     throw error;
   }
-}
-
-export function isApprovedPharmacyMessage(message: Message): boolean {
-  return message.type === 'text' && typeof message.text === 'string' && message.text.length <= 500;
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env } from '../../../index.js';
+import { readJsonObject } from '../json.js';
 import { canAccessPharmacyAccount, hasPharmacyCapability } from './access.js';
 import {
   classifySubmissionSource,
@@ -44,11 +45,7 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
   if (scope.staff.role !== 'owner') return c.json({ success: false, error: 'owner role required' }, 403);
-  const body = await c.req.json<{
-    capabilities?: unknown;
-    proactiveMonthlyLimit?: unknown;
-    unfollowAlertState?: unknown;
-  }>().catch(() => ({} as { capabilities?: unknown; proactiveMonthlyLimit?: unknown; unfollowAlertState?: unknown }));
+  const body = await readJsonObject(c.req) ?? {};
   if (!Array.isArray(body.capabilities) || body.capabilities.some((value) => typeof value !== 'string')) {
     return c.json({ success: false, error: 'capabilities must be an array' }, 400);
   }
@@ -56,10 +53,9 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
     return c.json({ success: false, error: 'unfollow monitoring is alert-only in Release 1' }, 400);
   }
   const limit = body.proactiveMonthlyLimit === undefined ? 1 : Number(body.proactiveMonthlyLimit);
-  const alertState = 'alert_only';
   try {
     const config = await savePharmacyCapabilityConfig(
-      c.env.DB, scope.accountId, body.capabilities, limit, alertState, scope.staff.id,
+      c.env.DB, scope.accountId, body.capabilities, limit, 'alert_only', scope.staff.id,
     );
     return c.json({ success: true, data: config });
   } catch (error) {
@@ -100,7 +96,7 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/sources', async (c) =
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'account_settings');
   if (denied) return denied;
-  const body = await c.req.json<{ displayName?: unknown; classification?: unknown }>().catch(() => ({} as { displayName?: unknown; classification?: unknown }));
+  const body = await readJsonObject(c.req) ?? {};
   if (typeof body.displayName !== 'string' || (body.classification !== 'primary' && body.classification !== 'other')) {
     return c.json({ success: false, error: 'displayName and classification are required' }, 400);
   }
@@ -122,7 +118,7 @@ pharmacyGrowthLoopRoutes.patch('/api/custom/pharmacy/growth/sources/:sourceId', 
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'account_settings');
   if (denied) return denied;
-  const body = await c.req.json<{ isActive?: unknown }>().catch(() => ({} as { isActive?: unknown }));
+  const body = await readJsonObject(c.req) ?? {};
   if (typeof body.isActive !== 'boolean') {
     return c.json({ success: false, error: 'isActive must be boolean' }, 400);
   }
@@ -141,7 +137,7 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/submissions/:submissi
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
-  const body = await c.req.json<{ sourceId?: unknown; classification?: unknown }>().catch(() => ({} as { sourceId?: unknown; classification?: unknown }));
+  const body = await readJsonObject(c.req) ?? {};
   if ((body.sourceId !== null && typeof body.sourceId !== 'string') ||
       !['primary', 'other', 'unknown'].includes(String(body.classification))) {
     return c.json({ success: false, error: 'invalid source classification' }, 400);
@@ -165,12 +161,7 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/submissions/:submissio
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
-  const body = await c.req.json<{
-    issuedOn?: unknown;
-    validUntil?: unknown;
-    validityBasis?: unknown;
-    verificationStatus?: unknown;
-  }>().catch(() => ({} as { issuedOn?: unknown; validUntil?: unknown; validityBasis?: unknown; verificationStatus?: unknown }));
+  const body = await readJsonObject(c.req) ?? {};
   if (!['default_4_days', 'prescriber_specified'].includes(String(body.validityBasis)) ||
       !['unverified', 'verified', 'expired_review_required', 'expired_confirmed'].includes(String(body.verificationStatus))) {
     return c.json({ success: false, error: 'invalid validity input' }, 400);
