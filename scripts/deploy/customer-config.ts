@@ -68,6 +68,17 @@ const SUPPORTED_BINDING_TYPES = new Set([
   'assets',
 ]);
 
+// These values describe the current deployment target. Render them from the
+// deployment environment on every update instead of copying stale metadata
+// from the previously deployed Worker.
+const DEPLOYMENT_MANAGED_TEXT_BINDINGS = new Set([
+  'WORKER_NAME',
+  'ADMIN_PAGES_PROJECT',
+  'ADMIN_ORIGIN',
+  'WORKER_URL',
+  'LIFF_ORIGIN',
+]);
+
 function bindingValue(binding: WorkerBinding): string | undefined {
   switch (binding.type) {
     case 'plain_text':
@@ -92,7 +103,9 @@ function normalizeBindings(bindings: WorkerBinding[]): NormalizedBinding[] {
       throw new Error(`unsupported customer Worker binding type: ${String(type)}`);
     }
     if (!binding.name) throw new Error('customer Worker binding has no name');
-    const value = bindingValue(binding);
+    const value = DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(binding.name)
+      ? '<managed>'
+      : bindingValue(binding);
     if (
       (type === 'plain_text' || type === 'd1' || type === 'r2_bucket' || type === 'kv_namespace') &&
       typeof value !== 'string'
@@ -116,7 +129,9 @@ function normalizeBindings(bindings: WorkerBinding[]): NormalizedBinding[] {
 }
 
 function createSnapshot(bindings: WorkerBinding[]): CustomerConfigSnapshot {
-  const normalized = normalizeBindings(bindings);
+  const normalized = normalizeBindings(bindings).filter(
+    (binding) => !DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(binding.name),
+  );
   return {
     schemaVersion: 1,
     digest: `sha256:${createHash('sha256').update(JSON.stringify(normalized)).digest('hex')}`,
@@ -128,17 +143,6 @@ function findBinding(bindings: WorkerBinding[], name: string): WorkerBinding {
   const matches = bindings.filter((binding) => binding.name === name);
   if (matches.length !== 1) throw new Error(`missing or duplicate customer binding ${name}`);
   return matches[0];
-}
-
-function assertTextOrSecret(
-  bindings: WorkerBinding[],
-  name: string,
-  expected: string,
-): void {
-  const binding = findBinding(bindings, name);
-  if (binding.type === 'secret_text' || binding.type === 'secret_key') return;
-  if (binding.type === 'plain_text' && binding.text === expected) return;
-  throw new Error(`${name} binding does not match the configured customer value`);
 }
 
 function assertResource(
@@ -162,6 +166,7 @@ function assertConfiguredBindingsExist(
   const live = new Set(liveBindings.map((binding) => `${binding.type}:${binding.name}`));
   const liveNames = new Set(liveBindings.map((binding) => binding.name));
   for (const name of Object.keys(wrangler.vars ?? {})) {
+    if (DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(name)) continue;
     if (!liveNames.has(name)) {
       throw new Error(`customer binding ${name} requires setup before update`);
     }
@@ -186,6 +191,7 @@ function assertConfiguredBindingsExist(
 function preserveBindings(
   wrangler: WranglerConfig,
   bindings: WorkerBinding[],
+  expected: ExpectedCustomerConfig,
 ): WranglerConfig {
   const existingD1 = new Map(
     (wrangler.d1_databases ?? []).map((binding) => [binding.binding, binding]),
@@ -208,11 +214,28 @@ function preserveBindings(
   const kv = bindings
     .filter((binding) => binding.type === 'kv_namespace')
     .sort((left, right) => left.name.localeCompare(right.name));
+  const liveVars = Object.fromEntries(
+    plainText
+      .filter((binding) => !DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(binding.name))
+      .map((binding) => [binding.name, binding.text]),
+  );
+  const managedVars: Record<string, string> = {
+    WORKER_NAME: expected.workerName,
+    ADMIN_PAGES_PROJECT: expected.adminPagesProject,
+    ADMIN_ORIGIN: expected.adminOrigin,
+    WORKER_URL: expected.workerUrl,
+  };
+  if (expected.liffOrigin) {
+    managedVars.LIFF_ORIGIN = expected.liffOrigin;
+  } else {
+    const existingLiffOrigin = plainText.find((binding) => binding.name === 'LIFF_ORIGIN');
+    if (existingLiffOrigin) managedVars.LIFF_ORIGIN = existingLiffOrigin.text;
+  }
 
   const preserved: WranglerConfig = {
     ...wrangler,
     keep_vars: true,
-    vars: Object.fromEntries(plainText.map((binding) => [binding.name, binding.text])),
+    vars: { ...liveVars, ...managedVars },
     d1_databases: d1.map((binding) => ({
       ...(existingD1.get(binding.name) ?? {}),
       binding: binding.name,
@@ -242,20 +265,9 @@ export function prepareCustomerConfig(input: {
   normalizeBindings(input.liveBindings);
   assertResource(input.liveBindings, 'd1', 'DB', input.expected.d1DatabaseId);
   assertResource(input.liveBindings, 'r2_bucket', 'IMAGES', input.expected.r2BucketName);
-  assertTextOrSecret(input.liveBindings, 'WORKER_NAME', input.expected.workerName);
-  assertTextOrSecret(
-    input.liveBindings,
-    'ADMIN_PAGES_PROJECT',
-    input.expected.adminPagesProject,
-  );
-  assertTextOrSecret(input.liveBindings, 'ADMIN_ORIGIN', input.expected.adminOrigin);
-  assertTextOrSecret(input.liveBindings, 'WORKER_URL', input.expected.workerUrl);
-  if (input.expected.liffOrigin) {
-    assertTextOrSecret(input.liveBindings, 'LIFF_ORIGIN', input.expected.liffOrigin);
-  }
   assertConfiguredBindingsExist(input.wrangler, input.liveBindings);
   return {
-    wrangler: preserveBindings(input.wrangler, input.liveBindings),
+    wrangler: preserveBindings(input.wrangler, input.liveBindings, input.expected),
     snapshot: createSnapshot(input.liveBindings),
   };
 }

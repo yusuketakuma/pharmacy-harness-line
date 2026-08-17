@@ -45,8 +45,10 @@ describe('customer deployment configuration protection', () => {
 
     expect(prepared.wrangler.keep_vars).toBe(true);
     expect(prepared.wrangler.vars).toEqual({
+      ADMIN_ORIGIN: 'https://admin.example.test',
       ADMIN_PAGES_PROJECT: 'customer-admin',
       WORKER_NAME: 'customer-worker',
+      WORKER_URL: 'https://worker.example.test',
     });
     expect(prepared.wrangler.d1_databases).toEqual([
       { binding: 'DB', database_name: 'customer-db', database_id: 'customer-d1' },
@@ -61,7 +63,54 @@ describe('customer deployment configuration protection', () => {
     expect(() => verifyCustomerConfig(prepared.snapshot, liveBindings)).not.toThrow();
   });
 
-  test('stops before deployment when D1, R2, or required LIFF origin differs', () => {
+  test('repairs stale deployment metadata without treating it as customer drift', () => {
+    const staleBindings = liveBindings.map((binding) => {
+      if (binding.name === 'WORKER_NAME') return { ...binding, text: 'line-harness' };
+      if (binding.name === 'ADMIN_PAGES_PROJECT') return { ...binding, text: 'line-harness-admin' };
+      return binding;
+    });
+
+    const prepared = prepareCustomerConfig({
+      wrangler,
+      liveBindings: staleBindings,
+      expected,
+    });
+
+    expect(prepared.wrangler.vars).toMatchObject({
+      WORKER_NAME: expected.workerName,
+      ADMIN_PAGES_PROJECT: expected.adminPagesProject,
+      ADMIN_ORIGIN: expected.adminOrigin,
+      WORKER_URL: expected.workerUrl,
+    });
+    expect(() => verifyCustomerConfig(prepared.snapshot, staleBindings)).not.toThrow();
+
+    const repairedBindings = staleBindings.map((binding) => {
+      if (binding.name === 'WORKER_NAME') return { ...binding, text: expected.workerName };
+      if (binding.name === 'ADMIN_PAGES_PROJECT') return { ...binding, text: expected.adminPagesProject };
+      return binding;
+    });
+    expect(() => verifyCustomerConfig(prepared.snapshot, repairedBindings)).not.toThrow();
+  });
+
+  test('allows a new managed LIFF origin binding during first update', () => {
+    const liffOrigin = 'https://liff.example.test';
+    const prepared = prepareCustomerConfig({
+      wrangler: {
+        ...wrangler,
+        vars: { ...wrangler.vars, LIFF_ORIGIN: liffOrigin },
+      },
+      liveBindings,
+      expected: { ...expected, liffOrigin },
+    });
+
+    expect(prepared.wrangler.vars).toMatchObject({ LIFF_ORIGIN: liffOrigin });
+    expect(() => verifyCustomerConfig(prepared.snapshot, [
+      ...liveBindings,
+      { type: 'plain_text', name: 'LIFF_ORIGIN', text: liffOrigin },
+    ])).not.toThrow();
+  });
+
+  test('stops before deployment when D1 or R2 differs', () => {
     expect(() => prepareCustomerConfig({
       wrangler,
       liveBindings,
@@ -72,19 +121,14 @@ describe('customer deployment configuration protection', () => {
       liveBindings,
       expected: { ...expected, r2BucketName: 'other-images' },
     })).toThrow(/R2 binding IMAGES/);
-    expect(() => prepareCustomerConfig({
-      wrangler,
-      liveBindings,
-      expected: { ...expected, liffOrigin: 'https://liff.example.test' },
-    })).toThrow(/LIFF_ORIGIN/);
   });
 
   test('detects removal or changes after deployment without exposing values', () => {
     const { snapshot } = prepareCustomerConfig({ wrangler, liveBindings, expected });
     const removed = liveBindings.filter((binding) => binding.name !== 'LINE_CHANNEL_SECRET');
     const changed = liveBindings.map((binding) =>
-      binding.name === 'WORKER_NAME'
-        ? { ...binding, text: 'changed-worker' }
+      binding.name === 'CACHE'
+        ? { ...binding, namespace_id: 'changed-kv' }
         : binding,
     );
 
