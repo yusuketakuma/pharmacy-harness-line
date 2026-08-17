@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../../../index.js';
+import { getPharmacyAccountId } from '../account.js';
 import { lineProxy } from '../../../routes/line-proxy.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { inspectPrescriptionImage } from './image.js';
@@ -8,6 +9,10 @@ import {
   type PrescriptionPatient,
 } from './patient.js';
 import { deliverPrescriptionNotification } from './notifications.js';
+import {
+  completeContinuityAfterClose,
+  linkContinuitySubmission,
+} from '../continuity/repository.js'; // custom:pharmacy-continuity
 import {
   applyAdminPrescriptionAction,
   cancelPrescription,
@@ -77,7 +82,7 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
 });
 
 prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) => {
-  const lineAccountId = c.req.query('line_account_id');
+  const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();
@@ -93,6 +98,8 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
   const desiredPickupAt = body.desiredPickupAt;
+  const patientId = body.patientId;
+  const intakeResponseId = body.intakeResponseId;
   if (
     typeof body.idempotencyKey !== 'string' ||
     typeof body.originalPrescriptionConsent !== 'boolean' ||
@@ -100,22 +107,34 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
     !(
       desiredPickupAt === null ||
       (typeof desiredPickupAt === 'string' && Number.isFinite(Date.parse(desiredPickupAt)))
-    )
+    ) ||
+    (patientId !== undefined && typeof patientId !== 'string') ||
+    (intakeResponseId !== undefined && typeof intakeResponseId !== 'string') ||
+    (patientId !== undefined && intakeResponseId === undefined) ||
+    (patientId === undefined && intakeResponseId !== undefined)
   ) {
     return c.json({ error: 'Invalid prescription draft' }, 400);
   }
 
+  const draftInput = {
+    idempotencyKey: body.idempotencyKey,
+    desiredPickupAt,
+    originalPrescriptionConsent: body.originalPrescriptionConsent,
+    readinessNoticeConsent: body.readinessNoticeConsent,
+    ...(typeof patientId === 'string' && typeof intakeResponseId === 'string'
+      ? { patientId, intakeResponseId }
+      : {}),
+  } as Parameters<typeof reservePrescriptionDraft>[2];
+
   try {
-    const submission = await reservePrescriptionDraft(c.env.DB, patient, {
-      idempotencyKey: body.idempotencyKey,
-      desiredPickupAt,
-      originalPrescriptionConsent: body.originalPrescriptionConsent,
-      readinessNoticeConsent: body.readinessNoticeConsent,
-    });
+    const submission = await reservePrescriptionDraft(c.env.DB, patient, draftInput);
     return c.json({ submission }, 201);
   } catch (error) {
     if (error instanceof Error && error.message === 'invalid idempotency key') {
       return c.json({ error: 'Invalid idempotency key' }, 400);
+    }
+    if (error instanceof Error && error.message === 'prescription patient link conflict') {
+      return c.json({ error: 'Prescription patient link changed; retry' }, 409);
     }
     throw error;
   }
@@ -142,6 +161,9 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       patient,
       c.req.param('id'),
       body.expectedUpdatedAt,
+    );
+    await linkContinuitySubmission(
+      c.env.DB, patient.lineAccountId, c.req.param('id'), patient.friendId,
     );
     await deliverPrescriptionNotification(
       c.env.DB,
@@ -409,6 +431,9 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
       staff.id,
       typeof body.reasonCode === 'string' ? body.reasonCode : null,
     );
+    if (action === 'admin_close') {
+      await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);
+    }
     await deliverPrescriptionNotification(
       c.env.DB,
       c.req.param('id'),
@@ -419,6 +444,11 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
     const message = error instanceof Error ? error.message : '';
     if (message.includes('conflict') || message.includes('transition')) {
       return c.json({ error: 'Prescription changed or action is invalid' }, 409);
+    }
+    if (message === 'fulfillment quote required' ||
+        message === 'fulfillment quote not acceptable' ||
+        message === 'fulfillment quote invalid') {
+      return c.json({ error: '受付内容の確認が完了していません' }, 409);
     }
     if (message === 'invalid resubmission reason') {
       return c.json({ error: 'Invalid resubmission reason' }, 400);

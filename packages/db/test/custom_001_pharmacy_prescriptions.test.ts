@@ -56,12 +56,13 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
     const bootstrapMeta = JSON.parse(
       readFileSync(join(ROOT, 'bootstrap-meta.json'), 'utf8'),
     ) as { includedMigrations: string[] };
-    expect(bootstrapMeta.includedMigrations.at(-1)).toBe(
+    expect(bootstrapMeta.includedMigrations).toContain(
       'custom_001_pharmacy_prescriptions.sql',
     );
     const names = db.prepare(
       `SELECT name FROM sqlite_master
-       WHERE type = 'table' AND name LIKE 'pharmacy_prescription_%'
+       WHERE type = 'table' AND name IN
+         ('pharmacy_prescription_events','pharmacy_prescription_files','pharmacy_prescription_submissions')
        ORDER BY name`,
     ).all() as Array<{ name: string }>;
     expect(names.map((row) => row.name)).toEqual([

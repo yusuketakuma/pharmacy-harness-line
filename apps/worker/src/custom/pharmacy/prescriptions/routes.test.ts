@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   adminFile: vi.fn(),
   adminAction: vi.fn(),
   notify: vi.fn(),
+  linkContinuity: vi.fn(),
+  completeContinuity: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -48,6 +50,10 @@ vi.mock('./image.js', () => ({
 vi.mock('./notifications.js', () => ({
   deliverPrescriptionNotification: mocks.notify,
 }));
+vi.mock('../continuity/repository.js', () => ({
+  linkContinuitySubmission: mocks.linkContinuity,
+  completeContinuityAfterClose: mocks.completeContinuity,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -69,6 +75,8 @@ function adminApp() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.notify.mockResolvedValue({ status: 'sent' });
+  mocks.linkContinuity.mockResolvedValue(null);
+  mocks.completeContinuity.mockResolvedValue(null);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {
@@ -336,6 +344,34 @@ describe('POST /api/liff/pharmacy/prescriptions', () => {
       originalPrescriptionConsent: true,
       readinessNoticeConsent: true,
     });
+  });
+
+  it('passes the explicit patient and intake revision to the draft reservation', async () => {
+    const patient = { lineAccountId: 'account-1', friendId: 'friend-1' };
+    mocks.verify.mockResolvedValue({ lineUserId: 'U1', loginChannelId: 'login-1' });
+    mocks.resolvePatient.mockResolvedValue(patient);
+    mocks.reserveDraft.mockResolvedValue({ id: 'submission-1', status: 'draft' });
+    const response = await request({
+      idempotencyKey: 'request-123', desiredPickupAt: null,
+      originalPrescriptionConsent: true, readinessNoticeConsent: true,
+      patientId: 'patient-1', intakeResponseId: 'response-1',
+    });
+    expect(response.status).toBe(201);
+    expect(mocks.reserveDraft).toHaveBeenCalledWith(env.DB, patient, {
+      idempotencyKey: 'request-123', desiredPickupAt: null,
+      originalPrescriptionConsent: true, readinessNoticeConsent: true,
+      patientId: 'patient-1', intakeResponseId: 'response-1',
+    });
+  });
+
+  it('rejects a draft that names only one side of the patient link', async () => {
+    const response = await request({
+      idempotencyKey: 'request-123', desiredPickupAt: null,
+      originalPrescriptionConsent: true, readinessNoticeConsent: true,
+      patientId: 'patient-1',
+    });
+    expect(response.status).toBe(400);
+    expect(mocks.reserveDraft).not.toHaveBeenCalled();
   });
 
   it('rejects malformed consent input', async () => {

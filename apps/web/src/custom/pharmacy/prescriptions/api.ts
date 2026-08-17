@@ -1,4 +1,5 @@
 import { fetchApi, getCsrfToken } from '../../../lib/api'
+import { accountQuery } from '../api'
 
 export type PrescriptionStatus =
   | 'draft'
@@ -65,10 +66,47 @@ export interface PrescriptionStats {
   oldest_wait_at: string | null
 }
 
+export type FulfillmentDecision =
+  | 'fulfillable'
+  | 'conditional'
+  | 'needs_confirmation'
+  | 'not_fulfillable'
+
+export type FulfillmentStatus =
+  | 'CHECKING'
+  | 'AVAILABLE'
+  | 'PARTIALLY_AVAILABLE'
+  | 'UNAVAILABLE'
+  | 'PHARMACIST_REVIEW_REQUIRED'
+
+export type FulfillmentMethod =
+  | 'PICKUP'
+  | 'DELIVERY'
+  | 'HOME_VISIT'
+  | 'FACILITY_DELIVERY'
+
+export interface FulfillmentQuote {
+  id: string
+  submission_id: string
+  line_account_id: string
+  revision: number
+  decision: FulfillmentDecision
+  reasonCodes: string[]
+  requirements: Array<{ code: string; status: 'pending' | 'satisfied' }>
+  status: FulfillmentStatus
+  fulfillmentMethod: FulfillmentMethod | null
+  constraints: string[]
+  reservationExpiresAt: string | null
+  confirmedBy: string | null
+  confirmedAt: string | null
+  estimatedReadyAt: string | null
+  validUntil: string | null
+  created_by: string
+  created_at: string
+}
+
 const apiBase = process.env.NEXT_PUBLIC_API_URL
 if (!apiBase) throw new Error('NEXT_PUBLIC_API_URL is not set')
-
-const accountQuery = (accountId: string) => `line_account_id=${encodeURIComponent(accountId)}`
 
 export const prescriptionAdminApi = {
   list: (accountId: string, cursor?: string) => fetchApi<{
@@ -82,6 +120,18 @@ export const prescriptionAdminApi = {
   ),
   detail: (accountId: string, submissionId: string) => fetchApi<PrescriptionDetail>(
     `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+  ),
+  fulfillmentQuote: (accountId: string, submissionId: string) => fetchApi<{ quote: FulfillmentQuote | null }>(
+    `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+  ),
+  saveFulfillmentQuote: (
+    accountId: string,
+    submissionId: string,
+    body: Pick<FulfillmentQuote, 'decision' | 'reasonCodes' | 'requirements' | 'estimatedReadyAt' | 'validUntil'> &
+      Partial<Pick<FulfillmentQuote, 'status' | 'fulfillmentMethod' | 'constraints' | 'reservationExpiresAt'>>,
+  ) => fetchApi<{ quote: FulfillmentQuote }>(
+    `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+    { method: 'POST', body: JSON.stringify(body) },
   ),
   action: (
     accountId: string,

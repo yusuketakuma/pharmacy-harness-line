@@ -75,7 +75,11 @@
     "068_media_inquiries.sql",
     "069_rich_menu_selected.sql",
     "070_update_history_release_evidence.sql",
-    "custom_001_pharmacy_prescriptions.sql"
+    "custom_001_pharmacy_prescriptions.sql",
+    "custom_002_pharmacy_patient_intake.sql",
+    "custom_003_pharmacy_fulfillment_quotes.sql",
+    "custom_004_pharmacy_continuity.sql",
+    "custom_005_pharmacy_myna.sql"
   ],
-  "migrationCount": 76
+  "migrationCount": 80
 }

@@ -88,9 +88,79 @@ describe('reservePrescriptionDraft', () => {
     ).rejects.toThrow('invalid idempotency key');
     expect(prepare).not.toHaveBeenCalled();
   });
+
+  it('pins a family patient and intake revision when the new flow supplies both ids', async () => {
+    const existing = {
+      id: 'submission-1', status: 'draft', upload_revision: 1,
+      updated_at: '2026-08-17T00:00:00.000Z',
+      patient_id: 'patient-1', intake_response_id: 'response-1',
+    };
+    const { db, calls } = fakeDb(existing);
+    await reservePrescriptionDraft(db, {
+      lineAccountId: 'account-1', friendId: 'friend-1',
+    }, {
+      idempotencyKey: 'request-123',
+      desiredPickupAt: null,
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+      patientId: 'patient-1',
+      intakeResponseId: 'response-1',
+    });
+    expect(calls.some((call) => call.sql.includes('intake_required'))).toBe(true);
+    expect(calls.some((call) => call.sql.includes('pharmacy_prescription_patients'))).toBe(true);
+  });
 });
 
 describe('admin account-scoped repository', () => {
+  it('blocks a new-flow acceptance until the latest fulfillment quote is acceptable', async () => {
+    const current = {
+      status: 'received', updated_at: '2026-08-17T00:00:00.000Z', intake_required: 1,
+    };
+    const quote = {
+      decision: 'conditional',
+      requirements_json: '[{"code":"original_required","status":"pending"}]',
+    };
+    let firstCall = 0;
+    const calls: Array<{ operation: string }> = [];
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => { calls.push({ operation: 'first' }); return firstCall++ === 0 ? current : quote; },
+          run: async () => { calls.push({ operation: 'run' }); return { meta: { changes: 1 } }; },
+          all: async () => ({ results: [] }),
+        }),
+      }),
+      batch: async () => { calls.push({ operation: 'batch' }); return []; },
+    } as unknown as D1Database;
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept',
+      '2026-08-17T00:00:00.000Z', 'staff-1', null,
+    )).rejects.toThrow('fulfillment quote not acceptable');
+    expect(calls.every((call) => call.operation !== 'batch')).toBe(true);
+  });
+
+  it('requires FulfillmentQuote for a Myna-linked submission even without intake_required', async () => {
+    const current = {
+      status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
+      intake_required: 0, source_handoff_id: 'handoff-1',
+    };
+    let firstCall = 0;
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => firstCall++ === 0 ? current : null,
+          run: async () => ({ meta: { changes: 1 } }),
+          all: async () => ({ results: [] }),
+        }),
+      }),
+      batch: async () => [],
+    } as unknown as D1Database;
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept',
+      '2026-08-17T00:00:00.000Z', 'staff-1', null,
+    )).rejects.toThrow('fulfillment quote required');
+  });
+
   it('lists a stable queue for one account without image keys or thumbnails', async () => {
     const { db, calls } = fakeDb([{ id: 'submission-1', status: 'received' }]);
     await expect(listAdminPrescriptionQueue(db, 'account-1', {
