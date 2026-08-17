@@ -1,4 +1,4 @@
-import { requestPharmacyLiff } from '../request.js';
+import { requestPharmacyJson } from '../request.js';
 
 export interface PrescriptionSubmission {
   id: string;
@@ -13,24 +13,11 @@ export interface PrescriptionSubmission {
   updated_at: string;
 }
 
-async function request<T>(
+function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await requestPharmacyLiff(path, init);
-  const text = await response.text();
-  let body: unknown = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  if (!response.ok) {
-    const error = new Error(`Prescription API ${response.status}`) as Error & {
-      status: number;
-      body: unknown;
-    };
-    error.status = response.status;
-    error.body = body;
-    throw error;
-  }
-  return body as T;
+  return requestPharmacyJson<T>(path, 'Prescription API', init);
 }
 
 function json<T>(path: string, body: unknown): Promise<T> {

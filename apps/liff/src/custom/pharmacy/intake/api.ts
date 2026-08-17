@@ -1,4 +1,4 @@
-import { requestPharmacyLiff } from '../request.js';
+import { requestPharmacyJson } from '../request.js';
 
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
 export type PatientSex = 'male' | 'female' | 'other' | 'prefer_not_to_say';
@@ -55,21 +55,8 @@ export interface PatientIntakeAnswers {
   notes?: string;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await requestPharmacyLiff(path, init);
-  const text = await response.text();
-  let body: unknown = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  if (!response.ok) {
-    const error = new Error(`Patient intake API ${response.status}`) as Error & {
-      status: number;
-      body: unknown;
-    };
-    error.status = response.status;
-    error.body = body;
-    throw error;
-  }
-  return body as T;
+function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return requestPharmacyJson<T>(path, 'Patient intake API', init);
 }
 
 function json<T>(path: string, body: unknown): Promise<T> {

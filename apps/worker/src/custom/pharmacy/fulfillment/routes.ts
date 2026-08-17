@@ -7,6 +7,7 @@ import {
   type FulfillmentStatus,
 } from './repository.js';
 import { getPharmacyAccountId } from '../account.js';
+import { readJsonObject } from '../json.js';
 
 type FulfillmentEnv = {
   Bindings: { DB: D1Database };
@@ -16,15 +17,6 @@ type FulfillmentEnv = {
 };
 
 export const fulfillmentRoutes = new Hono<FulfillmentEnv>();
-
-async function jsonBody(c: { req: { json<T>(): Promise<T> } }): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json<Record<string, unknown>>();
-    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
-  } catch {
-    return null;
-  }
-}
 
 function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | null {
   if (
@@ -87,7 +79,7 @@ fulfillmentRoutes.post('/api/custom/pharmacy/fulfillment-quotes/:submissionId', 
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const staff = c.get('staff');
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  const body = await jsonBody(c);
+  const body = await readJsonObject(c.req);
   const input = body ? toQuoteInput(body) : null;
   if (!input) return c.json({ error: 'Invalid fulfillment quote' }, 400);
   try {

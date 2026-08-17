@@ -75,6 +75,28 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).toContain('.r2_buckets |= map(if .binding == "IMAGES" then .bucket_name = $bucket else . end)');
   });
 
+  test('bakes the configured LIFF origin into the Worker CORS config', () => {
+    expect(customerDeploy).toContain('LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}');
+    expect(customerDeploy).toContain('.vars.LIFF_ORIGIN = $o');
+  });
+
+  test('preserves customer bindings and verifies them before recording success', () => {
+    const validate = stepIndex('Validate required deployment configuration');
+    const protect = stepIndex('Protect customer configuration');
+    const verify = stepIndex('Verify customer configuration preserved');
+
+    expect(validate).toBeLessThan(stepIndex('Build Worker and LIFF assets'));
+    expect(protect).toBeGreaterThan(stepIndex('Patch wrangler config'));
+    expect(protect).toBeLessThan(stepIndex('Run pending D1 migrations'));
+    expect(verify).toBeGreaterThan(stepIndex('Deploy to Cloudflare Workers'));
+    expect(verify).toBeLessThan(stepIndex('Record release evidence'));
+    expect(customerDeploy).toContain('scripts/deploy/customer-config.ts prepare');
+    expect(customerDeploy).toContain('scripts/deploy/customer-config.ts verify');
+    expect(customerDeploy).toContain('Missing required deployment configuration');
+    expect(customerDeploy).not.toContain("|| 'your-worker-name'");
+    expect(customerDeploy).not.toContain("|| 'your-admin-name'");
+  });
+
   test('uses the checksum-enforced migration runner without inferring a baseline', () => {
     expect(customerDeploy).toContain('pnpm tsx scripts/deploy/apply-migrations.ts');
     expect(customerDeploy).not.toContain("name='_migrations'");

@@ -72,7 +72,7 @@ async function attachInitialImage(
   const page = group.pages[0];
   if (!page || page.image_r2_key) return !!page?.image_r2_key;
   const image = await loadInitialImage(c);
-  const saved = await savePharmacyRichMenuImage({
+  await savePharmacyRichMenuImage({
     db: c.env.DB,
     images: c.env.IMAGES,
     accountId,

@@ -122,6 +122,7 @@ export type Env = {
     WORKER_URL: string;
     // Admin auth topology (see middleware/admin-auth-config.ts):
     ADMIN_ORIGIN?: string;          // Comma-separated admin web origin allowlist for credentialed CORS
+    LIFF_ORIGIN?: string;           // Comma-separated LIFF origin allowlist for credentialed CORS
     ADMIN_COOKIE_SAMESITE?: string; // Optional override: 'Strict' | 'Lax' | 'None'
     ADMIN_ALLOW_CROSS_SITE?: string; // 'true' opts into SameSite=None cross-site cookies
     X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
@@ -176,10 +177,10 @@ app.use('/api/public/media-inquiries', cors({
   maxAge: 600,
 }));
 
-// CORS — credentialed cookie auth cannot use a wildcard origin. Reflect only
-// same-origin requests and origins on the ADMIN_ORIGIN allowlist; everything
-// else gets no Access-Control-Allow-Origin header (browser blocks it). Bearer
-// SDK/MCP callers send no Origin header and are unaffected.
+// CORS — credentialed auth cannot use a wildcard origin. Reflect only
+// same-origin requests and origins on the ADMIN_ORIGIN/LIFF_ORIGIN allowlists;
+// everything else gets no Access-Control-Allow-Origin header (browser blocks
+// it). Bearer SDK/MCP callers send no Origin header and are unaffected.
 app.use('*', cors({
   origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
   credentials: true,
