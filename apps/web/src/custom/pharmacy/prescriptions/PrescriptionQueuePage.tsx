@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
-import { ApiError } from '../../../lib/api'
+import { ApiError, api } from '../../../lib/api'
 import {
   prescriptionAdminApi,
   type PrescriptionDetail,
@@ -10,6 +10,7 @@ import {
   type PrescriptionQueueItem,
   type PrescriptionStats,
   type FulfillmentQuote,
+  type MedicalSource,
 } from './api'
 import {
   fulfillmentQuoteDraft,
@@ -25,6 +26,7 @@ import {
   PrescriptionQueueOverview,
   type PrescriptionQueueTab,
 } from './PrescriptionQueueOverview'
+import { PrescriptionReviewEditor } from './PrescriptionReviewEditor'
 
 export default function PrescriptionQueuePage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
@@ -41,6 +43,7 @@ export default function PrescriptionQueuePage() {
     () => fulfillmentQuoteDraft(null),
   )
   const [quoteSaving, setQuoteSaving] = useState(false)
+  const [medicalSources, setMedicalSources] = useState<MedicalSource[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [acting, setActing] = useState(false)
   const [reason, setReason] = useState('blurred')
@@ -79,12 +82,14 @@ export default function PrescriptionQueuePage() {
     setDetailLoading(true)
     setError('')
     try {
-      const [nextDetail, nextQuote] = await Promise.all([
+      const [nextDetail, nextQuote, sourceResponse] = await Promise.all([
         prescriptionAdminApi.detail(selectedAccountId, id),
         prescriptionAdminApi.fulfillmentQuote(selectedAccountId, id),
+        api.pharmacyGrowth.sources(selectedAccountId),
       ])
       setDetail(nextDetail)
       setQuote(nextQuote.quote)
+      setMedicalSources(sourceResponse.success ? sourceResponse.data : [])
       setQuoteDraft(fulfillmentQuoteDraft(nextQuote.quote))
       setTemporaryError(false)
     } catch (caught) {
@@ -201,6 +206,23 @@ export default function PrescriptionQueuePage() {
         onOpenDetail={(id) => void openDetail(id)}
         onLoadMore={(cursor) => void load(cursor)}
       />
+
+      {detail && <PrescriptionReviewEditor
+        accountId={selectedAccountId}
+        submissionId={detail.submission.id}
+        source={detail.source}
+        validity={detail.validity}
+        medicalSources={medicalSources}
+        onSaveSource={async (accountId, submissionId, body) => {
+          const response = await api.pharmacyGrowth.classifySource(accountId, submissionId, body)
+          if (!response.success) throw new Error(response.error)
+        }}
+        onSaveValidity={async (accountId, submissionId, body) => {
+          const response = await api.pharmacyGrowth.saveValidity(accountId, submissionId, body)
+          if (!response.success) throw new Error(response.error)
+        }}
+        onSaved={() => void openDetail(detail.submission.id)}
+      />}
 
       <PrescriptionDetailPanel
         detail={detail}

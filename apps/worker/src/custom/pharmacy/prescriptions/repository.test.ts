@@ -280,6 +280,8 @@ describe('admin account-scoped repository', () => {
       { id: 'submission-1', status: 'received' },
       [{ id: 'file-1', content_type: 'image/png' }],
       [{ id: 'event-1', event_type: 'status_changed' }],
+      { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
+      { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
     ];
     const calls: string[] = [];
     const db = {
@@ -296,6 +298,8 @@ describe('admin account-scoped repository', () => {
       submission: { id: 'submission-1', status: 'received' },
       files: [{ id: 'file-1', content_type: 'image/png' }],
       events: [{ id: 'event-1', event_type: 'status_changed' }],
+      source: { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
+      validity: { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
     });
     expect(calls.every((sql) => sql.includes('line_account_id = ?'))).toBe(true);
     expect(calls.join('\n')).not.toContain('r2_key');

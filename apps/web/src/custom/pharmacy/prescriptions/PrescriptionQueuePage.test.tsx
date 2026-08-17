@@ -15,6 +15,7 @@ import {
   FulfillmentQuoteEditor,
   fulfillmentQuoteDraft,
 } from './FulfillmentQuoteEditor.js'
+import { PrescriptionReviewEditor } from './PrescriptionReviewEditor.js'
 
 describe('prescription admin UI contract', () => {
   it('shows fixed Japanese status and resubmission reason labels', () => {
@@ -70,6 +71,25 @@ describe('prescription admin UI contract', () => {
     expect(html).toContain('受付内容の確認')
     expect(html).toContain('type="datetime-local"')
     expect(html).toContain('受付内容を保存')
+  })
+
+  it('renders manual source classification and prescription validity controls', () => {
+    const html = renderToStaticMarkup(<PrescriptionReviewEditor
+      accountId="account-1"
+      submissionId="submission-1"
+      source={{ source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' } as never}
+      validity={null}
+      medicalSources={[{
+        id: 'source-1', display_name: 'Clinic A', classification: 'primary', is_active: 1,
+      }]}
+      onSaved={() => undefined}
+    />)
+
+    expect(html).toContain('発行元分類')
+    expect(html).toContain('Clinic A')
+    expect(html).toContain('処方せん使用期限')
+    expect(html).toContain('type="date"')
+    expect(html).toContain('交付日を含めて4日')
   })
 
   it('renders retry guidance instead of a false empty queue', () => {

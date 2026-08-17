@@ -555,6 +555,8 @@ export async function getAdminPrescriptionDetail(
   submission: Record<string, unknown>;
   files: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
+  source: Record<string, unknown> | null;
+  validity: Record<string, unknown> | null;
 } | null> {
   const submission = await db.prepare(
     `SELECT id, friend_id, status, active_revision, upload_revision,
@@ -580,7 +582,21 @@ export async function getAdminPrescriptionDetail(
       WHERE e.submission_id = ? AND s.line_account_id = ?
       ORDER BY e.created_at, e.id`,
   ).bind(submissionId, lineAccountId).all<Record<string, unknown>>();
-  return { submission, files: files.results, events: events.results };
+  const source = await db.prepare(
+    `SELECT ss.source_id, ss.classification, ms.display_name,
+            ss.entered_by, ss.entered_at, ss.updated_at
+       FROM pharmacy_submission_sources ss
+       LEFT JOIN pharmacy_medical_sources ms
+         ON ms.id = ss.source_id AND ms.line_account_id = ss.line_account_id
+      WHERE ss.submission_id = ? AND ss.line_account_id = ?`,
+  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+  const validity = await db.prepare(
+    `SELECT issued_on, valid_until, validity_basis, verification_status,
+            verified_by, verified_at, reminder_due_at, reminder_sent_at, updated_at
+       FROM pharmacy_prescription_validities
+      WHERE submission_id = ? AND line_account_id = ?`,
+  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+  return { submission, files: files.results, events: events.results, source, validity };
 }
 
 const RESUBMISSION_REASONS = new Set([

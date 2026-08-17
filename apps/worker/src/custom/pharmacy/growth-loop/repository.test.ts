@@ -3,6 +3,7 @@ import {
   classifySubmissionSource,
   getGrowthDashboard,
   savePrescriptionValidity,
+  setMedicalSourceActive,
   summarizePromiseMetrics,
 } from './repository.js';
 
@@ -74,6 +75,20 @@ describe('prescription validity', () => {
 });
 
 describe('medical source classification', () => {
+  it('changes source availability only inside its account', async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
+      }) }),
+    } as unknown as D1Database;
+
+    await setMedicalSourceActive(db, 'account-a', 'source-a', false);
+
+    expect(calls[0].sql).toContain('WHERE id = ? AND line_account_id = ?');
+    expect(calls[0].values).toEqual([0, expect.any(String), 'source-a', 'account-a']);
+  });
+
   it('derives classification from the account-owned source and rejects mismatches', async () => {
     const writes: string[] = [];
     const db = {

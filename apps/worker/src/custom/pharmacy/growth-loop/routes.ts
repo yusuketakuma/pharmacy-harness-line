@@ -9,6 +9,7 @@ import {
   getPharmacyCapabilityConfig,
   savePharmacyCapabilityConfig,
   savePrescriptionValidity,
+  setMedicalSourceActive,
 } from './repository.js';
 
 export const pharmacyGrowthLoopRoutes = new Hono<Env>();
@@ -108,6 +109,23 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/sources', async (c) =
     return c.json({ success: true, data }, 201);
   } catch (error) {
     return c.json({ success: false, error: error instanceof Error ? error.message : 'source creation failed' }, 400);
+  }
+});
+
+pharmacyGrowthLoopRoutes.patch('/api/custom/pharmacy/growth/sources/:sourceId', async (c) => {
+  const scope = await accountScope(c);
+  if (scope instanceof Response) return scope;
+  const denied = await requireCapability(c, scope.accountId, 'account_settings');
+  if (denied) return denied;
+  const body = await c.req.json<{ isActive?: unknown }>().catch(() => ({} as { isActive?: unknown }));
+  if (typeof body.isActive !== 'boolean') {
+    return c.json({ success: false, error: 'isActive must be boolean' }, 400);
+  }
+  try {
+    await setMedicalSourceActive(c.env.DB, scope.accountId, c.req.param('sourceId'), body.isActive);
+    return c.json({ success: true });
+  } catch (error) {
+    return c.json({ success: false, error: error instanceof Error ? error.message : 'source update failed' }, 404);
   }
 });
 

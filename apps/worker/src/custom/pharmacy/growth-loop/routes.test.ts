@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   source: vi.fn(),
   classify: vi.fn(),
   validity: vi.fn(),
+  setSourceActive: vi.fn(),
 }));
 
 vi.mock('./access.js', () => ({
@@ -23,6 +24,7 @@ vi.mock('./repository.js', () => ({
   createMedicalSource: mocks.source,
   classifySubmissionSource: mocks.classify,
   savePrescriptionValidity: mocks.validity,
+  setMedicalSourceActive: mocks.setSourceActive,
 }));
 
 import { pharmacyGrowthLoopRoutes } from './routes.js';
@@ -109,5 +111,15 @@ describe('pharmacy Growth Loop routes', () => {
     expect(mocks.source).toHaveBeenCalledWith(env.DB, {
       lineAccountId: 'account-a', displayName: 'Clinic A', classification: 'primary', staffId: 'staff-1',
     });
+  });
+
+  it('updates a medical source only through the account-scoped settings capability', async () => {
+    const response = await app().request('/api/custom/pharmacy/growth/sources/source-1?line_account_id=account-a', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: false }),
+    }, env);
+
+    expect(response.status).toBe(200);
+    expect(mocks.setSourceActive).toHaveBeenCalledWith(env.DB, 'account-a', 'source-1', false);
   });
 });

@@ -141,6 +141,19 @@ export async function createMedicalSource(
   return { id, display_name: displayName, classification: input.classification };
 }
 
+export async function setMedicalSourceActive(
+  db: D1Database,
+  lineAccountId: string,
+  sourceId: string,
+  isActive: boolean,
+): Promise<void> {
+  const result = await db.prepare(
+    `UPDATE pharmacy_medical_sources SET is_active = ?, updated_at = ?
+      WHERE id = ? AND line_account_id = ?`,
+  ).bind(isActive ? 1 : 0, now(), sourceId, lineAccountId).run();
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('medical source not found');
+}
+
 export async function classifySubmissionSource(
   db: D1Database,
   input: { lineAccountId: string; submissionId: string; sourceId: string | null; classification: 'primary' | 'other' | 'unknown'; staffId: string },
