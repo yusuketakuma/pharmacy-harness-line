@@ -289,6 +289,7 @@ describe('growth dashboard', () => {
     });
     expect(queries.find((sql) => sql.includes('pharmacy_submission_sources'))).toContain("accepted.event_type = 'status_changed'");
     expect(queries.find((sql) => sql.includes('pharmacy_fulfillment_quotes'))).toContain("ready.event_type = 'status_changed'");
+    expect(queries.find((sql) => sql.includes('verified_validity'))).toContain('COALESCE(attr.is_synthetic, 0) = 0');
     expect(queries.find((sql) => sql.includes('exposed_friends'))).toContain("n.outcome = 'sent'");
   });
 });

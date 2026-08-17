@@ -544,7 +544,8 @@ export async function getGrowthDashboard(
         ON s.id = v.submission_id AND s.line_account_id = v.line_account_id
       LEFT JOIN pharmacy_submission_attributes attr
         ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
-      WHERE v.line_account_id = ? AND v.created_at >= ? AND v.created_at < ?`)
+      WHERE v.line_account_id = ? AND v.created_at >= ? AND v.created_at < ?
+        AND COALESCE(attr.is_synthetic, 0) = 0`)
       .bind(lineAccountId, ...bounds).first<Record<string, number | null>>(),
     db.prepare(`SELECT category, outcome, COUNT(*) AS count
       FROM pharmacy_notification_events WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
