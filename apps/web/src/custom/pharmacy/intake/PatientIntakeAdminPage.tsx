@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
 import { pharmacyIntakeAdminApi, type PatientIntakeHistoryDetail, type PharmacyPatient, type PharmacyPatientHistory } from './api'
 
@@ -31,6 +31,24 @@ function formatHistoryDate(value: string): string {
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleString('ja-JP')
 }
 
+export function createPatientListRequestGate() {
+  let active: AbortController | null = null
+  return {
+    start() {
+      active?.abort()
+      active = new AbortController()
+      return active
+    },
+    abort() {
+      active?.abort()
+      active = null
+    },
+    isCurrent(request: AbortController) {
+      return active === request && !request.signal.aborted
+    },
+  }
+}
+
 export default function PatientIntakeAdminPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const [patients, setPatients] = useState<PharmacyPatient[]>([])
@@ -39,6 +57,7 @@ export default function PatientIntakeAdminPage() {
   const [history, setHistory] = useState<PharmacyPatientHistory | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const listRequestGate = useRef(createPatientListRequestGate()).current
 
   const selected = useMemo(() => patients.find((patient) => patient.id === selectedId) ?? null, [patients, selectedId])
   const answers = intake?.answers ?? {}
@@ -46,32 +65,32 @@ export default function PatientIntakeAdminPage() {
     ? answers.medicalHistoryTags.map((tag) => MEDICAL_HISTORY_TAG_LABELS[String(tag)] ?? String(tag)).join('、')
     : '未回答'
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async () => {
     if (!selectedAccountId) return
+    const request = listRequestGate.start()
     setLoading(true)
     setError('')
     try {
-      const result = await pharmacyIntakeAdminApi.list(selectedAccountId, signal)
-      if (signal?.aborted) return
+      const result = await pharmacyIntakeAdminApi.list(selectedAccountId, request.signal)
+      if (!listRequestGate.isCurrent(request)) return
       setPatients(result.patients)
       setSelectedId((current) => result.patients.some((patient) => patient.id === current)
         ? current
         : result.patients[0]?.id || '')
     } catch {
-      if (!signal?.aborted) setError('患者アンケート一覧を取得できませんでした。')
+      if (listRequestGate.isCurrent(request)) setError('患者アンケート一覧を取得できませんでした。')
     } finally {
-      if (!signal?.aborted) setLoading(false)
+      if (listRequestGate.isCurrent(request)) setLoading(false)
     }
-  }, [selectedAccountId])
+  }, [listRequestGate, selectedAccountId])
 
   useEffect(() => {
     setPatients([])
     setSelectedId('')
     if (!selectedAccountId) return
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => { controller.abort() }
-  }, [load, selectedAccountId])
+    void load()
+    return () => { listRequestGate.abort() }
+  }, [listRequestGate, load, selectedAccountId])
 
   useEffect(() => {
     if (!selectedAccountId || !selectedId) {
