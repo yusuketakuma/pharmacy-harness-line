@@ -584,7 +584,9 @@ export async function getAdminPharmacyPatientHistory(
       .bind(lineAccountId, patientId).all<PharmacyPatientHistory['continuity'][number]>(),
     db.prepare(`SELECT e.event_type, e.from_status, e.to_status, e.created_at
                   FROM pharmacy_prescription_events e
-                  INNER JOIN pharmacy_prescription_patients pp ON pp.submission_id = e.submission_id
+                  INNER JOIN pharmacy_prescription_patients pp
+                    ON pp.submission_id = e.submission_id
+                   AND e.line_account_id = pp.line_account_id
                  WHERE pp.line_account_id = ? AND pp.patient_id = ?
                  ORDER BY e.created_at DESC, e.id DESC`)
       .bind(lineAccountId, patientId).all<{ event_type: string; from_status: string | null; to_status: string | null; created_at: string }>(),
