@@ -14,3 +14,21 @@ export function requestPharmacyLiff(path: string, init: RequestInit = {}): Promi
     },
   });
 }
+
+export async function requestPharmacyJson<T>(
+  path: string,
+  errorLabel: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await requestPharmacyLiff(path, init);
+  const text = await response.text();
+  let body: unknown = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!response.ok) {
+    throw Object.assign(new Error(`${errorLabel} ${response.status}`), {
+      status: response.status,
+      body,
+    });
+  }
+  return body as T;
+}

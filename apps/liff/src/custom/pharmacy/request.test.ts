@@ -5,7 +5,7 @@ vi.mock('../../lib/liff-auth.js', () => ({
   getLiffId: () => 'liff-1',
 }));
 
-import { requestPharmacyLiff } from './request.js';
+import { requestPharmacyJson, requestPharmacyLiff } from './request.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -25,5 +25,19 @@ describe('requestPharmacyLiff', () => {
         'Content-Type': 'application/json',
       },
     });
+  });
+
+  it('keeps the response status and body on JSON request failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'Prescription changed' }),
+      { status: 409 },
+    ));
+
+    await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me', 'Prescription API'))
+      .rejects.toMatchObject({
+        message: 'Prescription API 409',
+        status: 409,
+        body: { error: 'Prescription changed' },
+      });
   });
 });

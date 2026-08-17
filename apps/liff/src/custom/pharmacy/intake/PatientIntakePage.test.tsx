@@ -1,10 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import PatientIntakePage, { canSubmitIntake } from './PatientIntakePage.js';
+import {
+  emptyPatientProfileDraft,
+  PatientProfileForm,
+} from './PatientProfileForm.js';
+import {
+  INITIAL_INTAKE_ANSWERS,
+  PatientQuestionnaire,
+} from './PatientQuestionnaire.js';
 
 const answers = {
   allergiesStatus: 'none' as const,
@@ -27,22 +32,47 @@ describe('patient intake UI contract', () => {
   });
 
   it('renders family registration and pharmacy-safe questionnaire labels', () => {
-    const html = renderToStaticMarkup(<MemoryRouter><PatientIntakePage /></MemoryRouter>);
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'PatientIntakePage.tsx'), 'utf8');
+    const page = renderToStaticMarkup(<MemoryRouter><PatientIntakePage /></MemoryRouter>);
+    const profile = [false, true].map((showAddress) => renderToStaticMarkup(
+      <PatientProfileForm
+        draft={emptyPatientProfileDraft('child')}
+        editing={false}
+        busy={false}
+        showAddress={showAddress}
+        onChange={() => undefined}
+        onToggleAddress={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    )).join('');
+    const questionnaire = [1, 2].map((step) => renderToStaticMarkup(<PatientQuestionnaire
+      answers={step === 2
+        ? { ...INITIAL_INTAKE_ANSWERS, medicalHistoryStatus: 'yes' }
+        : INITIAL_INTAKE_ANSWERS}
+      step={step}
+      busy={false}
+      showPregnancyQuestions
+      representativeConsent={false}
+      privacyConsent={false}
+      onAnswersChange={() => undefined}
+      onRepresentativeConsentChange={() => undefined}
+      onPrivacyConsentChange={() => undefined}
+    />)).join('');
+    const html = page + profile + questionnaire;
+
     expect(html).toContain('患者アンケート');
     expect(html).toContain('本人を登録');
     expect(html).toContain('回答する患者');
-    expect(source).toContain('家族を追加');
-    expect(source).toContain('電話番号');
-    expect(source).toContain('住所を登録する');
-    expect(source).toContain('お薬手帳');
-    expect(source).toContain('服用中のお薬');
-    expect(source).toContain('高血圧');
-    expect(source).toContain('入力目安：約1分');
-    expect(source).toContain('type="radio"');
-    expect(source).toContain('喫煙');
-    expect(source).toContain('飲酒');
-    expect(source).toContain('飲み忘れ');
-    expect(source).toContain('ステップ');
+    expect(html).toContain('家族を追加');
+    expect(html).toContain('電話番号');
+    expect(html).toContain('住所を登録する');
+    expect(html).toContain('お薬手帳');
+    expect(html).toContain('服用中のお薬');
+    expect(html).toContain('高血圧');
+    expect(html).toContain('入力目安：約1分');
+    expect(html).toContain('type="radio"');
+    expect(html).toContain('喫煙');
+    expect(html).toContain('飲酒');
+    expect(html).toContain('飲み忘れ');
+    expect(html).toContain('ステップ');
   });
 });

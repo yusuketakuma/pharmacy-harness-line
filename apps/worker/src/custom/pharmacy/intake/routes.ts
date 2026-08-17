@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getPharmacyAccountId } from '../account.js';
+import { readJsonObject } from '../json.js';
 import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import {
@@ -58,15 +59,6 @@ function parseJsonError(error: unknown): { error: string; status: 400 | 404 | 40
   return null;
 }
 
-async function readJson(c: { req: { json<T>(): Promise<T> } }): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json<Record<string, unknown>>();
-    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
-  } catch {
-    return null;
-  }
-}
-
 pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients', async (c) => {
   const owner = c.get('pharmacyPatient');
   return c.json({ patients: await listPharmacyPatients(c.env.DB, owner, false) });
@@ -74,7 +66,7 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients', async (c) => {
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
   const owner = c.get('pharmacyPatient');
-  const body = await readJson(c);
+  const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
     const patient = await createPharmacyPatient(c.env.DB, owner, {
@@ -106,7 +98,7 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id', async (c) => {
 });
 
 pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
-  const body = await readJson(c);
+  const body = await readJsonObject(c.req);
   if (!body || typeof body.expectedUpdatedAt !== 'string' ||
       !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
@@ -144,7 +136,7 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/intake', async (c) => 
 });
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) => {
-  const body = await readJson(c);
+  const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
     const intake = await createPatientIntakeResponse(
@@ -162,7 +154,7 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) =>
 });
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/archive', async (c) => {
-  const body = await readJson(c);
+  const body = await readJsonObject(c.req);
   if (!body || typeof body.expectedUpdatedAt !== 'string' ||
       !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);

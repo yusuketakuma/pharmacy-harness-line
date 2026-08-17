@@ -2,13 +2,19 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
-  PrescriptionImageViewer,
-  PrescriptionQueueEmptyState,
   actionsForStatus,
-  isTemporaryDeploymentError,
   reasonLabel,
+} from './PrescriptionDetailPanel.js'
+import { PrescriptionImageViewer } from './PrescriptionImageViewer.js'
+import {
+  PrescriptionQueueEmptyState,
+  isTemporaryDeploymentError,
   statusLabel,
-} from './PrescriptionQueuePage.js'
+} from './PrescriptionQueueOverview.js'
+import {
+  FulfillmentQuoteEditor,
+  fulfillmentQuoteDraft,
+} from './FulfillmentQuoteEditor.js'
 
 describe('prescription admin UI contract', () => {
   it('shows fixed Japanese status and resubmission reason labels', () => {
@@ -29,6 +35,41 @@ describe('prescription admin UI contract', () => {
     expect(isTemporaryDeploymentError({ status: 404 })).toBe(true)
     expect(isTemporaryDeploymentError({ status: 503 })).toBe(true)
     expect(isTemporaryDeploymentError({ status: 500 })).toBe(false)
+  })
+
+  it('maps a saved fulfillment quote into native form values', () => {
+    expect(fulfillmentQuoteDraft(null)).toMatchObject({
+      decision: 'needs_confirmation',
+      readyAt: '',
+      validUntil: '',
+      method: '',
+    })
+    expect(fulfillmentQuoteDraft({
+      decision: 'fulfillable',
+      reasonCodes: ['stock_check'],
+      requirements: [{ code: 'stock_check', status: 'pending' }],
+      estimatedReadyAt: '2026-08-17T15:30:00.000Z',
+      validUntil: '2026-08-17T16:00:00.000Z',
+      fulfillmentMethod: 'PICKUP',
+    } as never)).toMatchObject({
+      decision: 'fulfillable',
+      readyAt: '2026-08-17T15:30',
+      validUntil: '2026-08-17T16:00',
+      method: 'PICKUP',
+    })
+  })
+
+  it('renders the fulfillment editor as a controlled form', () => {
+    const html = renderToStaticMarkup(<FulfillmentQuoteEditor
+      quote={null}
+      draft={fulfillmentQuoteDraft(null)}
+      saving={false}
+      onChange={() => undefined}
+      onSave={() => undefined}
+    />)
+    expect(html).toContain('受付内容の確認')
+    expect(html).toContain('type="datetime-local"')
+    expect(html).toContain('受付内容を保存')
   })
 
   it('renders retry guidance instead of a false empty queue', () => {

@@ -3,6 +3,7 @@ import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { getPharmacyAccountId } from '../account.js';
+import { readJsonObject } from '../json.js';
 import {
   resolvePrescriptionPatient,
   type PrescriptionPatient,
@@ -56,12 +57,6 @@ const HIGH_RISK_VERIFICATIONS = new Set<MynaVerificationStatus>([
   'SUBMITTED_TO_OTHER_PHARMACY', 'PRESCRIPTION_EXPIRED', 'PATIENT_MISMATCH', 'MANUAL_EXCEPTION',
 ]);
 
-function jsonBody(c: { req: { json<T>(): Promise<T> } }): Promise<Record<string, unknown> | null> {
-  return c.req.json<Record<string, unknown>>().then((body) =>
-    body && typeof body === 'object' && !Array.isArray(body) ? body : null,
-  ).catch(() => null);
-}
-
 function encryptionSecret(c: { env: MynaBindings }): string | null {
   return c.env.MYNA_ENDPOINT_ENCRYPTION_KEY || null;
 }
@@ -90,7 +85,7 @@ mynaRoutes.use('/api/liff/pharmacy/myna-handoffs/*', patientGate);
 
 mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
   const patient = c.get('mynaPatient');
-  const body = await jsonBody(c);
+  const body = await readJsonObject(c.req);
   if (!body || typeof body.method !== 'string' || !METHODS.has(body.method as MynaMethod) ||
       typeof body.correlationId !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(body.correlationId) ||
       (body.patientId !== undefined && typeof body.patientId !== 'string')) {
@@ -147,7 +142,7 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/launch', async (c) => {
 
 mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/patient-report', async (c) => {
   const patient = c.get('mynaPatient');
-  const body = await jsonBody(c);
+  const body = await readJsonObject(c.req);
   if (!body || typeof body.result !== 'string' || !PATIENT_REPORTS.has(body.result as MynaPatientReport)) {
     return c.json({ error: 'Invalid patient report' }, 400);
   }
@@ -210,7 +205,7 @@ mynaRoutes.post('/api/custom/pharmacy/myna-handoffs/:id/verifications', async (c
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
-  const body = await jsonBody(c);
+  const body = await readJsonObject(c.req);
   const status = body?.status as MynaVerificationStatus | undefined;
   if (!body || !status || !VERIFICATIONS.has(status) || typeof body.sourceSystem !== 'string' ||
       !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sourceSystem) ||
@@ -257,7 +252,7 @@ mynaRoutes.put('/api/custom/pharmacy/myna-endpoint', async (c) => {
   if (staff.role === 'staff') return c.json({ error: '管理者権限が必要です' }, 403);
   const lineAccountId = getPharmacyAccountId(c);
   const secret = encryptionSecret(c);
-  const body = await jsonBody(c);
+  const body = await readJsonObject(c.req);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!secret) return c.json({ error: 'Myna endpoint encryption is not configured' }, 503);
   if (!body || typeof body.tenantAlias !== 'string' || typeof body.endpointUrl !== 'string' ||
