@@ -31,6 +31,46 @@ export type PatientIntake = {
   created_at: string
 }
 
+export type PharmacyPatientHistory = {
+  patient: PharmacyPatient
+  intakes: PatientIntake[]
+  prescriptions: Array<{
+    id: string
+    status: string
+    active_revision: number | null
+    desired_pickup_at: string | null
+    requested_at: string | null
+    closed_at: string | null
+    created_at: string
+    updated_at: string
+  }>
+  quotes: Array<{
+    id: string
+    submission_id: string
+    decision: string
+    estimated_ready_at: string | null
+    status: string | null
+    fulfillment_method: string | null
+    created_at: string
+  }>
+  continuity: Array<{
+    id: string
+    status: string
+    expected_next_from: string
+    expected_next_to: string
+    next_contact_at: string
+    reminder_count: number
+    created_at: string
+    updated_at: string
+  }>
+  timeline: Array<{
+    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'myna'
+    occurred_at: string
+    label: string
+    status?: string | null
+  }>
+}
+
 export const pharmacyIntakeAdminApi = {
   list: (accountId: string) => fetchApi<{ patients: PharmacyPatient[] }>(
     `/api/custom/pharmacy/patients?${accountQuery(accountId)}`,
@@ -40,5 +80,8 @@ export const pharmacyIntakeAdminApi = {
   ),
   latest: (accountId: string, patientId: string) => fetchApi<{ intake: PatientIntake | null }>(
     `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/intake?${accountQuery(accountId)}`,
+  ),
+  history: (accountId: string, patientId: string) => fetchApi<{ history: PharmacyPatientHistory }>(
+    `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/history?${accountQuery(accountId)}`,
   ),
 }

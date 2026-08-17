@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createPharmacyPatient,
   createPatientIntakeResponse,
+  getAdminPharmacyPatientHistory,
   getLatestPatientIntake,
   listPharmacyPatients,
   updatePharmacyPatient,
@@ -104,6 +105,22 @@ describe('pharmacy patient repository', () => {
     expect(calls[0].sql).toContain('line_account_id = ? AND owner_friend_id = ?');
     expect(calls[0].sql).toContain('archived_at IS NULL');
     expect(calls[0].values).toEqual(['account-1', 'friend-1']);
+  });
+
+  it('loads a patient history using the account and patient scope for every query', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, postal_code: null, prefecture: null, city: null,
+      address_line1: null, address_line2: null, archived_at: null,
+    };
+    const { db, calls } = fakeDb(patient, []);
+    await expect(getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1')).resolves.toMatchObject({
+      patient, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [],
+    });
+    expect(calls).toHaveLength(8);
+    expect(calls.slice(1).every((call) => call.values.includes('account-1') && call.values.includes('patient-1'))).toBe(true);
+    expect(calls.slice(1).every((call) => !call.sql.includes('line_user_id'))).toBe(true);
   });
 
   it('updates a patient profile with owner-scoped optimistic concurrency', async () => {

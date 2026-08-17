@@ -473,3 +473,114 @@ export async function getLatestAdminPatientIntake(
       LIMIT 1`,
   ).bind(lineAccountId, patientId).first<PharmacyPatientIntakeResponse>();
 }
+
+export interface PharmacyPatientHistory {
+  patient: PharmacyPatient;
+  intakes: PharmacyPatientIntakeResponse[];
+  prescriptions: Array<{
+    id: string;
+    status: string;
+    active_revision: number | null;
+    desired_pickup_at: string | null;
+    requested_at: string | null;
+    closed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  quotes: Array<{
+    id: string;
+    submission_id: string;
+    decision: string;
+    estimated_ready_at: string | null;
+    status: string | null;
+    fulfillment_method: string | null;
+    created_at: string;
+  }>;
+  continuity: Array<{
+    id: string;
+    status: string;
+    expected_next_from: string;
+    expected_next_to: string;
+    next_contact_at: string;
+    reminder_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  timeline: Array<{
+    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'myna';
+    occurred_at: string;
+    label: string;
+    status?: string | null;
+  }>;
+}
+
+/** Account-scoped operational history for staff; never returns LINE identifiers or free notes. */
+export async function getAdminPharmacyPatientHistory(
+  db: D1Database,
+  lineAccountId: string,
+  patientId: string,
+): Promise<PharmacyPatientHistory | null> {
+  const patient = await getAdminPharmacyPatient(db, lineAccountId, patientId);
+  if (!patient) return null;
+  const [intakes, prescriptions, quotes, continuity, prescriptionEvents, continuityEvents, myna] = await Promise.all([
+    db.prepare(`${INTAKE_SELECT} WHERE line_account_id = ? AND patient_id = ? ORDER BY revision DESC, id DESC`)
+      .bind(lineAccountId, patientId).all<PharmacyPatientIntakeResponse>(),
+    db.prepare(`SELECT s.id, s.status, s.active_revision, s.desired_pickup_at,
+                       s.requested_at, s.closed_at, s.created_at, s.updated_at
+                  FROM pharmacy_prescription_submissions s
+                  INNER JOIN pharmacy_prescription_patients pp
+                    ON pp.submission_id = s.id AND pp.line_account_id = s.line_account_id
+                 WHERE pp.line_account_id = ? AND pp.patient_id = ?
+                 ORDER BY s.created_at DESC, s.id DESC`)
+      .bind(lineAccountId, patientId).all<PharmacyPatientHistory['prescriptions'][number]>(),
+    db.prepare(`SELECT q.id, q.submission_id, q.decision, q.estimated_ready_at,
+                       q.status, q.fulfillment_method, q.created_at
+                  FROM pharmacy_fulfillment_quotes q
+                  INNER JOIN pharmacy_prescription_patients pp
+                    ON pp.submission_id = q.submission_id AND pp.line_account_id = q.line_account_id
+                 WHERE q.line_account_id = ? AND pp.patient_id = ?
+                 ORDER BY q.created_at DESC, q.id DESC`)
+      .bind(lineAccountId, patientId).all<PharmacyPatientHistory['quotes'][number]>(),
+    db.prepare(`SELECT id, status, expected_next_from, expected_next_to,
+                       next_contact_at, reminder_count, created_at, updated_at
+                  FROM pharmacy_continuity_obligations
+                 WHERE line_account_id = ? AND patient_id = ?
+                 ORDER BY created_at DESC, id DESC`)
+      .bind(lineAccountId, patientId).all<PharmacyPatientHistory['continuity'][number]>(),
+    db.prepare(`SELECT e.event_type, e.from_status, e.to_status, e.created_at
+                  FROM pharmacy_prescription_events e
+                  INNER JOIN pharmacy_prescription_patients pp ON pp.submission_id = e.submission_id
+                 WHERE pp.line_account_id = ? AND pp.patient_id = ?
+                 ORDER BY e.created_at DESC, e.id DESC`)
+      .bind(lineAccountId, patientId).all<{ event_type: string; from_status: string | null; to_status: string | null; created_at: string }>(),
+    db.prepare(`SELECT e.event_type, o.status, e.created_at
+                  FROM pharmacy_continuity_events e
+                  INNER JOIN pharmacy_continuity_obligations o
+                    ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
+                 WHERE e.line_account_id = ? AND o.patient_id = ?
+                 ORDER BY e.created_at DESC, e.id DESC`)
+      .bind(lineAccountId, patientId).all<{ event_type: string; status: string; created_at: string }>(),
+    db.prepare(`SELECT h.method, h.status, h.created_at, h.updated_at
+                  FROM pharmacy_myna_handoffs h
+                 WHERE h.line_account_id = ? AND h.patient_id = ?
+                 ORDER BY h.created_at DESC, h.id DESC`)
+      .bind(lineAccountId, patientId).all<{ method: string; status: string; created_at: string; updated_at: string }>(),
+  ]);
+
+  const timeline: PharmacyPatientHistory['timeline'] = [
+    ...intakes.results.map((item) => ({ kind: 'intake' as const, occurred_at: item.created_at, label: `アンケート回答 第${item.revision}版`, status: null })),
+    ...prescriptionEvents.results.map((item) => ({ kind: 'prescription' as const, occurred_at: item.created_at, label: item.event_type === 'status_changed' ? '処方せん受付状態を更新' : '処方せん受付を更新', status: item.to_status })),
+    ...quotes.results.map((item) => ({ kind: 'fulfillment' as const, occurred_at: item.created_at, label: 'FulfillmentQuoteを登録', status: item.decision })),
+    ...continuityEvents.results.map((item) => ({ kind: 'continuity' as const, occurred_at: item.created_at, label: '継続フォローを更新', status: item.status })),
+    ...myna.results.map((item) => ({ kind: 'myna' as const, occurred_at: item.created_at, label: 'マイナ受付を更新', status: item.status })),
+  ].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+
+  return {
+    patient,
+    intakes: intakes.results,
+    prescriptions: prescriptions.results,
+    quotes: quotes.results,
+    continuity: continuity.results,
+    timeline,
+  };
+}
