@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "0.22.0",
+  "version": "0.23.0",
   "release_sequence": 1,
   "previous_commit": "eedfd7ed3a147f425eb69b86b76cb1ab863efe35",
   "update_class": "manual",
