@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAccount } from '@/contexts/account-context'
 import { api } from '@/lib/api'
 
-type Dashboard = Awaited<ReturnType<typeof api.pharmacyGrowth.dashboard>> extends { data?: infer T } ? T : never
+type Dashboard = Extract<Awaited<ReturnType<typeof api.pharmacyGrowth.dashboard>>, { success: true }>['data']
 
 function Card({ label, value, note }: { label: string; value: number | string; note?: string }) {
   return <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"><p className="text-sm text-gray-500">{label}</p><p className="mt-1 text-2xl font-bold text-gray-900">{value}</p>{note && <p className="mt-1 text-xs text-gray-500">{note}</p>}</div>
@@ -25,7 +25,7 @@ export default function GrowthDashboardPage() {
     setLoading(true); setError('')
     try {
       const response = await api.pharmacyGrowth.dashboard(selectedAccountId)
-      if (!response.success || !response.data) throw new Error(response.error ?? '取得失敗')
+      if (!response.success) throw new Error(response.error)
       setData(response.data as Dashboard)
     } catch {
       setError('薬局Growth Loopの集計を取得できませんでした。薬局モードと権限を確認してください。')
