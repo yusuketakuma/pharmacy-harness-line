@@ -34,6 +34,10 @@ import { awardActivityMileage } from '../services/activity-mileage.js';
 import { safeRedirectTarget } from '../lib/safe-redirect.js';
 import type { Env } from '../index.js';
 import { verifyCrossAccountToken } from '../lib/cross-account-token.js';
+import {
+  hasPharmacyModeAccount,
+  isPharmacyModeAccount,
+} from '../custom/pharmacy/growth-loop/access.js';
 
 
 // OAuth state base64 helpers. btoa() only accepts Latin-1, so a single
@@ -947,8 +951,41 @@ liffRoutes.get('/auth/callback', async (c) => {
       return c.redirect(safeRedirect);
     }
 
-    // Send form link as LINE message if form param was passed
-    if (formId && friend?.line_user_id) {
+    // Send the generic form link only when its account context is trusted and
+    // not in pharmacy mode. A channel in OAuth state selects the send token,
+    // so it must agree with an already-account-scoped friend.
+    let formAccount: Awaited<ReturnType<typeof getLineAccountById>> = null;
+    let canSendGenericForm = Boolean(formId && friend?.line_user_id);
+    if (canSendGenericForm) {
+      try {
+        if (accountParam) {
+          formAccount = await getLineAccountByChannelId(db, accountParam);
+          if (
+            !formAccount
+            || (friend.line_account_id && friend.line_account_id !== formAccount.id)
+          ) {
+            canSendGenericForm = false;
+          }
+        } else if (friend.line_account_id) {
+          formAccount = await getLineAccountById(db, friend.line_account_id);
+        }
+
+        const formAccountId = formAccount?.id ?? friend.line_account_id ?? null;
+        if (
+          canSendGenericForm
+          && (formAccountId
+            ? await isPharmacyModeAccount(db, formAccountId)
+            : await hasPharmacyModeAccount(db))
+        ) {
+          canSendGenericForm = false;
+        }
+      } catch (err) {
+        canSendGenericForm = false;
+        console.error('Form link capability check failed (blocked):', err);
+      }
+    }
+
+    if (canSendGenericForm && formId && friend?.line_user_id) {
       try {
         // Build form LIFF URL using the friend's account liff_id (multi-account aware)
         // Append gate/xh so the form can verify against the correct campaign gate
@@ -966,14 +1003,12 @@ liffRoutes.get('/auth/callback', async (c) => {
         if (xhParam) formQuery.set('xh', xhParam);
         let formLiffUrl = `${new URL(c.req.url).origin}?${formQuery.toString()}`;
         const { LineClient } = await import('@line-crm/line-sdk');
-        const { getLineAccountById: getAcctById } = await import('@line-crm/db');
         let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-        if (friend.line_account_id) {
-          const account = await getAcctById(db, friend.line_account_id);
-          if (account?.channel_access_token) accessToken = account.channel_access_token;
-          if (account?.liff_id) {
-            formLiffUrl = `https://liff.line.me/${account.liff_id}?${formQuery.toString()}`;
-          }
+        if (formAccount?.channel_access_token) {
+          accessToken = formAccount.channel_access_token;
+        }
+        if (formAccount?.liff_id) {
+          formLiffUrl = `https://liff.line.me/${formAccount.liff_id}?${formQuery.toString()}`;
         }
         if (formLiffUrl.startsWith(`${new URL(c.req.url).origin}`)) {
           const envLiffUrl = c.env.LIFF_URL || '';

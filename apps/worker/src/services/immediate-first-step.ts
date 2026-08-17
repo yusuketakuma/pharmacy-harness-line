@@ -320,7 +320,15 @@ export async function pushImmediateFirstStep(
       resolveStepContent(db, firstStep),
       ctx.accountChannelId ? getLineAccountByChannelId(db, ctx.accountChannelId) : null,
     ]);
-    const lineAccountId = friend.line_account_id ?? ctxAccount?.id ?? null;
+    if (
+      ctxAccount?.id
+      && friend.line_account_id
+      && friend.line_account_id !== ctxAccount.id
+    ) {
+      await releaseClaim();
+      return false;
+    }
+    const lineAccountId = ctxAccount?.id ?? friend.line_account_id ?? null;
     if (lineAccountId
       ? await isPharmacyModeAccount(db, lineAccountId)
       : await hasPharmacyModeAccount(db)) {

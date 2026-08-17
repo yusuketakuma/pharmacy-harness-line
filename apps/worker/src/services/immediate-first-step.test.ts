@@ -168,6 +168,29 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     expect(claimReleased(calls)).toBe(true);
   });
 
+  it('rejects a friend from another account when the channel context is pharmacy', async () => {
+    dbMocks.getFriendById.mockResolvedValue({
+      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'generic-a',
+      user_id: null, metadata: '{}',
+    });
+    dbMocks.getLineAccountByChannelId.mockResolvedValue({
+      id: 'pharmacy-a', channel_access_token: 'pharmacy-token',
+    });
+    const { db, calls } = makeDb({ pharmacyAccountId: 'pharmacy-a' });
+
+    const sent = await pushImmediateFirstStep(
+      db,
+      'friend-1',
+      'scn-1',
+      { ...ctx, accountChannelId: 'CH-pharmacy' },
+      { enrollment: { id: 'fs-1', current_step_order: 0 } },
+    );
+
+    expect(sent).toBe(false);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(claimReleased(calls)).toBe(true);
+  });
+
   it('claims, pushes step 1, logs, and advances to step 2', async () => {
     const { db, calls } = makeDb();
     const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {

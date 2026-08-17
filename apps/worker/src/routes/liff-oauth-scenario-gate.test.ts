@@ -53,6 +53,17 @@ const dbMocks = {
 };
 vi.mock('@line-crm/db', () => dbMocks);
 
+const pharmacyAccessMocks = vi.hoisted(() => ({
+  isPharmacyModeAccount: vi.fn(
+    async (_db: D1Database, _lineAccountId: string | null | undefined) => false,
+  ),
+  hasPharmacyModeAccount: vi.fn(async (_db: D1Database) => false),
+}));
+vi.mock('../custom/pharmacy/growth-loop/access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../custom/pharmacy/growth-loop/access.js')>()),
+  ...pharmacyAccessMocks,
+}));
+
 const worker = (await import('../index.js')).default;
 
 // Prepared-statement stub. Raw statements are no-ops except the
@@ -108,8 +119,8 @@ function installFetchMock() {
   );
 }
 
-function callback() {
-  const state = btoa(JSON.stringify({}));
+function callback(stateValue: Record<string, string> = {}) {
+  const state = btoa(JSON.stringify(stateValue));
   return worker.fetch(
     new Request(
       `https://worker.example.com/auth/callback?code=abc&state=${encodeURIComponent(state)}`,
@@ -141,6 +152,9 @@ beforeEach(() => {
   dbMocks.getScenarios.mockResolvedValue([friendAddScenario]);
   dbMocks.enrollFriendInScenario.mockResolvedValue({ id: 'FS-1' });
   dbMocks.getScenarioSteps.mockResolvedValue([]);
+  dbMocks.getLineAccountByChannelId.mockResolvedValue(null);
+  pharmacyAccessMocks.isPharmacyModeAccount.mockResolvedValue(false);
+  pharmacyAccessMocks.hasPharmacyModeAccount.mockResolvedValue(false);
 });
 
 describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => {
@@ -192,5 +206,26 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
       'F-1',
       'SC-1',
     );
+  });
+
+  it('does not send a generic form link for a pharmacy account', async () => {
+    dbMocks.getLineAccountByChannelId.mockResolvedValue({
+      id: 'pharmacy-a',
+      login_channel_id: '2000000001',
+      login_channel_secret: 'pharmacy-secret',
+      channel_access_token: 'pharmacy-token',
+      liff_id: '1000000001-Pharmacy',
+    });
+    pharmacyAccessMocks.isPharmacyModeAccount.mockImplementation(
+      async (_db, lineAccountId) => lineAccountId === 'pharmacy-a',
+    );
+
+    await callback({ form: 'form-1', account: 'CH-pharmacy' });
+
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
+      ),
+    ).toBe(false);
   });
 });
