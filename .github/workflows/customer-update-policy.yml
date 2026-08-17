@@ -1,0 +1,61 @@
+name: Customer Update Policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted customer main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out pull request head without credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Run trusted customer policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.4 --activate
+          pnpm --dir trusted install --frozen-lockfile
+          policy_script="$GITHUB_WORKSPACE/trusted/scripts/customer-update/policy.ts"
+          if [ ! -f "$policy_script" ]; then
+            policy_script="$GITHUB_WORKSPACE/candidate/scripts/customer-update/policy.ts"
+          fi
+          pnpm --dir trusted exec tsx "$policy_script" \
+            --repo-dir "$GITHUB_WORKSPACE/candidate" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --head-branch "$HEAD_BRANCH"
+
+      - name: Validate candidate without secrets
+        run: |
+          pnpm --dir candidate install --frozen-lockfile
+          pnpm --dir candidate test:scripts
+          pnpm --dir candidate --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/update-engine build
+          pnpm --dir candidate --filter worker typecheck
+          pnpm --dir candidate --filter worker test
+          pnpm --dir candidate --filter worker build
+          pnpm --dir candidate --filter web test
+          pnpm --dir candidate --filter web build
+        env:
+          VITE_LIFF_ID: test-liff-id
+          VITE_BOT_BASIC_ID: test-basic-id
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8787

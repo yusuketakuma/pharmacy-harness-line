@@ -1,5 +1,7 @@
 export type {
   CurrentVersion,
+  CustomerSourceUpdate,
+  CustomerUpdateClass,
   ForkStatus,
   Manifest,
   ReleaseEntry,
@@ -9,5 +11,7 @@ export {
   fetchManifest,
   findLatestUpgrade,
   findRelease,
+  validateManifest,
+  validateReleaseEntry,
 } from './manifest.js';
 export { detectFork } from './fork-detect.js';

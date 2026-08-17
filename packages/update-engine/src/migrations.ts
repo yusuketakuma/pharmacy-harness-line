@@ -3,7 +3,7 @@ import type { CfApiCreds } from './types.js';
 import { executeD1Query } from './cf-api/d1.js';
 import { isBenignSchemaErrorText } from './materialize.js';
 
-const MIGRATION_STATE_TABLE = '_line_harness_migrations';
+export const MIGRATION_STATE_TABLE = '_line_harness_migrations';
 
 type D1Executor = typeof executeD1Query;
 
@@ -21,8 +21,34 @@ export interface ApplyD1MigrationsOptions {
   migrations: Map<string, Buffer>;
   onMigrationStart?: (name: string) => void | Promise<void>;
   onMigrationDone?: (result: MigrationApplyResult) => void | Promise<void>;
+  /** Customer deployment paths require a setup-created checksum baseline. */
+  requireChecksumLedger?: boolean;
   /** Test seam. Production callers use the Cloudflare D1 HTTP API. */
   execute?: D1Executor;
+}
+
+export function migrationChecksum(source: Buffer): string {
+  return `sha256:${createHash('sha256').update(source).digest('hex')}`;
+}
+
+export function buildMigrationLedgerSql(
+  names: string[],
+  migrations: Map<string, Buffer>,
+): string {
+  const rows = names.map((name) => {
+    const source = migrations.get(name);
+    if (!source) throw new Error(`migration ${name} missing while building checksum ledger`);
+    return (
+      `INSERT OR IGNORE INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) VALUES (` +
+      `${sqlLiteral(name)}, ${sqlLiteral(migrationChecksum(source))}, ` +
+      "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));"
+    );
+  });
+  return [
+    `CREATE TABLE IF NOT EXISTS ${MIGRATION_STATE_TABLE} (` +
+      'name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);',
+    ...rows,
+  ].join('\n');
 }
 
 /**
@@ -119,11 +145,10 @@ export function splitSqlStatements(sql: string): string[] {
  * Apply cumulative release migrations safely across fresh, fully-applied,
  * and partially-applied databases.
  *
- * Each statement is its own D1 request. Duplicate schema-object errors are
- * skipped at statement granularity, so a duplicate first ALTER no longer
- * prevents later ALTERs in the same file from running. A checksum ledger is
- * written only after every statement succeeds or is confirmed benign; later
- * releases can then skip the immutable migration without replaying its DML.
+ * Each migration and its checksum ledger insert share one D1 query request.
+ * D1 executes multi-statement queries transactionally, so a failed statement
+ * cannot leave schema changes without their ledger row. A missing ledger is
+ * never inferred from schema shape; setup must establish the trusted baseline.
  */
 export async function applyD1Migrations(
   opts: ApplyD1MigrationsOptions,
@@ -131,50 +156,78 @@ export async function applyD1Migrations(
   const execute = opts.execute ?? executeD1Query;
   const base = { creds: opts.creds, databaseId: opts.databaseId };
 
-  // Validate the whole manifest before touching D1. A malformed release must
-  // fail without leaving even the migration ledger behind.
+  // Validate manifest structure before D1 access. SQL safety checks happen
+  // after the trusted ledger identifies which migrations are still pending.
+  if (new Set(opts.names).size !== opts.names.length) {
+    throw new Error('migration manifest contains duplicate names');
+  }
+  const checksums = new Map<string, string>();
   const parsedStatements = new Map<string, string[]>();
   for (const name of opts.names) {
-    if (!opts.migrations.has(name)) {
-      throw new Error(`migration ${name} missing in bundle`);
-    }
-    parsedStatements.set(
-      name,
-      splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
-    );
+    const source = opts.migrations.get(name);
+    if (!source) throw new Error(`migration ${name} missing in bundle`);
+    checksums.set(name, migrationChecksum(source));
   }
   if (opts.names.length === 0) return [];
 
-  // Associate ledger initialization failures with the first migration in
-  // progress output. Older callers/tests expect a migration:running event
-  // before any D1-side failure is surfaced.
-  await opts.onMigrationStart?.(opts.names[0]);
-  await execute({
+  const ledger = await execute({
     ...base,
-    sql:
-      `CREATE TABLE IF NOT EXISTS ${MIGRATION_STATE_TABLE} (` +
-      'name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)',
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+    params: [MIGRATION_STATE_TABLE],
   });
-
-  const results: MigrationApplyResult[] = [];
-  for (let migrationIndex = 0; migrationIndex < opts.names.length; migrationIndex += 1) {
-    const name = opts.names[migrationIndex];
-    const source = opts.migrations.get(name) as Buffer;
-
-    if (migrationIndex > 0) await opts.onMigrationStart?.(name);
-    const checksum = `sha256:${createHash('sha256').update(source).digest('hex')}`;
-    const recorded = await execute({
+  const legacyBaseline = firstResultValue(ledger, 'name') !== MIGRATION_STATE_TABLE;
+  const recordedNames = new Set<string>();
+  if (legacyBaseline) {
+    if (opts.requireChecksumLedger) {
+      throw new Error(
+        'migration checksum ledger missing; run trusted setup/baseline initialization before deployment',
+      );
+    }
+    for (const name of opts.names) {
+      parsedStatements.set(
+        name,
+        splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
+      );
+    }
+    await execute({
       ...base,
-      sql: `SELECT checksum FROM ${MIGRATION_STATE_TABLE} WHERE name = ?`,
-      params: [name],
+      sql:
+        `CREATE TABLE ${MIGRATION_STATE_TABLE} (` +
+        'name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)',
     });
-    const priorChecksum = firstResultValue(recorded, 'checksum');
-    if (typeof priorChecksum === 'string') {
-      if (priorChecksum !== checksum) {
-        throw new Error(
-          `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
+  } else {
+    // Complete every checksum read and pending SQL safety check before the
+    // first migration write. Historical bytes are trusted only by exact
+    // ledger checksum and are never reinterpreted under newer SQL policy.
+    for (const name of opts.names) {
+      const recorded = await execute({
+        ...base,
+        sql: `SELECT checksum FROM ${MIGRATION_STATE_TABLE} WHERE name = ?`,
+        params: [name],
+      });
+      const priorChecksum = firstResultValue(recorded, 'checksum');
+      const checksum = checksums.get(name) as string;
+      if (typeof priorChecksum === 'string') {
+        if (priorChecksum !== checksum) {
+          throw new Error(
+            `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
+          );
+        }
+        recordedNames.add(name);
+      } else {
+        parsedStatements.set(
+          name,
+          splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
         );
       }
+    }
+  }
+
+  const results: MigrationApplyResult[] = [];
+  for (const name of opts.names) {
+    await opts.onMigrationStart?.(name);
+    const checksum = checksums.get(name) as string;
+    if (recordedNames.has(name)) {
       const result: MigrationApplyResult = {
         name,
         alreadyApplied: true,
@@ -187,42 +240,76 @@ export async function applyD1Migrations(
     }
 
     const statements = parsedStatements.get(name) as string[];
-    let executedStatements = 0;
-    let skippedStatements = 0;
-    for (let index = 0; index < statements.length; index += 1) {
-      try {
-        await execute({ ...base, sql: statements[index] });
-        executedStatements += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (isBenignSchemaErrorText(message)) {
+    if (legacyBaseline) {
+      let executedStatements = 0;
+      let skippedStatements = 0;
+      for (const statement of statements) {
+        try {
+          await execute({ ...base, sql: statement });
+          executedStatements += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!isBenignSchemaErrorText(message)) throw error;
           skippedStatements += 1;
-          continue;
         }
-        throw new Error(
-          `migration ${name} statement ${index + 1}/${statements.length} failed: ${message}`,
-          { cause: error },
-        );
+      }
+      await execute({
+        ...base,
+        sql:
+          `INSERT INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) ` +
+          "VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        params: [name, checksum],
+      });
+      const result = {
+        name,
+        alreadyApplied: false,
+        executedStatements,
+        skippedStatements,
+      };
+      results.push(result);
+      await opts.onMigrationDone?.(result);
+      continue;
+    }
+    const ledgerInsert =
+        `INSERT INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) ` +
+        `VALUES (${sqlLiteral(name)}, ${sqlLiteral(checksum)}, ` +
+        "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
+    const atomicSql = [...statements, ledgerInsert]
+      .map((statement) => `${statement.replace(/;\s*$/, '')};`)
+      .join('\n');
+    try {
+      await execute({ ...base, sql: atomicSql });
+    } catch (error) {
+      const reconciled = await execute({
+        ...base,
+        sql: `SELECT checksum FROM ${MIGRATION_STATE_TABLE} WHERE name = ?`,
+        params: [name],
+      });
+      const reconciledChecksum = firstResultValue(reconciled, 'checksum');
+      if (reconciledChecksum !== checksum) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (typeof reconciledChecksum === 'string') {
+          throw new Error(
+            `migration ${name} changed after it was applied (${reconciledChecksum} != ${checksum})`,
+          );
+        }
+        throw new Error(`migration ${name} failed atomically: ${message}`, { cause: error });
       }
     }
-
-    await execute({
-      ...base,
-      sql:
-        `INSERT INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) ` +
-        "VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-      params: [name, checksum],
-    });
     const result: MigrationApplyResult = {
       name,
       alreadyApplied: false,
-      executedStatements,
-      skippedStatements,
+      executedStatements: statements.length,
+      skippedStatements: 0,
     };
     results.push(result);
     await opts.onMigrationDone?.(result);
   }
   return results;
+}
+
+function sqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 function pushSqlStatement(statements: string[], candidate: string): void {

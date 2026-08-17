@@ -25,6 +25,10 @@ export class HttpClient {
     return this.request<T>('POST', path, body, headers)
   }
 
+  async postBinary<T = unknown>(path: string, body: Uint8Array, contentType: string): Promise<T> {
+    return this.request<T>('POST', path, body, { 'Content-Type': contentType })
+  }
+
   async put<T = unknown>(path: string, body?: unknown): Promise<T> {
     return this.request<T>('PUT', path, body)
   }
@@ -52,7 +56,9 @@ export class HttpClient {
     }
 
     if (body !== undefined) {
-      options.body = JSON.stringify(body)
+      options.body = body instanceof Uint8Array || body instanceof ArrayBuffer
+        ? body as BodyInit
+        : JSON.stringify(body)
     }
 
     const res = await fetch(url, options)

@@ -1,0 +1,90 @@
+name: Publish Customer Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: customer-release
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: vars.LINE_HARNESS_SELLER_REPOSITORY == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate source and release policy
+        id: release
+        run: |
+          pnpm tsx scripts/release/customer-source-update.ts \
+            --policy customer-release.json \
+            --validate-only true
+          source_sha=$(git rev-parse 'HEAD^{commit}')
+          test "$source_sha" = "$GITHUB_SHA"
+          version=$(node -e "const p=require('./customer-release.json');if(p.schema_version!==1)process.exit(1);process.stdout.write(p.version)")
+          previous_commit=$(node -e "process.stdout.write(require('./customer-release.json').previous_commit)")
+          tag="pharmacy-v${version}"
+          git merge-base --is-ancestor "$previous_commit" "$source_sha"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create immutable source tag
+        id: tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            existing_sha=$(git rev-parse "$TAG^{commit}")
+            if [ "$existing_sha" = "$SOURCE_SHA" ]; then
+              if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                echo "skip_dispatch=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "skip_dispatch=false" >> "$GITHUB_OUTPUT"
+              fi
+            elif git merge-base --is-ancestor "$existing_sha" "$SOURCE_SHA"; then
+              if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                echo "Existing ancestor tag has no published release: $TAG"
+                exit 1
+              fi
+              echo "Reusing already-published release tag $TAG during main promotion."
+              echo "skip_dispatch=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Existing release tag does not belong to the current main history: $TAG"
+              exit 1
+            fi
+          else
+            git tag -a "$TAG" "$SOURCE_SHA" -m "Customer release $TAG"
+            git push origin "refs/tags/$TAG"
+            echo "skip_dispatch=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch existing release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          tag: ${{ steps.release.outputs.tag }}
+          source_sha: ${{ steps.release.outputs.source_sha }}
+        run: |
+          if [ "${{ steps.tag.outputs.skip_dispatch }}" != "true" ] && ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh workflow run release.yml --ref "$tag" -f source_sha="$source_sha"
+          else
+            echo "Release already exists; no duplicate release workflow dispatched."
+          fi

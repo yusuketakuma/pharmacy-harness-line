@@ -20,7 +20,7 @@ import type { Env } from '../index.js';
 export type AdminSameSite = 'Strict' | 'Lax' | 'None';
 
 export interface AdminAuthConfig {
-  /** Origins permitted to make credentialed cross-origin requests. */
+  /** Admin origins used for credentialed requests and cookie topology. */
   allowedOrigins: string[];
   /** SameSite attribute applied to the session + CSRF cookies. */
   sameSite: AdminSameSite;
@@ -41,6 +41,7 @@ export interface AdminAuthConfig {
 export type AdminAuthEnv = {
   WORKER_URL?: string;
   ADMIN_ORIGIN?: string;
+  LIFF_ORIGIN?: string;
   ADMIN_COOKIE_SAMESITE?: string;
   ADMIN_ALLOW_CROSS_SITE?: string;
 };
@@ -127,12 +128,16 @@ function parseSameSite(value: string | undefined): AdminSameSite | null {
   }
 }
 
-/** Parse the comma-separated ADMIN_ORIGIN allowlist into normalized origins. */
-export function parseAllowedOrigins(env: AdminAuthEnv): string[] {
-  if (!env.ADMIN_ORIGIN) return [];
-  return env.ADMIN_ORIGIN.split(',')
+function parseOriginList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value.split(',')
     .map((value) => normalizeOrigin(value.trim()))
     .filter((value): value is string => Boolean(value));
+}
+
+/** Parse the comma-separated ADMIN_ORIGIN allowlist into normalized origins. */
+export function parseAllowedOrigins(env: AdminAuthEnv): string[] {
+  return parseOriginList(env.ADMIN_ORIGIN);
 }
 
 function isCloudflarePagesOrigin(value: URL): boolean {
@@ -208,10 +213,10 @@ export function resolveAdminAuthConfig(
 }
 
 /**
- * CORS origin resolver for credentialed admin requests. Returns the origin to
- * echo back, or '' when the origin is not allowed (so no ACAO header is set).
- * Same-origin requests (and non-browser callers with no Origin header) are
- * always permitted; this keeps SDK/MCP Bearer callers working.
+ * CORS origin resolver for credentialed admin and LIFF requests. Returns the
+ * origin to echo back, or '' when it is not allowed (so no ACAO header is
+ * set). Same-origin requests (and non-browser callers with no Origin header)
+ * are always permitted; this keeps SDK/MCP Bearer callers working.
  */
 export function resolveCorsOrigin(
   env: AdminAuthEnv,
@@ -236,6 +241,7 @@ export function resolveCorsOrigin(
   }
 
   const { allowedOrigins } = resolveAdminAuthConfig(env);
+  const liffOrigins = parseOriginList(env.LIFF_ORIGIN);
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) return '';
 
@@ -246,7 +252,11 @@ export function resolveCorsOrigin(
     return normalizedOrigin;
   }
 
-  return allowedOrigins.some((allowedOrigin) => isAllowedAdminOrigin(normalizedOrigin, allowedOrigin))
+  const isAllowedAdmin = allowedOrigins.some((allowedOrigin) =>
+    isAllowedAdminOrigin(normalizedOrigin, allowedOrigin),
+  );
+  const isAllowedLiff = liffOrigins.includes(normalizedOrigin);
+  return isAllowedAdmin || isAllowedLiff
     ? normalizedOrigin
     : '';
 }

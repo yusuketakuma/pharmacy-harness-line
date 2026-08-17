@@ -315,11 +315,23 @@ function makeFetch(
 
     // CF API: D1 query (preflight, migration, verify).
     if (url.includes(D1_QUERY_SUBSTR)) {
-      const o = overrides.d1Query ?? {
-        ok: true,
-        status: 200,
-        body: { success: true, result: [{ results: [{ ok: 1 }] }] },
-      };
+      const sql = JSON.parse(String(init?.body ?? '{}')).sql as string | undefined;
+      const o = overrides.d1Query ?? (sql?.includes('sqlite_master')
+        ? {
+            ok: true,
+            status: 200,
+            body: {
+              success: true,
+              result: [{ results: [{ name: '_line_harness_migrations' }] }],
+            },
+          }
+        : sql?.includes('SELECT checksum')
+          ? { ok: true, status: 200, body: { success: true, result: [{ results: [] }] } }
+          : {
+              ok: true,
+              status: 200,
+              body: { success: true, result: [{ results: [{ ok: 1 }] }] },
+            });
       return makeResponse(o);
     }
 
@@ -585,16 +597,11 @@ describe('runUpdate orchestrator', () => {
   });
 
   it('apply fails (D1 migration error) → rollback runs, status = rolled_back', async () => {
-    // Make ALL D1 queries fail. But preflight does a SELECT 1 first — so we
-    // need preflight's D1 to succeed but the migration's D1 to fail. Use a
-    // call counter via fetch internals.
-    let d1Calls = 0;
     const baseFetch = makeFetch(fixture);
     globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes(D1_QUERY_SUBSTR)) {
-        d1Calls++;
-        if (d1Calls === 1) {
-          // preflight SELECT 1
+        const { sql } = JSON.parse(String(init?.body)) as { sql: string };
+        if (sql.includes('SELECT 1')) {
           return {
             ok: true,
             status: 200,
@@ -604,7 +611,29 @@ describe('runUpdate orchestrator', () => {
             body: null,
           } as unknown as Response;
         }
-        // migration → fail
+        if (sql.includes('sqlite_master')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              success: true,
+              result: [{ results: [{ name: '_line_harness_migrations' }] }],
+            }),
+            text: async () => '{}',
+            arrayBuffer: async () => new ArrayBuffer(0),
+            body: null,
+          } as unknown as Response;
+        }
+        if (sql.includes('SELECT checksum')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, result: [{ results: [] }] }),
+            text: async () => '{}',
+            arrayBuffer: async () => new ArrayBuffer(0),
+            body: null,
+          } as unknown as Response;
+        }
         return {
           ok: false,
           status: 400,

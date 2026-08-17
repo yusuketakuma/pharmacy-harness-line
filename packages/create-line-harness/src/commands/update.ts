@@ -859,6 +859,7 @@ async function applyMigrations(opts: {
       databaseId: d1DatabaseId,
       names,
       migrations: bundle.migrations,
+      requireChecksumLedger: true,
       onMigrationStart(name) {
         s.start(`Migration ${name} 確認中`);
       },

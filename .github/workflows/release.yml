@@ -36,6 +36,13 @@ on:
   push:
     tags:
       - 'v*.*.*'
+      - 'pharmacy-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact source commit authorized by the seller main workflow
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -60,11 +67,22 @@ jobs:
       - name: Resolve version from tag
         id: version
         run: |
-          # Strip the leading "v" — manifest entries use plain semver.
+          # Official and pharmacy tags share the SemVer manifest format but
+          # use separate tag namespaces to prevent fork/upstream collisions.
           tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
+          case "$tag" in
+            pharmacy-v*) version="${tag#pharmacy-v}" ;;
+            v*) version="${tag#v}" ;;
+            *) echo "Unsupported release tag: $tag"; exit 1 ;;
+          esac
+          source_sha=$(git rev-parse HEAD^{commit})
+          requested_sha="${{ inputs.source_sha }}"
+          if [ -n "$requested_sha" ]; then
+            test "$requested_sha" = "$source_sha"
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Migration safety check
         run: pnpm tsx scripts/check-migrations.ts
@@ -205,7 +223,7 @@ jobs:
           # destructive table rebuilds and must never be replayed statement by
           # statement. The checksum ledger makes this cumulative set safe.
           migrations_json=$(ls packages/db/migrations \
-            | awk '/^03[7-9]_|^0[4-9][0-9]_|^[1-9][0-9][0-9]_/' \
+            | awk '/^03[7-9]_|^0[4-9][0-9]_|^[1-9][0-9][0-9]_|^custom_[0-9]+_/' \
             | jq -R . | jq -sc .)
           if [ -z "$migrations_json" ] || [ "$migrations_json" = "null" ]; then
             migrations_json="[]"
@@ -247,6 +265,26 @@ jobs:
 
           cat release-entry.json
 
+      - name: Add customer source authority when policy is present
+        id: customer
+        run: |
+          echo "update_class=manual" >> "$GITHUB_OUTPUT"
+          if [ -f customer-release.json ]; then
+            previous_commit=$(node -e "process.stdout.write(require('./customer-release.json').previous_commit)")
+            git diff --name-only "$previous_commit" "${{ steps.version.outputs.source_sha }}" > changed-paths.txt
+            pnpm tsx scripts/release/customer-source-update.ts \
+              --release release-entry.json \
+              --policy customer-release.json \
+              --repository "$GITHUB_REPOSITORY" \
+              --commit "${{ steps.version.outputs.source_sha }}" \
+              --tag "${{ steps.version.outputs.tag }}" \
+              --changed-paths changed-paths.txt \
+              --migrations-dir packages/db/migrations
+            update_class=$(node -e "process.stdout.write(require('./release-entry.json').customer_source_update.update_class)")
+            echo "update_class=$update_class" >> "$GITHUB_OUTPUT"
+          fi
+          cat release-entry.json
+
       - name: Fetch previous release-manifest.json (if any)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -275,10 +313,10 @@ jobs:
             --release release-entry.json
           cat release-manifest.json
 
-      - name: Publish draft GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: ${{ steps.customer.outputs.update_class != 'compatible' }}
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true

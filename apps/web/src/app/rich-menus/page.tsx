@@ -59,6 +59,7 @@ export default function RichMenusListPage() {
   const [externalError, setExternalError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [applyTo, setApplyTo] = useState<RichMenuGroupListItem | null>(null)
+  const [initialTarget, setInitialTarget] = useState<RichMenuGroupListItem | null>(null)
 
   const reload = useCallback(async () => {
     if (!selectedAccount?.id) return
@@ -271,21 +272,30 @@ export default function RichMenusListPage() {
                   <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
                     <span>サイズ: {g.size === 'large' ? '2500×1686' : '2500×843'}</span>
                     {g.isDefaultForAll && (
-                      <span className="text-blue-600 font-medium">★ 全員のデフォルト</span>
+                      <span className="text-blue-600 font-medium">★ 初期表示: 全員</span>
                     )}
-                    <span>{g.selected ? '初期表示: 開く' : '初期表示: 閉じる'}</span>
+                    <span>{g.selected ? '開いた直後: 展開' : '開いた直後: 閉じる'}</span>
                   </div>
                 </div>
               </Link>
               <div className="border-t border-gray-100 px-4 py-2.5 flex justify-end gap-4 text-xs">
                 {g.status === 'published' && (
-                  <button
-                    onClick={() => setApplyTo(g)}
-                    className="font-medium hover:underline"
-                    style={{ color: '#06C755' }}
-                  >
-                    友だちに表示
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setInitialTarget(g)}
+                      className="font-medium hover:underline"
+                      style={{ color: '#06C755' }}
+                    >
+                      {g.isDefaultForAll ? '初期表示を解除' : '初期表示に設定'}
+                    </button>
+                    <button
+                      onClick={() => setApplyTo(g)}
+                      className="font-medium hover:underline"
+                      style={{ color: '#06C755' }}
+                    >
+                      友だちに表示
+                    </button>
+                  </>
                 )}
                 <Link
                   href={`/rich-menus/edit?id=${g.id}`}
@@ -311,6 +321,18 @@ export default function RichMenusListPage() {
           groupId={applyTo.id}
           groupName={applyTo.name}
           onClose={() => setApplyTo(null)}
+        />
+      )}
+      {initialTarget && (
+        <ApplyToTagModal
+          groupId={initialTarget.id}
+          groupName={initialTarget.name}
+          initialMode="set-default"
+          initialDefaultEnabled={!initialTarget.isDefaultForAll}
+          onClose={() => {
+            setInitialTarget(null)
+            reload()
+          }}
         />
       )}
     </main>

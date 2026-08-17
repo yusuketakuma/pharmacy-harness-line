@@ -14,6 +14,7 @@ vi.mock('@line-crm/db', () => ({
 }));
 
 const PAGES = 'https://your-admin.pages.dev';
+const LIFF = 'https://your-liff.pages.dev';
 const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
 
 function env(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
@@ -54,6 +55,10 @@ function app() {
   a.post('/api/forms/:id/submit', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/partial', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
   return a;
@@ -135,6 +140,27 @@ describe('topology guard', () => {
 });
 
 describe('protected API access', () => {
+  test('allows LIFF preflight requests for pharmacy APIs', async () => {
+    const res = await app().request('/api/liff/pharmacy/patients?liffId=test', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: LIFF,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    }, env({ LIFF_ORIGIN: LIFF }));
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
+  });
+
+  test('protects rich-menu image proxies instead of relying on an unguessable R2 key', async () => {
+    const image = await app().request('/api/rich-menu-images/account/group/page/image.png', {}, crossSiteEnv());
+    const external = await app().request('/api/rich-menu-groups/external/richmenu-1/image?accountId=account-1', {}, crossSiteEnv());
+    expect(image.status).toBe(401);
+    expect(external.status).toBe(401);
+  });
+
   test('accepts the admin session cookie (GET, no CSRF needed)', async () => {
     const res = await app().request('/api/protected', {
       headers: { Cookie: 'lh_admin_session=staff-key' },
@@ -219,6 +245,41 @@ describe('Google OAuth callback boundary', () => {
       method: 'POST',
     }, crossSiteEnv());
     expect(post.status).toBe(401);
+  });
+});
+
+describe('prescription LIFF auth boundary', () => {
+  test('allows only the explicitly supported method through to LINE verification', async () => {
+    const post = await app().request('/api/liff/pharmacy/prescriptions', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(post.status).toBe(200);
+
+    const wrongMethod = await app().request('/api/liff/pharmacy/prescriptions', {
+      method: 'DELETE',
+    }, crossSiteEnv());
+    expect(wrongMethod.status).toBe(401);
+  });
+});
+
+describe('Myna LIFF auth boundary', () => {
+  test('allows only the supported patient actions through to LINE verification', async () => {
+    const post = await app().request('/api/liff/pharmacy/myna-handoffs', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(post.status).toBe(200);
+
+    const launch = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/launch', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(launch.status).toBe(200);
+  });
+
+  test('does not exempt the wrong method on a Myna patient action path', async () => {
+    const res = await app().request('/api/liff/pharmacy/myna-handoffs/handoff-1/launch', {
+      method: 'DELETE',
+    }, crossSiteEnv());
+    expect(res.status).toBe(401);
   });
 });
 

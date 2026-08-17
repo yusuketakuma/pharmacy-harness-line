@@ -5,20 +5,31 @@ import { api } from '@/lib/api'
 
 type Tag = { id: string; name: string; color: string }
 
-type Props = {
-  groupId: string
-  groupName: string
-  onClose: () => void
-}
-
 type Mode =
   | { kind: 'tag'; tagId: string }
   | { kind: 'all-followers' }
   | { kind: 'set-default' }
 
-export function ApplyToTagModal({ groupId, groupName, onClose }: Props) {
+type InitialMode = Exclude<Mode['kind'], 'tag'>
+
+type Props = {
+  groupId: string
+  groupName: string
+  onClose: () => void
+  initialMode?: InitialMode
+  initialDefaultEnabled?: boolean
+}
+
+export function ApplyToTagModal({
+  groupId,
+  groupName,
+  onClose,
+  initialMode = 'all-followers',
+  initialDefaultEnabled = true,
+}: Props) {
   const [tags, setTags] = useState<Tag[]>([])
-  const [mode, setMode] = useState<Mode>({ kind: 'all-followers' })
+  const [mode, setMode] = useState<Mode>({ kind: initialMode })
+  const [defaultEnabled, setDefaultEnabled] = useState(initialDefaultEnabled)
   const [phase, setPhase] = useState<'config' | 'running' | 'done' | 'error'>(
     'config',
   )
@@ -42,18 +53,6 @@ export function ApplyToTagModal({ groupId, groupName, onClose }: Props) {
   }, [])
 
   async function apply() {
-    // 「全員のデフォルト」は影響範囲が大きいので強い確認。
-    if (mode.kind === 'set-default') {
-      if (
-        !confirm(
-          'このリッチメニューを「LINE 公式アカウントの全員のデフォルト」に設定します。\n\n' +
-            '・新規友だちも含め、特別な設定をしていない全員に表示されます\n' +
-            '・同アカウント内で他のメニューがデフォルトに設定されていた場合、そちらは解除されます\n\n' +
-            '続行しますか？',
-        )
-      )
-        return
-    }
     setPhase('running')
     setError(null)
     try {
@@ -62,8 +61,29 @@ export function ApplyToTagModal({ groupId, groupName, onClose }: Props) {
           ? { mode: 'bulk-link' as const, tagId: mode.tagId }
           : mode.kind === 'all-followers'
             ? { mode: 'bulk-link' as const, tagId: null }
-            : { mode: 'set-default' as const }
-      const res = await api.richMenuGroups.applyToTag(groupId, params)
+            : { mode: 'set-default' as const, enabled: defaultEnabled }
+      const preview = await api.richMenuGroups.applyToTag(groupId, {
+        ...params,
+        dryRun: true,
+      })
+      if (!preview.success) throw new Error(preview.error ?? '確認内容の取得に失敗しました')
+      const confirmationMessage =
+        mode.kind === 'set-default'
+          ? defaultEnabled
+            ? 'このリッチメニューをLINE公式アカウントの初期表示に設定します。\n\n新規友だちを含む、個別設定のない友だちに表示されます。\n現在の別メニューの初期表示は解除されます。\n\n続行しますか？'
+            : 'このリッチメニューをLINE公式アカウントの初期表示から解除します。\n\n個別に表示設定された友だちのメニューは変更されません。\n\n続行しますか？'
+          : `この操作を実行します。対象: ${preview.data?.affected ?? 0} 名\n\n続行しますか？`
+      if (!confirm(confirmationMessage)) {
+        setPhase('config')
+        return
+      }
+      const confirmationToken = preview.data?.confirmationToken
+      if (!confirmationToken) throw new Error('確認トークンを取得できませんでした')
+      const res = await api.richMenuGroups.applyToTag(groupId, {
+        ...params,
+        dryRun: false,
+        confirmationToken,
+      })
       if (!res.success) throw new Error(res.error ?? '適用失敗')
       setResult(res.data)
       setPhase('done')
@@ -78,7 +98,9 @@ export function ApplyToTagModal({ groupId, groupName, onClose }: Props) {
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
         <div className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">
-            友だちにこのメニューを表示
+            {mode.kind === 'set-default'
+              ? '初期表示のリッチメニューを設定'
+              : '友だちにこのメニューを表示'}
           </h2>
           <p className="text-sm text-gray-500 mb-5 break-all">「{groupName}」</p>
 
@@ -126,10 +148,30 @@ export function ApplyToTagModal({ groupId, groupName, onClose }: Props) {
                 <RadioOption
                   checked={mode.kind === 'set-default'}
                   onChange={() => setMode({ kind: 'set-default' })}
-                  label="全員のデフォルトに設定する"
-                  description="LINE 公式アカウントのデフォルトメニューにします。新規友だちも含め全員に自動で表示されます。同アカ内の他メニューのデフォルト設定は解除されます。"
+                  label="初期表示を設定する"
+                  description="LINE公式アカウントの初期表示メニューです。個別設定のない友だちと新規友だちに表示されます。"
                   warn
-                />
+                >
+                  {mode.kind === 'set-default' && (
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-md bg-white/70 px-3 py-2">
+                      <div>
+                        <div className="text-xs font-medium text-gray-800">
+                          {defaultEnabled ? 'このメニューを表示する' : 'このメニューを表示しない'}
+                        </div>
+                        <div className="text-[11px] text-gray-500">
+                          OFFにすると初期表示を解除します。
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={defaultEnabled}
+                        onChange={(event) => setDefaultEnabled(event.target.checked)}
+                        className="h-4 w-4"
+                        aria-label="初期表示の有効化"
+                      />
+                    </div>
+                  )}
+                </RadioOption>
               </div>
               <div className="flex justify-end gap-2">
                 <button

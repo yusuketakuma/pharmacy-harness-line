@@ -177,6 +177,36 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
       /^\/api\/forms\/[^/]+\/partial$/.test(path));
   if (isPublicFormAction) return next();
 
+  // custom:pharmacy-prescriptions — these routes verify the LINE ID token
+  // themselves. Keep the exception method-aware so adding another route under
+  // this namespace cannot silently bypass staff authentication.
+  const isPrescriptionPatientAction =
+    (method === 'POST' && path === '/api/liff/pharmacy/prescriptions') ||
+    (method === 'GET' && path === '/api/liff/pharmacy/prescriptions/me') ||
+    (method === 'PUT' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/files\/[^/]+$/.test(path)) ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission)$/.test(path));
+  if (isPrescriptionPatientAction) return next();
+
+  // custom:pharmacy-intake — patient profiles and intake revisions verify the
+  // LINE ID token in their route middleware, just like prescription uploads.
+  const isPharmacyIntakePatientAction =
+    path === '/api/liff/pharmacy/patients' && (method === 'GET' || method === 'POST') ||
+    /^\/api\/liff\/pharmacy\/patients\/[^/]+(\/intake|\/archive)?$/.test(path) &&
+      (method === 'GET' || method === 'POST' || method === 'PATCH');
+  if (isPharmacyIntakePatientAction) return next();
+
+  // custom:pharmacy-myna — the handoff and self-report routes verify the
+  // LINE ID token in their own middleware; admin verification remains staff-authenticated.
+  const isMynaPatientAction =
+    (method === 'POST' && path === '/api/liff/pharmacy/myna-handoffs') ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/myna-handoffs\/[^/]+\/(launch|patient-report)$/.test(path));
+  if (isMynaPatientAction) return next();
+
+  // custom:pharmacy-continuity — the patient view verifies the LINE ID token
+  // in its route middleware; the admin collection remains staff-authenticated.
+  if ((method === 'GET' && path === '/api/liff/pharmacy/continuity') ||
+      (method === 'POST' && /^\/api\/liff\/pharmacy\/continuity\/[^/]+\/pause$/.test(path))) return next();
+
   if (
     path === '/webhook' ||
     path === '/docs' ||
@@ -186,13 +216,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path.startsWith('/r/') ||
     path.startsWith('/pool/') ||
     path.startsWith('/images/') ||
-    // 画像 src として <img> 経由でブラウザが取得するため (Authorization ヘッダ不可)。
-    // R2 key 内に group_id / page_id (UUID) が含まれるので推測困難。draft 画像も
-    // 最終的に LINE 上で公開されるため機密性は低い。
-    path.startsWith('/api/rich-menu-images/') ||
-    // LINE 上 rich menu 画像 proxy (Authorization ヘッダなしで <img src> 経由表示)
-    path.match(/^\/api\/rich-menu-groups\/external\/[^/]+\/image$/) ||
-    path.startsWith('/api/liff/') ||
+    (path.startsWith('/api/liff/') && !path.startsWith('/api/liff/pharmacy/')) ||
     // Admin login/logout — issue/clear the session cookie before auth exists.
     path === '/api/auth/login' ||
     path === '/api/auth/logout' ||

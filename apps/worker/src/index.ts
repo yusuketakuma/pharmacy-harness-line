@@ -88,6 +88,16 @@ import { instagramEngagement } from './routes/instagram-engagement.js';
 import adminVersion from './routes/admin-version.js';
 import adminUpdate from './routes/admin-update.js';
 import { mediaInquiries } from './routes/media-inquiries.js';
+import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
+import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
+import { fulfillmentRoutes } from './custom/pharmacy/fulfillment/routes.js'; // custom:pharmacy-fulfillment
+import { continuityRoutes } from './custom/pharmacy/continuity/routes.js'; // custom:pharmacy-continuity
+import { mynaRoutes } from './custom/pharmacy/myna/routes.js'; // custom:pharmacy-myna
+import { pharmacyRichMenuRoutes } from './custom/pharmacy/rich-menu/routes.js'; // custom:pharmacy-rich-menu
+import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
+import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
+import { claimDueContinuityReminders } from './custom/pharmacy/continuity/repository.js'; // custom:pharmacy-continuity
+import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -112,6 +122,7 @@ export type Env = {
     WORKER_URL: string;
     // Admin auth topology (see middleware/admin-auth-config.ts):
     ADMIN_ORIGIN?: string;          // Comma-separated admin web origin allowlist for credentialed CORS
+    LIFF_ORIGIN?: string;           // Comma-separated LIFF origin allowlist for credentialed CORS
     ADMIN_COOKIE_SAMESITE?: string; // Optional override: 'Strict' | 'Lax' | 'None'
     ADMIN_ALLOW_CROSS_SITE?: string; // 'true' opts into SameSite=None cross-site cookies
     X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
@@ -141,6 +152,8 @@ export type Env = {
     // the Worker keeps a refresh token and never needs a service-account key.
     GOOGLE_OAUTH_CLIENT_ID?: string;
     GOOGLE_OAUTH_CLIENT_SECRET?: string;
+    MYNA_ENDPOINT_ENCRYPTION_KEY?: string;
+    MYNA_ALLOWED_HOSTS?: string;
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
@@ -164,10 +177,10 @@ app.use('/api/public/media-inquiries', cors({
   maxAge: 600,
 }));
 
-// CORS — credentialed cookie auth cannot use a wildcard origin. Reflect only
-// same-origin requests and origins on the ADMIN_ORIGIN allowlist; everything
-// else gets no Access-Control-Allow-Origin header (browser blocks it). Bearer
-// SDK/MCP callers send no Origin header and are unaffected.
+// CORS — credentialed auth cannot use a wildcard origin. Reflect only
+// same-origin requests and origins on the ADMIN_ORIGIN/LIFF_ORIGIN allowlists;
+// everything else gets no Access-Control-Allow-Origin header (browser blocks
+// it). Bearer SDK/MCP callers send no Origin header and are unaffected.
 app.use('*', cors({
   origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
   credentials: true,
@@ -200,6 +213,12 @@ app.route('/', openapi);
 app.route('/', liffRoutes);
 app.route('/', affiliateSelfRoutes);
 app.route('/', mediaInquiries);
+app.route('/', prescriptionRoutes); // custom:pharmacy-prescriptions
+app.route('/', pharmacyIntakeRoutes); // custom:pharmacy-intake
+app.route('/', fulfillmentRoutes); // custom:pharmacy-fulfillment
+app.route('/', continuityRoutes); // custom:pharmacy-continuity
+app.route('/', mynaRoutes); // custom:pharmacy-myna
+app.route('/', pharmacyRichMenuRoutes); // custom:pharmacy-rich-menu
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
@@ -1063,6 +1082,52 @@ async function scheduled(
 
   // Booking expirer — runs only on the 6h cron tick.
   if (event.cron === '0 */6 * * *') {
+    try {
+      const result = await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions
+        now: new Date(event.scheduledTime),
+      });
+      if (result.deleted + result.failed > 0) {
+        console.log(
+          `[prescription-cleanup] claimed=${result.claimed} deleted=${result.deleted} failed=${result.failed} skipped=${result.skipped}`,
+        );
+      }
+    } catch (e) {
+      console.error('prescription-cleanup error:', e);
+    }
+
+    try {
+      const result = await retryFailedPrescriptionNotifications(env.DB, { // custom:pharmacy-prescriptions
+        proxyBaseUrl:
+          env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(
+          `[prescription-notifications] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+        );
+      }
+    } catch (e) {
+      console.error('prescription-notifications error:', e);
+    }
+
+    try {
+      const reminders = await claimDueContinuityReminders(env.DB, new Date(event.scheduledTime)); // custom:pharmacy-continuity
+      const reminderResult = { sent: 0, failed: 0, skipped: 0 };
+      for (const reminder of reminders) {
+        const status = await deliverContinuityReminder(reminder, { // custom:pharmacy-continuity
+          proxyBaseUrl:
+            env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+          proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        });
+        reminderResult[status]++;
+      }
+      if (reminders.length > 0) {
+        console.log(`[pharmacy-continuity] claimed=${reminders.length} sent=${reminderResult.sent} failed=${reminderResult.failed} skipped=${reminderResult.skipped}`);
+      }
+    } catch (e) {
+      console.error('pharmacy-continuity error:', e);
+    }
+
     try {
       const result = await enqueueFollowingMileageMilestones(env.DB, {
         limitPerMilestone: 1000,

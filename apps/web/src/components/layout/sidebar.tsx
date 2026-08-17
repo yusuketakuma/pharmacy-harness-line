@@ -7,6 +7,7 @@ import { useAccount } from '@/contexts/account-context'
 import type { AccountWithStats } from '@/contexts/account-context'
 import { countryFlag } from '@/lib/country-flag'
 import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
+import PrescriptionSidebarBadge from '@/custom/pharmacy/prescriptions/PrescriptionSidebarBadge' // custom:pharmacy-prescriptions
 
 const appVersion = process.env.APP_VERSION || '0.0.0'
 const appCommitSha = process.env.APP_COMMIT_SHA || 'local'
@@ -23,6 +24,10 @@ const menuSections = [
       { href: '/friends', label: '友だち管理', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
       { href: '/tags', label: 'タグ管理', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z' },
       { href: '/chats', label: '個別チャット', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
+      { href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
+      { href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
+      { href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
+      { href: '/myna', label: 'マイナ受付', icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
     ],
   },
   {
@@ -306,6 +311,7 @@ export default function Sidebar() {
                       {unansweredCount > 99 ? '99+' : unansweredCount}
                     </span>
                   )}
+                  {item.href === '/prescriptions' && <PrescriptionSidebarBadge active={active} />}
                 </Link>
               )
             })}

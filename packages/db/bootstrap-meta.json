@@ -73,7 +73,15 @@
     "066_referral_quality_mileage.sql",
     "067_mileage_keyword_auto_reply.sql",
     "068_media_inquiries.sql",
-    "069_rich_menu_selected.sql"
+    "069_rich_menu_selected.sql",
+    "070_update_history_release_evidence.sql",
+    "custom_001_pharmacy_prescriptions.sql",
+    "custom_002_pharmacy_patient_intake.sql",
+    "custom_003_pharmacy_fulfillment_quotes.sql",
+    "custom_004_pharmacy_continuity.sql",
+    "custom_005_pharmacy_myna.sql",
+    "custom_006_pharmacy_rich_menu_auto_create.sql",
+    "custom_007_pharmacy_patient_profile.sql"
   ],
-  "migrationCount": 74
+  "migrationCount": 82
 }

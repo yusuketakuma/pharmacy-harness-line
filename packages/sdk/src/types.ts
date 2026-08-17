@@ -311,6 +311,86 @@ export interface CreateRichMenuInput {
   areas: RichMenuArea[]
 }
 
+// ─── Rich Menu Groups (D1-managed editor) ─────────────────
+export type RichMenuGroupStatus = 'draft' | 'published'
+
+export interface RichMenuGroupArea {
+  id: string
+  boundsX: number
+  boundsY: number
+  boundsWidth: number
+  boundsHeight: number
+  actionType: 'uri' | 'message' | 'postback' | 'richmenuswitch'
+  actionData: Record<string, unknown>
+}
+
+export interface RichMenuGroupPage {
+  id: string
+  orderIndex: number
+  name: string
+  aliasId: string
+  lineRichmenuId: string | null
+  imageR2Key: string | null
+  imageContentType: string | null
+  areas: RichMenuGroupArea[]
+}
+
+export interface RichMenuGroup {
+  id: string
+  accountId: string
+  name: string
+  chatBarText: string
+  size: 'large' | 'compact'
+  defaultPageId: string | null
+  isDefaultForAll: boolean
+  selected: boolean
+  status: RichMenuGroupStatus
+  generatorKey: string | null
+  generatorVersion: string | null
+  publishingAt: string | null
+  thumbnailR2Key?: string | null
+  createdAt?: string
+  updatedAt?: string
+  pages?: RichMenuGroupPage[]
+}
+
+export interface CreateRichMenuGroupInput {
+  name: string
+  chatBarText: string
+  size: 'large' | 'compact'
+  selected?: boolean
+  accountId?: string
+  pages: Array<{
+    id?: string
+    name: string
+    orderIndex: number
+    areas: Omit<RichMenuGroupArea, 'id'>[]
+  }>
+  generatorKey?: string | null
+  generatorVersion?: string | null
+}
+
+export interface UpdateRichMenuGroupInput {
+  name?: string
+  chatBarText?: string
+  selected?: boolean
+  pages?: CreateRichMenuGroupInput['pages']
+}
+
+export interface PreparePharmacyRichMenuInput {
+  profileKey?: string
+  initial?: boolean
+}
+
+export interface PreparePharmacyRichMenuResult {
+  group: RichMenuGroup
+  reused: boolean
+  status: 'prepared' | 'already_prepared' | 'configuration_required'
+  imageAttached?: boolean
+  imagePath?: string
+  generatorVersion?: string
+}
+
 // ─── Segment ─────────────────────────────────────────────
 export interface SegmentRule {
   type: 'tag_exists' | 'tag_not_exists' | 'metadata_equals' | 'metadata_not_equals' | 'ref_code' | 'is_following'

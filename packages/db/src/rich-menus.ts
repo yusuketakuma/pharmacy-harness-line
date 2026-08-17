@@ -23,6 +23,8 @@ export interface RichMenuGroup {
   selected: number;
   status: 'draft' | 'published';
   publishing_at: string | null;
+  generator_key: string | null;
+  generator_version: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,12 +82,13 @@ export interface CreateRichMenuGroupInput {
   size: 'large' | 'compact';
   selected: boolean;
   pages: RichMenuPageInput[];
+  generatorKey?: string | null;
+  generatorVersion?: string | null;
 }
 
 export interface UpdateRichMenuGroupMetaInput {
   name?: string;
   chatBarText?: string;
-  isDefaultForAll?: boolean;
   selected?: boolean;
 }
 
@@ -122,6 +125,19 @@ export async function getRichMenuGroupById(
   return (await db
     .prepare(`SELECT * FROM rich_menu_groups WHERE id = ?`)
     .bind(id)
+    .first<RichMenuGroup>()) ?? null;
+}
+
+export async function getRichMenuGroupByGeneratorKey(
+  db: D1Database,
+  accountId: string,
+  generatorKey: string,
+): Promise<RichMenuGroup | null> {
+  return (await db
+    .prepare(
+      `SELECT * FROM rich_menu_groups WHERE account_id = ? AND generator_key = ?`,
+    )
+    .bind(accountId, generatorKey)
     .first<RichMenuGroup>()) ?? null;
 }
 
@@ -188,8 +204,9 @@ export async function createRichMenuGroup(
       .prepare(
         `INSERT INTO rich_menu_groups
            (id, account_id, name, chat_bar_text, size, default_page_id,
-            is_default_for_all, selected, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?)`,
+            is_default_for_all, selected, status, generator_key, generator_version,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, ?, ?)`,
       )
       .bind(
         groupId,
@@ -199,6 +216,8 @@ export async function createRichMenuGroup(
         input.size,
         defaultPageId,
         input.selected ? 1 : 0,
+        input.generatorKey ?? null,
+        input.generatorVersion ?? null,
         now,
         now,
       ),
@@ -258,10 +277,6 @@ export async function updateRichMenuGroupMeta(
   if (patch.chatBarText !== undefined) {
     sets.push('chat_bar_text = ?');
     vals.push(patch.chatBarText);
-  }
-  if (patch.isDefaultForAll !== undefined) {
-    sets.push('is_default_for_all = ?');
-    vals.push(patch.isDefaultForAll ? 1 : 0);
   }
   if (patch.selected !== undefined) {
     sets.push('selected = ?');

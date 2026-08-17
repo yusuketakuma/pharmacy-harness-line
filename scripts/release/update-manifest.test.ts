@@ -26,6 +26,27 @@ function makeEntry(version: string, overrides: Partial<ReleaseEntry> = {}): Rele
   };
 }
 
+function customerSourceUpdate(overrides: Record<string, unknown> = {}) {
+  return {
+    release_id: 'yusuketakuma/line-harness-pharmacy@pharmacy-v0.8.0',
+    release_sequence: 8,
+    repository: 'yusuketakuma/line-harness-pharmacy',
+    commit: 'a'.repeat(40),
+    previous_commit: 'b'.repeat(40),
+    tag: 'pharmacy-v0.8.0',
+    update_class: 'compatible',
+    manual_reasons: [],
+    required_configuration: [],
+    privileged_paths: [],
+    new_migrations: [],
+    migration_digests: {},
+    minimum_client_version: '0.7.0',
+    rollback_compatible_from: '0.7.0',
+    revoked: false,
+    ...overrides,
+  };
+}
+
 describe('updateManifest', () => {
   let root: string;
   let manifestPath: string;
@@ -127,5 +148,69 @@ describe('updateManifest', () => {
     expect(() => updateManifest({ manifestPath, release: makeEntry('0.8.0') })).toThrow(
       /unsupported manifest schema_version: 2/,
     );
+  });
+
+  it('preserves valid immutable customer source metadata', () => {
+    const release = makeEntry('0.8.0', {
+      customer_source_update: customerSourceUpdate(),
+    } as Partial<ReleaseEntry>);
+
+    updateManifest({ manifestPath, release });
+
+    const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest;
+    expect(parsed.releases[0].customer_source_update).toMatchObject({
+      repository: 'yusuketakuma/line-harness-pharmacy',
+      tag: 'pharmacy-v0.8.0',
+      commit: 'a'.repeat(40),
+      update_class: 'compatible',
+    });
+  });
+
+  it.each([
+    ['tag does not match release version', { tag: 'pharmacy-v9.9.9' }, /tag/i],
+    ['source commit is not an exact SHA', { commit: 'main' }, /commit/i],
+    ['sequence is not positive', { release_sequence: 0 }, /sequence/i],
+  ])('rejects customer metadata when %s', (_label, override, expected) => {
+    const release = makeEntry('0.8.0', {
+      customer_source_update: customerSourceUpdate(override),
+    } as Partial<ReleaseEntry>);
+
+    expect(() => updateManifest({ manifestPath, release })).toThrow(expected);
+  });
+
+  it('forces privileged or migration releases out of compatible classification', () => {
+    const release = makeEntry('0.8.0', {
+      migrations: ['070_custom_pharmacy.sql'],
+      customer_source_update: customerSourceUpdate({
+        privileged_paths: ['packages/db/migrations/070_custom_pharmacy.sql'],
+        new_migrations: ['070_custom_pharmacy.sql'],
+        migration_digests: {
+          '070_custom_pharmacy.sql': `sha256:${'c'.repeat(64)}`,
+        },
+      }),
+    } as Partial<ReleaseEntry>);
+
+    expect(() => updateManifest({ manifestPath, release })).toThrow(/compatible/i);
+  });
+
+  it('rejects replayed customer release sequences', () => {
+    const existing = makeEntry('0.7.0', {
+      customer_source_update: customerSourceUpdate({
+        release_id: 'yusuketakuma/line-harness-pharmacy@pharmacy-v0.7.0',
+        release_sequence: 8,
+        tag: 'pharmacy-v0.7.0',
+        commit: 'b'.repeat(40),
+        previous_commit: 'c'.repeat(40),
+      }),
+    } as Partial<ReleaseEntry>);
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ schema_version: 1, latest: '0.7.0', releases: [existing] }, null, 2),
+    );
+    const replay = makeEntry('0.8.0', {
+      customer_source_update: customerSourceUpdate({ release_sequence: 8 }),
+    } as Partial<ReleaseEntry>);
+
+    expect(() => updateManifest({ manifestPath, release: replay })).toThrow(/sequence/i);
   });
 });
