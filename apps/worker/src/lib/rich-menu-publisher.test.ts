@@ -122,6 +122,36 @@ function makeMockR2(): R2Like {
 }
 
 describe('publishRichMenuGroup', () => {
+  it('rolls back newly created LINE resources when a later page fails', async () => {
+    const line = makeMockLineClient();
+    let uploads = 0;
+    line.uploadRichMenuImage = vi.fn(async () => {
+      line.calls.push('upload');
+      uploads++;
+      if (uploads === 2) throw new Error('LINE upload failed');
+    });
+    const r2 = makeMockR2();
+
+    await expect(
+      publishRichMenuGroup(
+        {
+          id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
+          pages: [
+            { id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.png', imageContentType: 'image/png', lineRichMenuId: 'old-1', areas: [] },
+            { id: 'p2', orderIndex: 1, name: 'p2', imageR2Key: 'b.png', imageContentType: 'image/png', lineRichMenuId: 'old-2', areas: [] },
+          ],
+        },
+        line,
+        r2,
+      ),
+    ).rejects.toThrow('LINE upload failed');
+
+    expect(line.deleteRichMenu).toHaveBeenCalledWith('lm-1');
+    expect(line.deleteRichMenu).toHaveBeenCalledWith('lm-2');
+    expect(line.deleteRichMenu).not.toHaveBeenCalledWith('old-1');
+    expect(line.deleteRichMenu).not.toHaveBeenCalledWith('old-2');
+  });
+
   it('1 page: create → upload → alias upsert → 旧削除', async () => {
     const line = makeMockLineClient();
     const r2 = makeMockR2();
@@ -138,9 +168,9 @@ describe('publishRichMenuGroup', () => {
       line,
       r2,
     );
-    // isDefaultForAll=false かつ LINE current default なし → clear-default は呼ばない (Round 2 修正)
+    // LINE の切替確認後に旧 richmenu を削除する。
     expect(line.calls).toEqual([
-      'create', 'upload', 'delete-alias', 'create-alias', 'delete-old', 'get-default',
+      'create', 'upload', 'delete-alias', 'create-alias', 'get-default', 'delete-old',
     ]);
     expect(line.calls).not.toContain('clear-default');
     expect(result.pages).toEqual([{ pageId: 'p1', newRichMenuId: 'lm-1' }]);
