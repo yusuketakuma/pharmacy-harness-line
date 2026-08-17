@@ -84,6 +84,11 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
       birthDate: body.birthDate as string,
       sex: (body.sex ?? null) as never,
       contactPhone: (body.contactPhone ?? null) as string | null,
+      postalCode: (body.postalCode ?? null) as string | null,
+      prefecture: (body.prefecture ?? null) as string | null,
+      city: (body.city ?? null) as string | null,
+      addressLine1: (body.addressLine1 ?? null) as string | null,
+      addressLine2: (body.addressLine2 ?? null) as string | null,
     });
     return c.json({ patient }, 201);
   } catch (error) {
@@ -114,6 +119,11 @@ pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
       birthDate: body.birthDate as string,
       sex: (body.sex ?? null) as never,
       contactPhone: (body.contactPhone ?? null) as string | null,
+      postalCode: (body.postalCode ?? null) as string | null,
+      prefecture: (body.prefecture ?? null) as string | null,
+      city: (body.city ?? null) as string | null,
+      addressLine1: (body.addressLine1 ?? null) as string | null,
+      addressLine2: (body.addressLine2 ?? null) as string | null,
     });
     return c.json({ status: 'updated' });
   } catch (error) {

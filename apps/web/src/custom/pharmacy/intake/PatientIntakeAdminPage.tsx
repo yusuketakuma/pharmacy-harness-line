@@ -8,6 +8,17 @@ const RELATIONSHIP_LABELS: Record<PharmacyPatient['relationship'], string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
 }
 
+const STATUS_LABELS: Record<string, string> = { none: 'なし', yes: 'あり', unknown: 'わからない' }
+const NOTEBOOK_LABELS: Record<string, string> = { paper: '紙', electronic: '電子', none: '持っていない', unknown: 'わからない' }
+const PREGNANCY_LABELS: Record<string, string> = { not_applicable: '該当なし', yes: 'あり', no: 'なし', unknown: 'わからない' }
+const SMOKING_LABELS: Record<string, string> = { never: '吸わない', former: '過去に吸っていた', current: '現在吸っている', unknown: 'わからない' }
+const ALCOHOL_LABELS: Record<string, string> = { none: '飲まない', occasional: 'たまに', weekly: '週1〜2日', frequent: '週3日以上', unknown: 'わからない' }
+const ADHERENCE_LABELS: Record<string, string> = { none: 'ほぼない', sometimes: 'ときどきある', often: 'よくある', unknown: 'わからない' }
+const MEDICAL_HISTORY_TAG_LABELS: Record<string, string> = {
+  hypertension: '高血圧', diabetes: '糖尿病', dyslipidemia: '脂質異常症', heart_disease: '心臓の病気',
+  kidney_disease: '腎臓の病気', liver_disease: '肝臓の病気', asthma: '喘息', other: 'その他',
+}
+
 function parseAnswers(intake: PatientIntake | null): Record<string, unknown> {
   if (!intake) return {}
   try {
@@ -28,6 +39,9 @@ export default function PatientIntakeAdminPage() {
 
   const selected = useMemo(() => patients.find((patient) => patient.id === selectedId) ?? null, [patients, selectedId])
   const answers = useMemo(() => parseAnswers(intake), [intake])
+  const medicalHistoryTags = useMemo(() => Array.isArray(answers.medicalHistoryTags)
+    ? answers.medicalHistoryTags.map((tag) => MEDICAL_HISTORY_TAG_LABELS[String(tag)] ?? String(tag)).join('、')
+    : '未回答', [answers])
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -71,7 +85,7 @@ export default function PatientIntakeAdminPage() {
         </section>
         <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="intake-detail-title">
           <h2 id="intake-detail-title" className="text-lg font-semibold">回答詳細</h2>
-          {!selected ? <p className="py-8 text-sm text-gray-500">患者を選択してください。</p> : !intake ? <p className="py-8 text-sm text-gray-500">この患者のアンケート回答はまだありません。</p> : <div className="mt-4 space-y-4 text-sm"><dl className="grid gap-3 sm:grid-cols-3"><div><dt className="text-gray-500">患者</dt><dd>{selected.name}</dd></div><div><dt className="text-gray-500">続柄</dt><dd>{RELATIONSHIP_LABELS[selected.relationship]}</dd></div><div><dt className="text-gray-500">回答版</dt><dd>第{intake.revision}版</dd></div></dl><div className="rounded-lg bg-gray-50 p-4"><p><span className="font-medium">アレルギー：</span>{String(answers.allergiesStatus ?? '未回答')}</p><p className="mt-2"><span className="font-medium">副作用経験：</span>{String(answers.adverseReactionStatus ?? '未回答')}</p><p className="mt-2 whitespace-pre-wrap"><span className="font-medium">服用中の薬：</span>{String(answers.medicationSummary || '記載なし')}</p><p className="mt-2 whitespace-pre-wrap"><span className="font-medium">既往歴・通院：</span>{String(answers.medicalHistory || '記載なし')}</p><p className="mt-2 whitespace-pre-wrap"><span className="font-medium">連絡事項：</span>{String(answers.notes || '記載なし')}</p></div><p className="text-xs text-gray-500">回答日時：{new Date(intake.created_at).toLocaleString('ja-JP')}</p></div>}
+          {!selected ? <p className="py-8 text-sm text-gray-500">患者を選択してください。</p> : !intake ? <p className="py-8 text-sm text-gray-500">この患者のアンケート回答はまだありません。</p> : <div className="mt-4 space-y-4 text-sm"><dl className="grid gap-3 sm:grid-cols-3"><div><dt className="text-gray-500">患者</dt><dd>{selected.name}</dd></div><div><dt className="text-gray-500">続柄</dt><dd>{RELATIONSHIP_LABELS[selected.relationship]}</dd></div><div><dt className="text-gray-500">回答版</dt><dd>第{intake.revision}版</dd></div></dl><div className="rounded-lg bg-gray-50 p-4"><p><span className="font-medium">電話：</span>{selected.contact_phone || '未登録'}</p><p className="mt-2"><span className="font-medium">住所：</span>{[selected.postal_code, selected.prefecture, selected.city, selected.address_line1, selected.address_line2].filter(Boolean).join(' ') || '未登録'}</p><p className="mt-3"><span className="font-medium">アレルギー：</span>{STATUS_LABELS[String(answers.allergiesStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">副作用経験：</span>{STATUS_LABELS[String(answers.adverseReactionStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">服用中の薬：</span>{STATUS_LABELS[String(answers.medicationStatus)] ?? '未回答'}{answers.medicationSummary ? ` / ${String(answers.medicationSummary)}` : ''}</p><p className="mt-2"><span className="font-medium">既往歴・通院：</span>{STATUS_LABELS[String(answers.medicalHistoryStatus)] ?? '未回答'}{medicalHistoryTags !== '未回答' && medicalHistoryTags ? ` / ${medicalHistoryTags}` : ''}{answers.medicalHistory ? ` / ${String(answers.medicalHistory)}` : ''}</p><p className="mt-2"><span className="font-medium">お薬手帳：</span>{NOTEBOOK_LABELS[String(answers.medicationNotebook)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">喫煙：</span>{SMOKING_LABELS[String(answers.smokingStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">飲酒：</span>{ALCOHOL_LABELS[String(answers.alcoholStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">お薬の飲み忘れ：</span>{ADHERENCE_LABELS[String(answers.medicationAdherence)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">妊娠の可能性：</span>{PREGNANCY_LABELS[String(answers.pregnancyStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">授乳中：</span>{PREGNANCY_LABELS[String(answers.breastfeedingStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">連絡事項：</span>{String(answers.notes || '記載なし')}</p></div><p className="text-xs text-gray-500">回答日時：{new Date(intake.created_at).toLocaleString('ja-JP')}</p></div>}
         </section>
       </div>
     </div>
