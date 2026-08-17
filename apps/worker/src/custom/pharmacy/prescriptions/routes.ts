@@ -28,6 +28,8 @@ import {
   reservePrescriptionResubmission,
   submitPrescription,
 } from './repository.js';
+import { enqueuePrescriptionPrintJobs } from '../print/repository.js'; // custom:pharmacy-print
+import { enqueueActivityForAccount } from '../activity-notifications/service.js'; // custom:pharmacy-activity-notifications
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -162,6 +164,21 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       c.req.param('id'),
       body.expectedUpdatedAt,
     );
+    try {
+      await enqueuePrescriptionPrintJobs(c.env.DB, patient.lineAccountId, c.req.param('id'));
+    } catch (error) {
+      // The prescription state is already committed. Keep patient submission
+      // durable and let the next admin refresh surface the pending work.
+      console.error('[pharmacy-prescription] post-submit side effect failed', error instanceof Error ? error.message : 'unknown');
+    }
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, patient.lineAccountId, 'prescription_received',
+        `prescription:received:${c.req.param('id')}`,
+      );
+    } catch (error) {
+      console.error('[pharmacy-prescription] activity notification failed', error instanceof Error ? error.message : 'unknown');
+    }
     await linkContinuitySubmission(
       c.env.DB, patient.lineAccountId, c.req.param('id'), patient.friendId,
     );
@@ -431,6 +448,14 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
       staff.id,
       typeof body.reasonCode === 'string' ? body.reasonCode : null,
     );
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, lineAccountId, 'prescription_status_changed',
+        `prescription:status:${c.req.param('id')}:${status}`,
+      );
+    } catch (error) {
+      console.error('[pharmacy-prescription] status activity failed', error instanceof Error ? error.message : 'unknown');
+    }
     if (action === 'admin_close') {
       await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);
     }

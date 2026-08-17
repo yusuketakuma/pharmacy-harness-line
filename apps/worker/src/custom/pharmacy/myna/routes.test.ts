@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   saveEndpoint: vi.fn(),
   verifyIdentity: vi.fn(),
   resolvePatient: vi.fn(),
+  enqueueActivity: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
@@ -35,6 +36,9 @@ vi.mock('../../../services/liff-auth.js', () => ({
 }));
 vi.mock('../prescriptions/patient.js', () => ({
   resolvePrescriptionPatient: mocks.resolvePatient,
+}));
+vi.mock('../activity-notifications/service.js', () => ({
+  enqueueActivityForAccount: mocks.enqueueActivity,
 }));
 
 import { mynaRoutes } from './routes.js';
@@ -84,6 +88,7 @@ beforeEach(() => {
     receiptStatus: 'RECEIVED', shadowSubmissionId: 'submission-1',
     handoff: { ...handoff, status: 'CLOSED' },
   });
+  mocks.enqueueActivity.mockResolvedValue([]);
 });
 
 describe('Myna routes', () => {

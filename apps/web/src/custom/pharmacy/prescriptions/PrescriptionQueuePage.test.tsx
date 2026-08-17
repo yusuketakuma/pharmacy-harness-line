@@ -15,6 +15,7 @@ import {
   FulfillmentQuoteEditor,
   fulfillmentQuoteDraft,
 } from './FulfillmentQuoteEditor.js'
+import { printablePrescriptionFiles, printablePrescriptionJobs } from './PrescriptionPrintPage.js'
 
 describe('prescription admin UI contract', () => {
   it('shows fixed Japanese status and resubmission reason labels', () => {
@@ -97,5 +98,25 @@ describe('prescription admin UI contract', () => {
     expect(html).toContain('次の画像')
     expect(html).toContain('aria-modal="true"')
     expect(html).not.toContain('https://worker.example')
+  })
+
+  it('prints only ready files from the active revision in position order', () => {
+    const files = [
+      { id: 'two', revision: 2, position: 2, state: 'ready' },
+      { id: 'old', revision: 1, position: 1, state: 'ready' },
+      { id: 'one', revision: 2, position: 1, state: 'ready' },
+      { id: 'pending', revision: 2, position: 3, state: 'pending' },
+    ] as never
+    expect(printablePrescriptionFiles(files, 2).map((file) => file.id)).toEqual(['one', 'two'])
+  })
+
+  it('records print jobs only for the active revision files', () => {
+    const jobs = [
+      { id: 'old-job', submission_id: 'submission-1', file_id: 'old', revision: 1 },
+      { id: 'active-job', submission_id: 'submission-1', file_id: 'one', revision: 2 },
+      { id: 'other-job', submission_id: 'submission-2', file_id: 'one', revision: 2 },
+    ] as never
+    expect(printablePrescriptionJobs(jobs, 'submission-1', 2, new Set(['one'])).map((job) => job.id))
+      .toEqual(['active-job'])
   })
 })

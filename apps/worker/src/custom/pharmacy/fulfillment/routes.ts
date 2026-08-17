@@ -8,6 +8,7 @@ import {
 } from './repository.js';
 import { getPharmacyAccountId } from '../account.js';
 import { readJsonObject } from '../json.js';
+import { enqueueActivityForAccount } from '../activity-notifications/service.js'; // custom:pharmacy-activity-notifications
 
 type FulfillmentEnv = {
   Bindings: { DB: D1Database };
@@ -86,6 +87,14 @@ fulfillmentRoutes.post('/api/custom/pharmacy/fulfillment-quotes/:submissionId', 
     const quote = await createFulfillmentQuote(
       c.env.DB, lineAccountId, c.req.param('submissionId'), staff.id, input,
     );
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, lineAccountId, 'fulfillment_quote_created',
+        `fulfillment-quote:${quote.submission_id}:${quote.revision}`,
+      );
+    } catch (error) {
+      console.error('[pharmacy-fulfillment] activity notification failed', error instanceof Error ? error.message : 'unknown');
+    }
     return c.json({ quote }, 201);
   } catch (error) {
     const mapped = mapError(error);
