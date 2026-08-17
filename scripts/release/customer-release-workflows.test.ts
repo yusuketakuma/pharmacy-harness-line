@@ -27,6 +27,11 @@ describe('customer release workflow contract', () => {
     expect(workflow).toContain('customer_source_update');
   });
 
+  test('release workflow includes custom migrations in customer metadata', () => {
+    const workflow = read('.github/workflows/release.yml');
+    expect(workflow).toContain('^custom_[0-9]+_');
+  });
+
   test('official upstream ingestion is disabled outside the seller repository', () => {
     const workflow = read('.github/workflows/update-from-upstream.yml');
     expect(workflow).toContain("vars.LINE_HARNESS_SELLER_REPOSITORY == github.repository");

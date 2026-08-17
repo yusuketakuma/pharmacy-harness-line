@@ -223,7 +223,7 @@ jobs:
           # destructive table rebuilds and must never be replayed statement by
           # statement. The checksum ledger makes this cumulative set safe.
           migrations_json=$(ls packages/db/migrations \
-            | awk '/^03[7-9]_|^0[4-9][0-9]_|^[1-9][0-9][0-9]_/' \
+            | awk '/^03[7-9]_|^0[4-9][0-9]_|^[1-9][0-9][0-9]_|^custom_[0-9]+_/' \
             | jq -R . | jq -sc .)
           if [ -z "$migrations_json" ] || [ "$migrations_json" = "null" ]; then
             migrations_json="[]"
