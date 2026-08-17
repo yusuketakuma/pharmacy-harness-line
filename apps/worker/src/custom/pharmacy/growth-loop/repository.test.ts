@@ -3,6 +3,7 @@ import {
   classifySubmissionSource,
   createMedicalSource,
   getGrowthDashboard,
+  markPrescriptionValidityExpiredReview,
   savePharmacyCapabilityConfig,
   savePrescriptionValidity,
   setMedicalSourceActive,
@@ -58,6 +59,28 @@ describe('growth loop promise metrics', () => {
 });
 
 describe('prescription validity', () => {
+  it('moves one expired validity to staff review with an atomic audit event', async () => {
+    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({ sql, values }) }),
+      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        batches.push(statements);
+        return statements.map(() => ({ meta: { changes: 1 } }));
+      },
+    } as unknown as D1Database;
+
+    await expect(markPrescriptionValidityExpiredReview(db, {
+      lineAccountId: 'account-a', submissionId: 'submission-a', localDate: '2026-08-18',
+      actorId: 'system', at: new Date('2026-08-18T00:00:00.000Z'),
+    })).resolves.toBe(true);
+
+    expect(batches[0][0].sql).toContain("verification_status = 'expired_review_required'");
+    expect(batches[0][0].sql).toContain('line_account_id = ?');
+    expect(batches[0][1].values).toEqual(expect.arrayContaining([
+      'account-a', 'prescription_validity_updated', 'submission-a', '{"actor_id":"system"}',
+    ]));
+  });
+
   it('commits the validity mutation and PHI-free audit event in one D1 batch', async () => {
     const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {

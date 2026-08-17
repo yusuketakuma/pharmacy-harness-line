@@ -209,23 +209,27 @@ describe('admin account-scoped repository', () => {
 
   it('moves a verified but expired prescription to review instead of accepting it', async () => {
     const current = { status: 'received', updated_at: 'v1', intake_required: 0, source_handoff_id: null };
-    const writes: string[] = [];
+    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {
-      prepare: (sql: string) => ({ bind: () => ({
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        sql,
+        values,
         first: async () => sql.includes('pharmacy_prescription_submissions')
           ? current
           : { verification_status: 'verified', valid_until: '2026-08-16' },
-        run: async () => { writes.push(sql); return { meta: { changes: 1 } }; },
       }) }),
-      batch: vi.fn(),
+      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        batches.push(statements);
+        return statements.map(() => ({ meta: { changes: 1 } }));
+      },
     } as unknown as D1Database;
 
     await expect(applyAdminPrescriptionAction(
       db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null,
       new Date('2026-08-17T00:00:00.000Z'),
     )).rejects.toThrow(/validity expired/);
-    expect(writes.some((sql) => sql.includes("verification_status = 'expired_review_required'"))).toBe(true);
-    expect(db.batch).not.toHaveBeenCalled();
+    expect(batches[0][0].sql).toContain("verification_status = 'expired_review_required'");
+    expect(batches[0][1].sql).toContain('INSERT INTO pharmacy_growth_events');
   });
 
   it('authorizes a private image by account, submission, and file id', async () => {

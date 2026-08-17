@@ -347,6 +347,46 @@ export async function savePrescriptionValidity(
   if (!changed) throw new Error('prescription submission not found');
 }
 
+export async function markPrescriptionValidityExpiredReview(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    submissionId: string;
+    localDate: string;
+    actorId: string;
+    at?: Date;
+  },
+): Promise<boolean> {
+  if (!isCalendarDate(input.localDate)) throw new Error('invalid local date');
+  const timestamp = (input.at ?? new Date()).toISOString();
+  const mutation = db.prepare(
+    `UPDATE pharmacy_prescription_validities
+        SET verification_status = 'expired_review_required',
+            reminder_claimed_at = NULL, updated_at = ?
+      WHERE submission_id = ? AND line_account_id = ?
+        AND verification_status = 'verified' AND valid_until IS NOT NULL AND valid_until < ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_prescription_submissions s
+           WHERE s.id = pharmacy_prescription_validities.submission_id
+             AND s.line_account_id = pharmacy_prescription_validities.line_account_id
+             AND s.status NOT IN ('closed','cancelled')
+        )`,
+  ).bind(timestamp, input.submissionId, input.lineAccountId, input.localDate);
+  return runAuditedMutation(db, mutation, {
+    lineAccountId: input.lineAccountId,
+    eventType: 'prescription_validity_updated',
+    aggregateId: input.submissionId,
+    occurredAt: timestamp,
+    idempotencyKey: `audit:${crypto.randomUUID()}`,
+    metadata: { actor_id: input.actorId },
+  }, {
+    sql: `EXISTS (SELECT 1 FROM pharmacy_prescription_validities
+                  WHERE submission_id = ? AND line_account_id = ?
+                    AND verification_status = 'expired_review_required' AND updated_at = ?)`,
+    bindings: [input.submissionId, input.lineAccountId, timestamp],
+  });
+}
+
 export interface GrowthPromiseRow {
   submission_id: string;
   revision: number;

@@ -1,4 +1,5 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
+import { markPrescriptionValidityExpiredReview } from './repository.js';
 import { sendPharmacyAutomatedPush } from './sender.js';
 
 type DueValidity = {
@@ -19,18 +20,27 @@ export async function processDuePrescriptionValidityReminders(
   const today = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const staleClaim = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? 50)));
-  const expired = await db.prepare(
-    `UPDATE pharmacy_prescription_validities
-        SET verification_status = 'expired_review_required',
-            reminder_claimed_at = NULL, updated_at = ?
-      WHERE verification_status = 'verified' AND valid_until IS NOT NULL AND valid_until < ?
+  const expiredRows = await db.prepare(
+    `SELECT v.submission_id, v.line_account_id
+       FROM pharmacy_prescription_validities v
+      WHERE v.verification_status = 'verified' AND v.valid_until IS NOT NULL AND v.valid_until < ?
         AND EXISTS (
           SELECT 1 FROM pharmacy_prescription_submissions s
-           WHERE s.id = pharmacy_prescription_validities.submission_id
-             AND s.line_account_id = pharmacy_prescription_validities.line_account_id
+           WHERE s.id = v.submission_id AND s.line_account_id = v.line_account_id
              AND s.status NOT IN ('closed','cancelled')
-        )`,
-  ).bind(timestamp, today).run();
+        )
+      ORDER BY v.valid_until, v.submission_id LIMIT ?`,
+  ).bind(today, limit).all<Pick<DueValidity, 'submission_id' | 'line_account_id'>>();
+  let expiredReviewRequired = 0;
+  for (const row of expiredRows.results ?? []) {
+    if (await markPrescriptionValidityExpiredReview(db, {
+      lineAccountId: row.line_account_id,
+      submissionId: row.submission_id,
+      localDate: today,
+      actorId: 'system',
+      at: now,
+    })) expiredReviewRequired++;
+  }
   const rows = await db.prepare(
     `SELECT v.submission_id, v.line_account_id, s.friend_id, v.valid_until,
             f.line_user_id, la.channel_access_token
@@ -56,7 +66,7 @@ export async function processDuePrescriptionValidityReminders(
     sent: 0,
     failed: 0,
     skipped: 0,
-    expiredReviewRequired: expired.meta?.changes ?? 0,
+    expiredReviewRequired,
   };
   for (const row of rows.results ?? []) {
     const claim = await db.prepare(

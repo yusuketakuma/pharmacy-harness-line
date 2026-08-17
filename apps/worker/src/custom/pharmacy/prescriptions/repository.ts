@@ -1,6 +1,7 @@
 import type { PrescriptionPatient } from './patient.js';
 import { quoteAllowsAcceptance } from '../fulfillment/repository.js';
 import type { FulfillmentStatus } from '../fulfillment/repository.js';
+import { markPrescriptionValidityExpiredReview } from '../growth-loop/repository.js';
 import {
   nextPrescriptionStatus,
   type PrescriptionAction,
@@ -641,12 +642,13 @@ export async function applyAdminPrescriptionAction(
     }
     const localDate = new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     if (validity.valid_until < localDate) {
-      await db.prepare(
-        `UPDATE pharmacy_prescription_validities
-            SET verification_status = 'expired_review_required', updated_at = ?
-          WHERE submission_id = ? AND line_account_id = ?
-            AND verification_status = 'verified' AND valid_until < ?`,
-      ).bind(at.toISOString(), submissionId, lineAccountId, localDate).run();
+      await markPrescriptionValidityExpiredReview(db, {
+        lineAccountId,
+        submissionId,
+        localDate,
+        actorId: staffId,
+        at,
+      });
       throw new Error('prescription validity expired');
     }
   }
