@@ -68,7 +68,11 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/growth/dashboard', async (c) 
   if (denied) return denied;
   const from = c.req.query('from') ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const to = c.req.query('to') ?? new Date().toISOString();
-  if (from >= to) return c.json({ success: false, error: 'invalid dashboard range' }, 400);
+  const fromTime = Date.parse(from);
+  const toTime = Date.parse(to);
+  if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime >= toTime) {
+    return c.json({ success: false, error: 'invalid dashboard range' }, 400);
+  }
   const data = await getGrowthDashboard(c.env.DB, scope.accountId, from, to);
   return c.json({ success: true, data });
 });

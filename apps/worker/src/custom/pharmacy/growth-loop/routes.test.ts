@@ -75,6 +75,15 @@ describe('pharmacy Growth Loop routes', () => {
     expect(mocks.dashboard).not.toHaveBeenCalled();
   });
 
+  it('rejects malformed dashboard date ranges before querying metrics', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/growth/dashboard?line_account_id=account-a&from=not-a-date&to=2026-09-01',
+      {}, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.dashboard).not.toHaveBeenCalled();
+  });
+
   it('allows only an owner to change the pharmacy allowlist', async () => {
     const response = await app().request('/api/custom/pharmacy/growth/config?line_account_id=account-a', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
