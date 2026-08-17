@@ -57,6 +57,7 @@ jobs:
           PAGES_PROJECT_NAME: ${{ vars.PAGES_PROJECT_NAME }}
           WORKER_URL: ${{ vars.WORKER_URL }}
           ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
+          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
           VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
           VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
         run: |
@@ -72,6 +73,7 @@ jobs:
             echo "NEXT_PUBLIC_API_URL must match WORKER_URL"
             exit 1
           fi
+          test -n "$LIFF_ORIGIN"
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
 

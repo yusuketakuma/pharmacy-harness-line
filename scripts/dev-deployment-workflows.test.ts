@@ -78,6 +78,7 @@ describe('development deployment workflow contract', () => {
   test('bakes the configured LIFF origin into the Worker CORS config', () => {
     expect(customerDeploy).toContain('LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}');
     expect(customerDeploy).toContain('.vars.LIFF_ORIGIN = $o');
+    expect(customerDeploy).toContain('test -n "$LIFF_ORIGIN"');
   });
 
   test('preserves customer bindings and verifies them before recording success', () => {
