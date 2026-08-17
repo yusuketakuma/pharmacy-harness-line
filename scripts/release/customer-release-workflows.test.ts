@@ -13,6 +13,8 @@ describe('customer release workflow contract', () => {
     expect(workflow).toContain('--validate-only true');
     expect(workflow.indexOf('--validate-only true')).toBeLessThan(workflow.indexOf('git tag -a'));
     expect(workflow).toContain("git rev-parse 'HEAD^{commit}'");
+    expect(workflow).toContain('git config user.name "github-actions[bot]"');
+    expect(workflow).toContain('git config user.email "41898282+github-actions[bot]@users.noreply.github.com"');
     expect(workflow).toContain('gh workflow run release.yml');
     expect(workflow).toContain('--ref "$tag"');
     expect(workflow).toContain('source_sha="$source_sha"');
