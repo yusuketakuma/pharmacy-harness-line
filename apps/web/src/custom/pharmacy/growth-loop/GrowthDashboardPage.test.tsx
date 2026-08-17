@@ -39,7 +39,7 @@ describe('growth dashboard source manager', () => {
     for (const label of [
       '計測可能な友だち追加', '未成熟', '発行元分類率', 'other / (primary + other)',
       '遅延件数', '準備完了・予定なし', '確認済み使用期限', '期限前日通知後に期限内完了',
-      '通知上限で停止', 'サンプル数', '推定される時間的関連',
+      '通知上限で停止', '能動通知の試行', 'サンプル数', '推定される時間的関連',
       '集計月',
     ]) expect(source).toContain(label)
   })

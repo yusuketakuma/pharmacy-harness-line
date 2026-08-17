@@ -1516,7 +1516,7 @@ export const api = {
           graceMinutes: number;
         };
         validity: { verified: number; reminderSent: number; reminderClosedInTime: number; expiredReviewRequired: number; confirmedExpired: number };
-        notifications: { counts: Record<string, number>; proactiveCapBlocked: number; attempted: number; alertState: 'alert_only' | 'auto_pause' };
+        notifications: { counts: Record<string, number>; proactiveCapBlocked: number; proactiveAttempts: number; attempted: number; alertState: 'alert_only' | 'auto_pause' };
         unfollow: { exposedFriends: number; within24h: number; within72h: number; sampleSize: number; interpretation: string };
       }>>(`/api/custom/pharmacy/growth/dashboard?${query.toString()}`);
     },

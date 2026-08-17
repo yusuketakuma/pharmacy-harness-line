@@ -102,6 +102,20 @@ describe('pharmacy Growth Loop routes', () => {
     expect(mocks.saveConfig).toHaveBeenCalledWith(env.DB, 'account-a', ['pharmacy_dashboard'], 1, 'alert_only');
   });
 
+  it('keeps unfollow monitoring alert-only until auto-pause has safety thresholds', async () => {
+    const response = await app({ id: 'owner-1', name: 'Owner', role: 'owner' }).request(
+      '/api/custom/pharmacy/growth/config?line_account_id=account-a',
+      {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capabilities: ['pharmacy_dashboard'], unfollowAlertState: 'auto_pause' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.saveConfig).not.toHaveBeenCalled();
+  });
+
   it('writes an account-scoped manual medical source', async () => {
     const response = await app().request('/api/custom/pharmacy/growth/sources?line_account_id=account-a', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -159,8 +159,9 @@ export default function GrowthDashboardPage() {
           <Card label="能動的なお知らせ" value={data.notifications.counts['proactive_noncare:sent'] ?? 0} />
           <Card label="手動送信" value={data.notifications.counts['manual:sent'] ?? 0} />
           <Card label="通知上限で停止" value={data.notifications.proactiveCapBlocked} />
+          <Card label="能動通知の試行" value={data.notifications.proactiveAttempts} />
           <Card label="送信試行" value={data.notifications.attempted} />
-          <Card label="監視状態" value={data.notifications.alertState === 'alert_only' ? '警告のみ' : '自動停止'} />
+          <Card label="監視状態" value={data.notifications.alertState === 'alert_only' ? '警告のみ' : '設定保留（自動停止なし）'} />
         </div>
       </section>
       <section>

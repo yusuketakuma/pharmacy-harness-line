@@ -4,8 +4,43 @@ import {
   getGrowthDashboard,
   savePrescriptionValidity,
   setMedicalSourceActive,
+  summarizeCohorts,
   summarizePromiseMetrics,
 } from './repository.js';
+
+describe('growth loop activation cohorts', () => {
+  const events = [
+    { event_type: 'first_follow', subject_key: 'friend:friend-a', occurred_at: '2026-08-10T00:00:00.000Z' },
+    { event_type: 'first_friend_submission', subject_key: 'friend:friend-a', occurred_at: '2026-09-01T00:00:00.000Z' },
+    { event_type: 'first_submission', subject_key: 'patient:patient-a', occurred_at: '2026-08-11T00:00:00.000Z' },
+    { event_type: 'second_submission', subject_key: 'patient:patient-a', occurred_at: '2026-10-01T00:00:00.000Z' },
+  ];
+
+  it('separates the selected cohort month from its later observation window', () => {
+    expect(summarizeCohorts(
+      events,
+      '2026-08-01T00:00:00.000Z',
+      '2026-09-01T00:00:00.000Z',
+      '2026-12-01T00:00:00.000Z',
+    )).toMatchObject({
+      measurableFollows: 1,
+      firstSubmissionRate: { numerator: 1, denominator: 1, immatureCohort: 0 },
+      secondSubmissionRate: { numerator: 1, denominator: 1, immatureCohort: 0 },
+    });
+  });
+
+  it('keeps cohorts immature until their observation windows have elapsed', () => {
+    expect(summarizeCohorts(
+      events,
+      '2026-08-01T00:00:00.000Z',
+      '2026-09-01T00:00:00.000Z',
+      '2026-08-20T00:00:00.000Z',
+    )).toMatchObject({
+      firstSubmissionRate: { denominator: 0, immatureCohort: 1 },
+      secondSubmissionRate: { denominator: 0, immatureCohort: 1 },
+    });
+  });
+});
 
 describe('growth loop promise metrics', () => {
   it('uses the latest quote revision created before ready and reports p50/p90 lateness', () => {
@@ -128,7 +163,11 @@ describe('growth dashboard', () => {
             ] };
             if (sql.includes('pharmacy_submission_sources')) return { results: [{ classification: 'unknown', count: 1 }] };
             if (sql.includes('pharmacy_fulfillment_quotes')) return { results: [{ submission_id: 'submission-a', revision: 1, estimated_ready_at: '2026-08-01T10:00:00.000Z', quote_created_at: '2026-08-01T09:00:00.000Z', ready_at: '2026-08-01T10:05:00.000Z' }] };
-            if (sql.includes('pharmacy_notification_events') && sql.includes('GROUP BY')) return { results: [{ category: 'transactional_care', outcome: 'sent', count: 1 }] };
+            if (sql.includes('pharmacy_notification_events') && sql.includes('GROUP BY')) return { results: [
+              { category: 'transactional_care', outcome: 'sent', count: 1 },
+              { category: 'proactive_noncare', outcome: 'sent', count: 2 },
+              { category: 'proactive_noncare', outcome: 'blocked', count: 1 },
+            ] };
             return { results: [] };
           },
           first: async () => {
@@ -147,7 +186,7 @@ describe('growth dashboard', () => {
       sources: { primary: 0, other: 0, unknown: 1 },
       promises: { promised: 1, late: 1, readyEvents: 1 },
       validity: { confirmedExpired: 1 },
-      notifications: { alertState: 'alert_only' },
+      notifications: { alertState: 'alert_only', attempted: 4, proactiveAttempts: 3, proactiveCapBlocked: 1 },
       unfollow: { exposedFriends: 1 },
     });
     expect(queries.find((sql) => sql.includes('pharmacy_submission_sources'))).toContain("accepted.event_type = 'status_changed'");

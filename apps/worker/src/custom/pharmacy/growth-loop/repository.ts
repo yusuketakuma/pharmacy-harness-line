@@ -322,34 +322,40 @@ export function summarizePromiseMetrics(rows: GrowthPromiseRow[], graceMinutes =
   };
 }
 
-type GrowthEventRow = { event_type: string; subject_key: string | null; occurred_at: string };
+export type GrowthEventRow = { event_type: string; subject_key: string | null; occurred_at: string };
 
-function summarizeCohorts(rows: GrowthEventRow[], from: string, to: string) {
+export function summarizeCohorts(
+  rows: GrowthEventRow[],
+  from: string,
+  to: string,
+  observedThrough: string,
+) {
   const follows = new Map<string, string>();
   const firstFriendSubmissions = new Map<string, string>();
   const firstSubmissions = new Map<string, string>();
   const secondSubmissions = new Map<string, string>();
+  const inCohort = (occurredAt: string) => occurredAt >= from && occurredAt < to;
   const rememberFirst = (target: Map<string, string>, key: string, value: string) => {
     const current = target.get(key);
     if (!current || value < current) target.set(key, value);
   };
   for (const row of rows) {
     if (!row.subject_key) continue;
-    if (row.event_type === 'first_follow') rememberFirst(follows, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_follow' && inCohort(row.occurred_at)) rememberFirst(follows, row.subject_key, row.occurred_at);
     if (row.event_type === 'first_friend_submission') rememberFirst(firstFriendSubmissions, row.subject_key, row.occurred_at);
-    if (row.event_type === 'first_submission') rememberFirst(firstSubmissions, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_submission' && inCohort(row.occurred_at)) rememberFirst(firstSubmissions, row.subject_key, row.occurred_at);
     if (row.event_type === 'second_submission') rememberFirst(secondSubmissions, row.subject_key, row.occurred_at);
   }
   const followCohort = [...follows.entries()].filter(([, occurredAt]) => {
     const followAt = Date.parse(occurredAt);
-    return followAt + 30 * 86400000 <= Date.parse(to);
+    return followAt + 30 * 86400000 <= Date.parse(observedThrough);
   });
   const firstSubmissionNumerator = followCohort.filter(([subject, occurredAt]) => {
     const submittedAt = firstFriendSubmissions.get(subject);
     return !!submittedAt && Date.parse(submittedAt) >= Date.parse(occurredAt) && Date.parse(submittedAt) <= Date.parse(occurredAt) + 30 * 86400000;
   }).length;
   const firstSubmissionCohort = [...firstSubmissions.entries()].filter(([, occurredAt]) =>
-    Date.parse(occurredAt) + 90 * 86400000 <= Date.parse(to));
+    Date.parse(occurredAt) + 90 * 86400000 <= Date.parse(observedThrough));
   const secondSubmissionNumerator = firstSubmissionCohort.filter(([subject, occurredAt]) => {
     const submittedAt = secondSubmissions.get(subject);
     return !!submittedAt && Date.parse(submittedAt) >= Date.parse(occurredAt) && Date.parse(submittedAt) <= Date.parse(occurredAt) + 90 * 86400000;
@@ -376,14 +382,19 @@ export async function getGrowthDashboard(
   lineAccountId: string,
   from: string,
   to: string,
+  observedThrough = new Date().toISOString(),
 ): Promise<Record<string, unknown>> {
   const bounds = [from, to];
+  const eventObservationEnd = new Date(Math.min(
+    Date.parse(observedThrough),
+    Date.parse(to) + 90 * 86400000,
+  )).toISOString();
   const [entryEvents, sourceRows, promiseRows, readyCount, validity, notifications, unfollows, config] = await Promise.all([
     db.prepare(`SELECT event_type, subject_key, occurred_at
       FROM pharmacy_growth_events
       WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
         AND event_type IN ('first_follow','first_friend_submission','first_submission','second_submission')`)
-      .bind(lineAccountId, from, to).all<GrowthEventRow>(),
+      .bind(lineAccountId, from, eventObservationEnd).all<GrowthEventRow>(),
     db.prepare(`SELECT COALESCE(ss.classification, 'unknown') AS classification, COUNT(DISTINCT s.id) AS count
       FROM pharmacy_prescription_submissions s
       INNER JOIN pharmacy_prescription_events accepted
@@ -458,7 +469,7 @@ export async function getGrowthDashboard(
       .bind(lineAccountId).first<{ unfollow_alert_state: 'alert_only' | 'auto_pause' }>(),
   ]);
   const events = entryEvents.results ?? [];
-  const cohort = summarizeCohorts(events, from, to);
+  const cohort = summarizeCohorts(events, from, to, observedThrough);
   const firstTimeFollows = events.filter((row) => row.event_type === 'first_follow' && row.occurred_at >= from && row.occurred_at < to).length;
   const firstSubmissions = events.filter((row) => row.event_type === 'first_submission' && row.occurred_at >= from && row.occurred_at < to).length;
   const secondSubmissions = events.filter((row) => row.event_type === 'second_submission' && row.occurred_at >= from && row.occurred_at < to).length;
@@ -499,8 +510,9 @@ export async function getGrowthDashboard(
     notifications: {
       counts: notificationCounts,
       proactiveCapBlocked: notificationCounts['proactive_noncare:blocked'] ?? 0,
-      attempted: Object.entries(notificationCounts)
-        .filter(([key]) => key.endsWith(':attempted'))
+      attempted: Object.values(notificationCounts).reduce((sum, count) => sum + count, 0),
+      proactiveAttempts: Object.entries(notificationCounts)
+        .filter(([key]) => key.startsWith('proactive_noncare:'))
         .reduce((sum, [, count]) => sum + count, 0),
       alertState: config?.unfollow_alert_state ?? 'alert_only',
     },

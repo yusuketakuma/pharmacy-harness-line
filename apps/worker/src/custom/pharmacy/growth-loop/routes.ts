@@ -52,8 +52,11 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
   if (!Array.isArray(body.capabilities) || body.capabilities.some((value) => typeof value !== 'string')) {
     return c.json({ success: false, error: 'capabilities must be an array' }, 400);
   }
+  if (body.unfollowAlertState !== undefined && body.unfollowAlertState !== 'alert_only') {
+    return c.json({ success: false, error: 'unfollow monitoring is alert-only in Release 1' }, 400);
+  }
   const limit = body.proactiveMonthlyLimit === undefined ? 1 : Number(body.proactiveMonthlyLimit);
-  const alertState = body.unfollowAlertState === 'auto_pause' ? 'auto_pause' : 'alert_only';
+  const alertState = 'alert_only';
   try {
     const config = await savePharmacyCapabilityConfig(c.env.DB, scope.accountId, body.capabilities, limit, alertState);
     return c.json({ success: true, data: config });
