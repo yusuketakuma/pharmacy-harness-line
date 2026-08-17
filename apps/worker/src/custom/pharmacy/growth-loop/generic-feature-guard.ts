@@ -140,7 +140,11 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
     const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
     if (body) {
       if (identityLineUserField) {
-        addAccountIds(lineUserIds, body[identityLineUserField]);
+        const lineUserId = body[identityLineUserField];
+        if (typeof lineUserId !== 'string' || !lineUserId) {
+          return c.json({ success: false, error: 'generic feature account scope required' }, 403);
+        }
+        lineUserIds.add(lineUserId);
       } else {
         for (const key of ['lineAccountId', 'line_account_id', 'accountId', 'account_id', 'accountIds']) {
           addAccountIds(accountIds, body[key]);

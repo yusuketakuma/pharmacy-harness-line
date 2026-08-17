@@ -253,6 +253,47 @@ describe('pharmacy generic feature guard', () => {
     expect(responses.map((response) => response.status)).toEqual([403, 403]);
   });
 
+  it('rejects non-string canonical identities for identity sends', async () => {
+    const database = {
+      prepare(sql: string) {
+        const statement = (binds: unknown[]) => ({
+          first: async <T>() => {
+            if (sql.includes('FROM friends') && sql.includes('line_user_id')) {
+              return {
+                line_account_id: binds[0] === 'U-fake-generic' ? 'generic-a' : null,
+              } as T;
+            }
+            if (sql.includes("WHERE mode = 'pharmacy'")) return { ok: 1 } as T;
+            return null;
+          },
+          all: async <T>() => ({ results: [] as T[] }),
+        });
+        return { bind: (...binds: unknown[]) => statement(binds), ...statement([]) };
+      },
+    } as unknown as D1Database;
+    const { root, env } = app(database);
+    const invalidIdentities: unknown[] = [
+      ['U-unowned', 'U-fake-generic'],
+      { value: 'U-fake-generic' },
+      ['U-unowned', { value: 'U-fake-generic' }, 'U-fake-generic'],
+    ];
+
+    const responses = await Promise.all(invalidIdentities.flatMap((identity) => [
+      root.request('/api/meet-callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_user_id: identity }),
+      }, env),
+      root.request('/api/liff/send-form-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineUserId: identity, formId: 'form-1' }),
+      }, env),
+    ]));
+
+    expect(responses.map((response) => response.status)).toEqual(Array(6).fill(403));
+  });
+
   it('keeps unowned identity sends compatible when no pharmacy account exists', async () => {
     const { root, env } = app(db([]));
     const response = await root.request('/api/liff/send-form-link', {
