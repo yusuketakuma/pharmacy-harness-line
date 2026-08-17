@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
-  "version": "0.23.0",
-  "release_sequence": 1,
-  "previous_commit": "eedfd7ed3a147f425eb69b86b76cb1ab863efe35",
+  "version": "0.23.1",
+  "release_sequence": 2,
+  "previous_commit": "783d5a551594efedc7e98334a627feda0ef09920",
   "update_class": "manual",
   "manual_reasons": [
-    "initial commercial pharmacy release"
+    "synchronize dev and main release history",
+    "align production LIFF delivery and release verification"
   ],
   "required_configuration": [],
   "minimum_client_version": "0.21.3",
