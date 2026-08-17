@@ -34,8 +34,9 @@ vi.mock('../services/affiliate-notifier.js', () => ({ notifyAffiliateApproval })
 const worker = (await import('../index.js')).default;
 
 const API_KEY = 'test-owner-key';
+const statement = { bind: () => statement, first: async () => null };
 const env = {
-  DB: {} as D1Database,
+  DB: { prepare: () => statement } as unknown as D1Database,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
   WORKER_URL: 'https://worker.example.com',

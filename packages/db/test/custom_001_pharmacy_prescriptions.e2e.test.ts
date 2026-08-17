@@ -15,6 +15,7 @@ import {
 } from '../../../apps/worker/src/custom/pharmacy/prescriptions/repository.js';
 import { cleanupPrescriptionImages } from '../../../apps/worker/src/custom/pharmacy/prescriptions/cleanup.js';
 import { deliverPrescriptionNotification } from '../../../apps/worker/src/custom/pharmacy/prescriptions/notifications.js';
+import { savePrescriptionValidity } from '../../../apps/worker/src/custom/pharmacy/growth-loop/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -171,6 +172,16 @@ describe('synthetic prescription end-to-end', () => {
     await notify(submission.id as string);
     detail = await getAdminPrescriptionDetail(db, patient.lineAccountId, submission.id as string);
     expect(detail?.submission.active_revision).toBe(2);
+
+    await savePrescriptionValidity(db, {
+      lineAccountId: patient.lineAccountId,
+      submissionId: submission.id as string,
+      issuedOn: '2026-08-17',
+      validUntil: '2099-01-01',
+      validityBasis: 'prescriber_specified',
+      verificationStatus: 'verified',
+      staffId: 'staff-synthetic',
+    });
 
     for (const action of ['admin_accept', 'admin_ready', 'admin_close'] as const) {
       await applyAdminPrescriptionAction(
