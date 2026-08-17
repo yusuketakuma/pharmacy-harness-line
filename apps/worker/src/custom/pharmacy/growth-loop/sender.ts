@@ -27,7 +27,7 @@ type AutomatedPushInput = {
   now?: Date;
 };
 
-export type PharmacyPushResult = 'sent' | 'already_sent';
+export type PharmacyPushResult = 'sent' | 'already_sent' | 'in_progress';
 
 function jstMonthBounds(now: Date): { from: string; to: string } {
   const local = new Date(now.getTime() + JST_OFFSET_MS);
@@ -92,6 +92,7 @@ export async function sendPharmacyAutomatedPush(
 
   const now = input.now ?? new Date();
   const occurredAt = now.toISOString();
+  const staleAttemptAt = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
   const month = jstMonthBounds(now);
   const claim = await input.db.prepare(
     `INSERT OR IGNORE INTO pharmacy_notification_events
@@ -114,14 +115,23 @@ export async function sendPharmacyAutomatedPush(
 
   if ((claim.meta?.changes ?? 0) !== 1) {
     const existing = await input.db.prepare(
-      `SELECT outcome FROM pharmacy_notification_events
+      `SELECT outcome, occurred_at FROM pharmacy_notification_events
         WHERE line_account_id = ? AND idempotency_key = ?`,
-    ).bind(input.lineAccountId, input.retryKey).first<{ outcome: string }>();
+    ).bind(input.lineAccountId, input.retryKey).first<{ outcome: string; occurred_at: string }>();
     if (existing?.outcome === 'sent') return 'already_sent';
     if (existing?.outcome === 'blocked') {
       throw new Error('pharmacy proactive frequency cap reached');
     }
-    if (existing?.outcome === 'failed') {
+    if (existing?.outcome === 'attempted') {
+      if (existing.occurred_at >= staleAttemptAt) return 'in_progress';
+      const reclaimed = await input.db.prepare(
+        `UPDATE pharmacy_notification_events
+            SET occurred_at = ?
+          WHERE line_account_id = ? AND idempotency_key = ?
+            AND outcome = 'attempted' AND occurred_at < ?`,
+      ).bind(occurredAt, input.lineAccountId, input.retryKey, staleAttemptAt).run();
+      if ((reclaimed.meta?.changes ?? 0) !== 1) return 'in_progress';
+    } else if (existing?.outcome === 'failed') {
       const reclaimed = await input.db.prepare(
         `UPDATE pharmacy_notification_events
             SET outcome = 'attempted', occurred_at = ?
@@ -145,7 +155,7 @@ export async function sendPharmacyAutomatedPush(
         ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
         throw new Error('pharmacy proactive frequency cap reached');
       }
-    } else if (existing?.outcome !== 'attempted') {
+    } else {
       await recordBlocked(input, occurredAt);
       throw new Error('pharmacy proactive frequency cap reached');
     }
