@@ -4,11 +4,15 @@ import { Hono } from 'hono';
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   latest: vi.fn(),
+  enqueueActivity: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
   createFulfillmentQuote: mocks.create,
   getLatestFulfillmentQuote: mocks.latest,
+}));
+vi.mock('../activity-notifications/repository.js', () => ({
+  enqueueActivityForAccount: mocks.enqueueActivity,
 }));
 
 import { fulfillmentRoutes } from './routes.js';
@@ -32,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.latest.mockResolvedValue({ id: 'quote-1', revision: 1, decision: 'fulfillable' });
   mocks.create.mockResolvedValue({ id: 'quote-1', revision: 1, decision: 'conditional' });
+  mocks.enqueueActivity.mockResolvedValue(null);
 });
 
 const quoteBody = {

@@ -29,6 +29,7 @@ import {
   reservePrescriptionResubmission,
   submitPrescription,
 } from './repository.js';
+import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -163,6 +164,14 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       c.req.param('id'),
       body.expectedUpdatedAt,
     );
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, patient.lineAccountId, 'prescription_received',
+        `prescription:received:${c.req.param('id')}`,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] activity notification unavailable');
+    }
     await linkContinuitySubmission(
       c.env.DB, patient.lineAccountId, c.req.param('id'), patient.friendId,
     );
@@ -439,6 +448,16 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
         // Metrics are observability only; never turn a committed pharmacist action into a 500.
         console.error('[pharmacy-growth] activation metric failed', error);
       }
+    }
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB,
+        lineAccountId,
+        'prescription_status_changed',
+        `prescription:status:${c.req.param('id')}:${status}`,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] status activity unavailable');
     }
     if (action === 'admin_close') {
       await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);

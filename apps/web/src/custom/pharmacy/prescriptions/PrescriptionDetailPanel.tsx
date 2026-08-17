@@ -94,7 +94,17 @@ export function PrescriptionDetailPanel({
               <h2 id="prescription-detail-title" className="text-xl font-bold">処方せん詳細</h2>
               <p className="mt-1 text-sm text-gray-500">状態: {statusLabel(detail.submission.status)}</p>
             </div>
-            <Link href={`/chats?friend=${encodeURIComponent(detail.submission.friend_id)}`} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">個別チャットを開く</Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/prescriptions/print?submission_id=${encodeURIComponent(detail.submission.id)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700"
+              >
+                印刷用画面
+              </Link>
+              <Link href={`/chats?friend=${encodeURIComponent(detail.submission.friend_id)}`} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">個別チャットを開く</Link>
+            </div>
           </div>
 
           <dl className="grid gap-3 text-sm sm:grid-cols-3">

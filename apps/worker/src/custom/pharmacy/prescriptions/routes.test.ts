@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   linkContinuity: vi.fn(),
   completeContinuity: vi.fn(),
   activation: vi.fn(),
+  enqueueActivity: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -58,6 +59,9 @@ vi.mock('../continuity/repository.js', () => ({
 vi.mock('../growth-loop/onboarding.js', () => ({
   recordAcceptedSubmissionActivation: mocks.activation,
 }));
+vi.mock('../activity-notifications/repository.js', () => ({
+  enqueueActivityForAccount: mocks.enqueueActivity,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -82,6 +86,7 @@ beforeEach(() => {
   mocks.linkContinuity.mockResolvedValue(null);
   mocks.completeContinuity.mockResolvedValue(null);
   mocks.activation.mockResolvedValue(undefined);
+  mocks.enqueueActivity.mockResolvedValue(null);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {
@@ -240,6 +245,13 @@ describe('admin prescription routes', () => {
     );
     expect(mocks.adminAction.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.notify.mock.invocationCallOrder[0],
+    );
+    expect(mocks.activation).toHaveBeenCalledWith(env.DB, 'account-1', 'submission-1');
+    expect(mocks.enqueueActivity).toHaveBeenCalledWith(
+      env.DB,
+      'account-1',
+      'prescription_status_changed',
+      'prescription:status:submission-1:accepted',
     );
   });
 

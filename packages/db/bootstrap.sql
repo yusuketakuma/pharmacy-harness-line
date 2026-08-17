@@ -761,6 +761,25 @@ CREATE TABLE pharmacy_account_capabilities (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE pharmacy_activity_notifications (
+  id                TEXT PRIMARY KEY,
+  line_account_id   TEXT NOT NULL,
+  activity_type     TEXT NOT NULL CHECK (activity_type IN
+    ('prescription_received', 'prescription_status_changed',
+     'fulfillment_quote_created', 'myna_handoff_received')),
+  dedupe_hash       TEXT NOT NULL
+    CHECK (length(dedupe_hash) = 64 AND dedupe_hash NOT GLOB '*[^0-9a-f]*'),
+  acknowledged_by  TEXT,
+  acknowledged_at  TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  CHECK ((acknowledged_by IS NULL AND acknowledged_at IS NULL)
+      OR (acknowledged_by IS NOT NULL AND acknowledged_at IS NOT NULL)),
+  UNIQUE (id, line_account_id),
+  UNIQUE (line_account_id, dedupe_hash),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
+);
+
 CREATE TABLE pharmacy_continuity_events (
   id              TEXT PRIMARY KEY,
   obligation_id   TEXT NOT NULL,
@@ -1125,6 +1144,34 @@ CREATE TABLE pharmacy_prescription_validities (
      verified_by IS NOT NULL AND verified_at IS NOT NULL)),
   FOREIGN KEY (submission_id, line_account_id)
     REFERENCES pharmacy_prescription_submissions(id, line_account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_print_tasks (
+  id                 TEXT PRIMARY KEY,
+  line_account_id    TEXT NOT NULL,
+  submission_id      TEXT NOT NULL,
+  revision           INTEGER NOT NULL CHECK (revision >= 1),
+  status             TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'handling', 'acknowledged', 'cancelled')),
+  handling_by        TEXT,
+  handling_token     TEXT CHECK (handling_token IS NULL OR length(handling_token) BETWEEN 8 AND 160),
+  handling_at        TEXT,
+  lease_until        TEXT,
+  acknowledged_by   TEXT,
+  acknowledged_at   TEXT,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  CHECK (
+    status IN ('pending', 'cancelled')
+    OR (status = 'handling' AND handling_by IS NOT NULL AND handling_token IS NOT NULL
+        AND handling_at IS NOT NULL AND lease_until IS NOT NULL)
+    OR (status = 'acknowledged' AND handling_by IS NOT NULL AND handling_token IS NOT NULL
+        AND acknowledged_by IS NOT NULL AND acknowledged_at IS NOT NULL)
+  ),
+  UNIQUE (id, line_account_id),
+  UNIQUE (line_account_id, submission_id, revision),
+  FOREIGN KEY (submission_id, line_account_id)
+    REFERENCES pharmacy_prescription_submissions(id, line_account_id)
 );
 
 CREATE TABLE pharmacy_staff_accounts (
@@ -1744,6 +1791,10 @@ CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
 
+CREATE INDEX idx_pharmacy_activity_notifications_open
+  ON pharmacy_activity_notifications
+     (line_account_id, acknowledged_at, created_at DESC, id DESC);
+
 CREATE UNIQUE INDEX idx_pharmacy_continuity_account
   ON pharmacy_continuity_obligations (id, line_account_id);
 
@@ -1836,6 +1887,9 @@ CREATE INDEX idx_pharmacy_prescriptions_account_status_requested
 
 CREATE INDEX idx_pharmacy_prescriptions_friend_history
   ON pharmacy_prescription_submissions (line_account_id, friend_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_pharmacy_print_tasks_open
+  ON pharmacy_print_tasks (line_account_id, status, created_at, id);
 
 CREATE INDEX idx_pharmacy_submission_sources_account
   ON pharmacy_submission_sources(line_account_id, classification, entered_at);
