@@ -110,6 +110,19 @@ describe('customer deployment configuration protection', () => {
     ])).not.toThrow();
   });
 
+  test('does not require the legacy LIFF Pages variable for Worker Assets installs', () => {
+    const prepared = prepareCustomerConfig({
+      wrangler: {
+        ...wrangler,
+        vars: { ...wrangler.vars, LIFF_PAGES_PROJECT: 'legacy-liff' },
+      },
+      liveBindings,
+      expected,
+    });
+
+    expect(prepared.wrangler.vars).not.toHaveProperty('LIFF_PAGES_PROJECT');
+  });
+
   test('stops before deployment when D1 or R2 differs', () => {
     expect(() => prepareCustomerConfig({
       wrangler,
