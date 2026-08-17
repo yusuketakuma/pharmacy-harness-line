@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useAccount } from '../../../contexts/account-context'
 import { prescriptionAdminApi, type PrescriptionFile } from './api'
-import { pharmacyPrintApi, type PharmacyPrintTask } from '../print/api'
+import { pharmacyPrintApi } from '../print/api'
 
 export function printablePrescriptionFiles(
   files: PrescriptionFile[],
@@ -39,8 +39,7 @@ export default function PrescriptionPrintPage() {
   const submissionId = params.get('submission_id')
   const [images, setImages] = useState<string[]>([])
   const [loadedImages, setLoadedImages] = useState(0)
-  const [task, setTask] = useState<PharmacyPrintTask | null>(null)
-  const [sessionId, setSessionId] = useState('')
+  const [claim, setClaim] = useState<{ taskId: string; operationId: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [recording, setRecording] = useState(false)
@@ -58,15 +57,14 @@ export default function PrescriptionPrintPage() {
     setError('')
     setImages([])
     setLoadedImages(0)
+    setClaim(null)
+    setRecorded(false)
     setPrintInvoked(false)
     void (async () => {
       try {
         const prepared = await pharmacyPrintApi.prepare(selectedAccountId, submissionId)
         if (prepared.task.status === 'acknowledged') {
-          if (!disposed) {
-            setTask(prepared.task)
-            setRecorded(true)
-          }
+          if (!disposed) setRecorded(true)
           return
         }
         const id = operationId(submissionId)
@@ -82,8 +80,7 @@ export default function PrescriptionPrintPage() {
         ))
         if (disposed) return
         for (const blob of blobs) urls.push(URL.createObjectURL(blob))
-        setTask(claimed.task)
-        setSessionId(id)
+        setClaim({ taskId: claimed.task.id, operationId: id })
         setImages(urls)
       } catch {
         for (const url of urls) URL.revokeObjectURL(url)
@@ -108,18 +105,18 @@ export default function PrescriptionPrintPage() {
   }, [images, loadedImages, print, printInvoked])
 
   const recordPrinted = useCallback(async () => {
-    if (!selectedAccountId || !task || !sessionId || !canAcknowledgePrint(printInvoked, recording, recorded)) return
+    if (!selectedAccountId || !claim || !canAcknowledgePrint(printInvoked, recording, recorded)) return
     setRecording(true)
     try {
-      const result = await pharmacyPrintApi.acknowledge(selectedAccountId, task.id, sessionId)
-      setTask(result.task)
+      await pharmacyPrintApi.acknowledge(selectedAccountId, claim.taskId, claim.operationId)
+      setClaim(null)
       setRecorded(true)
     } catch {
       setError('印刷操作済みの記録を保存できませんでした。')
     } finally {
       setRecording(false)
     }
-  }, [printInvoked, recorded, recording, selectedAccountId, sessionId, task])
+  }, [claim, printInvoked, recorded, recording, selectedAccountId])
 
   if (accountLoading || loading) return <p className="p-8 text-center text-gray-500">印刷画像を準備中...</p>
   if (!selectedAccountId || !submissionId) return <p className="p-8 text-center text-gray-500">印刷対象が指定されていません。</p>
