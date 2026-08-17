@@ -10,6 +10,7 @@ import {
 } from './admin-auth-config.js';
 
 const PAGES = 'https://your-admin.pages.dev';
+const LIFF = 'https://your-liff.pages.dev';
 const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
 
 describe('registrableDomain', () => {
@@ -161,6 +162,28 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
 
   test('permits no-Origin (non-browser / SDK) callers', () => {
     expect(resolveCorsOrigin(env, undefined, requestUrl)).toBe(WORKERS);
+  });
+
+  test('echoes an allowlisted LIFF origin without using it for admin cookie topology', () => {
+    const liffEnv: AdminAuthEnv = {
+      ADMIN_ORIGIN: PAGES,
+      LIFF_ORIGIN: LIFF,
+      WORKER_URL: WORKERS,
+      ADMIN_ALLOW_CROSS_SITE: 'true',
+    };
+    expect(resolveCorsOrigin(liffEnv, LIFF, requestUrl)).toBe(LIFF);
+    expect(resolveAdminAuthConfig(liffEnv).allowedOrigins).toEqual([PAGES]);
+  });
+
+  test('blocks a LIFF origin when it is not explicitly configured', () => {
+    expect(resolveCorsOrigin(env, LIFF, requestUrl)).toBe('');
+  });
+
+  test('does not widen the LIFF allowlist to Pages preview origins', () => {
+    const preview = 'https://preview.your-liff.pages.dev';
+    expect(
+      resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, preview, requestUrl),
+    ).toBe('');
   });
 });
 

@@ -14,6 +14,7 @@ vi.mock('@line-crm/db', () => ({
 }));
 
 const PAGES = 'https://your-admin.pages.dev';
+const LIFF = 'https://your-liff.pages.dev';
 const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
 
 function env(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
@@ -139,6 +140,20 @@ describe('topology guard', () => {
 });
 
 describe('protected API access', () => {
+  test('allows LIFF preflight requests for pharmacy APIs', async () => {
+    const res = await app().request('/api/liff/pharmacy/patients?liffId=test', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: LIFF,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    }, env({ LIFF_ORIGIN: LIFF }));
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
+  });
+
   test('protects rich-menu image proxies instead of relying on an unguessable R2 key', async () => {
     const image = await app().request('/api/rich-menu-images/account/group/page/image.png', {}, crossSiteEnv());
     const external = await app().request('/api/rich-menu-groups/external/richmenu-1/image?accountId=account-1', {}, crossSiteEnv());
