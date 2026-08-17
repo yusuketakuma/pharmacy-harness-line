@@ -207,33 +207,45 @@ describe('pharmacy generic feature guard', () => {
   it('fails closed for identity sends whose friend has no account in a pharmacy install', async () => {
     const database = {
       prepare(sql: string) {
-        const statement = () => ({
+        const statement = (binds: unknown[]) => ({
           first: async <T>() => {
             if (sql.includes('FROM friends') && sql.includes('line_user_id')) {
-              return { line_account_id: null } as T;
+              return {
+                line_account_id: binds[0] === 'U-fake-generic' ? 'generic-a' : null,
+              } as T;
             }
+            if (sql.includes('FROM friends')) return { line_account_id: 'generic-a' } as T;
             if (sql.includes('FROM line_accounts')) return { id: 'generic-a' } as T;
             if (sql.includes("WHERE mode = 'pharmacy'")) return { ok: 1 } as T;
             return null;
           },
           all: async <T>() => ({ results: [] as T[] }),
         });
-        return { bind: () => statement(), ...statement() };
+        return { bind: (...binds: unknown[]) => statement(binds), ...statement([]) };
       },
     } as unknown as D1Database;
     const { root, env } = app(database);
 
     const responses = await Promise.all([
-      root.request('/api/meet-callback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ line_user_id: 'U-unowned', line_account_id: 'generic-a' }),
-      }, env),
-      root.request('/api/liff/send-form-link', {
+      root.request('/api/meet-callback?liffId=generic-liff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lineUserId: 'U-unowned', formId: 'form-1', lineAccountId: 'generic-a',
+          line_user_id: 'U-unowned',
+          lineUserId: 'U-fake-generic',
+          friendId: 'F-fake-generic',
+          line_account_id: 'generic-a',
+        }),
+      }, env),
+      root.request('/api/liff/send-form-link?liffId=generic-liff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lineUserId: 'U-unowned',
+          line_user_id: 'U-fake-generic',
+          friendId: 'F-fake-generic',
+          formId: 'form-1',
+          lineAccountId: 'generic-a',
         }),
       }, env),
     ]);
