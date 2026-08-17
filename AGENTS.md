@@ -16,3 +16,6 @@ parameter is never an authority. Automated pharmacy notifications are
 PHI-free approved templates only. Do not add AI/OCR, marketplace routing, or
 duplicate prescription/continuity domain models. Production mutation,
 deployment, and completion claims require explicit evidence and a human gate.
+The OSS package version and `pharmacy-v*` seller release version are separate
+identities; never infer one from the other. Local code, passing tests, release
+metadata, deployment evidence, and production operation are distinct claims.
