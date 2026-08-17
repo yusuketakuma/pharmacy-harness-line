@@ -79,6 +79,9 @@ const DEPLOYMENT_MANAGED_TEXT_BINDINGS = new Set([
   'LIFF_ORIGIN',
 ]);
 
+// Worker Assets installs no longer need the old Pages project variable.
+const OPTIONAL_LEGACY_TEXT_BINDINGS = new Set(['LIFF_PAGES_PROJECT']);
+
 function bindingValue(binding: WorkerBinding): string | undefined {
   switch (binding.type) {
     case 'plain_text':
@@ -166,7 +169,7 @@ function assertConfiguredBindingsExist(
   const live = new Set(liveBindings.map((binding) => `${binding.type}:${binding.name}`));
   const liveNames = new Set(liveBindings.map((binding) => binding.name));
   for (const name of Object.keys(wrangler.vars ?? {})) {
-    if (DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(name)) continue;
+    if (DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(name) || OPTIONAL_LEGACY_TEXT_BINDINGS.has(name)) continue;
     if (!liveNames.has(name)) {
       throw new Error(`customer binding ${name} requires setup before update`);
     }
