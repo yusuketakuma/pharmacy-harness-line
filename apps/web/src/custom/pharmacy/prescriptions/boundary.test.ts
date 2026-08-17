@@ -30,4 +30,7 @@ it('keeps Admin integration to a thin route and marked sidebar seam', () => {
   expect(intakePage).toContain('let cancelled = false')
   expect(intakePage).toContain('if (cancelled) return')
   expect(intakePage).toContain('return () => { cancelled = true }')
+  expect(intakePage).toContain('const controller = new AbortController()')
+  expect(intakePage).toContain('void load(controller.signal)')
+  expect(intakePage).toContain('controller.abort()')
 })

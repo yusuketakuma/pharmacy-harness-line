@@ -46,22 +46,32 @@ export default function PatientIntakeAdminPage() {
     ? answers.medicalHistoryTags.map((tag) => MEDICAL_HISTORY_TAG_LABELS[String(tag)] ?? String(tag)).join('、')
     : '未回答'
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (!selectedAccountId) return
     setLoading(true)
     setError('')
     try {
-      const result = await pharmacyIntakeAdminApi.list(selectedAccountId)
+      const result = await pharmacyIntakeAdminApi.list(selectedAccountId, signal)
+      if (signal?.aborted) return
       setPatients(result.patients)
-      setSelectedId((current) => current || result.patients[0]?.id || '')
+      setSelectedId((current) => result.patients.some((patient) => patient.id === current)
+        ? current
+        : result.patients[0]?.id || '')
     } catch {
-      setError('患者アンケート一覧を取得できませんでした。')
+      if (!signal?.aborted) setError('患者アンケート一覧を取得できませんでした。')
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [selectedAccountId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    setPatients([])
+    setSelectedId('')
+    if (!selectedAccountId) return
+    const controller = new AbortController()
+    void load(controller.signal)
+    return () => { controller.abort() }
+  }, [load, selectedAccountId])
 
   useEffect(() => {
     if (!selectedAccountId || !selectedId) {

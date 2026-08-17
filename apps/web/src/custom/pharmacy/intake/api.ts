@@ -71,8 +71,9 @@ export type PharmacyPatientHistory = {
 }
 
 export const pharmacyIntakeAdminApi = {
-  list: (accountId: string) => fetchApi<{ patients: PharmacyPatient[] }>(
+  list: (accountId: string, signal?: AbortSignal) => fetchApi<{ patients: PharmacyPatient[] }>(
     `/api/custom/pharmacy/patients?${accountQuery(accountId)}`,
+    { signal },
   ),
   detail: (accountId: string, patientId: string) => fetchApi<{ patient: PharmacyPatient }>(
     `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}?${accountQuery(accountId)}`,

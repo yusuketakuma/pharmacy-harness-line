@@ -139,8 +139,10 @@ describe('pharmacy patient repository', () => {
     expect(calls).toHaveLength(8);
     expect(calls.slice(1).every((call) => call.values.includes('account-1') && call.values.includes('patient-1'))).toBe(true);
     expect(calls.slice(1).every((call) => !call.sql.includes('line_user_id'))).toBe(true);
-    expect(calls.find((call) => call.sql.includes('pharmacy_prescription_events'))?.sql)
-      .toContain('e.line_account_id = pp.line_account_id');
+    const eventSql = calls.find((call) => call.sql.includes('pharmacy_prescription_events'))?.sql;
+    expect(eventSql).toContain('INNER JOIN pharmacy_prescription_submissions s');
+    expect(eventSql).toContain('pp.line_account_id = s.line_account_id');
+    expect(eventSql).not.toContain('e.line_account_id');
   });
 
   it('returns only the latest allowlisted intake answers without raw snapshots', async () => {
