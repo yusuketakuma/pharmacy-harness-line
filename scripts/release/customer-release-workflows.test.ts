@@ -12,10 +12,17 @@ describe('customer release workflow contract', () => {
     expect(workflow).toContain('tag="pharmacy-v${version}"');
     expect(workflow).toContain('--validate-only true');
     expect(workflow.indexOf('--validate-only true')).toBeLessThan(workflow.indexOf('git tag -a'));
-    expect(workflow).toContain('git rev-parse HEAD^{commit}');
+    expect(workflow).toContain("git rev-parse 'HEAD^{commit}'");
     expect(workflow).toContain('gh workflow run release.yml');
     expect(workflow).toContain('--ref "$tag"');
     expect(workflow).toContain('source_sha="$source_sha"');
+  });
+
+  test('main promotion safely reuses an already-published ancestor tag', () => {
+    const workflow = read('.github/workflows/customer-release.yml');
+    expect(workflow).toContain('existing_sha=$(git rev-parse "$TAG^{commit}")');
+    expect(workflow).toContain('git merge-base --is-ancestor "$existing_sha" "$SOURCE_SHA"');
+    expect(workflow).toContain('gh release view "$TAG"');
   });
 
   test('release workflow accepts explicit source identity and emits customer metadata', () => {
