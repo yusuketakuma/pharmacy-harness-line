@@ -81,3 +81,10 @@ export async function isPharmacyModeAccount(
   ).bind(lineAccountId).first<{ mode: string }>();
   return row?.mode === 'pharmacy';
 }
+
+export async function hasPharmacyModeAccount(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT 1 AS ok FROM pharmacy_account_capabilities WHERE mode = ? LIMIT 1`,
+  ).bind('pharmacy').first<{ ok: number }>();
+  return Boolean(row);
+}

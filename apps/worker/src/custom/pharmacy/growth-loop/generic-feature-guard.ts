@@ -22,6 +22,11 @@ export const PHARMACY_DISABLED_GENERIC_API_PREFIXES = [
   '/api/liff/webinars',
   '/api/forms',
   '/api/meet-callback',
+  '/api/booking',
+  '/api/liff/booking',
+  '/api/events',
+  '/api/liff/events',
+  '/api/liff/send-form-link',
 ] as const;
 
 function addAccountIds(target: Set<string>, value: unknown): void {
@@ -42,6 +47,14 @@ function parseAccountIds(raw: string | null): string[] {
 }
 
 async function resourceAccountIds(c: Context<Env>, path: string): Promise<string[]> {
+  const liffId = c.req.query('liffId');
+  if (liffId) {
+    const row = await c.env.DB.prepare(
+      `SELECT id AS line_account_id FROM line_accounts WHERE liff_id = ? AND is_active = 1`,
+    ).bind(liffId).first<{ line_account_id: string | null }>();
+    if (row?.line_account_id) return [row.line_account_id];
+  }
+
   const broadcast = /^\/api\/broadcasts\/([^/]+)/.exec(path);
   if (broadcast) {
     const row = await c.env.DB.prepare(

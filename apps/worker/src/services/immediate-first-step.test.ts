@@ -77,7 +77,11 @@ interface DbCall {
  * `cooldownHit` backs the messages_log probe; `enrollmentLookup` backs the
  * friend_scenarios fallback lookup.
  */
-function makeDb(opts: { cooldownHit?: boolean; enrollmentLookup?: { id: string; current_step_order: number } | null } = {}) {
+function makeDb(opts: {
+  cooldownHit?: boolean;
+  enrollmentLookup?: { id: string; current_step_order: number } | null;
+  pharmacyAccountId?: string;
+} = {}) {
   const calls: DbCall[] = [];
   const db = {
     prepare: (sql: string) => ({
@@ -87,6 +91,10 @@ function makeDb(opts: { cooldownHit?: boolean; enrollmentLookup?: { id: string; 
           first: async () => {
             if (sql.includes('FROM messages_log')) return opts.cooldownHit ? { 1: 1 } : null;
             if (sql.includes('FROM friend_scenarios')) return opts.enrollmentLookup ?? null;
+            if (sql.includes('FROM pharmacy_account_capabilities')) {
+              if (sql.includes('SELECT 1 AS ok')) return opts.pharmacyAccountId ? { ok: 1 } : null;
+              return opts.pharmacyAccountId && args[0] === opts.pharmacyAccountId ? { mode: 'pharmacy' } : null;
+            }
             return null;
           },
           run: async () => ({ meta: { changes: 1 } }),
@@ -144,6 +152,22 @@ beforeEach(() => {
 });
 
 describe("mode 'once' (default) — claim protocol with the cron", () => {
+  it('does not send a generic immediate scenario to a pharmacy friend', async () => {
+    dbMocks.getFriendById.mockResolvedValue({
+      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'pharmacy-a',
+      user_id: null, metadata: '{}',
+    });
+    const { db, calls } = makeDb({ pharmacyAccountId: 'pharmacy-a' });
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+    });
+
+    expect(sent).toBe(false);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(claimReleased(calls)).toBe(true);
+  });
+
   it('claims, pushes step 1, logs, and advances to step 2', async () => {
     const { db, calls } = makeDb();
     const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {

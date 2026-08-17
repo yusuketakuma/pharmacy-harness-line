@@ -607,8 +607,9 @@ export async function getGrowthDashboard(
        AND u.subject_key = 'friend:' || n.friend_id AND u.occurred_at >= n.occurred_at
        AND julianday(u.occurred_at) < julianday(n.occurred_at, '+72 hours')
       WHERE n.line_account_id = ? AND n.outcome = 'sent'
-        AND n.occurred_at >= ? AND n.occurred_at < ?`)
-      .bind(lineAccountId, ...bounds).first<{ exposed_friends: number | null; unfollow_24h: number | null; unfollow_72h: number | null }>(),
+        AND n.occurred_at >= ? AND n.occurred_at < ?
+        AND julianday(n.occurred_at, '+72 hours') <= julianday(?)`)
+      .bind(lineAccountId, ...bounds, observedThrough).first<{ exposed_friends: number | null; unfollow_24h: number | null; unfollow_72h: number | null }>(),
     db.prepare(`SELECT unfollow_alert_state FROM pharmacy_account_capabilities
       WHERE line_account_id = ? AND mode = 'pharmacy'`)
       .bind(lineAccountId).first<{ unfollow_alert_state: 'alert_only' | 'auto_pause' }>(),

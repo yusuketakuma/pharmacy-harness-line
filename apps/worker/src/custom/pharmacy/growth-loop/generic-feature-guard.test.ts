@@ -18,7 +18,7 @@ function db(pharmacyAccounts: string[]): D1Database {
           if (sql.includes('FROM broadcasts')) {
             return { line_account_id: 'pharmacy-a', account_ids: null, target_tag_id: null } as T;
           }
-          if (sql.includes('FROM line_accounts') && sql.includes('channel_id')) {
+          if (sql.includes('FROM line_accounts') && (sql.includes('channel_id') || sql.includes('liff_id'))) {
             return { id: 'pharmacy-a' } as T;
           }
           return null;
@@ -48,7 +48,8 @@ describe('pharmacy generic feature guard', () => {
     expect(PHARMACY_DISABLED_GENERIC_API_PREFIXES).toEqual(expect.arrayContaining([
       '/api/broadcasts', '/api/scenarios', '/api/automations', '/api/auto-replies',
       '/api/reminders', '/api/mileage', '/api/affiliates', '/api/traffic-pools', '/api/webinars',
-      '/api/forms', '/api/meet-callback',
+      '/api/forms', '/api/meet-callback', '/api/booking', '/api/liff/booking',
+      '/api/events', '/api/liff/events', '/api/liff/send-form-link',
     ]));
     const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url).href), 'utf8');
     expect(indexSource).toContain('PHARMACY_DISABLED_GENERIC_API_PREFIXES');
@@ -198,6 +199,22 @@ describe('pharmacy generic feature guard', () => {
     }, env);
 
     expect(response.status).toBe(403);
+  });
+
+  it('denies generic booking, event, and form-link sends for pharmacy accounts', async () => {
+    const { root, env } = app(db(['pharmacy-a']));
+    const responses = await Promise.all([
+      root.request('/api/booking/admin/requests?line_account_id=pharmacy-a', {}, env),
+      root.request('/api/liff/booking/requests?liffId=pharmacy-liff', { method: 'POST' }, env),
+      root.request('/api/events/admin/events?account_id=pharmacy-a', {}, env),
+      root.request('/api/liff/events/event-1/bookings?account_id=pharmacy-a', { method: 'POST' }, env),
+      root.request('/api/liff/send-form-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineUserId: 'U-pharmacy', formId: 'form-1' }),
+      }, env),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
   });
 
   it('keeps non-pharmacy accounts compatible and does not consume the body', async () => {

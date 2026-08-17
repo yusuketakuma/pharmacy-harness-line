@@ -18,6 +18,7 @@ import { messageToLogPayload } from '../services/step-delivery.js';
 import type { Env } from '../index.js';
 import {
   canAccessPharmacyAccount,
+  hasPharmacyModeAccount,
   isPharmacyModeAccount,
 } from '../custom/pharmacy/growth-loop/access.js';
 import { isApprovedRenderedPharmacyMessage } from '../custom/pharmacy/growth-loop/policy.js';
@@ -190,11 +191,17 @@ async function rejectUnsafePharmacySend(
   rawBody: string | undefined,
   source: ProxyLogSource,
 ): Promise<Response | null> {
-  if (!caller.lineAccountId || !(await isPharmacyModeAccount(c.env.DB, caller.lineAccountId))) {
+  const lineAccountId = caller.lineAccountId;
+  if (!lineAccountId) {
+    return await hasPharmacyModeAccount(c.env.DB)
+      ? c.json({ message: 'Account scope required in a pharmacy installation' }, 403)
+      : null;
+  }
+  if (!(await isPharmacyModeAccount(c.env.DB, lineAccountId))) {
     return null;
   }
   if (source === 'manual') {
-    return caller.staff && await canAccessPharmacyAccount(c.env.DB, caller.staff, caller.lineAccountId)
+    return caller.staff && await canAccessPharmacyAccount(c.env.DB, caller.staff, lineAccountId)
       ? null
       : c.json({ message: 'Manual pharmacy send requires assigned staff' }, 403);
   }
@@ -218,7 +225,7 @@ async function rejectUnsafePharmacySend(
        INNER JOIN friends f
          ON f.id = e.friend_id AND f.line_account_id = e.line_account_id
       WHERE e.id = ? AND e.line_account_id = ? AND e.outcome = 'attempted'`,
-  ).bind(eventId, caller.lineAccountId).first<{ message_id: string; line_user_id: string }>();
+  ).bind(eventId, lineAccountId).first<{ message_id: string; line_user_id: string }>();
   if (!event || parsed.to !== event.line_user_id || messages.length !== 1 ||
       !isApprovedRenderedPharmacyMessage(event.message_id, messages[0])) {
     return c.json({ message: 'Pharmacy notification payload rejected' }, 403);

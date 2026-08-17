@@ -44,6 +44,10 @@ export async function runExpirer(
          INNER JOIN friends f ON f.id = b.friend_id
         WHERE b.status = 'requested'
           AND b.requested_at < ?
+          AND NOT EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities pac
+             WHERE pac.line_account_id = b.line_account_id AND pac.mode = 'pharmacy'
+          )
         LIMIT 200`,
     )
     .bind(cutoff)

@@ -88,7 +88,10 @@ function fakeDb(opts: {
         },
         async first() {
           if (sql.includes('FROM pharmacy_account_capabilities')) {
-            return stmt.params[0] === opts.pharmacyAccountId ? { mode: 'pharmacy' } : null;
+            if (sql.includes('SELECT 1 AS ok')) return opts.pharmacyAccountId ? { ok: 1 } : null;
+            return opts.pharmacyAccountId && stmt.params[0] === opts.pharmacyAccountId
+              ? { mode: 'pharmacy' }
+              : null;
           }
           if (sql.includes('FROM pharmacy_notification_events')) {
             return stmt.params[0] === opts.pharmacyNotification?.id &&
@@ -228,6 +231,13 @@ describe('auth', () => {
     const rows = loggedRows(executed);
     expect(rows).toHaveLength(1);
     expect(rows[0].lineAccountId).toBeNull();
+  });
+
+  test('env fallback token cannot bypass a pharmacy account send policy', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
+    const res = await setupApp().request(pushRequest('env-token'), {}, env(db));
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('inactive account token → 401', async () => {
@@ -570,6 +580,25 @@ describe('multicast', () => {
 });
 
 describe('broadcast', () => {
+  test('env fallback token cannot broadcast when any pharmacy account exists', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
+    const res = await setupApp().request(
+      new Request('http://worker.test/line-api/v2/bot/message/broadcast', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer env-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ messages: [{ type: 'text', text: 'hello' }] }),
+      }),
+      {},
+      env(db),
+    );
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('single account install: logs the account friends including legacy NULL rows', async () => {
     const { db, executed } = fakeDb({ broadcastFriendIds: ['f1', 'f2', 'f3'] });
     const res = await setupApp().request(

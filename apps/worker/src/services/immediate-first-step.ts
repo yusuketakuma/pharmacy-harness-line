@@ -22,6 +22,10 @@ import {
   evaluateCondition,
 } from './step-delivery.js';
 import { decorateForFriendPush } from './auto-track.js';
+import {
+  hasPharmacyModeAccount,
+  isPharmacyModeAccount,
+} from '../custom/pharmacy/growth-loop/access.js';
 
 export interface ImmediatePushContext {
   defaultAccessToken: string;
@@ -316,6 +320,13 @@ export async function pushImmediateFirstStep(
       resolveStepContent(db, firstStep),
       ctx.accountChannelId ? getLineAccountByChannelId(db, ctx.accountChannelId) : null,
     ]);
+    const lineAccountId = friend.line_account_id ?? ctxAccount?.id ?? null;
+    if (lineAccountId
+      ? await isPharmacyModeAccount(db, lineAccountId)
+      : await hasPharmacyModeAccount(db)) {
+      await releaseClaim();
+      return false;
+    }
     const expanded = expandVariables(
       resolved.messageContent,
       { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1],
@@ -332,7 +343,7 @@ export async function pushImmediateFirstStep(
       resolved.messageType,
       expanded,
       ctx.workerUrl,
-      { lineAccountId: friend.line_account_id ?? ctxAccount?.id ?? null, friendId },
+      { lineAccountId, friendId },
     );
     const sentMessage = buildMessage(decorated.messageType, decorated.content);
 

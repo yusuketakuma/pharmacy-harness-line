@@ -319,5 +319,7 @@ describe('growth dashboard', () => {
     expect(promiseQuery).toContain("q.decision IN ('fulfillable','conditional')");
     expect(queries.find((sql) => sql.includes('verified_validity'))).toContain('COALESCE(attr.is_synthetic, 0) = 0');
     expect(queries.find((sql) => sql.includes('exposed_friends'))).toContain("n.outcome = 'sent'");
+    expect(queries.find((sql) => sql.includes('exposed_friends')))
+      .toContain("julianday(n.occurred_at, '+72 hours') <= julianday(?)");
   });
 });
