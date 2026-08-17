@@ -379,7 +379,7 @@ async function handleEvent(
       event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
 
-    await updateFriendFollowStatus(db, userId, false);
+    await updateFriendFollowStatus(db, userId, false, lineAccountId);
     try {
       await recordPharmacyUnfollowMetrics({ db, lineAccountId, lineUserId: userId });
     } catch (error) {

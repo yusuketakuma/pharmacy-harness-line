@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   matchAndReply: vi.fn(),
   fireEvent: vi.fn(),
   recordFollow: vi.fn(),
+  recordUnfollow: vi.fn(),
   getProfile: vi.fn(),
 }));
 
@@ -34,11 +35,12 @@ const dbMocks = vi.hoisted(() => ({
   enrollFriendInScenario: vi.fn(),
   upsertChatOnMessage: vi.fn(),
   getEntryRouteByRefCode: vi.fn(),
+  updateFriendFollowStatus: vi.fn(),
 }));
 
 vi.mock('@line-crm/db', () => ({
   ...dbMocks,
-  updateFriendFollowStatus: vi.fn(),
+  updateFriendFollowStatus: dbMocks.updateFriendFollowStatus,
   getLineAccounts: vi.fn().mockResolvedValue([{
     id: 'account-pharmacy',
     is_active: 1,
@@ -64,7 +66,7 @@ vi.mock('../custom/pharmacy/growth-loop/access.js', () => ({
 }));
 vi.mock('../custom/pharmacy/growth-loop/onboarding.js', () => ({
   recordPharmacyFollow: mocks.recordFollow,
-  recordPharmacyUnfollowMetrics: vi.fn(),
+  recordPharmacyUnfollowMetrics: mocks.recordUnfollow,
 }));
 vi.mock('../services/activity-mileage.js', () => ({ awardActivityMileage: mocks.awardMileage }));
 vi.mock('../services/auto-reply.js', () => ({ matchAndReply: mocks.matchAndReply }));
@@ -162,5 +164,19 @@ describe('pharmacy-mode webhook allowlist', () => {
 
     expect(mocks.matchAndReply).not.toHaveBeenCalled();
     expect(mocks.fireEvent).not.toHaveBeenCalled();
+  });
+
+  it('updates unfollow state only inside the verified LINE account', async () => {
+    await deliver({
+      type: 'unfollow',
+      source: { type: 'user', userId: 'U-pharmacy' },
+    }, database());
+
+    expect(dbMocks.updateFriendFollowStatus).toHaveBeenCalledWith(
+      expect.anything(), 'U-pharmacy', false, 'account-pharmacy',
+    );
+    expect(mocks.recordUnfollow).toHaveBeenCalledWith(expect.objectContaining({
+      lineAccountId: 'account-pharmacy', lineUserId: 'U-pharmacy',
+    }));
   });
 });
