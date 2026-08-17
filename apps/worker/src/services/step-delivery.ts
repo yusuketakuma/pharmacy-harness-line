@@ -18,6 +18,7 @@ import {
 import type { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
 import { jitterDeliveryTime, addJitter, sleep } from './stealth.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 /**
  * Replace template variables in message content.
@@ -246,6 +247,11 @@ async function processSingleDelivery(
     );
     return false;
   }
+  const deliveryAccountId = scenarioRow.line_account_id ?? friend.line_account_id;
+  if (await isPharmacyModeAccount(db, deliveryAccountId)) {
+    await pauseFriendScenarioDelivery(db, fs.id);
+    return false;
+  }
   if (!friend.is_following) {
     await completeFriendScenario(db, fs.id);
     return false;
@@ -318,8 +324,6 @@ async function processSingleDelivery(
   // Auto-wrap URLs with tracking links + bake f=<friendId> into /t links —
   // shared pipeline with the instant first-step push (immediate-first-step.ts).
   // リンクの所有アカウントは実際に配信するアカウント (= friend の account) に合わせる
-  const friendAccountId = friend.line_account_id;
-  const deliveryAccountId = scenarioRow.line_account_id ?? friendAccountId;
   const { decorateForFriendPush } = await import('./auto-track.js');
   const tracked = await decorateForFriendPush(db, resolved.messageType, expandedContent, workerUrl, {
     lineAccountId: deliveryAccountId ?? null,

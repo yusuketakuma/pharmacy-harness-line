@@ -18,6 +18,7 @@ export interface AccountWithStats {
   role: string | null
   displayOrder: number
   liffId?: string | null
+  pharmacyMode?: boolean
   stats?: {
     friendCount: number
     activeScenarios: number

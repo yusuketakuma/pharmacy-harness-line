@@ -25,6 +25,7 @@ import { replyViaHarnessProxy } from '../services/line-proxy-send.js';
 import type { HarnessProxyDispatch } from '../services/line-proxy-send.js';
 import { dispatchLineProxyLocally } from '../services/local-line-proxy.js';
 import { recordPharmacyFollow, recordPharmacyUnfollowMetrics } from '../custom/pharmacy/growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
 
 const webhook = new Hono<Env>();
 
@@ -248,6 +249,8 @@ async function handleEvent(
       console.error('[pharmacy-growth] follow metric failed', error instanceof Error ? error.message : 'unknown error');
     }
 
+    if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) return;
+
     // 新規・再フォローのどちらでも、最初の友だち登録マイルを同じキーで非同期投入する。
     // first_followed_at を使うため再フォローやWebhook再送では二重加算されない。
     const firstFollowedAt = friend.first_followed_at ?? friend.created_at;
@@ -412,6 +415,8 @@ async function handleEvent(
       console.error('Failed to log incoming postback', err);
     }
 
+    if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) return;
+
     // postback data を auto_replies にマッチさせて返信 (テキスト経路と共通)。
     // silent + automation で「返信なしでタグだけ付ける」構成もここで成立する。
     const { matched: postbackMatched, replyTokenConsumed: postbackReplyTokenConsumed } =
@@ -511,13 +516,15 @@ async function handleEvent(
       )
       .bind(logId, friend.id, msg.type, finalContent, jstNow())
       .run();
-    await awardActivityMileage(db, {
-      eventType: 'message_received',
-      source: 'line',
-      sourceEventId: logId,
-      friendId: friend.id,
-      metadata: { messageType: msg.type },
-    });
+    if (!(await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id))) {
+      await awardActivityMileage(db, {
+        eventType: 'message_received',
+        source: 'line',
+        sourceEventId: logId,
+        friendId: friend.id,
+        metadata: { messageType: msg.type },
+      });
+    }
     // text と同様、非 text の自発メッセージ (画像/スタンプ等) でも chat を unread に戻す。
     // これが無いと resolved 除外 (unanswered-inbox CANDIDATES_SQL) が「解決済み後に
     // 画像だけ送ってきた友だち」をバッジ・未対応一覧から永久に落としてしまう。
@@ -547,6 +554,11 @@ async function handleEvent(
       )
       .bind(logId, friend.id, incomingText, now)
       .run();
+
+    if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) {
+      await upsertChatOnMessage(db, friend.id);
+      return;
+    }
 
     await awardActivityMileage(db, {
       eventType: 'message_received',

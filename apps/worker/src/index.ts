@@ -101,6 +101,11 @@ import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifica
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
 import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
 import { pharmacyAccountGuard } from './custom/pharmacy/account.js'; // custom:pharmacy-tenant-boundary
+import { isPharmacyModeAccount } from './custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import {
+  PHARMACY_DISABLED_GENERIC_API_PREFIXES,
+  pharmacyGenericFeatureGuard,
+} from './custom/pharmacy/growth-loop/generic-feature-guard.js'; // custom:pharmacy-allowlist
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -202,6 +207,14 @@ app.use('*', authMiddleware);
 // Query parameters select a pharmacy account; this guard proves the signed-in
 // staff identity is assigned to that account before any pharmacy admin route runs.
 app.use('/api/custom/pharmacy/*', pharmacyAccountGuard);
+
+// Pharmacy accounts fail closed on high-risk generic CRM APIs. Both the
+// collection and child routes are mounted explicitly because Hono's `/*`
+// pattern does not match the collection path itself.
+for (const prefix of PHARMACY_DISABLED_GENERIC_API_PREFIXES) {
+  app.use(prefix, pharmacyGenericFeatureGuard);
+  app.use(`${prefix}/*`, pharmacyGenericFeatureGuard);
+}
 
 // Mount route groups — MVP & Round 2
 app.route('/', webhook);
@@ -939,6 +952,7 @@ async function scheduled(
     }
   }
   const defaultLineClient = new LineClient(env.LINE_CHANNEL_ACCESS_TOKEN);
+  const defaultAccountId = dbAccounts.find((account) => account.channel_id === env.LINE_CHANNEL_ID)?.id ?? null;
 
   // 配信系は1回だけ実行（内部でfriendのline_account_idから正しいlineClientを動的解決）
   // 以前はアカウントごとにループしていたが、アカウントフィルタなしのDBクエリで
@@ -1056,10 +1070,10 @@ async function scheduled(
   const jobs = [];
   jobs.push(
     processStepDeliveries(env.DB, defaultLineClient, env.WORKER_URL),
-    processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL),
+    processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
     processReminderDeliveries(env.DB, defaultLineClient),
   );
-  jobs.push(processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL));
+  jobs.push(processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId));
   jobs.push(checkAccountHealth(env.DB));
 
   // Mileage is an eventually-consistent projection. Reuse the existing
@@ -1070,7 +1084,15 @@ async function scheduled(
     && new Date(event.scheduledTime).getUTCMinutes() % 5 === 0
   ) {
     jobs.push(
-      processPendingMileageEvents(env.DB, { limit: 100 }).then((result) => {
+      processPendingMileageEvents(env.DB, {
+        limit: 100,
+        canProcessFriend: async (friendId) => {
+          const friend = await env.DB.prepare(
+            `SELECT line_account_id FROM friends WHERE id = ?`,
+          ).bind(friendId).first<{ line_account_id: string | null }>();
+          return !(await isPharmacyModeAccount(env.DB, friend?.line_account_id));
+        },
+      }).then((result) => {
         if (result.claimed > 0) {
           console.log(
             `[mileage-queue] processed=${result.processed} failed=${result.failed} granted=${result.granted}`,

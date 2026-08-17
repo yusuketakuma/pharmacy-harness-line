@@ -7,8 +7,9 @@ interface CapturedInsert {
 }
 
 function fakeDb(opts: {
-  friend?: { line_user_id: string };
+  friend?: { line_user_id: string; line_account_id?: string | null };
   capturedInserts: CapturedInsert[];
+  pharmacyMode?: boolean;
 }): D1Database {
   return {
     prepare(sql: string) {
@@ -23,6 +24,9 @@ function fakeDb(opts: {
           return { results: [] };
         },
         async first<T>(): Promise<T | null> {
+          if (sql.includes('FROM pharmacy_account_capabilities')) {
+            return (opts.pharmacyMode ? { mode: 'pharmacy' } : null) as T | null;
+          }
           if (sql.includes('FROM friends WHERE id')) {
             return (opts.friend ?? null) as T | null;
           }
@@ -177,6 +181,41 @@ describe('fireEvent — send_message action logging', () => {
     expect(captured[0].binds[2]).toBe('text');
     expect(captured[0].binds[3]).toBe('hello');
     expect(captured[0].binds[6]).toBe(null);
+  });
+
+  it('does not run generic scoring or automations for a pharmacy account', async () => {
+    const db = await import('@line-crm/db');
+    const dbFake = fakeDb({
+      friend: { line_user_id: 'U_test' },
+      capturedInserts: captured,
+      pharmacyMode: true,
+    });
+
+    await fireEvent(
+      dbFake,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: 'コスト比較' } },
+      'channel-token',
+      'acc-1',
+    );
+
+    expect(db.applyScoring).not.toHaveBeenCalled();
+    expect(db.getActiveAutomationsByEvent).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it('derives the pharmacy account from the friend instead of trusting an omitted caller scope', async () => {
+    const db = await import('@line-crm/db');
+    const dbFake = fakeDb({
+      friend: { line_user_id: 'U_test', line_account_id: 'acc-1' },
+      capturedInserts: captured,
+      pharmacyMode: true,
+    });
+
+    await fireEvent(dbFake, 'message_received', { friendId: 'friend-1' }, 'channel-token');
+
+    expect(db.applyScoring).not.toHaveBeenCalled();
+    expect(db.getActiveAutomationsByEvent).not.toHaveBeenCalled();
   });
 
   it('resolves params.template_id via templates table when set', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canAccessPharmacyAccount } from './access.js';
+import { canAccessPharmacyAccount, isPharmacyModeAccount } from './access.js';
 
 function db(rows: { account?: boolean; assigned?: boolean }): D1Database {
   return {
@@ -42,5 +42,24 @@ describe('pharmacy staff account access', () => {
       { id: 'env-owner', role: 'owner' },
       'account-a',
     )).resolves.toBe(true);
+  });
+});
+
+describe('pharmacy account mode', () => {
+  it('is enabled only by an explicit pharmacy capability row', async () => {
+    const pharmacyDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => ({ mode: 'pharmacy' }) }),
+      }),
+    } as unknown as D1Database;
+    const genericDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => null }),
+      }),
+    } as unknown as D1Database;
+
+    await expect(isPharmacyModeAccount(pharmacyDb, 'account-a')).resolves.toBe(true);
+    await expect(isPharmacyModeAccount(genericDb, 'account-a')).resolves.toBe(false);
+    await expect(isPharmacyModeAccount(pharmacyDb, null)).resolves.toBe(false);
   });
 });

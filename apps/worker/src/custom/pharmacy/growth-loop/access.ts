@@ -70,3 +70,14 @@ export async function hasPharmacyCapability(
   ).bind(lineAccountId).first<{ mode: string; capabilities_json: string }>();
   return row?.mode === 'pharmacy' && parsePharmacyCapabilities(row.capabilities_json).includes(capability);
 }
+
+export async function isPharmacyModeAccount(
+  db: D1Database,
+  lineAccountId: string | null | undefined,
+): Promise<boolean> {
+  if (!lineAccountId) return false;
+  const row = await db.prepare(
+    `SELECT mode FROM pharmacy_account_capabilities WHERE line_account_id = ?`,
+  ).bind(lineAccountId).first<{ mode: string }>();
+  return row?.mode === 'pharmacy';
+}

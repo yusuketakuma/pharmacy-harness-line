@@ -1,0 +1,19 @@
+const PHARMACY_MENU_PATHS = new Set([
+  '/',
+  '/friends',
+  '/chats',
+  '/prescriptions',
+  '/patient-intakes',
+  '/continuity',
+  '/myna',
+  '/pharmacy-growth',
+  '/rich-menus',
+  '/notifications',
+  '/staff',
+  '/accounts',
+  '/updates',
+])
+
+export function isPharmacyMenuPath(path: string): boolean {
+  return PHARMACY_MENU_PATHS.has(path)
+}

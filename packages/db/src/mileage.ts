@@ -1227,7 +1227,7 @@ export interface MileageQueueResult {
 /** Drain a bounded batch. Safe for retries and overlapping cron invocations. */
 export async function processPendingMileageEvents(
   db: D1Database,
-  options: { limit?: number; now?: string } = {},
+  options: { limit?: number; now?: string; canProcessFriend?: (friendId: string) => Promise<boolean> } = {},
 ): Promise<MileageQueueResult> {
   const limit = Math.min(250, Math.max(1, options.limit ?? 100));
   const now = options.now ?? jstNow();
@@ -1275,6 +1275,19 @@ export async function processPendingMileageEvents(
         .first<EngagementEvent>();
       if (!event?.actor_friend_id || !event.source_event_id) {
         throw new Error('Queued mileage event has no friend or source event');
+      }
+      if (options.canProcessFriend && !(await options.canProcessFriend(event.actor_friend_id))) {
+        result.processed += 1;
+        await db
+          .prepare(
+            `UPDATE mileage_event_queue
+                SET status = 'processed', processed_at = ?, processing_started_at = NULL,
+                    updated_at = ?, last_error = NULL
+              WHERE engagement_event_id = ?`,
+          )
+          .bind(now, now, event.id)
+          .run();
+        continue;
       }
       let metadata: Record<string, unknown> = {};
       if (event.metadata) {
