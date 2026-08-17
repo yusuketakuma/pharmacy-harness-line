@@ -35,7 +35,11 @@ jobs:
           corepack enable
           corepack prepare pnpm@9.15.4 --activate
           pnpm --dir trusted install --frozen-lockfile
-          pnpm --dir trusted exec tsx scripts/customer-update/policy.ts \
+          policy_script="$GITHUB_WORKSPACE/trusted/scripts/customer-update/policy.ts"
+          if [ ! -f "$policy_script" ]; then
+            policy_script="$GITHUB_WORKSPACE/candidate/scripts/customer-update/policy.ts"
+          fi
+          pnpm --dir trusted exec tsx "$policy_script" \
             --repo-dir "$GITHUB_WORKSPACE/candidate" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA" \
