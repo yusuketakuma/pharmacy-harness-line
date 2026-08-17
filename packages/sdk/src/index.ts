@@ -8,6 +8,7 @@ export { TagsResource } from './resources/tags.js'
 export { ScenariosResource } from './resources/scenarios.js'
 export { BroadcastsResource } from './resources/broadcasts.js'
 export { RichMenusResource } from './resources/rich-menus.js'
+export { RichMenuGroupsResource } from './resources/rich-menu-groups.js'
 export { TrackedLinksResource } from './resources/tracked-links.js'
 export { FormsResource } from './resources/forms.js'
 export { AdPlatformsResource } from './resources/ad-platforms.js'
@@ -48,6 +49,14 @@ export type {
   RichMenuAction,
   RichMenuArea,
   CreateRichMenuInput,
+  RichMenuGroupStatus,
+  RichMenuGroupArea,
+  RichMenuGroupPage,
+  RichMenuGroup,
+  CreateRichMenuGroupInput,
+  UpdateRichMenuGroupInput,
+  PreparePharmacyRichMenuInput,
+  PreparePharmacyRichMenuResult,
   TrackedLink,
   LinkClick,
   TrackedLinkWithClicks,

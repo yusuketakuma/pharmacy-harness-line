@@ -93,3 +93,13 @@ gh variable set LINE_HARNESS_CLOUDFLARE_DEPLOY \
 `CUSTOMER_UPDATE_CANARY_PASSED=true`と
 `CUSTOMER_UPDATE_MODE=compatible-auto`を設定します。DB、Worker、認証、
 依存関係、設定、権限の変更はこの設定後も必ず手動承認です。
+
+## 6. 顧客別の本番更新チェック
+
+本番運用開始前と、顧客ごとの更新実施前後に、次のチェックリストを
+必ず1部作成します。
+
+[顧客別 本番更新チェックリスト](custom/pharmacy/customer-production-update-checklist.md)
+
+このチェックはD1・R2・Secrets・LINE設定の保持確認を目的とします。値そのもの、
+患者情報、処方情報、LINEユーザーID、アクセストークンはチェック記録へ保存しません。

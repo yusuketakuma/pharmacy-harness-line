@@ -1244,6 +1244,19 @@ export const api = {
     },
   },
   richMenuGroups: {
+    preparePharmacy: (accountId: string, input?: { profileKey?: string; initial?: boolean }) =>
+      fetchApi<ApiResponse<{
+        status: 'prepared' | 'already_prepared' | 'configuration_required';
+        reused: boolean;
+        imageAttached?: boolean;
+        generatorVersion?: string;
+        imagePath?: string;
+        group: { id: string; name: string; status: 'draft' | 'published' };
+      }>>(
+        `/api/custom/pharmacy/rich-menus/prepare?accountId=${encodeURIComponent(accountId)}`,
+        { method: 'POST', body: JSON.stringify(input ?? { initial: true }) },
+      ),
+
     list: (accountId: string) =>
       fetchApi<ApiResponse<Array<{
         id: string;

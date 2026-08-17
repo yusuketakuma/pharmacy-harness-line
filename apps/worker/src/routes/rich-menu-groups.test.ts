@@ -158,6 +158,30 @@ describe('GET /api/rich-menu-groups/:groupId', () => {
       actionData: { uri: 'https://x' },
     });
   });
+
+  test('does not return a group when the requested account scope differs', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'account-a', name: 'A', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: null, is_default_for_all: 0, selected: 1, status: 'draft',
+      publishing_at: null, generator_key: null, generator_version: null,
+      created_at: '', updated_at: '', pages: [],
+    });
+    const res = await setupApp().request('/api/rich-menu-groups/g1?accountId=account-b');
+    expect(res.status).toBe(404);
+  });
+
+  test('requires account scope for bearer callers', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'account-a', name: 'A', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: null, is_default_for_all: 0, selected: 1, status: 'draft',
+      publishing_at: null, generator_key: null, generator_version: null,
+      created_at: '', updated_at: '', pages: [],
+    });
+    const res = await setupApp().request('/api/rich-menu-groups/g1', {
+      headers: { Authorization: 'Bearer api-key' },
+    });
+    expect(res.status).toBe(404);
+  });
 });
 
 // ----- POST /api/rich-menu-groups -----
@@ -500,5 +524,49 @@ describe('POST /api/rich-menu-groups/:groupId/publish', () => {
     const res = await app.request('/api/rich-menu-groups/gid12345-aaaa/publish', { method: 'POST' });
     expect(res.status).toBe(500);
     expect(dbMocks.releasePublishLock).toHaveBeenCalledWith(expect.anything(), 'gid12345-aaaa');
+  });
+});
+
+describe('POST /api/rich-menu-groups/:groupId/apply-to-tag', () => {
+  test('dry-run returns a confirmation token without changing LINE state', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'acc-1', name: 'メニュー', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: 'p1', is_default_for_all: 0, selected: 1, status: 'published',
+      publishing_at: null, generator_key: null, generator_version: null, created_at: '', updated_at: '',
+      pages: [{
+        id: 'p1', group_id: 'g1', order_index: 0, name: '初期', alias_id: 'alias',
+        line_richmenu_id: 'line-menu-1', image_r2_key: null, image_content_type: null,
+        created_at: '', updated_at: '', areas: [],
+      }],
+    });
+    dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'token' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const app = setupApp();
+    const res = await app.request('/api/rich-menu-groups/g1/apply-to-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'set-default', dryRun: true }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.data).toMatchObject({ dryRun: true, affected: 0, mode: 'set-default' });
+    expect(body.data.confirmationToken).toMatch(/^confirm:/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  test('rejects a live mutation without the token returned by dry-run', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'acc-1', name: 'メニュー', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: 'p1', is_default_for_all: 0, selected: 1, status: 'published',
+      publishing_at: null, generator_key: null, generator_version: null, created_at: '', updated_at: '',
+      pages: [{ id: 'p1', group_id: 'g1', order_index: 0, name: '初期', alias_id: 'alias', line_richmenu_id: 'line-menu-1', image_r2_key: null, image_content_type: null, created_at: '', updated_at: '', areas: [] }],
+    });
+    const res = await setupApp().request('/api/rich-menu-groups/g1/apply-to-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'set-default', dryRun: false }),
+    });
+    expect(res.status).toBe(428);
   });
 });
