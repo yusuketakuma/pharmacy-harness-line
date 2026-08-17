@@ -47,7 +47,7 @@ export async function processDuePrescriptionValidityReminders(
         AND v.reminder_due_at IS NOT NULL AND v.reminder_due_at <= ?
         AND v.reminder_sent_at IS NULL
         AND (v.reminder_claimed_at IS NULL OR v.reminder_claimed_at < ?)
-        AND s.status NOT IN ('closed','cancelled')
+        AND s.status = 'ready'
         AND f.is_following = 1 AND la.is_active = 1
       ORDER BY v.reminder_due_at, v.submission_id LIMIT ?`,
   ).bind(today, timestamp, staleClaim, limit).all<DueValidity>();
@@ -65,7 +65,13 @@ export async function processDuePrescriptionValidityReminders(
         WHERE submission_id = ? AND line_account_id = ?
           AND verification_status = 'verified' AND reminder_sent_at IS NULL
           AND (reminder_claimed_at IS NULL OR reminder_claimed_at < ?)
-          AND valid_until IS NOT NULL AND valid_until >= ?`,
+          AND valid_until IS NOT NULL AND valid_until >= ?
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_prescription_submissions s
+             WHERE s.id = pharmacy_prescription_validities.submission_id
+               AND s.line_account_id = pharmacy_prescription_validities.line_account_id
+               AND s.status = 'ready'
+          )`,
     ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, staleClaim, today).run();
     if ((claim.meta?.changes ?? 0) !== 1) {
       result.skipped++;
