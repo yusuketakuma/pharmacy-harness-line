@@ -79,8 +79,17 @@ const DEPLOYMENT_MANAGED_TEXT_BINDINGS = new Set([
   'LIFF_ORIGIN',
 ]);
 
-// Worker Assets installs no longer need the old Pages project variable.
-const OPTIONAL_LEGACY_TEXT_BINDINGS = new Set(['LIFF_PAGES_PROJECT']);
+// Source defaults used only by the retired self-update/Pages topology are not
+// customer bindings. Live values are still preserved when the customer has them.
+const OPTIONAL_SOURCE_TEXT_BINDINGS = new Set([
+  'LIFF_PAGES_PROJECT',
+  'D1_DATABASE_ID',
+  'MANIFEST_URL',
+  'WORKER_PUBLIC_URL',
+  'ADMIN_PUBLIC_URL',
+  'LIFF_PUBLIC_URL',
+  'CF_ACCOUNT_ID',
+]);
 
 function bindingValue(binding: WorkerBinding): string | undefined {
   switch (binding.type) {
@@ -169,7 +178,7 @@ function assertConfiguredBindingsExist(
   const live = new Set(liveBindings.map((binding) => `${binding.type}:${binding.name}`));
   const liveNames = new Set(liveBindings.map((binding) => binding.name));
   for (const name of Object.keys(wrangler.vars ?? {})) {
-    if (DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(name) || OPTIONAL_LEGACY_TEXT_BINDINGS.has(name)) continue;
+    if (DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(name) || OPTIONAL_SOURCE_TEXT_BINDINGS.has(name)) continue;
     if (!liveNames.has(name)) {
       throw new Error(`customer binding ${name} requires setup before update`);
     }

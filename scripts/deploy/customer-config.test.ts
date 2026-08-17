@@ -123,6 +123,36 @@ describe('customer deployment configuration protection', () => {
     expect(prepared.wrangler.vars).not.toHaveProperty('LIFF_PAGES_PROJECT');
   });
 
+  test('does not require source-only self-update metadata on customer Workers', () => {
+    const prepared = prepareCustomerConfig({
+      wrangler: {
+        ...wrangler,
+        vars: {
+          ...wrangler.vars,
+          D1_DATABASE_ID: 'source-d1',
+          MANIFEST_URL: 'https://source.example.test/manifest.json',
+          WORKER_PUBLIC_URL: 'https://source.example.test/worker',
+          ADMIN_PUBLIC_URL: 'https://source.example.test/admin',
+          LIFF_PUBLIC_URL: 'https://source.example.test/liff',
+          CF_ACCOUNT_ID: 'source-account',
+        },
+      },
+      liveBindings,
+      expected,
+    });
+
+    for (const name of [
+      'D1_DATABASE_ID',
+      'MANIFEST_URL',
+      'WORKER_PUBLIC_URL',
+      'ADMIN_PUBLIC_URL',
+      'LIFF_PUBLIC_URL',
+      'CF_ACCOUNT_ID',
+    ]) {
+      expect(prepared.wrangler.vars).not.toHaveProperty(name);
+    }
+  });
+
   test('stops before deployment when D1 or R2 differs', () => {
     expect(() => prepareCustomerConfig({
       wrangler,
