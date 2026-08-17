@@ -1,4 +1,4 @@
-import type { Message } from '@line-crm/line-sdk';
+import { quickReply, withQuickReply, type Message } from '@line-crm/line-sdk';
 
 export type PharmacyNotificationCategory =
   | 'transactional_care'
@@ -11,13 +11,15 @@ export type PharmacyAutomatedMessageId =
   | 'pharmacy_onboarding_v1'
   | 'prescription_status_v1'
   | 'continuity_reminder_v1'
-  | 'prescription_validity_reminder_v1';
+  | 'prescription_validity_reminder_v1'
+  | 'medication_followup_v1';
 
 export type PharmacyMessageVars = {
   status?: 'received' | 'accepted' | 'needs_resubmission' | 'ready' | 'closed' | 'cancelled';
   reasonCode?: 'blurred' | 'cropped' | 'glare' | 'unreadable' | 'missing_page';
   genericDate?: string;
   genericTime?: string;
+  followUpId?: string;
 };
 
 const REASONS: Record<NonNullable<PharmacyMessageVars['reasonCode']>, string> = {
@@ -38,6 +40,8 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
       return vars.genericDate
         ? `処方せんの使用期限が近づいています。${vars.genericDate}までに薬局へご相談ください。`
         : '処方せんの使用期限が近づいています。薬局へご相談ください。';
+    case 'medication_followup_v1':
+      return 'お薬を使い始めてからの体調はいかがですか。あてはまるものを選んでください。';
     case 'prescription_status_v1':
       switch (vars.status) {
         case 'received':
@@ -63,11 +67,13 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
   'prescription_status_v1',
   'continuity_reminder_v1',
   'prescription_validity_reminder_v1',
+  'medication_followup_v1',
 ]);
-const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'genericDate', 'genericTime']);
+const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'genericDate', 'genericTime', 'followUpId']);
 const STATUSES = new Set(['received', 'accepted', 'needs_resubmission', 'ready', 'closed', 'cancelled']);
 const REASON_CODES = new Set(Object.keys(REASONS));
 const UNSAFE_RENDERED_TEXT = /薬剤名|疾患名|病名|医療機関名|医師名|患者名|自由記述|(?:病院|医院|診療所|クリニック|歯科)|(?:糖尿病|高血圧|がん|癌)|(?:ロキソニン|アムロジピン)|drug\s+name|diagnos(?:is|es)|hospital\s+name/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isDateOnly(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -111,8 +117,21 @@ export function buildApprovedPharmacyMessage(
   if (vars.genericTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(vars.genericTime)) {
     throw new Error('pharmacy notification variable rejected');
   }
+  if ((id === 'medication_followup_v1') !== Boolean(vars.followUpId) ||
+      (vars.followUpId && !UUID_RE.test(vars.followUpId)) ||
+      (id === 'medication_followup_v1' && Object.keys(vars).some((key) => key !== 'followUpId'))) {
+    throw new Error('pharmacy notification variable rejected');
+  }
   const text = textFor(id, vars);
   assertPharmacyAutomatedText(text);
+  if (id === 'medication_followup_v1') {
+    const followUpId = vars.followUpId!;
+    return withQuickReply({ type: 'text', text } as Message, quickReply([
+      { type: 'action', action: { type: 'postback', label: '問題なし', data: `pharmacy-followup:${followUpId}:no_issue` } },
+      { type: 'action', action: { type: 'postback', label: '気になることがある', data: `pharmacy-followup:${followUpId}:concern` } },
+      { type: 'action', action: { type: 'postback', label: '薬剤師に相談したい', data: `pharmacy-followup:${followUpId}:pharmacist_requested` } },
+    ]));
+  }
   return { type: 'text', text };
 }
 
@@ -125,20 +144,29 @@ export function isApprovedRenderedPharmacyMessage(
   message: Message,
 ): boolean {
   if (!isPharmacyAutomatedMessageId(id) || message.type !== 'text') return false;
+  const same = (candidate: Message) => JSON.stringify(candidate) === JSON.stringify(message);
+  if (id === 'medication_followup_v1') {
+    const data = (message as Message & {
+      quickReply?: { items?: Array<{ action?: { data?: string } }> };
+    }).quickReply?.items?.[0]?.action?.data;
+    const followUpId = /^pharmacy-followup:([^:]+):no_issue$/.exec(data ?? '')?.[1];
+    if (!followUpId || !UUID_RE.test(followUpId)) return false;
+    return same(buildApprovedPharmacyMessage(id, { followUpId }));
+  }
   if (id === 'prescription_status_v1') {
     return [undefined, ...STATUSES]
       .map((status) => buildApprovedPharmacyMessage(id, {
         status: status as PharmacyMessageVars['status'],
       }))
-      .some((candidate) => candidate.type === 'text' && candidate.text === message.text);
+      .some(same);
   }
   if (id === 'prescription_validity_reminder_v1') {
     const date = /^(?:処方せんの使用期限が近づいています。)(\d{4}-\d{2}-\d{2})(?:までに薬局へご相談ください。)$/.exec(message.text)?.[1];
     return (!date || isDateOnly(date)) && [
       buildApprovedPharmacyMessage(id),
       ...(date ? [buildApprovedPharmacyMessage(id, { genericDate: date })] : []),
-    ].some((candidate) => candidate.type === 'text' && candidate.text === message.text);
+    ].some(same);
   }
   const expected = buildApprovedPharmacyMessage(id);
-  return expected.type === 'text' && expected.text === message.text;
+  return same(expected);
 }

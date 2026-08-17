@@ -59,6 +59,24 @@ describe('pharmacy automated sender', () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  it('requires the medication follow-up capability for follow-up pushes', async () => {
+    const followUp = {
+      ...base,
+      messageId: 'medication_followup_v1' as const,
+      category: 'followup_care' as const,
+      vars: { followUpId: '123e4567-e89b-42d3-a456-426614174000' },
+    };
+    await expect(sendPharmacyAutomatedPush({ ...followUp, db: {} as D1Database }))
+      .rejects.toThrow(/capability/);
+    config.mockResolvedValue({ capabilities: ['medication_followup'], proactive_monthly_limit: 1 });
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+    ]);
+    await expect(sendPharmacyAutomatedPush({ ...followUp, db })).resolves.toBe('sent');
+    expect(push).toHaveBeenCalledOnce();
+  });
+
   it('requires account, friend, and database context at runtime', async () => {
     await expect(sendPharmacyAutomatedPush({
       ...base, db: undefined, lineAccountId: undefined, friendId: undefined,

@@ -26,6 +26,7 @@ import type { HarnessProxyDispatch } from '../services/line-proxy-send.js';
 import { dispatchLineProxyLocally } from '../services/local-line-proxy.js';
 import { recordPharmacyFollow, recordPharmacyUnfollowMetrics } from '../custom/pharmacy/growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import { handleMedicationFollowUpPostback } from '../custom/pharmacy/medication-followup/webhook.js'; // custom:pharmacy-medication-followup
 
 const webhook = new Hono<Env>();
 
@@ -415,7 +416,23 @@ async function handleEvent(
       console.error('Failed to log incoming postback', err);
     }
 
-    if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) return;
+    const pharmacyAccountId = lineAccountId ?? friend.line_account_id;
+    if (await isPharmacyModeAccount(db, pharmacyAccountId)) {
+      const webhookEventId = (event as WebhookEvent & { webhookEventId?: string }).webhookEventId;
+      if (pharmacyAccountId && webhookEventId) {
+        try {
+          await handleMedicationFollowUpPostback(db, {
+            lineAccountId: pharmacyAccountId,
+            friendId: friend.id,
+            webhookEventId,
+            data: postbackData,
+          });
+        } catch {
+          console.error('[pharmacy-followup] patient response rejected');
+        }
+      }
+      return;
+    }
 
     // postback data を auto_replies にマッチさせて返信 (テキスト経路と共通)。
     // silent + automation で「返信なしでタグだけ付ける」構成もここで成立する。

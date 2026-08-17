@@ -96,6 +96,8 @@ import { mynaRoutes } from './custom/pharmacy/myna/routes.js'; // custom:pharmac
 import { pharmacyRichMenuRoutes } from './custom/pharmacy/rich-menu/routes.js'; // custom:pharmacy-rich-menu
 import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // custom:pharmacy-print
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
+import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
+import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
 import { claimDueContinuityReminders } from './custom/pharmacy/continuity/repository.js'; // custom:pharmacy-continuity
@@ -245,6 +247,7 @@ app.route('/', pharmacyRichMenuRoutes); // custom:pharmacy-rich-menu
 app.route('/', pharmacyGrowthLoopRoutes); // custom:pharmacy-growth-loop
 app.route('/', pharmacyPrintRoutes); // custom:pharmacy-print
 app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifications
+app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
@@ -1083,6 +1086,23 @@ async function scheduled(
   );
   jobs.push(processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId));
   jobs.push(checkAccountHealth(env.DB));
+
+  if (event.cron === '* * * * *') {
+    jobs.push(processDueMedicationFollowUps(env.DB, { // custom:pharmacy-medication-followup
+      proxyBaseUrl:
+        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.sent + result.failed > 0) {
+        console.log(
+          `[pharmacy-medication-followup] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+        );
+      }
+    }).catch(() => {
+      console.error('[pharmacy-medication-followup] processor failed');
+    }));
+  }
 
   // Mileage is an eventually-consistent projection. Reuse the existing
   // minute cron invocation, but drain only every five minutes and at most 100

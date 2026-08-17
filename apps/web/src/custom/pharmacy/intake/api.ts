@@ -1,5 +1,6 @@
 import { fetchApi } from '../../../lib/api'
 import { accountQuery } from '../api'
+import type { MedicationFollowUp } from '../medication-followup/api'
 
 export type PharmacyPatient = {
   id: string
@@ -62,8 +63,9 @@ export type PharmacyPatientHistory = {
     created_at: string
     updated_at: string
   }>
+  medicationFollowUps: MedicationFollowUp[]
   timeline: Array<{
-    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'myna'
+    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna'
     occurred_at: string
     label: string
     status?: string | null
