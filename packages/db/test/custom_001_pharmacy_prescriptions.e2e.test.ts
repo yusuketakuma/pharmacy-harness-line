@@ -61,6 +61,16 @@ describe('synthetic prescription end-to-end', () => {
                'secret', 'login-synthetic', 'liff-synthetic', ?, ?)`,
     ).run(patient.lineAccountId, '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
     sqlite.prepare(
+      `INSERT INTO pharmacy_account_capabilities
+         (line_account_id, capabilities_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run(
+      patient.lineAccountId,
+      '["prescription_intake"]',
+      '2026-08-17T00:00:00.000Z',
+      '2026-08-17T00:00:00.000Z',
+    );
+    sqlite.prepare(
       `INSERT INTO friends
          (id, line_user_id, line_account_id, display_name, created_at, updated_at)
        VALUES (?, 'U00000000000000000000000000000000', ?, 'Synthetic Patient', ?, ?)`,
