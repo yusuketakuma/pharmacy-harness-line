@@ -139,6 +139,13 @@ describe('topology guard', () => {
 });
 
 describe('protected API access', () => {
+  test('protects rich-menu image proxies instead of relying on an unguessable R2 key', async () => {
+    const image = await app().request('/api/rich-menu-images/account/group/page/image.png', {}, crossSiteEnv());
+    const external = await app().request('/api/rich-menu-groups/external/richmenu-1/image?accountId=account-1', {}, crossSiteEnv());
+    expect(image.status).toBe(401);
+    expect(external.status).toBe(401);
+  });
+
   test('accepts the admin session cookie (GET, no CSRF needed)', async () => {
     const res = await app().request('/api/protected', {
       headers: { Cookie: 'lh_admin_session=staff-key' },

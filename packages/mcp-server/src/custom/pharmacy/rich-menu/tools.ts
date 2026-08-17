@@ -27,12 +27,13 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
       imageContentType: z.enum(['image/png', 'image/jpeg']).default('image/jpeg'),
       mode: z.enum(['bulk-link', 'set-default']).optional(),
       tagId: z.string().nullable().optional(),
+      enabled: z.boolean().optional().describe('set-default の初期表示を有効化するか'),
       dryRun: z.boolean().default(true),
       confirm: z.boolean().default(false),
       confirmationToken: z.string().optional(),
       force: z.boolean().default(false),
     },
-    async ({ action, groupId, pageId, sourcePageId, areaId, targetPageId, accountId, profileKey, imageData, imageContentType, mode, tagId, dryRun, confirm, confirmationToken, force }) => {
+    async ({ action, groupId, pageId, sourcePageId, areaId, targetPageId, accountId, profileKey, imageData, imageContentType, mode, tagId, enabled, dryRun, confirm, confirmationToken, force }) => {
       try {
         const resolvedAccountId = pinnedAccountId(accountId);
         const client = getClient();
@@ -170,6 +171,7 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
           const input = {
             mode,
             ...(mode === 'bulk-link' ? { tagId: tagId ?? null } : {}),
+            ...(mode === 'set-default' && enabled !== undefined ? { enabled } : {}),
             dryRun,
             ...(confirmationToken ? { confirmationToken } : {}),
           } as const;

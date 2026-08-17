@@ -11,6 +11,7 @@ import type {
 export type RichMenuApplyInput = {
   mode: 'bulk-link' | 'set-default'
   tagId?: string | null
+  enabled?: boolean
   dryRun?: boolean
   confirmationToken?: string
 }

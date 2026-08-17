@@ -1336,7 +1336,6 @@ export const api = {
     update: (groupId: string, input: {
       name?: string;
       chatBarText?: string;
-      isDefaultForAll?: boolean;
       selected?: boolean;
       pages?: Array<{
         id?: string;
@@ -1418,11 +1417,30 @@ export const api = {
     applyToTag: (
       groupId: string,
       params:
-        | { mode: 'bulk-link'; tagId: string | null }
-        | { mode: 'set-default' },
+        | {
+            mode: 'bulk-link';
+            tagId: string | null;
+            dryRun?: boolean;
+            confirmationToken?: string;
+          }
+        | {
+            mode: 'set-default';
+            enabled?: boolean;
+            dryRun?: boolean;
+            confirmationToken?: string;
+          },
     ) =>
       fetchApi<
-        ApiResponse<{ chunks: number; total: number; message?: string; mode?: string }>
+        ApiResponse<{
+          dryRun?: boolean;
+          confirmationToken?: string;
+          affected?: number;
+          chunks: number;
+          total: number;
+          message?: string;
+          mode?: string;
+          enabled?: boolean;
+        }>
       >(`/api/rich-menu-groups/${groupId}/apply-to-tag`, {
         method: 'POST',
         body: JSON.stringify(params),
@@ -1454,11 +1472,8 @@ export const api = {
       return body;
     },
 
-    // 注: <img src> では Authorization ヘッダを送れないため、Worker 側で
-    //   この path のみ auth ミドルウェアの除外パスに加えるか、
-    //   あるいは将来的に署名付き URL を発行する仕組みに切り替える必要がある。
-    //   v1 ではドラフト編集中のプレビュー用 = 認証バイパスでも実害は低いので、
-    //   後続 PR で worker 側を whitelist 化する想定。
+    // <img src> は Authorization ヘッダを送らないが、Worker の管理セッション
+    // cookie は対象APIホストへ送られるため、画像API側で通常の認証を行う。
     imageUrl: (key: string) =>
       `${API_URL}/api/rich-menu-images/${encodeURIComponent(key)}`,
   },
