@@ -18,11 +18,6 @@ export interface ContinuityObligation {
   updated_at: string;
 }
 
-export interface DueContinuityReminder extends ContinuityObligation {
-  line_user_id: string;
-  channel_access_token: string;
-}
-
 const OBLIGATION_SELECT = `
   SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
          candidate_submission_id, status, expected_next_from, expected_next_to,
@@ -241,51 +236,4 @@ export async function pausePatientContinuity(
        (id, obligation_id, line_account_id, event_type, actor_type, actor_id, created_at)
      VALUES (?, ?, ?, 'paused', 'patient', ?, ?)`,
   ).bind(crypto.randomUUID(), obligationId, lineAccountId, ownerFriendId, now).run();
-}
-
-export async function claimDueContinuityReminders(
-  db: D1Database,
-  now = new Date(),
-  limit = 50,
-): Promise<DueContinuityReminder[]> {
-  const timestamp = now.toISOString();
-  const staleBefore = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000).toISOString();
-  const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
-  const due = await db.prepare(
-    `SELECT o.id, o.line_account_id, o.owner_friend_id, o.patient_id,
-            o.source_submission_id, o.candidate_submission_id, o.status,
-            o.expected_next_from, o.expected_next_to, o.next_contact_at,
-            o.consent_at, o.last_reminded_at, o.reminder_count,
-            o.created_at, o.updated_at, f.line_user_id, la.channel_access_token
-       FROM pharmacy_continuity_obligations o
-       INNER JOIN friends f ON f.id = o.owner_friend_id AND f.line_account_id = o.line_account_id
-       INNER JOIN line_accounts la ON la.id = o.line_account_id
-       INNER JOIN pharmacy_account_capabilities pc
-         ON pc.line_account_id = o.line_account_id AND pc.mode = 'pharmacy'
-        AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'continuity')
-      WHERE o.status = 'active' AND o.next_contact_at <= ?
-        AND (o.last_reminded_at IS NULL OR o.last_reminded_at < ?)
-        AND o.reminder_count < 3 AND f.is_following = 1 AND la.is_active = 1
-      ORDER BY o.next_contact_at, o.id
-      LIMIT ?`,
-  ).bind(timestamp, staleBefore, boundedLimit).all<DueContinuityReminder>();
-  const claimed: DueContinuityReminder[] = [];
-  // ponytail: claim-before-send bounds duplicate reminders; add delivery retry events when retryability is required.
-  for (const row of due.results ?? []) {
-    const result = await db.prepare(
-      `UPDATE pharmacy_continuity_obligations
-          SET last_reminded_at = ?, reminder_count = reminder_count + 1, updated_at = ?
-        WHERE id = ? AND line_account_id = ? AND status = 'active'
-          AND (last_reminded_at IS NULL OR last_reminded_at < ?)
-          AND reminder_count < 3`,
-    ).bind(timestamp, timestamp, row.id, row.line_account_id, staleBefore).run();
-    if ((result.meta?.changes ?? 0) !== 1) continue;
-    await db.prepare(
-      `INSERT INTO pharmacy_continuity_events
-         (id, obligation_id, line_account_id, event_type, actor_type, created_at)
-       VALUES (?, ?, ?, 'reminded', 'system', ?)`,
-    ).bind(crypto.randomUUID(), row.id, row.line_account_id, timestamp).run();
-    claimed.push({ ...row, last_reminded_at: timestamp, reminder_count: row.reminder_count + 1 });
-  }
-  return claimed;
 }

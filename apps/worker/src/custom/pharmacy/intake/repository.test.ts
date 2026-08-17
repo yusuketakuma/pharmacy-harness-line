@@ -136,13 +136,15 @@ describe('pharmacy patient repository', () => {
     await expect(getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1')).resolves.toMatchObject({
       patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [],
     });
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(9);
     expect(calls.slice(1).every((call) => call.values.includes('account-1') && call.values.includes('patient-1'))).toBe(true);
     expect(calls.slice(1).every((call) => !call.sql.includes('line_user_id'))).toBe(true);
     const eventSql = calls.find((call) => call.sql.includes('pharmacy_prescription_events'))?.sql;
     expect(eventSql).toContain('INNER JOIN pharmacy_prescription_submissions s');
     expect(eventSql).toContain('pp.line_account_id = s.line_account_id');
     expect(eventSql).not.toContain('e.line_account_id');
+    const nextIntakeSql = calls.find((call) => call.sql.includes('pharmacy_next_intake_expectation_events'))?.sql;
+    expect(nextIntakeSql).toContain('e.line_account_id = ? AND expectation.patient_id = ?');
   });
 
   it('returns only the latest allowlisted intake answers without raw snapshots', async () => {

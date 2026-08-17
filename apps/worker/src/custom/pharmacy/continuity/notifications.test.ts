@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const push = vi.hoisted(() => vi.fn());
+const markReminded = vi.hoisted(() => vi.fn());
 vi.mock('../../../services/line-proxy-send.js', () => ({ pushViaHarnessProxy: push }));
+vi.mock('./next-intake.js', () => ({ markNextIntakeExpectationReminded: markReminded }));
 
 import { continuityReminderText, deliverContinuityReminder } from './notifications.js';
 
 describe('continuity reminder notifications', () => {
   it('uses a PHI-free fixed message and reports delivery status', async () => {
     push.mockResolvedValue(undefined);
+    markReminded.mockResolvedValue({ status: 'reminded' });
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
@@ -19,11 +22,12 @@ describe('continuity reminder notifications', () => {
       }),
     } as unknown as D1Database;
     const result = await deliverContinuityReminder({
-      id: 'obligation-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
-      patient_id: 'patient-1', source_submission_id: 'submission-1', candidate_submission_id: null,
-      status: 'active', expected_next_from: '2026-09-01', expected_next_to: '2026-10-31',
-      next_contact_at: '2026-09-01T00:00:00Z', consent_at: '2026-08-17T00:00:00Z',
-      last_reminded_at: null, reminder_count: 1, created_at: '2026-08-17T00:00:00Z',
+      id: 'expectation-1', obligation_id: 'obligation-1', line_account_id: 'account-1',
+      owner_friend_id: 'friend-1', patient_id: 'patient-1', status: 'active',
+      timing_source: 'manual_window', supply_days: null,
+      expected_from: '2026-09-01', expected_to: '2026-10-31',
+      reminder_at: '2026-09-01T00:00:00Z', reminded_at: null, version: 2,
+      created_by: 'staff-1', created_at: '2026-08-17T00:00:00Z',
       updated_at: '2026-08-17T00:00:00Z', line_user_id: 'U1', channel_access_token: 'token',
     }, { db, proxyBaseUrl: 'https://worker.example' });
     expect(result).toBe('sent');
@@ -37,5 +41,8 @@ describe('continuity reminder notifications', () => {
         lineAccountId: 'account-1',
       },
     );
+    expect(markReminded).toHaveBeenCalledWith(db, {
+      lineAccountId: 'account-1', expectationId: 'expectation-1', expectedVersion: 2,
+    });
   });
 });
