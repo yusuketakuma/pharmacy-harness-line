@@ -44,7 +44,6 @@ export default function PharmacyActivityNotificationsPage() {
   const acknowledge = async (item: PharmacyActivityNotification) => {
     if (!selectedAccountId) return
     try {
-      if (item.status === 'unread') await pharmacyActivityApi.claim(selectedAccountId, item.id)
       await pharmacyActivityApi.acknowledge(selectedAccountId, item.id)
       setItems((current) => current.filter((candidate) => candidate.id !== item.id))
     } catch {

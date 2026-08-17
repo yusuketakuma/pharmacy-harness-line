@@ -22,6 +22,6 @@ describe('pharmacy activity notification API', () => {
   it('uses the approved PHI-free labels', async () => {
     const { activityTypeLabel } = await import('./api.js')
     expect(activityTypeLabel.prescription_received).toBe('処方せんを受信')
-    expect(activityTypeLabel.patient_message_received).toBe('患者からメッセージ')
+    expect(activityTypeLabel.myna_handoff_received).toBe('マイナ受付を確認')
   })
 })

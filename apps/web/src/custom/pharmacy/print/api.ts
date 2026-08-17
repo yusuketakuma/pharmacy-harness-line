@@ -1,24 +1,34 @@
-import { fetchApi } from '../../../lib/api'
-import { accountQuery } from '../api'
+import { fetchApi } from '../../../lib/api';
+import { accountQuery } from '../api';
 
-export interface PharmacyPrintJob {
-  id: string
-  submission_id: string
-  file_id: string
-  revision: number
-  status: 'queued' | 'claimed' | 'printed' | 'failed' | 'dead_letter' | 'cancelled'
+export interface PharmacyPrintTask {
+  id: string;
+  submission_id: string;
+  revision: number;
+  status: 'pending' | 'handling' | 'acknowledged' | 'cancelled';
+  lease_until: string | null;
+  acknowledged_at: string | null;
 }
+
+const action = (accountId: string, path: string, operationId?: string) =>
+  fetchApi<{ task: PharmacyPrintTask }>(`${path}?${accountQuery(accountId)}`, {
+    method: 'POST',
+    ...(operationId ? { body: JSON.stringify({ operationId }) } : {}),
+  });
 
 export const pharmacyPrintApi = {
-  list: (accountId: string) => fetchApi<{ jobs: PharmacyPrintJob[] }>(
-    `/api/custom/pharmacy/print/jobs?${accountQuery(accountId)}&status=queued&limit=100`,
+  prepare: (accountId: string, submissionId: string) => action(
+    accountId,
+    `/api/custom/pharmacy/print/submissions/${encodeURIComponent(submissionId)}/prepare`,
   ),
-  claim: (accountId: string, jobId: string) => fetchApi<{ job: PharmacyPrintJob }>(
-    `/api/custom/pharmacy/print/jobs/${encodeURIComponent(jobId)}/claim?${accountQuery(accountId)}`,
-    { method: 'POST' },
+  claim: (accountId: string, taskId: string, operationId: string) => action(
+    accountId,
+    `/api/custom/pharmacy/print/tasks/${encodeURIComponent(taskId)}/claim`,
+    operationId,
   ),
-  printed: (accountId: string, jobId: string) => fetchApi<{ job: PharmacyPrintJob }>(
-    `/api/custom/pharmacy/print/jobs/${encodeURIComponent(jobId)}/printed?${accountQuery(accountId)}`,
-    { method: 'POST' },
+  acknowledge: (accountId: string, taskId: string, operationId: string) => action(
+    accountId,
+    `/api/custom/pharmacy/print/tasks/${encodeURIComponent(taskId)}/ack`,
+    operationId,
   ),
-}
+};

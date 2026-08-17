@@ -3,7 +3,7 @@ import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { getPharmacyAccountId } from '../account.js';
-import { enqueueActivityForAccount } from '../activity-notifications/service.js'; // custom:pharmacy-activity-notifications
+import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { readJsonObject } from '../json.js';
 import {
   resolvePrescriptionPatient,
@@ -233,8 +233,8 @@ mynaRoutes.post('/api/custom/pharmacy/myna-handoffs/:id/verifications', async (c
         c.env.DB, lineAccountId, 'myna_handoff_received',
         `myna-verification:${c.req.param('id')}:${status}`,
       );
-    } catch (error) {
-      console.error('[pharmacy-myna] activity notification failed', error instanceof Error ? error.message : 'unknown');
+    } catch {
+      console.error('[pharmacy-myna] activity notification unavailable');
     }
     return c.json(result, 201);
   } catch (error) {

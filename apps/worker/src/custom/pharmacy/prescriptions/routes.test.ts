@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   notify: vi.fn(),
   linkContinuity: vi.fn(),
   completeContinuity: vi.fn(),
-  enqueuePrint: vi.fn(),
   enqueueActivity: vi.fn(),
 }));
 
@@ -56,10 +55,7 @@ vi.mock('../continuity/repository.js', () => ({
   linkContinuitySubmission: mocks.linkContinuity,
   completeContinuityAfterClose: mocks.completeContinuity,
 }));
-vi.mock('../print/repository.js', () => ({
-  enqueuePrescriptionPrintJobs: mocks.enqueuePrint,
-}));
-vi.mock('../activity-notifications/service.js', () => ({
+vi.mock('../activity-notifications/repository.js', () => ({
   enqueueActivityForAccount: mocks.enqueueActivity,
 }));
 
@@ -85,8 +81,7 @@ beforeEach(() => {
   mocks.notify.mockResolvedValue({ status: 'sent' });
   mocks.linkContinuity.mockResolvedValue(null);
   mocks.completeContinuity.mockResolvedValue(null);
-  mocks.enqueuePrint.mockResolvedValue(0);
-  mocks.enqueueActivity.mockResolvedValue([]);
+  mocks.enqueueActivity.mockResolvedValue(null);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {

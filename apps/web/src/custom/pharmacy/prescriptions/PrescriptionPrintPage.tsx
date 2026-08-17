@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useAccount } from '../../../contexts/account-context'
 import { prescriptionAdminApi, type PrescriptionFile } from './api'
-import { pharmacyPrintApi, type PharmacyPrintJob } from '../print/api'
+import { pharmacyPrintApi, type PharmacyPrintTask } from '../print/api'
 
 export function printablePrescriptionFiles(
   files: PrescriptionFile[],
@@ -16,18 +16,21 @@ export function printablePrescriptionFiles(
     .sort((left, right) => left.position - right.position)
 }
 
-export function printablePrescriptionJobs(
-  jobs: PharmacyPrintJob[],
-  submissionId: string,
-  activeRevision: number | null,
-  fileIds: ReadonlySet<string>,
-): PharmacyPrintJob[] {
-  if (activeRevision === null) return []
-  return jobs.filter((job) =>
-    job.submission_id === submissionId &&
-    job.revision === activeRevision &&
-    fileIds.has(job.file_id),
-  )
+export function canAcknowledgePrint(
+  printInvoked: boolean,
+  recording: boolean,
+  recorded: boolean,
+): boolean {
+  return printInvoked && !recording && !recorded
+}
+
+function operationId(submissionId: string): string {
+  const key = `pharmacy-print:${submissionId}`
+  const existing = sessionStorage.getItem(key)
+  if (existing) return existing
+  const created = crypto.randomUUID()
+  sessionStorage.setItem(key, created)
+  return created
 }
 
 export default function PrescriptionPrintPage() {
@@ -35,11 +38,14 @@ export default function PrescriptionPrintPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const submissionId = params.get('submission_id')
   const [images, setImages] = useState<string[]>([])
-  const [jobs, setJobs] = useState<PharmacyPrintJob[]>([])
+  const [loadedImages, setLoadedImages] = useState(0)
+  const [task, setTask] = useState<PharmacyPrintTask | null>(null)
+  const [sessionId, setSessionId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [recording, setRecording] = useState(false)
   const [recorded, setRecorded] = useState(false)
+  const [printInvoked, setPrintInvoked] = useState(false)
 
   useEffect(() => {
     let disposed = false
@@ -50,28 +56,38 @@ export default function PrescriptionPrintPage() {
     }
     setLoading(true)
     setError('')
+    setImages([])
+    setLoadedImages(0)
+    setPrintInvoked(false)
     void (async () => {
       try {
-        const [detail, printQueue] = await Promise.all([
-          prescriptionAdminApi.detail(selectedAccountId, submissionId),
-          pharmacyPrintApi.list(selectedAccountId).catch(() => ({ jobs: [] })),
-        ])
-        const files = printablePrescriptionFiles(detail.files, detail.submission.active_revision)
+        const prepared = await pharmacyPrintApi.prepare(selectedAccountId, submissionId)
+        if (prepared.task.status === 'acknowledged') {
+          if (!disposed) {
+            setTask(prepared.task)
+            setRecorded(true)
+          }
+          return
+        }
+        const id = operationId(submissionId)
+        const claimed = await pharmacyPrintApi.claim(selectedAccountId, prepared.task.id, id)
+        const detail = await prescriptionAdminApi.detail(selectedAccountId, submissionId)
+        if (detail.submission.active_revision !== claimed.task.revision) {
+          throw new Error('stale prescription revision')
+        }
+        const files = printablePrescriptionFiles(detail.files, claimed.task.revision)
+        if (files.length === 0) throw new Error('no printable files')
         const blobs = await Promise.all(files.map((file) =>
           prescriptionAdminApi.image(selectedAccountId, submissionId, file.id),
         ))
         if (disposed) return
         for (const blob of blobs) urls.push(URL.createObjectURL(blob))
-        setJobs(printablePrescriptionJobs(
-          printQueue.jobs,
-          submissionId,
-          detail.submission.active_revision,
-          new Set(files.map((file) => file.id)),
-        ))
+        setTask(claimed.task)
+        setSessionId(id)
         setImages(urls)
       } catch {
         for (const url of urls) URL.revokeObjectURL(url)
-        if (!disposed) setError('印刷する画像を取得できませんでした。')
+        if (!disposed) setError('印刷タスクを開始できませんでした。別の画面で操作中でないか確認してください。')
       } finally {
         if (!disposed) setLoading(false)
       }
@@ -82,27 +98,33 @@ export default function PrescriptionPrintPage() {
     }
   }, [selectedAccountId, submissionId])
 
-  const print = useCallback(() => window.print(), [])
+  const print = useCallback(() => {
+    window.print()
+    setPrintInvoked(true)
+  }, [])
+
+  useEffect(() => {
+    if (images.length > 0 && loadedImages === images.length && !printInvoked) print()
+  }, [images, loadedImages, print, printInvoked])
 
   const recordPrinted = useCallback(async () => {
-    if (!selectedAccountId || recording || jobs.length === 0) return
+    if (!selectedAccountId || !task || !sessionId || !canAcknowledgePrint(printInvoked, recording, recorded)) return
     setRecording(true)
     try {
-      for (const job of jobs) {
-        const claimed = await pharmacyPrintApi.claim(selectedAccountId, job.id)
-        await pharmacyPrintApi.printed(selectedAccountId, claimed.job.id)
-      }
+      const result = await pharmacyPrintApi.acknowledge(selectedAccountId, task.id, sessionId)
+      setTask(result.task)
       setRecorded(true)
     } catch {
-      setError('印刷済み状態を保存できませんでした。')
+      setError('印刷操作済みの記録を保存できませんでした。')
     } finally {
       setRecording(false)
     }
-  }, [jobs, recording, selectedAccountId])
+  }, [printInvoked, recorded, recording, selectedAccountId, sessionId, task])
 
   if (accountLoading || loading) return <p className="p-8 text-center text-gray-500">印刷画像を準備中...</p>
   if (!selectedAccountId || !submissionId) return <p className="p-8 text-center text-gray-500">印刷対象が指定されていません。</p>
-  if (error) return <p className="p-8 text-center text-red-600">{error}</p>
+  if (error) return <p role="alert" className="p-8 text-center text-red-600">{error}</p>
+  if (recorded && images.length === 0) return <p className="p-8 text-center text-gray-600">この改訂は印刷操作済みとして記録されています。</p>
   if (images.length === 0) return <p className="p-8 text-center text-gray-500">印刷できる画像がありません。</p>
 
   return (
@@ -110,20 +132,32 @@ export default function PrescriptionPrintPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-xl font-bold text-gray-900">処方せん画像を印刷</h1>
-          <p className="text-sm text-gray-500">薬局内のプリンターを選び、印刷後は画面を閉じてください。</p>
+          <p className="text-sm text-gray-500">印刷画面を開きます。印刷後に操作済みとして記録してください。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={print} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">
-            印刷
+            印刷画面を開く
           </button>
-          {jobs.length > 0 && <button type="button" onClick={() => void recordPrinted()} disabled={recording || recorded} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50">
-            {recorded ? '印刷済み' : recording ? '保存中...' : '印刷済みを記録'}
-          </button>}
+          <button
+            type="button"
+            onClick={() => void recordPrinted()}
+            disabled={!canAcknowledgePrint(printInvoked, recording, recorded)}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+          >
+            {recorded ? '記録済み' : recording ? '保存中...' : '印刷操作済みとして記録'}
+          </button>
         </div>
       </div>
       <section className="space-y-4" aria-label="処方せん画像">
         {images.map((src, index) => (
-          <img key={src} src={src} alt={`処方せん画像 ${index + 1}`} className="mx-auto block max-w-full break-after-page" />
+          <img
+            key={src}
+            src={src}
+            alt={`処方せん画像 ${index + 1}`}
+            onLoad={() => setLoadedImages((count) => count + 1)}
+            onError={() => setError('印刷画像を表示できませんでした。')}
+            className="mx-auto block max-w-full break-after-page"
+          />
         ))}
       </section>
       <style jsx global>{`

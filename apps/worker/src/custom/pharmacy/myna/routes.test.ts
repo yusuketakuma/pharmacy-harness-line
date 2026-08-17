@@ -37,7 +37,7 @@ vi.mock('../../../services/liff-auth.js', () => ({
 vi.mock('../prescriptions/patient.js', () => ({
   resolvePrescriptionPatient: mocks.resolvePatient,
 }));
-vi.mock('../activity-notifications/service.js', () => ({
+vi.mock('../activity-notifications/repository.js', () => ({
   enqueueActivityForAccount: mocks.enqueueActivity,
 }));
 
@@ -88,7 +88,7 @@ beforeEach(() => {
     receiptStatus: 'RECEIVED', shadowSubmissionId: 'submission-1',
     handoff: { ...handoff, status: 'CLOSED' },
   });
-  mocks.enqueueActivity.mockResolvedValue([]);
+  mocks.enqueueActivity.mockResolvedValue(null);
 });
 
 describe('Myna routes', () => {

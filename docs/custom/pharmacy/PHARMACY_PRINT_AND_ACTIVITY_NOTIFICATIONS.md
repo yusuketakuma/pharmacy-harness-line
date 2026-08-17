@@ -1,76 +1,31 @@
-# Pharmacy print and activity notifications
+# Pharmacy Web print and activity inbox
 
 ## Scope
 
-This feature branch adds two account-scoped operational aids:
+- Printing is a Web admin extension. The Worker never connects to a printer.
+- Opening the print view claims one account/submission/active-revision task
+  before private images are loaded, then opens the browser print dialog.
+- The operator explicitly records that the print operation was performed.
+- A ten-minute lease recovers abandoned browser sessions. Replacement
+  revisions cancel older open tasks; cancelled tasks cannot be retried.
+- No resident agent, printer telemetry, silent printing, or automatic retry is
+  included.
 
-1. A print queue for ready prescription images.
-2. A staff activity inbox for pharmacy events.
+The activity inbox stores one shared item per account event. It has only open
+and acknowledged states. Source keys are SHA-256 hashed before persistence;
+responses contain no dedupe hash, patient identifier, LINE identifier,
+prescription content, R2 key, or free-form payload.
 
-Both features are under `custom/pharmacy`. They do not send patient messages,
-store prescription content in an analytics table, or copy R2 keys into the
-activity inbox.
+## Tenant boundary
 
-## Print flow
-
-```text
-LINE/LIFF upload
-      |
-      v
-prescription files in R2 + D1 received state
-      |
-      v
-D1 pharmacy_print_jobs (one job per active-revision file)
-      |
-      v
-Admin web print view -> browser print dialog -> pharmacy printer
-```
-
-The Worker cannot safely or portably access a local USB/network printer. The
-admin web page therefore fetches the existing account-scoped image endpoint,
-renders the active revision, and calls `window.print()` only after a staff
-click. The page offers a separate “印刷済みを記録” action. A future resident
-agent may claim the same queue, but it is not required for Release 1.
-
-Print jobs are idempotent by account, submission, file, and revision. When a
-replacement image revision is received, queued jobs for older revisions are
-cancelled before the new files are queued. Claim, printed, failed, and
-cancelled transitions append immutable print events. Failure codes are fixed
-values; free-form notes are not accepted.
-
-## Activity notification flow
-
-```text
-prescription / quote / Myna event
-      |
-      v
-D1 pharmacy_activity_notifications (one row per assigned staff)
-      |
-      v
-Admin web “薬局の動き” -> claim -> acknowledge
-```
-
-Activity rows contain only an approved event kind, an opaque idempotency key,
-status, timestamps, and account/staff ownership. They do not contain patient
-names, LINE user IDs, prescription text, drug names, or free-form notes.
-
-The initial event writers are prescription receipt/status, fulfillment quote
-creation, and Myna verification. Notification delivery to patients is outside
-this feature; this is an internal staff inbox.
-
-## Migrations
-
-- `custom_009_pharmacy_print_queue.sql`
-- `custom_010_pharmacy_activity_notifications.sql`
-
-Both migrations are additive. Applied migrations must not be edited. Run the
-bootstrap generator after reviewing the migrations.
+Every route authenticates staff and validates the selected account server-side.
+The environment owner is restricted to the LINE channel configured in the
+Worker. Regular staff fail closed until the account-assignment table from the
+Growth Loop release is installed.
 
 ## Human gates
 
-- Confirm the Japanese labels and staff workflow with the pharmacy.
-- Test the browser print dialog and target printer on the pharmacy PC.
-- Decide whether the print button requires a second-person check.
-- Define the retention period for print audit rows before production rollout.
-- Do not enable unattended local-agent printing without a separate secret,
-  installation, printer-permission, and retry review.
+- Test the browser print dialog and physical printer on each pharmacy PC.
+- Confirm the Japanese acknowledgement wording with the pharmacy.
+- Approve retention for acknowledged print tasks and activity items before
+  production rollout.

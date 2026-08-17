@@ -1,131 +1,86 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  acknowledgeActivityNotification,
+  createActivityNotification,
+  listActivityNotifications,
+} from '../../../apps/worker/src/custom/pharmacy/activity-notifications/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-function loadDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('foreign_keys = ON');
-  db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-  db.exec(readFileSync(
-    join(ROOT, 'migrations/custom_010_pharmacy_activity_notifications.sql'),
-    'utf8',
-  ));
-  return db;
+type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
+function d1From(sqlite: Database.Database): D1Database {
+  const statement = (sql: string, values: unknown[] = []): RunnableStatement => ({
+    bind: (...next: unknown[]) => statement(sql, next),
+    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
+    all: async <T>() => ({ success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {} }) as D1Result<T>,
+    raw: async <T>() => sqlite.prepare(sql).raw().all(...values) as T[],
+    run: async () => statement(sql, values).runSync(),
+    runSync: () => {
+      const info = sqlite.prepare(sql).run(...values);
+      return { success: true, meta: { changes: info.changes }, results: [] } as unknown as D1Result;
+    },
+  });
+  return {
+    prepare: (sql: string) => statement(sql),
+    batch: async <T>(statements: D1PreparedStatement[]) => sqlite.transaction(() =>
+      statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>),
+    )(),
+  } as unknown as D1Database;
 }
 
-function seedAccount(db: Database.Database, accountId: string): void {
-  db.prepare(
+function load(): { sqlite: Database.Database; db: D1Database } {
+  const sqlite = new Database(':memory:');
+  sqlite.pragma('foreign_keys = ON');
+  sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
+  sqlite.prepare(
     `INSERT INTO line_accounts
        (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
-     VALUES (?, ?, ?, 'token', 'secret', '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')`,
-  ).run(accountId, `channel-${accountId}`, `Pharmacy ${accountId}`);
-  db.prepare(
-    `INSERT INTO staff
-       (id, line_account_id, name, display_name, created_at, updated_at)
-     VALUES (?, ?, 'Staff', 'Staff', '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')`,
-  ).run(`staff-${accountId}`, accountId);
+     VALUES ('account-a', 'channel-a', 'A', 'token', 'secret', ?, ?)`,
+  ).run('2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z');
+  return { sqlite, db: d1From(sqlite) };
 }
 
-function seedStaff(db: Database.Database, staffId: string, accountId: string): void {
-  db.prepare(
-    `INSERT INTO staff
-       (id, line_account_id, name, display_name, created_at, updated_at)
-     VALUES (?, ?, 'Staff', 'Staff', '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')`,
-  ).run(staffId, accountId);
-}
-
-function insertNotification(
-  db: Database.Database,
-  values: {
-    id: string;
-    accountId: string;
-    staffId: string;
-    key: string;
-    status?: string;
-  },
-): void {
-  db.prepare(
-    `INSERT INTO pharmacy_activity_notifications
-       (id, line_account_id, staff_id, activity_type, idempotency_key,
-        status, created_at, updated_at)
-     VALUES (?, ?, ?, 'prescription_received', ?, ?,
-             '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')`,
-  ).run(
-    values.id,
-    values.accountId,
-    values.staffId,
-    values.key,
-    values.status ?? 'unread',
-  );
-}
-
-describe('custom_010_pharmacy_activity_notifications.sql', () => {
-  let db: Database.Database;
-
-  beforeEach(() => {
-    db = loadDb();
-    seedAccount(db, 'account-a');
-    seedAccount(db, 'account-b');
-    seedStaff(db, 'staff-account-a-2', 'account-a');
+describe('custom_010 shared pharmacy activity inbox', () => {
+  it('is replay-safe and stores no recipient, raw key, payload, or PHI columns', () => {
+    const { sqlite } = load();
+    expect(() => sqlite.exec(readFileSync(
+      join(ROOT, 'migrations/custom_010_pharmacy_activity_notifications.sql'), 'utf8',
+    ))).not.toThrow();
+    const columns = sqlite.prepare(`PRAGMA table_info(pharmacy_activity_notifications)`).all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).not.toEqual(expect.arrayContaining([
+      'staff_id', 'idempotency_key', 'payload_json', 'patient_name', 'line_user_id',
+    ]));
   });
 
-  it('creates an account-scoped inbox and append-only audit table without payload copies', () => {
-    const names = db.prepare(
-      `SELECT name FROM sqlite_master
-       WHERE type = 'table' AND name IN
-         ('pharmacy_activity_notifications', 'pharmacy_activity_notification_events')
-       ORDER BY name`,
-    ).all() as Array<{ name: string }>;
-    expect(names.map((row) => row.name)).toEqual([
-      'pharmacy_activity_notification_events',
-      'pharmacy_activity_notifications',
-    ]);
-
-    const columns = db.prepare(
-      `SELECT name FROM pragma_table_info('pharmacy_activity_notifications') ORDER BY cid`,
-    ).all() as Array<{ name: string }>;
-    expect(columns.map((column) => column.name)).not.toEqual(
-      expect.arrayContaining(['payload_json', 'patient_name', 'prescription_content', 'line_user_id']),
-    );
+  it('creates one account item per source event and never returns its dedupe material', async () => {
+    const { sqlite, db } = load();
+    const first = await createActivityNotification(db, {
+      lineAccountId: 'account-a', activityType: 'prescription_received', idempotencyKey: 'submission:opaque-1',
+    });
+    const retry = await createActivityNotification(db, {
+      lineAccountId: 'account-a', activityType: 'prescription_received', idempotencyKey: 'submission:opaque-1',
+    });
+    expect(retry?.id).toBe(first?.id);
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_activity_notifications`).get())
+      .toEqual({ count: 1 });
+    expect(JSON.stringify(await listActivityNotifications(db, 'account-a', false, 20)))
+      .not.toContain('opaque-1');
   });
 
-  it('scopes idempotency by account and recipient staff', () => {
-    insertNotification(db, { id: 'notification-a', accountId: 'account-a', staffId: 'staff-account-a', key: 'event-1' });
-    expect(() => insertNotification(db, {
-      id: 'notification-a2', accountId: 'account-a', staffId: 'staff-account-a', key: 'event-1',
-    })).toThrow(/UNIQUE constraint failed/);
-    expect(() => insertNotification(db, {
-      id: 'notification-a3', accountId: 'account-a', staffId: 'staff-account-a-2', key: 'event-1',
-    })).not.toThrow();
-    expect(() => insertNotification(db, {
-      id: 'notification-b', accountId: 'account-b', staffId: 'staff-account-b', key: 'event-1',
-    })).not.toThrow();
-  });
-
-  it('rejects unsupported status and activity types at the database boundary', () => {
-    expect(() => insertNotification(db, {
-      id: 'bad-status', accountId: 'account-a', staffId: 'staff-account-a', key: 'event-1', status: 'read',
-    })).toThrow(/CHECK constraint failed/);
-    expect(() => db.prepare(
-      `INSERT INTO pharmacy_activity_notifications
-         (id, line_account_id, staff_id, activity_type, idempotency_key,
-          status, created_at, updated_at)
-       VALUES ('bad-type', 'account-a', 'staff-account-a', '患者名を含む自由記述', 'event-2',
-               'unread', '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')`,
-    ).run()).toThrow(/CHECK constraint failed/);
-  });
-
-  it('requires audit rows to use the same tenant as their notification', () => {
-    insertNotification(db, { id: 'notification-a', accountId: 'account-a', staffId: 'staff-account-a', key: 'event-1' });
-    expect(() => db.prepare(
-      `INSERT INTO pharmacy_activity_notification_events
-         (id, notification_id, line_account_id, event_type, actor_type, created_at)
-       VALUES ('audit-cross-tenant', 'notification-a', 'account-b', 'created', 'system',
-               '2026-08-18T00:00:00Z')`,
-    ).run()).toThrow(/FOREIGN KEY constraint failed/);
+  it('one acknowledgement closes the shared item and retries idempotently', async () => {
+    const { db } = load();
+    const item = await createActivityNotification(db, {
+      lineAccountId: 'account-a', activityType: 'prescription_received', idempotencyKey: 'source-1',
+    });
+    await expect(acknowledgeActivityNotification(db, 'account-a', item!.id, 'staff-a'))
+      .resolves.toMatchObject({ acknowledged_by: 'staff-a' });
+    await expect(acknowledgeActivityNotification(db, 'account-a', item!.id, 'staff-b'))
+      .resolves.toMatchObject({ acknowledged_by: 'staff-a' });
+    await expect(listActivityNotifications(db, 'account-a', false, 20)).resolves.toEqual([]);
+    await expect(listActivityNotifications(db, 'account-a', true, 20)).resolves.toHaveLength(1);
   });
 });

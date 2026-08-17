@@ -1,90 +1,59 @@
-import { Hono, type Context } from 'hono'
-import { getPharmacyAccountId } from '../account.js'
-import { readJsonObject } from '../json.js'
+import { Hono, type Context } from 'hono';
+import { getPharmacyAccountId } from '../account.js';
+import { readJsonObject } from '../json.js';
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import {
-  assertPharmacyStaffInAccount,
-  claimPharmacyPrintJob,
-  listPharmacyPrintJobs,
-  markPharmacyPrintJobFailed,
-  markPharmacyPrintJobPrinted,
-  retryPharmacyPrintJob,
-  type PrintFailureCode,
-  type PrintJobStatus,
-} from './repository.js'
+  acknowledgePrescriptionPrintTask,
+  claimPrescriptionPrintTask,
+  preparePrescriptionPrintTask,
+} from './repository.js';
 
 type PrintEnv = {
-  Bindings: { DB: D1Database }
-  Variables: { staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' } }
+  Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string };
+  Variables: { staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' } };
+};
+
+export const pharmacyPrintRoutes = new Hono<PrintEnv>();
+const OPERATION_ID = /^[A-Za-z0-9._:-]{8,160}$/;
+
+async function authorize(c: Context<PrintEnv>): Promise<string | Response> {
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
+  return lineAccountId;
 }
 
-export const pharmacyPrintRoutes = new Hono<PrintEnv>()
-
-const STATUSES = new Set<PrintJobStatus>(['queued', 'claimed', 'printed', 'failed', 'dead_letter', 'cancelled'])
-const FAILURE_CODES = new Set<PrintFailureCode>([
-  'printer_unavailable', 'paper_empty', 'ink_or_toner', 'invalid_document', 'unknown',
-])
-
-async function scopedStaff(c: Context<PrintEnv>): Promise<string | 'forbidden' | null> {
-  const accountId = getPharmacyAccountId(c)
-  const staff = c.get('staff')
-  if (!accountId || !staff) return null
-  if (!(await assertPharmacyStaffInAccount(c.env.DB, staff.id, accountId))) return 'forbidden'
-  return accountId
+async function operationId(c: Context<PrintEnv>): Promise<string | null> {
+  const body = await readJsonObject(c.req);
+  const value = body?.operationId;
+  return typeof value === 'string' && OPERATION_ID.test(value) ? value : null;
 }
 
-pharmacyPrintRoutes.get('/api/custom/pharmacy/print/jobs', async (c) => {
-  const accountId = await scopedStaff(c)
-  if (!c.get('staff')) return c.json({ error: 'Unauthorized' }, 401)
-  if (accountId === 'forbidden') return c.json({ error: 'Forbidden' }, 403)
-  if (!accountId) return c.json({ error: 'line_account_id is required' }, 400)
-  const statusParam = c.req.query('status') ?? 'queued'
-  if (!STATUSES.has(statusParam as PrintJobStatus)) return c.json({ error: 'Invalid status' }, 400)
-  const limit = Number(c.req.query('limit') ?? 50)
-  if (!Number.isInteger(limit) || limit < 1) return c.json({ error: 'Invalid limit' }, 400)
-  return c.json({ jobs: await listPharmacyPrintJobs(c.env.DB, accountId, statusParam as PrintJobStatus, limit) })
-})
+pharmacyPrintRoutes.post('/api/custom/pharmacy/print/submissions/:id/prepare', async (c) => {
+  const account = await authorize(c);
+  if (account instanceof Response) return account;
+  const task = await preparePrescriptionPrintTask(c.env.DB, account, c.req.param('id'));
+  return task ? c.json({ task }) : c.json({ error: 'Printable prescription not found' }, 404);
+});
 
-pharmacyPrintRoutes.post('/api/custom/pharmacy/print/jobs/:id/claim', async (c) => {
-  const accountId = await scopedStaff(c)
-  const staff = c.get('staff')
-  if (!staff) return c.json({ error: 'Unauthorized' }, 401)
-  if (accountId === 'forbidden') return c.json({ error: 'Forbidden' }, 403)
-  if (!accountId) return c.json({ error: 'line_account_id is required' }, 400)
-  const job = await claimPharmacyPrintJob(c.env.DB, accountId, c.req.param('id'), staff.id)
-  return job ? c.json({ job }) : c.json({ error: 'Print job changed; retry' }, 409)
-})
+pharmacyPrintRoutes.post('/api/custom/pharmacy/print/tasks/:id/claim', async (c) => {
+  const account = await authorize(c);
+  if (account instanceof Response) return account;
+  const id = await operationId(c);
+  if (!id) return c.json({ error: 'Invalid operation id' }, 400);
+  const task = await claimPrescriptionPrintTask(c.env.DB, account, c.req.param('id'), c.get('staff').id, id);
+  return task ? c.json({ task }) : c.json({ error: 'Print task is already in use or stale' }, 409);
+});
 
-pharmacyPrintRoutes.post('/api/custom/pharmacy/print/jobs/:id/printed', async (c) => {
-  const accountId = await scopedStaff(c)
-  const staff = c.get('staff')
-  if (!staff) return c.json({ error: 'Unauthorized' }, 401)
-  if (accountId === 'forbidden') return c.json({ error: 'Forbidden' }, 403)
-  if (!accountId) return c.json({ error: 'line_account_id is required' }, 400)
-  const job = await markPharmacyPrintJobPrinted(c.env.DB, accountId, c.req.param('id'), staff.id)
-  return job ? c.json({ job }) : c.json({ error: 'Print job changed; retry' }, 409)
-})
-
-pharmacyPrintRoutes.post('/api/custom/pharmacy/print/jobs/:id/failed', async (c) => {
-  const accountId = await scopedStaff(c)
-  const staff = c.get('staff')
-  if (!staff) return c.json({ error: 'Unauthorized' }, 401)
-  if (accountId === 'forbidden') return c.json({ error: 'Forbidden' }, 403)
-  if (!accountId) return c.json({ error: 'line_account_id is required' }, 400)
-  const body = await readJsonObject(c.req)
-  const code = body?.code ?? body?.failureCode
-  if (typeof code !== 'string' || !FAILURE_CODES.has(code as PrintFailureCode)) {
-    return c.json({ error: 'Invalid failure code' }, 400)
-  }
-  const job = await markPharmacyPrintJobFailed(c.env.DB, accountId, c.req.param('id'), staff.id, code as PrintFailureCode)
-  return job ? c.json({ job }) : c.json({ error: 'Print job changed; retry' }, 409)
-})
-
-pharmacyPrintRoutes.post('/api/custom/pharmacy/print/jobs/:id/retry', async (c) => {
-  const accountId = await scopedStaff(c)
-  const staff = c.get('staff')
-  if (!staff) return c.json({ error: 'Unauthorized' }, 401)
-  if (accountId === 'forbidden') return c.json({ error: 'Forbidden' }, 403)
-  if (!accountId) return c.json({ error: 'line_account_id is required' }, 400)
-  const job = await retryPharmacyPrintJob(c.env.DB, accountId, c.req.param('id'), staff.id)
-  return job ? c.json({ job }) : c.json({ error: 'Print job cannot be retried' }, 409)
-})
+pharmacyPrintRoutes.post('/api/custom/pharmacy/print/tasks/:id/ack', async (c) => {
+  const account = await authorize(c);
+  if (account instanceof Response) return account;
+  const id = await operationId(c);
+  if (!id) return c.json({ error: 'Invalid operation id' }, 400);
+  const task = await acknowledgePrescriptionPrintTask(c.env.DB, account, c.req.param('id'), c.get('staff').id, id);
+  return task ? c.json({ task }) : c.json({ error: 'Print task is already in use or stale' }, 409);
+});

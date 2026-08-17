@@ -750,57 +750,23 @@ CREATE TABLE outgoing_webhooks (
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
-CREATE TABLE pharmacy_activity_notification_events (
-  id                TEXT PRIMARY KEY,
-  notification_id   TEXT NOT NULL,
-  line_account_id   TEXT NOT NULL,
-  event_type        TEXT NOT NULL CHECK (event_type IN
-    ('created', 'claimed', 'acknowledged')),
-  actor_type        TEXT NOT NULL CHECK (actor_type IN ('system', 'staff')),
-  actor_id          TEXT,
-  created_at        TEXT NOT NULL,
-  CHECK ((actor_type = 'system' AND actor_id IS NULL)
-      OR (actor_type = 'staff' AND actor_id IS NOT NULL)),
-  FOREIGN KEY (notification_id, line_account_id)
-    REFERENCES pharmacy_activity_notifications(id, line_account_id)
-);
-
 CREATE TABLE pharmacy_activity_notifications (
   id                TEXT PRIMARY KEY,
   line_account_id   TEXT NOT NULL,
-  staff_id          TEXT NOT NULL
-    CHECK (length(trim(staff_id)) BETWEEN 1 AND 160
-           AND staff_id NOT GLOB '*[^A-Za-z0-9._:-]*'),
   activity_type     TEXT NOT NULL CHECK (activity_type IN
     ('prescription_received', 'prescription_status_changed',
-     'fulfillment_quote_created', 'myna_handoff_received',
-     'patient_message_received', 'continuity_due', 'manual_activity')),
-  idempotency_key   TEXT NOT NULL
-    CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 160
-           AND idempotency_key NOT GLOB '*[^A-Za-z0-9._:-]*'),
-  status            TEXT NOT NULL DEFAULT 'unread'
-    CHECK (status IN ('unread', 'claimed', 'acknowledged')),
-  claimed_by        TEXT,
-  claimed_at        TEXT,
-  acknowledged_by   TEXT,
-  acknowledged_at   TEXT,
+     'fulfillment_quote_created', 'myna_handoff_received')),
+  dedupe_hash       TEXT NOT NULL
+    CHECK (length(dedupe_hash) = 64 AND dedupe_hash NOT GLOB '*[^0-9a-f]*'),
+  acknowledged_by  TEXT,
+  acknowledged_at  TEXT,
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
-  CHECK (
-    (status = 'unread' AND claimed_by IS NULL AND claimed_at IS NULL
-      AND acknowledged_by IS NULL AND acknowledged_at IS NULL)
-    OR
-    (status = 'claimed' AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
-      AND acknowledged_by IS NULL AND acknowledged_at IS NULL)
-    OR
-    (status = 'acknowledged' AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
-      AND acknowledged_by IS NOT NULL AND acknowledged_at IS NOT NULL)
-  ),
+  CHECK ((acknowledged_by IS NULL AND acknowledged_at IS NULL)
+      OR (acknowledged_by IS NOT NULL AND acknowledged_at IS NOT NULL)),
   UNIQUE (id, line_account_id),
-  UNIQUE (line_account_id, staff_id, idempotency_key),
-  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id),
-  FOREIGN KEY (staff_id, line_account_id)
-    REFERENCES staff(id, line_account_id)
+  UNIQUE (line_account_id, dedupe_hash),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
 );
 
 CREATE TABLE pharmacy_continuity_events (
@@ -1104,49 +1070,32 @@ CREATE TABLE pharmacy_prescription_submissions (
     REFERENCES friends(id, line_account_id)
 );
 
-CREATE TABLE pharmacy_print_events (
-  id                 TEXT PRIMARY KEY,
-  job_id             TEXT NOT NULL,
-  line_account_id    TEXT NOT NULL,
-  event_type         TEXT NOT NULL CHECK (event_type IN
-    ('enqueued','claimed','lease_expired','printed','failed','retry_scheduled',
-     'manual_retry','cancelled','downloaded')),
-  actor_type         TEXT NOT NULL CHECK (actor_type IN ('system','staff','agent')),
-  actor_id           TEXT,
-  attempt_count      INTEGER NOT NULL CHECK (attempt_count >= 0),
-  failure_code       TEXT CHECK (failure_code IS NULL OR failure_code IN
-    ('printer_unavailable','paper_empty','ink_or_toner','invalid_document','unknown')),
-  available_at       TEXT,
-  created_at         TEXT NOT NULL,
-  FOREIGN KEY (job_id, line_account_id)
-    REFERENCES pharmacy_print_jobs(id, line_account_id)
-);
-
-CREATE TABLE pharmacy_print_jobs (
+CREATE TABLE pharmacy_print_tasks (
   id                 TEXT PRIMARY KEY,
   line_account_id    TEXT NOT NULL,
   submission_id      TEXT NOT NULL,
-  file_id            TEXT NOT NULL,
   revision           INTEGER NOT NULL CHECK (revision >= 1),
-  idempotency_key    TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 256),
-  status             TEXT NOT NULL DEFAULT 'queued'
-    CHECK (status IN ('queued','claimed','printed','failed','dead_letter','cancelled')),
-  attempt_count      INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
-  available_at       TEXT NOT NULL,
-  claimed_by         TEXT,
-  claimed_at         TEXT,
+  status             TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'handling', 'acknowledged', 'cancelled')),
+  handling_by        TEXT,
+  handling_token     TEXT CHECK (handling_token IS NULL OR length(handling_token) BETWEEN 8 AND 160),
+  handling_at        TEXT,
   lease_until        TEXT,
-  printed_at         TEXT,
-  last_failure_code  TEXT CHECK (last_failure_code IS NULL OR last_failure_code IN
-    ('printer_unavailable','paper_empty','ink_or_toner','invalid_document','unknown')),
+  acknowledged_by   TEXT,
+  acknowledged_at   TEXT,
   created_at         TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
-  UNIQUE (line_account_id, idempotency_key),
-  UNIQUE (line_account_id, submission_id, file_id, revision),
+  CHECK (
+    status IN ('pending', 'cancelled')
+    OR (status = 'handling' AND handling_by IS NOT NULL AND handling_token IS NOT NULL
+        AND handling_at IS NOT NULL AND lease_until IS NOT NULL)
+    OR (status = 'acknowledged' AND handling_by IS NOT NULL AND handling_token IS NOT NULL
+        AND acknowledged_by IS NOT NULL AND acknowledged_at IS NOT NULL)
+  ),
+  UNIQUE (id, line_account_id),
+  UNIQUE (line_account_id, submission_id, revision),
   FOREIGN KEY (submission_id, line_account_id)
-    REFERENCES pharmacy_prescription_submissions(id, line_account_id),
-  FOREIGN KEY (file_id, submission_id)
-    REFERENCES pharmacy_prescription_files(id, submission_id)
+    REFERENCES pharmacy_prescription_submissions(id, line_account_id)
 );
 
 CREATE TABLE pool_accounts (
@@ -1731,13 +1680,9 @@ CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
 
-CREATE INDEX idx_pharmacy_activity_notification_events_history
-  ON pharmacy_activity_notification_events
-     (line_account_id, notification_id, created_at, id);
-
-CREATE INDEX idx_pharmacy_activity_notifications_inbox
+CREATE INDEX idx_pharmacy_activity_notifications_open
   ON pharmacy_activity_notifications
-     (line_account_id, staff_id, status, created_at DESC, id DESC);
+     (line_account_id, acknowledged_at, created_at DESC, id DESC);
 
 CREATE UNIQUE INDEX idx_pharmacy_continuity_account
   ON pharmacy_continuity_obligations (id, line_account_id);
@@ -1796,9 +1741,6 @@ CREATE INDEX idx_pharmacy_prescription_events_submission
 CREATE INDEX idx_pharmacy_prescription_expectations_queue
   ON pharmacy_prescription_expectations (line_account_id, receipt_status, updated_at DESC, id);
 
-CREATE UNIQUE INDEX idx_pharmacy_prescription_files_id_submission
-  ON pharmacy_prescription_files (id, submission_id);
-
 CREATE INDEX idx_pharmacy_prescription_files_revision
   ON pharmacy_prescription_files (submission_id, revision, position);
 
@@ -1806,6 +1748,9 @@ CREATE INDEX idx_pharmacy_prescription_patients_patient
   ON pharmacy_prescription_patients (line_account_id, patient_id, created_at DESC, submission_id);
 
 CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_account
+  ON pharmacy_prescription_submissions (id, line_account_id);
+
+CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_id_account
   ON pharmacy_prescription_submissions (id, line_account_id);
 
 CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_scope
@@ -1817,14 +1762,8 @@ CREATE INDEX idx_pharmacy_prescriptions_account_status_requested
 CREATE INDEX idx_pharmacy_prescriptions_friend_history
   ON pharmacy_prescription_submissions (line_account_id, friend_id, created_at DESC, id DESC);
 
-CREATE INDEX idx_pharmacy_print_events_job
-  ON pharmacy_print_events (line_account_id, job_id, created_at, id);
-
-CREATE INDEX idx_pharmacy_print_jobs_due
-  ON pharmacy_print_jobs (line_account_id, status, available_at, id);
-
-CREATE INDEX idx_pharmacy_print_jobs_history
-  ON pharmacy_print_jobs (line_account_id, created_at DESC, id DESC);
+CREATE INDEX idx_pharmacy_print_tasks_open
+  ON pharmacy_print_tasks (line_account_id, status, created_at, id);
 
 CREATE INDEX idx_ref_tracking_friend ON ref_tracking (friend_id);
 
@@ -1852,9 +1791,6 @@ CREATE INDEX idx_staff_account_sort ON staff (line_account_id, sort_order);
 
 CREATE INDEX idx_staff_availability_rules_staff
   ON staff_availability_rules (staff_id, weekday, is_active);
-
-CREATE UNIQUE INDEX idx_staff_id_line_account
-  ON staff (id, line_account_id);
 
 CREATE UNIQUE INDEX idx_staff_members_api_key ON staff_members(api_key);
 

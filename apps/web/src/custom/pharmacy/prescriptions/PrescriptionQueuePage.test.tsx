@@ -15,7 +15,10 @@ import {
   FulfillmentQuoteEditor,
   fulfillmentQuoteDraft,
 } from './FulfillmentQuoteEditor.js'
-import { printablePrescriptionFiles, printablePrescriptionJobs } from './PrescriptionPrintPage.js'
+import {
+  canAcknowledgePrint,
+  printablePrescriptionFiles,
+} from './PrescriptionPrintPage.js'
 
 describe('prescription admin UI contract', () => {
   it('shows fixed Japanese status and resubmission reason labels', () => {
@@ -110,13 +113,11 @@ describe('prescription admin UI contract', () => {
     expect(printablePrescriptionFiles(files, 2).map((file) => file.id)).toEqual(['one', 'two'])
   })
 
-  it('records print jobs only for the active revision files', () => {
-    const jobs = [
-      { id: 'old-job', submission_id: 'submission-1', file_id: 'old', revision: 1 },
-      { id: 'active-job', submission_id: 'submission-1', file_id: 'one', revision: 2 },
-      { id: 'other-job', submission_id: 'submission-2', file_id: 'one', revision: 2 },
-    ] as never
-    expect(printablePrescriptionJobs(jobs, 'submission-1', 2, new Set(['one'])).map((job) => job.id))
-      .toEqual(['active-job'])
+  it('does not allow acknowledgement before the browser print dialog was opened', () => {
+    expect(canAcknowledgePrint(false, false, false)).toBe(false)
+    expect(canAcknowledgePrint(true, false, false)).toBe(true)
+    expect(canAcknowledgePrint(true, true, false)).toBe(false)
+    expect(canAcknowledgePrint(true, false, true)).toBe(false)
   })
+
 })
