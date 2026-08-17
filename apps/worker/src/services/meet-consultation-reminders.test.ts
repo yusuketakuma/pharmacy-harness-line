@@ -46,8 +46,10 @@ describe('renderMeetReminderText', () => {
 describe('processDueMeetConsultationReminders', () => {
   it('sends through the Harness proxy and marks the reminder sent', async () => {
     const updates: unknown[][] = [];
+    const queries: string[] = [];
     const db = {
       prepare(sql: string) {
+        queries.push(sql);
         return {
           bind(...args: unknown[]) {
             return {
@@ -96,6 +98,9 @@ describe('processDueMeetConsultationReminders', () => {
 
     expect(result).toEqual({ sent: 1, failed: 0 });
     expect(dispatch).toHaveBeenCalledOnce();
+    expect(queries.find((sql) => sql.includes('FROM meet_consultation_reminders'))).toContain(
+      'pharmacy_account_capabilities',
+    );
     expect(updates).toContainEqual([
       '2026-08-09T00:00:00.000Z',
       '2026-08-09T00:00:00.000Z',

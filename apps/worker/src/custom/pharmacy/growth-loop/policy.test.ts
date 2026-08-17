@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { assertPharmacyAutomatedText, buildApprovedPharmacyMessage } from './policy.js';
+import {
+  assertPharmacyAutomatedText,
+  buildApprovedPharmacyMessage,
+  isApprovedRenderedPharmacyMessage,
+} from './policy.js';
 
 describe('pharmacy notification policy', () => {
   it('renders only approved PHI-free templates', () => {
@@ -30,5 +34,16 @@ describe('pharmacy notification policy', () => {
     expect(() => buildApprovedPharmacyMessage('prescription_status_v1', {
       status: 'unknown',
     } as never)).toThrow(/variable/);
+  });
+
+  it('recognizes only rendered payloads belonging to the claimed message id', () => {
+    const onboarding = buildApprovedPharmacyMessage('pharmacy_onboarding_v1');
+    expect(isApprovedRenderedPharmacyMessage('pharmacy_onboarding_v1', onboarding)).toBe(true);
+    expect(isApprovedRenderedPharmacyMessage('pharmacy_onboarding_v1', {
+      type: 'text', text: `${onboarding.type === 'text' ? onboarding.text : ''}追記`,
+    })).toBe(false);
+    expect(isApprovedRenderedPharmacyMessage('prescription_validity_reminder_v1', {
+      type: 'text', text: '処方せんの使用期限が近づいています。2026-08-20までに薬局へご相談ください。',
+    })).toBe(true);
   });
 });

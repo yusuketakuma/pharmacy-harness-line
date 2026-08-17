@@ -119,3 +119,26 @@ export function buildApprovedPharmacyMessage(
 export function isPharmacyAutomatedMessageId(value: string): value is PharmacyAutomatedMessageId {
   return IDS.has(value as PharmacyAutomatedMessageId);
 }
+
+export function isApprovedRenderedPharmacyMessage(
+  id: string,
+  message: Message,
+): boolean {
+  if (!isPharmacyAutomatedMessageId(id) || message.type !== 'text') return false;
+  if (id === 'prescription_status_v1') {
+    return [undefined, ...STATUSES]
+      .map((status) => buildApprovedPharmacyMessage(id, {
+        status: status as PharmacyMessageVars['status'],
+      }))
+      .some((candidate) => candidate.type === 'text' && candidate.text === message.text);
+  }
+  if (id === 'prescription_validity_reminder_v1') {
+    const date = /^(?:処方せんの使用期限が近づいています。)(\d{4}-\d{2}-\d{2})(?:までに薬局へご相談ください。)$/.exec(message.text)?.[1];
+    return (!date || isDateOnly(date)) && [
+      buildApprovedPharmacyMessage(id),
+      ...(date ? [buildApprovedPharmacyMessage(id, { genericDate: date })] : []),
+    ].some((candidate) => candidate.type === 'text' && candidate.text === message.text);
+  }
+  const expected = buildApprovedPharmacyMessage(id);
+  return expected.type === 'text' && expected.text === message.text;
+}

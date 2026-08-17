@@ -71,7 +71,7 @@ describe('pharmacy automated sender', () => {
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT outcome', first: { outcome: 'sent', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'sent', occurred_at: '2026-08-18T00:00:00.000Z' } },
     ]);
 
     await sendPharmacyAutomatedPush({ ...base, db });
@@ -79,12 +79,16 @@ describe('pharmacy automated sender', () => {
 
     expect(push).toHaveBeenCalledTimes(1);
     expect(push.mock.calls[0][4]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(push.mock.calls[0][6]).toEqual({
+      pharmacyNotificationEventId: expect.any(String),
+      lineAccountId: 'account-a',
+    });
   });
 
   it('does not push while another invocation owns a recent attempt', async () => {
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT outcome', first: { outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' } },
     ]);
 
     await expect(sendPharmacyAutomatedPush({
@@ -98,7 +102,7 @@ describe('pharmacy automated sender', () => {
   it('reclaims a stale attempt using the same LINE retry key', async () => {
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT outcome', first: { outcome: 'attempted', occurred_at: '2026-08-17T23:00:00.000Z' } },
+      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-17T23:00:00.000Z' } },
       { match: "outcome = 'attempted' AND occurred_at < ?", run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
     ]);
@@ -116,7 +120,7 @@ describe('pharmacy automated sender', () => {
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT outcome', first: { outcome: 'failed', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'failed', occurred_at: '2026-08-18T00:00:00.000Z' } },
       { match: "SET outcome = 'attempted'", run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
     ]);
@@ -132,7 +136,7 @@ describe('pharmacy automated sender', () => {
     const seen: string[] = [];
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
-      { match: 'SELECT outcome', first: null },
+      { match: 'SELECT id, outcome', first: null },
       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
     ], seen);
 

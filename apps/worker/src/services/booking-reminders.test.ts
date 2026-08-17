@@ -15,8 +15,10 @@ interface DueRow {
 
 function stubDB(due: DueRow[]) {
   const updates: Array<{ sql: string; bound: unknown[] }> = [];
+  const queries: string[] = [];
   const db = {
     prepare(sql: string) {
+      queries.push(sql);
       let bound: unknown[] = [];
       const stmt = {
         bind(...args: unknown[]) {
@@ -40,7 +42,7 @@ function stubDB(due: DueRow[]) {
       return stmt;
     },
   } as unknown as D1Database;
-  return { db, updates };
+  return { db, updates, queries };
 }
 
 const REMINDER_HOURS_BEFORE = 2;
@@ -61,7 +63,7 @@ describe('processDueReminders', () => {
         line_user_id: 'U_xyz',
       },
     ];
-    const { db, updates } = stubDB(due);
+    const { db, updates, queries } = stubDB(due);
     const sender = vi.fn().mockResolvedValue(undefined);
     const result = await processDueReminders(db, {
       now: NOW,
@@ -78,6 +80,9 @@ describe('processDueReminders', () => {
       }),
     );
     expect(updates.find((u) => u.sql.includes("status='sent'"))).toBeTruthy();
+    expect(queries.find((sql) => sql.includes('FROM booking_reminders'))).toContain(
+      'pharmacy_account_capabilities',
+    );
   });
 
   test('未来の reminder は対象外（DB が返さない前提なので空入力）', async () => {

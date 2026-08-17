@@ -20,6 +20,8 @@ export const PHARMACY_DISABLED_GENERIC_API_PREFIXES = [
   '/api/traffic-pools',
   '/api/webinars',
   '/api/liff/webinars',
+  '/api/forms',
+  '/api/meet-callback',
 ] as const;
 
 function addAccountIds(target: Set<string>, value: unknown): void {
@@ -110,6 +112,7 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   const path = new URL(c.req.url).pathname;
   const accountIds = new Set<string>();
   const friendIds = new Set<string>();
+  const lineUserIds = new Set<string>();
   for (const key of ['lineAccountId', 'line_account_id', 'accountId', 'account_id']) {
     addAccountIds(accountIds, c.req.query(key));
   }
@@ -122,6 +125,8 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
       }
       addAccountIds(friendIds, body.friendId);
       addAccountIds(friendIds, body.friend_id);
+      addAccountIds(lineUserIds, body.lineUserId);
+      addAccountIds(lineUserIds, body.line_user_id);
     }
   }
 
@@ -129,6 +134,12 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
     const friend = await c.env.DB.prepare(
       `SELECT line_account_id FROM friends WHERE id = ?`,
     ).bind(friendId).first<{ line_account_id: string | null }>();
+    if (friend?.line_account_id) accountIds.add(friend.line_account_id);
+  }
+  for (const lineUserId of lineUserIds) {
+    const friend = await c.env.DB.prepare(
+      `SELECT line_account_id FROM friends WHERE line_user_id = ?`,
+    ).bind(lineUserId).first<{ line_account_id: string | null }>();
     if (friend?.line_account_id) accountIds.add(friend.line_account_id);
   }
 

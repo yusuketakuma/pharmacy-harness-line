@@ -259,6 +259,10 @@ export async function processDueMeetConsultationReminders(
           AND c.starts_at > ?
           AND f.is_following = 1
           AND la.is_active = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities pac
+             WHERE pac.line_account_id = f.line_account_id AND pac.mode = 'pharmacy'
+          )
         ORDER BY r.scheduled_at ASC
         LIMIT 100`,
     )

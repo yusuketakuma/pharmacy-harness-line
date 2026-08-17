@@ -32,6 +32,10 @@ describe('continuity reminder notifications', () => {
       'https://worker.example', 'token', 'U1',
       [{ type: 'text', text: continuityReminderText() }],
       expect.stringMatching(/^[0-9a-f-]{36}$/), undefined,
+      {
+        pharmacyNotificationEventId: expect.any(String),
+        lineAccountId: 'account-1',
+      },
     );
   });
 });

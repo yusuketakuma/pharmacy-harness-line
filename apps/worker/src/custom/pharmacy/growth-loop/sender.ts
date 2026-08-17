@@ -94,6 +94,8 @@ export async function sendPharmacyAutomatedPush(
   const occurredAt = now.toISOString();
   const staleAttemptAt = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
   const month = jstMonthBounds(now);
+  const notificationEventId = crypto.randomUUID();
+  let dispatchEventId = notificationEventId;
   const claim = await input.db.prepare(
     `INSERT OR IGNORE INTO pharmacy_notification_events
       (id, line_account_id, friend_id, message_id, category, outcome,
@@ -107,7 +109,7 @@ export async function sendPharmacyAutomatedPush(
            AND occurred_at >= ? AND occurred_at < ?
       ) < ?`,
   ).bind(
-    crypto.randomUUID(), input.lineAccountId, input.friendId, input.messageId,
+    notificationEventId, input.lineAccountId, input.friendId, input.messageId,
     input.category, occurredAt, input.retryKey, occurredAt,
     input.category, input.lineAccountId, input.friendId, month.from, month.to,
     accountConfig.proactive_monthly_limit,
@@ -115,9 +117,9 @@ export async function sendPharmacyAutomatedPush(
 
   if ((claim.meta?.changes ?? 0) !== 1) {
     const existing = await input.db.prepare(
-      `SELECT outcome, occurred_at FROM pharmacy_notification_events
+      `SELECT id, outcome, occurred_at FROM pharmacy_notification_events
         WHERE line_account_id = ? AND idempotency_key = ?`,
-    ).bind(input.lineAccountId, input.retryKey).first<{ outcome: string; occurred_at: string }>();
+    ).bind(input.lineAccountId, input.retryKey).first<{ id: string; outcome: string; occurred_at: string }>();
     if (existing?.outcome === 'sent') return 'already_sent';
     if (existing?.outcome === 'blocked') {
       throw new Error('pharmacy proactive frequency cap reached');
@@ -131,6 +133,7 @@ export async function sendPharmacyAutomatedPush(
             AND outcome = 'attempted' AND occurred_at < ?`,
       ).bind(occurredAt, input.lineAccountId, input.retryKey, staleAttemptAt).run();
       if ((reclaimed.meta?.changes ?? 0) !== 1) return 'in_progress';
+      dispatchEventId = existing.id;
     } else if (existing?.outcome === 'failed') {
       const reclaimed = await input.db.prepare(
         `UPDATE pharmacy_notification_events
@@ -155,6 +158,7 @@ export async function sendPharmacyAutomatedPush(
         ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
         throw new Error('pharmacy proactive frequency cap reached');
       }
+      dispatchEventId = existing.id;
     } else {
       await recordBlocked(input, occurredAt);
       throw new Error('pharmacy proactive frequency cap reached');
@@ -169,6 +173,10 @@ export async function sendPharmacyAutomatedPush(
       [message],
       await lineRetryKey(input.retryKey),
       input.proxyDispatch,
+      {
+        pharmacyNotificationEventId: dispatchEventId,
+        lineAccountId: input.lineAccountId,
+      },
     );
     await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString());
     return 'sent';

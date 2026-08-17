@@ -48,6 +48,7 @@ describe('pharmacy generic feature guard', () => {
     expect(PHARMACY_DISABLED_GENERIC_API_PREFIXES).toEqual(expect.arrayContaining([
       '/api/broadcasts', '/api/scenarios', '/api/automations', '/api/auto-replies',
       '/api/reminders', '/api/mileage', '/api/affiliates', '/api/traffic-pools', '/api/webinars',
+      '/api/forms', '/api/meet-callback',
     ]));
     const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url).href), 'utf8');
     expect(indexSource).toContain('PHARMACY_DISABLED_GENERIC_API_PREFIXES');
@@ -165,6 +166,36 @@ describe('pharmacy generic feature guard', () => {
       { method: 'POST' },
       env,
     );
+
+    expect(response.status).toBe(403);
+  });
+
+  it('denies a generic callback when its LINE user resolves to a pharmacy account', async () => {
+    const database = {
+      prepare(sql: string) {
+        const statement = (binds: unknown[]) => ({
+          first: async <T>() => {
+            if (sql.includes('FROM friends') && sql.includes('line_user_id')) {
+              return { line_account_id: 'pharmacy-a' } as T;
+            }
+            if (sql.includes('FROM line_accounts')) return { id: 'generic-a' } as T;
+            if (sql.includes('FROM pharmacy_account_capabilities')) {
+              return (binds[0] === 'pharmacy-a' ? { mode: 'pharmacy' } : null) as T | null;
+            }
+            return null;
+          },
+          all: async <T>() => ({ results: [] as T[] }),
+        });
+        return { bind: (...binds: unknown[]) => statement(binds), ...statement([]) };
+      },
+    } as unknown as D1Database;
+    const { root, env } = app(database);
+
+    const response = await root.request('/api/meet-callback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ line_user_id: 'U-pharmacy' }),
+    }, env);
 
     expect(response.status).toBe(403);
   });
