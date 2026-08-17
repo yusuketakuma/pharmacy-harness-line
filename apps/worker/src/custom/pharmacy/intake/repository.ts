@@ -476,7 +476,8 @@ export async function getLatestAdminPatientIntake(
 
 export interface PharmacyPatientHistory {
   patient: PharmacyPatient;
-  intakes: PharmacyPatientIntakeResponse[];
+  intakes: AdminPatientIntakeSummary[];
+  latestIntake: (AdminPatientIntakeSummary & { answers: Partial<PatientIntakeAnswers> }) | null;
   prescriptions: Array<{
     id: string;
     status: string;
@@ -514,7 +515,37 @@ export interface PharmacyPatientHistory {
   }>;
 }
 
-/** Account-scoped operational history for staff; never returns LINE identifiers or free notes. */
+type AdminPatientIntakeSummary = Pick<PharmacyPatientIntakeResponse,
+  'id' | 'patient_id' | 'revision' | 'schema_version' |
+  'representative_consent_at' | 'privacy_consent_at' | 'created_at'>;
+
+type AdminPatientIntakeRow = AdminPatientIntakeSummary & { answers_json: string };
+
+function toAdminIntakeSummary(row: AdminPatientIntakeRow): AdminPatientIntakeSummary {
+  return {
+    id: row.id,
+    patient_id: row.patient_id,
+    revision: row.revision,
+    schema_version: row.schema_version,
+    representative_consent_at: row.representative_consent_at,
+    privacy_consent_at: row.privacy_consent_at,
+    created_at: row.created_at,
+  };
+}
+
+function parseAdminIntakeAnswers(raw: string): Partial<PatientIntakeAnswers> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([key]) => ANSWER_KEYS.has(key)),
+    ) as Partial<PatientIntakeAnswers>;
+  } catch {
+    return {};
+  }
+}
+
+/** Account-scoped operational history; raw snapshots and unknown answer fields stay in D1. */
 export async function getAdminPharmacyPatientHistory(
   db: D1Database,
   lineAccountId: string,
@@ -523,8 +554,12 @@ export async function getAdminPharmacyPatientHistory(
   const patient = await getAdminPharmacyPatient(db, lineAccountId, patientId);
   if (!patient) return null;
   const [intakes, prescriptions, quotes, continuity, prescriptionEvents, continuityEvents, myna] = await Promise.all([
-    db.prepare(`${INTAKE_SELECT} WHERE line_account_id = ? AND patient_id = ? ORDER BY revision DESC, id DESC`)
-      .bind(lineAccountId, patientId).all<PharmacyPatientIntakeResponse>(),
+    db.prepare(`SELECT id, patient_id, revision, schema_version, answers_json,
+                       representative_consent_at, privacy_consent_at, created_at
+                  FROM pharmacy_patient_intake_responses
+                 WHERE line_account_id = ? AND patient_id = ?
+                 ORDER BY revision DESC, id DESC`)
+      .bind(lineAccountId, patientId).all<AdminPatientIntakeRow>(),
     db.prepare(`SELECT s.id, s.status, s.active_revision, s.desired_pickup_at,
                        s.requested_at, s.closed_at, s.created_at, s.updated_at
                   FROM pharmacy_prescription_submissions s
@@ -567,6 +602,7 @@ export async function getAdminPharmacyPatientHistory(
       .bind(lineAccountId, patientId).all<{ method: string; status: string; created_at: string; updated_at: string }>(),
   ]);
 
+  const intakeSummaries = intakes.results.map(toAdminIntakeSummary);
   const timeline: PharmacyPatientHistory['timeline'] = [
     ...intakes.results.map((item) => ({ kind: 'intake' as const, occurred_at: item.created_at, label: `アンケート回答 第${item.revision}版`, status: null })),
     ...prescriptionEvents.results.map((item) => ({ kind: 'prescription' as const, occurred_at: item.created_at, label: item.event_type === 'status_changed' ? '処方せん受付状態を更新' : '処方せん受付を更新', status: item.to_status })),
@@ -577,7 +613,10 @@ export async function getAdminPharmacyPatientHistory(
 
   return {
     patient,
-    intakes: intakes.results,
+    intakes: intakeSummaries,
+    latestIntake: intakes.results[0]
+      ? { ...intakeSummaries[0], answers: parseAdminIntakeAnswers(intakes.results[0].answers_json) }
+      : null,
     prescriptions: prescriptions.results,
     quotes: quotes.results,
     continuity: continuity.results,

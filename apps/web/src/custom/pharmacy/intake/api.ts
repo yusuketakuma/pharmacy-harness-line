@@ -31,9 +31,21 @@ export type PatientIntake = {
   created_at: string
 }
 
+export type PatientIntakeHistoryDetail = {
+  id: string
+  patient_id: string
+  revision: number
+  schema_version: number
+  representative_consent_at: string
+  privacy_consent_at: string
+  created_at: string
+  answers: Record<string, unknown>
+}
+
 export type PharmacyPatientHistory = {
   patient: PharmacyPatient
-  intakes: PatientIntake[]
+  intakes: Array<Omit<PatientIntakeHistoryDetail, 'answers'>>
+  latestIntake: PatientIntakeHistoryDetail | null
   prescriptions: Array<{
     id: string
     status: string

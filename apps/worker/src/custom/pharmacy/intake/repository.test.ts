@@ -123,6 +123,47 @@ describe('pharmacy patient repository', () => {
     expect(calls.slice(1).every((call) => !call.sql.includes('line_user_id'))).toBe(true);
   });
 
+  it('returns only the latest allowlisted intake answers without raw snapshots', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, postal_code: null, prefecture: null, city: null,
+      address_line1: null, address_line2: null, archived_at: null,
+    };
+    const intake = {
+      id: 'intake-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      patient_id: 'patient-1', revision: 1, schema_version: 2,
+      patient_snapshot_json: '{"name":"raw snapshot"}',
+      answers_json: JSON.stringify({
+        allergiesStatus: 'yes', allergiesDetail: '花粉', futureSecret: 'do-not-return',
+      }),
+      base_response_id: null, idempotency_key: 'private-key',
+      representative_consent_at: '2026-08-17T00:00:00Z',
+      privacy_consent_at: '2026-08-17T00:00:00Z', created_at: '2026-08-17T00:00:00Z',
+    };
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => patient,
+          all: async () => ({
+            results: sql.includes('pharmacy_patient_intake_responses') ? [intake] : [],
+          }),
+        }),
+      }),
+    } as unknown as D1Database;
+
+    const history = await getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1');
+
+    expect(history?.latestIntake).toMatchObject({
+      id: 'intake-1',
+      answers: { allergiesStatus: 'yes', allergiesDetail: '花粉' },
+    });
+    expect(history?.intakes[0]).not.toHaveProperty('answers_json');
+    expect(history?.latestIntake).not.toHaveProperty('patient_snapshot_json');
+    expect(JSON.stringify(history)).not.toContain('do-not-return');
+    expect(JSON.stringify(history)).not.toContain('private-key');
+  });
+
   it('updates a patient profile with owner-scoped optimistic concurrency', async () => {
     const { db, calls } = fakeDb(null);
     await expect(updatePharmacyPatient(db, owner, 'patient-1', '2026-08-17T00:00:00.000Z', {

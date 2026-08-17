@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
-import { pharmacyIntakeAdminApi, type PatientIntake, type PharmacyPatient, type PharmacyPatientHistory } from './api'
+import { pharmacyIntakeAdminApi, type PatientIntakeHistoryDetail, type PharmacyPatient, type PharmacyPatientHistory } from './api'
 
 const RELATIONSHIP_LABELS: Record<PharmacyPatient['relationship'], string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
@@ -31,30 +31,20 @@ function formatHistoryDate(value: string): string {
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleString('ja-JP')
 }
 
-function parseAnswers(intake: PatientIntake | null): Record<string, unknown> {
-  if (!intake) return {}
-  try {
-    const value = JSON.parse(intake.answers_json) as unknown
-    return value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  } catch {
-    return {}
-  }
-}
-
 export default function PatientIntakeAdminPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const [patients, setPatients] = useState<PharmacyPatient[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [intake, setIntake] = useState<PatientIntake | null>(null)
+  const [intake, setIntake] = useState<PatientIntakeHistoryDetail | null>(null)
   const [history, setHistory] = useState<PharmacyPatientHistory | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const selected = useMemo(() => patients.find((patient) => patient.id === selectedId) ?? null, [patients, selectedId])
-  const answers = useMemo(() => parseAnswers(intake), [intake])
-  const medicalHistoryTags = useMemo(() => Array.isArray(answers.medicalHistoryTags)
+  const answers = intake?.answers ?? {}
+  const medicalHistoryTags = Array.isArray(answers.medicalHistoryTags)
     ? answers.medicalHistoryTags.map((tag) => MEDICAL_HISTORY_TAG_LABELS[String(tag)] ?? String(tag)).join('、')
-    : '未回答', [answers])
+    : '未回答'
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -83,7 +73,7 @@ export default function PatientIntakeAdminPage() {
     void pharmacyIntakeAdminApi.history(selectedAccountId, selectedId)
       .then((result) => {
         setHistory(result.history)
-        setIntake(result.history.intakes[0] ?? null)
+        setIntake(result.history.latestIntake)
       })
       .catch(() => setError('患者情報・対応履歴を取得できませんでした。'))
   }, [selectedAccountId, selectedId])
