@@ -3,7 +3,9 @@ import {
   createPharmacyPatient,
   createPatientIntakeResponse,
   getAdminPharmacyPatientHistory,
+  getLatestAdminPatientIntake,
   getLatestPatientIntake,
+  listAdminPharmacyPatients,
   listPharmacyPatients,
   updatePharmacyPatient,
 } from './repository.js';
@@ -107,6 +109,22 @@ describe('pharmacy patient repository', () => {
     expect(calls[0].values).toEqual(['account-1', 'friend-1']);
   });
 
+  it('does not expose account linkage in the admin patient list', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, postal_code: null, prefecture: null, city: null,
+      address_line1: null, address_line2: null, archived_at: null,
+    };
+    const { db } = fakeDb(null, [patient]);
+
+    const patients = await listAdminPharmacyPatients(db, 'account-1');
+
+    expect(patients[0]).toMatchObject({ id: 'patient-1', name: '患者' });
+    expect(patients[0]).not.toHaveProperty('line_account_id');
+    expect(patients[0]).not.toHaveProperty('owner_friend_id');
+  });
+
   it('loads a patient history using the account and patient scope for every query', async () => {
     const patient = {
       id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
@@ -116,7 +134,7 @@ describe('pharmacy patient repository', () => {
     };
     const { db, calls } = fakeDb(patient, []);
     await expect(getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1')).resolves.toMatchObject({
-      patient, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [],
+      patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [],
     });
     expect(calls).toHaveLength(8);
     expect(calls.slice(1).every((call) => call.values.includes('account-1') && call.values.includes('patient-1'))).toBe(true);
@@ -164,6 +182,41 @@ describe('pharmacy patient repository', () => {
     expect(history?.latestIntake).not.toHaveProperty('patient_snapshot_json');
     expect(JSON.stringify(history)).not.toContain('do-not-return');
     expect(JSON.stringify(history)).not.toContain('private-key');
+  });
+
+  it('does not expose account linkage or raw intake fields from admin reads', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, postal_code: null, prefecture: null, city: null,
+      address_line1: null, address_line2: null, archived_at: null,
+    };
+    const intake = {
+      id: 'intake-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      patient_id: 'patient-1', revision: 1, schema_version: 2,
+      patient_snapshot_json: '{"name":"raw snapshot"}',
+      answers_json: JSON.stringify({ allergiesStatus: 'none', futureSecret: 'hidden' }),
+      base_response_id: null, idempotency_key: 'private-key',
+      representative_consent_at: '2026-08-17T00:00:00Z',
+      privacy_consent_at: '2026-08-17T00:00:00Z', created_at: '2026-08-17T00:00:00Z',
+    };
+    const historyDb = {
+      prepare: (sql: string) => ({ bind: () => ({
+        first: async () => patient,
+        all: async () => ({ results: sql.includes('pharmacy_patient_intake_responses') ? [intake] : [] }),
+      }) }),
+    } as unknown as D1Database;
+    const latestDb = fakeDb(intake).db;
+
+    const history = await getAdminPharmacyPatientHistory(historyDb, 'account-1', 'patient-1');
+    const latest = await getLatestAdminPatientIntake(latestDb, 'account-1', 'patient-1');
+
+    expect(history?.patient).not.toHaveProperty('line_account_id');
+    expect(history?.patient).not.toHaveProperty('owner_friend_id');
+    expect(latest).toMatchObject({ answers: { allergiesStatus: 'none' } });
+    expect(JSON.stringify(latest)).not.toContain('raw snapshot');
+    expect(JSON.stringify(latest)).not.toContain('private-key');
+    expect(JSON.stringify(latest)).not.toContain('hidden');
   });
 
   it('updates a patient profile with owner-scoped optimistic concurrency', async () => {

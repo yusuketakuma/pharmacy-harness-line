@@ -69,13 +69,20 @@ export default function PatientIntakeAdminPage() {
       setHistory(null)
       return
     }
+    let cancelled = false
     setHistory(null)
+    setIntake(null)
+    setError('')
     void pharmacyIntakeAdminApi.history(selectedAccountId, selectedId)
       .then((result) => {
+        if (cancelled) return
         setHistory(result.history)
         setIntake(result.history.latestIntake)
       })
-      .catch(() => setError('患者情報・対応履歴を取得できませんでした。'))
+      .catch(() => {
+        if (!cancelled) setError('患者情報・対応履歴を取得できませんでした。')
+      })
+    return () => { cancelled = true }
   }, [selectedAccountId, selectedId])
 
   if (accountLoading) return <p className="py-10 text-center text-gray-500">アカウントを読み込み中...</p>

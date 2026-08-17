@@ -293,14 +293,14 @@ export async function listAdminPharmacyPatients(
   db: D1Database,
   lineAccountId: string,
   includeArchived = true,
-): Promise<PharmacyPatient[]> {
+): Promise<AdminPharmacyPatient[]> {
   const archivedClause = includeArchived ? '' : ' AND archived_at IS NULL';
   const result = await db.prepare(
     `${PATIENT_SELECT}
       WHERE line_account_id = ?${archivedClause}
       ORDER BY updated_at DESC, id DESC`,
   ).bind(lineAccountId).all<PharmacyPatient>();
-  return result.results;
+  return result.results.map(toAdminPatient);
 }
 
 export async function getPharmacyPatient(
@@ -318,11 +318,12 @@ export async function getAdminPharmacyPatient(
   db: D1Database,
   lineAccountId: string,
   patientId: string,
-): Promise<PharmacyPatient | null> {
-  return db.prepare(
+): Promise<AdminPharmacyPatient | null> {
+  const patient = await db.prepare(
     `${PATIENT_SELECT}
       WHERE id = ? AND line_account_id = ?`,
   ).bind(patientId, lineAccountId).first<PharmacyPatient>();
+  return patient ? toAdminPatient(patient) : null;
 }
 
 export async function updatePharmacyPatient(
@@ -465,17 +466,20 @@ export async function getLatestAdminPatientIntake(
   db: D1Database,
   lineAccountId: string,
   patientId: string,
-): Promise<PharmacyPatientIntakeResponse | null> {
-  return db.prepare(
-    `${INTAKE_SELECT}
+): Promise<(AdminPatientIntakeSummary & { answers: Partial<PatientIntakeAnswers> }) | null> {
+  const row = await db.prepare(
+    `SELECT id, patient_id, revision, schema_version, answers_json,
+            representative_consent_at, privacy_consent_at, created_at
+       FROM pharmacy_patient_intake_responses
       WHERE line_account_id = ? AND patient_id = ?
       ORDER BY revision DESC, id DESC
       LIMIT 1`,
-  ).bind(lineAccountId, patientId).first<PharmacyPatientIntakeResponse>();
+  ).bind(lineAccountId, patientId).first<AdminPatientIntakeRow>();
+  return row ? { ...toAdminIntakeSummary(row), answers: parseAdminIntakeAnswers(row.answers_json) } : null;
 }
 
 export interface PharmacyPatientHistory {
-  patient: PharmacyPatient;
+  patient: AdminPharmacyPatient;
   intakes: AdminPatientIntakeSummary[];
   latestIntake: (AdminPatientIntakeSummary & { answers: Partial<PatientIntakeAnswers> }) | null;
   prescriptions: Array<{
@@ -520,6 +524,30 @@ type AdminPatientIntakeSummary = Pick<PharmacyPatientIntakeResponse,
   'representative_consent_at' | 'privacy_consent_at' | 'created_at'>;
 
 type AdminPatientIntakeRow = AdminPatientIntakeSummary & { answers_json: string };
+type AdminPharmacyPatient = Pick<PharmacyPatient,
+  'id' | 'relationship' | 'name' | 'name_kana' | 'birth_date' | 'sex' |
+  'contact_phone' | 'postal_code' | 'prefecture' | 'city' | 'address_line1' |
+  'address_line2' | 'archived_at' | 'created_at' | 'updated_at'>;
+
+function toAdminPatient(patient: PharmacyPatient): AdminPharmacyPatient {
+  return {
+    id: patient.id,
+    relationship: patient.relationship,
+    name: patient.name,
+    name_kana: patient.name_kana,
+    birth_date: patient.birth_date,
+    sex: patient.sex,
+    contact_phone: patient.contact_phone,
+    postal_code: patient.postal_code,
+    prefecture: patient.prefecture,
+    city: patient.city,
+    address_line1: patient.address_line1,
+    address_line2: patient.address_line2,
+    archived_at: patient.archived_at,
+    created_at: patient.created_at,
+    updated_at: patient.updated_at,
+  };
+}
 
 function toAdminIntakeSummary(row: AdminPatientIntakeRow): AdminPatientIntakeSummary {
   return {
