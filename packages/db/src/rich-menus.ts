@@ -89,7 +89,6 @@ export interface CreateRichMenuGroupInput {
 export interface UpdateRichMenuGroupMetaInput {
   name?: string;
   chatBarText?: string;
-  isDefaultForAll?: boolean;
   selected?: boolean;
 }
 
@@ -278,10 +277,6 @@ export async function updateRichMenuGroupMeta(
   if (patch.chatBarText !== undefined) {
     sets.push('chat_bar_text = ?');
     vals.push(patch.chatBarText);
-  }
-  if (patch.isDefaultForAll !== undefined) {
-    sets.push('is_default_for_all = ?');
-    vals.push(patch.isDefaultForAll ? 1 : 0);
   }
   if (patch.selected !== undefined) {
     sets.push('selected = ?');

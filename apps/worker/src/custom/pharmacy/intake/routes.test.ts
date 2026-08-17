@@ -86,19 +86,25 @@ describe('LIFF pharmacy patient and intake routes', () => {
   it('creates a family patient after validating the JSON boundary', async () => {
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
       relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
-      sex: null, contactPhone: null,
+      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
+      addressLine1: null, addressLine2: null,
     });
     expect(response.status).toBe(201);
     expect(mocks.createPatient).toHaveBeenCalledWith(env.DB, owner, {
       relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
-      sex: null, contactPhone: null,
+      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
+      addressLine1: null, addressLine2: null,
     });
   });
 
   it('creates an intake revision only when both consents are supplied', async () => {
     const body = {
       idempotencyKey: 'intake-123',
-      answers: { allergiesStatus: 'none', adverseReactionStatus: 'none' },
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
       representativeConsent: true, privacyConsent: true,
     };
     const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', body);
@@ -112,6 +118,7 @@ describe('LIFF pharmacy patient and intake routes', () => {
     const body = {
       expectedUpdatedAt: '2026-08-17T00:00:00.000Z', relationship: 'child', name: '子',
       nameKana: 'コ', birthDate: '2018-04-01', sex: null, contactPhone: null,
+      postalCode: null, prefecture: null, city: null, addressLine1: null, addressLine2: null,
     };
     const response = await request('/api/liff/pharmacy/patients/patient-1', 'PATCH', body);
     expect(response.status).toBe(200);

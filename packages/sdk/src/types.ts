@@ -373,7 +373,6 @@ export interface CreateRichMenuGroupInput {
 export interface UpdateRichMenuGroupInput {
   name?: string
   chatBarText?: string
-  isDefaultForAll?: boolean
   selected?: boolean
   pages?: CreateRichMenuGroupInput['pages']
 }

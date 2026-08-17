@@ -16,6 +16,7 @@ const dbMocks = {
   releasePublishLock: vi.fn(),
   setPageRichMenuId: vi.fn(),
   markRichMenuGroupPublished: vi.fn(),
+  markRichMenuGroupUnpublished: vi.fn(),
   getLineAccountById: vi.fn(),
 };
 vi.mock('@line-crm/db', () => dbMocks);
@@ -333,13 +334,25 @@ describe('PATCH /api/rich-menu-groups/:groupId', () => {
     const res = await app.request('/api/rich-menu-groups/g1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'new', isDefaultForAll: true, selected: true }),
+      body: JSON.stringify({ name: 'new', selected: true }),
     });
     expect(res.status).toBe(200);
     expect(dbMocks.updateRichMenuGroupMeta).toHaveBeenCalledWith(expect.anything(), 'g1', {
-      name: 'new', isDefaultForAll: true, selected: true,
+      name: 'new', selected: true,
     });
     expect(dbMocks.replaceRichMenuPages).not.toHaveBeenCalled();
+  });
+
+  test('rejects default visibility changes through the generic patch endpoint', async () => {
+    dbMocks.getRichMenuGroupById.mockResolvedValue({ id: 'g1', account_id: 'a' });
+    const app = setupApp();
+    const res = await app.request('/api/rich-menu-groups/g1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isDefaultForAll: true }),
+    });
+    expect(res.status).toBe(400);
+    expect(dbMocks.updateRichMenuGroupMeta).not.toHaveBeenCalled();
   });
 
   test('replaces pages when pages key present', async () => {
@@ -527,7 +540,58 @@ describe('POST /api/rich-menu-groups/:groupId/publish', () => {
   });
 });
 
+describe('POST /api/rich-menu-groups/:groupId/unpublish', () => {
+  test('keeps D1 publish state when LINE cleanup returns warnings', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'acc-1', name: 'メニュー', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: 'p1', is_default_for_all: 1, selected: 1, status: 'published',
+      publishing_at: null, generator_key: null, generator_version: null, created_at: '', updated_at: '',
+      pages: [{
+        id: 'p1', group_id: 'g1', order_index: 0, name: '初期', alias_id: 'alias',
+        line_richmenu_id: 'line-menu-1', image_r2_key: null, image_content_type: null,
+        created_at: '', updated_at: '', areas: [],
+      }],
+    });
+    dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'token' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/richmenu/alias')) return new Response('temporary failure', { status: 500 });
+      if (url.endsWith('/v2/bot/richmenu/line-menu-1') && init?.method === 'DELETE') return new Response(null, { status: 200 });
+      if (url.endsWith('/v2/bot/user/all/richmenu') && init?.method === 'GET') return new Response(null, { status: 404 });
+      throw new Error(`unexpected LINE request: ${url}`);
+    });
+    const app = setupApp();
+    const res = await app.request('/api/rich-menu-groups/g1/unpublish', { method: 'POST' });
+    expect(res.status).toBe(502);
+    expect(dbMocks.markRichMenuGroupUnpublished).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});
+
 describe('POST /api/rich-menu-groups/:groupId/apply-to-tag', () => {
+  test('requires an explicit dry-run/confirmation phase before mutating LINE', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'acc-1', name: 'メニュー', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: 'p1', is_default_for_all: 0, selected: 1, status: 'published',
+      publishing_at: null, generator_key: null, generator_version: null, created_at: '', updated_at: '',
+      pages: [{
+        id: 'p1', group_id: 'g1', order_index: 0, name: '初期', alias_id: 'alias',
+        line_richmenu_id: 'line-menu-1', image_r2_key: null, image_content_type: null,
+        created_at: '', updated_at: '', areas: [],
+      }],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const app = setupApp();
+    const res = await app.request('/api/rich-menu-groups/g1/apply-to-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'set-default' }),
+    });
+    expect(res.status).toBe(428);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   test('dry-run returns a confirmation token without changing LINE state', async () => {
     dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
       id: 'g1', account_id: 'acc-1', name: 'メニュー', chat_bar_text: 'メニュー', size: 'compact',
@@ -552,6 +616,69 @@ describe('POST /api/rich-menu-groups/:groupId/apply-to-tag', () => {
     expect(body.data).toMatchObject({ dryRun: true, affected: 0, mode: 'set-default' });
     expect(body.data.confirmationToken).toMatch(/^confirm:/);
     expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  test('can turn the account-wide initial display off without affecting another group', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'acc-1', name: 'メニュー', chat_bar_text: 'メニュー', size: 'compact',
+      default_page_id: 'p1', is_default_for_all: 1, selected: 1, status: 'published',
+      publishing_at: null, generator_key: null, generator_version: null, created_at: '', updated_at: '',
+      pages: [{
+        id: 'p1', group_id: 'g1', order_index: 0, name: '初期', alias_id: 'alias',
+        line_richmenu_id: 'line-menu-1', image_r2_key: null, image_content_type: null,
+        created_at: '', updated_at: '', areas: [],
+      }],
+    });
+    dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'token' });
+    const prepared: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((...values: unknown[]) => ({
+          run: vi.fn(async () => {
+            prepared.push({ sql, values });
+            return { meta: { changes: 1 } };
+          }),
+          all: vi.fn(async () => ({ results: [] })),
+          first: vi.fn(async () => null),
+        })),
+      })),
+      batch: vi.fn(async () => []),
+    } as unknown as D1Database;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/v2/bot/user/all/richmenu') && init?.method === 'GET') {
+        return new Response(JSON.stringify({ richMenuId: 'line-menu-1' }), { status: 200 });
+      }
+      if (url.endsWith('/v2/bot/user/all/richmenu') && init?.method === 'DELETE') {
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`unexpected LINE request: ${url}`);
+    });
+    const app = setupApp({ db });
+
+    const dryRun = await app.request('/api/rich-menu-groups/g1/apply-to-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'set-default', enabled: false, dryRun: true }),
+    });
+    const dryRunBody = await dryRun.json() as any;
+    const live = await app.request('/api/rich-menu-groups/g1/apply-to-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'set-default',
+        enabled: false,
+        dryRun: false,
+        confirmationToken: dryRunBody.data.confirmationToken,
+      }),
+    });
+
+    expect(live.status).toBe(200);
+    expect((await live.json() as any).data).toMatchObject({ enabled: false });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0].sql).toContain('is_default_for_all = 0');
     fetchSpy.mockRestore();
   });
 

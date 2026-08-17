@@ -3,6 +3,12 @@ import type { PrescriptionPatient } from '../prescriptions/patient.js';
 export type PharmacyPatientOwner = PrescriptionPatient;
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
 export type PatientSex = 'male' | 'female' | 'other' | 'prefer_not_to_say';
+export type MedicalHistoryTag =
+  | 'hypertension' | 'diabetes' | 'dyslipidemia' | 'heart_disease'
+  | 'kidney_disease' | 'liver_disease' | 'asthma' | 'other';
+export type SmokingStatus = 'never' | 'former' | 'current' | 'unknown';
+export type AlcoholStatus = 'none' | 'occasional' | 'weekly' | 'frequent' | 'unknown';
+export type MedicationAdherence = 'none' | 'sometimes' | 'often' | 'unknown';
 
 export interface PharmacyPatient {
   id: string;
@@ -14,6 +20,11 @@ export interface PharmacyPatient {
   birth_date: string;
   sex: PatientSex | null;
   contact_phone: string | null;
+  postal_code: string | null;
+  prefecture: string | null;
+  city: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
   archived_at: string | null;
   created_at?: string;
   updated_at?: string;
@@ -26,6 +37,11 @@ export interface CreatePharmacyPatientInput {
   birthDate: string;
   sex: PatientSex | null;
   contactPhone: string | null;
+  postalCode: string | null;
+  prefecture: string | null;
+  city: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
 }
 
 export interface PatientIntakeAnswers {
@@ -33,8 +49,15 @@ export interface PatientIntakeAnswers {
   allergiesDetail?: string;
   adverseReactionStatus: 'none' | 'yes' | 'unknown';
   adverseReactionDetail?: string;
+  medicationStatus: 'none' | 'yes' | 'unknown';
   medicationSummary?: string;
+  medicalHistoryStatus: 'none' | 'yes' | 'unknown';
+  medicalHistoryTags: MedicalHistoryTag[];
   medicalHistory?: string;
+  medicationNotebook: 'paper' | 'electronic' | 'none' | 'unknown';
+  smokingStatus: SmokingStatus;
+  alcoholStatus: AlcoholStatus;
+  medicationAdherence: MedicationAdherence;
   pregnancyStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
   breastfeedingStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
   notes?: string;
@@ -71,14 +94,25 @@ const SEXES = new Set<PatientSex>([
 ]);
 const ANSWER_KEYS = new Set([
   'allergiesStatus', 'allergiesDetail', 'adverseReactionStatus',
-  'adverseReactionDetail', 'medicationSummary', 'medicalHistory',
+  'adverseReactionDetail', 'medicationStatus', 'medicationSummary',
+  'medicalHistoryStatus', 'medicalHistoryTags', 'medicalHistory', 'medicationNotebook',
+  'smokingStatus', 'alcoholStatus', 'medicationAdherence',
   'pregnancyStatus', 'breastfeedingStatus', 'notes',
 ]);
 const STATUS_VALUES = new Set(['none', 'yes', 'unknown']);
+const SMOKING_VALUES = new Set(['never', 'former', 'current', 'unknown']);
+const ALCOHOL_VALUES = new Set(['none', 'occasional', 'weekly', 'frequent', 'unknown']);
+const MEDICATION_ADHERENCE_VALUES = new Set(['none', 'sometimes', 'often', 'unknown']);
 const PREGNANCY_VALUES = new Set(['not_applicable', 'yes', 'no', 'unknown']);
+const INTAKE_SCHEMA_VERSION = 2;
+const MEDICAL_HISTORY_TAGS = new Set([
+  'hypertension', 'diabetes', 'dyslipidemia', 'heart_disease',
+  'kidney_disease', 'liver_disease', 'asthma', 'other',
+]);
 const PATIENT_SELECT = `
   SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
-         birth_date, sex, contact_phone, archived_at, created_at, updated_at
+         birth_date, sex, contact_phone, postal_code, prefecture, city,
+         address_line1, address_line2, archived_at, created_at, updated_at
     FROM pharmacy_patients`;
 const INTAKE_SELECT = `
   SELECT id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
@@ -96,6 +130,36 @@ function isValidDate(value: string): boolean {
   return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
+const PREFECTURES = new Set([
+  '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
+  '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
+  '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県', '岐阜県',
+  '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県',
+  '奈良県', '和歌山県', '鳥取県', '島根県', '岡山県', '広島県', '山口県',
+  '徳島県', '香川県', '愛媛県', '高知県', '福岡県', '佐賀県', '長崎県',
+  '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
+]);
+
+function normalizedOptional(value: string | null): string | null {
+  return value?.trim() || null;
+}
+
+function validateAddress(input: CreatePharmacyPatientInput): void {
+  const postalCode = normalizedOptional(input.postalCode);
+  const prefecture = normalizedOptional(input.prefecture);
+  const city = normalizedOptional(input.city);
+  const addressLine1 = normalizedOptional(input.addressLine1);
+  const addressLine2 = normalizedOptional(input.addressLine2);
+  if (!postalCode && !prefecture && !city && !addressLine1 && !addressLine2) return;
+  if (!postalCode || !/^\d{3}-?\d{4}$/.test(postalCode) ||
+      !prefecture || !PREFECTURES.has(prefecture) ||
+      !city || !boundedText(city, 120) ||
+      !addressLine1 || !boundedText(addressLine1, 240) ||
+      (addressLine2 !== null && !boundedText(addressLine2, 240))) {
+    throw new Error('invalid patient address');
+  }
+}
+
 function validatePatientInput(input: CreatePharmacyPatientInput): void {
   if (
     !RELATIONSHIPS.has(input.relationship) ||
@@ -107,6 +171,7 @@ function validatePatientInput(input: CreatePharmacyPatientInput): void {
   ) {
     throw new Error('invalid patient profile');
   }
+  validateAddress(input);
 }
 
 function validateIntakeInput(input: CreatePatientIntakeInput): void {
@@ -124,7 +189,18 @@ function validateIntakeInput(input: CreatePatientIntakeInput): void {
     throw new Error('invalid intake answers');
   }
   if (!STATUS_VALUES.has(answerRecord.allergiesStatus as string) ||
-      !STATUS_VALUES.has(answerRecord.adverseReactionStatus as string)) {
+      !STATUS_VALUES.has(answerRecord.adverseReactionStatus as string) ||
+      !STATUS_VALUES.has(answerRecord.medicationStatus as string) ||
+      !STATUS_VALUES.has(answerRecord.medicalHistoryStatus as string) ||
+      !new Set(['paper', 'electronic', 'none', 'unknown']).has(answerRecord.medicationNotebook as string) ||
+      !SMOKING_VALUES.has(answerRecord.smokingStatus as string) ||
+      !ALCOHOL_VALUES.has(answerRecord.alcoholStatus as string) ||
+      !MEDICATION_ADHERENCE_VALUES.has(answerRecord.medicationAdherence as string)) {
+    throw new Error('invalid intake answers');
+  }
+  if (!Array.isArray(answerRecord.medicalHistoryTags) ||
+      answerRecord.medicalHistoryTags.length > 8 ||
+      answerRecord.medicalHistoryTags.some((tag) => !MEDICAL_HISTORY_TAGS.has(tag as string))) {
     throw new Error('invalid intake answers');
   }
   for (const key of [
@@ -162,6 +238,11 @@ export async function createPharmacyPatient(
     birth_date: input.birthDate,
     sex: input.sex,
     contact_phone: input.contactPhone?.trim() || null,
+    postal_code: normalizedOptional(input.postalCode),
+    prefecture: normalizedOptional(input.prefecture),
+    city: normalizedOptional(input.city),
+    address_line1: normalizedOptional(input.addressLine1),
+    address_line2: normalizedOptional(input.addressLine2),
     archived_at: null,
     created_at: now,
     updated_at: now,
@@ -169,8 +250,9 @@ export async function createPharmacyPatient(
   await db.prepare(
     `INSERT INTO pharmacy_patients
        (id, line_account_id, owner_friend_id, relationship, name, name_kana,
-        birth_date, sex, contact_phone, archived_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        birth_date, sex, contact_phone, postal_code, prefecture, city,
+        address_line1, address_line2, archived_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
   ).bind(
     patient.id,
     patient.line_account_id,
@@ -181,6 +263,11 @@ export async function createPharmacyPatient(
     patient.birth_date,
     patient.sex,
     patient.contact_phone,
+    patient.postal_code,
+    patient.prefecture,
+    patient.city,
+    patient.address_line1,
+    patient.address_line2,
     now,
     now,
   ).run();
@@ -250,12 +337,16 @@ export async function updatePharmacyPatient(
   const result = await db.prepare(
     `UPDATE pharmacy_patients
         SET relationship = ?, name = ?, name_kana = ?, birth_date = ?,
-            sex = ?, contact_phone = ?, updated_at = ?
+            sex = ?, contact_phone = ?, postal_code = ?, prefecture = ?,
+            city = ?, address_line1 = ?, address_line2 = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
         AND archived_at IS NULL AND updated_at = ?`,
   ).bind(
     input.relationship, input.name.trim(), input.nameKana.trim(), input.birthDate,
-    input.sex, input.contactPhone?.trim() || null, now,
+    input.sex, input.contactPhone?.trim() || null,
+    normalizedOptional(input.postalCode), normalizedOptional(input.prefecture),
+    normalizedOptional(input.city), normalizedOptional(input.addressLine1),
+    normalizedOptional(input.addressLine2), now,
     patientId, owner.lineAccountId, owner.friendId, expectedUpdatedAt,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('patient update conflict');
@@ -297,6 +388,12 @@ export async function createPatientIntakeResponse(
     nameKana: patient.name_kana,
     birthDate: patient.birth_date,
     sex: patient.sex,
+    contactPhone: patient.contact_phone,
+    postalCode: patient.postal_code,
+    prefecture: patient.prefecture,
+    city: patient.city,
+    addressLine1: patient.address_line1,
+    addressLine2: patient.address_line2,
   });
   const answers = JSON.stringify(input.answers);
   const responseId = crypto.randomUUID();
@@ -308,7 +405,7 @@ export async function createPatientIntakeResponse(
      SELECT ?, ?, ?, p.id,
             COALESCE((SELECT MAX(revision) FROM pharmacy_patient_intake_responses
                        WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = p.id), 0) + 1,
-            1, ?, ?,
+            ${INTAKE_SCHEMA_VERSION}, ?, ?,
             (SELECT id FROM pharmacy_patient_intake_responses
               WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = p.id
               ORDER BY revision DESC, id DESC LIMIT 1),

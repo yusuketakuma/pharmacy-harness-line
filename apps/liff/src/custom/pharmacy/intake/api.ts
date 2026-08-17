@@ -2,6 +2,12 @@ import { requestPharmacyLiff } from '../request.js';
 
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
 export type PatientSex = 'male' | 'female' | 'other' | 'prefer_not_to_say';
+export type MedicalHistoryTag =
+  | 'hypertension' | 'diabetes' | 'dyslipidemia' | 'heart_disease'
+  | 'kidney_disease' | 'liver_disease' | 'asthma' | 'other';
+export type SmokingStatus = 'never' | 'former' | 'current' | 'unknown';
+export type AlcoholStatus = 'none' | 'occasional' | 'weekly' | 'frequent' | 'unknown';
+export type MedicationAdherence = 'none' | 'sometimes' | 'often' | 'unknown';
 
 export interface PharmacyPatient {
   id: string;
@@ -11,6 +17,11 @@ export interface PharmacyPatient {
   birth_date: string;
   sex: PatientSex | null;
   contact_phone: string | null;
+  postal_code: string | null;
+  prefecture: string | null;
+  city: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
   archived_at: string | null;
   updated_at: string;
 }
@@ -30,8 +41,15 @@ export interface PatientIntakeAnswers {
   allergiesDetail?: string;
   adverseReactionStatus: 'none' | 'yes' | 'unknown';
   adverseReactionDetail?: string;
+  medicationStatus: 'none' | 'yes' | 'unknown';
   medicationSummary?: string;
+  medicalHistoryStatus: 'none' | 'yes' | 'unknown';
+  medicalHistoryTags: MedicalHistoryTag[];
   medicalHistory?: string;
+  medicationNotebook: 'paper' | 'electronic' | 'none' | 'unknown';
+  smokingStatus: SmokingStatus;
+  alcoholStatus: AlcoholStatus;
+  medicationAdherence: MedicationAdherence;
   pregnancyStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
   breastfeedingStatus?: 'not_applicable' | 'yes' | 'no' | 'unknown';
   notes?: string;
@@ -79,6 +97,11 @@ export const patientIntakeApi = {
     birthDate: string;
     sex: PatientSex | null;
     contactPhone: string | null;
+    postalCode: string | null;
+    prefecture: string | null;
+    city: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
   }) => json<{ patient: PharmacyPatient }>('/api/liff/pharmacy/patients', body),
   updatePatient: (patientId: string, body: {
     expectedUpdatedAt: string;
@@ -88,6 +111,11 @@ export const patientIntakeApi = {
     birthDate: string;
     sex: PatientSex | null;
     contactPhone: string | null;
+    postalCode: string | null;
+    prefecture: string | null;
+    city: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
   }) => patchJson<{ status: 'updated' }>(
     `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}`, body,
   ),

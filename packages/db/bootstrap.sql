@@ -940,7 +940,7 @@ CREATE TABLE pharmacy_patients (
   contact_phone    TEXT,
   archived_at     TEXT,
   created_at       TEXT NOT NULL,
-  updated_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL, postal_code TEXT, prefecture TEXT, city TEXT, address_line1 TEXT, address_line2 TEXT,
   UNIQUE (id, line_account_id, owner_friend_id),
   FOREIGN KEY (owner_friend_id, line_account_id)
     REFERENCES friends(id, line_account_id)

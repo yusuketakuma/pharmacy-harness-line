@@ -7,7 +7,7 @@
 //   1. POST /v2/bot/richmenu                  → 新 richmenuId 取得
 //   2. POST /v2/bot/richmenu/{id}/content     ← R2 から画像 stream
 //   3. alias upsert (DELETE → POST)
-//   4. 旧 richmenu があれば DELETE
+//   4. 全ページの反映と default 操作が成功した後に旧 richmenu を DELETE
 // 最後に isDefaultForAll なら 1 ページ目を全友だち default に。
 
 export type Bounds = { x: number; y: number; width: number; height: number };
@@ -114,80 +114,120 @@ export async function publishRichMenuGroup(
 
   const dimensions = SIZE_DIMENSIONS[group.size];
   const results: { pageId: string; newRichMenuId: string }[] = [];
+  const createdResources: {
+    aliasId: string;
+    richMenuId: string;
+    oldRichMenuId: string | null;
+    aliasCreated: boolean;
+  }[] = [];
 
-  for (const page of resolvedPages) {
-    if (!page.imageR2Key || !page.imageContentType) {
-      throw new Error(`page ${page.id} (${page.name}) has no image`);
+  try {
+    for (const page of resolvedPages) {
+      if (!page.imageR2Key || !page.imageContentType) {
+        throw new Error(`page ${page.id} (${page.name}) has no image`);
+      }
+
+      // 1. richmenu 作成
+      const created = await line.createRichMenu({
+        size: dimensions,
+        selected: group.selected,
+        name: `${group.id.slice(0, 8)} - ${page.name}`,
+        chatBarText: group.chatBarText,
+        areas: page.areas.map((a) => ({
+          bounds: a.bounds,
+          action: { type: a.actionType, ...a.actionData },
+        })),
+      });
+      const newRichMenuId = created.richMenuId;
+      const aliasId = buildAliasId(group.id, page.orderIndex);
+      const resource = {
+        aliasId,
+        richMenuId: newRichMenuId,
+        oldRichMenuId: page.lineRichMenuId,
+        aliasCreated: false,
+      };
+      createdResources.push(resource);
+
+      // 2. 画像 upload
+      const bytes = await readR2Object(r2, page.imageR2Key);
+      await line.uploadRichMenuImage(newRichMenuId, bytes, page.imageContentType);
+
+      // 3. alias upsert (DELETE は 404 なら無視、CREATE は失敗時 throw)
+      try {
+        await line.deleteRichMenuAlias(aliasId);
+      } catch {
+        // 404 等は無視
+      }
+      await line.createRichMenuAlias(aliasId, newRichMenuId);
+      resource.aliasCreated = true;
+
+      results.push({ pageId: page.id, newRichMenuId });
     }
 
-    // 1. richmenu 作成
-    const created = await line.createRichMenu({
-      size: dimensions,
-      selected: group.selected,
-      name: `${group.id.slice(0, 8)} - ${page.name}`,
-      chatBarText: group.chatBarText,
-      areas: page.areas.map((a) => ({
-        bounds: a.bounds,
-        action: { type: a.actionType, ...a.actionData },
-      })),
-    });
-    const newRichMenuId = created.richMenuId;
-
-    // 2. 画像 upload
-    const bytes = await readR2Object(r2, page.imageR2Key);
-    await line.uploadRichMenuImage(newRichMenuId, bytes, page.imageContentType);
-
-    // 3. alias upsert (DELETE は 404 なら無視、CREATE は失敗時 throw)
-    const aliasId = buildAliasId(group.id, page.orderIndex);
-    try {
-      await line.deleteRichMenuAlias(aliasId);
-    } catch {
-      // 404 等は無視
+    // 4. default 設定
+    // 有効化時は order_index=0 ページの richMenuId を default に設定。
+    // 無効化 (false) 時は **この group の richMenu が現在 LINE の default に設定されている
+    // 場合のみ** 解除する。同一 account に別の isDefaultForAll=true group がある状態で
+    // 無条件に DELETE すると、その別 group の default まで壊してしまうため。
+    if (group.isDefaultForAll && results.length > 0) {
+      await line.setDefaultRichMenu(results[0].newRichMenuId);
+    } else {
+      // 新規 menu 作成後も old ID を判定対象に残し、別 group の default を解除しない。
+      try {
+        const currentDefault = await line.getCurrentDefaultRichMenuId();
+        if (currentDefault) {
+          const ownIds = new Set<string>();
+          for (const p of group.pages) {
+            if (p.lineRichMenuId) ownIds.add(p.lineRichMenuId);
+          }
+          for (const r of results) ownIds.add(r.newRichMenuId);
+          if (ownIds.has(currentDefault)) {
+            await line.clearDefaultRichMenu();
+          }
+        }
+      } catch (e) {
+        console.warn(`[publishRichMenuGroup] default lookup/clear failed (non-fatal):`, e);
+      }
     }
-    await line.createRichMenuAlias(aliasId, newRichMenuId);
 
-    // 4. 旧 richmenu 削除 (alias 切替後にだけ。失敗しても致命的ではない)
-    if (page.lineRichMenuId) {
+    // 5. LINE の切替が完了してから旧 richmenu を削除する。削除失敗は孤児化を
+    // 防ぐため非致命扱いにし、次回 publish / cleanup で再試行できる状態を残す。
+    for (const page of resolvedPages) {
+      if (!page.lineRichMenuId) continue;
       try {
         await line.deleteRichMenu(page.lineRichMenuId);
       } catch {
-        // 旧削除失敗は無視
+        // 旧削除失敗は非致命。新 alias が既に live なので公開状態は維持できる。
       }
     }
 
-    results.push({ pageId: page.id, newRichMenuId });
-  }
-
-  // 5. default 設定
-  // 有効化時は order_index=0 ページの richMenuId を default に設定。
-  // 無効化 (false) 時は **この group の richMenu が現在 LINE の default に設定されている
-  // 場合のみ** 解除する。同一 account に別の isDefaultForAll=true group がある状態で
-  // 無条件に DELETE すると、その別 group の default まで壊してしまうため。
-  if (group.isDefaultForAll && results.length > 0) {
-    await line.setDefaultRichMenu(results[0].newRichMenuId);
-  } else {
-    // ベストエフォート: ここまで来た時点で新 richmenu はすでに live。LINE 側 default
-    // 判定や解除に失敗しても publish 全体を失敗させない (D1 の status 更新が呼出側で
-    // 走らず状態不整合になるため)。default 解除がスキップされた場合は次回 publish で
-    // 再試行されるか、運用側で明示的に解除されることを期待する。
-    try {
-      const currentDefault = await line.getCurrentDefaultRichMenuId();
-      if (currentDefault) {
-        const ownIds = new Set<string>();
-        for (const p of group.pages) {
-          if (p.lineRichMenuId) ownIds.add(p.lineRichMenuId);
-        }
-        for (const r of results) ownIds.add(r.newRichMenuId);
-        if (ownIds.has(currentDefault)) {
-          await line.clearDefaultRichMenu();
+    return { pages: results };
+  } catch (error) {
+    // 途中で失敗した場合、今回作った richmenu / alias だけを best-effort で戻す。
+    // 旧 richmenu はまだ削除していないため、既存公開状態を維持できる。
+    for (const resource of createdResources.reverse()) {
+      if (resource.aliasCreated) {
+        try {
+          await line.deleteRichMenuAlias(resource.aliasId);
+        } catch {
+          // cleanup は元の失敗を隠さない
         }
       }
-    } catch (e) {
-      console.warn(`[publishRichMenuGroup] default lookup/clear failed (non-fatal):`, e);
+      if (resource.oldRichMenuId) {
+        try {
+          await line.createRichMenuAlias(resource.aliasId, resource.oldRichMenuId);
+        } catch {
+          // alias 復元も best-effort。元の publish エラーを返す。
+        }
+      }
+      try {
+        await line.deleteRichMenu(resource.richMenuId);
+      } catch {
+        // cleanup は元の失敗を隠さない
+      }
     }
+    throw error;
   }
-
-  return { pages: results };
 }
 
 /**

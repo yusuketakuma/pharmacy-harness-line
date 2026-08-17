@@ -88,9 +88,6 @@ function Editor({
   const [pages, setPages] = useState<Page[]>([])
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
-  // isDefaultForAll はこの画面では編集しない (ON/OFF は「友だちに表示」モーダルから)。
-  // ただし persistDraft で送信値を一致させるため、現在値を保持する。
-  const [isDefaultForAll, setIsDefaultForAll] = useState(false)
   const [selected, setSelected] = useState(false)
 
   const [saving, setSaving] = useState(false)
@@ -111,7 +108,6 @@ function Editor({
       setGroup(g)
       setName(g.name)
       setChatBarText(g.chatBarText)
-      setIsDefaultForAll(g.isDefaultForAll)
       setSelected(g.selected)
       setPages(g.pages)
       setActivePageId((prev) =>
@@ -220,7 +216,6 @@ function Editor({
     const res = await api.richMenuGroups.update(groupId, {
       name,
       chatBarText,
-      isDefaultForAll,
       selected,
       pages: pages.map((p, i) => ({
         // 既存 page (UUID) は id を渡す。新規 page (`tmp-*` プレフィックス) は

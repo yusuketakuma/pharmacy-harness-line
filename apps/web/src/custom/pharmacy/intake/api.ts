@@ -10,6 +10,11 @@ export type PharmacyPatient = {
   birth_date: string
   sex: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null
   contact_phone: string | null
+  postal_code: string | null
+  prefecture: string | null
+  city: string | null
+  address_line1: string | null
+  address_line2: string | null
   archived_at: string | null
   updated_at: string
 }

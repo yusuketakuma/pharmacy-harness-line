@@ -80,7 +80,8 @@
     "custom_003_pharmacy_fulfillment_quotes.sql",
     "custom_004_pharmacy_continuity.sql",
     "custom_005_pharmacy_myna.sql",
-    "custom_006_pharmacy_rich_menu_auto_create.sql"
+    "custom_006_pharmacy_rich_menu_auto_create.sql",
+    "custom_007_pharmacy_patient_profile.sql"
   ],
-  "migrationCount": 81
+  "migrationCount": 82
 }
