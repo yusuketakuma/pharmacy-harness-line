@@ -231,6 +231,10 @@ https://line-harness.your-account.workers.dev
 https://your-pharmacy-liff.pages.dev/?liffId=your-liff-id
 ```
 
+顧客デプロイでは、Pages bundleの実値と`liff.line.me/{LIFF_ID}`の公開endpointを
+自動検査します。endpointがWorker URLへ戻っている場合は、Worker・Pages・D1を変更せずに
+デプロイを停止します。
+
 ---
 
 ## D1 データベースマイグレーション

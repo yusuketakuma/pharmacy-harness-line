@@ -72,6 +72,9 @@ Variables:
 | `WORKER_URL` | 薬局カスタムLIFFが呼び出すWorker URL |
 | `VITE_CALENDAR_CONNECTION_ID` | Google Calendar 連携を使う場合だけ設定 |
 
+薬局カスタムのデプロイでは、LIFF bundleの環境変数とLINE側の公開endpointを
+自動検査します。LIFF endpointがWorker URLへ戻っている場合は、リソースを変更せずに失敗します。
+
 Worker secrets は `wrangler secret put` で Cloudflare 側に設定します。
 
 ```bash
