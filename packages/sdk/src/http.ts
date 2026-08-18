@@ -3,17 +3,21 @@ import { LineHarnessError } from './errors.js'
 interface HttpClientConfig {
   baseUrl: string
   apiKey: string
+  tenantId: string
   timeout: number
 }
 
 export class HttpClient {
   private readonly baseUrl: string
   private readonly apiKey: string
+  private readonly tenantId: string
   private readonly timeout: number
 
   constructor(config: HttpClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
     this.apiKey = config.apiKey
+    this.tenantId = config.tenantId?.trim() ?? ''
+    if (!this.tenantId) throw new Error('tenantId is required')
     this.timeout = config.timeout
   }
 
@@ -45,6 +49,7 @@ export class HttpClient {
     const url = `${this.baseUrl}${path}`
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
+      'X-Tenant-Id': this.tenantId,
       'Content-Type': 'application/json',
       ...extraHeaders,
     }

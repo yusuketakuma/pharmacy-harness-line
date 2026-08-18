@@ -71,6 +71,7 @@ export type {
   StaffMember,
   StaffProfile,
   CreateStaffInput,
+  StaffCredentialIssue,
   UpdateStaffInput,
   UploadedImage,
   UploadImageInput,

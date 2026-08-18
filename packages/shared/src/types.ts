@@ -862,7 +862,7 @@ export interface StaffMember {
   name: string;
   email: string | null;
   role: 'owner' | 'admin' | 'staff';
-  apiKey: string;
+  loginId: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

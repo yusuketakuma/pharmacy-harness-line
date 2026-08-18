@@ -2,6 +2,7 @@
 export interface LineHarnessConfig {
   apiUrl: string
   apiKey: string
+  tenantId: string
   timeout?: number  // default: 30000ms
   lineAccountId?: string  // default account for multi-account setups
 }
@@ -592,11 +593,7 @@ export interface StaffMember {
   name: string
   email: string | null
   role: StaffRole
-  /**
-   * Masked API key (e.g. `lh_****1234`).
-   * The full key is only returned once — on create or regenerate-key responses.
-   */
-  apiKey: string
+  loginId: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -611,8 +608,14 @@ export interface StaffProfile {
 
 export interface CreateStaffInput {
   name: string
+  loginId: string
   email?: string
   role: 'admin' | 'staff'
+}
+
+export interface StaffCredentialIssue {
+  loginId: string
+  temporaryPassword: string
 }
 
 export interface UpdateStaffInput {
