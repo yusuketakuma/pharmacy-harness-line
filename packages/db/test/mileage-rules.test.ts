@@ -368,8 +368,8 @@ describe('configurable mileage rules', () => {
     await processPendingMileageEvents(db, { now: '2026-08-10T10:05:00.000+09:00' });
     expect((await getMileageSummaryForFriend(db, 'friend-1')).available).toBe(35);
 
-    await updateFriendFollowStatus(db, 'U1', false);
-    await updateFriendFollowStatus(db, 'U1', true);
+    await updateFriendFollowStatus(db, 'U1', false, 'account-1');
+    await updateFriendFollowStatus(db, 'U1', true, 'account-1');
     const relationship = sqlite.prepare(
       `SELECT is_following, current_follow_started_at, unfollow_count
          FROM friends WHERE id = 'friend-1'`,

@@ -51,6 +51,14 @@ function seedContinuity(db: Database.Database, suffix: 'a' | 'b'): void {
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(`account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, now, now);
+  db.prepare(`INSERT INTO tenants
+    (id, tenant_code, display_name, status, created_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?)`)
+    .run(`tenant-${suffix}`, `pharmacy-${suffix}`, `Tenant ${suffix}`, now, now);
+  db.prepare(`INSERT INTO tenant_line_accounts
+    (tenant_id, line_account_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?)`)
+    .run(`tenant-${suffix}`, `account-${suffix}`, now, now);
   db.prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)`)
@@ -85,10 +93,12 @@ describe('custom_012 pharmacy next-intake expectations', () => {
     d1 = d1From(db);
     seedContinuity(db, 'a');
     seedContinuity(db, 'b');
-    db.prepare(`INSERT INTO pharmacy_account_capabilities
-      (line_account_id, mode, capabilities_json, created_at, updated_at)
-      VALUES ('account-a', 'pharmacy', '["continuity"]',
-              '2026-08-18T00:00:00.000Z', '2026-08-18T00:00:00.000Z')`).run();
+    db.prepare(`UPDATE pharmacy_account_capabilities
+      SET capabilities_json = CASE line_account_id
+        WHEN 'account-a' THEN '["continuity"]'
+        ELSE '[]'
+      END
+      WHERE line_account_id IN ('account-a', 'account-b')`).run();
   });
 
   it('stores only account-scoped timing and consent workflow state', () => {
@@ -244,7 +254,7 @@ describe('custom_012 pharmacy next-intake expectations', () => {
     );
     expect(claimed).toEqual([expect.objectContaining({
       id: item.id, status: 'active', line_user_id: 'U-a',
-      channel_access_token: 'token-a',
+      tenant_id: 'tenant-a',
     })]);
     await markNextIntakeExpectationReminded(d1, {
       lineAccountId: 'account-a', expectationId: item.id,

@@ -13,11 +13,14 @@ import {
   reservePrescriptionResubmission,
   submitPrescription,
 } from '../../../apps/worker/src/custom/pharmacy/prescriptions/repository.js';
+import { encryptLineCredential } from '../../../apps/worker/src/custom/pharmacy/provisioning/line-credentials.js';
 import { cleanupPrescriptionImages } from '../../../apps/worker/src/custom/pharmacy/prescriptions/cleanup.js';
 import { deliverPrescriptionNotification } from '../../../apps/worker/src/custom/pharmacy/prescriptions/notifications.js';
 import { savePrescriptionValidity } from '../../../apps/worker/src/custom/pharmacy/growth-loop/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const LINE_CREDENTIAL_KEY = 'synthetic-line-credential-root-key-v1';
+const LINE_ACCESS_TOKEN = 'synthetic-account-token-with-enough-length-1234567890';
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
 
@@ -50,7 +53,7 @@ describe('synthetic prescription end-to-end', () => {
   let db: D1Database;
   const patient = { lineAccountId: 'account-synthetic', friendId: 'friend-synthetic' };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sqlite = new Database(':memory:');
     sqlite.pragma('foreign_keys = ON');
     sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
@@ -58,18 +61,43 @@ describe('synthetic prescription end-to-end', () => {
       `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret,
           login_channel_id, liff_id, created_at, updated_at)
-       VALUES (?, 'channel-synthetic', 'Synthetic Pharmacy', 'account-token',
+       VALUES (?, 'channel-synthetic', 'Synthetic Pharmacy', 'encrypted:v1',
                'secret', 'login-synthetic', 'liff-synthetic', ?, ?)`,
     ).run(patient.lineAccountId, '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
     sqlite.prepare(
-      `INSERT INTO pharmacy_account_capabilities
-         (line_account_id, capabilities_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+       VALUES ('tenant-synthetic', 'synthetic', 'Synthetic Pharmacy', 'active', ?, ?)`,
+    ).run('2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
+    sqlite.prepare(
+      `INSERT INTO tenant_line_accounts
+         (tenant_id, line_account_id, created_at, updated_at)
+       VALUES ('tenant-synthetic', ?, ?, ?)`,
+    ).run(patient.lineAccountId, '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
+    sqlite.prepare(
+      `UPDATE pharmacy_account_capabilities
+          SET capabilities_json = ?, updated_at = ?
+        WHERE line_account_id = ?`,
     ).run(
-      patient.lineAccountId,
       '["prescription_intake"]',
       '2026-08-17T00:00:00.000Z',
-      '2026-08-17T00:00:00.000Z',
+      patient.lineAccountId,
+    );
+    const encrypted = await encryptLineCredential({
+      rootSecret: LINE_CREDENTIAL_KEY,
+      tenantId: 'tenant-synthetic',
+      lineAccountId: patient.lineAccountId,
+      kind: 'channel_access_token',
+      credential: LINE_ACCESS_TOKEN,
+    });
+    sqlite.prepare(
+      `INSERT INTO pharmacy_line_credentials
+        (tenant_id, line_account_id, credential_kind, nonce, ciphertext,
+         key_version, revision, lookup_digest, created_at, updated_at)
+       VALUES (?, ?, 'channel_access_token', ?, ?, ?, 1, ?, ?, ?)`,
+    ).run(
+      'tenant-synthetic', patient.lineAccountId, encrypted.nonce,
+      encrypted.ciphertext, encrypted.keyVersion, encrypted.lookupDigest,
+      '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z',
     );
     sqlite.prepare(
       `INSERT INTO friends
@@ -95,7 +123,11 @@ describe('synthetic prescription end-to-end', () => {
       db,
       patient.lineAccountId,
       submissionId,
-      { proxyBaseUrl: 'https://worker.synthetic', proxyDispatch },
+      {
+        proxyBaseUrl: 'https://worker.synthetic',
+        proxyDispatch,
+        lineCredentialKey: LINE_CREDENTIAL_KEY,
+      },
     );
     const upload = async (submissionId: string, position: number, marker: string) => {
       const file = await reservePrescriptionFile(db, patient, submissionId, position, {
@@ -116,7 +148,10 @@ describe('synthetic prescription end-to-end', () => {
       originalPrescriptionConsent: true,
       readinessNoticeConsent: true,
     });
-    await upload(submission.id as string, 1, 'a');
+    const firstFile = await upload(submission.id as string, 1, 'a');
+    expect(firstFile.r2_key).toMatch(
+      /^custom\/pharmacy\/prescriptions\/tenants\/tenant-synthetic\//,
+    );
     expect(sqlite.prepare(
       `SELECT s.status, s.updated_at,
               s.original_prescription_consent_at IS NOT NULL AS original_consent,
@@ -205,7 +240,7 @@ describe('synthetic prescription end-to-end', () => {
     expect(JSON.stringify(history)).not.toContain('thumbnail');
     expect(notifications).toHaveLength(6);
     for (const request of notifications) {
-      expect(request.headers.get('Authorization')).toBe('Bearer account-token');
+      expect(request.headers.get('Authorization')).toBe(`Bearer ${LINE_ACCESS_TOKEN}`);
       expect(request.headers.get('X-Line-Harness-Source')).toBeNull();
     }
 
