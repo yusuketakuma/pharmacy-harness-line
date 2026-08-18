@@ -3,7 +3,7 @@ import { getPharmacyAccountId } from '../account.js';
 import { readJsonObject } from '../json.js';
 import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
-import { canAccessPharmacyAccount, hasPharmacyCapability } from '../growth-loop/access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 import {
   resolvePrescriptionPatient,
   type PrescriptionPatient,
@@ -21,9 +21,11 @@ import {
   listPharmacyPatients,
   updatePharmacyPatient,
 } from './repository.js';
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 
 type IntakeBindings = {
   DB: D1Database;
+  LINE_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
 };
 
@@ -37,11 +39,31 @@ type IntakeEnv = {
 
 export const pharmacyIntakeRoutes = new Hono<IntakeEnv>();
 
-async function canUseAdminIntake(c: { env: { DB: D1Database }; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined }, accountId: string): Promise<boolean> {
+async function canUseAdminIntake(c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined }, accountId: string): Promise<boolean> {
   const staff = c.get('staff');
-  return Boolean(staff && await canAccessPharmacyAccount(c.env.DB, staff, accountId) &&
+  return Boolean(staff && await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID) &&
     await hasPharmacyCapability(c.env.DB, accountId, 'patient_intake'));
 }
+pharmacyIntakeRoutes.use('/api/custom/pharmacy/patients', async (c, next) => {
+  const staff = c.get('staff');
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
+  return next();
+});
+pharmacyIntakeRoutes.use('/api/custom/pharmacy/patients/*', async (c, next) => {
+  const staff = c.get('staff');
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
+  return next();
+});
 
 pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);

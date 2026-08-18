@@ -51,6 +51,26 @@ describe('pharmacy notification policy', () => {
     } as never)).toBe(false);
   });
 
+  it('keeps intake-specific status text and opaque resubmission links approved', () => {
+    const ready = buildApprovedPharmacyMessage('prescription_status_v1', {
+      status: 'ready', intakeMethod: 'E_PRESCRIPTION',
+    });
+    expect(ready).toEqual({
+      type: 'text',
+      text: 'お薬の準備ができました。ご案内した受取方法でお受け取りください。',
+    });
+    expect(isApprovedRenderedPharmacyMessage('prescription_status_v1', ready)).toBe(true);
+
+    const resubmission = buildApprovedPharmacyMessage('prescription_status_v1', {
+      status: 'needs_resubmission', reasonCode: 'blurred',
+      liffId: 'liff-1', submissionId: 'submission-1',
+    });
+    expect(resubmission).toEqual(expect.objectContaining({
+      text: expect.stringContaining('https://liff.line.me/liff-1/'),
+    }));
+    expect(isApprovedRenderedPharmacyMessage('prescription_status_v1', resubmission)).toBe(true);
+  });
+
   it('builds only the fixed medication follow-up choices for an opaque id', () => {
     const followUpId = '123e4567-e89b-42d3-a456-426614174000';
     const message = buildApprovedPharmacyMessage('medication_followup_v1', { followUpId });

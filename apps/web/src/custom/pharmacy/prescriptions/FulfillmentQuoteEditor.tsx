@@ -66,11 +66,11 @@ export function FulfillmentQuoteEditor({
   const update = (values: Partial<FulfillmentQuoteDraft>) => onChange({ ...draft, ...values })
 
   return (
-    <section className="rounded-lg border border-green-200 bg-green-50 p-4" aria-labelledby="fulfillment-quote-title">
-      <h3 id="fulfillment-quote-title" className="font-semibold">受付内容の確認</h3>
-      <p className="mt-1 text-sm text-gray-600">受付可否と必要条件を登録すると、患者さんの受付状態を更新できます。</p>
+    <section className="rounded-lg border border-green-200 bg-green-50 p-4" aria-labelledby="prescription-answer-title">
+      <h3 id="prescription-answer-title" className="font-semibold">受付回答</h3>
+      <p className="mt-1 text-sm text-gray-600">受付可否・確認事項・準備予定を登録すると、患者さんへの案内まで進められます。</p>
       <label className="mt-3 block text-sm font-medium">
-        確認結果
+        受付可否
         <select value={draft.decision} onChange={(event) => {
           const decision = event.target.value as FulfillmentDecision
           update({

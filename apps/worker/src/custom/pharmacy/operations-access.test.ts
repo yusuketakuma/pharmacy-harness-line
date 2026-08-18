@@ -32,4 +32,31 @@ describe('pharmacy operations account access', () => {
       'account-b',
     )).resolves.toBe(false);
   });
+
+  it('allows an authenticated system owner to operate an active account', async () => {
+    await expect(canAccessPharmacyOperationsAccount(
+      db([{ channel_id: 'channel-a' }]),
+      { id: 'owner-1', role: 'owner' },
+      'account-a',
+    )).resolves.toBe(true);
+  });
+
+  it('fails closed when the assignment lookup is unavailable', async () => {
+    let query = 0;
+    const unavailable = {
+      prepare: vi.fn(() => ({
+        bind: () => ({
+          first: async () => {
+            if (query++ === 0) return { channel_id: 'channel-a' };
+            throw new Error('database unavailable');
+          },
+        }),
+      })),
+    } as unknown as D1Database;
+    await expect(canAccessPharmacyOperationsAccount(
+      unavailable,
+      { id: 'staff-a', role: 'admin' },
+      'account-a',
+    )).resolves.toBe(false);
+  });
 });

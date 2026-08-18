@@ -9,15 +9,27 @@ import {
 import { getPharmacyAccountId } from '../account.js';
 import { readJsonObject } from '../json.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 
 type FulfillmentEnv = {
-  Bindings: { DB: D1Database };
+  Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
   };
 };
 
 export const fulfillmentRoutes = new Hono<FulfillmentEnv>();
+
+fulfillmentRoutes.use('/api/custom/pharmacy/fulfillment-quotes/*', async (c, next) => {
+  const staff = c.get('staff');
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
+  return next();
+});
 
 function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | null {
   if (

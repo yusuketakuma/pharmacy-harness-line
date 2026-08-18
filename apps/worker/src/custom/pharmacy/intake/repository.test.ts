@@ -137,7 +137,7 @@ describe('pharmacy patient repository', () => {
       patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [],
       continuity: [], medicationFollowUps: [], timeline: [],
     });
-    expect(calls).toHaveLength(10);
+    expect(calls).toHaveLength(11);
     expect(calls.slice(1).every((call) => call.values.includes('account-1') && call.values.includes('patient-1'))).toBe(true);
     expect(calls.slice(1).every((call) => !call.sql.includes('line_user_id'))).toBe(true);
     const eventSql = calls.find((call) => call.sql.includes('pharmacy_prescription_events'))?.sql;

@@ -2020,6 +2020,9 @@ CREATE INDEX idx_pharmacy_prescriptions_friend_history
 CREATE INDEX idx_pharmacy_print_tasks_open
   ON pharmacy_print_tasks (line_account_id, status, created_at, id);
 
+CREATE INDEX idx_pharmacy_staff_accounts_staff
+  ON pharmacy_staff_accounts (staff_id, is_active, line_account_id);
+
 CREATE INDEX idx_pharmacy_submission_sources_account
   ON pharmacy_submission_sources(line_account_id, classification, entered_at);
 

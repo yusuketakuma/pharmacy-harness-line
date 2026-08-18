@@ -76,6 +76,17 @@ describe('continuity repository', () => {
     expect(calls.some((call) => call.sql.includes('INSERT INTO pharmacy_continuity_obligations'))).toBe(true);
   });
 
+  it('makes the close side effect replay-safe for the fulfilled event', async () => {
+    const { db, calls } = fakeDb([
+      { id: 'obligation-1', status: 'linked', patient_id: 'patient-1', owner_friend_id: 'friend-1', source_submission_id: 'submission-1' },
+      { patient_id: 'patient-1', owner_friend_id: 'friend-1', consent_at: '2026-08-17T00:00:00.000Z' },
+      { id: 'obligation-2', status: 'active', patient_id: 'patient-1' },
+    ]);
+    await completeContinuityAfterClose(db, 'account-1', 'submission-2', 'staff-1', new Date('2026-08-17T00:00:00Z'));
+    const fulfilledEvent = calls.find((call) => call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes("'fulfilled'"));
+    expect(fulfilledEvent?.sql).toContain('NOT EXISTS');
+  });
+
   it('lists obligations without crossing the account boundary', async () => {
     const { db, calls } = fakeDb([], [{ id: 'obligation-1', status: 'active' }]);
     await expect(listContinuityObligations(db, 'account-1')).resolves.toEqual([

@@ -8,7 +8,7 @@ import {
   type RichMenuGroupWithPages,
 } from '@line-crm/db';
 import type { Env } from '../../../index.js';
-import { canAccessPharmacyAccount, hasPharmacyCapability } from '../growth-loop/access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 import {
   buildPharmacyInitialRichMenu,
   buildPharmacySingleActionRichMenu,
@@ -20,6 +20,7 @@ import {
   PHARMACY_RICH_MENU_GENERATOR_VERSION,
 } from './profile.js';
 import { savePharmacyRichMenuImage } from './storage.js';
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 
 export const pharmacyRichMenuRoutes = new Hono<Env>();
 
@@ -102,7 +103,7 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c)
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   const staff = c.get('staff');
   if (!staff) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyAccount(c.env.DB, staff, accountId)) ||
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID)) ||
       !(await hasPharmacyCapability(c.env.DB, accountId, 'pharmacy_rich_menu'))) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }

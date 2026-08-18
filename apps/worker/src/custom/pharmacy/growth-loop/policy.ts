@@ -17,6 +17,9 @@ export type PharmacyAutomatedMessageId =
 export type PharmacyMessageVars = {
   status?: 'received' | 'accepted' | 'needs_resubmission' | 'ready' | 'closed' | 'cancelled';
   reasonCode?: 'blurred' | 'cropped' | 'glare' | 'unreadable' | 'missing_page';
+  intakeMethod?: 'E_PRESCRIPTION' | 'PAPER' | 'MEDICAL_INSTITUTION_SENT';
+  liffId?: string;
+  submissionId?: string;
   genericDate?: string;
   genericTime?: string;
   followUpId?: string;
@@ -29,6 +32,11 @@ const REASONS: Record<NonNullable<PharmacyMessageVars['reasonCode']>, string> = 
   unreadable: '画像を確認できませんでした',
   missing_page: '画像を確認できませんでした',
 };
+
+function prescriptionPageUrl(liffId: string, submissionId: string): string {
+  const query = new URLSearchParams({ page: 'prescription', submissionId });
+  return `https://liff.line.me/${encodeURIComponent(liffId)}/?${query.toString()}`;
+}
 
 function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): string {
   switch (id) {
@@ -45,13 +53,23 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
     case 'prescription_status_v1':
       switch (vars.status) {
         case 'received':
-          return '受付内容の確認待ちです。確認後、LINEでお知らせします。処方せん原本は来局時にお持ちください。';
+          return vars.intakeMethod === 'E_PRESCRIPTION'
+            ? '処方せんを受け付けました。薬局で内容を確認し、準備状況をLINEでお知らせします。'
+            : vars.intakeMethod === 'MEDICAL_INSTITUTION_SENT'
+              ? '受付内容を確認しています。準備状況はLINEでお知らせします。'
+              : '受付内容の確認待ちです。確認後、LINEでお知らせします。処方せん原本は来局時にお持ちください。';
         case 'accepted':
           return '処方せんを確認し、受付しました。お薬を準備しています。';
         case 'needs_resubmission':
-          return `処方せん画像をもう一度送信してください。${REASONS[vars.reasonCode ?? 'unreadable']}`;
+          return `処方せん画像をもう一度送信してください。${REASONS[vars.reasonCode ?? 'unreadable']}${vars.liffId && vars.submissionId
+            ? `\n再送する: ${prescriptionPageUrl(vars.liffId, vars.submissionId)}`
+            : ''}`;
         case 'ready':
-          return 'お薬の準備ができました。処方せん原本を持って薬局へお越しください。';
+          return vars.intakeMethod === 'E_PRESCRIPTION'
+            ? 'お薬の準備ができました。ご案内した受取方法でお受け取りください。'
+            : vars.intakeMethod === 'MEDICAL_INSTITUTION_SENT'
+              ? 'お薬の準備ができました。薬局へ受取方法をご確認ください。'
+              : 'お薬の準備ができました。処方せん原本を持って薬局へお越しください。';
         case 'closed':
           return 'お薬のお渡しが完了しました。ご利用ありがとうございました。';
         case 'cancelled':
@@ -69,11 +87,13 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
   'prescription_validity_reminder_v1',
   'medication_followup_v1',
 ]);
-const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'genericDate', 'genericTime', 'followUpId']);
+const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'intakeMethod', 'liffId', 'submissionId', 'genericDate', 'genericTime', 'followUpId']);
 const STATUSES = new Set(['received', 'accepted', 'needs_resubmission', 'ready', 'closed', 'cancelled']);
 const REASON_CODES = new Set(Object.keys(REASONS));
 const UNSAFE_RENDERED_TEXT = /薬剤名|疾患名|病名|医療機関名|医師名|患者名|自由記述|(?:病院|医院|診療所|クリニック|歯科)|(?:糖尿病|高血圧|がん|癌)|(?:ロキソニン|アムロジピン)|drug\s+name|diagnos(?:is|es)|hospital\s+name/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LIFF_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const OPAQUE_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function isDateOnly(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -100,8 +120,9 @@ export function buildApprovedPharmacyMessage(
   if (Object.keys(vars).some((key) => !VARIABLE_KEYS.has(key))) {
     throw new Error('pharmacy notification variable rejected');
   }
-  for (const value of Object.values(vars)) {
-    if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 64)) {
+  for (const [key, value] of Object.entries(vars)) {
+    const maxLength = key === 'submissionId' ? 128 : 64;
+    if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > maxLength)) {
       throw new Error('pharmacy notification variable rejected');
     }
   }
@@ -109,6 +130,21 @@ export function buildApprovedPharmacyMessage(
     throw new Error('pharmacy notification variable rejected');
   }
   if (vars.reasonCode && !REASON_CODES.has(vars.reasonCode)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.intakeMethod && !['E_PRESCRIPTION', 'PAPER', 'MEDICAL_INSTITUTION_SENT'].includes(vars.intakeMethod)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.liffId && !LIFF_ID_RE.test(vars.liffId)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.submissionId && !OPAQUE_ID_RE.test(vars.submissionId)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (id === 'prescription_status_v1' &&
+      ((Boolean(vars.liffId) !== Boolean(vars.submissionId)) ||
+       (Boolean(vars.liffId) && vars.status !== 'needs_resubmission') ||
+       (Boolean(vars.intakeMethod) && vars.status !== 'received' && vars.status !== 'ready'))) {
     throw new Error('pharmacy notification variable rejected');
   }
   if (vars.genericDate && !isDateOnly(vars.genericDate)) {
@@ -154,11 +190,32 @@ export function isApprovedRenderedPharmacyMessage(
     return same(buildApprovedPharmacyMessage(id, { followUpId }));
   }
   if (id === 'prescription_status_v1') {
-    return [undefined, ...STATUSES]
+    const variants = [undefined, ...STATUSES]
       .map((status) => buildApprovedPharmacyMessage(id, {
         status: status as PharmacyMessageVars['status'],
       }))
-      .some(same);
+      .concat(
+        (['received', 'ready'] as const).flatMap((status) =>
+          (['E_PRESCRIPTION', 'PAPER', 'MEDICAL_INSTITUTION_SENT'] as const).map((intakeMethod) =>
+            buildApprovedPharmacyMessage(id, { status, intakeMethod }),
+          )),
+      );
+    const linkMatch = /再送する: https:\/\/liff\.line\.me\/([A-Za-z0-9_-]{1,64})\/\?page=prescription&submissionId=([^\s]+)$/.exec(message.text);
+    if (linkMatch) {
+      try {
+        const submissionId = decodeURIComponent(linkMatch[2]);
+        if (OPAQUE_ID_RE.test(submissionId)) {
+          variants.push(buildApprovedPharmacyMessage(id, {
+            status: 'needs_resubmission',
+            liffId: linkMatch[1],
+            submissionId,
+          }));
+        }
+      } catch {
+        return false;
+      }
+    }
+    return variants.some(same);
   }
   if (id === 'prescription_validity_reminder_v1') {
     const date = /^(?:処方せんの使用期限が近づいています。)(\d{4}-\d{2}-\d{2})(?:までに薬局へご相談ください。)$/.exec(message.text)?.[1];

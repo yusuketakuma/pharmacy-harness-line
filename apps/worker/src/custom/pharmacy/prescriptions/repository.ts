@@ -269,8 +269,9 @@ export async function submitPrescription(
   patient: PrescriptionPatient,
   submissionId: string,
   expectedUpdatedAt: string,
-): Promise<void> {
+): Promise<{ statusEventId: string }> {
   const now = nextIsoTimestamp(expectedUpdatedAt);
+  const statusEventId = crypto.randomUUID();
   const results = await db.batch([
     db.prepare(
       `UPDATE pharmacy_prescription_submissions AS s
@@ -313,7 +314,7 @@ export async function submitPrescription(
         WHERE id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'received' AND updated_at = ?`,
     ).bind(
-      crypto.randomUUID(),
+      statusEventId,
       now,
       submissionId,
       patient.lineAccountId,
@@ -324,6 +325,7 @@ export async function submitPrescription(
   if ((results[0]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription submit conflict');
   }
+  return { statusEventId };
 }
 
 export interface PrescriptionHistoryItem {
@@ -534,6 +536,11 @@ export interface AdminPrescriptionStats {
   oldest_wait_at: string | null;
 }
 
+export interface AdminPrescriptionActionResult {
+  status: PrescriptionStatus;
+  statusEventId: string;
+}
+
 export async function getAdminPrescriptionStats(
   db: D1Database,
   lineAccountId: string,
@@ -612,8 +619,47 @@ export async function applyAdminPrescriptionAction(
   expectedUpdatedAt: string,
   staffId: string,
   reasonCode: string | null,
-  at = new Date(),
-): Promise<PrescriptionStatus> {
+  atOrOperationId: Date | string | null = null,
+  operationId: string | null = null,
+): Promise<AdminPrescriptionActionResult> {
+  const at = atOrOperationId instanceof Date ? atOrOperationId : new Date();
+  const resolvedOperationId = typeof atOrOperationId === 'string' ? atOrOperationId : operationId;
+  const eventId = resolvedOperationId ?? crypto.randomUUID();
+  if (resolvedOperationId) {
+    const replay = await db.prepare(
+      `SELECT e.id, e.actor_id, e.from_status, e.to_status, e.reason_code
+         FROM pharmacy_prescription_events e
+         INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
+        WHERE e.id = ? AND e.submission_id = ? AND s.line_account_id = ?
+          AND e.event_type = 'status_changed'`,
+    ).bind(resolvedOperationId, submissionId, lineAccountId).first<{
+      id: string;
+      actor_id: string | null;
+      from_status: PrescriptionStatus | null;
+      to_status: PrescriptionStatus | null;
+      reason_code: string | null;
+    }>();
+    if (replay) {
+      let replayMatches = replay.actor_id === staffId &&
+        replay.from_status !== null && replay.to_status !== null;
+      if (replayMatches && replay.from_status && replay.to_status) {
+        try {
+          replayMatches = nextPrescriptionStatus(replay.from_status, action) === replay.to_status;
+        } catch {
+          replayMatches = false;
+        }
+      }
+      const expectedReason = action === 'admin_request_resubmission'
+        ? reasonCode
+        : action === 'admin_cancel'
+          ? 'admin_cancelled'
+          : null;
+      if (!replayMatches || replay.reason_code !== expectedReason) {
+        throw new Error('prescription admin action idempotency conflict');
+      }
+      return { status: replay.to_status as PrescriptionStatus, statusEventId: replay.id };
+    }
+  }
   const current = await db.prepare(
     `SELECT status, updated_at, intake_required, source_handoff_id
        FROM pharmacy_prescription_submissions
@@ -715,12 +761,12 @@ export async function applyAdminPrescriptionAction(
          FROM pharmacy_prescription_submissions
         WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
     ).bind(
-      crypto.randomUUID(), staffId, current.status, next, storedReason, now,
+      eventId, staffId, current.status, next, storedReason, now,
       submissionId, lineAccountId, next, now,
     ),
   ]);
   if ((results[0]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription admin action conflict');
   }
-  return next;
+  return { status: next, statusEventId: eventId };
 }

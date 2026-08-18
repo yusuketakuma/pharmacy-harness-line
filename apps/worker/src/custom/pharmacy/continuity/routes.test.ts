@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listExpectations: vi.fn(),
   offerExpectation: vi.fn(),
   respondExpectation: vi.fn(),
+  access: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -23,6 +24,9 @@ vi.mock('./next-intake.js', () => ({
   listNextIntakeExpectations: mocks.listExpectations,
   offerNextIntakeExpectation: mocks.offerExpectation,
   respondToNextIntakeExpectation: mocks.respondExpectation,
+}));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
 }));
 
 import { continuityRoutes } from './routes.js';
@@ -52,9 +56,19 @@ beforeEach(() => {
   mocks.listExpectations.mockResolvedValue([{ id: 'expectation-1', status: 'offered' }]);
   mocks.offerExpectation.mockResolvedValue({ id: 'expectation-1', status: 'offered' });
   mocks.respondExpectation.mockResolvedValue({ id: 'expectation-1', status: 'accepted' });
+  mocks.access.mockResolvedValue(true);
 });
 
 describe('continuity routes', () => {
+  it('rejects staff obligations outside the assigned account', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/continuity?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.adminList).not.toHaveBeenCalled();
+  });
+
   it('lists staff obligations only with an account scope', async () => {
     const response = await adminApp().request('/api/custom/pharmacy/continuity?line_account_id=account-1', {}, env);
     expect(response.status).toBe(200);

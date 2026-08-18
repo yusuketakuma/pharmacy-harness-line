@@ -42,6 +42,9 @@ vi.mock('../growth-loop/access.js', () => ({
   canAccessPharmacyAccount: mocks.access,
   hasPharmacyCapability: mocks.capability,
 }));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
+}));
 
 import { pharmacyIntakeRoutes } from './routes.js';
 
@@ -158,6 +161,15 @@ describe('LIFF pharmacy patient and intake routes', () => {
 });
 
 describe('admin pharmacy patient routes', () => {
+  it('rejects a staff member outside the requested account', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.listAdminPatients).not.toHaveBeenCalled();
+  });
+
   it('requires an account scope and returns the staff-visible patient list', async () => {
     const response = await adminApp().request(
       '/api/custom/pharmacy/patients?line_account_id=account-1', {}, env,

@@ -5,6 +5,7 @@ import {
   actionsForStatus,
   reasonLabel,
 } from './PrescriptionDetailPanel.js'
+import { actionNotice, shouldConfirmAction } from './PrescriptionQueuePage.js'
 import { PrescriptionImageViewer } from './PrescriptionImageViewer.js'
 import {
   PrescriptionQueueEmptyState,
@@ -26,6 +27,13 @@ describe('prescription admin UI contract', () => {
     expect(statusLabel('needs_resubmission')).toBe('再送依頼中')
     expect(reasonLabel('glare')).toBe('光が反射しています')
     expect(reasonLabel(null)).toBe('なし')
+  })
+
+  it('requires confirmation only for destructive actions and exposes notification outcome', () => {
+    expect(shouldConfirmAction({ danger: true })).toBe(true)
+    expect(shouldConfirmAction({ danger: false })).toBe(false)
+    expect(actionNotice('failed')).toContain('再試行待ち')
+    expect(actionNotice('already_sent')).toContain('通知済み')
   })
 
   it('offers only state-valid actions', () => {
@@ -72,7 +80,8 @@ describe('prescription admin UI contract', () => {
       onChange={() => undefined}
       onSave={() => undefined}
     />)
-    expect(html).toContain('受付内容の確認')
+    expect(html).toContain('受付回答')
+    expect(html).not.toContain('FulfillmentQuote')
     expect(html).toContain('type="datetime-local"')
     expect(html).toContain('受付内容を保存')
   })

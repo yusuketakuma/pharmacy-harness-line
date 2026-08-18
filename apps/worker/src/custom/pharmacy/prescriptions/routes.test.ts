@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   completeContinuity: vi.fn(),
   activation: vi.fn(),
   enqueueActivity: vi.fn(),
+  access: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -62,6 +63,9 @@ vi.mock('../growth-loop/onboarding.js', () => ({
 vi.mock('../activity-notifications/repository.js', () => ({
   enqueueActivityForAccount: mocks.enqueueActivity,
 }));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -87,6 +91,7 @@ beforeEach(() => {
   mocks.completeContinuity.mockResolvedValue(null);
   mocks.activation.mockResolvedValue(undefined);
   mocks.enqueueActivity.mockResolvedValue(null);
+  mocks.access.mockResolvedValue(true);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {
@@ -176,8 +181,17 @@ describe('admin prescription routes', () => {
     mocks.adminStats.mockResolvedValue({ pending_count: 1, oldest_wait_at: '2026-08-17T00:00:00Z' });
     mocks.adminDetail.mockResolvedValue({ submission: { id: 'submission-1' }, files: [], events: [] });
     mocks.adminFile.mockResolvedValue({ r2_key: 'private-key', content_type: 'image/png' });
-    mocks.adminAction.mockResolvedValue('accepted');
+    mocks.adminAction.mockResolvedValue({ status: 'accepted', statusEventId: 'event-1' });
     getObject.mockResolvedValue({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer });
+  });
+
+  it('rejects a staff member outside the requested account before reading the queue', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions?line_account_id=account-b', {}, adminEnv,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.listAdmin).not.toHaveBeenCalled();
   });
 
   it('requires line_account_id for every admin collection query', async () => {
@@ -229,19 +243,21 @@ describe('admin prescription routes', () => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedUpdatedAt: '2026-08-17T00:00:00.000Z' }),
+        body: JSON.stringify({ expectedUpdatedAt: '2026-08-17T00:00:00.000Z', operationId: 'operation-1' }),
       },
       adminEnv,
     );
     expect(response.status).toBe(200);
     expect(mocks.adminAction).toHaveBeenCalledWith(
       env.DB, 'account-1', 'submission-1', 'admin_accept',
-      '2026-08-17T00:00:00.000Z', 'staff-1', null,
+      '2026-08-17T00:00:00.000Z', 'staff-1', null, 'operation-1',
     );
     expect(mocks.notify).toHaveBeenCalledWith(
       env.DB,
+      'account-1',
       'submission-1',
       expect.objectContaining({ proxyDispatch: expect.any(Function) }),
+      'event-1',
     );
     expect(mocks.adminAction.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.notify.mock.invocationCallOrder[0],
@@ -267,7 +283,33 @@ describe('admin prescription routes', () => {
       adminEnv,
     );
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ status: 'accepted' });
+    await expect(response.json()).resolves.toEqual({
+      status: 'accepted',
+      statusEventId: 'event-1',
+      notification: { status: 'failed' },
+    });
+  });
+
+  it('does not turn a committed close into a false failure when continuity repair is needed', async () => {
+    mocks.adminAction.mockResolvedValueOnce({ status: 'closed', statusEventId: 'event-close' });
+    mocks.notify.mockResolvedValueOnce({ status: 'sent' });
+    mocks.completeContinuity.mockRejectedValueOnce(new Error('continuity unavailable'));
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions/submission-1/actions/close?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedUpdatedAt: '2026-08-17T00:00:00.000Z', operationId: 'operation-close' }),
+      },
+      adminEnv,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: 'closed',
+      statusEventId: 'event-close',
+      notification: { status: 'sent' },
+      continuity: 'retry_pending',
+    });
   });
 
   it('returns a conflict without notifying when prescription validity is not usable', async () => {
@@ -300,7 +342,7 @@ describe('POST /api/liff/pharmacy/prescriptions/:id/submit', () => {
   beforeEach(() => {
     mocks.verify.mockResolvedValue({ lineUserId: 'U1', loginChannelId: 'login-1' });
     mocks.resolvePatient.mockResolvedValue({ lineAccountId: 'account-1', friendId: 'friend-1' });
-    mocks.submit.mockResolvedValue(undefined);
+    mocks.submit.mockResolvedValue({ statusEventId: 'event-1' });
   });
 
   it('submits with the caller-owned tenant and expected version', async () => {
@@ -313,8 +355,28 @@ describe('POST /api/liff/pharmacy/prescriptions/:id/submit', () => {
     );
     expect(mocks.notify).toHaveBeenCalledWith(
       env.DB,
+      'account-1',
       'submission-1',
       expect.objectContaining({ proxyDispatch: expect.any(Function) }),
+      'event-1',
+    );
+  });
+
+  it('keeps a committed submission successful when continuity linking needs repair', async () => {
+    mocks.linkContinuity.mockRejectedValueOnce(new Error('continuity unavailable'));
+    const response = await request();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: 'received',
+      statusEventId: 'event-1',
+      notification: { status: 'sent' },
+    });
+    expect(mocks.notify).toHaveBeenCalledWith(
+      env.DB,
+      'account-1',
+      'submission-1',
+      expect.objectContaining({ proxyDispatch: expect.any(Function) }),
+      'event-1',
     );
   });
 

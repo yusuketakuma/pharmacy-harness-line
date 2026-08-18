@@ -91,6 +91,15 @@ export interface MedicalSource {
   is_active: number
 }
 
+export type PrescriptionNotificationStatus = 'sent' | 'already_sent' | 'failed' | 'skipped' | 'superseded'
+
+export interface PrescriptionActionResult {
+  status: PrescriptionStatus
+  statusEventId: string
+  notification: { status: PrescriptionNotificationStatus }
+  continuity?: 'completed' | 'retry_pending'
+}
+
 export interface PrescriptionStats {
   pending_count: number
   oldest_wait_at: string | null
@@ -169,11 +178,16 @@ export const prescriptionAdminApi = {
     action: PrescriptionAdminAction,
     expectedUpdatedAt: string,
     reasonCode?: string,
-  ) => fetchApi<{ status: PrescriptionStatus }>(
+    operationId?: string,
+  ) => fetchApi<PrescriptionActionResult>(
     `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/actions/${action}?${accountQuery(accountId)}`,
     {
       method: 'POST',
-      body: JSON.stringify({ expectedUpdatedAt, reasonCode: reasonCode ?? null }),
+      body: JSON.stringify({
+        expectedUpdatedAt,
+        reasonCode: reasonCode ?? null,
+        operationId: operationId ?? null,
+      }),
     },
   ),
   image: async (accountId: string, submissionId: string, fileId: string) => {

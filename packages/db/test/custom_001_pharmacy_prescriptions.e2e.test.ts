@@ -93,6 +93,7 @@ describe('synthetic prescription end-to-end', () => {
     });
     const notify = (submissionId: string) => deliverPrescriptionNotification(
       db,
+      patient.lineAccountId,
       submissionId,
       { proxyBaseUrl: 'https://worker.synthetic', proxyDispatch },
     );

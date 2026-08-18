@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   latest: vi.fn(),
   enqueueActivity: vi.fn(),
+  access: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
@@ -13,6 +14,9 @@ vi.mock('./repository.js', () => ({
 }));
 vi.mock('../activity-notifications/repository.js', () => ({
   enqueueActivityForAccount: mocks.enqueueActivity,
+}));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
 }));
 
 import { fulfillmentRoutes } from './routes.js';
@@ -37,6 +41,7 @@ beforeEach(() => {
   mocks.latest.mockResolvedValue({ id: 'quote-1', revision: 1, decision: 'fulfillable' });
   mocks.create.mockResolvedValue({ id: 'quote-1', revision: 1, decision: 'conditional' });
   mocks.enqueueActivity.mockResolvedValue(null);
+  mocks.access.mockResolvedValue(true);
 });
 
 const quoteBody = {
@@ -48,6 +53,15 @@ const quoteBody = {
 };
 
 describe('FulfillmentQuote admin routes', () => {
+  it('rejects a staff member outside the requested account', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await app().request(
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.latest).not.toHaveBeenCalled();
+  });
+
   it('requires account scope for reads', async () => {
     const response = await app().request('/api/custom/pharmacy/fulfillment-quotes/submission-1', {}, env);
     expect(response.status).toBe(400);
