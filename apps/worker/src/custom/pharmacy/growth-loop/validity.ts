@@ -1,19 +1,20 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { markPrescriptionValidityExpiredReview } from './repository.js';
 import { sendPharmacyAutomatedPush } from './sender.js';
+import { readLineCredential } from '../provisioning/line-credential-store.js';
 
 type DueValidity = {
   submission_id: string;
   line_account_id: string;
+  tenant_id: string;
   friend_id: string;
   valid_until: string;
   line_user_id: string;
-  channel_access_token: string;
 };
 
 export async function processDuePrescriptionValidityReminders(
   db: D1Database,
-  options: { proxyBaseUrl: string; proxyDispatch?: HarnessProxyDispatch; now?: Date; limit?: number },
+  options: { proxyBaseUrl: string; proxyDispatch?: HarnessProxyDispatch; lineCredentialKey?: string; now?: Date; limit?: number },
 ): Promise<{ sent: number; failed: number; skipped: number; expiredReviewRequired: number }> {
   const now = options.now ?? new Date();
   const timestamp = now.toISOString();
@@ -23,6 +24,14 @@ export async function processDuePrescriptionValidityReminders(
   const expiredRows = await db.prepare(
     `SELECT v.submission_id, v.line_account_id
        FROM pharmacy_prescription_validities v
+       INNER JOIN line_accounts la
+         ON la.id = v.line_account_id AND la.is_active = 1
+       INNER JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = v.line_account_id
+       INNER JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       INNER JOIN pharmacy_account_capabilities capability
+         ON capability.line_account_id = v.line_account_id AND capability.mode = 'pharmacy'
       WHERE v.verification_status = 'verified' AND v.valid_until IS NOT NULL AND v.valid_until < ?
         AND EXISTS (
           SELECT 1 FROM pharmacy_prescription_submissions s
@@ -43,12 +52,16 @@ export async function processDuePrescriptionValidityReminders(
   }
   const rows = await db.prepare(
     `SELECT v.submission_id, v.line_account_id, s.friend_id, v.valid_until,
-            f.line_user_id, la.channel_access_token
+            f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
        FROM pharmacy_prescription_validities v
        INNER JOIN pharmacy_prescription_submissions s
          ON s.id = v.submission_id AND s.line_account_id = v.line_account_id
        INNER JOIN friends f ON f.id = s.friend_id AND f.line_account_id = s.line_account_id
        INNER JOIN line_accounts la ON la.id = s.line_account_id
+       INNER JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = s.line_account_id
+       INNER JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
        INNER JOIN pharmacy_account_capabilities pc
          ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
         AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'prescription_intake')
@@ -87,12 +100,28 @@ export async function processDuePrescriptionValidityReminders(
       result.skipped++;
       continue;
     }
+    const accessToken = options.lineCredentialKey
+      ? await readLineCredential(db, options.lineCredentialKey, {
+        tenantId: row.tenant_id,
+        lineAccountId: row.line_account_id,
+        kind: 'channel_access_token',
+      }).catch(() => null)
+      : null;
+    if (!accessToken) {
+      await db.prepare(
+        `UPDATE pharmacy_prescription_validities
+            SET reminder_claimed_at = NULL, updated_at = ?
+          WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
+      ).bind(timestamp, row.submission_id, row.line_account_id, timestamp).run();
+      result.skipped++;
+      continue;
+    }
     try {
       await sendPharmacyAutomatedPush({
         db,
         proxyBaseUrl: options.proxyBaseUrl,
         proxyDispatch: options.proxyDispatch,
-        accessToken: row.channel_access_token,
+        accessToken,
         to: row.line_user_id,
         lineAccountId: row.line_account_id,
         friendId: row.friend_id,

@@ -191,7 +191,7 @@ affiliateSelfRoutes.get('/api/liff/mileage/me', async (c) => {
           || !resolved.friend.user_id) {
         return opportunity;
       }
-      const token = await signCrossAccountToken(c.env.LINE_CHANNEL_SECRET, {
+      const token = await signCrossAccountToken(c.env.CROSS_ACCOUNT_TOKEN_KEY, {
         userId: resolved.friend.user_id,
         targetAccountId: opportunity.targetAccountId,
       });

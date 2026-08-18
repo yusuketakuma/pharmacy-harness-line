@@ -270,6 +270,12 @@ describe('processDueEventReminders', () => {
     await processDueEventReminders(db, { now: new Date('2026-05-09T00:00:00Z'), sender: vi.fn() });
 
     expect(sql[0]).toContain('pharmacy_account_capabilities');
+    expect(sql[0]).toContain('la.is_active = 1');
+    expect(sql[0]).toContain('tenant_line_accounts');
+    expect(sql[0]).toContain("tenant.status = 'active'");
+    expect(sql[0]).toContain('e.line_account_id = b.line_account_id');
+    expect(sql[0]).toContain('s.event_id = b.event_id');
+    expect(sql[0]).toContain('f.line_account_id = b.line_account_id');
   });
   test('sends due pending reminders', async () => {
     const state = { rows: [dueRow({ id: 'r1' })] };

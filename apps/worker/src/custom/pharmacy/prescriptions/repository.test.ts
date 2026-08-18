@@ -446,6 +446,8 @@ describe('prescription file persistence', () => {
     )).resolves.toEqual(existing);
     expect(calls[0].sql).toContain("s.status IN ('draft','needs_resubmission')");
     expect(calls[0].sql).toContain('s.line_account_id = ? AND s.friend_id = ?');
+    expect(calls[0].sql).toContain('tenant_line_accounts');
+    expect(calls[0].sql).toContain("'custom/pharmacy/prescriptions/tenants/' || mapping.tenant_id");
     expect(calls[1].sql).toContain("f.state IN ('pending','ready')");
     expect(calls[1].sql).toContain('SET updated_at = ?');
     expect(calls[2].sql).toContain('f.submission_id = ? AND s.line_account_id = ? AND s.friend_id = ?');

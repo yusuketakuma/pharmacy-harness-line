@@ -13,6 +13,7 @@ import {
 } from '@line-crm/db';
 import type { TrafficPoolWithAccount, PoolAccountWithDetails } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { hasPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 const trafficPools = new Hono<Env>();
 
@@ -33,6 +34,7 @@ function serialize(pool: TrafficPoolWithAccount) {
 // ── Public: GET /pool/:slug → 302 redirect to LIFF auth URL ────────────────
 
 trafficPools.get('/pool/:slug', async (c) => {
+  if (await hasPharmacyModeAccount(c.env.DB)) return c.notFound();
   const slug = c.req.param('slug');
   const pool = await getTrafficPoolBySlug(c.env.DB, slug);
 

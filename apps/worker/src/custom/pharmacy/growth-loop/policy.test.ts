@@ -68,6 +68,9 @@ describe('pharmacy notification policy', () => {
     expect(resubmission).toEqual(expect.objectContaining({
       text: expect.stringContaining('https://liff.line.me/liff-1/'),
     }));
+    expect(resubmission).toEqual(expect.objectContaining({
+      text: expect.stringContaining('liffId=liff-1'),
+    }));
     expect(isApprovedRenderedPharmacyMessage('prescription_status_v1', resubmission)).toBe(true);
   });
 

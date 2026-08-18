@@ -29,7 +29,7 @@ import { buildIntroMessage } from '../services/intro-message.js';
 import { attachTagAndFireSideEffects } from '../services/friend-tag-attach.js';
 import { pushImmediateFirstStep } from '../services/immediate-first-step.js';
 import { notifyAffiliateFriendAdd } from '../services/affiliate-notifier.js';
-import { verifyCallerLineUserId } from '../services/liff-auth.js';
+import { verifyCallerLineIdentity, verifyCallerLineUserId } from '../services/liff-auth.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
 import { safeRedirectTarget } from '../lib/safe-redirect.js';
 import type { Env } from '../index.js';
@@ -53,6 +53,25 @@ function decodeState(encoded: string): string {
 }
 
 const liffRoutes = new Hono<Env>();
+
+// Pharmacy tenants use the dedicated LIFF app. The legacy generic OAuth flow
+// has unsigned state and global friend semantics, so it must never run there.
+liffRoutes.use('/auth/*', async (c, next) => {
+  if (await hasPharmacyModeAccount(c.env.DB)) return c.notFound();
+  await next();
+});
+
+const legacyLiffApiPaths = new Set([
+  '/api/liff/config',
+  '/api/liff/link',
+  '/api/liff/send-form-link',
+]);
+liffRoutes.use('/api/liff/*', async (c, next) => {
+  if (legacyLiffApiPaths.has(c.req.path) && await hasPharmacyModeAccount(c.env.DB)) {
+    return c.notFound();
+  }
+  await next();
+});
 
 // Persist ig_igsid on the LINE friend and notify IG Harness.
 // Used anywhere a LIFF/OAuth flow resolves with a known IGSID so existing
@@ -1103,14 +1122,24 @@ liffRoutes.get('/api/liff/config', async (c) => {
     }
 
     const account = await c.env.DB
-      .prepare('SELECT id, name, channel_access_token FROM line_accounts WHERE liff_id = ? AND is_active = 1')
+      .prepare(
+        `SELECT account.id, account.name, account.channel_access_token
+           FROM line_accounts AS account
+           INNER JOIN tenant_line_accounts AS mapping
+                   ON mapping.line_account_id = account.id
+           INNER JOIN tenants AS tenant
+                   ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+          WHERE account.liff_id = ? AND account.is_active = 1`,
+      )
       .bind(liffId)
       .first<{ id: string; name: string; channel_access_token: string }>();
 
-    // Fallback to default env account if liff_id not found in DB
-    const accessToken = account?.channel_access_token || c.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const accountName = account?.name || 'Default';
-    const accountId = account?.id || 'default';
+    if (!account) {
+      return c.json({ success: false, error: 'LIFF account not found' }, 404);
+    }
+    const accessToken = account.channel_access_token;
+    const accountName = account.name;
+    const accountId = account.id;
 
     // Fetch bot basic ID from LINE API
     let botBasicId = '';
@@ -1141,12 +1170,16 @@ liffRoutes.get('/api/liff/config', async (c) => {
 // POST /api/liff/profile - get the authenticated LIFF caller's friend profile
 liffRoutes.post('/api/liff/profile', async (c) => {
   try {
-    const lineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
-    if (!lineUserId) {
+    const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
+    if (!identity) {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
 
-    const friend = await getFriendByLineUserId(c.env.DB, lineUserId);
+    const friend = await getFriendByLineUserIdForAccount(
+      c.env.DB,
+      identity.lineUserId,
+      identity.lineAccountId,
+    );
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
@@ -1232,7 +1265,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
     let linkedUserId = (friend as unknown as Record<string, unknown>).user_id as string | null;
     if (body.crossAccountToken) {
       const crossAccount = await verifyCrossAccountToken(
-        c.env.LINE_CHANNEL_SECRET,
+        c.env.CROSS_ACCOUNT_TOKEN_KEY,
         body.crossAccountToken,
       );
       if (!crossAccount || !matchedAccount || crossAccount.targetAccountId !== matchedAccount.id) {

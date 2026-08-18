@@ -627,7 +627,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
           console.log('Form reply: starting for friendId', friendId);
           const friend = await getFriendById(db, friendId!);
           if (!friend?.line_user_id) { console.log('Form reply: no line_user_id'); return; }
-          console.log('Form reply: sending to', friend.line_user_id);
+          console.log('Form reply: sending');
           const accessToken = await resolveFriendAccessToken(
             db,
             friend,

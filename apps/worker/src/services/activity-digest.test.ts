@@ -94,7 +94,7 @@ describe('getActivityDigest', () => {
       }],
     };
 
-    const result = await getActivityDigest(db, {
+    const result = await getActivityDigest(db, 'tenant-a', {
       hours: 3,
       now: new Date('2026-08-05T09:00:00Z'),
       unansweredLoader: async () => unanswered,
@@ -117,11 +117,11 @@ describe('getActivityDigest', () => {
     ]);
     expect(result.unanswered.oldestWaitMinutes).toBe(15);
     expect(bindings).toEqual([
-      ['2026-08-05T15:00:00.000', 501],
-      ['2026-08-05T15:00:00.000', 501],
-      ['2026-08-05T15:00:00.000', 501],
-      ['2026-08-05T06:00:00.000Z', 501],
-      ['2026-08-05T06:00:00.000Z', 501],
+      ['tenant-a', '2026-08-05T15:00:00.000', 501],
+      ['tenant-a', '2026-08-05T15:00:00.000', 501],
+      ['tenant-a', '2026-08-05T15:00:00.000', 501],
+      ['tenant-a', '2026-08-05T06:00:00.000Z', 501],
+      ['tenant-a', '2026-08-05T06:00:00.000Z', 501],
     ]);
   });
 
@@ -139,7 +139,7 @@ describe('getActivityDigest', () => {
     }));
     const db = mockDb({ messages }, []);
 
-    const result = await getActivityDigest(db, {
+    const result = await getActivityDigest(db, 'tenant-a', {
       now: new Date('2026-08-05T09:00:00Z'),
       unansweredLoader: async () => noUnanswered,
     });

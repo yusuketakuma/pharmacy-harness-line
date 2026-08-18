@@ -1,5 +1,6 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
+import { readLineCredential } from '../provisioning/line-credential-store.js';
 import {
   markNextIntakeExpectationReminded,
   type DueNextIntakeExpectation,
@@ -9,6 +10,7 @@ export interface ContinuityNotificationOptions {
   db: D1Database;
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
+  lineCredentialKey?: string;
 }
 
 export function continuityReminderText(): string {
@@ -19,13 +21,20 @@ export async function deliverContinuityReminder(
   reminder: DueNextIntakeExpectation,
   options: ContinuityNotificationOptions,
 ): Promise<'sent' | 'failed' | 'skipped'> {
-  if (!reminder.line_user_id || !reminder.channel_access_token) return 'skipped';
+  const accessToken = options.lineCredentialKey
+    ? await readLineCredential(options.db, options.lineCredentialKey, {
+      tenantId: reminder.tenant_id,
+      lineAccountId: reminder.line_account_id,
+      kind: 'channel_access_token',
+    }).catch(() => null)
+    : null;
+  if (!reminder.line_user_id || !accessToken) return 'skipped';
   try {
     const outcome = await sendPharmacyAutomatedPush({
       db: options.db,
       proxyBaseUrl: options.proxyBaseUrl,
       proxyDispatch: options.proxyDispatch,
-      accessToken: reminder.channel_access_token,
+      accessToken,
       to: reminder.line_user_id,
       lineAccountId: reminder.line_account_id,
       friendId: reminder.owner_friend_id,

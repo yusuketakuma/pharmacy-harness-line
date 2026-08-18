@@ -6,7 +6,15 @@ const dbMocks = {
   getFriendById: vi.fn(),
   getLineAccountById: vi.fn(),
 };
+const pharmacyMode = vi.hoisted(() => ({
+  enabled: false,
+  check: vi.fn(),
+}));
+pharmacyMode.check.mockImplementation(async () => pharmacyMode.enabled);
 vi.mock('@line-crm/db', () => dbMocks);
+vi.mock('../custom/pharmacy/growth-loop/access.js', () => ({
+  isPharmacyModeAccount: pharmacyMode.check,
+}));
 
 const { processWebinarReminders, sendWebinarRegistrationConfirmation, buildWebinarUrl } =
   await import('./webinar-reminders.js');
@@ -24,9 +32,25 @@ const OPTIONS = {
 };
 const proxyFetch = vi.fn();
 
+function mappedDb(mapped = true): D1Database {
+  return {
+    prepare(sql: string) {
+      expect(sql).toContain('tenant_line_accounts');
+      expect(sql).toContain('f.id = ?');
+      const statement = {
+        bind: vi.fn(() => statement),
+        first: vi.fn().mockResolvedValue(mapped ? { ok: 1 } : null),
+      };
+      return statement;
+    },
+  } as unknown as D1Database;
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  pharmacyMode.enabled = false;
+  pharmacyMode.check.mockImplementation(async () => pharmacyMode.enabled);
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW * 1000));
   dbMocks.getFriendById.mockResolvedValue({ id: 'friend-1', line_user_id: 'U1', is_following: 1 });
@@ -57,7 +81,7 @@ describe('processWebinarReminders', () => {
 
   test('Harness proxy 経由で送信し、成功後に notified を刻む', async () => {
     dbMocks.getDueWebinarRegistrations.mockResolvedValue([REG]);
-    const result = await processWebinarReminders({} as D1Database, OPTIONS);
+    const result = await processWebinarReminders(mappedDb(), OPTIONS);
     expect(result).toEqual({ sent: 1, failed: 0 });
     expect(dbMocks.markWebinarRegistrationNotified).toHaveBeenCalledWith(expect.anything(), 'reg-1');
     expect(proxyFetch).toHaveBeenCalledTimes(1);
@@ -85,7 +109,7 @@ describe('processWebinarReminders', () => {
     proxyFetch.mockResolvedValue(
       new Response('{"message":"upstream failed"}', { status: 502, statusText: 'Bad Gateway' }),
     );
-    const result = await processWebinarReminders({} as D1Database, OPTIONS);
+    const result = await processWebinarReminders(mappedDb(), OPTIONS);
     expect(result).toEqual({ sent: 0, failed: 1 });
     expect(dbMocks.markWebinarRegistrationNotified).not.toHaveBeenCalled();
   });
@@ -98,7 +122,7 @@ describe('processWebinarReminders', () => {
         headers: { 'x-line-accepted-request-id': 'accepted-1' },
       }),
     );
-    const result = await processWebinarReminders({} as D1Database, OPTIONS);
+    const result = await processWebinarReminders(mappedDb(), OPTIONS);
     expect(result).toEqual({ sent: 1, failed: 0 });
     expect(dbMocks.markWebinarRegistrationNotified).toHaveBeenCalledWith(expect.anything(), 'reg-1');
   });
@@ -106,7 +130,7 @@ describe('processWebinarReminders', () => {
   test('ブロック済み friend は送らず消化する', async () => {
     dbMocks.getDueWebinarRegistrations.mockResolvedValue([REG]);
     dbMocks.getFriendById.mockResolvedValue({ id: 'friend-1', line_user_id: 'U1', is_following: 0 });
-    const result = await processWebinarReminders({} as D1Database, OPTIONS);
+    const result = await processWebinarReminders(mappedDb(), OPTIONS);
     expect(proxyFetch).not.toHaveBeenCalled();
     expect(dbMocks.markWebinarRegistrationNotified).toHaveBeenCalledWith(expect.anything(), 'reg-1');
     expect(result).toEqual({ sent: 0, failed: 0 });
@@ -116,17 +140,41 @@ describe('processWebinarReminders', () => {
     dbMocks.getDueWebinarRegistrations.mockResolvedValue([
       { ...REG, session_start_at: NOW - 30 },
     ]);
-    await processWebinarReminders({} as D1Database, OPTIONS);
+    await processWebinarReminders(mappedDb(), OPTIONS);
     const [, init] = proxyFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as { messages: Array<{ text: string }> };
     expect(body.messages[0].text).toContain('始まりました');
   });
+
+  test('stopped or unmapped account is skipped before friend lookup', async () => {
+    dbMocks.getDueWebinarRegistrations.mockResolvedValue([REG]);
+    const result = await processWebinarReminders(mappedDb(false), OPTIONS);
+
+    expect(result).toEqual({ sent: 0, failed: 0 });
+    expect(dbMocks.getFriendById).not.toHaveBeenCalled();
+    expect(proxyFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('sendWebinarRegistrationConfirmation', () => {
+  test('direct confirmation is denied for a pharmacy account without a callback', async () => {
+    pharmacyMode.enabled = true;
+    await sendWebinarRegistrationConfirmation(
+      mappedDb(),
+      { account_id: 'acc-1', title: 'テスト', slug: 'test-webinar' },
+      'friend-1',
+      NOW + 3600,
+      OPTIONS,
+    );
+
+    expect(pharmacyMode.check).toHaveBeenCalledWith(expect.anything(), 'acc-1');
+    expect(dbMocks.getFriendById).not.toHaveBeenCalled();
+    expect(proxyFetch).not.toHaveBeenCalled();
+  });
+
   test('pharmacy account confirmation is skipped by the capability gate', async () => {
     await sendWebinarRegistrationConfirmation(
-      {} as D1Database,
+      mappedDb(),
       { account_id: 'acc-1', title: 'テスト', slug: 'test-webinar' },
       'friend-1',
       NOW + 3600,
@@ -139,7 +187,7 @@ describe('sendWebinarRegistrationConfirmation', () => {
 
   test('予約直後の確認も Harness proxy 経由で送り、履歴化する', async () => {
     await sendWebinarRegistrationConfirmation(
-      {} as D1Database,
+      mappedDb(),
       { account_id: 'acc-1', title: 'テスト', slug: 'test-webinar' },
       'friend-1',
       NOW + 3600,

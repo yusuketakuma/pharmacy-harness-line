@@ -627,7 +627,7 @@ events.get('/api/liff/events/me', async (c) => {
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
   const friend = await c.env.DB
-    .prepare(`SELECT id FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+    .prepare(`SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
     .bind(callerLineUserId, account_id)
     .first<{ id: string }>();
   if (!friend) return c.json({ items: [] });
@@ -672,7 +672,7 @@ events.get('/api/liff/events/me/:bookingId', async (c) => {
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
   const friend = await c.env.DB
-    .prepare(`SELECT id FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+    .prepare(`SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
     .bind(callerLineUserId, account_id)
     .first<{ id: string }>();
   if (!friend) return bad(c, 'not_found', 404);
@@ -704,7 +704,7 @@ events.post('/api/liff/events/me/:bookingId/cancel', async (c) => {
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
   const friend = await c.env.DB
-    .prepare(`SELECT id FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+    .prepare(`SELECT id FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
     .bind(callerLineUserId, account_id)
     .first<{ id: string }>();
   if (!friend) return bad(c, 'friend_not_found', 404);
@@ -773,7 +773,7 @@ events.get('/api/liff/events/:id', async (c) => {
   }
   if (caller) {
     const friend = await c.env.DB
-      .prepare(`SELECT id, user_id, picture_url FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+      .prepare(`SELECT id, user_id, picture_url FROM friends WHERE provider_line_user_id = ? AND line_account_id = ?`)
       .bind(caller, account_id)
       .first<{ id: string; user_id: string | null; picture_url: string | null }>();
     if (friend) {
@@ -866,7 +866,7 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
   const friend = await c.env.DB
     .prepare(
       `SELECT id, user_id, picture_url FROM friends
-        WHERE line_user_id = ? AND line_account_id = ? AND is_following = 1`,
+        WHERE provider_line_user_id = ? AND line_account_id = ? AND is_following = 1`,
     )
     .bind(callerLineUserId, account_id)
     .first<{ id: string; user_id: string | null; picture_url: string | null }>();
@@ -1212,7 +1212,7 @@ events.get('/api/events/admin/events/:id/bookings', async (c) => {
     .prepare(
       `SELECT b.*,
               s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
-              f.display_name AS friend_display_name, f.line_user_id AS friend_line_user_id
+              f.display_name AS friend_display_name, f.provider_line_user_id AS friend_line_user_id
          FROM event_bookings b
          JOIN event_slots s ON s.id = b.slot_id
          LEFT JOIN friends f ON f.id = b.friend_id
@@ -1268,7 +1268,7 @@ async function notifyBookingFriend(
                 e.confirmation_message_extra,
                 s.starts_at AS slot_starts_at,
                 la.channel_access_token,
-                f.line_user_id
+                f.provider_line_user_id AS line_user_id
            FROM event_bookings b
            JOIN events e ON e.id = b.event_id
            JOIN event_slots s ON s.id = b.slot_id

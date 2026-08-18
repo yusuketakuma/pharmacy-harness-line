@@ -40,7 +40,7 @@ const handoff = {
   id: 'handoff-1', line_account_id: 'account-1', friend_id: 'friend-1', patient_id: null,
   expectation_id: 'expectation-1', method: 'E_PRESCRIPTION', status: 'PATIENT_REPORTED_COMPLETE',
   source: 'LIFF', correlation_id: 'corr-1', launched_at: '2026-08-17T09:00:00.000Z',
-  patient_reported_at: null, expires_at: '2026-08-18T09:00:00.000Z', closed_at: null,
+  patient_reported_at: null, expires_at: '2099-08-18T09:00:00.000Z', closed_at: null,
   created_at: '2026-08-17T09:00:00.000Z', updated_at: '2026-08-17T09:00:00.000Z',
 };
 

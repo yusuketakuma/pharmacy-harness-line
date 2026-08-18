@@ -10,6 +10,7 @@ import { getPharmacyAccountId } from '../account.js';
 import { readJsonObject } from '../json.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 type FulfillmentEnv = {
   Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string };
@@ -28,6 +29,9 @@ fulfillmentRoutes.use('/api/custom/pharmacy/fulfillment-quotes/*', async (c, nex
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'fulfillment_quote'))) {
+    return c.json({ error: 'Fulfillment quote is not enabled' }, 403);
+  }
   return next();
 });
 

@@ -28,8 +28,8 @@ export interface NextIntakeExpectation {
 }
 
 export interface DueNextIntakeExpectation extends NextIntakeExpectation {
+  tenant_id: string;
   line_user_id: string;
-  channel_access_token: string;
 }
 
 type Timing =
@@ -333,7 +333,7 @@ export async function claimDueNextIntakeExpectations(
             e.patient_id, e.status, e.timing_source, e.supply_days,
             e.expected_from, e.expected_to, e.reminder_at, e.reminded_at,
             e.version, e.created_by, e.created_at, e.updated_at,
-            friend.line_user_id, account.channel_access_token
+            friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
        FROM pharmacy_next_intake_expectations e
        INNER JOIN pharmacy_continuity_obligations o
          ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
@@ -341,6 +341,10 @@ export async function claimDueNextIntakeExpectations(
        INNER JOIN friends friend
          ON friend.id = e.owner_friend_id AND friend.line_account_id = e.line_account_id
        INNER JOIN line_accounts account ON account.id = e.line_account_id
+       INNER JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = e.line_account_id
+       INNER JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
        INNER JOIN pharmacy_account_capabilities capability
          ON capability.line_account_id = e.line_account_id AND capability.mode = 'pharmacy'
         AND EXISTS (

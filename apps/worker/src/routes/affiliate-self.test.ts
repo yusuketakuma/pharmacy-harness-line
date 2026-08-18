@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { verifyCrossAccountToken } from '../lib/cross-account-token.js';
 
 // Mock @line-crm/db. index.ts pulls several helpers eagerly at module load, so
 // every referenced export must exist as a stub. This suite drives the
@@ -35,7 +36,16 @@ vi.mock('@line-crm/db', () => dbMocks);
 // Import after the mock so index.ts binds the mocked helpers.
 const worker = (await import('../index.js')).default;
 
-const DB = {} as D1Database;
+const DB = {
+  prepare: () => {
+    const statement = {
+      first: async () => null,
+      all: async () => ({ results: [] }),
+      run: async () => ({}),
+    };
+    return { ...statement, bind: () => statement };
+  },
+} as unknown as D1Database;
 
 // The deployment's LINE Login channel. resolveFriendFromLineToken now requires
 // the verify response's client_id to be in the allowed set (env default + DB
@@ -47,7 +57,8 @@ const env = {
   LIFF_URL: 'https://liff.line.me/1000000000-DefaultAA',
   WORKER_URL: 'https://worker.example.com',
   LINE_LOGIN_CHANNEL_ID: LOGIN_CHANNEL_ID,
-  LINE_CHANNEL_SECRET: 'wallet-link-secret',
+  LINE_CHANNEL_SECRET: 'line-channel-secret',
+  CROSS_ACCOUNT_TOKEN_KEY: 'cross-account-token-key-at-least-32-bytes',
 } as unknown as import('../index.js').Env['Bindings'];
 
 function call(path: string, init?: RequestInit) {
@@ -301,7 +312,11 @@ describe('GET /api/liff/mileage/me — generic wallet', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { opportunities: Array<{ url: string }> };
     const missionUrl = new URL(body.opportunities[0].url);
-    expect(missionUrl.searchParams.get('crossAccountToken')).toMatch(/^v1\./u);
+    const token = missionUrl.searchParams.get('crossAccountToken');
+    expect(token).toMatch(/^v1\./u);
+    await expect(verifyCrossAccountToken(env.CROSS_ACCOUNT_TOKEN_KEY, token!))
+      .resolves.toMatchObject({ targetAccountId: 'account-2' });
+    await expect(verifyCrossAccountToken(env.LINE_CHANNEL_SECRET, token!)).resolves.toBeNull();
   });
 });
 

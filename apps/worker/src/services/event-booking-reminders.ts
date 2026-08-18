@@ -137,17 +137,25 @@ export async function processDueEventReminders(
               e.reminder_message_extra, e.reminder_hours_before,
               s.starts_at,
               la.channel_access_token,
-              f.line_user_id
+              f.provider_line_user_id AS line_user_id
          FROM event_booking_reminders r
          INNER JOIN event_bookings b ON b.id = r.booking_id
-         INNER JOIN events e ON e.id = b.event_id
-         INNER JOIN event_slots s ON s.id = b.slot_id
+         INNER JOIN events e
+                 ON e.id = b.event_id AND e.line_account_id = b.line_account_id
+         INNER JOIN event_slots s
+                 ON s.id = b.slot_id AND s.event_id = b.event_id
          INNER JOIN line_accounts la ON la.id = b.line_account_id
-         INNER JOIN friends f ON f.id = b.friend_id
+         INNER JOIN tenant_line_accounts mapping
+                 ON mapping.line_account_id = la.id
+         INNER JOIN tenants tenant
+                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+         INNER JOIN friends f
+                 ON f.id = b.friend_id AND f.line_account_id = b.line_account_id
         WHERE r.status IN ('pending','failed')
           AND r.scheduled_at <= ?
           AND b.status = 'confirmed'
           AND s.starts_at > ?
+          AND la.is_active = 1
           AND NOT EXISTS (
             SELECT 1 FROM pharmacy_account_capabilities pac
              WHERE pac.line_account_id = b.line_account_id AND pac.mode = 'pharmacy'

@@ -35,8 +35,8 @@ export interface MedicationFollowUp {
 }
 
 export interface DueMedicationFollowUp extends MedicationFollowUp {
+  tenant_id: string;
   line_user_id: string;
-  channel_access_token: string;
 }
 
 const SELECT = `
@@ -311,11 +311,15 @@ export async function listDueMedicationFollowUps(
             f.source_submission_id, f.status, f.due_at, f.delivered_at,
             f.responded_at, f.assigned_to, f.closed_at, f.version,
             f.created_by, f.created_at, f.updated_at,
-            friend.line_user_id, account.channel_access_token
+            friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
        FROM pharmacy_medication_followups f
        INNER JOIN friends friend
          ON friend.id = f.owner_friend_id AND friend.line_account_id = f.line_account_id
        INNER JOIN line_accounts account ON account.id = f.line_account_id
+       INNER JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = f.line_account_id
+       INNER JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
        INNER JOIN pharmacy_account_capabilities capability
          ON capability.line_account_id = f.line_account_id AND capability.mode = 'pharmacy'
         AND EXISTS (

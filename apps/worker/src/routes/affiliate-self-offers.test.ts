@@ -27,7 +27,16 @@ vi.mock('@line-crm/db', () => dbMocks);
 
 const worker = (await import('../index.js')).default;
 
-const DB = {} as D1Database;
+const DB = {
+  prepare: () => {
+    const statement = {
+      first: async () => null,
+      all: async () => ({ results: [] }),
+      run: async () => ({}),
+    };
+    return { ...statement, bind: () => statement };
+  },
+} as unknown as D1Database;
 const LOGIN_CHANNEL_ID = '2000000000';
 const env = {
   DB,

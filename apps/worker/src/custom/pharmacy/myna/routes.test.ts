@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   resolvePatient: vi.fn(),
   enqueueActivity: vi.fn(),
   access: vi.fn(),
+  capability: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
@@ -44,6 +45,7 @@ vi.mock('../activity-notifications/repository.js', () => ({
 vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
 }));
+vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
 
 import { mynaRoutes } from './routes.js';
 
@@ -95,6 +97,7 @@ beforeEach(() => {
   });
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
+  mocks.capability.mockResolvedValue(true);
 });
 
 describe('Myna routes', () => {

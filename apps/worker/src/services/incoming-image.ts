@@ -15,6 +15,7 @@ export interface FetchAndStoreOptions {
   /** 公開 URL のベース (例: https://your-worker.your-subdomain.workers.dev) */
   workerUrl: string;
   channelAccessToken: string;
+  tenantId: string;
   accountId: string;
   messageId: string;
 }
@@ -39,43 +40,44 @@ export async function fetchAndStoreIncomingImage(
       headers: { Authorization: `Bearer ${opts.channelAccessToken}` },
     });
   } catch (err) {
-    console.error('incoming-image: fetch failed', { err, messageId: opts.messageId, accountId: opts.accountId });
+    console.error('incoming-image: fetch failed', err);
     return null;
   }
 
   if (!res.ok) {
-    console.error('incoming-image: non-200', { status: res.status, messageId: opts.messageId, accountId: opts.accountId });
+    console.error('incoming-image: non-200', { status: res.status });
     return null;
   }
 
   const contentType = res.headers.get('Content-Type')?.split(';')[0].trim() ?? 'application/octet-stream';
   const ext = CONTENT_TYPE_TO_EXT[contentType];
   if (!ext) {
-    console.error('incoming-image: unsupported content-type', { contentType, messageId: opts.messageId, accountId: opts.accountId });
+    console.error('incoming-image: unsupported content-type', { contentType });
     return null;
   }
-  // accountId / messageId は実質 UUID / LINE 数字 ID で安全だが、念のため
+  // Tenant/account/message identifiers are server-resolved, but sanitize them
   // R2 キーに不正な文字（スラッシュ等）が混入しないよう sanitize する。
+  const safeTenantId = opts.tenantId.replace(/[^a-zA-Z0-9:-]/g, '_');
   const safeAccountId = opts.accountId.replace(/[^a-zA-Z0-9-]/g, '_');
   const safeMessageId = opts.messageId.replace(/[^a-zA-Z0-9-]/g, '_');
-  const key = `incoming-${safeAccountId}-${safeMessageId}.${ext}`;
+  const key = `tenants/${safeTenantId}/accounts/${safeAccountId}/incoming/${safeMessageId}.${ext}`;
 
   let data: ArrayBuffer;
   try {
     data = await res.arrayBuffer();
   } catch (err) {
-    console.error('incoming-image: arrayBuffer failed', { err, messageId: opts.messageId, accountId: opts.accountId });
+    console.error('incoming-image: arrayBuffer failed', err);
     return null;
   }
 
   try {
     await opts.r2.put(key, data, { httpMetadata: { contentType } });
   } catch (err) {
-    console.error('incoming-image: R2 put failed', { err, messageId: opts.messageId, accountId: opts.accountId });
+    console.error('incoming-image: R2 put failed', err);
     return null;
   }
 
   const base = opts.workerUrl.replace(/\/$/, '');
-  const url = `${base}/images/${key}`;
+  const url = `${base}/api/images/${key}`;
   return { originalContentUrl: url, previewImageUrl: url };
 }

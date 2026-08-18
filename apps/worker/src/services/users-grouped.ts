@@ -25,7 +25,7 @@ const IDENT_SQL = `
     friends.id           AS friend_id,
     friends.line_account_id,
     line_accounts.name   AS account_name,
-    friends.line_user_id,
+    friends.provider_line_user_id AS line_user_id,
     friends.display_name,
     friends.picture_url,
     friends.is_following,

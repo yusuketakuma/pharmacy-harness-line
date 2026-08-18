@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
 import type { Env } from '../../index.js';
-import { canAccessPharmacyAccount } from './growth-loop/access.js';
+import { resolveAccessiblePharmacyTenant } from './growth-loop/access.js';
 
 type QueryContext = { req: { query(name: string): string | undefined } };
 
@@ -14,10 +14,12 @@ export const pharmacyAccountGuard: MiddlewareHandler<Env> = async (c, next) => {
 
   const staff = c.get('staff');
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyAccount(c.env.DB, staff, lineAccountId))) {
+  const tenantId = await resolveAccessiblePharmacyTenant(c.env.DB, staff, lineAccountId);
+  if (!tenantId || tenantId !== c.get('tenantId')) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
+  c.set('pharmacyTenantId', tenantId);
   c.set('pharmacyLineAccountId', lineAccountId);
   await next();
 };

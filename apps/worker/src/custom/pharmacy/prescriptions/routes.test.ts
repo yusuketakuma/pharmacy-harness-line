@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   activation: vi.fn(),
   enqueueActivity: vi.fn(),
   access: vi.fn(),
+  capability: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -66,6 +67,9 @@ vi.mock('../activity-notifications/repository.js', () => ({
 vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
 }));
+vi.mock('../growth-loop/access.js', () => ({
+  hasPharmacyCapability: mocks.capability,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -92,6 +96,7 @@ beforeEach(() => {
   mocks.activation.mockResolvedValue(undefined);
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
+  mocks.capability.mockResolvedValue(true);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {
@@ -127,6 +132,13 @@ describe('patient history, cancellation, and resubmission routes', () => {
     await expect(response.json()).resolves.toEqual({
       submissions: [{ id: 'submission-1', status: 'received' }],
     });
+  });
+
+  it('rejects patient history when prescription intake is disabled', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await request('/api/liff/pharmacy/prescriptions/me');
+    expect(response.status).toBe(403);
+    expect(mocks.listHistory).not.toHaveBeenCalled();
   });
 
   it('commits cancellation before deleting and marking each R2 object', async () => {
@@ -199,6 +211,15 @@ describe('admin prescription routes', () => {
       '/api/custom/pharmacy/prescriptions', {}, adminEnv,
     );
     expect(response.status).toBe(400);
+    expect(mocks.listAdmin).not.toHaveBeenCalled();
+  });
+
+  it('rejects an account with prescription intake disabled before reading the queue', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions?line_account_id=account-1', {}, adminEnv,
+    );
+    expect(response.status).toBe(403);
     expect(mocks.listAdmin).not.toHaveBeenCalled();
   });
 

@@ -5,11 +5,10 @@ import { createStickerMessageContent } from '@line-crm/shared';
 import {
   upsertFriend,
   updateFriendFollowStatus,
-  getFriendByLineUserId,
+  getFriendByLineUserIdForAccount,
   getScenarios,
   enrollFriendInScenario,
   upsertChatOnMessage,
-  getLineAccounts,
   jstNow,
   getEntryRouteByRefCode,
   getMessageTemplateById,
@@ -27,6 +26,7 @@ import { dispatchLineProxyLocally } from '../services/local-line-proxy.js';
 import { recordPharmacyFollow, recordPharmacyUnfollowMetrics } from '../custom/pharmacy/growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
 import { handleMedicationFollowUpPostback } from '../custom/pharmacy/medication-followup/webhook.js'; // custom:pharmacy-medication-followup
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js'; // custom:pharmacy-credentials
 
 const webhook = new Hono<Env>();
 
@@ -40,9 +40,9 @@ async function ensureFriendFromWebhookUser(
   db: D1Database,
   lineClient: LineClient,
   userId: string,
-  lineAccountId: string | null,
+  lineAccountId: string,
 ): Promise<Friend | null> {
-  let friend = await getFriendByLineUserId(db, userId);
+  let friend = await getFriendByLineUserIdForAccount(db, userId, lineAccountId);
 
   if (!friend) {
     let profile: Awaited<ReturnType<LineClient['getProfile']>> | null = null;
@@ -52,25 +52,24 @@ async function ensureFriendFromWebhookUser(
       // A signed webhook already proves this user interacted with the bot.
       // If profile lookup is temporarily unavailable, keep the event processable
       // by creating the friend with the LINE userId and filling profile later.
-      console.error('[webhook] Failed to get profile for unknown user', userId, err);
+      console.error('[webhook] Failed to get profile for unknown user', err);
     }
 
-    friend = await upsertFriend(db, {
-      lineUserId: userId,
-      displayName: profile?.displayName ?? null,
-      pictureUrl: profile?.pictureUrl ?? null,
-      statusMessage: profile?.statusMessage ?? null,
-    });
-    console.log(`[webhook] auto-registered existing friend userId=${userId} friendId=${friend.id}`);
-  }
-
-  if (lineAccountId && friend.line_account_id !== lineAccountId) {
-    const now = jstNow();
-    await db
-      .prepare('UPDATE friends SET line_account_id = ?, is_following = 1, updated_at = ? WHERE id = ?')
-      .bind(lineAccountId, now, friend.id)
-      .run();
-    friend = { ...friend, line_account_id: lineAccountId, is_following: 1, updated_at: now };
+    try {
+      friend = await upsertFriend(db, {
+        lineUserId: userId,
+        lineAccountId,
+        displayName: profile?.displayName ?? null,
+        pictureUrl: profile?.pictureUrl ?? null,
+        statusMessage: profile?.statusMessage ?? null,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'FRIEND_ACCOUNT_CONFLICT') {
+        console.error('[webhook] Friend account conflict');
+        return null;
+      }
+      throw error;
+    }
   }
 
   return friend;
@@ -108,51 +107,6 @@ webhook.post('/webhook', async (c) => {
     return c.json({ status: 'ok' }, 200);
   }
 
-  // Verify signature BEFORE JSON.parse so attacker-controlled bodies never reach the parser.
-  // Fast path: try env default secret first so malformed/unauthenticated traffic
-  //   fails fast without a D1 lookup. The main account is typically also registered
-  //   in line_accounts; on env match we still look it up so matchedAccountId binds
-  //   correctly for downstream account-scoped filters.
-  // Slow path: iterate DB-registered accounts for genuinely multi-account installs.
-  let channelAccessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-  let matchedAccountId: string | null = null;
-  let valid = false;
-
-  const envSecret = c.env.LINE_CHANNEL_SECRET;
-  if (envSecret) {
-    valid = await verifySignature(envSecret, rawBody, signature);
-    if (valid) {
-      const accounts = await getLineAccounts(db);
-      const main = accounts.find(
-        (a) => a.is_active && a.channel_secret === envSecret,
-      );
-      if (main) {
-        channelAccessToken = main.channel_access_token;
-        matchedAccountId = main.id;
-      }
-    }
-  }
-
-  if (!valid) {
-    const accounts = await getLineAccounts(db);
-    for (const account of accounts) {
-      if (!account.is_active) continue;
-      if (envSecret && account.channel_secret === envSecret) continue; // already tried via fast path
-      const isValid = await verifySignature(account.channel_secret, rawBody, signature);
-      if (isValid) {
-        channelAccessToken = account.channel_access_token;
-        matchedAccountId = account.id;
-        valid = true;
-        break;
-      }
-    }
-  }
-
-  if (!valid) {
-    console.error('Invalid LINE signature');
-    return c.json({ status: 'ok' }, 200);
-  }
-
   let body: WebhookRequestBody;
   try {
     body = JSON.parse(rawBody) as WebhookRequestBody;
@@ -160,6 +114,66 @@ webhook.post('/webhook', async (c) => {
     console.error('Failed to parse webhook body');
     return c.json({ status: 'ok' }, 200);
   }
+
+  // JSON.parse is bounded by MAX_WEBHOOK_BODY_SIZE above. `destination` is an
+  // untrusted selector only: the selected account secret still must verify the
+  // raw body. This keeps signature work O(1) instead of trying every tenant.
+  const destination = (body as { destination?: unknown }).destination;
+  if (typeof destination !== 'string' || destination.length === 0 || destination.length > 128 ||
+      !Array.isArray(body.events)) {
+    console.error('Invalid LINE webhook envelope');
+    return c.json({ status: 'ok' }, 200);
+  }
+
+  const account = await db.prepare(
+    `SELECT line_account.id, mapping.tenant_id
+       FROM pharmacy_line_channel_identities AS identity
+       INNER JOIN line_accounts AS line_account
+               ON line_account.id = identity.line_account_id
+              AND line_account.is_active = 1
+       INNER JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = line_account.id
+       INNER JOIN tenants AS tenant
+               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+      WHERE identity.bot_user_id = ?
+      LIMIT 1`,
+  ).bind(destination).first<{
+    id: string;
+    tenant_id: string;
+  }>();
+  if (!account) {
+    console.error('Unknown LINE webhook destination');
+    return c.json({ status: 'ok' }, 200);
+  }
+
+  const credentialRootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+  if (!credentialRootSecret) {
+    console.error('LINE webhook credentials are not configured');
+    return c.json({ status: 'ok' }, 200);
+  }
+
+  const channelSecret = await readLineCredential(db, credentialRootSecret, {
+    tenantId: account.tenant_id,
+    lineAccountId: account.id,
+    kind: 'channel_secret',
+  });
+  const channelAccessToken = await readLineCredential(db, credentialRootSecret, {
+    tenantId: account.tenant_id,
+    lineAccountId: account.id,
+    kind: 'channel_access_token',
+  });
+  if (!channelSecret || !channelAccessToken) {
+    console.error('LINE webhook credentials are unavailable');
+    return c.json({ status: 'ok' }, 200);
+  }
+
+  if (!await verifySignature(channelSecret, rawBody, signature)) {
+    console.error('Invalid LINE signature');
+    return c.json({ status: 'ok' }, 200);
+  }
+
+  const matchedAccountId = account.id;
+  const matchedTenantId = account.tenant_id;
 
   const lineClient = new LineClient(channelAccessToken);
 
@@ -175,12 +189,28 @@ webhook.post('/webhook', async (c) => {
           event,
           channelAccessToken,
           matchedAccountId,
+          matchedTenantId,
+          credentialRootSecret,
           c.env.WORKER_URL || new URL(c.req.url).origin,
           c.env.LIFF_URL,
           c.env.IMAGES,
           proxyDispatch,
         );
       } catch (err) {
+        const webhookEventId = (event as WebhookEvent & { webhookEventId?: unknown }).webhookEventId;
+        if (typeof webhookEventId === 'string' && webhookEventId.length > 0 && webhookEventId.length <= 128) {
+          // A receipt is a deduplication claim, not proof of successful
+          // processing. Release it after a failed attempt so LINE redelivery
+          // can retry instead of being silently discarded.
+          try {
+            await db.prepare(
+              `DELETE FROM pharmacy_webhook_event_receipts
+                WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
+            ).bind(matchedTenantId, matchedAccountId, webhookEventId).run();
+          } catch {
+            console.error('[webhook] failed to release event receipt');
+          }
+        }
         console.error('Error handling webhook event:', err);
       }
     }
@@ -196,43 +226,54 @@ async function handleEvent(
   lineClient: LineClient,
   event: WebhookEvent,
   lineAccessToken: string,
-  lineAccountId: string | null = null,
+  lineAccountId: string,
+  tenantId: string,
+  credentialRootSecret: string,
   workerUrl?: string,
   liffUrl?: string,
   r2?: R2Bucket,
   proxyDispatch?: HarnessProxyDispatch,
 ): Promise<void> {
+  const webhookEventId = (event as WebhookEvent & { webhookEventId?: unknown }).webhookEventId;
+  if (typeof webhookEventId === 'string' && webhookEventId.length > 0 && webhookEventId.length <= 128) {
+    const receipt = await db.prepare(
+      `INSERT OR IGNORE INTO pharmacy_webhook_event_receipts
+        (tenant_id, line_account_id, webhook_event_id, received_at)
+       VALUES (?, ?, ?, ?)`,
+    ).bind(tenantId, lineAccountId, webhookEventId, jstNow()).run();
+    // D1 always provides meta.changes. Test doubles and older compatible
+    // adapters may omit it; only an explicit zero means this is a retry.
+    if (receipt.meta && receipt.meta.changes === 0) return;
+  }
+
   if (event.type === 'follow') {
     const userId =
       event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
-
-    console.log(`[follow] userId=${userId} lineAccountId=${lineAccountId}`);
 
     // プロフィール取得 & 友だち登録/更新
     let profile;
     try {
       profile = await lineClient.getProfile(userId);
     } catch (err) {
-      console.error('Failed to get profile for', userId, err);
+      console.error('Failed to get LINE profile', err);
     }
 
-    console.log(`[follow] profile=${profile?.displayName ?? 'null'}`);
-
-    const friend = await upsertFriend(db, {
-      lineUserId: userId,
-      displayName: profile?.displayName ?? null,
-      pictureUrl: profile?.pictureUrl ?? null,
-      statusMessage: profile?.statusMessage ?? null,
-    });
-
-    console.log(`[follow] friend.id=${friend.id} friend.line_account_id=${(friend as any).line_account_id}`);
-
-    // Set line_account_id for multi-account tracking (always update on follow)
-    if (lineAccountId) {
-      await db.prepare('UPDATE friends SET line_account_id = ?, updated_at = ? WHERE id = ?')
-        .bind(lineAccountId, jstNow(), friend.id).run();
-      console.log(`[follow] line_account_id set to ${lineAccountId} for friend ${friend.id}`);
+    let friend: Friend;
+    try {
+      friend = await upsertFriend(db, {
+        lineUserId: userId,
+        lineAccountId,
+        displayName: profile?.displayName ?? null,
+        pictureUrl: profile?.pictureUrl ?? null,
+        statusMessage: profile?.statusMessage ?? null,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'FRIEND_ACCOUNT_CONFLICT') {
+        console.error('[webhook] Friend account conflict');
+        return;
+      }
+      throw error;
     }
 
     try {
@@ -322,7 +363,7 @@ async function handleEvent(
               skipCooldown: true,
             },
           );
-          if (sent) console.log(`Immediate delivery: sent scenario ${scenario.id} step 1 to ${userId}`);
+          if (sent) console.log(`Immediate delivery: sent scenario ${scenario.id} step 1`);
         } catch (err) {
           console.error('Failed to enroll friend in scenario', scenario.id, err);
         }
@@ -517,7 +558,8 @@ async function handleEvent(
         r2,
         workerUrl,
         channelAccessToken: lineAccessToken,
-        accountId: lineAccountId ?? 'unknown',
+        tenantId,
+        accountId: lineAccountId,
         messageId: lineMessageId,
       });
       if (refs) {
@@ -528,10 +570,10 @@ async function handleEvent(
     const logId = crypto.randomUUID();
     await db
       .prepare(
-        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, created_at)
-         VALUES (?, ?, 'incoming', ?, ?, NULL, NULL, 'user', ?)`,
+        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
+         VALUES (?, ?, 'incoming', ?, ?, NULL, NULL, 'user', ?, ?)`,
       )
-      .bind(logId, friend.id, msg.type, finalContent, jstNow())
+      .bind(logId, friend.id, msg.type, finalContent, lineAccountId, jstNow())
       .run();
     if (!(await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id))) {
       await awardActivityMileage(db, {
@@ -566,10 +608,10 @@ async function handleEvent(
     // 受信メッセージをログに記録
     await db
       .prepare(
-        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, created_at)
-         VALUES (?, ?, 'incoming', 'text', ?, NULL, NULL, 'user', ?)`,
+        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
+         VALUES (?, ?, 'incoming', 'text', ?, NULL, NULL, 'user', ?, ?)`,
       )
-      .bind(logId, friend.id, incomingText, now)
+      .bind(logId, friend.id, incomingText, lineAccountId, now)
       .run();
 
     if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) {
@@ -593,11 +635,32 @@ async function handleEvent(
         if (friendRecord?.user_id) {
           // Find the same user on other accounts
           const otherFriends = await db.prepare(
-            'SELECT f.line_user_id, la.channel_access_token FROM friends f INNER JOIN line_accounts la ON la.id = f.line_account_id WHERE f.user_id = ? AND f.line_account_id != ? AND f.is_following = 1'
-          ).bind(friendRecord.user_id, lineAccountId).all<{ line_user_id: string; channel_access_token: string }>();
+            `SELECT f.provider_line_user_id AS line_user_id,
+                    f.line_account_id, mapping.tenant_id
+               FROM friends AS f
+               INNER JOIN line_accounts AS account
+                       ON account.id = f.line_account_id AND account.is_active = 1
+               INNER JOIN tenant_line_accounts AS mapping
+                       ON mapping.line_account_id = account.id
+               INNER JOIN tenants AS tenant
+                       ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+              WHERE f.user_id = ?
+                AND f.line_account_id != ?
+                AND f.is_following = 1
+                AND mapping.tenant_id = ?`,
+          ).bind(friendRecord.user_id, lineAccountId, tenantId)
+            .all<{ line_user_id: string; line_account_id: string; tenant_id: string }>();
 
+          let notifiedAccount = false;
           for (const other of otherFriends.results) {
-            const otherClient = new LineClient(other.channel_access_token);
+            if (other.tenant_id !== tenantId) continue;
+            const otherAccessToken = await readLineCredential(db, credentialRootSecret, {
+              tenantId: other.tenant_id,
+              lineAccountId: other.line_account_id,
+              kind: 'channel_access_token',
+            });
+            if (!otherAccessToken) continue;
+            const otherClient = new LineClient(otherAccessToken);
             await otherClient.pushMessage(other.line_user_id, [buildMessage('flex', JSON.stringify({
               type: 'bubble', size: 'giga',
               header: { type: 'box', layout: 'vertical', paddingAll: '20px', backgroundColor: '#fffbeb',
@@ -618,7 +681,10 @@ async function handleEvent(
                 ],
               },
             }))]);
+            notifiedAccount = true;
           }
+
+          if (!notifiedAccount) return;
 
           // Reply on Account ② confirming
           await lineClient.replyMessage(event.replyToken, [buildMessage('flex', JSON.stringify({

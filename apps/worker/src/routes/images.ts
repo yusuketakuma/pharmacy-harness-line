@@ -1,7 +1,37 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Env } from '../index.js';
+import { resolveAccessiblePharmacyTenant } from '../custom/pharmacy/growth-loop/access.js';
 
 const images = new Hono<Env>();
+const PUBLIC_IMAGE_KEY = /^(?:tenants\/[a-zA-Z0-9:_-]+\/uploads\/)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:png|jpe?g|gif|webp)$/i;
+const INCOMING_IMAGE_KEY = /^tenants\/[^/]+\/accounts\/([^/]+)\/incoming\/[^/]+\.(?:png|jpe?g|gif|webp)$/i;
+
+function tenantPrefix(tenantId: string): string {
+  return `tenants/${tenantId.replace(/[^a-zA-Z0-9:-]/g, '_')}/`;
+}
+
+async function serveImage(
+  bucket: R2Bucket,
+  key: string,
+  cacheControl: string,
+): Promise<Response> {
+  const object = await bucket.get(key);
+  if (!object) {
+    return Response.json({ success: false, error: 'Image not found' }, { status: 404 });
+  }
+  const headers = new Headers();
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/png');
+  headers.set('Cache-Control', cacheControl);
+  headers.set('ETag', object.etag);
+  return new Response(object.body, { headers });
+}
+
+async function canReadIncomingImage(c: Context<Env>, key: string): Promise<boolean> {
+  const accountId = INCOMING_IMAGE_KEY.exec(key)?.[1];
+  if (!accountId) return false;
+  const tenantId = await resolveAccessiblePharmacyTenant(c.env.DB, c.get('staff'), accountId);
+  return tenantId === c.get('tenantId');
+}
 
 // POST /api/images — upload image (base64 or binary)
 images.post('/api/images', async (c) => {
@@ -10,7 +40,6 @@ images.post('/api/images', async (c) => {
 
     let data: ArrayBuffer;
     let mimeType: string;
-    let filename: string | undefined;
 
     if (contentType.includes('application/json')) {
       const body = await c.req.json<{
@@ -32,7 +61,6 @@ images.post('/api/images', async (c) => {
         }
       }
       mimeType ??= body.mimeType ?? 'image/png';
-      filename = body.filename;
 
       const binary = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0));
       data = binary.buffer;
@@ -52,11 +80,10 @@ images.post('/api/images', async (c) => {
 
     const ext = mimeType.split('/')[1] === 'jpeg' ? 'jpg' : mimeType.split('/')[1];
     const id = crypto.randomUUID();
-    const key = `${id}.${ext}`;
+    const key = `${tenantPrefix(c.get('tenantId'))}uploads/${id}.${ext}`;
 
     await c.env.IMAGES.put(key, data, {
       httpMetadata: { contentType: mimeType },
-      customMetadata: { originalFilename: filename ?? key },
     });
 
     const workerUrl = c.env.WORKER_URL || new URL(c.req.url).origin;
@@ -72,27 +99,35 @@ images.post('/api/images', async (c) => {
   }
 });
 
-// GET /images/:key — serve image (public, no auth)
-images.get('/images/:key', async (c) => {
+// GET /images/:key — public assets used by LINE message delivery.
+images.get('/images/:key{.+}', async (c) => {
   const key = c.req.param('key');
-  const object = await c.env.IMAGES.get(key);
-
-  if (!object) {
+  if (!PUBLIC_IMAGE_KEY.test(key)) {
     return c.json({ success: false, error: 'Image not found' }, 404);
   }
+  return serveImage(c.env.IMAGES, key, 'public, max-age=31536000, immutable');
+});
 
-  const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/png');
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  headers.set('ETag', object.etag);
-
-  return new Response(object.body, { headers });
+// Incoming patient images are private and bound to the authenticated tenant.
+images.get('/api/images/:key{.+}', async (c) => {
+  const key = c.req.param('key');
+  if (!key.startsWith(tenantPrefix(c.get('tenantId'))) || !INCOMING_IMAGE_KEY.test(key) ||
+      !await canReadIncomingImage(c, key)) {
+    return c.json({ success: false, error: 'Image not found' }, 404);
+  }
+  return serveImage(c.env.IMAGES, key, 'private, no-store');
 });
 
 // DELETE /api/images/:key — delete image
-images.delete('/api/images/:key', async (c) => {
+images.delete('/api/images/:key{.+}', async (c) => {
   try {
     const key = c.req.param('key');
+    if (!key.startsWith(tenantPrefix(c.get('tenantId')))) {
+      return c.json({ success: false, error: 'Image not found' }, 404);
+    }
+    if (INCOMING_IMAGE_KEY.test(key) && !await canReadIncomingImage(c, key)) {
+      return c.json({ success: false, error: 'Image not found' }, 404);
+    }
     await c.env.IMAGES.delete(key);
     return c.json({ success: true, data: null });
   } catch (err) {

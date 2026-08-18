@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   offerExpectation: vi.fn(),
   respondExpectation: vi.fn(),
   access: vi.fn(),
+  capability: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -28,6 +29,7 @@ vi.mock('./next-intake.js', () => ({
 vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
 }));
+vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
 
 import { continuityRoutes } from './routes.js';
 
@@ -57,6 +59,7 @@ beforeEach(() => {
   mocks.offerExpectation.mockResolvedValue({ id: 'expectation-1', status: 'offered' });
   mocks.respondExpectation.mockResolvedValue({ id: 'expectation-1', status: 'accepted' });
   mocks.access.mockResolvedValue(true);
+  mocks.capability.mockResolvedValue(true);
 });
 
 describe('continuity routes', () => {
@@ -64,6 +67,15 @@ describe('continuity routes', () => {
     mocks.access.mockResolvedValue(false);
     const response = await adminApp().request(
       '/api/custom/pharmacy/continuity?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.adminList).not.toHaveBeenCalled();
+  });
+
+  it('rejects staff obligations when continuity is disabled', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/continuity?line_account_id=account-1', {}, env,
     );
     expect(response.status).toBe(403);
     expect(mocks.adminList).not.toHaveBeenCalled();
@@ -83,6 +95,15 @@ describe('continuity routes', () => {
     expect(response.status).toBe(200);
     expect(mocks.patientList).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
     expect(mocks.listExpectations).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
+  });
+
+  it('rejects the patient continuity view when continuity is disabled', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await continuityRoutes.request('/api/liff/pharmacy/continuity?liffId=liff-1', {
+      headers: { Authorization: 'Bearer token' },
+    }, env);
+    expect(response.status).toBe(403);
+    expect(mocks.patientList).not.toHaveBeenCalled();
   });
 
   it('fails closed when the LINE identity cannot be resolved', async () => {

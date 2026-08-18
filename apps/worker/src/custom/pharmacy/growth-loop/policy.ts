@@ -33,8 +33,8 @@ const REASONS: Record<NonNullable<PharmacyMessageVars['reasonCode']>, string> = 
   missing_page: '画像を確認できませんでした',
 };
 
-function prescriptionPageUrl(liffId: string, submissionId: string): string {
-  const query = new URLSearchParams({ page: 'prescription', submissionId });
+export function pharmacyPrescriptionPageUrl(liffId: string, submissionId: string): string {
+  const query = new URLSearchParams({ page: 'prescription', submissionId, liffId });
   return `https://liff.line.me/${encodeURIComponent(liffId)}/?${query.toString()}`;
 }
 
@@ -62,7 +62,7 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
           return '処方せんを確認し、受付しました。お薬を準備しています。';
         case 'needs_resubmission':
           return `処方せん画像をもう一度送信してください。${REASONS[vars.reasonCode ?? 'unreadable']}${vars.liffId && vars.submissionId
-            ? `\n再送する: ${prescriptionPageUrl(vars.liffId, vars.submissionId)}`
+            ? `\n再送する: ${pharmacyPrescriptionPageUrl(vars.liffId, vars.submissionId)}`
             : ''}`;
         case 'ready':
           return vars.intakeMethod === 'E_PRESCRIPTION'
@@ -200,14 +200,14 @@ export function isApprovedRenderedPharmacyMessage(
             buildApprovedPharmacyMessage(id, { status, intakeMethod }),
           )),
       );
-    const linkMatch = /再送する: https:\/\/liff\.line\.me\/([A-Za-z0-9_-]{1,64})\/\?page=prescription&submissionId=([^\s]+)$/.exec(message.text);
+    const linkMatch = /再送する: https:\/\/liff\.line\.me\/([A-Za-z0-9_-]{1,64})\/\?page=prescription&submissionId=([^&\s]+)&liffId=([A-Za-z0-9_-]{1,64})$/.exec(message.text);
     if (linkMatch) {
       try {
         const submissionId = decodeURIComponent(linkMatch[2]);
         if (OPAQUE_ID_RE.test(submissionId)) {
           variants.push(buildApprovedPharmacyMessage(id, {
             status: 'needs_resubmission',
-            liffId: linkMatch[1],
+            liffId: linkMatch[3],
             submissionId,
           }));
         }

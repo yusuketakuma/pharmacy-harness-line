@@ -1,4 +1,5 @@
 import { keywordMatches } from './auto-reply.js';
+import { pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 2000;
@@ -24,9 +25,11 @@ const MAX_PAGE_SIZE = 2000;
 //       button label / FAQ keyword は安定運用なので、現在の active キーワード
 //       が一致したら歴史問わず構造化メッセと判定する。)
 const ACTIVE_AUTO_REPLIES_SQL = `
-  SELECT keyword, match_type
-  FROM auto_replies
-  WHERE is_active = 1
+  SELECT rule.keyword, rule.match_type
+  FROM auto_replies AS rule
+  INNER JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = rule.line_account_id
+  WHERE mapping.tenant_id = ? AND rule.is_active = 1
 `;
 
 interface ActiveRuleRow {
@@ -79,7 +82,14 @@ function consumeAutoReplyEvidence(
 // upsertChatOnMessage が status を 'unread' に戻すので、除外は自動解除される。
 // 'in_progress' は「まだ対応が終わってない」ので引き続きカウントする。
 const CANDIDATES_SQL = `
-  WITH agg AS (
+  WITH tenant_friends AS MATERIALIZED (
+    SELECT friend.id
+    FROM friends AS friend
+    INNER JOIN tenant_line_accounts AS mapping
+            ON mapping.line_account_id = friend.line_account_id
+    WHERE mapping.tenant_id = ?
+  ),
+  agg AS (
     SELECT
       friend_id,
       MAX(CASE WHEN direction='incoming' AND (source IS NULL OR source != 'postback') THEN created_at END) AS last_incoming,
@@ -88,6 +98,7 @@ const CANDIDATES_SQL = `
           ('auto_reply','automation','automation_backfill','scenario','broadcast')
         THEN created_at END) AS last_machine
     FROM messages_log
+    WHERE friend_id IN (SELECT id FROM tenant_friends)
     GROUP BY friend_id
   ),
   latest_chat AS (
@@ -95,6 +106,7 @@ const CANDIDATES_SQL = `
     -- 相関サブクエリだと候補 friend 数ぶん個別 seek になるため一括 GROUP BY で取る。
     SELECT friend_id, status, MAX(created_at) AS created_at
     FROM chats
+    WHERE friend_id IN (SELECT id FROM tenant_friends)
     GROUP BY friend_id
   )
   SELECT
@@ -107,6 +119,7 @@ const CANDIDATES_SQL = `
     agg.last_manual,
     agg.last_machine
   FROM friends f
+  INNER JOIN tenant_friends tf ON tf.id = f.id
   LEFT JOIN line_accounts la ON la.id = f.line_account_id
   JOIN agg ON agg.friend_id = f.id
   LEFT JOIN latest_chat lc ON lc.friend_id = f.id
@@ -125,16 +138,25 @@ const CANDIDATES_SQL = `
 // して bind 変数ゼロで動かす。messages_log は (friend_id, direction, created_at)
 // の index で scan されるので、incoming サブセット取得は十分速い。
 const RECENT_INCOMINGS_SQL = `
-  WITH last_manual AS (
+  WITH tenant_friends AS MATERIALIZED (
+    SELECT friend.id
+    FROM friends AS friend
+    INNER JOIN tenant_line_accounts AS mapping
+            ON mapping.line_account_id = friend.line_account_id
+    WHERE mapping.tenant_id = ?
+  ),
+  last_manual AS (
     SELECT friend_id, MAX(created_at) AS lm
     FROM messages_log
     WHERE direction='outgoing' AND source='manual'
+      AND friend_id IN (SELECT id FROM tenant_friends)
     GROUP BY friend_id
   )
   SELECT ml.friend_id, ml.message_type, ml.content, ml.created_at
   FROM messages_log ml
   LEFT JOIN last_manual lm ON lm.friend_id = ml.friend_id
   WHERE ml.direction='incoming'
+    AND ml.friend_id IN (SELECT id FROM tenant_friends)
     AND (ml.source IS NULL OR ml.source != 'postback')
     AND (lm.lm IS NULL OR ml.created_at > lm.lm)
   ORDER BY ml.friend_id, ml.created_at DESC
@@ -145,16 +167,25 @@ const RECENT_INCOMINGS_SQL = `
 // 記録する form-confirmation / webhook-failure push を証拠から除外する。
 // 同じく bind 変数ゼロ。JS 側で friend_id ごとに group する。
 const RECENT_AUTO_REPLY_OUTGOINGS_SQL = `
-  WITH last_manual AS (
+  WITH tenant_friends AS MATERIALIZED (
+    SELECT friend.id
+    FROM friends AS friend
+    INNER JOIN tenant_line_accounts AS mapping
+            ON mapping.line_account_id = friend.line_account_id
+    WHERE mapping.tenant_id = ?
+  ),
+  last_manual AS (
     SELECT friend_id, MAX(created_at) AS lm
     FROM messages_log
     WHERE direction='outgoing' AND source='manual'
+      AND friend_id IN (SELECT id FROM tenant_friends)
     GROUP BY friend_id
   )
   SELECT ml.friend_id, ml.created_at
   FROM messages_log ml
   LEFT JOIN last_manual lm ON lm.friend_id = ml.friend_id
   WHERE ml.direction='outgoing'
+    AND ml.friend_id IN (SELECT id FROM tenant_friends)
     AND ml.source='auto_reply'
     AND ml.delivery_type='reply'
     AND (lm.lm IS NULL OR ml.created_at > lm.lm)
@@ -243,8 +274,13 @@ function applyFilters(rows: UnansweredRow[], opts: UnansweredInboxOptions): Unan
  * 4. JS で各 incoming を判定: 応答あり証拠 OR silent ルール match で「マッチ済」、
  *    マッチしない最新の incoming を preview として採用。全部マッチした thread のみ除外。
  */
-async function getAllUnansweredRows(db: D1Database): Promise<UnansweredRow[]> {
-  const candidatesResult = await db.prepare(CANDIDATES_SQL).all<RawCandidateRow>();
+async function getAllUnansweredRows(db: D1Database, tenantId: string, staffId?: string): Promise<UnansweredRow[]> {
+  const scopedSql = (sql: string, accountColumn = 'friend.line_account_id') => staffId
+    ? sql.replace('WHERE mapping.tenant_id = ?',
+      `WHERE mapping.tenant_id = ? AND ${pharmacyStaffAccountPredicate(accountColumn)}`)
+    : sql;
+  const scopeBindings = staffId ? [tenantId, staffId] : [tenantId];
+  const candidatesResult = await db.prepare(scopedSql(CANDIDATES_SQL)).bind(...scopeBindings).all<RawCandidateRow>();
   const candidates = candidatesResult.results ?? [];
   if (candidates.length === 0) return [];
 
@@ -252,9 +288,9 @@ async function getAllUnansweredRows(db: D1Database): Promise<UnansweredRow[]> {
   const candidateIds = new Set(candidates.map((c) => c.friend_id));
 
   const [incomingsResult, autoReplyOutgoingsResult, activeRulesResult] = await Promise.all([
-    db.prepare(RECENT_INCOMINGS_SQL).all<RawIncomingRow>(),
-    db.prepare(RECENT_AUTO_REPLY_OUTGOINGS_SQL).all<{ friend_id: string; created_at: string }>(),
-    db.prepare(ACTIVE_AUTO_REPLIES_SQL).all<ActiveRuleRow>(),
+    db.prepare(scopedSql(RECENT_INCOMINGS_SQL)).bind(...scopeBindings).all<RawIncomingRow>(),
+    db.prepare(scopedSql(RECENT_AUTO_REPLY_OUTGOINGS_SQL)).bind(...scopeBindings).all<{ friend_id: string; created_at: string }>(),
+    db.prepare(scopedSql(ACTIVE_AUTO_REPLIES_SQL, 'rule.line_account_id')).bind(...scopeBindings).all<ActiveRuleRow>(),
   ]);
 
   const activeRules = activeRulesResult.results ?? [];
@@ -316,13 +352,15 @@ async function getAllUnansweredRows(db: D1Database): Promise<UnansweredRow[]> {
 
 export async function computeUnansweredInbox(
   db: D1Database,
+  tenantId: string,
   opts: UnansweredInboxOptions = {},
+  staffId?: string,
 ): Promise<UnansweredInboxResult> {
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, opts.pageSize ?? DEFAULT_PAGE_SIZE));
   const offset = (page - 1) * pageSize;
 
-  const allRows = await getAllUnansweredRows(db);
+  const allRows = await getAllUnansweredRows(db, tenantId, staffId);
   const filtered = applyFilters(allRows, opts);
   const slice = filtered.slice(offset, offset + pageSize);
 
@@ -339,8 +377,12 @@ export async function computeUnansweredInbox(
  * matched 等を除いた最新の actionable incoming) が含まれる。
  * /api/chats?unansweredOnly=true で preview を上書きするのに使う。
  */
-export async function getUnansweredRowsMap(db: D1Database): Promise<Map<string, UnansweredRow>> {
-  const rows = await getAllUnansweredRows(db);
+export async function getUnansweredRowsMap(
+  db: D1Database,
+  tenantId: string,
+  staffId?: string,
+): Promise<Map<string, UnansweredRow>> {
+  const rows = await getAllUnansweredRows(db, tenantId, staffId);
   return new Map(rows.map((r) => [r.friendId, r]));
 }
 
@@ -349,13 +391,13 @@ export async function getUnansweredRowsMap(db: D1Database): Promise<Map<string, 
  * /api/chats?unansweredOnly=true で chat list を絞るのに使う。
  * 判定ロジックは getAllUnansweredRows と同じ source of truth。
  */
-export async function getUnansweredFriendIds(db: D1Database): Promise<Set<string>> {
-  const map = await getUnansweredRowsMap(db);
+export async function getUnansweredFriendIds(db: D1Database, tenantId: string, staffId?: string): Promise<Set<string>> {
+  const map = await getUnansweredRowsMap(db, tenantId, staffId);
   return new Set(map.keys());
 }
 
-export async function countUnanswered(db: D1Database): Promise<UnansweredCount> {
-  const allRows = await getAllUnansweredRows(db);
+export async function countUnanswered(db: D1Database, tenantId: string, staffId?: string): Promise<UnansweredCount> {
+  const allRows = await getAllUnansweredRows(db, tenantId, staffId);
 
   const byAccountMap = new Map<string, { accountName: string; count: number }>();
   let oldest: string | null = null;

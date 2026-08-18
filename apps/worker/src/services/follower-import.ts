@@ -184,11 +184,12 @@ async function importIdPage(
     const placeholders = group.map(() => '?').join(',');
     const rows = await db
       .prepare(
-        `SELECT line_user_id, line_account_id, is_following
+        `SELECT provider_line_user_id AS line_user_id, line_account_id, is_following
            FROM friends
-          WHERE line_user_id IN (${placeholders})`,
+          WHERE provider_line_user_id IN (${placeholders})
+            AND line_account_id = ?`,
       )
-      .bind(...group)
+      .bind(...group, lineAccountId)
       .all<ExistingFriend>();
     for (const row of rows.results ?? []) existingById.set(row.line_user_id, row);
   }
@@ -199,11 +200,6 @@ async function importIdPage(
     if (!existing) {
       state.imported += 1;
       writableIds.push(lineUserId);
-    } else if (existing.line_account_id === null) {
-      state.claimedUnassigned += 1;
-      writableIds.push(lineUserId);
-    } else if (existing.line_account_id !== lineAccountId) {
-      state.conflicts += 1;
     } else if (existing.is_following === 0) {
       state.reactivated += 1;
       writableIds.push(lineUserId);
@@ -214,20 +210,21 @@ async function importIdPage(
 
   const now = jstNow();
   for (const group of chunks(writableIds, WRITE_CHUNK_SIZE)) {
-    await db.batch(group.map((lineUserId) =>
-      db.prepare(
+    await db.batch(group.map((lineUserId) => {
+      const id = crypto.randomUUID();
+      return db.prepare(
         `INSERT INTO friends
-           (id, line_user_id, display_name, picture_url, status_message,
-            is_following, line_account_id, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, NULL, 1, ?, ?, ?)
-         ON CONFLICT(line_user_id) DO UPDATE SET
-           line_account_id = COALESCE(friends.line_account_id, excluded.line_account_id),
+           (id, line_user_id, provider_line_user_id, display_name, picture_url,
+            status_message, is_following, line_account_id, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, NULL, NULL, 1, ?, ?, ?)
+         ON CONFLICT(line_account_id, provider_line_user_id)
+           WHERE line_account_id IS NOT NULL AND provider_line_user_id IS NOT NULL
+         DO UPDATE SET
            is_following = 1,
            updated_at = excluded.updated_at
-         WHERE (friends.line_account_id IS NULL OR friends.line_account_id = excluded.line_account_id)
-           AND (friends.line_account_id IS NULL OR friends.is_following != 1)`,
-      ).bind(crypto.randomUUID(), lineUserId, lineAccountId, now, now),
-    ));
+         WHERE friends.is_following != 1`,
+      ).bind(id, `friend-key:${id}`, lineUserId, lineAccountId, now, now);
+    }));
   }
 
   state.received += receivedIds.length;
@@ -243,7 +240,7 @@ async function hydrateProfilePage(
   state: FollowerImportState,
 ): Promise<void> {
   const rows = await db.prepare(
-    `SELECT id, line_user_id
+    `SELECT id, provider_line_user_id AS line_user_id
        FROM friends
       WHERE line_account_id = ?
         AND is_following = 1

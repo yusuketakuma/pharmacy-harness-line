@@ -25,7 +25,22 @@ const { authMiddleware } = await import('../middleware/auth.js');
 const { scoring } = await import('./scoring.js');
 type Env = import('../index.js').Env;
 
-const env = { DB: {} as D1Database, API_KEY: 'owner-key' } as unknown as Env['Bindings'];
+const tenantDb = {
+  prepare(sql: string) {
+    const statement = {
+      bind: () => statement,
+      first: async () => sql.includes('FROM tenants')
+        ? { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' }
+        : null,
+    };
+    return statement;
+  },
+} as unknown as D1Database;
+const env = {
+  DB: tenantDb,
+  API_KEY: 'owner-key',
+  LEGACY_ENV_OWNER_BYPASS: 'true',
+} as unknown as Env['Bindings'];
 
 function app() {
   const instance = new Hono<Env>();
@@ -37,7 +52,12 @@ function app() {
 function call(path: string, init?: RequestInit) {
   return app().request(path, {
     ...init,
-    headers: { Authorization: 'Bearer owner-key', 'Content-Type': 'application/json', ...init?.headers },
+    headers: {
+      Authorization: 'Bearer owner-key',
+      'X-Tenant-Id': 'generic',
+      'Content-Type': 'application/json',
+      ...init?.headers,
+    },
   }, env);
 }
 

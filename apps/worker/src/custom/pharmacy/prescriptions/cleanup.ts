@@ -27,6 +27,12 @@ export async function cleanupPrescriptionImages(
     `SELECT f.id AS file_id, f.submission_id, f.r2_key, f.revision, f.state
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
+       INNER JOIN line_accounts la ON la.id = s.line_account_id AND la.is_active = 1
+       INNER JOIN tenant_line_accounts mapping ON mapping.line_account_id = s.line_account_id
+       INNER JOIN tenants tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       INNER JOIN pharmacy_account_capabilities capability
+               ON capability.line_account_id = s.line_account_id
+              AND capability.mode = 'pharmacy'
       WHERE NOT (
               s.status IN ('received','needs_resubmission','accepted','ready')
               AND f.revision = s.active_revision
@@ -85,6 +91,18 @@ export async function cleanupPrescriptionImages(
             AND EXISTS (
               SELECT 1 FROM pharmacy_prescription_submissions s
                WHERE s.id = f.submission_id
+                 AND EXISTS (
+                   SELECT 1
+                     FROM line_accounts la
+                     INNER JOIN tenant_line_accounts mapping
+                             ON mapping.line_account_id = la.id
+                     INNER JOIN tenants tenant
+                             ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+                     INNER JOIN pharmacy_account_capabilities capability
+                             ON capability.line_account_id = la.id
+                            AND capability.mode = 'pharmacy'
+                    WHERE la.id = s.line_account_id AND la.is_active = 1
+                 )
                  AND NOT (
                    s.status IN ('received','needs_resubmission','accepted','ready')
                    AND f.revision = s.active_revision

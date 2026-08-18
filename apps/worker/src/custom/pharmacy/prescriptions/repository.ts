@@ -161,16 +161,22 @@ export async function reservePrescriptionFile(
     `INSERT INTO pharmacy_prescription_files
        (id, submission_id, revision, position, r2_key, content_type,
         byte_size, sha256, state, created_at, updated_at)
-     SELECT ?, s.id, s.upload_revision, ?, ? || s.upload_revision || ?, ?, ?, ?, 'pending', ?, ?
+     SELECT ?, s.id, s.upload_revision, ?,
+            'custom/pharmacy/prescriptions/tenants/' || mapping.tenant_id || '/' ||
+              s.id || '/' || s.upload_revision || '/' || ?,
+            ?, ?, ?, 'pending', ?, ?
        FROM pharmacy_prescription_submissions s
+       INNER JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = s.line_account_id
+       INNER JOIN tenants AS tenant
+               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
       WHERE s.id = ? AND s.line_account_id = ? AND s.friend_id = ?
         AND s.status IN ('draft','needs_resubmission')
      ON CONFLICT(submission_id, revision, position) DO NOTHING`,
   ).bind(
     fileId,
     position,
-    `custom/pharmacy/prescriptions/${submissionId}/`,
-    `/${fileId}`,
+    fileId,
     image.contentType,
     image.byteSize,
     image.sha256,

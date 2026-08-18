@@ -51,13 +51,14 @@ const worker = (await import('../index.js')).default;
 // No-op prepared statement chain; the callback's raw UPDATE/SELECT statements
 // don't matter for the notification assertions.
 const DB = {
-  prepare: () => ({
-    bind: () => ({
+  prepare: () => {
+    const result = {
       run: async () => ({ meta: { changes: 0 } }),
       first: async () => null,
       all: async () => ({ results: [] }),
-    }),
-  }),
+    };
+    return { ...result, bind: () => result };
+  },
 } as unknown as D1Database;
 
 const env = {
@@ -138,7 +139,7 @@ describe('GET /auth/callback — affiliate friend-add notification', () => {
     });
     dbMocks.getAffiliateById.mockResolvedValue({ id: 'AFF-1', friend_id: 'F-owner' });
 
-    await callback('aff-ref');
+    const response = await callback('aff-ref');
 
     expect(notifyAffiliateFriendAdd).toHaveBeenCalledWith(
       expect.anything(),
@@ -146,6 +147,7 @@ describe('GET /auth/callback — affiliate friend-add notification', () => {
       'AFF-1',
       '案件A',
     );
+    expect(await response.text()).toContain('<title>登録完了</title>');
   });
 
   it('notifies with null offer name for a generic (offer-less) affiliate link', async () => {

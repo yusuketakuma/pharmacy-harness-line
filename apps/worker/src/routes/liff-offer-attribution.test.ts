@@ -46,13 +46,14 @@ const worker = (await import('../index.js')).default;
 // @line-crm/db helpers (all mocked) plus a couple of trivial UPDATE statements,
 // so back the binding with a no-op prepared-statement chain.
 const DB = {
-  prepare: () => ({
-    bind: () => ({
+  prepare: () => {
+    const statement = {
       run: async () => ({}),
       first: async () => null,
       all: async () => ({ results: [] }),
-    }),
-  }),
+    };
+    return { ...statement, bind: () => statement };
+  },
 } as unknown as D1Database;
 
 const LOGIN_CHANNEL_ID = '2000000000';

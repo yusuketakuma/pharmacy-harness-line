@@ -11,6 +11,7 @@ import {
   type NextIntakeExpectation,
 } from './next-intake.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 type ContinuityEnv = {
   Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string; LINE_LOGIN_CHANNEL_ID?: string };
@@ -47,6 +48,9 @@ continuityRoutes.use('/api/custom/pharmacy/continuity', async (c, next) => {
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, account, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, account, 'continuity'))) {
+    return c.json({ error: 'Continuity is not enabled' }, 403);
+  }
   return next();
 });
 
@@ -55,6 +59,9 @@ continuityRoutes.use('/api/liff/pharmacy/continuity/*', async (c, next) => {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'continuity'))) {
+    return c.json({ error: 'Continuity is not enabled' }, 403);
+  }
   c.set('continuityPatient', patient);
   return next();
 });

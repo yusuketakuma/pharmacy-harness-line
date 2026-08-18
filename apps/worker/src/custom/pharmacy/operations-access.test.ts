@@ -18,27 +18,33 @@ describe('pharmacy operations account access', () => {
       'account-b',
       'channel-a',
     )).resolves.toBe(false);
+    await expect(canAccessPharmacyOperationsAccount(
+      db([{ channel_id: 'channel-a' }]),
+      { id: 'env-owner', role: 'owner' },
+      'account-a',
+      'channel-a',
+    )).resolves.toBe(false);
   });
 
   it('requires an active account assignment for regular staff', async () => {
     await expect(canAccessPharmacyOperationsAccount(
-      db([{ channel_id: 'channel-a' }, { ok: 1 }]),
+      db([{ tenant_id: 'tenant-a' }]),
       { id: 'staff-a', role: 'admin' },
       'account-a',
     )).resolves.toBe(true);
     await expect(canAccessPharmacyOperationsAccount(
-      db([{ channel_id: 'channel-b' }, null]),
+      db([null]),
       { id: 'staff-a', role: 'admin' },
       'account-b',
     )).resolves.toBe(false);
   });
 
-  it('allows an authenticated system owner to operate an active account', async () => {
+  it('does not let an unassigned owner cross a tenant boundary', async () => {
     await expect(canAccessPharmacyOperationsAccount(
-      db([{ channel_id: 'channel-a' }]),
+      db([null]),
       { id: 'owner-1', role: 'owner' },
       'account-a',
-    )).resolves.toBe(true);
+    )).resolves.toBe(false);
   });
 
   it('fails closed when the assignment lookup is unavailable', async () => {
@@ -47,7 +53,7 @@ describe('pharmacy operations account access', () => {
       prepare: vi.fn(() => ({
         bind: () => ({
           first: async () => {
-            if (query++ === 0) return { channel_id: 'channel-a' };
+            query++;
             throw new Error('database unavailable');
           },
         }),

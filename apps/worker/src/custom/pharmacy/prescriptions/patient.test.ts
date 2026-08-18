@@ -19,13 +19,29 @@ describe('resolvePrescriptionPatient', () => {
       resolvePrescriptionPatient(db, 'liff-1', {
         lineUserId: 'U1',
         loginChannelId: 'login-1',
+        lineAccountId: 'account-1',
+        tenantId: 'tenant-1',
       }),
     ).resolves.toEqual({ lineAccountId: 'account-1', friendId: 'friend-1' });
 
     expect(prepare.mock.calls[0][0]).toContain(
-      'f.line_account_id = la.id AND f.line_user_id = ?',
+      'f.line_account_id = la.id AND f.provider_line_user_id = ?',
     );
-    expect(bind).toHaveBeenCalledWith('U1', 'liff-1', 'login-1');
+    expect(prepare.mock.calls[0][0]).toContain(
+      'mapping.line_account_id = la.id',
+    );
+    expect(prepare.mock.calls[0][0]).toContain(
+      "tenant.status = 'active'",
+    );
+    expect(prepare.mock.calls[0][0]).toContain('mapping.tenant_id = ?');
+    expect(prepare.mock.calls[0][0]).toContain('la.id = ?');
+    expect(bind).toHaveBeenCalledWith(
+      'U1',
+      'liff-1',
+      'login-1',
+      'tenant-1',
+      'account-1',
+    );
   });
 
   it('fails closed when the scoped account/friend pair does not exist', async () => {
@@ -34,6 +50,8 @@ describe('resolvePrescriptionPatient', () => {
       resolvePrescriptionPatient(db, 'other-liff', {
         lineUserId: 'U1',
         loginChannelId: 'other-channel',
+        lineAccountId: 'other-account',
+        tenantId: 'other-tenant',
       }),
     ).resolves.toBeNull();
   });
@@ -44,6 +62,8 @@ describe('resolvePrescriptionPatient', () => {
       resolvePrescriptionPatient(db, '', {
         lineUserId: 'U1',
         loginChannelId: 'login-1',
+        lineAccountId: 'account-1',
+        tenantId: 'tenant-1',
       }),
     ).resolves.toBeNull();
     expect(prepare).not.toHaveBeenCalled();

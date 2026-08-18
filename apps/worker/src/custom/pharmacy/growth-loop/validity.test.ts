@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ send: vi.fn(), expire: vi.fn() }));
+const mocks = vi.hoisted(() => ({ send: vi.fn(), expire: vi.fn(), readCredential: vi.fn() }));
 vi.mock('./sender.js', () => ({ sendPharmacyAutomatedPush: mocks.send }));
 vi.mock('./repository.js', () => ({ markPrescriptionValidityExpiredReview: mocks.expire }));
+vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: mocks.readCredential }));
 import { processDuePrescriptionValidityReminders } from './validity.js';
+
+const CREDENTIAL_KEY = 'synthetic-line-credential-root-key-v1';
 
 function fakeDb() {
   const calls: string[] = [];
@@ -13,7 +16,7 @@ function fakeDb() {
         all: async () => {
           queries.push(sql);
           if (sql.includes('v.valid_until < ?')) return { results: [] };
-          return { results: [{ submission_id: 'submission-1', line_account_id: 'account-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a', channel_access_token: 'token' }] };
+          return { results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] };
         },
         run: async () => {
           calls.push(sql);
@@ -29,6 +32,7 @@ describe('prescription validity reminders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.expire.mockResolvedValue(false);
+    mocks.readCredential.mockResolvedValue('token');
   });
 
   it('claims, sends, and marks a verified validity once', async () => {
@@ -36,11 +40,19 @@ describe('prescription validity reminders', () => {
     mocks.send.mockResolvedValue(undefined);
     const result = await processDuePrescriptionValidityReminders(db, {
       proxyBaseUrl: 'https://worker.example',
+      lineCredentialKey: CREDENTIAL_KEY,
       now: new Date('2026-08-20T00:00:00.000Z'),
     });
     expect(result.sent).toBe(1);
+    expect(mocks.readCredential).toHaveBeenCalledWith(db, CREDENTIAL_KEY, {
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
+    });
     expect(calls.filter((sql) => sql.includes('SET reminder_claimed_at = ?') || sql.includes('SET reminder_sent_at = ?')).length).toBe(2);
     expect(queries[1]).toContain("s.status = 'ready'");
+    expect(queries[1]).toContain('f.provider_line_user_id AS line_user_id');
+    expect(queries[1]).toContain('mapping.tenant_id AS tenant_id');
     expect(calls.find((sql) => sql.includes('SET reminder_claimed_at = ?'))).toContain("s.status = 'ready'");
   });
 
@@ -49,13 +61,14 @@ describe('prescription validity reminders', () => {
       prepare: (sql: string) => ({ bind: () => ({
         all: async () => sql.includes('v.valid_until < ?')
           ? ({ results: [] })
-          : ({ results: [{ submission_id: 'submission-1', line_account_id: 'account-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a', channel_access_token: 'token' }] }),
+          : ({ results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] }),
         run: async () => ({ meta: { changes: sql.includes('SET reminder_claimed_at = ?') ? 0 : 1 } }),
       }) }),
     } as unknown as D1Database;
 
     const result = await processDuePrescriptionValidityReminders(db, {
       proxyBaseUrl: 'https://worker.example',
+      lineCredentialKey: CREDENTIAL_KEY,
       now: new Date('2026-08-20T00:00:00.000Z'),
     });
 
@@ -72,7 +85,7 @@ describe('prescription validity reminders', () => {
           all: async () => { bound.push(values); return { results: [] }; },
         }) }),
       } as unknown as D1Database;
-      await processDuePrescriptionValidityReminders(db, { proxyBaseUrl: 'https://worker.example', now });
+      await processDuePrescriptionValidityReminders(db, { proxyBaseUrl: 'https://worker.example', lineCredentialKey: CREDENTIAL_KEY, now });
       return [bound[0][0], bound[1][0]];
     };
 
@@ -86,7 +99,7 @@ describe('prescription validity reminders', () => {
       prepare: (sql: string) => ({ bind: () => ({
         all: async () => sql.includes('v.valid_until < ?')
           ? ({ results: [] })
-          : ({ results: [{ submission_id: 'submission-1', line_account_id: 'account-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a', channel_access_token: 'token' }] }),
+          : ({ results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] }),
         run: async () => { calls.push(sql); return { meta: { changes: 1 } }; },
       }) }),
     } as unknown as D1Database;
@@ -94,6 +107,7 @@ describe('prescription validity reminders', () => {
 
     const result = await processDuePrescriptionValidityReminders(db, {
       proxyBaseUrl: 'https://worker.example',
+      lineCredentialKey: CREDENTIAL_KEY,
       now: new Date('2026-08-20T00:00:00.000Z'),
     });
 
@@ -117,6 +131,7 @@ describe('prescription validity reminders', () => {
     mocks.expire.mockResolvedValueOnce(true);
     const result = await processDuePrescriptionValidityReminders(db, {
       proxyBaseUrl: 'https://worker.example',
+      lineCredentialKey: CREDENTIAL_KEY,
       now: new Date('2026-08-21T00:30:00.000Z'),
     });
     expect(result).toEqual(expect.objectContaining({ sent: 0, expiredReviewRequired: 1 }));
@@ -125,5 +140,28 @@ describe('prescription validity reminders', () => {
     }));
     expect(calls.filter((call) => call.operation === 'all')[1]?.sql).toContain('v.valid_until >= ?');
     expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('releases the claim and skips when the tenant credential is unavailable', async () => {
+    const calls: string[] = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: () => ({
+        all: async () => sql.includes('v.valid_until < ?')
+          ? ({ results: [] })
+          : ({ results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] }),
+        run: async () => { calls.push(sql); return { meta: { changes: 1 } }; },
+      }) }),
+    } as unknown as D1Database;
+    mocks.readCredential.mockResolvedValue(null);
+
+    const result = await processDuePrescriptionValidityReminders(db, {
+      proxyBaseUrl: 'https://worker.example',
+      lineCredentialKey: CREDENTIAL_KEY,
+      now: new Date('2026-08-20T00:00:00.000Z'),
+    });
+
+    expect(result).toEqual(expect.objectContaining({ sent: 0, failed: 0, skipped: 1 }));
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(calls.some((sql) => sql.includes('SET reminder_claimed_at = NULL'))).toBe(true);
   });
 });

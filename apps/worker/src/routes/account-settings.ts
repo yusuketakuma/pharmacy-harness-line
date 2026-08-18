@@ -25,8 +25,10 @@ accountSettings.get('/api/account-settings/test-recipients', async (c) => {
   }
   const placeholders = friendIds.map(() => '?').join(',');
   const friends = await c.env.DB.prepare(
-    `SELECT id, display_name, picture_url FROM friends WHERE id IN (${placeholders})`
-  ).bind(...friendIds).all<{ id: string; display_name: string; picture_url: string | null }>();
+    `SELECT id, display_name, picture_url
+       FROM friends
+      WHERE line_account_id = ? AND id IN (${placeholders})`
+  ).bind(accountId, ...friendIds).all<{ id: string; display_name: string; picture_url: string | null }>();
 
   return c.json({
     success: true,
@@ -42,6 +44,21 @@ accountSettings.get('/api/account-settings/test-recipients', async (c) => {
 accountSettings.put('/api/account-settings/test-recipients', async (c) => {
   const body = await c.req.json<{ accountId: string; friendIds: string[] }>();
   if (!body.accountId) return c.json({ success: false, error: 'accountId required' }, 400);
+  if (!Array.isArray(body.friendIds) || body.friendIds.some((id) => typeof id !== 'string' || !id)) {
+    return c.json({ success: false, error: 'friendIds must be an array of ids' }, 400);
+  }
+  const friendIds = [...new Set(body.friendIds)];
+  if (friendIds.length > 0) {
+    const placeholders = friendIds.map(() => '?').join(',');
+    const owned = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS count
+         FROM friends
+        WHERE line_account_id = ? AND id IN (${placeholders})`,
+    ).bind(body.accountId, ...friendIds).first<{ count: number }>();
+    if ((owned?.count ?? 0) !== friendIds.length) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
+  }
 
   const id = crypto.randomUUID();
   const now = new Date(Date.now() + 9 * 60 * 60_000).toISOString().replace('Z', '+09:00');
@@ -51,8 +68,8 @@ accountSettings.put('/api/account-settings/test-recipients', async (c) => {
      VALUES (?, ?, 'test_recipients', ?, ?, ?)
      ON CONFLICT (line_account_id, key) DO UPDATE SET value = ?, updated_at = ?`
   ).bind(
-    id, body.accountId, JSON.stringify(body.friendIds), now, now,
-    JSON.stringify(body.friendIds), now,
+    id, body.accountId, JSON.stringify(friendIds), now, now,
+    JSON.stringify(friendIds), now,
   ).run();
 
   return c.json({ success: true });

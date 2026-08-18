@@ -55,6 +55,9 @@ const DB = {
       first: async () => null,
       all: async () => ({ results: [] }),
     }),
+    run: async () => ({ meta: { changes: 0 } }),
+    first: async () => null,
+    all: async () => ({ results: [] }),
   }),
 } as unknown as D1Database;
 

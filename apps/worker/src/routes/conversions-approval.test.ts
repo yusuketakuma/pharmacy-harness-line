@@ -34,16 +34,37 @@ vi.mock('../services/affiliate-notifier.js', () => ({ notifyAffiliateApproval })
 const worker = (await import('../index.js')).default;
 
 const API_KEY = 'test-owner-key';
-const statement = { bind: () => statement, first: async () => null };
+const tenantDb = {
+  prepare(sql: string) {
+    const statement = {
+      bind: () => statement,
+      first: async () => {
+        if (sql.includes('FROM tenants')) {
+          return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
+        }
+        if (sql.includes('FROM friends AS friend') ||
+            (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities'))) {
+          return { ok: 1 };
+        }
+        return null;
+      },
+      all: async () => ({
+        results: sql.includes('FROM tenant_line_accounts') ? [{ line_account_id: 'generic-a' }] : [],
+      }),
+    };
+    return statement;
+  },
+} as unknown as D1Database;
 const env = {
-  DB: { prepare: () => statement } as unknown as D1Database,
+  DB: tenantDb,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
+  LEGACY_ENV_OWNER_BYPASS: 'true',
   WORKER_URL: 'https://worker.example.com',
 } as unknown as import('../index.js').Env['Bindings'];
 
 function req(method: string, path: string, body?: unknown) {
-  const headers = new Headers({ Authorization: `Bearer ${API_KEY}` });
+  const headers = new Headers({ Authorization: `Bearer ${API_KEY}`, 'X-Tenant-Id': 'generic' });
   if (body !== undefined) headers.set('Content-Type', 'application/json');
   return worker.fetch(
     new Request(`https://worker.example.com${path}`, {
