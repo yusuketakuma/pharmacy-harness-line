@@ -7,10 +7,11 @@ human-gated integration rehearsal. No push, merge, release, deployment, LINE
 setting, production D1/R2 access, or production-data validation is evidence
 for this branch.
 
-The repository package version (`0.21.3`) identifies the inherited OSS code
-line. Pharmacy tags such as `pharmacy-v0.23.1` identify seller releases. They
-are separate version streams and must not be made numerically equal without a
-real upstream or pharmacy release.
+The runtime application packages and pharmacy release metadata are unified at
+`0.25.0` on `dev`. The `pharmacy-v0.25.0` tag is a pending release action, not
+deployment evidence. `minimum_client_version` and `rollback_compatible_from`
+remain `0.21.3` as compatibility floors for existing customers; they are not
+the current application version.
 
 ## Purpose
 

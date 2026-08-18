@@ -7,10 +7,11 @@ account-scoped patient detail/history view and print/activity inbox are separate
 local feature branches and are not completion evidence for this branch.
 
 Current evidence is intentionally separated: live source and tests prove local
-implementation; `pharmacy-v0.23.1` is the latest pharmacy release metadata in
-this checkout; no deployment evidence for Growth Loop Release 1 was inspected
-or created. No real customer repository, Cloudflare environment, LINE account,
-or production resource has been changed in this work.
+implementation; `0.25.0` is the unified dev application/release metadata target
+in this checkout, while the `pharmacy-v0.25.0` tag and published release remain
+pending. No deployment evidence for Growth Loop Release 1 was inspected or
+created. No real customer repository, Cloudflare environment, LINE account, or
+production resource has been changed in this work.
 
 The Release 1 source of truth is
 [`docs/custom/pharmacy/GROWTH_LOOP_ROADMAP.md`](custom/pharmacy/GROWTH_LOOP_ROADMAP.md)

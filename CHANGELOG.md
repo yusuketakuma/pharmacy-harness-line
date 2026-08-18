@@ -1,5 +1,16 @@
 # Changelog
 
+## Pharmacy v0.25.0 (2026-08-18)
+
+### Version unification and customer update safety
+
+- root、Worker、Admin、薬局LIFF、SDK、MCPの実行時バージョンを`0.25.0`へ統一
+- 薬局リリースメタデータを`pharmacy-v0.25.0`の準備状態へ更新
+- 顧客更新PRとCloudflareデプロイ直前にadditive-only migration検査を追加
+- 顧客D1・R2・Secrets・LINE設定の保全契約を明文化
+- LIFF Pages接続先とWorker URLの取り違えをデプロイ前に検出するガードを継続
+- 既存顧客の更新互換性下限は`0.21.3`のまま保持し、更新不能化を防止
+
 ## Pharmacy v0.23.1 (2026-08-17)
 
 ### dev/main同期と本番LIFF配信の整合
