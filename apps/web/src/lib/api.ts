@@ -658,6 +658,13 @@ export const api = {
     },
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/line-accounts/${id}`, { method: 'DELETE' }),
+    connect: (id: string) =>
+      fetchApi<ApiResponse<{
+        lineAccountId: string
+        identityRegistered: boolean
+        webhookConfigured: boolean
+        webhookUrl: string
+      }>>(`/api/line-accounts/${id}/connect`, { method: 'POST' }),
     updateOrder: (ordered: Array<{ id: string; displayOrder: number }>) =>
       fetchApi<{ success: boolean; error?: string }>('/api/line-accounts/order', {
         method: 'PATCH',
@@ -1142,8 +1149,8 @@ export const api = {
       fetchApi<ApiResponse<StaffMember>>(`/api/staff/${id}`),
     me: () =>
       fetchApi<ApiResponse<{ id: string; name: string; role: string; email: string | null }>>('/api/staff/me'),
-    create: (data: { name: string; email?: string; role: 'admin' | 'staff' }) =>
-      fetchApi<ApiResponse<StaffMember>>('/api/staff', {
+    create: (data: { name: string; loginId: string; email?: string; role: 'admin' | 'staff' }) =>
+      fetchApi<ApiResponse<StaffMember & { loginId: string; temporaryPassword: string }>>('/api/staff', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -1154,8 +1161,11 @@ export const api = {
       }),
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/staff/${id}`, { method: 'DELETE' }),
-    regenerateKey: (id: string) =>
-      fetchApi<ApiResponse<{ apiKey: string }>>(`/api/staff/${id}/regenerate-key`, { method: 'POST' }),
+    resetPassword: (id: string, loginId?: string) =>
+      fetchApi<ApiResponse<{ loginId: string; temporaryPassword: string }>>(
+        `/api/staff/${id}/reset-password`,
+        { method: 'POST', body: JSON.stringify({ loginId }) },
+      ),
   },
   usersGrouped: {
     list: (opts?: {

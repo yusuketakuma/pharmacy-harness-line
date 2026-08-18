@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 
 interface Props {
   liffId: string | null
@@ -10,14 +10,31 @@ interface Props {
   heading?: string
 }
 
-// Worker base URL for webhook / OAuth / LIFF endpoint registration.
-// In production this is something like https://your-worker.your-subdomain.workers.dev.
-// We derive it from NEXT_PUBLIC_API_URL because the admin UI already requires
-// that env var (build fails without it — see apps/web/src/lib/api.ts).
+// Worker base URL for webhook / OAuth registration.
 function workerBase(): string {
   const url = process.env.NEXT_PUBLIC_API_URL
   if (!url) return ''
   return url.replace(/\/$/, '')
+}
+
+// The LIFF endpoint must be the dedicated Pages deployment, not the API
+// Worker. Keeping this separate prevents LINE Developers from registering a
+// Worker root that cannot render the pharmacy LIFF application.
+function liffOrigin(): string {
+  const raw = process.env.NEXT_PUBLIC_LIFF_ORIGIN
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === 'localhost')) {
+      return ''
+    }
+    url.pathname = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return ''
+  }
 }
 
 export default function AccountSetupUrls({ liffId, heading }: Props) {
@@ -25,10 +42,11 @@ export default function AccountSetupUrls({ liffId, heading }: Props) {
   const webhookUrl = base ? `${base}/webhook` : ''
   const callbackUrl = base ? `${base}/auth/callback` : ''
   // For multi-account, every LIFF endpoint URL must include `?liffId=` so the
-  // LIFF page knows which account to init for. Without it, the LIFF page
-  // falls back to VITE_LIFF_ID (account ①) and non-default accounts hit an
-  // auth loop. See memory: liff-endpoint-url-rule.md.
-  const liffEndpointUrl = base && liffId ? `${base}?liffId=${encodeURIComponent(liffId)}` : ''
+  // dedicated LIFF page knows which account to initialize for.
+  const liffBase = liffOrigin()
+  const liffEndpointUrl = liffBase && liffId
+    ? `${liffBase}/?liffId=${encodeURIComponent(liffId)}`
+    : ''
 
   return (
     <div className="space-y-3 mt-4 pt-4 border-t border-gray-100">
