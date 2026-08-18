@@ -258,6 +258,19 @@ function dueRow(over: Partial<DueRow> = {}): DueRow {
 }
 
 describe('processDueEventReminders', () => {
+  test('excludes pharmacy-mode accounts in the due query', async () => {
+    const sql: string[] = [];
+    const db = {
+      prepare(statement: string) {
+        sql.push(statement);
+        return { bind: () => ({ all: async () => ({ results: [] }) }) };
+      },
+    } as unknown as D1Database;
+
+    await processDueEventReminders(db, { now: new Date('2026-05-09T00:00:00Z'), sender: vi.fn() });
+
+    expect(sql[0]).toContain('pharmacy_account_capabilities');
+  });
   test('sends due pending reminders', async () => {
     const state = { rows: [dueRow({ id: 'r1' })] };
     const db = dueDB(state);

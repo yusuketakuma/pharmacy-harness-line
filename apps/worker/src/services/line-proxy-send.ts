@@ -2,6 +2,11 @@ import type { Message } from '@line-crm/line-sdk';
 
 export type HarnessProxyDispatch = (request: Request) => Promise<Response>;
 
+export type HarnessProxyPushOptions = {
+  pharmacyNotificationEventId?: string;
+  lineAccountId?: string;
+};
+
 /**
  * LINE の push は必ず Harness の互換プロキシを通す。
  * プロキシ側が送信履歴の記録も担当するため、呼び出し元で messages_log を
@@ -14,12 +19,17 @@ export async function pushViaHarnessProxy(
   messages: Message[],
   retryKey?: string,
   dispatch?: HarnessProxyDispatch,
+  options?: HarnessProxyPushOptions,
 ): Promise<void> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
   };
   if (retryKey) headers['X-Line-Retry-Key'] = retryKey;
+  if (options?.pharmacyNotificationEventId) {
+    headers['X-Pharmacy-Notification-Event-Id'] = options.pharmacyNotificationEventId;
+  }
+  if (options?.lineAccountId) headers['X-Line-Account-Id'] = options.lineAccountId;
 
   const url = `${proxyBaseUrl.replace(/\/$/, '')}/line-api/v2/bot/message/push`;
   const init: RequestInit = {

@@ -1,6 +1,7 @@
 import type { PrescriptionPatient } from './patient.js';
 import { quoteAllowsAcceptance } from '../fulfillment/repository.js';
 import type { FulfillmentStatus } from '../fulfillment/repository.js';
+import { markPrescriptionValidityExpiredReview } from '../growth-loop/repository.js';
 import {
   nextPrescriptionStatus,
   type PrescriptionAction,
@@ -555,6 +556,8 @@ export async function getAdminPrescriptionDetail(
   submission: Record<string, unknown>;
   files: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
+  source: Record<string, unknown> | null;
+  validity: Record<string, unknown> | null;
 } | null> {
   const submission = await db.prepare(
     `SELECT id, friend_id, status, active_revision, upload_revision,
@@ -580,7 +583,21 @@ export async function getAdminPrescriptionDetail(
       WHERE e.submission_id = ? AND s.line_account_id = ?
       ORDER BY e.created_at, e.id`,
   ).bind(submissionId, lineAccountId).all<Record<string, unknown>>();
-  return { submission, files: files.results, events: events.results };
+  const source = await db.prepare(
+    `SELECT ss.source_id, ss.classification, ms.display_name,
+            ss.entered_by, ss.entered_at, ss.updated_at
+       FROM pharmacy_submission_sources ss
+       LEFT JOIN pharmacy_medical_sources ms
+         ON ms.id = ss.source_id AND ms.line_account_id = ss.line_account_id
+      WHERE ss.submission_id = ? AND ss.line_account_id = ?`,
+  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+  const validity = await db.prepare(
+    `SELECT issued_on, valid_until, validity_basis, verification_status,
+            verified_by, verified_at, reminder_due_at, reminder_sent_at, updated_at
+       FROM pharmacy_prescription_validities
+      WHERE submission_id = ? AND line_account_id = ?`,
+  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+  return { submission, files: files.results, events: events.results, source, validity };
 }
 
 const RESUBMISSION_REASONS = new Set([
@@ -595,6 +612,7 @@ export async function applyAdminPrescriptionAction(
   expectedUpdatedAt: string,
   staffId: string,
   reasonCode: string | null,
+  at = new Date(),
 ): Promise<PrescriptionStatus> {
   const current = await db.prepare(
     `SELECT status, updated_at, intake_required, source_handoff_id
@@ -610,9 +628,33 @@ export async function applyAdminPrescriptionAction(
     throw new Error('prescription admin action conflict');
   }
   const next = nextPrescriptionStatus(current.status, action);
+  if (action === 'admin_accept') {
+    const validity = await db.prepare(
+      `SELECT verification_status, valid_until
+         FROM pharmacy_prescription_validities
+        WHERE submission_id = ? AND line_account_id = ?`,
+    ).bind(submissionId, lineAccountId).first<{
+      verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
+      valid_until: string | null;
+    }>();
+    if (!validity || validity.verification_status !== 'verified' || !validity.valid_until) {
+      throw new Error('prescription validity verification required');
+    }
+    const localDate = new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (validity.valid_until < localDate) {
+      await markPrescriptionValidityExpiredReview(db, {
+        lineAccountId,
+        submissionId,
+        localDate,
+        actorId: staffId,
+        at,
+      });
+      throw new Error('prescription validity expired');
+    }
+  }
   if (action === 'admin_accept' && (current.intake_required === 1 || current.source_handoff_id != null)) {
     const quote = await db.prepare(
-      `SELECT decision, requirements_json, status
+      `SELECT decision, requirements_json, status, valid_until
          FROM pharmacy_fulfillment_quotes
         WHERE submission_id = ? AND line_account_id = ?
         ORDER BY revision DESC, created_at DESC, id DESC
@@ -621,6 +663,7 @@ export async function applyAdminPrescriptionAction(
       decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
       requirements_json: string;
       status: FulfillmentStatus | null;
+      valid_until: string | null;
     }>();
     if (!quote) throw new Error('fulfillment quote required');
     let requirements;
@@ -632,7 +675,12 @@ export async function applyAdminPrescriptionAction(
     } catch {
       throw new Error('fulfillment quote invalid');
     }
-    if (!quoteAllowsAcceptance({ decision: quote.decision, requirements, status: quote.status })) {
+    if (!quoteAllowsAcceptance({
+      decision: quote.decision,
+      requirements,
+      status: quote.status,
+      validUntil: quote.valid_until,
+    }, at)) {
       throw new Error('fulfillment quote not acceptable');
     }
   }

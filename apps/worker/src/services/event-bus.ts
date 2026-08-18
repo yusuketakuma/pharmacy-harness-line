@@ -23,6 +23,7 @@ import {
 import { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
 import { sendAdConversions } from './ad-conversion.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 export interface EventPayload {
   friendId?: string;
@@ -48,6 +49,15 @@ export async function fireEvent(
   lineAccessToken?: string,
   lineAccountId?: string | null,
 ): Promise<void> {
+  let eventAccountId = lineAccountId ?? null;
+  if (!eventAccountId && payload.friendId) {
+    const friend = await db.prepare(
+      `SELECT line_account_id FROM friends WHERE id = ?`,
+    ).bind(payload.friendId).first<{ line_account_id: string | null }>();
+    eventAccountId = friend?.line_account_id ?? null;
+  }
+  if (await isPharmacyModeAccount(db, eventAccountId)) return;
+
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
     fireOutgoingWebhooks(db, eventType, payload),
@@ -72,7 +82,7 @@ export async function fireEvent(
     : payload;
 
   // Phase 2: evaluate automations.
-  await processAutomations(db, eventType, enrichedPayload, lineAccessToken, lineAccountId);
+  await processAutomations(db, eventType, enrichedPayload, lineAccessToken, eventAccountId);
 }
 
 /** 送信Webhookへの通知 */

@@ -13,8 +13,15 @@ import {
 } from '@line-crm/db';
 import type { Friend, LineAccount } from '@line-crm/db';
 import { authenticateApiToken } from '../middleware/auth.js';
+import type { AuthenticatedStaff } from '../middleware/auth.js';
 import { messageToLogPayload } from '../services/step-delivery.js';
 import type { Env } from '../index.js';
+import {
+  canAccessPharmacyAccount,
+  hasPharmacyModeAccount,
+  isPharmacyModeAccount,
+} from '../custom/pharmacy/growth-loop/access.js';
+import { isApprovedRenderedPharmacyMessage } from '../custom/pharmacy/growth-loop/policy.js';
 
 /**
  * LINE Messaging API 互換プロキシ。
@@ -102,6 +109,7 @@ type ResolvedCaller = {
   lineAccountId: string | null;
   /** Total number of registered accounts — used to scope broadcast logging. */
   accountCount: number;
+  staff: AuthenticatedStaff | null;
 };
 
 function bearerToken(header: string | undefined): string | null {
@@ -130,10 +138,11 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       upstreamToken: token,
       lineAccountId: byChannelToken.id,
       accountCount: active.length,
+      staff: null,
     };
   }
   if (token === c.env.LINE_CHANNEL_ACCESS_TOKEN) {
-    return { upstreamToken: token, lineAccountId: null, accountCount: active.length };
+    return { upstreamToken: token, lineAccountId: null, accountCount: active.length, staff: null };
   }
 
   // harness API キー経路 — worker 側でチャネルトークンを解決する。
@@ -161,6 +170,7 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       upstreamToken: account.channel_access_token,
       lineAccountId: account.id,
       accountCount: active.length,
+      staff,
     };
   }
   if (c.env.LINE_CHANNEL_ACCESS_TOKEN) {
@@ -168,9 +178,59 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       upstreamToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
       lineAccountId: null,
       accountCount: active.length,
+      staff,
     };
   }
   return c.json({ message: 'No LINE account configured' }, 400);
+}
+
+async function rejectUnsafePharmacySend(
+  c: Context<Env>,
+  caller: ResolvedCaller,
+  path: string,
+  rawBody: string | undefined,
+  source: ProxyLogSource,
+): Promise<Response | null> {
+  const lineAccountId = caller.lineAccountId;
+  if (!lineAccountId) {
+    return await hasPharmacyModeAccount(c.env.DB)
+      ? c.json({ message: 'Account scope required in a pharmacy installation' }, 403)
+      : null;
+  }
+  if (!(await isPharmacyModeAccount(c.env.DB, lineAccountId))) {
+    return null;
+  }
+  if (source === 'manual') {
+    return caller.staff && await canAccessPharmacyAccount(c.env.DB, caller.staff, lineAccountId)
+      ? null
+      : c.json({ message: 'Manual pharmacy send requires assigned staff' }, 403);
+  }
+  if (path !== '/v2/bot/message/push' || !rawBody) {
+    return c.json({ message: 'Generic automated send is disabled for pharmacy accounts' }, 403);
+  }
+  const eventId = c.req.header('X-Pharmacy-Notification-Event-Id');
+  if (!eventId || !/^[A-Za-z0-9._:-]{1,160}$/.test(eventId)) {
+    return c.json({ message: 'Approved pharmacy notification claim required' }, 403);
+  }
+  let parsed: ParsedSend;
+  try {
+    parsed = JSON.parse(rawBody) as ParsedSend;
+  } catch {
+    return c.json({ message: 'Invalid message payload' }, 400);
+  }
+  const messages = asMessages(parsed.messages);
+  const event = await c.env.DB.prepare(
+    `SELECT e.message_id, f.line_user_id
+       FROM pharmacy_notification_events e
+       INNER JOIN friends f
+         ON f.id = e.friend_id AND f.line_account_id = e.line_account_id
+      WHERE e.id = ? AND e.line_account_id = ? AND e.outcome = 'attempted'`,
+  ).bind(eventId, lineAccountId).first<{ message_id: string; line_user_id: string }>();
+  if (!event || parsed.to !== event.line_user_id || messages.length !== 1 ||
+      !isApprovedRenderedPharmacyMessage(event.message_id, messages[0])) {
+    return c.json({ message: 'Pharmacy notification payload rejected' }, 403);
+  }
+  return null;
 }
 
 /** Look up friends for a set of userIds in IN-clause chunks (≤100 binds each). */
@@ -470,6 +530,11 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
           return c.json({ message: 'Payload too large' }, 413);
         }
       }
+    }
+
+    if (isMessageSend) {
+      const rejected = await rejectUnsafePharmacySend(c, caller, path, rawBody, logSource);
+      if (rejected) return rejected;
     }
 
     const headers: Record<string, string> = {

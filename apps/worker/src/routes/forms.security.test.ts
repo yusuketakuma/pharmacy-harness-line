@@ -159,6 +159,31 @@ describe('public form representation', () => {
 });
 
 describe('LIFF identity enforcement', () => {
+  test('rejects generic form submissions for a pharmacy-mode friend', async () => {
+    mocks.verifyCallerLineUserId.mockResolvedValue('line-pharmacy');
+    mocks.getFriendByLineUserId.mockResolvedValue({
+      id: 'friend-pharmacy',
+      line_account_id: 'pharmacy-a',
+      line_user_id: 'line-pharmacy',
+      display_name: 'Pharmacy User',
+      metadata: '{}',
+    });
+    const { bindings, first } = env();
+    first.mockResolvedValue({ mode: 'pharmacy' } as never);
+
+    const res = await app().request('/api/forms/form-1/submit', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-line-id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ data: { x_username: 'user' } }),
+    }, bindings);
+
+    expect(res.status).toBe(403);
+    expect(mocks.createFormSubmission).not.toHaveBeenCalled();
+  });
+
   test('stores every required AI consultation field including the selected meeting slot', async () => {
     mocks.getFormById.mockResolvedValue({
       ...baseForm,

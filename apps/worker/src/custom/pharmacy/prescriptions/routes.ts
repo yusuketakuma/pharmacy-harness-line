@@ -9,6 +9,7 @@ import {
   type PrescriptionPatient,
 } from './patient.js';
 import { deliverPrescriptionNotification } from './notifications.js';
+import { recordAcceptedSubmissionActivation } from '../growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
 import {
   completeContinuityAfterClose,
   linkContinuitySubmission,
@@ -28,6 +29,7 @@ import {
   reservePrescriptionResubmission,
   submitPrescription,
 } from './repository.js';
+import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -162,6 +164,14 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       c.req.param('id'),
       body.expectedUpdatedAt,
     );
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, patient.lineAccountId, 'prescription_received',
+        `prescription:received:${c.req.param('id')}`,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] activity notification unavailable');
+    }
     await linkContinuitySubmission(
       c.env.DB, patient.lineAccountId, c.req.param('id'), patient.friendId,
     );
@@ -431,6 +441,24 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
       staff.id,
       typeof body.reasonCode === 'string' ? body.reasonCode : null,
     );
+    if (action === 'admin_accept') {
+      try {
+        await recordAcceptedSubmissionActivation(c.env.DB, lineAccountId, c.req.param('id'));
+      } catch (error) {
+        // Metrics are observability only; never turn a committed pharmacist action into a 500.
+        console.error('[pharmacy-growth] activation metric failed', error);
+      }
+    }
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB,
+        lineAccountId,
+        'prescription_status_changed',
+        `prescription:status:${c.req.param('id')}:${status}`,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] status activity unavailable');
+    }
     if (action === 'admin_close') {
       await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);
     }
@@ -449,6 +477,10 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
         message === 'fulfillment quote not acceptable' ||
         message === 'fulfillment quote invalid') {
       return c.json({ error: '受付内容の確認が完了していません' }, 409);
+    }
+    if (message === 'prescription validity verification required' ||
+        message === 'prescription validity expired') {
+      return c.json({ error: '処方せんの使用期限を確認してください' }, 409);
     }
     if (message === 'invalid resubmission reason') {
       return c.json({ error: 'Invalid resubmission reason' }, 400);

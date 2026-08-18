@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   notify: vi.fn(),
   linkContinuity: vi.fn(),
   completeContinuity: vi.fn(),
+  activation: vi.fn(),
+  enqueueActivity: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -54,6 +56,12 @@ vi.mock('../continuity/repository.js', () => ({
   linkContinuitySubmission: mocks.linkContinuity,
   completeContinuityAfterClose: mocks.completeContinuity,
 }));
+vi.mock('../growth-loop/onboarding.js', () => ({
+  recordAcceptedSubmissionActivation: mocks.activation,
+}));
+vi.mock('../activity-notifications/repository.js', () => ({
+  enqueueActivityForAccount: mocks.enqueueActivity,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -77,6 +85,8 @@ beforeEach(() => {
   mocks.notify.mockResolvedValue({ status: 'sent' });
   mocks.linkContinuity.mockResolvedValue(null);
   mocks.completeContinuity.mockResolvedValue(null);
+  mocks.activation.mockResolvedValue(undefined);
+  mocks.enqueueActivity.mockResolvedValue(null);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {
@@ -236,6 +246,13 @@ describe('admin prescription routes', () => {
     expect(mocks.adminAction.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.notify.mock.invocationCallOrder[0],
     );
+    expect(mocks.activation).toHaveBeenCalledWith(env.DB, 'account-1', 'submission-1');
+    expect(mocks.enqueueActivity).toHaveBeenCalledWith(
+      env.DB,
+      'account-1',
+      'prescription_status_changed',
+      'prescription:status:submission-1:accepted',
+    );
   });
 
   it('keeps a committed action successful when notification delivery fails', async () => {
@@ -251,6 +268,21 @@ describe('admin prescription routes', () => {
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: 'accepted' });
+  });
+
+  it('returns a conflict without notifying when prescription validity is not usable', async () => {
+    mocks.adminAction.mockRejectedValueOnce(new Error('prescription validity verification required'));
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions/submission-1/actions/accept?line_account_id=account-1',
+      {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedUpdatedAt: '2026-08-17T00:00:00.000Z' }),
+      },
+      adminEnv,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: '処方せんの使用期限を確認してください' });
+    expect(mocks.notify).not.toHaveBeenCalled();
   });
 });
 

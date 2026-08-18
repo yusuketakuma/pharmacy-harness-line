@@ -19,6 +19,7 @@ import {
 } from '../services/follower-import.js';
 import type { FollowerImportClient } from '../services/follower-import.js';
 import type { Env } from '../index.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
 
 const lineAccounts = new Hono<Env>();
 
@@ -79,7 +80,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
     // Get stats for all accounts in parallel
     const results = await Promise.all(
       items.map(async (item) => {
-        const [profile, friendCount, scenarioCount, msgCount] = await Promise.all([
+        const [profile, friendCount, scenarioCount, msgCount, pharmacyMode] = await Promise.all([
           fetchBotProfile(item.channel_access_token),
           db.prepare(`SELECT COUNT(*) as count FROM friends WHERE is_following = 1 AND line_account_id = ?`).bind(item.id).first<{ count: number }>(),
           db.prepare(
@@ -96,6 +97,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
              INNER JOIN friends f ON f.id = ml.friend_id
              WHERE ml.direction = 'outgoing' AND (ml.delivery_type IS NULL OR ml.delivery_type = 'push') AND ml.created_at >= date('now', 'start of month') AND f.line_account_id = ?`,
           ).bind(item.id).first<{ count: number }>(),
+          isPharmacyModeAccount(db, item.id),
         ]);
 
         return {
@@ -103,6 +105,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
           displayName: profile.displayName || item.name,
           pictureUrl: profile.pictureUrl || null,
           basicId: profile.basicId || null,
+          pharmacyMode,
           stats: {
             friendCount: friendCount?.count ?? 0,
             activeScenarios: scenarioCount?.count ?? 0,
