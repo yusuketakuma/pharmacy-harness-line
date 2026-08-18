@@ -147,6 +147,8 @@ describe('pharmacy patient repository', () => {
     const followUpEventSql = calls.find((call) => call.sql.includes('pharmacy_medication_followup_events'))?.sql;
     expect(followUpEventSql).toContain('e.line_account_id = ?');
     expect(followUpEventSql).toContain('f.patient_id = ?');
+    const nextIntakeSql = calls.find((call) => call.sql.includes('pharmacy_next_intake_expectation_events'))?.sql;
+    expect(nextIntakeSql).toContain('e.line_account_id = ? AND expectation.patient_id = ?');
   });
 
   it('returns only the latest allowlisted intake answers without raw snapshots', async () => {

@@ -595,7 +595,7 @@ export async function getAdminPharmacyPatientHistory(
   if (!patient) return null;
   const [
     intakes, prescriptions, quotes, continuity, medicationFollowUps,
-    prescriptionEvents, continuityEvents, medicationFollowUpEvents, myna,
+    prescriptionEvents, continuityEvents, medicationFollowUpEvents, nextIntakeEvents, myna,
   ] = await Promise.all([
     db.prepare(`SELECT id, patient_id, revision, schema_version, answers_json,
                        representative_consent_at, privacy_consent_at, created_at
@@ -655,6 +655,14 @@ export async function getAdminPharmacyPatientHistory(
                  WHERE e.line_account_id = ? AND f.patient_id = ?
                  ORDER BY e.occurred_at DESC, e.id DESC`)
       .bind(lineAccountId, patientId).all<{ event_type: string; to_status: string | null; occurred_at: string }>(),
+    db.prepare(`SELECT e.event_type AS status, e.occurred_at
+                  FROM pharmacy_next_intake_expectation_events e
+                  INNER JOIN pharmacy_next_intake_expectations expectation
+                    ON expectation.id = e.expectation_id
+                   AND expectation.line_account_id = e.line_account_id
+                 WHERE e.line_account_id = ? AND expectation.patient_id = ?
+                 ORDER BY e.occurred_at DESC, e.id DESC`)
+      .bind(lineAccountId, patientId).all<{ status: string; occurred_at: string }>(),
     db.prepare(`SELECT h.status, h.created_at
                   FROM pharmacy_myna_handoffs h
                  WHERE h.line_account_id = ? AND h.patient_id = ?
@@ -669,6 +677,7 @@ export async function getAdminPharmacyPatientHistory(
     ...quotes.results.map((item) => ({ kind: 'fulfillment' as const, occurred_at: item.created_at, label: 'FulfillmentQuoteを登録', status: item.decision })),
     ...continuityEvents.results.map((item) => ({ kind: 'continuity' as const, occurred_at: item.created_at, label: '継続フォローを更新', status: item.status })),
     ...medicationFollowUpEvents.results.map((item) => ({ kind: 'medication_followup' as const, occurred_at: item.occurred_at, label: '服薬後フォローを更新', status: item.to_status ?? item.event_type })),
+    ...nextIntakeEvents.results.map((item) => ({ kind: 'continuity' as const, occurred_at: item.occurred_at, label: '次回事前送信のお知らせを更新', status: item.status })),
     ...myna.results.map((item) => ({ kind: 'myna' as const, occurred_at: item.created_at, label: 'マイナ受付を更新', status: item.status })),
   ].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
 

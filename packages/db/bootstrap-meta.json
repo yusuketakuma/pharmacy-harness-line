@@ -85,7 +85,8 @@
     "custom_008_pharmacy_growth_loop.sql",
     "custom_009_pharmacy_print_queue.sql",
     "custom_010_pharmacy_activity_notifications.sql",
-    "custom_011_pharmacy_medication_followups.sql"
+    "custom_011_pharmacy_medication_followups.sql",
+    "custom_012_pharmacy_next_intake_expectations.sql"
   ],
   "migrationCount": 86
 }

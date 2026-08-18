@@ -100,7 +100,7 @@ import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
-import { claimDueContinuityReminders } from './custom/pharmacy/continuity/repository.js'; // custom:pharmacy-continuity
+import { claimDueNextIntakeExpectations } from './custom/pharmacy/continuity/next-intake.js'; // custom:pharmacy-continuity
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
 import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
@@ -1170,7 +1170,7 @@ async function scheduled(
     }
 
     try {
-      const reminders = await claimDueContinuityReminders(env.DB, new Date(event.scheduledTime)); // custom:pharmacy-continuity
+      const reminders = await claimDueNextIntakeExpectations(env.DB, new Date(event.scheduledTime)); // custom:pharmacy-continuity
       const reminderResult = { sent: 0, failed: 0, skipped: 0 };
       for (const reminder of reminders) {
         const status = await deliverContinuityReminder(reminder, { // custom:pharmacy-continuity
