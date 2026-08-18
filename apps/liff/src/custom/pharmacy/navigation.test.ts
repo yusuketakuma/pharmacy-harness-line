@@ -11,4 +11,8 @@ describe('pharmacyRoute', () => {
     expect(pharmacyRoute('/prescriptions?submissionId=sub-1&liffId=old', '2000000000-AbCdEfGh'))
       .toBe('/prescriptions?submissionId=sub-1&liffId=2000000000-AbCdEfGh');
   });
+
+  it('keeps isolated pre-bootstrap rendering usable without inventing a tenant id', () => {
+    expect(pharmacyRoute('/prescriptions')).toBe('/prescriptions');
+  });
 });
