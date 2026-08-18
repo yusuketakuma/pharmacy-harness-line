@@ -15,6 +15,7 @@ vi.mock('@line-crm/db', () => ({
   getRandomPoolAccount: vi.fn(),
   getPoolAccounts: vi.fn(),
   getEntryRouteByRefCode: vi.fn(),
+  hasPharmacyModeAccount: vi.fn().mockResolvedValue(false),
   getStaffByApiKey: vi.fn(),
   recoverStalledBroadcasts: vi.fn(),
   recoverStuckDeliveries: vi.fn(),
@@ -66,6 +67,42 @@ describe('notFoundHandler — root / request', () => {
     const res = await fetchApp('/api/does-not-exist');
     expect(res.status).toBe(404);
     expect(assets.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not expose generic form previews from a pharmacy deployment', async () => {
+    const db = {
+      prepare: vi.fn((sql: string) => ({
+        bind: (...args: unknown[]) => ({
+          first: async () => {
+            if (sql.includes('pharmacy_account_capabilities')) return { ok: 1 };
+            if (sql.includes('FROM line_accounts')) return { id: 'account-a', name: '薬局A' };
+            if (sql.includes('FROM forms')) return {
+              id: args[0], name: '患者情報を含む汎用フォーム', description: 'should not leak',
+            };
+            return null;
+          },
+        }),
+      })),
+    } as unknown as D1Database;
+    const fetchApp = makeApp({ DB: db });
+
+    const res = await fetchApp('/?page=form&id=form-a&liffId=liff-a', {
+      headers: { 'user-agent': 'LINE-Bot' },
+    });
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).not.toContain('患者情報を含む汎用フォーム');
+    expect(html).not.toContain('should not leak');
+    expect(db.prepare).not.toHaveBeenCalledWith(expect.stringContaining('FROM forms'));
+    const accountQueries = vi.mocked(db.prepare).mock.calls
+      .map(([sql]) => sql)
+      .filter((sql) => sql.includes('FROM line_accounts'));
+    expect(accountQueries).not.toHaveLength(0);
+    for (const sql of accountQueries) {
+      expect(sql).not.toMatch(/SELECT\s+\*/iu);
+      expect(sql).not.toMatch(/channel_(?:access_token|secret)|login_channel_secret/iu);
+    }
   });
 });
 
