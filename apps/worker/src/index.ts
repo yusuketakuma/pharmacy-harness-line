@@ -94,10 +94,22 @@ import { fulfillmentRoutes } from './custom/pharmacy/fulfillment/routes.js'; // 
 import { continuityRoutes } from './custom/pharmacy/continuity/routes.js'; // custom:pharmacy-continuity
 import { mynaRoutes } from './custom/pharmacy/myna/routes.js'; // custom:pharmacy-myna
 import { pharmacyRichMenuRoutes } from './custom/pharmacy/rich-menu/routes.js'; // custom:pharmacy-rich-menu
+import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // custom:pharmacy-print
+import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
+import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
+import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
-import { claimDueContinuityReminders } from './custom/pharmacy/continuity/repository.js'; // custom:pharmacy-continuity
+import { claimDueNextIntakeExpectations } from './custom/pharmacy/continuity/next-intake.js'; // custom:pharmacy-continuity
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
+import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
+import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
+import { pharmacyAccountGuard } from './custom/pharmacy/account.js'; // custom:pharmacy-tenant-boundary
+import { isPharmacyModeAccount } from './custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import {
+  PHARMACY_DISABLED_GENERIC_API_PREFIXES,
+  pharmacyGenericFeatureGuard,
+} from './custom/pharmacy/growth-loop/generic-feature-guard.js'; // custom:pharmacy-allowlist
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
 import {
@@ -157,6 +169,7 @@ export type Env = {
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
+    pharmacyLineAccountId: string;
   };
 };
 
@@ -195,6 +208,18 @@ app.use('*', rateLimitMiddleware);
 // Auth middleware — skips /webhook and /docs automatically
 app.use('*', authMiddleware);
 
+// Query parameters select a pharmacy account; this guard proves the signed-in
+// staff identity is assigned to that account before any pharmacy admin route runs.
+app.use('/api/custom/pharmacy/*', pharmacyAccountGuard);
+
+// Pharmacy accounts fail closed on high-risk generic CRM APIs. Both the
+// collection and child routes are mounted explicitly because Hono's `/*`
+// pattern does not match the collection path itself.
+for (const prefix of PHARMACY_DISABLED_GENERIC_API_PREFIXES) {
+  app.use(prefix, pharmacyGenericFeatureGuard);
+  app.use(`${prefix}/*`, pharmacyGenericFeatureGuard);
+}
+
 // Mount route groups — MVP & Round 2
 app.route('/', webhook);
 app.route('/', friends);
@@ -219,6 +244,10 @@ app.route('/', fulfillmentRoutes); // custom:pharmacy-fulfillment
 app.route('/', continuityRoutes); // custom:pharmacy-continuity
 app.route('/', mynaRoutes); // custom:pharmacy-myna
 app.route('/', pharmacyRichMenuRoutes); // custom:pharmacy-rich-menu
+app.route('/', pharmacyGrowthLoopRoutes); // custom:pharmacy-growth-loop
+app.route('/', pharmacyPrintRoutes); // custom:pharmacy-print
+app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifications
+app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
@@ -930,6 +959,7 @@ async function scheduled(
     }
   }
   const defaultLineClient = new LineClient(env.LINE_CHANNEL_ACCESS_TOKEN);
+  const defaultAccountId = dbAccounts.find((account) => account.channel_id === env.LINE_CHANNEL_ID)?.id ?? null;
 
   // 配信系は1回だけ実行（内部でfriendのline_account_idから正しいlineClientを動的解決）
   // 以前はアカウントごとにループしていたが、アカウントフィルタなしのDBクエリで
@@ -1011,6 +1041,8 @@ async function scheduled(
         defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
         defaultLiffId: liffMatch?.[1] ?? null,
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        canProcessAccount: async (accountId) =>
+          !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
       },
     );
     if (result.sent + result.failed > 0) {
@@ -1031,6 +1063,8 @@ async function scheduled(
       defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
       defaultLiffId: liffMatch?.[1] ?? null,
       proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      canProcessAccount: async (accountId) =>
+        !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
     });
     if (result.sent + result.failed > 0) {
       console.log(`[webinar-followups] sent=${result.sent} failed=${result.failed}`);
@@ -1047,11 +1081,28 @@ async function scheduled(
   const jobs = [];
   jobs.push(
     processStepDeliveries(env.DB, defaultLineClient, env.WORKER_URL),
-    processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL),
+    processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
     processReminderDeliveries(env.DB, defaultLineClient),
   );
-  jobs.push(processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL));
+  jobs.push(processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId));
   jobs.push(checkAccountHealth(env.DB));
+
+  if (event.cron === '* * * * *') {
+    jobs.push(processDueMedicationFollowUps(env.DB, { // custom:pharmacy-medication-followup
+      proxyBaseUrl:
+        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.sent + result.failed > 0) {
+        console.log(
+          `[pharmacy-medication-followup] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+        );
+      }
+    }).catch(() => {
+      console.error('[pharmacy-medication-followup] processor failed');
+    }));
+  }
 
   // Mileage is an eventually-consistent projection. Reuse the existing
   // minute cron invocation, but drain only every five minutes and at most 100
@@ -1061,7 +1112,15 @@ async function scheduled(
     && new Date(event.scheduledTime).getUTCMinutes() % 5 === 0
   ) {
     jobs.push(
-      processPendingMileageEvents(env.DB, { limit: 100 }).then((result) => {
+      processPendingMileageEvents(env.DB, {
+        limit: 100,
+        canProcessFriend: async (friendId) => {
+          const friend = await env.DB.prepare(
+            `SELECT line_account_id FROM friends WHERE id = ?`,
+          ).bind(friendId).first<{ line_account_id: string | null }>();
+          return !(await isPharmacyModeAccount(env.DB, friend?.line_account_id));
+        },
+      }).then((result) => {
         if (result.claimed > 0) {
           console.log(
             `[mileage-queue] processed=${result.processed} failed=${result.failed} granted=${result.granted}`,
@@ -1111,10 +1170,11 @@ async function scheduled(
     }
 
     try {
-      const reminders = await claimDueContinuityReminders(env.DB, new Date(event.scheduledTime)); // custom:pharmacy-continuity
+      const reminders = await claimDueNextIntakeExpectations(env.DB, new Date(event.scheduledTime)); // custom:pharmacy-continuity
       const reminderResult = { sent: 0, failed: 0, skipped: 0 };
       for (const reminder of reminders) {
         const status = await deliverContinuityReminder(reminder, { // custom:pharmacy-continuity
+          db: env.DB,
           proxyBaseUrl:
             env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
           proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
@@ -1126,6 +1186,19 @@ async function scheduled(
       }
     } catch (e) {
       console.error('pharmacy-continuity error:', e);
+    }
+
+    try {
+      const result = await processDuePrescriptionValidityReminders(env.DB, {
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        now: new Date(event.scheduledTime),
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(`[pharmacy-validity] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`);
+      }
+    } catch (e) {
+      console.error('pharmacy-validity error:', e);
     }
 
     try {

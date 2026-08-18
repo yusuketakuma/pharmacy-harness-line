@@ -82,6 +82,17 @@ describe('FulfillmentQuote repository', () => {
     expect(quoteAllowsAcceptance({ ...quote, status: 'AVAILABLE' })).toBe(true);
   });
 
+  it('does not accept an expired FulfillmentQuote', () => {
+    expect(quoteAllowsAcceptance({
+      decision: 'fulfillable', requirements: [], status: 'AVAILABLE',
+      validUntil: '2026-08-17T09:59:59.000Z',
+    }, new Date('2026-08-17T10:00:00.000Z'))).toBe(false);
+    expect(quoteAllowsAcceptance({
+      decision: 'fulfillable', requirements: [], status: 'AVAILABLE',
+      validUntil: '2026-08-17T10:00:01.000Z',
+    }, new Date('2026-08-17T10:00:00.000Z'))).toBe(true);
+  });
+
   it('loads the newest quote inside the requested account', async () => {
     const quote = {
       id: 'quote-2', submission_id: 'submission-1', line_account_id: 'account-1',

@@ -26,12 +26,19 @@ describe('development deployment workflow contract', () => {
   test('builds every artifact before mutation and deploys Admin only after Worker health succeeds', () => {
     const migrate = stepIndex('Run pending D1 migrations');
     expect(stepIndex('Build Worker and LIFF assets')).toBeLessThan(migrate);
+    expect(stepIndex('Build Pharmacy LIFF Pages')).toBeLessThan(migrate);
     expect(stepIndex('Build Admin Panel')).toBeLessThan(migrate);
     expect(migrate).toBeLessThan(stepIndex('Deploy to Cloudflare Workers'));
     expect(stepIndex('Deploy to Cloudflare Workers')).toBeLessThan(
       stepIndex('Verify Worker health'),
     );
     expect(stepIndex('Verify Worker health')).toBeLessThan(
+      stepIndex('Deploy to Cloudflare Pages'),
+    );
+    expect(stepIndex('Verify Worker health')).toBeLessThan(
+      stepIndex('Deploy Pharmacy LIFF Pages'),
+    );
+    expect(stepIndex('Deploy Pharmacy LIFF Pages')).toBeLessThan(
       stepIndex('Deploy to Cloudflare Pages'),
     );
     expect(stepIndex('Deploy to Cloudflare Pages')).toBeLessThan(
@@ -81,6 +88,34 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).toContain('test -n "$LIFF_ORIGIN"');
   });
 
+  test('builds and publishes the separate pharmacy LIFF Pages artifact', () => {
+    expect(customerDeploy).toContain('LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}');
+    expect(customerDeploy).toContain('VITE_DEFAULT_LIFF_ID: ${{ vars.VITE_LIFF_ID }}');
+    expect(customerDeploy).toContain('VITE_API_BASE: ${{ vars.WORKER_URL }}');
+    expect(customerDeploy).toContain('pnpm --filter liff build');
+    expect(customerDeploy).toContain('npx wrangler pages deploy apps/liff/dist');
+    expect(customerDeploy).toContain('--project-name="$LIFF_PAGES_PROJECT"');
+  });
+
+  test('fails before mutation when the LINE LIFF endpoint drifts from Pages', () => {
+    const validate = stepIndex('Validate required deployment configuration');
+    const topology = stepIndex('Verify LINE LIFF endpoint topology');
+    const migrate = stepIndex('Run pending D1 migrations');
+
+    expect(topology).toBeGreaterThan(validate);
+    expect(topology).toBeLessThan(migrate);
+    expect(customerDeploy).toContain('https://liff.line.me/${VITE_LIFF_ID}/');
+    expect(customerDeploy).toContain('grep -Fq "$LIFF_ORIGIN"');
+    expect(customerDeploy).toContain('grep -Fq "$WORKER_URL"');
+    expect(customerDeploy).toContain('LINE LIFF endpoint must point to LIFF_ORIGIN');
+  });
+
+  test('rejects a pharmacy LIFF build without its runtime contract', () => {
+    expect(customerDeploy).toContain('grep -R -Fq "$VITE_DEFAULT_LIFF_ID" apps/liff/dist/assets');
+    expect(customerDeploy).toContain('grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets');
+    expect(customerDeploy).toContain('grep -R -Fq "pharmacy-receive" apps/liff/dist/assets');
+  });
+
   test('preserves customer bindings and verifies them before recording success', () => {
     const validate = stepIndex('Validate required deployment configuration');
     const protect = stepIndex('Protect customer configuration');
@@ -103,6 +138,15 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).not.toContain("name='_migrations'");
     expect(customerDeploy).not.toContain('packages/db/bootstrap.sql');
     expect(customerDeploy).not.toContain('CREATE TABLE IF NOT EXISTS _migrations');
+  });
+
+  test('checks additive migration safety before any customer mutation', () => {
+    const safety = stepIndex('Check additive migration safety');
+    const migrate = stepIndex('Run pending D1 migrations');
+
+    expect(safety).toBeGreaterThan(stepIndex('Verify LINE LIFF endpoint topology'));
+    expect(safety).toBeLessThan(migrate);
+    expect(customerDeploy).toContain('pnpm tsx scripts/check-migrations.ts');
   });
 
   test('records a pre-migration D1 bookmark and post-smoke deployment evidence', () => {

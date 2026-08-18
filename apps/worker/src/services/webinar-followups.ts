@@ -10,6 +10,7 @@ export type WebinarFollowupOptions = {
   defaultAccessToken: string;
   defaultLiffId: string | null;
   proxyDispatch?: HarnessProxyDispatch;
+  canProcessAccount?: (accountId: string | null) => Promise<boolean>;
 };
 
 type FollowupKind = 'after_30m' | 'after_24h';
@@ -395,6 +396,7 @@ export async function processWebinarFollowups(
   let sent = 0;
   let failed = 0;
   for (const { candidate, kind } of due) {
+    if (options.canProcessAccount && !(await options.canProcessAccount(candidate.account_id))) continue;
     const followup = await getOrCreateFollowup(db, candidate, kind);
     if (followup.status === 'sent') continue;
     try {
@@ -440,6 +442,7 @@ export async function processWebinarFollowups(
   }
 
   for (const { candidate, kind } of journeyDue) {
+    if (options.canProcessAccount && !(await options.canProcessAccount(candidate.account_id))) continue;
     const followup = await getOrCreateJourneyFollowup(db, candidate, kind);
     if (followup.status === 'sent' || followup.status === 'skipped') continue;
     try {

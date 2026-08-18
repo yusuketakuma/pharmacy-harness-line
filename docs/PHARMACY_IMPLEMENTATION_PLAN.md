@@ -1,11 +1,22 @@
 # LINE Harness Pharmacy Implementation Plan
 
-Status: implementation complete and verified locally; not pushed, merged, or deployed
+Status: the prescription/continuity foundation is locally verified. Growth Loop
+Release 1 is being implemented on `feature/growth-loop-release-1` from `dev`;
+the Growth Loop work is not pushed, merged, released, or deployed. The
+account-scoped patient detail/history view and print/activity inbox are separate
+local feature branches and are not completion evidence for this branch.
 
-Current evidence: commits `a8e7aaf` through `24dd7f7` implement and test the
-customer release/update/onboarding/deployment controls and the complete
-prescription pre-send flow. No real customer repository, Cloudflare
-environment, LINE account, or production resource has been changed.
+Current evidence is intentionally separated: live source and tests prove local
+implementation; `0.25.0` is the unified dev application/release metadata target
+in this checkout, while the `pharmacy-v0.25.0` tag and published release remain
+pending. No deployment evidence for Growth Loop Release 1 was inspected or
+created. No real customer repository, Cloudflare environment, LINE account, or
+production resource has been changed in this work.
+
+The Release 1 source of truth is
+[`docs/custom/pharmacy/GROWTH_LOOP_ROADMAP.md`](custom/pharmacy/GROWTH_LOOP_ROADMAP.md)
+and its KPI definitions are in
+[`docs/custom/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md`](custom/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md).
 
 This document is the implementation contract for the pharmacy prescription
 pre-send feature, customer delivery, and customer repository updates. The live

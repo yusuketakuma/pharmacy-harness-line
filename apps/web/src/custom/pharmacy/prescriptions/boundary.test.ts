@@ -22,4 +22,16 @@ it('keeps Admin integration to a thin route and marked sidebar seam', () => {
   )
   expect(sidebar).toContain("href: '/patient-intakes'")
   expect(sidebar).toContain("href: '/continuity'")
+
+  const intakePage = readFileSync(
+    join(process.cwd(), 'src', 'custom', 'pharmacy', 'intake', 'PatientIntakeAdminPage.tsx'),
+    'utf8',
+  )
+  expect(intakePage).toContain('let cancelled = false')
+  expect(intakePage).toContain('if (cancelled) return')
+  expect(intakePage).toContain('return () => { cancelled = true }')
+  expect(intakePage).toContain('const request = listRequestGate.start()')
+  expect(intakePage).toContain('pharmacyIntakeAdminApi.list(selectedAccountId, request.signal)')
+  expect(intakePage).toContain('if (!listRequestGate.isCurrent(request)) return')
+  expect(intakePage).toContain('listRequestGate.abort()')
 })

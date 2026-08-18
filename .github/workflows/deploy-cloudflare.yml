@@ -58,12 +58,14 @@ jobs:
           WORKER_URL: ${{ vars.WORKER_URL }}
           ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
           LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
+          LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}
           VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
           VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
         run: |
           for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID D1_DATABASE_NAME \
             D1_DATABASE_ID NEXT_PUBLIC_API_URL R2_BUCKET_NAME WORKER_NAME \
-            PAGES_PROJECT_NAME WORKER_URL ADMIN_ORIGIN VITE_LIFF_ID VITE_BOT_BASIC_ID; do
+            PAGES_PROJECT_NAME LIFF_PAGES_PROJECT WORKER_URL ADMIN_ORIGIN \
+            VITE_LIFF_ID VITE_BOT_BASIC_ID; do
             if [ -z "${!name}" ]; then
               echo "Missing required deployment configuration: $name"
               exit 1
@@ -92,6 +94,16 @@ jobs:
           VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
           VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
 
+      - name: Build Pharmacy LIFF Pages
+        run: |
+          pnpm --filter liff build
+          grep -R -Fq "$VITE_DEFAULT_LIFF_ID" apps/liff/dist/assets
+          grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets
+          grep -R -Fq "pharmacy-receive" apps/liff/dist/assets
+        env:
+          VITE_DEFAULT_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
+          VITE_API_BASE: ${{ vars.WORKER_URL }}
+
       - name: Capture build metadata
         id: build-meta
         run: echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
@@ -101,6 +113,26 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
+
+      - name: Verify LINE LIFF endpoint topology
+        env:
+          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
+          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
+        run: |
+          wrapper="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            --max-time 20 "https://liff.line.me/${VITE_LIFF_ID}/")"
+          if ! printf '%s' "$wrapper" | grep -Fq "$LIFF_ORIGIN"; then
+            echo "LINE LIFF endpoint must point to LIFF_ORIGIN"
+            exit 1
+          fi
+          if printf '%s' "$wrapper" | grep -Fq "$WORKER_URL"; then
+            echo "LINE LIFF endpoint must not point to WORKER_URL"
+            exit 1
+          fi
+
+      - name: Check additive migration safety
+        run: pnpm tsx scripts/check-migrations.ts
 
       - name: Patch wrangler config
         env:
@@ -212,6 +244,32 @@ jobs:
           WORKER_NAME: ${{ vars.WORKER_NAME }}
           CUSTOMER_CONFIG_SNAPSHOT: ${{ runner.temp }}/line-harness-customer-config.json
         run: pnpm tsx scripts/deploy/customer-config.ts verify
+
+      - name: Deploy Pharmacy LIFF Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$LIFF_PAGES_PROJECT"
+          if [ "$DEPLOY_TARGET" = "development" ]; then
+            case "$LIFF_PAGES_PROJECT" in *-dev) ;; *) echo "Development LIFF Pages project must end in -dev"; exit 1 ;; esac
+          fi
+          npx wrangler pages deploy apps/liff/dist \
+            --project-name="$LIFF_PAGES_PROJECT" \
+            --branch="$GITHUB_REF_NAME" \
+            --commit-hash="$GITHUB_SHA" \
+            --commit-message="deploy $GITHUB_SHA"
+
+      - name: Verify Pharmacy LIFF health
+        env:
+          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
+        run: |
+          test -n "$LIFF_ORIGIN"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${LIFF_ORIGIN%/}/" >/dev/null
 
       - name: Deploy to Cloudflare Pages
         env:

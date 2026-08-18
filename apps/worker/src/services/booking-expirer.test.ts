@@ -12,8 +12,10 @@ interface StaleRow {
 
 function stubDB(stale: StaleRow[], idempotencyPurged = 0) {
   const updates: Array<{ sql: string; bound: unknown[] }> = [];
+  const queries: string[] = [];
   const db = {
     prepare(sql: string) {
+      queries.push(sql);
       let bound: unknown[] = [];
       const stmt = {
         bind(...args: unknown[]) {
@@ -40,7 +42,7 @@ function stubDB(stale: StaleRow[], idempotencyPurged = 0) {
       return stmt;
     },
   } as unknown as D1Database;
-  return { db, updates };
+  return { db, queries, updates };
 }
 
 const NOW = new Date('2026-05-08T01:00:00Z');
@@ -75,6 +77,15 @@ describe('runExpirer', () => {
     const sender = vi.fn();
     const result = await runExpirer(db, { now: NOW, sender });
     expect(result.idempotencyPurged).toBe(3);
+  });
+
+  test('pharmacy accounts are excluded from the generic booking cron', async () => {
+    const { db, queries } = stubDB([]);
+    await runExpirer(db, { now: NOW, sender: vi.fn() });
+
+    expect(queries.find((sql) => sql.includes('FROM bookings'))).toContain(
+      'FROM pharmacy_account_capabilities',
+    );
   });
 
   test('通知失敗しても expired 化は実行される', async () => {

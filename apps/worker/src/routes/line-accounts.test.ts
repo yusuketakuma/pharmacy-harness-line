@@ -90,6 +90,31 @@ beforeEach(() => {
   lineClientMocks.getFollowerIds.mockResolvedValue({ userIds: [] });
 });
 
+describe('GET /api/line-accounts', () => {
+  test('exposes pharmacy mode without exposing account secrets', async () => {
+    dbMocks.getLineAccounts.mockResolvedValue([fakeAccount]);
+    const db = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn(() => ({
+          first: vi.fn().mockResolvedValue(
+            sql.includes('pharmacy_account_capabilities') ? { mode: 'pharmacy' } : { count: 0 },
+          ),
+        })),
+      })),
+    } as unknown as D1Database;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+
+    const res = await setupApp('owner', db).request('/api/line-accounts');
+    const body = await res.json() as { data: Array<Record<string, unknown>> };
+
+    expect(res.status).toBe(200);
+    expect(body.data[0]).toMatchObject({ id: 'acc-1', pharmacyMode: true });
+    expect(body.data[0]).not.toHaveProperty('channelAccessToken');
+    expect(body.data[0]).not.toHaveProperty('channelSecret');
+    fetchMock.mockRestore();
+  });
+});
+
 describe('GET /api/line-accounts/:id/follower-insight', () => {
   test('returns LINE follower insight without exposing account token', async () => {
     dbMocks.getLineAccountById.mockResolvedValue(fakeAccount);

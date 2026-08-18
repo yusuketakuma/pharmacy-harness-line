@@ -46,6 +46,7 @@ import {
 } from '@line-crm/db';
 import { authenticateApiToken } from '../middleware/auth.js';
 import { lineProxy } from './line-proxy.js';
+import { buildApprovedPharmacyMessage } from '../custom/pharmacy/growth-loop/policy.js';
 
 type Exec = { sql: string; params: unknown[] };
 
@@ -58,6 +59,9 @@ const U = (n: number) => `U${n.toString(16).padStart(32, '0')}`;
 function fakeDb(opts: {
   friendsByUserId?: Record<string, { id: string; line_user_id: string }>;
   broadcastFriendIds?: string[];
+  pharmacyAccountId?: string;
+  pharmacyNotification?: { id: string; message_id: string; line_user_id: string };
+  staffAssigned?: boolean;
 } = {}) {
   const executed: Exec[] = [];
   const db = {
@@ -84,6 +88,24 @@ function fakeDb(opts: {
           return { results: (opts.broadcastFriendIds ?? []).map((id) => ({ id })) };
         },
         async first() {
+          if (sql.includes('FROM pharmacy_account_capabilities')) {
+            if (sql.includes('SELECT 1 AS ok')) return opts.pharmacyAccountId ? { ok: 1 } : null;
+            return opts.pharmacyAccountId && stmt.params[0] === opts.pharmacyAccountId
+              ? { mode: 'pharmacy' }
+              : null;
+          }
+          if (sql.includes('FROM pharmacy_notification_events')) {
+            return stmt.params[0] === opts.pharmacyNotification?.id &&
+              stmt.params[1] === opts.pharmacyAccountId
+              ? opts.pharmacyNotification
+              : null;
+          }
+          if (sql.includes('FROM line_accounts')) {
+            return opts.pharmacyAccountId ? { id: opts.pharmacyAccountId, channel_id: ACCOUNT.channel_id } : null;
+          }
+          if (sql.includes('FROM pharmacy_staff_accounts')) {
+            return opts.staffAssigned ? { ok: 1 } : null;
+          }
           return null;
         },
       };
@@ -212,6 +234,13 @@ describe('auth', () => {
     expect(rows[0].lineAccountId).toBeNull();
   });
 
+  test('env fallback token cannot bypass a pharmacy account send policy', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
+    const res = await setupApp().request(pushRequest('env-token'), {}, env(db));
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('inactive account token → 401', async () => {
     vi.mocked(getLineAccounts).mockResolvedValue([{ ...ACCOUNT, is_active: 0 }] as never);
     const { db } = fakeDb();
@@ -282,6 +311,86 @@ describe('harness API key auth', () => {
 });
 
 describe('push', () => {
+  test('rejects an arbitrary automated payload for a pharmacy account', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
+    const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('allows only the approved payload bound to a claimed pharmacy notification event', async () => {
+    const eventId = 'event-1';
+    const text = '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。';
+    const { db } = fakeDb({
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: eventId, message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+    });
+    const res = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ type: 'text', text }] },
+      { 'X-Pharmacy-Notification-Event-Id': eventId },
+    ), {}, env(db));
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  test('rejects a tampered payload even with a valid pharmacy notification event', async () => {
+    const { db } = fakeDb({
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: 'event-1', message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+    });
+    const res = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ type: 'text', text: '任意メッセージ' }] },
+      { 'X-Pharmacy-Notification-Event-Id': 'event-1' },
+    ), {}, env(db));
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('allows the exact medication follow-up quick replies and rejects tampering', async () => {
+    const eventId = 'event-followup-1';
+    const followUpId = '123e4567-e89b-42d3-a456-426614174000';
+    const message = buildApprovedPharmacyMessage('medication_followup_v1', { followUpId });
+    const options = {
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: eventId, message_id: 'medication_followup_v1', line_user_id: USER_A },
+    };
+    const allowed = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [message] },
+      { 'X-Pharmacy-Notification-Event-Id': eventId },
+    ), {}, env(fakeDb(options).db));
+    expect(allowed.status).toBe(200);
+
+    fetchMock.mockClear();
+    const rejected = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ ...message, quickReply: { items: [] } }] },
+      { 'X-Pharmacy-Notification-Event-Id': eventId },
+    ), {}, env(fakeDb(options).db));
+    expect(rejected.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('requires account assignment for a manual pharmacy send', async () => {
+    vi.mocked(authenticateApiToken).mockResolvedValue({ id: 'staff-a', name: 'Staff', role: 'staff' });
+    const denied = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: false });
+    const deniedResponse = await setupApp().request(pushRequest(
+      'harness-key', undefined, { 'X-Line-Harness-Source': 'manual' },
+    ), {}, env(denied.db));
+    expect(deniedResponse.status).toBe(403);
+
+    const allowed = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: true });
+    const allowedResponse = await setupApp().request(pushRequest(
+      'harness-key', undefined, { 'X-Line-Harness-Source': 'manual' },
+    ), {}, env(allowed.db));
+    expect(allowedResponse.status).toBe(200);
+  });
+
   test('forwards to api.line.me and logs source=external', async () => {
     const { db, executed } = fakeDb();
     const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
@@ -497,6 +606,25 @@ describe('multicast', () => {
 });
 
 describe('broadcast', () => {
+  test('env fallback token cannot broadcast when any pharmacy account exists', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
+    const res = await setupApp().request(
+      new Request('http://worker.test/line-api/v2/bot/message/broadcast', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer env-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ messages: [{ type: 'text', text: 'hello' }] }),
+      }),
+      {},
+      env(db),
+    );
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('single account install: logs the account friends including legacy NULL rows', async () => {
     const { db, executed } = fakeDb({ broadcastFriendIds: ['f1', 'f2', 'f3'] });
     const res = await setupApp().request(

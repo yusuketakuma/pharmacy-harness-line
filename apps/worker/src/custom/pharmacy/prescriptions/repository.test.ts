@@ -26,6 +26,9 @@ function fakeDb(row: unknown, batchChanges = 1) {
       },
       first: async () => {
         calls.push({ sql, values, operation: 'first' });
+        if (sql.includes('FROM pharmacy_prescription_validities')) {
+          return { verification_status: 'verified', valid_until: '2999-12-31' };
+        }
         return row;
       },
       all: async () => {
@@ -120,12 +123,16 @@ describe('admin account-scoped repository', () => {
       decision: 'conditional',
       requirements_json: '[{"code":"original_required","status":"pending"}]',
     };
-    let firstCall = 0;
     const calls: Array<{ operation: string }> = [];
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => { calls.push({ operation: 'first' }); return firstCall++ === 0 ? current : quote; },
+          first: async () => {
+            calls.push({ operation: 'first' });
+            if (sql.includes('pharmacy_prescription_submissions')) return current;
+            if (sql.includes('pharmacy_prescription_validities')) return { verification_status: 'verified', valid_until: '2999-12-31' };
+            return quote;
+          },
           run: async () => { calls.push({ operation: 'run' }); return { meta: { changes: 1 } }; },
           all: async () => ({ results: [] }),
         }),
@@ -144,11 +151,14 @@ describe('admin account-scoped repository', () => {
       status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
       intake_required: 0, source_handoff_id: 'handoff-1',
     };
-    let firstCall = 0;
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => firstCall++ === 0 ? current : null,
+          first: async () => {
+            if (sql.includes('pharmacy_prescription_submissions')) return current;
+            if (sql.includes('pharmacy_prescription_validities')) return { verification_status: 'verified', valid_until: '2999-12-31' };
+            return null;
+          },
           run: async () => ({ meta: { changes: 1 } }),
           all: async () => ({ results: [] }),
         }),
@@ -175,6 +185,53 @@ describe('admin account-scoped repository', () => {
     expect(calls[0].sql).not.toContain('pharmacy_prescription_files');
   });
 
+  it('fails closed when a received prescription has no verified validity', async () => {
+    const current = { status: 'received', updated_at: 'v1', intake_required: 0, source_handoff_id: null };
+    const calls: string[] = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: () => ({
+        first: async () => {
+          calls.push(sql);
+          return sql.includes('pharmacy_prescription_submissions') ? current : null;
+        },
+        run: async () => ({ meta: { changes: 1 } }),
+      }) }),
+      batch: vi.fn(),
+    } as unknown as D1Database;
+
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null,
+      new Date('2026-08-17T00:00:00.000Z'),
+    )).rejects.toThrow(/validity verification required/);
+    expect(calls.some((sql) => sql.includes('line_account_id = ?'))).toBe(true);
+    expect(db.batch).not.toHaveBeenCalled();
+  });
+
+  it('moves a verified but expired prescription to review instead of accepting it', async () => {
+    const current = { status: 'received', updated_at: 'v1', intake_required: 0, source_handoff_id: null };
+    const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        sql,
+        values,
+        first: async () => sql.includes('pharmacy_prescription_submissions')
+          ? current
+          : { verification_status: 'verified', valid_until: '2026-08-16' },
+      }) }),
+      batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
+        batches.push(statements);
+        return statements.map(() => ({ meta: { changes: 1 } }));
+      },
+    } as unknown as D1Database;
+
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept', 'v1', 'staff-1', null,
+      new Date('2026-08-17T00:00:00.000Z'),
+    )).rejects.toThrow(/validity expired/);
+    expect(batches[0][0].sql).toContain("verification_status = 'expired_review_required'");
+    expect(batches[0][1].sql).toContain('INSERT INTO pharmacy_growth_events');
+  });
+
   it('authorizes a private image by account, submission, and file id', async () => {
     const file = { r2_key: 'private-key', content_type: 'image/png' };
     const { db, calls } = fakeDb(file);
@@ -190,7 +247,7 @@ describe('admin account-scoped repository', () => {
     const { db, calls } = fakeDb({
       status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
     });
-    await applyAdminPrescriptionAction(
+    await expect(applyAdminPrescriptionAction(
       db,
       'account-1',
       'submission-1',
@@ -198,10 +255,37 @@ describe('admin account-scoped repository', () => {
       '2026-08-17T00:00:00.000Z',
       'staff-1',
       null,
-    );
-    expect(calls[1].sql).toContain('line_account_id = ?');
-    expect(calls[1].sql).toContain('status = ? AND updated_at = ?');
-    expect(calls[2].sql).toContain('INSERT INTO pharmacy_prescription_events');
+    )).resolves.toMatchObject({ status: 'accepted' });
+    const update = calls.find((call) => call.operation === 'batch' && call.sql.includes('UPDATE pharmacy_prescription_submissions'));
+    const event = calls.find((call) => call.operation === 'batch' && call.sql.includes('INSERT INTO pharmacy_prescription_events'));
+    expect(update?.sql).toContain('line_account_id = ?');
+    expect(update?.sql).toContain('status = ? AND updated_at = ?');
+    expect(event).toBeDefined();
+  });
+
+  it('replays the same admin operation without creating another status event', async () => {
+    const batch = vi.fn();
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => sql.includes('FROM pharmacy_prescription_events e')
+            ? {
+              id: 'operation-1', actor_id: 'staff-1', from_status: 'received',
+              to_status: 'accepted', reason_code: null,
+            }
+            : null,
+          run: async () => ({ meta: { changes: 1 } }),
+          all: async () => ({ results: [] }),
+        }),
+      }),
+      batch,
+    } as unknown as D1Database;
+
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept',
+      'stale-version', 'staff-1', null, 'operation-1',
+    )).resolves.toEqual({ status: 'accepted', statusEventId: 'operation-1' });
+    expect(batch).not.toHaveBeenCalled();
   });
 
   it('rejects invalid transitions before writing', async () => {
@@ -225,6 +309,8 @@ describe('admin account-scoped repository', () => {
       { id: 'submission-1', status: 'received' },
       [{ id: 'file-1', content_type: 'image/png' }],
       [{ id: 'event-1', event_type: 'status_changed' }],
+      { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
+      { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
     ];
     const calls: string[] = [];
     const db = {
@@ -241,6 +327,8 @@ describe('admin account-scoped repository', () => {
       submission: { id: 'submission-1', status: 'received' },
       files: [{ id: 'file-1', content_type: 'image/png' }],
       events: [{ id: 'event-1', event_type: 'status_changed' }],
+      source: { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
+      validity: { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
     });
     expect(calls.every((sql) => sql.includes('line_account_id = ?'))).toBe(true);
     expect(calls.join('\n')).not.toContain('r2_key');

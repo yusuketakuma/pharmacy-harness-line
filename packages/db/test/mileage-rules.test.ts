@@ -101,6 +101,25 @@ describe('configurable mileage rules', () => {
     expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({ count: 5 });
   });
 
+  it('settles an excluded queued event without projecting mileage', async () => {
+    await applyMileageRulesForEvent(db, {
+      eventType: 'message_received',
+      source: 'line',
+      sourceEventId: 'pharmacy-message',
+      friendId: 'friend-1',
+      occurredAt: '2026-08-10T10:00:00.000+09:00',
+    });
+
+    const result = await processPendingMileageEvents(db, {
+      now: '2026-08-10T10:05:00.000+09:00',
+      canProcessFriend: async () => false,
+    });
+
+    expect(result).toMatchObject({ claimed: 1, processed: 1, failed: 0, granted: 0 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_ledger`).get()).toEqual({ count: 0 });
+    expect(sqlite.prepare(`SELECT status FROM mileage_event_queue`).get()).toEqual({ status: 'processed' });
+  });
+
   it('awards the same tracked link once per day and the same form once overall', async () => {
     for (const id of ['click-1', 'click-2']) {
       await applyMileageRulesForEvent(db, {

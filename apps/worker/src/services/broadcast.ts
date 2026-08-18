@@ -21,23 +21,53 @@ import {
   renderBroadcastMessageContent,
 } from './render-message.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 const MULTICAST_BATCH_SIZE = 500;
 const PERSONALIZED_PUSH_BATCH_SIZE = 10;
+
+async function isPharmacyBroadcast(
+  db: D1Database,
+  broadcast: Broadcast,
+  defaultAccountId?: string | null,
+): Promise<boolean> {
+  const raw = broadcast as unknown as Record<string, unknown>;
+  const accountIds = new Set<string>();
+  if (typeof raw.line_account_id === 'string') accountIds.add(raw.line_account_id);
+  if (typeof raw.account_ids === 'string') {
+    try {
+      const parsed = JSON.parse(raw.account_ids) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const id of parsed) if (typeof id === 'string') accountIds.add(id);
+      }
+    } catch {
+      // Invalid persisted JSON is handled by the existing broadcast validation.
+    }
+  }
+  if (accountIds.size === 0 && defaultAccountId) accountIds.add(defaultAccountId);
+  for (const accountId of accountIds) {
+    if (await isPharmacyModeAccount(db, accountId)) return true;
+  }
+  return false;
+}
 
 export async function processBroadcastSend(
   db: D1Database,
   lineClient: LineClient,
   broadcastId: string,
   workerUrl?: string,
+  defaultAccountId?: string | null,
 ): Promise<Broadcast> {
-  // Mark as sending
-  await updateBroadcastStatus(db, broadcastId, 'sending');
-
   const broadcast = await getBroadcastById(db, broadcastId);
   if (!broadcast) {
     throw new Error(`Broadcast ${broadcastId} not found`);
   }
+  if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) {
+    throw new Error('generic feature disabled for pharmacy account');
+  }
+
+  // Mark as sending only after policy checks pass.
+  await updateBroadcastStatus(db, broadcastId, 'sending');
 
   const unsupportedVariables = getUnsupportedBroadcastVariables(broadcast.message_content);
   if (unsupportedVariables.length > 0) {
@@ -229,6 +259,7 @@ export async function processScheduledBroadcasts(
   db: D1Database,
   lineClient: LineClient,
   workerUrl?: string,
+  defaultAccountId?: string | null,
 ): Promise<void> {
   const allBroadcasts = await getBroadcasts(db);
 
@@ -242,6 +273,7 @@ export async function processScheduledBroadcasts(
 
   for (const broadcast of scheduled) {
     try {
+      if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) continue;
       // Optimistic lock: claim this broadcast (scheduled → sending)
       const lockResult = await db
         .prepare(`UPDATE broadcasts SET status = 'sending' WHERE id = ? AND status = 'scheduled'`)
@@ -261,7 +293,7 @@ export async function processScheduledBroadcasts(
         }
       }
 
-      await processBroadcastSend(db, deliveryClient, broadcast.id, workerUrl);
+      await processBroadcastSend(db, deliveryClient, broadcast.id, workerUrl, defaultAccountId);
     } catch (err) {
       console.error(`Failed to send scheduled broadcast ${broadcast.id}:`, err);
       // Reset to scheduled so it can be retried next cron
@@ -283,9 +315,11 @@ export async function processQueuedBroadcasts(
   db: D1Database,
   lineClient: LineClient,
   workerUrl?: string,
+  defaultAccountId?: string | null,
 ): Promise<void> {
   const queued = await getQueuedBroadcasts(db);
   for (const broadcast of queued) {
+    if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) continue;
     // アカウント別のlineClientを解決
     const accountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
     let client = lineClient;

@@ -104,4 +104,38 @@ describe('processWebinarFollowups', () => {
       values: ['2026-08-10T20:00:00+09:00', 'followup-1'],
     }));
   });
+
+  test('pharmacy account candidates are skipped before creating a followup', async () => {
+    const candidate = {
+      webinar_id: 'webinar-1', account_id: 'pharmacy-1', friend_id: 'friend-1',
+      slug: 'demo', form_id: 'form-1', cta_clicked_at: '2026-08-10T19:00:00+09:00',
+    };
+    const writes: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        let values: unknown[] = [];
+        return {
+          bind(...bound: unknown[]) { values = bound; return this; },
+          async all() {
+            return { results: sql.includes('FROM clicks c') && values[1] === 'after_30m' ? [candidate] : [] };
+          },
+          async first() { return { id: 'followup-1', retry_key: 'retry-1', status: 'pending' }; },
+          async run() { writes.push(sql); return { success: true }; },
+        };
+      },
+    } as unknown as D1Database;
+    const canProcessAccount = vi.fn().mockResolvedValue(false);
+
+    const result = await processWebinarFollowups(db, {
+      proxyBaseUrl: 'https://proxy.example.com',
+      defaultAccessToken: 'token',
+      defaultLiffId: 'liff-1',
+      canProcessAccount,
+    });
+
+    expect(result).toEqual({ sent: 0, failed: 0 });
+    expect(canProcessAccount).toHaveBeenCalledWith('pharmacy-1');
+    expect(dbMocks.getFriendById).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
 });
