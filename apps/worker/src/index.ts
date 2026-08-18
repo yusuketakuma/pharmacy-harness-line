@@ -73,7 +73,7 @@ import { accountSettings } from './routes/account-settings.js';
 import { setup } from './routes/setup.js';
 import { autoReplies } from './routes/auto-replies.js';
 import { adminAuth } from './routes/admin-auth.js';
-import { resolveCorsOrigin } from './middleware/admin-auth-config.js';
+import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './middleware/admin-auth-config.js';
 import booking from './routes/booking.js';
 import events from './routes/events.js';
 import { trafficPools } from './routes/traffic-pools.js';
@@ -198,7 +198,7 @@ app.use('*', cors({
   origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
   credentials: true,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'x-admin-api-key'],
+  allowHeaders: CORS_ALLOW_HEADERS,
   maxAge: 600,
 }));
 

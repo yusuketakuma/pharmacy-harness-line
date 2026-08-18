@@ -19,6 +19,15 @@ import type { Env } from '../index.js';
 
 export type AdminSameSite = 'Strict' | 'Lax' | 'None';
 
+/** Headers accepted by the credentialed Admin/LIFF CORS surface. */
+export const CORS_ALLOW_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-CSRF-Token',
+  'x-admin-api-key',
+  'Idempotency-Key',
+];
+
 export interface AdminAuthConfig {
   /** Admin origins used for credentialed requests and cookie topology. */
   allowedOrigins: string[];

@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { authMiddleware } from './auth.js';
-import { resolveCorsOrigin } from './admin-auth-config.js';
+import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './admin-auth-config.js';
 import { adminAuth } from '../routes/admin-auth.js';
 import type { Env } from '../index.js';
 
@@ -44,6 +44,7 @@ function app() {
   a.use('*', cors({
     origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
     credentials: true,
+    allowHeaders: CORS_ALLOW_HEADERS,
   }));
   a.use('*', authMiddleware);
   a.route('/', adminAuth);
@@ -152,6 +153,20 @@ describe('protected API access', () => {
 
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
+  });
+
+  test('allows Idempotency-Key in cross-origin preflight requests', async () => {
+    const res = await app().request('/api/liff/booking/requests?liffId=test', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: LIFF,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'authorization, content-type, idempotency-key',
+      },
+    }, env({ LIFF_ORIGIN: LIFF }));
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Headers')?.toLowerCase()).toContain('idempotency-key');
   });
 
   test('protects rich-menu image proxies instead of relying on an unguessable R2 key', async () => {
