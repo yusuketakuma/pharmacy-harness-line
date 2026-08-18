@@ -32,7 +32,7 @@ describe('custom_011 pharmacy staff account assignments', () => {
     sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
     sqlite.exec('DROP TABLE pharmacy_staff_accounts');
     const migration = readFileSync(
-      join(ROOT, 'migrations', 'custom_011_pharmacy_staff_accounts.sql'), 'utf8',
+      join(ROOT, 'migrations', 'custom_013_pharmacy_staff_accounts.sql'), 'utf8',
     );
     expect(() => sqlite.exec(migration)).not.toThrow();
     expect(() => sqlite.exec(migration)).not.toThrow();
