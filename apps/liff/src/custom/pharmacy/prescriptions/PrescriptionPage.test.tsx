@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import PrescriptionPage, {
   canSubmitPrescription,
+  requestedPrescriptionId,
   validatePrescriptionImages,
 } from './PrescriptionPage.js';
 
@@ -22,6 +23,12 @@ describe('prescription upload UI contract', () => {
     expect(validatePrescriptionImages([
       { type: 'image/png', size: 10 * 1024 * 1024 + 1 },
     ])).toMatch(/10MiB/);
+  });
+
+  it('accepts only an opaque submission id from a notification deep link', () => {
+    expect(requestedPrescriptionId('?page=prescription&submissionId=submission-1')).toBe('submission-1');
+    expect(requestedPrescriptionId('?submissionId=patient%20name')).toBeNull();
+    expect(requestedPrescriptionId('')).toBeNull();
   });
 
   it('renders mobile labels, native controls, and an initially disabled submit', () => {

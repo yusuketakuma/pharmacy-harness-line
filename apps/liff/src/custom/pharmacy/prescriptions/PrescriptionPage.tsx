@@ -45,7 +45,15 @@ const reasonLabels: Record<string, string> = {
   missing_page: '不足しているページがあります',
 };
 
+export function requestedPrescriptionId(search: string): string | null {
+  const value = new URLSearchParams(search).get('submissionId');
+  return value && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
+}
+
 export default function PrescriptionPage() {
+  const requestedSubmissionId = typeof window === 'undefined'
+    ? null
+    : requestedPrescriptionId(window.location.search);
   const [tab, setTab] = useState<'send' | 'history'>('send');
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -69,6 +77,7 @@ export default function PrescriptionPage() {
     try {
       const result = await prescriptionApi.history();
       setHistory(result.submissions);
+      if (requestedSubmissionId) setTab('history');
       return result.submissions;
     } catch (err) {
       setError(err instanceof Error ? err.message : '履歴を読み込めませんでした。');
@@ -76,7 +85,7 @@ export default function PrescriptionPage() {
     } finally {
       setLoadingHistory(false);
     }
-  }, []);
+  }, [requestedSubmissionId]);
 
   useEffect(() => { void refreshHistory(); }, [refreshHistory]);
   useEffect(() => {

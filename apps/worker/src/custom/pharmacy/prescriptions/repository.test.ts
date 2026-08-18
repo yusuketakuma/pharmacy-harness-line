@@ -190,7 +190,7 @@ describe('admin account-scoped repository', () => {
     const { db, calls } = fakeDb({
       status: 'received', updated_at: '2026-08-17T00:00:00.000Z',
     });
-    await applyAdminPrescriptionAction(
+    await expect(applyAdminPrescriptionAction(
       db,
       'account-1',
       'submission-1',
@@ -198,10 +198,35 @@ describe('admin account-scoped repository', () => {
       '2026-08-17T00:00:00.000Z',
       'staff-1',
       null,
-    );
+    )).resolves.toMatchObject({ status: 'accepted' });
     expect(calls[1].sql).toContain('line_account_id = ?');
     expect(calls[1].sql).toContain('status = ? AND updated_at = ?');
     expect(calls[2].sql).toContain('INSERT INTO pharmacy_prescription_events');
+  });
+
+  it('replays the same admin operation without creating another status event', async () => {
+    const batch = vi.fn();
+    const db = {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => sql.includes('FROM pharmacy_prescription_events e')
+            ? {
+              id: 'operation-1', actor_id: 'staff-1', from_status: 'received',
+              to_status: 'accepted', reason_code: null,
+            }
+            : null,
+          run: async () => ({ meta: { changes: 1 } }),
+          all: async () => ({ results: [] }),
+        }),
+      }),
+      batch,
+    } as unknown as D1Database;
+
+    await expect(applyAdminPrescriptionAction(
+      db, 'account-1', 'submission-1', 'admin_accept',
+      'stale-version', 'staff-1', null, 'operation-1',
+    )).resolves.toEqual({ status: 'accepted', statusEventId: 'operation-1' });
+    expect(batch).not.toHaveBeenCalled();
   });
 
   it('rejects invalid transitions before writing', async () => {

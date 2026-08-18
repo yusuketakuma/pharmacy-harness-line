@@ -26,7 +26,7 @@ describe('prescription admin API', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { prescriptionAdminApi } = await import('./api.js')
 
-    await prescriptionAdminApi.action('account-1', 'submission-1', 'accept', '2026-08-17T00:00:00Z')
+    await prescriptionAdminApi.action('account-1', 'submission-1', 'accept', '2026-08-17T00:00:00Z', undefined, 'operation-1')
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://worker.example/api/custom/pharmacy/prescriptions/submission-1/actions/accept?line_account_id=account-1',
@@ -36,5 +36,10 @@ describe('prescription admin API', () => {
         headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf-token' }),
       }),
     )
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      expectedUpdatedAt: '2026-08-17T00:00:00Z',
+      reasonCode: null,
+      operationId: 'operation-1',
+    })
   })
 })

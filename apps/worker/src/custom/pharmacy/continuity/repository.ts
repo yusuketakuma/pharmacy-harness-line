@@ -189,8 +189,16 @@ export async function completeContinuityAfterClose(
       `INSERT INTO pharmacy_continuity_events
          (id, obligation_id, line_account_id, event_type, submission_id,
           actor_type, actor_id, created_at)
-       VALUES (?, ?, ?, 'fulfilled', ?, 'staff', ?, ?)`,
-    ).bind(crypto.randomUUID(), linked.id, lineAccountId, submissionId, actorId, timestamp).run();
+       SELECT ?, ?, ?, 'fulfilled', ?, 'staff', ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pharmacy_continuity_events existing
+           WHERE existing.obligation_id = ? AND existing.line_account_id = ?
+             AND existing.event_type = 'fulfilled' AND existing.submission_id = ?
+        )`,
+    ).bind(
+      crypto.randomUUID(), linked.id, lineAccountId, submissionId, actorId, timestamp,
+      linked.id, lineAccountId, submissionId,
+    ).run();
   }
   return openContinuityObligation(db, lineAccountId, submissionId, actorId, now);
 }

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getLatestIntake: vi.fn(),
   archivePatient: vi.fn(),
   updatePatient: vi.fn(),
+  access: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -29,6 +30,9 @@ vi.mock('./repository.js', () => ({
   getLatestPatientIntake: mocks.getLatestIntake,
   archivePharmacyPatient: mocks.archivePatient,
   updatePharmacyPatient: mocks.updatePatient,
+}));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
 }));
 
 import { pharmacyIntakeRoutes } from './routes.js';
@@ -61,6 +65,7 @@ beforeEach(() => {
   mocks.getLatestIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
   mocks.archivePatient.mockResolvedValue(undefined);
   mocks.updatePatient.mockResolvedValue(undefined);
+  mocks.access.mockResolvedValue(true);
 });
 
 describe('LIFF pharmacy patient and intake routes', () => {
@@ -136,6 +141,15 @@ describe('LIFF pharmacy patient and intake routes', () => {
 });
 
 describe('admin pharmacy patient routes', () => {
+  it('rejects a staff member outside the requested account', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.listAdminPatients).not.toHaveBeenCalled();
+  });
+
   it('requires an account scope and returns the staff-visible patient list', async () => {
     const response = await adminApp().request(
       '/api/custom/pharmacy/patients?line_account_id=account-1', {}, env,

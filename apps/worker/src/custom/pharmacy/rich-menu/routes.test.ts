@@ -10,6 +10,9 @@ const dbMocks = {
 };
 vi.mock('@line-crm/db', () => dbMocks);
 
+const access = vi.fn();
+vi.mock('../operations-access.js', () => ({ canAccessPharmacyOperationsAccount: access }));
+
 const { pharmacyRichMenuRoutes } = await import('./routes.js');
 
 function group(overrides: Record<string, unknown> = {}) {
@@ -37,10 +40,12 @@ const PNG_2500x843 = new Uint8Array([
 function app() {
   const worker = new Hono<any>();
   worker.use('*', async (c, next) => {
+    c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
     c.env = {
       DB: {} as D1Database,
       IMAGES: { put: vi.fn() } as unknown as R2Bucket,
       ASSETS: { fetch: vi.fn(async () => new Response(PNG_2500x843)) } as unknown as Fetcher,
+      LINE_CHANNEL_ID: 'channel-1',
     };
     await next();
   });
@@ -50,9 +55,20 @@ function app() {
 
 beforeEach(() => {
   for (const fn of Object.values(dbMocks)) fn.mockReset();
+  access.mockReset();
+  access.mockResolvedValue(true);
 });
 
 describe('pharmacy rich-menu preparation', () => {
+  test('rejects a staff member outside the requested account before reading account data', async () => {
+    access.mockResolvedValue(false);
+    const res = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-b', {
+      method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
+    });
+    expect(res.status).toBe(403);
+    expect(dbMocks.getLineAccountById).not.toHaveBeenCalled();
+  });
+
   test('requires a configured LIFF id', async () => {
     dbMocks.getLineAccountById.mockResolvedValue({ id: 'account-a', liff_id: null });
     const res = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {

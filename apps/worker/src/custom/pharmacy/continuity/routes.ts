@@ -3,9 +3,10 @@ import { getPharmacyAccountId } from '../account.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescriptions/patient.js';
 import { listContinuityObligations, listPatientContinuity, pausePatientContinuity } from './repository.js';
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 
 type ContinuityEnv = {
-  Bindings: { DB: D1Database; LINE_LOGIN_CHANNEL_ID?: string };
+  Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string; LINE_LOGIN_CHANNEL_ID?: string };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
     continuityPatient: PrescriptionPatient;
@@ -13,6 +14,17 @@ type ContinuityEnv = {
 };
 
 export const continuityRoutes = new Hono<ContinuityEnv>();
+
+continuityRoutes.use('/api/custom/pharmacy/continuity', async (c, next) => {
+  const staff = c.get('staff');
+  const account = getPharmacyAccountId(c);
+  if (!account) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, account, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
+  return next();
+});
 
 continuityRoutes.use('/api/liff/pharmacy/continuity/*', async (c, next) => {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);

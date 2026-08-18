@@ -10,6 +10,7 @@ import {
   type PrescriptionQueueItem,
   type PrescriptionStats,
   type FulfillmentQuote,
+  type PrescriptionNotificationStatus,
 } from './api'
 import {
   fulfillmentQuoteDraft,
@@ -25,6 +26,20 @@ import {
   PrescriptionQueueOverview,
   type PrescriptionQueueTab,
 } from './PrescriptionQueueOverview'
+
+export function actionNotice(status: PrescriptionNotificationStatus): string {
+  switch (status) {
+    case 'sent': return '状態を更新し、LINEへ通知しました。'
+    case 'already_sent': return '状態を更新しました。LINE通知は通知済みです。'
+    case 'failed': return '状態を更新しました。LINE通知は再試行待ちです。'
+    case 'superseded': return '状態を更新しました。新しい状態があるため通知を送りませんでした。'
+    case 'skipped': return '状態を更新しました。LINEへ通知できないため、個別にご連絡ください。'
+  }
+}
+
+export function shouldConfirmAction(action: Pick<StatusAction, 'danger'>): boolean {
+  return Boolean(action.danger)
+}
 
 export default function PrescriptionQueuePage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
@@ -43,6 +58,7 @@ export default function PrescriptionQueuePage() {
   const [quoteSaving, setQuoteSaving] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [acting, setActing] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
   const [reason, setReason] = useState('blurred')
   const [viewer, setViewer] = useState<{ index: number; url: string } | null>(null)
 
@@ -126,17 +142,20 @@ export default function PrescriptionQueuePage() {
 
   const runAction = async (action: StatusAction) => {
     if (!selectedAccountId || !detail || acting) return
-    if (!window.confirm(`「${action.label}」を実行しますか？`)) return
+    if (shouldConfirmAction(action) && !window.confirm(`「${action.label}」を実行しますか？`)) return
     setActing(true)
     setError('')
+    setActionMessage('')
     try {
-      await prescriptionAdminApi.action(
+      const result = await prescriptionAdminApi.action(
         selectedAccountId,
         detail.submission.id,
         action.id,
         detail.submission.updated_at,
         action.id === 'request_resubmission' ? reason : undefined,
+        crypto.randomUUID(),
       )
+      setActionMessage(actionNotice(result.notification.status))
       await Promise.all([openDetail(detail.submission.id), load()])
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
@@ -210,6 +229,7 @@ export default function PrescriptionQueuePage() {
         quoteDraft={quoteDraft}
         quoteSaving={quoteSaving}
         acting={acting}
+        actionMessage={actionMessage}
         reason={reason}
         onOpenImage={(file, index) => void openImage(file, index)}
         onQuoteChange={setQuoteDraft}

@@ -4,6 +4,7 @@ import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { getPharmacyAccountId } from '../account.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { readJsonObject } from '../json.js';
 import {
   resolvePrescriptionPatient,
@@ -31,6 +32,7 @@ import {
 } from './endpoint-repository.js';
 
 type MynaBindings = Pick<Env['Bindings'], 'DB' | 'WORKER_PUBLIC_URL'> & {
+  LINE_CHANNEL_ID?: string;
   MYNA_ENDPOINT_ENCRYPTION_KEY?: string;
   MYNA_ALLOWED_HOSTS?: string;
 };
@@ -80,9 +82,23 @@ async function patientGate(c: Context<MynaEnv>, next: Next) {
   return next();
 }
 
+async function adminGate(c: Context<MynaEnv>, next: Next) {
+  const staff = c.get('staff');
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
+  return next();
+}
+
 // Patient routes authenticate with the LINE ID token, not the admin API token.
 mynaRoutes.use('/api/liff/pharmacy/myna-handoffs', patientGate);
 mynaRoutes.use('/api/liff/pharmacy/myna-handoffs/*', patientGate);
+mynaRoutes.use('/api/custom/pharmacy/myna-handoffs', adminGate);
+mynaRoutes.use('/api/custom/pharmacy/myna-handoffs/*', adminGate);
+mynaRoutes.use('/api/custom/pharmacy/myna-endpoint', adminGate);
 
 mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
   const patient = c.get('mynaPatient');

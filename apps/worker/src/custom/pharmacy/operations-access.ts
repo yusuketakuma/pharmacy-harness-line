@@ -1,4 +1,4 @@
-type StaffPrincipal = { id: string; role: 'owner' | 'admin' | 'staff' };
+export type StaffPrincipal = { id: string; role: 'owner' | 'admin' | 'staff' };
 
 export async function canAccessPharmacyOperationsAccount(
   db: D1Database,
@@ -12,6 +12,7 @@ export async function canAccessPharmacyOperationsAccount(
   ).bind(lineAccountId).first<{ channel_id: string }>();
   if (!account) return false;
   if (staff.id === 'env-owner') return Boolean(envChannelId && account.channel_id === envChannelId);
+  if (staff.role === 'owner') return true;
 
   try {
     const assigned = await db.prepare(
@@ -20,7 +21,7 @@ export async function canAccessPharmacyOperationsAccount(
     ).bind(lineAccountId, staff.id).first<{ ok: number }>();
     return Boolean(assigned?.ok);
   } catch {
-    // Fail closed until the Growth Loop account-assignment migration is installed.
+    // Fail closed if the assignment lookup is unavailable.
     return false;
   }
 }

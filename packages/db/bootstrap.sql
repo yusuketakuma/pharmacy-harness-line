@@ -1098,6 +1098,17 @@ CREATE TABLE pharmacy_print_tasks (
     REFERENCES pharmacy_prescription_submissions(id, line_account_id)
 );
 
+CREATE TABLE pharmacy_staff_accounts (
+  line_account_id TEXT NOT NULL,
+  staff_id        TEXT NOT NULL,
+  is_active       INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (line_account_id, staff_id),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (staff_id) REFERENCES staff_members(id) ON DELETE CASCADE
+);
+
 CREATE TABLE pool_accounts (
   id TEXT PRIMARY KEY,
   pool_id TEXT NOT NULL REFERENCES traffic_pools(id) ON DELETE CASCADE,
@@ -1764,6 +1775,9 @@ CREATE INDEX idx_pharmacy_prescriptions_friend_history
 
 CREATE INDEX idx_pharmacy_print_tasks_open
   ON pharmacy_print_tasks (line_account_id, status, created_at, id);
+
+CREATE INDEX idx_pharmacy_staff_accounts_staff
+  ON pharmacy_staff_accounts (staff_id, is_active, line_account_id);
 
 CREATE INDEX idx_ref_tracking_friend ON ref_tracking (friend_id);
 

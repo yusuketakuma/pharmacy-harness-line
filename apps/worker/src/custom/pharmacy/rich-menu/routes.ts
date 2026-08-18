@@ -16,6 +16,7 @@ import {
   PHARMACY_RICH_MENU_GENERATOR_VERSION,
 } from './profile.js';
 import { savePharmacyRichMenuImage } from './storage.js';
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 
 export const pharmacyRichMenuRoutes = new Hono<Env>();
 
@@ -89,6 +90,11 @@ async function attachInitialImage(
 pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c) => {
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
+  const staff = c.get('staff');
+  if (!staff) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID))) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
 
   let body: { profileKey?: unknown; initial?: unknown } = {};
   try {

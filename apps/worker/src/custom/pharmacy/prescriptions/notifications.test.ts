@@ -1,26 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   deliverPrescriptionNotification,
+  prescriptionNotificationText,
   retryFailedPrescriptionNotifications,
 } from './notifications.js';
 
 const STATUS_EVENT_ID = '123e4567-e89b-42d3-a456-426614174000';
 
-function fakeDb(options: { recipient?: Record<string, unknown> | null; due?: unknown[] } = {}) {
+function fakeDb(options: {
+  recipient?: Record<string, unknown> | null;
+  due?: unknown[];
+  sent?: boolean;
+  notificationAuditError?: boolean;
+} = {}) {
   const calls: Array<{ sql: string; values: unknown[]; operation: string }> = [];
-  const recipient = options.recipient === undefined ? {
+  const recipient = options.sent ? null : options.recipient === undefined ? {
     status_event_id: STATUS_EVENT_ID,
     status: 'ready',
     reason_code: null,
     revision: 1,
     line_user_id: 'U-patient',
     channel_access_token: 'account-token',
+    intake_method: 'PAPER',
+    liff_id: 'liff-1',
+    estimated_ready_at: null,
   } : options.recipient;
   const db = {
     prepare: (sql: string) => ({
       bind: (...values: unknown[]) => ({
         first: async () => {
           calls.push({ sql, values, operation: 'first' });
+          if (options.sent) {
+            if (sql.includes('SELECT e.to_status')) return { to_status: 'ready', status: 'ready' };
+            if (sql.includes('sent.actor_id = ?')) return { sent: 1 };
+          }
           return recipient;
         },
         all: async () => {
@@ -29,6 +42,9 @@ function fakeDb(options: { recipient?: Record<string, unknown> | null; due?: unk
         },
         run: async () => {
           calls.push({ sql, values, operation: 'run' });
+          if (options.notificationAuditError && sql.includes('pharmacy_prescription_events')) {
+            throw new Error('audit unavailable');
+          }
           return { success: true, meta: { changes: 1 } };
         },
       }),
@@ -38,6 +54,20 @@ function fakeDb(options: { recipient?: Record<string, unknown> | null; due?: unk
 }
 
 describe('prescription status notifications', () => {
+  it('shows a future preparation time without promising a past time', () => {
+    const details = {
+      intake_method: 'E_PRESCRIPTION' as const,
+      liff_id: 'liff-1',
+      estimated_ready_at: '2099-08-17T06:30:00.000Z',
+      submissionId: 'submission-1',
+    };
+    expect(prescriptionNotificationText('accepted', null, details)).toContain('準備予定:');
+    expect(prescriptionNotificationText('accepted', null, {
+      ...details,
+      estimated_ready_at: '2000-08-17T06:30:00.000Z',
+    })).not.toContain('準備予定:');
+  });
+
   it('uses the submission account token and omits the manual attribution header', async () => {
     const { db, calls } = fakeDb();
     let request: Request | null = null;
@@ -46,7 +76,7 @@ describe('prescription status notifications', () => {
       return new Response('{}', { status: 200 });
     });
 
-    await expect(deliverPrescriptionNotification(db, 'submission-1', {
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
       proxyBaseUrl: 'https://worker.example',
       proxyDispatch: dispatch,
     })).resolves.toEqual({ status: 'sent' });
@@ -59,13 +89,15 @@ describe('prescription status notifications', () => {
       messages: [{ type: 'text', text: expect.stringContaining('準備ができました') }],
     });
     expect(calls.some((call) => call.sql.includes("'notification_sent'"))).toBe(true);
+    expect(calls[0].sql).toContain('s.line_account_id = ?');
+    expect(calls[0].values).toContain('account-1');
   });
 
   it('keeps the committed status and records a PHI-free retry event after send failure', async () => {
     const { db, calls } = fakeDb();
     const dispatch = vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 }));
 
-    await expect(deliverPrescriptionNotification(db, 'submission-1', {
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
       proxyBaseUrl: 'https://worker.example',
       proxyDispatch: dispatch,
     })).resolves.toEqual({ status: 'failed' });
@@ -75,9 +107,97 @@ describe('prescription status notifications', () => {
     expect(JSON.stringify(failure)).not.toContain('unavailable');
   });
 
+  it('does not turn a notification audit outage into an unhandled request failure', async () => {
+    const { db } = fakeDb({ notificationAuditError: true });
+    const dispatch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+    })).resolves.toEqual({ status: 'failed' });
+  });
+
+  it('does not ask electronic prescription patients to bring the paper original', async () => {
+    const { db } = fakeDb({
+      recipient: {
+        status_event_id: STATUS_EVENT_ID,
+        status: 'ready',
+        reason_code: null,
+        revision: 1,
+        line_user_id: 'U-patient',
+        channel_access_token: 'account-token',
+        intake_method: 'E_PRESCRIPTION',
+        liff_id: 'liff-1',
+        estimated_ready_at: null,
+      },
+    });
+    const dispatch = vi.fn(async (request: Request) => {
+      const body = await request.json() as { messages: Array<{ text: string }> };
+      expect(body.messages[0].text).not.toContain('原本');
+      return new Response('{}', { status: 200 });
+    });
+
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+    })).resolves.toEqual({ status: 'sent' });
+  });
+
+  it('adds a direct existing intake link for resubmission without patient identity', async () => {
+    const { db } = fakeDb({
+      recipient: {
+        status_event_id: STATUS_EVENT_ID,
+        status: 'needs_resubmission',
+        reason_code: 'blurred',
+        revision: 2,
+        line_user_id: 'U-patient',
+        channel_access_token: 'account-token',
+        intake_method: 'PAPER',
+        liff_id: 'liff-1',
+        estimated_ready_at: null,
+      },
+    });
+    const dispatch = vi.fn(async (request: Request) => {
+      const body = await request.json() as { messages: Array<{ text: string }> };
+      expect(body.messages[0].text).toContain('https://liff.line.me/liff-1/');
+      expect(body.messages[0].text).toContain('submission-1');
+      expect(body.messages[0].text).not.toContain('患者');
+      return new Response('{}', { status: 200 });
+    });
+
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+    })).resolves.toEqual({ status: 'sent' });
+  });
+
+  it('does not send when readiness notice consent is absent', async () => {
+    const { db, calls } = fakeDb({ recipient: null });
+    const dispatch = vi.fn();
+
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+    })).resolves.toEqual({ status: 'skipped' });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(calls[0].sql).toContain('s.readiness_notice_consent_at IS NOT NULL');
+  });
+
+  it('reports an already delivered notification without sending it again', async () => {
+    const { db } = fakeDb({ sent: true });
+    const dispatch = vi.fn();
+
+    const result = await deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+    }, STATUS_EVENT_ID);
+    expect(result).toEqual({ status: 'already_sent' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('retries unresolved failures in a bounded batch', async () => {
     const { db, calls } = fakeDb({
-      due: [{ submission_id: 'submission-1', status_event_id: STATUS_EVENT_ID }],
+      due: [{ line_account_id: 'account-1', submission_id: 'submission-1', status_event_id: STATUS_EVENT_ID }],
     });
     const dispatch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
 

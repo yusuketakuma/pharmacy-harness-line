@@ -30,6 +30,6 @@ export const pharmacyActivityApi = {
 export const activityTypeLabel: Record<PharmacyActivityType, string> = {
   prescription_received: '処方せんを受信',
   prescription_status_changed: '受付状態が更新',
-  fulfillment_quote_created: '準備可否を更新',
+  fulfillment_quote_created: '受付回答を更新',
   myna_handoff_received: 'マイナ受付を確認',
 };

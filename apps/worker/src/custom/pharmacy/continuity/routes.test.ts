@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   adminList: vi.fn(),
   patientList: vi.fn(),
   pause: vi.fn(),
+  access: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -15,6 +16,9 @@ vi.mock('./repository.js', () => ({
   listContinuityObligations: mocks.adminList,
   listPatientContinuity: mocks.patientList,
   pausePatientContinuity: mocks.pause,
+}));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
 }));
 
 import { continuityRoutes } from './routes.js';
@@ -41,9 +45,19 @@ beforeEach(() => {
   mocks.adminList.mockResolvedValue([{ id: 'obligation-1', status: 'active' }]);
   mocks.patientList.mockResolvedValue([{ id: 'obligation-1', status: 'linked' }]);
   mocks.pause.mockResolvedValue(undefined);
+  mocks.access.mockResolvedValue(true);
 });
 
 describe('continuity routes', () => {
+  it('rejects staff obligations outside the assigned account', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/continuity?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.adminList).not.toHaveBeenCalled();
+  });
+
   it('lists staff obligations only with an account scope', async () => {
     const response = await adminApp().request('/api/custom/pharmacy/continuity?line_account_id=account-1', {}, env);
     expect(response.status).toBe(200);
