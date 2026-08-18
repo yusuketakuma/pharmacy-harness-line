@@ -45,5 +45,37 @@ describe('pharmacy notification policy', () => {
     expect(isApprovedRenderedPharmacyMessage('prescription_validity_reminder_v1', {
       type: 'text', text: '処方せんの使用期限が近づいています。2026-08-20までに薬局へご相談ください。',
     })).toBe(true);
+    expect(isApprovedRenderedPharmacyMessage('pharmacy_onboarding_v1', {
+      ...onboarding,
+      quickReply: { items: [] },
+    } as never)).toBe(false);
+  });
+
+  it('builds only the fixed medication follow-up choices for an opaque id', () => {
+    const followUpId = '123e4567-e89b-42d3-a456-426614174000';
+    const message = buildApprovedPharmacyMessage('medication_followup_v1', { followUpId });
+    expect(message).toEqual({
+      type: 'text',
+      text: 'お薬を使い始めてからの体調はいかがですか。あてはまるものを選んでください。',
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'postback', label: '問題なし', data: `pharmacy-followup:${followUpId}:no_issue` } },
+          { type: 'action', action: { type: 'postback', label: '気になることがある', data: `pharmacy-followup:${followUpId}:concern` } },
+          { type: 'action', action: { type: 'postback', label: '薬剤師に相談したい', data: `pharmacy-followup:${followUpId}:pharmacist_requested` } },
+        ],
+      },
+    });
+    expect(isApprovedRenderedPharmacyMessage('medication_followup_v1', message)).toBe(true);
+    expect(isApprovedRenderedPharmacyMessage('medication_followup_v1', {
+      ...message,
+      quickReply: { items: [] },
+    } as never)).toBe(false);
+    expect(() => buildApprovedPharmacyMessage('medication_followup_v1', {
+      followUpId: 'patient-name',
+    })).toThrow(/variable rejected/);
+    expect(() => buildApprovedPharmacyMessage('medication_followup_v1', {
+      followUpId,
+      genericDate: '2026-08-21',
+    })).toThrow(/variable rejected/);
   });
 });

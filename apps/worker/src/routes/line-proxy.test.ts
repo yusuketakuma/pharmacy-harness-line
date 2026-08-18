@@ -46,6 +46,7 @@ import {
 } from '@line-crm/db';
 import { authenticateApiToken } from '../middleware/auth.js';
 import { lineProxy } from './line-proxy.js';
+import { buildApprovedPharmacyMessage } from '../custom/pharmacy/growth-loop/policy.js';
 
 type Exec = { sql: string; params: unknown[] };
 
@@ -347,6 +348,31 @@ describe('push', () => {
     ), {}, env(db));
 
     expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('allows the exact medication follow-up quick replies and rejects tampering', async () => {
+    const eventId = 'event-followup-1';
+    const followUpId = '123e4567-e89b-42d3-a456-426614174000';
+    const message = buildApprovedPharmacyMessage('medication_followup_v1', { followUpId });
+    const options = {
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: eventId, message_id: 'medication_followup_v1', line_user_id: USER_A },
+    };
+    const allowed = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [message] },
+      { 'X-Pharmacy-Notification-Event-Id': eventId },
+    ), {}, env(fakeDb(options).db));
+    expect(allowed.status).toBe(200);
+
+    fetchMock.mockClear();
+    const rejected = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ ...message, quickReply: { items: [] } }] },
+      { 'X-Pharmacy-Notification-Event-Id': eventId },
+    ), {}, env(fakeDb(options).db));
+    expect(rejected.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

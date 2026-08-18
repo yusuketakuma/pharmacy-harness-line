@@ -511,8 +511,20 @@ export interface PharmacyPatientHistory {
     created_at: string;
     updated_at: string;
   }>;
+  medicationFollowUps: Array<{
+    id: string;
+    source_submission_id: string;
+    status: string;
+    due_at: string;
+    delivered_at: string | null;
+    responded_at: string | null;
+    closed_at: string | null;
+    version: number;
+    created_at: string;
+    updated_at: string;
+  }>;
   timeline: Array<{
-    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'myna';
+    kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna';
     occurred_at: string;
     label: string;
     status?: string | null;
@@ -581,7 +593,10 @@ export async function getAdminPharmacyPatientHistory(
 ): Promise<PharmacyPatientHistory | null> {
   const patient = await getAdminPharmacyPatient(db, lineAccountId, patientId);
   if (!patient) return null;
-  const [intakes, prescriptions, quotes, continuity, prescriptionEvents, continuityEvents, myna] = await Promise.all([
+  const [
+    intakes, prescriptions, quotes, continuity, medicationFollowUps,
+    prescriptionEvents, continuityEvents, medicationFollowUpEvents, myna,
+  ] = await Promise.all([
     db.prepare(`SELECT id, patient_id, revision, schema_version, answers_json,
                        representative_consent_at, privacy_consent_at, created_at
                   FROM pharmacy_patient_intake_responses
@@ -610,6 +625,12 @@ export async function getAdminPharmacyPatientHistory(
                  WHERE line_account_id = ? AND patient_id = ?
                  ORDER BY created_at DESC, id DESC`)
       .bind(lineAccountId, patientId).all<PharmacyPatientHistory['continuity'][number]>(),
+    db.prepare(`SELECT id, source_submission_id, status, due_at, delivered_at,
+                       responded_at, closed_at, version, created_at, updated_at
+                  FROM pharmacy_medication_followups
+                 WHERE line_account_id = ? AND patient_id = ?
+                 ORDER BY created_at DESC, id DESC`)
+      .bind(lineAccountId, patientId).all<PharmacyPatientHistory['medicationFollowUps'][number]>(),
     db.prepare(`SELECT e.event_type, e.to_status, e.created_at
                   FROM pharmacy_prescription_events e
                   INNER JOIN pharmacy_prescription_submissions s
@@ -627,6 +648,13 @@ export async function getAdminPharmacyPatientHistory(
                  WHERE e.line_account_id = ? AND o.patient_id = ?
                  ORDER BY e.created_at DESC, e.id DESC`)
       .bind(lineAccountId, patientId).all<{ status: string; created_at: string }>(),
+    db.prepare(`SELECT e.event_type, e.to_status, e.occurred_at
+                  FROM pharmacy_medication_followup_events e
+                  INNER JOIN pharmacy_medication_followups f
+                    ON f.id = e.followup_id AND f.line_account_id = e.line_account_id
+                 WHERE e.line_account_id = ? AND f.patient_id = ?
+                 ORDER BY e.occurred_at DESC, e.id DESC`)
+      .bind(lineAccountId, patientId).all<{ event_type: string; to_status: string | null; occurred_at: string }>(),
     db.prepare(`SELECT h.status, h.created_at
                   FROM pharmacy_myna_handoffs h
                  WHERE h.line_account_id = ? AND h.patient_id = ?
@@ -640,6 +668,7 @@ export async function getAdminPharmacyPatientHistory(
     ...prescriptionEvents.results.map((item) => ({ kind: 'prescription' as const, occurred_at: item.created_at, label: item.event_type === 'status_changed' ? '処方せん受付状態を更新' : '処方せん受付を更新', status: item.to_status })),
     ...quotes.results.map((item) => ({ kind: 'fulfillment' as const, occurred_at: item.created_at, label: 'FulfillmentQuoteを登録', status: item.decision })),
     ...continuityEvents.results.map((item) => ({ kind: 'continuity' as const, occurred_at: item.created_at, label: '継続フォローを更新', status: item.status })),
+    ...medicationFollowUpEvents.results.map((item) => ({ kind: 'medication_followup' as const, occurred_at: item.occurred_at, label: '服薬後フォローを更新', status: item.to_status ?? item.event_type })),
     ...myna.results.map((item) => ({ kind: 'myna' as const, occurred_at: item.created_at, label: 'マイナ受付を更新', status: item.status })),
   ].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
 
@@ -652,6 +681,7 @@ export async function getAdminPharmacyPatientHistory(
     prescriptions: prescriptions.results,
     quotes: quotes.results,
     continuity: continuity.results,
+    medicationFollowUps: medicationFollowUps.results,
     timeline,
   };
 }

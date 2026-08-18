@@ -84,7 +84,9 @@ export async function sendPharmacyAutomatedPush(
   const accountConfig = await getPharmacyCapabilityConfig(input.db, input.lineAccountId);
   const requiredCapability = input.messageId === 'continuity_reminder_v1'
     ? 'continuity'
-    : 'prescription_intake';
+    : input.messageId === 'medication_followup_v1'
+      ? 'medication_followup'
+      : 'prescription_intake';
   if (!accountConfig || !accountConfig.capabilities.includes(requiredCapability)) {
     throw new Error('pharmacy notification capability is not enabled');
   }
