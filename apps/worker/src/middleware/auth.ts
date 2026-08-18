@@ -2,10 +2,16 @@ import type { Context, Next } from 'hono';
 import { getStaffByApiKey } from '@line-crm/db';
 import type { Env } from '../index.js';
 import type { AdminSameSite } from './admin-auth-config.js';
+import {
+  hashTenantAdminSessionToken,
+  isTenantAdminSessionToken,
+} from '../custom/pharmacy/provisioning/credentials.js';
 
 export const ADMIN_AUTH_COOKIE = 'lh_admin_session';
+export const TENANT_COOKIE = 'lh_tenant';
 export const CSRF_COOKIE = 'lh_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
+export const TENANT_HEADER = 'x-tenant-id';
 
 // 7 days, matching the previous localStorage session longevity.
 const SESSION_MAX_AGE = 604800;
@@ -42,8 +48,12 @@ function bearerToken(c: Context<Env>): string | null {
   return authHeader.slice('Bearer '.length);
 }
 
-function cookieToken(c: Context<Env>): string | null {
+export function adminSessionTokenFromCookie(c: Context<Env>): string | null {
   return parseCookieHeader(c.req.header('Cookie'))[ADMIN_AUTH_COOKIE] || null;
+}
+
+function tenantToken(c: Context<Env>): string | null {
+  return parseCookieHeader(c.req.header('Cookie'))[TENANT_COOKIE] || null;
 }
 
 export function csrfTokenFromCookie(c: Context<Env>): string | null {
@@ -63,9 +73,14 @@ function buildCookie(
   return parts.join('; ');
 }
 
-/** HttpOnly session cookie carrying the API token. */
+/** HttpOnly cookie carrying only an opaque password session. */
 export function adminSessionCookie(token: string, sameSite: AdminSameSite): string {
   return buildCookie(ADMIN_AUTH_COOKIE, token, sameSite, SESSION_MAX_AGE, true);
+}
+
+/** HttpOnly tenant binding paired with the admin session credential. */
+export function tenantSessionCookie(tenantId: string, sameSite: AdminSameSite): string {
+  return buildCookie(TENANT_COOKIE, tenantId, sameSite, SESSION_MAX_AGE, true);
 }
 
 /**
@@ -81,7 +96,13 @@ export function csrfCookie(token: string, sameSite: AdminSameSite): string {
 }
 
 export function expiredCookie(name: string, sameSite: AdminSameSite): string {
-  return buildCookie(name, '', sameSite, 0, name === ADMIN_AUTH_COOKIE);
+  return buildCookie(
+    name,
+    '',
+    sameSite,
+    0,
+    name === ADMIN_AUTH_COOKIE || name === TENANT_COOKIE,
+  );
 }
 
 export type AuthenticatedStaff = {
@@ -90,10 +111,171 @@ export type AuthenticatedStaff = {
   role: 'owner' | 'admin' | 'staff';
 };
 
+export type AuthenticatedTenant = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type TenantBoundIdentity = {
+  staff: AuthenticatedStaff;
+  tenant: AuthenticatedTenant;
+};
+
+type RequestIdentity = TenantBoundIdentity & {
+  authMethod: 'api_key' | 'password';
+  credentialVersion: number | null;
+  mustChangePassword: boolean;
+};
+
 /**
- * Resolve a token (from a Bearer header or the session cookie) to a staff
- * identity. Shared by the auth middleware and the /api/auth/login endpoint so
- * cookie and Bearer auth accept exactly the same credentials.
+ * Resolve and authorize the tenant independently of the request selector.
+ * The selector chooses a tenant; membership remains the authority.
+ */
+export async function resolveAuthenticatedTenant(
+  db: D1Database,
+  staff: AuthenticatedStaff,
+  selector: string | null | undefined,
+  allowEnvOwnerBypass = false,
+): Promise<TenantBoundIdentity | null> {
+  const normalized = selector?.trim();
+  if (!normalized) return null;
+  try {
+    const tenant = await db.prepare(
+      `SELECT tenant.id, tenant.tenant_code, tenant.display_name,
+              EXISTS (
+                SELECT 1
+                  FROM tenant_line_accounts AS mapping
+                 WHERE mapping.tenant_id = tenant.id
+              ) AS pharmacy_mode
+         FROM tenants AS tenant
+        WHERE status = 'active' AND (id = ? OR tenant_code = ? COLLATE NOCASE)
+        LIMIT 1`,
+    ).bind(normalized, normalized).first<{
+      id: string;
+      tenant_code: string;
+      display_name: string;
+      pharmacy_mode: number;
+    }>();
+    if (!tenant) return null;
+
+    if (staff.id === 'env-owner' && allowEnvOwnerBypass && tenant.pharmacy_mode !== 1) {
+      return {
+        staff,
+        tenant: { id: tenant.id, code: tenant.tenant_code, name: tenant.display_name },
+      };
+    }
+
+    const membership = await db.prepare(
+      `SELECT role
+         FROM tenant_staff_memberships
+        WHERE tenant_id = ? AND staff_id = ? AND is_active = 1
+        LIMIT 1`,
+    ).bind(tenant.id, staff.id).first<{ role: AuthenticatedStaff['role'] }>();
+    if (!membership) return null;
+    return {
+      staff: { ...staff, role: membership.role },
+      tenant: { id: tenant.id, code: tenant.tenant_code, name: tenant.display_name },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setTenantIdentity(c: Context<Env>, identity: RequestIdentity): void {
+  c.set('staff', identity.staff);
+  c.set('tenantId', identity.tenant.id);
+  c.set('tenantCode', identity.tenant.code);
+  c.set('tenantName', identity.tenant.name);
+  c.set('authMethod', identity.authMethod);
+  c.set('credentialVersion', identity.credentialVersion);
+  c.set('mustChangePassword', identity.mustChangePassword);
+}
+
+async function authenticateOpaqueSession(
+  c: Context<Env>,
+  token: string,
+): Promise<RequestIdentity | null> {
+  try {
+    const tokenHash = await hashTenantAdminSessionToken(token);
+    const now = new Date().toISOString();
+    const row = await c.env.DB.prepare(
+      `SELECT tenant.id, tenant.tenant_code, tenant.display_name,
+              credential.staff_id, credential.must_change_password,
+              credential.credential_version, staff.name, membership.role,
+              session.session_kind
+         FROM tenant_admin_sessions AS session
+         INNER JOIN tenant_admin_credentials AS credential
+                 ON credential.tenant_id = session.tenant_id
+                AND credential.staff_id = session.staff_id
+                AND credential.credential_version = session.credential_version
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = credential.tenant_id AND tenant.status = 'active'
+         INNER JOIN staff_members AS staff
+                 ON staff.id = credential.staff_id AND staff.is_active = 1
+         INNER JOIN tenant_staff_memberships AS membership
+                 ON membership.tenant_id = credential.tenant_id
+                AND membership.staff_id = credential.staff_id
+                AND membership.is_active = 1
+        WHERE session.token_hash = ?
+          AND session.revoked_at IS NULL
+          AND session.expires_at > ?
+        LIMIT 1`,
+    ).bind(tokenHash, now).first<{
+      id: string;
+      tenant_code: string;
+      display_name: string;
+      staff_id: string;
+      name: string;
+      role: AuthenticatedStaff['role'];
+      must_change_password: number;
+      credential_version: number;
+      session_kind: 'bootstrap' | 'standard';
+    }>();
+    if (!row || tenantToken(c) !== row.id) return null;
+    const mustChangePassword = row.must_change_password === 1;
+    if ((row.session_kind === 'bootstrap') !== mustChangePassword) return null;
+    return {
+      staff: { id: row.staff_id, name: row.name, role: row.role },
+      tenant: { id: row.id, code: row.tenant_code, name: row.display_name },
+      authMethod: 'password',
+      credentialVersion: row.credential_version,
+      mustChangePassword,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function authenticateRequest(
+  c: Context<Env>,
+  bearer: string | null,
+  cookie: string | null,
+): Promise<RequestIdentity | null> {
+  if (!bearer) {
+    return cookie && isTenantAdminSessionToken(cookie)
+      ? authenticateOpaqueSession(c, cookie)
+      : null;
+  }
+
+  const staff = await authenticateApiToken(c, bearer);
+  if (!staff) return null;
+  const identity = await resolveAuthenticatedTenant(
+    c.env.DB,
+    staff,
+    c.req.header(TENANT_HEADER),
+    c.env.LEGACY_ENV_OWNER_BYPASS === 'true',
+  );
+  return identity ? {
+    ...identity,
+    authMethod: 'api_key',
+    credentialVersion: null,
+    mustChangePassword: false,
+  } : null;
+}
+
+/**
+ * Resolve a Bearer integration token to a staff identity.
  */
 export async function authenticateApiToken(
   c: Context<Env>,
@@ -161,9 +343,8 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   const isPublicFormDefinition =
     method === 'GET' && /^\/api\/forms\/[^/]+$/.test(path);
   if (isPublicFormDefinition) {
-    const token = bearerToken(c) ?? cookieToken(c);
-    const staff = await authenticateApiToken(c, token);
-    if (staff) c.set('staff', staff);
+    const identity = await authenticateRequest(c, bearerToken(c), adminSessionTokenFromCookie(c));
+    if (identity && !identity.mustChangePassword) setTenantIdentity(c, identity);
     return next();
   }
 
@@ -204,8 +385,11 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
 
   // custom:pharmacy-continuity — the patient view verifies the LINE ID token
   // in its route middleware; the admin collection remains staff-authenticated.
-  if ((method === 'GET' && path === '/api/liff/pharmacy/continuity') ||
-      (method === 'POST' && /^\/api\/liff\/pharmacy\/continuity\/[^/]+\/pause$/.test(path))) return next();
+  const isContinuityPatientAction =
+    (method === 'GET' && path === '/api/liff/pharmacy/continuity') ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/continuity\/[^/]+\/pause$/.test(path)) ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/continuity\/expectations\/[^/]+\/respond$/.test(path));
+  if (isContinuityPatientAction) return next();
 
   if (
     path === '/webhook' ||
@@ -220,6 +404,12 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     // Admin login/logout — issue/clear the session cookie before auth exists.
     path === '/api/auth/login' ||
     path === '/api/auth/logout' ||
+    // Platform CLI provisioning authenticates with PLATFORM_ADMIN_KEY in-route.
+    (path === '/api/platform/pharmacy/tenants' && method === 'POST') ||
+    (method === 'POST' &&
+      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/admin-bootstrap$/.test(path)) ||
+    (method === 'POST' &&
+      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/credentials\/(?:backfill|scrub|restore)$/.test(path)) ||
     path.startsWith('/auth/') ||
     path === '/setup' ||
     path === '/api/integrations/stripe/webhook' ||
@@ -236,11 +426,9 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   }
 
   const bearer = bearerToken(c);
-  const cookie = cookieToken(c);
-  const token = bearer ?? cookie;
-
-  const staff = await authenticateApiToken(c, token);
-  if (!staff) {
+  const cookie = adminSessionTokenFromCookie(c);
+  const identity = await authenticateRequest(c, bearer, cookie);
+  if (!identity) {
     return c.json({ success: false, error: 'Unauthorized' }, 401);
   }
 
@@ -256,6 +444,11 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     }
   }
 
-  c.set('staff', staff);
+  if (identity.mustChangePassword &&
+      path !== '/api/auth/session' && path !== '/api/auth/change-password') {
+    return c.json({ success: false, error: 'Password change required' }, 403);
+  }
+
+  setTenantIdentity(c, identity);
   return next();
 }

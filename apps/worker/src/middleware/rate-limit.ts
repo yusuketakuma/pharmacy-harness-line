@@ -68,6 +68,11 @@ const UNAUTHENTICATED_PATTERNS: Array<string | RegExp> = [
   '/api/public/media-inquiries',
 ];
 
+const SENSITIVE_PATHS = new Set([
+  '/api/auth/login',
+  '/api/platform/pharmacy/tenants',
+]);
+
 function isUnauthenticatedPath(path: string): boolean {
   return UNAUTHENTICATED_PATTERNS.some((p) =>
     typeof p === 'string' ? path === p : p.test(path),
@@ -111,6 +116,7 @@ const AUTHENTICATED_WINDOW = 60_000; // 1 min
 
 const UNAUTHENTICATED_MAX = 100;
 const UNAUTHENTICATED_WINDOW = 60_000; // 1 min
+const SENSITIVE_MAX = 10;
 
 // Per-IP ceiling applied to token/cookie-keyed requests. Rate limiting runs
 // BEFORE auth, so the token (Bearer or session cookie) is not yet validated —
@@ -133,7 +139,11 @@ export async function rateLimitMiddleware(c: Context<Env>, next: Next): Promise<
   let max: number;
   let windowMs: number;
 
-  if (isUnauthenticatedPath(path)) {
+  if (SENSITIVE_PATHS.has(path)) {
+    key = `sensitive:${path}:ip:${getClientIp(c)}`;
+    max = SENSITIVE_MAX;
+    windowMs = UNAUTHENTICATED_WINDOW;
+  } else if (isUnauthenticatedPath(path)) {
     // Key by IP for unauthenticated endpoints
     key = `ip:${getClientIp(c)}`;
     max = UNAUTHENTICATED_MAX;
