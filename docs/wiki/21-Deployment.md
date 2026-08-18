@@ -136,16 +136,18 @@ wrangler secret put STRIPE_WEBHOOK_SECRET
 
 ## GitHub Actions 自動デプロイ
 
-`.github/workflows/deploy-worker.yml` に設定済み。
+`.github/workflows/deploy-cloudflare.yml` に設定済み。
 
 ### トリガー条件
 
-`main` ブランチへの push で、以下のパスに変更がある場合に実行:
+`main` または `dev` ブランチへの push で、以下のパスに変更がある場合に実行:
 - `apps/worker/**`
 - `packages/db/**`
 - `packages/shared/**`
 - `packages/line-sdk/**`
-- `.github/workflows/deploy-worker.yml`
+- `apps/liff/**`
+- `apps/web/**`
+- `.github/workflows/deploy-cloudflare.yml`
 
 ### ワークフロー内容
 
@@ -188,13 +190,13 @@ pnpm deploy:web
 
 # 2. Cloudflare Pages にデプロイ
 # Dashboard から GitHub リポジトリを接続、または:
-wrangler pages deploy apps/web/.next --project-name=your-admin-name
+wrangler pages deploy apps/web/out --project-name=your-admin-name
 ```
 
 ### Pages 設定
 
 - ビルドコマンド: `pnpm install && pnpm -r build && pnpm --filter web build`
-- 出力ディレクトリ: `apps/web/.next`
+- 出力ディレクトリ: `apps/web/out`
 - Node.js バージョン: 22
 
 ---
@@ -202,26 +204,25 @@ wrangler pages deploy apps/web/.next --project-name=your-admin-name
 ## LIFF 配信
 
 標準機能のLIFFはWorker Assetsとして配信できます。一方、薬局カスタム機能
-（`apps/liff` の `pharmacy-*` 画面）は専用のCloudflare Pagesへ配信します。
-薬局のLIFF endpointをWorkerルートへ向けると、Workerの汎用クライアントが表示されます。
+（`apps/liff` の `pharmacy-*` 画面）は共有Workerとは分離した専用Cloudflare Pagesへ
+配信します。薬局のLIFF endpointをWorkerルートへ向けると、Workerの汎用クライアントが
+表示され、処方せん画面へ接続できません。
 
 薬局カスタムでは、WorkerはAPIとWebhook、LIFF Pagesは患者向け画面を担当します。
 GitHub Actionsの顧客デプロイが両方のPagesを更新します。
 
-### LIFF ビルド時環境変数
+### 薬局LIFFのビルド時環境変数
 
-Worker デプロイ時に以下の環境変数が必要です（`.env` または環境変数で指定）:
+共有デプロイ時に以下の値が必要です。テナント固有のLIFF IDはビルドへ埋め込まず、
+入口URLの`?liffId=`から実行時に解決します。
 
 | 変数名 | 説明 |
 |--------|------|
-| `VITE_LIFF_ID` | LIFF ID（例: `2009554425-4IMBmLQ9`） |
-| `VITE_BOT_BASIC_ID` | Bot Basic ID（例: `@123abcde`） |
-| `VITE_DEFAULT_LIFF_ID` | 薬局LIFF Pagesのビルド時に埋め込む既定LIFF ID |
-| `VITE_API_BASE` | 薬局LIFF Pagesが呼び出すWorker URL |
+| `VITE_API_BASE` | 薬局LIFF Pagesが呼び出す共有Worker URL |
 
 ### LIFF エンドポイント URL
 
-標準機能のLIFFエンドポイント URLはWorker URLを使用できます:
+標準機能のLIFFエンドポイント URLはWorker URLを使用できます（薬局機能には使用しません）:
 ```
 https://line-harness.your-account.workers.dev
 ```
@@ -231,9 +232,17 @@ https://line-harness.your-account.workers.dev
 https://your-pharmacy-liff.pages.dev/?liffId=your-liff-id
 ```
 
-顧客デプロイでは、Pages bundleの実値と`liff.line.me/{LIFF_ID}`の公開endpointを
-自動検査します。endpointがWorker URLへ戻っている場合は、Worker・Pages・D1を変更せずに
-デプロイを停止します。
+共有デプロイでは、LIFF PagesのHTMLが参照する実JSを取得し、マルチテナント用ビルド
+マーカー、薬局受付ルート、共有Worker URLを検査します。Adminの`/accounts`が参照する
+JSにも専用LIFF Pages URLが含まれることを検査します。HTTP 200だけで古い汎用bundleを
+成功扱いにしないためのゲートです。LINE Developers Consoleの各LIFFアプリは、薬局固有
+の入口として次のURLを登録してください:
+
+```
+https://<LIFF_ORIGIN>/?liffId=<そのテナントのLIFF ID>
+```
+
+`liffId`を省略したURLやWorker URLを登録してはいけません。
 
 ---
 
@@ -379,10 +388,11 @@ open https://your-worker.your-subdomain.workers.dev/docs
 
 ---
 
-## 既存環境のマイグレーション（LIFF 統合）
+## 既存環境のマイグレーション（共有マルチテナントLIFF）
 
-LIFF フロントエンドが Worker に統合されました。
-別途デプロイしていた LIFF アプリ（CF Pages 等）は不要になります。
+薬局LIFFフロントエンドは共有Workerから分離した専用Pagesへ配信します。WorkerはAPIと
+Webhookを担当し、全テナントが同じWorkerへ接続します。既存のD1・R2・LINE資格情報は
+デプロイ時の保護チェックで保持されます。
 
 ### 手順
 
@@ -392,19 +402,18 @@ LIFF フロントエンドが Worker に統合されました。
 git pull origin main && pnpm install
 ```
 
-2. **Worker を再デプロイ（LIFF も自動ビルド・配信）**
+2. **共有Worker・LIFF Pages・Adminを同じcommitで更新**
 
 ```bash
-VITE_LIFF_ID=xxx VITE_BOT_BASIC_ID=@xxx pnpm deploy:worker
+git push origin dev   # GitHub Actionsのdevelopment環境で確認
 ```
 
-3. **LINE Developers Console で LIFF エンドポイント URL を変更**
+3. **LINE Developers Consoleで各テナントのLIFFエンドポイントURLを確認**
    - LINE Login チャネル → LIFF タブ → エンドポイント URL
-   - 旧: `https://lh-liff-xxxxx.pages.dev`
-   - 新: `https://line-harness.your-account.workers.dev`
+   - `https://<LIFF_ORIGIN>/?liffId=<テナントのLIFF ID>`
+   - Worker URLを設定しない
 
-4. **(任意) 旧 LIFF の CF Pages プロジェクトを削除**
-
-```bash
-npx wrangler pages project delete lh-liff-xxxxx
-```
+4. **LINE上のリッチメニューは明示的に公開・初期表示設定**
+   - 管理画面の`prepare`はD1/R2の下書き作成だけです。
+   - `LINEに登録`後、必要に応じて`初期表示に設定`または`友だちに表示`を実行します。
+   - デプロイだけでLINEリッチメニューを自動公開しません。

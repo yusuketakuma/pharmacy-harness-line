@@ -1,11 +1,12 @@
 # Pharmacy Growth Loop roadmap
 
-Status (2026-08-18): Release 1 implementation, local verification, and
-independent review are complete on `feature/growth-loop-release-1`; the
-reviewed code snapshot is `707e04f`. The only WIP is the separately authorized,
-human-gated integration rehearsal. No push, merge, release, deployment, LINE
-setting, production D1/R2 access, or production-data validation is evidence
-for this branch.
+Status (2026-08-19): Release 1 implementation, local verification, and
+independent review evidence is retained from `feature/growth-loop-release-1`
+(`707e04f`). The current integration branch is
+`v0.26.0/feature/logical-multitenancy`; multitenant boundary work and LIFF
+deployment-contract checks are local and uncommitted. The public dev LIFF/Admin
+Pages still serve an older bundle, so no deployment, LINE setting, production
+D1/R2 access, or production-data validation is claimed.
 
 The runtime application packages and pharmacy release metadata are unified at
 `0.25.0` on `dev`. The `pharmacy-v0.25.0` tag is a pending release action, not
@@ -66,6 +67,8 @@ custom/pharmacy/growth-loop/
 custom/pharmacy/rich-menu/  versioned single-action profile and R2 storage
 custom/pharmacy/*            existing prescription, quote, continuity, Myna flows
 custom_008_*                 additive account, metric, source, validity tables
+custom_020_*                 explicit staff-to-account backfill
+custom_021_*                 tenant/account-scoped webhook redelivery receipts
 ```
 
 The patient-history branch and the print/activity-notification branch remain
@@ -125,7 +128,7 @@ rich-menu publication, LINE settings, and deployment.
 
 - Pharmacist/legal approval of onboarding, reminder, expiry, and ready-time
   language.
-- Production migration and customer-update classification approval.
+- Production migration and central deployment approval.
 - Account/staff assignments and pharmacy capability selection.
 - Rich-menu preview and publication on each LINE account.
 - Japan-only timezone assumption confirmation for Release 1.

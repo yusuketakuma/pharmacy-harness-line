@@ -65,15 +65,17 @@ Variables:
 
 | 名前 | 用途 |
 | --- | --- |
-| `VITE_LIFF_ID` | LIFF ID |
-| `VITE_BOT_BASIC_ID` | LINE bot basic ID |
 | `LIFF_PAGES_PROJECT` | 薬局カスタムLIFF Pagesプロジェクト名 |
 | `LIFF_ORIGIN` | 薬局カスタムLIFF Pagesの公開URL |
 | `WORKER_URL` | 薬局カスタムLIFFが呼び出すWorker URL |
+| `ADMIN_ORIGIN` | 管理画面Pagesの公開URL |
+| `PAGES_PROJECT_NAME` | 管理画面Pagesプロジェクト名 |
 | `VITE_CALENDAR_CONNECTION_ID` | Google Calendar 連携を使う場合だけ設定 |
 
-薬局カスタムのデプロイでは、LIFF bundleの環境変数とLINE側の公開endpointを
-自動検査します。LIFF endpointがWorker URLへ戻っている場合は、リソースを変更せずに失敗します。
+薬局カスタムのデプロイでは、LIFF bundleと公開Pagesの実アセットを検査します。
+テナントごとのLIFF IDはビルドへ埋め込まず、管理画面または初期設定CLIが表示する
+`https://<LIFF_ORIGIN>/?liffId=<テナントのLIFF ID>`をLINE Developers Consoleへ登録します。
+LIFF endpointがWorker URLへ戻っている場合、リソースを変更せずに失敗します。
 
 Worker secrets は `wrangler secret put` で Cloudflare 側に設定します。
 
@@ -86,6 +88,9 @@ npx wrangler secret put LINE_LOGIN_CHANNEL_ID
 npx wrangler secret put LINE_LOGIN_CHANNEL_SECRET
 npx wrangler secret put LIFF_URL
 ```
+
+`LIFF_URL`は標準OSS機能用の共有設定です。薬局マルチテナントのLIFF IDは
+テナントのLINE Loginチャネルに属する値をD1へ登録し、共有デプロイの環境変数にはしません。
 
 ## 日常の開発
 

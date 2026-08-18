@@ -18,6 +18,7 @@
 ```bash
 curl -X POST "https://<WORKER_URL>/line-api/v2/bot/message/push" \
   -H "Authorization: Bearer $LINE_HARNESS_API_KEY" \
+  -H "X-Tenant-Id: $LINE_HARNESS_TENANT_ID" \
   -H "Content-Type: application/json" \
   -d '{"to":"U...","messages":[{"type":"text","text":"hello"}]}'
 ```
@@ -32,7 +33,8 @@ curl -X POST "https://<WORKER_URL>/line-api/v2/bot/message/push" \
 
 これにより `messages_log.source='manual'` で記録され、その返信より前の受信メッセージは `/notifications` の未対応一覧から消える。ヘッダーなしは `external` のままなので、予約通知などの自動送信を人間の返信と誤判定しない。`manual` は `POST /v2/bot/message/push` のみ使用可能で、multicast / broadcast への指定や別の値は 400 になる。
 
-- アカウントが1つなら自動でそのアカウントから送信
+- APIキー経路では `X-Tenant-Id` が必須。スタッフが所属しないテナントは拒否
+- テナント内のアカウントが1つなら自動でそのアカウントから送信
 - 複数アカウント構成では `X-Line-Account-Id: <line_accounts.id または channel_id>` ヘッダーで送信元を指定(未指定は 400)
 
 **2. チャネルアクセストークン(drop-in 移行用)** — 既存スクリプトの Authorization をそのままに、ベースURLだけ差し替えれば動く。`line_accounts.channel_access_token`(is_active のみ)と `env.LINE_CHANNEL_ACCESS_TOKEN` に照合し、未登録トークンは 401(オープンリレー防止)。
