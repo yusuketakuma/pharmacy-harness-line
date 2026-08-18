@@ -35,9 +35,15 @@ interface ScenarioRow {
 }
 
 /** Minimal D1 mock covering the raw queries in resolveLinkAccount(). */
-function makeDb(state: { accounts?: AccountRow[]; scenarios?: ScenarioRow[] }): D1Database {
+function makeDb(state: {
+  accounts?: AccountRow[];
+  scenarios?: ScenarioRow[];
+  pharmacyMode?: boolean;
+  queries?: string[];
+}): D1Database {
   return {
     prepare(sql: string) {
+      state.queries?.push(sql);
       let bound: unknown[] = [];
       const stmt = {
         bind(...args: unknown[]) {
@@ -45,6 +51,9 @@ function makeDb(state: { accounts?: AccountRow[]; scenarios?: ScenarioRow[] }): 
           return stmt;
         },
         async first<T>() {
+          if (sql.includes('FROM pharmacy_account_capabilities')) {
+            return (state.pharmacyMode ? { ok: 1 } : null) as T | null;
+          }
           if (sql.includes('FROM scenarios')) {
             const [id] = bound as [string];
             const sc = (state.scenarios ?? []).find((s) => s.id === id);
@@ -111,6 +120,55 @@ beforeEach(() => {
 });
 
 describe('GET /t/:linkId — per-account LIFF resolution', () => {
+  test('bot preview reads only public account branding columns', async () => {
+    const queries: string[] = [];
+    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(
+      makeLink({ line_account_id: 'acc-pharmacy' }),
+    );
+    const res = await request({
+      DB: makeDb({
+        pharmacyMode: true,
+        queries,
+        accounts: [{ id: 'acc-pharmacy', liff_id: '2000000000-AAAA' }],
+      }),
+      WORKER_URL: 'https://worker.example.com',
+    }, 'facebookexternalhit/1.1');
+
+    expect(res.status).toBe(200);
+    const accountQuery = queries.find((sql) => sql.includes('FROM line_accounts'));
+    expect(accountQuery).toBeDefined();
+    expect(accountQuery).not.toMatch(/SELECT\s+\*/iu);
+    expect(accountQuery).toMatch(/\bliff_id\b/iu);
+    expect(accountQuery).not.toMatch(/channel_(?:access_token|secret)|login_channel_secret/iu);
+  });
+
+  test('keeps legacy links as plain redirects without tracking in a pharmacy deployment', async () => {
+    const waits: Promise<unknown>[] = [];
+    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(
+      makeLink({ line_account_id: 'acc-pharmacy' }),
+    );
+    const env = {
+      DB: makeDb({ pharmacyMode: true }),
+      LIFF_URL: 'https://liff.line.me/legacy-generic',
+      WORKER_URL: 'https://worker.example.com',
+    };
+
+    const res = await trackedLinks.request(
+      'https://worker.example.com/t/link-1?f=other-tenant-friend',
+      { headers: { 'user-agent': LINE_UA }, redirect: 'manual' },
+      env,
+      {
+        waitUntil: (promise: Promise<unknown>) => waits.push(promise),
+        passThroughOnException() {},
+      } as unknown as ExecutionContext,
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://example.com/lp');
+    expect(waits).toHaveLength(0);
+    expect(dbMocks.recordLinkClick).not.toHaveBeenCalled();
+  });
+
   test('link owned by an account redirects LINE in-app clicks to that account LIFF', async () => {
     dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(makeLink({ line_account_id: 'acc-1b' }));
     const env = {

@@ -152,7 +152,7 @@ describe('publishRichMenuGroup', () => {
     expect(line.deleteRichMenu).not.toHaveBeenCalledWith('old-2');
   });
 
-  it('1 page: create → upload → alias upsert → 旧削除', async () => {
+  it('1 page: D1確定前は旧メニューを削除しない', async () => {
     const line = makeMockLineClient();
     const r2 = makeMockR2();
     const result = await publishRichMenuGroup(
@@ -168,12 +168,11 @@ describe('publishRichMenuGroup', () => {
       line,
       r2,
     );
-    // LINE の切替確認後に旧 richmenu を削除する。
-    expect(line.calls).toEqual([
-      'create', 'upload', 'delete-alias', 'create-alias', 'get-default', 'delete-old',
-    ]);
+    expect(line.calls).toEqual(['create', 'upload', 'create-alias']);
     expect(line.calls).not.toContain('clear-default');
-    expect(result.pages).toEqual([{ pageId: 'p1', newRichMenuId: 'lm-1' }]);
+    expect(result.pages[0]).toMatchObject({ pageId: 'p1', newRichMenuId: 'lm-1' });
+    expect(result.pages[0]?.aliasId).toMatch(/^lhx-gid12345-[a-z0-9]+-0$/u);
+    expect(result.pages[0]?.aliasId).not.toBe('lhx-gid12345-0');
   });
 
   it('2 page: 各ページについて順序実行', async () => {
@@ -195,7 +194,7 @@ describe('publishRichMenuGroup', () => {
     expect(line.calls.filter((c) => c === 'delete-old')).toHaveLength(0);
   });
 
-  it('isDefaultForAll=true なら setDefaultRichMenu を最初の page で呼ぶ', async () => {
+  it('publishはaccount-wide defaultを変更しない', async () => {
     const line = makeMockLineClient();
     const r2 = makeMockR2();
     await publishRichMenuGroup(
@@ -210,13 +209,13 @@ describe('publishRichMenuGroup', () => {
       line,
       r2,
     );
-    expect(line.calls).toContain('set-default');
-    // 有効化時は clear-default を呼ばない
+    expect(line.calls).not.toContain('set-default');
     expect(line.calls).not.toContain('clear-default');
+    expect(line.calls).not.toContain('get-default');
     expect(line.createRichMenu).toHaveBeenCalledWith(expect.objectContaining({ selected: true }));
   });
 
-  it('isDefaultForAll=false かつ LINE current default が own page と一致 → clear-default を呼ぶ (Round 2 P1)', async () => {
+  it('publishは現在のdefaultがown pageでもclearしない', async () => {
     // 旧 line_richmenu_id が現在の LINE default と一致 = この group が以前 default だった
     const line = makeMockLineClient({ currentDefault: 'old-1' });
     const r2 = makeMockR2();
@@ -232,12 +231,12 @@ describe('publishRichMenuGroup', () => {
       line,
       r2,
     );
-    expect(line.calls).toContain('get-default');
-    expect(line.calls).toContain('clear-default');
+    expect(line.calls).not.toContain('get-default');
+    expect(line.calls).not.toContain('clear-default');
     expect(line.calls).not.toContain('set-default');
   });
 
-  it('isDefaultForAll=false かつ LINE current default が他 group → clear-default を呼ばない (Round 2 P1)', async () => {
+  it('publishは他groupのdefaultも参照しない', async () => {
     // 別 group が現在 default。own page とは無関係。
     const line = makeMockLineClient({ currentDefault: 'rm-from-other-group' });
     const r2 = makeMockR2();
@@ -253,30 +252,29 @@ describe('publishRichMenuGroup', () => {
       line,
       r2,
     );
-    expect(line.calls).toContain('get-default');
+    expect(line.calls).not.toContain('get-default');
     expect(line.calls).not.toContain('clear-default');
   });
 
-  it('isDefaultForAll=false で getCurrentDefaultRichMenuId が throw しても publish 成功 (Round 3 P2-3)', async () => {
+  it('publishはdefault照会障害の影響を受けない', async () => {
     const line = makeMockLineClient();
     line.getCurrentDefaultRichMenuId = vi.fn(async () => {
       throw new Error('LINE 5xx transient');
     });
     const r2 = makeMockR2();
-    const result = await publishRichMenuGroup(
+    await expect(publishRichMenuGroup(
       {
         id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
         pages: [{
           id: 'p1', orderIndex: 0, name: 'p1',
           imageR2Key: 'a.png', imageContentType: 'image/png',
-          lineRichMenuId: null, areas: [],
+          lineRichMenuId: 'old-1', areas: [],
         }],
       },
       line,
       r2,
-    );
-    // publish 自体は成功 (alias swap 完了済み、status 更新を呼出側に任せられる)
-    expect(result.pages[0].newRichMenuId).toBe('lm-1');
+    )).resolves.toBeDefined();
+    expect(line.getCurrentDefaultRichMenuId).not.toHaveBeenCalled();
   });
 
   it('画像が R2 にないと throw', async () => {
@@ -349,11 +347,12 @@ describe('unpublishRichMenuGroup', () => {
       {
         id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
         pages: [
-          { id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: null, imageContentType: null, lineRichMenuId: 'lm-mine', areas: [] },
+          { id: 'p1', aliasId: 'lhx-gid12345-gen12345-0', orderIndex: 0, name: 'p1', imageR2Key: null, imageContentType: null, lineRichMenuId: 'lm-mine', areas: [] },
         ],
       },
       line,
     );
+    expect(line.deleteRichMenuAlias).toHaveBeenCalledWith('lhx-gid12345-gen12345-0');
     expect(line.calls).not.toContain('clear-default');
   });
 
