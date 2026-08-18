@@ -67,6 +67,9 @@ Variables:
 | --- | --- |
 | `VITE_LIFF_ID` | LIFF ID |
 | `VITE_BOT_BASIC_ID` | LINE bot basic ID |
+| `LIFF_PAGES_PROJECT` | 薬局カスタムLIFF Pagesプロジェクト名 |
+| `LIFF_ORIGIN` | 薬局カスタムLIFF Pagesの公開URL |
+| `WORKER_URL` | 薬局カスタムLIFFが呼び出すWorker URL |
 | `VITE_CALENDAR_CONNECTION_ID` | Google Calendar 連携を使う場合だけ設定 |
 
 Worker secrets は `wrangler secret put` で Cloudflare 側に設定します。

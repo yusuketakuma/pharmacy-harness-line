@@ -199,11 +199,14 @@ wrangler pages deploy apps/web/.next --project-name=your-admin-name
 
 ---
 
-## LIFF（Worker 統合）
+## LIFF 配信
 
-LIFF フロントエンドは Worker に統合されています。`@cloudflare/vite-plugin` により `wrangler deploy` 時に Vite ビルドも自動実行され、Workers Static Assets として配信されます。
+標準機能のLIFFはWorker Assetsとして配信できます。一方、薬局カスタム機能
+（`apps/liff` の `pharmacy-*` 画面）は専用のCloudflare Pagesへ配信します。
+薬局のLIFF endpointをWorkerルートへ向けると、Workerの汎用クライアントが表示されます。
 
-別途の LIFF デプロイは不要です。Worker をデプロイするだけで LIFF も一緒にデプロイされます。
+薬局カスタムでは、WorkerはAPIとWebhook、LIFF Pagesは患者向け画面を担当します。
+GitHub Actionsの顧客デプロイが両方のPagesを更新します。
 
 ### LIFF ビルド時環境変数
 
@@ -213,12 +216,19 @@ Worker デプロイ時に以下の環境変数が必要です（`.env` または
 |--------|------|
 | `VITE_LIFF_ID` | LIFF ID（例: `2009554425-4IMBmLQ9`） |
 | `VITE_BOT_BASIC_ID` | Bot Basic ID（例: `@123abcde`） |
+| `VITE_DEFAULT_LIFF_ID` | 薬局LIFF Pagesのビルド時に埋め込む既定LIFF ID |
+| `VITE_API_BASE` | 薬局LIFF Pagesが呼び出すWorker URL |
 
 ### LIFF エンドポイント URL
 
-LIFF エンドポイント URL は Worker URL と同じです:
+標準機能のLIFFエンドポイント URLはWorker URLを使用できます:
 ```
 https://line-harness.your-account.workers.dev
+```
+
+薬局カスタムのLIFFエンドポイントは専用Pages URLを使用します:
+```
+https://your-pharmacy-liff.pages.dev/?liffId=your-liff-id
 ```
 
 ---
@@ -270,6 +280,14 @@ wrangler d1 create line-crm
 | 変数名 | 説明 | 設定方法 |
 |--------|------|----------|
 | `STRIPE_WEBHOOK_SECRET` | Stripe Webhook 署名検証キー | `wrangler secret put` |
+
+### 薬局カスタム（GitHub Actions環境変数）
+
+| 変数名 | 説明 |
+|--------|------|
+| `LIFF_PAGES_PROJECT` | 薬局カスタムLIFF Pagesプロジェクト名 |
+| `LIFF_ORIGIN` | 薬局カスタムLIFF Pagesの公開URL（Worker CORS許可元） |
+| `WORKER_URL` | 薬局カスタムLIFFが呼び出すWorker URL |
 
 ---
 
