@@ -97,6 +97,25 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).toContain('--project-name="$LIFF_PAGES_PROJECT"');
   });
 
+  test('fails before mutation when the LINE LIFF endpoint drifts from Pages', () => {
+    const validate = stepIndex('Validate required deployment configuration');
+    const topology = stepIndex('Verify LINE LIFF endpoint topology');
+    const migrate = stepIndex('Run pending D1 migrations');
+
+    expect(topology).toBeGreaterThan(validate);
+    expect(topology).toBeLessThan(migrate);
+    expect(customerDeploy).toContain('https://liff.line.me/${VITE_LIFF_ID}/');
+    expect(customerDeploy).toContain('grep -Fq "$LIFF_ORIGIN"');
+    expect(customerDeploy).toContain('grep -Fq "$WORKER_URL"');
+    expect(customerDeploy).toContain('LINE LIFF endpoint must point to LIFF_ORIGIN');
+  });
+
+  test('rejects a pharmacy LIFF build without its runtime contract', () => {
+    expect(customerDeploy).toContain('grep -R -Fq "$VITE_DEFAULT_LIFF_ID" apps/liff/dist/assets');
+    expect(customerDeploy).toContain('grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets');
+    expect(customerDeploy).toContain('grep -R -Fq "pharmacy-receive" apps/liff/dist/assets');
+  });
+
   test('preserves customer bindings and verifies them before recording success', () => {
     const validate = stepIndex('Validate required deployment configuration');
     const protect = stepIndex('Protect customer configuration');

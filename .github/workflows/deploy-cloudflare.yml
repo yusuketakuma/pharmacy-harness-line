@@ -95,7 +95,11 @@ jobs:
           VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
 
       - name: Build Pharmacy LIFF Pages
-        run: pnpm --filter liff build
+        run: |
+          pnpm --filter liff build
+          grep -R -Fq "$VITE_DEFAULT_LIFF_ID" apps/liff/dist/assets
+          grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets
+          grep -R -Fq "pharmacy-receive" apps/liff/dist/assets
         env:
           VITE_DEFAULT_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
           VITE_API_BASE: ${{ vars.WORKER_URL }}
@@ -109,6 +113,23 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
+
+      - name: Verify LINE LIFF endpoint topology
+        env:
+          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
+          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
+        run: |
+          wrapper="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            --max-time 20 "https://liff.line.me/${VITE_LIFF_ID}/")"
+          if ! printf '%s' "$wrapper" | grep -Fq "$LIFF_ORIGIN"; then
+            echo "LINE LIFF endpoint must point to LIFF_ORIGIN"
+            exit 1
+          fi
+          if printf '%s' "$wrapper" | grep -Fq "$WORKER_URL"; then
+            echo "LINE LIFF endpoint must not point to WORKER_URL"
+            exit 1
+          fi
 
       - name: Patch wrangler config
         env:
