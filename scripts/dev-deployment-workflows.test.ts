@@ -26,12 +26,19 @@ describe('development deployment workflow contract', () => {
   test('builds every artifact before mutation and deploys Admin only after Worker health succeeds', () => {
     const migrate = stepIndex('Run pending D1 migrations');
     expect(stepIndex('Build Worker and LIFF assets')).toBeLessThan(migrate);
+    expect(stepIndex('Build Pharmacy LIFF Pages')).toBeLessThan(migrate);
     expect(stepIndex('Build Admin Panel')).toBeLessThan(migrate);
     expect(migrate).toBeLessThan(stepIndex('Deploy to Cloudflare Workers'));
     expect(stepIndex('Deploy to Cloudflare Workers')).toBeLessThan(
       stepIndex('Verify Worker health'),
     );
     expect(stepIndex('Verify Worker health')).toBeLessThan(
+      stepIndex('Deploy to Cloudflare Pages'),
+    );
+    expect(stepIndex('Verify Worker health')).toBeLessThan(
+      stepIndex('Deploy Pharmacy LIFF Pages'),
+    );
+    expect(stepIndex('Deploy Pharmacy LIFF Pages')).toBeLessThan(
       stepIndex('Deploy to Cloudflare Pages'),
     );
     expect(stepIndex('Deploy to Cloudflare Pages')).toBeLessThan(
@@ -79,6 +86,15 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).toContain('LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}');
     expect(customerDeploy).toContain('.vars.LIFF_ORIGIN = $o');
     expect(customerDeploy).toContain('test -n "$LIFF_ORIGIN"');
+  });
+
+  test('builds and publishes the separate pharmacy LIFF Pages artifact', () => {
+    expect(customerDeploy).toContain('LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}');
+    expect(customerDeploy).toContain('VITE_DEFAULT_LIFF_ID: ${{ vars.VITE_LIFF_ID }}');
+    expect(customerDeploy).toContain('VITE_API_BASE: ${{ vars.WORKER_URL }}');
+    expect(customerDeploy).toContain('pnpm --filter liff build');
+    expect(customerDeploy).toContain('npx wrangler pages deploy apps/liff/dist');
+    expect(customerDeploy).toContain('--project-name="$LIFF_PAGES_PROJECT"');
   });
 
   test('preserves customer bindings and verifies them before recording success', () => {
