@@ -10,13 +10,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..');
 const MIGRATIONS_DIR = join(REPO, 'packages', 'db', 'migrations');
 const creds = { accountId: 'test', apiToken: 'test' };
+const CUSTOM_PHARMACY_MIGRATIONS = [
+  'custom_014_pharmacy_logical_tenants.sql',
+  'custom_015_pharmacy_tenant_credentials.sql',
+  'custom_016_pharmacy_friend_identity.sql',
+  'custom_017_pharmacy_account_defaults.sql',
+  'custom_018_pharmacy_line_credentials.sql',
+  'custom_019_pharmacy_tenant_admin_bootstrap.sql',
+];
 
 const allMigrationNames = readdirSync(MIGRATIONS_DIR)
   // v0.14.1's base schema already contains the final 001-036 structures,
   // including two historical table-rebuild migrations. Replaying those
   // destructive files would be less safe than using the supported additive
   // bridge, which starts at the first feature missing from that base schema.
-  .filter((name) => /^(?:03[7-9]|0[4-9][0-9]|[1-9][0-9][0-9])_.*\.sql$/.test(name))
+  .filter((name) => /^(?:(?:03[7-9]|0[4-9][0-9]|[1-9][0-9][0-9])_.*|custom_[0-9]{3}_.*)\.sql$/.test(name))
   .sort();
 const allMigrations = new Map(
   allMigrationNames.map((name) => [
@@ -117,9 +125,16 @@ function assertLatestSchema(db: Database.Database): void {
   expect(
     db.prepare('SELECT COUNT(*) AS count FROM _line_harness_migrations').get(),
   ).toEqual({ count: allMigrationNames.length });
+  expect(
+    db.prepare("SELECT COUNT(*) AS count FROM _line_harness_migrations WHERE name GLOB 'custom_01[4-9]_*.sql'").get(),
+  ).toEqual({ count: CUSTOM_PHARMACY_MIGRATIONS.length });
 }
 
 describe('safe upgrade matrix', () => {
+  it('discovers the pharmacy custom migrations in the cumulative manifest', () => {
+    expect(allMigrationNames).toEqual(expect.arrayContaining(CUSTOM_PHARMACY_MIGRATIONS));
+  });
+
   for (const tag of [
     'v0.14.1',
     'v0.15.0',

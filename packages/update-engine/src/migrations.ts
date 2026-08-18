@@ -59,15 +59,18 @@ export function buildMigrationLedgerSql(
  * statements in the same file. This scanner splits only on semicolons that
  * are outside strings, quoted identifiers, and comments.
  *
- * Current LINE Harness migrations intentionally do not use CREATE TRIGGER
- * bodies (whose internal BEGIN/END semicolons need a full SQLite parser).
- * Fail loudly if one appears so a future release cannot silently split it
- * incorrectly.
+ * Simple SQLite trigger bodies are kept as one statement. CASE-bearing
+ * triggers fail closed because distinguishing their END token needs a full
+ * SQL parser.
  */
 export function splitSqlStatements(sql: string): string[] {
   const uncommented = stripSqlComments(sql);
-  if (/\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(uncommented)) {
-    throw new Error('CREATE TRIGGER migrations are not supported by the safe D1 splitter');
+  if (
+    /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(uncommented)
+    && /\bCASE\b/i.test(uncommented)
+  ) {
+    // ponytail: add a real SQL parser only when a CASE-bearing trigger is required.
+    throw new Error('CASE-bearing CREATE TRIGGER requires a full SQL parser');
   }
   if (
     /\bDROP\s+(?:TABLE|COLUMN)\b/i.test(uncommented) ||
@@ -129,6 +132,9 @@ export function splitSqlStatements(sql: string): string[] {
       continue;
     }
     if (ch === ';') {
+      const candidate = stripSqlComments(sql.slice(start, i)).trim();
+      const isTrigger = /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(candidate);
+      if (isTrigger && !/\bEND\s*$/i.test(candidate)) continue;
       pushSqlStatement(statements, sql.slice(start, i));
       start = i + 1;
     }

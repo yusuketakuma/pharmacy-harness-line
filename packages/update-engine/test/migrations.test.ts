@@ -36,12 +36,19 @@ describe('splitSqlStatements', () => {
     expect(splitSqlStatements('-- only a comment;\n; /* another */')).toEqual([]);
   });
 
-  it('rejects trigger bodies instead of splitting them incorrectly', () => {
-    expect(() =>
-      splitSqlStatements(
-        'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; END;',
-      ),
-    ).toThrow(/CREATE TRIGGER/);
+  it('keeps a simple trigger body atomic while splitting following statements', () => {
+    expect(splitSqlStatements(
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END; CREATE INDEX i ON b(x);',
+    )).toEqual([
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END',
+      'CREATE INDEX i ON b(x)',
+    ]);
+  });
+
+  it('fails closed for trigger grammar that needs a full SQL parser', () => {
+    expect(() => splitSqlStatements(
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = CASE WHEN x = 1 THEN 2 ELSE 3 END; END;',
+    )).toThrow(/CASE-bearing CREATE TRIGGER/);
   });
 });
 
