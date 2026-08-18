@@ -2,7 +2,12 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { applyD1Migrations, migrationChecksum } from '../../packages/update-engine/src/index.js';
+import {
+  applyD1Migrations,
+  executeD1Query,
+  migrationChecksum,
+} from '../../packages/update-engine/src/index.js';
+import { runMultitenantDataPreflight } from './multitenant-preflight.js';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -16,19 +21,25 @@ const migrations = new Map(
   names.map((name) => [name, readFileSync(join(directory, name))]),
 );
 
-applyD1Migrations({
+const target = {
   creds: {
     accountId: required('CLOUDFLARE_ACCOUNT_ID'),
     apiToken: required('CLOUDFLARE_API_TOKEN'),
   },
   databaseId: required('D1_DATABASE_ID'),
-  names,
-  migrations,
-  requireChecksumLedger: true,
-  onMigrationDone(result) {
-    console.error(result.name + (result.alreadyApplied ? ': already applied' : ': applied'));
-  },
-}).then((results) => {
+};
+
+async function main(): Promise<void> {
+  await runMultitenantDataPreflight(executeD1Query, target);
+  const results = await applyD1Migrations({
+    ...target,
+    names,
+    migrations,
+    requireChecksumLedger: true,
+    onMigrationDone(result) {
+      console.error(result.name + (result.alreadyApplied ? ': already applied' : ': applied'));
+    },
+  });
   console.log(JSON.stringify({
     migrations: names.map((name) => ({
       name,
@@ -36,7 +47,9 @@ applyD1Migrations({
     })),
     appliedNames: results.filter((result) => !result.alreadyApplied).map((result) => result.name),
   }));
-}).catch((error) => {
+}
+
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

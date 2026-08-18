@@ -47,7 +47,9 @@ describe('customer deployment configuration protection', () => {
     expect(prepared.wrangler.vars).toEqual({
       ADMIN_ORIGIN: 'https://admin.example.test',
       ADMIN_PAGES_PROJECT: 'customer-admin',
+      ADMIN_PUBLIC_URL: 'https://admin.example.test',
       WORKER_NAME: 'customer-worker',
+      WORKER_PUBLIC_URL: 'https://worker.example.test',
       WORKER_URL: 'https://worker.example.test',
     });
     expect(prepared.wrangler.d1_databases).toEqual([
@@ -92,6 +94,28 @@ describe('customer deployment configuration protection', () => {
     expect(() => verifyCustomerConfig(prepared.snapshot, repairedBindings)).not.toThrow();
   });
 
+  test('replaces stale public topology URLs with the current deployment URLs', () => {
+    const staleBindings: WorkerBinding[] = [
+      ...liveBindings,
+      { type: 'plain_text', name: 'WORKER_PUBLIC_URL', text: 'https://old-worker.example.test' },
+      { type: 'plain_text', name: 'ADMIN_PUBLIC_URL', text: 'https://old-admin.example.test' },
+      { type: 'plain_text', name: 'LIFF_PUBLIC_URL', text: 'https://old-liff.example.test' },
+    ];
+    const liffOrigin = 'https://liff.example.test';
+
+    const prepared = prepareCustomerConfig({
+      wrangler,
+      liveBindings: staleBindings,
+      expected: { ...expected, liffOrigin },
+    });
+
+    expect(prepared.wrangler.vars).toMatchObject({
+      WORKER_PUBLIC_URL: expected.workerUrl,
+      ADMIN_PUBLIC_URL: expected.adminOrigin,
+      LIFF_PUBLIC_URL: liffOrigin,
+    });
+  });
+
   test('allows a new managed LIFF origin binding during first update', () => {
     const liffOrigin = 'https://liff.example.test';
     const prepared = prepareCustomerConfig({
@@ -123,7 +147,7 @@ describe('customer deployment configuration protection', () => {
     expect(prepared.wrangler.vars).not.toHaveProperty('LIFF_PAGES_PROJECT');
   });
 
-  test('does not require source-only self-update metadata on customer Workers', () => {
+  test('drops retired self-update metadata but renders current public topology', () => {
     const prepared = prepareCustomerConfig({
       wrangler: {
         ...wrangler,
@@ -144,13 +168,15 @@ describe('customer deployment configuration protection', () => {
     for (const name of [
       'D1_DATABASE_ID',
       'MANIFEST_URL',
-      'WORKER_PUBLIC_URL',
-      'ADMIN_PUBLIC_URL',
-      'LIFF_PUBLIC_URL',
       'CF_ACCOUNT_ID',
     ]) {
       expect(prepared.wrangler.vars).not.toHaveProperty(name);
     }
+    expect(prepared.wrangler.vars).toMatchObject({
+      WORKER_PUBLIC_URL: expected.workerUrl,
+      ADMIN_PUBLIC_URL: expected.adminOrigin,
+    });
+    expect(prepared.wrangler.vars).not.toHaveProperty('LIFF_PUBLIC_URL');
   });
 
   test('stops before deployment when D1 or R2 differs', () => {
@@ -181,5 +207,30 @@ describe('customer deployment configuration protection', () => {
     expect(() => verifyCustomerConfig(snapshot, changed)).toThrow(
       /customer Worker bindings changed during deployment/,
     );
+  });
+
+  test('postflight rejects a stale public topology binding', () => {
+    const liffOrigin = 'https://liff.example.test';
+    const topologyBindings: WorkerBinding[] = [
+      ...liveBindings.filter((binding) =>
+        binding.name !== 'ADMIN_ORIGIN' && binding.name !== 'WORKER_URL'),
+      { type: 'plain_text', name: 'ADMIN_ORIGIN', text: expected.adminOrigin },
+      { type: 'plain_text', name: 'WORKER_URL', text: expected.workerUrl },
+      { type: 'plain_text', name: 'WORKER_PUBLIC_URL', text: expected.workerUrl },
+      { type: 'plain_text', name: 'ADMIN_PUBLIC_URL', text: expected.adminOrigin },
+      { type: 'plain_text', name: 'LIFF_ORIGIN', text: liffOrigin },
+      { type: 'plain_text', name: 'LIFF_PUBLIC_URL', text: 'https://old-liff.example.test' },
+    ];
+    const prepared = prepareCustomerConfig({
+      wrangler,
+      liveBindings: topologyBindings,
+      expected: { ...expected, liffOrigin },
+    });
+
+    expect(() => verifyCustomerConfig(
+      prepared.snapshot,
+      topologyBindings,
+      { ...expected, liffOrigin },
+    )).toThrow(/LIFF_PUBLIC_URL/);
   });
 });
