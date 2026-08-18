@@ -17,6 +17,7 @@ import {
   INTAKE_STEP_COUNT,
   PatientQuestionnaire,
 } from './PatientQuestionnaire.js';
+import { pharmacyRoute } from '../navigation.js';
 
 const relationshipLabels: Record<PatientRelationship, string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
@@ -269,7 +270,7 @@ export default function PatientIntakePage() {
             <button type="button" onClick={() => setIntakeStep((step) => Math.max(1, step - 1))} disabled={intakeStep === 1 || busy} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-40">戻る</button>
             {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={() => setIntakeStep((step) => Math.min(INTAKE_STEP_COUNT, step + 1))} disabled={busy} className="min-h-11 flex-1 rounded-xl bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!canSubmitIntake(answers, representativeConsent, privacyConsent, busy)} className="min-h-11 flex-1 rounded-xl bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
           </div>
-          <button type="button" onClick={() => navigate('/prescriptions')} className="w-full rounded-xl border border-green-600 bg-white px-4 py-3 font-bold text-green-700">処方せん事前送信へ</button>
+          <button type="button" onClick={() => navigate(pharmacyRoute('/prescriptions'))} className="w-full rounded-xl border border-green-600 bg-white px-4 py-3 font-bold text-green-700">処方せん事前送信へ</button>
           <p className="text-xs leading-5 text-gray-600">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>
         </>}
       </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { prescriptionApi, type PrescriptionSubmission } from './api.js';
 import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
+import { pharmacyRoute } from '../navigation.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -223,12 +224,12 @@ export default function PrescriptionPage() {
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <h2 className="font-bold">患者を選択</h2>
               {loadingPatients ? <p className="text-sm text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
-                <p className="text-sm text-gray-600"><Link to="/pharmacy/patient-intake" className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
+                <p className="text-sm text-gray-600"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
               ) : <>
                 <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block w-full rounded-lg border border-gray-300 p-3" disabled={busy} aria-label="処方せんの患者">
                   {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}（{patient.birth_date}）</option>)}
                 </select>
-                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to="/pharmacy/patient-intake" className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
+                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
               </>}
             </div>
             <div className="rounded-xl bg-white p-4 shadow-sm">
