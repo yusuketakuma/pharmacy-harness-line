@@ -96,7 +96,7 @@ export function buildPharmacySingleActionRichMenu(
 }
 
 export function isPharmacyInitialRichMenuProfile(profileKey: string | undefined): boolean {
-  return !profileKey || profileKey === PHARMACY_INITIAL_PROFILE_KEY || profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY;
+  return profileKey === undefined || profileKey === PHARMACY_INITIAL_PROFILE_KEY || profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY;
 }
 
 export { WIDTH as PHARMACY_RICH_MENU_WIDTH, HEIGHT as PHARMACY_RICH_MENU_HEIGHT };
