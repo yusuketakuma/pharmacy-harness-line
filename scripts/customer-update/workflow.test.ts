@@ -64,4 +64,11 @@ describe('customer update policy workflow', () => {
     expect(policyWorkflow).toContain('policy_script="$GITHUB_WORKSPACE/candidate/scripts/customer-update/policy.ts"');
     expect(policyWorkflow).toContain('if [ ! -f "$policy_script" ]');
   });
+
+  it('checks additive migration safety without receiving customer secrets', () => {
+    expect(policyWorkflow).toContain('pnpm --dir candidate exec tsx scripts/check-migrations.ts');
+    expect(policyWorkflow).toContain('pnpm --dir candidate test:scripts');
+    expect(policyWorkflow).not.toContain('CLOUDFLARE_API_TOKEN');
+    expect(policyWorkflow).not.toContain('LINE_CHANNEL_ACCESS_TOKEN');
+  });
 });

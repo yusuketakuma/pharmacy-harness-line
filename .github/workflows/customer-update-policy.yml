@@ -48,6 +48,7 @@ jobs:
       - name: Validate candidate without secrets
         run: |
           pnpm --dir candidate install --frozen-lockfile
+          pnpm --dir candidate exec tsx scripts/check-migrations.ts
           pnpm --dir candidate test:scripts
           pnpm --dir candidate --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/update-engine build
           pnpm --dir candidate --filter worker typecheck

@@ -140,6 +140,15 @@ describe('development deployment workflow contract', () => {
     expect(customerDeploy).not.toContain('CREATE TABLE IF NOT EXISTS _migrations');
   });
 
+  test('checks additive migration safety before any customer mutation', () => {
+    const safety = stepIndex('Check additive migration safety');
+    const migrate = stepIndex('Run pending D1 migrations');
+
+    expect(safety).toBeGreaterThan(stepIndex('Verify LINE LIFF endpoint topology'));
+    expect(safety).toBeLessThan(migrate);
+    expect(customerDeploy).toContain('pnpm tsx scripts/check-migrations.ts');
+  });
+
   test('records a pre-migration D1 bookmark and post-smoke deployment evidence', () => {
     expect(customerDeploy).toContain('scripts/deploy/release-state.ts --with-bookmark');
     expect(customerDeploy).toContain('scripts/deploy/record-release-evidence.ts');

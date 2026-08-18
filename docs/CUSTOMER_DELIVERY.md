@@ -103,3 +103,22 @@ gh variable set LINE_HARNESS_CLOUDFLARE_DEPLOY \
 
 このチェックはD1・R2・Secrets・LINE設定の保持確認を目的とします。値そのもの、
 患者情報、処方情報、LINEユーザーID、アクセストークンはチェック記録へ保存しません。
+
+## 更新時の保全契約
+
+顧客更新は、顧客 `main` への更新PRが承認され、同じ顧客Environmentでデプロイされた
+場合だけ実行されます。更新ワークフローは次を強制します。
+
+| 対象 | 更新時の扱い |
+| --- | --- |
+| D1 | 既存の顧客D1 IDを再利用し、チェックサム台帳にないmigrationだけを適用する。bootstrapや既存migrationの書き換えは行わない。 |
+| R2 | 既存の`IMAGES` bindingとbucket名を検証して再利用する。別bucketへの自動切替は停止する。 |
+| Secrets | `keep_vars`と既存bindingを維持し、値を読み出し・ログ・リポジトリへコピーしない。 |
+| LINE設定 | 更新ワークフローからWebhook、LIFF、リッチメニュー、LINEチャネル設定を変更しない。公開LIFFの接続先だけはデプロイ前に読み取り検証する。 |
+| 顧客固有コード | 顧客`main`を起点に販売元タグをmergeする。顧客コミットを置換せず、競合はPRで停止する。 |
+
+破壊的なmigrationはデプロイ直前のadditive-only検査でも停止します。互換リリースでも
+アプリの処理内容そのものが変わらないことを静的に保証することはできないため、
+顧客更新PRのsecretlessテスト、顧客承認、developmentでの実機確認を完了してから
+productionへ進めます。`CUSTOMER_UPDATE_MODE=compatible-auto`は、別途カナリア証跡を
+確認した顧客だけで有効化してください。
