@@ -18,9 +18,15 @@ interface IdemRow {
   expires_at: string;
 }
 
-function memDB(state: { bookings: BookingRow[]; reminders: ReminderRow[]; idem: IdemRow[] }): D1Database {
+function memDB(state: {
+  bookings: BookingRow[];
+  reminders: ReminderRow[];
+  idem: IdemRow[];
+  queries?: string[];
+}): D1Database {
   return {
     prepare(sql: string) {
+      state.queries?.push(sql);
       let bound: unknown[] = [];
       const stmt = {
         bind(...args: unknown[]) { bound = args; return stmt; },
@@ -75,6 +81,17 @@ function memDB(state: { bookings: BookingRow[]; reminders: ReminderRow[]; idem: 
 }
 
 describe('runEventBookingExpirer', () => {
+  test('excludes pharmacy accounts from the generic event cron', async () => {
+    const queries: string[] = [];
+    await runEventBookingExpirer(memDB({ bookings: [], reminders: [], idem: [], queries }), {
+      now: new Date('2026-05-09T12:00:00Z'),
+    });
+
+    expect(queries.find((sql) => sql.includes('FROM event_bookings'))).toContain(
+      'FROM pharmacy_account_capabilities',
+    );
+  });
+
   test('expires requested bookings older than 24h', async () => {
     const now = new Date('2026-05-09T12:00:00Z');
     const stale = '2026-05-08T11:00:00Z'; // > 24h ago

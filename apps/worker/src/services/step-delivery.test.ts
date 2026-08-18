@@ -354,13 +354,20 @@ describe('condition-false jump (next_step_on_false)', () => {
    * one due friend_scenario at current_step_order=1, whose next step (order 2)
    * has a tag_exists condition the friend does NOT satisfy.
    */
-  function deliveryMockDb(opts: { nextStepOnFalse: number | null; steps?: number[] }): {
+  function deliveryMockDb(opts: {
+    nextStepOnFalse: number | null;
+    steps?: number[];
+    accountId?: string | null;
+    pharmacyMode?: boolean;
+  }): {
     db: D1Database;
     advances: AdvanceCall[];
     completes: string[];
+    pauses: string[];
   } {
     const advances: AdvanceCall[] = [];
     const completes: string[] = [];
+    const pauses: string[] = [];
     const stepOrders = opts.steps ?? [1, 2, 3, 4];
     const stepRows = stepOrders.map((order) => ({
       id: `step-${order}`,
@@ -383,6 +390,9 @@ describe('condition-false jump (next_step_on_false)', () => {
       prepare: (sql: string) => {
         const stmt = (args: unknown[]) => ({
           first: async () => {
+            if (sql.includes('FROM pharmacy_account_capabilities')) {
+              return opts.pharmacyMode ? { mode: 'pharmacy' } : null;
+            }
             if (sql.includes('FROM friend_tags')) {
               return null; // friend does NOT have tag-X → condition fails
             }
@@ -394,11 +404,11 @@ describe('condition-false jump (next_step_on_false)', () => {
                 is_following: 1,
                 user_id: null,
                 metadata: null,
-                line_account_id: null,
+                line_account_id: opts.accountId ?? null,
               };
             }
             if (sql.includes('FROM scenarios')) {
-              return { delivery_mode: 'relative', line_account_id: null };
+              return { delivery_mode: 'relative', line_account_id: opts.accountId ?? null };
             }
             return null;
           },
@@ -439,6 +449,10 @@ describe('condition-false jump (next_step_on_false)', () => {
               completes.push(args[1] as string);
               return { meta: { changes: 1 } };
             }
+            if (sql.includes("SET status = 'paused'")) {
+              pauses.push(args[1] as string);
+              return { meta: { changes: 1 } };
+            }
             return { meta: { changes: 1 } };
           },
         });
@@ -449,7 +463,7 @@ describe('condition-false jump (next_step_on_false)', () => {
       },
     } as unknown as D1Database;
 
-    return { db, advances, completes };
+    return { db, advances, completes, pauses };
   }
 
   function mockLineClient(): { client: LineClient; push: ReturnType<typeof vi.fn> } {
@@ -501,6 +515,20 @@ describe('condition-false jump (next_step_on_false)', () => {
 
     expect(advances).toHaveLength(1);
     expect(advances[0].nextStepOrder).toBe(2); // no step 99 → sequential path
+  });
+
+  it('pauses generic scenario delivery for a pharmacy account before LINE send', async () => {
+    const { db, pauses } = deliveryMockDb({
+      nextStepOnFalse: null,
+      accountId: 'account-pharmacy',
+      pharmacyMode: true,
+    });
+    const { client, push } = mockLineClient();
+
+    await processStepDeliveries(db, client);
+
+    expect(push).not.toHaveBeenCalled();
+    expect(pauses).toEqual(['fs1']);
   });
 });
 

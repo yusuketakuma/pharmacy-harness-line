@@ -1,6 +1,7 @@
 import type { PrescriptionPatient } from './patient.js';
 import { quoteAllowsAcceptance } from '../fulfillment/repository.js';
 import type { FulfillmentStatus } from '../fulfillment/repository.js';
+import { markPrescriptionValidityExpiredReview } from '../growth-loop/repository.js';
 import {
   nextPrescriptionStatus,
   type PrescriptionAction,
@@ -268,8 +269,9 @@ export async function submitPrescription(
   patient: PrescriptionPatient,
   submissionId: string,
   expectedUpdatedAt: string,
-): Promise<void> {
+): Promise<{ statusEventId: string }> {
   const now = nextIsoTimestamp(expectedUpdatedAt);
+  const statusEventId = crypto.randomUUID();
   const results = await db.batch([
     db.prepare(
       `UPDATE pharmacy_prescription_submissions AS s
@@ -312,7 +314,7 @@ export async function submitPrescription(
         WHERE id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'received' AND updated_at = ?`,
     ).bind(
-      crypto.randomUUID(),
+      statusEventId,
       now,
       submissionId,
       patient.lineAccountId,
@@ -323,6 +325,7 @@ export async function submitPrescription(
   if ((results[0]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription submit conflict');
   }
+  return { statusEventId };
 }
 
 export interface PrescriptionHistoryItem {
@@ -533,6 +536,11 @@ export interface AdminPrescriptionStats {
   oldest_wait_at: string | null;
 }
 
+export interface AdminPrescriptionActionResult {
+  status: PrescriptionStatus;
+  statusEventId: string;
+}
+
 export async function getAdminPrescriptionStats(
   db: D1Database,
   lineAccountId: string,
@@ -555,6 +563,8 @@ export async function getAdminPrescriptionDetail(
   submission: Record<string, unknown>;
   files: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
+  source: Record<string, unknown> | null;
+  validity: Record<string, unknown> | null;
 } | null> {
   const submission = await db.prepare(
     `SELECT id, friend_id, status, active_revision, upload_revision,
@@ -580,7 +590,21 @@ export async function getAdminPrescriptionDetail(
       WHERE e.submission_id = ? AND s.line_account_id = ?
       ORDER BY e.created_at, e.id`,
   ).bind(submissionId, lineAccountId).all<Record<string, unknown>>();
-  return { submission, files: files.results, events: events.results };
+  const source = await db.prepare(
+    `SELECT ss.source_id, ss.classification, ms.display_name,
+            ss.entered_by, ss.entered_at, ss.updated_at
+       FROM pharmacy_submission_sources ss
+       LEFT JOIN pharmacy_medical_sources ms
+         ON ms.id = ss.source_id AND ms.line_account_id = ss.line_account_id
+      WHERE ss.submission_id = ? AND ss.line_account_id = ?`,
+  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+  const validity = await db.prepare(
+    `SELECT issued_on, valid_until, validity_basis, verification_status,
+            verified_by, verified_at, reminder_due_at, reminder_sent_at, updated_at
+       FROM pharmacy_prescription_validities
+      WHERE submission_id = ? AND line_account_id = ?`,
+  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+  return { submission, files: files.results, events: events.results, source, validity };
 }
 
 const RESUBMISSION_REASONS = new Set([
@@ -595,7 +619,47 @@ export async function applyAdminPrescriptionAction(
   expectedUpdatedAt: string,
   staffId: string,
   reasonCode: string | null,
-): Promise<PrescriptionStatus> {
+  atOrOperationId: Date | string | null = null,
+  operationId: string | null = null,
+): Promise<AdminPrescriptionActionResult> {
+  const at = atOrOperationId instanceof Date ? atOrOperationId : new Date();
+  const resolvedOperationId = typeof atOrOperationId === 'string' ? atOrOperationId : operationId;
+  const eventId = resolvedOperationId ?? crypto.randomUUID();
+  if (resolvedOperationId) {
+    const replay = await db.prepare(
+      `SELECT e.id, e.actor_id, e.from_status, e.to_status, e.reason_code
+         FROM pharmacy_prescription_events e
+         INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
+        WHERE e.id = ? AND e.submission_id = ? AND s.line_account_id = ?
+          AND e.event_type = 'status_changed'`,
+    ).bind(resolvedOperationId, submissionId, lineAccountId).first<{
+      id: string;
+      actor_id: string | null;
+      from_status: PrescriptionStatus | null;
+      to_status: PrescriptionStatus | null;
+      reason_code: string | null;
+    }>();
+    if (replay) {
+      let replayMatches = replay.actor_id === staffId &&
+        replay.from_status !== null && replay.to_status !== null;
+      if (replayMatches && replay.from_status && replay.to_status) {
+        try {
+          replayMatches = nextPrescriptionStatus(replay.from_status, action) === replay.to_status;
+        } catch {
+          replayMatches = false;
+        }
+      }
+      const expectedReason = action === 'admin_request_resubmission'
+        ? reasonCode
+        : action === 'admin_cancel'
+          ? 'admin_cancelled'
+          : null;
+      if (!replayMatches || replay.reason_code !== expectedReason) {
+        throw new Error('prescription admin action idempotency conflict');
+      }
+      return { status: replay.to_status as PrescriptionStatus, statusEventId: replay.id };
+    }
+  }
   const current = await db.prepare(
     `SELECT status, updated_at, intake_required, source_handoff_id
        FROM pharmacy_prescription_submissions
@@ -610,9 +674,33 @@ export async function applyAdminPrescriptionAction(
     throw new Error('prescription admin action conflict');
   }
   const next = nextPrescriptionStatus(current.status, action);
+  if (action === 'admin_accept') {
+    const validity = await db.prepare(
+      `SELECT verification_status, valid_until
+         FROM pharmacy_prescription_validities
+        WHERE submission_id = ? AND line_account_id = ?`,
+    ).bind(submissionId, lineAccountId).first<{
+      verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
+      valid_until: string | null;
+    }>();
+    if (!validity || validity.verification_status !== 'verified' || !validity.valid_until) {
+      throw new Error('prescription validity verification required');
+    }
+    const localDate = new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (validity.valid_until < localDate) {
+      await markPrescriptionValidityExpiredReview(db, {
+        lineAccountId,
+        submissionId,
+        localDate,
+        actorId: staffId,
+        at,
+      });
+      throw new Error('prescription validity expired');
+    }
+  }
   if (action === 'admin_accept' && (current.intake_required === 1 || current.source_handoff_id != null)) {
     const quote = await db.prepare(
-      `SELECT decision, requirements_json, status
+      `SELECT decision, requirements_json, status, valid_until
          FROM pharmacy_fulfillment_quotes
         WHERE submission_id = ? AND line_account_id = ?
         ORDER BY revision DESC, created_at DESC, id DESC
@@ -621,6 +709,7 @@ export async function applyAdminPrescriptionAction(
       decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
       requirements_json: string;
       status: FulfillmentStatus | null;
+      valid_until: string | null;
     }>();
     if (!quote) throw new Error('fulfillment quote required');
     let requirements;
@@ -632,7 +721,12 @@ export async function applyAdminPrescriptionAction(
     } catch {
       throw new Error('fulfillment quote invalid');
     }
-    if (!quoteAllowsAcceptance({ decision: quote.decision, requirements, status: quote.status })) {
+    if (!quoteAllowsAcceptance({
+      decision: quote.decision,
+      requirements,
+      status: quote.status,
+      validUntil: quote.valid_until,
+    }, at)) {
       throw new Error('fulfillment quote not acceptable');
     }
   }
@@ -667,12 +761,12 @@ export async function applyAdminPrescriptionAction(
          FROM pharmacy_prescription_submissions
         WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
     ).bind(
-      crypto.randomUUID(), staffId, current.status, next, storedReason, now,
+      eventId, staffId, current.status, next, storedReason, now,
       submissionId, lineAccountId, next, now,
     ),
   ]);
   if ((results[0]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription admin action conflict');
   }
-  return next;
+  return { status: next, statusEventId: eventId };
 }

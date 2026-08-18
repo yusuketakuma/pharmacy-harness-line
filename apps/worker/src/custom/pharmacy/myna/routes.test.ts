@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   saveEndpoint: vi.fn(),
   verifyIdentity: vi.fn(),
   resolvePatient: vi.fn(),
+  enqueueActivity: vi.fn(),
+  access: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
@@ -36,6 +38,12 @@ vi.mock('../../../services/liff-auth.js', () => ({
 vi.mock('../prescriptions/patient.js', () => ({
   resolvePrescriptionPatient: mocks.resolvePatient,
 }));
+vi.mock('../activity-notifications/repository.js', () => ({
+  enqueueActivityForAccount: mocks.enqueueActivity,
+}));
+vi.mock('../operations-access.js', () => ({
+  canAccessPharmacyOperationsAccount: mocks.access,
+}));
 
 import { mynaRoutes } from './routes.js';
 
@@ -44,6 +52,7 @@ const env = {
   MYNA_ENDPOINT_ENCRYPTION_KEY: 'test-secret',
   MYNA_ALLOWED_HOSTS: 'myna.example.test',
   WORKER_PUBLIC_URL: 'https://pharmacy.example.test',
+  LINE_CHANNEL_ID: 'channel-a',
 };
 
 function app(withStaff = true) {
@@ -84,9 +93,20 @@ beforeEach(() => {
     receiptStatus: 'RECEIVED', shadowSubmissionId: 'submission-1',
     handoff: { ...handoff, status: 'CLOSED' },
   });
+  mocks.enqueueActivity.mockResolvedValue(null);
+  mocks.access.mockResolvedValue(true);
 });
 
 describe('Myna routes', () => {
+  it('rejects an admin handoff read outside the assigned account', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-handoffs?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.list).not.toHaveBeenCalled();
+  });
+
   it('creates a handoff for the authenticated LINE contact', async () => {
     const response = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
       method: 'POST',

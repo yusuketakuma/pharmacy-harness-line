@@ -238,6 +238,7 @@ export async function updateFriendFollowStatus(
   db: D1Database,
   lineUserId: string,
   isFollowing: boolean,
+  lineAccountId: string | null = null,
 ): Promise<void> {
   const now = jstNow();
   if (isFollowing) {
@@ -251,9 +252,9 @@ export async function updateFriendFollowStatus(
                 END,
                 last_followed_at = CASE WHEN is_following = 0 THEN ? ELSE last_followed_at END,
                 is_following = 1, updated_at = ?
-          WHERE line_user_id = ?`,
+          WHERE line_user_id = ? AND (? IS NULL OR line_account_id = ?)`,
       )
-      .bind(now, now, now, lineUserId)
+      .bind(now, now, now, lineUserId, lineAccountId, lineAccountId)
       .run();
     return;
   }
@@ -265,9 +266,9 @@ export async function updateFriendFollowStatus(
               last_unfollowed_at = CASE WHEN is_following = 1 THEN ? ELSE last_unfollowed_at END,
               unfollow_count = unfollow_count + CASE WHEN is_following = 1 THEN 1 ELSE 0 END,
               updated_at = ?
-        WHERE line_user_id = ?`,
+        WHERE line_user_id = ? AND (? IS NULL OR line_account_id = ?)`,
     )
-    .bind(now, now, lineUserId)
+    .bind(now, now, lineUserId, lineAccountId, lineAccountId)
     .run();
 }
 

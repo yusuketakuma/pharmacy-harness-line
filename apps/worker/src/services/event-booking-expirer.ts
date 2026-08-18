@@ -24,6 +24,11 @@ export async function runEventBookingExpirer(
     .prepare(
       `SELECT id FROM event_bookings
         WHERE status = 'requested' AND requested_at < ?
+          AND NOT EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities pac
+             WHERE pac.line_account_id = event_bookings.line_account_id
+               AND pac.mode = 'pharmacy'
+          )
         LIMIT 200`,
     )
     .bind(cutoff)

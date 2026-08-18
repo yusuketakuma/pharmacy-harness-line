@@ -1,9 +1,12 @@
 import type { CreateRichMenuGroupInput } from '@line-crm/db';
 
 export const PHARMACY_INITIAL_PROFILE_KEY = 'initial-compact-3x1';
+export const PHARMACY_SINGLE_ACTION_PROFILE_KEY = 'intake-single-action-v1';
 export const PHARMACY_RICH_MENU_GENERATOR_VERSION = '1';
 export const PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH =
   '/custom/pharmacy/rich-menu/initial-compact-3x1.jpg';
+export const PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH =
+  '/custom/pharmacy/rich-menu/initial-single-action-v1.jpg';
 
 const WIDTH = 2500;
 const HEIGHT = 843;
@@ -62,8 +65,38 @@ export function buildPharmacyInitialRichMenu(
   };
 }
 
+export function buildPharmacySingleActionRichMenu(
+  accountId: string,
+  liffId: string,
+  selected = false,
+): CreateRichMenuGroupInput {
+  if (!accountId) throw new Error('accountId is required');
+  if (!liffId) throw new Error('liffId is required to generate pharmacy rich menu links');
+  return {
+    accountId,
+    name: '処方せん受付メニュー',
+    chatBarText: '処方せんを送る',
+    size: 'compact',
+    selected,
+    generatorKey: PHARMACY_SINGLE_ACTION_PROFILE_KEY,
+    generatorVersion: PHARMACY_RICH_MENU_GENERATOR_VERSION,
+    pages: [{
+      name: '処方せんを送る',
+      orderIndex: 0,
+      areas: [{
+        boundsX: 0,
+        boundsY: 0,
+        boundsWidth: WIDTH,
+        boundsHeight: HEIGHT,
+        actionType: 'uri',
+        actionData: { uri: liffPageUrl(liffId, 'pharmacy-receive') },
+      }],
+    }],
+  };
+}
+
 export function isPharmacyInitialRichMenuProfile(profileKey: string | undefined): boolean {
-  return !profileKey || profileKey === PHARMACY_INITIAL_PROFILE_KEY;
+  return !profileKey || profileKey === PHARMACY_INITIAL_PROFILE_KEY || profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY;
 }
 
 export { WIDTH as PHARMACY_RICH_MENU_WIDTH, HEIGHT as PHARMACY_RICH_MENU_HEIGHT };

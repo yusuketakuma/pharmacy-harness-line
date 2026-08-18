@@ -54,6 +54,10 @@ export async function processDueReminders(
           AND r.scheduled_at <= ?
           AND b.status = 'confirmed'
           AND b.starts_at > ?       -- 開始時刻を過ぎた予約のリマインダは送らない
+          AND NOT EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities pac
+             WHERE pac.line_account_id = b.line_account_id AND pac.mode = 'pharmacy'
+          )
         LIMIT 100`,
     )
     .bind(params.now.toISOString(), params.now.toISOString())

@@ -26,6 +26,7 @@ import type {
 } from '@line-crm/db';
 import type { Env } from '../index.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 const forms = new Hono<Env>();
 
@@ -375,6 +376,9 @@ forms.post('/api/forms/:id/partial', async (c) => {
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
+    if (await isPharmacyModeAccount(c.env.DB, friend.line_account_id)) {
+      return c.json({ success: false, error: 'generic forms are disabled for pharmacy accounts' }, 403);
+    }
 
     // Save survey data to friend metadata (merge with existing)
     const existingMeta = friend.metadata ? JSON.parse(friend.metadata) : {};
@@ -416,6 +420,9 @@ forms.post('/api/forms/:id/submit', async (c) => {
     const friend = await getFriendByLineUserId(c.env.DB, lineUserId);
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
+    }
+    if (await isPharmacyModeAccount(c.env.DB, friend.line_account_id)) {
+      return c.json({ success: false, error: 'generic forms are disabled for pharmacy accounts' }, 403);
     }
     const friendId = friend.id;
 

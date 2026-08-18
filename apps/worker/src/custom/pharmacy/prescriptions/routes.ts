@@ -9,6 +9,7 @@ import {
   type PrescriptionPatient,
 } from './patient.js';
 import { deliverPrescriptionNotification } from './notifications.js';
+import { recordAcceptedSubmissionActivation } from '../growth-loop/onboarding.js'; // custom:pharmacy-growth-loop
 import {
   completeContinuityAfterClose,
   linkContinuitySubmission,
@@ -28,10 +29,13 @@ import {
   reservePrescriptionResubmission,
   submitPrescription,
 } from './repository.js';
+import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
+import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
   IMAGES?: R2Bucket;
+  LINE_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
   WORKER_PUBLIC_URL?: string;
 };
@@ -82,8 +86,13 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
 });
 
 prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) => {
+  const staff = c.get('staff');
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessPharmacyOperationsAccount(
+    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
+  ))) return c.json({ error: 'Forbidden' }, 403);
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();
 });
@@ -156,21 +165,35 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
   }
   try {
-    await submitPrescription(
+    const transition = await submitPrescription(
       c.env.DB,
       patient,
       c.req.param('id'),
       body.expectedUpdatedAt,
     );
-    await linkContinuitySubmission(
-      c.env.DB, patient.lineAccountId, c.req.param('id'), patient.friendId,
-    );
-    await deliverPrescriptionNotification(
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, patient.lineAccountId, 'prescription_received',
+        `prescription:received:${c.req.param('id')}`,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] activity notification unavailable');
+    }
+    try {
+      await linkContinuitySubmission(
+        c.env.DB, patient.lineAccountId, c.req.param('id'), patient.friendId,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] continuity link unavailable');
+    }
+    const notification = await deliverPrescriptionNotification(
       c.env.DB,
+      patient.lineAccountId,
       c.req.param('id'),
       notificationOptions(c.req.url, c.env),
+      transition.statusEventId,
     );
-    return c.json({ status: 'received' });
+    return c.json({ status: 'received', statusEventId: transition.statusEventId, notification });
   } catch (error) {
     if (error instanceof Error && error.message === 'prescription submit conflict') {
       return c.json({ error: 'Prescription changed or is incomplete' }, 409);
@@ -417,12 +440,14 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
   if (
     typeof body.expectedUpdatedAt !== 'string' ||
     !Number.isFinite(Date.parse(body.expectedUpdatedAt)) ||
-    !(body.reasonCode === undefined || body.reasonCode === null || typeof body.reasonCode === 'string')
+    !(body.reasonCode === undefined || body.reasonCode === null || typeof body.reasonCode === 'string') ||
+    !(body.operationId === undefined || body.operationId === null ||
+      (typeof body.operationId === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(body.operationId)))
   ) {
     return c.json({ error: 'Invalid action input' }, 400);
   }
   try {
-    const status = await applyAdminPrescriptionAction(
+    const transition = await applyAdminPrescriptionAction(
       c.env.DB,
       lineAccountId,
       c.req.param('id'),
@@ -430,16 +455,47 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
       body.expectedUpdatedAt,
       staff.id,
       typeof body.reasonCode === 'string' ? body.reasonCode : null,
+      typeof body.operationId === 'string' ? body.operationId : null,
     );
-    if (action === 'admin_close') {
-      await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);
+    if (action === 'admin_accept') {
+      try {
+        await recordAcceptedSubmissionActivation(c.env.DB, lineAccountId, c.req.param('id'));
+      } catch (error) {
+        // Metrics are observability only; never turn a committed pharmacist action into a 500.
+        console.error('[pharmacy-growth] activation metric failed', error);
+      }
     }
-    await deliverPrescriptionNotification(
+    try {
+      await enqueueActivityForAccount(
+        c.env.DB, lineAccountId, 'prescription_status_changed',
+        `prescription:status:${c.req.param('id')}:${transition.status}`,
+      );
+    } catch {
+      console.error('[pharmacy-prescription] status activity unavailable');
+    }
+    const notification = await deliverPrescriptionNotification(
       c.env.DB,
+      lineAccountId,
       c.req.param('id'),
       notificationOptions(c.req.url, c.env),
+      transition.statusEventId,
     );
-    return c.json({ status });
+    let continuity: 'completed' | 'retry_pending' | undefined;
+    if (action === 'admin_close') {
+      try {
+        await completeContinuityAfterClose(c.env.DB, lineAccountId, c.req.param('id'), staff.id);
+        continuity = 'completed';
+      } catch {
+        continuity = 'retry_pending';
+        console.error('[pharmacy-prescription] continuity completion unavailable');
+      }
+    }
+    return c.json({
+      status: transition.status,
+      statusEventId: transition.statusEventId,
+      notification,
+      ...(continuity ? { continuity } : {}),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.includes('conflict') || message.includes('transition')) {
@@ -449,6 +505,10 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
         message === 'fulfillment quote not acceptable' ||
         message === 'fulfillment quote invalid') {
       return c.json({ error: '受付内容の確認が完了していません' }, 409);
+    }
+    if (message === 'prescription validity verification required' ||
+        message === 'prescription validity expired') {
+      return c.json({ error: '処方せんの使用期限を確認してください' }, 409);
     }
     if (message === 'invalid resubmission reason') {
       return c.json({ error: 'Invalid resubmission reason' }, 400);
