@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "version": "0.23.1",
-  "release_sequence": 2,
-  "previous_commit": "783d5a551594efedc7e98334a627feda0ef09920",
+  "version": "0.25.0",
+  "release_sequence": 3,
+  "previous_commit": "51da5c2d3ef3e9d1fdfd33951f105b5ee37e6b07",
   "update_class": "manual",
   "manual_reasons": [
-    "synchronize dev and main release history",
-    "align production LIFF delivery and release verification"
+    "unify runtime and pharmacy release versions",
+    "include customer state preservation and LIFF topology guards"
   ],
   "required_configuration": [],
   "minimum_client_version": "0.21.3",
