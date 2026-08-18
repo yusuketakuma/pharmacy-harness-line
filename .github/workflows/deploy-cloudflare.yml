@@ -131,6 +131,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check additive migration safety
+        run: pnpm tsx scripts/check-migrations.ts
+
       - name: Patch wrangler config
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
