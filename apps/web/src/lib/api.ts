@@ -5,7 +5,6 @@ import type {
   ScenarioStep,
   ApiResponse,
   PaginatedResponse,
-  User,
   LineAccount,
   ConversionPoint,
   Affiliate,
@@ -15,16 +14,12 @@ import type {
   Chat,
   Reminder,
   ReminderStep,
-  ScoringRule,
   IncomingWebhook,
   IncomingWebhookCreated,
   OutgoingWebhook,
   OutgoingWebhookCreated,
-  NotificationRule,
-  Notification,
   AccountHealthLog,
   AccountMigration,
-  StaffMember,
   Broadcast,
   BroadcastTargetType,
   EntryRoute,
@@ -572,33 +567,6 @@ export const api = {
   },
 
   // ── Round 2 APIs ─────────────────────────────────────────────────────────
-  users: {
-    list: () =>
-      fetchApi<ApiResponse<User[]>>('/api/users'),
-    get: (id: string) =>
-      fetchApi<ApiResponse<User>>(`/api/users/${id}`),
-    create: (data: { email?: string | null; phone?: string | null; externalId?: string | null; displayName?: string | null }) =>
-      fetchApi<ApiResponse<User>>('/api/users', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    update: (id: string, data: Partial<Pick<User, 'email' | 'phone' | 'externalId' | 'displayName'>>) =>
-      fetchApi<ApiResponse<User>>(`/api/users/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/users/${id}`, { method: 'DELETE' }),
-    link: (userId: string, friendId: string) =>
-      fetchApi<ApiResponse<null>>(`/api/users/${userId}/link`, {
-        method: 'POST',
-        body: JSON.stringify({ friendId }),
-      }),
-    accounts: (userId: string) =>
-      fetchApi<ApiResponse<{ id: string; lineUserId: string; displayName: string | null; isFollowing: boolean }[]>>(
-        `/api/users/${userId}/accounts`,
-      ),
-  },
   lineAccounts: {
     list: () =>
       fetchApi<ApiResponse<LineAccount[]>>('/api/line-accounts'),
@@ -1014,28 +982,6 @@ export const api = {
         method: 'DELETE',
       }),
   },
-  scoring: {
-    rules: () =>
-      fetchApi<ApiResponse<ScoringRule[]>>('/api/scoring-rules'),
-    getRule: (id: string) =>
-      fetchApi<ApiResponse<ScoringRule>>(`/api/scoring-rules/${id}`),
-    createRule: (data: { name: string; eventType: string; scoreValue: number }) =>
-      fetchApi<ApiResponse<ScoringRule>>('/api/scoring-rules', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    updateRule: (id: string, data: Partial<Pick<ScoringRule, 'name' | 'eventType' | 'scoreValue' | 'isActive'>>) =>
-      fetchApi<ApiResponse<ScoringRule>>(`/api/scoring-rules/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-    deleteRule: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/scoring-rules/${id}`, { method: 'DELETE' }),
-    friendScore: (friendId: string) =>
-      fetchApi<ApiResponse<{ totalScore: number; history: { id: string; scoreChange: number; reason: string | null; createdAt: string }[] }>>(
-        `/api/friends/${friendId}/score`,
-      ),
-  },
   mileage: {
     overview: (params?: { accountId?: string; search?: string; limit?: number; offset?: number }) => {
       const query = new URLSearchParams()
@@ -1101,30 +1047,6 @@ export const api = {
         fetchApi<ApiResponse<null>>(`/api/webhooks/outgoing/${id}`, { method: 'DELETE' }),
     },
   },
-  notifications: {
-    rules: {
-      list: () =>
-        fetchApi<ApiResponse<NotificationRule[]>>('/api/notifications/rules'),
-      get: (id: string) =>
-        fetchApi<ApiResponse<NotificationRule>>(`/api/notifications/rules/${id}`),
-      create: (data: { name: string; eventType: string; conditions?: Record<string, unknown>; channels?: string[] }) =>
-        fetchApi<ApiResponse<NotificationRule>>('/api/notifications/rules', {
-          method: 'POST',
-          body: JSON.stringify(data),
-        }),
-      update: (id: string, data: Partial<Pick<NotificationRule, 'name' | 'eventType' | 'conditions' | 'channels' | 'isActive'>>) =>
-        fetchApi<ApiResponse<NotificationRule>>(`/api/notifications/rules/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data),
-        }),
-      delete: (id: string) =>
-        fetchApi<ApiResponse<null>>(`/api/notifications/rules/${id}`, { method: 'DELETE' }),
-    },
-    list: (params?: { status?: string; limit?: string }) =>
-      fetchApi<ApiResponse<Notification[]>>(
-        '/api/notifications?' + new URLSearchParams(params as Record<string, string>),
-      ),
-  },
   health: {
     accounts: () =>
       fetchApi<ApiResponse<LineAccount[]>>('/api/line-accounts'),
@@ -1141,31 +1063,6 @@ export const api = {
       }),
     getMigration: (migrationId: string) =>
       fetchApi<ApiResponse<AccountMigration>>(`/api/accounts/migrations/${migrationId}`),
-  },
-  staff: {
-    list: () =>
-      fetchApi<ApiResponse<StaffMember[]>>('/api/staff'),
-    get: (id: string) =>
-      fetchApi<ApiResponse<StaffMember>>(`/api/staff/${id}`),
-    me: () =>
-      fetchApi<ApiResponse<{ id: string; name: string; role: string; email: string | null }>>('/api/staff/me'),
-    create: (data: { name: string; loginId: string; email?: string; role: 'admin' | 'staff' }) =>
-      fetchApi<ApiResponse<StaffMember & { loginId: string; temporaryPassword: string }>>('/api/staff', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    update: (id: string, data: { name?: string; email?: string | null; role?: string; isActive?: boolean }) =>
-      fetchApi<ApiResponse<StaffMember>>(`/api/staff/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/staff/${id}`, { method: 'DELETE' }),
-    resetPassword: (id: string, loginId?: string) =>
-      fetchApi<ApiResponse<{ loginId: string; temporaryPassword: string }>>(
-        `/api/staff/${id}/reset-password`,
-        { method: 'POST', body: JSON.stringify({ loginId }) },
-      ),
   },
   usersGrouped: {
     list: (opts?: {

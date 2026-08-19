@@ -1330,15 +1330,6 @@ async function scheduled(
       console.error('event-booking-expirer error:', e);
     }
   }
-
-  // Cross-account duplicate detection — disabled.
-  // The cron used to materialize duplicates into the tag system but the 1k-subrequest
-  // budget can't drain a 1k+ candidate backlog, and a live SELECT against
-  // friends.picture_url / display_name / status_message gives the same answer
-  // on demand. Replacement: a /api/duplicates endpoint plus a dashboard view
-  // (planned alongside the multi-provider UI work). Keeping the service file
-  // (apps/worker/src/services/duplicate-detect.ts) and the existing
-  // `重複:` tag rows untouched until that replacement lands.
 }
 
 export default {
