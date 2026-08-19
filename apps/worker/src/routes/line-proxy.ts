@@ -24,6 +24,7 @@ import {
   findLineCredentialByAccessToken,
   readLineCredential,
 } from '../custom/pharmacy/provisioning/line-credential-store.js';
+import { sameText } from '../custom/pharmacy/provisioning/line-credentials.js';
 import {
   canAccessPharmacyAccount,
   hasPharmacyModeAccount,
@@ -232,7 +233,7 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
   // Legacy unscoped install fallback. It is intentionally unreachable from
   // the staff-key path above, which always requires tenant membership and an
   // encrypted tenant credential.
-  if (token === c.env.LINE_CHANNEL_ACCESS_TOKEN) {
+  if (sameText(token, c.env.LINE_CHANNEL_ACCESS_TOKEN)) {
     try {
       if (await hasPharmacyModeAccount(c.env.DB)) {
         return c.json({ message: 'Account scope required in a pharmacy installation' }, 403);

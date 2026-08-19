@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
-import { authMiddleware } from './auth.js';
+import { authMiddleware, authenticateApiToken } from './auth.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './admin-auth-config.js';
 import { adminAuth } from '../routes/admin-auth.js';
 import type { Env } from '../index.js';
@@ -19,7 +20,7 @@ const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
 const TENANT_ID = 'tenant:pharmacy-a';
 const TENANT_CODE = 'pharmacy-a';
 
-function tenantDb(): D1Database {
+function tenantDb(pharmacyMode = 1): D1Database {
   return {
     prepare(sql: string) {
       return {
@@ -32,7 +33,7 @@ function tenantDb(): D1Database {
                       id: TENANT_ID,
                       tenant_code: TENANT_CODE,
                       display_name: 'Pharmacy A',
-                      pharmacy_mode: 1,
+                      pharmacy_mode: pharmacyMode,
                     }
                   : null;
               }
@@ -262,6 +263,70 @@ describe('protected API access', () => {
       headers: { Cookie: 'lh_admin_session=%; other=%E0%A4%A' },
     }, crossSiteEnv());
     expect(res.status).toBe(401);
+  });
+});
+
+describe('LEGACY_ENV_OWNER_BYPASS logging', () => {
+  test('logs accept_via=LEGACY_ENV_OWNER_BYPASS when the bypass path is actually taken', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const res = await app().request('/api/protected', {
+      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+    }, env({
+      DB: tenantDb(0), // non-pharmacy-mode tenant: the only case the bypass fires for
+      ADMIN_ORIGIN: PAGES,
+      ADMIN_ALLOW_CROSS_SITE: 'true',
+      LEGACY_ENV_OWNER_BYPASS: 'true',
+    }));
+    expect(res.status).toBe(200);
+    expect(log).toHaveBeenCalledWith(`[auth] accept_via=LEGACY_ENV_OWNER_BYPASS tenant=${TENANT_ID}`);
+    log.mockRestore();
+  });
+});
+
+describe('constant-time secret comparison', () => {
+  function fakeContext(overrides: Partial<Env['Bindings']> = {}): Context<Env> {
+    return { env: env(overrides) } as unknown as Context<Env>;
+  }
+
+  test('API_KEY: accepts an exact match', async () => {
+    const staff = await authenticateApiToken(fakeContext(), 'env-key');
+    expect(staff).toMatchObject({ id: 'env-owner' });
+  });
+
+  test('API_KEY: rejects a same-length near-miss', async () => {
+    // 'env-key' is 7 chars; 'env-kex' is also 7 chars but does not match.
+    const staff = await authenticateApiToken(fakeContext(), 'env-kex');
+    expect(staff).toBeNull();
+  });
+
+  test('API_KEY: rejects a different-length near-miss', async () => {
+    const staff = await authenticateApiToken(fakeContext(), 'env-key-but-longer');
+    expect(staff).toBeNull();
+  });
+
+  test('LEGACY_API_KEY: accepts an exact match', async () => {
+    const staff = await authenticateApiToken(
+      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
+      'legacy-key',
+    );
+    expect(staff).toMatchObject({ id: 'env-owner' });
+  });
+
+  test('LEGACY_API_KEY: rejects a same-length near-miss', async () => {
+    // Same length as 'legacy-key' (10 chars), differs in the last character.
+    const staff = await authenticateApiToken(
+      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
+      'legacy-kex',
+    );
+    expect(staff).toBeNull();
+  });
+
+  test('LEGACY_API_KEY: rejects a different-length near-miss', async () => {
+    const staff = await authenticateApiToken(
+      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
+      'legacy-key-but-longer',
+    );
+    expect(staff).toBeNull();
   });
 });
 

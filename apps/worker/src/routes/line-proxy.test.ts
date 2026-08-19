@@ -346,6 +346,14 @@ describe('auth', () => {
     expect(rows[0].lineAccountId).toBeNull();
   });
 
+  test('rejects a same-length near-miss of the env fallback token', async () => {
+    // 'env-token' is 9 chars; 'env-tokeX' is also 9 chars but does not match.
+    const { db } = fakeDb();
+    const res = await setupApp().request(pushRequest('env-tokeX'), {}, env(db));
+    expect(res.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('env fallback token cannot bypass a pharmacy account send policy', async () => {
     const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
     const res = await setupApp().request(pushRequest('env-token'), {}, env(db));

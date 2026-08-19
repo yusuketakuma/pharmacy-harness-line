@@ -135,7 +135,7 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function sameText(left: string, right: string): boolean {
+export function sameText(left: string, right: string): boolean {
   let difference = left.length ^ right.length;
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {

@@ -6,6 +6,7 @@ import {
   hashTenantAdminSessionToken,
   isTenantAdminSessionToken,
 } from '../custom/pharmacy/provisioning/credentials.js';
+import { sameText } from '../custom/pharmacy/provisioning/line-credentials.js';
 
 export const ADMIN_AUTH_COOKIE = 'lh_admin_session';
 export const TENANT_COOKIE = 'lh_tenant';
@@ -160,6 +161,7 @@ export async function resolveAuthenticatedTenant(
     if (!tenant) return null;
 
     if (staff.id === 'env-owner' && allowEnvOwnerBypass && tenant.pharmacy_mode !== 1) {
+      console.log('[auth] accept_via=LEGACY_ENV_OWNER_BYPASS tenant=' + tenant.id);
       return {
         staff,
         tenant: { id: tenant.id, code: tenant.tenant_code, name: tenant.display_name },
@@ -283,13 +285,13 @@ export async function authenticateApiToken(
 ): Promise<AuthenticatedStaff | null> {
   if (!token) return null;
 
-  const staff = await getStaffByApiKey(c.env.DB, token);
+  const staff = await getStaffByApiKey(c.env.DB, token, c.env.STAFF_API_KEY_HASH_SECRET);
   if (staff) {
     return { id: staff.id, name: staff.name, role: staff.role };
   }
 
   // Fallback: env API_KEY acts as owner (current rotation slot)
-  if (token === c.env.API_KEY) {
+  if (sameText(token, c.env.API_KEY)) {
     return { id: 'env-owner', name: 'Owner', role: 'owner' };
   }
 
@@ -301,7 +303,7 @@ export async function authenticateApiToken(
   if (
     c.env.LEGACY_API_KEY &&
     c.env.LEGACY_API_KEY !== c.env.API_KEY &&
-    token === c.env.LEGACY_API_KEY
+    sameText(token, c.env.LEGACY_API_KEY)
   ) {
     console.log('[auth] accept_via=LEGACY_API_KEY');
     return { id: 'env-owner', name: 'Owner', role: 'owner' };
