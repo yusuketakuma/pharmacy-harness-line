@@ -95,6 +95,13 @@ export function findResidualPlaceholders(files: Map<string, Buffer>): string[] {
  * (`packages/create-line-harness/src/steps/database.ts`); the update and
  * adoption flows reuse the same policy via this predicate.
  *
+ * A duplicate CREATE TABLE / CREATE INDEX is genuinely benign: the object
+ * name carries the whole definition an additive migration cares about.
+ * A duplicate CREATE TRIGGER is NOT — same name, different body is a real
+ * divergence — so `applyD1Migrations` compares the live trigger definition
+ * (see {@link createTriggerName} / {@link normalizeTriggerSql}) instead of
+ * trusting this predicate alone.
+ *
  * Matches both wrangler CLI stderr and the D1 REST API error text.
  */
 export function isBenignSchemaErrorText(text: string): boolean {
@@ -104,4 +111,37 @@ export function isBenignSchemaErrorText(text: string): boolean {
     t.includes('already exists') ||
     (t.includes('table') && t.includes('already'))
   );
+}
+
+/** Comment-free `CREATE TRIGGER` head, capturing the trigger name. */
+const CREATE_TRIGGER_HEAD =
+  /^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))/i;
+
+/**
+ * Name of the trigger a statement creates, or null when the statement is not
+ * a CREATE TRIGGER. Input must already be comment-free.
+ */
+export function createTriggerName(statement: string): string | null {
+  const match = CREATE_TRIGGER_HEAD.exec(statement);
+  if (!match) return null;
+  return match[1] ?? match[2] ?? match[3] ?? match[4] ?? null;
+}
+
+/**
+ * Normalize a CREATE TRIGGER statement so a migration's own text can be
+ * compared with what SQLite stored in `sqlite_master.sql`. SQLite keeps the
+ * original text but drops `IF NOT EXISTS` and the trailing semicolon, and
+ * whitespace/keyword case never change a trigger's meaning.
+ *
+ * ponytail: string normalization, not a SQL parser — a body that differs only
+ * by string-literal case compares equal. Parse when that case appears.
+ */
+export function normalizeTriggerSql(sql: string): string {
+  return sql
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;$/, '')
+    .toLowerCase()
+    .replace(/^create (temp(?:orary)? )?trigger if not exists /, 'create $1trigger ')
+    .trim();
 }

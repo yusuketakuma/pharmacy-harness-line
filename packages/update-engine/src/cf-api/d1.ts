@@ -9,20 +9,24 @@ import { authHeader, d1QueryApiUrl, readBodyExcerpt, throwHttpError } from './_s
  * against a customer's D1 instance using only their CF API token + account
  * id + database id — no `wrangler` binary required at runtime.
  *
- * Batch / transaction support is intentionally out of scope for v1; migrations
- * are applied one statement at a time so a failure surfaces against the exact
- * SQL that broke.
+ * `sql` may hold one statement or several semicolon-separated ones: D1 runs a
+ * multi-statement string as a single batch and answers with one entry in
+ * `result` per statement. `applyD1Migrations` relies on that for the atomic
+ * migration+ledger write; its legacy-baseline path deliberately calls this
+ * helper once per statement instead, so a failure surfaces against the exact
+ * SQL that broke and duplicate-object errors can be skipped individually.
  */
 
 /**
- * Execute a single SQL statement against a D1 database.
+ * Execute SQL against a D1 database.
  *
  * Returns the raw Cloudflare API envelope (`{ success, result, ... }`) so
  * callers can inspect `result[0].results` for SELECT rows or `meta` for
  * row-counts on writes.
  *
  * Throws on non-2xx with the HTTP status and a truncated body excerpt so
- * caller logs always include the API's error reason.
+ * caller logs always include the API's error reason, and on a failed envelope
+ * (see {@link assertD1Success}) — HTTP 200 does not mean the SQL ran.
  */
 export async function executeD1Query(opts: {
   creds: CfApiCreds;
@@ -50,7 +54,36 @@ export async function executeD1Query(opts: {
     throw new Error(`D1 query failed HTTP ${res.status}: ${excerpt}`);
   }
 
-  return (await res.json()) as { success: boolean; result: any[] };
+  return assertD1Success((await res.json()) as { success: boolean; result: any[] });
+}
+
+/**
+ * Fail closed on a D1 envelope that reports failure.
+ *
+ * Cloudflare answers a rejected query with HTTP 200 and `success: false`, and
+ * a multi-statement request carries a per-statement `success` inside
+ * `result`. Returning either as-is is fail-open: callers record a migration
+ * whose schema change never landed.
+ */
+export function assertD1Success<T extends { success: boolean; result: any[] }>(body: T): T {
+  if (body.success !== true) throw new Error(`D1 query failed: ${d1ErrorDetail(body)}`);
+  const results = body.result ?? [];
+  for (let i = 0; i < results.length; i += 1) {
+    const statement = results[i];
+    if (statement && typeof statement === 'object' && 'success' in statement
+      && statement.success !== true) {
+      throw new Error(`D1 query failed at statement ${i + 1}: ${d1ErrorDetail(statement)}`);
+    }
+  }
+  return body;
+}
+
+/** Error reason from a D1 envelope, truncated like `readBodyExcerpt`. */
+function d1ErrorDetail(body: unknown): string {
+  const source = (body ?? {}) as { errors?: unknown; messages?: unknown; error?: unknown };
+  const detail = source.errors ?? source.messages ?? source.error ?? body;
+  const text = typeof detail === 'string' ? detail : JSON.stringify(detail);
+  return text && text.length > 500 ? `${text.slice(0, 500)}…` : (text ?? '');
 }
 
 export async function getD1Bookmark(opts: {
