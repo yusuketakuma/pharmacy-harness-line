@@ -30,7 +30,32 @@
   - **本人が直接修正した1件**: `platformAdminAuthMiddleware`のmust_change_password強制が`/logout`もブロックしてしまい、初回ログイン(bootstrap)の管理者がパスワード変更前にログアウトできない状態だった(エージェントが検出・報告、意図的に自スコープ外として未修正のまま報告)。`/api/platform-admin/logout`を許可パスに追加して解消、`auth.test.ts` 41/41・`platform-admin`関連70テスト成功を確認。
 - [x] フロントエンド(apps/web) 完了(2026-08-19)。`/platform-admin/{login,tenants,tenants/detail,tenants/patients,tenants/patients/detail,logs,audit}` の7ページ。`apps/web`は`output: 'export'`(静的サイト生成)のためNext.jsの動的ルートセグメントが使えず、このアプリの既存規約(`?id=`クエリパラメータ、例: `scenarios/detail`)に倣う設計変更をエージェントが自律的に実施(仕様の逸脱ではなく、既存規約への正しい追従)。テナント編集フォームは`displayName`/`status`のみ送信し`tenantCode`は送らない(バックエンドのホワイトリストと一致)。CSRFトークン・localStorageキーは`lh_platform_admin_*`で完全分離。全ページに「全体管理者モード」の常時バナー表示。テスト59/59成功、`pnpm --filter web build`成功(全7ページ含め静的プリレンダリング確認)。
   - **本人が直接精査した点**: `layout.tsx`のガード(未認証/要パスワード変更でログイン画面へリダイレクト)、`platform-admin-api.ts`のCSRF処理・全ID値の`encodeURIComponent`を確認、実装品質を承認。
-- [x] 統合テスト・モノレポ全体の最終検証・コミット 完了(2026-08-19)。`pnpm -r typecheck`全パッケージエラーなし、`pnpm -r test`全パッケージグリーン(worker 171/1570・db 47/248・update-engine 22/215・web 21/59・liff 11/31・sdk 13/55・line-sdk 1/3・create-line-harness 8/61、いずれもファイル数/テスト数)、`pnpm --filter web build`成功。4コミットに分割してコミット済み(`feat(db)`/`feat(pharmacy)`/`feat(web)`/`docs`)。次: 機能まとめmdファイルの作成(ユーザー指示、下記で対応)。
+- [x] 統合テスト・モノレポ全体の最終検証・コミット 完了(2026-08-19)。`pnpm -r typecheck`全パッケージエラーなし、`pnpm -r test`全パッケージグリーン(worker 171/1570・db 47/248・update-engine 22/215・web 21/59・liff 11/31・sdk 13/55・line-sdk 1/3・create-line-harness 8/61、いずれもファイル数/テスト数)、`pnpm --filter web build`成功。4コミットに分割してコミット済み(`feat(db)`/`feat(pharmacy)`/`feat(web)`/`docs`)。
+- [x] 機能まとめmdファイル作成・送付 完了(2026-08-19、ユーザー指示)。
+
+### 外部レビュー(2回目、platform-admin仕様書に対する「条件付きNo-Go」)への対応 — 2026-08-19
+
+前回同様、実コードで一つずつ検証した(レビュアー自身も「コード・マイグレーション・Cookie属性・テストは未確認、仕様書のみのレビュー」と明言している)。
+
+**実コードで確認し、修正した妥当な指摘(3件、コミット済み)**:
+- [x] **Cookie の Path属性がサイト全体(`Path=/`)** だった。`/api/platform-admin` にスコープするよう修正(`buildCookie`にオプション引数追加、既存呼び出し元は`/`のまま非破壊)。ただし本対策は「意図的にそのパスを狙うfetch」までは防げない旨、ユーザーへの回答で明記。
+- [x] **`GET /audit?all=true`(他の全体管理者の履歴閲覧)が監査対象外**だった。`view_audit_all`イベントとして記録するよう追加(自分の履歴閲覧は従来どおり対象外のまま — 無限再帰を避けるための意図的な区別)。
+- [x] **bootstrap発行APIが`PLATFORM_ADMIN_KEY`だけで無制限に全体管理者を追加作成できた**。2人目以降は既存の有効な全体管理者セッションも必須に変更(`platform_admins`にis_active行が1件以上あれば、Cookieによる既存管理者セッション検証を追加要求)。`granted_by`も固定文字列ではなく実際の発行者IDを記録するよう修正。テスト2件追加(制限なしでは403・既存セッションありでは201かつgranted_by記録)。
+
+**実コードと矛盾するため却下した指摘**:
+- 「`patientId`がテナント間で衝突し誤帰属しうる」(重大度High) → `pharmacy_patients.id`は`TEXT PRIMARY KEY`でテーブル全体にわたり一意。レビュアーが提示したテストケース(「Tenant AとTenant Bに同じpatientId」)はスキーマ上構成不可能。
+- 「`status=suspended`の意味・影響範囲が未定義」 → `tenants.status='active'`は本セッション以前から既にログイン・LINE認証情報取得・継続フォロー・growth-loop等15箇所以上で一貫して参照されている既存の確立済みゲート。新機能で新設したものでも未定義のものでもない。
+- 「同一オリジンXSSによるCookie自動送信でPHI窃取可能」(重大度Critical・能動的脆弱性として記載) → `apps/web`/`apps/liff`全体に`dangerouslySetInnerHTML`の使用は0件、React/JSXのデフォルトエスケープにより既知の格納型XSS経路は確認できなかった。「同一オリジンに高権限画面と低信頼コンテンツ描画画面が同居するリスク」という設計上の懸念自体は妥当だが、"Critical・能動的な脆弱性"と言えるだけの実証されたXSS経路は本セッションでは発見できていない。
+- 「処方箋ファイルのR2直接配信・X-Content-Type-Options等」 → 現状の患者詳細ビューはメタデータ(状態・日時)のみを返しR2の実ファイルバイトへの参照は一切含まない。この機能には現状該当しない。
+- 「PHI閲覧時の監査INSERT失敗時にレスポンスを返すか不明」 → 確認済み。全PHI関連ルートは`await recordPlatformAdminAccess(...)`をレスポンス返却の**前**に実行しており、関数自体もエラーを握りつぶさない(try/catchなし)ため、監査書き込み失敗時はHonoが500を返しPHI本文は送出されない。既にfail-closed。
+
+**経営判断が必要なため実装せず、ユーザーに確認する**: MFA/re-authentication必須化、全体管理者専用の別オリジンへの分離、ロール細分化(Operator/Support/Auditor/Root)。いずれも大きなインフラ・製品判断を伴うため、下記の新規提案とあわせてユーザーに優先順位を確認する。
+
+### 新規提案: Tenant Control Center + 期限付きサポートモード(未着手・要スコープ確認)
+
+2026-08-19、ユーザーから大規模な追加提案を受領。現行の「常時全権閲覧」ではなく、通常モード(PHI非表示・稼働状況/整合性/セキュリティの監視)とサポートモード(理由・チケット番号・期限・MFA再認証を伴う一時的なPHIアクセス)の2層構成への再設計。全体ダッシュボード・テナントヘルス画面・LINE連携診断・データ整合性検査・安全な運用コントロール(段階的停止)・監査/異常検知センターを含む。提案内で「最初に追加すべき一機能」として期限付きサポートモード(`platform_admin_access_grants`テーブル、理由・チケット番号・スコープ・期限・MFA再認証済み時刻を持つ)を優先候補として明示している。
+
+規模が非常に大きい(実質的に複数スプリント相当)ため、本セッションでは実装せず、着手前にユーザーへ優先順位を確認する。
 
 ---
 
