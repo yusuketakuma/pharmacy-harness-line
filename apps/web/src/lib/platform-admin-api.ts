@@ -244,6 +244,104 @@ export type PlatformLogs = {
   platformAdminAccess?: PlatformAccessEvent[]
 }
 
+/**
+ * A support-mode grant, exactly as the API returns it.
+ *
+ * `scopes` is a JSON-encoded array, not an array: the backend stores the
+ * column as TEXT and hands the row back verbatim (access-grant.ts). Parse it
+ * with `grantScopes()` rather than assuming a shape.
+ */
+export type PlatformSupportGrant = {
+  id: string
+  platform_admin_id: string
+  tenant_id: string
+  scopes: string
+  reason: string
+  ticket_reference: string | null
+  issued_at: string
+  expires_at: string
+  revoked_at: string | null
+}
+
+export const PHI_READ_SCOPE = 'phi:read'
+export const DEFAULT_GRANT_MINUTES = 15
+export const MAX_GRANT_MINUTES = 60
+
+export function grantScopes(grant: PlatformSupportGrant): string[] {
+  try {
+    const parsed: unknown = JSON.parse(grant.scopes)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The PHI routes return 403 for exactly one reason: no active support-mode
+ * grant for that tenant. Everything else they can fail with is 401 (session)
+ * or 404 (unknown tenant/patient), so status alone identifies the case.
+ */
+export function isSupportModeRequired(error: unknown): boolean {
+  return error instanceof PlatformAdminApiError && error.status === 403
+}
+
+export type PlatformDashboard = {
+  totalTenants: number
+  activeTenants: number
+  suspendedTenants: number
+  webhookFailures24h: number
+  webhookPending: number
+  activeSupportGrants: number
+  tenantsWithStaleActivity: number
+}
+
+export type PlatformTenantHealth = {
+  tenantId: string
+  lineAccounts: Array<{
+    id: string
+    name: string
+    isActive: boolean
+    hasChannelIdentity: boolean
+    lastWebhookAt: string | null
+  }>
+  webhook24h: { success: number; failed: number }
+  activeStaffCount: number
+  activeSessionCount: number
+  lastAdminLoginAt: string | null
+}
+
+export type PlatformIntegrityCheck = {
+  name: string
+  status: 'ok' | 'warn' | 'critical'
+  affectedCount: number
+  sampleIds: string[]
+}
+
+export type PlatformStaffMember = {
+  staffId: string
+  name: string
+  email: string | null
+  role: string
+  isActive: boolean
+  membershipActive: boolean
+  activeSessionCount: number
+}
+
+export type PlatformLineStatus = {
+  id: string
+  name: string
+  channelId: string
+  isActive: boolean
+  hasBotIdentity: boolean
+  hasEncryptedCredential: boolean
+  lastWebhookReceivedAt: string | null
+}
+
+/** A failed probe is a normal diagnostic result, so it arrives at HTTP 200. */
+export type PlatformLineProbe =
+  | { ok: true; botUserId: string; displayName: string | null }
+  | { ok: false; error: string }
+
 type Envelope<T> = { success: boolean; data: T; csrfToken?: string }
 
 export const platformAdminApi = {
@@ -291,4 +389,72 @@ export const platformAdminApi = {
     const suffix = query.toString()
     return platformAdminFetch<Envelope<PlatformAccessEvent[]>>(`/audit${suffix ? `?${suffix}` : ''}`)
   },
+
+  // --- support mode (期限付きPHIアクセス) ---
+  /** `currentPassword` is a step-up re-authentication. It is sent and forgotten:
+   *  never stored, never logged, never put in a URL. */
+  startSupportGrant: (
+    tenantId: string,
+    input: {
+      reason: string
+      ticketReference?: string
+      scopes: string[]
+      currentPassword: string
+      durationMinutes?: number
+    },
+  ) =>
+    platformAdminFetch<Envelope<PlatformSupportGrant>>(
+      `/tenants/${encodeURIComponent(tenantId)}/support-grants`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  endSupportGrant: (grantId: string) =>
+    platformAdminFetch<Envelope<null>>(
+      `/support-grants/${encodeURIComponent(grantId)}/end`,
+      { method: 'POST' },
+    ),
+  activeSupportGrants: () =>
+    platformAdminFetch<Envelope<PlatformSupportGrant[]>>('/support-grants/active'),
+
+  // --- dashboard / health ---
+  dashboard: () => platformAdminFetch<Envelope<PlatformDashboard>>('/dashboard'),
+  tenantHealth: (tenantId: string) =>
+    platformAdminFetch<Envelope<PlatformTenantHealth>>(
+      `/tenants/${encodeURIComponent(tenantId)}/health`,
+    ),
+  integrity: () => platformAdminFetch<Envelope<PlatformIntegrityCheck[]>>('/integrity'),
+
+  // --- tenant operations ---
+  staff: (tenantId: string) =>
+    platformAdminFetch<Envelope<PlatformStaffMember[]>>(
+      `/tenants/${encodeURIComponent(tenantId)}/staff`,
+    ),
+  disableStaff: (tenantId: string, staffId: string) =>
+    platformAdminFetch<Envelope<{ staffId: string; sessionsRevoked: number }>>(
+      `/tenants/${encodeURIComponent(tenantId)}/staff/${encodeURIComponent(staffId)}/disable`,
+      { method: 'POST' },
+    ),
+  revokeTenantSessions: (tenantId: string) =>
+    platformAdminFetch<Envelope<{ revoked: number }>>(
+      `/tenants/${encodeURIComponent(tenantId)}/revoke-sessions`,
+      { method: 'POST' },
+    ),
+  lineStatus: (tenantId: string) =>
+    platformAdminFetch<Envelope<PlatformLineStatus[]>>(
+      `/tenants/${encodeURIComponent(tenantId)}/line-status`,
+    ),
+  testLineConnection: (tenantId: string, lineAccountId: string) =>
+    platformAdminFetch<Envelope<PlatformLineProbe>>(
+      `/tenants/${encodeURIComponent(tenantId)}/line-accounts/${encodeURIComponent(lineAccountId)}/test-connection`,
+      { method: 'POST' },
+    ),
+  setOutboundMessaging: (tenantId: string, paused: boolean) =>
+    platformAdminFetch<Envelope<{ id: string; outboundMessagingPausedAt: string | null }>>(
+      `/tenants/${encodeURIComponent(tenantId)}/outbound-messaging`,
+      { method: 'POST', body: JSON.stringify({ paused }) },
+    ),
+  retryWebhookEvent: (tenantId: string, webhookEventId: string) =>
+    platformAdminFetch<Envelope<{ webhookEventId: string; outcome: 'completed' | 'failed' | 'skipped' }>>(
+      `/tenants/${encodeURIComponent(tenantId)}/webhook-events/${encodeURIComponent(webhookEventId)}/retry`,
+      { method: 'POST' },
+    ),
 }

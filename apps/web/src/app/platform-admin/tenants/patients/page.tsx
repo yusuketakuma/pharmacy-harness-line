@@ -1,8 +1,13 @@
 'use client'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { platformAdminApi, type PlatformPatient } from '@/lib/platform-admin-api'
+import {
+  isSupportModeRequired,
+  platformAdminApi,
+  type PlatformPatient,
+} from '@/lib/platform-admin-api'
+import { SupportModeRequired } from '@/components/platform-admin/support-mode'
 
 const RELATIONSHIP_LABELS: Record<PlatformPatient['relationship'], string> = {
   self: '本人',
@@ -22,12 +27,21 @@ const SEX_LABELS: Record<string, string> = {
 function PatientList({ tenantId }: { tenantId: string }) {
   const [patients, setPatients] = useState<PlatformPatient[] | null>(null)
   const [error, setError] = useState('')
+  // 403 は「サポートモード未開始」だけを意味する。一般エラーとは分けて扱う。
+  const [grantMissing, setGrantMissing] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setError('')
+    setGrantMissing(false)
     platformAdminApi.patients(tenantId)
       .then((res) => setPatients(res.data))
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: Error) => {
+        if (isSupportModeRequired(caught)) setGrantMissing(true)
+        else setError(caught.message)
+      })
   }, [tenantId])
+
+  useEffect(load, [load])
 
   return (
     <div>
@@ -38,8 +52,9 @@ function PatientList({ tenantId }: { tenantId: string }) {
         ← テナント詳細
       </Link>
       <h1 className="mt-2 mb-4 text-xl font-bold">患者一覧</h1>
+      {grantMissing && <SupportModeRequired tenantId={tenantId} onStarted={load} />}
       {error && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
-      {!patients && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
+      {!patients && !error && !grantMissing && <p className="text-sm text-gray-500">読み込み中...</p>}
       {patients && (
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="min-w-full text-sm">

@@ -7,12 +7,18 @@ import {
   platformAdminApi,
   setPlatformAdminName,
 } from '@/lib/platform-admin-api'
+import { SupportModeBanner } from '@/components/platform-admin/support-mode'
 
 const NAV = [
+  { href: '/platform-admin', label: 'ダッシュボード' },
   { href: '/platform-admin/tenants', label: 'テナント一覧' },
   { href: '/platform-admin/logs', label: 'ログ' },
   { href: '/platform-admin/audit', label: '自分の操作履歴' },
 ]
+
+// ダッシュボードは区画のルートなので startsWith だと全ページで点灯する。
+const isCurrent = (pathname: string | null, href: string) =>
+  href === '/platform-admin' ? pathname === href : Boolean(pathname?.startsWith(href))
 
 /**
  * 全体管理者セクション専用のシェル。テナント側の AuthGuard / AccountProvider /
@@ -72,6 +78,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
       <div role="alert" className="bg-purple-900 px-4 py-2 text-center text-sm font-bold text-white">
         全体管理者モード — 全テナントのデータ（個人の診療記録を含む）にアクセスしています。操作はすべて監査記録に残ります。
       </div>
+      <SupportModeBanner />
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-purple-200 bg-white px-4 py-3">
         <span className="font-bold text-purple-900">Platform Admin</span>
         <nav className="flex flex-wrap gap-3 text-sm">
@@ -79,7 +86,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
             <Link
               key={item.href}
               href={item.href}
-              className={pathname?.startsWith(item.href)
+              className={isCurrent(pathname, item.href)
                 ? 'font-semibold text-purple-800 underline'
                 : 'text-gray-600 hover:text-purple-800'}
             >

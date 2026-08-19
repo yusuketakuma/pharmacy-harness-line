@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   platformAdminApi,
   type PlatformLogType,
@@ -14,10 +14,12 @@ const TYPE_OPTIONS: Array<{ value: '' | PlatformLogType; label: string }> = [
   { value: 'platform_admin_access', label: '全体管理者アクセス' },
 ]
 
-function LogTable({ title, columns, rows }: {
+function LogTable({ title, columns, rows, action }: {
   title: string
   columns: string[]
   rows: Array<Record<string, unknown>>
+  /** 行ごとの操作。返り値が null の行にはボタンを出さない。 */
+  action?: (row: Record<string, unknown>) => ReactNode
 }) {
   return (
     <details open className="rounded-lg border border-gray-200 bg-white p-4">
@@ -30,7 +32,10 @@ function LogTable({ title, columns, rows }: {
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-600">
-              <tr>{columns.map((column) => <th key={column} className="px-3 py-2">{column}</th>)}</tr>
+              <tr>
+                {columns.map((column) => <th key={column} className="px-3 py-2">{column}</th>)}
+                {action && <th className="px-3 py-2">操作</th>}
+              </tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
@@ -40,6 +45,7 @@ function LogTable({ title, columns, rows }: {
                       {row[column] === null || row[column] === undefined ? '—' : String(row[column])}
                     </td>
                   ))}
+                  {action && <td className="px-3 py-2 align-top">{action(row)}</td>}
                 </tr>
               ))}
             </tbody>
@@ -59,6 +65,8 @@ export default function PlatformAdminLogsPage() {
   const [logs, setLogs] = useState<PlatformLogs | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [retrying, setRetrying] = useState('')
+  const [retryResult, setRetryResult] = useState('')
 
   useEffect(() => {
     platformAdminApi.tenants()
@@ -89,6 +97,42 @@ export default function PlatformAdminLogsPage() {
   const submit = (event: FormEvent) => {
     event.preventDefault()
     void load()
+  }
+
+  const retry = async (rowTenantId: string, webhookEventId: string) => {
+    setRetrying(webhookEventId)
+    setError('')
+    try {
+      const res = await platformAdminApi.retryWebhookEvent(rowTenantId, webhookEventId)
+      setRetryResult(`${webhookEventId}: ${res.data.outcome}`)
+      await load()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '再試行に失敗しました')
+    } finally {
+      setRetrying('')
+    }
+  }
+
+  /**
+   * 再試行できるのは failed / dead-lettered の行だけ（バックエンドが他を400で拒否する）。
+   * テナントは行自身の tenant_id を使い、無い行だけフィルタで選択中のテナントに頼る。
+   * どちらも無ければテナントを特定できないのでボタンを出さない。
+   */
+  const retryAction = (row: Record<string, unknown>): ReactNode => {
+    const retryable = row.status === 'failed' || Boolean(row.dead_lettered_at)
+    const rowTenantId = typeof row.tenant_id === 'string' ? row.tenant_id : tenantId
+    const webhookEventId = String(row.webhook_event_id ?? '')
+    if (!retryable || !rowTenantId || !webhookEventId) return null
+    return (
+      <button
+        type="button"
+        onClick={() => void retry(rowTenantId, webhookEventId)}
+        disabled={retrying === webhookEventId}
+        className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-800 hover:bg-purple-50 disabled:opacity-50"
+      >
+        {retrying === webhookEventId ? '再試行中...' : '再試行'}
+      </button>
+    )
   }
 
   return (
@@ -123,6 +167,7 @@ export default function PlatformAdminLogsPage() {
       </form>
 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {retryResult && <p className="text-sm text-green-700">再試行の結果 — {retryResult}</p>}
 
       {logs?.prescriptionEvents && (
         <LogTable
@@ -136,6 +181,7 @@ export default function PlatformAdminLogsPage() {
           title="Webhook受信"
           columns={['received_at', 'tenant_id', 'line_account_id', 'webhook_event_id', 'status', 'retry_count', 'dead_lettered_at']}
           rows={logs.webhookReceipts}
+          action={retryAction}
         />
       )}
       {logs?.platformAdminAccess && (

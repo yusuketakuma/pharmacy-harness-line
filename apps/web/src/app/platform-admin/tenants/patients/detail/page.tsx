@@ -1,8 +1,13 @@
 'use client'
-import { Suspense, useEffect, useState, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { platformAdminApi, type PlatformPatientDetail } from '@/lib/platform-admin-api'
+import {
+  isSupportModeRequired,
+  platformAdminApi,
+  type PlatformPatientDetail,
+} from '@/lib/platform-admin-api'
+import { SupportModeRequired } from '@/components/platform-admin/support-mode'
 
 const SEX_LABELS: Record<string, string> = {
   male: '男性', female: '女性', other: 'その他', prefer_not_to_say: '回答しない',
@@ -53,13 +58,23 @@ function Section<T>({ title, rows, columns }: {
 function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: string }) {
   const [detail, setDetail] = useState<PlatformPatientDetail | null>(null)
   const [error, setError] = useState('')
+  // 403 は「サポートモード未開始」だけを意味する。一般エラーとは分けて扱う。
+  const [grantMissing, setGrantMissing] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setError('')
+    setGrantMissing(false)
     platformAdminApi.patient(tenantId, patientId)
       .then((res) => setDetail(res.data))
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: Error) => {
+        if (isSupportModeRequired(caught)) setGrantMissing(true)
+        else setError(caught.message)
+      })
   }, [tenantId, patientId])
 
+  useEffect(load, [load])
+
+  if (grantMissing) return <SupportModeRequired tenantId={tenantId} onStarted={load} />
   if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>
   if (!detail) return <p className="text-sm text-gray-500">読み込み中...</p>
 
