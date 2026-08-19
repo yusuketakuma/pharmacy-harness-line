@@ -61,7 +61,9 @@
 
 **進捗**:
 - [x] コア(自分で直接実装、検証済み・コミット済み): `custom_029_platform_admin_access_grants.sql`(グラントテーブル)、`platform-admin/access-grant.ts`(`createAccessGrant`=step-up付き発行、`requireActiveGrant`=強制、`endAccessGrant`、`listActiveGrants`、パスワード変更時のカスケード失効)。患者PHIの2ルート(`/tenants/:id/patients`、`/tenants/:id/patients/:patientId`)を有効なグラント必須に改修。グラントのライフサイクル3ルート追加(`POST /tenants/:id/support-grants`、`POST /support-grants/:id/end`、`GET /support-grants/active`)。`tsc --noEmit`エラーなし。
-- [ ] 実行中(3バッチ並列委任、ファイル衝突回避のため`platform-admin/routes.ts`本体は1バッチのみが編集): (A)ダッシュボード集計・データ整合性検査(新規`dashboard-routes.ts`) / (B)スタッフ・セッション管理・LINE接続診断(新規`operations-routes.ts`) / (C)Webhook個別再試行・LINE送信一時停止(`custom_030`)・グラント retrofit に伴う既存`routes.test.ts`の修正(最優先タスクとして明示)。
+- [x] (B) スタッフ・セッション管理・LINE接続診断 完了(2026-08-19)。新規`operations-routes.ts`に5ルート: スタッフ一覧・無効化(所属テナント外のスタッフIDは拒否・平文APIキー等を返さないことをテストで明示的に検証)・テナント全セッション失効・LINE連携状態(秘密情報は一切含めずレスポンスに`token`/`secret`という語が出現しないことをテストでアサート)・LINE接続テスト(既存の`readLineCredential`/`LineClient`/`requireLineBotUserId`を再利用、5秒タイムアウト付き)。テスト18/18成功、`tsc`エラーなし。`routes.ts`/`index.ts`は非改変(配線待ち)。
+- [x] (A) ダッシュボード集計・データ整合性検査 完了(2026-08-19)。新規`dashboard-routes.ts`。プラットフォーム全体集計(テナント数/24h Webhook失敗数/未処理数/有効サポートグラント数/活動停滞テナント数)、テナント別ヘルス(LINEアカウント状態・Webhook成否・スタッフ/セッション数)、データ整合性検査5項目(孤立`tenant_line_accounts`・capability行欠落・未マッピング患者・停滞pending Webhook・`source_handoff_id`不整合)。**発見した実装上の罠2件**: (1) `pharmacy_webhook_event_receipts.received_at`はJST(`+09:00`)、`tenant_admin_sessions`/`platform_admin_access_grants`はUTC(`Z`)で保存形式が異なり、文字列比較のカットオフを別々に計算する必要があった(混同すると集計が0件または全件になる不具合を誘発するところだった)。(2) `PRAGMA foreign_keys`はリポジトリ全体で一度も設定されておらず、孤立行チェックは形式的な保険ではなく実質的な安全網であることを確認。テストは`better-sqlite3`による実DBベース(`routes.test.ts`のSQL文字列マッチ方式ではなく)、14/14成功、`tsc`エラーなし。`routes.ts`/`index.ts`は非改変。
+- [ ] 実行中: (C)Webhook個別再試行・LINE送信一時停止(`custom_030`)・グラント retrofit に伴う既存`routes.test.ts`の修正(最優先タスクとして明示、A/Bで判明した5件の既存テスト失敗はここで解消予定)。
 - [ ] 未着手: `index.ts`への新ルーター群の最終配線(自分で実施予定)、フロントエンド(ダッシュボード・サポートモード開始/終了UI・常時カウントダウンバナー・テナント詳細のLINE/スタッフ/整合性タブ拡張)、統合テスト・コミット。
 
 ---
