@@ -225,4 +225,15 @@ describe('development deployment workflow contract', () => {
     expect(workflow).toContain('pnpm --filter web test');
     expect(workflow).toContain('pnpm --filter web build');
   });
+
+  test('builds the update engine before release workspace tests import it', () => {
+    const release = parse(read('.github/workflows/release.yml')) as any;
+    const steps = release.jobs.release.steps;
+    const build = steps.find((step: { name?: string }) => step.name === 'Build shared packages');
+
+    expect(build.run).toContain('--filter @line-harness/update-engine');
+    expect(steps.indexOf(build)).toBeLessThan(
+      steps.findIndex((step: { name?: string }) => step.name === 'Test workspace'),
+    );
+  });
 });
