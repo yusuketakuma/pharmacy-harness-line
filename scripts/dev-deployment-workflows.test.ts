@@ -173,6 +173,14 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('Missing required deployment configuration');
     expect(sharedDeploy).not.toContain("|| 'your-worker-name'");
     expect(sharedDeploy).not.toContain("|| 'your-admin-name'");
+    expect(deploy.steps[verify].env).toMatchObject({
+      D1_DATABASE_ID: '${{ secrets.D1_DATABASE_ID }}',
+      R2_BUCKET_NAME: '${{ vars.R2_BUCKET_NAME }}',
+      PAGES_PROJECT_NAME: '${{ vars.PAGES_PROJECT_NAME }}',
+      ADMIN_ORIGIN: '${{ vars.ADMIN_ORIGIN }}',
+      LIFF_ORIGIN: '${{ vars.LIFF_ORIGIN }}',
+      WORKER_URL: '${{ vars.WORKER_URL }}',
+    });
   });
 
   test('uses the checksum-enforced migration runner without inferring a baseline', () => {

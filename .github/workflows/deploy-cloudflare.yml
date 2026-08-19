@@ -270,7 +270,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}
           WORKER_NAME: ${{ vars.WORKER_NAME }}
+          PAGES_PROJECT_NAME: ${{ vars.PAGES_PROJECT_NAME }}
+          ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
+          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
           CUSTOMER_CONFIG_SNAPSHOT: ${{ runner.temp }}/line-harness-customer-config.json
         run: pnpm tsx scripts/deploy/customer-config.ts verify
 
