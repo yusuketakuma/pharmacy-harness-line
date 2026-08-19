@@ -164,25 +164,43 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
     expect(resolveCorsOrigin(env, undefined, requestUrl)).toBe(WORKERS);
   });
 
-  test('echoes an allowlisted LIFF origin without using it for admin cookie topology', () => {
+  test('echoes an allowlisted LIFF origin for LIFF API routes only', () => {
     const liffEnv: AdminAuthEnv = {
       ADMIN_ORIGIN: PAGES,
       LIFF_ORIGIN: LIFF,
       WORKER_URL: WORKERS,
       ADMIN_ALLOW_CROSS_SITE: 'true',
     };
-    expect(resolveCorsOrigin(liffEnv, LIFF, requestUrl)).toBe(LIFF);
+    expect(
+      resolveCorsOrigin(liffEnv, LIFF, `${WORKERS}/api/liff/booking/menus`),
+    ).toBe(LIFF);
     expect(resolveAdminAuthConfig(liffEnv).allowedOrigins).toEqual([PAGES]);
   });
 
+  test('blocks a LIFF origin from the admin session endpoint', () => {
+    expect(
+      resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/auth/session`),
+    ).toBe('');
+  });
+
+  test('blocks a LIFF origin from ordinary admin APIs', () => {
+    expect(
+      resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/friends`),
+    ).toBe('');
+  });
+
   test('blocks a LIFF origin when it is not explicitly configured', () => {
-    expect(resolveCorsOrigin(env, LIFF, requestUrl)).toBe('');
+    expect(resolveCorsOrigin(env, LIFF, `${WORKERS}/api/liff/booking/menus`)).toBe('');
   });
 
   test('does not widen the LIFF allowlist to Pages preview origins', () => {
     const preview = 'https://preview.your-liff.pages.dev';
     expect(
-      resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, preview, requestUrl),
+      resolveCorsOrigin(
+        { ...env, LIFF_ORIGIN: LIFF },
+        preview,
+        `${WORKERS}/api/liff/booking/menus`,
+      ),
     ).toBe('');
   });
 });
