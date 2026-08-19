@@ -20,6 +20,7 @@ vi.mock('@line-crm/db', () => ({
   getFriendByLineUserId: vi.fn(),
   getFriendByLineUserIdForAccount: vi.fn(),
   getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn().mockResolvedValue([]),
   enrollFriendInScenario: vi.fn(),
   getScenarioSteps: vi.fn(),
   advanceFriendScenario: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('@line-crm/db', () => ({
   upsertChatOnMessage: vi.fn(),
   getActiveTenantLineAccounts: vi.fn().mockResolvedValue([]),
   jstNow: vi.fn(),
+  toJstString: vi.fn((date: Date) => date.toISOString()),
   computeNextDeliveryAt: vi.fn(),
   resolveStepContent: vi.fn(),
   addTagToFriend: vi.fn(),
@@ -79,7 +81,7 @@ import {
   getActiveTenantLineAccounts,
   getMessageTemplateById,
   getScenarioSteps,
-  getScenarios,
+  getScenariosForAccount,
   jstNow,
   resolveStepContent,
   updateFriendFollowStatus,
@@ -400,135 +402,10 @@ describe('POST /webhook — DoS defenses (#104)', () => {
   });
 });
 
+// Redelivery dedup, durable-before-ACK storage, cron recovery, dead-lettering
+// and the retention purge are covered against real SQL (schema + migrations)
+// in webhook-durable-inbox.test.ts. These stubs cannot express row state.
 describe('POST /webhook — postback events', () => {
-  test('does not process the same webhookEventId twice', async () => {
-    vi.mocked(verifySignature).mockResolvedValue(true);
-    vi.mocked(getFriendByLineUserIdForAccount).mockResolvedValue({
-      id: 'friend-1',
-      line_user_id: 'U-existing',
-      display_name: 'Existing Friend',
-      picture_url: null,
-      status_message: null,
-      is_following: 1,
-      user_id: null,
-      line_account_id: 'account-env',
-      metadata: '{}',
-      first_tracked_link_id: null,
-      created_at: '2026-07-19T00:00:00.000+09:00',
-      updated_at: '2026-07-19T00:00:00.000+09:00',
-    });
-    const receiptChanges = [1, 0];
-    const statement = {
-      bind: vi.fn(),
-      first: vi.fn().mockResolvedValue(null),
-      all: vi.fn().mockResolvedValue({ results: [] }),
-      run: vi.fn().mockImplementation(async () => ({
-        meta: { changes: receiptChanges.shift() ?? 0 },
-      })),
-    };
-    statement.bind.mockReturnValue(statement);
-    const db = withWebhookIdentity(
-      { prepare: vi.fn().mockReturnValue(statement) } as unknown as D1Database,
-    );
-    const body = JSON.stringify({
-      destination: 'bot',
-      events: [{
-        type: 'postback',
-        replyToken: 'reply-token-postback',
-        postback: { data: 'tag:dedup' },
-        timestamp: Date.now(),
-        source: { type: 'user', userId: 'U-existing' },
-        webhookEventId: 'event-dedup-1',
-        deliveryContext: { isRedelivery: true },
-        mode: 'active',
-      }],
-    });
-    const request = () => setupApp().request('/webhook', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Line-Signature': `${'A'.repeat(43)}=` },
-      body,
-    }, { ...baseEnv, DB: db }, baseExecutionCtx);
-
-    vi.mocked(fireEvent).mockClear();
-    const first = await request();
-    const firstProcessing = vi.mocked(baseExecutionCtx.waitUntil).mock.calls.at(-1)?.[0] as Promise<unknown>;
-    await firstProcessing;
-    const second = await request();
-    const secondProcessing = vi.mocked(baseExecutionCtx.waitUntil).mock.calls.at(-1)?.[0] as Promise<unknown>;
-    await secondProcessing;
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(fireEvent).toHaveBeenCalledTimes(1);
-    expect(statement.run).toHaveBeenCalled();
-  });
-
-  test('releases the receipt when event processing fails so redelivery can retry', async () => {
-    vi.mocked(verifySignature).mockResolvedValue(true);
-    vi.mocked(getFriendByLineUserIdForAccount).mockResolvedValue({
-      id: 'friend-1',
-      line_user_id: 'U-existing',
-      display_name: 'Existing Friend',
-      picture_url: null,
-      status_message: null,
-      is_following: 1,
-      user_id: null,
-      line_account_id: 'account-env',
-      metadata: '{}',
-      first_tracked_link_id: null,
-      created_at: '2026-07-19T00:00:00.000+09:00',
-      updated_at: '2026-07-19T00:00:00.000+09:00',
-    });
-    const prepared: string[] = [];
-    const receiptChanges = [1, 1];
-    const statement = {
-      bind: vi.fn(),
-      first: vi.fn().mockResolvedValue(null),
-      all: vi.fn().mockResolvedValue({ results: [] }),
-      run: vi.fn().mockImplementation(async () => ({
-        meta: { changes: prepared.at(-1)?.includes('pharmacy_webhook_event_receipts')
-          ? (receiptChanges.shift() ?? 1)
-          : 1 },
-      })),
-    };
-    statement.bind.mockReturnValue(statement);
-    const db = withWebhookIdentity({
-      prepare: vi.fn((sql: string) => {
-        prepared.push(sql);
-        return statement;
-      }),
-    } as unknown as D1Database);
-    const body = JSON.stringify({
-      destination: 'bot',
-      events: [{
-        type: 'postback',
-        replyToken: 'reply-token-postback',
-        postback: { data: 'tag:retry' },
-        timestamp: Date.now(),
-        source: { type: 'user', userId: 'U-existing' },
-        webhookEventId: 'event-retry-1',
-        deliveryContext: { isRedelivery: true },
-        mode: 'active',
-      }],
-    });
-    const request = () => setupApp().request('/webhook', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Line-Signature': `${'A'.repeat(43)}=` },
-      body,
-    }, { ...baseEnv, DB: db }, baseExecutionCtx);
-
-    vi.mocked(fireEvent).mockRejectedValueOnce(new Error('transient processing failure'));
-    await request();
-    const firstProcessing = vi.mocked(baseExecutionCtx.waitUntil).mock.calls.at(-1)?.[0] as Promise<unknown>;
-    await firstProcessing;
-    await request();
-    const secondProcessing = vi.mocked(baseExecutionCtx.waitUntil).mock.calls.at(-1)?.[0] as Promise<unknown>;
-    await secondProcessing;
-
-    expect(fireEvent).toHaveBeenCalledTimes(2);
-    expect(prepared.some((sql) => sql.includes('DELETE FROM pharmacy_webhook_event_receipts'))).toBe(true);
-  });
-
   test('fires postback_received with postback.data so IF-THEN automations run on rich menu taps', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     vi.mocked(jstNow).mockReturnValue('2026-07-19T12:00:00.000+09:00');
@@ -816,7 +693,7 @@ describe('POST /webhook — first-contact existing friends', () => {
       db,
       expect.objectContaining({ eventType: 'message_received', friendId: 'friend-1' }),
     );
-    expect(getScenarios).not.toHaveBeenCalled();
+    expect(getScenariosForAccount).not.toHaveBeenCalled();
     expect(enrollFriendInScenario).not.toHaveBeenCalled();
 
     // Keep the unrelated DB stubs quiet but type-checked as mocked imports.

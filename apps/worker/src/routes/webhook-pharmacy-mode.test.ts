@@ -37,6 +37,7 @@ const dbMocks = vi.hoisted(() => ({
   getFriendByLineUserId: vi.fn(),
   getFriendByLineUserIdForAccount: vi.fn(),
   getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   upsertChatOnMessage: vi.fn(),
   getEntryRouteByRefCode: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock('@line-crm/db', () => ({
     channel_access_token: 'env-default-token',
   }]),
   jstNow: vi.fn().mockReturnValue('2026-08-18T09:00:00+09:00'),
+  toJstString: vi.fn((date: Date) => date.toISOString()),
   getMessageTemplateById: vi.fn(),
 }));
 
@@ -147,6 +149,7 @@ beforeEach(() => {
   dbMocks.upsertFriend.mockResolvedValue(friend);
   dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(friend);
   dbMocks.getScenarios.mockResolvedValue([]);
+  dbMocks.getScenariosForAccount.mockResolvedValue([]);
   dbMocks.getEntryRouteByRefCode.mockResolvedValue(null);
 });
 
@@ -160,7 +163,7 @@ describe('pharmacy-mode webhook allowlist', () => {
 
     expect(mocks.recordFollow).toHaveBeenCalledOnce();
     expect(mocks.awardMileage).not.toHaveBeenCalled();
-    expect(dbMocks.getScenarios).not.toHaveBeenCalled();
+    expect(dbMocks.getScenariosForAccount).not.toHaveBeenCalled();
     expect(dbMocks.enrollFriendInScenario).not.toHaveBeenCalled();
     expect(mocks.fireEvent).not.toHaveBeenCalled();
   });

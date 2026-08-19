@@ -12,6 +12,7 @@ export interface Scenario {
   trigger_type: ScenarioTriggerType;
   trigger_tag_id: string | null;
   line_account_id: string | null;
+  tenant_id: string | null;
   is_active: number;
   delivery_mode: DeliveryMode;
   created_at: string;
@@ -70,6 +71,38 @@ export async function getScenarios(db: D1Database): Promise<ScenarioWithStepCoun
   return result.results;
 }
 
+/**
+ * Scenarios that may fire for an inbound event on `lineAccountId`.
+ *
+ * The tenant boundary is resolved in SQL from `tenant_line_accounts`, not from
+ * a caller-supplied tenant id, so a mismatched pair cannot widen the scope.
+ * An account-unassigned scenario matches only within its own tenant; one with
+ * no tenant attribution at all matches nothing (see custom_024).
+ */
+export async function getScenariosForAccount(
+  db: D1Database,
+  lineAccountId: string | null,
+): Promise<ScenarioWithStepCount[]> {
+  if (!lineAccountId) return [];
+  const result = await db
+    .prepare(
+      `SELECT s.*, COUNT(ss.id) as step_count
+       FROM scenarios s
+       LEFT JOIN scenario_steps ss ON s.id = ss.scenario_id
+       WHERE s.line_account_id = ?
+          OR (s.line_account_id IS NULL
+              AND s.tenant_id IS NOT NULL
+              AND s.tenant_id = (SELECT mapping.tenant_id
+                                   FROM tenant_line_accounts AS mapping
+                                  WHERE mapping.line_account_id = ?))
+       GROUP BY s.id
+       ORDER BY s.created_at DESC`,
+    )
+    .bind(lineAccountId, lineAccountId)
+    .all<ScenarioWithStepCount>();
+  return result.results;
+}
+
 export async function getScenarioById(
   db: D1Database,
   id: string,
@@ -97,6 +130,8 @@ export interface CreateScenarioInput {
   triggerType: ScenarioTriggerType;
   triggerTagId?: string | null;
   deliveryMode?: DeliveryMode;
+  /** Owning tenant. Required for an account-unassigned scenario to ever fire. */
+  tenantId?: string | null;
 }
 
 export async function createScenario(
@@ -108,8 +143,8 @@ export async function createScenario(
 
   await db
     .prepare(
-      `INSERT INTO scenarios (id, name, description, trigger_type, trigger_tag_id, is_active, delivery_mode, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      `INSERT INTO scenarios (id, name, description, trigger_type, trigger_tag_id, is_active, delivery_mode, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -118,6 +153,7 @@ export async function createScenario(
       input.triggerType,
       input.triggerTagId ?? null,
       input.deliveryMode ?? 'relative',
+      input.tenantId ?? null,
       now,
       now,
     )

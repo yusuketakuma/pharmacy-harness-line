@@ -6,10 +6,11 @@ import {
   upsertFriend,
   updateFriendFollowStatus,
   getFriendByLineUserIdForAccount,
-  getScenarios,
+  getScenariosForAccount,
   enrollFriendInScenario,
   upsertChatOnMessage,
   jstNow,
+  toJstString,
   getEntryRouteByRefCode,
   getMessageTemplateById,
 } from '@line-crm/db';
@@ -35,6 +36,225 @@ const webhook = new Hono<Env>();
 // bursty batched deliveries (~100 events × ~5 KB) while still well below the
 // 128 MB Cloudflare Workers memory ceiling.
 const MAX_WEBHOOK_BODY_SIZE = 1024 * 1024; // 1 MiB
+
+// Durable inbox (H-3). A receipt row owns one event body plus its processing
+// state; the cron sweep re-runs whatever the request-time attempt did not
+// finish. See packages/db/migrations/custom_023_pharmacy_webhook_durable_inbox.sql.
+const WEBHOOK_INBOX_LEASE_MS = 5 * 60_000;
+const WEBHOOK_INBOX_MAX_ATTEMPTS = 10;
+const WEBHOOK_INBOX_SWEEP_LIMIT = 50;
+const WEBHOOK_RECEIPT_RETENTION_DAYS = 30;
+
+interface WebhookInboxRow {
+  tenant_id: string;
+  line_account_id: string;
+  webhook_event_id: string;
+  payload: string | null;
+}
+
+interface WebhookEventRunner {
+  db: D1Database;
+  credentialRootSecret: string;
+  workerUrl?: string;
+  liffUrl?: string;
+  r2?: R2Bucket;
+  proxyDispatch?: HarnessProxyDispatch;
+  /** Pre-resolved on the request path; the cron sweep resolves per row. */
+  lineClient?: LineClient;
+  channelAccessToken?: string;
+}
+
+/**
+ * LINE always sends webhookEventId. Synthesize one for anything that does not
+ * so the event is still stored durably — it just cannot be deduplicated.
+ */
+function readWebhookEventId(event: WebhookEvent): string {
+  const raw = (event as WebhookEvent & { webhookEventId?: unknown }).webhookEventId;
+  return typeof raw === 'string' && raw.length > 0 && raw.length <= 128
+    ? raw
+    : `synthetic:${crypto.randomUUID()}`;
+}
+
+/**
+ * Returns true when this delivery is the one that stored the event. A false
+ * means another delivery already owns it — completed (dedup) or still pending
+ * for the sweep — so this request must not process it again.
+ */
+async function storeWebhookEvent(
+  db: D1Database,
+  tenantId: string,
+  lineAccountId: string,
+  webhookEventId: string,
+  event: WebhookEvent,
+): Promise<boolean> {
+  const result = await db.prepare(
+    `INSERT OR IGNORE INTO pharmacy_webhook_event_receipts
+      (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+     VALUES (?, ?, ?, ?, ?, 'pending', 0)`,
+  ).bind(tenantId, lineAccountId, webhookEventId, jstNow(), JSON.stringify(event)).run();
+  // D1 always provides meta.changes. Test doubles and older compatible
+  // adapters may omit it; only an explicit zero means this is a redelivery.
+  return !result.meta || result.meta.changes !== 0;
+}
+
+/**
+ * The single "process this event" path, used inline after the durable write
+ * and again by the cron sweep. Leases the row, runs the handler, then settles
+ * it as completed or failed — never deletes it.
+ */
+async function runWebhookInboxEvent(
+  runner: WebhookEventRunner,
+  row: WebhookInboxRow & { event?: WebhookEvent },
+  now: Date = new Date(),
+): Promise<'completed' | 'failed' | 'skipped'> {
+  const { db } = runner;
+  const key = [row.tenant_id, row.line_account_id, row.webhook_event_id];
+
+  const claim = await db.prepare(
+    `UPDATE pharmacy_webhook_event_receipts
+        SET status = 'processing',
+            lease_until = ?,
+            retry_count = retry_count + 1
+      WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
+        AND status <> 'completed'
+        AND dead_lettered_at IS NULL
+        AND (lease_until IS NULL OR lease_until <= ?)`,
+  ).bind(
+    toJstString(new Date(now.getTime() + WEBHOOK_INBOX_LEASE_MS)),
+    ...key,
+    toJstString(now),
+  ).run();
+  if (claim.meta && claim.meta.changes === 0) return 'skipped';
+
+  try {
+    const event = row.event
+      ?? (row.payload ? JSON.parse(row.payload) as WebhookEvent : null);
+    if (!event) throw new Error('WEBHOOK_INBOX_PAYLOAD_MISSING');
+
+    const accessToken = runner.channelAccessToken
+      ?? await readLineCredential(db, runner.credentialRootSecret, {
+        tenantId: row.tenant_id,
+        lineAccountId: row.line_account_id,
+        kind: 'channel_access_token',
+      });
+    if (!accessToken) throw new Error('WEBHOOK_INBOX_CREDENTIAL_UNAVAILABLE');
+
+    await handleEvent(
+      db,
+      runner.lineClient ?? new LineClient(accessToken),
+      event,
+      accessToken,
+      row.line_account_id,
+      row.tenant_id,
+      runner.credentialRootSecret,
+      runner.workerUrl,
+      runner.liffUrl,
+      runner.r2,
+      runner.proxyDispatch,
+    );
+  } catch (err) {
+    console.error('Error handling webhook event:', err);
+    // Stay in the inbox. The sweep retries until the attempt cap, then the row
+    // is dead-lettered — kept with its payload so it can be replayed by hand
+    // (status back to 'pending', retry_count 0). No replay UI exists yet.
+    await db.prepare(
+      `UPDATE pharmacy_webhook_event_receipts
+          SET status = 'failed', lease_until = NULL
+        WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
+    ).bind(...key).run();
+    return 'failed';
+  }
+
+  await db.prepare(
+    `UPDATE pharmacy_webhook_event_receipts
+        SET status = 'completed', lease_until = NULL
+      WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
+  ).bind(...key).run();
+  return 'completed';
+}
+
+/**
+ * Cron recovery for events whose request-time attempt never finished (isolate
+ * evicted, CPU limit, transient D1/LINE failure).
+ */
+export async function sweepWebhookInbox(options: {
+  db: D1Database;
+  credentialRootSecret?: string;
+  workerUrl?: string;
+  liffUrl?: string;
+  r2?: R2Bucket;
+  proxyDispatch?: HarnessProxyDispatch;
+  now?: Date;
+  limit?: number;
+}): Promise<{ claimed: number; completed: number; failed: number; deadLettered: number }> {
+  const { db } = options;
+  const now = options.now ?? new Date();
+  const nowJst = toJstString(now);
+  const summary = { claimed: 0, completed: 0, failed: 0, deadLettered: 0 };
+
+  // Attempt cap first, so a row that crashed mid-processing is retired by the
+  // same rule as one that failed cleanly.
+  const retired = await db.prepare(
+    `UPDATE pharmacy_webhook_event_receipts
+        SET status = 'failed', lease_until = NULL, dead_lettered_at = ?
+      WHERE status <> 'completed'
+        AND dead_lettered_at IS NULL
+        AND retry_count >= ?`,
+  ).bind(nowJst, WEBHOOK_INBOX_MAX_ATTEMPTS).run();
+  summary.deadLettered = retired.meta?.changes ?? 0;
+
+  if (!options.credentialRootSecret) return summary;
+
+  const due = await db.prepare(
+    `SELECT tenant_id, line_account_id, webhook_event_id, payload
+       FROM pharmacy_webhook_event_receipts
+      WHERE status <> 'completed'
+        AND dead_lettered_at IS NULL
+        AND payload IS NOT NULL
+        AND (lease_until IS NULL OR lease_until <= ?)
+      ORDER BY received_at
+      LIMIT ?`,
+  ).bind(nowJst, options.limit ?? WEBHOOK_INBOX_SWEEP_LIMIT).all<WebhookInboxRow>();
+
+  const runner: WebhookEventRunner = {
+    db,
+    credentialRootSecret: options.credentialRootSecret,
+    workerUrl: options.workerUrl,
+    liffUrl: options.liffUrl,
+    r2: options.r2,
+    proxyDispatch: options.proxyDispatch,
+  };
+
+  for (const row of due.results ?? []) {
+    const outcome = await runWebhookInboxEvent(runner, row, now)
+      .catch(() => 'failed' as const);
+    if (outcome === 'skipped') continue;
+    summary.claimed++;
+    summary[outcome]++;
+  }
+  return summary;
+}
+
+/**
+ * M-7. Settled rows are only kept long enough to absorb LINE redelivery.
+ * `pending`/`processing` rows are never purged regardless of age — deleting one
+ * would drop an event that has not been handled yet.
+ * `received_at` is written with jstNow(), so the cutoff compares lexicographically.
+ */
+export async function purgeWebhookEventReceipts(
+  db: D1Database,
+  options: { now?: Date; retentionDays?: number } = {},
+): Promise<number> {
+  const now = options.now ?? new Date();
+  const retentionDays = options.retentionDays ?? WEBHOOK_RECEIPT_RETENTION_DAYS;
+  const cutoff = toJstString(new Date(now.getTime() - retentionDays * 86_400_000));
+  const result = await db.prepare(
+    `DELETE FROM pharmacy_webhook_event_receipts
+      WHERE received_at < ?
+        AND (status = 'completed' OR dead_lettered_at IS NOT NULL)`,
+  ).bind(cutoff).run();
+  return result.meta?.changes ?? 0;
+}
 
 async function ensureFriendFromWebhookUser(
   db: D1Database,
@@ -177,46 +397,48 @@ webhook.post('/webhook', async (c) => {
 
   const lineClient = new LineClient(channelAccessToken);
 
-  // 非同期処理 — LINE は ~1s 以内のレスポンスを要求
-  const processingPromise = (async () => {
-    const proxyDispatch: HarnessProxyDispatch = (request) =>
-      dispatchLineProxyLocally(request, c.env, c.executionCtx);
+  // H-3: durable before ACK. Every event body reaches the inbox before LINE is
+  // told the delivery succeeded, so an isolate evicted during processing loses
+  // nothing — the cron sweep picks the row up. A storage failure must surface
+  // as 5xx: proceeding silently is exactly the loss this replaces.
+  const claimed: Array<{ webhookEventId: string; event: WebhookEvent }> = [];
+  try {
     for (const event of body.events) {
-      try {
-        await handleEvent(
-          db,
-          lineClient,
-          event,
-          channelAccessToken,
-          matchedAccountId,
-          matchedTenantId,
-          credentialRootSecret,
-          c.env.WORKER_URL || new URL(c.req.url).origin,
-          c.env.LIFF_URL,
-          c.env.IMAGES,
-          proxyDispatch,
-        );
-      } catch (err) {
-        const webhookEventId = (event as WebhookEvent & { webhookEventId?: unknown }).webhookEventId;
-        if (typeof webhookEventId === 'string' && webhookEventId.length > 0 && webhookEventId.length <= 128) {
-          // A receipt is a deduplication claim, not proof of successful
-          // processing. Release it after a failed attempt so LINE redelivery
-          // can retry instead of being silently discarded.
-          try {
-            await db.prepare(
-              `DELETE FROM pharmacy_webhook_event_receipts
-                WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
-            ).bind(matchedTenantId, matchedAccountId, webhookEventId).run();
-          } catch {
-            console.error('[webhook] failed to release event receipt');
-          }
-        }
-        console.error('Error handling webhook event:', err);
+      const webhookEventId = readWebhookEventId(event);
+      if (await storeWebhookEvent(db, matchedTenantId, matchedAccountId, webhookEventId, event)) {
+        claimed.push({ webhookEventId, event });
       }
     }
-  })();
+  } catch (err) {
+    console.error('[webhook] failed to store inbound events', err);
+    return c.json({ status: 'error' }, 500);
+  }
 
-  c.executionCtx.waitUntil(processingPromise);
+  const runner: WebhookEventRunner = {
+    db,
+    credentialRootSecret,
+    workerUrl: c.env.WORKER_URL || new URL(c.req.url).origin,
+    liffUrl: c.env.LIFF_URL,
+    r2: c.env.IMAGES,
+    proxyDispatch: (request) => dispatchLineProxyLocally(request, c.env, c.executionCtx),
+    lineClient,
+    channelAccessToken,
+  };
+
+  // 非同期処理 — LINE は ~1s 以内のレスポンスを要求
+  c.executionCtx.waitUntil((async () => {
+    for (const item of claimed) {
+      await runWebhookInboxEvent(runner, {
+        tenant_id: matchedTenantId,
+        line_account_id: matchedAccountId,
+        webhook_event_id: item.webhookEventId,
+        payload: null,
+        event: item.event,
+      }).catch((err) => {
+        console.error('[webhook] inbox event runner failed', err);
+      });
+    }
+  })());
 
   return c.json({ status: 'ok' }, 200);
 });
@@ -234,18 +456,8 @@ async function handleEvent(
   r2?: R2Bucket,
   proxyDispatch?: HarnessProxyDispatch,
 ): Promise<void> {
-  const webhookEventId = (event as WebhookEvent & { webhookEventId?: unknown }).webhookEventId;
-  if (typeof webhookEventId === 'string' && webhookEventId.length > 0 && webhookEventId.length <= 128) {
-    const receipt = await db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_webhook_event_receipts
-        (tenant_id, line_account_id, webhook_event_id, received_at)
-       VALUES (?, ?, ?, ?)`,
-    ).bind(tenantId, lineAccountId, webhookEventId, jstNow()).run();
-    // D1 always provides meta.changes. Test doubles and older compatible
-    // adapters may omit it; only an explicit zero means this is a retry.
-    if (receipt.meta && receipt.meta.changes === 0) return;
-  }
-
+  // Dedup and retry state live in the durable inbox row that the request
+  // handler (or the cron sweep) already claimed before calling this.
   if (event.type === 'follow') {
     const userId =
       event.source.type === 'user' ? event.source.userId : undefined;
@@ -332,12 +544,12 @@ async function handleEvent(
       !referralRoute || referralRoute.run_account_friend_add_scenarios !== 0;
 
     // friend_add シナリオに登録（このアカウントのシナリオのみ）
+    // Account and tenant scoping is done in SQL (M-1): an account-unassigned
+    // scenario from another tenant must never match this account's events.
     // Skip entirely when a referral link explicitly overrides (run_account_friend_add_scenarios=0).
-    const scenarios = runAccountScenarios ? await getScenarios(db) : [];
+    const scenarios = runAccountScenarios ? await getScenariosForAccount(db, lineAccountId) : [];
     for (const scenario of scenarios) {
-      // Only trigger scenarios belonging to this account (or unassigned for backward compat)
-      const scenarioAccountMatch = !scenario.line_account_id || !lineAccountId || scenario.line_account_id === lineAccountId;
-      if (scenario.trigger_type === 'friend_add' && scenario.is_active && scenarioAccountMatch) {
+      if (scenario.trigger_type === 'friend_add' && scenario.is_active) {
         try {
           // INSERT OR IGNORE handles dedup via UNIQUE(friend_id, scenario_id)
           const friendScenario = await enrollFriendInScenario(db, friend.id, scenario.id);

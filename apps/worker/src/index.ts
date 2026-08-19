@@ -35,7 +35,7 @@ import {
   tenantRichMenuResourceGuard,
 } from './middleware/tenant-boundary.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
-import { webhook } from './routes/webhook.js';
+import { webhook, sweepWebhookInbox, purgeWebhookEventReceipts } from './routes/webhook.js';
 import { friends } from './routes/friends.js';
 import { tags } from './routes/tags.js';
 import { scenarios } from './routes/scenarios.js';
@@ -141,6 +141,10 @@ export type Env = {
     PLATFORM_ADMIN_KEY?: string;
     CROSS_ACCOUNT_TOKEN_KEY: string;
     LINE_CREDENTIAL_KEY_V1?: string;
+    // HMAC key for staff_members.api_key_hash. Deliberately separate from
+    // LINE_CREDENTIAL_KEY_V1: rotating that root key must not invalidate every
+    // staff API key hash. Unset falls back to the legacy plaintext lookup.
+    STAFF_API_KEY_HASH_SECRET?: string;
     LIFF_URL: string;
     LINE_CHANNEL_ID: string;
     LINE_LOGIN_CHANNEL_ID: string;
@@ -1123,6 +1127,27 @@ async function scheduled(
   }
 
   if (event.cron === '* * * * *') {
+    // H-3 recovery: webhook events durably stored but never finished (isolate
+    // evicted, CPU limit, transient failure). Runs for every tenant including
+    // pharmacy accounts — it only replays each account's own inbound events.
+    jobs.push(sweepWebhookInbox({
+      db: env.DB,
+      credentialRootSecret: env.LINE_CREDENTIAL_KEY_V1,
+      workerUrl: env.WORKER_URL || env.WORKER_PUBLIC_URL,
+      liffUrl: env.LIFF_URL,
+      r2: env.IMAGES,
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.claimed + result.deadLettered > 0) {
+        console.log(
+          `[webhook-inbox] claimed=${result.claimed} completed=${result.completed} failed=${result.failed} dead_lettered=${result.deadLettered}`,
+        );
+      }
+    }).catch((e) => {
+      console.error('webhook-inbox sweep error:', e);
+    }));
+
     jobs.push(processDueMedicationFollowUps(env.DB, { // custom:pharmacy-medication-followup
       proxyBaseUrl:
         env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
@@ -1180,6 +1205,17 @@ async function scheduled(
 
   // Booking expirer — runs only on the 6h cron tick.
   if (event.cron === '0 */6 * * *') {
+    // M-7: settled webhook receipts are only kept long enough to absorb LINE
+    // redelivery. Unfinished rows are never purged.
+    try {
+      const purged = await purgeWebhookEventReceipts(env.DB, {
+        now: new Date(event.scheduledTime),
+      });
+      if (purged > 0) console.log(`[webhook-inbox] purged=${purged}`);
+    } catch (e) {
+      console.error('webhook-inbox purge error:', e);
+    }
+
     try {
       const result = await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions
         now: new Date(event.scheduledTime),
