@@ -146,6 +146,8 @@ describe('development deployment workflow contract', () => {
   test('checks the deployed LIFF asset instead of accepting only an HTTP 200 shell', () => {
     const health = stepIndex('Verify Pharmacy LIFF health');
     expect(health).toBeGreaterThan(stepIndex('Deploy Pharmacy LIFF Pages'));
+    expect(deploy.steps[health].run).toContain('for attempt in 1 2 3 4 5');
+    expect(deploy.steps[health].run).toContain('sleep 5');
     expect(sharedDeploy).toContain('LIFF_ASSET_PATH=');
     expect(sharedDeploy).toContain('pharmacy-liff-multitenant-v1');
     expect(sharedDeploy).toContain('pharmacy-receive');
@@ -153,6 +155,9 @@ describe('development deployment workflow contract', () => {
   });
 
   test('checks the deployed Admin account bundle for the dedicated LIFF origin', () => {
+    const health = stepIndex('Verify Admin health');
+    expect(deploy.steps[health].run).toContain('for attempt in 1 2 3 4 5');
+    expect(deploy.steps[health].run).toContain('sleep 5');
     expect(sharedDeploy).toContain('ADMIN_ASSET_PATHS=');
     expect(sharedDeploy).toContain('LIFF_ORIGIN%/');
     expect(sharedDeploy).toContain('Admin bundle does not contain the configured LIFF origin');

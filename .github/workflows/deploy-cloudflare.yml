@@ -305,20 +305,30 @@ jobs:
         run: |
           test -n "$LIFF_ORIGIN"
           test -n "$WORKER_URL"
-          liff_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            "${LIFF_ORIGIN%/}/")"
-          LIFF_ASSET_PATH="$(printf '%s' "$liff_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' | head -n 1 || true)"
+          for attempt in 1 2 3 4 5; do
+            liff_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              "${LIFF_ORIGIN%/}/")"
+            LIFF_ASSET_PATH="$(printf '%s' "$liff_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' | head -n 1 || true)"
+            if [ -n "$LIFF_ASSET_PATH" ]; then
+              case "$LIFF_ASSET_PATH" in
+                http://*|https://*) liff_asset_url="$LIFF_ASSET_PATH" ;;
+                /*) liff_asset_url="${LIFF_ORIGIN%/}$LIFF_ASSET_PATH" ;;
+                *) liff_asset_url="${LIFF_ORIGIN%/}/$LIFF_ASSET_PATH" ;;
+              esac
+              liff_asset="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+                "$liff_asset_url")"
+              if printf '%s' "$liff_asset" | grep -Fq "pharmacy-liff-multitenant-v1" \
+                && printf '%s' "$liff_asset" | grep -Fq "pharmacy-receive" \
+                && printf '%s' "$liff_asset" | grep -Fq "${WORKER_URL%/}"; then
+                break
+              fi
+            fi
+            sleep 5
+          done
           if [ -z "$LIFF_ASSET_PATH" ]; then
             echo "Pharmacy LIFF HTML does not reference a JavaScript asset"
             exit 1
           fi
-          case "$LIFF_ASSET_PATH" in
-            http://*|https://*) liff_asset_url="$LIFF_ASSET_PATH" ;;
-            /*) liff_asset_url="${LIFF_ORIGIN%/}$LIFF_ASSET_PATH" ;;
-            *) liff_asset_url="${LIFF_ORIGIN%/}/$LIFF_ASSET_PATH" ;;
-          esac
-          liff_asset="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            "$liff_asset_url")"
           printf '%s' "$liff_asset" | grep -Fq "pharmacy-liff-multitenant-v1" || {
             echo "Deployed LIFF asset is not the multitenant pharmacy build"
             exit 1
@@ -360,24 +370,28 @@ jobs:
             "${ADMIN_ORIGIN%/}/" >/dev/null
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${ADMIN_ORIGIN%/}/prescriptions" >/dev/null
-          admin_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            "${ADMIN_ORIGIN%/}/accounts")"
-          ADMIN_ASSET_PATHS="$(printf '%s' "$admin_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' || true)"
+          for attempt in 1 2 3 4 5; do
+            admin_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              "${ADMIN_ORIGIN%/}/accounts")"
+            ADMIN_ASSET_PATHS="$(printf '%s' "$admin_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' || true)"
+            admin_bundle="$(
+              while IFS= read -r asset_path; do
+                [ -n "$asset_path" ] || continue
+                case "$asset_path" in
+                  http://*|https://*) admin_asset_url="$asset_path" ;;
+                  /*) admin_asset_url="${ADMIN_ORIGIN%/}$asset_path" ;;
+                  *) admin_asset_url="${ADMIN_ORIGIN%/}/$asset_path" ;;
+                esac
+                curl --fail --silent --show-error --retry 5 --retry-all-errors "$admin_asset_url"
+              done <<< "$ADMIN_ASSET_PATHS"
+            )"
+            printf '%s' "$admin_bundle" | grep -Fq "${LIFF_ORIGIN%/}" && break
+            sleep 5
+          done
           if [ -z "$ADMIN_ASSET_PATHS" ]; then
             echo "Admin accounts page does not reference JavaScript assets"
             exit 1
           fi
-          admin_bundle="$(
-            while IFS= read -r asset_path; do
-              [ -n "$asset_path" ] || continue
-              case "$asset_path" in
-                http://*|https://*) admin_asset_url="$asset_path" ;;
-                /*) admin_asset_url="${ADMIN_ORIGIN%/}$asset_path" ;;
-                *) admin_asset_url="${ADMIN_ORIGIN%/}/$asset_path" ;;
-              esac
-              curl --fail --silent --show-error --retry 5 --retry-all-errors "$admin_asset_url"
-            done <<< "$ADMIN_ASSET_PATHS"
-          )"
           printf '%s' "$admin_bundle" | grep -Fq "${LIFF_ORIGIN%/}" || {
             echo "Admin bundle does not contain the configured LIFF origin"
             exit 1
