@@ -51,6 +51,28 @@ describe('development deployment workflow contract', () => {
     );
   });
 
+  test('injects and verifies the runtime release version before production deployment', () => {
+    const buildMeta = stepIndex('Capture build metadata');
+    const inject = stepIndex('Inject runtime release metadata');
+    const rebuild = stepIndex('Rebuild Worker with runtime release metadata');
+    const deploy = stepIndex('Deploy to Cloudflare Workers');
+    const verifyVersion = stepIndex('Verify deployed runtime version');
+
+    expect(buildMeta).toBeLessThan(stepIndex('Build Admin Panel'));
+    expect(inject).toBeGreaterThan(stepIndex('Build Admin Panel'));
+    expect(inject).toBeLessThan(rebuild);
+    expect(rebuild).toBeLessThan(deploy);
+    expect(verifyVersion).toBeGreaterThan(stepIndex('Verify Worker health'));
+    expect(verifyVersion).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
+    expect(sharedDeploy).toContain('release_version=$(node -p');
+    expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
+    expect(sharedDeploy).toContain('--worker apps/worker/dist/line_harness/index.js');
+    expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
+    expect(sharedDeploy).toContain('--admin apps/web/out');
+    expect(sharedDeploy).toContain('--liff apps/liff/dist');
+    expect(sharedDeploy).toContain('test "$actual_version" = "$EXPECTED_VERSION"');
+  });
+
   test('checks out and deploys the exact source SHA with pinned actions', () => {
     expect(sharedDeploy).toContain('ref: ${{ github.sha }}');
     expect(sharedDeploy).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
