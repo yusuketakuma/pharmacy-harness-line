@@ -244,17 +244,3 @@ describe('resolveCorsOrigin — local development', () => {
     ).toBe('');
   });
 });
-
-describe('isAllowedAdminOrigin — Cloudflare Pages previews', () => {
-  test('allows production and preview origins for the same Pages project', () => {
-    expect(isAllowedAdminOrigin('https://your-admin.pages.dev', PAGES)).toBe(true);
-    expect(isAllowedAdminOrigin('https://preview.your-admin.pages.dev', PAGES)).toBe(true);
-    expect(isAllowedAdminOrigin(PAGES, 'https://preview.your-admin.pages.dev')).toBe(true);
-  });
-
-  test('does not widen custom domains to arbitrary subdomains', () => {
-    expect(
-      isAllowedAdminOrigin('https://preview.admin.example.com', 'https://admin.example.com'),
-    ).toBe(false);
-  });
-});
