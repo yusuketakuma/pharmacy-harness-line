@@ -106,13 +106,34 @@ jobs:
 
       - name: Capture build metadata
         id: build-meta
-        run: echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+          echo "release_version=$(node -p \"require('./apps/worker/package.json').version\")" >> "$GITHUB_OUTPUT"
 
       - name: Build Admin Panel
         run: pnpm --filter web build
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
+
+      - name: Inject runtime release metadata
+        env:
+          RELEASE_VERSION: ${{ steps.build-meta.outputs.release_version }}
+        run: |
+          pnpm tsx apps/worker/scripts/inject-version.ts \
+            --version "$RELEASE_VERSION" \
+            --worker apps/worker/dist/line_harness/index.js \
+            --worker-assets apps/worker/dist/client \
+            --admin apps/web/out \
+            --liff apps/liff/dist \
+            --out apps/worker/src/_version.ts
+
+      - name: Rebuild Worker with runtime release metadata
+        run: pnpm --filter worker build
+        env:
+          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
+          VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
+          VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
 
       - name: Verify LINE LIFF endpoint topology
         env:
@@ -236,6 +257,15 @@ jobs:
           test -n "$WORKER_URL"
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${WORKER_URL%/}/api/health" >/dev/null
+
+      - name: Verify deployed runtime version
+        env:
+          EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
+        run: |
+          actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${WORKER_URL%/}/admin/version" | jq -r '.version')"
+          test "$actual_version" = "$EXPECTED_VERSION"
 
       - name: Verify customer configuration preserved
         env:

@@ -42,4 +42,16 @@ describe('prescription admin API', () => {
       operationId: 'operation-1',
     })
   })
+
+  it('keeps cross-origin image fetches compatible with the Worker CORS allowlist', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(['image']), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { prescriptionAdminApi } = await import('./api.js')
+
+    await prescriptionAdminApi.image('account-1', 'submission-1', 'file-1')
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(new Headers(init.headers).has('Cache-Control')).toBe(false)
+    expect(init.cache).toBe('no-store')
+  })
 })

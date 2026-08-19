@@ -195,7 +195,9 @@ export const prescriptionAdminApi = {
       `${apiBase}/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/files/${encodeURIComponent(fileId)}?${accountQuery(accountId)}`,
       {
         credentials: 'include',
-        headers: { 'X-CSRF-Token': getCsrfToken(), 'Cache-Control': 'no-store' },
+        headers: { 'X-CSRF-Token': getCsrfToken() },
+        // Keep cache control in the fetch mode; a Cache-Control request header
+        // would add an unnecessary cross-origin preflight.
         cache: 'no-store',
       },
     )
