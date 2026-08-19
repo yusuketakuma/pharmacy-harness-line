@@ -103,6 +103,8 @@ import { activityNotificationRoutes } from './custom/pharmacy/activity-notificat
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
 import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.js'; // custom:pharmacy-provisioning
 import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminDashboardRoutes } from './custom/pharmacy/platform-admin/dashboard-routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminOperationsRoutes } from './custom/pharmacy/platform-admin/operations-routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminAuthMiddleware } from './custom/pharmacy/platform-admin/auth.js'; // custom:pharmacy-platform-admin
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
@@ -279,6 +281,8 @@ app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifica
 app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
 app.route('/', tenantProvisioningRoutes); // custom:pharmacy-provisioning
 app.route('/', platformAdminRoutes); // custom:pharmacy-platform-admin
+app.route('/', platformAdminDashboardRoutes); // custom:pharmacy-platform-admin
+app.route('/', platformAdminOperationsRoutes); // custom:pharmacy-platform-admin
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
