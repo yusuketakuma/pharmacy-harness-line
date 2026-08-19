@@ -3,7 +3,6 @@ import { runTenantSetup } from './setup-tenant.js';
 
 const args = [
   '--worker-url', 'https://api.example.test',
-  '--tenant-code', 'pharmacy-a',
   '--tenant-name', 'Pharmacy A',
   '--admin-id', 'admin-a',
   '--admin-name', 'Owner A',
@@ -76,7 +75,7 @@ describe('tenant setup CLI', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
       data: {
-        tenantCode: 'pharmacy-a',
+        tenantCode: '004821',
         adminLoginId: 'admin-a',
         urls: {
           admin: 'https://admin.example.test',
@@ -118,7 +117,7 @@ describe('tenant setup CLI', () => {
     });
 
     const rendered = output.join('\n');
-    expect(rendered).toContain('薬局コード: pharmacy-a');
+    expect(rendered).toContain('薬局コード: 004821');
     expect(rendered).toContain('管理者ID: admin-a');
     expect(rendered).toContain(`仮パスワード（初回のみ表示）: ${body.admin.temporaryPassword}`);
     expect(rendered).not.toContain('LINE Callback URL');
@@ -148,7 +147,7 @@ describe('tenant setup CLI', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
       data: {
-        tenantCode: 'pharmacy-a',
+        tenantCode: '004821',
         adminLoginId: 'admin-a',
         urls: {},
         line: {},
@@ -174,11 +173,11 @@ describe('tenant setup CLI', () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
-      data: { tenantCode: 'pharmacy-a', adminLoginId: 'admin-a', urls: {}, line: {} },
+      data: { tenantCode: '004821', adminLoginId: 'admin-a', urls: {}, line: {} },
     }), { status: 201, headers: { 'content-type': 'application/json' } }));
     const sharedIdempotencyKey = ['--idempotency-key', 'shared-lost-response-key'];
     const tenantAArgs = [...args, ...sharedIdempotencyKey];
-    const tenantBArgs = args.map((value) => (value === 'pharmacy-a' ? 'pharmacy-b' : value))
+    const tenantBArgs = args.map((value) => (value === '2001234567' ? '2009999999' : value))
       .concat(sharedIdempotencyKey);
 
     await runTenantSetup(tenantAArgs, secrets, fetcher, (line) => output.push(line));

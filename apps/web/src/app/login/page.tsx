@@ -125,7 +125,11 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleLogin}>
             <label htmlFor="pharmacy-code" className="block text-sm font-medium text-gray-700 mb-1">薬局コード</label>
-            <input id="pharmacy-code" type="text" value={pharmacyCode} onChange={(event) => setPharmacyCode(event.target.value)} placeholder="薬局コードを入力" autoComplete="organization" autoFocus className="w-full px-4 py-3 mb-4 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+            {/* type="text" + inputMode, never type="number": a numeric input would drop
+                the leading zero of a code like 004821, and legacy tenants still have
+                slug-shaped codes that must remain typable. */}
+            <input id="pharmacy-code" type="text" inputMode="numeric" value={pharmacyCode} onChange={(event) => setPharmacyCode(event.target.value)} placeholder="例: 004821" autoComplete="organization" autoFocus className="w-full px-4 py-3 mb-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+            <p className="text-xs text-gray-500 mb-4">薬局ごとに発行された6桁の番号です。</p>
 
             <label htmlFor="login-id" className="block text-sm font-medium text-gray-700 mb-1">管理者ID</label>
             <input id="login-id" type="text" value={loginId} onChange={(event) => setLoginId(event.target.value)} placeholder="管理者IDを入力" autoComplete="username" className="w-full px-4 py-3 mb-4 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />

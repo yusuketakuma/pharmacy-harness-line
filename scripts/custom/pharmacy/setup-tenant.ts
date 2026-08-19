@@ -6,7 +6,6 @@ type Environment = Record<string, string | undefined>;
 
 const VALUE_FLAGS = new Set([
   'worker-url',
-  'tenant-code',
   'tenant-name',
   'admin-id',
   'admin-name',
@@ -21,7 +20,6 @@ const VALUE_FLAGS = new Set([
 const HELP = `Usage:
   pnpm tenant:setup -- \\
     --worker-url https://api.example.jp \\
-    --tenant-code example-pharmacy \\
     --tenant-name "Example Pharmacy" \\
     --admin-id admin \\
     --admin-name "Owner" \\
@@ -95,9 +93,17 @@ function requestId(values: Record<string, string>): string {
   return supplied || randomUUID();
 }
 
-function temporaryPassword(platformKey: string, tenantCode: string, idempotencyKey: string): string {
+// Keyed on the LINE channel id, not the pharmacy code: the code is now assigned by the
+// server and does not exist yet at this point. The channel id is the tenant identity the
+// caller does hold, and the server enforces it unique on line_accounts.channel_id — so two
+// pharmacies that reuse one idempotency key still derive different initial passwords.
+function temporaryPassword(
+  platformKey: string,
+  lineChannelId: string,
+  idempotencyKey: string,
+): string {
   const digest = createHmac('sha256', platformKey)
-    .update(`pharmacy-tenant-setup:${tenantCode}:${idempotencyKey}`)
+    .update(`pharmacy-tenant-setup:${lineChannelId}:${idempotencyKey}`)
     .digest('base64url');
   return `Tmp-${digest.slice(0, 32)}`;
 }
@@ -146,11 +152,10 @@ export async function runTenantSetup(
     }
 
     const endpoint = workerEndpoint(required(parsed.values, 'worker-url'));
-    const tenantCode = required(parsed.values, 'tenant-code');
+    const channelId = required(parsed.values, 'line-channel-id');
     const idempotencyKey = requestId(parsed.values);
-    const generatedTemporaryPassword = temporaryPassword(platformKey, tenantCode, idempotencyKey);
+    const generatedTemporaryPassword = temporaryPassword(platformKey, channelId, idempotencyKey);
     const body = {
-      tenantCode,
       tenantName: required(parsed.values, 'tenant-name'),
       admin: {
         loginId: required(parsed.values, 'admin-id'),
@@ -159,7 +164,7 @@ export async function runTenantSetup(
         temporaryPassword: generatedTemporaryPassword,
       },
       line: {
-        channelId: required(parsed.values, 'line-channel-id'),
+        channelId,
         displayName: required(parsed.values, 'line-name'),
         channelAccessToken,
         channelSecret,
@@ -221,7 +226,8 @@ export async function runTenantSetup(
     const urls = payload.data.urls ?? {};
     const line = payload.data.line ?? {};
     write('初期テナント設定が完了しました。');
-    write(`薬局コード: ${safeText(payload.data.tenantCode, body.tenantCode)}`);
+    write(`薬局コード: ${safeText(payload.data.tenantCode, '未取得')}`);
+    write('薬局コードはサーバーが発行します。控え忘れた場合は同じ --idempotency-key で再実行してください。');
     write(`管理者ID: ${safeText(payload.data.adminLoginId, body.admin.loginId)}`);
     write(`仮パスワード（初回のみ表示）: ${generatedTemporaryPassword}`);
     write(`管理画面: ${safeText(urls.admin, '未設定')}`);
