@@ -480,14 +480,18 @@ platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
 /**
  * GET /api/platform-admin/audit — the caller's own access history, or every
  * platform admin's with ?all=true (more than one platform admin may exist and
- * they oversee each other). This is the one route that records no event of its
- * own: appending to the trail you are reading makes the trail unreadable, and
- * this route exposes no tenant data — only the audit metadata itself.
+ * they oversee each other). Viewing your OWN trail records no event of its
+ * own (appending to the trail you are reading makes the trail unreadable,
+ * and it exposes no tenant data). Viewing ?all=true DOES record an event —
+ * who is watching whom is itself accountability-relevant.
  */
 platformAdminRoutes.get('/api/platform-admin/audit', async (c) => {
   const admin = c.get('platformAdmin');
   const all = c.req.query('all') === 'true';
   const limit = Math.min(200, Math.max(1, Number.parseInt(c.req.query('limit') ?? '', 10) || 50));
+  if (all) {
+    await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'view_audit_all');
+  }
   const result = await c.env.DB.prepare(
     `SELECT id, platform_admin_id, tenant_id, action, resource_type,
             resource_id, detail_json, created_at

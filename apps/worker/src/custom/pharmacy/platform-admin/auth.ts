@@ -53,16 +53,23 @@ export function platformAdminCsrfTokenFromCookie(c: Context<Env>): string | null
   return parseCookieHeader(c.req.header('Cookie'))[PLATFORM_ADMIN_CSRF_COOKIE] || null;
 }
 
+// Scoped to /api/platform-admin, not site-wide: the browser then never
+// attaches this cookie to any other same-origin request (tenant-admin API
+// calls, static assets, etc.), narrowing the blast radius of any future
+// same-origin script-injection bug even though Path scoping alone cannot
+// stop a script that deliberately targets this exact prefix.
+const PLATFORM_ADMIN_COOKIE_PATH = '/api/platform-admin';
+
 export function platformAdminSessionCookie(token: string, sameSite: AdminSameSite): string {
-  return buildCookie(PLATFORM_ADMIN_AUTH_COOKIE, token, sameSite, SESSION_MAX_AGE, true);
+  return buildCookie(PLATFORM_ADMIN_AUTH_COOKIE, token, sameSite, SESSION_MAX_AGE, true, PLATFORM_ADMIN_COOKIE_PATH);
 }
 
 export function platformAdminCsrfCookie(token: string, sameSite: AdminSameSite): string {
-  return buildCookie(PLATFORM_ADMIN_CSRF_COOKIE, token, sameSite, SESSION_MAX_AGE, false);
+  return buildCookie(PLATFORM_ADMIN_CSRF_COOKIE, token, sameSite, SESSION_MAX_AGE, false, PLATFORM_ADMIN_COOKIE_PATH);
 }
 
 export function expiredPlatformAdminCookie(name: string, sameSite: AdminSameSite): string {
-  return buildCookie(name, '', sameSite, 0, name === PLATFORM_ADMIN_AUTH_COOKIE);
+  return buildCookie(name, '', sameSite, 0, name === PLATFORM_ADMIN_AUTH_COOKIE, PLATFORM_ADMIN_COOKIE_PATH);
 }
 
 /**

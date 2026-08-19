@@ -2,6 +2,10 @@ import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { authMiddleware } from '../../../middleware/auth.js';
+import {
+  generatePlatformAdminSessionToken,
+  hashTenantAdminSessionToken,
+} from './credentials.js';
 import { hashTenantPassword } from './credentials.js';
 import { tenantProvisioningRoutes } from './routes.js';
 
@@ -9,7 +13,13 @@ vi.mock('@line-crm/db', () => ({ getStaffByApiKey: vi.fn(async () => null) }));
 
 type Statement = { sql: string; values: unknown[]; run(): Promise<{ meta: { changes: number } }> };
 
-function fakeDb() {
+/**
+ * @param activeSession when set, the DB behaves as if one platform_admins row
+ * already exists (is_active=1) and, when a matching cookie is presented, an
+ * unexpired platform_admin_session for it resolves successfully — exercising
+ * the "an existing platform admin must also authenticate" gate.
+ */
+function fakeDb(activeSession?: { staffId: string; name: string; tokenHash: string }) {
   const inserted: Record<string, unknown[]> = {};
   let credential: { staff_id: string; login_id: string; password_hash: string; must_change_password: number } | null = null;
   return {
@@ -21,10 +31,29 @@ function fakeDb() {
         const statement: Statement & { first<T>(): Promise<T | null> } = {
           sql,
           values,
-          first: async <T>() => (sql.includes('FROM platform_admin_credentials AS credential') &&
-            credential && String(values[0]).toLowerCase() === credential.login_id.toLowerCase()
-            ? credential as T
-            : null),
+          first: async <T>() => {
+            if (sql.includes('FROM platform_admin_credentials AS credential') &&
+              !sql.includes('FROM platform_admin_sessions')) {
+              return credential && String(values[0]).toLowerCase() === credential.login_id.toLowerCase()
+                ? credential as T : null;
+            }
+            if (sql.includes('FROM platform_admins WHERE is_active')) {
+              return (activeSession ? { ok: 1 } : null) as T;
+            }
+            if (sql.includes('FROM platform_admin_sessions AS session')) {
+              if (activeSession && values[0] === activeSession.tokenHash) {
+                return {
+                  staff_id: activeSession.staffId,
+                  name: activeSession.name,
+                  must_change_password: 0,
+                  credential_version: 1,
+                  session_kind: 'standard',
+                } as T;
+              }
+              return null as T;
+            }
+            return null as T;
+          },
           run: async () => ({ meta: { changes: 1 } }),
         };
         return {
@@ -168,5 +197,27 @@ describe('platform admin bootstrap route', () => {
     store.credential!.password_hash = await hashTenantPassword('Permanent password 84');
     const conflict = await app().request(PATH, request(), testEnv);
     expect(conflict.status).toBe(409);
+  });
+
+  it('refuses to mint a second platform admin on PLATFORM_ADMIN_KEY alone once one already exists', async () => {
+    const store = fakeDb({ staffId: 'staff-1', name: 'Existing Admin', tokenHash: 'irrelevant' });
+    const response = await app().request(
+      PATH, request({ loginId: 'second-admin' }), env(store.db),
+    );
+    expect(response.status).toBe(403);
+    expect(Object.keys(store.inserted)).toEqual([]);
+  });
+
+  it('mints a second platform admin when the caller also carries a valid existing platform-admin session, and attributes granted_by to them', async () => {
+    const token = generatePlatformAdminSessionToken();
+    const tokenHash = await hashTenantAdminSessionToken(token);
+    const store = fakeDb({ staffId: 'staff-1', name: 'Existing Admin', tokenHash });
+    const req = request({ loginId: 'second-admin' });
+    const response = await app().request(PATH, {
+      ...req,
+      headers: { ...req.headers, cookie: `lh_platform_admin_session=${token}` },
+    }, env(store.db));
+    expect(response.status).toBe(201);
+    expect(store.inserted.platform_admins[1]).toBe('staff-1');
   });
 });

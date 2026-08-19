@@ -17,6 +17,10 @@ import {
   restoreLegacyLineCredentials,
   scrubLegacyLineCredentials,
 } from './line-credential-backfill.js';
+import {
+  platformAdminSessionTokenFromCookie,
+  resolvePlatformAdminSession,
+} from '../platform-admin/auth.js';
 
 type ProvisioningInput = {
   tenantCode: string;
@@ -662,8 +666,17 @@ tenantProvisioningRoutes.post(
  * Bootstraps the FIRST platform administrator — the chicken-and-egg case, since
  * /api/platform-admin/login needs a platform_admin_credentials row to exist.
  * Deliberately lives under the CLI provisioning namespace and is gated by
- * PLATFORM_ADMIN_KEY, NOT by a platform-admin session: the two prefixes serve
- * two different audiences (CLI operator vs. logged-in human).
+ * PLATFORM_ADMIN_KEY: the two prefixes serve two different audiences (CLI
+ * operator vs. logged-in human).
+ *
+ * PLATFORM_ADMIN_KEY alone is sufficient ONLY while zero active platform
+ * admins exist. Once at least one does, minting another additionally
+ * requires the caller to already be an authenticated, active platform
+ * admin (their own session cookie, checked below) — a shared CLI secret is
+ * not, by itself, enough to keep growing the set of standing superusers
+ * with cross-tenant PHI access. This does not block the sibling tenant-
+ * provisioning routes below, which stay PLATFORM_ADMIN_KEY-only: creating a
+ * tenant is routine operator work, minting a platform admin is not.
  *
  * Replay follows the tenant admin bootstrap: the CLI derives the temporary
  * password deterministically, so re-running with the same idempotency key
@@ -674,6 +687,23 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
   if (rejected) return rejected;
   const input = parseAdminBootstrapInput(await c.req.json().catch(() => null));
   if (!input) return c.json({ success: false, error: 'Invalid platform admin data' }, 400);
+
+  const anyActiveAdmin = await c.env.DB.prepare(
+    `SELECT 1 AS ok FROM platform_admins WHERE is_active = 1 LIMIT 1`,
+  ).first<{ ok: number }>();
+  let actingAdminId = 'platform-admin-key';
+  if (anyActiveAdmin) {
+    const token = platformAdminSessionTokenFromCookie(c);
+    const resolved = token ? await resolvePlatformAdminSession(c.env.DB, token) : null;
+    if (!resolved || resolved.mustChangePassword) {
+      return c.json({
+        success: false,
+        error: 'A platform admin already exists; creating another requires an authenticated ' +
+          'platform-admin session in addition to PLATFORM_ADMIN_KEY',
+      }, 403);
+    }
+    actingAdminId = resolved.admin.id;
+  }
 
   const existing = await c.env.DB.prepare(
     `SELECT credential.staff_id, credential.password_hash, credential.must_change_password
@@ -724,8 +754,8 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
       ),
       c.env.DB.prepare(
         `INSERT INTO platform_admins (staff_id, granted_by, is_active, created_at, updated_at)
-         VALUES (?, 'platform-admin-key', 1, ?, ?)`,
-      ).bind(staffId, now, now),
+         VALUES (?, ?, 1, ?, ?)`,
+      ).bind(staffId, actingAdminId, now, now),
       c.env.DB.prepare(
         `INSERT INTO platform_admin_credentials
           (staff_id, login_id, password_hash, must_change_password,
