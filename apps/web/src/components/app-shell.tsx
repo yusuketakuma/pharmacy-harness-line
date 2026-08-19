@@ -11,6 +11,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
+  // 全体管理者はテナントに属さない別ロール。テナント用の AuthGuard /
+  // AccountProvider / Sidebar は一切通さず、自前の guard とシェルだけを使う。
+  if (pathname?.startsWith('/platform-admin')) {
+    return <>{children}</>
+  }
+
   return (
     <AuthGuard>
       <AccountProvider>

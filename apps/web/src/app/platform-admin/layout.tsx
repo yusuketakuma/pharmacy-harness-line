@@ -1,0 +1,100 @@
+'use client'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
+import {
+  clearPlatformAdminLocalState,
+  platformAdminApi,
+  setPlatformAdminName,
+} from '@/lib/platform-admin-api'
+
+const NAV = [
+  { href: '/platform-admin/tenants', label: 'テナント一覧' },
+  { href: '/platform-admin/logs', label: 'ログ' },
+  { href: '/platform-admin/audit', label: '自分の操作履歴' },
+]
+
+/**
+ * 全体管理者セクション専用のシェル。テナント側の AuthGuard / AccountProvider /
+ * Sidebar は使わない (このロールはどのテナントにも属さない)。
+ * PHI を全テナント横断で読めるロールなので、どのページにも常時バナーを出す。
+ */
+export default function PlatformAdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const isLogin = pathname === '/platform-admin/login'
+  const [checked, setChecked] = useState(false)
+  const [name, setName] = useState('')
+
+  useEffect(() => {
+    if (isLogin) {
+      setChecked(true)
+      return
+    }
+    let cancelled = false
+    platformAdminApi.session()
+      .then((res) => {
+        if (!res?.success || !res?.data) throw new Error('unauthenticated')
+        if (res.data.mustChangePassword) {
+          if (!cancelled) router.replace('/platform-admin/login')
+          return
+        }
+        setPlatformAdminName(res.data.name)
+        if (!cancelled) {
+          setName(res.data.name)
+          setChecked(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) router.replace('/platform-admin/login')
+      })
+    return () => { cancelled = true }
+  }, [isLogin, router])
+
+  const logout = async () => {
+    await platformAdminApi.logout().catch(() => undefined)
+    clearPlatformAdminLocalState()
+    router.replace('/platform-admin/login')
+  }
+
+  if (isLogin) return <>{children}</>
+
+  if (!checked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-[3px] border-gray-200 border-t-purple-600 rounded-full" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen">
+      <div role="alert" className="bg-purple-900 px-4 py-2 text-center text-sm font-bold text-white">
+        全体管理者モード — 全テナントのデータ（個人の診療記録を含む）にアクセスしています。操作はすべて監査記録に残ります。
+      </div>
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-purple-200 bg-white px-4 py-3">
+        <span className="font-bold text-purple-900">Platform Admin</span>
+        <nav className="flex flex-wrap gap-3 text-sm">
+          {NAV.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={pathname?.startsWith(item.href)
+                ? 'font-semibold text-purple-800 underline'
+                : 'text-gray-600 hover:text-purple-800'}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="ml-auto flex items-center gap-3 text-sm">
+          {name && <span className="text-gray-600">{name}</span>}
+          <button type="button" onClick={logout} className="rounded-lg border border-purple-300 px-3 py-1 text-purple-800 hover:bg-purple-50">
+            ログアウト
+          </button>
+        </div>
+      </header>
+      <main className="px-4 py-6">{children}</main>
+    </div>
+  )
+}
