@@ -537,6 +537,27 @@ export async function getAdminPrescriptionFile(
   ).bind(submissionId, fileId, lineAccountId).first<AdminPrescriptionFile>();
 }
 
+export async function recordPrescriptionFileViewed(
+  db: D1Database,
+  lineAccountId: string,
+  submissionId: string,
+  fileId: string,
+  staffId: string,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO pharmacy_prescription_view_events
+       (id, submission_id, file_id, staff_id, viewed_at)
+     SELECT ?, f.submission_id, f.id, ?, ?
+       FROM pharmacy_prescription_files f
+       INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
+      WHERE f.submission_id = ? AND f.id = ? AND s.line_account_id = ?
+        AND f.state = 'ready'`,
+  ).bind(
+    crypto.randomUUID(), staffId, new Date().toISOString(),
+    submissionId, fileId, lineAccountId,
+  ).run();
+}
+
 export interface AdminPrescriptionStats {
   pending_count: number;
   oldest_wait_at: string | null;

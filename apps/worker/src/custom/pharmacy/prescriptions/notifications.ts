@@ -223,19 +223,19 @@ async function recordNotificationEvent(
     `INSERT INTO pharmacy_prescription_events
        (id, submission_id, actor_type, actor_id, event_type,
         to_status, reason_code, revision, created_at)
-     SELECT ?, s.id, 'system', ?, '${eventType}', ?, ?, ?, ?
+     SELECT ?, s.id, 'system', ?, ?, ?, ?, ?, ?
        FROM pharmacy_prescription_submissions s
       WHERE s.id = ? AND s.line_account_id = ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_prescription_events existing
            WHERE existing.submission_id = s.id
-             AND existing.event_type = '${eventType}'
+             AND existing.event_type = ?
              AND existing.actor_id = ?
         )`,
   ).bind(
-    crypto.randomUUID(), recipient.status_event_id, recipient.status,
+    crypto.randomUUID(), recipient.status_event_id, eventType, recipient.status,
     recipient.reason_code, recipient.revision, now, submissionId,
-    lineAccountId, recipient.status_event_id,
+    lineAccountId, eventType, recipient.status_event_id,
   ).run();
 }
 

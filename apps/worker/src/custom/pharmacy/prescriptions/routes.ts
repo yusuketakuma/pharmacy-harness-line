@@ -24,6 +24,7 @@ import {
   listAdminPrescriptionQueue,
   markPrescriptionFileDeleted,
   markPrescriptionFileReady,
+  recordPrescriptionFileViewed,
   reservePrescriptionDraft,
   reservePrescriptionFile,
   reservePrescriptionResubmission,
@@ -400,6 +401,8 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/stats', async (c) => 
 
 prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', async (c) => {
   const lineAccountId = c.get('prescriptionLineAccountId');
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   if (!c.env.IMAGES) return c.json({ error: 'Image storage unavailable' }, 503);
   const file = await getAdminPrescriptionFile(
     c.env.DB, lineAccountId, c.req.param('id'), c.req.param('fileId'),
@@ -407,6 +410,9 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', a
   if (!file) return c.json({ error: 'Prescription image not found' }, 404);
   const object = await c.env.IMAGES.get(file.r2_key);
   if (!object) return c.json({ error: 'Prescription image not found' }, 404);
+  await recordPrescriptionFileViewed(
+    c.env.DB, lineAccountId, c.req.param('id'), c.req.param('fileId'), staff.id,
+  );
   return new Response(await object.arrayBuffer(), {
     headers: {
       'Content-Type': file.content_type,

@@ -106,7 +106,7 @@ describe('prescription status notifications', () => {
       to: 'U-patient',
       messages: [{ type: 'text', text: expect.stringContaining('準備ができました') }],
     });
-    expect(calls.some((call) => call.sql.includes("'notification_sent'"))).toBe(true);
+    expect(calls.some((call) => call.values.includes('notification_sent'))).toBe(true);
     expect(calls[0].sql).toContain('s.line_account_id = ?');
     expect(calls[0].sql).toContain('f.provider_line_user_id AS line_user_id');
     expect(calls[0].values).toContain('account-1');
@@ -122,7 +122,7 @@ describe('prescription status notifications', () => {
       lineCredentialKey: CREDENTIAL_KEY,
     })).resolves.toEqual({ status: 'failed' });
 
-    const failure = calls.find((call) => call.sql.includes("'notification_failed'"));
+    const failure = calls.find((call) => call.values.includes('notification_failed'));
     expect(failure?.values).toContain(STATUS_EVENT_ID);
     expect(JSON.stringify(failure)).not.toContain('unavailable');
   });

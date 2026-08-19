@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   adminStats: vi.fn(),
   adminDetail: vi.fn(),
   adminFile: vi.fn(),
+  recordFileViewed: vi.fn(),
   adminAction: vi.fn(),
   notify: vi.fn(),
   linkContinuity: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('./repository.js', () => ({
   getAdminPrescriptionStats: mocks.adminStats,
   getAdminPrescriptionDetail: mocks.adminDetail,
   getAdminPrescriptionFile: mocks.adminFile,
+  recordPrescriptionFileViewed: mocks.recordFileViewed,
   applyAdminPrescriptionAction: mocks.adminAction,
 }));
 vi.mock('./image.js', () => ({
@@ -193,6 +195,7 @@ describe('admin prescription routes', () => {
     mocks.adminStats.mockResolvedValue({ pending_count: 1, oldest_wait_at: '2026-08-17T00:00:00Z' });
     mocks.adminDetail.mockResolvedValue({ submission: { id: 'submission-1' }, files: [], events: [] });
     mocks.adminFile.mockResolvedValue({ r2_key: 'private-key', content_type: 'image/png' });
+    mocks.recordFileViewed.mockResolvedValue(undefined);
     mocks.adminAction.mockResolvedValue({ status: 'accepted', statusEventId: 'event-1' });
     getObject.mockResolvedValue({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer });
   });
@@ -245,9 +248,10 @@ describe('admin prescription routes', () => {
     );
     expect(response.status).toBe(404);
     expect(getObject).not.toHaveBeenCalled();
+    expect(mocks.recordFileViewed).not.toHaveBeenCalled();
   });
 
-  it('streams an authorized image with no-store headers', async () => {
+  it('streams an authorized image with no-store headers and records exactly one view event', async () => {
     const response = await adminApp().request(
       '/api/custom/pharmacy/prescriptions/submission-1/files/file-1?line_account_id=account-1',
       {},
@@ -256,6 +260,10 @@ describe('admin prescription routes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(response.headers.get('Content-Type')).toBe('image/png');
+    expect(mocks.recordFileViewed).toHaveBeenCalledTimes(1);
+    expect(mocks.recordFileViewed).toHaveBeenCalledWith(
+      env.DB, 'account-1', 'submission-1', 'file-1', 'staff-1',
+    );
   });
 
   it('applies a scoped admin CAS action with the authenticated staff id', async () => {

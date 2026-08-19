@@ -10,6 +10,7 @@ import {
   getAdminPrescriptionDetail,
   getAdminPrescriptionStats,
   listAdminPrescriptionQueue,
+  recordPrescriptionFileViewed,
   reservePrescriptionDraft,
   reservePrescriptionFile,
 } from './repository.js';
@@ -241,6 +242,18 @@ describe('admin account-scoped repository', () => {
     expect(calls[0].sql).toContain('s.line_account_id = ?');
     expect(calls[0].sql).toContain('f.submission_id = ? AND f.id = ?');
     expect(calls[0].sql).toContain("f.state = 'ready'");
+  });
+
+  it('records a staff-viewed audit event scoped to the same ownership check as the read', async () => {
+    const { db, calls } = fakeDb([]);
+    await recordPrescriptionFileViewed(db, 'account-1', 'submission-1', 'file-1', 'staff-1');
+    expect(calls[0].sql).toContain('INSERT INTO pharmacy_prescription_view_events');
+    expect(calls[0].sql).toContain('f.submission_id = ? AND f.id = ? AND s.line_account_id = ?');
+    expect(calls[0].sql).toContain("f.state = 'ready'");
+    expect(calls[0].values).toContain('staff-1');
+    expect(calls[0].values).toEqual(
+      expect.arrayContaining(['staff-1', 'submission-1', 'file-1', 'account-1']),
+    );
   });
 
   it('applies an admin transition with scoped CAS and an atomic event', async () => {
