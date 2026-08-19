@@ -11,7 +11,25 @@
 - 2026-08-19: V-1〜V-5を実コードで調査完了(結果はP1参照)。M-9(R2バケット名のdev/prod分離)を直接実施済み。P0/P1/P2/P3/P5の残タスクは、ファイルが重複しない10バッチに分けて`executor`エージェント(一部opus)へ並列実装を委任し、実行中。完了したエージェントから順にAGENTS.md/CLAUDE.mdのTDD規約に沿って変更内容・テスト結果を検証し、本ファイルのActiveから除去してDoneへ移す。
 - **運用メモ(マイグレーション番号衝突)**: 並列実行の副作用として `custom_023_pharmacy_staff_api_key_hash.sql`(L-4バッチ)と `custom_023_pharmacy_webhook_durable_inbox.sql`(H-3バッチ)が同一番号で衝突していたのを検知し、前者を `custom_027_pharmacy_staff_api_key_hash.sql` へリネームして解消した。最終的に `custom_023`〜`custom_027` の5ファイルで衝突・欠番なし。
 - **運用メモ(スキーマ変更の相互作用)**: M-8バッチの`custom_026`が当初テーブル再作成(DROP+RENAME)方式でCHECK制約を拡張しており、M-5/M-6バッチが検証した「安全なD1更新は破壊的スキーマ変更を拒否する」というガードに抵触することが判明。既存テーブル拡張ではなく新規加算テーブル方式に本人が書き直して解消(詳細はM-8参照)。
-- **2026-08-19 完了: 10バッチすべて完了。** `bootstrap.sql`/`bootstrap-meta.json`を最終再生成し、モノレポ全体で最終検証を実施 ― `pnpm -r test`: line-sdk 3/3・sdk 55/55・liff 31/31・db 248/248・update-engine 215/215(`upgrade-matrix.test.ts`含む)・create-line-harness 61/61・web 52/52・worker 1541/1541(169ファイル)、全てグリーン。`pnpm -r typecheck`: 全パッケージエラーなし。P0/P1/P2/P3/P5は全項目完了。P4(法令遵守)とL-10(依存関係更新)は上記のとおり意図的に対象外。**要人手対応が2件残っている**(下記チェックリスト参照): `.env.example`への`STAFF_API_KEY_HASH_SECRET`追記(L-4)、コミット・PR作成(本セッションはコミットを一切行っていない)。
+- **2026-08-19 完了: 10バッチすべて完了。** `bootstrap.sql`/`bootstrap-meta.json`を最終再生成し、モノレポ全体で最終検証を実施 ― `pnpm -r test`: line-sdk 3/3・sdk 55/55・liff 31/31・db 248/248・update-engine 215/215(`upgrade-matrix.test.ts`含む)・create-line-harness 61/61・web 52/52・worker 1541/1541(169ファイル)、全てグリーン。`pnpm -r typecheck`: 全パッケージエラーなし。P0/P1/P2/P3/P5は全項目完了。P4(法令遵守)とL-10(依存関係更新)は上記のとおり意図的に対象外。
+- **2026-08-19: 13コミットに分けてコミット済み**(`docs:`/`fix:`/`feat:`/`chore:` の粒度で機能ごとに分割、コミット順は本ファイルの記録と対応)。未追跡の `.claude/`・`.omc/`・`out/` は本セッションの作業物ではないため意図的に含めていない。要人手対応が2件残っている: `.env.example` への `STAFF_API_KEY_HASH_SECRET` 追記(L-4、サンドボックスのsecret-readガードでブロック)、PR作成の判断。
+
+### 新機能: 全体管理者(Platform Admin)ロール — 進行中
+2026-08-19、ユーザー指示によりP0〜P5の修正完了後に新規追加。各テナント管理者の上位に位置し、**個人の診療記録を含む全データ**(処方箋・問診・マイナ・服薬継続)を越権的に閲覧・編集できる新ロール。スコープはユーザーに確認済み(質問で確定): アクセス範囲は個人PHIまで含む全データ、ログは「監査ログ・Webhook/配信ログ・全体管理者自身の操作ログ」の3種。
+
+**設計方針**: 既存の`tenant_admin_credentials`/`tenant_admin_sessions`パターン(オペークセッション・ハッシュ化トークン・credential_version・must_change_password)を踏襲しつつ、テナントに紐付かないため**テーブル・Cookie・ミドルウェアを完全に分離**(`platform_admins`/`platform_admin_credentials`/`platform_admin_sessions`/`platform_admin_access_events`、Cookie名`lh_platform_admin_session`、`platformAdminAuthMiddleware`)。既存のテナント境界ミドルウェア群(`tenantAccountSelectorGuard`等)は`tenantId`未設定時にno-opする設計のため干渉しない。既存の`PLATFORM_ADMIN_KEY`(CLIプロビジョニング用の共有シークレット)とは別物 ― 個人を特定した監査証跡を残すため、全体管理者は個別のstaff身元を持つ人間ログインとして設計。
+
+**「テナント情報を越権的に編集」のスコープ判断**: `tenants`テーブルの`display_name`/`status`(active/suspended)のみを編集対象とし、`tenant_code`(不変識別子)は対象外とした。理由: tenant_codeの変更はログイン導線を壊すリスクが高く、今回のスコープでは不要と判断。
+
+**最重要の安全策**: 全体管理者によるテナント越境の読み取り・書き込みは**すべて**`platform_admin_access_events`に記録する設計とした(`recordPlatformAdminAccess`/`platformAdminAccessStatement`)。個人PHIまで含む越権アクセスを許可する以上、この監査証跡がAPPI上の説明責任の唯一の担保になる。
+
+**進捗**:
+- [x] 認証コア(自分で直接実装、検証済み): `custom_028_platform_admin.sql`(スキーマ)、`custom/pharmacy/platform-admin/auth.ts`(Cookie・セッション解決・ミドルウェア)、`custom/pharmacy/platform-admin/audit.ts`(監査記録ヘルパー)、`middleware/auth.ts`への`buildCookie`のexportと`/api/platform-admin/*`の認証迂回配線、`provisioning/credentials.ts`への`pas_`プレフィックスのセッショントークン関数追加。`apps/worker`型チェック・既存`auth.test.ts` 41/41 成功、`bootstrap.sql`同期確認済み。
+- [x] バックエンドルート・プロビジョニングスクリプト・配線 完了(2026-08-19)。`custom/pharmacy/platform-admin/routes.ts` に11ルート実装(ログイン/ログアウト/セッション確認/パスワード変更/テナント一覧・詳細・編集/患者横断一覧・詳細/ログ閲覧/自己監査ログ)。`scripts/custom/pharmacy/bootstrap-platform-admin.ts`(初回発行CLI、`POST /api/platform/pharmacy/platform-admins` を既存の `rejectUnauthorizedPlatformRequest` で保護、姉妹スクリプトのHMAC決定的パスワード方式を踏襲しリプレイ安全性を確保)。`index.ts`への配線完了。テスト: `apps/worker` 171ファイル1570テスト成功、`scripts` 14ファイル117テスト成功、`tsc --noEmit`エラーなし。監査カバレッジはフィクスチャ差分テストで強制(新規ルート追加時にフィクスチャ未登録なら失敗する設計)。
+  - **本人が直接コードを精査し確認した点**: テナント編集は`displayName`/`status`のみを厳格ホワイトリスト(それ以外のキーが1つでもあれば400)。テナント編集・パスワード変更は監査イベントと同一`db.batch`でコミット(H-2/M-3で確立した「状態変更と監査は同一トランザクション」の原則をこの新機能にも一貫して適用)。全SQLはパラメータ化されておりインジェクションのリスクなし。患者PHI取得は既存の`getAdminPharmacyPatientHistory`/`listAdminPharmacyPatients`/`listAccountExpectations`/`listMynaHandoffs`(いずれも本セッションで既にテナント境界の検証を済ませたコードパス)への委譲のみで、新規SQLを書いていない。
+  - **本人が直接修正した1件**: `platformAdminAuthMiddleware`のmust_change_password強制が`/logout`もブロックしてしまい、初回ログイン(bootstrap)の管理者がパスワード変更前にログアウトできない状態だった(エージェントが検出・報告、意図的に自スコープ外として未修正のまま報告)。`/api/platform-admin/logout`を許可パスに追加して解消、`auth.test.ts` 41/41・`platform-admin`関連70テスト成功を確認。
+- [ ] フロントエンド(apps/web): ログイン画面・ダッシュボード(テナント一覧+集計)・テナント詳細/編集・患者横断ブラウザ・ログビューア・自己監査ログビューア。API契約確定後に着手(手戻り防止のため直列実行)。executorエージェント(opus)へ委任・実行中。
+- [ ] 統合テスト・モノレポ全体の最終検証・PLANS.mdの完了記録・コミット・機能まとめmdファイルの作成(ユーザー指示)
 
 ---
 
