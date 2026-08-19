@@ -250,6 +250,40 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
   - [ ] `apps/worker/src/routes/tags.ts` / `webhooks.ts` へのtenant scopeカラム追加(V-3/V-4、スキーマ変更を伴うため別バッチ)
   - [ ] field-level encryption設計ドキュメント作成(M-9フォローアップ、`answers_json`等が対象)
   - [ ] E-1〜E-7(レビュー証跡整備、次回監査用)
+  - [ ] `PLANS.md:103` のH-3フォローアップ注記を削除(`platform-admin/routes.ts:434-500`・`platform-admin/logs/page.tsx:102-131`で実装済みと確認済み、注記だけが残っている)
+
+- [ ] **P7-8(2026-08-19追記 ― 初回記入から漏れていた分)** P7作成時、workflow2の深掘り監査(pharmacyAdmin/platformAdminバケット)は全件転記したが、①それと同一file:lineで別カテゴリとして生き残った1件、②workflow1のサーベイ段階の指摘(workflow2は対象外だった画面横断チェック)、③complete­ness critic(監査自体が見落とした領域)の3種を転記し忘れていた。以下で補完する。
+
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:150` ― 「キャンセル」確認ダイアログが患者へLINE通知が飛ぶこと・取り消し不可であることを説明せず、「キャンセル」という語自体がダイアログを閉じる意味にも読めるため誤ってOKしやすい(high, P7-1と同一バッチで直すこと)
+  - [ ] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:114` ― フォロー予約成功時に失敗と誤表示され、そのまま再試行すると重複予約が作られる(causes-error)
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionReviewEditor.tsx:49` ― 発行者を保存すると、薬剤師が直前に入力した有効期限欄が無言で消える(causes-error、データ消失)
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:96` ― 「LINEで通知しました」の緑バナーが次の処方せんに引き継がれ、実際には通知していない案件を通知済みと誤認させる(causes-error)
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueueOverview.tsx:85,120,125` ― ステータスタブの件数が読み込み済み50件のみで集計される/初回フェッチ前から「該当なし」を描画する/キュー行に患者を特定する情報が一切ない(blocks-task、3件セット)
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:132` ― 画像を高速にページ送りすると古いリクエストが後着ちして誤った患者の画像が表示されうる(blocks-task、レース条件)
+  - [ ] `apps/web/src/custom/pharmacy/myna/MynaAdminPage.tsx:116` ― 確認待ちキューが読み込み中でも「確認対象なし」と表示される(causes-error、empty-vs-loading)
+  - [ ] `apps/web/src/custom/pharmacy/intake/PatientIntakeAdminPage.tsx:129` ― 患者履歴の取得に失敗すると「読み込み中」のまま永久に固まる(slows-task、:83のレース問題とは別件)
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionPrintPage.tsx:66` ― 一度「確認」した後は再印刷する手段がない(blocks-task、:98の「キャンセルしても記録される」問題とは別件)
+  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionImageViewer.tsx:36` ― `aria-modal` を宣言しているがフォーカスを移動・トラップしない(a11y, low)
+  - [ ] `apps/web/src/lib/api.ts:145` ― セッション切れ(401)をその場で検知せず、以後の操作が汎用エラーのまま作業不能になる(blocks-task。P7-4のLIFF側`request.ts:28`と根本原因が同じ`fetchApi`の可能性が高く、先にこちらを直すと波及して直る見込み)
+  - [ ] `apps/web/src/app/page.tsx:426` ― 薬局テナントでもアカウント読み込み中は一般CRMダッシュボードが一瞬表示され、6本の403リクエストが飛ぶ(slows-task)
+  - [ ] `apps/web/src/app/login/page.tsx:39` ― ログイン失敗時にサーバーの内部エラー文字列がそのまま薬局スタッフに表示される(slows-task)
+  - [ ] `apps/web/src/app/friends/page.tsx:52` ― 友だち管理のタグ絞り込みが薬局テナントでは常に空になる(slows-task)
+  - [ ] `apps/web/src/app/page.tsx:232` ― 一般ダッシュボードのデモ用バナーがプレースホルダURLのまま残っている(cosmetic, low)
+
+- [ ] **P7-9(completeness critic が指摘した横断的な未調査領域、2026-08-19追記)** 個別findingではなく「次に何を調べるべきか」の指摘。着手前に該当領域を実コードで再調査してから個別タスク化すること。
+  - [ ] 薬局アカウントが0件の新規薬局が、ログイン直後にどのコンソールへ着地するか(`app/page.tsx:426`起点、一般CRMダッシュボードに迷い込む可能性)
+  - [ ] `apps/web/src/lib/api.ts` の `fetchApi` がサーバーのエラーメッセージを握りつぶしている疑い ― P7-1/P7-4/P7-8の複数の「エラーが分からない」系findingの共通原因である可能性が高く、優先調査推奨
+  - [ ] 複数スタッフによる同時操作(排他制御)がサーバー側では効いているがUIで一切説明されておらず、競合時にクライアントが復旧できない
+  - [ ] 全体管理者がテナントの送信を一時停止した状態が、薬局側コンソームには一切表示されない(`platform-admin`側のみで完結)
+  - [ ] 「停止」という言葉が画面ごとに異なる意味を持つ(全体管理者ダッシュボード/テナント詳細/緊急コントロールでそれぞれ別概念)
+  - [ ] `PrescriptionImageViewer` はズームしてもパン不可・回転で画像がクリップされる ― 処方せんを正確に読む唯一の画面であるため優先度は高いはず
+  - [ ] キュー・詳細パネルの状態がすべてコンポーネントstateでURLパラメータ化されておらず、リロードや共有リンクで文脈が失われる(全体管理者側コンソールとの設計方針の不一致)
+  - [ ] 印刷は別タブで開き、印刷元タブと状態が同期しない
+  - [ ] `緊急コントロール` は一般CRMの配信は止められるが、薬局側の送信経路(通知・継続フォロー等)には無力
+  - [ ] 共有タブレットでのセッション衛生 ― ログアウトしても前スタッフのアカウント選択が残る等
+  - [ ] `mustChangePassword` フローの途中でログイン画面がその状態を忘れる遷移がある(`auth-guard.tsx`)
+
+- [ ] **P7-10** workflow2は検証コストの都合で上位28件のみ実コード照合し、残り141件は未検証のまま severity 順に温存されている(重複排除後169件 − 検証28件)。優先度の高いものから着手する際は、まず journal.jsonl の `lens:*` / `screen:*` エージェント出力を読み、file:line単位で実在確認してから着手すること(未検証＝誤りの可能性を含む)。
 
 **却下・保留のまま(実装しない)**:
 - Myna `tenant_alias` のグローバルユニーク衝突(low, `endpoint-repository.ts:148`)と `/r/myna/:tenantAlias` 未認証URL開示(low, `myna/routes.ts:184`)は今回のisolation調査で唯一生き残った2件。優先度lowのため今バッチには含めず次回起票。
