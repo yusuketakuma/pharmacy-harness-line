@@ -3,10 +3,7 @@ name: Repository Verify
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - dev
-      - refactor/ci-root-script-tests-20260819
+    branches: [main, dev]
   workflow_dispatch:
 
 concurrency:
