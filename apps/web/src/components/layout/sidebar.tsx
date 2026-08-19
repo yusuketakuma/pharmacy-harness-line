@@ -8,6 +8,7 @@ import type { AccountWithStats } from '@/contexts/account-context'
 import { countryFlag } from '@/lib/country-flag'
 import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
 import PrescriptionSidebarBadge from '@/custom/pharmacy/prescriptions/PrescriptionSidebarBadge' // custom:pharmacy-prescriptions
+import { isPharmacyMenuPath } from '@/custom/pharmacy/growth-loop/menu' // custom:pharmacy-allowlist
 
 const appVersion = process.env.APP_VERSION || '0.0.0'
 const appCommitSha = process.env.APP_COMMIT_SHA || 'local'
@@ -283,6 +284,22 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {menuSections
           .filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)
+          .map((section) => ({
+            ...section,
+            items: section.items.filter((item) => {
+              // Pharmacy tenants get the 薬局機能 section (via section.pharmacyOnly)
+              // plus only the general entries the server actually permits them.
+              // Everything else 403s, so listing it is a dead end.
+              if (selectedAccount?.pharmacyMode && !section.pharmacyOnly &&
+                  !isPharmacyMenuPath(item.href)) return false
+              if (item.href === '/staff' && staffRole !== 'owner') return false
+              if (item.href === '/accounts' && staffRole === 'staff') return false
+              return true
+            }),
+          }))
+          // A section whose entries were all filtered out would otherwise render as a
+          // bare heading with nothing under it.
+          .filter((section) => section.items.length > 0)
           .map((section, si) => (
             <div key={si}>
               {section.label && (
@@ -290,11 +307,7 @@ export default function Sidebar() {
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{section.label}</p>
                 </div>
               )}
-              {section.items.filter((item) => {
-                if (item.href === '/staff' && staffRole !== 'owner') return false
-                if (item.href === '/accounts' && staffRole === 'staff') return false
-                return true
-              }).map((item) => {
+              {section.items.map((item) => {
                 const active = isActive(item.href)
                 const isDanger = 'danger' in item && item.danger
                 return (
