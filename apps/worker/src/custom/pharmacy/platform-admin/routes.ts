@@ -1,0 +1,500 @@
+import { Hono } from 'hono';
+import type { Env } from '../../../index.js';
+import { resolveAdminAuthConfig } from '../../../middleware/admin-auth-config.js';
+import {
+  generatePlatformAdminSessionToken,
+  hashTenantAdminSessionToken,
+  hashTenantPassword,
+  isPlatformAdminSessionToken,
+  isValidAdminPassword,
+  verifyTenantPassword,
+} from '../provisioning/credentials.js';
+import { listAccountExpectations } from '../continuity/next-intake.js';
+import {
+  getAdminPharmacyPatientHistory,
+  listAdminPharmacyPatients,
+} from '../intake/repository.js';
+import { listMynaHandoffs } from '../myna/repository.js';
+import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
+import {
+  PLATFORM_ADMIN_AUTH_COOKIE,
+  PLATFORM_ADMIN_CSRF_COOKIE,
+  expiredPlatformAdminCookie,
+  platformAdminCsrfCookie,
+  platformAdminCsrfTokenFromCookie,
+  platformAdminSessionCookie,
+  platformAdminSessionTokenFromCookie,
+} from './auth.js';
+
+export const platformAdminRoutes = new Hono<Env>();
+
+const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
+const STANDARD_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
+// Same constant-shape hash the tenant login uses so an unknown login costs the
+// same PBKDF2 work as a known one and cannot be distinguished by timing.
+const UNKNOWN_LOGIN_PASSWORD_HASH =
+  'pbkdf2-sha256$100000$AAAAAAAAAAAAAAAAAAAAAA$7_iN48HsHUxblOLkYfnRLpCrY7dUnWGcyeEpHR_jjFc';
+const TENANT_STATUSES = new Set(['active', 'suspended']);
+const LOG_TYPES = ['prescription_events', 'webhook_receipts', 'platform_admin_access'] as const;
+type LogType = (typeof LOG_TYPES)[number];
+
+const TENANT_SELECT = `
+  SELECT tenant.id, tenant.tenant_code, tenant.display_name, tenant.status,
+         (SELECT COUNT(*) FROM tenant_line_accounts AS mapping
+           WHERE mapping.tenant_id = tenant.id) AS line_account_count,
+         (SELECT COUNT(*) FROM tenant_staff_memberships AS membership
+           WHERE membership.tenant_id = tenant.id AND membership.is_active = 1) AS staff_count,
+         (SELECT COUNT(*) FROM pharmacy_patients AS patient
+            INNER JOIN tenant_line_accounts AS mapping
+                    ON mapping.line_account_id = patient.line_account_id
+           WHERE mapping.tenant_id = tenant.id) AS patient_count
+    FROM tenants AS tenant`;
+
+type TenantRow = {
+  id: string;
+  tenant_code: string;
+  display_name: string;
+  status: string;
+  line_account_count: number;
+  staff_count: number;
+  patient_count: number;
+};
+
+function toTenant(row: TenantRow) {
+  return {
+    id: row.id,
+    tenantCode: row.tenant_code,
+    displayName: row.display_name,
+    status: row.status,
+    lineAccountCount: row.line_account_count,
+    staffCount: row.staff_count,
+    patientCount: row.patient_count,
+  };
+}
+
+async function newSession(kind: 'bootstrap' | 'standard') {
+  const token = generatePlatformAdminSessionToken();
+  return {
+    token,
+    tokenHash: await hashTenantAdminSessionToken(token),
+    kind,
+    expiresAt: new Date(Date.now() +
+      (kind === 'bootstrap' ? BOOTSTRAP_SESSION_MS : STANDARD_SESSION_MS)).toISOString(),
+  };
+}
+
+async function lineAccountIds(db: D1Database, tenantId: string): Promise<string[]> {
+  const result = await db.prepare(
+    `SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ? ORDER BY line_account_id`,
+  ).bind(tenantId).all<{ line_account_id: string }>();
+  return (result.results ?? []).map((row) => row.line_account_id);
+}
+
+function stringBody(value: unknown, key: string): string {
+  const record = value as Record<string, unknown> | null;
+  return record && typeof record[key] === 'string' ? record[key] : '';
+}
+
+/**
+ * POST /api/platform-admin/login — the only route the platform-admin auth
+ * middleware lets through unauthenticated. Structurally identical to the
+ * tenant admin login (routes/admin-auth.ts) minus the pharmacyCode selector:
+ * a platform admin's login_id is globally unique because the role is not
+ * scoped to a tenant.
+ */
+platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
+  const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
+  if (config.misconfigured) {
+    console.error('[platform-admin] refused login — misconfigured topology:', config.misconfigured);
+    return c.json({ success: false, error: config.misconfigured }, 500);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const loginId = stringBody(body, 'loginId').trim();
+  const password = stringBody(body, 'password');
+  if (!loginId || !password) {
+    return c.json({ success: false, error: 'Login ID and password are required' }, 400);
+  }
+
+  // is_active on both platform_admins and staff_members is part of the WHERE:
+  // a revoked platform admin or a deactivated staff member simply has no row,
+  // and falls into the same timing-safe rejection as an unknown login.
+  const row = await c.env.DB.prepare(
+    `SELECT credential.staff_id, credential.password_hash,
+            credential.must_change_password, credential.credential_version,
+            staff.name
+       FROM platform_admin_credentials AS credential
+       INNER JOIN platform_admins AS admin
+               ON admin.staff_id = credential.staff_id AND admin.is_active = 1
+       INNER JOIN staff_members AS staff
+               ON staff.id = credential.staff_id AND staff.is_active = 1
+      WHERE credential.login_id = ? COLLATE NOCASE
+      LIMIT 1`,
+  ).bind(loginId).first<{
+    staff_id: string;
+    password_hash: string;
+    must_change_password: number;
+    credential_version: number;
+    name: string;
+  }>();
+  const passwordValid = await verifyTenantPassword(
+    password,
+    row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
+  );
+  if (!row || !passwordValid) {
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
+
+  const csrfToken = crypto.randomUUID();
+  const session = await newSession(row.must_change_password === 1 ? 'bootstrap' : 'standard');
+  await c.env.DB.prepare(
+    `INSERT INTO platform_admin_sessions
+      (token_hash, staff_id, credential_version, session_kind,
+       expires_at, revoked_at, created_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+  ).bind(
+    session.tokenHash, row.staff_id, row.credential_version,
+    session.kind, session.expiresAt, new Date().toISOString(),
+  ).run();
+  await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login');
+
+  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
+  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  return c.json({
+    success: true,
+    data: {
+      id: row.staff_id,
+      name: row.name,
+      mustChangePassword: row.must_change_password === 1,
+    },
+    csrfToken,
+  });
+});
+
+platformAdminRoutes.post('/api/platform-admin/logout', async (c) => {
+  const { sameSite } = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
+  const token = platformAdminSessionTokenFromCookie(c);
+  if (token && isPlatformAdminSessionToken(token)) {
+    const tokenHash = await hashTenantAdminSessionToken(token);
+    await c.env.DB.prepare(
+      `UPDATE platform_admin_sessions SET revoked_at = ?
+        WHERE token_hash = ? AND revoked_at IS NULL`,
+    ).bind(new Date().toISOString(), tokenHash).run().catch(() => undefined);
+  }
+  await recordPlatformAdminAccess(c.env.DB, c.get('platformAdmin').id, null, 'logout');
+  c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_AUTH_COOKIE, sameSite), { append: true });
+  c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_CSRF_COOKIE, sameSite), { append: true });
+  return c.json({ success: true, data: null });
+});
+
+/**
+ * GET /api/platform-admin/session — self-check only. Deliberately writes no
+ * access event: reading your own identity is not tenant-data access.
+ */
+platformAdminRoutes.get('/api/platform-admin/session', async (c) => {
+  const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
+  let csrfToken = platformAdminCsrfTokenFromCookie(c);
+  if (!csrfToken) {
+    csrfToken = crypto.randomUUID();
+    c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  }
+  const admin = c.get('platformAdmin');
+  const credential = await c.env.DB.prepare(
+    `SELECT must_change_password FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`,
+  ).bind(admin.id).first<{ must_change_password: number }>();
+  return c.json({
+    success: true,
+    data: { ...admin, mustChangePassword: credential?.must_change_password === 1 },
+    csrfToken,
+  });
+});
+
+platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
+  const admin = c.get('platformAdmin');
+  const body = await c.req.json().catch(() => null);
+  const currentPassword = stringBody(body, 'currentPassword');
+  const newPassword = stringBody(body, 'newPassword');
+  if (!isValidAdminPassword(newPassword)) {
+    return c.json({ success: false, error: 'New password must be 12 to 128 characters' }, 400);
+  }
+  if (newPassword === currentPassword) {
+    return c.json({ success: false, error: 'New password must differ from the current password' }, 400);
+  }
+
+  const credential = await c.env.DB.prepare(
+    `SELECT password_hash, credential_version
+       FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`,
+  ).bind(admin.id).first<{ password_hash: string; credential_version: number }>();
+  if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
+    return c.json({ success: false, error: 'Current password is incorrect' }, 401);
+  }
+
+  const now = new Date().toISOString();
+  const passwordHash = await hashTenantPassword(newPassword);
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE platform_admin_credentials
+          SET password_hash = ?, must_change_password = 0,
+              credential_version = credential_version + 1, updated_at = ?
+        WHERE staff_id = ? AND credential_version = ?`,
+    ).bind(passwordHash, now, admin.id, credential.credential_version),
+    // Every session issued against the old credential version dies with it.
+    c.env.DB.prepare(
+      `UPDATE platform_admin_sessions
+          SET revoked_at = ?
+        WHERE staff_id = ? AND revoked_at IS NULL AND credential_version <= ?`,
+    ).bind(now, admin.id, credential.credential_version),
+    platformAdminAccessStatement(c.env.DB, admin.id, null, 'change_password'),
+  ]);
+  if (results[0].meta.changes !== 1) {
+    return c.json({ success: false, error: 'Credential changed concurrently' }, 409);
+  }
+
+  const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
+  const csrfToken = crypto.randomUUID();
+  const session = await newSession('standard');
+  await c.env.DB.prepare(
+    `INSERT INTO platform_admin_sessions
+      (token_hash, staff_id, credential_version, session_kind,
+       expires_at, revoked_at, created_at)
+     VALUES (?, ?, ?, 'standard', ?, NULL, ?)`,
+  ).bind(
+    session.tokenHash, admin.id, credential.credential_version + 1,
+    session.expiresAt, now,
+  ).run();
+  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
+  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  return c.json({ success: true, data: { mustChangePassword: false }, csrfToken });
+});
+
+platformAdminRoutes.get('/api/platform-admin/tenants', async (c) => {
+  const admin = c.get('platformAdmin');
+  const result = await c.env.DB.prepare(
+    `${TENANT_SELECT} ORDER BY tenant.tenant_code`,
+  ).all<TenantRow>();
+  await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'list_tenants');
+  return c.json({ success: true, data: (result.results ?? []).map(toTenant) });
+});
+
+platformAdminRoutes.get('/api/platform-admin/tenants/:id', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const tenant = await c.env.DB.prepare(
+    `${TENANT_SELECT} WHERE tenant.id = ? LIMIT 1`,
+  ).bind(tenantId).first<TenantRow>();
+  if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
+
+  const accounts = await c.env.DB.prepare(
+    `SELECT account.id, account.name, account.channel_id, account.is_active
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
+      WHERE mapping.tenant_id = ?
+      ORDER BY account.id`,
+  ).bind(tenantId).all<{ id: string; name: string; channel_id: string; is_active: number }>();
+  await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_tenant', 'tenant', tenantId);
+  return c.json({
+    success: true,
+    data: { ...toTenant(tenant), lineAccounts: accounts.results ?? [] },
+  });
+});
+
+/**
+ * PATCH /api/platform-admin/tenants/:id — displayName and status only.
+ * tenant_code is the immutable tenant identifier every scoping query and
+ * every operator runbook keys off, so it is not editable here.
+ */
+platformAdminRoutes.patch('/api/platform-admin/tenants/:id', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return c.json({ success: false, error: 'Invalid tenant update' }, 400);
+  }
+  const keys = Object.keys(body as Record<string, unknown>);
+  if (keys.length === 0 || keys.some((key) => key !== 'displayName' && key !== 'status')) {
+    return c.json({ success: false, error: 'Only displayName and status can be edited' }, 400);
+  }
+  const record = body as { displayName?: unknown; status?: unknown };
+  const displayName = 'displayName' in record
+    ? (typeof record.displayName === 'string' ? record.displayName.trim() : '')
+    : null;
+  if (displayName !== null && (!displayName || displayName.length > 120)) {
+    return c.json({ success: false, error: 'displayName must be 1 to 120 characters' }, 400);
+  }
+  const status = 'status' in record
+    ? (typeof record.status === 'string' ? record.status : '')
+    : null;
+  if (status !== null && !TENANT_STATUSES.has(status)) {
+    return c.json({ success: false, error: 'status must be active or suspended' }, 400);
+  }
+
+  const current = await c.env.DB.prepare(
+    `SELECT display_name, status FROM tenants WHERE id = ? LIMIT 1`,
+  ).bind(tenantId).first<{ display_name: string; status: string }>();
+  if (!current) return c.json({ success: false, error: 'Tenant not found' }, 404);
+
+  const after = {
+    displayName: displayName ?? current.display_name,
+    status: status ?? current.status,
+  };
+  const before = {
+    ...(displayName === null ? {} : { displayName: current.display_name }),
+    ...(status === null ? {} : { status: current.status }),
+  };
+  const changed = {
+    ...(displayName === null ? {} : { displayName: after.displayName }),
+    ...(status === null ? {} : { status: after.status }),
+  };
+  const now = new Date().toISOString();
+  // One batch so the edit and its access event commit together — an edit that
+  // survives without its audit row is exactly what this table exists to prevent.
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE tenants SET display_name = ?, status = ?, updated_at = ? WHERE id = ?`,
+    ).bind(after.displayName, after.status, now, tenantId),
+    platformAdminAccessStatement(
+      c.env.DB, admin.id, tenantId, 'edit_tenant', 'tenant', tenantId,
+      { before, after: changed },
+    ),
+  ]);
+  if (results[0].meta.changes !== 1) {
+    return c.json({ success: false, error: 'Tenant changed concurrently' }, 409);
+  }
+  return c.json({ success: true, data: { id: tenantId, ...after } });
+});
+
+platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const accounts = await lineAccountIds(c.env.DB, tenantId);
+  const perAccount = await Promise.all(accounts.map(async (lineAccountId) =>
+    (await listAdminPharmacyPatients(c.env.DB, lineAccountId))
+      .map((patient) => ({ lineAccountId, ...patient }))));
+  await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'list_patients');
+  return c.json({ success: true, data: perAccount.flat() });
+});
+
+/**
+ * GET /api/platform-admin/tenants/:id/patients/:patientId — full PHI view.
+ * Pure orchestration over the existing account-scoped admin repositories; the
+ * account is resolved from the tenant mapping, never from a request parameter.
+ */
+platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const patientId = c.req.param('patientId');
+
+  let lineAccountId: string | null = null;
+  let history: Awaited<ReturnType<typeof getAdminPharmacyPatientHistory>> = null;
+  for (const candidate of await lineAccountIds(c.env.DB, tenantId)) {
+    history = await getAdminPharmacyPatientHistory(c.env.DB, candidate, patientId);
+    if (history) {
+      lineAccountId = candidate;
+      break;
+    }
+  }
+  if (!history || !lineAccountId) {
+    return c.json({ success: false, error: 'Patient not found' }, 404);
+  }
+
+  const [expectations, handoffs] = await Promise.all([
+    listAccountExpectations(c.env.DB, lineAccountId),
+    listMynaHandoffs(c.env.DB, lineAccountId),
+  ]);
+  await recordPlatformAdminAccess(
+    c.env.DB, admin.id, tenantId, 'view_patient', 'patient', patientId,
+  );
+  return c.json({
+    success: true,
+    data: {
+      lineAccountId,
+      ...history,
+      nextIntakeExpectations: expectations.filter((item) => item.patient_id === patientId),
+      mynaHandoffs: handoffs.filter((item) => item.patient_id === patientId),
+    },
+  });
+});
+
+platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
+  const admin = c.get('platformAdmin');
+  const type = c.req.query('type') ?? null;
+  if (type !== null && !LOG_TYPES.includes(type as LogType)) {
+    return c.json({ success: false, error: 'Unknown log type' }, 400);
+  }
+  const tenantId = c.req.query('tenantId') || null;
+  const since = c.req.query('since') || null;
+  const limit = Math.min(200, Math.max(1, Number.parseInt(c.req.query('limit') ?? '', 10) || 50));
+  const wanted = type ? [type as LogType] : LOG_TYPES;
+  const filters = [tenantId, tenantId, since, since, limit];
+
+  const data: Record<string, unknown> = {};
+  if (wanted.includes('prescription_events')) {
+    const result = await c.env.DB.prepare(
+      `SELECT event.id, event.submission_id, event.event_type, event.actor_type,
+              event.from_status, event.to_status, event.created_at,
+              mapping.tenant_id, submission.line_account_id
+         FROM pharmacy_prescription_events AS event
+         INNER JOIN pharmacy_prescription_submissions AS submission
+                 ON submission.id = event.submission_id
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = submission.line_account_id
+        WHERE (? IS NULL OR mapping.tenant_id = ?)
+          AND (? IS NULL OR event.created_at >= ?)
+        ORDER BY event.created_at DESC, event.id DESC
+        LIMIT ?`,
+    ).bind(...filters).all();
+    data.prescriptionEvents = result.results ?? [];
+  }
+  if (wanted.includes('webhook_receipts')) {
+    const result = await c.env.DB.prepare(
+      `SELECT tenant_id, line_account_id, webhook_event_id, received_at,
+              status, retry_count, dead_lettered_at
+         FROM pharmacy_webhook_event_receipts
+        WHERE (? IS NULL OR tenant_id = ?)
+          AND (? IS NULL OR received_at >= ?)
+        ORDER BY received_at DESC
+        LIMIT ?`,
+    ).bind(...filters).all();
+    data.webhookReceipts = result.results ?? [];
+  }
+  if (wanted.includes('platform_admin_access')) {
+    const result = await c.env.DB.prepare(
+      `SELECT id, platform_admin_id, tenant_id, action, resource_type,
+              resource_id, detail_json, created_at
+         FROM platform_admin_access_events
+        WHERE (? IS NULL OR tenant_id = ?)
+          AND (? IS NULL OR created_at >= ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?`,
+    ).bind(...filters).all();
+    data.platformAdminAccess = result.results ?? [];
+  }
+
+  await recordPlatformAdminAccess(
+    c.env.DB, admin.id, tenantId, 'view_logs', undefined, undefined,
+    { type: type ?? 'all', since, limit },
+  );
+  return c.json({ success: true, data });
+});
+
+/**
+ * GET /api/platform-admin/audit — the caller's own access history, or every
+ * platform admin's with ?all=true (more than one platform admin may exist and
+ * they oversee each other). This is the one route that records no event of its
+ * own: appending to the trail you are reading makes the trail unreadable, and
+ * this route exposes no tenant data — only the audit metadata itself.
+ */
+platformAdminRoutes.get('/api/platform-admin/audit', async (c) => {
+  const admin = c.get('platformAdmin');
+  const all = c.req.query('all') === 'true';
+  const limit = Math.min(200, Math.max(1, Number.parseInt(c.req.query('limit') ?? '', 10) || 50));
+  const result = await c.env.DB.prepare(
+    `SELECT id, platform_admin_id, tenant_id, action, resource_type,
+            resource_id, detail_json, created_at
+       FROM platform_admin_access_events
+      WHERE (? = 1 OR platform_admin_id = ?)
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+  ).bind(all ? 1 : 0, admin.id, limit).all();
+  return c.json({ success: true, data: result.results ?? [] });
+});

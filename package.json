@@ -18,7 +18,8 @@
     "build:bundle": "tsx scripts/release/build-bundle.ts",
     "tenant:setup": "tsx scripts/custom/pharmacy/setup-tenant.ts",
     "tenant:admin-bootstrap": "tsx scripts/custom/pharmacy/bootstrap-tenant-admin.ts",
-    "tenant:line-credentials": "tsx scripts/custom/pharmacy/migrate-line-credentials.ts"
+    "tenant:line-credentials": "tsx scripts/custom/pharmacy/migrate-line-credentials.ts",
+    "platform:admin-bootstrap": "tsx scripts/custom/pharmacy/bootstrap-platform-admin.ts"
   },
   "packageManager": "pnpm@9.15.4",
   "engines": {

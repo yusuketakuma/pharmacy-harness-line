@@ -656,6 +656,97 @@ tenantProvisioningRoutes.post(
   },
 );
 
+/**
+ * POST /api/platform/pharmacy/platform-admins
+ *
+ * Bootstraps the FIRST platform administrator — the chicken-and-egg case, since
+ * /api/platform-admin/login needs a platform_admin_credentials row to exist.
+ * Deliberately lives under the CLI provisioning namespace and is gated by
+ * PLATFORM_ADMIN_KEY, NOT by a platform-admin session: the two prefixes serve
+ * two different audiences (CLI operator vs. logged-in human).
+ *
+ * Replay follows the tenant admin bootstrap: the CLI derives the temporary
+ * password deterministically, so re-running with the same idempotency key
+ * re-verifies the existing untouched credential instead of erroring.
+ */
+tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c) => {
+  const rejected = await rejectUnauthorizedPlatformRequest(c);
+  if (rejected) return rejected;
+  const input = parseAdminBootstrapInput(await c.req.json().catch(() => null));
+  if (!input) return c.json({ success: false, error: 'Invalid platform admin data' }, 400);
+
+  const existing = await c.env.DB.prepare(
+    `SELECT credential.staff_id, credential.password_hash, credential.must_change_password
+       FROM platform_admin_credentials AS credential
+      WHERE credential.login_id = ? COLLATE NOCASE
+      LIMIT 1`,
+  ).bind(input.loginId).first<{
+    staff_id: string;
+    password_hash: string;
+    must_change_password: number;
+  }>();
+  if (existing) {
+    const replayed = existing.must_change_password === 1 &&
+      await verifyTenantPassword(input.temporaryPassword, existing.password_hash);
+    if (!replayed) {
+      return c.json({ success: false, error: 'Platform admin login is already taken' }, 409);
+    }
+    return c.json({
+      success: true,
+      data: { staffId: existing.staff_id, adminLoginId: input.loginId, replayed: true },
+    });
+  }
+
+  const staffId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  let passwordHash: string;
+  try {
+    passwordHash = await hashTenantPassword(input.temporaryPassword);
+  } catch (error) {
+    console.error(
+      '[platform-admin-bootstrap] password hashing failed',
+      error instanceof Error ? error.message : 'unknown error',
+    );
+    return c.json({ success: false, error: 'Platform admin bootstrap failed' }, 500);
+  }
+  try {
+    await c.env.DB.batch([
+      // role 'owner' plus a disabled api_key: the staff row exists to satisfy
+      // the platform_admins FK and carry the display name, never to grant a
+      // Bearer identity or any tenant membership.
+      c.env.DB.prepare(
+        `INSERT INTO staff_members
+          (id, name, email, role, api_key, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, 'owner', ?, 1, ?, ?)`,
+      ).bind(
+        staffId, input.displayName, input.email,
+        `disabled:${crypto.randomUUID()}`, now, now,
+      ),
+      c.env.DB.prepare(
+        `INSERT INTO platform_admins (staff_id, granted_by, is_active, created_at, updated_at)
+         VALUES (?, 'platform-admin-key', 1, ?, ?)`,
+      ).bind(staffId, now, now),
+      c.env.DB.prepare(
+        `INSERT INTO platform_admin_credentials
+          (staff_id, login_id, password_hash, must_change_password,
+           credential_version, created_at, updated_at)
+         VALUES (?, ?, ?, 1, 1, ?, ?)`,
+      ).bind(staffId, input.loginId, passwordHash, now, now),
+    ]);
+  } catch (error) {
+    console.error(
+      '[platform-admin-bootstrap] database batch failed',
+      error instanceof Error ? error.message : 'unknown error',
+    );
+    return c.json({ success: false, error: 'Platform admin bootstrap failed' }, 409);
+  }
+
+  return c.json({
+    success: true,
+    data: { staffId, adminLoginId: input.loginId, replayed: false },
+  }, 201);
+});
+
 for (const phase of ['backfill', 'scrub', 'restore'] as const) {
   tenantProvisioningRoutes.post(
     `/api/platform/pharmacy/tenants/:tenantId/line-accounts/:lineAccountId/credentials/${phase}`,

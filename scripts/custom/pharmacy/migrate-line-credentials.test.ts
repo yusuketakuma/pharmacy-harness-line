@@ -14,6 +14,7 @@ describe('tenant LINE credential migration CLI', () => {
     'scripts/custom/pharmacy/setup-tenant.ts',
     'scripts/custom/pharmacy/bootstrap-tenant-admin.ts',
     'scripts/custom/pharmacy/migrate-line-credentials.ts',
+    'scripts/custom/pharmacy/bootstrap-platform-admin.ts',
   ])('runs the %s entrypoint under the repository CJS package', (entrypoint) => {
     const result = spawnSync('pnpm', ['exec', 'tsx', entrypoint, '--help'], {
       cwd: process.cwd(),
@@ -27,6 +28,7 @@ describe('tenant LINE credential migration CLI', () => {
     'tenant:setup',
     'tenant:admin-bootstrap',
     'tenant:line-credentials',
+    'platform:admin-bootstrap',
   ])('accepts pnpm argument forwarding for %s', (script) => {
     const result = spawnSync('pnpm', [script, '--', '--help'], {
       cwd: process.cwd(),

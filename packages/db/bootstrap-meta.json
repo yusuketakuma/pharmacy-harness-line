@@ -101,7 +101,8 @@
     "custom_024_scenario_tenant_scope.sql",
     "custom_025_pharmacy_tenant_integrity_v2.sql",
     "custom_026_pharmacy_prescription_view_events.sql",
-    "custom_027_pharmacy_staff_api_key_hash.sql"
+    "custom_027_pharmacy_staff_api_key_hash.sql",
+    "custom_028_platform_admin.sql"
   ],
-  "migrationCount": 102
+  "migrationCount": 103
 }

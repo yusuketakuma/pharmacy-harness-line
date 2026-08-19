@@ -85,3 +85,15 @@ export function isTenantAdminSessionToken(token: string): boolean {
 export async function hashTenantAdminSessionToken(token: string): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(token))));
 }
+
+// Platform-admin sessions reuse the same opaque-token/SHA-256 scheme as
+// tenant-admin sessions (hashTenantAdminSessionToken is a generic hasher
+// despite its name — reused as-is). Only the prefix differs, so a
+// platform-admin token can never be mistaken for a tenant-admin one.
+export function generatePlatformAdminSessionToken(): string {
+  return `pas_${toBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
+}
+
+export function isPlatformAdminSessionToken(token: string): boolean {
+  return /^pas_[A-Za-z0-9_-]{43}$/u.test(token);
+}

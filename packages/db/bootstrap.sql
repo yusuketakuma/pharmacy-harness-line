@@ -1392,6 +1392,51 @@ CREATE TABLE pharmacy_webhook_event_receipts (
     REFERENCES tenant_line_accounts(tenant_id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE platform_admin_access_events (
+  id                TEXT PRIMARY KEY,
+  platform_admin_id TEXT NOT NULL REFERENCES platform_admins(staff_id),
+  tenant_id         TEXT REFERENCES tenants(id),
+  action            TEXT NOT NULL,
+  resource_type     TEXT,
+  resource_id       TEXT,
+  detail_json       TEXT,
+  created_at        TEXT NOT NULL
+);
+
+CREATE TABLE platform_admin_credentials (
+  staff_id             TEXT PRIMARY KEY
+                        REFERENCES platform_admins(staff_id) ON DELETE CASCADE,
+  login_id             TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash        TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1
+                        CHECK (must_change_password IN (0, 1)),
+  credential_version   INTEGER NOT NULL DEFAULT 1
+                        CHECK (credential_version >= 1),
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL
+);
+
+CREATE TABLE platform_admin_sessions (
+  token_hash         TEXT PRIMARY KEY
+                      CHECK (length(token_hash) = 64
+                             AND token_hash NOT GLOB '*[^0-9a-f]*'),
+  staff_id           TEXT NOT NULL
+                      REFERENCES platform_admins(staff_id) ON DELETE CASCADE,
+  credential_version INTEGER NOT NULL CHECK (credential_version >= 1),
+  session_kind       TEXT NOT NULL CHECK (session_kind IN ('bootstrap', 'standard')),
+  expires_at         TEXT NOT NULL,
+  revoked_at         TEXT,
+  created_at         TEXT NOT NULL
+);
+
+CREATE TABLE platform_admins (
+  staff_id   TEXT PRIMARY KEY REFERENCES staff_members(id) ON DELETE CASCADE,
+  granted_by TEXT,
+  is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE pool_accounts (
   id TEXT PRIMARY KEY,
   pool_id TEXT NOT NULL REFERENCES traffic_pools(id) ON DELETE CASCADE,
@@ -2190,6 +2235,15 @@ CREATE INDEX idx_pharmacy_webhook_event_receipts_received
 CREATE INDEX idx_pharmacy_webhook_event_receipts_sweep
   ON pharmacy_webhook_event_receipts (lease_until, received_at)
   WHERE status <> 'completed' AND dead_lettered_at IS NULL;
+
+CREATE INDEX idx_platform_admin_access_events_admin
+  ON platform_admin_access_events (platform_admin_id, created_at);
+
+CREATE INDEX idx_platform_admin_access_events_tenant
+  ON platform_admin_access_events (tenant_id, created_at);
+
+CREATE INDEX idx_platform_admin_sessions_staff
+  ON platform_admin_sessions (staff_id, revoked_at, expires_at);
 
 CREATE INDEX idx_ref_tracking_friend ON ref_tracking (friend_id);
 

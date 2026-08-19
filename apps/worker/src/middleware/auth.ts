@@ -61,7 +61,7 @@ export function csrfTokenFromCookie(c: Context<Env>): string | null {
   return parseCookieHeader(c.req.header('Cookie'))[CSRF_COOKIE] || null;
 }
 
-function buildCookie(
+export function buildCookie(
   name: string,
   value: string,
   sameSite: AdminSameSite,
@@ -408,6 +408,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path === '/api/auth/logout' ||
     // Platform CLI provisioning authenticates with PLATFORM_ADMIN_KEY in-route.
     (path === '/api/platform/pharmacy/tenants' && method === 'POST') ||
+    (path === '/api/platform/pharmacy/platform-admins' && method === 'POST') ||
     (method === 'POST' &&
       /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/admin-bootstrap$/.test(path)) ||
     (method === 'POST' &&
@@ -422,7 +423,13 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path === '/api/qr' || // Public QR proxy — used by desktop landing pages
     path === '/api/health' || // Liveness probe (update CLI / self-update verify)
     // Public lead form. Origin validation and field validation happen in-route.
-    (path === '/api/public/media-inquiries' && method === 'POST')
+    (path === '/api/public/media-inquiries' && method === 'POST') ||
+    // Platform-admin routes authenticate against their own, entirely
+    // separate session cookie/table via platformAdminAuthMiddleware — see
+    // custom/pharmacy/platform-admin/auth.ts. A tenant-admin session must
+    // never grant access here, so this is a blanket prefix skip, not a
+    // method-aware exception like the PHI patient routes above.
+    path.startsWith('/api/platform-admin/')
   ) {
     return next();
   }

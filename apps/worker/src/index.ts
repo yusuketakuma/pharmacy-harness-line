@@ -102,6 +102,8 @@ import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // cust
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
 import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.js'; // custom:pharmacy-provisioning
+import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminAuthMiddleware } from './custom/pharmacy/platform-admin/auth.js'; // custom:pharmacy-platform-admin
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
@@ -182,6 +184,7 @@ export type Env = {
     mustChangePassword: boolean;
     pharmacyTenantId: string;
     pharmacyLineAccountId: string;
+    platformAdmin: { id: string; name: string };
   };
 };
 
@@ -219,6 +222,12 @@ app.use('*', rateLimitMiddleware);
 
 // Auth middleware — skips /webhook and /docs automatically
 app.use('*', authMiddleware);
+
+// Platform-admin routes carry their own identity, cookie and audit trail.
+// authMiddleware skips this prefix entirely (see middleware/auth.ts), so this
+// is the only gate on it — register it before the tenant-scoped guards, none
+// of which apply to a role that is deliberately not bound to a tenant.
+app.use('/api/platform-admin/*', platformAdminAuthMiddleware); // custom:pharmacy-platform-admin
 
 app.use('/api/*', pharmacyTenantApiAllowlistGuard);
 
@@ -269,6 +278,7 @@ app.route('/', pharmacyPrintRoutes); // custom:pharmacy-print
 app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifications
 app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
 app.route('/', tenantProvisioningRoutes); // custom:pharmacy-provisioning
+app.route('/', platformAdminRoutes); // custom:pharmacy-platform-admin
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
