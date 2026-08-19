@@ -20,6 +20,7 @@ function getClients() {
   const harness = new LineHarness({
     apiUrl: getEnvOrThrow('LINE_HARNESS_API_URL'),
     apiKey: getEnvOrThrow('LINE_HARNESS_API_KEY'),
+    tenantId: getEnvOrThrow('LINE_HARNESS_TENANT_ID'),
   })
   const myService = new MyServiceClient(getEnvOrThrow('EXTERNAL_API_KEY'))
   return { harness, myService }

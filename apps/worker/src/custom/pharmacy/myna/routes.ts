@@ -5,6 +5,7 @@ import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { getPharmacyAccountId } from '../account.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 import { readJsonObject } from '../json.js';
 import {
   resolvePrescriptionPatient,
@@ -78,6 +79,9 @@ async function patientGate(c: Context<MynaEnv>, next: Next) {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   c.set('mynaPatient', patient);
   return next();
 }
@@ -90,6 +94,9 @@ async function adminGate(c: Context<MynaEnv>, next: Next) {
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   return next();
 }
 

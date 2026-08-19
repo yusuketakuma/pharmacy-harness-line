@@ -10,7 +10,22 @@ vi.mock('@line-crm/db', () => dbMocks);
 const { authMiddleware } = await import('../middleware/auth.js');
 const { instagramEngagement } = await import('./instagram-engagement.js');
 type Env = import('../index.js').Env;
-const env = { DB: {} as D1Database, API_KEY: 'owner-key' } as unknown as Env['Bindings'];
+const tenantDb = {
+  prepare(sql: string) {
+    const statement = {
+      bind: () => statement,
+      first: async () => sql.includes('FROM tenants')
+        ? { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' }
+        : null,
+    };
+    return statement;
+  },
+} as unknown as D1Database;
+const env = {
+  DB: tenantDb,
+  API_KEY: 'owner-key',
+  LEGACY_ENV_OWNER_BYPASS: 'true',
+} as unknown as Env['Bindings'];
 
 function call(body: Record<string, unknown>, authorization = 'Bearer owner-key') {
   const app = new Hono<Env>();
@@ -18,7 +33,7 @@ function call(body: Record<string, unknown>, authorization = 'Bearer owner-key')
   app.route('/', instagramEngagement);
   return app.request('/api/integrations/ig-harness/engagement', {
     method: 'POST',
-    headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+    headers: { Authorization: authorization, 'X-Tenant-Id': 'generic', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }, env);
 }

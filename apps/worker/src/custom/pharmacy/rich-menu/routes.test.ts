@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 
+const lineAccountLookup = vi.fn();
 const dbMocks = {
   createRichMenuGroup: vi.fn(),
-  getLineAccountById: vi.fn(),
+  getLineAccountById: lineAccountLookup,
+  getLineAccountByIdForTenant: lineAccountLookup,
   getRichMenuGroupByGeneratorKey: vi.fn(),
   getRichMenuGroupWithPages: vi.fn(),
+  updateRichMenuGroupMeta: vi.fn(),
+  replaceRichMenuPages: vi.fn(),
   setRichMenuPageImage: vi.fn(),
 };
 vi.mock('@line-crm/db', () => dbMocks);
@@ -39,13 +43,14 @@ const PNG_2500x843 = new Uint8Array([
   0x08, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]);
 
-function app() {
+function app(opts: { images?: R2Bucket } = {}) {
   const worker = new Hono<any>();
   worker.use('*', async (c, next) => {
     c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
+    c.set('tenantId', 'tenant-a');
     c.env = {
       DB: {} as D1Database,
-      IMAGES: { put: vi.fn() } as unknown as R2Bucket,
+      IMAGES: opts.images ?? { put: vi.fn() } as unknown as R2Bucket,
       ASSETS: { fetch: vi.fn(async () => new Response(PNG_2500x843)) } as unknown as Fetcher,
       LINE_CHANNEL_ID: 'channel-1',
     };
@@ -80,6 +85,9 @@ describe('pharmacy rich-menu preparation', () => {
       method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
     });
     expect(res.status).toBe(409);
+    expect(dbMocks.getLineAccountById).toHaveBeenCalledWith(
+      expect.anything(), 'tenant-a', 'account-a',
+    );
     expect(dbMocks.createRichMenuGroup).not.toHaveBeenCalled();
   });
 
@@ -114,7 +122,38 @@ describe('pharmacy rich-menu preparation', () => {
     const body = await res.json() as any;
     expect(body.data.status).toBe('already_prepared');
     expect(body.data.reused).toBe(true);
+    expect(body.data.reconciled).toBe(true);
+    expect(dbMocks.replaceRichMenuPages).toHaveBeenCalledWith(
+      expect.anything(),
+      'group-1',
+      expect.arrayContaining([expect.objectContaining({ id: 'page-1' })]),
+    );
     expect(dbMocks.createRichMenuGroup).not.toHaveBeenCalled();
+  });
+
+  test('fails closed when a prepared image key is missing from R2', async () => {
+    const prepared = group({
+      pages: [{
+        ...group().pages[0],
+        image_r2_key: 'rich-menus/account-a/group-1/page-1/missing.jpg',
+        image_content_type: 'image/jpeg',
+      }],
+    });
+    dbMocks.getLineAccountById.mockResolvedValue({ id: 'account-a', liff_id: '1234567890-AbCd' });
+    dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValue(prepared);
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue(prepared);
+    const images = {
+      put: vi.fn(),
+      head: vi.fn().mockResolvedValue(null),
+    } as unknown as R2Bucket;
+
+    const response = await app({ images }).request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
+      method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(response.status).toBe(500);
+    expect(images.head).toHaveBeenCalledWith('rich-menus/account-a/group-1/page-1/missing.jpg');
+    expect(images.put).not.toHaveBeenCalled();
   });
 
   test('prepares the versioned single-action profile with one full-size area and its image', async () => {
@@ -137,6 +176,19 @@ describe('pharmacy rich-menu preparation', () => {
     expect(dbMocks.setRichMenuPageImage).toHaveBeenCalledWith(
       expect.anything(), 'page-1', expect.stringContaining('/initial-single-action-v1.jpg'), 'image/jpeg',
     );
+  });
+
+  test('does not rewrite a published profile when its LIFF actions are stale', async () => {
+    dbMocks.getLineAccountById.mockResolvedValue({ id: 'account-a', liff_id: '1234567890-NewId' });
+    dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValue(group({ status: 'published' }));
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue(group({ status: 'published' }));
+
+    const response = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
+      method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(response.status).toBe(409);
+    expect(dbMocks.replaceRichMenuPages).not.toHaveBeenCalled();
   });
 
   test('fails closed when the pharmacy rich-menu capability is disabled', async () => {

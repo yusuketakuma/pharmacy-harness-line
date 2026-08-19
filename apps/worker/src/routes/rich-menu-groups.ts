@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   getRichMenuGroups,
   getRichMenuGroupById,
@@ -9,12 +9,11 @@ import {
   deleteRichMenuGroup,
   setRichMenuPageImage,
   pageBelongsToGroup,
-  acquirePublishLock,
+  acquireRichMenuAccountLock,
   releasePublishLock,
-  setPageRichMenuId,
   markRichMenuGroupPublished,
   markRichMenuGroupUnpublished,
-  getLineAccountById,
+  getLineAccountByIdForTenant,
   getFollowingLineUserIdsByTag,
   type RichMenuGroup,
   type RichMenuGroupWithPages,
@@ -25,6 +24,7 @@ import {
 } from '@line-crm/db';
 import type { Env } from '../index.js';
 import { validateRichMenuImage } from '../lib/image-validator.js';
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
 import {
   publishRichMenuGroup,
   unpublishRichMenuGroup,
@@ -35,6 +35,25 @@ import {
 } from '../lib/rich-menu-publisher.js';
 
 export const richMenuGroups = new Hono<Env>();
+
+function getScopedLineAccount(c: Context<Env>, lineAccountId: string) {
+  return getLineAccountByIdForTenant(c.env.DB, c.get('tenantId'), lineAccountId);
+}
+
+async function resolveLineAccessToken(c: Context<Env>, lineAccountId: string): Promise<string | null> {
+  const tenantId = c.get('tenantId');
+  const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+  if (!tenantId || !rootSecret) return null;
+  try {
+    return await readLineCredential(c.env.DB, rootSecret, {
+      tenantId,
+      lineAccountId,
+      kind: 'channel_access_token',
+    });
+  } catch {
+    return null;
+  }
+}
 
 // ----- Serialization (snake_case row → camelCase response) -----
 
@@ -274,11 +293,13 @@ richMenuGroups.get('/api/rich-menu-groups/external/:richMenuId/image', async (c)
   const richMenuId = c.req.param('richMenuId');
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
-  const account = await getLineAccountById(c.env.DB, accountId);
+  const account = await getScopedLineAccount(c, accountId);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
+  const accessToken = await resolveLineAccessToken(c, accountId);
+  if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
   const res = await fetch(
     `https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`,
-    { headers: { Authorization: `Bearer ${account.channel_access_token}` } },
+    { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!res.ok) {
     return c.json(
@@ -304,8 +325,10 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   if (!accountId || !richMenuId) {
     return c.json({ success: false, error: 'accountId and richMenuId query params required' }, 400);
   }
-  const account = await getLineAccountById(c.env.DB, accountId);
+  const account = await getScopedLineAccount(c, accountId);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
+  const accessToken = await resolveLineAccessToken(c, accountId);
+  if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
 
   // 既に admin 管理下にあるかチェック
   const existing = await c.env.DB
@@ -323,7 +346,7 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
     );
   }
 
-  const auth = `Bearer ${account.channel_access_token}`;
+  const auth = `Bearer ${accessToken}`;
 
   // 1. LINE から rich menu 詳細を取得
   const detailRes = await fetch(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, {
@@ -331,7 +354,7 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   });
   if (!detailRes.ok) {
     return c.json(
-      { success: false, error: `LINE 詳細取得失敗: ${detailRes.status} ${await detailRes.text()}` },
+      { success: false, error: `LINE 詳細取得失敗: ${detailRes.status}` },
       500,
     );
   }
@@ -455,11 +478,8 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   await c.env.IMAGES.put(r2Key, imageBytes, { httpMetadata: { contentType } });
   await setRichMenuPageImage(c.env.DB, newPage.id, r2Key, contentType);
 
-  // 7. line_richmenu_id を埋めて status='published' に
-  await setPageRichMenuId(c.env.DB, newPage.id, richMenuId);
-  await markRichMenuGroupPublished(c.env.DB, created.id);
-
-  // 8. alias を upsert (今後の再 publish 時の安定 ID として)
+  // 7. line_richmenu_id と status='published' を一括確定
+  // 7. alias を upsert (今後の再 publish 時の安定 ID として)
   const aliasId = `lhx-${created.id.slice(0, 8)}-0`;
   try {
     await fetch(`https://api.line.me/v2/bot/richmenu/alias/${aliasId}`, {
@@ -469,6 +489,11 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
   } catch {
     // 無視
   }
+
+  // 8. line_richmenu_id、alias、status='published' を一括確定
+  await markRichMenuGroupPublished(c.env.DB, created.id, null, null, [
+    { pageId: newPage.id, aliasId, lineRichMenuId: richMenuId },
+  ]);
   await fetch('https://api.line.me/v2/bot/richmenu/alias', {
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
@@ -483,9 +508,11 @@ richMenuGroups.post('/api/rich-menu-groups/import', async (c) => {
 richMenuGroups.get('/api/rich-menu-groups/external', async (c) => {
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
-  const account = await getLineAccountById(c.env.DB, accountId);
+  const account = await getScopedLineAccount(c, accountId);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
-  const auth = `Bearer ${account.channel_access_token}`;
+  const accessToken = await resolveLineAccessToken(c, accountId);
+  if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
+  const auth = `Bearer ${accessToken}`;
 
   type LineMenu = {
     richMenuId: string;
@@ -574,8 +601,10 @@ richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) =>
   const richMenuId = c.req.param('richMenuId');
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
-  const account = await getLineAccountById(c.env.DB, accountId);
+  const account = await getScopedLineAccount(c, accountId);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
+  const accessToken = await resolveLineAccessToken(c, accountId);
+  if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
 
   // admin 管理下の richmenu はここでは削除させない
   const adminRow = await c.env.DB
@@ -596,14 +625,14 @@ richMenuGroups.delete('/api/rich-menu-groups/external/:richMenuId', async (c) =>
     );
   }
 
-  const auth = `Bearer ${account.channel_access_token}`;
+  const auth = `Bearer ${accessToken}`;
   const res = await fetch(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, {
     method: 'DELETE',
     headers: { Authorization: auth },
   });
   if (!res.ok && res.status !== 404) {
     return c.json(
-      { success: false, error: `LINE delete failed: ${res.status} ${await res.text()}` },
+      { success: false, error: `LINE delete failed: ${res.status}` },
       500,
     );
   }
@@ -774,7 +803,27 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/pages/:pageId/image', async 
 // 画像取得 — エディタからの <img src="..."> 用。Authorization ヘッダは付かないが、
 // 管理画面の Worker セッション cookie を auth middleware が検証する。
 richMenuGroups.get('/api/rich-menu-images/:key{.+}', async (c) => {
-  const key = c.req.param('key');
+  let key: string;
+  try {
+    key = decodeURIComponent(c.req.param('key'));
+  } catch {
+    return c.notFound();
+  }
+  const accountId = /^rich-menus\/([^/]+)\//.exec(key)?.[1];
+  if (!accountId) return c.notFound();
+
+  // R2 keys are not an authority: serve only an image currently linked to a
+  // rich-menu page in this account. This also prevents same-account orphan
+  // objects from becoming an unintended private file store.
+  const linked = await c.env.DB.prepare(
+    `SELECT 1 AS ok
+       FROM rich_menu_pages AS page
+       INNER JOIN rich_menu_groups AS group_row ON group_row.id = page.group_id
+      WHERE group_row.account_id = ? AND page.image_r2_key = ?
+      LIMIT 1`,
+  ).bind(accountId, key).first<{ ok: number }>();
+  if (!linked) return c.notFound();
+
   const obj = await c.env.IMAGES.get(key);
   if (!obj) return c.notFound();
   return new Response(obj.body, {
@@ -796,7 +845,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         headers: { Authorization: auth, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(`LINE createRichMenu failed: ${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(`LINE createRichMenu failed: ${res.status}`);
       return res.json() as Promise<{ richMenuId: string }>;
     },
     async uploadRichMenuImage(richMenuId, image, contentType) {
@@ -805,7 +854,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         headers: { Authorization: auth, 'Content-Type': contentType },
         body: image,
       });
-      if (!res.ok) throw new Error(`LINE uploadRichMenuImage failed: ${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(`LINE uploadRichMenuImage failed: ${res.status}`);
     },
     async deleteRichMenuAlias(aliasId) {
       const res = await fetch(`https://api.line.me/v2/bot/richmenu/alias/${aliasId}`, {
@@ -813,7 +862,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         headers: { Authorization: auth },
       });
       if (!res.ok && res.status !== 404) {
-        throw new Error(`LINE deleteRichMenuAlias failed: ${res.status} ${await res.text()}`);
+        throw new Error(`LINE deleteRichMenuAlias failed: ${res.status}`);
       }
     },
     async createRichMenuAlias(aliasId, richMenuId) {
@@ -822,7 +871,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         headers: { Authorization: auth, 'Content-Type': 'application/json' },
         body: JSON.stringify({ richMenuAliasId: aliasId, richMenuId }),
       });
-      if (!res.ok) throw new Error(`LINE createRichMenuAlias failed: ${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(`LINE createRichMenuAlias failed: ${res.status}`);
     },
     async deleteRichMenu(richMenuId) {
       const res = await fetch(`https://api.line.me/v2/bot/richmenu/${richMenuId}`, {
@@ -830,7 +879,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         headers: { Authorization: auth },
       });
       if (!res.ok && res.status !== 404) {
-        throw new Error(`LINE deleteRichMenu failed: ${res.status} ${await res.text()}`);
+        throw new Error(`LINE deleteRichMenu failed: ${res.status}`);
       }
     },
     async setDefaultRichMenu(richMenuId) {
@@ -838,7 +887,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         method: 'POST',
         headers: { Authorization: auth },
       });
-      if (!res.ok) throw new Error(`LINE setDefaultRichMenu failed: ${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(`LINE setDefaultRichMenu failed: ${res.status}`);
     },
     async clearDefaultRichMenu() {
       // 既存 default を解除。default 未設定でも LINE は 200 を返すので冪等。
@@ -847,7 +896,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         headers: { Authorization: auth },
       });
       if (!res.ok && res.status !== 404) {
-        throw new Error(`LINE clearDefaultRichMenu failed: ${res.status} ${await res.text()}`);
+        throw new Error(`LINE clearDefaultRichMenu failed: ${res.status}`);
       }
     },
     async getCurrentDefaultRichMenuId() {
@@ -858,7 +907,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
       // 設定なしは 404 が返る — null として返す。
       if (res.status === 404) return null;
       if (!res.ok) {
-        throw new Error(`LINE getCurrentDefaultRichMenu failed: ${res.status} ${await res.text()}`);
+        throw new Error(`LINE getCurrentDefaultRichMenu failed: ${res.status}`);
       }
       const body = (await res.json()) as { richMenuId?: string };
       return body.richMenuId ?? null;
@@ -871,7 +920,7 @@ function createLineClient(channelAccessToken: string): LineRichMenuClient {
         body: JSON.stringify({ richMenuId, userIds }),
       });
       if (!res.ok) {
-        throw new Error(`LINE linkRichMenuBulk failed: ${res.status} ${await res.text()}`);
+        throw new Error(`LINE linkRichMenuBulk failed: ${res.status}`);
       }
     },
   };
@@ -882,16 +931,17 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
   const group = await getRichMenuGroupWithPages(c.env.DB, groupId);
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
   if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
-  if (group.publishing_at) return c.json({ success: false, error: 'already publishing' }, 409);
 
-  const account = await getLineAccountById(c.env.DB, group.account_id);
+  const account = await getScopedLineAccount(c, group.account_id);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 500);
+  const accessToken = await resolveLineAccessToken(c, group.account_id);
+  if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
 
-  const locked = await acquirePublishLock(c.env.DB, groupId);
-  if (!locked) return c.json({ success: false, error: 'failed to acquire publish lock' }, 409);
+  const accountLock = await acquireRichMenuAccountLock(c.env.DB, group.account_id);
+  if (!accountLock) return c.json({ success: false, error: 'failed to acquire publish lock' }, 409);
 
   try {
-    const line = createLineClient(account.channel_access_token);
+    const line = createLineClient(accessToken);
     const r2Adapter: R2Like = {
       async get(key) {
         const obj = await c.env.IMAGES.get(key);
@@ -907,6 +957,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
       selected: group.selected === 1,
       pages: group.pages.map((p) => ({
         id: p.id,
+        aliasId: p.alias_id,
         orderIndex: p.order_index,
         name: p.name,
         imageR2Key: p.image_r2_key,
@@ -920,15 +971,23 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
       })),
     };
     const result = await publishRichMenuGroup(groupInput, line, r2Adapter);
-    for (const r of result.pages) {
-      await setPageRichMenuId(c.env.DB, r.pageId, r.newRichMenuId);
-    }
-    await markRichMenuGroupPublished(c.env.DB, groupId);
+    await markRichMenuGroupPublished(
+      c.env.DB,
+      groupId,
+      accountLock.groupId,
+      accountLock.token,
+      result.pages.map((page) => ({
+        pageId: page.pageId,
+        aliasId: page.aliasId,
+        lineRichMenuId: page.newRichMenuId,
+      })),
+    );
     return c.json({ success: true, data: result });
   } catch (e) {
-    await releasePublishLock(c.env.DB, groupId);
     const message = e instanceof Error ? e.message : String(e);
     return c.json({ success: false, error: message }, 500);
+  } finally {
+    await releasePublishLock(c.env.DB, accountLock.groupId, accountLock.token);
   }
 });
 
@@ -943,27 +1002,33 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
   if (!groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
 
-  const account = await getLineAccountById(c.env.DB, group.account_id);
-  if (!account) return c.json({ success: false, error: 'line account not found' }, 500);
+  const accountLock = await acquireRichMenuAccountLock(c.env.DB, group.account_id);
+  if (!accountLock) return c.json({ success: false, error: 'failed to acquire publish lock' }, 409);
 
-  const line = createLineClient(account.channel_access_token);
-  const groupInput: GroupInput = {
-    id: group.id,
-    size: group.size,
-    chatBarText: group.chat_bar_text,
-    isDefaultForAll: group.is_default_for_all === 1,
-    selected: group.selected === 1,
-    pages: group.pages.map((p) => ({
-      id: p.id,
-      orderIndex: p.order_index,
-      name: p.name,
-      imageR2Key: p.image_r2_key,
-      imageContentType: p.image_content_type,
-      lineRichMenuId: p.line_richmenu_id,
-      areas: [],
-    })),
-  };
   try {
+    const account = await getScopedLineAccount(c, group.account_id);
+    if (!account) return c.json({ success: false, error: 'line account not found' }, 500);
+    const accessToken = await resolveLineAccessToken(c, group.account_id);
+    if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
+
+    const line = createLineClient(accessToken);
+    const groupInput: GroupInput = {
+      id: group.id,
+      size: group.size,
+      chatBarText: group.chat_bar_text,
+      isDefaultForAll: group.is_default_for_all === 1,
+      selected: group.selected === 1,
+      pages: group.pages.map((p) => ({
+        id: p.id,
+        aliasId: p.alias_id,
+        orderIndex: p.order_index,
+        name: p.name,
+        imageR2Key: p.image_r2_key,
+        imageContentType: p.image_content_type,
+        lineRichMenuId: p.line_richmenu_id,
+        areas: [],
+      })),
+    };
     const result = await unpublishRichMenuGroup(groupInput, line);
     if (result.warnings.length > 0) {
       // D1 のIDを残しておかないと、失敗した削除を再試行できなくなる。
@@ -976,11 +1041,15 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
         502,
       );
     }
-    await markRichMenuGroupUnpublished(c.env.DB, groupId);
+    await markRichMenuGroupUnpublished(
+      c.env.DB, groupId, accountLock.groupId, accountLock.token,
+    );
     return c.json({ success: true, data: result });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return c.json({ success: false, error: message }, 500);
+  } finally {
+    await releasePublishLock(c.env.DB, accountLock.groupId, accountLock.token);
   }
 });
 
@@ -998,13 +1067,107 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
 //     有効化時は同 account 内の他 group の is_default_for_all を 0 にリセット。
 //
 // 前提: group が published かつ default_page に line_richmenu_id がセット済み。
-function applyConfirmationToken(
-  groupId: string,
-  mode: 'bulk-link' | 'set-default',
-  tagId: string | null,
-  enabled = true,
-): string {
-  return `confirm:${groupId}:${mode}:${encodeURIComponent(tagId ?? 'all')}:${enabled ? 'on' : 'off'}`;
+const APPLY_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+const confirmationEncoder = new TextEncoder();
+
+type ApplyConfirmationPayload = {
+  tenantId: string;
+  accountId: string;
+  groupId: string;
+  groupUpdatedAt: string;
+  targetRichMenuId: string | null;
+  mode: 'bulk-link' | 'set-default';
+  tagId: string | null;
+  enabled: boolean;
+  audienceDigest: string | null;
+  expiresAt: number;
+};
+
+function confirmationBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
+}
+
+function decodeConfirmationBase64Url(value: string): Uint8Array {
+  const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+}
+
+async function confirmationHmac(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    confirmationEncoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return confirmationBase64Url(new Uint8Array(await crypto.subtle.sign(
+    'HMAC',
+    key,
+    confirmationEncoder.encode(value),
+  )));
+}
+
+function sameConfirmationSignature(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+async function signApplyConfirmation(
+  secret: string,
+  payload: ApplyConfirmationPayload,
+): Promise<string> {
+  const encoded = confirmationBase64Url(confirmationEncoder.encode(JSON.stringify(payload)));
+  const signed = `rmc1.${encoded}`;
+  return `${signed}.${await confirmationHmac(secret, signed)}`;
+}
+
+async function verifyApplyConfirmation(
+  secret: string,
+  token: string,
+): Promise<ApplyConfirmationPayload | null> {
+  if (token.length > 4096) return null;
+  const [version, encoded, signature, extra] = token.split('.');
+  if (version !== 'rmc1' || !encoded || !signature || extra) return null;
+  const signed = `${version}.${encoded}`;
+  const expected = await confirmationHmac(secret, signed);
+  if (!sameConfirmationSignature(expected, signature)) return null;
+  try {
+    const payload = JSON.parse(
+      new TextDecoder().decode(decodeConfirmationBase64Url(encoded)),
+    ) as Partial<ApplyConfirmationPayload>;
+    if (
+      typeof payload.tenantId !== 'string' ||
+      typeof payload.accountId !== 'string' ||
+      typeof payload.groupId !== 'string' ||
+      typeof payload.groupUpdatedAt !== 'string' ||
+      (payload.targetRichMenuId !== null && typeof payload.targetRichMenuId !== 'string') ||
+      (payload.mode !== 'bulk-link' && payload.mode !== 'set-default') ||
+      (payload.tagId !== null && typeof payload.tagId !== 'string') ||
+      typeof payload.enabled !== 'boolean' ||
+      (payload.audienceDigest !== null && typeof payload.audienceDigest !== 'string') ||
+      typeof payload.expiresAt !== 'number' ||
+      payload.expiresAt < Date.now()
+    ) return null;
+    return payload as ApplyConfirmationPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function richMenuAudienceDigest(userIds: string[]): Promise<string> {
+  const uniqueSorted = [...new Set(userIds)].sort();
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    confirmationEncoder.encode(uniqueSorted.join('\n')),
+  );
+  return confirmationBase64Url(new Uint8Array(digest));
 }
 
 richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => {
@@ -1060,11 +1223,31 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
     );
   }
 
-  const confirmationToken = applyConfirmationToken(groupId, mode, tagId, enabled);
+  const tenantId = c.get('tenantId');
+  const confirmationSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+  if (!tenantId || !confirmationSecret) {
+    return c.json({ success: false, error: 'confirmation signing unavailable' }, 503);
+  }
+  let confirmedUserIds: string[] | null = null;
   if (r.dryRun === true) {
-    const affected = mode === 'bulk-link'
-      ? (await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId)).length
-      : 0;
+    confirmedUserIds = mode === 'bulk-link'
+      ? await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId)
+      : [];
+    const affected = confirmedUserIds.length;
+    const confirmationToken = await signApplyConfirmation(confirmationSecret, {
+      tenantId,
+      accountId: group.account_id,
+      groupId,
+      groupUpdatedAt: group.updated_at,
+      targetRichMenuId,
+      mode,
+      tagId,
+      enabled,
+      audienceDigest: mode === 'bulk-link'
+        ? await richMenuAudienceDigest(confirmedUserIds)
+        : null,
+      expiresAt: Date.now() + APPLY_CONFIRMATION_TTL_MS,
+    });
     return c.json({
       success: true,
       data: {
@@ -1078,50 +1261,108 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
       },
     });
   }
-  if (r.dryRun !== false || r.confirmationToken !== confirmationToken) {
+  if (r.dryRun !== false || typeof r.confirmationToken !== 'string') {
     return c.json({ success: false, error: 'valid confirmationToken from dry-run is required' }, 428);
   }
+  const confirmation = await verifyApplyConfirmation(confirmationSecret, r.confirmationToken);
+  if (!confirmation) {
+    return c.json({ success: false, error: 'valid confirmationToken from dry-run is required' }, 428);
+  }
+  if (
+    confirmation.tenantId !== tenantId ||
+    confirmation.accountId !== group.account_id ||
+    confirmation.groupId !== groupId ||
+    confirmation.groupUpdatedAt !== group.updated_at ||
+    confirmation.targetRichMenuId !== targetRichMenuId ||
+    confirmation.mode !== mode ||
+    confirmation.tagId !== tagId ||
+    confirmation.enabled !== enabled
+  ) {
+    return c.json({ success: false, error: 'rich menu changed after confirmation' }, 409);
+  }
+  if (mode === 'bulk-link') {
+    confirmedUserIds = await getFollowingLineUserIdsByTag(c.env.DB, group.account_id, tagId);
+    if (confirmation.audienceDigest !== await richMenuAudienceDigest(confirmedUserIds)) {
+      return c.json({ success: false, error: 'follower audience changed after confirmation' }, 409);
+    }
+  }
 
-  const account = await getLineAccountById(c.env.DB, group.account_id);
+  const account = await getScopedLineAccount(c, group.account_id);
   if (!account) return c.json({ success: false, error: 'line account not found' }, 500);
+  const accessToken = await resolveLineAccessToken(c, group.account_id);
+  if (!accessToken) return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
 
   // ---- mode: set-default (LINE 全員のデフォルトに設定) ----
   if (mode === 'set-default') {
+    const accountLock = await acquireRichMenuAccountLock(c.env.DB, group.account_id);
+    if (!accountLock) {
+      return c.json({ success: false, error: 'another rich-menu operation is running' }, 409);
+    }
+    const line = createLineClient(accessToken);
+    let previousDefault: string | null = null;
+    let lineChanged = false;
+    let d1Committed = false;
     try {
-      const line = createLineClient(account.channel_access_token);
+      previousDefault = await line.getCurrentDefaultRichMenuId();
       if (enabled) {
-        await line.setDefaultRichMenu(targetRichMenuId!);
+        if (previousDefault !== targetRichMenuId) {
+          await line.setDefaultRichMenu(targetRichMenuId!);
+          lineChanged = true;
+        }
+        if (await line.getCurrentDefaultRichMenuId() !== targetRichMenuId) {
+          throw new Error('LINE default rich menu verification failed');
+        }
       } else {
-        const currentDefault = await line.getCurrentDefaultRichMenuId();
         const ownIds = new Set(group.pages.flatMap((page) => page.line_richmenu_id ? [page.line_richmenu_id] : []));
-        if (currentDefault && ownIds.has(currentDefault)) {
+        if (previousDefault && ownIds.has(previousDefault)) {
           await line.clearDefaultRichMenu();
+          lineChanged = true;
+          if (await line.getCurrentDefaultRichMenuId() !== null) {
+            throw new Error('LINE default rich menu clear verification failed');
+          }
         }
       }
       // LINE側の反映が成功してから、同 account 内のD1表示状態を更新する。
       const now = new Date().toISOString();
       if (enabled) {
-        await c.env.DB.batch([
+        const results = await c.env.DB.batch([
           c.env.DB
             .prepare(
               `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ?
-                WHERE account_id = ? AND id != ?`,
+                WHERE account_id = ? AND id != ?
+                  AND EXISTS (
+                    SELECT 1 FROM rich_menu_groups AS locked
+                     WHERE locked.id = ? AND locked.publishing_at = ?
+                  )`,
             )
-            .bind(now, group.account_id, groupId),
+            .bind(now, group.account_id, groupId, accountLock.groupId, accountLock.token),
           c.env.DB
             .prepare(
-              `UPDATE rich_menu_groups SET is_default_for_all = 1, updated_at = ? WHERE id = ?`,
+              `UPDATE rich_menu_groups SET is_default_for_all = 1, updated_at = ?
+                WHERE id = ? AND EXISTS (
+                  SELECT 1 FROM rich_menu_groups AS locked
+                   WHERE locked.id = ? AND locked.publishing_at = ?
+                )`,
             )
-            .bind(now, groupId),
+            .bind(now, groupId, accountLock.groupId, accountLock.token),
         ]);
+        if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
+          throw new Error('rich-menu account lock lost');
+        }
       } else {
-        await c.env.DB
+        const result = await c.env.DB
           .prepare(
-            `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ? WHERE id = ?`,
+            `UPDATE rich_menu_groups SET is_default_for_all = 0, updated_at = ?
+              WHERE id = ? AND EXISTS (
+                SELECT 1 FROM rich_menu_groups AS locked
+                 WHERE locked.id = ? AND locked.publishing_at = ?
+              )`,
           )
-          .bind(now, groupId)
+          .bind(now, groupId, accountLock.groupId, accountLock.token)
           .run();
+        if ((result.meta?.changes ?? 0) !== 1) throw new Error('rich-menu account lock lost');
       }
+      d1Committed = true;
       return c.json({
         success: true,
         data: {
@@ -1133,17 +1374,23 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
         },
       });
     } catch (e) {
+      if (lineChanged && !d1Committed) {
+        try {
+          if (previousDefault) await line.setDefaultRichMenu(previousDefault);
+          else await line.clearDefaultRichMenu();
+        } catch {
+          // Original error remains authoritative; the operation is safe to retry.
+        }
+      }
       const message = e instanceof Error ? e.message : String(e);
       return c.json({ success: false, error: message }, 500);
+    } finally {
+      await releasePublishLock(c.env.DB, accountLock.groupId, accountLock.token);
     }
   }
 
   // ---- mode: bulk-link (タグ or 全 follower に link) ----
-  const userIds = await getFollowingLineUserIdsByTag(
-    c.env.DB,
-    group.account_id,
-    tagId,
-  );
+  const userIds = confirmedUserIds ?? [];
   if (userIds.length === 0) {
     return c.json({
       success: true,
@@ -1155,7 +1402,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
     if (!targetRichMenuId) {
       return c.json({ success: false, error: 'no published rich menu found for default page' }, 400);
     }
-    const line = createLineClient(account.channel_access_token);
+    const line = createLineClient(accessToken);
     const result = await linkRichMenuBulkChunked(
       line,
       targetRichMenuId,

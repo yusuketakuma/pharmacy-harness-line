@@ -5,8 +5,8 @@ import { parse } from 'yaml';
 const read = (path: string) => readFileSync(path, 'utf8');
 
 describe('development deployment workflow contract', () => {
-  const customerDeploy = read('.github/workflows/deploy-cloudflare.yml');
-  const workflow = parse(customerDeploy) as any;
+  const sharedDeploy = read('.github/workflows/deploy-cloudflare.yml');
+  const workflow = parse(sharedDeploy) as any;
   const deploy = workflow.jobs.deploy;
   const stepIndex = (name: string) =>
     deploy.steps.findIndex((step: { name?: string }) => step.name === name);
@@ -18,8 +18,9 @@ describe('development deployment workflow contract', () => {
     expect(workflow.concurrency.group).toContain('${{ github.ref_name }}');
     expect(deploy.environment.name).toContain("github.ref_name == 'main'");
     expect(deploy.env.DEPLOY_TARGET).toBe('${{ vars.DEPLOY_TARGET }}');
-    expect(customerDeploy).toContain('test "$DEPLOY_TARGET" = "$expected_target"');
-    expect(customerDeploy).not.toContain('harness-test-pharmacy');
+    expect(sharedDeploy).toContain('test "$DEPLOY_TARGET" = "$expected_target"');
+    expect(sharedDeploy).not.toContain('harness-test-pharmacy');
+    expect(workflow.name).toBe('Deploy Shared Pharmacy Cloudflare');
     expect(workflow.permissions).toEqual({ contents: 'read' });
   });
 
@@ -50,9 +51,31 @@ describe('development deployment workflow contract', () => {
     );
   });
 
+  test('injects and verifies the runtime release version before production deployment', () => {
+    const buildMeta = stepIndex('Capture build metadata');
+    const inject = stepIndex('Inject runtime release metadata');
+    const rebuild = stepIndex('Rebuild Worker with runtime release metadata');
+    const deploy = stepIndex('Deploy to Cloudflare Workers');
+    const verifyVersion = stepIndex('Verify deployed runtime version');
+
+    expect(buildMeta).toBeLessThan(stepIndex('Build Admin Panel'));
+    expect(inject).toBeGreaterThan(stepIndex('Build Admin Panel'));
+    expect(inject).toBeLessThan(rebuild);
+    expect(rebuild).toBeLessThan(deploy);
+    expect(verifyVersion).toBeGreaterThan(stepIndex('Verify Worker health'));
+    expect(verifyVersion).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
+    expect(sharedDeploy).toContain('release_version=$(node -p');
+    expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
+    expect(sharedDeploy).toContain('--worker apps/worker/dist/line_harness/index.js');
+    expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
+    expect(sharedDeploy).toContain('--admin apps/web/out');
+    expect(sharedDeploy).toContain('--liff apps/liff/dist');
+    expect(sharedDeploy).toContain('test "$actual_version" = "$EXPECTED_VERSION"');
+  });
+
   test('checks out and deploys the exact source SHA with pinned actions', () => {
-    expect(customerDeploy).toContain('ref: ${{ github.sha }}');
-    expect(customerDeploy).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
+    expect(sharedDeploy).toContain('ref: ${{ github.sha }}');
+    expect(sharedDeploy).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
     const uses = deploy.steps
       .filter((step: { uses?: string }) => step.uses)
       .map((step: { uses: string }) => step.uses);
@@ -74,46 +97,62 @@ describe('development deployment workflow contract', () => {
   test('Worker CI runs for integration and production pushes', () => {
     const workflow = read('.github/workflows/worker-ci.yml');
     expect(workflow).toContain('branches: [main, dev]');
+    expect(workflow).not.toContain('VITE_LIFF_ID');
+    expect(workflow).not.toContain('VITE_BOT_BASIC_ID');
   });
 
   test('development Worker uses an isolated R2 bucket', () => {
-    expect(customerDeploy).toContain('R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}');
-    expect(customerDeploy).toContain('Development R2 bucket name must end in -dev');
-    expect(customerDeploy).toContain('.r2_buckets |= map(if .binding == "IMAGES" then .bucket_name = $bucket else . end)');
+    expect(sharedDeploy).toContain('R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}');
+    expect(sharedDeploy).toContain('Development R2 bucket name must end in -dev');
+    expect(sharedDeploy).toContain('.r2_buckets |= map(if .binding == "IMAGES" then .bucket_name = $bucket else . end)');
   });
 
   test('bakes the configured LIFF origin into the Worker CORS config', () => {
-    expect(customerDeploy).toContain('LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}');
-    expect(customerDeploy).toContain('.vars.LIFF_ORIGIN = $o');
-    expect(customerDeploy).toContain('test -n "$LIFF_ORIGIN"');
+    expect(sharedDeploy).toContain('LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}');
+    expect(sharedDeploy).toContain('.vars.LIFF_ORIGIN = $o');
+    expect(sharedDeploy).toContain('test -n "$LIFF_ORIGIN"');
+  });
+
+  test('passes the dedicated LIFF origin to the Admin build for setup URLs', () => {
+    expect(sharedDeploy).toContain('NEXT_PUBLIC_LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}');
+    expect(sharedDeploy).toContain('grep -R -Fq "$NEXT_PUBLIC_LIFF_ORIGIN" apps/web/.next');
   });
 
   test('builds and publishes the separate pharmacy LIFF Pages artifact', () => {
-    expect(customerDeploy).toContain('LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}');
-    expect(customerDeploy).toContain('VITE_DEFAULT_LIFF_ID: ${{ vars.VITE_LIFF_ID }}');
-    expect(customerDeploy).toContain('VITE_API_BASE: ${{ vars.WORKER_URL }}');
-    expect(customerDeploy).toContain('pnpm --filter liff build');
-    expect(customerDeploy).toContain('npx wrangler pages deploy apps/liff/dist');
-    expect(customerDeploy).toContain('--project-name="$LIFF_PAGES_PROJECT"');
+    expect(sharedDeploy).toContain('LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}');
+    expect(sharedDeploy).toContain('VITE_API_BASE: ${{ vars.WORKER_URL }}');
+    expect(sharedDeploy).toContain('pnpm --filter liff build');
+    expect(sharedDeploy).toContain('npx wrangler pages deploy apps/liff/dist');
+    expect(sharedDeploy).toContain('--project-name="$LIFF_PAGES_PROJECT"');
+    expect(sharedDeploy).not.toContain('VITE_DEFAULT_LIFF_ID');
+    expect(sharedDeploy).not.toContain('vars.VITE_LIFF_ID');
   });
 
-  test('fails before mutation when the LINE LIFF endpoint drifts from Pages', () => {
-    const validate = stepIndex('Validate required deployment configuration');
-    const topology = stepIndex('Verify LINE LIFF endpoint topology');
-    const migrate = stepIndex('Run pending D1 migrations');
-
-    expect(topology).toBeGreaterThan(validate);
-    expect(topology).toBeLessThan(migrate);
-    expect(customerDeploy).toContain('https://liff.line.me/${VITE_LIFF_ID}/');
-    expect(customerDeploy).toContain('grep -Fq "$LIFF_ORIGIN"');
-    expect(customerDeploy).toContain('grep -Fq "$WORKER_URL"');
-    expect(customerDeploy).toContain('LINE LIFF endpoint must point to LIFF_ORIGIN');
+  test('does not bake or validate one tenant LIFF ID in the shared deployment', () => {
+    expect(stepIndex('Verify LINE LIFF endpoint topology')).toBe(-1);
+    expect(sharedDeploy).not.toContain('https://liff.line.me/${VITE_LIFF_ID}/');
+    expect(sharedDeploy).toContain('Verify Pharmacy LIFF health');
   });
 
   test('rejects a pharmacy LIFF build without its runtime contract', () => {
-    expect(customerDeploy).toContain('grep -R -Fq "$VITE_DEFAULT_LIFF_ID" apps/liff/dist/assets');
-    expect(customerDeploy).toContain('grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets');
-    expect(customerDeploy).toContain('grep -R -Fq "pharmacy-receive" apps/liff/dist/assets');
+    expect(sharedDeploy).toContain('grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets');
+    expect(sharedDeploy).toContain('grep -R -Fq "pharmacy-receive" apps/liff/dist/assets');
+    expect(sharedDeploy).toContain('grep -R -Fq "pharmacy-liff-multitenant-v1" apps/liff/dist/assets');
+  });
+
+  test('checks the deployed LIFF asset instead of accepting only an HTTP 200 shell', () => {
+    const health = stepIndex('Verify Pharmacy LIFF health');
+    expect(health).toBeGreaterThan(stepIndex('Deploy Pharmacy LIFF Pages'));
+    expect(sharedDeploy).toContain('LIFF_ASSET_PATH=');
+    expect(sharedDeploy).toContain('pharmacy-liff-multitenant-v1');
+    expect(sharedDeploy).toContain('pharmacy-receive');
+    expect(sharedDeploy).toContain('LIFF asset does not contain the expected Worker API URL');
+  });
+
+  test('checks the deployed Admin account bundle for the dedicated LIFF origin', () => {
+    expect(sharedDeploy).toContain('ADMIN_ASSET_PATHS=');
+    expect(sharedDeploy).toContain('LIFF_ORIGIN%/');
+    expect(sharedDeploy).toContain('Admin bundle does not contain the configured LIFF origin');
   });
 
   test('preserves customer bindings and verifies them before recording success', () => {
@@ -126,40 +165,57 @@ describe('development deployment workflow contract', () => {
     expect(protect).toBeLessThan(stepIndex('Run pending D1 migrations'));
     expect(verify).toBeGreaterThan(stepIndex('Deploy to Cloudflare Workers'));
     expect(verify).toBeLessThan(stepIndex('Record release evidence'));
-    expect(customerDeploy).toContain('scripts/deploy/customer-config.ts prepare');
-    expect(customerDeploy).toContain('scripts/deploy/customer-config.ts verify');
-    expect(customerDeploy).toContain('Missing required deployment configuration');
-    expect(customerDeploy).not.toContain("|| 'your-worker-name'");
-    expect(customerDeploy).not.toContain("|| 'your-admin-name'");
+    expect(sharedDeploy).toContain('scripts/deploy/customer-config.ts prepare');
+    expect(sharedDeploy).toContain('scripts/deploy/customer-config.ts verify');
+    expect(sharedDeploy).toContain('Missing required deployment configuration');
+    expect(sharedDeploy).not.toContain("|| 'your-worker-name'");
+    expect(sharedDeploy).not.toContain("|| 'your-admin-name'");
   });
 
   test('uses the checksum-enforced migration runner without inferring a baseline', () => {
-    expect(customerDeploy).toContain('pnpm tsx scripts/deploy/apply-migrations.ts');
-    expect(customerDeploy).not.toContain("name='_migrations'");
-    expect(customerDeploy).not.toContain('packages/db/bootstrap.sql');
-    expect(customerDeploy).not.toContain('CREATE TABLE IF NOT EXISTS _migrations');
+    expect(sharedDeploy).toContain('pnpm tsx scripts/deploy/apply-migrations.ts');
+    expect(sharedDeploy).not.toContain("name='_migrations'");
+    expect(sharedDeploy).not.toContain('packages/db/bootstrap.sql');
+    expect(sharedDeploy).not.toContain('CREATE TABLE IF NOT EXISTS _migrations');
   });
 
   test('checks additive migration safety before any customer mutation', () => {
     const safety = stepIndex('Check additive migration safety');
     const migrate = stepIndex('Run pending D1 migrations');
 
-    expect(safety).toBeGreaterThan(stepIndex('Verify LINE LIFF endpoint topology'));
+    expect(safety).toBeGreaterThan(stepIndex('Build Pharmacy LIFF Pages'));
     expect(safety).toBeLessThan(migrate);
-    expect(customerDeploy).toContain('pnpm tsx scripts/check-migrations.ts');
+    expect(sharedDeploy).toContain('pnpm tsx scripts/check-migrations.ts');
+  });
+
+  test('requires stable platform-only secrets before applying tenant migrations', () => {
+    const verifySecrets = stepIndex('Verify shared Worker secrets');
+    const migrate = stepIndex('Run pending D1 migrations');
+
+    expect(verifySecrets).toBeGreaterThan(stepIndex('Check additive migration safety'));
+    expect(verifySecrets).toBeLessThan(migrate);
+    expect(sharedDeploy).toContain('wrangler secret list');
+    for (const name of [
+      'PLATFORM_ADMIN_KEY',
+      'CROSS_ACCOUNT_TOKEN_KEY',
+      'LINE_CREDENTIAL_KEY_V1',
+    ]) {
+      expect(sharedDeploy).toContain(name);
+    }
+    expect(sharedDeploy).not.toContain('wrangler secret put LINE_CREDENTIAL_KEY_V1');
   });
 
   test('records a pre-migration D1 bookmark and post-smoke deployment evidence', () => {
-    expect(customerDeploy).toContain('scripts/deploy/release-state.ts --with-bookmark');
-    expect(customerDeploy).toContain('scripts/deploy/record-release-evidence.ts');
-    expect(customerDeploy).toContain('BEFORE_STATE: ${{ steps.before.outputs.state }}');
-    expect(customerDeploy).toContain('MIGRATION_RESULT: ${{ steps.migrations.outputs.result }}');
-    expect(customerDeploy).toContain('SOURCE_SHA: ${{ github.sha }}');
+    expect(sharedDeploy).toContain('scripts/deploy/release-state.ts --with-bookmark');
+    expect(sharedDeploy).toContain('scripts/deploy/record-release-evidence.ts');
+    expect(sharedDeploy).toContain('BEFORE_STATE: ${{ steps.before.outputs.state }}');
+    expect(sharedDeploy).toContain('MIGRATION_RESULT: ${{ steps.migrations.outputs.result }}');
+    expect(sharedDeploy).toContain('SOURCE_SHA: ${{ github.sha }}');
   });
 
   test('publishes and verifies the Admin route on the configured Pages branch', () => {
-    expect(customerDeploy).toContain('--branch="$GITHUB_REF_NAME"');
-    expect(customerDeploy).toContain('${ADMIN_ORIGIN%/}/prescriptions');
+    expect(sharedDeploy).toContain('--branch="$GITHUB_REF_NAME"');
+    expect(sharedDeploy).toContain('${ADMIN_ORIGIN%/}/prescriptions');
   });
 
   test('Web CI gates Admin changes before deployment', () => {

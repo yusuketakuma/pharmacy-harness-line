@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { getPharmacyAccountId } from '../account.js';
 import { readJsonObject } from '../json.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 import {
   acknowledgePrescriptionPrintTask,
   claimPrescriptionPrintTask,
@@ -24,6 +25,9 @@ async function authorize(c: Context<PrintEnv>): Promise<string | Response> {
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   return lineAccountId;
 }
 

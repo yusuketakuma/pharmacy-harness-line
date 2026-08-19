@@ -35,15 +35,14 @@ declare const liff: {
   logout(): void;
 };
 
-// Resolve LIFF ID: ?liffId= param (from endpoint URL) > env var (fallback to ①)
+// Shared deployments must carry the tenant LIFF ID in the entry URL.
 function detectLiffId(): string {
   const fromParam = new URLSearchParams(window.location.search).get('liffId');
-  if (fromParam) return fromParam;
-  return import.meta.env?.VITE_LIFF_ID || '';
+  return fromParam || '';
 }
 const LIFF_ID = detectLiffId();
 if (!LIFF_ID) {
-  throw new Error('LIFF ID not found. Set ?liffId= in LIFF endpoint URL or VITE_LIFF_ID env.');
+  throw new Error('LIFF ID not found. Set ?liffId= in the LIFF endpoint URL.');
 }
 const UUID_STORAGE_KEY = 'lh_uuid';
 // Bot basic ID — resolved dynamically from API after liff.init()

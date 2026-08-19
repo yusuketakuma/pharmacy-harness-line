@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CfApiCreds } from './types.js';
-import { executeD1Query } from './cf-api/d1.js';
-import { isBenignSchemaErrorText } from './materialize.js';
+import { assertD1Success, executeD1Query } from './cf-api/d1.js';
+import { createTriggerName, isBenignSchemaErrorText, normalizeTriggerSql } from './materialize.js';
 
 export const MIGRATION_STATE_TABLE = '_line_harness_migrations';
 
@@ -59,15 +59,18 @@ export function buildMigrationLedgerSql(
  * statements in the same file. This scanner splits only on semicolons that
  * are outside strings, quoted identifiers, and comments.
  *
- * Current LINE Harness migrations intentionally do not use CREATE TRIGGER
- * bodies (whose internal BEGIN/END semicolons need a full SQLite parser).
- * Fail loudly if one appears so a future release cannot silently split it
- * incorrectly.
+ * Simple SQLite trigger bodies are kept as one statement. CASE-bearing
+ * triggers fail closed because distinguishing their END token needs a full
+ * SQL parser.
  */
 export function splitSqlStatements(sql: string): string[] {
   const uncommented = stripSqlComments(sql);
-  if (/\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(uncommented)) {
-    throw new Error('CREATE TRIGGER migrations are not supported by the safe D1 splitter');
+  if (
+    /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(uncommented)
+    && /\bCASE\b/i.test(uncommented)
+  ) {
+    // ponytail: add a real SQL parser only when a CASE-bearing trigger is required.
+    throw new Error('CASE-bearing CREATE TRIGGER requires a full SQL parser');
   }
   if (
     /\bDROP\s+(?:TABLE|COLUMN)\b/i.test(uncommented) ||
@@ -129,6 +132,9 @@ export function splitSqlStatements(sql: string): string[] {
       continue;
     }
     if (ch === ';') {
+      const candidate = stripSqlComments(sql.slice(start, i)).trim();
+      const isTrigger = /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(candidate);
+      if (isTrigger && !/\bEND\s*$/i.test(candidate)) continue;
       pushSqlStatement(statements, sql.slice(start, i));
       start = i + 1;
     }
@@ -145,15 +151,31 @@ export function splitSqlStatements(sql: string): string[] {
  * Apply cumulative release migrations safely across fresh, fully-applied,
  * and partially-applied databases.
  *
- * Each migration and its checksum ledger insert share one D1 query request.
- * D1 executes multi-statement queries transactionally, so a failed statement
- * cannot leave schema changes without their ledger row. A missing ledger is
- * never inferred from schema shape; setup must establish the trusted baseline.
+ * Two paths, with different atomicity:
+ *
+ * - Trusted-ledger path: each migration and its checksum ledger insert share
+ *   ONE D1 query request. D1 executes that multi-statement query as a single
+ *   batch, so a failed statement cannot leave schema changes without their
+ *   ledger row — and because a lost response is indistinguishable from a
+ *   failure, the ledger row is re-read before deciding.
+ * - Legacy-baseline path: statements are applied ONE AT A TIME (a legacy
+ *   install may already hold part of a file, and one duplicate ALTER TABLE
+ *   would roll back the rest of a batch). That is deliberately NOT atomic:
+ *   partial application is possible. It is safe because the ledger row is
+ *   written only after every statement of the file was executed or skipped as
+ *   a duplicate, so an interrupted file leaves no ledger row and the next run
+ *   re-applies it, and because duplicate objects that could differ in body
+ *   (triggers) are verified against the live definition instead of assumed.
+ *
+ * A missing ledger is never inferred from schema shape; setup must establish
+ * the trusted baseline.
  */
 export async function applyD1Migrations(
   opts: ApplyD1MigrationsOptions,
 ): Promise<MigrationApplyResult[]> {
-  const execute = opts.execute ?? executeD1Query;
+  const raw = opts.execute ?? executeD1Query;
+  // A `success: false` envelope is a failure whichever executor produced it.
+  const execute: D1Executor = async (args) => assertD1Success(await raw(args));
   const base = { creds: opts.creds, databaseId: opts.databaseId };
 
   // Validate manifest structure before D1 access. SQL safety checks happen
@@ -244,6 +266,10 @@ export async function applyD1Migrations(
       let executedStatements = 0;
       let skippedStatements = 0;
       for (const statement of statements) {
+        if (await triggerAlreadyMatches(execute, base, name, statement)) {
+          skippedStatements += 1;
+          continue;
+        }
         try {
           await execute({ ...base, sql: statement });
           executedStatements += 1;
@@ -306,6 +332,46 @@ export async function applyD1Migrations(
     await opts.onMigrationDone?.(result);
   }
   return results;
+}
+
+/**
+ * Decide whether a legacy-baseline statement is a CREATE TRIGGER whose live
+ * definition already matches, i.e. genuinely applied.
+ *
+ * `CREATE TRIGGER IF NOT EXISTS` is silent when a trigger of that name exists
+ * with a DIFFERENT body — no error to classify as benign — so the tenant
+ * integrity triggers (custom_016/017/022) could be recorded as applied while
+ * the database enforces something else. Compare the stored definition and
+ * fail closed on a mismatch: an operator resolves it explicitly with a new
+ * versioned DROP TRIGGER + CREATE TRIGGER migration.
+ *
+ * Returns false for every non-trigger statement, so duplicate CREATE TABLE /
+ * CREATE INDEX keep their existing benign-error handling.
+ */
+async function triggerAlreadyMatches(
+  execute: D1Executor,
+  base: { creds: CfApiCreds; databaseId: string },
+  migration: string,
+  statement: string,
+): Promise<boolean> {
+  const bare = stripSqlComments(statement).trim();
+  const trigger = createTriggerName(bare);
+  if (!trigger) return false;
+
+  const live = await execute({
+    ...base,
+    sql: "SELECT sql FROM sqlite_master WHERE type='trigger' AND name = ?",
+    params: [trigger],
+  });
+  const liveSql = firstResultValue(live, 'sql');
+  if (typeof liveSql !== 'string') return false;
+  if (normalizeTriggerSql(liveSql) === normalizeTriggerSql(bare)) return true;
+
+  throw new Error(
+    `migration ${migration}: trigger ${trigger} already exists with a different definition. ` +
+      `Resolve it with a new migration that drops and recreates the trigger. ` +
+      `expected: ${bare} | actual: ${liveSql}`,
+  );
 }
 
 function sqlLiteral(value: string): string {

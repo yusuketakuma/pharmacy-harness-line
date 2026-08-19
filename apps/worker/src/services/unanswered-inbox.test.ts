@@ -96,6 +96,32 @@ function stubDB(canned: {
 }
 
 describe('computeUnansweredInbox', () => {
+  test('binds every candidate query to the authenticated tenant', async () => {
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        const statement = {
+          params: [] as unknown[],
+          bind(...params: unknown[]) {
+            statement.params = params;
+            return statement;
+          },
+          async all() {
+            queries.push({ sql, params: statement.params });
+            return { results: [] };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+
+    await computeUnansweredInbox(db, 'tenant-a' as never);
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toContain('tenant_line_accounts');
+    expect(queries[0].params).toEqual(['tenant-a']);
+  });
+
   test('incoming のみ / manual 無しの friend は 1 行として返る', async () => {
     const db = stubDB({
       rows: [
@@ -117,7 +143,7 @@ describe('computeUnansweredInbox', () => {
       oldestWait: null,
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({
@@ -158,11 +184,11 @@ describe('computeUnansweredInbox', () => {
       oldestWait: null,
     });
 
-    const p1 = await computeUnansweredInbox(db, { page: 1, pageSize: 1 });
+    const p1 = await computeUnansweredInbox(db, 'tenant-a', { page: 1, pageSize: 1 });
     expect(p1.total).toBe(2);
     expect(p1.rows).toHaveLength(1);
 
-    const p2 = await computeUnansweredInbox(db, { page: 2, pageSize: 1 });
+    const p2 = await computeUnansweredInbox(db, 'tenant-a', { page: 2, pageSize: 1 });
     expect(p2.rows).toHaveLength(1);
     expect(p1.rows[0].friendId).not.toBe(p2.rows[0].friendId);
   });
@@ -182,7 +208,7 @@ describe('computeUnansweredInbox', () => {
       total: 1, byAccount: [], oldestWait: null,
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.rows[0].lastMachineAt).toBe('2026-05-08T10:00:30+09:00');
     expect(result.rows).toHaveLength(1);
   });
@@ -212,11 +238,11 @@ describe('computeUnansweredInbox', () => {
       total: 2, byAccount: [], oldestWait: null,
     });
 
-    expect((await computeUnansweredInbox(db, { account: 'a1' })).total).toBe(1);
-    expect((await computeUnansweredInbox(db, { q: '山田' })).total).toBe(1);
-    expect((await computeUnansweredInbox(db, { q: '料金' })).total).toBe(1);
-    expect((await computeUnansweredInbox(db, { minWaitMinutes: 60 })).total).toBe(1);
-    expect((await computeUnansweredInbox(db, { minWaitMinutes: 60 })).rows[0].friendId).toBe('f2');
+    expect((await computeUnansweredInbox(db, 'tenant-a', { account: 'a1' })).total).toBe(1);
+    expect((await computeUnansweredInbox(db, 'tenant-a', { q: '山田' })).total).toBe(1);
+    expect((await computeUnansweredInbox(db, 'tenant-a', { q: '料金' })).total).toBe(1);
+    expect((await computeUnansweredInbox(db, 'tenant-a', { minWaitMinutes: 60 })).total).toBe(1);
+    expect((await computeUnansweredInbox(db, 'tenant-a', { minWaitMinutes: 60 })).rows[0].friendId).toBe('f2');
   });
 });
 
@@ -267,7 +293,7 @@ describe('countUnanswered', () => {
       ],
     });
 
-    const c = await countUnanswered(db);
+    const c = await countUnanswered(db, 'tenant-a');
     expect(c.total).toBe(5);
     expect(c.byAccount).toEqual([
       { accountId: 'a1', accountName: 'L ①', count: 3 },
@@ -279,7 +305,7 @@ describe('countUnanswered', () => {
 
   test('未対応ゼロのときは total=0 / oldest=null', async () => {
     const db = stubDB({ rows: [] });
-    const c = await countUnanswered(db);
+    const c = await countUnanswered(db, 'tenant-a');
     expect(c.total).toBe(0);
     expect(c.byAccount).toEqual([]);
     expect(c.oldestWaitMinutes).toBeNull();
@@ -312,7 +338,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
     expect(result.rows[0].friendId).toBe('f2');
   });
@@ -328,7 +354,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
     expect(result.rows[0].friendId).toBe('f2');
   });
@@ -349,7 +375,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(0);
   });
 
@@ -368,7 +394,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
     expect(result.rows[0].friendId).toBe('f1');
   });
@@ -399,7 +425,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
     // preview は 自由記述 (button タップではない)
     expect(result.rows[0].lastIncomingContent).toBe('すみません質問があります');
@@ -431,7 +457,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(0);
   });
 
@@ -463,7 +489,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(0);
   });
 
@@ -488,7 +514,7 @@ describe('auto_reply マッチ除外', () => {
       autoReplies: [], // silent ルール無し
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(0);
   });
 
@@ -511,7 +537,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
   });
 
@@ -543,7 +569,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.total).toBe(1);
     // A (free) が preview として残る — outgoing は B に consume されているので
     // A は证拠なしと判定される
@@ -561,7 +587,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const c = await countUnanswered(db);
+    const c = await countUnanswered(db, 'tenant-a');
     expect(c.total).toBe(1);
     expect(c.byAccount).toEqual([{ accountId: 'a1', accountName: 'L ①', count: 1 }]);
   });
@@ -587,7 +613,7 @@ describe('auto_reply マッチ除外', () => {
       ],
     });
 
-    const result = await computeUnansweredInbox(db);
+    const result = await computeUnansweredInbox(db, 'tenant-a');
     expect(result.rows.map((r) => r.friendId)).toEqual(['f_new', 'f_mid', 'f_old']);
   });
 
@@ -600,7 +626,7 @@ describe('auto_reply マッチ除外', () => {
     });
 
     const { getUnansweredFriendIds } = await import('./unanswered-inbox.js');
-    const ids = await getUnansweredFriendIds(db);
+    const ids = await getUnansweredFriendIds(db, 'tenant-a');
     expect(ids).toBeInstanceOf(Set);
     expect(ids.has('f_un1')).toBe(true);
     expect(ids.has('f_un2')).toBe(true);
@@ -619,7 +645,7 @@ describe('auto_reply マッチ除外', () => {
     });
 
     const { getUnansweredFriendIds } = await import('./unanswered-inbox.js');
-    const ids = await getUnansweredFriendIds(db);
+    const ids = await getUnansweredFriendIds(db, 'tenant-a');
     expect(ids.has('f_keep')).toBe(true);
     expect(ids.has('f_drop')).toBe(false);
     expect(ids.size).toBe(1);

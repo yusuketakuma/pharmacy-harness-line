@@ -26,7 +26,7 @@ type AutomatedPushInput = {
   now?: Date;
 };
 
-export type PharmacyPushResult = 'sent' | 'already_sent' | 'in_progress';
+export type PharmacyPushResult = 'sent' | 'already_sent' | 'in_progress' | 'paused';
 
 function jstMonthBounds(now: Date): { from: string; to: string } {
   const local = new Date(now.getTime() + JST_OFFSET_MS);
@@ -89,6 +89,27 @@ export async function sendPharmacyAutomatedPush(
       : 'prescription_intake';
   if (!accountConfig || !accountConfig.capabilities.includes(requiredCapability)) {
     throw new Error('pharmacy notification capability is not enabled');
+  }
+
+  // Outbound pause is checked here, the one choke point every pharmacy
+  // proactive push routes through, and BEFORE the idempotency claim below:
+  // a paused send must not burn the retry key or the proactive monthly cap,
+  // so the same message can still go out once the tenant is unpaused.
+  // Inbound webhook processing is deliberately unaffected — a paused tenant
+  // still receives and stores everything.
+  const pausedRow = await input.db.prepare(
+    `SELECT tenant.outbound_messaging_paused_at
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id
+      WHERE mapping.line_account_id = ?
+      LIMIT 1`,
+  ).bind(input.lineAccountId).first<{ outbound_messaging_paused_at: string | null }>();
+  if (pausedRow?.outbound_messaging_paused_at) {
+    console.log(
+      `[pharmacy-notification] skipped, not sent — outbound messaging paused since ${pausedRow.outbound_messaging_paused_at} ` +
+      `(line_account=${input.lineAccountId} message=${input.messageId} retry_key=${input.retryKey})`,
+    );
+    return 'paused';
   }
 
   const now = input.now ?? new Date();

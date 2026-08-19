@@ -1,15 +1,57 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { LineClient } from '@line-crm/line-sdk';
 import { getFriendById, getLineAccountById } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 
 const richMenus = new Hono<Env>();
 
-/** Resolve LINE access token — uses accountId query param if provided, otherwise default */
-async function resolveLineClient(c: { env: Env['Bindings']; req: { query(key: string): string | undefined } }): Promise<LineClient> {
+/**
+ * Resolve LINE access token — uses accountId query param if provided, otherwise default.
+ * Defense-in-depth: independently re-checks tenant ownership of a resolved accountId
+ * rather than relying solely on upstream guards (pharmacyTenantApiAllowlistGuard /
+ * pharmacyGenericFeatureGuard). An account outside the caller's tenant is treated the
+ * same as an account that was not found — falls back to the default LINE client.
+ */
+async function resolveLineClient(c: Context<Env>): Promise<LineClient> {
   const accountId = c.req.query('accountId');
   if (accountId) {
     const account = await getLineAccountById(c.env.DB, accountId);
+    const tenantId = c.get('tenantId');
+    if (account && (!tenantId || await accountResourceOwnedByStaff(c, tenantId, accountId))) {
+      return new LineClient(account.channel_access_token);
+    }
+  }
+  return new LineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
+}
+
+async function resolveFriendLineClient(
+  c: Context<Env>,
+  lineAccountId: string | null,
+): Promise<LineClient | null> {
+  let pharmacyAccount = false;
+  try {
+    pharmacyAccount = await isPharmacyModeAccount(c.env.DB, lineAccountId);
+  } catch {
+    return null;
+  }
+
+  if (pharmacyAccount) {
+    const tenantId = c.get('tenantId');
+    const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+    if (!tenantId || !lineAccountId || !rootSecret) return null;
+    const accessToken = await readLineCredential(c.env.DB, rootSecret, {
+      tenantId,
+      lineAccountId,
+      kind: 'channel_access_token',
+    });
+    return accessToken ? new LineClient(accessToken) : null;
+  }
+
+  if (lineAccountId) {
+    const account = await getLineAccountById(c.env.DB, lineAccountId);
     if (account) return new LineClient(account.channel_access_token);
   }
   return new LineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
@@ -86,13 +128,10 @@ richMenus.post('/api/friends/:friendId/rich-menu', async (c) => {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
-    let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const friendAccountId = (friend as unknown as Record<string, string | null>).line_account_id;
-    if (friendAccountId) {
-      const account = await getLineAccountById(db, friendAccountId);
-      if (account) accessToken = account.channel_access_token;
+    const lineClient = await resolveFriendLineClient(c, friend.line_account_id);
+    if (!lineClient) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
     }
-    const lineClient = new LineClient(accessToken);
     await lineClient.linkRichMenuToUser(friend.line_user_id, body.richMenuId);
 
     return c.json({ success: true, data: null });
@@ -114,13 +153,10 @@ richMenus.delete('/api/friends/:friendId/rich-menu', async (c) => {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
-    let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const friendAccId = (friend as unknown as Record<string, string | null>).line_account_id;
-    if (friendAccId) {
-      const account = await getLineAccountById(c.env.DB, friendAccId);
-      if (account) accessToken = account.channel_access_token;
+    const lineClient = await resolveFriendLineClient(c, friend.line_account_id);
+    if (!lineClient) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
     }
-    const lineClient = new LineClient(accessToken);
     await lineClient.unlinkRichMenuFromUser(friend.line_user_id);
 
     return c.json({ success: true, data: null });
@@ -142,13 +178,10 @@ richMenus.get('/api/friends/:friendId/rich-menu', async (c) => {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
 
-    let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const friendAccId = (friend as unknown as Record<string, string | null>).line_account_id;
-    if (friendAccId) {
-      const account = await getLineAccountById(db, friendAccId);
-      if (account) accessToken = account.channel_access_token;
+    const lineClient = await resolveFriendLineClient(c, friend.line_account_id);
+    if (!lineClient) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
     }
-    const lineClient = new LineClient(accessToken);
 
     // 個別メニュー取得 — 404 (個別未設定) のみ null に正規化。トークン期限切れ
     // / 5xx 等の真のエラーは外側 catch に伝搬させて 500 を返す。null と「取得失敗」

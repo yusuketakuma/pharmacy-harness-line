@@ -26,11 +26,10 @@ import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js'
 const MULTICAST_BATCH_SIZE = 500;
 const PERSONALIZED_PUSH_BATCH_SIZE = 10;
 
-async function isPharmacyBroadcast(
-  db: D1Database,
+function getBroadcastAccountIds(
   broadcast: Broadcast,
   defaultAccountId?: string | null,
-): Promise<boolean> {
+): string[] {
   const raw = broadcast as unknown as Record<string, unknown>;
   const accountIds = new Set<string>();
   if (typeof raw.line_account_id === 'string') accountIds.add(raw.line_account_id);
@@ -45,10 +44,52 @@ async function isPharmacyBroadcast(
     }
   }
   if (accountIds.size === 0 && defaultAccountId) accountIds.add(defaultAccountId);
-  for (const accountId of accountIds) {
+  return [...accountIds];
+}
+
+async function isPharmacyBroadcast(
+  db: D1Database,
+  broadcast: Broadcast,
+  defaultAccountId?: string | null,
+): Promise<boolean> {
+  for (const accountId of getBroadcastAccountIds(broadcast, defaultAccountId)) {
     if (await isPharmacyModeAccount(db, accountId)) return true;
   }
   return false;
+}
+
+async function isActiveMappedAccount(
+  db: D1Database,
+  accountId: string,
+): Promise<boolean> {
+  try {
+    const row = await db.prepare(
+      `SELECT 1 AS ok
+         FROM tenant_line_accounts AS mapping
+         INNER JOIN line_accounts AS account
+                 ON account.id = mapping.line_account_id
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+        WHERE mapping.line_account_id = ? AND account.is_active = 1
+        LIMIT 1`,
+    ).bind(accountId).first<{ ok: number }>();
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+}
+
+async function isActiveMappedBroadcast(
+  db: D1Database,
+  broadcast: Broadcast,
+  defaultAccountId?: string | null,
+): Promise<boolean> {
+  const accountIds = getBroadcastAccountIds(broadcast, defaultAccountId);
+  if (accountIds.length === 0) return false;
+  for (const accountId of accountIds) {
+    if (!(await isActiveMappedAccount(db, accountId))) return false;
+  }
+  return true;
 }
 
 export async function processBroadcastSend(
@@ -64,6 +105,9 @@ export async function processBroadcastSend(
   }
   if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) {
     throw new Error('generic feature disabled for pharmacy account');
+  }
+  if (!(await isActiveMappedBroadcast(db, broadcast, defaultAccountId))) {
+    throw new Error('generic feature disabled for inactive or unmapped account');
   }
 
   // Mark as sending only after policy checks pass.
@@ -189,7 +233,7 @@ export async function processBroadcastSend(
         throw new Error('target_tag_id is required for tag-targeted broadcasts');
       }
 
-      const friends = await getFriendsByTag(db, broadcast.target_tag_id);
+      const friends = await getFriendsByTag(db, broadcast.target_tag_id, broadcastAccountId ?? undefined);
       const followingFriends = friends.filter((f) => f.is_following);
       totalCount = followingFriends.length;
 
@@ -274,6 +318,7 @@ export async function processScheduledBroadcasts(
   for (const broadcast of scheduled) {
     try {
       if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) continue;
+      if (!(await isActiveMappedBroadcast(db, broadcast, defaultAccountId))) continue;
       // Optimistic lock: claim this broadcast (scheduled → sending)
       const lockResult = await db
         .prepare(`UPDATE broadcasts SET status = 'sending' WHERE id = ? AND status = 'scheduled'`)
@@ -320,6 +365,7 @@ export async function processQueuedBroadcasts(
   const queued = await getQueuedBroadcasts(db);
   for (const broadcast of queued) {
     if (await isPharmacyBroadcast(db, broadcast, defaultAccountId)) continue;
+    if (!(await isActiveMappedBroadcast(db, broadcast, defaultAccountId))) continue;
     // アカウント別のlineClientを解決
     const accountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
     let client = lineClient;
@@ -449,7 +495,7 @@ async function processQueuedBroadcastBatches(
     friends = result.results ?? [];
   } else if (broadcast.target_tag_id) {
     const { getFriendsByTag } = await import('@line-crm/db');
-    const tagFriends = await getFriendsByTag(db, broadcast.target_tag_id);
+    const tagFriends = await getFriendsByTag(db, broadcast.target_tag_id, accountId ?? undefined);
     friends = tagFriends.filter(f => f.is_following).map(f => ({
       id: f.id,
       line_user_id: f.line_user_id,

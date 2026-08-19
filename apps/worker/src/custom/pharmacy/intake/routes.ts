@@ -74,6 +74,9 @@ pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
     identity,
   );
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'patient_intake'))) {
+    return c.json({ error: 'Patient intake is not enabled' }, 403);
+  }
   c.set('pharmacyPatient', patient);
   return next();
 });

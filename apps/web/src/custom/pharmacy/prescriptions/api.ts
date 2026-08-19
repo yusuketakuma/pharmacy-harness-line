@@ -195,7 +195,7 @@ export const prescriptionAdminApi = {
       `${apiBase}/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/files/${encodeURIComponent(fileId)}?${accountQuery(accountId)}`,
       {
         credentials: 'include',
-        headers: { 'X-CSRF-Token': getCsrfToken(), 'Cache-Control': 'no-store' },
+        headers: { 'X-CSRF-Token': getCsrfToken() },
         cache: 'no-store',
       },
     )

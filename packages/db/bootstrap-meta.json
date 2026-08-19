@@ -87,7 +87,26 @@
     "custom_010_pharmacy_activity_notifications.sql",
     "custom_011_pharmacy_medication_followups.sql",
     "custom_012_pharmacy_next_intake_expectations.sql",
-    "custom_013_pharmacy_staff_accounts.sql"
+    "custom_013_pharmacy_staff_accounts.sql",
+    "custom_014_pharmacy_logical_tenants.sql",
+    "custom_015_pharmacy_tenant_credentials.sql",
+    "custom_016_pharmacy_friend_identity.sql",
+    "custom_017_pharmacy_account_defaults.sql",
+    "custom_018_pharmacy_line_credentials.sql",
+    "custom_019_pharmacy_tenant_admin_bootstrap.sql",
+    "custom_020_pharmacy_staff_account_backfill.sql",
+    "custom_021_pharmacy_webhook_event_receipts.sql",
+    "custom_022_pharmacy_tenant_integrity.sql",
+    "custom_023_pharmacy_webhook_durable_inbox.sql",
+    "custom_024_scenario_tenant_scope.sql",
+    "custom_025_pharmacy_tenant_integrity_v2.sql",
+    "custom_026_pharmacy_prescription_view_events.sql",
+    "custom_027_pharmacy_staff_api_key_hash.sql",
+    "custom_028_platform_admin.sql",
+    "custom_029_platform_admin_access_grants.sql",
+    "custom_030_pharmacy_tenant_outbound_pause.sql",
+    "custom_031_platform_admin_grant_session_binding.sql",
+    "custom_032_platform_admin_bootstrap_guard.sql"
   ],
-  "migrationCount": 88
+  "migrationCount": 107
 }

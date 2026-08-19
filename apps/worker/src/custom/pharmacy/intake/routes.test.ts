@@ -108,6 +108,13 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalledWith(env.DB, owner, false);
   });
 
+  it('rejects the patient list when patient intake is disabled', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await request('/api/liff/pharmacy/patients');
+    expect(response.status).toBe(403);
+    expect(mocks.listPatients).not.toHaveBeenCalled();
+  });
+
   it('creates a family patient after validating the JSON boundary', async () => {
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
       relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',

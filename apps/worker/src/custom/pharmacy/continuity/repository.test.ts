@@ -4,6 +4,7 @@ import {
   linkContinuitySubmission,
   listContinuityObligations,
   openContinuityObligation,
+  pausePatientContinuity,
 } from './repository.js';
 
 function fakeDb(firstRows: unknown[] = [], allRows: unknown[] = []): {
@@ -85,6 +86,32 @@ describe('continuity repository', () => {
     await completeContinuityAfterClose(db, 'account-1', 'submission-2', 'staff-1', new Date('2026-08-17T00:00:00Z'));
     const fulfilledEvent = calls.find((call) => call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes("'fulfilled'"));
     expect(fulfilledEvent?.sql).toContain('NOT EXISTS');
+  });
+
+  it('writes each state transition and its audit event in one batch', async () => {
+    const link = fakeDb([
+      { patient_id: 'patient-1', owner_friend_id: 'friend-1' },
+      { id: 'obligation-1', status: 'active', patient_id: 'patient-1' },
+    ]);
+    await linkContinuitySubmission(link.db, 'account-1', 'submission-2', 'friend-1', 'system');
+
+    const close = fakeDb([
+      { id: 'obligation-1', status: 'linked', patient_id: 'patient-1', owner_friend_id: 'friend-1', source_submission_id: 'submission-1' },
+      { patient_id: 'patient-1', owner_friend_id: 'friend-1', consent_at: '2026-08-17T00:00:00.000Z' },
+      { id: 'obligation-2', status: 'active', patient_id: 'patient-1' },
+    ]);
+    await completeContinuityAfterClose(close.db, 'account-1', 'submission-2', 'staff-1', new Date('2026-08-17T00:00:00Z'));
+
+    const pause = fakeDb();
+    await pausePatientContinuity(pause.db, 'account-1', 'friend-1', 'obligation-1');
+
+    for (const [fake, status] of [[link, 'linked'], [close, 'fulfilled'], [pause, 'paused']] as const) {
+      const transition = fake.calls.find((call) => call.sql.includes(`SET status = '${status}'`));
+      const event = fake.calls.find((call) =>
+        call.sql.includes('INSERT INTO pharmacy_continuity_events') && call.sql.includes(`'${status}'`));
+      expect(transition?.operation).toBe('batch');
+      expect(event?.operation).toBe('batch');
+    }
   });
 
   it('lists obligations without crossing the account boundary', async () => {

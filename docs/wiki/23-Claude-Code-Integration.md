@@ -47,6 +47,7 @@ import { LineHarness } from '@line-harness/sdk'
 const lh = new LineHarness({
   apiUrl: 'https://your-worker.your-subdomain.workers.dev',
   apiKey: process.env.LINE_HARNESS_API_KEY!,
+  tenantId: process.env.LINE_HARNESS_TENANT_ID!,
 })
 ```
 

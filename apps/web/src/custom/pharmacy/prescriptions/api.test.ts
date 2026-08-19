@@ -42,4 +42,16 @@ describe('prescription admin API', () => {
       operationId: 'operation-1',
     })
   })
+
+  it('loads private images without adding a non-allowlisted Cache-Control request header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(['image'], { type: 'image/jpeg' })))
+    vi.stubGlobal('fetch', fetchMock)
+    const { prescriptionAdminApi } = await import('./api.js')
+
+    await prescriptionAdminApi.image('account-1', 'submission-1', 'file-1')
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.cache).toBe('no-store')
+    expect(init.headers).toEqual({ 'X-CSRF-Token': 'csrf-token' })
+  })
 })

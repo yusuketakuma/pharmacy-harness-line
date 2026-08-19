@@ -359,6 +359,8 @@ describe('condition-false jump (next_step_on_false)', () => {
     steps?: number[];
     accountId?: string | null;
     pharmacyMode?: boolean;
+    mapped?: boolean;
+    skipCondition?: boolean;
   }): {
     db: D1Database;
     advances: AdvanceCall[];
@@ -380,8 +382,8 @@ describe('condition-false jump (next_step_on_false)', () => {
       offset_days: null,
       offset_minutes: null,
       delivery_time: null,
-      condition_type: order === 2 ? 'tag_exists' : null,
-      condition_value: order === 2 ? 'tag-X' : null,
+      condition_type: order === 2 && !opts.skipCondition ? 'tag_exists' : null,
+      condition_value: order === 2 && !opts.skipCondition ? 'tag-X' : null,
       next_step_on_false: order === 2 ? opts.nextStepOnFalse : null,
       on_reach_tag_id: null,
     }));
@@ -392,6 +394,9 @@ describe('condition-false jump (next_step_on_false)', () => {
           first: async () => {
             if (sql.includes('FROM pharmacy_account_capabilities')) {
               return opts.pharmacyMode ? { mode: 'pharmacy' } : null;
+            }
+            if (sql.includes('line_accounts')) {
+              return opts.mapped === false ? null : { ok: 1 };
             }
             if (sql.includes('FROM friend_tags')) {
               return null; // friend does NOT have tag-X → condition fails
@@ -522,6 +527,21 @@ describe('condition-false jump (next_step_on_false)', () => {
       nextStepOnFalse: null,
       accountId: 'account-pharmacy',
       pharmacyMode: true,
+    });
+    const { client, push } = mockLineClient();
+
+    await processStepDeliveries(db, client);
+
+    expect(push).not.toHaveBeenCalled();
+    expect(pauses).toEqual(['fs1']);
+  });
+
+  it('pauses generic scenario delivery for an unmapped account before LINE send', async () => {
+    const { db, pauses } = deliveryMockDb({
+      nextStepOnFalse: null,
+      accountId: 'account-unmapped',
+      mapped: false,
+      skipCondition: true,
     });
     const { client, push } = mockLineClient();
 

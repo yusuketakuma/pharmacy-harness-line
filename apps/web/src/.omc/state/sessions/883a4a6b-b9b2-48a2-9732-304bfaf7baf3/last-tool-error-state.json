@@ -1,0 +1,7 @@
+{
+  "tool_name": "StructuredOutput",
+  "tool_input_preview": "{\"input\":\"{\\\"refuted\\\": true, \\\"reasoning\\\": \\\"REFUTED — the exploit's one required precondition (a single staff_id holding memberships in 2+ tenants) is not producible by any path in this repository,...",
+  "error": "Output does not match required schema: root: must have required property 'refuted', root: must have required property 'reasoning', root: must have required property 'correctedSeverity'",
+  "timestamp": "2026-08-19T04:12:15.178Z",
+  "retry_count": 1
+}

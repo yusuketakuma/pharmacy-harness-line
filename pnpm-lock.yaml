@@ -87,9 +87,6 @@ importers:
       '@line-crm/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@line-harness/update-engine':
-        specifier: workspace:*
-        version: link:../../packages/update-engine
       next:
         specifier: ^15.1.0
         version: 15.5.14(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -133,9 +130,6 @@ importers:
       '@line-crm/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@line-harness/update-engine':
-        specifier: workspace:*
-        version: link:../../packages/update-engine
       hls.js:
         specifier: ^1.6.16
         version: 1.6.16
@@ -237,6 +231,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@25.5.0)(lightningcss@1.32.0)
 
   packages/mcp-server:
     dependencies:

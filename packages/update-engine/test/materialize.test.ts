@@ -5,6 +5,8 @@ import {
   materializeAdminFiles,
   findResidualPlaceholders,
   isBenignSchemaErrorText,
+  createTriggerName,
+  normalizeTriggerSql,
 } from '../src/materialize.js';
 
 const WORKER_URL = 'https://my-harness.example.workers.dev';
@@ -107,5 +109,40 @@ describe('isBenignSchemaErrorText', () => {
     expect(isBenignSchemaErrorText('near "FRM": syntax error')).toBe(false);
     expect(isBenignSchemaErrorText('D1_ERROR: too many SQL variables')).toBe(false);
     expect(isBenignSchemaErrorText('')).toBe(false);
+  });
+});
+
+describe('createTriggerName', () => {
+  it('reads the name of a CREATE TRIGGER statement', () => {
+    expect(
+      createTriggerName(
+        "CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends BEGIN SELECT RAISE(ABORT, 'X'); END",
+      ),
+    ).toBe('friends_account_immutable');
+    expect(createTriggerName('create temporary trigger "t x" AFTER INSERT ON a BEGIN SELECT 1; END')).toBe(
+      't x',
+    );
+  });
+
+  it('returns null for statements that carry no trigger body', () => {
+    expect(createTriggerName('CREATE TABLE friends_account_immutable (id TEXT)')).toBeNull();
+    expect(createTriggerName('CREATE INDEX idx ON friends (id)')).toBeNull();
+    expect(createTriggerName('DROP TRIGGER friends_account_immutable')).toBeNull();
+  });
+});
+
+describe('normalizeTriggerSql', () => {
+  it('ignores the formatting differences SQLite itself introduces', () => {
+    expect(
+      normalizeTriggerSql(
+        "CREATE TRIGGER IF NOT EXISTS t AFTER INSERT ON a\n  BEGIN SELECT RAISE(ABORT, 'X'); END;",
+      ),
+    ).toBe(normalizeTriggerSql("create trigger t after insert on a begin select raise(abort, 'X'); end"));
+  });
+
+  it('keeps a different trigger body distinguishable', () => {
+    expect(normalizeTriggerSql('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1; END')).not.toBe(
+      normalizeTriggerSql('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 2; END'),
+    );
   });
 });

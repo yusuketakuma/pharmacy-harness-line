@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   latest: vi.fn(),
   enqueueActivity: vi.fn(),
   access: vi.fn(),
+  capability: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
@@ -18,6 +19,7 @@ vi.mock('../activity-notifications/repository.js', () => ({
 vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
 }));
+vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
 
 import { fulfillmentRoutes } from './routes.js';
 
@@ -42,6 +44,7 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ id: 'quote-1', revision: 1, decision: 'conditional' });
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
+  mocks.capability.mockResolvedValue(true);
 });
 
 const quoteBody = {
@@ -57,6 +60,15 @@ describe('FulfillmentQuote admin routes', () => {
     mocks.access.mockResolvedValue(false);
     const response = await app().request(
       '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-b', {}, env,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.latest).not.toHaveBeenCalled();
+  });
+
+  it('rejects an account without the fulfillment quote capability', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await app().request(
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1', {}, env,
     );
     expect(response.status).toBe(403);
     expect(mocks.latest).not.toHaveBeenCalled();

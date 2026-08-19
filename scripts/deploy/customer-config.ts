@@ -77,6 +77,9 @@ const DEPLOYMENT_MANAGED_TEXT_BINDINGS = new Set([
   'ADMIN_ORIGIN',
   'WORKER_URL',
   'LIFF_ORIGIN',
+  'WORKER_PUBLIC_URL',
+  'ADMIN_PUBLIC_URL',
+  'LIFF_PUBLIC_URL',
 ]);
 
 // Source defaults used only by the retired self-update/Pages topology are not
@@ -85,9 +88,6 @@ const OPTIONAL_SOURCE_TEXT_BINDINGS = new Set([
   'LIFF_PAGES_PROJECT',
   'D1_DATABASE_ID',
   'MANIFEST_URL',
-  'WORKER_PUBLIC_URL',
-  'ADMIN_PUBLIC_URL',
-  'LIFF_PUBLIC_URL',
   'CF_ACCOUNT_ID',
 ]);
 
@@ -236,9 +236,12 @@ function preserveBindings(
     ADMIN_PAGES_PROJECT: expected.adminPagesProject,
     ADMIN_ORIGIN: expected.adminOrigin,
     WORKER_URL: expected.workerUrl,
+    WORKER_PUBLIC_URL: expected.workerUrl,
+    ADMIN_PUBLIC_URL: expected.adminOrigin,
   };
   if (expected.liffOrigin) {
     managedVars.LIFF_ORIGIN = expected.liffOrigin;
+    managedVars.LIFF_PUBLIC_URL = expected.liffOrigin;
   } else {
     const existingLiffOrigin = plainText.find((binding) => binding.name === 'LIFF_ORIGIN');
     if (existingLiffOrigin) managedVars.LIFF_ORIGIN = existingLiffOrigin.text;
@@ -287,6 +290,7 @@ export function prepareCustomerConfig(input: {
 export function verifyCustomerConfig(
   snapshot: CustomerConfigSnapshot,
   liveBindings: WorkerBinding[],
+  expected?: ExpectedCustomerConfig,
 ): void {
   if (snapshot.schemaVersion !== 1 || !/^sha256:[0-9a-f]{64}$/.test(snapshot.digest)) {
     throw new Error('invalid customer configuration snapshot');
@@ -294,6 +298,28 @@ export function verifyCustomerConfig(
   const current = createSnapshot(liveBindings);
   if (current.digest !== snapshot.digest) {
     throw new Error('customer Worker bindings changed during deployment');
+  }
+  if (expected) {
+    const expectedText = new Map<string, string>([
+      ['WORKER_NAME', expected.workerName],
+      ['ADMIN_PAGES_PROJECT', expected.adminPagesProject],
+      ['ADMIN_ORIGIN', expected.adminOrigin],
+      ['WORKER_URL', expected.workerUrl],
+      ['WORKER_PUBLIC_URL', expected.workerUrl],
+      ['ADMIN_PUBLIC_URL', expected.adminOrigin],
+      ...(expected.liffOrigin
+        ? [
+            ['LIFF_ORIGIN', expected.liffOrigin],
+            ['LIFF_PUBLIC_URL', expected.liffOrigin],
+          ]
+        : []),
+    ]);
+    for (const [name, value] of expectedText) {
+      const binding = findBinding(liveBindings, name);
+      if (binding.type !== 'plain_text' || binding.text !== value) {
+        throw new Error(`deployment-managed binding ${name} does not match the configured target`);
+      }
+    }
   }
 }
 
@@ -348,7 +374,7 @@ async function main(): Promise<void> {
   const snapshot = JSON.parse(
     readFileSync(snapshotPath, 'utf8'),
   ) as CustomerConfigSnapshot;
-  verifyCustomerConfig(snapshot, bindings);
+  verifyCustomerConfig(snapshot, bindings, expectedFromEnvironment());
   console.log('Customer configuration postflight passed');
 }
 

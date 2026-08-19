@@ -53,6 +53,9 @@ const dbMocks = {
 };
 vi.mock('@line-crm/db', () => dbMocks);
 
+const pushImmediateFirstStep = vi.fn().mockResolvedValue(true);
+vi.mock('../services/immediate-first-step.js', () => ({ pushImmediateFirstStep }));
+
 const pharmacyAccessMocks = vi.hoisted(() => ({
   isPharmacyModeAccount: vi.fn(
     async (_db: D1Database, _lineAccountId: string | null | undefined) => false,

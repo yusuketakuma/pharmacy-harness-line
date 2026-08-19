@@ -326,19 +326,27 @@ export async function markMynaLaunchRequested(
     throw new Error(Date.parse(handoff.expires_at) <= Date.now() ? 'Myna handoff expired' : 'Myna handoff cannot launch');
   }
   const now = new Date().toISOString();
-  const result = await db.prepare(
-    `UPDATE pharmacy_myna_handoffs
-        SET status = 'LAUNCH_REQUESTED', launched_at = COALESCE(launched_at, ?), updated_at = ?
-      WHERE id = ? AND line_account_id = ? AND friend_id = ?
-        AND status = 'CREATED' AND expires_at > ?`,
-  ).bind(now, now, handoffId, lineAccountId, friendId, now).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('Myna handoff launch conflict');
-  await db.prepare(
-    `INSERT INTO pharmacy_myna_events
-     (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
-      correlation_id, metadata_json, occurred_at)
-     VALUES (?, ?, ?, 'MYNA_EXTERNAL_LAUNCH_REQUESTED', 'PATIENT_CONTACT', ?, ?, '{}', ?)`,
-  ).bind(crypto.randomUUID(), handoffId, lineAccountId, friendId, handoff.correlation_id, now).run();
+  const [transition] = await db.batch([
+    db.prepare(
+      `UPDATE pharmacy_myna_handoffs
+          SET status = 'LAUNCH_REQUESTED', launched_at = COALESCE(launched_at, ?), updated_at = ?
+        WHERE id = ? AND line_account_id = ? AND friend_id = ?
+          AND status = 'CREATED' AND expires_at > ?`,
+    ).bind(now, now, handoffId, lineAccountId, friendId, now),
+    db.prepare(
+      `INSERT INTO pharmacy_myna_events
+       (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
+        correlation_id, metadata_json, occurred_at)
+       SELECT ?, ?, ?, 'MYNA_EXTERNAL_LAUNCH_REQUESTED', 'PATIENT_CONTACT', ?, ?, '{}', ?
+         FROM pharmacy_myna_handoffs
+        WHERE id = ? AND line_account_id = ?
+          AND status = 'LAUNCH_REQUESTED' AND updated_at = ?`,
+    ).bind(
+      crypto.randomUUID(), handoffId, lineAccountId, friendId, handoff.correlation_id, now,
+      handoffId, lineAccountId, now,
+    ),
+  ]);
+  if ((transition?.meta?.changes ?? 0) !== 1) throw new Error('Myna handoff launch conflict');
   return { ...handoff, status: 'LAUNCH_REQUESTED', launched_at: handoff.launched_at ?? now, updated_at: now };
 }
 
@@ -364,33 +372,53 @@ export async function recordMynaPatientReport(
     : result === 'NO_PRESCRIPTION_FOUND'
       ? 'MYNA_PATIENT_REPORTED_NO_PRESCRIPTION'
       : 'MYNA_SUPPORT_REQUESTED';
-  const resultRow = await db.prepare(
-    `UPDATE pharmacy_myna_handoffs
-        SET status = ?, patient_reported_at = ?, updated_at = ?
-      WHERE id = ? AND line_account_id = ? AND friend_id = ?
-        AND status NOT IN ('CLOSED','EXPIRED') AND updated_at = ?`,
-  ).bind(next, now, now, handoffId, lineAccountId, friendId, handoff.updated_at).run();
-  if ((resultRow.meta?.changes ?? 0) !== 1) throw new Error('Myna handoff report conflict');
-  await db.prepare(
-    `INSERT INTO pharmacy_myna_events
-     (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
-      correlation_id, metadata_json, occurred_at)
-     VALUES (?, ?, ?, ?, 'PATIENT_CONTACT', ?, ?, ?, ?)`,
-  ).bind(
-    crypto.randomUUID(), handoffId, lineAccountId, eventType, friendId,
-    handoff.correlation_id, JSON.stringify({ result }), now,
-  ).run();
+  const [transition] = await db.batch([
+    db.prepare(
+      `UPDATE pharmacy_myna_handoffs
+          SET status = ?, patient_reported_at = ?, updated_at = ?
+        WHERE id = ? AND line_account_id = ? AND friend_id = ?
+          AND status NOT IN ('CLOSED','EXPIRED') AND updated_at = ?`,
+    ).bind(next, now, now, handoffId, lineAccountId, friendId, handoff.updated_at),
+    db.prepare(
+      `INSERT INTO pharmacy_myna_events
+       (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
+        correlation_id, metadata_json, occurred_at)
+       SELECT ?, ?, ?, ?, 'PATIENT_CONTACT', ?, ?, ?, ?
+         FROM pharmacy_myna_handoffs
+        WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
+    ).bind(
+      crypto.randomUUID(), handoffId, lineAccountId, eventType, friendId,
+      handoff.correlation_id, JSON.stringify({ result }), now,
+      handoffId, lineAccountId, next, now,
+    ),
+  ]);
+  if ((transition?.meta?.changes ?? 0) !== 1) throw new Error('Myna handoff report conflict');
   return { ...handoff, status: next, patient_reported_at: now, updated_at: now };
 }
 
+/**
+ * `patientId` narrows the listing in SQL, before the LIMIT. A caller that
+ * wants one patient's handoffs must pass it rather than filtering the result:
+ * on a busy account the account-wide page truncates at 100 and would silently
+ * drop that patient's older records.
+ */
 export async function listMynaHandoffs(
   db: D1Database,
   lineAccountId: string,
   status?: MynaHandoffStatus,
+  patientId?: string,
 ): Promise<MynaHandoff[]> {
   await expireMynaHandoffs(db, lineAccountId);
-  const where = status ? ' AND status = ?' : '';
-  const values = status ? [lineAccountId, status] : [lineAccountId];
+  const values: unknown[] = [lineAccountId];
+  let where = '';
+  if (status) {
+    where += ' AND status = ?';
+    values.push(status);
+  }
+  if (patientId) {
+    where += ' AND patient_id = ?';
+    values.push(patientId);
+  }
   const rows = await db.prepare(
     `${HANDOFF_SELECT}
       WHERE line_account_id = ?${where}
@@ -464,15 +492,24 @@ export async function recordMynaVerification(
   const eventType = input.status === 'E_PRESCRIPTION_RECEIVED'
     ? 'E_PRESCRIPTION_RECEIPT_CONFIRMED'
     : 'PRESCRIPTION_RECEIPT_REJECTED';
+  // D1 rolls a batch back only on SQL errors, so a failed CAS cannot be detected
+  // in JS after the fact: the dependent rows would already be committed. Every
+  // write is therefore guarded in SQL against the handoff state we read, and the
+  // CAS UPDATE runs last so the guards still see that pre-state.
+  const guard = `EXISTS (SELECT 1 FROM pharmacy_myna_handoffs
+        WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?)`;
+  const guardValues = [input.handoffId, input.lineAccountId, handoff.status, handoff.updated_at];
   const statements: D1PreparedStatement[] = [
     db.prepare(
       `INSERT INTO pharmacy_myna_verifications
        (id, handoff_id, line_account_id, status, verified_by, verified_at,
         reason_code, note, source_system, source_reference, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?
+        WHERE ${guard}`,
     ).bind(
       verificationId, input.handoffId, input.lineAccountId, input.status, input.staffId, now,
       input.reasonCode ?? null, input.sourceSystem, input.sourceReference ?? null, now,
+      ...guardValues,
     ),
   ];
   if (shadowSubmissionId) {
@@ -481,60 +518,69 @@ export async function recordMynaVerification(
        (id, line_account_id, friend_id, idempotency_key, status, active_revision,
         upload_revision, requested_at, created_at, updated_at, intake_required,
         intake_method, source_handoff_id)
-       VALUES (?, ?, ?, ?, 'received', 1, 1, ?, ?, ?, 0, 'E_PRESCRIPTION', ?)
+       SELECT ?, ?, ?, ?, 'received', 1, 1, ?, ?, ?, 0, 'E_PRESCRIPTION', ?
+        WHERE ${guard}
        ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING`,
     ).bind(
       shadowSubmissionId, input.lineAccountId, handoff.friend_id,
-      `myna-${input.handoffId}`, now, now, now, input.handoffId,
+      `myna-${input.handoffId}`, now, now, now, input.handoffId, ...guardValues,
     ));
     statements.push(db.prepare(
       `INSERT INTO pharmacy_prescription_events
        (id, submission_id, actor_type, actor_id, event_type, from_status,
         to_status, revision, created_at)
-       VALUES (?, ?, 'staff', ?, 'status_changed', 'draft', 'received', 1, ?)
+       SELECT ?, ?, 'staff', ?, 'status_changed', 'draft', 'received', 1, ?
+        WHERE ${guard}
        ON CONFLICT(id) DO NOTHING`,
-    ).bind(crypto.randomUUID(), shadowSubmissionId, input.staffId, now));
+    ).bind(crypto.randomUUID(), shadowSubmissionId, input.staffId, now, ...guardValues));
   }
   statements.push(db.prepare(
     `UPDATE pharmacy_prescription_expectations
         SET receipt_status = ?, shadow_submission_id = COALESCE(shadow_submission_id, ?), updated_at = ?
-      WHERE id = ? AND line_account_id = ?`,
-  ).bind(receiptStatus, shadowSubmissionId, now, expectation.id, input.lineAccountId));
-  statements.push(db.prepare(
-    `UPDATE pharmacy_myna_handoffs
-        SET status = ?, closed_at = CASE WHEN ? = 'CLOSED' THEN ? ELSE closed_at END, updated_at = ?
-      WHERE id = ? AND line_account_id = ?`,
-  ).bind(nextHandoffStatus, nextHandoffStatus, now, now, input.handoffId, input.lineAccountId));
+      WHERE id = ? AND line_account_id = ? AND ${guard}`,
+  ).bind(receiptStatus, shadowSubmissionId, now, expectation.id, input.lineAccountId, ...guardValues));
   statements.push(db.prepare(
     `INSERT INTO pharmacy_myna_events
      (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
       correlation_id, metadata_json, occurred_at)
-     VALUES (?, ?, ?, 'MYNA_VERIFICATION_RECORDED', 'STAFF', ?, ?, ?, ?)`,
+     SELECT ?, ?, ?, 'MYNA_VERIFICATION_RECORDED', 'STAFF', ?, ?, ?, ?
+      WHERE ${guard}`,
   ).bind(
     crypto.randomUUID(), input.handoffId, input.lineAccountId, input.staffId,
     handoff.correlation_id, JSON.stringify({ status: input.status, reasonCode: input.reasonCode ?? null }), now,
+    ...guardValues,
   ));
   statements.push(db.prepare(
     `INSERT INTO pharmacy_myna_events
      (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
       correlation_id, metadata_json, occurred_at)
-     VALUES (?, ?, ?, ?, 'STAFF', ?, ?, '{}', ?)`,
+     SELECT ?, ?, ?, ?, 'STAFF', ?, ?, '{}', ?
+      WHERE ${guard}`,
   ).bind(
     crypto.randomUUID(), input.handoffId, input.lineAccountId, eventType, input.staffId,
-    handoff.correlation_id, now,
+    handoff.correlation_id, now, ...guardValues,
   ));
   if (input.status === 'E_PRESCRIPTION_RECEIVED') {
     statements.push(db.prepare(
       `INSERT INTO pharmacy_myna_events
        (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
         correlation_id, metadata_json, occurred_at)
-       VALUES (?, ?, ?, 'FULFILLMENT_REVIEW_STARTED', 'STAFF', ?, ?, '{}', ?)`,
+       SELECT ?, ?, ?, 'FULFILLMENT_REVIEW_STARTED', 'STAFF', ?, ?, '{}', ?
+        WHERE ${guard}`,
     ).bind(
       crypto.randomUUID(), input.handoffId, input.lineAccountId, input.staffId,
-      handoff.correlation_id, now,
+      handoff.correlation_id, now, ...guardValues,
     ));
   }
-  await db.batch(statements);
+  statements.push(db.prepare(
+    `UPDATE pharmacy_myna_handoffs
+        SET status = ?, closed_at = CASE WHEN ? = 'CLOSED' THEN ? ELSE closed_at END, updated_at = ?
+      WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
+  ).bind(nextHandoffStatus, nextHandoffStatus, now, now, ...guardValues));
+  const results = await db.batch(statements);
+  if ((results[results.length - 1]?.meta?.changes ?? 0) !== 1) {
+    throw new Error('Myna verification conflict');
+  }
 
   const verification: MynaVerification = {
     id: verificationId,

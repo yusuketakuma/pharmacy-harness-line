@@ -1,4 +1,4 @@
-name: Deploy Customer Cloudflare
+name: Deploy Shared Pharmacy Cloudflare
 
 on:
   workflow_dispatch:
@@ -59,13 +59,11 @@ jobs:
           ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
           LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
           LIFF_PAGES_PROJECT: ${{ vars.LIFF_PAGES_PROJECT }}
-          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
-          VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
         run: |
           for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID D1_DATABASE_NAME \
             D1_DATABASE_ID NEXT_PUBLIC_API_URL R2_BUCKET_NAME WORKER_NAME \
             PAGES_PROJECT_NAME LIFF_PAGES_PROJECT WORKER_URL ADMIN_ORIGIN \
-            VITE_LIFF_ID VITE_BOT_BASIC_ID; do
+            LIFF_ORIGIN; do
             if [ -z "${!name}" ]; then
               echo "Missing required deployment configuration: $name"
               exit 1
@@ -90,46 +88,48 @@ jobs:
       - name: Build Worker and LIFF assets
         run: pnpm --filter worker build
         env:
-          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
-          VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
           VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
 
       - name: Build Pharmacy LIFF Pages
         run: |
           pnpm --filter liff build
-          grep -R -Fq "$VITE_DEFAULT_LIFF_ID" apps/liff/dist/assets
           grep -R -Fq "$VITE_API_BASE" apps/liff/dist/assets
           grep -R -Fq "pharmacy-receive" apps/liff/dist/assets
+          grep -R -Fq "pharmacy-liff-multitenant-v1" apps/liff/dist/assets
         env:
-          VITE_DEFAULT_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
           VITE_API_BASE: ${{ vars.WORKER_URL }}
 
       - name: Capture build metadata
         id: build-meta
-        run: echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+          echo "release_version=$(node -p \"require('./apps/worker/package.json').version\")" >> "$GITHUB_OUTPUT"
 
       - name: Build Admin Panel
-        run: pnpm --filter web build
+        run: |
+          pnpm --filter web build
+          grep -R -Fq "$NEXT_PUBLIC_LIFF_ORIGIN" apps/web/.next
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
           APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
 
-      - name: Verify LINE LIFF endpoint topology
+      - name: Inject runtime release metadata
         env:
-          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
-          WORKER_URL: ${{ vars.WORKER_URL }}
-          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
+          RELEASE_VERSION: ${{ steps.build-meta.outputs.release_version }}
         run: |
-          wrapper="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            --max-time 20 "https://liff.line.me/${VITE_LIFF_ID}/")"
-          if ! printf '%s' "$wrapper" | grep -Fq "$LIFF_ORIGIN"; then
-            echo "LINE LIFF endpoint must point to LIFF_ORIGIN"
-            exit 1
-          fi
-          if printf '%s' "$wrapper" | grep -Fq "$WORKER_URL"; then
-            echo "LINE LIFF endpoint must not point to WORKER_URL"
-            exit 1
-          fi
+          pnpm tsx apps/worker/scripts/inject-version.ts \
+            --version "$RELEASE_VERSION" \
+            --worker apps/worker/dist/line_harness/index.js \
+            --worker-assets apps/worker/dist/client \
+            --admin apps/web/out \
+            --liff apps/liff/dist \
+            --out apps/worker/src/_version.ts
+
+      - name: Rebuild Worker with runtime release metadata
+        run: pnpm --filter worker build
+        env:
+          VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
 
       - name: Check additive migration safety
         run: pnpm tsx scripts/check-migrations.ts
@@ -184,6 +184,22 @@ jobs:
             echo "Patched expected LIFF CORS vars"
           fi
 
+      - name: Verify shared Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_NAME: ${{ vars.WORKER_NAME }}
+        run: |
+          secrets_json="$(npx wrangler secret list --name "$WORKER_NAME" --format json \
+            --config apps/worker/dist/line_harness/wrangler.json)"
+          for name in PLATFORM_ADMIN_KEY CROSS_ACCOUNT_TOKEN_KEY LINE_CREDENTIAL_KEY_V1; do
+            if ! jq -e --arg name "$name" 'any(.[]; .name == $name)' \
+              >/dev/null <<<"$secrets_json"; then
+              echo "Missing required shared Worker secret: $name"
+              exit 1
+            fi
+          done
+
       - name: Protect customer configuration
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -237,6 +253,15 @@ jobs:
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${WORKER_URL%/}/api/health" >/dev/null
 
+      - name: Verify deployed runtime version
+        env:
+          EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
+        run: |
+          actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${WORKER_URL%/}/admin/version" | jq -r '.version')"
+          test "$actual_version" = "$EXPECTED_VERSION"
+
       - name: Verify customer configuration preserved
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -266,10 +291,36 @@ jobs:
       - name: Verify Pharmacy LIFF health
         env:
           LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
         run: |
           test -n "$LIFF_ORIGIN"
-          curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            "${LIFF_ORIGIN%/}/" >/dev/null
+          test -n "$WORKER_URL"
+          liff_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${LIFF_ORIGIN%/}/")"
+          LIFF_ASSET_PATH="$(printf '%s' "$liff_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' | head -n 1 || true)"
+          if [ -z "$LIFF_ASSET_PATH" ]; then
+            echo "Pharmacy LIFF HTML does not reference a JavaScript asset"
+            exit 1
+          fi
+          case "$LIFF_ASSET_PATH" in
+            http://*|https://*) liff_asset_url="$LIFF_ASSET_PATH" ;;
+            /*) liff_asset_url="${LIFF_ORIGIN%/}$LIFF_ASSET_PATH" ;;
+            *) liff_asset_url="${LIFF_ORIGIN%/}/$LIFF_ASSET_PATH" ;;
+          esac
+          liff_asset="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "$liff_asset_url")"
+          printf '%s' "$liff_asset" | grep -Fq "pharmacy-liff-multitenant-v1" || {
+            echo "Deployed LIFF asset is not the multitenant pharmacy build"
+            exit 1
+          }
+          printf '%s' "$liff_asset" | grep -Fq "pharmacy-receive" || {
+            echo "Deployed LIFF asset does not contain the pharmacy receive route"
+            exit 1
+          }
+          printf '%s' "$liff_asset" | grep -Fq "${WORKER_URL%/}" || {
+            echo "LIFF asset does not contain the expected Worker API URL"
+            exit 1
+          }
 
       - name: Deploy to Cloudflare Pages
         env:
@@ -291,12 +342,36 @@ jobs:
       - name: Verify Admin health
         env:
           ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
+          LIFF_ORIGIN: ${{ vars.LIFF_ORIGIN }}
         run: |
           test -n "$ADMIN_ORIGIN"
+          test -n "$LIFF_ORIGIN"
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${ADMIN_ORIGIN%/}/" >/dev/null
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${ADMIN_ORIGIN%/}/prescriptions" >/dev/null
+          admin_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "${ADMIN_ORIGIN%/}/accounts")"
+          ADMIN_ASSET_PATHS="$(printf '%s' "$admin_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' || true)"
+          if [ -z "$ADMIN_ASSET_PATHS" ]; then
+            echo "Admin accounts page does not reference JavaScript assets"
+            exit 1
+          fi
+          admin_bundle="$(
+            while IFS= read -r asset_path; do
+              [ -n "$asset_path" ] || continue
+              case "$asset_path" in
+                http://*|https://*) admin_asset_url="$asset_path" ;;
+                /*) admin_asset_url="${ADMIN_ORIGIN%/}$asset_path" ;;
+                *) admin_asset_url="${ADMIN_ORIGIN%/}/$asset_path" ;;
+              esac
+              curl --fail --silent --show-error --retry 5 --retry-all-errors "$admin_asset_url"
+            done <<< "$ADMIN_ASSET_PATHS"
+          )"
+          printf '%s' "$admin_bundle" | grep -Fq "${LIFF_ORIGIN%/}" || {
+            echo "Admin bundle does not contain the configured LIFF origin"
+            exit 1
+          }
 
       - name: Capture deployed release state
         id: after

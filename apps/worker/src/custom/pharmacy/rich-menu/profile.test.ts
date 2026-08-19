@@ -5,6 +5,7 @@ import { validateRichMenuImage } from '../../../lib/image-validator.js';
 import {
   buildPharmacyInitialRichMenu,
   buildPharmacySingleActionRichMenu,
+  isPharmacyInitialRichMenuProfile,
   PHARMACY_INITIAL_PROFILE_KEY,
   PHARMACY_SINGLE_ACTION_PROFILE_KEY,
   PHARMACY_RICH_MENU_GENERATOR_VERSION,
@@ -34,6 +35,10 @@ describe('pharmacy rich-menu profile', () => {
 
   it('rejects a missing LIFF id instead of creating broken actions', () => {
     expect(() => buildPharmacyInitialRichMenu('account-a', '')).toThrow(/liffId is required/i);
+  });
+
+  it('rejects an empty profile key so prepare remains idempotent', () => {
+    expect(isPharmacyInitialRichMenuProfile('')).toBe(false);
   });
 
   it('builds a versioned single-action intake profile without removing the legacy profile', () => {

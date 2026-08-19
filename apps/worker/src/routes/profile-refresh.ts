@@ -31,11 +31,11 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
   // も含めるか? → 含めない。送信対象だけリフレッシュすれば十分で、ブロック済は
   // どうせ profile API も 403/404 で空振りする。
   const baseQuery = `
-    SELECT f.id, f.line_user_id, f.line_account_id, a.channel_access_token
+    SELECT f.id, f.provider_line_user_id AS line_user_id, f.line_account_id, a.channel_access_token
     FROM friends f
     LEFT JOIN line_accounts a ON a.id = f.line_account_id
     WHERE f.is_following = 1
-      AND f.line_user_id IS NOT NULL
+      AND f.provider_line_user_id IS NOT NULL
       ${accountIdFilter ? 'AND f.line_account_id = ?' : ''}
     ORDER BY f.id
     LIMIT ? OFFSET ?
@@ -585,7 +585,7 @@ profileRefresh.get('/api/admin/friend-debug/:id', async (c) => {
   const id = c.req.param('id');
   const db = c.env.DB;
   const friend = await db
-    .prepare(`SELECT id, display_name, line_user_id, line_account_id, is_following, user_id FROM friends WHERE id = ?`)
+    .prepare(`SELECT id, display_name, provider_line_user_id AS line_user_id, line_account_id, is_following, user_id FROM friends WHERE id = ?`)
     .bind(id)
     .first();
   const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();

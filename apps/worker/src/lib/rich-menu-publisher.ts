@@ -1,14 +1,13 @@
 // Rich menu publish flow — D1 ドラフトを LINE Messaging API に冪等に反映する。
 //
-// LINE API は richmenu の更新ができず、作成のみ。なので alias を経由して
-// 「同一 alias を別 richmenu に張替」という間接参照で更新を実現する。
+// LINE API は richmenu の更新ができないため、公開ごとに新規作成する。
+// alias も generation ごとに分け、D1確定前の失敗が旧公開を壊さないようにする。
 //
 // 流れ (各 page につき):
 //   1. POST /v2/bot/richmenu                  → 新 richmenuId 取得
 //   2. POST /v2/bot/richmenu/{id}/content     ← R2 から画像 stream
-//   3. alias upsert (DELETE → POST)
-//   4. 全ページの反映と default 操作が成功した後に旧 richmenu を DELETE
-// 最後に isDefaultForAll なら 1 ページ目を全友だち default に。
+//   3. generation-scoped alias 作成
+// account default の変更と旧 richmenu の整理はこの公開処理では行わない。
 
 export type Bounds = { x: number; y: number; width: number; height: number };
 
@@ -22,6 +21,7 @@ export type AreaInput = {
 
 export type PageInput = {
   id: string;
+  aliasId?: string;
   orderIndex: number;
   name: string;
   imageR2Key: string | null;
@@ -64,12 +64,18 @@ const SIZE_DIMENSIONS = {
   compact: { width: 2500, height: 843 },
 };
 
-export function buildAliasId(groupId: string, orderIndex: number): string {
-  return `lhx-${groupId.slice(0, 8)}-${orderIndex}`;
+export function buildAliasId(groupId: string, orderIndex: number, generation?: string): string {
+  return `lhx-${groupId.slice(0, 8)}-${generation ? `${generation}-` : ''}${orderIndex}`;
 }
 
-export function resolveSwitcherActions(pages: PageInput[], groupId: string): PageInput[] {
-  const aliasByPageId = new Map(pages.map((p) => [p.id, buildAliasId(groupId, p.orderIndex)]));
+export function resolveSwitcherActions(
+  pages: PageInput[],
+  groupId: string,
+  generation?: string,
+): PageInput[] {
+  const aliasByPageId = new Map(
+    pages.map((p) => [p.id, buildAliasId(groupId, p.orderIndex, generation)]),
+  );
   return pages.map((page) => ({
     ...page,
     areas: page.areas.map((area) => {
@@ -94,7 +100,7 @@ export function resolveSwitcherActions(pages: PageInput[], groupId: string): Pag
 }
 
 export type PublishResult = {
-  pages: { pageId: string; newRichMenuId: string }[];
+  pages: { pageId: string; aliasId: string; newRichMenuId: string }[];
 };
 
 async function readR2Object(r2: R2Like, key: string): Promise<Uint8Array> {
@@ -109,15 +115,15 @@ export async function publishRichMenuGroup(
   line: LineRichMenuClient,
   r2: R2Like,
 ): Promise<PublishResult> {
-  const resolvedPages = resolveSwitcherActions(group.pages, group.id);
+  const generation = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
+  const resolvedPages = resolveSwitcherActions(group.pages, group.id, generation);
   resolvedPages.sort((a, b) => a.orderIndex - b.orderIndex);
 
   const dimensions = SIZE_DIMENSIONS[group.size];
-  const results: { pageId: string; newRichMenuId: string }[] = [];
+  const results: { pageId: string; aliasId: string; newRichMenuId: string }[] = [];
   const createdResources: {
     aliasId: string;
     richMenuId: string;
-    oldRichMenuId: string | null;
     aliasCreated: boolean;
   }[] = [];
 
@@ -139,11 +145,10 @@ export async function publishRichMenuGroup(
         })),
       });
       const newRichMenuId = created.richMenuId;
-      const aliasId = buildAliasId(group.id, page.orderIndex);
+      const aliasId = buildAliasId(group.id, page.orderIndex, generation);
       const resource = {
         aliasId,
         richMenuId: newRichMenuId,
-        oldRichMenuId: page.lineRichMenuId,
         aliasCreated: false,
       };
       createdResources.push(resource);
@@ -152,53 +157,11 @@ export async function publishRichMenuGroup(
       const bytes = await readR2Object(r2, page.imageR2Key);
       await line.uploadRichMenuImage(newRichMenuId, bytes, page.imageContentType);
 
-      // 3. alias upsert (DELETE は 404 なら無視、CREATE は失敗時 throw)
-      try {
-        await line.deleteRichMenuAlias(aliasId);
-      } catch {
-        // 404 等は無視
-      }
+      // 3. generation-scoped alias。旧generationはD1確定まで一切変更しない。
       await line.createRichMenuAlias(aliasId, newRichMenuId);
       resource.aliasCreated = true;
 
-      results.push({ pageId: page.id, newRichMenuId });
-    }
-
-    // 4. default 設定
-    // 有効化時は order_index=0 ページの richMenuId を default に設定。
-    // 無効化 (false) 時は **この group の richMenu が現在 LINE の default に設定されている
-    // 場合のみ** 解除する。同一 account に別の isDefaultForAll=true group がある状態で
-    // 無条件に DELETE すると、その別 group の default まで壊してしまうため。
-    if (group.isDefaultForAll && results.length > 0) {
-      await line.setDefaultRichMenu(results[0].newRichMenuId);
-    } else {
-      // 新規 menu 作成後も old ID を判定対象に残し、別 group の default を解除しない。
-      try {
-        const currentDefault = await line.getCurrentDefaultRichMenuId();
-        if (currentDefault) {
-          const ownIds = new Set<string>();
-          for (const p of group.pages) {
-            if (p.lineRichMenuId) ownIds.add(p.lineRichMenuId);
-          }
-          for (const r of results) ownIds.add(r.newRichMenuId);
-          if (ownIds.has(currentDefault)) {
-            await line.clearDefaultRichMenu();
-          }
-        }
-      } catch (e) {
-        console.warn(`[publishRichMenuGroup] default lookup/clear failed (non-fatal):`, e);
-      }
-    }
-
-    // 5. LINE の切替が完了してから旧 richmenu を削除する。削除失敗は孤児化を
-    // 防ぐため非致命扱いにし、次回 publish / cleanup で再試行できる状態を残す。
-    for (const page of resolvedPages) {
-      if (!page.lineRichMenuId) continue;
-      try {
-        await line.deleteRichMenu(page.lineRichMenuId);
-      } catch {
-        // 旧削除失敗は非致命。新 alias が既に live なので公開状態は維持できる。
-      }
+      results.push({ pageId: page.id, aliasId, newRichMenuId });
     }
 
     return { pages: results };
@@ -211,13 +174,6 @@ export async function publishRichMenuGroup(
           await line.deleteRichMenuAlias(resource.aliasId);
         } catch {
           // cleanup は元の失敗を隠さない
-        }
-      }
-      if (resource.oldRichMenuId) {
-        try {
-          await line.createRichMenuAlias(resource.aliasId, resource.oldRichMenuId);
-        } catch {
-          // alias 復元も best-effort。元の publish エラーを返す。
         }
       }
       try {
@@ -277,7 +233,7 @@ export async function unpublishRichMenuGroup(
 
   for (const page of group.pages) {
     // alias 削除
-    const aliasId = buildAliasId(group.id, page.orderIndex);
+    const aliasId = page.aliasId ?? buildAliasId(group.id, page.orderIndex);
     try {
       await line.deleteRichMenuAlias(aliasId);
     } catch (e) {

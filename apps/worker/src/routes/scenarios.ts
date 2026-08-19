@@ -260,6 +260,8 @@ scenarios.post('/api/scenarios', async (c) => {
       triggerType: body.triggerType,
       triggerTagId: body.triggerTagId ?? null,
       deliveryMode: deliveryMode as DeliveryMode,
+      // Account-unassigned scenarios only fire inside their own tenant (M-1).
+      tenantId: c.get('tenantId') ?? null,
     });
 
     // Save line_account_id if provided

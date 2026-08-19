@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { getPharmacyAccountId } from '../account.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 import {
   acknowledgeActivityNotification,
   listActivityNotifications,
@@ -21,6 +22,9 @@ async function authorize(c: Context<ActivityEnv>): Promise<string | Response> {
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'pharmacy_dashboard'))) {
+    return c.json({ error: 'Pharmacy dashboard is not enabled' }, 403);
+  }
   return lineAccountId;
 }
 

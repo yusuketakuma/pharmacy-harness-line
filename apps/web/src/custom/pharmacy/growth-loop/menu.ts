@@ -8,10 +8,9 @@ const PHARMACY_MENU_PATHS = new Set([
   '/myna',
   '/pharmacy-growth',
   '/rich-menus',
-  '/notifications',
+  '/pharmacy-notifications',
   '/staff',
   '/accounts',
-  '/updates',
 ])
 
 export function isPharmacyMenuPath(path: string): boolean {

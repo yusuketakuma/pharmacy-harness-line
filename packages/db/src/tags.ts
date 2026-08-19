@@ -237,21 +237,23 @@ export async function getFriendTags(
   return result.results;
 }
 
-import type { Friend } from './friends';
+import { FRIEND_SELECT_COLUMNS, type Friend } from './friends';
 
 export async function getFriendsByTag(
   db: D1Database,
   tagId: string,
+  lineAccountId?: string,
 ): Promise<Friend[]> {
+  const accountClause = lineAccountId ? ' AND f.line_account_id = ?' : '';
   const result = await db
     .prepare(
-      `SELECT f.*
+      `SELECT ${FRIEND_SELECT_COLUMNS}
        FROM friends f
        INNER JOIN friend_tags ft ON ft.friend_id = f.id
-       WHERE ft.tag_id = ?
+       WHERE ft.tag_id = ?${accountClause}
        ORDER BY f.created_at DESC`,
     )
-    .bind(tagId)
+    .bind(...(lineAccountId ? [tagId, lineAccountId] : [tagId]))
     .all<Friend>();
   return result.results;
 }

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { extractFlexAltText } from '../utils/flex-alt-text.js';
 import {
   getOperators,
@@ -10,11 +10,13 @@ import {
   getChatById,
   createChat,
   getFriendById,
-  getLineAccountById,
   updateChat,
   jstNow,
 } from '@line-crm/db';
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
 import type { Env } from '../index.js';
+import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 
 const chats = new Hono<Env>();
 
@@ -57,6 +59,34 @@ type ChatLike = {
   created_at: string;
   updated_at: string;
 };
+
+type FriendResource = { id: string; line_account_id: string | null };
+
+async function requireFriendAccess(
+  c: Context<Env>,
+  friend: FriendResource,
+): Promise<Response | null> {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+  if (!friend.line_account_id || !await accountResourceOwnedByStaff(c, tenantId, friend.line_account_id)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
+  return null;
+}
+
+async function resolveAuthorizedChat(
+  c: Context<Env>,
+  id: string,
+): Promise<{ chat: ChatLike; friend: FriendResource } | Response> {
+  const existing = await getChatById(c.env.DB, id);
+  const friend = await getFriendById(c.env.DB, existing?.friend_id ?? id) as FriendResource | null;
+  if (!friend) return c.json({ success: false, error: 'Chat not found' }, 404);
+  const denied = await requireFriendAccess(c, friend);
+  if (denied) return denied;
+  const chat = existing ?? await resolveOrCreateChat(c.env.DB, id);
+  if (!chat) return c.json({ success: false, error: 'Chat not found' }, 404);
+  return { chat, friend };
+}
 
 // id は chats.id もしくは friend.id のどちらか。friend.id のときは chats 行を遅延作成する。
 // push / broadcast / scenario 配信だけを受けた友だちもチャット画面に現れるため、ここで lazy create が必要。
@@ -103,23 +133,19 @@ async function resolveOrCreateChat(db: D1Database, id: string): Promise<ChatLike
 async function resolveFriendAndAccessToken(
   db: D1Database,
   friendId: string,
-  defaultAccessToken: string,
+  tenantId: string,
+  rootSecret: string | undefined,
 ) {
   const friend = await getFriendById(db, friendId);
-  if (!friend) {
-    return { friend: null, accessToken: defaultAccessToken };
+  if (!friend || !friend.line_account_id || !rootSecret) {
+    return { friend, accessToken: null };
   }
-
-  if (!friend.line_account_id) {
-    return { friend, accessToken: defaultAccessToken };
-  }
-
-  const account = await getLineAccountById(db, friend.line_account_id);
-  if (!account) {
-    return { friend, accessToken: defaultAccessToken };
-  }
-
-  return { friend, accessToken: account.channel_access_token };
+  const accessToken = await readLineCredential(db, rootSecret, {
+    tenantId,
+    lineAccountId: friend.line_account_id,
+    kind: 'channel_access_token',
+  });
+  return { friend, accessToken };
 }
 
 // ========== オペレーターCRUD ==========
@@ -185,16 +211,33 @@ chats.delete('/api/operators/:id', async (c) => {
 
 chats.get('/api/chats', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+    const assignedAccountSql = pharmacyTenant
+      ? `AND ${pharmacyStaffAccountPredicate('friend.line_account_id')}`
+      : '';
     const status = c.req.query('status') ?? undefined;
     const operatorId = c.req.query('operatorId') ?? undefined;
     const lineAccountId = c.req.query('lineAccountId') ?? undefined;
+    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
     const unansweredOnly =
       c.req.query('unansweredOnly') === 'true' || c.req.query('unansweredOnly') === '1';
 
     let unansweredMap: Map<string, { lastIncomingAt: string; lastIncomingContent: string; lastIncomingType: string }> | null = null;
     if (unansweredOnly) {
       const { getUnansweredRowsMap } = await import('../services/unanswered-inbox.js');
-      unansweredMap = await getUnansweredRowsMap(c.env.DB);
+      unansweredMap = await getUnansweredRowsMap(
+        c.env.DB,
+        tenantId,
+        pharmacyTenant ? staff!.id : undefined,
+      );
       // 空 Map のとき = 未対応ゼロ。早期 return で空配列を返す。
       if (unansweredMap.size === 0) {
         return c.json({ success: true, data: [] });
@@ -219,9 +262,15 @@ chats.get('/api/chats', async (c) => {
     //   - content は text のみ先頭 200 文字まで切り詰めて返す (flex/image など raw JSON を
     //     返すと broadcast 後の rows で multi-MB レスポンスになる)。
     //   - lineAccountId 指定時は messages_log スキャンを対象アカの friend に絞る。
-    const accountFilterSql = lineAccountId
-      ? `friend_id IN (SELECT id FROM friends WHERE line_account_id = ?)`
-      : `1=1`;
+    const accountFilterSql = `friend_id IN (
+      SELECT friend.id
+        FROM friends AS friend
+        INNER JOIN tenant_line_accounts AS mapping
+                ON mapping.line_account_id = friend.line_account_id
+       WHERE mapping.tenant_id = ?
+         ${assignedAccountSql}
+         ${lineAccountId ? 'AND friend.line_account_id = ?' : ''}
+    )`;
 
     // unansweredOnly は取得後に unansweredMap と突合して絞るため全件必要。
     // SQLite は LIMIT に負値を渡すと「無制限」になる (documented 挙動)。
@@ -288,10 +337,13 @@ chats.get('/api/chats', async (c) => {
         SELECT d.friend_id, d.last_message_at
         FROM deduped d
         INNER JOIN friends f ON f.id = d.friend_id
+        INNER JOIN tenant_line_accounts AS tenant_mapping
+                ON tenant_mapping.line_account_id = f.line_account_id
         ${pageNeedsChats ? `LEFT JOIN chats c ON c.id = (
           SELECT id FROM chats WHERE friend_id = f.id ORDER BY created_at DESC LIMIT 1
         )` : ''}
-        WHERE 1=1
+        WHERE tenant_mapping.tenant_id = ?
+        ${pharmacyTenant ? `AND ${pharmacyStaffAccountPredicate('f.line_account_id', 'tenant_mapping')}` : ''}
         ${conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : ''}
         ${useCursor ? 'AND (d.last_message_at < ? OR (d.last_message_at = ? AND d.friend_id < ?))' : ''}
         ORDER BY d.last_message_at DESC, d.friend_id DESC
@@ -316,7 +368,7 @@ chats.get('/api/chats', async (c) => {
         f.id AS friend_id,
         f.display_name,
         f.picture_url,
-        f.line_user_id,
+        f.provider_line_user_id AS line_user_id,
         f.line_account_id,
         c.operator_id,
         COALESCE(c.status, 'resolved') AS status,
@@ -340,7 +392,9 @@ chats.get('/api/chats', async (c) => {
     // page 条件 → cursor (beforeAt ×2 + beforeId) → LIMIT。
     // any_agg は page で friend が確定済みのため account filter 不要。
     const allBindings: unknown[] = [];
-    if (lineAccountId) allBindings.push(lineAccountId, lineAccountId);
+    const scopeBindings = [tenantId, ...(pharmacyTenant ? [staff!.id] : []), ...(lineAccountId ? [lineAccountId] : [])];
+    allBindings.push(...scopeBindings, ...scopeBindings, tenantId);
+    if (pharmacyTenant) allBindings.push(staff!.id);
     allBindings.push(...conditionBindings);
     if (useCursor) allBindings.push(beforeAt, beforeAt, beforeId);
     allBindings.push(limit);
@@ -394,10 +448,15 @@ chats.get('/api/chats', async (c) => {
 chats.get('/api/chats/:id', async (c) => {
   try {
     const rawId = c.req.param('id');
+    const initialChat = await getChatById(c.env.DB, rawId);
+    const accessFriend = await getFriendById(c.env.DB, initialChat?.friend_id ?? rawId) as FriendResource | null;
+    if (!accessFriend) return c.json({ success: false, error: 'Chat not found' }, 404);
+    const denied = await requireFriendAccess(c, accessFriend);
+    if (denied) return denied;
 
     // id は chats.id または friend.id のどちらでもOK。
     // 優先順: chats.id 一致 → friend.id のとき chats.friend_id 最新行 → 何も無ければ friend のみで synthetic
-    let chatRow = await getChatById(c.env.DB, rawId);
+    let chatRow = initialChat;
     let friendId: string | null = null;
 
     if (!chatRow) {
@@ -424,7 +483,7 @@ chats.get('/api/chats/:id', async (c) => {
     const createdAt = chatRow?.created_at ?? null;
 
     const friend = await c.env.DB
-      .prepare(`SELECT display_name, picture_url, line_user_id FROM friends WHERE id = ?`)
+      .prepare(`SELECT display_name, picture_url, provider_line_user_id AS line_user_id FROM friends WHERE id = ?`)
       .bind(resolvedFriendId)
       .first<{ display_name: string | null; picture_url: string | null; line_user_id: string }>();
 
@@ -471,8 +530,35 @@ chats.get('/api/chats/:id', async (c) => {
 
 chats.post('/api/chats', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const body = await c.req.json<{ friendId: string; operatorId?: string; lineAccountId?: string | null }>();
     if (!body.friendId) return c.json({ success: false, error: 'friendId is required' }, 400);
+    const requestedLineAccountId = body.lineAccountId ?? null;
+    const accountScope = requestedLineAccountId === null
+      ? ''
+      : ' AND mapping.line_account_id = ?';
+    const pair = await c.env.DB.prepare(
+      `SELECT friend.id, friend.line_account_id
+         FROM friends AS friend
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = friend.line_account_id
+        WHERE mapping.tenant_id = ?
+          AND friend.id = ?${accountScope}
+        LIMIT 1`,
+    ).bind(
+      tenantId,
+      body.friendId,
+      ...(requestedLineAccountId === null ? [] : [requestedLineAccountId]),
+    ).first<{ id: string; line_account_id: string | null }>();
+    if (!pair) return c.json({ success: false, error: 'Forbidden' }, 403);
+    const denied = !pair.line_account_id
+      ? c.json({ success: false, error: 'Forbidden' }, 403)
+      : await requireFriendAccess(c, {
+        id: pair.id,
+        line_account_id: pair.line_account_id,
+      });
+    if (denied) return denied;
     const item = await createChat(c.env.DB, body);
     // Save line_account_id if provided
     if (body.lineAccountId) {
@@ -490,8 +576,9 @@ chats.post('/api/chats', async (c) => {
 chats.put('/api/chats/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const resolved = await resolveOrCreateChat(c.env.DB, id);
-    if (!resolved) return c.json({ success: false, error: 'Not found' }, 404);
+    const authorized = await resolveAuthorizedChat(c, id);
+    if (authorized instanceof Response) return authorized;
+    const { chat: resolved } = authorized;
     const body = await c.req.json<{ operatorId?: string | null; status?: string; notes?: string }>();
     await updateChat(c.env.DB, resolved.id, body);
     const updated = await getChatById(c.env.DB, resolved.id);
@@ -510,9 +597,12 @@ chats.put('/api/chats/:id', async (c) => {
 // オペレーター入力中のローディング表示を開始
 chats.post('/api/chats/:id/loading', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Unauthorized' }, 401);
     const chatId = c.req.param('id');
-    const chat = await resolveOrCreateChat(c.env.DB, chatId);
-    if (!chat) return c.json({ success: false, error: 'Chat not found' }, 404);
+    const authorized = await resolveAuthorizedChat(c, chatId);
+    if (authorized instanceof Response) return authorized;
+    const { chat } = authorized;
 
     let loadingSecondsInput: number | undefined;
     try {
@@ -526,9 +616,13 @@ chats.post('/api/chats/:id/loading', async (c) => {
     const { friend, accessToken } = await resolveFriendAndAccessToken(
       c.env.DB,
       chat.friend_id,
-      c.env.LINE_CHANNEL_ACCESS_TOKEN,
+      tenantId,
+      c.env.LINE_CREDENTIAL_KEY_V1,
     );
     if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
+    if (!accessToken) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
+    }
 
     await startLoadingAnimation(
       accessToken,
@@ -547,9 +641,12 @@ chats.post('/api/chats/:id/loading', async (c) => {
 // オペレーターからメッセージ送信
 chats.post('/api/chats/:id/send', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Unauthorized' }, 401);
     const chatId = c.req.param('id');
-    const chat = await resolveOrCreateChat(c.env.DB, chatId);
-    if (!chat) return c.json({ success: false, error: 'Chat not found' }, 404);
+    const authorized = await resolveAuthorizedChat(c, chatId);
+    if (authorized instanceof Response) return authorized;
+    const { chat } = authorized;
 
     const body = await c.req.json<{ messageType?: string; content: string }>();
     if (!body.content) return c.json({ success: false, error: 'content is required' }, 400);
@@ -557,9 +654,13 @@ chats.post('/api/chats/:id/send', async (c) => {
     const { friend, accessToken } = await resolveFriendAndAccessToken(
       c.env.DB,
       chat.friend_id,
-      c.env.LINE_CHANNEL_ACCESS_TOKEN,
+      tenantId,
+      c.env.LINE_CREDENTIAL_KEY_V1,
     );
     if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
+    if (!accessToken) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
+    }
 
     // LINE APIでメッセージ送信
     const { LineClient } = await import('@line-crm/line-sdk');

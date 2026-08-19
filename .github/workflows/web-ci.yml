@@ -42,3 +42,4 @@ jobs:
       - run: pnpm --filter web build
         env:
           NEXT_PUBLIC_API_URL: http://127.0.0.1:8787
+          NEXT_PUBLIC_LIFF_ORIGIN: http://127.0.0.1:4173

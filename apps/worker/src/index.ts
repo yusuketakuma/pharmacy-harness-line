@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { LineClient } from '@line-crm/line-sdk';
 import {
-  getLineAccounts,
+  getActiveTenantLineAccounts,
   getTrafficPoolBySlug,
   getTrafficPoolById,
   getRandomPoolAccount,
@@ -29,8 +29,13 @@ import { sendEventBookingNotification } from './services/event-booking-notifier.
 import { sendBookingNotification } from './services/booking-notifier.js';
 import { DEFAULT_ACCOUNT_SETTINGS } from './services/booking-types.js';
 import { authMiddleware } from './middleware/auth.js';
+import {
+  tenantAccountSelectorGuard,
+  tenantFriendResourceGuard,
+  tenantRichMenuResourceGuard,
+} from './middleware/tenant-boundary.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
-import { webhook } from './routes/webhook.js';
+import { webhook, sweepWebhookInbox, purgeWebhookEventReceipts } from './routes/webhook.js';
 import { friends } from './routes/friends.js';
 import { tags } from './routes/tags.js';
 import { scenarios } from './routes/scenarios.js';
@@ -73,7 +78,7 @@ import { accountSettings } from './routes/account-settings.js';
 import { setup } from './routes/setup.js';
 import { autoReplies } from './routes/auto-replies.js';
 import { adminAuth } from './routes/admin-auth.js';
-import { resolveCorsOrigin } from './middleware/admin-auth-config.js';
+import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './middleware/admin-auth-config.js';
 import booking from './routes/booking.js';
 import events from './routes/events.js';
 import { trafficPools } from './routes/traffic-pools.js';
@@ -86,7 +91,6 @@ import { lineProxy } from './routes/line-proxy.js';
 import { webinarRoutes } from './routes/webinars.js';
 import { instagramEngagement } from './routes/instagram-engagement.js';
 import adminVersion from './routes/admin-version.js';
-import adminUpdate from './routes/admin-update.js';
 import { mediaInquiries } from './routes/media-inquiries.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
@@ -97,6 +101,11 @@ import { pharmacyRichMenuRoutes } from './custom/pharmacy/rich-menu/routes.js'; 
 import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // custom:pharmacy-print
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
+import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.js'; // custom:pharmacy-provisioning
+import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminDashboardRoutes } from './custom/pharmacy/platform-admin/dashboard-routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminOperationsRoutes } from './custom/pharmacy/platform-admin/operations-routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminAuthMiddleware } from './custom/pharmacy/platform-admin/auth.js'; // custom:pharmacy-platform-admin
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
@@ -105,10 +114,15 @@ import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifica
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
 import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
 import { pharmacyAccountGuard } from './custom/pharmacy/account.js'; // custom:pharmacy-tenant-boundary
-import { isPharmacyModeAccount } from './custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import {
+  hasPharmacyModeAccount,
+  isPharmacyModeAccount,
+} from './custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import { shouldRunGenericCron } from './custom/pharmacy/cron-access.js'; // custom:pharmacy-tenant-boundary
 import {
   PHARMACY_DISABLED_GENERIC_API_PREFIXES,
   pharmacyGenericFeatureGuard,
+  pharmacyTenantApiAllowlistGuard,
 } from './custom/pharmacy/growth-loop/generic-feature-guard.js'; // custom:pharmacy-allowlist
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
@@ -127,6 +141,14 @@ export type Env = {
     LINE_CHANNEL_ACCESS_TOKEN: string;
     API_KEY: string;
     LEGACY_API_KEY?: string;
+    LEGACY_ENV_OWNER_BYPASS?: string;
+    PLATFORM_ADMIN_KEY?: string;
+    CROSS_ACCOUNT_TOKEN_KEY: string;
+    LINE_CREDENTIAL_KEY_V1?: string;
+    // HMAC key for staff_members.api_key_hash. Deliberately separate from
+    // LINE_CREDENTIAL_KEY_V1: rotating that root key must not invalidate every
+    // staff API key hash. Unset falls back to the legacy plaintext lookup.
+    STAFF_API_KEY_HASH_SECRET?: string;
     LIFF_URL: string;
     LINE_CHANNEL_ID: string;
     LINE_LOGIN_CHANNEL_ID: string;
@@ -140,19 +162,6 @@ export type Env = {
     X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
     IG_HARNESS_URL?: string;  // Optional: IG Harness API URL for cross-platform linking
     IG_HARNESS_LINK_SECRET?: string;  // Shared secret for IG Harness link-line webhook
-    // Phase 5 self-update — consumed by /admin/update/*. Defaults live in
-    // wrangler.toml [vars]; secrets (CF_API_TOKEN, ADMIN_API_KEY) come from
-    // `wrangler secret put`. All are optional at the type level so the rest
-    // of the worker still type-checks in test environments that don't set
-    // them; the /admin/update/* route guards on their presence at runtime.
-    ADMIN_API_KEY?: string;
-    CF_API_TOKEN?: string;
-    CF_ACCOUNT_ID?: string;
-    WORKER_NAME?: string;
-    ADMIN_PAGES_PROJECT?: string;
-    LIFF_PAGES_PROJECT?: string;
-    D1_DATABASE_ID?: string;
-    MANIFEST_URL?: string;
     WORKER_PUBLIC_URL?: string;
     ADMIN_PUBLIC_URL?: string;
     LIFF_PUBLIC_URL?: string;
@@ -169,7 +178,15 @@ export type Env = {
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
+    tenantId: string;
+    tenantCode: string;
+    tenantName: string;
+    authMethod: 'api_key' | 'password';
+    credentialVersion: number | null;
+    mustChangePassword: boolean;
+    pharmacyTenantId: string;
     pharmacyLineAccountId: string;
+    platformAdmin: { id: string; name: string };
   };
 };
 
@@ -198,7 +215,7 @@ app.use('*', cors({
   origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
   credentials: true,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'x-admin-api-key'],
+  allowHeaders: CORS_ALLOW_HEADERS,
   maxAge: 600,
 }));
 
@@ -207,6 +224,20 @@ app.use('*', rateLimitMiddleware);
 
 // Auth middleware — skips /webhook and /docs automatically
 app.use('*', authMiddleware);
+
+// Platform-admin routes carry their own identity, cookie and audit trail.
+// authMiddleware skips this prefix entirely (see middleware/auth.ts), so this
+// is the only gate on it — register it before the tenant-scoped guards, none
+// of which apply to a role that is deliberately not bound to a tenant.
+app.use('/api/platform-admin/*', platformAdminAuthMiddleware); // custom:pharmacy-platform-admin
+
+app.use('/api/*', pharmacyTenantApiAllowlistGuard);
+
+// Request selectors choose resources; the authenticated tenant remains the
+// authority. Reject cross-tenant LINE account ids before any route can use them.
+app.use('/api/*', tenantAccountSelectorGuard);
+app.use('/api/*', tenantFriendResourceGuard);
+app.use('/api/*', tenantRichMenuResourceGuard);
 
 // Query parameters select a pharmacy account; this guard proves the signed-in
 // staff identity is assigned to that account before any pharmacy admin route runs.
@@ -248,6 +279,10 @@ app.route('/', pharmacyGrowthLoopRoutes); // custom:pharmacy-growth-loop
 app.route('/', pharmacyPrintRoutes); // custom:pharmacy-print
 app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifications
 app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
+app.route('/', tenantProvisioningRoutes); // custom:pharmacy-provisioning
+app.route('/', platformAdminRoutes); // custom:pharmacy-platform-admin
+app.route('/', platformAdminDashboardRoutes); // custom:pharmacy-platform-admin
+app.route('/', platformAdminOperationsRoutes); // custom:pharmacy-platform-admin
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
@@ -286,15 +321,8 @@ app.route('/', instagramEngagement);
 // LINE Messaging API 互換プロキシ — 外部エージェントの直接送信を messages_log に残す
 app.route('/', lineProxy);
 
-// Phase 5 (upgrade flow) — public build metadata endpoint. Mounted under
-// /admin/ but intentionally unauthenticated: the dashboard fetches /admin/version
-// before login to render the upgrade banner, and the returned hashes are
-// derivable from the deployed bundle. /admin/update/* (Task 18) layers
-// ADMIN_API_KEY middleware on subpaths.
+// Public, read-only build metadata. Tenant admins cannot mutate platform code.
 app.route('/admin', adminVersion);
-// Phase 5 Task 18 — self-update endpoints guarded by x-admin-api-key.
-// authMiddleware skips non-/api/ paths so this router owns its own auth gate.
-app.route('/admin/update', adminUpdate);
 
 // Self-hosted QR code proxy — prevents leaking ref tokens to third-party services
 app.get('/api/qr', async (c) => {
@@ -318,6 +346,7 @@ app.get('/api/qr', async (c) => {
 // Desktop: QR code encodes LIFF URL.
 // Stuck users opt into /r/:ref/help for Safari escape instructions.
 app.get('/r/:ref', async (c) => {
+  if (await hasPharmacyModeAccount(c.env.DB)) return c.notFound();
   const ref = c.req.param('ref');
   const formId = c.req.query('form') || '';
 
@@ -543,7 +572,8 @@ body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;backgroun
 // Universal Links are blocked. This is the L-Step approach.
 // Method 2 (URL copy → external browser) is the universal fallback.
 // No LINE-Login-web fallback exposed — friction kills conversion.
-app.get('/r/:ref/help', (c) => {
+app.get('/r/:ref/help', async (c) => {
+  if (await hasPharmacyModeAccount(c.env.DB)) return c.notFound();
   const ref = c.req.param('ref');
   const reqUrl = new URL(c.req.url);
   // Prefer the resolved liff target passed by /r/:ref via ?t= so pooled refs
@@ -808,17 +838,18 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
   const pageFromQuery = url.searchParams.get('page');
   const idFromQuery = url.searchParams.get('id');
   const absoluteUrl = url.toString();
+  const accountOgColumns = `id, name, og_site_name, og_default_image_url, og_default_description`;
 
   const lookupAccountByLiff = async (liffId: string | null): Promise<any> => {
     if (!liffId) return null;
     return db
-      .prepare(`SELECT * FROM line_accounts WHERE liff_id = ?`)
+      .prepare(`SELECT ${accountOgColumns} FROM line_accounts WHERE liff_id = ?`)
       .bind(liffId)
       .first<any>();
   };
   const lookupAccountById = async (id: string | null): Promise<any> => {
     if (!id) return null;
-    return db.prepare(`SELECT * FROM line_accounts WHERE id = ?`).bind(id).first<any>();
+    return db.prepare(`SELECT ${accountOgColumns} FROM line_accounts WHERE id = ?`).bind(id).first<any>();
   };
 
   // event: パス `/events/:id` または クエリ `?page=event&id=`
@@ -827,7 +858,13 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
   if (eventPathMatch) eventId = eventPathMatch[1];
   else if (pageFromQuery === 'event' && idFromQuery) eventId = idFromQuery;
 
-  if (eventId) {
+  // Pharmacy tenants do not expose generic CRM preview data. This guard is
+  // needed here because bot previews are resolved outside the /api allowlist.
+  const pharmacyMode = eventId || pageFromQuery === 'form'
+    ? await hasPharmacyModeAccount(db)
+    : false;
+
+  if (eventId && !pharmacyMode) {
     // liffId クエリでアカウントが特定できる場合は /api/liff/events/:id と
     // 同じ可視性条件（deleted_at IS NULL, is_published=1, target アカウント所属）
     // で event を取得する。未公開・削除済みのイベント情報を bot プレビューに
@@ -882,7 +919,7 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
   }
 
   // form: クエリ `?page=form&id=`
-  if (pageFromQuery === 'form' && idFromQuery) {
+  if (pageFromQuery === 'form' && idFromQuery && !pharmacyMode) {
     const form = await db
       .prepare(`SELECT * FROM forms WHERE id = ?`)
       .bind(idFromQuery)
@@ -949,13 +986,21 @@ async function scheduled(
   ctx: ExecutionContext,
 ): Promise<void> {
   // Get all active accounts from DB
-  const dbAccounts = await getLineAccounts(env.DB);
+  const dbAccounts = await getActiveTenantLineAccounts(env.DB);
+  // ponytail: mixed generic/pharmacy cron is fail-closed; split jobs by tenant
+  // only if a mixed deployment becomes a supported product mode.
+  const runGenericCron = await shouldRunGenericCron(
+    env.DB,
+    dbAccounts.map(({ id }) => id),
+  );
 
   // Build LineClient map for insight fetching (keyed by account id)
   const lineClients = new Map<string, LineClient>();
-  for (const account of dbAccounts) {
-    if (account.is_active) {
-      lineClients.set(account.id, new LineClient(account.channel_access_token));
+  if (runGenericCron) {
+    for (const account of dbAccounts) {
+      if (account.is_active) {
+        lineClients.set(account.id, new LineClient(account.channel_access_token));
+      }
     }
   }
   const defaultLineClient = new LineClient(env.LINE_CHANNEL_ACCESS_TOKEN);
@@ -968,11 +1013,13 @@ async function scheduled(
   // 先に await 完了させる。これで stalled/stuck から復旧した配信が同じ cron tick の
   // processQueuedBroadcasts に拾われ、復旧レイテンシが 1 tick 縮む。recover は inline 送信を
   // 含まない高速処理なので、先に await しても他ジョブを starve させない。
-  const { recoverStalledBroadcasts, recoverStuckDeliveries } = await import('@line-crm/db');
-  await Promise.allSettled([
-    recoverStalledBroadcasts(env.DB),
-    recoverStuckDeliveries(env.DB),
-  ]);
+  if (runGenericCron) {
+    const { recoverStalledBroadcasts, recoverStuckDeliveries } = await import('@line-crm/db');
+    await Promise.allSettled([
+      recoverStalledBroadcasts(env.DB),
+      recoverStuckDeliveries(env.DB),
+    ]);
+  }
 
   // Booking / event-booking リマインドは時刻厳守 + 軽量 (数件/tick、上限100件) なので、
   // 重い配信・insight ジョブより先に実行する。以前は最後に置かれていたため、
@@ -982,13 +1029,16 @@ async function scheduled(
   // token refresh はリマインドより先に済ませる (失効直後トークンでの 401 送信を防ぐ。
   // 旧順序では refresh が先だった invariant の維持)。
   try {
-    await refreshLineAccessTokens(env.DB);
+    await refreshLineAccessTokens(env.DB, {
+      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+    });
   } catch (e) {
     console.error('token refresh error:', e);
   }
 
-  try {
-    const result = await processDueReminders(env.DB, {
+  if (runGenericCron) {
+    try {
+      const result = await processDueReminders(env.DB, {
       now: new Date(),
       sender: sendBookingNotification,
       reminderHoursBefore: DEFAULT_ACCOUNT_SETTINGS.reminder_hours_before,
@@ -996,26 +1046,26 @@ async function scheduled(
     if (result.sent + result.failed > 0) {
       console.log(`[booking-reminders] sent=${result.sent} failed=${result.failed}`);
     }
-  } catch (e) {
-    console.error('booking-reminders error:', e);
-  }
+    } catch (e) {
+      console.error('booking-reminders error:', e);
+    }
 
-  try {
-    const result = await processDueEventReminders(env.DB, {
+    try {
+      const result = await processDueEventReminders(env.DB, {
       now: new Date(),
       sender: sendEventBookingNotification,
     });
     if (result.sent + result.failed > 0) {
       console.log(`[event-booking-reminders] sent=${result.sent} failed=${result.failed}`);
     }
-  } catch (e) {
-    console.error('event-booking-reminders error:', e);
-  }
+    } catch (e) {
+      console.error('event-booking-reminders error:', e);
+    }
 
   // 外部Google Calendarで確定したMeet個別相談。前日・1時間前のLINE通知を
   // D1で管理し、送信は必ずLINE Harness Proxyを通す。
-  try {
-    const result = await processDueMeetConsultationReminders(env.DB, {
+    try {
+      const result = await processDueMeetConsultationReminders(env.DB, {
       now: new Date(),
       proxyBaseUrl:
         env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
@@ -1024,14 +1074,14 @@ async function scheduled(
     if (result.sent + result.failed > 0) {
       console.log(`[meet-consultation-reminders] sent=${result.sent} failed=${result.failed}`);
     }
-  } catch (e) {
-    console.error('meet-consultation-reminders error:', e);
-  }
+    } catch (e) {
+      console.error('meet-consultation-reminders error:', e);
+    }
 
   // ウェビナー予約リマインド (セッション選択メニュー)。時刻厳守・軽量なので
   // booking 系リマインドと同じく重いジョブより先に実行する。
-  try {
-    const { processWebinarReminders } = await import('./services/webinar-reminders.js');
+    try {
+      const { processWebinarReminders } = await import('./services/webinar-reminders.js');
     const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(env.LIFF_URL ?? '');
     const result = await processWebinarReminders(
       env.DB,
@@ -1048,14 +1098,14 @@ async function scheduled(
     if (result.sent + result.failed > 0) {
       console.log(`[webinar-reminders] sent=${result.sent} failed=${result.failed}`);
     }
-  } catch (e) {
-    console.error('webinar-reminders error:', e);
-  }
+    } catch (e) {
+      console.error('webinar-reminders error:', e);
+    }
 
   // 予約画面の未予約、予約後の未視聴、フォーム途中離脱、回答後の相談未予約を
   // 段階別に自動追客する。対象は followup config で有効化したウェビナーだけ。
-  try {
-    const { processWebinarFollowups } = await import('./services/webinar-followups.js');
+    try {
+      const { processWebinarFollowups } = await import('./services/webinar-followups.js');
     const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(env.LIFF_URL ?? '');
     const result = await processWebinarFollowups(env.DB, {
       proxyBaseUrl:
@@ -1069,8 +1119,9 @@ async function scheduled(
     if (result.sent + result.failed > 0) {
       console.log(`[webinar-followups] sent=${result.sent} failed=${result.failed}`);
     }
-  } catch (e) {
-    console.error('webinar-followups error:', e);
+    } catch (e) {
+      console.error('webinar-followups error:', e);
+    }
   }
 
   // Phase 2: 配信系と定期ジョブを並列実行する。processScheduledBroadcasts は tag/all の
@@ -1079,19 +1130,43 @@ async function scheduled(
   // status='sending', batch_offset=0 に enqueue され、同 tick もしくは次 tick (最大5分、
   // 5分 cron の粒度内) で processQueuedBroadcasts に拾われて分割送信される。
   const jobs = [];
-  jobs.push(
-    processStepDeliveries(env.DB, defaultLineClient, env.WORKER_URL),
-    processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
-    processReminderDeliveries(env.DB, defaultLineClient),
-  );
-  jobs.push(processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId));
-  jobs.push(checkAccountHealth(env.DB));
+  if (runGenericCron) {
+    jobs.push(
+      processStepDeliveries(env.DB, defaultLineClient, env.WORKER_URL),
+      processScheduledBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
+      processReminderDeliveries(env.DB, defaultLineClient),
+      processQueuedBroadcasts(env.DB, defaultLineClient, env.WORKER_URL, defaultAccountId),
+      checkAccountHealth(env.DB),
+    );
+  }
 
   if (event.cron === '* * * * *') {
+    // H-3 recovery: webhook events durably stored but never finished (isolate
+    // evicted, CPU limit, transient failure). Runs for every tenant including
+    // pharmacy accounts — it only replays each account's own inbound events.
+    jobs.push(sweepWebhookInbox({
+      db: env.DB,
+      credentialRootSecret: env.LINE_CREDENTIAL_KEY_V1,
+      workerUrl: env.WORKER_URL || env.WORKER_PUBLIC_URL,
+      liffUrl: env.LIFF_URL,
+      r2: env.IMAGES,
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.claimed + result.deadLettered > 0) {
+        console.log(
+          `[webhook-inbox] claimed=${result.claimed} completed=${result.completed} failed=${result.failed} dead_lettered=${result.deadLettered}`,
+        );
+      }
+    }).catch((e) => {
+      console.error('webhook-inbox sweep error:', e);
+    }));
+
     jobs.push(processDueMedicationFollowUps(env.DB, { // custom:pharmacy-medication-followup
       proxyBaseUrl:
         env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
       proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
       now: new Date(event.scheduledTime),
     }).then((result) => {
       if (result.sent + result.failed > 0) {
@@ -1108,7 +1183,8 @@ async function scheduled(
   // minute cron invocation, but drain only every five minutes and at most 100
   // actions per batch so it adds no extra Cron Trigger and keeps D1 load flat.
   if (
-    event.cron === '* * * * *'
+    runGenericCron
+    && event.cron === '* * * * *'
     && new Date(event.scheduledTime).getUTCMinutes() % 5 === 0
   ) {
     jobs.push(
@@ -1133,14 +1209,27 @@ async function scheduled(
   await Promise.allSettled(jobs);
 
   // Fetch broadcast insights (runs daily, self-throttled)
-  try {
-    await processInsightFetch(env.DB, lineClients, defaultLineClient);
-  } catch (e) {
-    console.error('Insight fetch error:', e);
+  if (runGenericCron) {
+    try {
+      await processInsightFetch(env.DB, lineClients, defaultLineClient);
+    } catch (e) {
+      console.error('Insight fetch error:', e);
+    }
   }
 
   // Booking expirer — runs only on the 6h cron tick.
   if (event.cron === '0 */6 * * *') {
+    // M-7: settled webhook receipts are only kept long enough to absorb LINE
+    // redelivery. Unfinished rows are never purged.
+    try {
+      const purged = await purgeWebhookEventReceipts(env.DB, {
+        now: new Date(event.scheduledTime),
+      });
+      if (purged > 0) console.log(`[webhook-inbox] purged=${purged}`);
+    } catch (e) {
+      console.error('webhook-inbox purge error:', e);
+    }
+
     try {
       const result = await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions
         now: new Date(event.scheduledTime),
@@ -1159,6 +1248,7 @@ async function scheduled(
         proxyBaseUrl:
           env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
       });
       if (result.sent + result.failed > 0) {
         console.log(
@@ -1178,6 +1268,7 @@ async function scheduled(
           proxyBaseUrl:
             env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
           proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+          lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
         });
         reminderResult[status]++;
       }
@@ -1192,6 +1283,7 @@ async function scheduled(
       const result = await processDuePrescriptionValidityReminders(env.DB, {
         proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
         now: new Date(event.scheduledTime),
       });
       if (result.sent + result.failed > 0) {
@@ -1201,7 +1293,7 @@ async function scheduled(
       console.error('pharmacy-validity error:', e);
     }
 
-    try {
+    if (runGenericCron) try {
       const result = await enqueueFollowingMileageMilestones(env.DB, {
         limitPerMilestone: 1000,
       });
@@ -1214,7 +1306,7 @@ async function scheduled(
       console.error('following-mileage error:', e);
     }
 
-    try {
+    if (runGenericCron) try {
       const result = await runExpirer(env.DB, {
         now: new Date(),
         sender: sendBookingNotification,
@@ -1228,7 +1320,7 @@ async function scheduled(
   }
 
   // Event-booking expirer — 6h cron tick.
-  if (event.cron === '0 */6 * * *') {
+  if (runGenericCron && event.cron === '0 */6 * * *') {
     try {
       const result = await runEventBookingExpirer(env.DB, { now: new Date() });
       console.log(
@@ -1238,15 +1330,6 @@ async function scheduled(
       console.error('event-booking-expirer error:', e);
     }
   }
-
-  // Cross-account duplicate detection — disabled.
-  // The cron used to materialize duplicates into the tag system but the 1k-subrequest
-  // budget can't drain a 1k+ candidate backlog, and a live SELECT against
-  // friends.picture_url / display_name / status_message gives the same answer
-  // on demand. Replacement: a /api/duplicates endpoint plus a dashboard view
-  // (planned alongside the multi-provider UI work). Keeping the service file
-  // (apps/worker/src/services/duplicate-detect.ts) and the existing
-  // `重複:` tag rows untouched until that replacement lands.
 }
 
 export default {

@@ -32,7 +32,7 @@ function memDB(state: {
         bind(...args: unknown[]) { bound = args; return stmt; },
         async first<T>() { return null as T | null; },
         async all<T>() {
-          if (sql.includes('FROM event_bookings\n        WHERE status = \'requested\'')) {
+          if (sql.includes('FROM event_bookings') && sql.includes("status = 'requested'")) {
             const [cutoff] = bound as [string];
             const items = state.bookings.filter(
               (b) => b.status === 'requested' && b.requested_at < cutoff,
@@ -90,6 +90,13 @@ describe('runEventBookingExpirer', () => {
     expect(queries.find((sql) => sql.includes('FROM event_bookings'))).toContain(
       'FROM pharmacy_account_capabilities',
     );
+    const staleQuery = queries.find((sql) => sql.includes('FROM event_bookings'))!;
+    expect(staleQuery).toContain('la.is_active = 1');
+    expect(staleQuery).toContain('tenant_line_accounts');
+    expect(staleQuery).toContain("tenant.status = 'active'");
+    expect(staleQuery).toContain('e.line_account_id = b.line_account_id');
+    expect(staleQuery).toContain('s.event_id = b.event_id');
+    expect(staleQuery).toContain('f.line_account_id = b.line_account_id');
   });
 
   test('expires requested bookings older than 24h', async () => {

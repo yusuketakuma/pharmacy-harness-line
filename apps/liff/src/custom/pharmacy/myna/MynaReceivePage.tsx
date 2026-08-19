@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
 import { mynaApi, type MynaHandoff, type MynaPatientReport } from './api.js';
+import { pharmacyRoute } from '../navigation.js';
 
 const reportOptions: Array<[MynaPatientReport, string]> = [
   ['COMPLETED', '手続きを終えた'],
@@ -76,7 +77,7 @@ export default function MynaReceivePage() {
         {patients.length === 0 ? (
           <div className="rounded-xl bg-white p-4 text-sm text-gray-700">
             <p>家族を含む患者情報を先に登録してください。</p>
-            <Link to="/pharmacy/patient-intake" className="mt-2 inline-block font-bold text-green-700 underline">患者アンケートを開く</Link>
+            <Link to={pharmacyRoute('/pharmacy/patient-intake')} className="mt-2 inline-block font-bold text-green-700 underline">患者アンケートを開く</Link>
           </div>
         ) : (
           <label className="block rounded-xl bg-white p-4 text-sm font-medium shadow-sm">
@@ -92,7 +93,7 @@ export default function MynaReceivePage() {
             電子処方箋を送る
             <span className="mt-1 block text-xs font-normal">マイナ保険証を使って、この薬局へ提出します</span>
           </button>
-          <button type="button" onClick={() => navigate('/prescriptions')} disabled={busy} className="w-full rounded-xl border border-green-600 bg-white px-4 py-4 text-left font-bold text-green-700">
+          <button type="button" onClick={() => navigate(pharmacyRoute('/prescriptions'))} disabled={busy} className="w-full rounded-xl border border-green-600 bg-white px-4 py-4 text-left font-bold text-green-700">
             紙の処方箋を送る
             <span className="mt-1 block text-xs font-normal text-gray-600">処方箋を撮影して送ります</span>
           </button>

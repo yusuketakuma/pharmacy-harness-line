@@ -460,56 +460,106 @@ export async function pageBelongsToGroup(
 }
 
 // Publish ロックを取る。既にロックされていれば false (HTTP 409 用)。
+const PUBLISH_LOCK_TTL_MS = 10 * 60 * 1000;
+
 export async function acquirePublishLock(
   db: D1Database,
   groupId: string,
-): Promise<boolean> {
+): Promise<string | null> {
+  const now = jstNow();
+  const staleBefore = new Date(Date.now() - PUBLISH_LOCK_TTL_MS).toISOString();
   const result = await db
     .prepare(
       `UPDATE rich_menu_groups
          SET publishing_at = ?
-       WHERE id = ? AND publishing_at IS NULL`,
+       WHERE id = ?
+         AND (publishing_at IS NULL OR datetime(publishing_at) <= datetime(?))`,
     )
-    .bind(jstNow(), groupId)
+    .bind(now, groupId, staleBefore)
     .run();
-  return (result.meta?.changes ?? 0) > 0;
+  return (result.meta?.changes ?? 0) > 0 ? now : null;
+}
+
+export async function acquireRichMenuAccountLock(
+  db: D1Database,
+  accountId: string,
+): Promise<{ groupId: string; token: string } | null> {
+  const token = jstNow();
+  const staleBefore = new Date(Date.now() - PUBLISH_LOCK_TTL_MS).toISOString();
+  const row = await db
+    .prepare(
+      `UPDATE rich_menu_groups
+          SET publishing_at = ?
+        WHERE id = (
+          SELECT id FROM rich_menu_groups
+           WHERE account_id = ?
+           ORDER BY id ASC LIMIT 1
+        )
+          AND (publishing_at IS NULL OR datetime(publishing_at) <= datetime(?))
+          AND NOT EXISTS (
+            SELECT 1 FROM rich_menu_groups AS active
+             WHERE active.account_id = ?
+               AND active.id != rich_menu_groups.id
+               AND active.publishing_at IS NOT NULL
+               AND datetime(active.publishing_at) > datetime(?)
+          )
+      RETURNING id`,
+    )
+    .bind(token, accountId, staleBefore, accountId, staleBefore)
+    .first<{ id: string }>();
+  return row ? { groupId: row.id, token } : null;
 }
 
 export async function releasePublishLock(
   db: D1Database,
   groupId: string,
-): Promise<void> {
-  await db
-    .prepare(`UPDATE rich_menu_groups SET publishing_at = NULL WHERE id = ?`)
-    .bind(groupId)
-    .run();
-}
-
-export async function setPageRichMenuId(
-  db: D1Database,
-  pageId: string,
-  lineRichMenuId: string,
+  lockToken: string,
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE rich_menu_pages SET line_richmenu_id = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE rich_menu_groups SET publishing_at = NULL
+        WHERE id = ? AND publishing_at = ?`,
     )
-    .bind(lineRichMenuId, jstNow(), pageId)
+    .bind(groupId, lockToken)
     .run();
 }
 
 export async function markRichMenuGroupPublished(
   db: D1Database,
   groupId: string,
+  lockGroupId: string | null,
+  lockToken: string | null,
+  pages: Array<{ pageId: string; aliasId: string; lineRichMenuId: string }>,
 ): Promise<void> {
-  await db
-    .prepare(
+  const now = jstNow();
+  const results = await db.batch([
+    ...pages.map((page) => db
+      .prepare(
+        `UPDATE rich_menu_pages
+            SET alias_id = ?, line_richmenu_id = ?, updated_at = ?
+          WHERE id = ? AND group_id = ?
+            AND (? IS NULL OR EXISTS (
+              SELECT 1 FROM rich_menu_groups
+               WHERE id = ? AND publishing_at = ?
+            ))`,
+      )
+      .bind(
+        page.aliasId, page.lineRichMenuId, now, page.pageId, groupId,
+        lockToken, lockGroupId, lockToken,
+      )),
+    db.prepare(
       `UPDATE rich_menu_groups
-         SET status = 'published', publishing_at = NULL, updated_at = ?
-       WHERE id = ?`,
+         SET status = 'published', updated_at = ?
+       WHERE id = ? AND (? IS NULL OR EXISTS (
+         SELECT 1 FROM rich_menu_groups AS locked
+          WHERE locked.id = ? AND locked.publishing_at = ?
+       ))`,
     )
-    .bind(jstNow(), groupId)
-    .run();
+      .bind(now, groupId, lockToken, lockGroupId, lockToken),
+  ]);
+  if (results.some((result) => (result.meta?.changes ?? 0) !== 1)) {
+    throw new Error('publish lock lost or pages changed');
+  }
 }
 
 // Unpublish 完了時の DB 整合: 全 page の line_richmenu_id を null に戻し、
@@ -519,23 +569,34 @@ export async function markRichMenuGroupPublished(
 export async function markRichMenuGroupUnpublished(
   db: D1Database,
   groupId: string,
+  lockGroupId: string,
+  lockToken: string,
 ): Promise<void> {
   const now = jstNow();
-  await db.batch([
+  const results = await db.batch([
     db
       .prepare(
         `UPDATE rich_menu_pages
             SET line_richmenu_id = NULL, updated_at = ?
-          WHERE group_id = ?`,
+          WHERE group_id = ?
+            AND EXISTS (
+              SELECT 1 FROM rich_menu_groups
+               WHERE id = ? AND publishing_at = ?
+            )`,
       )
-      .bind(now, groupId),
+      .bind(now, groupId, lockGroupId, lockToken),
     db
       .prepare(
         `UPDATE rich_menu_groups
-            SET status = 'draft', publishing_at = NULL,
-                is_default_for_all = 0, updated_at = ?
-          WHERE id = ?`,
+            SET status = 'draft', is_default_for_all = 0, updated_at = ?
+          WHERE id = ? AND EXISTS (
+            SELECT 1 FROM rich_menu_groups AS locked
+             WHERE locked.id = ? AND locked.publishing_at = ?
+          )`,
       )
-      .bind(now, groupId),
+      .bind(now, groupId, lockGroupId, lockToken),
   ]);
+  if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
+    throw new Error('publish lock lost');
+  }
 }

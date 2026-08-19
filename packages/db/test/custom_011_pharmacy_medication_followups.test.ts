@@ -61,6 +61,14 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(accountId, `channel-${suffix}`, suffix.toUpperCase(), `token-${suffix}`, `secret-${suffix}`, now, now);
+  db.prepare(`INSERT INTO tenants
+    (id, tenant_code, display_name, status, created_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?)`)
+    .run(`tenant-${suffix}`, `pharmacy-${suffix}`, `Tenant ${suffix}`, now, now);
+  db.prepare(`INSERT INTO tenant_line_accounts
+    (tenant_id, line_account_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?)`)
+    .run(`tenant-${suffix}`, accountId, now, now);
   db.prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)`)
@@ -106,10 +114,12 @@ describe('custom_011 pharmacy medication follow-ups', () => {
     d1 = d1From(db);
     seedAccount(db, 'a');
     seedAccount(db, 'b');
-    db.prepare(`INSERT INTO pharmacy_account_capabilities
-      (line_account_id, mode, capabilities_json, created_at, updated_at)
-      VALUES ('account-a', 'pharmacy', '["medication_followup"]',
-              '2026-08-18T00:00:00.000Z', '2026-08-18T00:00:00.000Z')`).run();
+    db.prepare(`UPDATE pharmacy_account_capabilities
+      SET capabilities_json = CASE line_account_id
+        WHEN 'account-a' THEN '["medication_followup"]'
+        ELSE '[]'
+      END
+      WHERE line_account_id IN ('account-a', 'account-b')`).run();
   });
 
   it('stores only the bounded workflow state and no clinical payload', () => {
@@ -294,7 +304,7 @@ describe('custom_011 pharmacy medication follow-ups', () => {
       id: row.id,
       line_account_id: 'account-a',
       line_user_id: 'U-a',
-      channel_access_token: 'token-a',
+      tenant_id: 'tenant-a',
     })]);
     db.prepare(`UPDATE friends SET is_following = 0 WHERE id = 'friend-a'`).run();
     await expect(listDueMedicationFollowUps(

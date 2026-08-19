@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { prescriptionApi, type PrescriptionSubmission } from './api.js';
 import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
+import { pharmacyRoute } from '../navigation.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -193,8 +194,6 @@ export default function PrescriptionPage() {
       if (!updated) throw new Error('再提出情報を読み込めませんでした。');
       setReplacement(updated);
       setFiles([]);
-      setOriginalConsent(true);
-      setNoticeConsent(true);
       setTab('send');
     } catch (err) {
       setError(err instanceof Error ? err.message : '再提出を開始できませんでした。');
@@ -223,12 +222,12 @@ export default function PrescriptionPage() {
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <h2 className="font-bold">患者を選択</h2>
               {loadingPatients ? <p className="text-sm text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
-                <p className="text-sm text-gray-600"><Link to="/pharmacy/patient-intake" className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
+                <p className="text-sm text-gray-600"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
               ) : <>
                 <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block w-full rounded-lg border border-gray-300 p-3" disabled={busy} aria-label="処方せんの患者">
                   {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}（{patient.birth_date}）</option>)}
                 </select>
-                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to="/pharmacy/patient-intake" className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
+                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
               </>}
             </div>
             <div className="rounded-xl bg-white p-4 shadow-sm">
@@ -263,6 +262,7 @@ export default function PrescriptionPage() {
                 希望受取日時（任意）
                 <input type="datetime-local" value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
               </label>
+              {replacement && <p className="text-xs text-amber-700">再提出のため、同意事項に再度チェックしてください。</p>}
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={originalConsent} onChange={(event) => setOriginalConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>処方せん原本を持参します</span></label>
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={noticeConsent} onChange={(event) => setNoticeConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>準備完了通知をLINEで受け取ります</span></label>
             </div>

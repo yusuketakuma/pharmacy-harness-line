@@ -10,6 +10,8 @@ interface DatabaseResult {
   databaseName: string;
 }
 
+export type DatabaseSchema = "legacy" | "pharmacy-multitenant";
+
 interface BootstrapMeta {
   includedMigrations: string[];
   migrationCount: number;
@@ -17,6 +19,8 @@ interface BootstrapMeta {
 
 const TRANSIENT_D1_ERROR = /code[:\s]*10043|cloudflarestatus|temporarily unavailable|internal error|timed out|timeout|fetch failed|network|connection reset/i;
 const D1_RETRY_ATTEMPTS = 3;
+const SCHEMA_PROBE_SQL =
+  "SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'pharmacy_%' OR name IN ('tenants', 'tenant_line_accounts', 'tenant_staff_memberships'))";
 
 function isTransientD1Error(err: unknown): boolean {
   if (!(err instanceof WranglerError)) return false;
@@ -48,6 +52,85 @@ async function runD1WithRetry(
     }
   }
   throw lastErr;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function classifyDatabaseSchema(raw: string): DatabaseSchema {
+  const jsonStart = raw.indexOf("[");
+  if (jsonStart === -1) {
+    throw new Error("D1 schema probe returned invalid JSON");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.slice(jsonStart));
+  } catch {
+    throw new Error("D1 schema probe returned invalid JSON");
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("D1 schema probe returned an unexpected result");
+  }
+  if (parsed.length === 0) return "legacy";
+
+  const rows: unknown[] = [];
+  for (const batch of parsed) {
+    if (!isRecord(batch) || !Array.isArray(batch.results)) {
+      throw new Error("D1 schema probe returned an unexpected result");
+    }
+    rows.push(...batch.results);
+  }
+
+  if (
+    rows.some(
+      (row) => !isRecord(row) || typeof row.name !== "string",
+    )
+  ) {
+    throw new Error("D1 schema probe returned an unexpected result");
+  }
+
+  return rows.some(
+    (row) =>
+      isRecord(row) &&
+      typeof row.name === "string" &&
+      (row.name.toLowerCase().startsWith("pharmacy_") ||
+        row.name.toLowerCase() === "tenants" ||
+        row.name.toLowerCase() === "tenant_line_accounts" ||
+        row.name.toLowerCase() === "tenant_staff_memberships"),
+  )
+    ? "pharmacy-multitenant"
+    : "legacy";
+}
+
+export async function detectDatabaseSchema(
+  databaseName: string,
+): Promise<DatabaseSchema> {
+  const output = await runD1WithRetry(
+    [
+      "d1",
+      "execute",
+      databaseName,
+      "--remote",
+      "--json",
+      "--command",
+      SCHEMA_PROBE_SQL,
+    ],
+    "スキーマ検証",
+  );
+  return classifyDatabaseSchema(output);
+}
+
+export function assertLegacyCredentialSqlAllowed(
+  schema: DatabaseSchema,
+): void {
+  if (schema === "pharmacy-multitenant") {
+    throw new Error(
+      "central pharmacy provisioning が authoritative です。この D1 schema への LINE credential 直接 SQL は禁止されています。",
+    );
+  }
 }
 
 const isBenignSchemaError = (err: unknown): boolean => {
@@ -95,6 +178,19 @@ function loadBootstrapMeta(repoDir: string): BootstrapMeta | null {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+export function assertLegacySetupBundleAllowed(repoDir: string): void {
+  const meta = loadBootstrapMeta(repoDir);
+  const includesCentralPharmacySchema = meta?.includedMigrations.some((file) => {
+    const match = /^custom_(\d+)_pharmacy_/.exec(file);
+    return match !== null && Number(match[1]) >= 14;
+  });
+  if (includesCentralPharmacySchema) {
+    throw new Error(
+      "This pharmacy release uses the shared multitenant service. Use `pnpm tenant:setup`; standalone create-line-harness setup is disabled.",
+    );
   }
 }
 

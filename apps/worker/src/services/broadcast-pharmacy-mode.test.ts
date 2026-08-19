@@ -44,9 +44,13 @@ const broadcast = {
   created_at: '2026-08-17T00:00:00Z',
 };
 
-function database() {
+function database(mapped = true) {
   const run = vi.fn(async () => ({ meta: { changes: 1 } }));
-  const statement = { bind: vi.fn(), run };
+  const statement = {
+    bind: vi.fn(),
+    first: vi.fn(async () => (mapped ? { ok: 1 } : null)),
+    run,
+  };
   statement.bind.mockReturnValue(statement);
   return { db: { prepare: vi.fn(() => statement) } as unknown as D1Database, run };
 }
@@ -81,6 +85,15 @@ describe('generic broadcast exclusion for pharmacy accounts', () => {
   it('does not claim a queued pharmacy broadcast in cron', async () => {
     const { db, run } = database();
     await processQueuedBroadcasts(db, { broadcast: vi.fn() } as never);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('does not claim a scheduled broadcast for an unmapped account', async () => {
+    mocks.pharmacyMode.mockResolvedValue(false);
+    const { db, run } = database(false);
+
+    await processScheduledBroadcasts(db, { broadcast: vi.fn() } as never);
+
     expect(run).not.toHaveBeenCalled();
   });
 });

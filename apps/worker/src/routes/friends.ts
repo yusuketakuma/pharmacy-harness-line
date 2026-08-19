@@ -1,8 +1,7 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   getFriends,
   getFriendById,
-  getFriendCount,
   addTagToFriend,
   removeTagFromFriend,
   getFriendTags,
@@ -16,9 +15,27 @@ import {
 import type { Friend as DbFriend, Tag as DbTag } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { buildMessage } from '../services/step-delivery.js';
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
 import type { Env } from '../index.js';
+import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 
 const friends = new Hono<Env>();
+
+const FRIEND_LIST_COLUMNS = `
+  f.id,
+  f.provider_line_user_id AS line_user_id,
+  f.display_name,
+  f.picture_url,
+  f.status_message,
+  f.is_following,
+  f.user_id,
+  f.line_account_id,
+  f.metadata,
+  f.ref_code,
+  f.first_tracked_link_id,
+  f.created_at,
+  f.updated_at`;
 
 /**
  * Convert a D1 snake_case Friend row to the shared camelCase shape.
@@ -82,9 +99,23 @@ function serializeTag(row: DbTag) {
   };
 }
 
+async function requireFriendAccess(
+  c: Context<Env>,
+  friend: Pick<DbFriend, 'line_account_id'>,
+): Promise<Response | null> {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+  if (friend.line_account_id && !await accountResourceOwnedByStaff(c, tenantId, friend.line_account_id)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
+  return null;
+}
+
 // GET /api/friends - list with pagination
 friends.get('/api/friends', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const limit = Number(c.req.query('limit') ?? '50');
     const offset = Number(c.req.query('offset') ?? '0');
     const tagId = c.req.query('tagId');
@@ -114,10 +145,21 @@ friends.get('/api/friends', async (c) => {
       c.req.query('handled') === 'unhandled' ? 'unhandled' : null;
 
     const db = c.env.DB;
+    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
+    const pharmacyTenant = await isPharmacyTenant(db, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+    const assignedAccountScope = pharmacyTenant
+      ? `AND ${pharmacyStaffAccountPredicate('f.line_account_id', 'tenant_mapping')}`
+      : '';
 
     // Build WHERE conditions
-    const conditions: string[] = [];
-    const binds: unknown[] = [];
+    const conditions: string[] = ['tenant_mapping.tenant_id = ?', ...(assignedAccountScope ? [assignedAccountScope] : [])];
+    const binds: unknown[] = [tenantId, ...(pharmacyTenant ? [staff!.id] : [])];
     if (tagId) {
       conditions.push('EXISTS (SELECT 1 FROM friend_tags ft WHERE ft.friend_id = f.id AND ft.tag_id = ?)');
       binds.push(tagId);
@@ -165,7 +207,13 @@ friends.get('/api/friends', async (c) => {
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countStmt = db.prepare(`SELECT COUNT(*) as count FROM friends f ${where}`);
+    const countStmt = db.prepare(
+      `SELECT COUNT(*) as count
+         FROM friends f
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = f.line_account_id
+         ${where}`,
+    );
     const totalRow = await (binds.length > 0 ? countStmt.bind(...binds) : countStmt).first<{ count: number }>();
     const total = totalRow?.count ?? 0;
 
@@ -194,17 +242,22 @@ friends.get('/api/friends', async (c) => {
     // the oldest row would show stale 対応済み in those cases. We mirror the
     // chats list's DESC convention here so the badge agrees with /chats.
     const baseSelect = includeChatStatus
-      ? `f.*, tl.name AS first_tracked_link_name,
+      ? `${FRIEND_LIST_COLUMNS}, tl.name AS first_tracked_link_name,
          COALESCE(
            (SELECT status FROM chats c
             WHERE c.friend_id = f.id
             ORDER BY c.created_at DESC LIMIT 1),
            'resolved'
          ) AS chat_status`
-      : `f.*`;
+      : FRIEND_LIST_COLUMNS;
     const baseFrom = includeChatStatus
-      ? `FROM friends f LEFT JOIN tracked_links tl ON tl.id = f.first_tracked_link_id`
-      : `FROM friends f`;
+      ? `FROM friends f
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = f.line_account_id
+         LEFT JOIN tracked_links tl ON tl.id = f.first_tracked_link_id`
+      : `FROM friends f
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = f.line_account_id`;
     // Secondary tier of the search-mode ORDER BY (after match_score) and the
     // primary tier in non-search mode. Switched by ?sort=oldest|recent.
     const createdOrder = sort === 'oldest' ? 'ASC' : 'DESC';
@@ -351,15 +404,31 @@ friends.get('/api/friends', async (c) => {
 // GET /api/friends/count - friend count (must be before /:id)
 friends.get('/api/friends/count', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const lineAccountId = c.req.query('lineAccountId');
-    let count: number;
-    if (lineAccountId) {
-      const row = await c.env.DB.prepare('SELECT COUNT(*) as count FROM friends WHERE is_following = 1 AND line_account_id = ?')
-        .bind(lineAccountId).first<{ count: number }>();
-      count = row?.count ?? 0;
-    } else {
-      count = await getFriendCount(c.env.DB);
+    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
     }
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+    const assignedAccountScope = pharmacyTenant
+      ? `AND ${pharmacyStaffAccountPredicate('friend.line_account_id', 'mapping')}`
+      : '';
+    const row = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS count
+         FROM friends AS friend
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = friend.line_account_id
+        WHERE mapping.tenant_id = ?
+          ${assignedAccountScope}
+          AND friend.is_following = 1
+          ${lineAccountId ? 'AND friend.line_account_id = ?' : ''}`,
+    ).bind(tenantId, ...(pharmacyTenant ? [staff!.id] : []), ...(lineAccountId ? [lineAccountId] : [])).first<{ count: number }>();
+    const count = row?.count ?? 0;
     return c.json({ success: true, data: { count } });
   } catch (err) {
     console.error('GET /api/friends/count error:', err);
@@ -370,16 +439,41 @@ friends.get('/api/friends/count', async (c) => {
 // GET /api/friends/ref-stats - ref code attribution stats
 friends.get('/api/friends/ref-stats', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const lineAccountId = c.req.query('lineAccountId');
-    const where = lineAccountId ? 'WHERE line_account_id = ?' : 'WHERE ref_code IS NOT NULL';
-    const binds = lineAccountId ? [lineAccountId] : [];
+    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+    const assignedAccountScope = pharmacyTenant
+      ? `AND ${pharmacyStaffAccountPredicate('friend.line_account_id', 'mapping')}`
+      : '';
+    const accountFilter = `${assignedAccountScope} ${lineAccountId ? 'AND friend.line_account_id = ?' : ''}`;
+    const binds = [tenantId, ...(pharmacyTenant ? [staff!.id] : []), ...(lineAccountId ? [lineAccountId] : [])];
     const stmt = c.env.DB.prepare(
-      `SELECT ref_code, COUNT(*) as count FROM friends ${where} AND ref_code IS NOT NULL GROUP BY ref_code ORDER BY count DESC`,
+      `SELECT friend.ref_code, COUNT(*) AS count
+         FROM friends AS friend
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = friend.line_account_id
+        WHERE mapping.tenant_id = ? ${accountFilter}
+          AND friend.ref_code IS NOT NULL
+        GROUP BY friend.ref_code
+        ORDER BY count DESC`,
     );
-    const result = await (binds.length > 0 ? stmt.bind(...binds) : stmt).all<{ ref_code: string; count: number }>();
+    const result = await stmt.bind(...binds).all<{ ref_code: string; count: number }>();
     const total = await c.env.DB.prepare(
-      `SELECT COUNT(*) as count FROM friends ${lineAccountId ? 'WHERE line_account_id = ?' : ''} ${lineAccountId ? 'AND' : 'WHERE'} ref_code IS NOT NULL`,
-    ).bind(...(lineAccountId ? [lineAccountId] : [])).first<{ count: number }>();
+      `SELECT COUNT(*) AS count
+         FROM friends AS friend
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = friend.line_account_id
+        WHERE mapping.tenant_id = ? ${accountFilter}
+          AND friend.ref_code IS NOT NULL`,
+    ).bind(...binds).first<{ count: number }>();
     return c.json({
       success: true,
       data: {
@@ -401,6 +495,8 @@ friends.get('/api/friends/:id/mileage', async (c) => {
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
 
     const requestedLimit = Number.parseInt(c.req.query('limit') ?? '', 10);
     const limit = Number.isFinite(requestedLimit)
@@ -423,15 +519,17 @@ friends.get('/api/friends/:id', async (c) => {
     const id = c.req.param('id');
     const db = c.env.DB;
 
-    const [friend, tags, formSubmissions] = await Promise.all([
-      getFriendById(db, id),
-      getFriendTags(db, id),
-      getFormSubmissionsByFriend(db, id, 10),
-    ]);
+    const friend = await getFriendById(db, id);
 
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
+    const [tags, formSubmissions] = await Promise.all([
+      getFriendTags(db, id),
+      getFormSubmissionsByFriend(db, id, 10),
+    ]);
 
     return c.json({
       success: true,
@@ -465,6 +563,10 @@ friends.post('/api/friends/:id/tags', async (c) => {
     }
 
     const db = c.env.DB;
+    const friend = await getFriendById(db, friendId);
+    if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
     await addTagToFriend(db, friendId, body.tagId);
 
     // Enroll in tag_added scenarios that match this tag
@@ -497,6 +599,10 @@ friends.delete('/api/friends/:id/tags/:tagId', async (c) => {
     const friendId = c.req.param('id');
     const tagId = c.req.param('tagId');
 
+    const friend = await getFriendById(c.env.DB, friendId);
+    if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
     await removeTagFromFriend(c.env.DB, friendId, tagId);
 
     // イベントバス発火: tag_change
@@ -519,6 +625,8 @@ friends.put('/api/friends/:id/metadata', async (c) => {
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
 
     const body = await c.req.json<Record<string, unknown>>();
     const existing = JSON.parse(friend.metadata || '{}');
@@ -550,6 +658,10 @@ friends.put('/api/friends/:id/metadata', async (c) => {
 friends.get('/api/friends/:id/messages', async (c) => {
   try {
     const friendId = c.req.param('id');
+    const friend = await getFriendById(c.env.DB, friendId);
+    if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
     // Fetch the latest 200 messages (DESC) then reverse to ASC for display.
     // Using ORDER BY ASC LIMIT 200 returns the OLDEST 200 rows, which silently
     // hides recent activity for chatty friends. Exclude delivery_type='test'
@@ -574,6 +686,10 @@ friends.get('/api/friends/:id/messages', async (c) => {
 // POST /api/friends/:id/messages - send message to friend
 friends.post('/api/friends/:id/messages', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
     const friendId = c.req.param('id');
     const body = await c.req.json<{
       messageType?: string;
@@ -591,17 +707,24 @@ friends.post('/api/friends/:id/messages', async (c) => {
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
     }
+    const denied = await requireFriendAccess(c, friend);
+    if (denied) return denied;
 
-    const { LineClient } = await import('@line-crm/line-sdk');
-    // Resolve access token from friend's account (multi-account support)
-    let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
     const friendAccountId =
       ((friend as unknown as Record<string, unknown>).line_account_id as string | null) ?? null;
-    if (friendAccountId) {
-      const { getLineAccountById } = await import('@line-crm/db');
-      const account = await getLineAccountById(db, friendAccountId);
-      if (account) accessToken = account.channel_access_token;
+    if (!rootSecret || !friendAccountId) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
     }
+    const accessToken = await readLineCredential(db, rootSecret, {
+      tenantId,
+      lineAccountId: friendAccountId,
+      kind: 'channel_access_token',
+    });
+    if (!accessToken) {
+      return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
+    }
+    const { LineClient } = await import('@line-crm/line-sdk');
     const lineClient = new LineClient(accessToken);
     const messageType = body.messageType ?? 'text';
 

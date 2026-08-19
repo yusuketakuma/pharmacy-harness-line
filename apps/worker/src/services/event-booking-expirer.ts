@@ -22,11 +22,24 @@ export async function runEventBookingExpirer(
   ).toISOString();
   const stale = await db
     .prepare(
-      `SELECT id FROM event_bookings
-        WHERE status = 'requested' AND requested_at < ?
+      `SELECT b.id
+         FROM event_bookings b
+        INNER JOIN events e
+                ON e.id = b.event_id AND e.line_account_id = b.line_account_id
+        INNER JOIN event_slots s
+                ON s.id = b.slot_id AND s.event_id = b.event_id
+        INNER JOIN line_accounts la
+                ON la.id = b.line_account_id AND la.is_active = 1
+        INNER JOIN tenant_line_accounts mapping
+                ON mapping.line_account_id = la.id
+        INNER JOIN tenants tenant
+                ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+        INNER JOIN friends f
+                ON f.id = b.friend_id AND f.line_account_id = b.line_account_id
+        WHERE b.status = 'requested' AND b.requested_at < ?
           AND NOT EXISTS (
             SELECT 1 FROM pharmacy_account_capabilities pac
-             WHERE pac.line_account_id = event_bookings.line_account_id
+             WHERE pac.line_account_id = b.line_account_id
                AND pac.mode = 'pharmacy'
           )
         LIMIT 200`,

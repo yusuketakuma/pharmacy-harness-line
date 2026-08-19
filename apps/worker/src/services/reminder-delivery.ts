@@ -17,6 +17,24 @@ import type { LineClient, Message } from '@line-crm/line-sdk';
 import { addJitter, sleep } from './stealth.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
+async function isActiveMappedAccount(
+  db: D1Database,
+  accountId: string | null | undefined,
+): Promise<boolean> {
+  if (!accountId) return false;
+  const row = await db.prepare(
+    `SELECT 1 AS ok
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN line_accounts AS account
+               ON account.id = mapping.line_account_id
+       INNER JOIN tenants AS tenant
+               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+      WHERE mapping.line_account_id = ? AND account.is_active = 1
+      LIMIT 1`,
+  ).bind(accountId).first<{ ok: number }>();
+  return Boolean(row);
+}
+
 export async function processReminderDeliveries(
   db: D1Database,
   lineClient: LineClient,
@@ -38,6 +56,7 @@ export async function processReminderDeliveries(
       }
 
       if (await isPharmacyModeAccount(db, friend.line_account_id)) continue;
+      if (!(await isActiveMappedAccount(db, friend.line_account_id))) continue;
 
       // Resolve correct lineClient for this friend's account
       let deliveryClient = lineClient;

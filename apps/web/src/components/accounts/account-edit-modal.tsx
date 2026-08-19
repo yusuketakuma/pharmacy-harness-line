@@ -169,6 +169,7 @@ export default function AccountEditModal({
             state={state}
             update={update}
             showMessagingRequired={false}
+            showLoginRequired={false}
             channelIdEditable={false}
             defaultOpen={{
               messaging: false,

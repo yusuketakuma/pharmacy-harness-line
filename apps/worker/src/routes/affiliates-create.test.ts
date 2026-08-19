@@ -36,16 +36,43 @@ vi.mock('@line-crm/db', () => dbMocks);
 const worker = (await import('../index.js')).default;
 
 const API_KEY = 'test-owner-key';
-const statement = { bind: () => statement, first: async () => null };
+const tenantDb = {
+  prepare(sql: string) {
+    let binds: unknown[] = [];
+    const statement = {
+      bind: (...args: unknown[]) => {
+        binds = args;
+        return statement;
+      },
+      first: async () => {
+        if (sql.includes('FROM tenants')) {
+          return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
+        }
+        if (sql.includes('FROM friends AS friend')) {
+          return binds[1] === 'ghost' ? null : { line_account_id: 'generic-a' };
+        }
+        if (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities')) {
+          return { ok: 1 };
+        }
+        return null;
+      },
+      all: async () => ({
+        results: sql.includes('FROM tenant_line_accounts') ? [{ line_account_id: 'generic-a' }] : [],
+      }),
+    };
+    return statement;
+  },
+} as unknown as D1Database;
 const env = {
-  DB: { prepare: () => statement } as unknown as D1Database,
+  DB: tenantDb,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
+  LEGACY_ENV_OWNER_BYPASS: 'true',
   WORKER_URL: 'https://worker.example.com',
 } as unknown as import('../index.js').Env['Bindings'];
 
 function get(path: string) {
-  const headers = new Headers({ Authorization: `Bearer ${API_KEY}` });
+  const headers = new Headers({ Authorization: `Bearer ${API_KEY}`, 'X-Tenant-Id': 'generic' });
   return worker.fetch(
     new Request(`https://worker.example.com${path}`, { method: 'GET', headers }),
     env,
@@ -56,6 +83,7 @@ function get(path: string) {
 function post(path: string, body: unknown) {
   const headers = new Headers({
     Authorization: `Bearer ${API_KEY}`,
+    'X-Tenant-Id': 'generic',
     'Content-Type': 'application/json',
   });
   return worker.fetch(
@@ -156,10 +184,10 @@ describe('POST /api/affiliates — friend binding', () => {
     });
   });
 
-  it('404s when the friend does not exist', async () => {
+  it('forbids an unknown friend before the route can mutate', async () => {
     dbMocks.getFriendById.mockResolvedValue(null);
     const res = await post('/api/affiliates', { friendId: 'ghost' });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
     expect(dbMocks.createAffiliateWithRandomCode).not.toHaveBeenCalled();
   });
 

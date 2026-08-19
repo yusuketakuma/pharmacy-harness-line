@@ -161,16 +161,22 @@ export async function reservePrescriptionFile(
     `INSERT INTO pharmacy_prescription_files
        (id, submission_id, revision, position, r2_key, content_type,
         byte_size, sha256, state, created_at, updated_at)
-     SELECT ?, s.id, s.upload_revision, ?, ? || s.upload_revision || ?, ?, ?, ?, 'pending', ?, ?
+     SELECT ?, s.id, s.upload_revision, ?,
+            'custom/pharmacy/prescriptions/tenants/' || mapping.tenant_id || '/' ||
+              s.id || '/' || s.upload_revision || '/' || ?,
+            ?, ?, ?, 'pending', ?, ?
        FROM pharmacy_prescription_submissions s
+       INNER JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = s.line_account_id
+       INNER JOIN tenants AS tenant
+               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
       WHERE s.id = ? AND s.line_account_id = ? AND s.friend_id = ?
         AND s.status IN ('draft','needs_resubmission')
      ON CONFLICT(submission_id, revision, position) DO NOTHING`,
   ).bind(
     fileId,
     position,
-    `custom/pharmacy/prescriptions/${submissionId}/`,
-    `/${fileId}`,
+    fileId,
     image.contentType,
     image.byteSize,
     image.sha256,
@@ -529,6 +535,27 @@ export async function getAdminPrescriptionFile(
       WHERE f.submission_id = ? AND f.id = ? AND s.line_account_id = ?
         AND f.state = 'ready'`,
   ).bind(submissionId, fileId, lineAccountId).first<AdminPrescriptionFile>();
+}
+
+export async function recordPrescriptionFileViewed(
+  db: D1Database,
+  lineAccountId: string,
+  submissionId: string,
+  fileId: string,
+  staffId: string,
+): Promise<void> {
+  await db.prepare(
+    `INSERT INTO pharmacy_prescription_view_events
+       (id, submission_id, file_id, staff_id, viewed_at)
+     SELECT ?, f.submission_id, f.id, ?, ?
+       FROM pharmacy_prescription_files f
+       INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
+      WHERE f.submission_id = ? AND f.id = ? AND s.line_account_id = ?
+        AND f.state = 'ready'`,
+  ).bind(
+    crypto.randomUUID(), staffId, new Date().toISOString(),
+    submissionId, fileId, lineAccountId,
+  ).run();
 }
 
 export interface AdminPrescriptionStats {

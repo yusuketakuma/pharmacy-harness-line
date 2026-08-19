@@ -1,5 +1,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
+import {
+  PHARMACY_CAPABILITIES,
+  isPharmacyTenant,
+} from '../custom/pharmacy/growth-loop/access.js';
 
 export const HARNESS_VERSION = '0.12.0';
 export const API_VERSION = 1;
@@ -33,23 +37,19 @@ export const FEATURES = [
 export const capabilities = new Hono<Env>();
 
 capabilities.get('/api/capabilities', async (c) => {
-  return c.json({
-    success: true,
-    data: {
-      harness_kind: 'line',
-      harness_version: HARNESS_VERSION,
-      api_version: API_VERSION,
-      features: FEATURES,
-      min_app_version: MIN_APP_VERSION,
-      product: 'line-harness',
-      platform: 'line',
-      version: HARNESS_VERSION,
-      connectorVersion: CONNECTOR_VERSION,
-      identity: {
-        primaryKey: 'line_friend_id',
-        supportedLinks: ['x_user_id', 'ig_igsid'],
-      },
-      endpoints: {
+  const tenantId = c.get('tenantId');
+  const pharmacyTenant = tenantId ? await isPharmacyTenant(c.env.DB, tenantId) : false;
+  const endpoints = pharmacyTenant
+    ? {
+        staffMe: '/api/staff/me',
+        lineAccounts: '/api/line-accounts',
+        friends: '/api/friends',
+        chats: '/api/chats',
+        prescriptions: '/api/custom/pharmacy/prescriptions',
+        patients: '/api/custom/pharmacy/patients',
+        richMenus: '/api/rich-menu-groups',
+      }
+    : {
         health: '/api/health',
         staffMe: '/api/staff/me',
         lineAccounts: '/api/line-accounts',
@@ -62,7 +62,24 @@ capabilities.get('/api/capabilities', async (c) => {
         tags: '/api/tags',
         chats: '/api/chats',
         liff: '/liff',
+      };
+  return c.json({
+    success: true,
+    data: {
+      harness_kind: 'line',
+      harness_version: HARNESS_VERSION,
+      api_version: API_VERSION,
+      features: pharmacyTenant ? PHARMACY_CAPABILITIES : FEATURES,
+      min_app_version: MIN_APP_VERSION,
+      product: pharmacyTenant ? 'line-harness-pharmacy' : 'line-harness',
+      platform: 'line',
+      version: HARNESS_VERSION,
+      connectorVersion: CONNECTOR_VERSION,
+      identity: {
+        primaryKey: 'line_friend_id',
+        supportedLinks: pharmacyTenant ? [] : ['x_user_id', 'ig_igsid'],
       },
+      endpoints,
     },
   });
 });

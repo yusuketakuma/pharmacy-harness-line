@@ -4,6 +4,7 @@
 
 import { getFriendById, getLineAccountById, jstNow } from '@line-crm/db';
 import { pushViaHarnessProxy, type HarnessProxyDispatch } from './line-proxy-send.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 export type WebinarFollowupOptions = {
   proxyBaseUrl: string;
@@ -132,7 +133,14 @@ async function candidates(
              ORDER BY wc.at_seconds ASC LIMIT 1) AS form_id
      FROM clicks c
      JOIN webinars w ON w.id = c.webinar_id
-     JOIN friends f ON f.id = c.friend_id AND f.is_following = 1
+     JOIN line_accounts account
+       ON account.id = w.account_id AND account.is_active = 1
+     JOIN tenant_line_accounts mapping
+       ON mapping.line_account_id = account.id
+     JOIN tenants tenant
+       ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+     JOIN friends f
+       ON f.id = c.friend_id AND f.line_account_id = account.id AND f.is_following = 1
      JOIN webinar_followup_configs cfg ON cfg.webinar_id = w.id AND cfg.is_active = 1
      WHERE datetime(c.cta_clicked_at) >= datetime(cfg.enabled_at)
        AND datetime(c.cta_clicked_at, '+' || cfg.${delayColumn} || ' minutes') <= datetime(?)
@@ -197,6 +205,14 @@ async function journeyCandidates(
               cfg.booking_url, p.opened_at AS source_at
        FROM webinar_picker_opens p
        JOIN webinars w ON w.id = p.webinar_id
+       JOIN line_accounts account
+         ON account.id = w.account_id AND account.is_active = 1
+       JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = account.id
+       JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       JOIN friends f
+         ON f.id = p.friend_id AND f.line_account_id = account.id
        JOIN webinar_followup_configs cfg
          ON cfg.webinar_id = w.id AND cfg.is_active = 1
        WHERE datetime(p.opened_at) >= datetime(COALESCE(cfg.stage_enabled_at, cfg.enabled_at))
@@ -246,6 +262,14 @@ async function journeyCandidates(
               cfg.booking_url, datetime(m.missed_session_at, 'unixepoch') AS source_at
        FROM missed m
        JOIN webinars w ON w.id = m.webinar_id
+       JOIN line_accounts account
+         ON account.id = w.account_id AND account.is_active = 1
+       JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = account.id
+       JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       JOIN friends f
+         ON f.id = m.friend_id AND f.line_account_id = account.id
        JOIN webinar_followup_configs cfg
          ON cfg.webinar_id = w.id AND cfg.is_active = 1
        WHERE NOT EXISTS (
@@ -295,13 +319,22 @@ async function journeyCandidates(
             cfg.booking_url, s.submitted_at AS source_at
      FROM submissions s
      JOIN webinars w ON w.id = s.webinar_id
+     JOIN line_accounts account
+       ON account.id = w.account_id AND account.is_active = 1
+     JOIN tenant_line_accounts mapping
+       ON mapping.line_account_id = account.id
+     JOIN tenants tenant
+       ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+     JOIN friends f
+       ON f.id = s.friend_id AND f.line_account_id = account.id
      JOIN webinar_followup_configs cfg
        ON cfg.webinar_id = w.id AND cfg.is_active = 1
      WHERE cfg.booking_menu_id IS NOT NULL AND cfg.booking_url IS NOT NULL
        AND datetime(s.submitted_at, '+' || cfg.${delayColumn} || ' minutes') <= datetime(?)
        AND NOT EXISTS (
          SELECT 1 FROM bookings b
-         WHERE b.friend_id = s.friend_id AND b.menu_id = cfg.booking_menu_id
+         WHERE b.friend_id = s.friend_id AND b.line_account_id = w.account_id
+           AND b.menu_id = cfg.booking_menu_id
            AND b.status IN ('requested', 'confirmed', 'completed')
            AND datetime(b.created_at) >= datetime(s.submitted_at)
        )
@@ -370,6 +403,31 @@ async function deliveryConfig(
   return { accessToken: options.defaultAccessToken, liffId: options.defaultLiffId };
 }
 
+async function isActiveMappedAccount(
+  db: D1Database,
+  accountId: string | null | undefined,
+  friendId: string,
+): Promise<boolean> {
+  if (!accountId || !friendId) return false;
+  try {
+    const row = await db.prepare(
+      `SELECT 1 AS ok
+         FROM tenant_line_accounts AS mapping
+         INNER JOIN line_accounts AS account
+                 ON account.id = mapping.line_account_id
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+         INNER JOIN friends AS f
+                 ON f.id = ? AND f.line_account_id = account.id
+        WHERE mapping.line_account_id = ? AND account.is_active = 1
+        LIMIT 1`,
+    ).bind(friendId, accountId).first<{ ok: number }>();
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+}
+
 export async function processWebinarFollowups(
   db: D1Database,
   options: WebinarFollowupOptions,
@@ -397,6 +455,8 @@ export async function processWebinarFollowups(
   let failed = 0;
   for (const { candidate, kind } of due) {
     if (options.canProcessAccount && !(await options.canProcessAccount(candidate.account_id))) continue;
+    if (await isPharmacyModeAccount(db, candidate.account_id)) continue;
+    if (!(await isActiveMappedAccount(db, candidate.account_id, candidate.friend_id))) continue;
     const followup = await getOrCreateFollowup(db, candidate, kind);
     if (followup.status === 'sent') continue;
     try {
@@ -443,6 +503,8 @@ export async function processWebinarFollowups(
 
   for (const { candidate, kind } of journeyDue) {
     if (options.canProcessAccount && !(await options.canProcessAccount(candidate.account_id))) continue;
+    if (await isPharmacyModeAccount(db, candidate.account_id)) continue;
+    if (!(await isActiveMappedAccount(db, candidate.account_id, candidate.friend_id))) continue;
     const followup = await getOrCreateJourneyFollowup(db, candidate, kind);
     if (followup.status === 'sent' || followup.status === 'skipped') continue;
     try {

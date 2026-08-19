@@ -8,6 +8,7 @@ import {
   recoverStuckDeliveries,
   pauseFriendScenarioDelivery,
   getFriendById,
+  getFriendByUserIdForAccount,
   jstNow,
   computeNextDeliveryAt,
   resolveStepContent,
@@ -104,6 +105,24 @@ export async function resolveMetadata(
 const MAX_SENDS_PER_CRON = 40; // CF Free plan: 50 subrequests limit (margin for other jobs)
 const MAX_ATTEMPTS_PER_CRON = 40; // condition skips/errors also consume CPU and D1 work
 
+async function isActiveMappedAccount(
+  db: D1Database,
+  accountId: string | null | undefined,
+): Promise<boolean> {
+  if (!accountId) return false;
+  const row = await db.prepare(
+    `SELECT 1 AS ok
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN line_accounts AS account
+               ON account.id = mapping.line_account_id
+       INNER JOIN tenants AS tenant
+               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+      WHERE mapping.line_account_id = ? AND account.is_active = 1
+      LIMIT 1`,
+  ).bind(accountId).first<{ ok: number }>();
+  return Boolean(row);
+}
+
 export function getLineApiErrorStatus(err: unknown): number | null {
   if (!(err instanceof Error)) return null;
   const match = err.message.match(/^LINE API error:\s+(\d{3})\b/);
@@ -185,15 +204,11 @@ export async function resolveScenarioDeliveryFriend(
   }
 
   if (enrolledFriend.user_id) {
-    const linked = await db
-      .prepare(
-        `SELECT * FROM friends
-         WHERE user_id = ? AND line_account_id = ?
-         ORDER BY is_following DESC, updated_at DESC
-         LIMIT 1`,
-      )
-      .bind(enrolledFriend.user_id, scenarioAccountId)
-      .first<Friend>();
+    const linked = await getFriendByUserIdForAccount(
+      db,
+      enrolledFriend.user_id,
+      scenarioAccountId,
+    );
     if (linked) return linked.is_following ? linked : null;
   }
 
@@ -248,6 +263,13 @@ async function processSingleDelivery(
     return false;
   }
   const deliveryAccountId = scenarioRow.line_account_id ?? friend.line_account_id;
+  if (deliveryAccountId && !(await isActiveMappedAccount(db, deliveryAccountId))) {
+    await pauseFriendScenarioDelivery(db, fs.id);
+    console.warn(
+      `[step-delivery] paused enrollment=${fs.id}: inactive or unmapped account=${deliveryAccountId}`,
+    );
+    return false;
+  }
   if (await isPharmacyModeAccount(db, deliveryAccountId)) {
     await pauseFriendScenarioDelivery(db, fs.id);
     return false;

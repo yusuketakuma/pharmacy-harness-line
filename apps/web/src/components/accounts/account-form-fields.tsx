@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import React, { useState, type ReactNode } from 'react'
 import OgEditor from '@/components/shared/og-editor'
 
 // Shared form field building blocks for the LINE account create / edit flows.
@@ -110,6 +110,7 @@ export function AccountFormSections({
   state,
   update,
   showMessagingRequired,
+  showLoginRequired,
   channelIdEditable = true,
   defaultOpen,
 }: {
@@ -119,6 +120,10 @@ export function AccountFormSections({
   // edit modal: not required (user may only be editing Login/LIFF; passing
   // empty messaging fields means "leave unchanged").
   showMessagingRequired: boolean
+  // pharmacy create flow: LINE Login and LIFF are required for the patient
+  // intake/rich-menu path. Edit flow leaves this false so existing secrets can
+  // be retained without re-entry.
+  showLoginRequired?: boolean
   // Channel ID is the immutable identifier of a Messaging API channel on
   // LINE's side — it's never re-issued for the same official account, and
   // the worker has no UPDATE path for `channel_id`. Render it read-only on
@@ -179,8 +184,10 @@ export function AccountFormSections({
       </FormSection>
 
       <FormSection
-        title="LINE Login（任意）"
-        description="友だち追加 OAuth 導線で使う。後から追加可"
+        title={showLoginRequired ? 'LINE Login（必須）' : 'LINE Login（任意）'}
+        description={showLoginRequired
+          ? '患者向けLIFFと友だち追加 OAuth に使う（新規薬局では必須）'
+          : '友だち追加 OAuth 導線で使う。既存値は保持'}
         defaultOpen={defaultOpen?.login ?? false}
       >
         <TextField
@@ -188,6 +195,7 @@ export function AccountFormSections({
           value={state.loginChannelId}
           onChange={(v) => update({ loginChannelId: v })}
           placeholder="2009624792"
+          required={showLoginRequired}
           hint="LINE Developers > Login channel > Channel ID"
         />
         <TextField
@@ -195,12 +203,15 @@ export function AccountFormSections({
           value={state.loginChannelSecret}
           onChange={(v) => update({ loginChannelSecret: v })}
           type="password"
+          required={showLoginRequired}
         />
       </FormSection>
 
       <FormSection
-        title="LIFF（任意）"
-        description="LIFF page を開くときの ?liffId= で識別。後から追加可"
+        title={showLoginRequired ? 'LIFF（必須）' : 'LIFF（任意）'}
+        description={showLoginRequired
+          ? '患者向け受付画面の入口。LINE Login channel に属するIDが必要'
+          : 'LIFF page を開くときの ?liffId= で識別。既存値は保持'}
         defaultOpen={defaultOpen?.liff ?? false}
       >
         <TextField
@@ -208,6 +219,7 @@ export function AccountFormSections({
           value={state.liffId}
           onChange={(v) => update({ liffId: v })}
           placeholder="2009624792-XXXXXXXX"
+          required={showLoginRequired}
           hint="LINE Developers > Login channel > LIFF タブで作成したものの ID"
         />
       </FormSection>

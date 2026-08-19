@@ -11,6 +11,7 @@ const uid = (hex: string) => `U${hex.repeat(32)}`;
 type StoredFriend = {
   id: string;
   line_user_id: string;
+  provider_line_user_id?: string;
   line_account_id: string | null;
   is_following: number;
   display_name: string | null;
@@ -20,7 +21,10 @@ type StoredFriend = {
 
 function makeDb(initialFriends: StoredFriend[] = []) {
   let setting: string | null = null;
-  const friends = new Map(initialFriends.map((f) => [f.line_user_id, { ...f }]));
+  const friends = new Map(initialFriends.map((f) => [f.id, {
+    ...f,
+    provider_line_user_id: f.provider_line_user_id ?? f.line_user_id,
+  }]));
 
   const execute = (sql: string, args: unknown[]) => {
     if (sql.includes('INSERT INTO account_settings')) {
@@ -33,20 +37,21 @@ function makeDb(initialFriends: StoredFriend[] = []) {
       return { meta: { changes: 1 } };
     }
     if (sql.includes('INSERT INTO friends')) {
-      const [id, lineUserId, accountId] = args as [string, string, string];
-      const existing = friends.get(lineUserId);
+      const [id, physicalLineUserId, providerLineUserId, accountId] = args as [string, string, string, string];
+      const existing = [...friends.values()].find((row) =>
+        row.provider_line_user_id === providerLineUserId && row.line_account_id === accountId);
       if (!existing) {
-        friends.set(lineUserId, {
+        friends.set(id, {
           id,
-          line_user_id: lineUserId,
+          line_user_id: physicalLineUserId,
+          provider_line_user_id: providerLineUserId,
           line_account_id: accountId,
           is_following: 1,
           display_name: null,
           picture_url: null,
           status_message: null,
         });
-      } else if (existing.line_account_id === null || existing.line_account_id === accountId) {
-        existing.line_account_id = existing.line_account_id ?? accountId;
+      } else {
         existing.is_following = 1;
       }
       return { meta: { changes: 1 } };
@@ -76,9 +81,12 @@ function makeDb(initialFriends: StoredFriend[] = []) {
           throw new Error(`Unhandled first SQL: ${sql}`);
         }),
         all: vi.fn().mockImplementation(async () => {
-          if (sql.includes('WHERE line_user_id IN')) {
-            const requested = new Set(args as string[]);
-            return { results: [...friends.values()].filter((f) => requested.has(f.line_user_id)) };
+          if (sql.includes('WHERE provider_line_user_id IN')) {
+            const accountId = args.at(-1) as string;
+            const requested = new Set(args.slice(0, -1) as string[]);
+            return { results: [...friends.values()]
+              .filter((f) => f.line_account_id === accountId && requested.has(f.provider_line_user_id!))
+              .map((f) => ({ ...f, line_user_id: f.provider_line_user_id })) };
           }
           if (sql.includes('AND display_name IS NULL')) {
             const [accountId, afterId, limit] = args as [string, string, number];
@@ -88,7 +96,7 @@ function makeDb(initialFriends: StoredFriend[] = []) {
                   f.display_name === null && f.id > afterId)
                 .sort((a, b) => a.id.localeCompare(b.id))
                 .slice(0, limit)
-                .map(({ id, line_user_id }) => ({ id, line_user_id })),
+                .map(({ id, provider_line_user_id }) => ({ id, line_user_id: provider_line_user_id })),
             };
           }
           throw new Error(`Unhandled all SQL: ${sql}`);
@@ -100,7 +108,13 @@ function makeDb(initialFriends: StoredFriend[] = []) {
       statements.map((statement) => execute(statement.sql, statement.args))),
   } as unknown as D1Database;
 
-  return { db, friends, getSetting: () => setting };
+  return {
+    db,
+    friends,
+    getFriend: (lineUserId: string, accountId: string) => [...friends.values()].find((friend) =>
+      friend.provider_line_user_id === lineUserId && friend.line_account_id === accountId),
+    getSetting: () => setting,
+  };
 }
 
 describe('persisted one-time follower import', () => {
@@ -118,7 +132,7 @@ describe('persisted one-time follower import', () => {
   });
 
   test('resumes bounded steps and cannot restart after completion', async () => {
-    const { db, friends } = makeDb();
+    const { db, getFriend } = makeDb();
     const lineUserId = uid('a');
     const client = {
       getFollowerIds: vi.fn()
@@ -140,11 +154,43 @@ describe('persisted one-time follower import', () => {
     const profiles = await processFollowerImportStep(db, client, 'acc-1');
     expect(profiles.state.phase).toBe('completed');
     expect(profiles.state.profilesUpdated).toBe(1);
-    expect(friends.get(lineUserId)?.display_name).toBe('移行患者');
+    expect(getFriend(lineUserId, 'acc-1')?.display_name).toBe('移行患者');
 
     const completed = await startFollowerImport(db, 'acc-1');
     expect(completed.phase).toBe('completed');
     expect(client.getFollowerIds).toHaveBeenCalledTimes(2);
     expect((await getFollowerImportState(db, 'acc-1')).completedAt).not.toBeNull();
+  });
+
+  test('creates an account-local friend when the same LINE user follows another account', async () => {
+    const lineUserId = uid('b');
+    const { db, friends, getFriend } = makeDb([{
+      id: 'friend-a',
+      line_user_id: 'friend-key:a',
+      provider_line_user_id: lineUserId,
+      line_account_id: 'acc-a',
+      is_following: 1,
+      display_name: 'Account A',
+      picture_url: null,
+      status_message: null,
+    }]);
+    const client = {
+      getFollowerIds: vi.fn()
+        .mockResolvedValueOnce({ userIds: [] })
+        .mockResolvedValueOnce({ userIds: [lineUserId] }),
+      getProfile: vi.fn().mockResolvedValue({ displayName: 'Account B' }),
+    };
+
+    await detectFollowerImportCapability(db, client, 'acc-b');
+    await startFollowerImport(db, 'acc-b');
+    const result = await processFollowerImportStep(db, client, 'acc-b');
+
+    expect(result.state).toMatchObject({ imported: 1, conflicts: 0, claimedUnassigned: 0 });
+    expect(getFriend(lineUserId, 'acc-a')?.display_name).toBe('Account A');
+    expect(getFriend(lineUserId, 'acc-b')).toMatchObject({
+      line_user_id: expect.stringMatching(/^friend-key:/),
+      provider_line_user_id: lineUserId,
+    });
+    expect(friends).toHaveLength(2);
   });
 });

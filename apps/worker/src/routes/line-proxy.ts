@@ -3,8 +3,8 @@ import type { Context } from 'hono';
 import { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
 import {
-  getLineAccounts,
-  getFriendByLineUserId,
+  getLineAccountsForTenant,
+  getFriendByLineUserIdForAccount,
   upsertFriend,
   getChatByFriendId,
   createChat,
@@ -12,10 +12,19 @@ import {
   jstNow,
 } from '@line-crm/db';
 import type { Friend, LineAccount } from '@line-crm/db';
-import { authenticateApiToken } from '../middleware/auth.js';
+import {
+  authenticateApiToken,
+  resolveAuthenticatedTenant,
+  TENANT_HEADER,
+} from '../middleware/auth.js';
 import type { AuthenticatedStaff } from '../middleware/auth.js';
 import { messageToLogPayload } from '../services/step-delivery.js';
 import type { Env } from '../index.js';
+import {
+  findLineCredentialByAccessToken,
+  readLineCredential,
+} from '../custom/pharmacy/provisioning/line-credential-store.js';
+import { sameText } from '../custom/pharmacy/provisioning/line-credentials.js';
 import {
   canAccessPharmacyAccount,
   hasPharmacyModeAccount,
@@ -34,8 +43,9 @@ import { isApprovedRenderedPharmacyMessage } from '../custom/pharmacy/growth-loo
  * X-Line-Harness-Source: manual を付けると source='manual' で記録する。
  *
  * 認証は2系統:
- * 1. チャネルアクセストークン (drop-in 移行用) — line_accounts /
- *    env.LINE_CHANNEL_ACCESS_TOKEN と照合。未登録トークンは 401 (オープンリレー防止)。
+ * 1. チャネルアクセストークン (drop-in 移行用) — tenant-scoped encrypted
+ *    credential store の keyed lookup と照合。未登録トークンは 401
+ *    (オープンリレー防止)。legacy env token は別の unscoped install fallback。
  * 2. harness API キー (staff key / env API_KEY) — worker が保持するチャネル
  *    トークンで上流を呼ぶ。エージェントにチャネルトークンを配らずに済むので、
  *    トークンローテーション後はこちらが正規経路。複数アカウント構成では
@@ -123,65 +133,123 @@ function asMessages(value: unknown): Message[] {
 }
 
 /**
- * Resolve the caller to a channel. Channel tokens are matched against
- * line_accounts / env (drop-in mode); harness API keys (staff key / env
- * API_KEY) map to a channel via X-Line-Account-Id, the single active account,
- * or the env default token. Returns a Response on auth/validation failure.
+ * Resolve the caller to a channel. Channel tokens use the keyed encrypted
+ * credential index; harness API keys (staff key / env API_KEY) map to a channel
+ * via X-Line-Account-Id or the single active tenant account and then decrypt
+ * its credential. Returns a Response on auth/validation failure.
  */
 async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCaller | Response> {
-  const accounts = await getLineAccounts(c.env.DB);
-  const active = accounts.filter((a) => a.is_active);
-
-  const byChannelToken = active.find((a) => a.channel_access_token === token);
-  if (byChannelToken) {
-    return {
-      upstreamToken: token,
-      lineAccountId: byChannelToken.id,
-      accountCount: active.length,
-      staff: null,
-    };
-  }
-  if (token === c.env.LINE_CHANNEL_ACCESS_TOKEN) {
-    return { upstreamToken: token, lineAccountId: null, accountCount: active.length, staff: null };
-  }
-
   // harness API キー経路 — worker 側でチャネルトークンを解決する。
   const staff = await authenticateApiToken(c, token);
-  if (!staff) return c.json(AUTH_FAILED, 401);
-
-  const requestedId = c.req.header('X-Line-Account-Id');
-  let account: LineAccount | undefined;
-  if (requestedId) {
-    account = active.find((a) => a.id === requestedId || a.channel_id === requestedId);
-    if (!account) {
-      return c.json({ message: `Unknown X-Line-Account-Id: ${requestedId}` }, 400);
-    }
-  } else if (active.length === 1) {
-    account = active[0];
-  } else if (active.length > 1) {
-    return c.json(
-      { message: 'Multiple LINE accounts registered — set the X-Line-Account-Id header' },
-      400,
+  if (staff) {
+    const identity = await resolveAuthenticatedTenant(
+      c.env.DB,
+      staff,
+      c.req.header(TENANT_HEADER),
+      c.env.LEGACY_ENV_OWNER_BYPASS === 'true',
     );
+    if (!identity) {
+      return c.json({ message: 'Tenant access denied' }, 403);
+    }
+    const tenantAccounts = (await getLineAccountsForTenant(c.env.DB, identity.tenant.id))
+      .filter((account) => account.is_active);
+
+    const requestedId = c.req.header('X-Line-Account-Id');
+    let account: LineAccount | undefined;
+    if (requestedId) {
+      account = tenantAccounts.find((a) => a.id === requestedId || a.channel_id === requestedId);
+      if (!account) {
+        return c.json({ message: 'LINE account access denied' }, 403);
+      }
+    } else if (tenantAccounts.length === 1) {
+      account = tenantAccounts[0];
+    } else if (tenantAccounts.length > 1) {
+      return c.json(
+        { message: 'Multiple LINE accounts registered — set the X-Line-Account-Id header' },
+        400,
+      );
+    }
+
+    if (account) {
+      if (await isPharmacyModeAccount(c.env.DB, account.id) &&
+          !(await canAccessPharmacyAccount(c.env.DB, staff, account.id))) {
+        return c.json({ message: 'Pharmacy account access denied' }, 403);
+      }
+      const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+      if (!rootSecret) {
+        return c.json({ message: 'LINE account credential unavailable' }, 403);
+      }
+      const upstreamToken = await readLineCredential(c.env.DB, rootSecret, {
+        tenantId: identity.tenant.id,
+        lineAccountId: account.id,
+        kind: 'channel_access_token',
+      });
+      if (!upstreamToken) {
+        return c.json({ message: 'LINE account credential unavailable' }, 403);
+      }
+      return {
+        upstreamToken,
+        lineAccountId: account.id,
+        accountCount: tenantAccounts.length,
+        staff,
+      };
+    }
+    return c.json({ message: 'No LINE account configured' }, 400);
   }
 
-  if (account) {
-    return {
-      upstreamToken: account.channel_access_token,
-      lineAccountId: account.id,
-      accountCount: active.length,
-      staff,
-    };
+  // Tenant-scoped drop-in mode. The store performs a keyed digest lookup and
+  // decrypts only the active mapped account; no plaintext token scan occurs.
+  const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+  if (rootSecret) {
+    const credential = await findLineCredentialByAccessToken(c.env.DB, rootSecret, token);
+    if (credential) {
+      let accountCount: number;
+      try {
+        const count = await c.env.DB.prepare(
+          `SELECT COUNT(*) AS count
+             FROM tenant_line_accounts AS mapping
+             INNER JOIN tenants AS tenant
+                     ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+             INNER JOIN line_accounts AS account
+                     ON account.id = mapping.line_account_id AND account.is_active = 1
+            WHERE mapping.tenant_id = ?`,
+        ).bind(credential.tenantId).first<{ count: number }>();
+        if (!count || !Number.isSafeInteger(count.count) || count.count < 1) {
+          return c.json(AUTH_FAILED, 401);
+        }
+        accountCount = count.count;
+      } catch {
+        return c.json(AUTH_FAILED, 401);
+      }
+      return {
+        upstreamToken: credential.credential,
+        lineAccountId: credential.lineAccountId,
+        accountCount,
+        staff: null,
+      };
+    }
   }
-  if (c.env.LINE_CHANNEL_ACCESS_TOKEN) {
-    return {
-      upstreamToken: c.env.LINE_CHANNEL_ACCESS_TOKEN,
-      lineAccountId: null,
-      accountCount: active.length,
-      staff,
-    };
+
+  // Legacy unscoped install fallback. It is intentionally unreachable from
+  // the staff-key path above, which always requires tenant membership and an
+  // encrypted tenant credential.
+  if (sameText(token, c.env.LINE_CHANNEL_ACCESS_TOKEN)) {
+    try {
+      if (await hasPharmacyModeAccount(c.env.DB)) {
+        return c.json({ message: 'Account scope required in a pharmacy installation' }, 403);
+      }
+      const count = await c.env.DB.prepare(
+        'SELECT COUNT(*) AS count FROM line_accounts WHERE is_active = 1',
+      ).first<{ count: number }>();
+      if (!count || !Number.isSafeInteger(count.count) || count.count < 0) {
+        return c.json(AUTH_FAILED, 401);
+      }
+      return { upstreamToken: token, lineAccountId: null, accountCount: count.count, staff: null };
+    } catch {
+      return c.json(AUTH_FAILED, 401);
+    }
   }
-  return c.json({ message: 'No LINE account configured' }, 400);
+  return c.json(AUTH_FAILED, 401);
 }
 
 async function rejectUnsafePharmacySend(
@@ -201,7 +269,7 @@ async function rejectUnsafePharmacySend(
     return null;
   }
   if (source === 'manual') {
-    return caller.staff && await canAccessPharmacyAccount(c.env.DB, caller.staff, lineAccountId)
+    return caller.staff
       ? null
       : c.json({ message: 'Manual pharmacy send requires assigned staff' }, 403);
   }
@@ -220,7 +288,7 @@ async function rejectUnsafePharmacySend(
   }
   const messages = asMessages(parsed.messages);
   const event = await c.env.DB.prepare(
-    `SELECT e.message_id, f.line_user_id
+    `SELECT e.message_id, f.provider_line_user_id AS line_user_id
        FROM pharmacy_notification_events e
        INNER JOIN friends f
          ON f.id = e.friend_id AND f.line_account_id = e.line_account_id
@@ -237,15 +305,19 @@ async function rejectUnsafePharmacySend(
 async function getFriendsByLineUserIds(
   db: D1Database,
   userIds: string[],
-): Promise<Map<string, Friend>> {
-  const found = new Map<string, Friend>();
+  lineAccountId: string | null,
+): Promise<Map<string, Pick<Friend, 'id' | 'line_user_id' | 'line_account_id'>>> {
+  const found = new Map<string, Pick<Friend, 'id' | 'line_user_id' | 'line_account_id'>>();
   for (let i = 0; i < userIds.length; i += LOOKUP_CHUNK) {
     const chunk = userIds.slice(i, i + LOOKUP_CHUNK);
     const placeholders = chunk.map(() => '?').join(',');
+    const scope = lineAccountId ? 'line_account_id = ?' : 'line_account_id IS NULL';
     const result = await db
-      .prepare(`SELECT * FROM friends WHERE line_user_id IN (${placeholders})`)
-      .bind(...chunk)
-      .all<Friend>();
+      .prepare(`SELECT id, provider_line_user_id AS line_user_id, line_account_id
+                  FROM friends
+                 WHERE provider_line_user_id IN (${placeholders}) AND ${scope}`)
+      .bind(...chunk, ...(lineAccountId ? [lineAccountId] : []))
+      .all<Pick<Friend, 'id' | 'line_user_id' | 'line_account_id'>>();
     for (const row of result.results ?? []) {
       found.set(row.line_user_id, row);
     }
@@ -270,27 +342,20 @@ async function createFriendForRecipient(
     try {
       profile = await lineClient.getProfile(userId);
     } catch (err) {
-      console.error('[line-proxy] getProfile failed for', userId, err);
+      console.error('[line-proxy] getProfile failed', err);
     }
 
     const friend = await upsertFriend(db, {
       lineUserId: userId,
+      lineAccountId,
       displayName: profile?.displayName ?? null,
       pictureUrl: profile?.pictureUrl ?? null,
       statusMessage: profile?.statusMessage ?? null,
     });
 
-    if (lineAccountId) {
-      await db
-        .prepare(
-          'UPDATE friends SET line_account_id = ? WHERE id = ? AND line_account_id IS NULL',
-        )
-        .bind(lineAccountId, friend.id)
-        .run();
-    }
     return friend;
   } catch (err) {
-    console.error('[line-proxy] friend creation failed for', userId, err);
+    console.error('[line-proxy] friend creation failed', err);
     return null;
   }
 }
@@ -373,7 +438,7 @@ async function logProxySend(
         return;
       }
       const friend =
-        (await getFriendByLineUserId(db, parsed.to)) ??
+        (await getFriendByLineUserIdForAccount(db, parsed.to, lineAccountId)) ??
         (await createFriendForRecipient(db, lineClient, parsed.to, lineAccountId));
       if (!friend) return;
       await insertLogRows(db, rowsFor(friend.id, 'push'), source);
@@ -387,7 +452,7 @@ async function logProxySend(
           parsed.to.filter((t): t is string => typeof t === 'string' && LINE_USER_ID_RE.test(t)),
         ),
       ];
-      const known = await getFriendsByLineUserIds(db, userIds);
+      const known = await getFriendsByLineUserIds(db, userIds, lineAccountId);
       const rows: LogRow[] = [];
       let created = 0;
       let skipped = 0;

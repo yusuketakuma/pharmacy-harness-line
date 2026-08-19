@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), prepare: vi.fn(), claim: vi.fn(), acknowledge: vi.fn() }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), capability: vi.fn(), prepare: vi.fn(), claim: vi.fn(), acknowledge: vi.fn() }));
 vi.mock('../operations-access.js', () => ({ canAccessPharmacyOperationsAccount: mocks.access }));
+vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
 vi.mock('./repository.js', () => ({
   preparePrescriptionPrintTask: mocks.prepare,
   claimPrescriptionPrintTask: mocks.claim,
@@ -25,6 +26,7 @@ function app(withStaff = true) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.access.mockResolvedValue(true);
+  mocks.capability.mockResolvedValue(true);
   mocks.prepare.mockResolvedValue({ id: 'task-1', status: 'pending', revision: 1 });
   mocks.claim.mockResolvedValue({ id: 'task-1', status: 'handling', revision: 1 });
   mocks.acknowledge.mockResolvedValue({ id: 'task-1', status: 'acknowledged', revision: 1 });

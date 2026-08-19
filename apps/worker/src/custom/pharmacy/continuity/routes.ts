@@ -5,12 +5,14 @@ import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescri
 import { listContinuityObligations, listPatientContinuity, pausePatientContinuity } from './repository.js';
 import { readJsonObject } from '../json.js';
 import {
-  listNextIntakeExpectations,
+  listPatientExpectations,
+  listAccountExpectations,
   offerNextIntakeExpectation,
   respondToNextIntakeExpectation,
   type NextIntakeExpectation,
 } from './next-intake.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 type ContinuityEnv = {
   Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string; LINE_LOGIN_CHANNEL_ID?: string };
@@ -39,7 +41,9 @@ function expectationView(item: NextIntakeExpectation) {
     updated_at: item.updated_at,
   };
 }
-continuityRoutes.use('/api/custom/pharmacy/continuity', async (c, next) => {
+// Wildcard also matches the bare collection path, so child routes such as
+// POST /continuity/:id/expectations run the same account + capability gate.
+continuityRoutes.use('/api/custom/pharmacy/continuity/*', async (c, next) => {
   const staff = c.get('staff');
   const account = getPharmacyAccountId(c);
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
@@ -47,6 +51,9 @@ continuityRoutes.use('/api/custom/pharmacy/continuity', async (c, next) => {
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, account, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, account, 'continuity'))) {
+    return c.json({ error: 'Continuity is not enabled' }, 403);
+  }
   return next();
 });
 
@@ -55,6 +62,9 @@ continuityRoutes.use('/api/liff/pharmacy/continuity/*', async (c, next) => {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'continuity'))) {
+    return c.json({ error: 'Continuity is not enabled' }, 403);
+  }
   c.set('continuityPatient', patient);
   return next();
 });
@@ -63,7 +73,7 @@ continuityRoutes.get('/api/liff/pharmacy/continuity', async (c) => {
   const patient = c.get('continuityPatient');
   const [obligations, expectations] = await Promise.all([
     listPatientContinuity(c.env.DB, patient.lineAccountId, patient.friendId),
-    listNextIntakeExpectations(c.env.DB, patient.lineAccountId, patient.friendId),
+    listPatientExpectations(c.env.DB, patient.lineAccountId, patient.friendId),
   ]);
   return c.json({ obligations, expectations: expectations.map(expectationView) });
 });
@@ -110,7 +120,7 @@ continuityRoutes.get('/api/custom/pharmacy/continuity', async (c) => {
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
   const [obligations, expectations] = await Promise.all([
     listContinuityObligations(c.env.DB, account),
-    listNextIntakeExpectations(c.env.DB, account),
+    listAccountExpectations(c.env.DB, account),
   ]);
   return c.json({ obligations, expectations: expectations.map(expectationView) });
 });

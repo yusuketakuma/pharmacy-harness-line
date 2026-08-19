@@ -1,10 +1,13 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import type { PrescriptionStatus } from './state.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
+import { pharmacyPrescriptionPageUrl } from '../growth-loop/policy.js';
+import { readLineCredential } from '../provisioning/line-credential-store.js';
 
 export interface PrescriptionNotificationOptions {
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
+  lineCredentialKey?: string;
 }
 
 export type PrescriptionNotificationStatus = 'sent' | 'already_sent' | 'failed' | 'skipped' | 'superseded';
@@ -15,7 +18,7 @@ interface NotificationRecipient {
   reason_code: string | null;
   revision: number | null;
   line_user_id: string;
-  channel_access_token: string;
+  tenant_id: string;
   line_account_id: string;
   friend_id: string;
   intake_method: 'E_PRESCRIPTION' | 'PAPER' | 'MEDICAL_INSTITUTION_SENT';
@@ -33,8 +36,7 @@ const REASONS: Record<string, string> = {
 
 function prescriptionPageUrl(liffId: string | null, submissionId: string): string | null {
   if (!liffId) return null;
-  const query = new URLSearchParams({ page: 'prescription', submissionId });
-  return `https://liff.line.me/${encodeURIComponent(liffId)}/?${query.toString()}`;
+  return pharmacyPrescriptionPageUrl(liffId, submissionId);
 }
 
 function formatReadyAt(value: string | null, now = new Date()): string | null {
@@ -106,12 +108,16 @@ export async function deliverPrescriptionNotification(
     `SELECT e.id AS status_event_id, e.reason_code, e.revision, s.status,
             s.line_account_id, s.friend_id,
             s.intake_method,
-            f.line_user_id, la.channel_access_token, la.liff_id,
+            f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id, la.liff_id,
             q.estimated_ready_at
        FROM pharmacy_prescription_submissions s
        INNER JOIN friends f
          ON f.id = s.friend_id AND f.line_account_id = s.line_account_id
        INNER JOIN line_accounts la ON la.id = s.line_account_id
+       INNER JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = s.line_account_id
+       INNER JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
        INNER JOIN pharmacy_prescription_events e
          ON e.submission_id = s.id AND e.event_type = 'status_changed'
         AND e.to_status = s.status
@@ -139,7 +145,14 @@ export async function deliverPrescriptionNotification(
       LIMIT 1`,
   ).bind(statusEventId, statusEventId, submissionId, lineAccountId).first<NotificationRecipient>();
 
-  if (!recipient?.line_user_id || !recipient.channel_access_token) {
+  const accessToken = recipient && options.lineCredentialKey
+    ? await readLineCredential(db, options.lineCredentialKey, {
+      tenantId: recipient.tenant_id,
+      lineAccountId: recipient.line_account_id,
+      kind: 'channel_access_token',
+    }).catch(() => null)
+    : null;
+  if (!recipient?.line_user_id || !accessToken) {
     if (statusEventId) {
       const statusEvent = await db.prepare(
         `SELECT e.to_status, s.status
@@ -165,11 +178,11 @@ export async function deliverPrescriptionNotification(
 
   const status = recipient.status === 'draft' ? undefined : recipient.status;
   try {
-    await sendPharmacyAutomatedPush({
+    const outcome = await sendPharmacyAutomatedPush({
       db,
       proxyBaseUrl: options.proxyBaseUrl,
       proxyDispatch: options.proxyDispatch,
-      accessToken: recipient.channel_access_token,
+      accessToken,
       to: recipient.line_user_id,
       lineAccountId: recipient.line_account_id,
       friendId: recipient.friend_id,
@@ -185,6 +198,9 @@ export async function deliverPrescriptionNotification(
       },
       retryKey: recipient.status_event_id,
     });
+    // No 'notification_sent' event for a paused tenant — recording one would
+    // claim the patient was told, and would also suppress the real send later.
+    if (outcome === 'paused') return { status: 'skipped' };
     await recordNotificationEvent(db, lineAccountId, submissionId, recipient, 'notification_sent');
     return { status: 'sent' };
   } catch {
@@ -210,19 +226,19 @@ async function recordNotificationEvent(
     `INSERT INTO pharmacy_prescription_events
        (id, submission_id, actor_type, actor_id, event_type,
         to_status, reason_code, revision, created_at)
-     SELECT ?, s.id, 'system', ?, '${eventType}', ?, ?, ?, ?
+     SELECT ?, s.id, 'system', ?, ?, ?, ?, ?, ?
        FROM pharmacy_prescription_submissions s
       WHERE s.id = ? AND s.line_account_id = ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_prescription_events existing
            WHERE existing.submission_id = s.id
-             AND existing.event_type = '${eventType}'
+             AND existing.event_type = ?
              AND existing.actor_id = ?
         )`,
   ).bind(
-    crypto.randomUUID(), recipient.status_event_id, recipient.status,
+    crypto.randomUUID(), recipient.status_event_id, eventType, recipient.status,
     recipient.reason_code, recipient.revision, now, submissionId,
-    lineAccountId, recipient.status_event_id,
+    lineAccountId, eventType, recipient.status_event_id,
   ).run();
 }
 

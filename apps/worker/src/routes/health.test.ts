@@ -27,6 +27,7 @@ function env(): Env['Bindings'] {
     LINE_LOGIN_CHANNEL_ID: 'login-channel',
     LINE_LOGIN_CHANNEL_SECRET: 'login-secret',
     WORKER_URL: 'https://worker.example.test',
+    CROSS_ACCOUNT_TOKEN_KEY: 'cross-account-token-key-for-tests',
   };
 }
 

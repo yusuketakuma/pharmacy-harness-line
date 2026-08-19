@@ -5,9 +5,15 @@ const lineClientMocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
 }));
 
+const lineCredentialMocks = vi.hoisted(() => ({
+  findLineCredentialByAccessToken: vi.fn(),
+  readLineCredential: vi.fn(),
+}));
+
 vi.mock('@line-crm/db', () => ({
   getLineAccounts: vi.fn(),
-  getFriendByLineUserId: vi.fn(),
+  getLineAccountsForTenant: vi.fn(),
+  getFriendByLineUserIdForAccount: vi.fn(),
   upsertFriend: vi.fn(),
   getChatByFriendId: vi.fn(),
   createChat: vi.fn(),
@@ -16,8 +22,12 @@ vi.mock('@line-crm/db', () => ({
 }));
 
 vi.mock('../middleware/auth.js', () => ({
+  TENANT_HEADER: 'x-tenant-id',
   authenticateApiToken: vi.fn(async () => null),
+  resolveAuthenticatedTenant: vi.fn(async () => null),
 }));
+
+vi.mock('../custom/pharmacy/provisioning/line-credential-store.js', () => lineCredentialMocks);
 
 vi.mock('@line-crm/line-sdk', async () => {
   const actual = await vi.importActual<typeof import('@line-crm/line-sdk')>('@line-crm/line-sdk');
@@ -38,19 +48,25 @@ vi.mock('../services/step-delivery.js', () => ({
 
 import {
   getLineAccounts,
-  getFriendByLineUserId,
+  getLineAccountsForTenant,
+  getFriendByLineUserIdForAccount,
   upsertFriend,
   getChatByFriendId,
   createChat,
   updateChat,
 } from '@line-crm/db';
-import { authenticateApiToken } from '../middleware/auth.js';
+import { authenticateApiToken, resolveAuthenticatedTenant } from '../middleware/auth.js';
+import {
+  findLineCredentialByAccessToken,
+  readLineCredential,
+} from '../custom/pharmacy/provisioning/line-credential-store.js';
 import { lineProxy } from './line-proxy.js';
 import { buildApprovedPharmacyMessage } from '../custom/pharmacy/growth-loop/policy.js';
 
 type Exec = { sql: string; params: unknown[] };
 
 const U = (n: number) => `U${n.toString(16).padStart(32, '0')}`;
+const CREDENTIAL_ROOT = 'synthetic-line-credential-root-key-v1';
 
 /**
  * Minimal D1 stub. `friendsByUserId` feeds the IN (...) lookup used by
@@ -59,6 +75,7 @@ const U = (n: number) => `U${n.toString(16).padStart(32, '0')}`;
 function fakeDb(opts: {
   friendsByUserId?: Record<string, { id: string; line_user_id: string }>;
   broadcastFriendIds?: string[];
+  activeAccountCount?: number;
   pharmacyAccountId?: string;
   pharmacyNotification?: { id: string; message_id: string; line_user_id: string };
   staffAssigned?: boolean;
@@ -79,7 +96,7 @@ function fakeDb(opts: {
         },
         async all() {
           executed.push({ sql, params: stmt.params });
-          if (sql.includes('line_user_id IN')) {
+          if (sql.includes('provider_line_user_id IN')) {
             const rows = stmt.params
               .map((p) => opts.friendsByUserId?.[p as string])
               .filter(Boolean);
@@ -88,6 +105,9 @@ function fakeDb(opts: {
           return { results: (opts.broadcastFriendIds ?? []).map((id) => ({ id })) };
         },
         async first() {
+          if (sql.includes('SELECT COUNT(*) AS count')) {
+            return { count: opts.activeAccountCount ?? 1 };
+          }
           if (sql.includes('FROM pharmacy_account_capabilities')) {
             if (sql.includes('SELECT 1 AS ok')) return opts.pharmacyAccountId ? { ok: 1 } : null;
             return opts.pharmacyAccountId && stmt.params[0] === opts.pharmacyAccountId
@@ -100,11 +120,26 @@ function fakeDb(opts: {
               ? opts.pharmacyNotification
               : null;
           }
+          if (sql.includes('tenant_staff_memberships') && sql.includes('pharmacy_staff_accounts')) {
+            return opts.staffAssigned && stmt.params[0] === 'staff-a' && stmt.params[1] === opts.pharmacyAccountId
+              ? { tenant_id: 'tenant-pharmacy' }
+              : null;
+          }
+          if (sql.includes('INNER JOIN tenant_line_accounts')) {
+            return opts.pharmacyAccountId && stmt.params[0] === opts.pharmacyAccountId
+              ? { tenant_id: 'tenant-pharmacy' }
+              : null;
+          }
+          if (sql.includes('pharmacy_staff_accounts')) {
+            return opts.staffAssigned ? { ok: 1 } : null;
+          }
           if (sql.includes('FROM line_accounts')) {
             return opts.pharmacyAccountId ? { id: opts.pharmacyAccountId, channel_id: ACCOUNT.channel_id } : null;
           }
-          if (sql.includes('FROM pharmacy_staff_accounts')) {
-            return opts.staffAssigned ? { ok: 1 } : null;
+          if (sql.includes('FROM tenant_staff_memberships')) {
+            return opts.staffAssigned && stmt.params[0] === 'tenant-pharmacy'
+              ? { ok: 1 }
+              : null;
           }
           return null;
         },
@@ -144,11 +179,13 @@ function setupApp() {
   return app;
 }
 
-function env(db: D1Database) {
+function env(db: D1Database, overrides: Record<string, unknown> = {}) {
   return {
     DB: db,
     LINE_CHANNEL_ACCESS_TOKEN: 'env-token',
+    LINE_CREDENTIAL_KEY_V1: CREDENTIAL_ROOT,
     API_KEY: 'harness-key',
+    ...overrides,
   } as Record<string, unknown>;
 }
 
@@ -186,10 +223,31 @@ beforeEach(() => {
   fetchMock = vi.fn(async () => upstreamResponse());
   vi.stubGlobal('fetch', fetchMock);
   vi.mocked(getLineAccounts).mockResolvedValue([ACCOUNT] as never);
-  vi.mocked(getFriendByLineUserId).mockResolvedValue(FRIEND as never);
+  vi.mocked(getLineAccountsForTenant).mockResolvedValue([ACCOUNT] as never);
+  vi.mocked(getFriendByLineUserIdForAccount).mockResolvedValue(FRIEND as never);
   vi.mocked(getChatByFriendId).mockResolvedValue({ id: 'chat-1', status: 'unread' } as never);
   vi.mocked(updateChat).mockResolvedValue(undefined as never);
   vi.mocked(authenticateApiToken).mockResolvedValue(null as never);
+  vi.mocked(resolveAuthenticatedTenant).mockResolvedValue({
+    staff: { id: 's1', name: 'Owner', role: 'owner' },
+    tenant: { id: 'tenant-a', code: 'tenant-a', name: 'Tenant A' },
+  } as never);
+  vi.mocked(readLineCredential).mockImplementation(async (_db, _root, input) => {
+    const account = [ACCOUNT, ACCOUNT_2].find((candidate) => candidate.id === input.lineAccountId);
+    return account?.channel_access_token ?? null;
+  });
+  vi.mocked(findLineCredentialByAccessToken).mockImplementation(async (_db, _root, token) => {
+    const account = [ACCOUNT, ACCOUNT_2].find((candidate) => candidate.channel_access_token === token);
+    return account
+      ? {
+          tenantId: 'tenant-a',
+          lineAccountId: account.id,
+          kind: 'channel_access_token' as const,
+          credential: account.channel_access_token,
+          revision: 1,
+        }
+      : null;
+  });
 });
 
 afterEach(() => {
@@ -201,7 +259,11 @@ function pushRequest(
   body: unknown = { to: USER_A, messages: [{ type: 'text', text: 'hello' }] },
   extraHeaders: Record<string, string> = {},
 ) {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Tenant-Id': 'tenant-a',
+    ...extraHeaders,
+  };
   if (token) headers.Authorization = `Bearer ${token}`;
   return new Request('http://worker.test/line-api/v2/bot/message/push', {
     method: 'POST',
@@ -222,6 +284,56 @@ describe('auth', () => {
     const { db } = fakeDb();
     const res = await setupApp().request(pushRequest('stranger-token'), {}, env(db));
     expect(res.status).toBe(401);
+    expect(findLineCredentialByAccessToken).toHaveBeenCalledWith(db, CREDENTIAL_ROOT, 'stranger-token');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('registered channel token uses the keyed credential lookup without scanning accounts', async () => {
+    vi.mocked(getLineAccounts).mockRejectedValue(new Error('account scan must not run'));
+    const { db } = fakeDb();
+    const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
+
+    expect(res.status).toBe(200);
+    expect(findLineCredentialByAccessToken).toHaveBeenCalledWith(db, CREDENTIAL_ROOT, 'acc-token');
+    expect(getLineAccounts).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.line.me/v2/bot/message/push',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer acc-token' }),
+      }),
+    );
+  });
+
+  test('missing credential root key rejects a channel token before upstream', async () => {
+    const { db } = fakeDb();
+    const res = await setupApp().request(
+      pushRequest('acc-token'),
+      {},
+      env(db, { LINE_CREDENTIAL_KEY_V1: undefined }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(findLineCredentialByAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('legacy env token cannot proxy non-message APIs in a pharmacy installation', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
+    const response = await setupApp().request(new Request(
+      'http://worker.test/line-api/v2/bot/richmenu/richmenu-1',
+      { method: 'DELETE', headers: { Authorization: 'Bearer env-token' } },
+    ), {}, env(db));
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('corrupt or missing credential lookup fails closed before upstream', async () => {
+    vi.mocked(findLineCredentialByAccessToken).mockResolvedValue(null);
+    const { db } = fakeDb();
+    const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
+
+    expect(res.status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -234,6 +346,14 @@ describe('auth', () => {
     expect(rows[0].lineAccountId).toBeNull();
   });
 
+  test('rejects a same-length near-miss of the env fallback token', async () => {
+    // 'env-token' is 9 chars; 'env-tokeX' is also 9 chars but does not match.
+    const { db } = fakeDb();
+    const res = await setupApp().request(pushRequest('env-tokeX'), {}, env(db));
+    expect(res.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('env fallback token cannot bypass a pharmacy account send policy', async () => {
     const { db } = fakeDb({ pharmacyAccountId: 'acc-1' });
     const res = await setupApp().request(pushRequest('env-token'), {}, env(db));
@@ -242,7 +362,7 @@ describe('auth', () => {
   });
 
   test('inactive account token → 401', async () => {
-    vi.mocked(getLineAccounts).mockResolvedValue([{ ...ACCOUNT, is_active: 0 }] as never);
+    vi.mocked(findLineCredentialByAccessToken).mockResolvedValue(null);
     const { db } = fakeDb();
     const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
     expect(res.status).toBe(401);
@@ -271,8 +391,49 @@ describe('harness API key auth', () => {
     expect(rows[0].lineAccountId).toBe('acc-1');
   });
 
+  test('staff API key forwards the decrypted tenant account credential', async () => {
+    vi.mocked(readLineCredential).mockResolvedValue('decrypted-account-token');
+    const { db } = fakeDb();
+    const res = await setupApp().request(pushRequest('harness-key'), {}, env(db));
+
+    expect(res.status).toBe(200);
+    expect(readLineCredential).toHaveBeenCalledWith(db, CREDENTIAL_ROOT, {
+      tenantId: 'tenant-a',
+      lineAccountId: 'acc-1',
+      kind: 'channel_access_token',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.line.me/v2/bot/message/push',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer decrypted-account-token' }),
+      }),
+    );
+  });
+
+  test('staff API key fails closed when the credential root key is missing', async () => {
+    const { db } = fakeDb();
+    const res = await setupApp().request(
+      pushRequest('harness-key'),
+      {},
+      env(db, { LINE_CREDENTIAL_KEY_V1: undefined }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(readLineCredential).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('staff API key fails closed when the tenant credential is missing or corrupt', async () => {
+    vi.mocked(readLineCredential).mockResolvedValue(null);
+    const { db } = fakeDb();
+    const res = await setupApp().request(pushRequest('harness-key'), {}, env(db));
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('multiple accounts without X-Line-Account-Id → 400', async () => {
-    vi.mocked(getLineAccounts).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
+    vi.mocked(getLineAccountsForTenant).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
     const { db } = fakeDb();
     const res = await setupApp().request(pushRequest('harness-key'), {}, env(db));
     expect(res.status).toBe(400);
@@ -280,7 +441,7 @@ describe('harness API key auth', () => {
   });
 
   test('X-Line-Account-Id selects the account (by channel_id too)', async () => {
-    vi.mocked(getLineAccounts).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
+    vi.mocked(getLineAccountsForTenant).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
     const { db, executed } = fakeDb();
     const res = await setupApp().request(
       pushRequest('harness-key', undefined, { 'X-Line-Account-Id': 'ch-2' }),
@@ -297,15 +458,46 @@ describe('harness API key auth', () => {
     expect(loggedRows(executed)[0].lineAccountId).toBe('acc-2');
   });
 
-  test('unknown X-Line-Account-Id → 400', async () => {
-    vi.mocked(getLineAccounts).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
+  test('unknown X-Line-Account-Id fails closed without revealing ownership', async () => {
     const { db } = fakeDb();
     const res = await setupApp().request(
       pushRequest('harness-key', undefined, { 'X-Line-Account-Id': 'nope' }),
       {},
       env(db),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('cannot select an account owned by another tenant', async () => {
+    vi.mocked(getLineAccountsForTenant).mockResolvedValue([ACCOUNT] as never);
+    const { db } = fakeDb();
+
+    const response = await setupApp().request(
+      pushRequest('harness-key', undefined, { 'X-Line-Account-Id': ACCOUNT_2.id }),
+      {},
+      env(db),
+    );
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('cannot use another tenant account for non-message LINE APIs', async () => {
+    const { db } = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: false });
+    const response = await setupApp().request(new Request(
+      'http://worker.test/line-api/v2/bot/richmenu/richmenu-1',
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: 'Bearer harness-key',
+          'X-Tenant-Id': 'tenant-a',
+          'X-Line-Account-Id': 'acc-1',
+        },
+      },
+    ), {}, env(db));
+
+    expect(response.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -334,6 +526,26 @@ describe('push', () => {
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  test('rejects an approved pharmacy payload when the staff key belongs to another tenant', async () => {
+    vi.mocked(authenticateApiToken).mockResolvedValue({ id: 'staff-other', name: 'Other', role: 'staff' });
+    const eventId = 'event-cross-tenant';
+    const text = '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。';
+    const { db } = fakeDb({
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: eventId, message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+      staffAssigned: false,
+    });
+
+    const response = await setupApp().request(pushRequest(
+      'harness-key',
+      { to: USER_A, messages: [{ type: 'text', text }] },
+      { 'X-Pharmacy-Notification-Event-Id': eventId },
+    ), {}, env(db));
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('rejects a tampered payload even with a valid pharmacy notification event', async () => {
@@ -389,6 +601,11 @@ describe('push', () => {
       'harness-key', undefined, { 'X-Line-Harness-Source': 'manual' },
     ), {}, env(allowed.db));
     expect(allowedResponse.status).toBe(200);
+    expect(getFriendByLineUserIdForAccount).toHaveBeenCalledWith(
+      allowed.db,
+      USER_A,
+      'acc-1',
+    );
   });
 
   test('forwards to api.line.me and logs source=external', async () => {
@@ -503,7 +720,7 @@ describe('push', () => {
 
   test('unknown recipient → profile fetched, friend created, account pinned', async () => {
     const newUser = U(0x999);
-    vi.mocked(getFriendByLineUserId).mockResolvedValue(null as never);
+    vi.mocked(getFriendByLineUserIdForAccount).mockResolvedValue(null as never);
     lineClientMocks.getProfile.mockResolvedValue({ displayName: 'New User' });
     vi.mocked(upsertFriend).mockResolvedValue({ id: 'friend-new', line_user_id: newUser } as never);
     vi.mocked(getChatByFriendId).mockResolvedValue(null as never);
@@ -520,11 +737,13 @@ describe('push', () => {
     expect(lineClientMocks.getProfile).toHaveBeenCalledWith(newUser);
     expect(upsertFriend).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ lineUserId: newUser, displayName: 'New User' }),
+      expect.objectContaining({
+        lineUserId: newUser,
+        lineAccountId: 'acc-1',
+        displayName: 'New User',
+      }),
     );
-    const accountPin = executed.find((e) => e.sql.includes('UPDATE friends SET line_account_id'));
-    expect(accountPin).toBeDefined();
-    expect(accountPin!.params).toEqual(['acc-1', 'friend-new']);
+    expect(executed.some((e) => e.sql.includes('UPDATE friends SET line_account_id'))).toBe(false);
     expect(createChat).toHaveBeenCalled();
   });
 
@@ -537,7 +756,7 @@ describe('push', () => {
   });
 
   test('logging failure does not break the 200 response', async () => {
-    vi.mocked(getFriendByLineUserId).mockRejectedValue(new Error('db down'));
+    vi.mocked(getFriendByLineUserIdForAccount).mockRejectedValue(new Error('db down'));
     const { db } = fakeDb();
     const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
     expect(res.status).toBe(200);
@@ -573,7 +792,7 @@ describe('multicast', () => {
     const rows = loggedRows(executed);
     expect(rows).toHaveLength(4);
     expect(new Set(rows.map((r) => r.friendId))).toEqual(new Set(['f1', 'f2']));
-    expect(getFriendByLineUserId).not.toHaveBeenCalled();
+    expect(getFriendByLineUserIdForAccount).not.toHaveBeenCalled();
   });
 
   test('unknown recipients beyond the creation cap are skipped, known ones still logged', async () => {
@@ -665,8 +884,11 @@ describe('broadcast', () => {
   });
 
   test('multi-account: scoped to the sending account', async () => {
-    vi.mocked(getLineAccounts).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
-    const { db, executed } = fakeDb({ broadcastFriendIds: ['f1', 'f2'] });
+    vi.mocked(getLineAccountsForTenant).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
+    const { db, executed } = fakeDb({
+      broadcastFriendIds: ['f1', 'f2'],
+      activeAccountCount: 2,
+    });
     const res = await setupApp().request(
       new Request('http://worker.test/line-api/v2/bot/message/broadcast', {
         method: 'POST',
@@ -684,8 +906,10 @@ describe('broadcast', () => {
   });
 
   test('multi-account + unregistered env token: forwarded but NOT logged (no fabrication)', async () => {
-    vi.mocked(getLineAccounts).mockResolvedValue([ACCOUNT, ACCOUNT_2] as never);
-    const { db, executed } = fakeDb({ broadcastFriendIds: ['f1', 'f2'] });
+    const { db, executed } = fakeDb({
+      broadcastFriendIds: ['f1', 'f2'],
+      activeAccountCount: 2,
+    });
     const res = await setupApp().request(
       new Request('http://worker.test/line-api/v2/bot/message/broadcast', {
         method: 'POST',

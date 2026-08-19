@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import CcPromptButton from '@/components/cc-prompt-button'
 import { useAccount } from '@/contexts/account-context'
+import GrowthDashboardPage from '@/custom/pharmacy/growth-loop/GrowthDashboardPage'
 
 const ccPrompts = [
   {
@@ -144,7 +145,7 @@ function FriendAddLinkCard() {
   )
 }
 
-export default function DashboardPage() {
+function GenericDashboardPage() {
   const { selectedAccountId, selectedAccount } = useAccount()
   const [stats, setStats] = useState<DashboardStats>({
     friendCount: null,
@@ -418,4 +419,10 @@ export default function DashboardPage() {
       <CcPromptButton prompts={ccPrompts} />
     </div>
   )
+}
+
+export default function DashboardPage() {
+  const { selectedAccount } = useAccount()
+  if (selectedAccount?.pharmacyMode) return <GrowthDashboardPage />
+  return <GenericDashboardPage />
 }

@@ -19,6 +19,25 @@ export interface Friend {
   updated_at: string;
 }
 
+export const FRIEND_SELECT_COLUMNS = `
+  f.id,
+  f.provider_line_user_id AS line_user_id,
+  f.display_name,
+  f.picture_url,
+  f.status_message,
+  f.is_following,
+  f.first_followed_at,
+  f.current_follow_started_at,
+  f.last_followed_at,
+  f.last_unfollowed_at,
+  f.unfollow_count,
+  f.user_id,
+  f.line_account_id,
+  f.metadata,
+  f.first_tracked_link_id,
+  f.created_at,
+  f.updated_at`;
+
 export interface GetFriendsOptions {
   limit?: number;
   offset?: number;
@@ -34,7 +53,7 @@ export async function getFriends(
   if (tagId) {
     const result = await db
       .prepare(
-        `SELECT f.*
+        `SELECT ${FRIEND_SELECT_COLUMNS}
          FROM friends f
          INNER JOIN friend_tags ft ON ft.friend_id = f.id
          WHERE ft.tag_id = ?
@@ -48,8 +67,9 @@ export async function getFriends(
 
   const result = await db
     .prepare(
-      `SELECT * FROM friends
-       ORDER BY created_at DESC
+      `SELECT ${FRIEND_SELECT_COLUMNS}
+       FROM friends f
+       ORDER BY f.created_at DESC
        LIMIT ? OFFSET ?`,
     )
     .bind(limit, offset)
@@ -63,7 +83,7 @@ export async function getFriends(
  *
  * - tagId が省略された場合は account 内全員の following を返す
  * - line_user_id は LINE bulk link API の userIds に直接渡す形式 (U... 始まり)
- * - 重複は無いはず (friends.line_user_id は UNIQUE)
+ * - 同一アカウント内では provider_line_user_id が一意
  */
 export async function getFollowingLineUserIdsByTag(
   db: D1Database,
@@ -73,7 +93,7 @@ export async function getFollowingLineUserIdsByTag(
   if (tagId) {
     const result = await db
       .prepare(
-        `SELECT DISTINCT f.line_user_id
+        `SELECT DISTINCT f.provider_line_user_id AS line_user_id
            FROM friends f
            INNER JOIN friend_tags ft ON ft.friend_id = f.id
           WHERE ft.tag_id = ?
@@ -86,7 +106,7 @@ export async function getFollowingLineUserIdsByTag(
   }
   const result = await db
     .prepare(
-      `SELECT line_user_id
+      `SELECT provider_line_user_id AS line_user_id
          FROM friends
         WHERE line_account_id = ? AND is_following = 1`,
     )
@@ -95,12 +115,7 @@ export async function getFollowingLineUserIdsByTag(
   return (result.results ?? []).map((r) => r.line_user_id);
 }
 
-/**
- * アカウントスコープ優先の friend 解決。同一プロバイダー配下の複数アカウント
- * では line_user_id が同一になるため、無指定の先頭一致だと別アカウントの
- * friend 行に吸われて通知アカウントがズレる。指定アカウントの行を優先し、
- * 無ければ従来どおり先頭一致にフォールバックする。
- */
+/** Account-scoped friend resolution. A supplied account never falls back globally. */
 export async function getFriendByLineUserIdForAccount(
   db: D1Database,
   lineUserId: string,
@@ -108,10 +123,12 @@ export async function getFriendByLineUserIdForAccount(
 ): Promise<Friend | null> {
   if (lineAccountId) {
     const scoped = await db
-      .prepare(`SELECT * FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+      .prepare(`SELECT ${FRIEND_SELECT_COLUMNS}
+                  FROM friends f
+                 WHERE provider_line_user_id = ? AND line_account_id = ?`)
       .bind(lineUserId, lineAccountId)
       .first<Friend>();
-    if (scoped) return scoped;
+    return scoped;
   }
   return getFriendByLineUserId(db, lineUserId);
 }
@@ -121,7 +138,9 @@ export async function getFriendByLineUserId(
   lineUserId: string,
 ): Promise<Friend | null> {
   return db
-    .prepare(`SELECT * FROM friends WHERE line_user_id = ?`)
+    .prepare(`SELECT ${FRIEND_SELECT_COLUMNS}
+                FROM friends f
+               WHERE provider_line_user_id = ? AND line_account_id IS NULL`)
     .bind(lineUserId)
     .first<Friend>();
 }
@@ -131,8 +150,23 @@ export async function getFriendById(
   id: string,
 ): Promise<Friend | null> {
   return db
-    .prepare(`SELECT * FROM friends WHERE id = ?`)
+    .prepare(`SELECT ${FRIEND_SELECT_COLUMNS} FROM friends f WHERE f.id = ?`)
     .bind(id)
+    .first<Friend>();
+}
+
+export async function getFriendByUserIdForAccount(
+  db: D1Database,
+  userId: string,
+  lineAccountId: string,
+): Promise<Friend | null> {
+  return db
+    .prepare(`SELECT ${FRIEND_SELECT_COLUMNS}
+                FROM friends f
+               WHERE f.user_id = ? AND f.line_account_id = ?
+               ORDER BY f.is_following DESC, f.updated_at DESC
+               LIMIT 1`)
+    .bind(userId, lineAccountId)
     .first<Friend>();
 }
 
@@ -162,6 +196,7 @@ export async function setFriendFirstTrackedLinkIfNull(
 
 export interface UpsertFriendInput {
   lineUserId: string;
+  lineAccountId?: string | null;
   displayName?: string | null;
   pictureUrl?: string | null;
   statusMessage?: string | null;
@@ -172,10 +207,13 @@ export async function upsertFriend(
   input: UpsertFriendInput,
 ): Promise<Friend> {
   const now = jstNow();
-  const existing = await getFriendByLineUserId(db, input.lineUserId);
+  const requestedAccountId = input.lineAccountId ?? null;
+  const existing = requestedAccountId
+    ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
+    : await getFriendByLineUserId(db, input.lineUserId);
 
   if (existing) {
-    await db
+    const result = await db
       .prepare(
         `UPDATE friends
          SET display_name = ?,
@@ -192,7 +230,9 @@ export async function upsertFriend(
              END,
              is_following = 1,
              updated_at = ?
-         WHERE line_user_id = ?`,
+         WHERE id = ?
+           AND provider_line_user_id = ?
+           AND ${requestedAccountId ? 'line_account_id = ?' : 'line_account_id IS NULL'}`,
       )
       .bind(
         'displayName' in input ? (input.displayName ?? null) : existing.display_name,
@@ -201,35 +241,55 @@ export async function upsertFriend(
         now,
         now,
         now,
+        existing.id,
         input.lineUserId,
+        ...(requestedAccountId ? [requestedAccountId] : []),
       )
       .run();
 
-    return (await getFriendByLineUserId(db, input.lineUserId))!;
+    if (result.meta.changes === 0) {
+      throw new Error('FRIEND_ACCOUNT_CONFLICT');
+    }
+    const updated = requestedAccountId
+      ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
+      : await getFriendById(db, existing.id);
+    if (!updated) throw new Error('FRIEND_ACCOUNT_CONFLICT');
+    return updated;
   }
 
   const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO friends
-         (id, line_user_id, display_name, picture_url, status_message, is_following,
-          first_followed_at, current_follow_started_at, last_followed_at,
-          created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      id,
-      input.lineUserId,
-      input.displayName ?? null,
-      input.pictureUrl ?? null,
-      input.statusMessage ?? null,
-      now,
-      now,
-      now,
-      now,
-      now,
-    )
-    .run();
+  try {
+    await db
+      .prepare(
+        `INSERT INTO friends
+           (id, line_user_id, provider_line_user_id, line_account_id,
+            display_name, picture_url, status_message, is_following,
+            first_followed_at, current_follow_started_at, last_followed_at,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        requestedAccountId ? `friend-key:${id}` : input.lineUserId,
+        input.lineUserId,
+        requestedAccountId,
+        input.displayName ?? null,
+        input.pictureUrl ?? null,
+        input.statusMessage ?? null,
+        now,
+        now,
+        now,
+        now,
+        now,
+      )
+      .run();
+  } catch (error) {
+    const raced = requestedAccountId
+      ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
+      : await getFriendByLineUserId(db, input.lineUserId);
+    if (raced) return raced;
+    throw error;
+  }
 
   return (await getFriendById(db, id))!;
 }
@@ -241,6 +301,10 @@ export async function updateFriendFollowStatus(
   lineAccountId: string | null = null,
 ): Promise<void> {
   const now = jstNow();
+  const scope = lineAccountId
+    ? 'provider_line_user_id = ? AND line_account_id = ?'
+    : 'provider_line_user_id = ? AND line_account_id IS NULL';
+  const scopeValues = lineAccountId ? [lineUserId, lineAccountId] : [lineUserId];
   if (isFollowing) {
     await db
       .prepare(
@@ -252,9 +316,9 @@ export async function updateFriendFollowStatus(
                 END,
                 last_followed_at = CASE WHEN is_following = 0 THEN ? ELSE last_followed_at END,
                 is_following = 1, updated_at = ?
-          WHERE line_user_id = ? AND (? IS NULL OR line_account_id = ?)`,
+          WHERE ${scope}`,
       )
-      .bind(now, now, now, lineUserId, lineAccountId, lineAccountId)
+      .bind(now, now, now, ...scopeValues)
       .run();
     return;
   }
@@ -266,9 +330,9 @@ export async function updateFriendFollowStatus(
               last_unfollowed_at = CASE WHEN is_following = 1 THEN ? ELSE last_unfollowed_at END,
               unfollow_count = unfollow_count + CASE WHEN is_following = 1 THEN 1 ELSE 0 END,
               updated_at = ?
-        WHERE line_user_id = ? AND (? IS NULL OR line_account_id = ?)`,
+        WHERE ${scope}`,
     )
-    .bind(now, now, lineUserId, lineAccountId, lineAccountId)
+    .bind(now, now, ...scopeValues)
     .run();
 }
 

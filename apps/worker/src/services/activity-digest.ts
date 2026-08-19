@@ -2,6 +2,7 @@ import {
   computeUnansweredInbox,
   type UnansweredInboxResult,
 } from './unanswered-inbox.js';
+import { pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
 
 const DEFAULT_HOURS = 3;
 const MAX_HOURS = 24 * 7;
@@ -12,7 +13,9 @@ export interface ActivityDigestOptions {
   now?: Date;
   unansweredLoader?: (
     db: D1Database,
+    tenantId: string,
     options: { page: number; pageSize: number },
+    staffId?: string,
   ) => Promise<UnansweredInboxResult>;
 }
 
@@ -136,7 +139,9 @@ function takeCategory<T>(rows: T[]): { items: T[]; truncated: boolean } {
 
 export async function getActivityDigest(
   db: D1Database,
+  tenantId: string,
   options: ActivityDigestOptions = {},
+  staffId?: string,
 ) {
   const hours = options.hours ?? DEFAULT_HOURS;
   if (!Number.isSafeInteger(hours) || hours < 1 || hours > MAX_HOURS) {
@@ -149,6 +154,10 @@ export async function getActivityDigest(
   const sinceJst = formatJstSqlTimestamp(since);
   const queryLimit = CATEGORY_LIMIT + 1;
   const unansweredLoader = options.unansweredLoader ?? computeUnansweredInbox;
+  const staffBindings = staffId ? [staffId] : [];
+  const scope = (accountColumn: string) => staffId
+    ? `AND ${pharmacyStaffAccountPredicate(accountColumn, 'tenant_mapping')}`
+    : '';
 
   const [
     friendsResult,
@@ -163,11 +172,15 @@ export async function getActivityDigest(
        SELECT f.id, f.display_name, f.line_account_id,
               la.name AS account_name, f.created_at
          FROM friends f
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = f.line_account_id
          LEFT JOIN line_accounts la ON la.id = f.line_account_id
-        WHERE julianday(f.created_at) >= julianday(?)
+        WHERE tenant_mapping.tenant_id = ?
+          ${scope('f.line_account_id')}
+          AND julianday(f.created_at) >= julianday(?)
         ORDER BY f.created_at DESC
         LIMIT ?`,
-    ).bind(sinceJst, queryLimit).all<RawFriendRow>(),
+    ).bind(tenantId, ...staffBindings, sinceJst, queryLimit).all<RawFriendRow>(),
     db.prepare(
       `/* activity-digest:messages */
        SELECT ml.id, ml.friend_id, f.display_name,
@@ -176,13 +189,17 @@ export async function getActivityDigest(
               ml.message_type, ml.content, ml.source, ml.created_at
          FROM messages_log ml
          INNER JOIN friends f ON f.id = ml.friend_id
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = COALESCE(ml.line_account_id, f.line_account_id)
          LEFT JOIN line_accounts la
            ON la.id = COALESCE(ml.line_account_id, f.line_account_id)
-        WHERE ml.direction = 'incoming'
+        WHERE tenant_mapping.tenant_id = ?
+          ${scope('COALESCE(ml.line_account_id, f.line_account_id)')}
+          AND ml.direction = 'incoming'
           AND julianday(ml.created_at) >= julianday(?)
         ORDER BY ml.created_at DESC
         LIMIT ?`,
-    ).bind(sinceJst, queryLimit).all<RawMessageRow>(),
+    ).bind(tenantId, ...staffBindings, sinceJst, queryLimit).all<RawMessageRow>(),
     db.prepare(
       `/* activity-digest:forms */
        SELECT fs.id, fs.form_id, fm.name AS form_name,
@@ -190,12 +207,16 @@ export async function getActivityDigest(
               la.name AS account_name, fs.data, fs.created_at
          FROM form_submissions fs
          INNER JOIN forms fm ON fm.id = fs.form_id
-         LEFT JOIN friends f ON f.id = fs.friend_id
+         INNER JOIN friends f ON f.id = fs.friend_id
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = f.line_account_id
          LEFT JOIN line_accounts la ON la.id = f.line_account_id
-        WHERE julianday(fs.created_at) >= julianday(?)
+        WHERE tenant_mapping.tenant_id = ?
+          ${scope('f.line_account_id')}
+          AND julianday(fs.created_at) >= julianday(?)
         ORDER BY fs.created_at DESC
         LIMIT ?`,
-    ).bind(sinceJst, queryLimit).all<RawFormSubmissionRow>(),
+    ).bind(tenantId, ...staffBindings, sinceJst, queryLimit).all<RawFormSubmissionRow>(),
     db.prepare(
       `/* activity-digest:bookings */
        SELECT b.id, b.friend_id, f.display_name,
@@ -205,12 +226,16 @@ export async function getActivityDigest(
          FROM bookings b
          INNER JOIN menus m ON m.id = b.menu_id
          INNER JOIN staff s ON s.id = b.staff_id
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = b.line_account_id
          LEFT JOIN friends f ON f.id = b.friend_id
          LEFT JOIN line_accounts la ON la.id = b.line_account_id
-        WHERE julianday(b.requested_at) >= julianday(?)
+        WHERE tenant_mapping.tenant_id = ?
+          ${scope('b.line_account_id')}
+          AND julianday(b.requested_at) >= julianday(?)
         ORDER BY b.requested_at DESC
         LIMIT ?`,
-    ).bind(sinceUtc, queryLimit).all<RawBookingRow>(),
+    ).bind(tenantId, ...staffBindings, sinceUtc, queryLimit).all<RawBookingRow>(),
     db.prepare(
       `/* activity-digest:event-bookings */
        SELECT b.id, b.friend_id, f.display_name,
@@ -220,13 +245,17 @@ export async function getActivityDigest(
          FROM event_bookings b
          INNER JOIN events e ON e.id = b.event_id
          INNER JOIN event_slots es ON es.id = b.slot_id
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = b.line_account_id
          LEFT JOIN friends f ON f.id = b.friend_id
          LEFT JOIN line_accounts la ON la.id = b.line_account_id
-        WHERE julianday(b.requested_at) >= julianday(?)
+        WHERE tenant_mapping.tenant_id = ?
+          ${scope('b.line_account_id')}
+          AND julianday(b.requested_at) >= julianday(?)
         ORDER BY b.requested_at DESC
         LIMIT ?`,
-    ).bind(sinceUtc, queryLimit).all<RawEventBookingRow>(),
-    unansweredLoader(db, { page: 1, pageSize: 2000 }),
+    ).bind(tenantId, ...staffBindings, sinceUtc, queryLimit).all<RawEventBookingRow>(),
+    unansweredLoader(db, tenantId, { page: 1, pageSize: 2000 }, staffId),
   ]);
 
   const friends = takeCategory((friendsResult.results ?? []).map((row) => ({

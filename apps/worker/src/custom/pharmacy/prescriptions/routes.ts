@@ -24,6 +24,7 @@ import {
   listAdminPrescriptionQueue,
   markPrescriptionFileDeleted,
   markPrescriptionFileReady,
+  recordPrescriptionFileViewed,
   reservePrescriptionDraft,
   reservePrescriptionFile,
   reservePrescriptionResubmission,
@@ -31,12 +32,14 @@ import {
 } from './repository.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
   IMAGES?: R2Bucket;
   LINE_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
+  LINE_CREDENTIAL_KEY_V1?: string;
   WORKER_PUBLIC_URL?: string;
 };
 
@@ -57,6 +60,7 @@ function notificationOptions(requestUrl: string, env: PrescriptionBindings) {
     proxyDispatch: (request: Request) => Promise.resolve(
       lineProxy.fetch(request, env as Env['Bindings']),
     ),
+    lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
   };
 }
 
@@ -81,6 +85,9 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
     identity,
   );
   if (!patient) return c.json({ error: 'Prescription account not found' }, 404);
+  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   c.set('prescriptionPatient', patient);
   return next();
 });
@@ -93,6 +100,9 @@ prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) =
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();
 });
@@ -391,6 +401,8 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/stats', async (c) => 
 
 prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', async (c) => {
   const lineAccountId = c.get('prescriptionLineAccountId');
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   if (!c.env.IMAGES) return c.json({ error: 'Image storage unavailable' }, 503);
   const file = await getAdminPrescriptionFile(
     c.env.DB, lineAccountId, c.req.param('id'), c.req.param('fileId'),
@@ -398,6 +410,9 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', a
   if (!file) return c.json({ error: 'Prescription image not found' }, 404);
   const object = await c.env.IMAGES.get(file.r2_key);
   if (!object) return c.json({ error: 'Prescription image not found' }, 404);
+  await recordPrescriptionFileViewed(
+    c.env.DB, lineAccountId, c.req.param('id'), c.req.param('fileId'), staff.id,
+  );
   return new Response(await object.arrayBuffer(), {
     headers: {
       'Content-Type': file.content_type,

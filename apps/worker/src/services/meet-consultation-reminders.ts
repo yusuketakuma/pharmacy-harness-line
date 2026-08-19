@@ -247,7 +247,7 @@ export async function processDueMeetConsultationReminders(
     .prepare(
       `SELECT r.id, r.consultation_id, r.kind, r.retry_count,
               c.title, c.starts_at, c.meet_url,
-              f.line_user_id, la.channel_access_token
+              f.provider_line_user_id AS line_user_id, la.channel_access_token
          FROM meet_consultation_reminders r
          INNER JOIN meet_consultations c ON c.id = r.consultation_id
          INNER JOIN friends f ON f.id = c.friend_id

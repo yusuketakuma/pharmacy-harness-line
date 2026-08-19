@@ -58,7 +58,7 @@ function fakeDb(options: DbOptions = {}): D1Database {
         if (sql.includes('SELECT ends_at, external_event_id')) {
           return { ends_at: '2026-08-20T01:15:00.000Z', external_event_id: 'event-existing' };
         }
-        if (sql.includes('SELECT f.line_user_id')) {
+        if (sql.includes('f.provider_line_user_id AS line_user_id')) {
           return { line_user_id: 'U123', channel_access_token: 'line-token' };
         }
         return null;

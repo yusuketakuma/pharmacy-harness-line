@@ -15,6 +15,7 @@ function createClients(env: Env) {
   const harness = new LineHarness({
     apiUrl: env.LINE_HARNESS_API_URL,
     apiKey: env.LINE_HARNESS_API_KEY,
+    tenantId: env.LINE_HARNESS_TENANT_ID,
     lineAccountId: env.LINE_ACCOUNT_ID,
   })
   const myService = new MyServiceClient(env.EXTERNAL_API_KEY)
