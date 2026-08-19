@@ -14,6 +14,7 @@ import { processSegmentSend } from '../services/segment-send.js';
 import type { SegmentCondition } from '../services/segment-query.js';
 import { getLineAccountById } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 import {
   assertNoUnresolvedBroadcastVariables,
   getUnsupportedBroadcastVariables,
@@ -126,6 +127,16 @@ broadcasts.get('/api/broadcasts/:id', async (c) => {
     const broadcast = await getBroadcastById(c.env.DB, id);
 
     if (!broadcast) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+
+    // Defense in depth: this route has no per-tenant WHERE clause (legacy
+    // generic-CRM table, out of scope for a full tenant-scoping migration
+    // here). When a tenant context is present, confirm the broadcast's
+    // account is actually owned by that tenant before returning it.
+    const tenantId = c.get('tenantId');
+    const lineAccountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
+    if (tenantId && lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
