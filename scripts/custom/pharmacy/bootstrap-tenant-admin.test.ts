@@ -105,4 +105,24 @@ describe('tenant admin bootstrap CLI', () => {
       .toBe(JSON.parse(String(second.body)).temporaryPassword);
     expect(output.filter((line) => line.includes('再実行キー')).length).toBe(2);
   });
+
+  it('derives a different temporary password for a different tenant reusing the same idempotency key', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { tenantCode: 'pharmacy-a', adminLoginId: 'admin-a' },
+    }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    const sharedIdempotencyKey = ['--idempotency-key', 'shared-lost-response-key'];
+    const tenantAArgs = [...args, ...sharedIdempotencyKey];
+    const tenantBArgs = args.map((value) => (value === 'tenant-a' ? 'tenant-b' : value))
+      .concat(sharedIdempotencyKey);
+
+    await runTenantAdminBootstrap(tenantAArgs, environment, fetcher, (line) => output.push(line));
+    await runTenantAdminBootstrap(tenantBArgs, environment, fetcher, (line) => output.push(line));
+
+    const first = fetcher.mock.calls[0][1]!;
+    const second = fetcher.mock.calls[1][1]!;
+    expect(JSON.parse(String(first.body)).temporaryPassword)
+      .not.toBe(JSON.parse(String(second.body)).temporaryPassword);
+  });
 });

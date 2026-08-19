@@ -54,9 +54,9 @@ function requestId(values: Record<string, string>): string {
   return supplied || randomUUID();
 }
 
-function temporaryPassword(platformKey: string, idempotencyKey: string): string {
+function temporaryPassword(platformKey: string, tenantId: string, idempotencyKey: string): string {
   const digest = createHmac('sha256', platformKey)
-    .update(`pharmacy-tenant-admin-bootstrap:${idempotencyKey}`)
+    .update(`pharmacy-tenant-admin-bootstrap:${tenantId}:${idempotencyKey}`)
     .digest('base64url');
   return `Tmp-${digest.slice(0, 32)}`;
 }
@@ -91,12 +91,13 @@ export async function runTenantAdminBootstrap(
     const platformKey = environment.PHARMACY_PLATFORM_ADMIN_KEY?.trim();
     if (!platformKey) throw new Error('PHARMACY_PLATFORM_ADMIN_KEY is required');
     const url = endpoint(parsed.values);
+    const tenantId = required(parsed.values, 'tenant-id');
     const idempotencyKey = requestId(parsed.values);
     const body = {
       loginId: required(parsed.values, 'admin-id'),
       displayName: required(parsed.values, 'admin-name'),
       email: parsed.values['admin-email']?.trim() || null,
-      temporaryPassword: temporaryPassword(platformKey, idempotencyKey),
+      temporaryPassword: temporaryPassword(platformKey, tenantId, idempotencyKey),
     };
     if (parsed.dryRun) {
       write('Dry run passed. No request was sent.');

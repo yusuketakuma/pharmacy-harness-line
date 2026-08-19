@@ -95,9 +95,9 @@ function requestId(values: Record<string, string>): string {
   return supplied || randomUUID();
 }
 
-function temporaryPassword(platformKey: string, idempotencyKey: string): string {
+function temporaryPassword(platformKey: string, tenantCode: string, idempotencyKey: string): string {
   const digest = createHmac('sha256', platformKey)
-    .update(`pharmacy-tenant-setup:${idempotencyKey}`)
+    .update(`pharmacy-tenant-setup:${tenantCode}:${idempotencyKey}`)
     .digest('base64url');
   return `Tmp-${digest.slice(0, 32)}`;
 }
@@ -146,10 +146,11 @@ export async function runTenantSetup(
     }
 
     const endpoint = workerEndpoint(required(parsed.values, 'worker-url'));
+    const tenantCode = required(parsed.values, 'tenant-code');
     const idempotencyKey = requestId(parsed.values);
-    const generatedTemporaryPassword = temporaryPassword(platformKey, idempotencyKey);
+    const generatedTemporaryPassword = temporaryPassword(platformKey, tenantCode, idempotencyKey);
     const body = {
-      tenantCode: required(parsed.values, 'tenant-code'),
+      tenantCode,
       tenantName: required(parsed.values, 'tenant-name'),
       admin: {
         loginId: required(parsed.values, 'admin-id'),

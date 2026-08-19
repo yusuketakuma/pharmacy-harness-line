@@ -194,8 +194,6 @@ export default function PrescriptionPage() {
       if (!updated) throw new Error('再提出情報を読み込めませんでした。');
       setReplacement(updated);
       setFiles([]);
-      setOriginalConsent(true);
-      setNoticeConsent(true);
       setTab('send');
     } catch (err) {
       setError(err instanceof Error ? err.message : '再提出を開始できませんでした。');
@@ -264,6 +262,7 @@ export default function PrescriptionPage() {
                 希望受取日時（任意）
                 <input type="datetime-local" value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
               </label>
+              {replacement && <p className="text-xs text-amber-700">再提出のため、同意事項に再度チェックしてください。</p>}
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={originalConsent} onChange={(event) => setOriginalConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>処方せん原本を持参します</span></label>
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={noticeConsent} onChange={(event) => setNoticeConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>準備完了通知をLINEで受け取ります</span></label>
             </div>

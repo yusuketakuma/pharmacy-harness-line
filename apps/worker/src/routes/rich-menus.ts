@@ -4,15 +4,25 @@ import { getFriendById, getLineAccountById } from '@line-crm/db';
 import type { Env } from '../index.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 
 const richMenus = new Hono<Env>();
 
-/** Resolve LINE access token — uses accountId query param if provided, otherwise default */
-async function resolveLineClient(c: { env: Env['Bindings']; req: { query(key: string): string | undefined } }): Promise<LineClient> {
+/**
+ * Resolve LINE access token — uses accountId query param if provided, otherwise default.
+ * Defense-in-depth: independently re-checks tenant ownership of a resolved accountId
+ * rather than relying solely on upstream guards (pharmacyTenantApiAllowlistGuard /
+ * pharmacyGenericFeatureGuard). An account outside the caller's tenant is treated the
+ * same as an account that was not found — falls back to the default LINE client.
+ */
+async function resolveLineClient(c: Context<Env>): Promise<LineClient> {
   const accountId = c.req.query('accountId');
   if (accountId) {
     const account = await getLineAccountById(c.env.DB, accountId);
-    if (account) return new LineClient(account.channel_access_token);
+    const tenantId = c.get('tenantId');
+    if (account && (!tenantId || await accountResourceOwnedByStaff(c, tenantId, accountId))) {
+      return new LineClient(account.channel_access_token);
+    }
   }
   return new LineClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
 }

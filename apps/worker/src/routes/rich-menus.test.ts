@@ -13,6 +13,11 @@ const pharmacyAccessMocks = vi.hoisted(() => ({
 }));
 vi.mock('../custom/pharmacy/growth-loop/access.js', () => pharmacyAccessMocks);
 
+const tenantBoundaryMocks = vi.hoisted(() => ({
+  accountResourceOwnedByStaff: vi.fn(),
+}));
+vi.mock('../middleware/tenant-boundary.js', () => tenantBoundaryMocks);
+
 const credentialMocks = vi.hoisted(() => ({
   readLineCredential: vi.fn(),
 }));
@@ -247,5 +252,61 @@ describe('friend rich-menu credential resolution', () => {
     expect(corruptCredential.status).toBe(403);
     expect(lineClientMocks.constructor).not.toHaveBeenCalled();
     expect(lineClientMocks.linkRichMenuToUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/rich-menus accountId tenant backstop', () => {
+  function setupApp(opts: { tenantId?: string } = {}) {
+    const app = new Hono<{
+      Bindings: { DB: D1Database; LINE_CHANNEL_ACCESS_TOKEN: string };
+      Variables: { tenantId: string };
+    }>();
+    app.use('*', async (c, next) => {
+      if (opts.tenantId) c.set('tenantId', opts.tenantId);
+      await next();
+    });
+    app.route('/', richMenus);
+    return app;
+  }
+
+  beforeEach(() => {
+    for (const mock of Object.values(dbMocks)) mock.mockReset();
+    for (const mock of Object.values(lineClientMocks)) mock.mockReset();
+    tenantBoundaryMocks.accountResourceOwnedByStaff.mockReset();
+    lineClientMocks.getRichMenuList.mockResolvedValue({ richmenus: [] });
+  });
+
+  test('falls back to the default LINE client when the caller tenant does not own accountId, even with upstream guards bypassed', async () => {
+    // Calling the richMenus router directly (not through the top-level app)
+    // already bypasses pharmacyTenantApiAllowlistGuard/pharmacyGenericFeatureGuard,
+    // so this proves resolveLineClient itself rejects the cross-tenant account.
+    dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'foreign-token' });
+    tenantBoundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(false);
+
+    const res = await setupApp({ tenantId: 'tenant-a' }).request(
+      '/api/rich-menus?accountId=account-b',
+      {},
+      { DB: {} as D1Database, LINE_CHANNEL_ACCESS_TOKEN: 'env-token' },
+    );
+
+    expect(res.status).toBe(200);
+    expect(tenantBoundaryMocks.accountResourceOwnedByStaff)
+      .toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'account-b');
+    expect(lineClientMocks.constructor).toHaveBeenCalledWith('env-token');
+    expect(lineClientMocks.constructor).not.toHaveBeenCalledWith('foreign-token');
+  });
+
+  test('uses the resolved account token when the tenant owns the accountId', async () => {
+    dbMocks.getLineAccountById.mockResolvedValue({ channel_access_token: 'owned-token' });
+    tenantBoundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
+
+    const res = await setupApp({ tenantId: 'tenant-a' }).request(
+      '/api/rich-menus?accountId=account-a',
+      {},
+      { DB: {} as D1Database, LINE_CHANNEL_ACCESS_TOKEN: 'env-token' },
+    );
+
+    expect(res.status).toBe(200);
+    expect(lineClientMocks.constructor).toHaveBeenCalledWith('owned-token');
   });
 });

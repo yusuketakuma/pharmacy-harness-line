@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   claimDueNextIntakeExpectations,
-  listNextIntakeExpectations,
+  listAccountExpectations,
+  listPatientExpectations,
   markNextIntakeExpectationReminded,
   offerNextIntakeExpectation,
   respondToNextIntakeExpectation,
@@ -288,13 +289,13 @@ describe('custom_012 pharmacy next-intake expectations', () => {
       SET status = 'linked', candidate_submission_id = 'submission-a'
       WHERE id = 'continuity-a'`).run();
 
-    await expect(listNextIntakeExpectations(d1, 'account-a'))
+    await expect(listAccountExpectations(d1, 'account-a'))
       .resolves.toEqual([expect.objectContaining({ id: item.id, status: 'linked', patient_id: 'patient-a' })]);
-    await expect(listNextIntakeExpectations(d1, 'account-a', 'friend-a'))
+    await expect(listPatientExpectations(d1, 'account-a', 'friend-a'))
       .resolves.toHaveLength(1);
-    await expect(listNextIntakeExpectations(d1, 'account-a', 'friend-b'))
+    await expect(listPatientExpectations(d1, 'account-a', 'friend-b'))
       .resolves.toEqual([]);
-    await expect(listNextIntakeExpectations(d1, 'account-b', 'friend-a'))
+    await expect(listPatientExpectations(d1, 'account-b', 'friend-a'))
       .resolves.toEqual([]);
   });
 });
