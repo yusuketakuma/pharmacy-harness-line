@@ -42,7 +42,9 @@ export async function deliverContinuityReminder(
       category: 'continuity',
       retryKey: `next-intake:${reminder.id}`,
     });
-    if (outcome === 'in_progress') return 'skipped';
+    // 'paused' leaves the expectation un-reminded on purpose: the reminder is
+    // due again on the next sweep once the tenant resumes outbound messaging.
+    if (outcome === 'in_progress' || outcome === 'paused') return 'skipped';
     await markNextIntakeExpectationReminded(options.db, {
       lineAccountId: reminder.line_account_id,
       expectationId: reminder.id,

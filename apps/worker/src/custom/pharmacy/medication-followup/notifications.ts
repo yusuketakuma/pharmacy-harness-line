@@ -63,7 +63,9 @@ export async function processDueMedicationFollowUps(
         retryKey: `medication-followup:${current.id}`,
         now,
       });
-      if (outcome === 'in_progress') {
+      // 'paused' must not transition the follow-up to 'delivered' — nothing
+      // was delivered; it stays due until the tenant resumes sending.
+      if (outcome === 'in_progress' || outcome === 'paused') {
         result.skipped++;
         continue;
       }

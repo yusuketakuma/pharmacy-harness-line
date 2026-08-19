@@ -102,7 +102,7 @@ async function storeWebhookEvent(
  * and again by the cron sweep. Leases the row, runs the handler, then settles
  * it as completed or failed — never deletes it.
  */
-async function runWebhookInboxEvent(
+export async function runWebhookInboxEvent(
   runner: WebhookEventRunner,
   row: WebhookInboxRow & { event?: WebhookEvent },
   now: Date = new Date(),

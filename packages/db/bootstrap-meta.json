@@ -103,7 +103,8 @@
     "custom_026_pharmacy_prescription_view_events.sql",
     "custom_027_pharmacy_staff_api_key_hash.sql",
     "custom_028_platform_admin.sql",
-    "custom_029_platform_admin_access_grants.sql"
+    "custom_029_platform_admin_access_grants.sql",
+    "custom_030_pharmacy_tenant_outbound_pause.sql"
   ],
-  "migrationCount": 104
+  "migrationCount": 105
 }

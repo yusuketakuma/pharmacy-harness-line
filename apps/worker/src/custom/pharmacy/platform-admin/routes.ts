@@ -15,6 +15,7 @@ import {
   listAdminPharmacyPatients,
 } from '../intake/repository.js';
 import { listMynaHandoffs } from '../myna/repository.js';
+import { runWebhookInboxEvent } from '../../../routes/webhook.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
 import {
   AccessGrantError,
@@ -373,6 +374,117 @@ platformAdminRoutes.patch('/api/platform-admin/tenants/:id', async (c) => {
   }
   return c.json({ success: true, data: { id: tenantId, ...after } });
 });
+
+/**
+ * POST /api/platform-admin/tenants/:id/outbound-messaging — hold or resume
+ * every proactive LINE push to this tenant's patients ("LINE送信一時停止").
+ * Inbound webhook processing is deliberately untouched: a paused tenant still
+ * receives and stores messages and events, it just stops sending. The single
+ * enforcement point is sendPharmacyAutomatedPush() in growth-loop/sender.ts.
+ */
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/outbound-messaging', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const body = await c.req.json().catch(() => null) as { paused?: unknown } | null;
+  if (typeof body?.paused !== 'boolean') {
+    return c.json({ success: false, error: 'paused must be a boolean' }, 400);
+  }
+  // Existence is checked before the batch, not from meta.changes: D1 rolls a
+  // batch back on SQL error only, so an UPDATE that matches no row would still
+  // commit its audit event and leave a record of a tenant that never existed.
+  const exists = await c.env.DB.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
+    .bind(tenantId).first<{ id: string }>();
+  if (!exists) return c.json({ success: false, error: 'Tenant not found' }, 404);
+
+  const now = new Date().toISOString();
+  const pausedAt = body.paused ? now : null;
+  // Same batch as the audit event, like every other tenant mutation here.
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE tenants SET outbound_messaging_paused_at = ?, updated_at = ? WHERE id = ?`,
+    ).bind(pausedAt, now, tenantId),
+    platformAdminAccessStatement(
+      c.env.DB, admin.id, tenantId,
+      body.paused ? 'pause_outbound_messaging' : 'resume_outbound_messaging',
+      'tenant', tenantId,
+    ),
+  ]);
+  if (results[0].meta.changes !== 1) {
+    return c.json({ success: false, error: 'Tenant changed concurrently' }, 409);
+  }
+  return c.json({ success: true, data: { id: tenantId, outboundMessagingPausedAt: pausedAt } });
+});
+
+/**
+ * POST /api/platform-admin/tenants/:id/webhook-events/:webhookEventId/retry —
+ * manual replay for a durable-inbox row the automation has given up on.
+ * Only `failed`/dead-lettered rows are eligible: `pending` and lease-expired
+ * rows are already owned by the cron sweep, and replaying a `completed` row
+ * would re-apply side effects the dedup claim exists to prevent.
+ */
+platformAdminRoutes.post(
+  '/api/platform-admin/tenants/:id/webhook-events/:webhookEventId/retry',
+  async (c) => {
+    const admin = c.get('platformAdmin');
+    const tenantId = c.req.param('id');
+    const webhookEventId = c.req.param('webhookEventId');
+
+    // tenant_id is part of the WHERE, so a receipt belonging to another tenant
+    // is indistinguishable from one that does not exist.
+    const receipt = await c.env.DB.prepare(
+      `SELECT tenant_id, line_account_id, webhook_event_id, payload, status, dead_lettered_at
+         FROM pharmacy_webhook_event_receipts
+        WHERE tenant_id = ? AND webhook_event_id = ?
+        LIMIT 1`,
+    ).bind(tenantId, webhookEventId).first<{
+      tenant_id: string;
+      line_account_id: string;
+      webhook_event_id: string;
+      payload: string | null;
+      status: string;
+      dead_lettered_at: string | null;
+    }>();
+    if (!receipt) return c.json({ success: false, error: 'Webhook event not found' }, 404);
+    if (receipt.status !== 'failed' && !receipt.dead_lettered_at) {
+      return c.json({
+        success: false,
+        error: `Only failed or dead-lettered events can be retried by hand (status: ${receipt.status})`,
+      }, 400);
+    }
+
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE pharmacy_webhook_event_receipts
+            SET status = 'pending', retry_count = 0,
+                dead_lettered_at = NULL, lease_until = NULL
+          WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
+      ).bind(receipt.tenant_id, receipt.line_account_id, receipt.webhook_event_id),
+      platformAdminAccessStatement(
+        c.env.DB, admin.id, tenantId, 'retry_webhook_event', 'webhook_event', webhookEventId,
+        { lineAccountId: receipt.line_account_id, previousStatus: receipt.status },
+      ),
+    ]);
+    if (results[0].meta.changes !== 1) {
+      return c.json({ success: false, error: 'Webhook event changed concurrently' }, 409);
+    }
+
+    // Reuse the one processing path the request handler and cron sweep share;
+    // it re-leases the row and settles it as completed or failed on its own.
+    const outcome = await runWebhookInboxEvent({
+      db: c.env.DB,
+      credentialRootSecret: c.env.LINE_CREDENTIAL_KEY_V1 ?? '',
+      workerUrl: c.env.WORKER_URL || new URL(c.req.url).origin,
+      liffUrl: c.env.LIFF_URL,
+      r2: c.env.IMAGES,
+    }, {
+      tenant_id: receipt.tenant_id,
+      line_account_id: receipt.line_account_id,
+      webhook_event_id: receipt.webhook_event_id,
+      payload: receipt.payload,
+    });
+    return c.json({ success: true, data: { webhookEventId, outcome } });
+  },
+);
 
 /**
  * POST /api/platform-admin/tenants/:id/support-grants — start support mode

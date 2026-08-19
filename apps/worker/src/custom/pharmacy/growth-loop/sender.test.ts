@@ -9,10 +9,20 @@ import { sendPharmacyAutomatedPush } from './sender.js';
 
 type Step = { match: string; run?: { changes: number }; first?: unknown };
 
-function scriptedDb(steps: Step[], seen: string[] = []): D1Database {
+function scriptedDb(steps: Step[], seen: string[] = [], pausedAt: string | null = null): D1Database {
   return {
     prepare(sql: string) {
       seen.push(sql);
+      // The outbound-pause lookup runs before every send and is not part of
+      // the notification-event script each test below spells out.
+      if (sql.includes('outbound_messaging_paused_at')) {
+        return {
+          bind: () => ({
+            first: async () => ({ outbound_messaging_paused_at: pausedAt }),
+            run: async () => ({ meta: { changes: 0 } }),
+          }),
+        };
+      }
       const step = steps.shift();
       if (!step || !sql.includes(step.match)) throw new Error(`unexpected SQL: ${sql}`);
       return {
@@ -150,6 +160,29 @@ describe('pharmacy automated sender', () => {
     expect(push.mock.calls[0][4]).toBe(push.mock.calls[1][4]);
   });
 
+  it('does not send while the tenant has outbound messaging paused', async () => {
+    // No notification-event steps at all: the pause is checked before the
+    // idempotency claim, so a paused send burns neither the retry key nor the
+    // proactive monthly cap and can still go out once the tenant resumes.
+    const seen: string[] = [];
+    const db = scriptedDb([], seen, '2026-08-19T00:00:00.000Z');
+
+    await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('paused');
+    expect(push).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('FROM tenant_line_accounts');
+  });
+
+  it('sends normally when the tenant is not paused', async () => {
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+    ], [], null);
+
+    await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('sent');
+    expect(push).toHaveBeenCalledOnce();
+  });
+
   it('applies the proactive monthly cap per friend with an atomic claim', async () => {
     const seen: string[] = [];
     const db = scriptedDb([
@@ -161,8 +194,9 @@ describe('pharmacy automated sender', () => {
     await expect(sendPharmacyAutomatedPush({
       ...base, db, category: 'proactive_noncare', now: new Date('2026-08-31T15:30:00.000Z'),
     })).rejects.toThrow(/frequency cap/);
-    expect(seen[0]).toContain('friend_id = ?');
-    expect(seen[0]).toContain("outcome IN ('attempted','sent')");
+    const claim = seen.find((sql) => sql.includes('INSERT OR IGNORE')) ?? '';
+    expect(claim).toContain('friend_id = ?');
+    expect(claim).toContain("outcome IN ('attempted','sent')");
     expect(push).not.toHaveBeenCalled();
   });
 });

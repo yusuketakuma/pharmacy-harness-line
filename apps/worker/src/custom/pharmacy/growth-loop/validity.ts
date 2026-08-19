@@ -100,6 +100,13 @@ export async function processDuePrescriptionValidityReminders(
       result.skipped++;
       continue;
     }
+    // Hands the claim back so the reminder is due again on the next sweep.
+    const releaseClaim = () => db.prepare(
+      `UPDATE pharmacy_prescription_validities
+          SET reminder_claimed_at = NULL, updated_at = ?
+        WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
+    ).bind(timestamp, row.submission_id, row.line_account_id, timestamp).run();
+
     const accessToken = options.lineCredentialKey
       ? await readLineCredential(db, options.lineCredentialKey, {
         tenantId: row.tenant_id,
@@ -108,16 +115,12 @@ export async function processDuePrescriptionValidityReminders(
       }).catch(() => null)
       : null;
     if (!accessToken) {
-      await db.prepare(
-        `UPDATE pharmacy_prescription_validities
-            SET reminder_claimed_at = NULL, updated_at = ?
-          WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
-      ).bind(timestamp, row.submission_id, row.line_account_id, timestamp).run();
+      await releaseClaim();
       result.skipped++;
       continue;
     }
     try {
-      await sendPharmacyAutomatedPush({
+      const outcome = await sendPharmacyAutomatedPush({
         db,
         proxyBaseUrl: options.proxyBaseUrl,
         proxyDispatch: options.proxyDispatch,
@@ -130,6 +133,12 @@ export async function processDuePrescriptionValidityReminders(
         vars: { genericDate: row.valid_until },
         retryKey: `prescription-validity:${row.submission_id}:${row.valid_until}`,
       });
+      // Never stamp reminder_sent_at for a paused tenant — nothing was sent.
+      if (outcome === 'paused') {
+        await releaseClaim();
+        result.skipped++;
+        continue;
+      }
       await db.prepare(
         `UPDATE pharmacy_prescription_validities
             SET reminder_sent_at = ?, reminder_claimed_at = NULL, updated_at = ?
@@ -137,11 +146,7 @@ export async function processDuePrescriptionValidityReminders(
       ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, timestamp).run();
       result.sent++;
     } catch {
-      await db.prepare(
-        `UPDATE pharmacy_prescription_validities
-            SET reminder_claimed_at = NULL, updated_at = ?
-          WHERE submission_id = ? AND line_account_id = ? AND reminder_claimed_at = ?`,
-      ).bind(timestamp, row.submission_id, row.line_account_id, timestamp).run();
+      await releaseClaim();
       result.failed++;
     }
   }

@@ -1725,7 +1725,7 @@ CREATE TABLE tenants (
                CHECK (status IN ('active', 'suspended')),
   created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
+, outbound_messaging_paused_at TEXT);
 
 CREATE TABLE tracked_links (
   id TEXT PRIMARY KEY,

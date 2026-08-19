@@ -7,6 +7,13 @@ import { platformAdminRoutes } from './routes.js';
 
 vi.mock('@line-crm/db', () => ({ getStaffByApiKey: vi.fn(async () => null) }));
 
+// The manual webhook retry reuses the durable-inbox runner rather than
+// reimplementing event processing; the route's contract is "reset the row,
+// then hand it to that one function", which is what this double asserts.
+const webhookRetry = vi.hoisted(() =>
+  vi.fn(async (_runner: unknown, _row: unknown) => 'completed' as const));
+vi.mock('../../../routes/webhook.js', () => ({ runWebhookInboxEvent: webhookRetry }));
+
 const patient = {
   id: 'patient-1',
   relationship: 'self',
@@ -51,8 +58,14 @@ const admin = {
 };
 
 const tenants = [
-  { id: 'tenant-a', tenant_code: 'pharmacy-a', display_name: 'Pharmacy A', status: 'active' },
-  { id: 'tenant-b', tenant_code: 'pharmacy-b', display_name: 'Pharmacy B', status: 'suspended' },
+  {
+    id: 'tenant-a', tenant_code: 'pharmacy-a', display_name: 'Pharmacy A',
+    status: 'active', outbound_messaging_paused_at: null as string | null,
+  },
+  {
+    id: 'tenant-b', tenant_code: 'pharmacy-b', display_name: 'Pharmacy B',
+    status: 'suspended', outbound_messaging_paused_at: null as string | null,
+  },
 ];
 
 type Session = {
@@ -63,16 +76,77 @@ type Session = {
   revokedAt: string | null;
 };
 
+type Grant = {
+  id: string;
+  platform_admin_id: string;
+  tenant_id: string;
+  scopes: string;
+  reason: string;
+  ticket_reference: string | null;
+  issued_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+};
+
+type WebhookReceipt = {
+  tenant_id: string;
+  line_account_id: string;
+  webhook_event_id: string;
+  payload: string | null;
+  status: string;
+  retry_count: number;
+  dead_lettered_at: string | null;
+  lease_until: string | null;
+};
+
 type Store = {
   db: D1Database;
   auditEvents: Array<Record<string, unknown>>;
   tenants: typeof tenants;
+  grants: Grant[];
+  receipts: WebhookReceipt[];
 };
+
+/** An active, unexpired, unrevoked phi:read grant — support mode is ON. */
+function seedGrant(store: Store, overrides: Partial<Grant> = {}): Grant {
+  const grant: Grant = {
+    id: 'grant-fixture',
+    platform_admin_id: admin.staff_id,
+    tenant_id: 'tenant-a',
+    scopes: JSON.stringify(['phi:read']),
+    reason: 'Investigating a delivery complaint',
+    ticket_reference: 'OPS-1',
+    issued_at: new Date(Date.now() - 60_000).toISOString(),
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+    revoked_at: null,
+    ...overrides,
+  };
+  store.grants.push(grant);
+  return grant;
+}
 
 function fakeDb(): Store {
   const sessions = new Map<string, Session>();
   const auditEvents: Array<Record<string, unknown>> = [];
   const rows = tenants.map((tenant) => ({ ...tenant }));
+  const grants: Grant[] = [];
+  const receipts: WebhookReceipt[] = [
+    {
+      tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-failed',
+      payload: '{"type":"message"}', status: 'failed',
+      retry_count: 3, dead_lettered_at: null, lease_until: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-done',
+      payload: '{"type":"message"}', status: 'completed',
+      retry_count: 1, dead_lettered_at: null, lease_until: null,
+    },
+    {
+      tenant_id: 'tenant-b', line_account_id: 'account-b', webhook_event_id: 'wh-other-tenant',
+      payload: '{"type":"message"}', status: 'failed',
+      retry_count: 10, dead_lettered_at: '2026-01-02T00:00:00.000Z', lease_until: null,
+    },
+  ];
   const stats = { line_account_count: 1, staff_count: 2, patient_count: 3 };
 
   const db = {
@@ -98,6 +172,19 @@ function fakeDb(): Store {
           }
           if (sql.includes('FROM platform_admin_credentials')) {
             return values[0] === admin.staff_id ? { ...admin } : null;
+          }
+          // requireActiveGrant: this admin, this exact tenant, unrevoked, unexpired.
+          if (sql.includes('FROM platform_admin_access_grants')) {
+            return grants
+              .filter((grant) => grant.platform_admin_id === values[0] &&
+                grant.tenant_id === values[1] &&
+                !grant.revoked_at &&
+                grant.expires_at > String(values[2]))
+              .sort((left, right) => (left.expires_at < right.expires_at ? 1 : -1))[0] ?? null;
+          }
+          if (sql.includes('FROM pharmacy_webhook_event_receipts')) {
+            return receipts.find((receipt) => receipt.tenant_id === values[0] &&
+              receipt.webhook_event_id === values[1]) ?? null;
           }
           if (sql.includes('FROM tenants AS tenant')) {
             const found = rows.find((tenant) => tenant.id === values[0]);
@@ -130,6 +217,13 @@ function fakeDb(): Store {
           }
           if (sql.includes('FROM platform_admin_access_events')) {
             return { results: auditEvents.slice().reverse() };
+          }
+          // listActiveGrants: every unrevoked, unexpired grant this admin holds.
+          if (sql.includes('FROM platform_admin_access_grants')) {
+            return {
+              results: grants.filter((grant) => grant.platform_admin_id === values[0] &&
+                !grant.revoked_at && grant.expires_at > String(values[1])),
+            };
           }
           return { results: [] };
         },
@@ -188,6 +282,45 @@ function fakeDb(): Store {
             admin.credential_version += 1;
             return { meta: { changes: 1 } };
           }
+          if (sql.includes('INSERT INTO platform_admin_access_grants')) {
+            grants.push({
+              id: String(values[0]),
+              platform_admin_id: String(values[1]),
+              tenant_id: String(values[2]),
+              scopes: String(values[3]),
+              reason: String(values[4]),
+              ticket_reference: values[5] as string | null,
+              issued_at: String(values[7]),
+              expires_at: String(values[8]),
+              revoked_at: null,
+            });
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('UPDATE platform_admin_access_grants')) {
+            // endAccessGrant targets one grant; the change-password batch
+            // revokes every active grant this admin holds.
+            const targets = sql.includes('WHERE id = ?')
+              ? grants.filter((grant) => grant.id === values[2] &&
+                grant.platform_admin_id === values[3] && !grant.revoked_at)
+              : grants.filter((grant) => grant.platform_admin_id === values[2] && !grant.revoked_at);
+            for (const grant of targets) grant.revoked_at = String(values[0]);
+            return { meta: { changes: targets.length } };
+          }
+          if (sql.includes('UPDATE pharmacy_webhook_event_receipts')) {
+            const target = receipts.find((receipt) => receipt.tenant_id === values[0] &&
+              receipt.line_account_id === values[1] && receipt.webhook_event_id === values[2]);
+            if (!target) return { meta: { changes: 0 } };
+            Object.assign(target, {
+              status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
+            });
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('outbound_messaging_paused_at')) {
+            const target = rows.find((tenant) => tenant.id === values[2]);
+            if (!target) return { meta: { changes: 0 } };
+            target.outbound_messaging_paused_at = values[0] as string | null;
+            return { meta: { changes: 1 } };
+          }
           if (sql.includes('UPDATE tenants')) {
             const target = rows.find((tenant) => tenant.id === values[3]);
             if (!target) return { meta: { changes: 0 } };
@@ -204,7 +337,7 @@ function fakeDb(): Store {
       return Promise.all(statements.map((statement) => statement.run()));
     },
   };
-  return { db: db as unknown as D1Database, auditEvents, tenants: rows };
+  return { db: db as unknown as D1Database, auditEvents, tenants: rows, grants, receipts };
 }
 
 function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
@@ -282,7 +415,32 @@ async function standardSession(testEnv: Env['Bindings']) {
   };
 }
 
+type Auth = { cookie: string; csrf: string };
+
+function postAs(testEnv: Env['Bindings'], auth: Auth, path: string, body?: unknown) {
+  return app().request(path, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: auth.cookie,
+      'x-platform-admin-csrf-token': auth.csrf,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }, testEnv);
+}
+
+/** Status of the PHI list route — the thing a support-mode grant gates. */
+async function patientsStatus(testEnv: Env['Bindings'], cookie: string, tenantId: string) {
+  const response = await app().request(
+    `/api/platform-admin/tenants/${tenantId}/patients`,
+    { headers: { cookie } },
+    testEnv,
+  );
+  return response.status;
+}
+
 beforeEach(async () => {
+  webhookRetry.mockClear();
   admin.password_hash = await hashTenantPassword('Temporary pass 42');
   admin.must_change_password = 1;
   admin.credential_version = 1;
@@ -499,6 +657,8 @@ describe('platform admin cross-tenant access', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const { cookie } = await standardSession(testEnv);
+    // PHI needs an active support-mode grant, not just a session.
+    seedGrant(store);
 
     const response = await app().request('/api/platform-admin/tenants/tenant-a/patients', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
@@ -512,6 +672,7 @@ describe('platform admin cross-tenant access', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const { cookie } = await standardSession(testEnv);
+    seedGrant(store);
 
     const response = await app().request(
       '/api/platform-admin/tenants/tenant-a/patients/patient-1',
@@ -593,9 +754,15 @@ describe('platform admin audit coverage', () => {
     'GET /api/platform-admin/session',
     // Reading your own audit trail would append to the trail being read.
     'GET /api/platform-admin/audit',
+    // Reading your own open support-mode grants is a self-check, like /session;
+    // the grant's issue and end are both audited on their own.
+    'GET /api/platform-admin/support-grants/active',
   ]);
 
-  const FIXTURES: Record<string, { path: string; method: string; body?: unknown }> = {
+  // Only platformAdminRoutes' own registrations are enumerated below. The
+  // platform-admin dashboard/operations routers are separate Hono instances
+  // and carry their own audit-coverage tests.
+  const FIXTURES: Record<string, { path: string; method: string; body?: unknown; status?: number }> = {
     'POST /api/platform-admin/login': { path: '/api/platform-admin/login', method: 'POST' },
     'POST /api/platform-admin/logout': { path: '/api/platform-admin/logout', method: 'POST' },
     'POST /api/platform-admin/change-password': {
@@ -619,6 +786,30 @@ describe('platform admin audit coverage', () => {
       method: 'GET',
     },
     'GET /api/platform-admin/logs': { path: '/api/platform-admin/logs', method: 'GET' },
+    'POST /api/platform-admin/tenants/:id/outbound-messaging': {
+      path: '/api/platform-admin/tenants/tenant-a/outbound-messaging',
+      method: 'POST',
+      body: { paused: true },
+    },
+    'POST /api/platform-admin/tenants/:id/webhook-events/:webhookEventId/retry': {
+      path: '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry',
+      method: 'POST',
+    },
+    'POST /api/platform-admin/tenants/:id/support-grants': {
+      path: '/api/platform-admin/tenants/tenant-a/support-grants',
+      method: 'POST',
+      status: 201,
+      body: {
+        reason: 'Investigating a delivery complaint',
+        ticketReference: 'OPS-2',
+        scopes: ['phi:read'],
+        currentPassword: 'Permanent password 84',
+      },
+    },
+    'POST /api/platform-admin/support-grants/:grantId/end': {
+      path: '/api/platform-admin/support-grants/grant-fixture/end',
+      method: 'POST',
+    },
   };
 
   it('covers every registered route with a fixture', () => {
@@ -633,6 +824,10 @@ describe('platform admin audit coverage', () => {
     const testEnv = env(store.db);
     const isLogin = fixture.path === '/api/platform-admin/login';
     const auth = isLogin ? { cookie: '', csrf: '' } : await standardSession(testEnv);
+    // Support mode is on: the PHI fixtures need it, and the grant-end fixture
+    // needs a grant to end. Seeded after standardSession, whose password change
+    // deliberately revokes every open grant.
+    if (!isLogin) seedGrant(store);
     const before = store.auditEvents.length;
 
     const response = await app().request(fixture.path, {
@@ -647,7 +842,196 @@ describe('platform admin audit coverage', () => {
         : fixture.body === undefined ? undefined : JSON.stringify(fixture.body),
     }, testEnv);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(fixture.status ?? 200);
     expect(store.auditEvents.length).toBeGreaterThan(before);
+  });
+});
+
+describe('platform admin support-mode grants', () => {
+  const GRANT_BODY = {
+    reason: 'Investigating a delivery complaint',
+    ticketReference: 'OPS-7',
+    scopes: ['phi:read'],
+    currentPassword: 'Permanent password 84',
+  };
+  const startGrant = (testEnv: Env['Bindings'], auth: Auth, tenantId = 'tenant-a', body = GRANT_BODY) =>
+    postAs(testEnv, auth, `/api/platform-admin/tenants/${tenantId}/support-grants`, body);
+
+  it('requires the current password again even with a valid session', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+
+    const wrong = await startGrant(testEnv, auth, 'tenant-a', {
+      ...GRANT_BODY, currentPassword: 'Not my password 99',
+    });
+    expect(wrong.status).toBe(401);
+    expect(store.grants).toHaveLength(0);
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(403);
+
+    const granted = await startGrant(testEnv, auth);
+    expect(granted.status).toBe(201);
+    expect(store.grants).toHaveLength(1);
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+    expect(store.auditEvents.some((event) => event.action === 'support_mode_started')).toBe(true);
+  });
+
+  it('scopes a grant to exactly the tenant it was issued for', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    expect((await startGrant(testEnv, auth, 'tenant-a')).status).toBe(201);
+
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-b')).toBe(403);
+    const detail = await app().request(
+      '/api/platform-admin/tenants/tenant-b/patients/patient-1',
+      { headers: { cookie: auth.cookie } },
+      testEnv,
+    );
+    expect(detail.status).toBe(403);
+  });
+
+  it('stops honouring a grant once it has expired', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    seedGrant(store, {
+      issued_at: new Date(Date.now() - 3_600_000).toISOString(),
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(403);
+  });
+
+  it('revokes the grant when support mode is ended', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    const created = await startGrant(testEnv, auth);
+    const grantId = (await created.json() as { data: { id: string } }).data.id;
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+
+    const active = await app().request(
+      '/api/platform-admin/support-grants/active',
+      { headers: { cookie: auth.cookie } },
+      testEnv,
+    );
+    await expect(active.json()).resolves.toMatchObject({ data: [{ id: grantId }] });
+
+    const ended = await postAs(testEnv, auth, `/api/platform-admin/support-grants/${grantId}/end`);
+    expect(ended.status).toBe(200);
+    expect(store.grants[0].revoked_at).not.toBeNull();
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(403);
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      action: 'support_mode_ended', resource_type: 'access_grant', resource_id: grantId,
+    });
+
+    // Ending an already-ended grant is not a second revocation.
+    expect((await postAs(testEnv, auth, `/api/platform-admin/support-grants/${grantId}/end`)).status)
+      .toBe(404);
+  });
+
+  it('revokes every open grant when the admin changes password', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    expect((await startGrant(testEnv, auth)).status).toBe(201);
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+
+    const changed = await postAs(testEnv, auth, '/api/platform-admin/change-password', {
+      currentPassword: 'Permanent password 84',
+      newPassword: 'Third password 126',
+    });
+    expect(changed.status).toBe(200);
+    expect(store.grants[0].revoked_at).not.toBeNull();
+    expect(await patientsStatus(testEnv, cookieHeader(changed), 'tenant-a')).toBe(403);
+  });
+});
+
+describe('platform admin tenant operations', () => {
+  it('pauses and resumes outbound messaging for one tenant', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    const path = '/api/platform-admin/tenants/tenant-a/outbound-messaging';
+
+    const paused = await postAs(testEnv, auth, path, { paused: true });
+    expect(paused.status).toBe(200);
+    expect(store.tenants[0].outbound_messaging_paused_at).toEqual(expect.any(String));
+    expect(store.tenants[1].outbound_messaging_paused_at).toBeNull();
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      action: 'pause_outbound_messaging', tenant_id: 'tenant-a', resource_id: 'tenant-a',
+    });
+
+    const resumed = await postAs(testEnv, auth, path, { paused: false });
+    expect(resumed.status).toBe(200);
+    await expect(resumed.json()).resolves.toMatchObject({
+      data: { id: 'tenant-a', outboundMessagingPausedAt: null },
+    });
+    expect(store.tenants[0].outbound_messaging_paused_at).toBeNull();
+    expect(store.auditEvents.at(-1)).toMatchObject({ action: 'resume_outbound_messaging' });
+  });
+
+  it('rejects a non-boolean pause flag and an unknown tenant', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+
+    expect((await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-a/outbound-messaging',
+      { paused: 'yes' })).status).toBe(400);
+    expect((await postAs(testEnv, auth, '/api/platform-admin/tenants/tenant-zz/outbound-messaging',
+      { paused: true })).status).toBe(404);
+    expect(store.auditEvents.some((event) =>
+      String(event.action).endsWith('_outbound_messaging'))).toBe(false);
+  });
+
+  it('retries a failed webhook event through the shared inbox runner', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+
+    const response = await postAs(
+      testEnv, auth, '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry',
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: { webhookEventId: 'wh-failed', outcome: 'completed' },
+    });
+    // The row is handed to the runner reset, not deleted and not re-inserted.
+    expect(store.receipts[0]).toMatchObject({
+      status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
+    });
+    expect(webhookRetry).toHaveBeenCalledOnce();
+    expect(webhookRetry.mock.calls[0][1]).toMatchObject({
+      tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-failed',
+    });
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      action: 'retry_webhook_event',
+      tenant_id: 'tenant-a',
+      resource_type: 'webhook_event',
+      resource_id: 'wh-failed',
+    });
+  });
+
+  it('retries a dead-lettered event but refuses settled, unknown and cross-tenant ones', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    const retry = (tenantId: string, eventId: string) => postAs(
+      testEnv, auth, `/api/platform-admin/tenants/${tenantId}/webhook-events/${eventId}/retry`,
+    );
+
+    // The cron sweep still owns completed rows; replaying one repeats side effects.
+    expect((await retry('tenant-a', 'wh-done')).status).toBe(400);
+    expect((await retry('tenant-a', 'wh-missing')).status).toBe(404);
+    // tenant-b owns wh-other-tenant, so tenant-a must not see it at all.
+    expect((await retry('tenant-a', 'wh-other-tenant')).status).toBe(404);
+    expect(webhookRetry).not.toHaveBeenCalled();
+    expect(store.receipts[1].status).toBe('completed');
+
+    // Dead-lettered rows are exactly what manual retry exists for.
+    expect((await retry('tenant-b', 'wh-other-tenant')).status).toBe(200);
+    expect(store.receipts[2]).toMatchObject({ status: 'pending', dead_lettered_at: null, retry_count: 0 });
   });
 });

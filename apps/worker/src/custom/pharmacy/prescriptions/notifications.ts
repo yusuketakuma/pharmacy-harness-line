@@ -178,7 +178,7 @@ export async function deliverPrescriptionNotification(
 
   const status = recipient.status === 'draft' ? undefined : recipient.status;
   try {
-    await sendPharmacyAutomatedPush({
+    const outcome = await sendPharmacyAutomatedPush({
       db,
       proxyBaseUrl: options.proxyBaseUrl,
       proxyDispatch: options.proxyDispatch,
@@ -198,6 +198,9 @@ export async function deliverPrescriptionNotification(
       },
       retryKey: recipient.status_event_id,
     });
+    // No 'notification_sent' event for a paused tenant — recording one would
+    // claim the patient was told, and would also suppress the real send later.
+    if (outcome === 'paused') return { status: 'skipped' };
     await recordNotificationEvent(db, lineAccountId, submissionId, recipient, 'notification_sent');
     return { status: 'sent' };
   } catch {
