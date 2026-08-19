@@ -1403,6 +1403,20 @@ CREATE TABLE platform_admin_access_events (
   created_at        TEXT NOT NULL
 );
 
+CREATE TABLE platform_admin_access_grants (
+  id                 TEXT PRIMARY KEY,
+  platform_admin_id  TEXT NOT NULL REFERENCES platform_admins(staff_id),
+  tenant_id          TEXT NOT NULL REFERENCES tenants(id),
+  scopes             TEXT NOT NULL,       -- JSON array, e.g. ["phi:read"]
+  reason             TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 500),
+  ticket_reference   TEXT,
+  reauth_verified_at TEXT NOT NULL,       -- step-up: current password re-checked at grant issue time
+  issued_at          TEXT NOT NULL,
+  expires_at         TEXT NOT NULL,
+  revoked_at         TEXT,
+  revoked_by         TEXT
+);
+
 CREATE TABLE platform_admin_credentials (
   staff_id             TEXT PRIMARY KEY
                         REFERENCES platform_admins(staff_id) ON DELETE CASCADE,
@@ -2241,6 +2255,9 @@ CREATE INDEX idx_platform_admin_access_events_admin
 
 CREATE INDEX idx_platform_admin_access_events_tenant
   ON platform_admin_access_events (tenant_id, created_at);
+
+CREATE INDEX idx_platform_admin_access_grants_active
+  ON platform_admin_access_grants (platform_admin_id, tenant_id, expires_at, revoked_at);
 
 CREATE INDEX idx_platform_admin_sessions_staff
   ON platform_admin_sessions (staff_id, revoked_at, expires_at);

@@ -17,6 +17,15 @@ import {
 import { listMynaHandoffs } from '../myna/repository.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
 import {
+  AccessGrantError,
+  createAccessGrant,
+  endAccessGrant,
+  listActiveGrants,
+  PHI_READ_SCOPE,
+  requireActiveGrant,
+  revokeAllGrantsForAdminStatement,
+} from './access-grant.js';
+import {
   PLATFORM_ADMIN_AUTH_COOKIE,
   PLATFORM_ADMIN_CSRF_COOKIE,
   expiredPlatformAdminCookie,
@@ -244,6 +253,8 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
           SET revoked_at = ?
         WHERE staff_id = ? AND revoked_at IS NULL AND credential_version <= ?`,
     ).bind(now, admin.id, credential.credential_version),
+    // A stale session must not keep an open support-mode grant alive either.
+    revokeAllGrantsForAdminStatement(c.env.DB, admin.id),
     platformAdminAccessStatement(c.env.DB, admin.id, null, 'change_password'),
   ]);
   if (results[0].meta.changes !== 1) {
@@ -363,9 +374,56 @@ platformAdminRoutes.patch('/api/platform-admin/tenants/:id', async (c) => {
   return c.json({ success: true, data: { id: tenantId, ...after } });
 });
 
+/**
+ * POST /api/platform-admin/tenants/:id/support-grants — start support mode
+ * for one tenant. Requires the caller's CURRENT password again (step-up)
+ * even with a valid session; see access-grant.ts for why this is a stand-in
+ * for MFA rather than MFA itself.
+ */
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/support-grants', async (c) => {
+  const admin = c.get('platformAdmin');
+  const tenantId = c.req.param('id');
+  const body = await c.req.json().catch(() => null) as {
+    reason?: unknown; ticketReference?: unknown; scopes?: unknown;
+    currentPassword?: unknown; durationMinutes?: unknown;
+  } | null;
+  try {
+    const grant = await createAccessGrant(c.env.DB, admin.id, tenantId, {
+      reason: typeof body?.reason === 'string' ? body.reason : '',
+      ticketReference: typeof body?.ticketReference === 'string' ? body.ticketReference : null,
+      scopes: Array.isArray(body?.scopes) ? body.scopes.filter((s): s is string => typeof s === 'string') : [],
+      currentPassword: typeof body?.currentPassword === 'string' ? body.currentPassword : '',
+      durationMinutes: typeof body?.durationMinutes === 'number' ? body.durationMinutes : undefined,
+    });
+    return c.json({ success: true, data: grant }, 201);
+  } catch (error) {
+    if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
+    throw error;
+  }
+});
+
+platformAdminRoutes.post('/api/platform-admin/support-grants/:grantId/end', async (c) => {
+  const admin = c.get('platformAdmin');
+  const ended = await endAccessGrant(c.env.DB, admin.id, c.req.param('grantId'));
+  if (!ended) return c.json({ success: false, error: 'Grant not found or already ended' }, 404);
+  return c.json({ success: true, data: null });
+});
+
+/** The caller's own currently-active grants — drives the UI's countdown banner. No audit event: this is a self-check, like /session. */
+platformAdminRoutes.get('/api/platform-admin/support-grants/active', async (c) => {
+  const admin = c.get('platformAdmin');
+  return c.json({ success: true, data: await listActiveGrants(c.env.DB, admin.id) });
+});
+
 platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
+  try {
+    await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE);
+  } catch (error) {
+    if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
+    throw error;
+  }
   const accounts = await lineAccountIds(c.env.DB, tenantId);
   const perAccount = await Promise.all(accounts.map(async (lineAccountId) =>
     (await listAdminPharmacyPatients(c.env.DB, lineAccountId))
@@ -378,11 +436,19 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients', async (c) =>
  * GET /api/platform-admin/tenants/:id/patients/:patientId — full PHI view.
  * Pure orchestration over the existing account-scoped admin repositories; the
  * account is resolved from the tenant mapping, never from a request parameter.
+ * Requires an active support-mode grant for :id with phi:read — a valid
+ * platform-admin session alone is no longer sufficient to reach this data.
  */
 platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
   const patientId = c.req.param('patientId');
+  try {
+    await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE);
+  } catch (error) {
+    if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
+    throw error;
+  }
 
   let lineAccountId: string | null = null;
   let history: Awaited<ReturnType<typeof getAdminPharmacyPatientHistory>> = null;
