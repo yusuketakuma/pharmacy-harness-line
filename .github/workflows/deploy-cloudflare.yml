@@ -258,8 +258,12 @@ jobs:
           EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
           WORKER_URL: ${{ vars.WORKER_URL }}
         run: |
-          actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            "${WORKER_URL%/}/admin/version" | jq -r '.version')"
+          for attempt in 1 2 3 4 5; do
+            actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              "${WORKER_URL%/}/admin/version" | jq -r '.version')"
+            test "$actual_version" = "$EXPECTED_VERSION" && break
+            sleep 5
+          done
           test "$actual_version" = "$EXPECTED_VERSION"
 
       - name: Verify customer configuration preserved

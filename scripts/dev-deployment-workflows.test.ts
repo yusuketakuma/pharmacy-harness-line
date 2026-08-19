@@ -71,6 +71,8 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
     expect(sharedDeploy).toContain('--admin apps/web/out');
     expect(sharedDeploy).toContain('--liff apps/liff/dist');
+    expect(sharedDeploy).toContain('for attempt in 1 2 3 4 5');
+    expect(sharedDeploy).toContain('sleep 5');
     expect(sharedDeploy).toContain('test "$actual_version" = "$EXPECTED_VERSION"');
   });
 
