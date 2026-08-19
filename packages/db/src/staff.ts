@@ -6,6 +6,8 @@ export interface StaffMember {
   email: string | null;
   role: 'owner' | 'admin' | 'staff';
   api_key: string;
+  /** HMAC-SHA-256 of `api_key`. NULL for keys issued before custom_027. */
+  api_key_hash: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -31,16 +33,68 @@ function generateApiKey(): string {
   return `lh_${hex}`;
 }
 
+const STAFF_API_KEY_LABEL = 'staff-api-key:v1';
+
+/**
+ * Keyed hash for staff API keys. A key is a 128-bit CSPRNG token, not a
+ * human-chosen password, so a slow KDF buys nothing; the server-side secret is
+ * what stops a D1 read leak from yielding replayable bearer tokens. Same
+ * HMAC-SHA-256 shape as the LINE credential lookup digest.
+ */
+export async function hashStaffApiKey(secret: string, apiKey: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${STAFF_API_KEY_LABEL}:${apiKey}`),
+  );
+  return Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Dual-read lookup. `api_key_hash` is authoritative for keys issued after
+ * custom_027; older keys only exist in plaintext, so a miss falls back to the
+ * legacy column and opportunistically backfills the hash. Without a secret the
+ * behaviour is exactly the pre-custom_027 plaintext lookup.
+ */
 export async function getStaffByApiKey(
   db: D1Database,
   apiKey: string,
+  hashSecret?: string,
 ): Promise<StaffMember | null> {
-  return db
+  const hash = hashSecret ? await hashStaffApiKey(hashSecret, apiKey) : null;
+
+  if (hash) {
+    const hashed = await db
+      .prepare('SELECT * FROM staff_members WHERE api_key_hash = ? AND is_active = 1')
+      .bind(hash)
+      .first<StaffMember>();
+    if (hashed) return hashed;
+  }
+
+  const legacy = await db
     .prepare(`SELECT * FROM staff_members
               WHERE api_key = ? AND is_active = 1
                 AND api_key NOT LIKE 'disabled:%'`)
     .bind(apiKey)
     .first<StaffMember>();
+
+  if (legacy && hash && !legacy.api_key_hash) {
+    // Best effort: a failed backfill must never turn a valid key into a 401.
+    await db
+      .prepare('UPDATE staff_members SET api_key_hash = ? WHERE id = ? AND api_key_hash IS NULL')
+      .bind(hash, legacy.id)
+      .run()
+      .catch(() => undefined);
+  }
+
+  return legacy;
 }
 
 export async function getStaffMembers(db: D1Database): Promise<StaffMember[]> {
@@ -63,17 +117,20 @@ export async function getStaffById(
 export async function createStaffMember(
   db: D1Database,
   input: CreateStaffInput,
+  hashSecret?: string,
 ): Promise<StaffMember> {
   const id = crypto.randomUUID();
   const now = jstNow();
   const apiKey = generateApiKey();
+  const apiKeyHash = hashSecret ? await hashStaffApiKey(hashSecret, apiKey) : null;
 
   await db
     .prepare(
-      `INSERT INTO staff_members (id, name, email, role, api_key, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO staff_members
+         (id, name, email, role, api_key, api_key_hash, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
-    .bind(id, input.name, input.email ?? null, input.role, apiKey, now, now)
+    .bind(id, input.name, input.email ?? null, input.role, apiKey, apiKeyHash, now, now)
     .run();
 
   return (await db
@@ -121,12 +178,16 @@ export async function deleteStaffMember(_db: D1Database, _id: string): Promise<v
   );
 }
 
-export async function regenerateStaffApiKey(db: D1Database, id: string): Promise<string> {
+export async function regenerateStaffApiKey(
+  db: D1Database,
+  id: string,
+  hashSecret?: string,
+): Promise<string> {
   const newKey = generateApiKey();
   const now = jstNow();
   const result = await db
-    .prepare('UPDATE staff_members SET api_key = ?, updated_at = ? WHERE id = ?')
-    .bind(newKey, now, id)
+    .prepare('UPDATE staff_members SET api_key = ?, api_key_hash = ?, updated_at = ? WHERE id = ?')
+    .bind(newKey, hashSecret ? await hashStaffApiKey(hashSecret, newKey) : null, now, id)
     .run();
   if (result.meta.changes === 0) {
     throw new Error(`Staff member not found: ${id}`);

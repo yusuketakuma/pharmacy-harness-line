@@ -29,14 +29,21 @@ single Cloudflare Worker + D1 + R2 + Admin
 
 ### CLIによる初期設定
 
-共有Workerへ、用途の異なる3つのSecretを一度だけ登録します。各値は32 byte以上の
+共有Workerへ、用途の異なる4つのSecretを一度だけ登録します。各値は32 byte以上の
 独立した乱数とし、互いに、またLINEの各SecretやAPI統合キーと兼用してはいけません。
 
 ```sh
 npx wrangler secret put PLATFORM_ADMIN_KEY --name <shared-worker-name>
 npx wrangler secret put CROSS_ACCOUNT_TOKEN_KEY --name <shared-worker-name>
 npx wrangler secret put LINE_CREDENTIAL_KEY_V1 --name <shared-worker-name>
+npx wrangler secret put STAFF_API_KEY_HASH_SECRET --name <shared-worker-name>
 ```
+
+`STAFF_API_KEY_HASH_SECRET`は`staff_members.api_key_hash`を計算するHMAC鍵です。
+未設定でも認証は従来の平文照合で動作しますが、その場合D1の読み取り漏洩が
+そのまま利用可能なAPIキーの漏洩になります。設定後は、平文照合で認証が成功した
+時点でhashが自動backfillされます。`LINE_CREDENTIAL_KEY_V1`のローテーションで
+staff APIキーが無効化されないよう、値は必ず分けてください。
 
 `LINE_CREDENTIAL_KEY_V1`はD1内のLINE資格情報を暗号化するルート鍵です。通常の
 デプロイで再発行してはいけません。ローテーションは、全資格情報を新しい鍵で
