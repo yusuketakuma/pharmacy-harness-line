@@ -37,7 +37,7 @@ jobs:
         run: pnpm test:scripts
 
       - name: Build shared packages
-        run: pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/sdk build
+        run: pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/update-engine --filter @line-harness/sdk build
 
       - name: Typecheck workspace
         run: pnpm -r --workspace-concurrency=1 --if-present run typecheck
