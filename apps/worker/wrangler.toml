@@ -26,7 +26,7 @@ database_id = "YOUR_DEV_D1_DATABASE_ID"
 
 [[r2_buckets]]
 binding = "IMAGES"
-bucket_name = "line-harness-images"
+bucket_name = "line-harness-images-dev"
 
 [triggers]
 crons = ["* * * * *", "0 */6 * * *"]
