@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 type Writer = (line: string) => void;
@@ -19,7 +19,7 @@ Required environment variable:
 
 Options:
   --admin-email EMAIL
-  --idempotency-key KEY (optional; reuse when a response is lost)
+  --idempotency-key KEY (optional request id; replay is keyed on --admin-id)
   --dry-run
   --help`;
 
@@ -58,15 +58,17 @@ function requestId(values: Record<string, string>): string {
 }
 
 /**
- * Derived, not random: a retry with the same idempotency key reproduces the
- * same password, so the server can recognize the replay and the operator can
- * still be shown the credential. The platform key never leaves this process.
+ * Random, never derived. A password computed from PHARMACY_PLATFORM_ADMIN_KEY
+ * plus the (printed) login id and idempotency key can be recomputed offline by
+ * anyone who later obtains that key, and it still works until the operator's
+ * first login clears must_change_password — a platform-superuser takeover from
+ * a leaked CI secret with no online guessing.
+ *
+ * Account-creation idempotency does not depend on the password: the server
+ * recognizes a replay from the login id (see the platform-admins route).
  */
-function temporaryPassword(platformKey: string, loginId: string, idempotencyKey: string): string {
-  const digest = createHmac('sha256', platformKey)
-    .update(`pharmacy-platform-admin-bootstrap:${loginId}:${idempotencyKey}`)
-    .digest('base64url');
-  return `Tmp-${digest.slice(0, 32)}`;
+function temporaryPassword(): string {
+  return `Tmp-${randomBytes(24).toString('base64url')}`;
 }
 
 function endpoint(values: Record<string, string>): string {
@@ -102,16 +104,20 @@ export async function runPlatformAdminBootstrap(
       loginId,
       displayName: required(parsed.values, 'admin-name'),
       email: parsed.values['admin-email']?.trim() || null,
-      temporaryPassword: temporaryPassword(platformKey, loginId, idempotencyKey),
+      temporaryPassword: temporaryPassword(),
     };
     if (parsed.dryRun) {
       write('Dry run passed. No request was sent.');
       return 0;
     }
 
-    write(`再実行キー（保存）: ${idempotencyKey}`);
+    write(`再実行キー: ${idempotencyKey}`);
 
     let response: Response | null = null;
+    // True once the first attempt failed before we saw a response. If the
+    // resend then comes back as a replay, that lost first attempt is what
+    // created the account, so this run's password is the stored one.
+    let resent = false;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         response = await fetcher(url, {
@@ -128,6 +134,7 @@ export async function runPlatformAdminBootstrap(
         break;
       } catch {
         response = null;
+        resent = true;
       }
     }
     if (!response) {
@@ -137,15 +144,28 @@ export async function runPlatformAdminBootstrap(
     const payload = await response.json().catch(() => null) as {
       success?: boolean;
       error?: unknown;
-      data?: { adminLoginId?: unknown };
+      data?: { adminLoginId?: unknown; replayed?: unknown };
     } | null;
     if (!response.ok || !payload?.success || !payload.data) {
       write(`Platform admin bootstrap failed (${response.status}): ${safeText(payload?.error, 'Unknown server error')}`);
       return 1;
     }
 
+    const adminId = safeText(payload.data.adminLoginId, body.loginId);
+    if (payload.data.replayed === true) {
+      // The server left the existing credential untouched, so the password
+      // this run generated is only real when our own lost first attempt is
+      // what created the account.
+      write('プラットフォーム管理者は既に作成済みです（再実行のため新規発行なし）。');
+      write(`管理者ID: ${adminId}`);
+      write(resent
+        ? `仮パスワード（この実行で発行した値）: ${body.temporaryPassword}`
+        : '仮パスワードは作成時の1回だけ表示されます。控えが無い場合は資格情報の再発行手順が必要です。');
+      return 0;
+    }
+
     write('プラットフォーム管理者を発行しました（全テナントを横断して閲覧・編集できます）。');
-    write(`管理者ID: ${safeText(payload.data.adminLoginId, body.loginId)}`);
+    write(`管理者ID: ${adminId}`);
     write(`仮パスワード（初回のみ表示）: ${body.temporaryPassword}`);
     write('初回ログイン後、仮パスワードの変更が必要です。');
     return 0;

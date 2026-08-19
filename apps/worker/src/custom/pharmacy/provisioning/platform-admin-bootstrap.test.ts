@@ -22,6 +22,7 @@ type Statement = { sql: string; values: unknown[]; run(): Promise<{ meta: { chan
 function fakeDb(activeSession?: { staffId: string; name: string; tokenHash: string }) {
   const inserted: Record<string, unknown[]> = {};
   let credential: { staff_id: string; login_id: string; password_hash: string; must_change_password: number } | null = null;
+  let keyBootstrapped = false;
   return {
     get credential() { return credential; },
     inserted,
@@ -67,6 +68,18 @@ function fakeDb(activeSession?: { staffId: string; name: string; tokenHash: stri
         };
       },
       async batch(statements: Statement[]) {
+        // Mirrors migration custom_032's partial unique index
+        // (platform_admins.granted_by WHERE granted_by = 'platform-admin-key').
+        // D1 runs a batch as one transaction, so a violation writes nothing.
+        const admin = statements.find(({ sql }) => sql.includes('INSERT INTO platform_admins'));
+        if (admin && admin.values[1] === 'platform-admin-key') {
+          if (keyBootstrapped) {
+            throw new Error(
+              'UNIQUE constraint failed: index idx_platform_admins_one_key_bootstrap',
+            );
+          }
+          keyBootstrapped = true;
+        }
         for (const statement of statements) {
           const table = /INSERT INTO (\w+)/.exec(statement.sql)?.[1];
           if (table) inserted[table] = statement.values;
@@ -171,7 +184,7 @@ describe('platform admin bootstrap route', () => {
     expect(response.status).toBe(503);
   });
 
-  it('rejects invalid input and a duplicate login, but replays an identical retry', async () => {
+  it('rejects invalid input and replays a retry without rotating the stored password', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
 
@@ -179,13 +192,19 @@ describe('platform admin bootstrap route', () => {
     expect(shortPassword.status).toBe(400);
 
     expect((await app().request(PATH, request(), testEnv)).status).toBe(201);
+    const originalHash = store.credential!.password_hash;
 
-    const replay = await app().request(PATH, request(), testEnv);
+    // The CLI generates a fresh random password on every run, so a retry after
+    // a lost response arrives with a DIFFERENT password. It must still be
+    // recognised as a replay rather than locking the operator out...
+    const replay = await app().request(PATH, request({ password: 'Different pass 42' }), testEnv);
     expect(replay.status).toBe(200);
-    await expect(replay.json()).resolves.toMatchObject({ data: { replayed: true } });
-
-    const conflict = await app().request(PATH, request({ password: 'Different pass 42' }), testEnv);
-    expect(conflict.status).toBe(409);
+    const replayBody = await replay.text();
+    expect(JSON.parse(replayBody)).toMatchObject({ data: { replayed: true } });
+    // ...and must not silently rotate the password the operator already holds.
+    expect(store.credential!.password_hash).toBe(originalHash);
+    // The replay response never carries a credential.
+    expect(replayBody).not.toContain('Different pass 42');
   });
 
   it('refuses to replay once the temporary password has been changed', async () => {
@@ -197,6 +216,20 @@ describe('platform admin bootstrap route', () => {
     store.credential!.password_hash = await hashTenantPassword('Permanent password 84');
     const conflict = await app().request(PATH, request(), testEnv);
     expect(conflict.status).toBe(409);
+  });
+
+  it('turns a lost check-then-act race into a 409, not a second superuser', async () => {
+    // Both racers read zero active admins and both reach the insert; the
+    // custom_032 unique index on granted_by = 'platform-admin-key' lets only
+    // one land, and the handler's catch must surface that as a clean 409.
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    expect((await app().request(PATH, request(), testEnv)).status).toBe(201);
+
+    const loser = await app().request(PATH, request({ loginId: 'racing-admin' }), testEnv);
+    expect(loser.status).toBe(409);
+    // The first admin's rows are the only ones that survived.
+    expect(store.inserted.platform_admin_credentials[1]).toBe('platform-owner');
   });
 
   it('refuses to mint a second platform admin on PLATFORM_ADMIN_KEY alone once one already exists', async () => {

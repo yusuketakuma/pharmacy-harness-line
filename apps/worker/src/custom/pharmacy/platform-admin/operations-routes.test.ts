@@ -29,10 +29,13 @@ const PAST = '2020-01-01T00:00:00.000Z';
 
 type SessionRow = { tenant_id: string; staff_id: string; expires_at: string; revoked_at: string | null };
 
+type MembershipRow = { tenant_id: string; staff_id: string; role: string; is_active: number };
+
 type Store = {
   db: D1Database;
   auditEvents: Array<Record<string, unknown>>;
   staffMembers: Array<{ id: string; name: string; email: string | null; is_active: number }>;
+  memberships: MembershipRow[];
   sessions: SessionRow[];
 };
 
@@ -43,7 +46,7 @@ function fakeDb(): Store {
     { id: 'staff-1', name: 'Aoi', email: 'aoi@example.test', is_active: 1 },
     { id: 'staff-2', name: 'Bea', email: null, is_active: 1 },
   ];
-  const memberships = [
+  const memberships: MembershipRow[] = [
     { tenant_id: 'tenant-a', staff_id: 'staff-1', role: 'admin', is_active: 1 },
     { tenant_id: 'tenant-b', staff_id: 'staff-2', role: 'owner', is_active: 1 },
   ];
@@ -146,8 +149,18 @@ function fakeDb(): Store {
             });
             return { meta: { changes: 1 } };
           }
+          // Kept even though no route issues it any more: it is what makes
+          // "the platform-wide staff row stays untouched" a real assertion
+          // rather than a statement the fake could not contradict.
           if (sql.includes('UPDATE staff_members')) {
             const target = staffMembers.find((member) => member.id === values[1]);
+            if (!target) return { meta: { changes: 0 } };
+            target.is_active = 0;
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('UPDATE tenant_staff_memberships')) {
+            const target = memberships.find((row) =>
+              row.tenant_id === values[1] && row.staff_id === values[2]);
             if (!target) return { meta: { changes: 0 } };
             target.is_active = 0;
             return { meta: { changes: 1 } };
@@ -175,7 +188,7 @@ function fakeDb(): Store {
       return results;
     },
   };
-  return { db: db as unknown as D1Database, auditEvents, staffMembers, sessions };
+  return { db: db as unknown as D1Database, auditEvents, staffMembers, memberships, sessions };
 }
 
 function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
@@ -220,6 +233,14 @@ beforeEach(() => {
 });
 
 describe('platform admin staff roster', () => {
+  // Cache-Control lives on platformAdminAuthMiddleware, not on any one router,
+  // so it must reach this router too — that shared placement is the only thing
+  // stopping a future sibling router from shipping without it.
+  it('marks responses no-store, inheriting the prefix-wide middleware', async () => {
+    const response = await get('/api/platform-admin/tenants/tenant-a/staff', env(fakeDb().db));
+    expect(response.headers.get('cache-control')).toBe('no-store, private');
+  });
+
   it('lists this tenant staff with live session counts', async () => {
     const store = fakeDb();
     const response = await get('/api/platform-admin/tenants/tenant-a/staff', env(store.db));
@@ -250,7 +271,7 @@ describe('platform admin staff roster', () => {
 });
 
 describe('platform admin staff disable', () => {
-  it('deactivates the staff member and revokes their sessions for this tenant', async () => {
+  it('deactivates the tenant membership and revokes their sessions for this tenant', async () => {
     const store = fakeDb();
     const response = await post(
       '/api/platform-admin/tenants/tenant-a/staff/staff-1/disable',
@@ -261,11 +282,15 @@ describe('platform admin staff disable', () => {
     await expect(response.json()).resolves.toMatchObject({
       data: { staffId: 'staff-1', sessionsRevoked: 3 },
     });
-    expect(store.staffMembers.find((staff) => staff.id === 'staff-1')?.is_active).toBe(0);
+    expect(store.memberships.find((row) =>
+      row.tenant_id === 'tenant-a' && row.staff_id === 'staff-1')?.is_active).toBe(0);
+    // The platform-wide staff_members row must NOT be touched:
+    // platform_admins.staff_id points at it and the platform-admin login
+    // INNER JOINs staff_members.is_active = 1, so clearing it here would lock a
+    // platform admin out of the platform console from a tenant-scoped route.
+    expect(store.staffMembers.find((staff) => staff.id === 'staff-1')?.is_active).toBe(1);
     expect(store.sessions.filter((session) =>
       session.tenant_id === 'tenant-a' && session.revoked_at === null)).toHaveLength(0);
-    // Another tenant's sessions are untouched — only staff_members.is_active
-    // is platform-wide.
     expect(store.sessions.filter((session) =>
       session.tenant_id === 'tenant-b' && session.revoked_at === null)).toHaveLength(1);
     expect(store.auditEvents.at(-1)).toMatchObject({
@@ -274,6 +299,29 @@ describe('platform admin staff disable', () => {
       resource_type: 'staff',
       resource_id: 'staff-1',
     });
+  });
+
+  it('leaves the same staff member active in another tenant', async () => {
+    const store = fakeDb();
+    // No production path creates a staff row holding memberships in two
+    // tenants today, so this fixture is built by hand. It exists to stop a
+    // future path that does from silently re-introducing the cross-tenant
+    // blast radius this route used to have.
+    store.memberships.push({
+      tenant_id: 'tenant-b', staff_id: 'staff-1', role: 'admin', is_active: 1,
+    });
+
+    const response = await post(
+      '/api/platform-admin/tenants/tenant-a/staff/staff-1/disable',
+      env(store.db),
+    );
+
+    expect(response.status).toBe(200);
+    expect(store.memberships.find((row) =>
+      row.tenant_id === 'tenant-a' && row.staff_id === 'staff-1')?.is_active).toBe(0);
+    expect(store.memberships.find((row) =>
+      row.tenant_id === 'tenant-b' && row.staff_id === 'staff-1')?.is_active).toBe(1);
+    expect(store.staffMembers.find((staff) => staff.id === 'staff-1')?.is_active).toBe(1);
   });
 
   it('refuses a staff id that belongs to a different tenant', async () => {

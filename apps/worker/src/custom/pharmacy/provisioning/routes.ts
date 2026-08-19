@@ -678,9 +678,16 @@ tenantProvisioningRoutes.post(
  * provisioning routes below, which stay PLATFORM_ADMIN_KEY-only: creating a
  * tenant is routine operator work, minting a platform admin is not.
  *
- * Replay follows the tenant admin bootstrap: the CLI derives the temporary
- * password deterministically, so re-running with the same idempotency key
- * re-verifies the existing untouched credential instead of erroring.
+ * That "zero admins exist" test is a check-then-act read, so two concurrent
+ * key-only runs could both pass it. The invariant is enforced in the database
+ * instead: migration custom_032 adds a partial unique index over
+ * platform_admins.granted_by = 'platform-admin-key' — the value this route
+ * writes for the key-only path, as opposed to the acting admin's staff id for
+ * the session-authorized path. The loser of the race fails the insert batch
+ * and falls into the catch below as a 409.
+ *
+ * Replay is keyed on the login id, not on the password: see the comment at
+ * the existing-credential branch.
  */
 tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c) => {
   const rejected = await rejectUnauthorizedPlatformRequest(c);
@@ -716,11 +723,17 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/platform-admins', async (c
     must_change_password: number;
   }>();
   if (existing) {
-    const replayed = existing.must_change_password === 1 &&
-      await verifyTenantPassword(input.temporaryPassword, existing.password_hash);
-    if (!replayed) {
+    // Replay is recognized from the login id alone. The CLI now generates a
+    // random temporary password (it used to derive one from the platform key,
+    // which made it recomputable offline by anyone holding that key), so a
+    // retry cannot re-present the stored credential and re-verifying it here
+    // would turn every lost response into a permanent 409. An unused bootstrap
+    // credential is a replay; one already in use is a genuine collision.
+    if (existing.must_change_password !== 1) {
       return c.json({ success: false, error: 'Platform admin login is already taken' }, 409);
     }
+    // Deliberately does NOT rotate the stored password to the one just
+    // submitted: the operator may already be holding the original.
     return c.json({
       success: true,
       data: { staffId: existing.staff_id, adminLoginId: input.loginId, replayed: true },

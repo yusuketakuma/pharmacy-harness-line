@@ -16,6 +16,13 @@ function created(status = 201) {
   }), { status, headers: { 'content-type': 'application/json' } });
 }
 
+function replayed() {
+  return new Response(JSON.stringify({
+    success: true,
+    data: { staffId: 'staff-1', adminLoginId: 'platform-owner', replayed: true },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
 describe('platform admin bootstrap CLI', () => {
   it('dry-runs without sending or printing the platform key', async () => {
     const output: string[] = [];
@@ -62,7 +69,7 @@ describe('platform admin bootstrap CLI', () => {
     expect(rendered).not.toContain(environment.PHARMACY_PLATFORM_ADMIN_KEY);
   });
 
-  it('derives the same password for a replay of the same idempotency key', async () => {
+  it('never derives the password from the platform key or the idempotency key', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(created());
     const withKey = [...args, '--idempotency-key', 'replay-key-0001'];
     await runPlatformAdminBootstrap(withKey, environment, fetcher, () => {});
@@ -70,7 +77,39 @@ describe('platform admin bootstrap CLI', () => {
 
     const [first, second] = fetcher.mock.calls
       .map(([, init]) => JSON.parse(String(init?.body)).temporaryPassword as string);
-    expect(first).toBe(second);
+    // Same key, same login id, same idempotency key — a holder of all three
+    // must still be unable to recompute the credential offline.
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^Tmp-[A-Za-z0-9_-]{32}$/);
+  });
+
+  it('prints no credential on a replay, only how to recover one', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(replayed());
+    const exitCode = await runPlatformAdminBootstrap(
+      args, environment, fetcher, (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    const sent = JSON.parse(String(fetcher.mock.calls[0][1]?.body)).temporaryPassword as string;
+    const rendered = output.join('\n');
+    expect(rendered).toContain('既に作成済み');
+    expect(rendered).not.toContain(sent);
+    expect(rendered).toContain('再発行');
+  });
+
+  it('prints this run\'s password when a lost first attempt is what created the admin', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce(replayed());
+    const exitCode = await runPlatformAdminBootstrap(
+      args, environment, fetcher, (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    const sent = JSON.parse(String(fetcher.mock.calls[1][1]?.body)).temporaryPassword as string;
+    expect(output.join('\n')).toContain(sent);
   });
 
   it('prints no credential when the server rejects the key', async () => {

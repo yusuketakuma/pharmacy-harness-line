@@ -1415,7 +1415,7 @@ CREATE TABLE platform_admin_access_grants (
   expires_at         TEXT NOT NULL,
   revoked_at         TEXT,
   revoked_by         TEXT
-);
+, session_token_hash TEXT);
 
 CREATE TABLE platform_admin_credentials (
   staff_id             TEXT PRIMARY KEY
@@ -2261,6 +2261,9 @@ CREATE INDEX idx_platform_admin_access_grants_active
 
 CREATE INDEX idx_platform_admin_sessions_staff
   ON platform_admin_sessions (staff_id, revoked_at, expires_at);
+
+CREATE UNIQUE INDEX idx_platform_admins_one_key_bootstrap
+  ON platform_admins (granted_by) WHERE granted_by = 'platform-admin-key';
 
 CREATE INDEX idx_ref_tracking_friend ON ref_tracking (friend_id);
 

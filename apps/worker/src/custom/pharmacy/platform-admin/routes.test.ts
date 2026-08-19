@@ -39,11 +39,20 @@ vi.mock('../continuity/next-intake.js', () => ({
   ]),
 }));
 
+// Mirrors the real listMynaHandoffs contract: the patient filter is applied
+// in SQL, so a caller passing patientId gets only that patient's rows back.
+// The route relies on this rather than filtering the result, because the real
+// query pages at LIMIT 100 and a post-hoc filter would drop rows.
 vi.mock('../myna/repository.js', () => ({
-  listMynaHandoffs: vi.fn(async () => [
+  listMynaHandoffs: vi.fn(async (
+    _db: unknown,
+    _lineAccountId: string,
+    _status?: string,
+    patientId?: string,
+  ) => [
     { id: 'myna-1', patient_id: 'patient-1' },
     { id: 'myna-2', patient_id: 'patient-other' },
-  ]),
+  ].filter((row) => !patientId || row.patient_id === patientId)),
 }));
 
 const admin = {
@@ -86,6 +95,8 @@ type Grant = {
   issued_at: string;
   expires_at: string;
   revoked_at: string | null;
+  /** NULL = issued before custom_031, i.e. not bound to any session. */
+  session_token_hash: string | null;
 };
 
 type WebhookReceipt = {
@@ -105,9 +116,18 @@ type Store = {
   tenants: typeof tenants;
   grants: Grant[];
   receipts: WebhookReceipt[];
+  /**
+   * Makes the NEXT webhook-receipt SELECT return this snapshot instead of the
+   * live row — the read-then-update window a concurrent retry (or the cron
+   * sweep) lands in. Only the UPDATE's own eligibility predicate can close it.
+   */
+  staleReceiptRead(row: WebhookReceipt): void;
 };
 
-/** An active, unexpired, unrevoked phi:read grant — support mode is ON. */
+/**
+ * An active, unexpired, unrevoked phi:read grant — support mode is ON.
+ * session_token_hash defaults to null: a legacy, pre-custom_031 grant.
+ */
 function seedGrant(store: Store, overrides: Partial<Grant> = {}): Grant {
   const grant: Grant = {
     id: 'grant-fixture',
@@ -119,6 +139,7 @@ function seedGrant(store: Store, overrides: Partial<Grant> = {}): Grant {
     issued_at: new Date(Date.now() - 60_000).toISOString(),
     expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
     revoked_at: null,
+    session_token_hash: null,
     ...overrides,
   };
   store.grants.push(grant);
@@ -148,6 +169,7 @@ function fakeDb(): Store {
     },
   ];
   const stats = { line_account_count: 1, staff_count: 2, patient_count: 3 };
+  let staleReceipt: WebhookReceipt | null = null;
 
   const db = {
     prepare(sql: string) {
@@ -173,16 +195,24 @@ function fakeDb(): Store {
           if (sql.includes('FROM platform_admin_credentials')) {
             return values[0] === admin.staff_id ? { ...admin } : null;
           }
-          // requireActiveGrant: this admin, this exact tenant, unrevoked, unexpired.
+          // requireActiveGrant: this admin, this exact tenant, unrevoked,
+          // unexpired, and either unbound (legacy) or bound to THIS session.
           if (sql.includes('FROM platform_admin_access_grants')) {
+            const bound = sql.includes('session_token_hash');
             return grants
               .filter((grant) => grant.platform_admin_id === values[0] &&
                 grant.tenant_id === values[1] &&
                 !grant.revoked_at &&
-                grant.expires_at > String(values[2]))
+                grant.expires_at > String(values[2]) &&
+                (!bound || !grant.session_token_hash || grant.session_token_hash === values[3]))
               .sort((left, right) => (left.expires_at < right.expires_at ? 1 : -1))[0] ?? null;
           }
           if (sql.includes('FROM pharmacy_webhook_event_receipts')) {
+            if (staleReceipt) {
+              const snapshot = staleReceipt;
+              staleReceipt = null;
+              return snapshot;
+            }
             return receipts.find((receipt) => receipt.tenant_id === values[0] &&
               receipt.webhook_event_id === values[1]) ?? null;
           }
@@ -293,6 +323,7 @@ function fakeDb(): Store {
               issued_at: String(values[7]),
               expires_at: String(values[8]),
               revoked_at: null,
+              session_token_hash: (values[9] as string | null) ?? null,
             });
             return { meta: { changes: 1 } };
           }
@@ -310,6 +341,13 @@ function fakeDb(): Store {
             const target = receipts.find((receipt) => receipt.tenant_id === values[0] &&
               receipt.line_account_id === values[1] && receipt.webhook_event_id === values[2]);
             if (!target) return { meta: { changes: 0 } };
+            // The claim is only atomic if eligibility is re-checked by the
+            // UPDATE itself; a WHERE without it matches whatever the row
+            // became after the SELECT.
+            if (sql.includes("status = 'failed' OR dead_lettered_at IS NOT NULL") &&
+                target.status !== 'failed' && !target.dead_lettered_at) {
+              return { meta: { changes: 0 } };
+            }
             Object.assign(target, {
               status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
             });
@@ -337,7 +375,16 @@ function fakeDb(): Store {
       return Promise.all(statements.map((statement) => statement.run()));
     },
   };
-  return { db: db as unknown as D1Database, auditEvents, tenants: rows, grants, receipts };
+  return {
+    db: db as unknown as D1Database,
+    auditEvents,
+    tenants: rows,
+    grants,
+    receipts,
+    staleReceiptRead(row: WebhookReceipt) {
+      staleReceipt = row;
+    },
+  };
 }
 
 function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
@@ -416,6 +463,24 @@ async function standardSession(testEnv: Env['Bindings']) {
 }
 
 type Auth = { cookie: string; csrf: string };
+
+/**
+ * A SECOND live session for the same admin. Plain login, no password change,
+ * so the session standardSession() handed out stays valid alongside it —
+ * which is exactly the "same admin, two browsers" shape a stolen cookie has.
+ */
+async function secondSession(testEnv: Env['Bindings']): Promise<Auth> {
+  const login = await app().request(
+    '/api/platform-admin/login',
+    loginRequest('Permanent password 84'),
+    testEnv,
+  );
+  expect(login.status).toBe(200);
+  return {
+    cookie: cookieHeader(login),
+    csrf: (await login.json() as { csrfToken: string }).csrfToken,
+  };
+}
 
 function postAs(testEnv: Env['Bindings'], auth: Auth, path: string, body?: unknown) {
   return app().request(path, {
@@ -585,6 +650,19 @@ describe('platform admin authentication', () => {
     }, testEnv);
     expect(logout.status).toBe(200);
     expect((await app().request('/api/platform-admin/session', { headers: { cookie } }, testEnv)).status).toBe(401);
+  });
+
+  it('revokes open support-mode grants on logout, not just the session', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    seedGrant(store);
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+
+    const logout = await postAs(testEnv, auth, '/api/platform-admin/logout');
+    expect(logout.status).toBe(200);
+    // Otherwise a grant outlives the session that opened it by up to an hour.
+    expect(store.grants[0].revoked_at).not.toBeNull();
   });
 });
 
@@ -947,6 +1025,32 @@ describe('platform admin support-mode grants', () => {
     expect(store.grants[0].revoked_at).not.toBeNull();
     expect(await patientsStatus(testEnv, cookieHeader(changed), 'tenant-a')).toBe(403);
   });
+
+  it('binds a grant to the session that opened it', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const sessionA = await standardSession(testEnv);
+    const sessionB = await secondSession(testEnv);
+
+    expect((await startGrant(testEnv, sessionA)).status).toBe(201);
+    expect(store.grants[0].session_token_hash).toEqual(expect.any(String));
+
+    expect(await patientsStatus(testEnv, sessionA.cookie, 'tenant-a')).toBe(200);
+    // Same admin, different session: a stolen cookie must not inherit the
+    // break-glass access another browser re-authenticated for.
+    expect(await patientsStatus(testEnv, sessionB.cookie, 'tenant-a')).toBe(403);
+  });
+
+  it('still honours a legacy grant issued before session binding existed', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    // custom_031 is additive and nullable so an upgrade does not void the
+    // grants an on-call admin is holding mid-incident.
+    seedGrant(store, { session_token_hash: null });
+
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+  });
 });
 
 describe('platform admin tenant operations', () => {
@@ -1033,5 +1137,52 @@ describe('platform admin tenant operations', () => {
     // Dead-lettered rows are exactly what manual retry exists for.
     expect((await retry('tenant-b', 'wh-other-tenant')).status).toBe(200);
     expect(store.receipts[2]).toMatchObject({ status: 'pending', dead_lettered_at: null, retry_count: 0 });
+  });
+
+  it('409s a duplicate retry instead of stealing the winner lease', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    const retry = () => postAs(
+      testEnv, auth, '/api/platform-admin/tenants/tenant-a/webhook-events/wh-failed/retry',
+    );
+    const eligible = { ...store.receipts[0] };
+
+    expect((await retry()).status).toBe(200);
+    expect(webhookRetry).toHaveBeenCalledOnce();
+    // The winner (here the runner, in production also the cron sweep) now
+    // holds the row: pending, leased, no longer eligible for manual retry.
+    store.receipts[0].lease_until = '2026-06-01T00:00:00.000Z';
+
+    // The loser's SELECT still saw the pre-retry `failed` row, so only the
+    // UPDATE's own eligibility predicate can stop it.
+    store.staleReceiptRead(eligible);
+    const loser = await retry();
+    expect(loser.status).toBe(409);
+    expect(webhookRetry).toHaveBeenCalledOnce();
+    expect(store.receipts[0].lease_until).toBe('2026-06-01T00:00:00.000Z');
+  });
+});
+
+describe('platform admin response caching', () => {
+  // Every response here carries tenant-operational data, and the patient
+  // routes carry PHI. None of it may sit in a shared or disk cache.
+  it('marks responses no-store on operational and PHI routes alike', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const { cookie } = await standardSession(testEnv);
+    seedGrant(store);
+
+    const list = await app().request('/api/platform-admin/tenants', { headers: { cookie } }, testEnv);
+    expect(list.status).toBe(200);
+    expect(list.headers.get('cache-control')).toBe('no-store, private');
+
+    const phi = await app().request(
+      '/api/platform-admin/tenants/tenant-a/patients/patient-1',
+      { headers: { cookie } },
+      testEnv,
+    );
+    expect(phi.status).toBe(200);
+    expect(phi.headers.get('cache-control')).toBe('no-store, private');
   });
 });

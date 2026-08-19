@@ -17,6 +17,9 @@ export type AccessGrant = {
   expires_at: string;
   revoked_at: string | null;
 };
+// session_token_hash is deliberately absent: this shape is returned to the
+// browser, and the hash is a server-side session identifier with no business
+// meaning to the client. It is written and compared in SQL only.
 
 export class AccessGrantError extends Error {
   readonly status: 400 | 401 | 403 | 404;
@@ -34,6 +37,9 @@ export class AccessGrantError extends Error {
  * Cloudflare Access in front of this origin); password re-entry is the
  * practical stand-in until one of those is wired up. This is weaker than
  * true MFA and should be treated as an interim measure, not a substitute.
+ *
+ * The grant is bound to `sessionTokenHash`, the session that opened it, so
+ * another live session for the same admin cannot use it.
  */
 export async function createAccessGrant(
   db: D1Database,
@@ -45,6 +51,7 @@ export async function createAccessGrant(
     scopes: string[];
     currentPassword: string;
     durationMinutes?: number;
+    sessionTokenHash: string | null;
   },
 ): Promise<AccessGrant> {
   const reason = input.reason.trim();
@@ -88,11 +95,12 @@ export async function createAccessGrant(
     db.prepare(
       `INSERT INTO platform_admin_access_grants
         (id, platform_admin_id, tenant_id, scopes, reason, ticket_reference,
-         reauth_verified_at, issued_at, expires_at, revoked_at, revoked_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+         reauth_verified_at, issued_at, expires_at, revoked_at, revoked_by,
+         session_token_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
     ).bind(
       grant.id, platformAdminId, tenantId, grant.scopes, reason, grant.ticket_reference,
-      nowIso, nowIso, expiresAt,
+      nowIso, nowIso, expiresAt, input.sessionTokenHash,
     ),
     platformAdminAccessStatement(
       db, platformAdminId, tenantId, 'support_mode_started', 'access_grant', grant.id,
@@ -121,12 +129,22 @@ export async function listActiveGrants(db: D1Database, platformAdminId: string):
  * must call this before touching patient data — it does not itself record
  * an access event; the caller's own recordPlatformAdminAccess call remains
  * the record of what was actually read.
+ *
+ * `sessionTokenHash` is the CALLER's session. A grant bound to a different
+ * session does not count, so a second live session for the same admin (a
+ * stolen cookie) cannot ride along on break-glass access it never
+ * re-authenticated for. Grants issued before custom_031 have no binding and
+ * still count; passing null matches only those, which is the safe direction.
+ * The IS NULL branch can be dropped once every deployment has been on
+ * custom_031 for longer than MAX_GRANT_MINUTES — no unbound grant can exist
+ * after that.
  */
 export async function requireActiveGrant(
   db: D1Database,
   platformAdminId: string,
   tenantId: string,
   scope: string,
+  sessionTokenHash: string | null,
 ): Promise<AccessGrant> {
   const now = new Date().toISOString();
   const grant = await db.prepare(
@@ -135,9 +153,10 @@ export async function requireActiveGrant(
        FROM platform_admin_access_grants
       WHERE platform_admin_id = ? AND tenant_id = ?
         AND revoked_at IS NULL AND expires_at > ?
+        AND (session_token_hash IS NULL OR session_token_hash = ?)
       ORDER BY expires_at DESC
       LIMIT 1`,
-  ).bind(platformAdminId, tenantId, now).first<AccessGrant>();
+  ).bind(platformAdminId, tenantId, now, sessionTokenHash).first<AccessGrant>();
   if (!grant || !(JSON.parse(grant.scopes) as string[]).includes(scope)) {
     throw new AccessGrantError(
       403,

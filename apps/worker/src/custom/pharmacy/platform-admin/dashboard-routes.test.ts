@@ -241,6 +241,14 @@ describe('platform admin dashboard aggregate', () => {
     seedTenantSession(sqlite, 'tenant-c', 'staff-c1', 'c1', utcAgo(40 * DAY_MS), utcAgo(33 * DAY_MS));
   });
 
+  // Cache-Control lives on platformAdminAuthMiddleware, not on any one router,
+  // so it must reach this router too — that shared placement is the only thing
+  // stopping a future sibling router from shipping without it.
+  it('marks responses no-store, inheriting the prefix-wide middleware', async () => {
+    const response = await app().request('/api/platform-admin/dashboard', { headers: { cookie } }, testEnv);
+    expect(response.headers.get('cache-control')).toBe('no-store, private');
+  });
+
   it('counts tenants, webhook health, grants and stale tenants', async () => {
     const response = await app().request('/api/platform-admin/dashboard', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
@@ -441,14 +449,14 @@ describe('platform admin integrity checks', () => {
     });
   });
 
-  it('warns on patients whose account is not mapped to any tenant, capping samples at five', async () => {
+  function seedUnmappedPatients(count: number): void {
     const now = utcAgo(0);
     sqlite.prepare(
       `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret, is_active, created_at, updated_at)
        VALUES ('account-unmapped', 'channel-unmapped', 'Unmapped', 't', 's', 1, ?, ?)`,
     ).run(now, now);
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       sqlite.prepare(
         `INSERT INTO pharmacy_patients
            (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date,
@@ -457,9 +465,29 @@ describe('platform admin integrity checks', () => {
                  NULL, NULL, NULL, ?, ?)`,
       ).run(`patient-${index}`, now, now);
     }
-    const check = byName(await run(), 'patients_without_active_account_mapping');
-    expect(check).toMatchObject({ status: 'warn', affectedCount: 6 });
-    expect(check?.sampleIds).toHaveLength(5);
+  }
+
+  // The sample ids for this check are pharmacy patient uuids, and this router
+  // is reachable on a platform-admin session alone — with no support-mode
+  // grant. The count is what the health panel actually alerts on.
+  it('warns on patients whose account is not mapped to any tenant without exposing their ids', async () => {
+    seedUnmappedPatients(6);
+    expect(byName(await run(), 'patients_without_active_account_mapping')).toEqual({
+      name: 'patients_without_active_account_mapping',
+      status: 'warn',
+      affectedCount: 6,
+      sampleIds: [],
+    });
+  });
+
+  it('redacts only the patient-identifying check, not every check in the run', async () => {
+    seedUnmappedPatients(1);
+    seedReceipt(sqlite, 'tenant-a', 'account-a', 'stuck', jstAgo(2 * HOUR_MS), 'pending');
+    const checks = await run();
+    expect(byName(checks, 'patients_without_active_account_mapping'))
+      .toMatchObject({ affectedCount: 1, sampleIds: [] });
+    expect(byName(checks, 'stale_pending_webhook_events'))
+      .toMatchObject({ affectedCount: 1, sampleIds: ['stuck'] });
   });
 
   it('warns on pending webhook rows the sweep should already have picked up', async () => {

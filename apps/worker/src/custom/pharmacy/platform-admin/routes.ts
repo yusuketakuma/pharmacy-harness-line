@@ -33,10 +33,15 @@ import {
   platformAdminCsrfCookie,
   platformAdminCsrfTokenFromCookie,
   platformAdminSessionCookie,
+  platformAdminSessionHash,
   platformAdminSessionTokenFromCookie,
 } from './auth.js';
 
 export const platformAdminRoutes = new Hono<Env>();
+
+// Cache-Control: no-store is set once in platformAdminAuthMiddleware, which is
+// mounted on the whole /api/platform-admin/* prefix, so it covers this router
+// and its two siblings (dashboard-routes.ts, operations-routes.ts) alike.
 
 const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
 const STANDARD_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -183,15 +188,25 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
 
 platformAdminRoutes.post('/api/platform-admin/logout', async (c) => {
   const { sameSite } = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
+  const admin = c.get('platformAdmin');
   const token = platformAdminSessionTokenFromCookie(c);
   if (token && isPlatformAdminSessionToken(token)) {
     const tokenHash = await hashTenantAdminSessionToken(token);
-    await c.env.DB.prepare(
-      `UPDATE platform_admin_sessions SET revoked_at = ?
-        WHERE token_hash = ? AND revoked_at IS NULL`,
-    ).bind(new Date().toISOString(), tokenHash).run().catch(() => undefined);
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE platform_admin_sessions SET revoked_at = ?
+          WHERE token_hash = ? AND revoked_at IS NULL`,
+      ).bind(new Date().toISOString(), tokenHash),
+      // Logging out must not leave break-glass PHI access open behind you —
+      // an open grant otherwise survives the session by up to MAX_GRANT_MINUTES.
+      revokeAllGrantsForAdminStatement(c.env.DB, admin.id),
+    ]);
+    // Deliberately NOT best-effort any more: swallowing a failure here would
+    // clear the cookies and answer "logged out" while the session and its
+    // open PHI grant both stayed live. A 500 the operator can retry is the
+    // safer answer.
   }
-  await recordPlatformAdminAccess(c.env.DB, c.get('platformAdmin').id, null, 'logout');
+  await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'logout');
   c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_AUTH_COOKIE, sameSite), { append: true });
   c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_CSRF_COOKIE, sameSite), { append: true });
   return c.json({ success: true, data: null });
@@ -452,12 +467,17 @@ platformAdminRoutes.post(
       }, 400);
     }
 
+    // The eligibility check above reads; this claims. Repeating the predicate
+    // in the UPDATE is what makes the claim atomic: a duplicate retry, or one
+    // racing the cron sweep, matches 0 rows and 409s instead of clearing a
+    // lease somebody else already holds.
     const results = await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE pharmacy_webhook_event_receipts
             SET status = 'pending', retry_count = 0,
                 dead_lettered_at = NULL, lease_until = NULL
-          WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
+          WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
+            AND (status = 'failed' OR dead_lettered_at IS NOT NULL)`,
       ).bind(receipt.tenant_id, receipt.line_account_id, receipt.webhook_event_id),
       platformAdminAccessStatement(
         c.env.DB, admin.id, tenantId, 'retry_webhook_event', 'webhook_event', webhookEventId,
@@ -506,6 +526,7 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/support-grants', async
       scopes: Array.isArray(body?.scopes) ? body.scopes.filter((s): s is string => typeof s === 'string') : [],
       currentPassword: typeof body?.currentPassword === 'string' ? body.currentPassword : '',
       durationMinutes: typeof body?.durationMinutes === 'number' ? body.durationMinutes : undefined,
+      sessionTokenHash: await platformAdminSessionHash(c),
     });
     return c.json({ success: true, data: grant }, 201);
   } catch (error) {
@@ -531,7 +552,9 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients', async (c) =>
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
   try {
-    await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE);
+    await requireActiveGrant(
+      c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, await platformAdminSessionHash(c),
+    );
   } catch (error) {
     if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
     throw error;
@@ -556,7 +579,9 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
   const tenantId = c.req.param('id');
   const patientId = c.req.param('patientId');
   try {
-    await requireActiveGrant(c.env.DB, admin.id, tenantId, PHI_READ_SCOPE);
+    await requireActiveGrant(
+      c.env.DB, admin.id, tenantId, PHI_READ_SCOPE, await platformAdminSessionHash(c),
+    );
   } catch (error) {
     if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
     throw error;
@@ -575,9 +600,13 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
     return c.json({ success: false, error: 'Patient not found' }, 404);
   }
 
+  // The patient filter goes into the SQL, not a .filter() on the result:
+  // listMynaHandoffs pages at LIMIT 100, so filtering afterwards silently
+  // drops this patient's handoffs on a busy account — an incomplete clinical
+  // record rather than a cosmetic bug.
   const [expectations, handoffs] = await Promise.all([
     listAccountExpectations(c.env.DB, lineAccountId),
-    listMynaHandoffs(c.env.DB, lineAccountId),
+    listMynaHandoffs(c.env.DB, lineAccountId, undefined, patientId),
   ]);
   await recordPlatformAdminAccess(
     c.env.DB, admin.id, tenantId, 'view_patient', 'patient', patientId,
@@ -588,7 +617,7 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
       lineAccountId,
       ...history,
       nextIntakeExpectations: expectations.filter((item) => item.patient_id === patientId),
-      mynaHandoffs: handoffs.filter((item) => item.patient_id === patientId),
+      mynaHandoffs: handoffs,
     },
   });
 });

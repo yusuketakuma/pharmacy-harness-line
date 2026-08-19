@@ -167,13 +167,17 @@ platformAdminDashboardRoutes.get('/api/platform-admin/tenants/:id/health', async
  * shape a cross-tenant query from a request parameter.
  *
  * Each `select` yields one `id` column per violating row. `severity` is the
- * status reported when at least one row matches.
+ * status reported when at least one row matches. A check whose ids identify a
+ * patient must set `redactSamples`: this router runs on a platform-admin
+ * session alone, with no support-mode grant (access-grant.ts), so it may
+ * report how many patients are affected but never which ones.
  */
 const INTEGRITY_CHECKS: Array<{
   name: string;
   severity: 'warn' | 'critical';
   select: string;
   binds?: () => unknown[];
+  redactSamples?: true;
 }> = [
   {
     // The FK on tenant_line_accounts.line_account_id only bites while the
@@ -206,6 +210,7 @@ const INTEGRITY_CHECKS: Array<{
     // patient's data is reachable by no tenant admin.
     name: 'patients_without_active_account_mapping',
     severity: 'warn',
+    redactSamples: true,
     select: `SELECT patient.id AS id
                FROM pharmacy_patients AS patient
                LEFT JOIN tenant_line_accounts AS mapping
@@ -244,12 +249,15 @@ platformAdminDashboardRoutes.get('/api/platform-admin/integrity', async (c) => {
   const admin = c.get('platformAdmin');
   const checks = await Promise.all(INTEGRITY_CHECKS.map(async (check) => {
     // json_group_array rather than group_concat so an id containing a comma
-    // cannot split into two fake samples.
+    // cannot split into two fake samples. A redacted check selects no ids at
+    // all, so a patient identifier never leaves SQLite.
+    const sampleIds = check.redactSamples
+      ? `'[]'`
+      : `(SELECT json_group_array(id) FROM (SELECT id FROM violation LIMIT ${SAMPLE_LIMIT}))`;
     const row = await c.env.DB.prepare(
       `WITH violation AS (${check.select})
        SELECT (SELECT COUNT(*) FROM violation) AS affected_count,
-              (SELECT json_group_array(id) FROM (SELECT id FROM violation LIMIT ${SAMPLE_LIMIT}))
-                AS sample_ids`,
+              ${sampleIds} AS sample_ids`,
     ).bind(...(check.binds?.() ?? [])).first<{ affected_count: number; sample_ids: string }>();
     const affectedCount = row?.affected_count ?? 0;
     return {

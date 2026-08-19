@@ -81,13 +81,25 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/staff', async
 
 /**
  * POST /api/platform-admin/tenants/:id/staff/:staffId/disable — lock a staff
- * member out and kill their live sessions for this tenant.
+ * member out of THIS tenant and kill their live sessions for it.
  *
- * CAUTION: staff_members is platform-wide, not per-tenant. Setting
- * is_active = 0 disables this person EVERYWHERE they hold a membership, not
- * just in :id — only the session revocation below is scoped to this tenant.
- * An operator reaching for this on a multi-tenant staff member is doing
- * something wider than the tenant page they are looking at suggests.
+ * The deactivation targets tenant_staff_memberships, the tenant-scoped table,
+ * exactly as the tenant-facing console does (routes/staff.ts DELETE
+ * /api/staff/:id). It must never touch staff_members, which is platform-wide:
+ *   - platform_admins.staff_id references staff_members, and the platform-admin
+ *     login INNER JOINs staff_members.is_active = 1, so clearing it here would
+ *     lock a platform admin out of the platform console from a tenant-scoped
+ *     route;
+ *   - it would also disable the person in every other tenant they belong to.
+ *     No current code path gives one staff row memberships in two tenants, so
+ *     that second effect is latent rather than live — the membership-scoped
+ *     UPDATE closes it before it can become live.
+ *
+ * Membership deactivation is sufficient to log them out: both auth paths in
+ * middleware/auth.ts require membership.is_active = 1 — resolveAuthenticatedTenant
+ * selects from tenant_staff_memberships with is_active = 1, and the opaque
+ * session query INNER JOINs the same condition. The session revocation below is
+ * the explicit, immediate half of the same result.
  */
 platformAdminOperationsRoutes.post(
   '/api/platform-admin/tenants/:id/staff/:staffId/disable',
@@ -110,8 +122,9 @@ platformAdminOperationsRoutes.post(
     const now = new Date().toISOString();
     const results = await c.env.DB.batch([
       c.env.DB.prepare(
-        `UPDATE staff_members SET is_active = 0, updated_at = ? WHERE id = ?`,
-      ).bind(now, staffId),
+        `UPDATE tenant_staff_memberships SET is_active = 0, updated_at = ?
+          WHERE tenant_id = ? AND staff_id = ?`,
+      ).bind(now, tenantId, staffId),
       c.env.DB.prepare(
         `UPDATE tenant_admin_sessions SET revoked_at = ?
           WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,

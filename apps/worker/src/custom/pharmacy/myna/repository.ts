@@ -396,14 +396,29 @@ export async function recordMynaPatientReport(
   return { ...handoff, status: next, patient_reported_at: now, updated_at: now };
 }
 
+/**
+ * `patientId` narrows the listing in SQL, before the LIMIT. A caller that
+ * wants one patient's handoffs must pass it rather than filtering the result:
+ * on a busy account the account-wide page truncates at 100 and would silently
+ * drop that patient's older records.
+ */
 export async function listMynaHandoffs(
   db: D1Database,
   lineAccountId: string,
   status?: MynaHandoffStatus,
+  patientId?: string,
 ): Promise<MynaHandoff[]> {
   await expireMynaHandoffs(db, lineAccountId);
-  const where = status ? ' AND status = ?' : '';
-  const values = status ? [lineAccountId, status] : [lineAccountId];
+  const values: unknown[] = [lineAccountId];
+  let where = '';
+  if (status) {
+    where += ' AND status = ?';
+    values.push(status);
+  }
+  if (patientId) {
+    where += ' AND patient_id = ?';
+    values.push(patientId);
+  }
   const rows = await db.prepare(
     `${HANDOFF_SELECT}
       WHERE line_account_id = ?${where}

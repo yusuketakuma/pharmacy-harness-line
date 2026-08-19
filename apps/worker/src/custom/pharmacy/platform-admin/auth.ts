@@ -53,6 +53,25 @@ export function platformAdminCsrfTokenFromCookie(c: Context<Env>): string | null
   return parseCookieHeader(c.req.header('Cookie'))[PLATFORM_ADMIN_CSRF_COOKIE] || null;
 }
 
+/**
+ * The token hash identifying the request's session — the same value stored in
+ * platform_admin_sessions.token_hash. Support-mode grants are bound to it so
+ * a second live session for the same admin cannot ride along on a grant it
+ * never re-authenticated for.
+ *
+ * Re-derived from the cookie rather than carried on the context: the
+ * `platformAdmin` context variable is declared as `{ id, name }` in
+ * apps/worker/src/index.ts, and widening a shared context key to smuggle one
+ * value through is a worse trade than a second SHA-256 of a 43-character
+ * token. Callers run behind platformAdminAuthMiddleware, which has already
+ * proved this token resolves to a live session.
+ */
+export async function platformAdminSessionHash(c: Context<Env>): Promise<string | null> {
+  const token = platformAdminSessionTokenFromCookie(c);
+  if (!token || !isPlatformAdminSessionToken(token)) return null;
+  return hashTenantAdminSessionToken(token);
+}
+
 // Scoped to /api/platform-admin, not site-wide: the browser then never
 // attaches this cookie to any other same-origin request (tenant-admin API
 // calls, static assets, etc.), narrowing the blast radius of any future
@@ -121,6 +140,13 @@ export async function resolvePlatformAdminSession(
  * its own identity with its own audit trail.
  */
 export const platformAdminAuthMiddleware: MiddlewareHandler<Env> = async (c, next) => {
+  // Set before any early return so it lands on 401/403 bodies too. This
+  // middleware is mounted once on /api/platform-admin/* (see index.ts), so
+  // putting it here covers every router under that prefix — including
+  // dashboard-routes.ts and operations-routes.ts, which are separate Hono
+  // instances — and a future router cannot be added without inheriting it.
+  c.header('Cache-Control', 'no-store, private');
+
   const path = new URL(c.req.url).pathname;
   if (path === '/api/platform-admin/login') return next();
 
