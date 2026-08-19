@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { recordMynaPatientReport, recordMynaVerification } from './repository.js';
+import {
+  markMynaLaunchRequested,
+  recordMynaPatientReport,
+  recordMynaVerification,
+} from './repository.js';
 
 function fakeDb(rows: {
   handoff?: Record<string, unknown> | null;
@@ -92,6 +96,22 @@ describe('Myna handoff repository', () => {
       status: 'E_PRESCRIPTION_RECEIVED', sourceSystem: 'pharmacy-terminal',
     })).rejects.toThrow('invalid Myna verification');
     expect(calls.some((call) => call.sql.startsWith('BATCH'))).toBe(false);
+  });
+
+  it('writes the launch transition and its audit event in one batch', async () => {
+    const { db, calls } = fakeDb({ handoff: { ...handoff, status: 'CREATED' } });
+    await markMynaLaunchRequested(db, 'account-1', 'friend-1', 'handoff-1');
+    expect(calls.some((call) => call.sql === 'BATCH 2')).toBe(true);
+    expect(calls.some((call) => call.sql.includes("status = 'LAUNCH_REQUESTED'"))).toBe(false);
+    expect(calls.some((call) => call.sql.includes('INSERT INTO pharmacy_myna_events'))).toBe(false);
+  });
+
+  it('writes the patient report transition and its audit event in one batch', async () => {
+    const { db, calls } = fakeDb({ handoff: { ...handoff, status: 'LAUNCH_REQUESTED' } });
+    await recordMynaPatientReport(db, 'account-1', 'friend-1', 'handoff-1', 'COMPLETED');
+    expect(calls.some((call) => call.sql === 'BATCH 2')).toBe(true);
+    expect(calls.some((call) => call.sql.includes('SET status = ?, patient_reported_at'))).toBe(false);
+    expect(calls.some((call) => call.sql.includes('INSERT INTO pharmacy_myna_events'))).toBe(false);
   });
 
   it('records an expired prescription without creating a receipt projection', async () => {

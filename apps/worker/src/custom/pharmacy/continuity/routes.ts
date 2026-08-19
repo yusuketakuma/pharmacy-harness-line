@@ -5,7 +5,8 @@ import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescri
 import { listContinuityObligations, listPatientContinuity, pausePatientContinuity } from './repository.js';
 import { readJsonObject } from '../json.js';
 import {
-  listNextIntakeExpectations,
+  listPatientExpectations,
+  listAccountExpectations,
   offerNextIntakeExpectation,
   respondToNextIntakeExpectation,
   type NextIntakeExpectation,
@@ -40,7 +41,9 @@ function expectationView(item: NextIntakeExpectation) {
     updated_at: item.updated_at,
   };
 }
-continuityRoutes.use('/api/custom/pharmacy/continuity', async (c, next) => {
+// Wildcard also matches the bare collection path, so child routes such as
+// POST /continuity/:id/expectations run the same account + capability gate.
+continuityRoutes.use('/api/custom/pharmacy/continuity/*', async (c, next) => {
   const staff = c.get('staff');
   const account = getPharmacyAccountId(c);
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
@@ -70,7 +73,7 @@ continuityRoutes.get('/api/liff/pharmacy/continuity', async (c) => {
   const patient = c.get('continuityPatient');
   const [obligations, expectations] = await Promise.all([
     listPatientContinuity(c.env.DB, patient.lineAccountId, patient.friendId),
-    listNextIntakeExpectations(c.env.DB, patient.lineAccountId, patient.friendId),
+    listPatientExpectations(c.env.DB, patient.lineAccountId, patient.friendId),
   ]);
   return c.json({ obligations, expectations: expectations.map(expectationView) });
 });
@@ -117,7 +120,7 @@ continuityRoutes.get('/api/custom/pharmacy/continuity', async (c) => {
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
   const [obligations, expectations] = await Promise.all([
     listContinuityObligations(c.env.DB, account),
-    listNextIntakeExpectations(c.env.DB, account),
+    listAccountExpectations(c.env.DB, account),
   ]);
   return c.json({ obligations, expectations: expectations.map(expectationView) });
 });
