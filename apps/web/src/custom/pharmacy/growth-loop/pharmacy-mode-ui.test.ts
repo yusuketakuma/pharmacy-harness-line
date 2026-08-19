@@ -18,4 +18,16 @@ describe('pharmacy mode UI boundary', () => {
     expect(accounts).toContain('pharmacyMode: boolean')
     expect(accounts).toContain('!accounts.some((account) => account.pharmacyMode) &&')
   })
+
+  it('does not offer LINE account creation to a pharmacy tenant', () => {
+    const accounts = read('app/accounts/page.tsx')
+
+    expect(accounts).toContain('!loading && !accounts.some((account) => account.pharmacyMode) && (')
+  })
+
+  it('does not offer LINE account deletion for a pharmacy-mode account', () => {
+    const accounts = read('app/accounts/page.tsx')
+
+    expect(accounts).toContain('!account.pharmacyMode && (')
+  })
 })

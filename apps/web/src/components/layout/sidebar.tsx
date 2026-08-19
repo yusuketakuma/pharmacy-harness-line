@@ -8,7 +8,6 @@ import type { AccountWithStats } from '@/contexts/account-context'
 import { countryFlag } from '@/lib/country-flag'
 import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
 import PrescriptionSidebarBadge from '@/custom/pharmacy/prescriptions/PrescriptionSidebarBadge' // custom:pharmacy-prescriptions
-import { isPharmacyMenuPath } from '@/custom/pharmacy/growth-loop/menu' // custom:pharmacy-allowlist
 
 const appVersion = process.env.APP_VERSION || '0.0.0'
 const appCommitSha = process.env.APP_COMMIT_SHA || 'local'
@@ -292,7 +291,6 @@ export default function Sidebar() {
                 </div>
               )}
               {section.items.filter((item) => {
-                if (selectedAccount?.pharmacyMode && !isPharmacyMenuPath(item.href)) return false
                 if (item.href === '/staff' && staffRole !== 'owner') return false
                 if (item.href === '/accounts' && staffRole === 'staff') return false
                 return true

@@ -20,6 +20,8 @@ describe('pharmacy admin menu layout', () => {
     expect(source).toContain(
       '.filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)',
     )
+    expect(source).not.toContain('isPharmacyMenuPath')
+    expect(source).not.toContain('selectedAccount?.pharmacyMode && !')
 
     const paths = [
       '/prescriptions',

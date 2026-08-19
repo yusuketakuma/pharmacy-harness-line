@@ -242,20 +242,22 @@ export default function AccountsPage() {
             >
               並び替えモード
             </button>
-            <button
-              onClick={() => {
-                const next = !showCreate
-                setShowCreate(next)
-                if (!next) {
-                  setForm(emptyAccountFormState)
-                  setCreateError('')
-                }
-              }}
-              className="px-4 py-2 rounded-lg text-white text-sm font-medium"
-              style={{ backgroundColor: '#06C755' }}
-            >
-              {showCreate ? 'キャンセル' : '+ アカウント追加'}
-            </button>
+            {!loading && !accounts.some((account) => account.pharmacyMode) && (
+              <button
+                onClick={() => {
+                  const next = !showCreate
+                  setShowCreate(next)
+                  if (!next) {
+                    setForm(emptyAccountFormState)
+                    setCreateError('')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg text-white text-sm font-medium"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                {showCreate ? 'キャンセル' : '+ アカウント追加'}
+              </button>
+            )}
           </div>
         }
       />
@@ -309,7 +311,7 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {showCreate && (
+      {showCreate && !accounts.some((account) => account.pharmacyMode) && (
         <form onSubmit={handleCreate} className="bg-white rounded-lg border border-gray-200 p-6 mb-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -470,12 +472,14 @@ export default function AccountsPage() {
                   >
                     編集
                   </button>
-                  <button
-                    onClick={() => handleDelete(account.id)}
-                    className="text-red-500 hover:text-red-700 text-xs"
-                  >
-                    削除
-                  </button>
+                  {!account.pharmacyMode && (
+                    <button
+                      onClick={() => handleDelete(account.id)}
+                      className="text-red-500 hover:text-red-700 text-xs"
+                    >
+                      削除
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
