@@ -66,17 +66,32 @@ const UNAUTHENTICATED_PATTERNS: Array<string | RegExp> = [
   '/webhook',
   /^\/api\/forms\/[^/]+\/submit$/,
   '/api/public/media-inquiries',
+  // Patient-facing LIFF traffic (Bearer LINE ID token). This runs before
+  // authMiddleware, so that token is unvalidated — treat these as
+  // unauthenticated by design rather than incidentally inheriting the
+  // higher authenticated ceiling via an unvalidated Bearer token.
+  /^\/api\/liff\/pharmacy\//,
 ];
 
 const SENSITIVE_PATHS = new Set([
   '/api/auth/login',
-  '/api/platform/pharmacy/tenants',
 ]);
+
+// Exact match doesn't work here: every sub-path under this prefix
+// (admin-bootstrap, line-accounts/:id/credentials/{backfill,scrub,restore})
+// has dynamic id segments. `/api/auth/login` above has no such segments, so
+// it stays a plain exact-match Set entry.
+const SENSITIVE_PATH_PREFIXES = ['/api/platform/pharmacy/tenants'];
 
 function isUnauthenticatedPath(path: string): boolean {
   return UNAUTHENTICATED_PATTERNS.some((p) =>
     typeof p === 'string' ? path === p : p.test(path),
   );
+}
+
+function isSensitivePath(path: string): boolean {
+  if (SENSITIVE_PATHS.has(path)) return true;
+  return SENSITIVE_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
 function getClientIp(c: Context): string {
@@ -86,6 +101,23 @@ function getClientIp(c: Context): string {
     c.req.header('x-real-ip') ||
     '0.0.0.0'
   );
+}
+
+// Synchronous, non-cryptographic hash for rate-limit bucket keys. Every LINE
+// ID JWT shares the same base64url-encoded header, so a truncated-prefix key
+// would collapse distinct tokens into one bucket; hashing the full token
+// spreads them out instead. Two FNV-1a-style 32-bit accumulators combined
+// keep accidental collisions negligible for this use (it only needs to be
+// collision-resistant, not tamper-proof).
+function hashToken(input: string): string {
+  let h1 = 0x811c9dc5 ^ input.length;
+  let h2 = 0x9e3779b9 ^ input.length;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193);
+    h2 = Math.imul(h2 ^ c, 0x5bd1e995);
+  }
+  return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
 }
 
 function getAdminCookieToken(c: Context): string | null {
@@ -139,7 +171,7 @@ export async function rateLimitMiddleware(c: Context<Env>, next: Next): Promise<
   let max: number;
   let windowMs: number;
 
-  if (SENSITIVE_PATHS.has(path)) {
+  if (isSensitivePath(path)) {
     key = `sensitive:${path}:ip:${getClientIp(c)}`;
     max = SENSITIVE_MAX;
     windowMs = UNAUTHENTICATED_WINDOW;
@@ -153,8 +185,15 @@ export async function rateLimitMiddleware(c: Context<Env>, next: Next): Promise<
     const authHeader = c.req.header('Authorization');
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : getAdminCookieToken(c);
     if (token) {
-      // Use first 16 chars of token as key to avoid storing full secrets
-      key = `key:${token.slice(0, 16)}`;
+      // Hash the FULL token (not a prefix) so distinct tokens map to distinct
+      // buckets. A prefix alone is unsafe here: rate limiting runs before
+      // auth, and every LINE ID JWT shares the same base64url-encoded header,
+      // so a 16-char prefix would collapse every patient's token into one
+      // shared bucket. Combine with the caller's IP so a (extremely unlikely)
+      // hash collision — or a captured token replayed from elsewhere — can't
+      // drain another caller's bucket, and so an attacker can't starve one
+      // real token's bucket by resending it from many spoofed IPs.
+      key = `key:${hashToken(token)}:${getClientIp(c)}`;
       max = AUTHENTICATED_MAX;
       windowMs = AUTHENTICATED_WINDOW;
       // Bound total per-IP throughput so an attacker cannot bypass the limiter
