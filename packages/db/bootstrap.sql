@@ -1286,6 +1286,14 @@ CREATE TABLE pharmacy_prescription_validities (
     REFERENCES pharmacy_prescription_submissions(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_prescription_view_events (
+  id            TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL REFERENCES pharmacy_prescription_submissions(id) ON DELETE CASCADE,
+  file_id       TEXT NOT NULL REFERENCES pharmacy_prescription_files(id) ON DELETE CASCADE,
+  staff_id      TEXT NOT NULL,
+  viewed_at     TEXT NOT NULL
+);
+
 CREATE TABLE pharmacy_print_tasks (
   id                 TEXT PRIMARY KEY,
   line_account_id    TEXT NOT NULL,
@@ -1377,7 +1385,8 @@ CREATE TABLE pharmacy_webhook_event_receipts (
   tenant_id        TEXT NOT NULL,
   line_account_id  TEXT NOT NULL,
   webhook_event_id TEXT NOT NULL,
-  received_at      TEXT NOT NULL,
+  received_at      TEXT NOT NULL, payload TEXT, status TEXT NOT NULL DEFAULT 'completed'
+    CHECK (status IN ('pending', 'processing', 'completed', 'failed')), lease_until TEXT, retry_count INTEGER NOT NULL DEFAULT 0, dead_lettered_at TEXT,
   PRIMARY KEY (tenant_id, line_account_id, webhook_event_id),
   FOREIGN KEY (tenant_id, line_account_id)
     REFERENCES tenant_line_accounts(tenant_id, line_account_id) ON DELETE CASCADE
@@ -1487,7 +1496,7 @@ CREATE TABLE scenarios (
   delivery_mode   TEXT NOT NULL DEFAULT 'relative' CHECK (delivery_mode IN ('relative', 'elapsed', 'absolute_time')),
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, line_account_id TEXT);
+, line_account_id TEXT, tenant_id TEXT);
 
 CREATE TABLE scoring_rules (
   id          TEXT PRIMARY KEY,
@@ -1538,7 +1547,7 @@ CREATE TABLE staff_members (
   is_active  INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, api_key_hash TEXT);
 
 CREATE TABLE staff_menus (
   staff_id                  TEXT NOT NULL,
@@ -2154,6 +2163,9 @@ CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_scope
 CREATE INDEX idx_pharmacy_prescription_validities_queue
   ON pharmacy_prescription_validities(line_account_id, verification_status, reminder_due_at);
 
+CREATE INDEX idx_pharmacy_prescription_view_events_submission
+  ON pharmacy_prescription_view_events (submission_id, viewed_at);
+
 CREATE INDEX idx_pharmacy_prescriptions_account_status_requested
   ON pharmacy_prescription_submissions (line_account_id, status, requested_at, id);
 
@@ -2175,6 +2187,10 @@ CREATE INDEX idx_pharmacy_tenant_provisioning_tenant
 CREATE INDEX idx_pharmacy_webhook_event_receipts_received
   ON pharmacy_webhook_event_receipts (received_at);
 
+CREATE INDEX idx_pharmacy_webhook_event_receipts_sweep
+  ON pharmacy_webhook_event_receipts (lease_until, received_at)
+  WHERE status <> 'completed' AND dead_lettered_at IS NULL;
+
 CREATE INDEX idx_ref_tracking_friend ON ref_tracking (friend_id);
 
 CREATE INDEX idx_ref_tracking_friend_created ON ref_tracking(friend_id, created_at);
@@ -2195,6 +2211,9 @@ CREATE INDEX idx_rich_menu_pages_group    ON rich_menu_pages(group_id, order_ind
 
 CREATE INDEX idx_scenario_steps_scenario_id ON scenario_steps (scenario_id);
 
+CREATE INDEX idx_scenarios_tenant_account
+  ON scenarios (tenant_id, line_account_id);
+
 CREATE INDEX idx_shifts_staff_date ON staff_shifts (staff_id, work_date);
 
 CREATE INDEX idx_staff_account_sort ON staff (line_account_id, sort_order);
@@ -2203,6 +2222,9 @@ CREATE INDEX idx_staff_availability_rules_staff
   ON staff_availability_rules (staff_id, weekday, is_active);
 
 CREATE UNIQUE INDEX idx_staff_members_api_key ON staff_members(api_key);
+
+CREATE UNIQUE INDEX idx_staff_members_api_key_hash
+  ON staff_members(api_key_hash);
 
 CREATE INDEX idx_staff_members_role ON staff_members(role);
 
@@ -2308,6 +2330,10 @@ CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF 
 CREATE TRIGGER pharmacy_patient_intake_base_scope_insert BEFORE INSERT ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_patient_intake_base_scope_update BEFORE UPDATE OF base_response_id, line_account_id, owner_friend_id, patient_id ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_insert BEFORE INSERT ON pharmacy_prescription_submissions WHEN NEW.source_handoff_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_myna_handoffs AS handoff WHERE handoff.id = NEW.source_handoff_id AND handoff.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_update BEFORE UPDATE OF source_handoff_id, line_account_id ON pharmacy_prescription_submissions WHEN NEW.source_handoff_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_myna_handoffs AS handoff WHERE handoff.id = NEW.source_handoff_id AND handoff.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 

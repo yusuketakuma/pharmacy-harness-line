@@ -96,7 +96,12 @@
     "custom_019_pharmacy_tenant_admin_bootstrap.sql",
     "custom_020_pharmacy_staff_account_backfill.sql",
     "custom_021_pharmacy_webhook_event_receipts.sql",
-    "custom_022_pharmacy_tenant_integrity.sql"
+    "custom_022_pharmacy_tenant_integrity.sql",
+    "custom_023_pharmacy_webhook_durable_inbox.sql",
+    "custom_024_scenario_tenant_scope.sql",
+    "custom_025_pharmacy_tenant_integrity_v2.sql",
+    "custom_026_pharmacy_prescription_view_events.sql",
+    "custom_027_pharmacy_staff_api_key_hash.sql"
   ],
-  "migrationCount": 97
+  "migrationCount": 102
 }
