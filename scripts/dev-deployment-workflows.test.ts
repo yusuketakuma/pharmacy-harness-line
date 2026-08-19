@@ -65,6 +65,7 @@ describe('development deployment workflow contract', () => {
     expect(verifyVersion).toBeGreaterThan(stepIndex('Verify Worker health'));
     expect(verifyVersion).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
     expect(sharedDeploy).toContain('release_version=$(node -p');
+    expect(sharedDeploy).toContain("node -p 'require(\"./apps/worker/package.json\").version'");
     expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
     expect(sharedDeploy).toContain('--worker apps/worker/dist/line_harness/index.js');
     expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
