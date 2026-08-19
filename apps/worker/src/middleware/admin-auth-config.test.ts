@@ -183,6 +183,16 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
     ).toBe('');
   });
 
+  test('blocks a LIFF origin from platform-admin APIs', () => {
+    expect(
+      resolveCorsOrigin(
+        { ...env, LIFF_ORIGIN: LIFF },
+        LIFF,
+        `${WORKERS}/api/platform-admin/session`,
+      ),
+    ).toBe('');
+  });
+
   test('blocks a LIFF origin from ordinary admin APIs', () => {
     expect(
       resolveCorsOrigin({ ...env, LIFF_ORIGIN: LIFF }, LIFF, `${WORKERS}/api/friends`),
@@ -232,5 +242,19 @@ describe('resolveCorsOrigin — local development', () => {
     expect(
       resolveCorsOrigin({ ADMIN_ORIGIN: PAGES }, 'http://localhost:3001', `${WORKERS}/api/friends`),
     ).toBe('');
+  });
+});
+
+describe('isAllowedAdminOrigin — Cloudflare Pages previews', () => {
+  test('allows production and preview origins for the same Pages project', () => {
+    expect(isAllowedAdminOrigin('https://your-admin.pages.dev', PAGES)).toBe(true);
+    expect(isAllowedAdminOrigin('https://preview.your-admin.pages.dev', PAGES)).toBe(true);
+    expect(isAllowedAdminOrigin(PAGES, 'https://preview.your-admin.pages.dev')).toBe(true);
+  });
+
+  test('does not widen custom domains to arbitrary subdomains', () => {
+    expect(
+      isAllowedAdminOrigin('https://preview.admin.example.com', 'https://admin.example.com'),
+    ).toBe(false);
   });
 });
