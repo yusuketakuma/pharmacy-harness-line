@@ -103,7 +103,7 @@ jobs:
         id: build-meta
         run: |
           echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
-          echo "release_version=$(node -p \"require('./apps/worker/package.json').version\")" >> "$GITHUB_OUTPUT"
+          echo "release_version=$(node -p 'require("./apps/worker/package.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Build Admin Panel
         run: |
