@@ -20,13 +20,23 @@ const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
 const TENANT_ID = 'tenant:pharmacy-a';
 const TENANT_CODE = 'pharmacy-a';
 
-function tenantDb(pharmacyMode = 1): D1Database {
+function tenantDb(pharmacyMode = 1, sqlLog: string[] = []): D1Database {
   return {
     prepare(sql: string) {
+      sqlLog.push(sql);
       return {
         bind(...values: unknown[]) {
           return {
             first: async () => {
+              if (sql.includes('FROM platform_admin_sessions')) {
+                return {
+                  staff_id: 'platform-admin-1',
+                  name: 'Platform Owner',
+                  must_change_password: 0,
+                  credential_version: 1,
+                  session_kind: 'standard',
+                };
+              }
               if (sql.includes('FROM tenants')) {
                 return values.includes(TENANT_ID) || values.includes(TENANT_CODE)
                   ? {
@@ -44,6 +54,7 @@ function tenantDb(pharmacyMode = 1): D1Database {
               }
               return null;
             },
+            run: async () => ({ success: true, meta: { changes: 1 } }),
           };
         },
       };
@@ -88,6 +99,11 @@ function app() {
     data: { ...c.get('staff'), tenantId: c.get('tenantId') },
   }));
   a.post('/api/protected', (c) => c.json({ success: true, data: c.get('staff') }));
+  a.get('/api/account-settings/link-base-url', (c) => c.json({
+    success: true,
+    data: { staff: c.get('staff'), tenantId: c.get('tenantId') },
+  }));
+  a.get('/api/custom/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/forms/:id', (c) => c.json({ success: true, staff: c.get('staff') ?? null }));
   a.put('/api/forms/:id', (c) => c.json({ success: true }));
   a.delete('/api/forms/:id', (c) => c.json({ success: true }));
@@ -178,6 +194,36 @@ describe('topology guard', () => {
 });
 
 describe('protected API access', () => {
+  const platformSession = `pas_${'a'.repeat(43)}`;
+
+  test('allows a platform-admin session bearer only on tenant setting APIs', async () => {
+    const sqlLog: string[] = [];
+    const testEnv = env({ DB: tenantDb(1, sqlLog) });
+    const allowed = await app().request('/api/account-settings/link-base-url', {
+      headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
+    }, testEnv);
+
+    expect(allowed.status).toBe(200);
+    await expect(allowed.json()).resolves.toMatchObject({
+      data: {
+        staff: { id: 'platform-admin-1', role: 'owner' },
+        tenantId: TENANT_ID,
+      },
+    });
+    expect(sqlLog.some((sql) => sql.includes('INSERT INTO platform_admin_access_events'))).toBe(true);
+
+    const phi = await app().request('/api/custom/pharmacy/prescriptions', {
+      headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
+    }, testEnv);
+    expect(phi.status).toBe(401);
+  });
+
+  test('requires an explicit tenant for a platform-admin CLI session', async () => {
+    const response = await app().request('/api/account-settings/link-base-url', {
+      headers: { Authorization: `Bearer ${platformSession}` },
+    }, env());
+    expect(response.status).toBe(401);
+  });
   test('allows LIFF preflight requests for pharmacy APIs', async () => {
     const res = await app().request('/api/liff/pharmacy/patients?liffId=test', {
       method: 'OPTIONS',
