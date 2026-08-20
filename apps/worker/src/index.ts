@@ -101,6 +101,9 @@ import { pharmacyRichMenuRoutes } from './custom/pharmacy/rich-menu/routes.js'; 
 import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // custom:pharmacy-print
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
+import { emergencyContraceptionRoutes } from './custom/pharmacy/emergency-contraception/routes.js'; // custom:pharmacy-emergency-contraception
+import { dataSubjectRequestRoutes } from './custom/pharmacy/data-subject-requests/routes.js'; // custom:pharmacy-data-subject-requests
+import { pharmacyPrivacyPolicyRoutes } from './custom/pharmacy/privacy-policy/routes.js'; // custom:pharmacy-privacy-policy
 import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.js'; // custom:pharmacy-provisioning
 import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminDashboardRoutes } from './custom/pharmacy/platform-admin/dashboard-routes.js'; // custom:pharmacy-platform-admin
@@ -109,6 +112,7 @@ import { platformAdminAuthMiddleware } from './custom/pharmacy/platform-admin/au
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
+import { purgePrescriptionFilesPastRetention } from './custom/pharmacy/prescriptions/retention-purge.js'; // custom:pharmacy-prescriptions
 import { claimDueNextIntakeExpectations } from './custom/pharmacy/continuity/next-intake.js'; // custom:pharmacy-continuity
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
@@ -175,6 +179,7 @@ export type Env = {
     GOOGLE_OAUTH_CLIENT_SECRET?: string;
     MYNA_ENDPOINT_ENCRYPTION_KEY?: string;
     MYNA_ALLOWED_HOSTS?: string;
+    PHARMACY_PHI_KEY_V1?: string;
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
@@ -278,7 +283,10 @@ app.route('/', pharmacyRichMenuRoutes); // custom:pharmacy-rich-menu
 app.route('/', pharmacyGrowthLoopRoutes); // custom:pharmacy-growth-loop
 app.route('/', pharmacyPrintRoutes); // custom:pharmacy-print
 app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifications
+app.route('/', dataSubjectRequestRoutes); // custom:pharmacy-data-subject-requests
 app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
+app.route('/', emergencyContraceptionRoutes); // custom:pharmacy-emergency-contraception
+app.route('/', pharmacyPrivacyPolicyRoutes); // custom:pharmacy-privacy-policy
 app.route('/', tenantProvisioningRoutes); // custom:pharmacy-provisioning
 app.route('/', platformAdminRoutes); // custom:pharmacy-platform-admin
 app.route('/', platformAdminDashboardRoutes); // custom:pharmacy-platform-admin
@@ -1241,6 +1249,21 @@ async function scheduled(
       }
     } catch (e) {
       console.error('prescription-cleanup error:', e);
+    }
+
+    try {
+      // H-5: statutory 3-year backstop. Unlike the workflow cleanup above this
+      // ignores submission status — past three years the image goes either way.
+      const result = await purgePrescriptionFilesPastRetention(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions
+        now: new Date(event.scheduledTime),
+      });
+      if (result.purged + result.failed > 0) {
+        console.log(
+          `[prescription-retention-purge] purged=${result.purged} failed=${result.failed}`,
+        );
+      }
+    } catch (e) {
+      console.error('prescription-retention-purge error:', e);
     }
 
     try {
