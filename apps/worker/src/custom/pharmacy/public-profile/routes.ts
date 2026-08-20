@@ -33,6 +33,14 @@ pharmacyPublicProfileRoutes.get('/api/liff/pharmacy/public-profile', async (c) =
     access_note: profile.access_note,
     parking_note: profile.parking_note,
     google_maps_url: profile.google_maps_url,
+    prescription_reception_hours: profile.prescription_reception_hours,
+    after_hours_note: profile.after_hours_note,
+    services_note: profile.services_note,
+    accessibility_note: profile.accessibility_note,
+    supported_languages: profile.supported_languages,
+    payment_methods: profile.payment_methods,
+    website_url: profile.website_url,
+    updated_at: profile.updated_at,
   } }) : c.json({ error: 'Pharmacy account not found' }, 404);
 });
 
@@ -62,6 +70,13 @@ pharmacyPublicProfileRoutes.put('/api/custom/pharmacy/public-profile', async (c)
       accessNote: String(body.accessNote ?? ''),
       parkingNote: String(body.parkingNote ?? ''),
       googleMapsUrl: String(body.googleMapsUrl ?? ''),
+      prescriptionReceptionHours: String(body.prescriptionReceptionHours ?? ''),
+      afterHoursNote: String(body.afterHoursNote ?? ''),
+      servicesNote: String(body.servicesNote ?? ''),
+      accessibilityNote: String(body.accessibilityNote ?? ''),
+      supportedLanguages: String(body.supportedLanguages ?? ''),
+      paymentMethods: String(body.paymentMethods ?? ''),
+      websiteUrl: String(body.websiteUrl ?? ''),
     });
     return c.body(null, 204);
   } catch {

@@ -1,12 +1,12 @@
 import type { CreateRichMenuGroupInput } from '@line-crm/db';
 
-export const PHARMACY_INITIAL_PROFILE_KEY = 'initial-large-3x2-v2';
+export const PHARMACY_INITIAL_PROFILE_KEY = 'initial-large-3x2-v3';
 export const PHARMACY_LEGACY_INITIAL_PROFILE_KEY = 'initial-compact-3x1';
 export const PHARMACY_SINGLE_ACTION_PROFILE_KEY = 'intake-single-action-v1';
-export const PHARMACY_RICH_MENU_GENERATOR_VERSION = '2';
+export const PHARMACY_RICH_MENU_GENERATOR_VERSION = '3';
 export const PHARMACY_LEGACY_RICH_MENU_GENERATOR_VERSION = '1';
 export const PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH =
-  '/custom/pharmacy/rich-menu/initial-large-3x2-v2.jpg';
+  '/custom/pharmacy/rich-menu/initial-large-3x2-v3.jpg';
 export const PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH =
   '/custom/pharmacy/rich-menu/initial-compact-3x1.jpg';
 export const PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH =
@@ -53,7 +53,7 @@ export function buildPharmacyInitialRichMenu(
   requireRichMenuInput(accountId, liffId);
 
   const cells = [
-    { page: 'pharmacy-receive', label: 'お薬を受け取る' },
+    { page: 'pharmacy-emergency-contraception', label: '緊急避妊薬' },
     { page: 'pharmacy-prescription-history', label: '受付状況' },
     { page: 'pharmacy-followup', label: '服薬後フォロー' },
     { page: null, label: '薬局へ相談' },
@@ -124,7 +124,7 @@ export function buildPharmacySingleActionRichMenu(
         boundsWidth: WIDTH,
         boundsHeight: COMPACT_HEIGHT,
         actionType: 'uri',
-        actionData: { uri: liffPageUrl(liffId, 'pharmacy-receive') },
+        actionData: { uri: liffPageUrl(liffId, 'pharmacy-prescription-send') },
       }],
     }],
   };

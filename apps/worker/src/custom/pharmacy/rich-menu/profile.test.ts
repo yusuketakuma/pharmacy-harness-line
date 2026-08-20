@@ -31,7 +31,7 @@ describe('pharmacy rich-menu profile', () => {
       [1667, 843, 833, 843],
     ]);
     expect(page.areas[0].actionData).toEqual({
-      uri: 'https://liff.line.me/1234567890-AbCd/?page=pharmacy-receive&liffId=1234567890-AbCd',
+      uri: 'https://liff.line.me/1234567890-AbCd/?page=pharmacy-emergency-contraception&liffId=1234567890-AbCd',
     });
     expect(page.areas[1].actionData).toEqual({
       uri: 'https://liff.line.me/1234567890-AbCd/?page=pharmacy-prescription-history&liffId=1234567890-AbCd',
@@ -71,7 +71,7 @@ describe('pharmacy rich-menu profile', () => {
     expect(group.pages[0].areas).toHaveLength(1);
     expect(area).toMatchObject({ boundsX: 0, boundsY: 0, boundsWidth: 2500, boundsHeight: 843 });
     expect(area.actionData).toEqual({
-      uri: 'https://liff.line.me/1234567890-AbCd/?page=pharmacy-receive&liffId=1234567890-AbCd',
+      uri: 'https://liff.line.me/1234567890-AbCd/?page=pharmacy-prescription-send&liffId=1234567890-AbCd',
     });
   });
 

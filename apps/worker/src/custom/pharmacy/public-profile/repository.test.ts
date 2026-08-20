@@ -24,6 +24,13 @@ const input = {
   accessNote: '駅東口から徒歩3分',
   parkingNote: '店舗前に2台分あります',
   googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=test',
+  prescriptionReceptionHours: '月〜金 17:30まで',
+  afterHoursNote: '時間外は電話でご相談ください',
+  servicesNote: 'オンライン服薬指導',
+  accessibilityNote: '車いすで入店できます',
+  supportedLanguages: '日本語・英語',
+  paymentMethods: '現金・クレジットカード',
+  websiteUrl: 'https://pharmacy.example.test',
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -57,6 +64,14 @@ describe('pharmacy public profile repository', () => {
     await expect(savePharmacyPublicProfile(db, { ...input, phone: '03-1234<script>' }))
       .rejects.toThrow('invalid pharmacy public profile');
     await expect(savePharmacyPublicProfile(db, { ...input, phone: '(03)1234-5678' }))
+      .rejects.toThrow('invalid pharmacy public profile');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsafe official website URL before D1', async () => {
+    await expect(savePharmacyPublicProfile(db, { ...input, websiteUrl: 'http://pharmacy.example.test' }))
+      .rejects.toThrow('invalid pharmacy public profile');
+    await expect(savePharmacyPublicProfile(db, { ...input, websiteUrl: 'https://user:pass@pharmacy.example.test' }))
       .rejects.toThrow('invalid pharmacy public profile');
     expect(run).not.toHaveBeenCalled();
   });

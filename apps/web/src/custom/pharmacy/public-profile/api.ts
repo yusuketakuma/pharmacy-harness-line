@@ -12,6 +12,13 @@ export interface PharmacyPublicProfile {
   access_note: string
   parking_note: string
   google_maps_url: string
+  prescription_reception_hours: string
+  after_hours_note: string
+  services_note: string
+  accessibility_note: string
+  supported_languages: string
+  payment_methods: string
+  website_url: string
   updated_at: string | null
 }
 
@@ -25,6 +32,13 @@ export interface PharmacyPublicProfileInput {
   accessNote: string
   parkingNote: string
   googleMapsUrl: string
+  prescriptionReceptionHours: string
+  afterHoursNote: string
+  servicesNote: string
+  accessibilityNote: string
+  supportedLanguages: string
+  paymentMethods: string
+  websiteUrl: string
 }
 
 const path = '/api/custom/pharmacy/public-profile'
