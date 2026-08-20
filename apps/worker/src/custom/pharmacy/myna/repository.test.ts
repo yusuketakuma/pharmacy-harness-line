@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  getActivePatientMynaHandoff,
   listMynaHandoffs,
   markMynaLaunchRequested,
   recordMynaPatientReport,
@@ -63,6 +64,16 @@ const handoff = {
 };
 
 describe('Myna handoff repository', () => {
+  it('finds an active electronic handoff by both account and LINE owner', async () => {
+    const { db, calls } = fakeDb({ handoff: { ...handoff, status: 'LAUNCH_REQUESTED' } });
+    await expect(getActivePatientMynaHandoff(db, 'account-1', 'friend-1'))
+      .resolves.toMatchObject({ id: 'handoff-1' });
+    const lookup = calls.find((call) => call.sql.includes('ORDER BY created_at DESC'));
+    expect(lookup?.sql).toContain('line_account_id = ? AND friend_id = ?');
+    expect(lookup?.sql).toContain("status IN ('CREATED','LAUNCH_REQUESTED')");
+    expect(lookup?.values.slice(0, 2)).toEqual(['account-1', 'friend-1']);
+  });
+
   it('records a patient report without changing official receipt state', async () => {
     const { db, calls } = fakeDb({ handoff });
     const result = await recordMynaPatientReport(

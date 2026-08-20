@@ -59,7 +59,10 @@ export async function processDueMedicationFollowUps(
         friendId: current.owner_friend_id,
         messageId: 'medication_followup_v1',
         category: 'followup_care',
-        vars: { followUpId: current.id },
+        vars: {
+          followUpId: current.id,
+          ...(current.liff_id ? { liffId: current.liff_id } : {}),
+        },
         retryKey: `medication-followup:${current.id}`,
         now,
       });

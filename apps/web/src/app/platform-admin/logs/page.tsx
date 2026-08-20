@@ -14,6 +14,30 @@ const TYPE_OPTIONS: Array<{ value: '' | PlatformLogType; label: string }> = [
   { value: 'platform_admin_access', label: '全体管理者アクセス' },
 ]
 
+const LOG_COLUMN_LABELS: Record<string, string> = {
+  created_at: '日時', received_at: '受信日時', tenant_id: 'テナントID',
+  line_account_id: 'LINEアカウントID', submission_id: '受付ID', event_type: 'イベント',
+  actor_type: '実行者種別', from_status: '変更前', to_status: '変更後', id: 'ID',
+  webhook_event_id: 'WebhookイベントID', status: '状態', retry_count: '再試行回数',
+  dead_lettered_at: '隔離日時', platform_admin_id: '全体管理者ID', action: '操作',
+  resource_type: 'リソース種別', resource_id: 'リソースID', detail_json: '詳細',
+}
+
+const logValue = (column: string, value: unknown): string => {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string' && /(_at|At)$/.test(column)) {
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat('ja-JP', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+        timeZone: 'Asia/Tokyo',
+      }).format(date)
+    }
+  }
+  return String(value)
+}
+
 function LogTable({ title, columns, rows, action }: {
   title: string
   columns: string[]
@@ -24,7 +48,7 @@ function LogTable({ title, columns, rows, action }: {
   return (
     <details open className="rounded-lg border border-gray-200 bg-white p-4">
       <summary className="cursor-pointer font-semibold">
-        {title}<span className="ml-2 text-xs font-normal text-gray-500">{rows.length}件</span>
+        {title}<span className="ml-2 text-xs font-normal text-gray-500">取得件数 {rows.length}件</span>
       </summary>
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-gray-500">データなし</p>
@@ -33,7 +57,7 @@ function LogTable({ title, columns, rows, action }: {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-600">
               <tr>
-                {columns.map((column) => <th key={column} className="px-3 py-2">{column}</th>)}
+                {columns.map((column) => <th key={column} className="px-3 py-2">{LOG_COLUMN_LABELS[column] ?? column}</th>)}
                 {action && <th className="px-3 py-2">操作</th>}
               </tr>
             </thead>
@@ -42,7 +66,7 @@ function LogTable({ title, columns, rows, action }: {
                 <tr key={index} className="border-t border-gray-100">
                   {columns.map((column) => (
                     <td key={column} className="px-3 py-2 align-top">
-                      {row[column] === null || row[column] === undefined ? '—' : String(row[column])}
+                      {logValue(column, row[column])}
                     </td>
                   ))}
                   {action && <td className="px-3 py-2 align-top">{action(row)}</td>}
@@ -77,11 +101,12 @@ export default function PlatformAdminLogsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    setLogs(null)
     try {
       const res = await platformAdminApi.logs({
         tenantId: tenantId || undefined,
         type: type || undefined,
-        since: since || undefined,
+        since: since ? new Date(`${since}T00:00:00+09:00`).toISOString() : undefined,
         limit,
       })
       setLogs(res.data)
@@ -92,7 +117,7 @@ export default function PlatformAdminLogsPage() {
     }
   }, [tenantId, type, since, limit])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -100,10 +125,14 @@ export default function PlatformAdminLogsPage() {
   }
 
   const retry = async (rowTenantId: string, webhookEventId: string) => {
+    if (retrying || !window.confirm(
+      'Webhookを再試行します。患者へのLINE送信が再実行される可能性があります。よろしいですか?',
+    )) return
     setRetrying(webhookEventId)
     setError('')
     try {
       const res = await platformAdminApi.retryWebhookEvent(rowTenantId, webhookEventId)
+      if (res.data.outcome !== 'completed') throw new Error(`再試行結果: ${res.data.outcome}`)
       setRetryResult(`${webhookEventId}: ${res.data.outcome}`)
       await load()
     } catch (caught) {
@@ -127,7 +156,7 @@ export default function PlatformAdminLogsPage() {
       <button
         type="button"
         onClick={() => void retry(rowTenantId, webhookEventId)}
-        disabled={retrying === webhookEventId}
+        disabled={Boolean(retrying)}
         className="rounded-lg border border-purple-300 px-2 py-1 text-xs text-purple-800 hover:bg-purple-50 disabled:opacity-50"
       >
         {retrying === webhookEventId ? '再試行中...' : '再試行'}

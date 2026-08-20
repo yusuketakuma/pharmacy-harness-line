@@ -24,6 +24,7 @@ export interface PrescriptionDraft {
 export interface ReserveDraftInput {
   idempotencyKey: string;
   desiredPickupAt: string | null;
+  desiredFulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null;
   originalPrescriptionConsent: boolean;
   readinessNoticeConsent: boolean;
   patientId?: string;
@@ -48,9 +49,10 @@ export async function reservePrescriptionDraft(
   const statements = [db.prepare(
     `INSERT INTO pharmacy_prescription_submissions
        (id, line_account_id, friend_id, idempotency_key, status,
-        upload_revision, desired_pickup_at, original_prescription_consent_at,
+        upload_revision, desired_pickup_at, desired_fulfillment_method,
+        original_prescription_consent_at,
         readiness_notice_consent_at, intake_required, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING`,
   ).bind(
     submissionId,
@@ -58,6 +60,7 @@ export async function reservePrescriptionDraft(
     patient.friendId,
     input.idempotencyKey,
     input.desiredPickupAt,
+    input.desiredFulfillmentMethod ?? null,
     input.originalPrescriptionConsent ? now : null,
     input.readinessNoticeConsent ? now : null,
     hasPatientLink ? 1 : 0,
@@ -274,15 +277,28 @@ export async function submitPrescription(
   db: D1Database,
   patient: PrescriptionPatient,
   submissionId: string,
-  expectedUpdatedAt: string,
+  input: {
+    expectedUpdatedAt: string
+    desiredPickupAt: string | null
+    desiredFulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null
+    originalPrescriptionConsent: boolean
+    readinessNoticeConsent: boolean
+  },
 ): Promise<{ statusEventId: string }> {
-  const now = nextIsoTimestamp(expectedUpdatedAt);
+  if (!input.originalPrescriptionConsent || !input.readinessNoticeConsent ||
+      (input.desiredPickupAt !== null && !Number.isFinite(Date.parse(input.desiredPickupAt)))) {
+    throw new Error('prescription submit conflict');
+  }
+  const now = nextIsoTimestamp(input.expectedUpdatedAt);
   const statusEventId = crypto.randomUUID();
   const results = await db.batch([
     db.prepare(
       `UPDATE pharmacy_prescription_submissions AS s
           SET status = 'received', active_revision = upload_revision,
-              requested_at = ?, resubmission_reason_code = NULL, updated_at = ?
+              desired_pickup_at = ?, desired_fulfillment_method = ?,
+              original_prescription_consent_at = ?,
+              readiness_notice_consent_at = ?, requested_at = ?,
+              resubmission_reason_code = NULL, updated_at = ?
         WHERE s.id = ? AND s.line_account_id = ? AND s.friend_id = ?
           AND s.updated_at = ? AND s.status IN ('draft','needs_resubmission')
           AND s.original_prescription_consent_at IS NOT NULL
@@ -302,12 +318,16 @@ export async function submitPrescription(
                AND MAX(f.position) = COUNT(*)
           )`,
     ).bind(
+      input.desiredPickupAt,
+      input.desiredFulfillmentMethod ?? null,
+      now,
+      now,
       now,
       now,
       submissionId,
       patient.lineAccountId,
       patient.friendId,
-      expectedUpdatedAt,
+      input.expectedUpdatedAt,
     ),
     db.prepare(
       `INSERT INTO pharmacy_prescription_events
@@ -340,6 +360,11 @@ export interface PrescriptionHistoryItem {
   active_revision: number | null;
   upload_revision: number;
   desired_pickup_at: string | null;
+  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null;
+  arrival_reported_at: string | null;
+  estimated_ready_at: string | null;
+  requirements_json: string | null;
+  fulfillment_method: string | null;
   resubmission_reason_code: string | null;
   requested_at: string | null;
   closed_at: string | null;
@@ -352,11 +377,22 @@ export async function listPrescriptionHistory(
   patient: PrescriptionPatient,
 ): Promise<PrescriptionHistoryItem[]> {
   const result = await db.prepare(
-    `SELECT id, status, active_revision, upload_revision, desired_pickup_at,
-            resubmission_reason_code, requested_at, closed_at, created_at, updated_at
-       FROM pharmacy_prescription_submissions
-      WHERE line_account_id = ? AND friend_id = ?
-      ORDER BY created_at DESC, id DESC`,
+    `SELECT s.id, s.status, s.active_revision, s.upload_revision, s.desired_pickup_at,
+            s.desired_fulfillment_method, s.arrival_reported_at,
+            s.resubmission_reason_code, s.requested_at, s.closed_at, s.created_at, s.updated_at,
+            q.estimated_ready_at, q.requirements_json, q.fulfillment_method
+       FROM pharmacy_prescription_submissions s
+       LEFT JOIN pharmacy_fulfillment_quotes q
+         ON q.id = (
+           SELECT latest.id
+             FROM pharmacy_fulfillment_quotes latest
+            WHERE latest.submission_id = s.id
+              AND latest.line_account_id = s.line_account_id
+            ORDER BY latest.revision DESC, latest.created_at DESC, latest.id DESC
+            LIMIT 1
+         )
+      WHERE s.line_account_id = ? AND s.friend_id = ?
+      ORDER BY s.created_at DESC, s.id DESC`,
   ).bind(patient.lineAccountId, patient.friendId).all<PrescriptionHistoryItem>();
   return result.results;
 }
@@ -440,6 +476,26 @@ export async function reservePrescriptionResubmission(
   }
 }
 
+export async function reportPrescriptionArrival(
+  db: D1Database,
+  patient: PrescriptionPatient,
+  submissionId: string,
+  expectedUpdatedAt: string,
+): Promise<{ arrivalReportedAt: string }> {
+  const now = nextIsoTimestamp(expectedUpdatedAt);
+  const result = await db.prepare(
+    `UPDATE pharmacy_prescription_submissions
+        SET arrival_reported_at = ?, updated_at = ?
+      WHERE id = ? AND line_account_id = ? AND friend_id = ?
+        AND updated_at = ? AND status IN ('accepted','ready')
+        AND arrival_reported_at IS NULL`,
+  ).bind(
+    now, now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt,
+  ).run();
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('prescription arrival conflict');
+  return { arrivalReportedAt: now };
+}
+
 export async function markPrescriptionFileDeleted(
   db: D1Database,
   patient: PrescriptionPatient,
@@ -476,8 +532,11 @@ export async function markPrescriptionFileDeleted(
 export interface AdminQueueItem {
   id: string;
   friend_id: string;
+  patient_display_name: string | null;
   status: PrescriptionStatus;
   desired_pickup_at: string | null;
+  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null;
+  arrival_reported_at: string | null;
   requested_at: string | null;
   created_at: string;
   updated_at: string;
@@ -507,9 +566,13 @@ export async function listAdminPrescriptionQueue(
   }
   values.push(Math.min(100, Math.max(1, options.limit)));
   const result = await db.prepare(
-    `SELECT s.id, s.friend_id, s.status, s.desired_pickup_at,
+    `SELECT s.id, s.friend_id, f.display_name AS patient_display_name,
+            s.status, s.desired_pickup_at,
+            s.desired_fulfillment_method, s.arrival_reported_at,
             s.requested_at, s.created_at, s.updated_at
        FROM pharmacy_prescription_submissions s
+       INNER JOIN friends f
+               ON f.id = s.friend_id AND f.line_account_id = s.line_account_id
       WHERE ${conditions.join(' AND ')}
       ORDER BY COALESCE(s.requested_at, s.created_at), s.id
       LIMIT ?`,
@@ -561,6 +624,14 @@ export async function recordPrescriptionFileViewed(
 export interface AdminPrescriptionStats {
   pending_count: number;
   oldest_wait_at: string | null;
+  draft_count: number;
+  received_count: number;
+  needs_resubmission_count: number;
+  accepted_count: number;
+  ready_count: number;
+  closed_count: number;
+  cancelled_count: number;
+  total_count: number;
 }
 
 export interface AdminPrescriptionActionResult {
@@ -573,12 +644,29 @@ export async function getAdminPrescriptionStats(
   lineAccountId: string,
 ): Promise<AdminPrescriptionStats> {
   return (await db.prepare(
-    `SELECT COUNT(*) AS pending_count, MIN(requested_at) AS oldest_wait_at
+    `SELECT COALESCE(SUM(CASE WHEN status = 'received' THEN 1 ELSE 0 END), 0) AS pending_count,
+            MIN(CASE WHEN status = 'received' THEN requested_at END) AS oldest_wait_at,
+            COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) AS draft_count,
+            COALESCE(SUM(CASE WHEN status = 'received' THEN 1 ELSE 0 END), 0) AS received_count,
+            COALESCE(SUM(CASE WHEN status = 'needs_resubmission' THEN 1 ELSE 0 END), 0) AS needs_resubmission_count,
+            COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted_count,
+            COALESCE(SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END), 0) AS ready_count,
+            COALESCE(SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END), 0) AS closed_count,
+            COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_count,
+            COUNT(*) AS total_count
        FROM pharmacy_prescription_submissions
-      WHERE line_account_id = ? AND status = 'received'`,
+      WHERE line_account_id = ?`,
   ).bind(lineAccountId).first<AdminPrescriptionStats>()) ?? {
     pending_count: 0,
     oldest_wait_at: null,
+    draft_count: 0,
+    received_count: 0,
+    needs_resubmission_count: 0,
+    accepted_count: 0,
+    ready_count: 0,
+    closed_count: 0,
+    cancelled_count: 0,
+    total_count: 0,
   };
 }
 
@@ -595,7 +683,8 @@ export async function getAdminPrescriptionDetail(
 } | null> {
   const submission = await db.prepare(
     `SELECT id, friend_id, status, active_revision, upload_revision,
-            desired_pickup_at, resubmission_reason_code, requested_at,
+            desired_pickup_at, desired_fulfillment_method, arrival_reported_at,
+            resubmission_reason_code, requested_at,
             closed_at, created_at, updated_at
        FROM pharmacy_prescription_submissions
       WHERE id = ? AND line_account_id = ?`,

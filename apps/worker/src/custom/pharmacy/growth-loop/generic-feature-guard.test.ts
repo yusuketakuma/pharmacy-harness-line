@@ -97,7 +97,7 @@ describe('pharmacy generic feature guard', () => {
     expect(response.status).toBe(403);
   });
 
-  it('uses the authenticated tenant accounts instead of the shared environment default', async () => {
+  it('allows only the tenant-scoped tag read needed by the pharmacy friend filter', async () => {
     const database = {
       prepare(sql: string) {
         const statement = (binds: unknown[]) => ({
@@ -127,12 +127,13 @@ describe('pharmacy generic feature guard', () => {
     root.use('*', pharmacyGenericFeatureGuard);
     root.all('*', (c) => c.json({ ok: true }));
 
-    const response = await root.request('/api/tags', {}, {
-      DB: database,
-      LINE_CHANNEL_ID: 'generic-default-channel',
-    });
+    const [readResponse, writeResponse] = await Promise.all([
+      root.request('/api/tags', {}, { DB: database, LINE_CHANNEL_ID: 'generic-default-channel' }),
+      root.request('/api/tags', { method: 'POST' }, { DB: database, LINE_CHANNEL_ID: 'generic-default-channel' }),
+    ]);
 
-    expect(response.status).toBe(403);
+    expect(readResponse.status).toBe(200);
+    expect(writeResponse.status).toBe(403);
   });
 
   it('fails closed when an unscoped request cannot resolve the default in a pharmacy install', async () => {

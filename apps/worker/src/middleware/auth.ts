@@ -394,6 +394,17 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     (method === 'POST' && /^\/api\/liff\/pharmacy\/continuity\/expectations\/[^/]+\/respond$/.test(path));
   if (isContinuityPatientAction) return next();
 
+  // custom:pharmacy-follow-up/emergency-contraception — patient actions use
+  // the same route-level LINE identity verification as the LIFF routes above.
+  const isMedicationFollowUpPatientAction =
+    (method === 'GET' && path === '/api/liff/pharmacy/medication-followups') ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/medication-followups\/[^/]+\/respond$/.test(path));
+  const isEmergencyContraceptionPatientAction =
+    (method === 'GET' && path === '/api/liff/pharmacy/emergency-contraception') ||
+    (method === 'POST' && path === '/api/liff/pharmacy/emergency-contraception/intakes') ||
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/cancel$/.test(path));
+  if (isMedicationFollowUpPatientAction || isEmergencyContraceptionPatientAction) return next();
+
   if (
     path === '/webhook' ||
     path === '/docs' ||

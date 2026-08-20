@@ -170,7 +170,12 @@ describe('synthetic prescription end-to-end', () => {
       file_count: 1,
       ready_count: 1,
     });
-    await submitPrescription(db, patient, submission.id as string, submission.updated_at as string);
+    await submitPrescription(db, patient, submission.id as string, {
+      expectedUpdatedAt: submission.updated_at as string,
+      desiredPickupAt: null,
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    });
     await expect(notify(submission.id as string)).resolves.toEqual({ status: 'sent' });
 
     let detail = await getAdminPrescriptionDetail(db, patient.lineAccountId, submission.id as string);
@@ -199,12 +204,12 @@ describe('synthetic prescription end-to-end', () => {
     expect(detail?.submission.upload_revision).toBe(2);
 
     await upload(submission.id as string, 2, 'c');
-    await submitPrescription(
-      db,
-      patient,
-      submission.id as string,
-      detail!.submission.updated_at as string,
-    );
+    await submitPrescription(db, patient, submission.id as string, {
+      expectedUpdatedAt: detail!.submission.updated_at as string,
+      desiredPickupAt: null,
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    });
     await notify(submission.id as string);
     detail = await getAdminPrescriptionDetail(db, patient.lineAccountId, submission.id as string);
     expect(detail?.submission.active_revision).toBe(2);

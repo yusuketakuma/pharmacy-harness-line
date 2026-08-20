@@ -1,6 +1,6 @@
 {
   "name": "line-oss-crm",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "private": true,
   "description": "Open-source LINE Official Account CRM/marketing automation",
   "scripts": {
@@ -15,6 +15,7 @@
     "deploy:update": "node packages/create-line-harness/dist/index.js update",
     "sandbox:create-line-harness": "bash scripts/run-create-line-harness-sandbox.sh",
     "test:scripts": "vitest run --config vitest.config.ts",
+    "verify:ci": "pnpm -r typecheck && pnpm -r test && pnpm test:scripts && pnpm tsx scripts/check-migrations.ts",
     "build:bundle": "tsx scripts/release/build-bundle.ts",
     "tenant:setup": "tsx scripts/custom/pharmacy/setup-tenant.ts",
     "tenant:admin-bootstrap": "tsx scripts/custom/pharmacy/bootstrap-tenant-admin.ts",
@@ -26,10 +27,10 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "tsx": "^4.23.12",
     "typescript": "^5.9.3",
-    "wrangler": "4",
-    "tsx": "^4.21.0",
-    "vitest": "^2.1.0",
-    "yaml": "^2.8.1"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.124.0",
+    "yaml": "^2.9.0"
   }
 }

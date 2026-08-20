@@ -20,6 +20,7 @@ import {
 /** 開始/終了をまたいだページ間でバナーを更新するための合図。Context も
  *  ストアも要らない — 1本のイベントで足りる。 */
 export const SUPPORT_GRANTS_CHANGED = 'lh-platform-admin-grants-changed'
+export const SUPPORT_ACCESS_EXPIRED = 'lh-platform-admin-support-access-expired'
 
 export function notifySupportGrantsChanged(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(SUPPORT_GRANTS_CHANGED))
@@ -108,10 +109,12 @@ export function SupportModeStartForm({ tenantId, tenantName, onStarted }: {
           type="text"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
+          minLength={10}
           maxLength={500}
           required
           className="mt-1 w-full max-w-md rounded-lg border border-gray-300 px-3 py-2"
         />
+        <span className="mt-1 block text-xs text-gray-500">対象と調査目的を10文字以上で記録してください。</span>
       </label>
       <label className="block text-sm" htmlFor="support-ticket">チケット番号（任意）
         <input
@@ -165,11 +168,16 @@ export function SupportModeStartForm({ tenantId, tenantName, onStarted }: {
 export function SupportModeBanner() {
   const [grants, setGrants] = useState<PlatformSupportGrant[]>([])
   const [now, setNow] = useState(() => Date.now())
+  const [loadError, setLoadError] = useState('')
+  const [ending, setEnding] = useState('')
 
   const reload = useCallback(() => {
     platformAdminApi.activeSupportGrants()
-      .then((res) => setGrants(res.data ?? []))
-      .catch(() => setGrants([]))
+      .then((res) => {
+        setGrants(res.data ?? [])
+        setLoadError('')
+      })
+      .catch(() => setLoadError('サポートモード状態を確認できません。患者情報の操作を中止し、再読み込みしてください。'))
   }, [])
 
   useEffect(() => {
@@ -182,33 +190,54 @@ export function SupportModeBanner() {
     }
   }, [reload])
 
+  useEffect(() => {
+    if (!grants.some((grant) => remaining(grant.expires_at, now) === null)) return
+    setGrants((current) => current.filter((grant) => remaining(grant.expires_at, now) !== null))
+    window.dispatchEvent(new Event(SUPPORT_ACCESS_EXPIRED))
+  }, [grants, now])
+
   const end = async (grantId: string) => {
-    await platformAdminApi.endSupportGrant(grantId).catch(() => undefined)
-    // 自分のリスナーも拾うので、ここで reload() を呼ぶ必要はない。
-    notifySupportGrantsChanged()
+    if (ending || !window.confirm('サポートモードを終了しますか？患者情報の閲覧は直ちに終了します。')) return
+    setEnding(grantId)
+    try {
+      await platformAdminApi.endSupportGrant(grantId)
+      setLoadError('')
+      // 自分のリスナーも拾うので、ここで reload() を呼ぶ必要はない。
+      notifySupportGrantsChanged()
+    } catch {
+      setLoadError('サポートモードを終了できませんでした。患者情報の操作を中止し、再読み込みしてください。')
+    } finally {
+      setEnding('')
+    }
   }
 
   const live = grants
     .map((grant) => ({ grant, left: remaining(grant.expires_at, now) }))
     .filter((row): row is { grant: PlatformSupportGrant; left: string } => row.left !== null)
-  if (live.length === 0) return null
+  if (live.length === 0 && !loadError) return null
 
   const names = tenantNames()
   return (
-    <div role="status" className="bg-amber-500 px-4 py-2 text-sm font-bold text-amber-950">
-      {live.map(({ grant, left }) => (
-        <div key={grant.id} className="flex flex-wrap items-center justify-center gap-3">
-          <span>サポートモード: {names[grant.tenant_id] ?? grant.tenant_id} — 残り {left}</span>
-          <button
-            type="button"
-            onClick={() => void end(grant.id)}
-            className="rounded border border-amber-900 px-2 py-0.5 text-xs font-medium hover:bg-amber-400"
-          >
-            終了
-          </button>
+    <>
+      {loadError && <div role="alert" className="bg-red-700 px-4 py-2 text-center text-sm font-bold text-white">{loadError}</div>}
+      {live.length > 0 && (
+        <div className="bg-amber-500 px-4 py-2 text-sm font-bold text-amber-950">
+          {live.map(({ grant, left }) => (
+            <div key={grant.id} className="flex flex-wrap items-center justify-center gap-3">
+              <span>サポートモード: {names[grant.tenant_id] ?? grant.tenant_id} — 残り {left}</span>
+              <button
+                type="button"
+                onClick={() => void end(grant.id)}
+                disabled={Boolean(ending)}
+                className="min-h-11 rounded border border-amber-900 px-3 text-xs font-medium hover:bg-amber-400 disabled:opacity-50"
+              >
+                {ending === grant.id ? '終了中...' : '終了'}
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
+      )}
+    </>
   )
 }
 

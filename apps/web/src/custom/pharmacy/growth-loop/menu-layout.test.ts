@@ -20,14 +20,21 @@ describe('pharmacy admin menu layout', () => {
     expect(source).toContain(
       '.filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)',
     )
+    // Pharmacy tenants are additionally filtered down to the general entries the
+    // server allows them; a section left with no entries is dropped rather than
+    // rendered as a bare heading.
+    expect(source).toContain('isPharmacyMenuPath(item.href)')
+    expect(source).toContain('.filter((section) => section.items.length > 0)')
 
     const paths = [
       '/prescriptions',
+      '/emergency-contraception',
       '/pharmacy-notifications',
       '/patient-intakes',
       '/continuity',
       '/myna',
       '/pharmacy-growth',
+      '/privacy-policy',
     ]
     const positions = paths.map((path) => definition.indexOf(`href: '${path}'`))
     expect(positions.every((position) => position > sectionStart && position < generalStart)).toBe(true)

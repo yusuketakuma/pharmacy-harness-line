@@ -33,7 +33,7 @@ const lineClientMocks = vi.hoisted(() => ({
   getRichMenuList: vi.fn(),
 }));
 vi.mock('@line-crm/line-sdk', () => ({
-  LineClient: vi.fn().mockImplementation((token: string) => {
+  LineClient: vi.fn().mockImplementation(function (token: string) {
     lineClientMocks.constructor(token);
     return {
       uploadRichMenuImage: lineClientMocks.uploadRichMenuImage,

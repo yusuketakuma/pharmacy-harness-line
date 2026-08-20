@@ -96,7 +96,9 @@ function req(path: string, init?: RequestInit) {
 }
 
 beforeEach(() => {
-  vi.restoreAllMocks();
+  // vitest 4: restoreAllMocks only restores vi.spyOn spies, so vi.fn() call
+  // history would leak between tests. This file has no spies, only vi.fn().
+  vi.resetAllMocks();
   vi.useFakeTimers();
   // ライブ開始3分後（予約済み本人が途中参加できる5分窓内）
   vi.setSystemTime(new Date((SESSION_START + 180) * 1000));

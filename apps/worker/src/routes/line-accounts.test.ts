@@ -41,7 +41,9 @@ const lineClientMocks = {
   request: vi.fn(),
 };
 vi.mock('@line-crm/line-sdk', () => ({
-  LineClient: vi.fn().mockImplementation(() => lineClientMocks),
+  LineClient: vi.fn().mockImplementation(function () {
+    return lineClientMocks;
+  }),
 }));
 
 const boundaryMocks = {
@@ -311,7 +313,9 @@ describe('GET /api/line-accounts', () => {
       prepare: vi.fn((sql: string) => ({
         bind: vi.fn(() => ({
           first: vi.fn().mockResolvedValue(
-            sql.includes('SELECT mode FROM pharmacy_account_capabilities')
+            sql.includes('outbound_messaging_paused_at')
+              ? { outbound_messaging_paused_at: '2026-08-19T09:00:00.000Z' }
+              : sql.includes('SELECT mode FROM pharmacy_account_capabilities')
               ? { mode: 'pharmacy' }
               : sql.includes('pharmacy_account_capabilities')
                 ? { pharmacy_install: 1 }
@@ -328,7 +332,11 @@ describe('GET /api/line-accounts', () => {
 
     expect(res.status).toBe(200);
     expect(dbMocks.getLineAccountsForTenant).toHaveBeenCalledWith(db, 'tenant-a');
-    expect(body.data[0]).toMatchObject({ id: 'acc-1', pharmacyMode: true });
+    expect(body.data[0]).toMatchObject({
+      id: 'acc-1',
+      pharmacyMode: true,
+      outboundMessagingPausedAt: '2026-08-19T09:00:00.000Z',
+    });
     expect(body.data[0]).not.toHaveProperty('channelAccessToken');
     expect(body.data[0]).not.toHaveProperty('channelSecret');
     expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(
@@ -539,7 +547,7 @@ describe('POST /api/line-accounts', () => {
     });
   });
 
-  test('requires LINE Login and LIFF wiring for a pharmacy tenant', async () => {
+  test('rejects tenant-side account creation for a pharmacy tenant', async () => {
     const app = setupApp('owner', makePharmacyDbStub());
     const res = await app.request('/api/line-accounts', {
       method: 'POST',
@@ -551,13 +559,14 @@ describe('POST /api/line-accounts', () => {
         channelSecret: 'secret',
         loginChannelId: '2009624792',
         loginChannelSecret: 'login-secret',
+        liffId: '2009624792-XXXX',
       }),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     expect(atomicAccountMocks.createEncryptedLineAccount).not.toHaveBeenCalled();
     expect((await res.json()) as { error: string }).toMatchObject({
-      error: expect.stringMatching(/LINE Login channel and LIFF ID/),
+      error: expect.stringMatching(/platform-managed/),
     });
   });
 
@@ -1055,5 +1064,19 @@ describe('tenant-scoped mutations', () => {
 
     expect(res.status).toBe(404);
     expect(dbMocks.deleteLineAccount).not.toHaveBeenCalled();
+  });
+
+  test('rejects tenant-side account deletion for a pharmacy tenant', async () => {
+    dbMocks.getLineAccountByIdForTenant.mockResolvedValue(fakeAccount);
+
+    const res = await setupApp('owner', makePharmacyDbStub()).request('/api/line-accounts/acc-1', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(403);
+    expect(dbMocks.deleteLineAccount).not.toHaveBeenCalled();
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: expect.stringMatching(/platform-managed/),
+    });
   });
 });

@@ -115,11 +115,13 @@ describe('continuity repository', () => {
   });
 
   it('lists obligations without crossing the account boundary', async () => {
-    const { db, calls } = fakeDb([], [{ id: 'obligation-1', status: 'active' }]);
+    const { db, calls } = fakeDb([], [{ id: 'obligation-1', status: 'active', patient_display_name: '山田 太郎' }]);
     await expect(listContinuityObligations(db, 'account-1')).resolves.toEqual([
-      { id: 'obligation-1', status: 'active' },
+      { id: 'obligation-1', status: 'active', patient_display_name: '山田 太郎' },
     ]);
-    expect(calls[0].sql).toContain('line_account_id = ?');
+    expect(calls[0].sql).toContain('LEFT JOIN friends f');
+    expect(calls[0].sql).toContain('f.line_account_id = o.line_account_id');
+    expect(calls[0].sql).toContain('o.line_account_id = ?');
     expect(calls[0].values).toEqual(['account-1']);
   });
 });

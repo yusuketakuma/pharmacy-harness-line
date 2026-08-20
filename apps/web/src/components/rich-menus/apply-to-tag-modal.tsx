@@ -95,7 +95,7 @@ export function ApplyToTagModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-lg shadow-xl w-full max-w-md">
         <div className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">
             {mode.kind === 'set-default'

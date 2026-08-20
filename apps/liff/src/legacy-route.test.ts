@@ -42,5 +42,11 @@ describe('legacyQueryTarget', () => {
     expect(legacyQueryTarget('?page=pharmacy-continuity&liffId=123')).toBe(
       '/pharmacy/continuity?liffId=123',
     );
+    expect(legacyQueryTarget('?page=pharmacy-followup&followUpId=followup-1&liffId=123')).toBe(
+      '/pharmacy/medication-followup?followUpId=followup-1&liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-emergency-contraception&liffId=123')).toBe(
+      '/pharmacy/emergency-contraception?liffId=123',
+    );
   });
 });

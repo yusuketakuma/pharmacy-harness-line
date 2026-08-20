@@ -115,6 +115,9 @@ lineAccounts.get('/api/line-accounts', async (c) => {
     const tenantId = c.get('tenantId');
     const allItems = await getLineAccountsForTenant(db, tenantId);
     const pharmacyTenant = await isPharmacyTenant(db, tenantId);
+    const tenantState = tenantId ? await db.prepare(
+      `SELECT outbound_messaging_paused_at FROM tenants WHERE id = ? LIMIT 1`,
+    ).bind(tenantId).first<{ outbound_messaging_paused_at: string | null }>() : null;
     let items = allItems;
     if (pharmacyTenant) {
       const staff = c.get('staff');
@@ -164,6 +167,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
           pictureUrl: profile.pictureUrl || null,
           basicId: profile.basicId || null,
           pharmacyMode,
+          outboundMessagingPausedAt: tenantState?.outbound_messaging_paused_at ?? null,
           stats: {
             friendCount: friendCount?.count ?? 0,
             activeScenarios: scenarioCount?.count ?? 0,
@@ -577,6 +581,13 @@ async function pharmacyLiffConfigurationError(
 // POST /api/line-accounts - create
 lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
   try {
+    if (await isPharmacyTenant(c.env.DB, c.get('tenantId'))) {
+      return c.json({
+        success: false,
+        error: 'LINE account provisioning is platform-managed for pharmacy tenants',
+      }, 403);
+    }
+
     const body = await c.req.json<{
       channelId: string;
       name: string;
@@ -614,16 +625,6 @@ lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
     );
     if (pairError) return c.json({ success: false, error: pairError }, 400);
 
-    const pharmacyTenant = await isPharmacyTenant(c.env.DB, c.get('tenantId'));
-    if (pharmacyTenant) {
-      const pharmacyError = validatePharmacyLiffConfiguration({
-        loginChannelId,
-        loginChannelSecret,
-        liffId,
-      });
-      if (pharmacyError) return c.json({ success: false, error: pharmacyError }, 400);
-    }
-
     const dupError = await checkUniqueLoginAndLiff(c.env.DB, { loginChannelId, liffId }, null);
     if (dupError) return c.json({ success: false, error: dupError }, 409);
 
@@ -636,7 +637,6 @@ lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
     ];
     const account = await createEncryptedLineAccount(c.env.DB, credentialRootSecret, {
       tenantId: c.get('tenantId'),
-      assignedStaffId: pharmacyTenant ? c.get('staff').id : undefined,
       channelId: body.channelId,
       name: body.name,
       credentials,
@@ -965,6 +965,13 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
 // DELETE /api/line-accounts/:id - delete
 lineAccounts.delete('/api/line-accounts/:id', requireRole('owner'), async (c) => {
   try {
+    if (await isPharmacyTenant(c.env.DB, c.get('tenantId'))) {
+      return c.json({
+        success: false,
+        error: 'LINE account deletion is platform-managed for pharmacy tenants',
+      }, 403);
+    }
+
     const id = c.req.param('id')!;
     const denied = await requireAccountAccess(c, id);
     if (denied) return denied;

@@ -55,6 +55,7 @@ type LogType = (typeof LOG_TYPES)[number];
 
 const TENANT_SELECT = `
   SELECT tenant.id, tenant.tenant_code, tenant.display_name, tenant.status,
+         tenant.outbound_messaging_paused_at,
          (SELECT COUNT(*) FROM tenant_line_accounts AS mapping
            WHERE mapping.tenant_id = tenant.id) AS line_account_count,
          (SELECT COUNT(*) FROM tenant_staff_memberships AS membership
@@ -62,7 +63,18 @@ const TENANT_SELECT = `
          (SELECT COUNT(*) FROM pharmacy_patients AS patient
             INNER JOIN tenant_line_accounts AS mapping
                     ON mapping.line_account_id = patient.line_account_id
-           WHERE mapping.tenant_id = tenant.id) AS patient_count
+           WHERE mapping.tenant_id = tenant.id) AS patient_count,
+         (SELECT COUNT(*) FROM pharmacy_webhook_event_receipts AS receipt
+           WHERE receipt.tenant_id = tenant.id
+             AND (receipt.status = 'failed' OR receipt.dead_lettered_at IS NOT NULL))
+           AS webhook_failure_count,
+         (SELECT COUNT(*) FROM tenant_line_accounts AS mapping
+            INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
+           WHERE mapping.tenant_id = tenant.id AND account.is_active = 1
+             AND NOT EXISTS (
+               SELECT 1 FROM pharmacy_line_channel_identities AS identity
+                WHERE identity.line_account_id = account.id
+             )) AS line_config_issue_count
     FROM tenants AS tenant`;
 
 type TenantRow = {
@@ -70,9 +82,12 @@ type TenantRow = {
   tenant_code: string;
   display_name: string;
   status: string;
+  outbound_messaging_paused_at: string | null;
   line_account_count: number;
   staff_count: number;
   patient_count: number;
+  webhook_failure_count: number;
+  line_config_issue_count: number;
 };
 
 function toTenant(row: TenantRow) {
@@ -81,9 +96,12 @@ function toTenant(row: TenantRow) {
     tenantCode: row.tenant_code,
     displayName: row.display_name,
     status: row.status,
+    outboundMessagingPausedAt: row.outbound_messaging_paused_at,
     lineAccountCount: row.line_account_count,
     staffCount: row.staff_count,
     patientCount: row.patient_count,
+    webhookFailureCount: row.webhook_failure_count,
+    lineConfigIssueCount: row.line_config_issue_count,
   };
 }
 

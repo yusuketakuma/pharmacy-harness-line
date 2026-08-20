@@ -60,6 +60,12 @@ const ccPrompts = [
   },
 ]
 
+function accountToggleConfirmation(accountName: string, currentActive: boolean): string {
+  return currentActive
+    ? `「${accountName}」を無効にします。患者からのLINE受信と自動処理が停止します。よろしいですか？`
+    : `「${accountName}」を有効にします。LINE受信と自動処理が再開します。よろしいですか？`
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<LineAccountListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,6 +76,7 @@ export default function AccountsPage() {
   const [form, setForm] = useState<AccountFormState>(emptyAccountFormState)
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [mutatingAccountId, setMutatingAccountId] = useState<string | null>(null)
   const [connectingAccountId, setConnectingAccountId] = useState<string | null>(null)
   const [connectionResult, setConnectionResult] = useState<Record<string, { ok: boolean; message: string }>>({})
   const [preparingRichMenu, setPreparingRichMenu] = useState(false)
@@ -175,14 +182,41 @@ export default function AccountsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このLINEアカウントを削除しますか？')) return
-    await api.lineAccounts.delete(id)
-    load()
+    if (mutatingAccountId !== null) return
+    if (!window.confirm('このLINEアカウントを削除しますか？')) return
+    setMutatingAccountId(id)
+    setError('')
+    try {
+      const result = await api.lineAccounts.delete(id)
+      if (!result.success) {
+        setError('LINEアカウントを削除できませんでした。')
+        return
+      }
+      await load()
+    } catch {
+      setError('LINEアカウントを削除できませんでした。')
+    } finally {
+      setMutatingAccountId(null)
+    }
   }
 
-  const handleToggle = async (id: string, currentActive: boolean) => {
-    await api.lineAccounts.update(id, { isActive: !currentActive })
-    load()
+  const handleToggle = async (id: string, accountName: string, currentActive: boolean) => {
+    if (mutatingAccountId !== null) return
+    if (!window.confirm(accountToggleConfirmation(accountName, currentActive))) return
+    setMutatingAccountId(id)
+    setError('')
+    try {
+      const result = await api.lineAccounts.update(id, { isActive: !currentActive })
+      if (!result.success) {
+        setError('LINEアカウントの状態を更新できませんでした。')
+        return
+      }
+      await load()
+    } catch {
+      setError('LINEアカウントの状態を更新できませんでした。')
+    } finally {
+      setMutatingAccountId(null)
+    }
   }
 
   const handleConnect = async (accountId: string) => {
@@ -242,20 +276,22 @@ export default function AccountsPage() {
             >
               並び替えモード
             </button>
-            <button
-              onClick={() => {
-                const next = !showCreate
-                setShowCreate(next)
-                if (!next) {
-                  setForm(emptyAccountFormState)
-                  setCreateError('')
-                }
-              }}
-              className="px-4 py-2 rounded-lg text-white text-sm font-medium"
-              style={{ backgroundColor: '#06C755' }}
-            >
-              {showCreate ? 'キャンセル' : '+ アカウント追加'}
-            </button>
+            {!loading && !accounts.some((account) => account.pharmacyMode) && (
+              <button
+                onClick={() => {
+                  const next = !showCreate
+                  setShowCreate(next)
+                  if (!next) {
+                    setForm(emptyAccountFormState)
+                    setCreateError('')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg text-white text-sm font-medium"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                {showCreate ? 'キャンセル' : '+ アカウント追加'}
+              </button>
+            )}
           </div>
         }
       />
@@ -309,7 +345,7 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {showCreate && (
+      {showCreate && !accounts.some((account) => account.pharmacyMode) && (
         <form onSubmit={handleCreate} className="bg-white rounded-lg border border-gray-200 p-6 mb-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -353,7 +389,7 @@ export default function AccountsPage() {
 
       {loading ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
-      ) : accounts.length === 0 ? (
+      ) : error ? null : accounts.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
           <p className="mb-2">LINEアカウントが登録されていません</p>
           <p className="text-xs text-gray-300">LINE Developers Console からChannel情報を取得して登録してください</p>
@@ -386,10 +422,11 @@ export default function AccountsPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleToggle(account.id, account.isActive)}
-                  className={`text-xs px-2 py-0.5 rounded-full ${account.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+                  onClick={() => handleToggle(account.id, account.displayName, account.isActive)}
+                  disabled={mutatingAccountId !== null}
+                  className={`text-xs px-2 py-0.5 rounded-full disabled:opacity-50 ${account.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
                 >
-                  {account.isActive ? '有効' : '無効'}
+                  {mutatingAccountId === account.id ? '更新中…' : account.isActive ? '有効' : '無効'}
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-3 mb-4 py-3 border-t border-b border-gray-100">
@@ -470,12 +507,15 @@ export default function AccountsPage() {
                   >
                     編集
                   </button>
-                  <button
-                    onClick={() => handleDelete(account.id)}
-                    className="text-red-500 hover:text-red-700 text-xs"
-                  >
-                    削除
-                  </button>
+                  {!account.pharmacyMode && (
+                     <button
+                       onClick={() => handleDelete(account.id)}
+                       disabled={mutatingAccountId !== null}
+                       className="text-red-500 hover:text-red-700 text-xs disabled:opacity-50"
+                     >
+                      削除
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

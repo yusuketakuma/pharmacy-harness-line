@@ -385,7 +385,7 @@ export default function FormSubmissionsPage() {
           ) : (
             <>
               <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-                <table className="w-full min-w-[700px]">
+                <table className="w-full min-w-[700px] table-fixed">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">名前</th>

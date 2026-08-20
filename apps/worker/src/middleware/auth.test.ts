@@ -99,6 +99,11 @@ function app() {
   a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/continuity/expectations/:id/respond', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/medication-followups', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/medication-followups/:id/respond', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/emergency-contraception', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/emergency-contraception/intakes', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/emergency-contraception/intakes/:id/cancel', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
   return a;
@@ -436,6 +441,29 @@ describe('continuity LIFF auth boundary', () => {
       { method: 'DELETE' },
       crossSiteEnv(),
     );
+    expect(response.status).toBe(401);
+  });
+});
+
+describe('pharmacy follow-up and emergency LIFF auth boundary', () => {
+  test.each([
+    ['GET', '/api/liff/pharmacy/medication-followups'],
+    ['POST', '/api/liff/pharmacy/medication-followups/followup-1/respond'],
+    ['GET', '/api/liff/pharmacy/emergency-contraception'],
+    ['POST', '/api/liff/pharmacy/emergency-contraception/intakes'],
+    ['POST', '/api/liff/pharmacy/emergency-contraception/intakes/intake-1/cancel'],
+  ])('lets %s %s reach route-level LINE verification', async (method, path) => {
+    const response = await app().request(path, { method }, crossSiteEnv());
+    expect(response.status).toBe(200);
+  });
+
+  test.each([
+    ['DELETE', '/api/liff/pharmacy/medication-followups'],
+    ['GET', '/api/liff/pharmacy/medication-followups/followup-1/respond'],
+    ['DELETE', '/api/liff/pharmacy/emergency-contraception/intakes'],
+    ['GET', '/api/liff/pharmacy/emergency-contraception/intakes/intake-1/cancel'],
+  ])('does not exempt unsupported %s %s', async (method, path) => {
+    const response = await app().request(path, { method }, crossSiteEnv());
     expect(response.status).toBe(401);
   });
 });

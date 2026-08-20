@@ -28,6 +28,7 @@ import {
   reservePrescriptionDraft,
   reservePrescriptionFile,
   reservePrescriptionResubmission,
+  reportPrescriptionArrival,
   submitPrescription,
 } from './repository.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
@@ -117,6 +118,7 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
   const desiredPickupAt = body.desiredPickupAt;
+  const desiredFulfillmentMethod = body.desiredFulfillmentMethod;
   const patientId = body.patientId;
   const intakeResponseId = body.intakeResponseId;
   if (
@@ -127,6 +129,8 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
       desiredPickupAt === null ||
       (typeof desiredPickupAt === 'string' && Number.isFinite(Date.parse(desiredPickupAt)))
     ) ||
+    (desiredFulfillmentMethod !== undefined && desiredFulfillmentMethod !== null &&
+      desiredFulfillmentMethod !== 'PICKUP' && desiredFulfillmentMethod !== 'DELIVERY') ||
     (patientId !== undefined && typeof patientId !== 'string') ||
     (intakeResponseId !== undefined && typeof intakeResponseId !== 'string') ||
     (patientId !== undefined && intakeResponseId === undefined) ||
@@ -138,6 +142,9 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
   const draftInput = {
     idempotencyKey: body.idempotencyKey,
     desiredPickupAt,
+    ...(desiredFulfillmentMethod === 'PICKUP' || desiredFulfillmentMethod === 'DELIVERY'
+      ? { desiredFulfillmentMethod }
+      : {}),
     originalPrescriptionConsent: body.originalPrescriptionConsent,
     readinessNoticeConsent: body.readinessNoticeConsent,
     ...(typeof patientId === 'string' && typeof intakeResponseId === 'string'
@@ -170,7 +177,13 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
   }
   if (
     typeof body.expectedUpdatedAt !== 'string' ||
-    !Number.isFinite(Date.parse(body.expectedUpdatedAt))
+    !Number.isFinite(Date.parse(body.expectedUpdatedAt)) ||
+    (body.desiredPickupAt !== null &&
+      (typeof body.desiredPickupAt !== 'string' || !Number.isFinite(Date.parse(body.desiredPickupAt)))) ||
+    (body.desiredFulfillmentMethod !== undefined && body.desiredFulfillmentMethod !== null &&
+      body.desiredFulfillmentMethod !== 'PICKUP' && body.desiredFulfillmentMethod !== 'DELIVERY') ||
+    body.originalPrescriptionConsent !== true ||
+    body.readinessNoticeConsent !== true
   ) {
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
   }
@@ -179,7 +192,13 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       c.env.DB,
       patient,
       c.req.param('id'),
-      body.expectedUpdatedAt,
+      {
+        expectedUpdatedAt: body.expectedUpdatedAt,
+        desiredPickupAt: body.desiredPickupAt,
+        desiredFulfillmentMethod: (body.desiredFulfillmentMethod ?? null) as 'PICKUP' | 'DELIVERY' | null,
+        originalPrescriptionConsent: body.originalPrescriptionConsent,
+        readinessNoticeConsent: body.readinessNoticeConsent,
+      },
     );
     try {
       await enqueueActivityForAccount(
@@ -342,6 +361,22 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/resubmission', asy
   } catch (error) {
     if (error instanceof Error && error.message === 'prescription resubmission conflict') {
       return c.json({ error: 'Prescription changed or cannot be resubmitted' }, 409);
+    }
+    throw error;
+  }
+});
+
+prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/arrival', async (c) => {
+  const patient = c.get('prescriptionPatient');
+  const expectedUpdatedAt = await readExpectedUpdatedAt(c.req);
+  if (!expectedUpdatedAt) return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
+  try {
+    return c.json(await reportPrescriptionArrival(
+      c.env.DB, patient, c.req.param('id'), expectedUpdatedAt,
+    ));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'prescription arrival conflict') {
+      return c.json({ error: 'Prescription changed or arrival was already reported' }, 409);
     }
     throw error;
   }

@@ -32,6 +32,7 @@ const scheduled = {
   updated_at: '2026-08-17T00:00:00.000Z',
   line_user_id: 'U-a',
   tenant_id: 'tenant-a',
+  liff_id: '2000000000-AbCdEfGh',
 };
 
 beforeEach(() => {
@@ -58,7 +59,7 @@ describe('medication follow-up notifications', () => {
       friendId: 'friend-a',
       messageId: 'medication_followup_v1',
       category: 'followup_care',
-      vars: { followUpId: scheduled.id },
+      vars: { followUpId: scheduled.id, liffId: scheduled.liff_id },
       retryKey: `medication-followup:${scheduled.id}`,
     }));
     expect(transition).toHaveBeenNthCalledWith(1, db, expect.objectContaining({

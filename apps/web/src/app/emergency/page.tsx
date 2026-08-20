@@ -77,20 +77,20 @@ export default function EmergencyPage() {
       try {
         if (id === 'stop-broadcasts') {
           const res = await api.broadcasts.list()
-          if (res.success) {
-            const scheduled = res.data.filter((b) => b.status === 'scheduled')
-            await Promise.allSettled(
-              scheduled.map((b) => api.broadcasts.update(b.id, { scheduledAt: null }))
-            )
-          }
+          if (!res.success) throw new Error('broadcast_list_failed')
+          const scheduled = res.data.filter((b) => b.status === 'scheduled')
+          const results = await Promise.all(
+            scheduled.map((b) => api.broadcasts.update(b.id, { scheduledAt: null }))
+          )
+          if (results.some((result) => !result.success)) throw new Error('broadcast_stop_failed')
         } else if (id === 'stop-scenarios') {
           const res = await api.scenarios.list()
-          if (res.success) {
-            const active = res.data.filter((s) => s.isActive)
-            await Promise.allSettled(
-              active.map((s) => api.scenarios.update(s.id, { isActive: false }))
-            )
-          }
+          if (!res.success) throw new Error('scenario_list_failed')
+          const active = res.data.filter((s) => s.isActive)
+          const results = await Promise.all(
+            active.map((s) => api.scenarios.update(s.id, { isActive: false }))
+          )
+          if (results.some((result) => !result.success)) throw new Error('scenario_stop_failed')
         } else if (id === 'switch-account') {
           window.location.href = '/health'
           return

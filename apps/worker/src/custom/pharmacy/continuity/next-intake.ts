@@ -124,11 +124,12 @@ async function transitionExpectation(
   input: {
     lineAccountId: string;
     expectationId: string;
-    fromStatus: 'offered' | 'accepted' | 'active';
+    fromStatus: 'offered' | 'accepted' | 'active' | 'reminded';
     toStatus: 'accepted' | 'active' | 'reminded' | 'ended';
-    actorType: 'patient' | 'system';
+    actorType: 'patient' | 'staff' | 'system';
     actorId: string;
     idempotencyKey: string;
+    expectedVersion?: number;
     friendId?: string;
     now: Date;
   },
@@ -143,6 +144,9 @@ async function transitionExpectation(
   ).bind(input.expectationId, input.lineAccountId, input.idempotencyKey)
     .first<{ ok: number }>();
   if (replay) return { expectation: current, changed: false };
+  if (input.expectedVersion !== undefined && current.version !== input.expectedVersion) {
+    throw new Error('expectation transition conflict');
+  }
   if (current.status === input.toStatus) return { expectation: current, changed: false };
   if (current.status !== input.fromStatus) throw new Error('expectation transition conflict');
 
@@ -317,6 +321,42 @@ export async function respondToNextIntakeExpectation(
     actorId: input.friendId,
     idempotencyKey: `patient:${input.idempotencyKey}`,
     friendId: input.friendId,
+    now: input.now ?? new Date(),
+  });
+  return result.expectation;
+}
+
+export async function endNextIntakeExpectation(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    expectationId: string;
+    expectedVersion: number;
+    staffId: string;
+    idempotencyKey: string;
+    now?: Date;
+  },
+): Promise<NextIntakeExpectation> {
+  if (!input.lineAccountId || !input.expectationId || !input.staffId ||
+      !Number.isInteger(input.expectedVersion) || !validOpaqueKey(input.idempotencyKey)) {
+    throw new Error('expectation unavailable');
+  }
+  const current = await getExpectation(db, input.lineAccountId, input.expectationId);
+  if (!current) throw new Error('expectation unavailable');
+  if (current.status === 'ended') return current;
+  if (current.status !== 'offered' && current.status !== 'accepted' &&
+      current.status !== 'active' && current.status !== 'reminded') {
+    throw new Error('expectation transition conflict');
+  }
+  const result = await transitionExpectation(db, {
+    lineAccountId: input.lineAccountId,
+    expectationId: input.expectationId,
+    fromStatus: current.status,
+    toStatus: 'ended',
+    actorType: 'staff',
+    actorId: input.staffId,
+    idempotencyKey: `staff:${input.idempotencyKey}`,
+    expectedVersion: input.expectedVersion,
     now: input.now ?? new Date(),
   });
   return result.expectation;

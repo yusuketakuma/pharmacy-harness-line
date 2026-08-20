@@ -428,6 +428,24 @@ export async function listMynaHandoffs(
   return rows.results.map(decodeHandoff);
 }
 
+export async function getActivePatientMynaHandoff(
+  db: D1Database,
+  lineAccountId: string,
+  friendId: string,
+): Promise<MynaHandoff | null> {
+  await expireMynaHandoffs(db, lineAccountId);
+  const row = await db.prepare(
+    `${HANDOFF_SELECT}
+      WHERE line_account_id = ? AND friend_id = ?
+        AND method = 'E_PRESCRIPTION'
+        AND status IN ('CREATED','LAUNCH_REQUESTED')
+        AND expires_at > ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+  ).bind(lineAccountId, friendId, new Date().toISOString()).first<Record<string, unknown>>();
+  return row ? decodeHandoff(row) : null;
+}
+
 export async function getAdminMynaHandoff(
   db: D1Database,
   lineAccountId: string,

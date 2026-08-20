@@ -14,7 +14,9 @@ vi.mock('../provisioning/line-credential-store.js', () => credentialMocks);
 const lineClientMocks = vi.hoisted(() => ({ request: vi.fn() }));
 const lineSdkMocks = vi.hoisted(() => ({ LineClient: vi.fn() }));
 vi.mock('@line-crm/line-sdk', () => lineSdkMocks);
-lineSdkMocks.LineClient.mockImplementation(() => lineClientMocks);
+lineSdkMocks.LineClient.mockImplementation(function () {
+  return lineClientMocks;
+});
 
 const SESSION_TOKEN = `pas_${'a'.repeat(43)}`;
 const CSRF = 'csrf-value';

@@ -138,7 +138,13 @@ function request(body = requestBody, key = 'setup-request-123') {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  // vitest 4 narrows restoreAllMocks to vi.spyOn spies (needed to restore the real
+  // globalThis.fetch); plain vi.hoisted(() => ({ ...: vi.fn() })) mocks like
+  // migrationMocks/credentialMocks now need clearAllMocks to drop call history too.
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+});
 
 describe('platform tenant provisioning', () => {
   it('fails closed when the platform key is missing or wrong', async () => {
@@ -237,11 +243,11 @@ describe('platform tenant provisioning', () => {
       data: Record<string, unknown> & { urls: Record<string, string>; line: Record<string, unknown> };
     };
     expect(body.data).toMatchObject({
-      tenantCode: 'pharmacy-a',
       adminLoginId: 'admin-a',
       replayed: false,
       line: { tokenValidated: true, webhookConfigured: true },
     });
+    expect(body.data.tenantCode).toMatch(/^\d{6}$/);
     expect(body.data.urls).toMatchObject({
       admin: 'https://admin.example.test',
       webhook: 'https://api.example.test/webhook',
@@ -323,12 +329,66 @@ describe('platform tenant provisioning', () => {
 
     const invalid = await app().request(
       '/api/platform/pharmacy/tenants',
-      request({ ...requestBody, tenantCode: '../other' }),
+      request({ ...requestBody, admin: { ...requestBody.admin, loginId: '../other' } }),
       bindings(fake.db),
     );
     expect(invalid.status).toBe(400);
     expect(lineFetch).not.toHaveBeenCalled();
     expect(fake.batches).toHaveLength(0);
+  });
+
+  // The pharmacy code is the tenant selector a pharmacist types at login, so it is
+  // server-assigned rather than caller-chosen: an operator can no longer hand two
+  // pharmacies confusable codes, and a caller cannot squat a code it does not own.
+  it('assigns a 6-digit pharmacy code and ignores any caller-supplied one', async () => {
+    const fake = fakeDb();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ userId: 'Ubot' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+
+    const response = await app().request(
+      '/api/platform/pharmacy/tenants',
+      request({ ...requestBody, tenantCode: 'attacker-chosen-code' }),
+      bindings(fake.db),
+    );
+
+    expect(response.status).toBe(201);
+    const body = await response.json() as { data: { tenantCode: string } };
+    expect(body.data.tenantCode).toMatch(/^\d{6}$/);
+    expect(body.data.tenantCode).not.toBe('attacker-chosen-code');
+
+    const stored = fake.batches[0]
+      .find(({ sql }) => sql.includes('INSERT INTO tenants'))?.values[1];
+    expect(stored).toBe(body.data.tenantCode);
+  });
+
+  // A replay must return the code assigned on the first attempt. That only holds if
+  // the generated code stays out of requestHash — otherwise every retry hashes a new
+  // random value and 409s as "same key, different data".
+  it('returns the originally assigned pharmacy code when a request is replayed', async () => {
+    const fake = fakeDb();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ userId: 'Ubot' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+
+    const first = await app().request(
+      '/api/platform/pharmacy/tenants', request(), bindings(fake.db),
+    );
+    expect(first.status).toBe(201);
+    const firstCode = ((await first.json()) as { data: { tenantCode: string } }).data.tenantCode;
+
+    const replay = await app().request(
+      '/api/platform/pharmacy/tenants', request(), bindings(fake.db),
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      data: { tenantCode: firstCode, replayed: true },
+    });
+    expect(fake.batches).toHaveLength(1);
   });
 
   it('rejects a platform key reused as a tenant data-plane key', async () => {

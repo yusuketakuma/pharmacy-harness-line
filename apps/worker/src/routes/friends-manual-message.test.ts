@@ -26,7 +26,7 @@ vi.mock('@line-crm/db', () => ({
   removeTagFromFriend: vi.fn(),
   getFriendTags: vi.fn(),
   getFormSubmissionsByFriend: vi.fn(),
-  getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   getMileageSummaryForFriend: vi.fn(),
   getMileageHistoryForFriend: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock('../custom/pharmacy/provisioning/line-credential-store.js', () => creden
 vi.mock('../middleware/tenant-boundary.js', () => boundaryMocks);
 
 vi.mock('@line-crm/line-sdk', () => ({
-  LineClient: vi.fn().mockImplementation(() => lineClientMocks),
+  LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
 }));
 
 vi.mock('../services/auto-track.js', () => ({

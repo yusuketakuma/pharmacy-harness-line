@@ -13,6 +13,7 @@ import {
 } from '../prescriptions/patient.js';
 import {
   createMynaHandoff,
+  getActivePatientMynaHandoff,
   getAdminMynaHandoff,
   listMynaHandoffs,
   markMynaLaunchRequested,
@@ -141,6 +142,14 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
   } catch (error) {
     return mapMynaError(c, error);
   }
+});
+
+mynaRoutes.get('/api/liff/pharmacy/myna-handoffs/active', async (c) => {
+  const patient = c.get('mynaPatient');
+  const handoff = await getActivePatientMynaHandoff(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  );
+  return c.json({ handoff }, 200, { 'Cache-Control': 'no-store' });
 });
 
 mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/launch', async (c) => {

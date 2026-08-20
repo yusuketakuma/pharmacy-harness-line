@@ -133,6 +133,7 @@ describe('POST /api/webhooks/outgoing — validation', () => {
   test('accepts https:// + 32-char secret with 201, returns secret only on create', async () => {
     vi.mocked(createOutgoingWebhook).mockResolvedValue({
       id: 'wh-1',
+      tenant_id: null,
       name: 'test',
       url: 'https://example.com/hook',
       event_types: '["*"]',
@@ -223,6 +224,7 @@ describe('PUT /api/webhooks/outgoing/:id — validation', () => {
   test('rejects re-activating webhook whose stored secret is too short (migration bypass)', async () => {
     vi.mocked(getOutgoingWebhookById).mockResolvedValue({
       id: 'wh-legacy',
+      tenant_id: null,
       name: 'legacy',
       url: 'https://example.com/hook',
       event_types: '["*"]',
@@ -249,6 +251,7 @@ describe('PUT /api/webhooks/outgoing/:id — validation', () => {
   test('rejects re-activating webhook whose stored URL is http:// (migration bypass)', async () => {
     vi.mocked(getOutgoingWebhookById).mockResolvedValue({
       id: 'wh-legacy-http',
+      tenant_id: null,
       name: 'legacy-http',
       url: 'http://example.com/hook',
       event_types: '["*"]',
@@ -275,6 +278,7 @@ describe('PUT /api/webhooks/outgoing/:id — validation', () => {
   test('accepts partial update without secret/url change', async () => {
     vi.mocked(getOutgoingWebhookById).mockResolvedValue({
       id: 'wh-1',
+      tenant_id: null,
       name: 'renamed',
       url: 'https://example.com/hook',
       event_types: '["*"]',
@@ -308,6 +312,7 @@ describe('GET /api/webhooks/outgoing — secret exposure', () => {
     vi.mocked(getOutgoingWebhooks).mockResolvedValue([
       {
         id: 'wh-1',
+        tenant_id: null,
         name: 'test',
         url: 'https://example.com/hook',
         event_types: '["*"]',
@@ -333,6 +338,7 @@ describe('GET /api/webhooks/outgoing — secret exposure', () => {
     vi.mocked(getOutgoingWebhooks).mockResolvedValue([
       {
         id: 'wh-2',
+        tenant_id: null,
         name: 'legacy',
         url: 'https://example.com/hook',
         event_types: '["*"]',
@@ -389,6 +395,7 @@ describe('POST /api/webhooks/incoming — validation', () => {
   test('accepts 32-char secret with 201, returns secret on create only', async () => {
     vi.mocked(createIncomingWebhook).mockResolvedValue({
       id: 'iwh-1',
+      tenant_id: null,
       name: 'test',
       source_type: 'custom',
       secret: VALID_SECRET,
@@ -437,6 +444,7 @@ describe('PUT /api/webhooks/incoming/:id — validation', () => {
   test('rejects re-activating webhook whose stored secret is too short (migration bypass)', async () => {
     vi.mocked(getIncomingWebhookById).mockResolvedValue({
       id: 'iwh-legacy',
+      tenant_id: null,
       name: 'legacy',
       source_type: 'custom',
       secret: null,
@@ -469,6 +477,7 @@ describe('GET /api/webhooks/incoming — secret exposure', () => {
     vi.mocked(getIncomingWebhooks).mockResolvedValue([
       {
         id: 'iwh-1',
+        tenant_id: null,
         name: 'test',
         source_type: 'custom',
         secret: VALID_SECRET,
@@ -496,6 +505,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
   test('rejects request without X-Webhook-Signature with 401', async () => {
     vi.mocked(getIncomingWebhookById).mockResolvedValue({
       id: 'iwh-1',
+      tenant_id: null,
       name: 'test',
       source_type: 'custom',
       secret: VALID_SECRET,
@@ -520,6 +530,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
   test('rejects invalid signature with 401', async () => {
     vi.mocked(getIncomingWebhookById).mockResolvedValue({
       id: 'iwh-1',
+      tenant_id: null,
       name: 'test',
       source_type: 'custom',
       secret: VALID_SECRET,
@@ -547,6 +558,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
   test('accepts valid HMAC-SHA256 hex signature', async () => {
     vi.mocked(getIncomingWebhookById).mockResolvedValue({
       id: 'iwh-1',
+      tenant_id: null,
       name: 'test',
       source_type: 'custom',
       secret: VALID_SECRET,

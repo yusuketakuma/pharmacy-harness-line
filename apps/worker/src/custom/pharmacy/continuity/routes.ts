@@ -7,6 +7,7 @@ import { readJsonObject } from '../json.js';
 import {
   listPatientExpectations,
   listAccountExpectations,
+  endNextIntakeExpectation,
   offerNextIntakeExpectation,
   respondToNextIntakeExpectation,
   type NextIntakeExpectation,
@@ -160,5 +161,31 @@ continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations', async 
     const message = error instanceof Error ? error.message : '';
     return c.json({ error: '次回事前送信のお知らせを登録できませんでした' },
       /already|conflict/i.test(message) ? 409 : 400);
+  }
+});
+
+continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations/:expectationId/end', async (c) => {
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  const account = getPharmacyAccountId(c);
+  if (!account) return c.json({ error: 'line_account_id is required' }, 400);
+  const body = await readJsonObject(c.req);
+  if (!body || typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion) ||
+      typeof body.idempotencyKey !== 'string') {
+    return c.json({ error: 'expectedVersion and idempotencyKey are required' }, 400);
+  }
+  try {
+    const expectation = await endNextIntakeExpectation(c.env.DB, {
+      lineAccountId: account,
+      expectationId: c.req.param('expectationId'),
+      expectedVersion: body.expectedVersion,
+      staffId: staff.id,
+      idempotencyKey: body.idempotencyKey,
+    });
+    return c.json({ expectation: expectationView(expectation) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    return c.json({ error: '次回事前送信のお知らせを取り消せませんでした' },
+      /conflict/i.test(message) ? 409 : 400);
   }
 });

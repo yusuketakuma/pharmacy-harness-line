@@ -32,7 +32,7 @@ const dbMocks = {
   addTagToFriend: vi.fn().mockResolvedValue(undefined),
   getLineAccountByChannelId: vi.fn().mockResolvedValue(null),
   getLineAccountById: vi.fn().mockResolvedValue(null),
-  getScenarios: vi.fn().mockResolvedValue([]),
+  getScenariosForAccount: vi.fn().mockResolvedValue([]),
   enrollFriendInScenario: vi.fn().mockResolvedValue(null),
   getScenarioSteps: vi.fn().mockResolvedValue([]),
   getTrafficPoolBySlug: vi.fn().mockResolvedValue(null),

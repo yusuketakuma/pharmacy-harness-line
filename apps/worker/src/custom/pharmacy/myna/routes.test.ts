@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   launch: vi.fn(),
   report: vi.fn(),
+  activePatient: vi.fn(),
   list: vi.fn(),
   detail: vi.fn(),
   verify: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('./repository.js', () => ({
   createMynaHandoff: mocks.create,
   markMynaLaunchRequested: mocks.launch,
   recordMynaPatientReport: mocks.report,
+  getActivePatientMynaHandoff: mocks.activePatient,
   listMynaHandoffs: mocks.list,
   getAdminMynaHandoff: mocks.detail,
   recordMynaVerification: mocks.verify,
@@ -90,6 +92,7 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ handoff, expectation: { id: 'expectation-1', receipt_status: 'EXPECTED' } });
   mocks.launch.mockResolvedValue({ ...handoff, status: 'LAUNCH_REQUESTED' });
   mocks.report.mockResolvedValue({ ...handoff, status: 'PATIENT_REPORTED_COMPLETE' });
+  mocks.activePatient.mockResolvedValue({ ...handoff, status: 'LAUNCH_REQUESTED' });
   mocks.verify.mockResolvedValue({
     verification: { id: 'verification-1', status: 'E_PRESCRIPTION_RECEIVED' },
     receiptStatus: 'RECEIVED', shadowSubmissionId: 'submission-1',
@@ -124,6 +127,19 @@ describe('Myna routes', () => {
     expect(mocks.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION', source: 'LIFF',
     }));
+  });
+
+  it('restores only the authenticated LINE contact active handoff', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc',
+      { headers: { Authorization: 'Bearer line-token' } },
+      env,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      handoff: { id: 'handoff-1', status: 'LAUNCH_REQUESTED' },
+    });
+    expect(mocks.activePatient).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
   });
 
   it('records patient completion without treating it as official receipt', async () => {

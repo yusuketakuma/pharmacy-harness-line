@@ -83,7 +83,8 @@ export const pharmacyIntakeAdminApi = {
   latest: (accountId: string, patientId: string) => fetchApi<{ intake: PatientIntakeHistoryDetail | null }>(
     `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/intake?${accountQuery(accountId)}`,
   ),
-  history: (accountId: string, patientId: string) => fetchApi<{ history: PharmacyPatientHistory }>(
+  history: (accountId: string, patientId: string, signal?: AbortSignal) => fetchApi<{ history: PharmacyPatientHistory }>(
     `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/history?${accountQuery(accountId)}`,
+    { signal },
   ),
 }

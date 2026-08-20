@@ -33,7 +33,9 @@ vi.mock('@line-crm/line-sdk', async () => {
   const actual = await vi.importActual<typeof import('@line-crm/line-sdk')>('@line-crm/line-sdk');
   return {
     ...actual,
-    LineClient: vi.fn().mockImplementation(() => lineClientMocks),
+    LineClient: vi.fn().mockImplementation(function () {
+      return lineClientMocks;
+    }),
   };
 });
 

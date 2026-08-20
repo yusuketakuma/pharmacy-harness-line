@@ -117,11 +117,13 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
  */
 export class ApiError extends Error {
   readonly status: number
+  readonly detail?: string
 
-  constructor(status: number) {
+  constructor(status: number, detail?: string) {
     super(`API error: ${status}`)
     this.name = 'ApiError'
     this.status = status
+    this.detail = detail
   }
 }
 
@@ -142,7 +144,22 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       ...options?.headers,
     },
   })
-  if (!res.ok) throw new ApiError(res.status)
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      for (const key of [CSRF_STORAGE_KEY, 'lh_staff_name', 'lh_staff_role', 'lh_selected_account']) {
+        try { localStorage.removeItem(key) } catch { /* storage unavailable */ }
+      }
+      window.location.assign('/login')
+    }
+    let detail: string | undefined
+    try {
+      const body = await res.json() as { error?: unknown }
+      if (typeof body.error === 'string' && body.error.length <= 500) detail = body.error
+    } catch {
+      // Non-JSON error response.
+    }
+    throw new ApiError(res.status, detail)
+  }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }

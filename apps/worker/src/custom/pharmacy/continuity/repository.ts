@@ -16,6 +16,7 @@ export interface ContinuityObligation {
   reminder_count: number;
   created_at: string;
   updated_at: string;
+  patient_display_name?: string | null;
 }
 
 const OBLIGATION_SELECT = `
@@ -216,10 +217,16 @@ export async function listContinuityObligations(
   lineAccountId: string,
 ): Promise<ContinuityObligation[]> {
   const result = await db.prepare(
-    `${OBLIGATION_SELECT}
-      WHERE line_account_id = ?
-      ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'linked' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,
-               next_contact_at, id`,
+    `SELECT o.id, o.line_account_id, o.owner_friend_id, o.patient_id, o.source_submission_id,
+            o.candidate_submission_id, o.status, o.expected_next_from, o.expected_next_to,
+            o.next_contact_at, o.consent_at, o.last_reminded_at, o.reminder_count,
+            o.created_at, o.updated_at, f.display_name AS patient_display_name
+       FROM pharmacy_continuity_obligations o
+       LEFT JOIN friends f
+         ON f.id = o.owner_friend_id AND f.line_account_id = o.line_account_id
+      WHERE o.line_account_id = ?
+      ORDER BY CASE o.status WHEN 'active' THEN 0 WHEN 'linked' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,
+               o.next_contact_at, o.id`,
   ).bind(lineAccountId).all<ContinuityObligation>();
   return result.results;
 }

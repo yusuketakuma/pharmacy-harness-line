@@ -83,10 +83,16 @@ export function PrescriptionQueueOverview({
   onLoadMore: (cursor: string) => void
 }) {
   const visibleItems = tab === 'all' ? items : items.filter((item) => item.status === tab)
-  const counts = items.reduce<Record<string, number>>((result, item) => {
-    result[item.status] = (result[item.status] ?? 0) + 1
-    return result
-  }, { all: items.length })
+  const counts: Record<PrescriptionQueueTab, number> = {
+    all: stats.total_count,
+    draft: stats.draft_count,
+    received: stats.received_count,
+    needs_resubmission: stats.needs_resubmission_count,
+    accepted: stats.accepted_count,
+    ready: stats.ready_count,
+    closed: stats.closed_count,
+    cancelled: stats.cancelled_count,
+  }
 
   return (
     <>
@@ -123,10 +129,13 @@ export function PrescriptionQueueOverview({
             {visibleItems.map((item) => (
               <li key={item.id}>
                 <button type="button" onClick={() => onOpenDetail(item.id)} className="grid w-full gap-2 p-4 text-left hover:bg-gray-50 sm:grid-cols-4 sm:items-center">
-                  <span className="font-medium text-gray-900">{statusLabel(item.status)}</span>
+                  <span>
+                    <span className="block font-medium text-gray-900">{item.patient_display_name || '名前未登録'}</span>
+                    <span className="block text-xs text-gray-500">{statusLabel(item.status)}</span>
+                  </span>
                   <span className="text-sm text-gray-600">受付: {formatDate(item.requested_at ?? item.created_at)}</span>
                   <span className="text-sm text-gray-600">受取希望: {formatDate(item.desired_pickup_at)}</span>
-                  <span className="text-sm text-green-700 sm:text-right">詳細を見る</span>
+                  <span className="text-sm font-medium text-green-700 sm:text-right">{item.arrival_reported_at ? '来局済み・詳細を見る' : '詳細を見る'}</span>
                 </button>
               </li>
             ))}

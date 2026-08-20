@@ -21,7 +21,13 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-const ymd = (value: string | null) => (value ? value.replace('T', ' ').slice(0, 19) : '—')
+const ymd = (value: string | null) => value
+  ? new Intl.DateTimeFormat('ja-JP', {
+      dateStyle: 'short',
+      timeStyle: 'medium',
+      timeZone: 'Asia/Tokyo',
+    }).format(new Date(value))
+  : '—'
 
 /** GET /tenants/:id/health — 稼働状況のスナップショット。 */
 function HealthPanel({ tenantId }: { tenantId: string }) {
@@ -42,7 +48,11 @@ function HealthPanel({ tenantId }: { tenantId: string }) {
         <div className="space-y-4">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
             <div><dt className="text-gray-500">Webhook成功(24h)</dt><dd>{health.webhook24h.success}</dd></div>
-            <div><dt className="text-gray-500">Webhook失敗(24h)</dt><dd>{health.webhook24h.failed}</dd></div>
+            <div>
+              <dt className="text-gray-500">Webhook失敗(24h)</dt>
+              <dd>{health.webhook24h.failed}</dd>
+              {health.webhook24h.failed > 0 && <Link href="/platform-admin/logs" className="text-xs text-purple-800 underline">Webhookログを確認</Link>}
+            </div>
             <div><dt className="text-gray-500">有効スタッフ数</dt><dd>{health.activeStaffCount}</dd></div>
             <div><dt className="text-gray-500">有効セッション数</dt><dd>{health.activeSessionCount}</dd></div>
             <div className="col-span-2"><dt className="text-gray-500">最終管理者ログイン</dt><dd>{ymd(health.lastAdminLoginAt)}</dd></div>
@@ -167,6 +177,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
   const [staff, setStaff] = useState<PlatformStaffMember[] | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [working, setWorking] = useState('')
 
   const load = useCallback(() => {
     platformAdminApi.staff(tenantId)
@@ -179,25 +190,35 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
   const disable = async (member: PlatformStaffMember) => {
     // staff_members はプラットフォーム横断。ここでの無効化は所属する全テナントに効く。
     if (!window.confirm(`${member.name} を無効化します。所属する全テナントでログインできなくなり、このテナントのセッションは失効します。よろしいですか?`)) return
+    if (working) return
+    setWorking(member.staffId)
     setError('')
+    setNotice('')
     try {
       const res = await platformAdminApi.disableStaff(tenantId, member.staffId)
       setNotice(`${member.name} を無効化しました（セッション ${res.data.sessionsRevoked} 件失効）`)
       load()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '無効化に失敗しました')
+    } finally {
+      setWorking('')
     }
   }
 
   const revokeAll = async () => {
     if (!window.confirm('このテナントの管理画面セッションをすべて失効させます。よろしいですか?')) return
+    if (working) return
+    setWorking('all')
     setError('')
+    setNotice('')
     try {
       const res = await platformAdminApi.revokeTenantSessions(tenantId)
       setNotice(`${res.data.revoked} 件のセッションを失効させました`)
       load()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '失効に失敗しました')
+    } finally {
+      setWorking('')
     }
   }
 
@@ -236,9 +257,10 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
                         <button
                           type="button"
                           onClick={() => void disable(member)}
+                          disabled={Boolean(working)}
                           className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
                         >
-                          無効化
+                          {working === member.staffId ? '無効化中...' : '無効化'}
                         </button>
                       )}
                     </td>
@@ -253,9 +275,10 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
           <button
             type="button"
             onClick={() => void revokeAll()}
+            disabled={Boolean(working)}
             className="mt-3 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
           >
-            全セッション失効
+            {working === 'all' ? '失効中...' : '全セッション失効'}
           </button>
         </>
       )}
@@ -263,43 +286,56 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
   )
 }
 
-/**
- * 送信一時停止。GET /tenants/:id は outbound_messaging_paused_at を返さないため
- * 現在の状態は表示できない。操作の結果だけを返答から表示する。
- */
-function OutboundPanel({ tenantId }: { tenantId: string }) {
+function OutboundPanel({ tenantId, outboundMessagingPausedAt: initialPausedAt }: {
+  tenantId: string
+  outboundMessagingPausedAt: string | null
+}) {
+  const [outboundMessagingPausedAt, setOutboundMessagingPausedAt] = useState(initialPausedAt)
+  const [changing, setChanging] = useState(false)
   const [result, setResult] = useState('')
   const [error, setError] = useState('')
 
   const set = async (paused: boolean) => {
+    const action = paused ? '一時停止' : '再開'
+    if (changing || !window.confirm(`自動配信を${action}します。よろしいですか?`)) return
+    setChanging(true)
     setError('')
+    setResult('')
     try {
       const res = await platformAdminApi.setOutboundMessaging(tenantId, paused)
-      setResult(res.data.outboundMessagingPausedAt
-        ? `一時停止中（${ymd(res.data.outboundMessagingPausedAt)} から）`
-        : '送信を再開しました')
+      setOutboundMessagingPausedAt(res.data.outboundMessagingPausedAt)
+      setResult(`送信を${action}しました`)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '切り替えに失敗しました')
+    } finally {
+      setChanging(false)
     }
   }
 
   return (
-    <Panel title="送信一時停止">
+    <Panel title="患者向けLINE送信の一時停止">
       <p className="mb-3 text-sm text-gray-600">
         自動配信（処方せん通知・服薬フォロー等）のみを止めます。Webhookの受信は続きます。
+      </p>
+      <p className="mb-3 text-sm font-medium">
+        現在: {outboundMessagingPausedAt
+          ? `一時停止中（${ymd(outboundMessagingPausedAt)} から）`
+          : '送信中'}
       </p>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => void set(true)}
-          className="rounded-lg border border-amber-400 px-3 py-2 text-sm text-amber-900 hover:bg-amber-50"
+          disabled={changing || Boolean(outboundMessagingPausedAt)}
+          className="rounded-lg border border-amber-400 px-3 py-2 text-sm text-amber-900 hover:bg-amber-50 disabled:opacity-50"
         >
           送信を一時停止
         </button>
         <button
           type="button"
           onClick={() => void set(false)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
+          disabled={changing || !outboundMessagingPausedAt}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
         >
           送信を再開
         </button>
@@ -343,6 +379,9 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
       setNotice('変更がありません')
       return
     }
+    if (status === 'suspended' && tenant.status !== 'suspended' && !window.confirm(
+      'テナントを停止すると管理画面へのログインと患者向けLINE送信に影響します。停止しますか？',
+    )) return
     setSaving(true)
     setError('')
     setNotice('')
@@ -362,9 +401,12 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
         <Link href="/platform-admin/tenants" className="text-sm text-purple-800 underline">← テナント一覧</Link>
         <h1 className="mt-2 text-xl font-bold">{tenant.displayName}</h1>
+        </div>
+        <button type="button" onClick={() => window.location.reload()} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">最新情報を再取得</button>
       </div>
 
       <section className="rounded-lg border border-gray-200 bg-white p-4">
@@ -427,7 +469,10 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
       <HealthPanel tenantId={tenant.id} />
       <LinePanel tenantId={tenant.id} />
       <StaffPanel tenantId={tenant.id} />
-      <OutboundPanel tenantId={tenant.id} />
+      <OutboundPanel
+        tenantId={tenant.id}
+        outboundMessagingPausedAt={tenant.outboundMessagingPausedAt}
+      />
 
       <Link
         href={`/platform-admin/tenants/patients?id=${encodeURIComponent(tenant.id)}`}

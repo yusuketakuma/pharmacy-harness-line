@@ -83,19 +83,15 @@ export default function RichMenusListPage() {
         if (v.success) {
           setExternal(v.data)
         } else {
-          setExternalError(v.error ?? 'LINE 上の状態取得に失敗')
+          setExternalError('LINE上のリッチメニューを取得できませんでした。再度お試しください。')
           setExternal(null)
         }
       } else {
-        setExternalError(
-          externalRes.reason instanceof Error
-            ? externalRes.reason.message
-            : String(externalRes.reason),
-        )
+        setExternalError('LINE上のリッチメニューを取得できませんでした。再度お試しください。')
         setExternal(null)
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+    } catch {
+      setError('リッチメニューを取得できませんでした。再度お試しください。')
     } finally {
       setLoading(false)
     }
@@ -118,8 +114,8 @@ export default function RichMenusListPage() {
       const res = await api.richMenuGroups.delete(group.id)
       if (!res.success) throw new Error(res.error ?? '削除失敗')
       await reload()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+    } catch {
+      alert('リッチメニューを削除できませんでした。再度お試しください。')
     }
   }
 
@@ -136,8 +132,8 @@ export default function RichMenusListPage() {
       const res = await api.richMenuGroups.deleteExternal(menu.richMenuId, selectedAccount.id)
       if (!res.success) throw new Error(res.error ?? '削除失敗')
       await reload()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+    } catch {
+      alert('LINE上のリッチメニューを削除できませんでした。再度お試しください。')
     }
   }
 
@@ -155,8 +151,8 @@ export default function RichMenusListPage() {
       if (!res.success) throw new Error(res.error ?? '取り込み失敗')
       alert(`取り込みました: ${res.data?.name ?? menu.name}`)
       await reload()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+    } catch {
+      alert('リッチメニューを取り込めませんでした。再度お試しください。')
     }
   }
 
@@ -417,8 +413,8 @@ function ExternalSection({
           LINE 公式アカウントにはまだ rich menu が登録されていません。
         </div>
       ) : (
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-gray-200 rounded-lg overflow-x-auto">
+          <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr className="text-left text-xs font-medium text-gray-600">
                 <th className="px-3 py-2 w-[88px]">画像</th>

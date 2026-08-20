@@ -23,7 +23,6 @@ import {
 } from '../platform-admin/auth.js';
 
 type ProvisioningInput = {
-  tenantCode: string;
   tenantName: string;
   admin: {
     loginId: string;
@@ -91,7 +90,6 @@ function parseInput(value: unknown): ProvisioningInput | null {
   if (!body || !admin || !line) return null;
 
   const input: ProvisioningInput = {
-    tenantCode: stringField(body, 'tenantCode'),
     tenantName: stringField(body, 'tenantName'),
     admin: {
       loginId: stringField(admin, 'loginId'),
@@ -113,8 +111,7 @@ function parseInput(value: unknown): ProvisioningInput | null {
     },
   };
 
-  if (!/^[a-z0-9][a-z0-9-]{2,47}$/u.test(input.tenantCode) ||
-      !input.tenantName || input.tenantName.length > 120 ||
+  if (!input.tenantName || input.tenantName.length > 120 ||
       !/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(input.admin.loginId) ||
       !input.admin.displayName || input.admin.displayName.length > 120 ||
       !isValidAdminPassword(input.admin.temporaryPassword) ||
@@ -180,6 +177,25 @@ function baseUrl(value: string | undefined, fallback?: string): string | null {
 
 async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value)));
+}
+
+// The pharmacy code a pharmacist types at login. Server-assigned so two pharmacies
+// never get confusable codes and a caller cannot squat one it does not own.
+// Rejection sampling rather than a plain `% 1e6`: the modulo would favour 0..967295.
+// Not a secret — login also requires loginId + password, and admin-auth.ts compares
+// against a dummy hash on a miss so a wrong code is indistinguishable from a wrong
+// password. It is a tenant selector, so 6 digits is a UX choice, not a key length.
+const TENANT_CODE_MODULUS = 1_000_000;
+const TENANT_CODE_REJECT_ABOVE = 4_294_000_000;
+
+function generateTenantCode(): string {
+  const buffer = new Uint32Array(1);
+  do {
+    crypto.getRandomValues(buffer);
+  } while (buffer[0] >= TENANT_CODE_REJECT_ABOVE);
+  // padStart keeps "004821" six characters wide; the column is TEXT, so the leading
+  // zero survives storage and the COLLATE NOCASE login lookup.
+  return String(buffer[0] % TENANT_CODE_MODULUS).padStart(6, '0');
 }
 
 function hex(bytes: Uint8Array): string {
@@ -400,12 +416,31 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
   } catch {
     return c.json({ success: false, error: 'LINE credential encryption is not configured' }, 503);
   }
+  // Generated here, after the idempotency early-return, and deliberately NOT part of
+  // `hash` (requestHash covers `input` only). A replay must re-match the stored hash
+  // and return the code assigned on the first attempt, which it reads back from the
+  // receipt join; folding a fresh random value into the hash would 409 every retry.
+  //
+  // 6 digits is 1e6 codes, so a collision with an existing tenant is the case worth
+  // handling; two provisions racing on the same free code is not. The pre-check below
+  // covers the former, and the latter still fails closed on the UNIQUE constraint into
+  // the retryable 409 in the catch — no receipt is written, so the operator's retry
+  // simply draws a new code.
+  let tenantCode = generateTenantCode();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const taken = await c.env.DB.prepare(
+      `SELECT 1 AS ok FROM tenants WHERE tenant_code = ? COLLATE NOCASE LIMIT 1`,
+    ).bind(tenantCode).first<{ ok: number }>();
+    if (!taken) break;
+    tenantCode = generateTenantCode();
+  }
+
   const receipt: ProvisioningReceipt = {
     request_hash: hash,
     tenant_id: tenantId,
     line_account_id: lineAccountId,
     staff_id: staffId,
-    tenant_code: input.tenantCode,
+    tenant_code: tenantCode,
     display_name: input.tenantName,
     login_id: input.admin.loginId,
     line_account_name: input.line.displayName,
@@ -417,7 +452,7 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
       c.env.DB.prepare(
         `INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
          VALUES (?, ?, ?, 'active', ?, ?)`,
-      ).bind(tenantId, input.tenantCode, input.tenantName, now, now),
+      ).bind(tenantId, tenantCode, input.tenantName, now, now),
       c.env.DB.prepare(
         `INSERT INTO line_accounts
           (id, channel_id, name, channel_access_token, channel_secret,

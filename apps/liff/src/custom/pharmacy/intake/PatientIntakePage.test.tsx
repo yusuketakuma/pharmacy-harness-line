@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import PatientIntakePage, { canSubmitIntake } from './PatientIntakePage.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   emptyPatientProfileDraft,
   PatientProfileForm,
@@ -22,6 +24,11 @@ const answers = {
   alcoholStatus: 'unknown' as const,
   medicationAdherence: 'unknown' as const,
 };
+
+const source = readFileSync(
+  fileURLToPath(new URL('./PatientIntakePage.tsx', import.meta.url).href),
+  'utf8',
+);
 
 describe('patient intake UI contract', () => {
   it('requires both consents and a complete status answer', () => {
@@ -74,5 +81,66 @@ describe('patient intake UI contract', () => {
     expect(html).toContain('飲酒');
     expect(html).toContain('飲み忘れ');
     expect(html).toContain('ステップ');
+  });
+
+  it('restores an unfinished answer draft without persisting consent', () => {
+    expect(source).toContain('sessionStorage.getItem(intakeDraftKey(patientId))');
+    expect(source).toContain('sessionStorage.setItem(intakeDraftKey(selectedId)');
+    expect(source).toContain('sessionStorage.removeItem(intakeDraftKey(selectedId))');
+    expect(source).not.toMatch(/JSON\.stringify\(\{[^}]*Consent/s);
+  });
+
+  it('shows the pharmacy-authored purpose of use in the consent section', () => {
+    const html = renderToStaticMarkup(<PatientQuestionnaire
+      answers={INITIAL_INTAKE_ANSWERS}
+      step={3}
+      busy={false}
+      showPregnancyQuestions={false}
+      representativeConsent={false}
+      privacyConsent={false}
+      privacyPolicy={{
+        purpose_text: '調剤・服薬指導および必要な連絡のために利用します。',
+        purpose_url: 'https://pharmacy-a.example/privacy',
+        contact_point: '〇〇薬局 個人情報相談窓口 03-0000-0000',
+        entrustment_text: 'システム運営を外部事業者に委託しています。',
+        policy_version: 2,
+      }}
+      onAnswersChange={() => undefined}
+      onRepresentativeConsentChange={() => undefined}
+      onPrivacyConsentChange={() => undefined}
+    />);
+
+    expect(html).toContain('調剤・服薬指導および必要な連絡のために利用します。');
+    expect(html).toContain('https://pharmacy-a.example/privacy');
+    expect(html).toContain('〇〇薬局 個人情報相談窓口');
+    expect(html).toContain('システム運営を外部事業者に委託しています。');
+    expect(html).toContain('この薬局');
+  });
+
+  it('falls back to neutral wording and never blocks submission without a notice', () => {
+    const html = renderToStaticMarkup(<PatientQuestionnaire
+      answers={INITIAL_INTAKE_ANSWERS}
+      step={3}
+      busy={false}
+      showPregnancyQuestions={false}
+      representativeConsent={false}
+      privacyConsent={false}
+      privacyPolicy={null}
+      onAnswersChange={() => undefined}
+      onRepresentativeConsentChange={() => undefined}
+      onPrivacyConsentChange={() => undefined}
+    />);
+
+    expect(html).toContain('薬局にお問い合わせください');
+    expect(canSubmitIntake(answers, true, true, false)).toBe(true);
+    expect(source).toContain('patientIntakeApi.privacyPolicy()');
+  });
+
+  it('offers a confirmed one-tap update from the last saved answers', () => {
+    expect(source).toContain('前回から変更なしで更新');
+    expect(source).toContain('if (!latestAnswers || busy || !window.confirm(');
+    expect(source).toContain('本人または代理人として');
+    expect(source).toContain('個人情報の利用目的');
+    expect(source).toContain('saveIntake(latestAnswers, true, true)');
   });
 });

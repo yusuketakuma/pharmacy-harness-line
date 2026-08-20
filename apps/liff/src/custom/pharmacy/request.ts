@@ -17,7 +17,7 @@ export function requestPharmacyLiff(path: string, init: RequestInit = {}): Promi
 
 export async function requestPharmacyJson<T>(
   path: string,
-  errorLabel: string,
+  _errorLabel: string,
   init: RequestInit = {},
 ): Promise<T> {
   const response = await requestPharmacyLiff(path, init);
@@ -25,7 +25,20 @@ export async function requestPharmacyJson<T>(
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!response.ok) {
-    throw Object.assign(new Error(`${errorLabel} ${response.status}`), {
+    const message = response.status === 401
+      ? '認証の有効期限が切れました。LINEから開き直してください。'
+      : response.status === 403
+        ? 'この操作を行う権限がありません。'
+        : response.status === 404
+          ? '対象が見つかりませんでした。'
+          : response.status === 409
+            ? '内容が更新されています。画面を再読み込みしてください。'
+            : response.status === 429
+              ? '操作が集中しています。しばらく待って再度お試しください。'
+              : response.status >= 500
+                ? '薬局システムに接続できませんでした。時間をおいて再度お試しください。'
+                : '操作に失敗しました。内容を確認して再度お試しください。';
+    throw Object.assign(new Error(message), {
       status: response.status,
       body,
     });

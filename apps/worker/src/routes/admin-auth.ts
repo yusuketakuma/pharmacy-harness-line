@@ -65,7 +65,13 @@ adminAuth.post('/api/auth/login', async (c) => {
       loginId?: string;
       password?: string;
     });
-  const pharmacyCode = typeof body?.pharmacyCode === 'string' ? body.pharmacyCode.trim() : '';
+  // NFKC folds full-width ０-９ to ASCII. Pharmacy codes are digits and a Japanese IME
+  // left in full-width mode produces ００４８２１, which would otherwise never match.
+  // Deliberately no format check here: legacy tenants still hold long slug codes and
+  // must keep logging in.
+  const pharmacyCode = typeof body?.pharmacyCode === 'string'
+    ? body.pharmacyCode.normalize('NFKC').trim()
+    : '';
   if (!pharmacyCode) {
     return c.json({ success: false, error: 'Pharmacy code is required' }, 400);
   }

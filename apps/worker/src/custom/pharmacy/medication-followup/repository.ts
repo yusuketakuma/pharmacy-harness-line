@@ -37,6 +37,11 @@ export interface MedicationFollowUp {
 export interface DueMedicationFollowUp extends MedicationFollowUp {
   tenant_id: string;
   line_user_id: string;
+  liff_id: string | null;
+}
+
+export interface PatientMedicationFollowUp extends MedicationFollowUp {
+  patient_name: string;
 }
 
 const SELECT = `
@@ -50,14 +55,21 @@ const TRANSITIONS: Record<MedicationFollowUpStatus, readonly MedicationFollowUpS
   due: ['delivered', 'cancelled'],
   delivered: ['no_issue', 'concern', 'pharmacist_requested', 'cancelled'],
   no_issue: ['closed'],
-  concern: ['assigned', 'escalated', 'closed'],
-  pharmacist_requested: ['assigned', 'escalated', 'closed'],
-  assigned: ['responded', 'escalated', 'closed'],
+  concern: ['assigned', 'escalated'],
+  pharmacist_requested: ['assigned', 'escalated'],
+  assigned: ['responded', 'escalated'],
   responded: ['closed'],
-  escalated: ['responded', 'closed'],
+  escalated: ['responded'],
   closed: [],
   cancelled: [],
 };
+
+export function isMedicationFollowUpTransitionAllowed(
+  fromStatus: MedicationFollowUpStatus,
+  toStatus: MedicationFollowUpStatus,
+): boolean {
+  return TRANSITIONS[fromStatus].includes(toStatus);
+}
 
 const RESPONSE_RE = /^pharmacy-followup:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(no_issue|concern|pharmacist_requested)$/i;
 
@@ -188,7 +200,8 @@ export async function transitionMedicationFollowUp(
       WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
   ).bind(input.followUpId, input.lineAccountId, idempotencyKey).first<{ ok: number }>();
   if (replay) return current;
-  if (current.version !== input.expectedVersion || !TRANSITIONS[current.status].includes(input.toStatus)) {
+  if (current.version !== input.expectedVersion ||
+      !isMedicationFollowUpTransitionAllowed(current.status, input.toStatus)) {
     throw new Error(current.version !== input.expectedVersion
       ? 'medication follow-up transition conflict'
       : 'invalid follow-up transition');
@@ -253,6 +266,44 @@ export function parseMedicationFollowUpPostback(
   } : null;
 }
 
+export async function respondToMedicationFollowUp(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    friendId: string;
+    followUpId: string;
+    response: MedicationFollowUpPatientResponse;
+    expectedVersion?: number;
+    idempotencyKey: string;
+    now?: Date;
+  },
+): Promise<MedicationFollowUp> {
+  if (!validOpaqueKey(input.idempotencyKey, 160)) throw new Error('follow-up response unavailable');
+  const row = await db.prepare(
+    `${SELECT} WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?`,
+  ).bind(input.followUpId, input.lineAccountId, input.friendId).first<MedicationFollowUp>();
+  if (!row) throw new Error('follow-up response unavailable');
+  const replay = await db.prepare(
+    `SELECT 1 AS ok FROM pharmacy_medication_followup_events
+      WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
+  ).bind(input.followUpId, input.lineAccountId, input.idempotencyKey).first<{ ok: number }>();
+  if (replay) return row;
+  if (input.expectedVersion !== undefined && row.version !== input.expectedVersion) {
+    throw new Error('medication follow-up transition conflict');
+  }
+  if (row.status !== 'delivered') throw new Error('follow-up response unavailable');
+  return transitionMedicationFollowUp(db, {
+    lineAccountId: input.lineAccountId,
+    followUpId: input.followUpId,
+    toStatus: input.response,
+    expectedVersion: row.version,
+    actorType: 'patient',
+    actorId: input.friendId,
+    idempotencyKey: input.idempotencyKey,
+    now: input.now,
+  });
+}
+
 export async function recordMedicationFollowUpPatientResponse(
   db: D1Database,
   input: {
@@ -265,27 +316,57 @@ export async function recordMedicationFollowUpPatientResponse(
   },
 ): Promise<MedicationFollowUp> {
   if (!validOpaqueKey(input.webhookEventId, 128)) throw new Error('follow-up response unavailable');
-  const row = await db.prepare(
-    `${SELECT} WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?`,
-  ).bind(input.followUpId, input.lineAccountId, input.friendId).first<MedicationFollowUp>();
-  if (!row) throw new Error('follow-up response unavailable');
-  const idempotencyKey = `webhook:${input.webhookEventId}`;
-  const replay = await db.prepare(
-    `SELECT 1 AS ok FROM pharmacy_medication_followup_events
-      WHERE followup_id = ? AND line_account_id = ? AND idempotency_key = ?`,
-  ).bind(input.followUpId, input.lineAccountId, idempotencyKey).first<{ ok: number }>();
-  if (replay) return row;
-  if (row.status !== 'delivered') throw new Error('follow-up response unavailable');
-  return transitionMedicationFollowUp(db, {
+  return respondToMedicationFollowUp(db, {
     lineAccountId: input.lineAccountId,
+    friendId: input.friendId,
     followUpId: input.followUpId,
-    toStatus: input.response,
-    expectedVersion: row.version,
-    actorType: 'patient',
-    actorId: input.friendId,
-    idempotencyKey,
+    response: input.response,
+    idempotencyKey: `webhook:${input.webhookEventId}`,
     now: input.now,
   });
+}
+
+const PATIENT_SELECT = `
+  SELECT f.id, f.line_account_id, f.owner_friend_id, f.patient_id,
+         f.source_submission_id, f.status, f.due_at, f.delivered_at,
+         f.responded_at, f.assigned_to, f.closed_at, f.version,
+         f.created_by, f.created_at, f.updated_at, patient.name AS patient_name
+    FROM pharmacy_medication_followups f
+    INNER JOIN pharmacy_patients patient
+      ON patient.id = f.patient_id
+     AND patient.line_account_id = f.line_account_id
+     AND patient.owner_friend_id = f.owner_friend_id`;
+
+export async function listOwnerMedicationFollowUps(
+  db: D1Database,
+  lineAccountId: string,
+  friendId: string,
+): Promise<PatientMedicationFollowUp[]> {
+  const result = await db.prepare(
+    `${PATIENT_SELECT}
+      WHERE f.line_account_id = ? AND f.owner_friend_id = ?
+      ORDER BY f.created_at DESC, f.id DESC
+      LIMIT 20`,
+  ).bind(lineAccountId, friendId).all<PatientMedicationFollowUp>();
+  return result.results ?? [];
+}
+
+/**
+ * Targeted lookup for one owner-scoped follow-up by id. Used to confirm a
+ * patient response write instead of re-deriving it from the bounded
+ * `listOwnerMedicationFollowUps` (LIMIT 20) listing, which can miss the row
+ * once an owner has more than 20 follow-ups on record.
+ */
+export async function getOwnerMedicationFollowUp(
+  db: D1Database,
+  lineAccountId: string,
+  friendId: string,
+  followUpId: string,
+): Promise<PatientMedicationFollowUp | null> {
+  return db.prepare(
+    `${PATIENT_SELECT}
+      WHERE f.id = ? AND f.line_account_id = ? AND f.owner_friend_id = ?`,
+  ).bind(followUpId, lineAccountId, friendId).first<PatientMedicationFollowUp>();
 }
 
 export async function listPatientMedicationFollowUps(
@@ -311,7 +392,8 @@ export async function listDueMedicationFollowUps(
             f.source_submission_id, f.status, f.due_at, f.delivered_at,
             f.responded_at, f.assigned_to, f.closed_at, f.version,
             f.created_by, f.created_at, f.updated_at,
-            friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
+            friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id,
+            account.liff_id
        FROM pharmacy_medication_followups f
        INNER JOIN friends friend
          ON friend.id = f.owner_friend_id AND friend.line_account_id = f.line_account_id

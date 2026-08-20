@@ -278,9 +278,13 @@ export default function BroadcastDetail({ broadcastId }: BroadcastDetailProps) {
               tags={tags}
               accountId={accountId}
               onApply={async (conditions) => {
-                await api.broadcasts.update(id, { segmentConditions: JSON.stringify(conditions) } as unknown as Parameters<typeof api.broadcasts.update>[1])
-                setShowSegmentBuilder(false)
-                load()
+                try {
+                  await api.broadcasts.update(id, { segmentConditions: JSON.stringify(conditions) } as unknown as Parameters<typeof api.broadcasts.update>[1])
+                  setShowSegmentBuilder(false)
+                  load()
+                } catch {
+                  setError('セグメント条件を更新できませんでした。再度お試しください。')
+                }
               }}
               onCancel={() => setShowSegmentBuilder(false)}
             />
@@ -300,7 +304,9 @@ export default function BroadcastDetail({ broadcastId }: BroadcastDetailProps) {
                 try {
                   await api.broadcasts.update(id, { trackLinks })
                   load()
-                } catch { /* keep previous state on failure */ }
+                } catch {
+                  setError('リンク短縮設定を更新できませんでした。再度お試しください。')
+                }
               }}
             />
             このメッセージでリンクを短縮する（クリック計測）
