@@ -106,7 +106,13 @@
     "custom_029_platform_admin_access_grants.sql",
     "custom_030_pharmacy_tenant_outbound_pause.sql",
     "custom_031_platform_admin_grant_session_binding.sql",
-    "custom_032_platform_admin_bootstrap_guard.sql"
+    "custom_032_platform_admin_bootstrap_guard.sql",
+    "custom_033_pharmacy_patient_pickup.sql",
+    "custom_034_generic_resource_tenant_scope.sql",
+    "custom_035_pharmacy_emergency_contraception.sql",
+    "custom_036_pharmacy_tenant_privacy_policy.sql",
+    "custom_037_pharmacy_phi_retention_purge_log.sql",
+    "custom_038_pharmacy_data_subject_requests.sql"
   ],
-  "migrationCount": 107
+  "migrationCount": 113
 }
