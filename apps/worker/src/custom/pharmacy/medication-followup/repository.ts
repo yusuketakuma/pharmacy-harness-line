@@ -326,26 +326,47 @@ export async function recordMedicationFollowUpPatientResponse(
   });
 }
 
+const PATIENT_SELECT = `
+  SELECT f.id, f.line_account_id, f.owner_friend_id, f.patient_id,
+         f.source_submission_id, f.status, f.due_at, f.delivered_at,
+         f.responded_at, f.assigned_to, f.closed_at, f.version,
+         f.created_by, f.created_at, f.updated_at, patient.name AS patient_name
+    FROM pharmacy_medication_followups f
+    INNER JOIN pharmacy_patients patient
+      ON patient.id = f.patient_id
+     AND patient.line_account_id = f.line_account_id
+     AND patient.owner_friend_id = f.owner_friend_id`;
+
 export async function listOwnerMedicationFollowUps(
   db: D1Database,
   lineAccountId: string,
   friendId: string,
 ): Promise<PatientMedicationFollowUp[]> {
   const result = await db.prepare(
-    `SELECT f.id, f.line_account_id, f.owner_friend_id, f.patient_id,
-            f.source_submission_id, f.status, f.due_at, f.delivered_at,
-            f.responded_at, f.assigned_to, f.closed_at, f.version,
-            f.created_by, f.created_at, f.updated_at, patient.name AS patient_name
-       FROM pharmacy_medication_followups f
-       INNER JOIN pharmacy_patients patient
-         ON patient.id = f.patient_id
-        AND patient.line_account_id = f.line_account_id
-        AND patient.owner_friend_id = f.owner_friend_id
+    `${PATIENT_SELECT}
       WHERE f.line_account_id = ? AND f.owner_friend_id = ?
       ORDER BY f.created_at DESC, f.id DESC
       LIMIT 20`,
   ).bind(lineAccountId, friendId).all<PatientMedicationFollowUp>();
   return result.results ?? [];
+}
+
+/**
+ * Targeted lookup for one owner-scoped follow-up by id. Used to confirm a
+ * patient response write instead of re-deriving it from the bounded
+ * `listOwnerMedicationFollowUps` (LIMIT 20) listing, which can miss the row
+ * once an owner has more than 20 follow-ups on record.
+ */
+export async function getOwnerMedicationFollowUp(
+  db: D1Database,
+  lineAccountId: string,
+  friendId: string,
+  followUpId: string,
+): Promise<PatientMedicationFollowUp | null> {
+  return db.prepare(
+    `${PATIENT_SELECT}
+      WHERE f.id = ? AND f.line_account_id = ? AND f.owner_friend_id = ?`,
+  ).bind(followUpId, lineAccountId, friendId).first<PatientMedicationFollowUp>();
 }
 
 export async function listPatientMedicationFollowUps(

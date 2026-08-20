@@ -9,6 +9,7 @@ import {
   type PrescriptionPatient,
 } from '../prescriptions/patient.js';
 import {
+  getOwnerMedicationFollowUp,
   listOwnerMedicationFollowUps,
   respondToMedicationFollowUp,
   scheduleMedicationFollowUp,
@@ -98,9 +99,9 @@ medicationFollowUpRoutes.post('/api/liff/pharmacy/medication-followups/:id/respo
       expectedVersion: body.expectedVersion,
       idempotencyKey: body.idempotencyKey,
     });
-    const updated = (await listOwnerMedicationFollowUps(
-      c.env.DB, owner.lineAccountId, owner.friendId,
-    )).find((item) => item.id === followUp.id);
+    const updated = await getOwnerMedicationFollowUp(
+      c.env.DB, owner.lineAccountId, owner.friendId, followUp.id,
+    );
     if (!updated) return c.json({ error: '回答を保存できませんでした' }, 409);
     return c.json({ followUp: patientProjection(updated) });
   } catch (error) {

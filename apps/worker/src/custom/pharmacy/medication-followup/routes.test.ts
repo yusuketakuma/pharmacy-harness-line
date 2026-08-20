@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(), capability: vi.fn(), schedule: vi.fn(), transition: vi.fn(),
-  listOwner: vi.fn(), respond: vi.fn(), verify: vi.fn(), resolve: vi.fn(),
+  listOwner: vi.fn(), getOwner: vi.fn(), respond: vi.fn(), verify: vi.fn(), resolve: vi.fn(),
 }));
 vi.mock('../growth-loop/access.js', () => ({
   canAccessPharmacyAccount: mocks.access,
@@ -13,6 +13,7 @@ vi.mock('./repository.js', () => ({
   scheduleMedicationFollowUp: mocks.schedule,
   transitionMedicationFollowUp: mocks.transition,
   listOwnerMedicationFollowUps: mocks.listOwner,
+  getOwnerMedicationFollowUp: mocks.getOwner,
   respondToMedicationFollowUp: mocks.respond,
 }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -50,6 +51,11 @@ beforeEach(() => {
     due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
     responded_at: null, closed_at: null, version: 3,
   }]);
+  mocks.getOwner.mockResolvedValue({
+    id: 'followup-a', patient_name: '田中 太郎', status: 'concern',
+    due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
+    responded_at: '2026-08-21T10:00:00.000Z', closed_at: null, version: 4,
+  });
   mocks.respond.mockResolvedValue({
     id: 'followup-a', patient_name: '田中 太郎', status: 'concern',
     due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
@@ -76,11 +82,11 @@ describe('medication follow-up patient routes', () => {
   });
 
   it('records a fixed patient response with owner scope and idempotency', async () => {
-    mocks.listOwner.mockResolvedValue([{
+    mocks.getOwner.mockResolvedValue({
       id: 'followup-a', patient_name: '田中 太郎', status: 'concern',
       due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
       responded_at: '2026-08-21T10:00:00.000Z', closed_at: null, version: 4,
-    }]);
+    });
     const response = await app().request(
       '/api/liff/pharmacy/medication-followups/followup-a/respond?liffId=liff-a',
       {
@@ -96,6 +102,33 @@ describe('medication follow-up patient routes', () => {
     expect(mocks.respond).toHaveBeenCalledWith(env.DB, {
       lineAccountId: 'account-a', friendId: 'friend-a', followUpId: 'followup-a',
       response: 'concern', expectedVersion: 3, idempotencyKey: 'response-a',
+    });
+    expect(mocks.getOwner).toHaveBeenCalledWith(env.DB, 'account-a', 'friend-a', 'followup-a');
+    expect(mocks.listOwner).not.toHaveBeenCalled();
+  });
+
+  it('returns success when the responded row falls outside the recent-20 listing window', async () => {
+    // Regression for the false-409 bug: the respond route must confirm the
+    // write with a targeted id lookup, not by re-deriving it from the
+    // LIMIT-20 recent-activity listing (which a prolific owner can outgrow).
+    mocks.listOwner.mockResolvedValue([]); // simulates the target row being outside the top 20
+    mocks.getOwner.mockResolvedValue({
+      id: 'followup-old', patient_name: '田中 太郎', status: 'no_issue',
+      due_at: '2020-01-01T09:00:00.000Z', delivered_at: '2020-01-01T09:00:00.000Z',
+      responded_at: '2026-08-21T10:00:00.000Z', closed_at: null, version: 2,
+    });
+    mocks.respond.mockResolvedValue({ id: 'followup-old', status: 'no_issue', version: 2 });
+    const response = await app().request(
+      '/api/liff/pharmacy/medication-followups/followup-old/respond?liffId=liff-a',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer id-token-a', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response: 'no_issue', expectedVersion: 1, idempotencyKey: 'response-old' }),
+      }, env,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      followUp: { id: 'followup-old', patient_name: '田中 太郎', status: 'no_issue', version: 2 },
     });
   });
 
