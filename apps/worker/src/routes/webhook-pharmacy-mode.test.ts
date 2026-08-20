@@ -62,11 +62,13 @@ vi.mock('@line-crm/db', () => ({
 vi.mock('@line-crm/line-sdk', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('@line-crm/line-sdk')),
   verifySignature: vi.fn().mockResolvedValue(true),
-  LineClient: vi.fn().mockImplementation(() => ({
-    getProfile: mocks.getProfile,
-    pushMessage: vi.fn(),
-    replyMessage: vi.fn(),
-  })),
+  LineClient: vi.fn().mockImplementation(function () {
+    return {
+      getProfile: mocks.getProfile,
+      pushMessage: vi.fn(),
+      replyMessage: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../custom/pharmacy/growth-loop/access.js', () => ({

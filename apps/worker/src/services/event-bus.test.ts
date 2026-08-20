@@ -61,10 +61,12 @@ vi.mock('@line-crm/db', async () => {
 
 vi.mock('@line-crm/line-sdk', () => {
   return {
-    LineClient: vi.fn().mockImplementation(() => ({
-      replyMessage: vi.fn().mockResolvedValue(undefined),
-      pushMessage: vi.fn().mockResolvedValue(undefined),
-    })),
+    LineClient: vi.fn().mockImplementation(function () {
+      return {
+        replyMessage: vi.fn().mockResolvedValue(undefined),
+        pushMessage: vi.fn().mockResolvedValue(undefined),
+      };
+    }),
   };
 });
 

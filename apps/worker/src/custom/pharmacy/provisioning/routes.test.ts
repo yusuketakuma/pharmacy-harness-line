@@ -138,7 +138,13 @@ function request(body = requestBody, key = 'setup-request-123') {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  // vitest 4 narrows restoreAllMocks to vi.spyOn spies (needed to restore the real
+  // globalThis.fetch); plain vi.hoisted(() => ({ ...: vi.fn() })) mocks like
+  // migrationMocks/credentialMocks now need clearAllMocks to drop call history too.
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+});
 
 describe('platform tenant provisioning', () => {
   it('fails closed when the platform key is missing or wrong', async () => {

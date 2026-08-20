@@ -37,7 +37,7 @@ vi.mock('../custom/pharmacy/provisioning/line-credential-store.js', () => creden
 vi.mock('../middleware/tenant-boundary.js', () => boundaryMocks);
 
 vi.mock('@line-crm/line-sdk', () => ({
-  LineClient: vi.fn().mockImplementation(() => lineClientMocks),
+  LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
 }));
 
 import type { Env } from '../index.js';
