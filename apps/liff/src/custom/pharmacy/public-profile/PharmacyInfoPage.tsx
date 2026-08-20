@@ -15,6 +15,15 @@ function safeGoogleMapsUrl(value: string): string | null {
   }
 }
 
+function safeWebsiteUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function pharmacyGoogleMapsUrl(
   profile: Pick<PharmacyPublicProfile, 'google_maps_url' | 'address'>,
 ): string | null {
@@ -28,6 +37,7 @@ export function pharmacyGoogleMapsUrl(
 export function PharmacyInfoContent({ profile }: { profile: PharmacyPublicProfile }) {
   const mapUrl = pharmacyGoogleMapsUrl(profile);
   const phoneHref = profile.phone ? `tel:${profile.phone.replace(/[^0-9+]/g, '')}` : null;
+  const websiteUrl = safeWebsiteUrl(profile.website_url);
   return (
     <div className="space-y-4 p-4">
       <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -38,17 +48,30 @@ export function PharmacyInfoContent({ profile }: { profile: PharmacyPublicProfil
       <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="hours-title">
         <h2 id="hours-title" className="font-bold text-gray-950">営業時間</h2>
         <p className="mt-2 whitespace-pre-line text-sm leading-7 text-gray-700">{profile.business_hours || '営業時間は薬局へお問い合わせください。'}</p>
+        {profile.prescription_reception_hours && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">処方せん受付時間</span><br />{profile.prescription_reception_hours}</p>}
+        {profile.after_hours_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">時間外の対応</span><br />{profile.after_hours_note}</p>}
       </section>
+      {(profile.services_note || profile.supported_languages || profile.payment_methods) && <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="services-title">
+        <h2 id="services-title" className="font-bold text-gray-950">サービス・対応</h2>
+        {profile.services_note && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">利用できるサービス</span><br />{profile.services_note}</p>}
+        {profile.supported_languages && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">対応言語</span><br />{profile.supported_languages}</p>}
+        {profile.payment_methods && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">支払方法</span><br />{profile.payment_methods}</p>}
+      </section>}
       <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="access-title">
         <h2 id="access-title" className="font-bold text-gray-950">住所・アクセス</h2>
         <p className="mt-2 text-sm leading-6 text-gray-700"><span className="font-medium">住所</span><br />{[profile.postal_code && `〒${profile.postal_code}`, profile.address].filter(Boolean).join(' ') || '未設定'}</p>
         {profile.access_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">アクセス</span><br />{profile.access_note}</p>}
         {profile.parking_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">駐車場</span><br />{profile.parking_note}</p>}
+        {profile.accessibility_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">バリアフリー</span><br />{profile.accessibility_note}</p>}
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {mapUrl && <a href={mapUrl} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-xl bg-green-700 px-4 py-3 text-center font-bold text-white">Google Mapsで開く</a>}
           {phoneHref && <a href={phoneHref} className="min-h-11 rounded-xl border border-green-600 bg-white px-4 py-3 text-center font-bold text-green-700">電話する</a>}
         </div>
       </section>
+      {(websiteUrl || profile.updated_at) && <section className="rounded-2xl bg-white p-5 shadow-sm">
+        {websiteUrl && <a href={websiteUrl} target="_blank" rel="noreferrer noopener" className="block min-h-11 rounded-xl border border-green-600 bg-white px-4 py-3 text-center font-bold text-green-700">公式サイト</a>}
+        {profile.updated_at && <p className="mt-3 text-right text-xs text-gray-500">最終更新：{profile.updated_at.slice(0, 10)}</p>}
+      </section>}
     </div>
   );
 }

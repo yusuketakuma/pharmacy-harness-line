@@ -1607,7 +1607,7 @@ CREATE TABLE pharmacy_public_profiles (
   google_maps_url TEXT NOT NULL DEFAULT '' CHECK (length(google_maps_url) <= 2000),
   updated_by      TEXT NOT NULL,
   created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL, prescription_reception_hours TEXT NOT NULL DEFAULT '' CHECK (length(prescription_reception_hours) <= 2000), after_hours_note TEXT NOT NULL DEFAULT '' CHECK (length(after_hours_note) <= 1000), services_note TEXT NOT NULL DEFAULT '' CHECK (length(services_note) <= 2000), accessibility_note TEXT NOT NULL DEFAULT '' CHECK (length(accessibility_note) <= 1000), supported_languages TEXT NOT NULL DEFAULT '' CHECK (length(supported_languages) <= 1000), payment_methods TEXT NOT NULL DEFAULT '' CHECK (length(payment_methods) <= 1000), website_url TEXT NOT NULL DEFAULT '' CHECK (length(website_url) <= 2000),
   FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
   FOREIGN KEY (line_account_id, updated_by)
     REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)

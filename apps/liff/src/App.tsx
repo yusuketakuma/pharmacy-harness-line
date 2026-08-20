@@ -11,15 +11,19 @@ import { legacyQueryTarget } from './legacy-route.js';
 import PrescriptionPage from './custom/pharmacy/prescriptions/PrescriptionPage.js'; // custom:pharmacy-prescriptions
 import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake
 import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity
-import MynaReceivePage from './custom/pharmacy/myna/MynaReceivePage.js'; // custom:pharmacy-myna
 import MedicationFollowUpPage from './custom/pharmacy/medication-followup/MedicationFollowUpPage.js'; // custom:pharmacy-medication-followup
 import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception
 import MainMenuPage from './custom/pharmacy/menu/MainMenuPage.js'; // custom:pharmacy-menu
 import PharmacyInfoPage from './custom/pharmacy/public-profile/PharmacyInfoPage.js'; // custom:pharmacy-public-profile
+import { deprecatedReceiveTarget } from './custom/pharmacy/navigation.js';
 
 function LegacyEntryRedirect() {
   const location = useLocation();
   return <Navigate to={legacyQueryTarget(location.search)} replace />;
+}
+
+function DeprecatedReceiveRedirect() {
+  return <Navigate to={deprecatedReceiveTarget(useLocation().search)} replace />;
 }
 
 export default function App() {
@@ -38,7 +42,7 @@ export default function App() {
       <Route path="/pharmacy/info" element={<PharmacyInfoPage />} /> {/* custom:pharmacy-public-profile */}
       <Route path="/pharmacy/patient-intake" element={<PatientIntakePage />} /> {/* custom:pharmacy-intake */}
       <Route path="/pharmacy/continuity" element={<ContinuityPage />} /> {/* custom:pharmacy-continuity */}
-      <Route path="/pharmacy/receive" element={<MynaReceivePage />} /> {/* custom:pharmacy-myna */}
+      <Route path="/pharmacy/receive" element={<DeprecatedReceiveRedirect />} /> {/* custom:pharmacy-myna */}
       <Route path="/pharmacy/medication-followup" element={<MedicationFollowUpPage />} /> {/* custom:pharmacy-medication-followup */}
       <Route path="/pharmacy/emergency-contraception" element={<EmergencyContraceptionPage />} /> {/* custom:pharmacy-emergency-contraception */}
       <Route path="/" element={<LegacyEntryRedirect />} />

@@ -71,7 +71,7 @@ describe('emergency contraception patient page', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter><EmergencyContraceptionPage /></MemoryRouter>,
     );
-    expect(html).toContain('来局前確認と仮受付');
+    expect(html).toContain('緊急避妊薬');
     expect(html).toContain('仮受付');
     expect(html).toContain('販売・服用・在庫を保証しません');
     expect(html).toContain('厚生労働省');
@@ -103,8 +103,6 @@ describe('emergency contraception patient page', () => {
 
     expect(() => toIntercourseAtPayload({ intercourseAt: '', intercourseTimeUnknown: false }))
       .toThrow(/^対象となる出来事の日時/);
-    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
-    expect(source).not.toMatch(/性交|妊娠|緊急避妊/);
   });
 
   it('uses explicit consent without delaying time-sensitive care and keeps actions single-flight', () => {

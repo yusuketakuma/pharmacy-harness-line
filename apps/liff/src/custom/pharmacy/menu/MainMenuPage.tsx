@@ -10,11 +10,10 @@ export function pharmacyMainMenuItems(liffId?: string) {
     { label: '処方せん事前送信', description: '紙の処方せんを撮影して送る', icon: '送', to: pharmacyRoute('/prescriptions?view=send', liffId) },
     { label: '受付状況', description: '送信した処方せんの状況を確認', icon: '状', to: pharmacyRoute('/prescriptions?view=history', liffId) },
     { label: '患者情報・アンケート', description: '患者情報と服薬状況を登録・更新', icon: '問', to: pharmacyRoute('/pharmacy/patient-intake', liffId) },
-    { label: 'お薬を受け取る', description: '電子・紙の処方せん受付を選ぶ', icon: '薬', to: pharmacyRoute('/pharmacy/receive', liffId) },
     { label: '継続フォロー', description: '次回事前送信のお知らせを確認', icon: '続', to: pharmacyRoute('/pharmacy/continuity', liffId) },
     { label: '服薬後フォロー', description: 'お薬を使った後の状況を回答', icon: '後', to: pharmacyRoute('/pharmacy/medication-followup', liffId) },
-    { label: '来局前確認', description: '対応状況を確認して仮受付へ進む', icon: '前', to: pharmacyRoute('/pharmacy/emergency-contraception', liffId) },
-    { label: '薬局情報', description: '営業時間・住所・アクセスを確認', icon: '店', to: pharmacyRoute('/pharmacy/info', liffId) },
+    { label: '緊急避妊薬', description: '対応状況を確認して仮受付へ進む', icon: '緊', to: pharmacyRoute('/pharmacy/emergency-contraception', liffId) },
+    { label: '薬局情報', description: '営業時間・サービス・アクセスを確認', icon: '店', to: pharmacyRoute('/pharmacy/info', liffId) },
   ];
 }
 

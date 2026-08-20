@@ -14,3 +14,7 @@ export function pharmacyRoute(path: string, liffId?: string): string {
   params.set('liffId', resolvedLiffId);
   return `${pathname}?${params.toString()}`;
 }
+
+export function deprecatedReceiveTarget(search: string): string {
+  return pharmacyRoute('/prescriptions?view=send', new URLSearchParams(search).get('liffId') ?? undefined);
+}

@@ -25,7 +25,7 @@ function group(overrides: Record<string, unknown> = {}) {
   return {
     id: 'group-1', account_id: 'account-a', name: '薬局初期メニュー', chat_bar_text: 'メニュー',
     size: 'large', default_page_id: 'page-1', is_default_for_all: 0, selected: 1,
-    status: 'draft', generator_key: 'initial-large-3x2-v2', generator_version: '2',
+    status: 'draft', generator_key: 'initial-large-3x2-v3', generator_version: '3',
     publishing_at: null, created_at: '', updated_at: '',
     pages: [{
       id: 'page-1', group_id: 'group-1', order_index: 0, name: '初期メニュー',
@@ -58,7 +58,7 @@ function app(opts: { images?: R2Bucket } = {}) {
       DB: {} as D1Database,
       IMAGES: opts.images ?? { put: vi.fn() } as unknown as R2Bucket,
       ASSETS: { fetch: vi.fn(async (request: Request) => new Response(
-        request.url.includes('initial-large-3x2-v2') ? PNG_2500x1686 : PNG_2500x843,
+        request.url.includes('initial-large-3x2-v3') ? PNG_2500x1686 : PNG_2500x843,
       )) } as unknown as Fetcher,
       LINE_CHANNEL_ID: 'channel-1',
     };
@@ -104,7 +104,7 @@ describe('pharmacy rich-menu preparation', () => {
     dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValueOnce(null);
     dbMocks.createRichMenuGroup.mockResolvedValue(group());
     dbMocks.getRichMenuGroupWithPages.mockResolvedValue(group({
-      pages: [{ ...group().pages[0], image_r2_key: 'rich-menus/account-a/group-1/page-1/initial-large-3x2-v2.jpg', image_content_type: 'image/jpeg' }],
+      pages: [{ ...group().pages[0], image_r2_key: 'rich-menus/account-a/group-1/page-1/initial-large-3x2-v3.jpg', image_content_type: 'image/jpeg' }],
     }));
     const response = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
       method: 'POST', body: JSON.stringify({ initial: true }), headers: { 'Content-Type': 'application/json' },
@@ -114,10 +114,10 @@ describe('pharmacy rich-menu preparation', () => {
     expect(body.data.status).toBe('prepared');
     expect(body.data.imageAttached).toBe(true);
     expect(dbMocks.createRichMenuGroup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      accountId: 'account-a', generatorKey: 'initial-large-3x2-v2', generatorVersion: '2',
+      accountId: 'account-a', generatorKey: 'initial-large-3x2-v3', generatorVersion: '3',
     }));
     expect(dbMocks.setRichMenuPageImage).toHaveBeenCalledWith(
-      expect.anything(), 'page-1', expect.stringContaining('/initial-large-3x2-v2.jpg'), 'image/jpeg',
+      expect.anything(), 'page-1', expect.stringContaining('/initial-large-3x2-v3.jpg'), 'image/jpeg',
     );
   });
 

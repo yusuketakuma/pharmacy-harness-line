@@ -43,7 +43,10 @@ describe('legacyQueryTarget', () => {
       '/prescriptions?view=history&liffId=123',
     );
     expect(legacyQueryTarget('?page=pharmacy-receive&liffId=123')).toBe(
-      '/pharmacy/receive?liffId=123',
+      '/prescriptions?view=send&liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-prescription-send&liffId=123')).toBe(
+      '/prescriptions?view=send&liffId=123',
     );
     expect(legacyQueryTarget('?page=pharmacy-intake&liffId=123')).toBe(
       '/pharmacy/patient-intake?liffId=123',

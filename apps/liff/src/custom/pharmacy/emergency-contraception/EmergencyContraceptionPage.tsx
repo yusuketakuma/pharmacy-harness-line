@@ -475,7 +475,7 @@ export default function EmergencyContraceptionPage() {
   return (
     <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
       <header className="border-b bg-white px-4 py-4">
-        <h1 className="text-lg font-bold text-gray-900">来局前確認と仮受付</h1>
+        <h1 className="text-lg font-bold text-gray-900">緊急避妊薬</h1>
         <p className="mt-1 text-sm text-gray-700">
           来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。
         </p>

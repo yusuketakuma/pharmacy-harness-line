@@ -10,7 +10,11 @@ const profile = {
   postal_code: '100-0001', address: '東京都千代田区千代田1-1',
   business_hours: '月〜金 9:00〜18:00', closure_notice: '日曜・祝日は休業',
   access_note: '駅東口から徒歩3分', parking_note: '店舗前に2台',
-  google_maps_url: '', updated_at: '2026-08-20T00:00:00.000Z',
+  google_maps_url: '', prescription_reception_hours: '月〜金 17:30まで',
+  after_hours_note: '時間外は電話でご相談ください', services_note: 'オンライン服薬指導',
+  accessibility_note: '車いすで入店できます', supported_languages: '日本語・英語',
+  payment_methods: '現金・クレジットカード', website_url: 'https://pharmacy.example.test',
+  updated_at: '2026-08-20T00:00:00.000Z',
 };
 
 describe('pharmacy information LIFF page', () => {
@@ -20,9 +24,19 @@ describe('pharmacy information LIFF page', () => {
       'Google Mapsで開く', '電話する', '休業・臨時案内', 'アクセス', '駐車場']) {
       expect(html).toContain(text);
     }
+    for (const text of ['処方せん受付時間', '時間外の対応', '利用できるサービス',
+      'バリアフリー', '対応言語', '支払方法', '公式サイト', '最終更新']) {
+      expect(html).toContain(text);
+    }
     expect(html).toContain('rel="noreferrer noopener"');
     expect(html).toContain('bg-green-700');
     expect(html).not.toContain('account-a');
+
+    const unsafe = renderToStaticMarkup(<PharmacyInfoContent profile={{
+      ...profile, website_url: 'javascript:alert(1)', updated_at: null,
+    }} />);
+    expect(unsafe).not.toContain('公式サイト');
+    expect(unsafe).not.toContain('javascript:');
   });
 
   it('derives a Google Maps search URL from the address when no custom URL exists', () => {

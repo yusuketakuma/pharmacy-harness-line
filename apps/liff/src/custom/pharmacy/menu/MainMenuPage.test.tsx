@@ -13,10 +13,9 @@ describe('pharmacy LIFF main menu', () => {
         ['処方せん事前送信', '/prescriptions?view=send&liffId=1234567890-AbCd'],
         ['受付状況', '/prescriptions?view=history&liffId=1234567890-AbCd'],
         ['患者情報・アンケート', '/pharmacy/patient-intake?liffId=1234567890-AbCd'],
-        ['お薬を受け取る', '/pharmacy/receive?liffId=1234567890-AbCd'],
         ['継続フォロー', '/pharmacy/continuity?liffId=1234567890-AbCd'],
         ['服薬後フォロー', '/pharmacy/medication-followup?liffId=1234567890-AbCd'],
-        ['来局前確認', '/pharmacy/emergency-contraception?liffId=1234567890-AbCd'],
+        ['緊急避妊薬', '/pharmacy/emergency-contraception?liffId=1234567890-AbCd'],
         ['薬局情報', '/pharmacy/info?liffId=1234567890-AbCd'],
       ]);
   });

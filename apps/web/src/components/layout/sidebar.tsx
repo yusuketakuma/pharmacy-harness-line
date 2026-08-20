@@ -24,7 +24,7 @@ const menuSections = [
     items: [
       { href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
       { href: '/pharmacy-info', label: '患者向け薬局情報', icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
-      { href: '/emergency-contraception', label: '緊急避妊 来局前確認', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
+      { href: '/emergency-contraception', label: '緊急避妊薬', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
       { href: '/pharmacy-notifications', label: '薬局の動き', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' }, // custom:pharmacy-activity-notifications
       { href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
       { href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity

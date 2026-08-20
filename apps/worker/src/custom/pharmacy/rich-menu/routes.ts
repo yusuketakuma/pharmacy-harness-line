@@ -100,7 +100,7 @@ async function attachInitialImage(
     ? 'initial-single-action-v1.jpg'
     : profileKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
       ? 'initial-compact-3x1.jpg'
-      : 'initial-large-3x2-v2.jpg';
+      : 'initial-large-3x2-v3.jpg';
   await savePharmacyRichMenuImage({
     db: c.env.DB,
     images: c.env.IMAGES,
