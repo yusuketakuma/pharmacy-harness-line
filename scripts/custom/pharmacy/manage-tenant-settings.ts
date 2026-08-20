@@ -11,7 +11,7 @@ type Writer = (line: string) => void;
 type CredentialReader = (service: string) => string | undefined;
 
 const VALUE_FLAGS = new Set([
-  'worker-url', 'tenant-id', 'method', 'path', 'input', 'content-type', 'rich-menu-default',
+  'worker-url', 'tenant-id', 'account-id', 'method', 'path', 'input', 'content-type', 'rich-menu-default',
 ]);
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const BLOCKED_PATH_PREFIXES = [
@@ -39,6 +39,7 @@ Mutation (dry-run by default):
 
 Set the published rich menu used by default:
   pnpm tenant:settings -- ... \\
+    --account-id LINE_ACCOUNT_ID \\
     --rich-menu-default GROUP_ID \\
     --apply
 
@@ -215,9 +216,11 @@ export async function runTenantSettings(
       if (parsed.values.method || parsed.values.path || parsed.values.input || parsed.values['content-type']) {
         throw new Error('--rich-menu-default cannot be combined with request options');
       }
+      const accountId = required(parsed.values, 'account-id');
+      if (!/^[A-Za-z0-9_-]{1,128}$/u.test(accountId)) throw new Error('--account-id is invalid');
       const url = endpoint(
         workerUrl,
-        `/api/rich-menu-groups/${encodeURIComponent(richMenuDefault)}/apply-to-tag`,
+        `/api/rich-menu-groups/${encodeURIComponent(richMenuDefault)}/apply-to-tag?accountId=${encodeURIComponent(accountId)}`,
       );
       if (!parsed.apply) {
         write(`Dry run: set rich menu ${richMenuDefault} as default for tenant ${tenantId}. Add --apply to send.`);
@@ -257,6 +260,8 @@ export async function runTenantSettings(
         return 0;
       });
     }
+
+    if (parsed.values['account-id']) throw new Error('--account-id requires --rich-menu-default');
 
     const method = (parsed.values.method ?? 'GET').toUpperCase();
     if (method !== 'GET' && !MUTATING_METHODS.has(method)) throw new Error('--method is invalid');
