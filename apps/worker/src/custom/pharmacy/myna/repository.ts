@@ -274,15 +274,9 @@ export async function createMynaHandoff(
   };
   try {
     await db.batch([
-      db.prepare(
-        `INSERT INTO pharmacy_myna_handoffs
-         (id, line_account_id, friend_id, patient_id, expectation_id, method, status,
-          source, correlation_id, expires_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?, ?, ?)`,
-      ).bind(
-        handoffId, input.lineAccountId, input.friendId, input.patientId ?? null,
-        expectationId, input.method, input.source, input.correlationId, input.expiresAt, now, now,
-      ),
+      // pharmacy_myna_handoffs_expectation_scope_insert (custom_022) requires the
+      // referenced expectation row to already exist at INSERT time, so this must
+      // run before the pharmacy_myna_handoffs insert below.
       db.prepare(
         `INSERT INTO pharmacy_prescription_expectations
          (id, line_account_id, friend_id, patient_id, handoff_id, method,
@@ -291,6 +285,15 @@ export async function createMynaHandoff(
       ).bind(
         expectationId, input.lineAccountId, input.friendId, input.patientId ?? null,
         handoffId, input.method, now, now,
+      ),
+      db.prepare(
+        `INSERT INTO pharmacy_myna_handoffs
+         (id, line_account_id, friend_id, patient_id, expectation_id, method, status,
+          source, correlation_id, expires_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?, ?, ?)`,
+      ).bind(
+        handoffId, input.lineAccountId, input.friendId, input.patientId ?? null,
+        expectationId, input.method, input.source, input.correlationId, input.expiresAt, now, now,
       ),
       db.prepare(
         `INSERT INTO pharmacy_myna_events

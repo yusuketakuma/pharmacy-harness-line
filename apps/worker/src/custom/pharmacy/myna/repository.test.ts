@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createMynaHandoff,
   getActivePatientMynaHandoff,
   listMynaHandoffs,
   markMynaLaunchRequested,
@@ -17,6 +18,7 @@ const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite
       all(...values: unknown[]): unknown[];
       run(...values: unknown[]): { changes: number };
     };
+    transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R;
     close(): void;
   };
 
@@ -222,6 +224,87 @@ describe('listMynaHandoffs', () => {
       // EXPIRED because the filtered read still runs the expiry sweep first.
       expect(filtered.map((item) => ({ id: item.id, status: item.status })))
         .toEqual([{ id: 'handoff-target', status: 'EXPIRED' }]);
+    } finally {
+      fake.close();
+    }
+  });
+});
+
+// Real trigger enforcement, not the hand-rolled fakeDb() above: routes.test.ts
+// mocks createMynaHandoff entirely, and no other test drives it against a real
+// D1Database, so this is the only place the pharmacy_myna_handoffs_expectation_
+// scope_insert trigger (custom_022_pharmacy_tenant_integrity.sql) is exercised.
+const CREATE_HANDOFF_SCHEMA = `
+  CREATE TABLE pharmacy_myna_handoffs (
+    id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, friend_id TEXT NOT NULL,
+    patient_id TEXT, expectation_id TEXT, method TEXT NOT NULL, status TEXT NOT NULL,
+    source TEXT NOT NULL, correlation_id TEXT NOT NULL, launched_at TEXT,
+    patient_reported_at TEXT, expires_at TEXT NOT NULL, closed_at TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE TABLE pharmacy_prescription_expectations (
+    id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, friend_id TEXT NOT NULL,
+    patient_id TEXT, handoff_id TEXT NOT NULL, method TEXT NOT NULL,
+    receipt_status TEXT NOT NULL, shadow_submission_id TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE TABLE pharmacy_myna_events (
+    id TEXT PRIMARY KEY, handoff_id TEXT NOT NULL, line_account_id TEXT NOT NULL,
+    event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT,
+    correlation_id TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}',
+    occurred_at TEXT NOT NULL
+  );
+  -- Verbatim from custom_022_pharmacy_tenant_integrity.sql: the referenced
+  -- expectation row must exist in the SAME batch statement order this trigger
+  -- checks, i.e. before the handoff insert, not after.
+  CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert
+    BEFORE INSERT ON pharmacy_myna_handoffs
+    WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM pharmacy_prescription_expectations AS expectation
+       WHERE expectation.id = NEW.expectation_id
+         AND expectation.line_account_id = NEW.line_account_id
+    )
+  BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
+`;
+
+function createHandoffDb() {
+  const sqlite = new Sqlite(':memory:');
+  sqlite.exec(CREATE_HANDOFF_SCHEMA);
+  const statement = (sql: string, values: unknown[] = []) => ({
+    bind: (...next: unknown[]) => statement(sql, next),
+    first: async () => sqlite.prepare(sql).get(...values) ?? null,
+    all: async () => ({ success: true, results: sqlite.prepare(sql).all(...values), meta: {} }),
+    run: () => ({
+      success: true,
+      results: [],
+      meta: { changes: sqlite.prepare(sql).run(...values).changes },
+    }),
+  });
+  return {
+    db: {
+      prepare: (sql: string) => statement(sql),
+      batch: async (statements: Array<{ run(): unknown }>) =>
+        sqlite.transaction(() => statements.map((s) => s.run()))(),
+    } as unknown as D1Database,
+    close: () => sqlite.close(),
+  };
+}
+
+describe('createMynaHandoff', () => {
+  it('creates the handoff and its expectation row together, real trigger enforced', async () => {
+    const fake = createHandoffDb();
+    try {
+      const result = await createMynaHandoff(fake.db, {
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        patientId: undefined,
+        method: 'PAPER',
+        source: 'LIFF',
+        correlationId: 'corr-create-1',
+        expiresAt: '2099-08-18T09:00:00.000Z',
+      });
+      expect(result.handoff.status).toBe('CREATED');
+      expect(result.expectation.id).toBe(result.handoff.expectation_id);
     } finally {
       fake.close();
     }
