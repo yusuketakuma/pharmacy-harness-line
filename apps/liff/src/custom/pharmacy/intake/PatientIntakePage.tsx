@@ -5,6 +5,7 @@ import {
   type PatientIntakeAnswers,
   type PatientRelationship,
   type PharmacyPatient,
+  type TenantPrivacyPolicy,
 } from './api.js';
 import {
   emptyPatientProfileDraft,
@@ -22,6 +23,27 @@ import { pharmacyRoute } from '../navigation.js';
 const relationshipLabels: Record<PatientRelationship, string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
 };
+
+const intakeDraftKey = (patientId: string) => `pharmacy_intake_draft:${patientId}`;
+
+function readIntakeDraft(patientId: string): {
+  answers: PatientIntakeAnswers
+  intakeStep: number
+} | null {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(intakeDraftKey(patientId)) ?? 'null') as {
+      answers?: unknown
+      intakeStep?: unknown
+    } | null;
+    return parsed && typeof parsed.answers === 'object' && parsed.answers !== null &&
+      Number.isInteger(parsed.intakeStep) && Number(parsed.intakeStep) >= 1 &&
+      Number(parsed.intakeStep) <= INTAKE_STEP_COUNT
+      ? { answers: parsed.answers as PatientIntakeAnswers, intakeStep: Number(parsed.intakeStep) }
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export function canSubmitIntake(
   answers: PatientIntakeAnswers,
@@ -41,10 +63,13 @@ export default function PatientIntakePage() {
   const [patients, setPatients] = useState<PharmacyPatient[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [latestRevision, setLatestRevision] = useState<number | null>(null);
+  const [latestAnswers, setLatestAnswers] = useState<PatientIntakeAnswers | null>(null);
   const [answers, setAnswers] = useState<PatientIntakeAnswers>(INITIAL_INTAKE_ANSWERS);
   const [intakeStep, setIntakeStep] = useState(1);
+  const [draftPatientId, setDraftPatientId] = useState('');
   const [representativeConsent, setRepresentativeConsent] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
+  const [privacyPolicy, setPrivacyPolicy] = useState<TenantPrivacyPolicy | null>(null);
   const [patientDraft, setPatientDraft] = useState<PatientProfileDraft>(
     () => emptyPatientProfileDraft('self'),
   );
@@ -83,29 +108,61 @@ export default function PatientIntakePage() {
 
   useEffect(() => { void loadPatients(); }, [loadPatients]);
 
+  // 薬局が掲示する利用目的。未設定でも同意欄は中立文言で表示し、送信は妨げない。
+  useEffect(() => {
+    let active = true;
+    patientIntakeApi.privacyPolicy()
+      .then((result) => { if (active) setPrivacyPolicy(result.policy); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   useEffect(() => {
     if (!selectedId) return;
+    let active = true;
+    setDraftPatientId('');
     setIntakeStep(1);
     setLatestRevision(null);
+    setLatestAnswers(null);
     void patientIntakeApi.latest(selectedId).then((result) => {
+      if (!active) return;
       const intake = result.intake;
+      const draft = readIntakeDraft(selectedId);
       if (!intake) {
-        setAnswers(INITIAL_INTAKE_ANSWERS);
+        setAnswers(draft?.answers ?? INITIAL_INTAKE_ANSWERS);
+        setIntakeStep(draft?.intakeStep ?? 1);
         return;
       }
       setLatestRevision(intake.revision);
       try {
-        setAnswers({
+        const savedAnswers = {
           ...INITIAL_INTAKE_ANSWERS,
           ...(JSON.parse(intake.answers_json) as PatientIntakeAnswers),
-        });
+        };
+        setLatestAnswers(savedAnswers);
+        setAnswers(draft?.answers ?? savedAnswers);
+        setIntakeStep(draft?.intakeStep ?? 1);
       } catch {
         setError('回答を読み込めませんでした。');
       }
     }).catch((err: unknown) => {
+      if (!active) return;
+      const draft = readIntakeDraft(selectedId);
+      if (draft) {
+        setAnswers(draft.answers);
+        setIntakeStep(draft.intakeStep);
+      }
       setError(err instanceof Error ? err.message : '回答を読み込めませんでした。');
+    }).finally(() => {
+      if (active) setDraftPatientId(selectedId);
     });
+    return () => { active = false; };
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || draftPatientId !== selectedId) return;
+    sessionStorage.setItem(intakeDraftKey(selectedId), JSON.stringify({ answers, intakeStep }));
+  }, [answers, draftPatientId, intakeStep, selectedId]);
 
   async function createPatient() {
     const {
@@ -172,19 +229,26 @@ export default function PatientIntakePage() {
     }
   }
 
-  async function submit() {
-    if (!selectedId || !canSubmitIntake(answers, representativeConsent, privacyConsent, busy)) return;
+  async function saveIntake(
+    nextAnswers: PatientIntakeAnswers,
+    nextRepresentativeConsent: boolean,
+    nextPrivacyConsent: boolean,
+  ) {
+    if (!selectedId || busy) return;
     setBusy(true);
     setError(null);
     setSuccess(null);
     try {
       const result = await patientIntakeApi.submit(selectedId, {
         idempotencyKey: crypto.randomUUID(),
-        answers,
-        representativeConsent,
-        privacyConsent,
+        answers: nextAnswers,
+        representativeConsent: nextRepresentativeConsent,
+        privacyConsent: nextPrivacyConsent,
       });
       setLatestRevision(result.intake.revision);
+      setLatestAnswers(nextAnswers);
+      setAnswers(nextAnswers);
+      sessionStorage.removeItem(intakeDraftKey(selectedId));
       setSuccess('アンケートを保存しました。処方せん事前送信へ進めます。');
       setRepresentativeConsent(false);
       setPrivacyConsent(false);
@@ -193,6 +257,18 @@ export default function PatientIntakePage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submit() {
+    if (!canSubmitIntake(answers, representativeConsent, privacyConsent, busy)) return;
+    await saveIntake(answers, representativeConsent, privacyConsent);
+  }
+
+  async function confirmUnchanged() {
+    if (!latestAnswers || busy || !window.confirm(
+      '前回の回答から変更がないことを確認します。本人または代理人として回答内容を薬局へ伝え、個人情報の利用目的を確認したうえで調剤・連絡に利用することに同意しますか？',
+    )) return;
+    await saveIntake(latestAnswers, true, true);
   }
 
   function updatePatientDraft<K extends keyof PatientProfileDraft>(
@@ -255,6 +331,16 @@ export default function PatientIntakePage() {
         </section>
 
         {!showNewPatient && selectedPatient && <>
+          {latestAnswers && (
+            <button
+              type="button"
+              onClick={() => void confirmUnchanged()}
+              disabled={busy}
+              className="w-full rounded-xl border border-green-600 bg-white px-4 py-3 font-bold text-green-700 disabled:opacity-50"
+            >
+              {busy ? '更新中…' : '前回から変更なしで更新'}
+            </button>
+          )}
           <PatientQuestionnaire
             answers={answers}
             step={intakeStep}
@@ -262,6 +348,7 @@ export default function PatientIntakePage() {
             showPregnancyQuestions={showPregnancyQuestions}
             representativeConsent={representativeConsent}
             privacyConsent={privacyConsent}
+            privacyPolicy={privacyPolicy}
             onAnswersChange={setAnswers}
             onRepresentativeConsentChange={setRepresentativeConsent}
             onPrivacyConsentChange={setPrivacyConsent}

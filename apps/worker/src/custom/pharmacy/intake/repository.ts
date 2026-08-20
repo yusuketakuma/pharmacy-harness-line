@@ -402,7 +402,8 @@ export async function createPatientIntakeResponse(
     `INSERT INTO pharmacy_patient_intake_responses
        (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
         patient_snapshot_json, answers_json, base_response_id,
-        idempotency_key, representative_consent_at, privacy_consent_at, created_at)
+        idempotency_key, representative_consent_at, privacy_consent_at, created_at,
+        privacy_policy_version, privacy_policy_hash)
      SELECT ?, ?, ?, p.id,
             COALESCE((SELECT MAX(revision) FROM pharmacy_patient_intake_responses
                        WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = p.id), 0) + 1,
@@ -410,7 +411,13 @@ export async function createPatientIntakeResponse(
             (SELECT id FROM pharmacy_patient_intake_responses
               WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = p.id
               ORDER BY revision DESC, id DESC LIMIT 1),
-            ?, ?, ?, ?
+            ?, ?, ?, ?,
+            -- Consent proof: which published notice the patient agreed to just now.
+            -- NULL when the tenant has not published one; intake is never blocked on it.
+            (SELECT policy_version FROM pharmacy_tenant_privacy_policy
+              WHERE line_account_id = p.line_account_id),
+            (SELECT content_hash FROM pharmacy_tenant_privacy_policy
+              WHERE line_account_id = p.line_account_id)
        FROM pharmacy_patients p
       WHERE p.id = ? AND p.line_account_id = ? AND p.owner_friend_id = ?
         AND p.archived_at IS NULL

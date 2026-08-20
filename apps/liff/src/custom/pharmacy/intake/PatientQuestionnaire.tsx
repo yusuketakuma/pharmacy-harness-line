@@ -1,5 +1,9 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { MedicalHistoryTag, PatientIntakeAnswers } from './api.js';
+import type {
+  MedicalHistoryTag,
+  PatientIntakeAnswers,
+  TenantPrivacyPolicy,
+} from './api.js';
 
 const medicalHistoryTagOptions: ReadonlyArray<{ value: MedicalHistoryTag; label: string }> = [
   { value: 'hypertension', label: '高血圧' },
@@ -116,6 +120,7 @@ export function PatientQuestionnaire({
   showPregnancyQuestions,
   representativeConsent,
   privacyConsent,
+  privacyPolicy = null,
   onAnswersChange,
   onRepresentativeConsentChange,
   onPrivacyConsentChange,
@@ -126,6 +131,7 @@ export function PatientQuestionnaire({
   showPregnancyQuestions: boolean;
   representativeConsent: boolean;
   privacyConsent: boolean;
+  privacyPolicy?: TenantPrivacyPolicy | null;
   onAnswersChange: Dispatch<SetStateAction<PatientIntakeAnswers>>;
   onRepresentativeConsentChange: (value: boolean) => void;
   onPrivacyConsentChange: (value: boolean) => void;
@@ -189,6 +195,16 @@ export function PatientQuestionnaire({
           <p>生活確認：喫煙・飲酒・飲み忘れを回答済み</p>
         </div>
         <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={representativeConsent} onChange={(event) => onRepresentativeConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>本人または代理人として、回答内容を薬局へ伝えることに同意します。</span></label>
+        {/* 個人情報取扱事業者は薬局。掲示が未設定でも送信は妨げない。 */}
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs leading-5 text-gray-700 space-y-1">
+          <p className="font-bold text-gray-800">この薬局による個人情報の取扱いについて</p>
+          {privacyPolicy ? <>
+            <p>利用目的：{privacyPolicy.purpose_text}</p>
+            {privacyPolicy.entrustment_text && <p>委託について：{privacyPolicy.entrustment_text}</p>}
+            <p>問い合わせ窓口：{privacyPolicy.contact_point}</p>
+            {privacyPolicy.purpose_url && <p><a href={privacyPolicy.purpose_url} target="_blank" rel="noreferrer" className="font-bold text-green-700 underline">利用目的の詳細を見る</a></p>}
+          </> : <p>利用目的の詳細は、この薬局にお問い合わせください。</p>}
+        </div>
         <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={privacyConsent} onChange={(event) => onPrivacyConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>個人情報の利用目的を確認し、薬局での調剤・連絡に同意します。</span></label>
       </div>}
     </section>
