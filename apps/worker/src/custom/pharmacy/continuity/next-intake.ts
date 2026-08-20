@@ -124,7 +124,7 @@ async function transitionExpectation(
   input: {
     lineAccountId: string;
     expectationId: string;
-    fromStatus: 'offered' | 'accepted' | 'active';
+    fromStatus: 'offered' | 'accepted' | 'active' | 'reminded';
     toStatus: 'accepted' | 'active' | 'reminded' | 'ended';
     actorType: 'patient' | 'staff' | 'system';
     actorId: string;
@@ -344,7 +344,8 @@ export async function endNextIntakeExpectation(
   const current = await getExpectation(db, input.lineAccountId, input.expectationId);
   if (!current) throw new Error('expectation unavailable');
   if (current.status === 'ended') return current;
-  if (current.status !== 'offered' && current.status !== 'accepted' && current.status !== 'active') {
+  if (current.status !== 'offered' && current.status !== 'accepted' &&
+      current.status !== 'active' && current.status !== 'reminded') {
     throw new Error('expectation transition conflict');
   }
   const result = await transitionExpectation(db, {

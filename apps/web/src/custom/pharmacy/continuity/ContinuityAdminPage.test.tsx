@@ -45,4 +45,11 @@ describe('next intake admin controls', () => {
     expect(page).toContain('continuityAdminApi.endExpectation')
     expect(page).toContain('お知らせを取り消す')
   })
+
+  it('also offers the cancel button once the automated reminder has already been sent', () => {
+    const page = readFileSync(new URL('./ContinuityAdminPage.tsx', import.meta.url), 'utf8')
+
+    const buttonLine = page.split('\n').find((line) => line.includes('お知らせを取り消す'))
+    expect(buttonLine).toContain("expectation.status === 'reminded'")
+  })
 })

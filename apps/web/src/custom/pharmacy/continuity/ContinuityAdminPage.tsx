@@ -197,7 +197,7 @@ export default function ContinuityAdminPage() {
         const expectation = expectationByObligation.get(item.id)
         return <tr key={item.id}><td className="px-4 py-3 font-medium">{continuityPatientLabel(item)}</td><td className="px-4 py-3 font-medium">{STATUS_LABELS[item.status]}</td><td className="min-w-80 px-4 py-3">{expectation
           ? <div className="space-y-2"><ExpectationSummary expectation={expectation} />
-            {(expectation.status === 'offered' || expectation.status === 'accepted' || expectation.status === 'active') && <button type="button" disabled={endingId === expectation.id} onClick={() => void endExpectation(item.id, expectation)} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50">{endingId === expectation.id ? '取り消し中…' : 'お知らせを取り消す'}</button>}
+            {(expectation.status === 'offered' || expectation.status === 'accepted' || expectation.status === 'active' || expectation.status === 'reminded') && <button type="button" disabled={endingId === expectation.id} onClick={() => void endExpectation(item.id, expectation)} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50">{endingId === expectation.id ? '取り消し中…' : 'お知らせを取り消す'}</button>}
           </div>
           : item.status === 'active'
             ? <NextIntakeOfferForm obligationId={item.id} busy={loading} onOffer={offer} />
