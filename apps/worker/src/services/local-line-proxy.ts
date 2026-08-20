@@ -1,3 +1,4 @@
+import type { ExecutionContext } from 'hono';
 import { lineProxy } from '../routes/line-proxy.js';
 import type { Env } from '../index.js';
 
@@ -7,5 +8,5 @@ export function dispatchLineProxyLocally(
   env: Env['Bindings'],
   executionCtx?: ExecutionContext,
 ): Promise<Response> {
-  return Promise.resolve(lineProxy.fetch(request, env, executionCtx as ExecutionContext));
+  return Promise.resolve(lineProxy.fetch(request, env, executionCtx));
 }
