@@ -2,6 +2,7 @@ export interface PharmacyPublicProfile {
   line_account_id: string;
   display_name: string;
   phone: string;
+  fax_number: string;
   postal_code: string;
   address: string;
   business_hours: string;
@@ -24,6 +25,7 @@ export interface PharmacyPublicProfileInput {
   staffId: string;
   displayName: string;
   phone: string;
+  faxNumber: string;
   postalCode: string;
   address: string;
   businessHours: string;
@@ -41,7 +43,7 @@ export interface PharmacyPublicProfileInput {
 }
 
 const LIMITS = {
-  displayName: 120, phone: 40, postalCode: 16, address: 500,
+  displayName: 120, phone: 40, faxNumber: 40, postalCode: 16, address: 500,
   businessHours: 2000, closureNotice: 1000, accessNote: 1000,
   parkingNote: 1000, googleMapsUrl: 2000,
   prescriptionReceptionHours: 2000, afterHoursNote: 1000, servicesNote: 2000,
@@ -73,10 +75,15 @@ function validWebsiteUrl(value: string): boolean {
   }
 }
 
+function validContactNumber(value: string): boolean {
+  return value === '' || /^[0-9+-]+$/.test(value);
+}
+
 function normalized(input: PharmacyPublicProfileInput) {
   return {
     displayName: input.displayName.trim(),
     phone: input.phone.trim(),
+    faxNumber: input.faxNumber.trim(),
     postalCode: input.postalCode.trim(),
     address: input.address.trim(),
     businessHours: input.businessHours.trim(),
@@ -102,6 +109,7 @@ export async function getPharmacyPublicProfile(
     `SELECT account.id AS line_account_id,
             COALESCE(profile.display_name, account.name) AS display_name,
             COALESCE(profile.phone, '') AS phone,
+            COALESCE(profile.fax_number, '') AS fax_number,
             COALESCE(profile.postal_code, '') AS postal_code,
             COALESCE(profile.address, '') AS address,
             COALESCE(profile.business_hours, '') AS business_hours,
@@ -130,22 +138,23 @@ export async function savePharmacyPublicProfile(
   const value = normalized(input);
   if (!value.displayName || !value.address || !value.businessHours ||
       Object.entries(value).some(([key, text]) => text.length > LIMITS[key as keyof typeof LIMITS]) ||
-      (value.phone !== '' && !/^[0-9+-]+$/.test(value.phone)) ||
+      !validContactNumber(value.phone) || !validContactNumber(value.faxNumber) ||
       !validGoogleMapsUrl(value.googleMapsUrl) || !validWebsiteUrl(value.websiteUrl)) {
     throw new Error('invalid pharmacy public profile');
   }
   const now = new Date().toISOString();
   await db.prepare(
     `INSERT INTO pharmacy_public_profiles
-       (line_account_id, display_name, phone, postal_code, address, business_hours,
+       (line_account_id, display_name, phone, fax_number, postal_code, address, business_hours,
         closure_notice, access_note, parking_note, google_maps_url,
         prescription_reception_hours, after_hours_note, services_note,
         accessibility_note, supported_languages, payment_methods, website_url,
         updated_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (line_account_id) DO UPDATE SET
        display_name = excluded.display_name,
        phone = excluded.phone,
+       fax_number = excluded.fax_number,
        postal_code = excluded.postal_code,
        address = excluded.address,
        business_hours = excluded.business_hours,
@@ -163,7 +172,7 @@ export async function savePharmacyPublicProfile(
        updated_by = excluded.updated_by,
        updated_at = excluded.updated_at`,
   ).bind(
-    input.lineAccountId, value.displayName, value.phone, value.postalCode,
+    input.lineAccountId, value.displayName, value.phone, value.faxNumber, value.postalCode,
     value.address, value.businessHours, value.closureNotice, value.accessNote,
     value.parkingNote, value.googleMapsUrl, value.prescriptionReceptionHours,
     value.afterHoursNote, value.servicesNote, value.accessibilityNote,

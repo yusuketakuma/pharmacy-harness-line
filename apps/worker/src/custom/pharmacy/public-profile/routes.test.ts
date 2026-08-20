@@ -13,7 +13,7 @@ import { pharmacyPublicProfileRoutes } from './routes.js';
 
 const env = { DB: {} as D1Database };
 const profile = {
-  line_account_id: 'account-a', display_name: 'みどり薬局', phone: '', postal_code: '',
+  line_account_id: 'account-a', display_name: 'みどり薬局', phone: '', fax_number: '03-1234-5679', postal_code: '',
   address: '東京都千代田区', business_hours: '月〜金 9:00〜18:00', closure_notice: '',
   access_note: '', parking_note: '', google_maps_url: '', prescription_reception_hours: '17:30まで',
   after_hours_note: '', services_note: 'オンライン服薬指導', accessibility_note: '',
@@ -44,11 +44,11 @@ describe('pharmacy public profile routes', () => {
   it('ignores request account fields and saves under middleware scope', async () => {
     const res = await app().request('/api/custom/pharmacy/public-profile', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName: 'みどり薬局', lineAccountId: 'account-b' }),
+      body: JSON.stringify({ displayName: 'みどり薬局', faxNumber: '03-1234-5679', lineAccountId: 'account-b' }),
     }, env);
     expect(res.status).toBe(204);
     expect(mocks.save).toHaveBeenCalledWith(env.DB, expect.objectContaining({
-      lineAccountId: 'account-a', staffId: 'staff-a', displayName: 'みどり薬局',
+      lineAccountId: 'account-a', staffId: 'staff-a', displayName: 'みどり薬局', faxNumber: '03-1234-5679',
     }));
   });
 
@@ -65,7 +65,7 @@ describe('pharmacy public profile routes', () => {
     expect(res.status).toBe(200);
     expect(mocks.get).toHaveBeenCalledWith(env.DB, 'account-a');
     await expect(res.json()).resolves.toEqual({ profile: {
-      display_name: 'みどり薬局', phone: '', postal_code: '', address: '東京都千代田区',
+      display_name: 'みどり薬局', phone: '', fax_number: '03-1234-5679', postal_code: '', address: '東京都千代田区',
       business_hours: '月〜金 9:00〜18:00', closure_notice: '', access_note: '', parking_note: '',
       google_maps_url: '', prescription_reception_hours: '17:30まで', after_hours_note: '',
       services_note: 'オンライン服薬指導', accessibility_note: '', supported_languages: '日本語・英語',

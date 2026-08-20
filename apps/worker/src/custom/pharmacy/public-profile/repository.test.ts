@@ -17,6 +17,7 @@ const input = {
   staffId: 'staff-a',
   displayName: 'みどり薬局',
   phone: '03-1234-5678',
+  faxNumber: '03-1234-5679',
   postalCode: '100-0001',
   address: '東京都千代田区千代田1-1',
   businessHours: '月〜金 9:00〜18:00\n土 9:00〜13:00',
@@ -45,7 +46,7 @@ describe('pharmacy public profile repository', () => {
   it('writes normalized public fields under the authorized account and staff', async () => {
     await savePharmacyPublicProfile(db, input);
     expect(run).toHaveBeenCalledWith(expect.stringContaining('pharmacy_public_profiles'), expect.arrayContaining([
-      'account-a', 'みどり薬局', '03-1234-5678', 'staff-a',
+      'account-a', 'みどり薬局', '03-1234-5678', '03-1234-5679', 'staff-a',
     ]));
   });
 
@@ -64,6 +65,8 @@ describe('pharmacy public profile repository', () => {
     await expect(savePharmacyPublicProfile(db, { ...input, phone: '03-1234<script>' }))
       .rejects.toThrow('invalid pharmacy public profile');
     await expect(savePharmacyPublicProfile(db, { ...input, phone: '(03)1234-5678' }))
+      .rejects.toThrow('invalid pharmacy public profile');
+    await expect(savePharmacyPublicProfile(db, { ...input, faxNumber: '03-1234<script>' }))
       .rejects.toThrow('invalid pharmacy public profile');
     expect(run).not.toHaveBeenCalled();
   });
