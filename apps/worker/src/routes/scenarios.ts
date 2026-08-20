@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import {
   getScenariosForAccount,
+  getScenariosForTenant,
   getScenarioById,
   createScenario,
   updateScenario,
@@ -177,9 +178,12 @@ function serializeFriendScenario(row: DbFriendScenario) {
 scenarios.get('/api/scenarios', async (c) => {
   try {
     const lineAccountId = c.req.query('lineAccountId');
-    const items: DbScenarioWithStepCount[] = await getScenariosForAccount(
-      c.env.DB, lineAccountId ?? null,
-    );
+    // No account filter is the console's "show everything I own", not the
+    // delivery path's "what fires for this inbound account" — the latter fails
+    // closed on a null account and would blank the list.
+    const items: DbScenarioWithStepCount[] = lineAccountId
+      ? await getScenariosForAccount(c.env.DB, lineAccountId)
+      : await getScenariosForTenant(c.env.DB, c.get('tenantId') ?? null);
     return c.json({
       success: true,
       data: items.map((row) => ({

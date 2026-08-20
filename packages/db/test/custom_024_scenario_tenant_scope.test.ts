@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getScenarios, getScenariosForAccount } from '../src/scenarios.js';
+import { getScenarios, getScenariosForAccount, getScenariosForTenant } from '../src/scenarios.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -92,6 +92,34 @@ describe('custom_024 scenario tenant scope (M-1)', () => {
 
     expect(await getScenariosForAccount(db, null)).toEqual([]);
     expect(await getScenariosForAccount(db, 'account-missing')).toEqual([]);
+  });
+
+  // The admin console lists scenarios with no account filter. That is a
+  // different question from "which scenarios fire for this inbound account":
+  // no filter means "everything this tenant owns", not "no match".
+  it('lists the tenant own scenarios, account-bound and account-unassigned alike', async () => {
+    insertScenario(sqlite, 'scn-a-global', 'tenant-a', null);
+    insertScenario(sqlite, 'scn-a-account', 'tenant-a', 'account-a');
+    insertScenario(sqlite, 'scn-b-global', 'tenant-b', null);
+    insertScenario(sqlite, 'scn-b-account', 'tenant-b', 'account-b');
+    db = d1From(sqlite);
+
+    const forA = await getScenariosForTenant(db, 'tenant-a');
+
+    expect(forA.map((row) => row.id).sort()).toEqual(['scn-a-account', 'scn-a-global']);
+    expect(forA.map((row) => row.id)).not.toContain('scn-b-global');
+    expect(forA.map((row) => row.id)).not.toContain('scn-b-account');
+  });
+
+  it('keeps unattributed legacy scenarios invisible to an attributed tenant', async () => {
+    insertScenario(sqlite, 'scn-orphan', null, null);
+    insertScenario(sqlite, 'scn-a-global', 'tenant-a', null);
+    db = d1From(sqlite);
+
+    // `tenant_id IS ?` (the tags/webhooks convention) keeps NULL-tenant rows
+    // mutually invisible instead of leaking them into every tenant list.
+    expect((await getScenariosForTenant(db, 'tenant-a')).map((r) => r.id)).toEqual(['scn-a-global']);
+    expect((await getScenariosForTenant(db, null)).map((r) => r.id)).toEqual(['scn-orphan']);
   });
 
   it('backfills account-bound scenarios and single-tenant legacy scenarios', () => {

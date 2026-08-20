@@ -103,6 +103,33 @@ export async function getScenariosForAccount(
   return result.results;
 }
 
+/**
+ * Every scenario a tenant owns — the admin-console listing.
+ *
+ * Distinct from {@link getScenariosForAccount}, which answers the delivery-path
+ * question "what fires for this inbound account" and fails closed on no account.
+ * "No account filter" in the console means "everything I own", so this scopes by
+ * tenant instead. `IS ?` follows the tags/webhooks convention so NULL-tenant
+ * legacy rows stay mutually invisible rather than leaking into every list.
+ */
+export async function getScenariosForTenant(
+  db: D1Database,
+  tenantId: string | null = null,
+): Promise<ScenarioWithStepCount[]> {
+  const result = await db
+    .prepare(
+      `SELECT s.*, COUNT(ss.id) as step_count
+       FROM scenarios s
+       LEFT JOIN scenario_steps ss ON s.id = ss.scenario_id
+       WHERE s.tenant_id IS ?
+       GROUP BY s.id
+       ORDER BY s.created_at DESC`,
+    )
+    .bind(tenantId)
+    .all<ScenarioWithStepCount>();
+  return result.results;
+}
+
 export async function getScenarioById(
   db: D1Database,
   id: string,

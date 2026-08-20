@@ -2,7 +2,9 @@ import { describe, expect, test, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 
 const dbMocks = {
+  getScenarios: vi.fn(),
   getScenariosForAccount: vi.fn(),
+  getScenariosForTenant: vi.fn(),
   getScenarioById: vi.fn(),
   createScenario: vi.fn(),
   updateScenario: vi.fn(),
@@ -65,10 +67,11 @@ function makeScenarioDb(rows: ScenarioRow[]) {
   return { db, calls };
 }
 
-function setupApp(db: D1Database) {
-  const app = new Hono<{ Bindings: { DB: D1Database } }>();
+function setupApp(db: D1Database, tenantId: string | null = null) {
+  const app = new Hono<{ Bindings: { DB: D1Database }; Variables: { tenantId: string | null } }>();
   app.use('*', async (c, next) => {
     c.env = { DB: db };
+    if (tenantId !== null) c.set('tenantId', tenantId);
     await next();
   });
   app.route('/', scenariosModule);
@@ -116,15 +119,36 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
     expect(dbMocks.getScenariosForAccount).toHaveBeenCalledWith(db, 'acc-1');
   });
 
-  test('returns no scenarios when no lineAccountId is provided', async () => {
-    dbMocks.getScenariosForAccount.mockResolvedValue([]);
+  test('falls back to the caller own tenant when no lineAccountId is provided', async () => {
+    // No account filter is an admin-console "show me everything I own" query,
+    // not the delivery path's "which scenarios fire for this inbound account".
+    // Routing it through getScenariosForAccount(db, null) returned [] and blanked
+    // out the dashboard, emergency stop-all panel, inflow-links, affiliates and
+    // friend-add-settings pages.
+    const rows: ScenarioRow[] = [
+      { id: 's-mine-global', name: 'mine', line_account_id: null, ...rowBase },
+      { id: 's-mine-acc', name: 'mine-acc', line_account_id: 'acc-1', ...rowBase },
+    ];
+    dbMocks.getScenariosForTenant.mockResolvedValue(rows);
+    const { db } = makeScenarioDb(rows);
+
+    const res = await setupApp(db, 'tenant-a').request('/api/scenarios');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean; data: { id: string }[] };
+    expect(body.data.map((d) => d.id).sort()).toEqual(['s-mine-acc', 's-mine-global']);
+    expect(dbMocks.getScenariosForTenant).toHaveBeenCalledWith(db, 'tenant-a');
+    // The account-scoped helper must not be reached — it fails closed by design.
+    expect(dbMocks.getScenariosForAccount).not.toHaveBeenCalled();
+  });
+
+  test('passes a null tenant through rather than widening to every tenant', async () => {
+    dbMocks.getScenariosForTenant.mockResolvedValue([]);
     const { db } = makeScenarioDb([]);
 
     const res = await setupApp(db).request('/api/scenarios');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { success: boolean; data: { id: string }[] };
-    expect(body.data).toEqual([]);
-    expect(dbMocks.getScenariosForAccount).toHaveBeenCalledWith(db, null);
+    expect(dbMocks.getScenariosForTenant).toHaveBeenCalledWith(db, null);
+    expect(dbMocks.getScenarios).not.toHaveBeenCalled();
   });
 
   test('returns empty array when filter matches nothing and no globals exist', async () => {
