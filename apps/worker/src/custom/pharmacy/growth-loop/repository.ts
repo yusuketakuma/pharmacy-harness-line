@@ -1,4 +1,6 @@
 import {
+  MANAGEMENT_PHARMACY_CAPABILITIES,
+  PATIENT_PHARMACY_CAPABILITIES,
   PHARMACY_CAPABILITIES,
   parsePharmacyCapabilities,
   type PharmacyCapability,
@@ -92,16 +94,21 @@ export async function getPharmacyCapabilityConfig(
   lineAccountId: string,
 ): Promise<PharmacyCapabilityConfig | null> {
   const row = await db.prepare(
-    `SELECT line_account_id, mode, capabilities_json, proactive_monthly_limit,
-            unfollow_alert_state, created_at, updated_at
-       FROM pharmacy_account_capabilities
-      WHERE line_account_id = ?`,
+    `SELECT capability.line_account_id, capability.mode, capability.capabilities_json,
+            capability.proactive_monthly_limit, capability.unfollow_alert_state,
+            COALESCE(revision.revision, 1) AS revision,
+            capability.created_at, capability.updated_at
+       FROM pharmacy_account_capabilities AS capability
+       LEFT JOIN pharmacy_account_capability_revisions AS revision
+              ON revision.line_account_id = capability.line_account_id
+      WHERE capability.line_account_id = ?`,
   ).bind(lineAccountId).first<{
     line_account_id: string;
     mode: 'pharmacy';
     capabilities_json: string;
     proactive_monthly_limit: number;
     unfollow_alert_state: 'alert_only' | 'auto_pause';
+    revision: number;
     created_at: string;
     updated_at: string;
   }>();
@@ -112,6 +119,7 @@ export async function getPharmacyCapabilityConfig(
     capabilities: parsePharmacyCapabilities(row.capabilities_json),
     proactive_monthly_limit: row.proactive_monthly_limit,
     unfollow_alert_state: row.unfollow_alert_state,
+    revision: Number(row.revision),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -124,27 +132,42 @@ export async function savePharmacyCapabilityConfig(
   proactiveMonthlyLimit: number,
   unfollowAlertState: 'alert_only' | 'auto_pause',
   actorId: string,
+  expectedRevision?: number,
 ): Promise<PharmacyCapabilityConfig> {
-  const allowed = capabilities.filter((value): value is PharmacyCapability =>
-    (PHARMACY_CAPABILITIES as readonly string[]).includes(value),
-  );
-  const unique = [...new Set(allowed)];
-  if (!unique.length) throw new Error('at least one pharmacy capability is required');
+  if (capabilities.some((value) =>
+    !(PATIENT_PHARMACY_CAPABILITIES as readonly string[]).includes(value))) {
+    throw new Error('unknown pharmacy capability');
+  }
+  const patientCapabilities = [...new Set(capabilities)] as PharmacyCapability[];
   if (!Number.isInteger(proactiveMonthlyLimit) || proactiveMonthlyLimit < 0 || proactiveMonthlyLimit > 100) {
     throw new Error('invalid proactive monthly limit');
   }
+  const current = await getPharmacyCapabilityConfig(db, lineAccountId);
+  if (!current) throw new Error('pharmacy capability config not found');
+  if (expectedRevision !== undefined && current.revision !== expectedRevision) {
+    throw new Error('stale pharmacy capability revision');
+  }
+  const managementCapabilities = current.capabilities.filter((capability) =>
+    (MANAGEMENT_PHARMACY_CAPABILITIES as readonly string[]).includes(capability),
+  );
+  const unique = PHARMACY_CAPABILITIES.filter((capability) =>
+    patientCapabilities.includes(capability) || managementCapabilities.includes(capability),
+  );
   const timestamp = now();
   const mutation = db.prepare(
-    `INSERT INTO pharmacy_account_capabilities
-      (line_account_id, mode, capabilities_json, proactive_monthly_limit,
-       unfollow_alert_state, created_at, updated_at)
-     VALUES (?, 'pharmacy', ?, ?, ?, ?, ?)
-     ON CONFLICT(line_account_id) DO UPDATE SET
-       capabilities_json = excluded.capabilities_json,
-       proactive_monthly_limit = excluded.proactive_monthly_limit,
-       unfollow_alert_state = excluded.unfollow_alert_state,
-       updated_at = excluded.updated_at`,
-  ).bind(lineAccountId, JSON.stringify(unique), proactiveMonthlyLimit, unfollowAlertState, timestamp, timestamp);
+    `UPDATE pharmacy_account_capabilities
+        SET capabilities_json = ?, proactive_monthly_limit = ?,
+            unfollow_alert_state = ?, updated_at = ?
+      WHERE line_account_id = ? AND mode = 'pharmacy'
+        AND (? IS NULL OR EXISTS (
+          SELECT 1 FROM pharmacy_account_capability_revisions AS revision
+           WHERE revision.line_account_id = pharmacy_account_capabilities.line_account_id
+             AND revision.revision = ?
+        ))`,
+  ).bind(
+    JSON.stringify(unique), proactiveMonthlyLimit, unfollowAlertState, timestamp,
+    lineAccountId, expectedRevision ?? null, expectedRevision ?? null,
+  );
   const changed = await runAuditedMutation(db, mutation, {
     lineAccountId,
     eventType: 'capability_config_updated',
@@ -307,7 +330,13 @@ export async function savePrescriptionValidity(
     `INSERT INTO pharmacy_prescription_validities
       (submission_id, line_account_id, issued_on, valid_until, validity_basis,
        verification_status, verified_by, verified_at, reminder_due_at, created_at, updated_at)
-     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+       CASE WHEN ? IS NOT NULL AND EXISTS (
+         SELECT 1 FROM pharmacy_account_capabilities AS capability
+          WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+            AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                         WHERE value = 'prescription_intake')
+       ) THEN ? ELSE NULL END, ?, ?
       WHERE EXISTS (SELECT 1 FROM pharmacy_prescription_submissions WHERE id = ? AND line_account_id = ?)
      ON CONFLICT(submission_id) DO UPDATE SET
        issued_on = excluded.issued_on, valid_until = excluded.valid_until,
@@ -329,7 +358,8 @@ export async function savePrescriptionValidity(
        updated_at = excluded.updated_at`,
   ).bind(
     input.submissionId, input.lineAccountId, input.issuedOn, validUntil, input.validityBasis,
-    input.verificationStatus, input.staffId, verifiedAt, reminderDueAt,
+    input.verificationStatus, input.staffId, verifiedAt,
+    reminderDueAt, input.lineAccountId, reminderDueAt,
     timestamp, timestamp, input.submissionId, input.lineAccountId,
   );
   const changed = await runAuditedMutation(db, mutation, {

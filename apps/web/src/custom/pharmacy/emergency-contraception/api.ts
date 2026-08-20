@@ -74,21 +74,24 @@ export interface EmergencyAdminConfig {
   slots: EmergencySlot[]
 }
 
-export interface AdminEmergencyIntake {
+export interface EmergencyIntakeSummary {
   id: string
   reference_code: string
   slot_id: string
   status: EmergencyIntakeStatus
+  expires_at: string
+  version: number
+  slot_starts_at: string
+  slot_ends_at: string
+}
+
+export interface AdminEmergencyIntake extends EmergencyIntakeSummary {
   age_band: 'under_16' | '16_17' | 'adult'
   safe_contact_mode: 'neutral_line' | 'no_notification' | 'phone' | 'none'
   consent_version: string
   risk_flags: EmergencyRiskFlag[]
-  expires_at: string
-  version: number
   created_at: string
   updated_at: string
-  slot_starts_at: string
-  slot_ends_at: string
   self_reported: {
     intercourseAt: string
     intercourseTimeUnknown: boolean
@@ -119,10 +122,13 @@ export const emergencyContraceptionAdminApi = {
   config: (accountId: string) => fetchApi<EmergencyAdminConfig>(
     `${path}/config?${accountQuery(accountId)}`,
   ),
-  saveConfig: (accountId: string, body: EmergencyConfigInput) => fetchApi<void>(
-    `${path}/config?${accountQuery(accountId)}`,
-    { method: 'PUT', body: JSON.stringify(body) },
-  ),
+  saveConfig: (accountId: string, body: EmergencyConfigInput) => {
+    const { enabled: _enabled, ...settings } = body
+    return fetchApi<void>(
+      `${path}/config?${accountQuery(accountId)}`,
+      { method: 'PUT', body: JSON.stringify(settings) },
+    )
+  },
   setPharmacist: (
     accountId: string,
     staffId: string,
@@ -149,15 +155,33 @@ export const emergencyContraceptionAdminApi = {
     `${path}/inventory?${accountQuery(accountId)}`,
     { method: 'PUT', body: JSON.stringify(body) },
   ),
-  intakes: (accountId: string) => fetchApi<{ intakes: AdminEmergencyIntake[] }>(
-    `${path}/intakes?${accountQuery(accountId)}`,
+  intakes: (accountId: string, filters: {
+    status?: EmergencyIntakeStatus | ''
+    slotId?: string
+    deadlineBefore?: string
+    cursor?: string
+    limit?: number
+  } = {}) => {
+    const query = new URLSearchParams(accountQuery(accountId))
+    if (filters.status) query.set('status', filters.status)
+    if (filters.slotId) query.set('slotId', filters.slotId)
+    if (filters.deadlineBefore) query.set('deadlineBefore', filters.deadlineBefore)
+    if (filters.cursor) query.set('cursor', filters.cursor)
+    if (filters.limit) query.set('limit', String(filters.limit))
+    return fetchApi<{
+      intakes: EmergencyIntakeSummary[]
+      next_cursor: string | null
+    }>(`${path}/intakes?${query}`)
+  },
+  intakeDetail: (accountId: string, intakeId: string) => fetchApi<{ intake: AdminEmergencyIntake }>(
+    `${path}/intakes/${encodeURIComponent(intakeId)}?${accountQuery(accountId)}`,
   ),
   transition: (
     accountId: string,
     intakeId: string,
     status: Exclude<EmergencyIntakeStatus, 'provisional'>,
     expectedVersion: number,
-  ) => fetchApi<{ intake: AdminEmergencyIntake }>(
+  ) => fetchApi<{ intake: EmergencyIntakeSummary }>(
     `${path}/intakes/${encodeURIComponent(intakeId)}/transitions?${accountQuery(accountId)}`,
     { method: 'POST', body: JSON.stringify({ status, expectedVersion }) },
   ),

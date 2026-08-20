@@ -16,6 +16,7 @@ import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraceptio
 import MainMenuPage from './custom/pharmacy/menu/MainMenuPage.js'; // custom:pharmacy-menu
 import PharmacyInfoPage from './custom/pharmacy/public-profile/PharmacyInfoPage.js'; // custom:pharmacy-public-profile
 import { deprecatedReceiveTarget } from './custom/pharmacy/navigation.js';
+import PharmacyFeatureGate from './custom/pharmacy/menu/PharmacyFeatureGate.js';
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -24,6 +25,15 @@ function LegacyEntryRedirect() {
 
 function DeprecatedReceiveRedirect() {
   return <Navigate to={deprecatedReceiveTarget(useLocation().search)} replace />;
+}
+
+function PrescriptionRoute() {
+  const view = new URLSearchParams(useLocation().search).get('view');
+  const capability = view === 'electronic' ? 'electronic_prescription' : 'prescription_intake';
+  const allowExisting = view === 'history' || view === 'electronic';
+  return <PharmacyFeatureGate key={`${capability}:${allowExisting}`} capability={capability} allowExisting={allowExisting}>
+    <PrescriptionPage />
+  </PharmacyFeatureGate>;
 }
 
 export default function App() {
@@ -37,14 +47,14 @@ export default function App() {
       <Route path="/events/:id" element={<Event />} />
       <Route path="/affiliate" element={<Affiliate />} />
       <Route path="/webinar/:slug" element={<Webinar />} />
-      <Route path="/prescriptions" element={<PrescriptionPage />} /> {/* custom:pharmacy-prescriptions */}
+      <Route path="/prescriptions" element={<PrescriptionRoute />} /> {/* custom:pharmacy-prescriptions */}
       <Route path="/pharmacy/menu" element={<MainMenuPage />} /> {/* custom:pharmacy-menu */}
-      <Route path="/pharmacy/info" element={<PharmacyInfoPage />} /> {/* custom:pharmacy-public-profile */}
-      <Route path="/pharmacy/patient-intake" element={<PatientIntakePage />} /> {/* custom:pharmacy-intake */}
-      <Route path="/pharmacy/continuity" element={<ContinuityPage />} /> {/* custom:pharmacy-continuity */}
+      <Route path="/pharmacy/info" element={<PharmacyFeatureGate capability="pharmacy_info"><PharmacyInfoPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-public-profile */}
+      <Route path="/pharmacy/patient-intake" element={<PharmacyFeatureGate capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-intake */}
+      <Route path="/pharmacy/continuity" element={<PharmacyFeatureGate capability="continuity" allowExisting><ContinuityPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-continuity */}
       <Route path="/pharmacy/receive" element={<DeprecatedReceiveRedirect />} /> {/* custom:pharmacy-myna */}
-      <Route path="/pharmacy/medication-followup" element={<MedicationFollowUpPage />} /> {/* custom:pharmacy-medication-followup */}
-      <Route path="/pharmacy/emergency-contraception" element={<EmergencyContraceptionPage />} /> {/* custom:pharmacy-emergency-contraception */}
+      <Route path="/pharmacy/medication-followup" element={<PharmacyFeatureGate capability="medication_followup" allowExisting><MedicationFollowUpPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-medication-followup */}
+      <Route path="/pharmacy/emergency-contraception" element={<PharmacyFeatureGate capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-emergency-contraception */}
       <Route path="/" element={<LegacyEntryRedirect />} />
       <Route
         path="*"

@@ -141,14 +141,14 @@ describe('medication follow-up patient routes', () => {
     expect(mocks.listOwner).not.toHaveBeenCalled();
   });
 
-  it('fails closed when medication follow-up is disabled for the verified account', async () => {
+  it('keeps existing medication follow-ups readable when the feature is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await app().request(
       '/api/liff/pharmacy/medication-followups?liffId=liff-a',
       { headers: { Authorization: 'Bearer id-token-a' } }, env,
     );
-    expect(response.status).toBe(403);
-    expect(mocks.listOwner).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listOwner).toHaveBeenCalled();
   });
 });
 
@@ -176,7 +176,7 @@ describe('medication follow-up staff routes', () => {
         idempotencyKey: 'request-a', patientId: 'patient-b',
       }) }, env,
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(409);
     mocks.capability.mockResolvedValue(true);
     response = await app().request(
       '/api/custom/pharmacy/medication-followups?line_account_id=account-a',

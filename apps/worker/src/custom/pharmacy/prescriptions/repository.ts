@@ -48,11 +48,17 @@ export async function reservePrescriptionDraft(
   const submissionId = crypto.randomUUID();
   const statements = [db.prepare(
     `INSERT INTO pharmacy_prescription_submissions
-       (id, line_account_id, friend_id, idempotency_key, status,
+     (id, line_account_id, friend_id, idempotency_key, status,
         upload_revision, desired_pickup_at, desired_fulfillment_method,
         original_prescription_consent_at,
         readiness_notice_consent_at, intake_required, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?, ?)
+     SELECT ?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM pharmacy_account_capabilities AS capability
+         WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+           AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                        WHERE value = ?)
+      )
      ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING`,
   ).bind(
     submissionId,
@@ -66,6 +72,8 @@ export async function reservePrescriptionDraft(
     hasPatientLink ? 1 : 0,
     now,
     now,
+    patient.lineAccountId,
+    'prescription_intake',
   ), db.prepare(
     `INSERT INTO pharmacy_prescription_events
        (id, submission_id, actor_type, actor_id, event_type, revision, created_at)
@@ -119,7 +127,7 @@ export async function reservePrescriptionDraft(
     patient.friendId,
     input.idempotencyKey,
   ).first<PrescriptionDraft>();
-  if (!draft) throw new Error('failed to reserve prescription draft');
+  if (!draft) throw new Error('FEATURE_DISABLED');
   if (hasPatientLink) {
     const link = await db.prepare(
       `SELECT patient_id, intake_response_id

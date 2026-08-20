@@ -1,5 +1,76 @@
 # Changelog
 
+## Pharmacy v0.29.0 (2026-08-21)
+
+### この更新で変わること
+
+`v0.29.0`では、電子処方箋の患者・薬局導線、緊急避妊薬の最小情報キューと患者status、薬局ごとの患者向け機能ON/OFFを追加しました。機能をOFFにしても既存案件を孤立させず、新規受付だけを最終DB書込み境界で停止します。薬局管理画面・Platform Admin・read-only CLIは同じ非PHI readiness判定を利用します。
+
+### 薬局ごとの機能ON/OFF
+
+- 既存`pharmacy_account_capabilities`へ`electronic_prescription`、`emergency_contraception`、`pharmacy_info`を追加。電子処方箋と緊急避妊薬は新規accountでdefault OFF
+- owner向け「機能設定」画面を追加し、処方せん、電子処方箋、患者アンケート、継続フォロー、服薬フォロー、緊急避妊薬、個別チャット、薬局情報をaccount単位で変更可能に
+- 全機能OFF、44px操作領域、保存中の二重送信防止、未保存警告、account切替、CAS競合後の再取得に対応
+- OFF確認に機能別の対応中件数を表示し、新規受付停止、既存データ非削除、完了・取消を継続するdrain挙動を明示
+- clientから管理用capabilityや未知keyを変更できないallowlistと、owner-only更新、account scope、監査eventを維持
+- capability更新は整数revisionのCASで競合を検出し、同時編集による後勝ち上書きを409で停止
+
+### atomic admissionと既存案件drain
+
+- 紙の処方せん、電子処方箋handoff、患者登録・問診回答、次回来局案内、服薬後フォロー、緊急避妊薬仮受付の最終INSERT/UPDATEへcurrent capability条件を追加
+- route判定後に設定がOFFへ変わる競合でも、OFF後の新規recordを作成しないfail-closed契約へ変更
+- OFF前の既存案件は本人・同一account staffによる履歴/status確認、取消、完了、期限切れ処理を継続
+- periodic生成はOFFで停止し、既存recordのcleanup・expire・terminalizeを機能ON/OFFから分離
+- 処方せん画面の紙・電子tabをURL routeへ統一し、画面内切替でも必ず同じfeature gateを再通過
+- 処方せん有効期限リマインドは作成時と送信claim時の両方でcurrent capabilityを再確認し、OFF後の新規通知を停止
+- 「薬局へ相談」は確認後・LINE送信直前に`manual_chat`を再取得し、OFFへ変わった場合は固定messageを送らない
+
+### 電子処方箋
+
+- 既存処方せんLIFFへ「電子処方箋を利用」タブを追加し、既存Myna handoffの作成、外部遷移、active handoff再開、患者申告、取消、紙への切替を接続
+- 外部URLへ患者ID、LINE friend ID、LIFF IDを付与せず、serverが返したallowlist済みlaunch URLだけを使用
+- 患者申告と薬局受領を別事実として表示し、薬局staffの確認前にshadow submissionや受付完了を作成しない
+- 患者申告済みhandoffは外部画面の再起動と不正な再申告を表示せず、許可された紙fallbackだけを残す
+- 薬局管理画面を「電子処方箋受付」として整理し、status filter、患者、申告時刻、期限、verification、既存処方せんdetailへのlinkを追加
+- 同じ正式確認の再送は同一結果へ収束し、異なる正式確認は409で拒否。account切替中の遅いresponseも別account画面へ反映しない
+
+### 緊急避妊薬
+
+- 患者LIFFへserver time、状態、対応枠、受付期限、取消可否、次の行動をまとめたstatus cardを追加
+- 薬局管理画面の受付キューと申告詳細を分離。一覧は受付番号、状態、枠、期限、制御用versionだけを返し、年齢帯、連絡方法、同意version、risk flag、性交日時、患者identity、暗号化payloadを返さない
+- 申告詳細は同一accountの有効な研修修了薬剤師だけが取得でき、sensitive-read audit成功後に復号。audit失敗は503で停止
+- 受付キューへstatus・対応枠・期限filterと50件単位のcursor paginationを追加
+- 公開枠、readiness、DB受付境界で研修修了状態に加えて有効なstaff assignmentを必須化
+- queue storage障害と不正cursorを区別し、障害を入力エラーとして誤表示しない
+- staff-triggered LINE通知は、安全な既存atomic outbox/idempotency経路が不足するため本版では追加せず、status cardを必須範囲として維持
+
+### LIFF全機能一覧とdirect route
+
+- public LIFF configをactive accountの一意解決、固定allowlist順、`Cache-Control: no-store`、LINE API 0件へ変更
+- 公開responseは`enabledFeatures`とcapability revisionだけを追加し、患者・friend・履歴・active件数を含めない
+- 認証済みpatient/account ownership projectionを別APIに分離し、OFF前の既存履歴・案件がある機能だけdrain導線を維持
+- disabled direct routeは中立的な利用不可説明と「すべての機能」へ戻る導線を表示。server mutationは409で拒否
+- LIFF右上のversion表示を`v0.29.0`へ更新
+
+### canonical readiness・Platform Admin・CLI
+
+- 電子処方箋と緊急避妊薬の非PHI readinessを一つのaccount projectionへ集約
+- 電子処方箋はcapability、Endpoint設定有無、確認status/source/checkedAtを返し、ローカルDB設定だけで外部Endpointを`READY`と推測しない
+- LINE Login channel access tokenを持たない現行credentialではLIFF Server APIによるEndpoint自動確認を行わず、manual Console evidenceの日時をDB設定日時から推測しない
+- 緊急避妊薬はcapability、公開設定の必須条件、研修修了薬剤師、期限切れholdを除いた利用可能在庫・将来枠をbooleanで判定し、患者情報や件数を返さない
+- Platform Adminの`line-status`へLIFF ID、Login channel、Messaging/Login credential coverage、期待LIFF Endpoint、両機能のreadinessを追加
+- `pnpm tenant:settings -- --preflight --account-id ...`を追加。read-onlyで同じprojectionを表示し、`BLOCKED`/`UNVERIFIED`はnonzero exitでactivationを停止
+- optional capabilityがOFFの項目はpreflight全体を`BLOCKED`にせず、ONの項目だけをactivation条件として判定
+- Platform Adminからrich-menu prepareへ入る経路をaccount/asset/LINE処理前の固定403で閉鎖
+
+### データベースと互換性
+
+- `custom_044_pharmacy_v029_capabilities.sql`を追加し、整数capability revision、緊急避妊薬detail access audit、既存薬局情報・緊急避妊薬公開状態の初回backfillを実装
+- 初回移行後はcapabilityを唯一の権限元とし、旧`is_enabled`へはrollback互換の一方向mirrorだけを維持。旧列のINSERT/UPDATEからowner-only capabilityを再有効化できない
+- migrationは再実行可能で、初回backfillを再実行せず、管理画面でOFFにした機能を戻さない
+- bootstrap artifactとmigration metadataを`custom_044`まで再生成
+- package versionとseller tag `pharmacy-v*`は別identity。seller tagは`pharmacy-v0.29.0`とし、GitHub Release、dev/main push、deploy、schema apply、account activation、LINE mutationは別の明示操作として扱う
+
 ## Pharmacy v0.28.0 (2026-08-21)
 
 ### この更新で変わること

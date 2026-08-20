@@ -139,11 +139,11 @@ describe('patient history, cancellation, and resubmission routes', () => {
     });
   });
 
-  it('rejects patient history when prescription intake is disabled', async () => {
+  it('keeps owned history available when prescription intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await request('/api/liff/pharmacy/prescriptions/me');
-    expect(response.status).toBe(403);
-    expect(mocks.listHistory).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listHistory).toHaveBeenCalled();
   });
 
   it('commits cancellation before deleting and marking each R2 object', async () => {
@@ -231,13 +231,13 @@ describe('admin prescription routes', () => {
     expect(mocks.listAdmin).not.toHaveBeenCalled();
   });
 
-  it('rejects an account with prescription intake disabled before reading the queue', async () => {
+  it('keeps the existing queue available when new prescription intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await adminApp().request(
       '/api/custom/pharmacy/prescriptions?line_account_id=account-1', {}, adminEnv,
     );
-    expect(response.status).toBe(403);
-    expect(mocks.listAdmin).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listAdmin).toHaveBeenCalled();
   });
 
   it('returns an account-scoped queue without thumbnails', async () => {
@@ -501,6 +501,21 @@ describe('POST /api/liff/pharmacy/prescriptions', () => {
       originalPrescriptionConsent: true,
       readinessNoticeConsent: true,
     });
+  });
+
+  it('rejects only a new draft with FEATURE_DISABLED', async () => {
+    const patient = { lineAccountId: 'account-1', friendId: 'friend-1' };
+    mocks.verify.mockResolvedValue({ lineUserId: 'U1', loginChannelId: 'login-1' });
+    mocks.resolvePatient.mockResolvedValue(patient);
+    mocks.reserveDraft.mockRejectedValue(new Error('FEATURE_DISABLED'));
+
+    const response = await request({
+      idempotencyKey: 'request-123', desiredPickupAt: null,
+      originalPrescriptionConsent: true, readinessNoticeConsent: true,
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: 'FEATURE_DISABLED' });
+    expect(mocks.reserveDraft).toHaveBeenCalled();
   });
 
   it('rejects an unsupported patient fulfillment preference', async () => {

@@ -18,6 +18,9 @@ lineSdkMocks.LineClient.mockImplementation(function () {
   return lineClientMocks;
 });
 
+const readinessMocks = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock('../readiness.js', () => ({ getPharmacyReadiness: readinessMocks.get }));
+
 const SESSION_TOKEN = `pas_${'a'.repeat(43)}`;
 const CSRF = 'csrf-value';
 const AUTH = {
@@ -28,6 +31,15 @@ const AUTH = {
 const NOW = '2026-08-19T00:00:00.000Z';
 const FUTURE = '2099-01-01T00:00:00.000Z';
 const PAST = '2020-01-01T00:00:00.000Z';
+
+beforeEach(() => {
+  readinessMocks.get.mockImplementation(async (_db: D1Database, accountId: string) => ({
+    accountId,
+    checkedAt: '2026-08-21T00:00:00.000Z',
+    electronicPrescription: { status: 'UNVERIFIED' },
+    emergencyContraception: { status: 'BLOCKED' },
+  }));
+});
 
 type SessionRow = { tenant_id: string; staff_id: string; expires_at: string; revoked_at: string | null };
 
@@ -62,16 +74,19 @@ function fakeDb(): Store {
   const lineAccounts = [
     {
       tenant_id: 'tenant-a', id: 'account-a', name: 'Account A', channel_id: '1000', is_active: 1,
-      bot_identity_count: 1, credential_count: 1,
+      liff_id: 'liff-a', login_channel_id: 'login-a', bot_identity_count: 1,
+      messaging_credential_count: 2, login_credential_count: 1,
       last_webhook_received_at: '2026-08-18T09:00:00.000Z',
     },
     {
       tenant_id: 'tenant-a', id: 'account-a2', name: 'Account A2', channel_id: '1001', is_active: 0,
-      bot_identity_count: 0, credential_count: 0, last_webhook_received_at: null,
+      liff_id: null, login_channel_id: null, bot_identity_count: 0,
+      messaging_credential_count: 0, login_credential_count: 0, last_webhook_received_at: null,
     },
     {
       tenant_id: 'tenant-b', id: 'account-b', name: 'Account B', channel_id: '2000', is_active: 1,
-      bot_identity_count: 1, credential_count: 1, last_webhook_received_at: null,
+      liff_id: 'liff-b', login_channel_id: 'login-b', bot_identity_count: 1,
+      messaging_credential_count: 2, login_credential_count: 1, last_webhook_received_at: null,
     },
   ];
 
@@ -206,6 +221,7 @@ function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bin
     LINE_LOGIN_CHANNEL_ID: 'login-channel',
     LINE_LOGIN_CHANNEL_SECRET: 'login-secret',
     WORKER_URL: 'https://api.example.test',
+    LIFF_PUBLIC_URL: 'https://liff.example.test',
     ADMIN_ORIGIN: 'https://admin.example.test',
     LINE_CREDENTIAL_KEY_V1: 'line-credential-root-key-for-tests',
     ...overrides,
@@ -382,7 +398,18 @@ describe('platform admin LINE status', () => {
           isActive: true,
           hasBotIdentity: true,
           hasEncryptedCredential: true,
+          liffIdConfigured: true,
+          loginChannelConfigured: true,
+          messagingCredentialsReady: true,
+          loginCredentialReady: true,
+          expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
+          liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
           lastWebhookReceivedAt: '2026-08-18T09:00:00.000Z',
+          readiness: {
+            accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z',
+            electronicPrescription: { status: 'UNVERIFIED' },
+            emergencyContraception: { status: 'BLOCKED' },
+          },
         },
         {
           id: 'account-a2',
@@ -391,7 +418,18 @@ describe('platform admin LINE status', () => {
           isActive: false,
           hasBotIdentity: false,
           hasEncryptedCredential: false,
+          liffIdConfigured: false,
+          loginChannelConfigured: false,
+          messagingCredentialsReady: false,
+          loginCredentialReady: false,
+          expectedLiffEndpoint: null,
+          liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
           lastWebhookReceivedAt: null,
+          readiness: {
+            accountId: 'account-a2', checkedAt: '2026-08-21T00:00:00.000Z',
+            electronicPrescription: { status: 'UNVERIFIED' },
+            emergencyContraception: { status: 'BLOCKED' },
+          },
         },
       ],
     });

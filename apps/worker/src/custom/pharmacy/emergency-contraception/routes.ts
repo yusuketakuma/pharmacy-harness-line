@@ -8,6 +8,7 @@ import {
   cancelOwnerEmergencyIntake,
   createEmergencyIntake,
   createEmergencySlot,
+  getAdminEmergencyIntakeDetail,
   getEmergencyAdminConfig,
   getEmergencyServiceOverview,
   listAdminEmergencyIntakes,
@@ -45,7 +46,9 @@ emergencyContraceptionRoutes.get('/api/liff/pharmacy/emergency-contraception', a
     getEmergencyServiceOverview(c.env.DB, owner.lineAccountId),
     listOwnerEmergencyIntakes(c.env.DB, owner.lineAccountId, owner.friendId),
   ]);
-  return c.json({ service, intakes });
+  return c.json({ service, intakes, server_now: new Date().toISOString() }, 200, {
+    'Cache-Control': 'no-store',
+  });
 });
 
 emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/intakes', async (c) => {
@@ -84,6 +87,9 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
     return c.json({ intake }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
+    if (message === 'FEATURE_DISABLED') {
+      return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
+    }
     if (/stock|slot|conflict/i.test(message)) {
       return c.json({ error: '選択した枠を確保できませんでした。最新の空きを確認してください' }, 409);
     }
@@ -148,7 +154,6 @@ emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/c
     await saveEmergencySettings(c.env.DB, {
       lineAccountId: scope.lineAccountId,
       staffId: scope.staff.id,
-      enabled: body.enabled === true,
       pharmacyRegistrationNumber: String(body.pharmacyRegistrationNumber ?? ''),
       productCode: String(body.productCode ?? ''),
       manufacturerCheckUrl: String(body.manufacturerCheckUrl ?? ''),
@@ -253,14 +258,45 @@ emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/i
 emergencyContraceptionRoutes.get('/api/custom/pharmacy/emergency-contraception/intakes', async (c) => {
   const scope = staffScope(c);
   if (scope instanceof Response) return scope;
+  const status = c.req.query('status');
+  if (status !== undefined && !['provisional', 'reviewed', 'completed', 'cancelled', 'expired'].includes(status)) {
+    return c.json({ error: 'Invalid status' }, 400);
+  }
+  const slotId = c.req.query('slotId');
+  if (slotId !== undefined && !/^[A-Za-z0-9._:-]{1,128}$/.test(slotId)) {
+    return c.json({ error: 'Invalid slot' }, 400);
+  }
+  const deadlineBefore = c.req.query('deadlineBefore');
+  if (deadlineBefore !== undefined &&
+      (deadlineBefore.length > 40 || !Number.isFinite(Date.parse(deadlineBefore)))) {
+    return c.json({ error: 'Invalid deadline' }, 400);
+  }
+  const limit = c.req.query('limit') === undefined ? 50 : Number(c.req.query('limit'));
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return c.json({ error: 'Invalid limit' }, 400);
+  try {
+    return c.json(await listAdminEmergencyIntakes(c.env.DB, scope.lineAccountId, {
+      status: status as never, slotId, deadlineBefore, cursor: c.req.query('cursor'), limit,
+    }));
+  } catch (error) {
+    return error instanceof Error && error.message === 'invalid emergency intake cursor'
+      ? c.json({ error: 'Invalid cursor' }, 400)
+      : c.json({ error: 'Service unavailable' }, 503);
+  }
+});
+
+emergencyContraceptionRoutes.get('/api/custom/pharmacy/emergency-contraception/intakes/:id', async (c) => {
+  const scope = staffScope(c);
+  if (scope instanceof Response) return scope;
   if (!c.env.PHARMACY_PHI_KEY_V1) return c.json({ error: 'Service unavailable' }, 503);
   try {
-    return c.json({ intakes: await listAdminEmergencyIntakes(
-      c.env.DB, scope.lineAccountId, scope.staff.id, c.env.PHARMACY_PHI_KEY_V1,
+    return c.json({ intake: await getAdminEmergencyIntakeDetail(
+      c.env.DB, scope.lineAccountId, c.req.param('id'), scope.staff.id, c.env.PHARMACY_PHI_KEY_V1,
     ) });
   } catch (error) {
-    return c.json({ error: error instanceof Error && /trained pharmacist/.test(error.message)
-      ? 'Forbidden' : 'Service unavailable' }, /trained pharmacist/.test(String(error)) ? 403 : 503);
+    const message = error instanceof Error ? error.message : '';
+    if (/trained pharmacist/.test(message)) return c.json({ error: 'Forbidden' }, 403);
+    if (/not found/.test(message)) return c.json({ error: 'Not found' }, 404);
+    return c.json({ error: 'Service unavailable' }, 503);
   }
 });
 

@@ -36,6 +36,69 @@ const logoutResponse = () => new Response(JSON.stringify({ success: true }), {
 });
 
 describe('tenant settings CLI', () => {
+  it('does not block preflight when optional pharmacy capabilities are OFF', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: [{
+        id: 'account-a', liffIdConfigured: true, loginChannelConfigured: true,
+        messagingCredentialsReady: true, loginCredentialReady: true,
+        expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
+        liffEndpointEvidence: { status: 'READY' },
+        readiness: {
+          electronicPrescription: { status: 'BLOCKED', capabilityEnabled: false },
+          emergencyContraception: { status: 'BLOCKED', capabilityEnabled: false },
+        },
+      }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    await expect(runTenantSettings(
+      [...baseArgs, '--account-id', 'account-a', '--preflight'], environment, fetcher,
+      async () => Buffer.alloc(0), (line) => output.push(line),
+    )).resolves.toBe(0);
+    expect(output.join('\n')).toContain('"status": "READY"');
+  });
+
+  it('runs an account-scoped read-only preflight and stops activation on UNVERIFIED', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: [{
+        id: 'account-a', liffIdConfigured: true, loginChannelConfigured: true,
+        messagingCredentialsReady: true, loginCredentialReady: true,
+        expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
+        liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
+        readiness: {
+          electronicPrescription: { status: 'UNVERIFIED' },
+          emergencyContraception: { status: 'READY' },
+        },
+      }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--account-id', 'account-a', '--preflight'],
+      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(fetcher.mock.calls[1][0]).toBe('https://api.example.test/api/platform-admin/tenants/tenant-a/line-status');
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ method: 'GET', redirect: 'error' });
+    expect(output.join('\n')).toContain('UNVERIFIED');
+    expect(output.join('\n')).not.toContain(platformSession);
+  });
+
+  it('rejects applying a read-only preflight before login', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const output: string[] = [];
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--account-id', 'account-a', '--preflight', '--apply'],
+      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+    );
+    expect(exitCode).toBe(1);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(output.join('\n')).toContain('--apply');
+  });
+
   it('reads only an owner-only local credential file', () => {
     const directory = mkdtempSync(join(tmpdir(), 'tenant-settings-'));
     temporaryDirectories.push(directory);

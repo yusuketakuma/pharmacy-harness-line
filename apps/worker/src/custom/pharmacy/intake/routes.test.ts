@@ -114,11 +114,11 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalledWith(env.DB, owner, false);
   });
 
-  it('rejects the patient list when patient intake is disabled', async () => {
+  it('keeps the patient list readable when patient intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await request('/api/liff/pharmacy/patients');
-    expect(response.status).toBe(403);
-    expect(mocks.listPatients).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listPatients).toHaveBeenCalled();
   });
 
   it('creates a family patient after validating the JSON boundary', async () => {
@@ -133,6 +133,15 @@ describe('LIFF pharmacy patient and intake routes', () => {
       sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
       addressLine1: null, addressLine2: null,
     });
+  });
+
+  it('blocks only new patient admission when patient intake is disabled', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await request('/api/liff/pharmacy/patients', 'POST', {
+      relationship: 'self', name: '本人', nameKana: 'ホンニン', birthDate: '2000-01-01',
+    });
+    expect(response.status).toBe(409);
+    expect(mocks.createPatient).not.toHaveBeenCalled();
   });
 
   it('creates an intake revision only when both consents are supplied', async () => {
@@ -244,12 +253,12 @@ describe('admin pharmacy patient routes', () => {
     });
   });
 
-  it('fails closed when the patient-intake capability is disabled', async () => {
+  it('keeps existing admin patient records readable when patient intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await adminApp().request(
       '/api/custom/pharmacy/patients?line_account_id=account-1', {}, env,
     );
-    expect(response.status).toBe(403);
-    expect(mocks.listAdminPatients).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listAdminPatients).toHaveBeenCalled();
   });
 });

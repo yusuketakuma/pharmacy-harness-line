@@ -7,6 +7,7 @@ import EmergencyContraceptionPage, {
   EmergencyIntakeForm,
   MHLW_EMERGENCY_CONTRACEPTION_URL,
   canSubmitEmergencyIntake,
+  emergencyNextAction,
   toIntercourseAtPayload,
   type EmergencyIntakeDraft,
 } from './EmergencyContraceptionPage.js';
@@ -115,6 +116,15 @@ describe('emergency contraception patient page', () => {
     expect(source).not.toContain('setInterval');
     expect(source).toContain('crypto.randomUUID()');
     expect(app).toContain("import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception");
-    expect(app).toContain('<Route path="/pharmacy/emergency-contraception" element={<EmergencyContraceptionPage />} /> {/* custom:pharmacy-emergency-contraception */}');
+    expect(app).toContain('<Route path="/pharmacy/emergency-contraception" element={<PharmacyFeatureGate capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-emergency-contraception */}');
+  });
+
+  it('shows a server-timed status card with the next patient action', () => {
+    expect(emergencyNextAction('provisional')).toContain('薬剤師の確認')
+    expect(emergencyNextAction('reviewed')).toContain('本人が来局')
+    expect(emergencyNextAction('expired')).toContain('新しい対応枠')
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('サーバー確認時刻')
+    expect(source).toContain('serverNow')
   });
 });

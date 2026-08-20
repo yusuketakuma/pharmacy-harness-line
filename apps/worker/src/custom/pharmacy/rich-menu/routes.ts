@@ -149,6 +149,7 @@ function profileMatches(
 }
 
 pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c) => {
+  if (c.get('platformAdmin')) return c.json({ success: false, error: 'Forbidden' }, 403);
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   const staff = c.get('staff');

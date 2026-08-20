@@ -761,6 +761,14 @@ CREATE TABLE pharmacy_account_capabilities (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE pharmacy_account_capability_revisions (
+  line_account_id TEXT PRIMARY KEY,
+  revision        INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  updated_at      TEXT NOT NULL,
+  FOREIGN KEY (line_account_id)
+    REFERENCES pharmacy_account_capabilities(line_account_id) ON DELETE CASCADE
+);
+
 CREATE TABLE pharmacy_activity_notifications (
   id                TEXT PRIMARY KEY,
   line_account_id   TEXT NOT NULL,
@@ -896,6 +904,18 @@ CREATE TABLE pharmacy_emergency_admin_events (
   on_hand           INTEGER NOT NULL CHECK (on_hand >= 0),
   occurred_at       TEXT NOT NULL,
   FOREIGN KEY (line_account_id, actor_id)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_intake_access_events (
+  id              TEXT PRIMARY KEY,
+  intake_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  staff_id        TEXT NOT NULL,
+  accessed_at     TEXT NOT NULL,
+  FOREIGN KEY (intake_id, line_account_id)
+    REFERENCES pharmacy_emergency_intakes(id, line_account_id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, staff_id)
     REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
 );
 
@@ -2447,6 +2467,10 @@ CREATE INDEX idx_pharmacy_data_subject_requests_patient
 CREATE INDEX idx_pharmacy_data_subject_requests_queue
   ON pharmacy_data_subject_requests (line_account_id, status, submitted_at DESC, id DESC);
 
+CREATE INDEX idx_pharmacy_emergency_access_intake
+  ON pharmacy_emergency_intake_access_events
+    (line_account_id, intake_id, accessed_at, id);
+
 CREATE INDEX idx_pharmacy_emergency_admin_events_account
   ON pharmacy_emergency_admin_events (line_account_id, occurred_at, id);
 
@@ -2745,7 +2769,61 @@ CREATE TRIGGER friends_provider_id_compat_insert AFTER INSERT ON friends WHEN NE
 
 CREATE TRIGGER friends_provider_id_required_update BEFORE UPDATE OF provider_line_user_id ON friends WHEN NEW.provider_line_user_id IS NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_PROVIDER_LINE_USER_ID_REQUIRED'); END;
 
-CREATE TRIGGER line_accounts_default_pharmacy_capability AFTER INSERT ON line_accounts BEGIN INSERT OR IGNORE INTO pharmacy_account_capabilities (line_account_id, mode, capabilities_json, proactive_monthly_limit, unfollow_alert_state, created_at, updated_at) VALUES (NEW.id, 'pharmacy', '["prescription_intake","patient_intake","fulfillment_quote","continuity","medication_followup","manual_chat","pharmacy_rich_menu","account_settings","pharmacy_dashboard"]', 1, 'alert_only', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')); END;
+CREATE TRIGGER line_accounts_default_pharmacy_capability
+AFTER INSERT ON line_accounts
+BEGIN
+  INSERT OR IGNORE INTO pharmacy_account_capabilities
+    (line_account_id, mode, capabilities_json, proactive_monthly_limit,
+     unfollow_alert_state, created_at, updated_at)
+  VALUES (
+    NEW.id, 'pharmacy',
+    '["prescription_intake","patient_intake","fulfillment_quote","continuity","medication_followup","manual_chat","pharmacy_info","pharmacy_rich_menu","account_settings","pharmacy_dashboard"]',
+    1, 'alert_only',
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  ); END;
+
+CREATE TRIGGER pharmacy_capability_emergency_mirror_disable
+AFTER UPDATE OF capabilities_json ON pharmacy_account_capabilities
+WHEN NOT EXISTS (
+  SELECT 1 FROM json_each(NEW.capabilities_json)
+   WHERE value = 'emergency_contraception'
+)
+BEGIN
+  UPDATE pharmacy_emergency_settings
+     SET is_enabled = 0, updated_at = NEW.updated_at
+   WHERE line_account_id = NEW.line_account_id
+     AND is_enabled = 1; END;
+
+CREATE TRIGGER pharmacy_capability_emergency_mirror_enable
+AFTER UPDATE OF capabilities_json ON pharmacy_account_capabilities
+WHEN EXISTS (
+  SELECT 1 FROM json_each(NEW.capabilities_json)
+   WHERE value = 'emergency_contraception'
+)
+BEGIN
+  UPDATE pharmacy_emergency_settings
+     SET is_enabled = 1, updated_at = NEW.updated_at
+   WHERE line_account_id = NEW.line_account_id
+     AND is_enabled = 0; END;
+
+CREATE TRIGGER pharmacy_capability_revision_insert
+AFTER INSERT ON pharmacy_account_capabilities
+BEGIN
+  INSERT OR IGNORE INTO pharmacy_account_capability_revisions
+    (line_account_id, revision, updated_at)
+  VALUES (NEW.line_account_id, 1, NEW.updated_at); END;
+
+CREATE TRIGGER pharmacy_capability_revision_update
+AFTER UPDATE OF capabilities_json ON pharmacy_account_capabilities
+WHEN OLD.capabilities_json <> NEW.capabilities_json
+BEGIN
+  INSERT INTO pharmacy_account_capability_revisions
+    (line_account_id, revision, updated_at)
+  VALUES (NEW.line_account_id, 1, NEW.updated_at)
+  ON CONFLICT(line_account_id) DO UPDATE SET
+    revision = revision + 1,
+    updated_at = NEW.updated_at; END;
 
 CREATE TRIGGER pharmacy_continuity_events_submission_scope_insert BEFORE INSERT ON pharmacy_continuity_events WHEN NEW.submission_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_submissions AS submission WHERE submission.id = NEW.submission_id AND submission.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_CONTINUITY_SUBMISSION_SCOPE_MISMATCH'); END;
 
@@ -2795,6 +2873,23 @@ BEGIN SELECT RAISE(ABORT, 'EMERGENCY_EVENT_IMMUTABLE'); END;
 CREATE TRIGGER pharmacy_emergency_events_no_update
 BEFORE UPDATE ON pharmacy_emergency_intake_events
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_intake_active_assignment
+BEFORE INSERT ON pharmacy_emergency_intakes
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM pharmacy_emergency_slots AS slot
+    INNER JOIN pharmacy_emergency_pharmacists AS pharmacist
+            ON pharmacist.line_account_id = slot.line_account_id
+           AND pharmacist.staff_id = slot.pharmacist_staff_id
+           AND pharmacist.is_active = 1
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = pharmacist.line_account_id
+           AND assignment.staff_id = pharmacist.staff_id
+           AND assignment.is_active = 1
+   WHERE slot.id = NEW.slot_id AND slot.line_account_id = NEW.line_account_id
+)
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SERVICE_NOT_READY'); END;
 
 CREATE TRIGGER pharmacy_emergency_intake_readiness
 BEFORE INSERT ON pharmacy_emergency_intakes

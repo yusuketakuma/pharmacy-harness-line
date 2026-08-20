@@ -2,6 +2,272 @@
 
 ## Active
 
+### V029 - 電子処方箋・緊急避妊薬・機能ON/OFF + 安全なreadiness - 2026-08-21 Oracle反映版
+
+**基準**: `dev` / `0b9cffff5d002f6e5eae716690bbfd134c0c3427`。seller releaseは`pharmacy-v0.29.0`を予定するが、package versionと`CHANGELOG.md`はrelease準備時にだけ更新する。schema適用、code deploy、account別機能activation、LINE mutationは別々の明示Human Gateとし、一つの承認から次を推測しない。
+
+**目的**: 既存Myna handoff・処方箋受付を患者LIFFへ安全に配線し、緊急避妊薬Phase 1を最小情報のqueue/detailと患者statusまで拡張する。staff-triggered中立通知は既存のaccount-scoped atomic outbox/idempotency経路を再利用して安全contractを満たせる場合だけ同梱する。既存`pharmacy_account_capabilities`を使って薬局ごとの患者向け機能ON/OFFを管理し、OFF後も履歴と対応中案件を孤立させない。LIFFの全機能一覧はaccount設定へ連動させ、薬局管理画面と全体管理者画面は同じ非PHI readinessを利用する。v0.29.0では可変rich menu、scheduled reminder、repository移動・renameを混ぜず、security-sensitiveな機能差分を小さく保つ。
+
+**Oracle反映**:
+
+| 判断 | v0.29.0での扱い |
+|---|---|
+| `KEEP` | 既存Myna/prescription model再利用、緊急避妊薬status/queue、account-scoped ON/OFF、LIFF連動、非PHI readiness |
+| `CHANGE` | capability互換・migrationとatomic admission/drainを全患者機能より先行 |
+| `CHANGE` | platform adminはrich-menu prepareを実行せず、非PHI readだけに限定 |
+| `DEFER` | 時刻起点の緊急避妊薬reminder |
+| `DEFER` | account別6枠配置、画像生成、LINE draft/publish/default同期 |
+| `DEFER` | folder/file rename、repository再配置、公開route rename |
+
+**判定語**:
+
+| 状態 | 意味 | release判断 |
+|---|---|---|
+| `READY` | 自動検証できる必須条件が満たされている | 次のgateへ進める |
+| `BLOCKED` | 欠落・不整合を自動検出した | 修正まで停止 |
+| `UNVERIFIED` | 外部設定を安全に確認できる証拠がない | account activationを停止してHuman Gateへ送る |
+
+`UNVERIFIED`が残るaccountは新機能をONにしない。新capabilityがdefault OFFかつserver-side fail closedなら、他accountを含むsoftware artifact作成全体までは止めない。
+
+**非目標**: 電子処方箋本文、マイナンバーカード情報、引換番号、処方内容の取得・保存・解析、AI/OCR、新しい処方箋model、販売可否自動判定、メーカー紙記録の電子置換、配送・決済。PHIを含む通知・platform health、shared LIFF buildへのtenant固有ID埋込み、非公式LINE API、任意URL/message/imageのmenu builder、config保存・health・preflight・cronからのLINE mutation、全repoのformat/renameも行わない。
+
+**患者向け機能とcapabilityの正規mapping**:
+
+| 患者向け表示 | capability | OFF時の新規操作 | OFF前の既存案件 |
+|---|---|---|---|
+| 処方せん事前送信 | 既存`prescription_intake` | 新規送信を409拒否 | 受付状況・取消を維持 |
+| 電子処方箋 | 新規`electronic_prescription` | 新規handoffを409拒否 | resume/report/cancel/紙fallbackとstaff完了を維持 |
+| 受付状況 | authenticated projection | 新規受付を作らない | owned history/statusを維持 |
+| 患者情報・アンケート | 既存`patient_intake` | 新規回答を409拒否 | 既存回答のauthorized readを維持 |
+| 継続フォロー | 既存`continuity` | 新規開始・periodic reminderを停止 | terminalize/expireを維持 |
+| 服薬後フォロー | 既存`medication_followup` | 新規開始・periodic reminderを停止 | terminalize/expireを維持 |
+| 緊急避妊薬 | 新規`emergency_contraception` | 新規仮受付を409拒否 | owned status/cancelとstaff完了を維持 |
+| 薬局へ相談 | 既存`manual_chat` | 新規固定message導線を停止 | データ削除なし |
+| 薬局情報 | 新規`pharmacy_info` | 患者向け詳細を停止 | 保存済みprofileを削除しない |
+
+`account_settings`、`pharmacy_dashboard`、`pharmacy_rich_menu`等の管理用capabilityは患者機能ON/OFF画面へ出さない。capability ONは新規受付の必要条件であり、Myna endpoint、研修修了薬剤師、在庫、枠、患者所有権、domain state等のoperational readinessを代替しない。
+
+**OFF時のoperation matrix**:
+
+| 操作 | 契約 |
+|---|---|
+| 新規record/handoff/intake作成 | 最終write境界で`409 FEATURE_DISABLED` |
+| owned既存record/history/status read | 許可 |
+| 既存active recordのallowlist済み完了・取消 | 許可 |
+| closed recordのreopen、新しいchild/reminder作成 | 拒否 |
+| 既存recordのexpire/cleanup/terminalize | capability OFFでも継続 |
+| periodic reminder生成 | 停止 |
+| 既存案件の明示status通知 | drain policyとcontact modeをsend直前に再検証 |
+| 別tenant/account | `404` |
+| staff role不足 | `403` |
+| stale capability/state revision | `409` |
+
+- [x] **V029-0 現行契約・previous-version互換・Red testを固定**
+  - 電子処方箋は既存`pharmacy_myna_handoffs` -> patient report -> staff verification -> `pharmacy_prescription_submissions` shadow submissionを正とする。patient reportと薬局受領を別事実として固定し、patient操作では`shadow_submission_id`、`E_PRESCRIPTION_RECEIVED`、受付完了表示を作らない。
+  - 緊急避妊薬は既存の暗号化最小申告、枠、研修修了薬剤師、在庫、Human Gateを正とし、capability ONから販売可否・在庫確保・予約確定を推論しない。
+  - frozen v0.28相当parserで、新keyを含むv0.29 `capabilities_json`を読み、未知keyが他の既知機能を無効化・有効化しない互換testを作る。greenにできなければ先行expand releaseを必須にし、同一releaseでdataを書かない。
+  - 現行`MainMenuPage`の固定表示、緊急避妊薬routeのcapability未適用、middlewareがplatform adminをrich-menu prepareへ通した後route内403となる状態を実middleware/routeで固定する。
+  - config保存、LIFF config、health、preflightがLINE APIを呼ばないzero-call contractを固定する。
+  - **受入条件**: previous-version compatibility、Myna patient/staff境界、EC Human Gate、tenant/account denial、zero-LINE-callがRed testとして再現する。
+
+- [x] **V029-1 LINE Developers Endpointのread-only契約を先に決定**
+  - 公式API、credential、scope、rate limitで対象LINE Login channelのLIFF Endpoint URLをread-only取得できるか一次資料で確認する。非公式endpointやrich-menu URLから実Endpointを推測しない。
+  - 現行暗号化credentialだけで安全に確認できる公式契約がある場合のみ、既存decrypt pathをWorker内で再利用する。追加権限が必要、または公式read契約がなければ`UNVERIFIED` + Console Human Gateを維持する。
+  - Endpoint更新APIはv0.29.0へ入れず、read確認とmutationを分離する。
+  - **受入条件**: 公式contractと実装可否を記録し、実装しない場合も`UNVERIFIED`理由とmanual evidence手順が残る。
+  - **実装判断**: LINE Developers公式のLIFF Server API `Get all LIFF apps`はLINE Login channel access tokenを要求する。現行の暗号化credentialはLogin channel secretまでで、追加token発行・権限拡張は本版の範囲外のため、自動確認は行わず`UNVERIFIED` + LINE Developers Consoleのmanual evidenceを維持する。参照: https://developers.line.biz/en/reference/liff-server/#get-all-liff-apps
+
+- [x] **V029-2 capability互換・migration・rollbackを実装**
+  - 新flag frameworkは作らず、既存`pharmacy_account_capabilities.capabilities_json`、fail-closed parser、owner-only config API、監査eventを再利用する。新keyは`electronic_prescription`、`emergency_contraception`、`pharmacy_info`だけに限定する。
+  - 加算migrationはidempotentにする。`electronic_prescription`は全account default OFF。緊急避妊薬は既存`is_enabled`の現在の公開状態だけを保存して新規exposureを増やさない。薬局情報はprofile有無だけで暗黙ONにせず、v0.28の既存公開契約を明示したbackfill ruleで扱う。
+  - 緊急避妊薬の旧`is_enabled`は初回backfill後、rollback互換のためcapabilityから旧列への一方向mirrorだけを残す。旧列のINSERT/UPDATEからowner-only capabilityへ逆流させない。capability更新、legacy mirror、revision、auditを同じatomic boundaryへ置く。
+  - patient featureが0件でも管理capabilityは保持できるようvalidationを分離し、clientからの未知keyと管理key変更を拒否する。
+  - **Red -> Green**: frozen reader、migration再実行、default OFF、既存exposure維持、unknown key、管理key保護、stale revision、別tenant/account、atomic mirror/auditを確認する。
+
+- [x] **V029-3 atomic admission・drain・薬局ON/OFF UIを先行実装**
+  - owner向け「機能設定」を追加し、server-owned allowlistで公開準備ができた患者機能だけをswitch表示する。OFF確認には新規停止、既存データ非削除、対応中件数とdrain挙動を表示する。
+  - capability checkはmiddleware表示制御だけで終えず、各create/startの最終writeへcurrent capability predicate/revisionを含める。disableとcreateが競合した場合は「createが先に成立」または「disableが先に成立してcreateが409」の二結果だけを許す。
+  - cronをadmission/generation、lifecycle/drain、notification dispatchへ分ける。OFFは新規/reminder生成だけを止め、既存recordのexpire/cleanup/terminalizeは継続する。1 accountのdisabled/corrupt状態で他account batchを中断しない。
+  - notification dispatchはsend直前にaccount、row state、contact mode、event policy、capability/drain policyを再確認する。
+  - 44px target、keyboard、保存中二重送信、未保存変更、account切替、CAS conflict後の再取得を扱う。
+  - **Red -> Green**: 全operation matrix、disable/create race、active drain、cron分離、通知直前再確認、全OFF、他機能/他account継続をtable-driven testで確認する。
+
+- [x] **V029-4 電子処方箋を既存処方箋LIFFへ配線**
+  - `/prescriptions`で「紙の処方せんを撮影」「電子処方箋を利用」を選ぶ。紙は既存upload、電子は既存`mynaApi`とserver-side patient/account ownershipを再利用する。
+  - 説明 -> 外部Myna受付 -> active handoff resume -> patient report/cancel/紙fallbackへつなぐ。外部URLへpatient/friend/LIFF IDを渡さない。
+  - patient reportはpatient-reported stateだけを更新し、staff verification前に「受付完了」、shadow submission、薬局受領eventを作らない。
+  - OFF後も既存active handoffのresume/report/cancel/紙fallbackを許可し、二つ目のhandoffは作らない。
+  - **Red -> Green**: ownership、one active handoff、double tap、external failure、expiry、resume/report/cancel、OFF drain、paper fallback、staff前誤完了なしを確認する。
+
+- [x] **V029-5 電子処方箋の薬局管理画面と安全なendpoint診断**
+  - 既存`/myna`のroute/file名は変えず、表示labelを「電子処方箋受付」へ明確化する。filter、患者、申告時刻、期限、verification、`shadow_submission_id`から既存処方箋detailへのlinkを追加する。
+  - authorized same-account staff verificationだけが、受領state、shadow submission、auditを一つのatomic boundaryで作成する。二重verificationは同一結果へ収束する。
+  - network probeはMyna側にpatient-free・credential-free・side-effect-freeな文書化contractがある場合だけ実行する。契約がなければURL scheme/host allowlistのlocal validationだけを行い`UNVERIFIED`とする。
+  - probe時はuserinfo/redirect拒否、DNS解決後IPv4/IPv6 private/local拒否、短いtimeout、response body非取得、固定error、credential/log非露出を満たす。2xx/401/405/TCP到達だけで業務endpoint verifiedとしない。
+  - **Red -> Green**: staff/account guard、patient/staff境界、idempotent shadow submission、probe zero-call/SSRF matrix、成功時だけevidence更新を確認する。
+
+- [x] **V029-6 緊急避妊薬の薬局管理画面を先にqueue/detail化**
+  - 設定・薬剤師・在庫・枠・受付を「受付キュー」「対応枠・在庫」「研修修了薬剤師」「公開設定」へ分ける。account-scoped bounded paginationとstatus/slot/deadline filterを使う。
+  - 一覧はreference、operational status、slot、deadlineだけを返す。暗号化申告、性交日時、patient identity、risk flag、verification noteを返さずdecrypt関数を呼ばない。
+  - detail APIはtenant/account/intake ownership、staff role、現在有効な研修修了状態を一つのserver-side access pathで確認し、sensitive read audit成功後にだけ最小申告を復号する。audit失敗は固定503でfail closedする。
+  - status/在庫/枠更新は既存CAS・確認dialog・auditを再利用し、新しい適格性statusや販売結果を作らない。
+  - **Red -> Green**: list decrypt 0回、list field allowlist、detail trained/account/role/audit、別account、cursor/filter、race後再取得、keyboard/狭幅を確認する。
+
+- [x] **V029-7 緊急避妊薬status cardとstaff-triggered中立通知**
+  - 患者LIFFで状態、対応枠、受付期限、server-computed expiry、取消可否、次の行動を一枚にまとめる。client clockは表示だけに使い、状態変更authorityにしない。
+  - 自動LINE送信は明示staff status transition、active same-account intake、`safe_contact_mode='neutral_line'`、承認済み固定templateの全条件を満たす場合だけ許可する。null/unknown/`no_notification`/`phone`/`none`は送信しない。
+  - status更新とnotification intentは既存atomic idempotency/outbox経路を再利用する。条件を満たす既存経路がなければv0.29.0はstatus cardだけ実装し、通知を延期する。
+  - delivery失敗はintake、slot、在庫を変更せず、同じtenant/account/intake/status revision/templateは一つのidempotency keyへ収束する。時刻起点reminderは実装しない。
+  - **release boundary**: v0.29.0の必須範囲はstatus cardまでとする。既存の安全なoutbox/idempotency経路を再利用できない場合、staff-triggered通知はV030-4の前提sliceへ送り、V029-13のHuman Gate・完了条件へ含めない。
+  - **Red -> Green**: server time、owner status/cancel、CAS reload、contact mode、exact template、duplicate、delivery failure、PHI-free payload/logを確認する。
+
+- [x] **V029-8 LIFF全機能一覧をaccount設定へ連動**
+  - public `GET /api/liff/config`はserver-side LIFF account解決を再利用し、non-PHI `enabledFeatures`とcapability revisionだけを返す。0件または複数accountへ解決されるLIFF IDはfail closedし、`Cache-Control: no-store`とする。
+  - public responseへpatient history、active record、friend/patient IDを含めない。受付状況とOFF前active recordのdrain導線は、認証済みpatient/account ownership projectionから追加する。
+  - v0.29.0の表示順はserver allowlistの固定順にし、account別layoutは導入しない。static routeとlegacy page keyを維持する。
+  - disabled direct routeは中立的な利用不可説明と戻る導線を表示し、mutationはV029-3のserver guardで409拒否する。
+  - **Red -> Green**: unique LIFF resolution、no-store、public/auth分離、ONのみ表示、全OFF、active drain、direct disabled、別account、`liffId`非authorityを確認する。
+
+- [x] **V029-9 canonical非PHI readiness projectionを作る**
+  - readiness実装は一つのaccount projectionへ集約し、薬局管理画面、platform-admin、`line-status`、CLIが同じ結果を利用する。各surfaceで独自SQL/判定を作らない。
+  - 電子処方箋はcapability、endpoint configured/evidence status/checked_at、緊急避妊薬はcapability、trained pharmacist/inventory/future slotのboolean readinessを返す。
+  - active handoff/intake/open slotの件数、patient/friend ID、reference、risk、verification note、復号値、credential materialを返さない。
+  - 外部証拠は`status`、`source`、`checked_at`、freshness policyを持ち、local DBだけでupstream `READY`と判定しない。audit失敗はfail closedする。
+  - **Red -> Green**: surface parity、0件状態、stale evidence、別tenant、payload field allowlist、PHI/credential/count非露出を確認する。
+
+- [x] **V029-10 platform adminのrich-menu prepare入口を明示的に閉じる**
+  - platform-admin bearer/tenant settings contextから`/api/custom/pharmacy/rich-menus/prepare`を実行できる経路を追加しない。middlewareが通している場合はaccount data取得やLINE APIより前に固定403となるよう入口契約を揃える。
+  - rich-menu prepareは既存tenant owner/staff assignmentと`pharmacy_rich_menu` capabilityを維持する。platform adminはV029-9の非PHI readiness readだけを利用できる。
+  - PHI route allowlist、capability mutation、rich-menu prepare/publish/default authorityをplatform adminへ拡張しない。
+  - **zero-call scope**: `LINE call 0件`はconfig保存、LIFF config、health、preflight、canonical readiness、platform-admin、cron、V029で追加するbackground pathを対象とする。既存owner/staff rich-menu mutation routeをV029で拡張、自動実行、新lifecycle化しない。
+  - **Red -> Green**: platform admin 403 + LINE call 0件、別tenant 404、通常staff未割当403、owner既存契約不変を確認する。
+
+- [x] **V029-11 `line-status`と`tenant:settings --preflight`をread-only拡張**
+  - V029-9のcanonical projectionを既存`GET /api/platform-admin/tenants/:id/line-status`とCLIへ投影する。domain readiness SQLを重複実装しない。
+  - LIFF ID、LINE Login、Messaging/Login credential coverage、期待Endpoint URL、電子処方箋/緊急避妊薬readinessを`READY`/`BLOCKED`/`UNVERIFIED`で表示する。secret名・値・復号結果は返さない。
+  - v0.29.0では新しい6-slot/image/draft revision判定を追加しない。既存menuの存在と、preflightがLINE mutation 0件であることだけを確認する。
+  - CLI `--preflight --account-id`は`--apply`と併用不可、nonzero exitは対象account activationを止める。任意platform-admin pathを通す汎用CLIにしない。
+  - **Red -> Green**: projection parity、credential欠落、Endpoint `UNVERIFIED`、別tenant、secret非表示、network/JSON error、`--apply`拒否、LINE call 0件を確認する。
+
+- [x] **V029-12 focused Green後の最終code refactor**
+  - 各phaseをRed -> Green -> Refactorで完了し、最後にcapability guard、operation matrix、readiness projection、固定feature metadataの重複だけを、全callerが通る既存shared関数へ寄せる。
+  - folder/file/public route/DB tableをrenameせず、dependency追加、全体format、汎用framework、将来用interfaceを作らない。一度しか使わないwrapperと到達不能な旧branchはfocused test後に削除する。
+  - `apps/liff`、`apps/web`、`apps/worker`、`packages/db`の薬局custom seam一覧と依存図はread-only evidenceとして作り、移動候補は次版backlogへ送る。
+  - **完了条件**: behavior不変、旧internal branch/reference 0件、focused tests再green、diffがsecurity-sensitiveな変更を追跡可能な大きさに保たれる。
+
+- [ ] **V029-13 focused regression・dev受入・release準備**
+  - R1 previous reader、R2 migration、R3 capability write、R4 disable/create race、R5 drain matrix、R6 cron/notification isolation、R7/R8 Myna ownershipとpatient/staff境界、R9 endpoint probe、R10/R11 EC privacy/status、R12/R13 LIFF public/auth/drain、R14 readiness parity、R15 platform-admin/zero-LINE-callを必須contract suiteとする。
+  - focused tests、薬局custom seam回帰、typecheck、build、migration fixture、static route/deep-linkをgreenにする。既存未コミット作業を混入させずexact-path commitする。
+  - dev deploy後にPages asset marker/Worker API/CORS、canonical readiness、LINE Endpointの自動またはmanual evidenceを別々に記録する。
+  - Human Gateで実LINE端末のMyna外部遷移/復帰/紙fallback、機能ON/OFF/全OFF、active drain、disabled旧rich-menu tap、緊急避妊薬status、V029-7へ通知を同梱した場合だけ承認済み中立通知、薬局情報/FAX、右上versionを確認する。
+  - package `0.29.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.29.0`は明示指示により準備する。GitHub Release本文、dev push/main merge/deploy/activation/LINE mutationは個別の明示指示を受ける。
+  - **Oracle evidence**: session `pharmacy-v029-full-plan-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、`thinkingTime=pro`、transcript validation `ok`。判定`CHANGE`を上記順序・権限縮小・延期へ反映済み。
+  - **v0.29.0完了条件**: previous-version互換、atomic admission/drain、Myna patient/staff境界、EC detail decrypt、LIFF public/auth分離、platform-admin read-only、上記zero-call対象pathがgreen。未説明の`BLOCKED`なし。`UNVERIFIED` accountはactivationしない。
+
+#### 2026-08-21 実装レビュー・refactor証跡
+
+- V029-0〜V029-12のローカル実装を完了。V029-13はlocal regression/build/migration fixtureまで確認し、dev deploy、実LINE端末、Console manual evidence、schema apply、activation、push/merge/tag/releaseは未実施のHuman Gateとして残す。
+- 追加レビューで、処方せん画面内tabのfeature gate迂回、緊急避妊薬queueのfilter/pagination不足、無効staff assignmentを含む枠公開・受付、旧`is_enabled`からowner-only capabilityへの逆流、manual evidence日時の誤帰属、任意Myna status、migration safety parser非適合を検出し、各Red test後に共通境界で修正した。
+- 実装後Oracle review `pharmacy-v029-implementa-review`（GPT-5.6 Sol / Pro / `verified=yes`）のHigh 3・Medium 7・Low 2を再現性と版境界で照合した。Myna verification replay、terminal lifecycle、account切替race、整数capability revision、EC readiness/期限切れhold、reminder最終claim、manual chat送信直前再確認、active件数、queue表示契約を修正。既存owner向けrich-menu mutationはV029で権限拡張していないため現行契約を維持した。
+- refactorは、処方せん表示状態をURLへ一本化、Myna handoff status allowlistを型とroute validationで共有、Myna患者操作を状態遷移表へ集約、LIFF設定取得を画面内で共通化、`CASE` triggerを単一責務の条件triggerへ分割した。新規dependency、汎用flag framework、route/table/folder/file renameは追加していない。
+- local gate: LIFF `18 files / 75 tests`、Web `35 / 170`、Worker `193 / 1802`、DB `59 / 311`、scripts `15 / 139`、workspace typecheck、LIFF/Web build、migration safety `75 migrations`、bootstrap fixtureがgreen。Web buildは秘密情報を使わず`NEXT_PUBLIC_API_URL=https://worker.example`で静的生成契約だけを検証した。
+- 薬局custom seamと依存方向は次のread-only inventoryを正とし、実移動はV030へ送る。
+
+```text
+apps/liff/src/custom/pharmacy
+  -> public LIFF config + authenticated drain projection
+  -> feature gate
+  -> prescription / emergency contraception patient flows
+apps/web/src/custom/pharmacy
+  -> selected account context
+  -> admin API clients
+  -> Worker account-scoped routes
+apps/worker/src/custom/pharmacy
+  -> auth + account authorization
+  -> capability access + canonical readiness
+  -> domain repositories
+packages/db
+  -> schema + custom_NNN additive migrations
+  -> generated bootstrap artifacts
+```
+
+### V030 - 可変rich menu・scheduled reminder・repository保守性改善 - 0.30.0実装予定
+
+**位置付け**: seller release `pharmacy-v0.30.0`として実装予定。v0.29.0から明示延期したaccount別rich menu配置・画像・LINE同期、緊急避妊薬の時刻起点reminder、repository seam inventoryと条件付きfolder/file整理を対象とする。v0.29.0のatomic capability/drain、authenticated LIFF projection、canonical readiness、platform-admin read-only、zero-LINE-call contractがgreenになるまでは着手しない。
+
+**目的**: 薬局ownerが有効機能の範囲内でrich menuの配置を変更し、画像とtap actionを同じimmutable draftへ束縛して、安全なHuman GateでLINEへ反映できるようにする。緊急避妊薬はv0.29.0のstaff-triggered中立通知を土台に時刻起点reminderを追加する。repositoryは機能実装と回帰完了後にseam inventoryを作り、実移動は具体的な欠陥と別承認がある場合だけ行う。
+
+**非目標**: 任意URL/message/imageを許す汎用builder、platform adminからのLINE mutation、config保存/health/preflight/cronによるmenu mutation、AI画像生成、患者情報を含むmenu/notification、販売可否自動判定、公開API/DB tableの破壊的rename、全repo一括移動。
+
+**Oracle再レビュー反映**:
+
+| 判断 | 0.30.0での扱い |
+|---|---|
+| `KEEP` | v0.29.0を安全基盤、v0.30.0をLINE外部mutation・時刻起点notificationの版とする分割 |
+| `CHANGE` | editing stateとimmutable draftを分離し、server-derived manifestとexact image bytesを束縛 |
+| `CHANGE` | local prepare、LINE create/upload、set-default、explicit rollbackを別gate化 |
+| `CHANGE` | reminderを独立activationとし、安定したoccurrence key・timezone・catch-up policyを固定 |
+| `DEFER` | 実際のfolder/file moveは既定で先送りし、v0.30.0必須範囲はseam inventoryまで |
+| `DEFER` | 未使用のper-user link/unlink/bulk、自動remote menu削除、複数reminder、自由文通知 |
+
+- [ ] **V030-0 v0.29.0前提証拠と0.30.0 Red contractを固定**
+  - v0.29.0のcapability revision、atomic admission/drain、LIFF public/auth分離、canonical readiness、platform-admin denial、notification outbox/idempotencyのgreen証拠を確認する。
+  - frozen v0.29 Worker/reader/dispatcherがv0.30のadditive draft dataと新reminder kindを安全に無視し、LINE mutation・通知送信を行わないことを固定する。greenにできなければ先行expand releaseまたはrollback中のmutation/send freezeを必須にする。
+  - V029-7がstatus cardだけで完了した場合は、既存方式を再利用したstaff-triggered通知contractをschedulerより先に独立sliceでgreenにする。最初のdelivery pathと時刻schedulerを同時導入しない。
+  - 現行repositoryでper-user rich-menu link/unlink/bulkを使うか、account-scoped activation controlが存在するかを証拠化する。未使用のper-user操作は対象外とし、activation controlがなければ新挙動をdormantに保つ。
+  - 現行fixed rich menu、既存published/default identity、R2 image ownership、tenant owner/staff assignment、旧menu rollback候補をfixtureで固定する。
+  - stale capability/layout/LIFF revision、cross-tenant/account、画像/action差替え、confirmation再利用、LINE partial failure、reminder二重実行をRed testで再現する。rename後旧importはV030-5のmoveが別承認された場合だけ対象にする。
+  - **受入条件**: v0.30.0のbase commit、対象account、外部mutation境界、rollback対象、前提testが追跡できる。
+
+- [ ] **V030-1 account別menu layoutとimmutable draft**
+  - 固定「すべての機能」枠を予約し、最大5枠だけをownerが並べ替える。direct slotに出ない有効機能は必ず全機能画面から到達可能にする。
+  - capabilityはauthorization、layoutはpresentationとして分離し、account-scoped additive schemaへallowlist slot、layout revision、capability revision、LIFF config revisionを保存する。
+  - 編集中layout、preview、未保存状態をimmutable draftと呼ばない。serverがcurrent revisionsを再取得し、固定allowlist metadataからcanonical action manifestを生成し、exact image bytesのSHA-256を計算し、server-generatedかつ同一key上書き不可のR2 objectを確認した後に一度だけdraftを作る。
+  - client-supplied URL/action/hash/object key/LINE richMenuIdをauthorityにしない。draft row・manifest・hash・object bindingの更新APIは作らず、変更は新draft IDと新object keyにする。R2成功後のDB失敗objectはpublish不可・再利用不可とし、GCはrelease条件にしない。
+  - additive schemaはmixed-version safeとし、code deploy時点ではdraft 0件・新mutation path inactiveにする。code rollbackのためのdown migrationやremote LINE変更を要求しない。
+  - effective slotsはstored allowlistとcurrent enabled capabilitiesの積集合とし、capability変更後の旧draftをprepare/create/upload/set-defaultできない。
+  - **Red -> Green**: fixed fallback、重複/未知/disabled/6件目拒否、stale revision、cross-account、immutable hash/objectを確認する。
+
+- [ ] **V030-2 薬局管理画面の配置編集・画像/action preview**
+  - owner向けに5枠の並べ替え、空枠、固定fallbackを表示し、dragだけでなく上下左右buttonとkeyboardで操作できるようにする。44px target、狭幅、未保存変更、account切替を扱う。
+  - 2500x1686の既存3x2座標とallowlist label/iconを再利用する。browser Canvas等で生成した画像はaction manifestと同じdraftへhash-bindするが、pixel上の意味一致を自動証明済みとは呼ばない。
+  - previewはserver-stored exact image bytesとtap overlayを重ね、draft ID、server-computed image hash、server-derived manifest hashを一つのconfirmationへ束縛する。bytesまたはmanifest変更時は新draft・新confirmationを要求し、generic editorの任意URL/message/image authorityを公開しない。
+  - 44px targetとkeyboard操作に加え、programmatic name/position/state、reorder後のfocus、保存・CAS conflict・validation errorのscreen-reader通知を備え、drag・色・位置だけへ依存しない。
+  - **Red -> Green**: layout操作、accessibility、画像寸法/type/size、draft freeze後のbyte/hash/object mismatch、未confirm upload、preview overlay、別accountを確認する。
+
+- [ ] **V030-3 local prepare・LINE create/upload・set-default・rollbackを分離**
+  - `prepare`はlocal-onlyとし、tenant/account/current revisions、immutable draft、exact preview confirmationを検証して期限付きoperation confirmationを発行する。LINE callは0件とする。
+  - `create/upload`は一つの明示LINE mutation gateとする。最初のLINE call前にlocal intentを保存し、remote richMenuIdは次のexternal call前に保存する。exact image bytesだけをuploadし、結果不明時は`UNVERIFIED`で停止してblind retryしない。
+  - account-wide反映は独立した`set-default`とする。fresh remote default、expected current default、target remote ID、draft/current revisionsを確認し、成功後のread-back一致でだけverified evidenceを更新する。per-user操作はV030-0で現行必須と確認された場合だけ別gateとして計画する。
+  - rollbackはprevious known-good remote IDをfresh expected stateと新confirmationでdefaultへ戻す独立mutationとする。code/schema rollbackやaccount deactivationから推論せず、旧menuを自動clear/deleteしない。
+  - 新lifecycle activation後、既存rich-menu mutation routeは同じlifecycleへdelegateするか最初のLINE call前に固定409とし、迂回路を残さない。v0.29へcode rollbackする前に新lifecycle/reminderをdeactivateしてmutationをfreezeし、remote defaultは維持する。
+  - canonical readinessへdraft freshness、upload evidence、current/expected default一致、checked_at、`UNVERIFIED`を集約する。config保存、health、preflight、cronはLINE mutation・暗黙refreshを行わない。
+  - **Red -> Green**: local prepare zero-call、client remote ID/credential拒否、create/upload/defaultの結果不明、read-back不一致、confirmation再利用、legacy bypass、cross-account remote ID、code rollback freeze、explicit rollbackを確認する。
+
+- [ ] **V030-4 緊急避妊薬の時刻起点中立reminder**
+  - rich menuとは独立したaccount activation sliceとし、v0.29.0のstaff-triggered通知と既存outbox/idempotencyを再利用する。V029-7がstatus cardのみならV030-0の通知baselineを先にgreenにし、新しいscheduler frameworkは作らない。
+  - v0.30は承認済みの1 reminder kindに限定し、既存server-owned anchor、offset、account timezone（未設定時`Asia/Tokyo`）、quiet hours、late/catch-up policyを実装前に固定する。quiet hours後もactionableかつdeadline前だけ延期し、期限後はsuppressする。
+  - unique occurrence keyはtenant/account/intake/reminder kind/anchor timestampまたは既存schedule revisionへ束縛し、無関係なstatus/template revisionをdedupe dimensionにしない。atomic insert/claimで同時cron・retry・replayを一件へ収束させる。
+  - deploy時は全accountでgeneration OFFとし、既存account-scoped activationで明示ONにする。activation mechanismがなければdormantのまま`BLOCKED`とする。dispatch直前にcapability、contact mode、intake state、anchor、deadline、approved templateを再確認する。
+  - 薬名、性交、妊娠、年齢、reference、患者名、詳細時刻を本文/log/analyticsへ含めない。OFF/cancel/expire/complete後は送らない。
+  - raw outbox/idempotency keyもlog/analyticsへ出さず、失敗はintake/slot/inventoryを変更しない。1 accountの失敗で他account batchを止めない。
+  - **Red -> Green**: concurrent scheduler、unrelated status change後の非再送、anchor変更、quiet-hours延期、deadline後suppress、disable/cancel race、rollback時pending無効化、frozen v0.29 zero-send、PHI-free、multi-account isolationを確認する。
+
+- [ ] **V030-5 repository seam inventory・conditional move**
+  - v0.30.0の必須範囲は、V030-1〜4のgreen後に`apps/liff`、`apps/web`、`apps/worker`、`packages/db`の薬局custom seam、caller、public route、migration/test ownershipをread-only一覧化するところまでとする。
+  - actual `git mv`は既定`DEFER`とする。責務不一致・重複ownershipが具体的な保守/安全上の欠陥を生むと証明され、別Human Gateで承認されたexact pathだけを独立commitで移動できる。未承認ならno-moveでv0.30.0を完了する。
+  - move時も`myna/`現配置を第一候補とし、公開URL/API/DB table/migration ordering/runtime ownershipは維持する。domainごとの小さい`git mv`とreference更新だけに限定し、generated/local state/user-owned untracked file、dependency追加、全体format、将来用abstractionを混ぜない。
+  - **conditional Red -> Green -> Refactor**: moveを承認した場合だけ移動前behavior、旧reference 0件、focused test、custom seam回帰を確認する。
+
+- [ ] **V030-6 regression・dev受入・release準備**
+  - rich menu draft/layout/image/action/LINE lifecycle、scheduled reminderのfocused testsと薬局custom seam全体、typecheck、build、migration fixtureをgreenにする。repository move回帰はV030-5を別承認した場合だけ必須にする。
+  - schema apply、code deploy、account activation、LINE candidate create/upload、set-default、rollbackは独立Human Gateとし、一つの承認から他を推論しない。deployだけでは全accountの新lifecycle/reminderをinactiveに保つ。
+  - LINE mutation evidenceへactor、tenant/account、draft/revisions/hashes、expected current default、target remote ID、confirmation expiry、API result、post-mutation read-backを記録し、secret・credential・patient identifierを含めない。
+  - 実LINE端末でcandidate upload後のdefault不変、全配置tap、画像/action一致、per-user override有無、disabled/全機能fallback、旧menu rollbackとread-back、reminder文面/lock-screen/時刻/取消をsynthetic accountで確認する。
+  - code rollbackでは新activationを先に停止し、remote defaultを変えず、pending reminderを送らず、reconcile前にlegacy mutationを実行しないことを確認する。
+  - package `0.30.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.30.0`、GitHub Release本文は全gate後に揃える。dev push/main merge/tag/deploy/account activation/LINE mutationは個別の明示指示を受ける。
+  - **Oracle evidence**: session `pharmacy-v029-v030-split-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、`thinkingTime=pro`、transcript validation `ok`。判定`CHANGE`をdraft確定点、LINE lifecycle、reminder occurrence、activation、conditional moveへ反映済み。
+
 ### LIFF-MENU - メインメニュー階層 + 6分割リッチメニュー - 2026-08-20 実装計画
 
 **目的**: 薬局LIFFに `/pharmacy/menu` のメインメニュー階層を追加し、患者向け薬局機能を1画面から直接開けるようにする。新規アカウントの初期リッチメニューは2500x1686の6分割へ変更し、低頻度・入力前提の「処方せん事前送信」「患者アンケート」はリッチメニュー直下から外してメインメニュー内のdirect URLへ移す。既存配信済みLIFF URLと旧3分割profileは壊さず、新profileを加算する。

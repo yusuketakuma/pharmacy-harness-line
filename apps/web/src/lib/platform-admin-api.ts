@@ -337,7 +337,19 @@ export type PlatformLineStatus = {
   isActive: boolean
   hasBotIdentity: boolean
   hasEncryptedCredential: boolean
+  liffIdConfigured: boolean
+  loginChannelConfigured: boolean
+  messagingCredentialsReady: boolean
+  loginCredentialReady: boolean
+  expectedLiffEndpoint: string | null
+  liffEndpointEvidence: { status: 'UNVERIFIED'; source: 'manual_console'; checkedAt: string | null }
   lastWebhookReceivedAt: string | null
+  readiness: {
+    accountId: string
+    checkedAt: string
+    electronicPrescription: { status: 'READY' | 'BLOCKED' | 'UNVERIFIED' }
+    emergencyContraception: { status: 'READY' | 'BLOCKED' }
+  } | null
 }
 
 /** A failed probe is a normal diagnostic result, so it arrives at HTTP 200. */

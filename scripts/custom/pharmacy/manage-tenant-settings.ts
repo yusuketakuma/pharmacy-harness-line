@@ -47,6 +47,7 @@ Options:
   --method GET|POST|PUT|PATCH|DELETE (default: GET)
   --input FILE
   --content-type TYPE (default: application/json)
+  --preflight --account-id LINE_ACCOUNT_ID (read-only activation check)
   --apply (required to send a mutation)
   --help
 
@@ -85,12 +86,17 @@ function readStoredCredential(service: string): string | undefined {
 function parseArgs(argv: string[]) {
   const values: Record<string, string> = {};
   let apply = false;
+  let preflight = false;
   let help = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') continue;
     if (argument === '--apply') {
       apply = true;
+      continue;
+    }
+    if (argument === '--preflight') {
+      preflight = true;
       continue;
     }
     if (argument === '--help' || argument === '-h') {
@@ -105,7 +111,7 @@ function parseArgs(argv: string[]) {
     values[argument.slice(2)] = value;
     index += 1;
   }
-  return { values, apply, help };
+  return { values, apply, preflight, help };
 }
 
 function required(values: Record<string, string>, key: string): string {
@@ -208,6 +214,64 @@ export async function runTenantSettings(
     const tenantId = required(parsed.values, 'tenant-id');
     if (!/^[A-Za-z0-9_:-]{1,128}$/u.test(tenantId)) throw new Error('--tenant-id is invalid');
     const workerUrl = required(parsed.values, 'worker-url');
+    if (parsed.preflight) {
+      if (parsed.apply) throw new Error('--preflight cannot be combined with --apply');
+      if (parsed.values.method || parsed.values.path || parsed.values.input ||
+          parsed.values['content-type'] || parsed.values['rich-menu-default']) {
+        throw new Error('--preflight cannot be combined with request or mutation options');
+      }
+      const accountId = required(parsed.values, 'account-id');
+      if (!/^[A-Za-z0-9_-]{1,128}$/u.test(accountId)) throw new Error('--account-id is invalid');
+      const url = new URL(
+        `/api/platform-admin/tenants/${encodeURIComponent(tenantId)}/line-status`,
+        endpoint(workerUrl, '/api/settings').origin,
+      );
+      return withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
+        const response = await fetcher(url.toString(), {
+          method: 'GET', redirect: 'error', signal: AbortSignal.timeout(60_000),
+          headers: { Cookie: session.cookie },
+        });
+        const payload = await response.json().catch(() => null) as {
+          success?: boolean;
+          data?: Array<{
+            id?: unknown;
+            liffIdConfigured?: unknown;
+            loginChannelConfigured?: unknown;
+            messagingCredentialsReady?: unknown;
+            loginCredentialReady?: unknown;
+            expectedLiffEndpoint?: unknown;
+            liffEndpointEvidence?: { status?: unknown };
+            readiness?: {
+              electronicPrescription?: { status?: unknown; capabilityEnabled?: unknown };
+              emergencyContraception?: { status?: unknown; capabilityEnabled?: unknown };
+            } | null;
+          }>;
+        } | null;
+        const account = payload?.data?.find((candidate) => candidate.id === accountId);
+        if (!response.ok || !payload?.success || !account) {
+          write(response.ok ? 'Preflight account was not found.' : `Request failed (${response.status}).`);
+          return 1;
+        }
+        const blocked = account.liffIdConfigured !== true || account.loginChannelConfigured !== true ||
+          account.messagingCredentialsReady !== true || account.loginCredentialReady !== true ||
+          (account.readiness?.electronicPrescription?.capabilityEnabled === true &&
+            account.readiness.electronicPrescription.status === 'BLOCKED') ||
+          (account.readiness?.emergencyContraception?.capabilityEnabled === true &&
+            account.readiness.emergencyContraception.status === 'BLOCKED');
+        const unverified = account.liffEndpointEvidence?.status !== 'READY' ||
+          (account.readiness?.electronicPrescription?.capabilityEnabled === true &&
+            account.readiness.electronicPrescription.status === 'UNVERIFIED');
+        write(JSON.stringify({
+          accountId,
+          status: blocked ? 'BLOCKED' : unverified ? 'UNVERIFIED' : 'READY',
+          expectedLiffEndpoint: account.expectedLiffEndpoint,
+          liffEndpointEvidence: account.liffEndpointEvidence,
+          electronicPrescription: account.readiness?.electronicPrescription,
+          emergencyContraception: account.readiness?.emergencyContraception,
+        }, null, 2));
+        return blocked || unverified ? 1 : 0;
+      });
+    }
     const richMenuDefault = parsed.values['rich-menu-default']?.trim();
     if (richMenuDefault) {
       if (!/^[A-Za-z0-9_-]{1,128}$/u.test(richMenuDefault)) {

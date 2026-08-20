@@ -54,6 +54,6 @@ describe('patient medication follow-up page', () => {
   it('is mounted under the pharmacy custom seam', () => {
     const app = readFileSync(new URL('../../../App.tsx', import.meta.url), 'utf8');
     expect(app).toContain("import MedicationFollowUpPage from './custom/pharmacy/medication-followup/MedicationFollowUpPage.js'; // custom:pharmacy-medication-followup");
-    expect(app).toContain('<Route path="/pharmacy/medication-followup" element={<MedicationFollowUpPage />} /> {/* custom:pharmacy-medication-followup */}');
+    expect(app).toContain('<Route path="/pharmacy/medication-followup" element={<PharmacyFeatureGate capability="medication_followup" allowExisting><MedicationFollowUpPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-medication-followup */}');
   });
 });

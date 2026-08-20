@@ -94,6 +94,13 @@ export async function processDuePrescriptionValidityReminders(
              WHERE s.id = pharmacy_prescription_validities.submission_id
                AND s.line_account_id = pharmacy_prescription_validities.line_account_id
                AND s.status = 'ready'
+          )
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities capability
+             WHERE capability.line_account_id = pharmacy_prescription_validities.line_account_id
+               AND capability.mode = 'pharmacy'
+               AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                            WHERE value = 'prescription_intake')
           )`,
     ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, staleClaim, today).run();
     if ((claim.meta?.changes ?? 0) !== 1) {

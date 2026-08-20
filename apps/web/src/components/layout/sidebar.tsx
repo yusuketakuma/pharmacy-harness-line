@@ -22,6 +22,7 @@ const menuSections = [
     label: '薬局機能',
     pharmacyOnly: true,
     items: [
+      { href: '/pharmacy-features', label: '機能設定', icon: 'M12 6V3m0 18v-3m6-6h3M3 12h3m10.243-4.243 2.121-2.121M5.636 18.364l2.121-2.121m8.486 0 2.121 2.121M5.636 5.636l2.121 2.121' }, // custom:pharmacy-feature-settings
       { href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
       { href: '/pharmacy-info', label: '患者向け薬局情報', icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
       { href: '/emergency-contraception', label: '緊急避妊薬', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception

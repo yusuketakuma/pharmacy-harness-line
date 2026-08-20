@@ -26,6 +26,7 @@ function fakeDb(rows: {
   handoff?: Record<string, unknown> | null;
   expectation?: Record<string, unknown> | null;
   latestVerification?: Record<string, unknown> | null;
+  batchChanges?: number[];
 }) {
   const calls: Array<{ sql: string; values: unknown[] }> = [];
   const prepare = vi.fn((sql: string) => ({
@@ -51,7 +52,10 @@ function fakeDb(rows: {
     prepare,
     batch: async (statements: unknown[]) => {
       calls.push({ sql: `BATCH ${statements.length}`, values: [] });
-      return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+      return statements.map((_statement, index) => ({
+        success: true,
+        meta: { changes: rows.batchChanges?.[index] ?? 1 },
+      }));
     },
   } as unknown as D1Database;
   return { db, calls };
@@ -66,13 +70,23 @@ const handoff = {
 };
 
 describe('Myna handoff repository', () => {
+  it('checks the method capability in the atomic handoff insert', async () => {
+    const { db, calls } = fakeDb({ batchChanges: [0, 0, 0] });
+    await expect(createMynaHandoff(db, {
+      lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION',
+      source: 'LIFF', correlationId: 'correlation-1', expiresAt: '2099-08-18T09:00:00.000Z',
+    })).rejects.toThrow('FEATURE_DISABLED');
+    expect(calls.some((call) => call.sql === 'BATCH 3')).toBe(true);
+  });
+
   it('finds an active electronic handoff by both account and LINE owner', async () => {
     const { db, calls } = fakeDb({ handoff: { ...handoff, status: 'LAUNCH_REQUESTED' } });
     await expect(getActivePatientMynaHandoff(db, 'account-1', 'friend-1'))
       .resolves.toMatchObject({ id: 'handoff-1' });
     const lookup = calls.find((call) => call.sql.includes('ORDER BY created_at DESC'));
     expect(lookup?.sql).toContain('line_account_id = ? AND friend_id = ?');
-    expect(lookup?.sql).toContain("status IN ('CREATED','LAUNCH_REQUESTED')");
+    expect(lookup?.sql).toContain("'PATIENT_REPORTED_COMPLETE'");
+    expect(lookup?.sql).toContain("'SUPPORT_NEEDED'");
     expect(lookup?.values.slice(0, 2)).toEqual(['account-1', 'friend-1']);
   });
 
@@ -176,13 +190,13 @@ const HANDOFF_SCHEMA = `
 function handoffDb() {
   const sqlite = new Sqlite(':memory:');
   sqlite.exec(HANDOFF_SCHEMA);
-  const insert = (id: string, patientId: string, createdAt: string, expiresAt: string) =>
+  const insert = (id: string, patientId: string, createdAt: string, expiresAt: string, status = 'CREATED') =>
     sqlite.prepare(
       `INSERT INTO pharmacy_myna_handoffs
          (id, line_account_id, friend_id, patient_id, expectation_id, method, status,
           source, correlation_id, expires_at, created_at, updated_at)
-       VALUES (?, 'account-1', 'friend-1', ?, NULL, 'PAPER', 'CREATED', 'LIFF', ?, ?, ?, ?)`,
-    ).run(id, patientId, `correlation-${id}`, expiresAt, createdAt, createdAt);
+       VALUES (?, 'account-1', 'friend-1', ?, NULL, 'PAPER', ?, 'LIFF', ?, ?, ?, ?)`,
+    ).run(id, patientId, status, `correlation-${id}`, expiresAt, createdAt, createdAt);
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...next: unknown[]) => statement(sql, next),
     first: async () => sqlite.prepare(sql).get(...values) ?? null,
@@ -228,6 +242,18 @@ describe('listMynaHandoffs', () => {
       fake.close();
     }
   });
+
+  it('does not overwrite paper fallback or abandoned terminal reasons with expiry', async () => {
+    const fake = handoffDb();
+    try {
+      fake.insert('paper', 'patient-x', '2020-01-01T00:00:00.000Z', '2020-01-02T00:00:00.000Z', 'PAPER_FALLBACK');
+      fake.insert('abandoned', 'patient-x', '2020-01-02T00:00:00.000Z', '2020-01-03T00:00:00.000Z', 'ABANDONED');
+      const rows = await listMynaHandoffs(fake.db, 'account-1', undefined, 'patient-x');
+      expect(rows.map((row) => row.status)).toEqual(['ABANDONED', 'PAPER_FALLBACK']);
+    } finally {
+      fake.close();
+    }
+  });
 });
 
 // Real trigger enforcement, not the hand-rolled fakeDb() above: routes.test.ts
@@ -235,6 +261,9 @@ describe('listMynaHandoffs', () => {
 // D1Database, so this is the only place the pharmacy_myna_handoffs_expectation_
 // scope_insert trigger (custom_022_pharmacy_tenant_integrity.sql) is exercised.
 const CREATE_HANDOFF_SCHEMA = `
+  CREATE TABLE pharmacy_account_capabilities (
+    line_account_id TEXT PRIMARY KEY, mode TEXT NOT NULL, capabilities_json TEXT NOT NULL
+  );
   CREATE TABLE pharmacy_myna_handoffs (
     id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, friend_id TEXT NOT NULL,
     patient_id TEXT, expectation_id TEXT, method TEXT NOT NULL, status TEXT NOT NULL,
@@ -270,6 +299,9 @@ const CREATE_HANDOFF_SCHEMA = `
 function createHandoffDb() {
   const sqlite = new Sqlite(':memory:');
   sqlite.exec(CREATE_HANDOFF_SCHEMA);
+  sqlite.prepare(`INSERT INTO pharmacy_account_capabilities
+    (line_account_id, mode, capabilities_json)
+    VALUES ('account-1', 'pharmacy', '["prescription_intake"]')`).run();
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...next: unknown[]) => statement(sql, next),
     first: async () => sqlite.prepare(sql).get(...values) ?? null,
