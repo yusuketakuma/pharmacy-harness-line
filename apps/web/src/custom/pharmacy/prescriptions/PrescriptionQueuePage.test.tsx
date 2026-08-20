@@ -9,6 +9,7 @@ import {
 import {
   actionConfirmationMessage,
   actionNotice,
+  loadPrescriptionImage,
   prescriptionActionError,
   shouldConfirmAction,
 } from './PrescriptionQueuePage.js'
@@ -222,12 +223,37 @@ describe('prescription admin UI contract', () => {
     expect(page).toContain('再印刷できます')
   })
 
+  it('ignores a stale image request rejection once a newer request has already won', async () => {
+    // Request A (image 1) is issued first, is slow, and eventually rejects.
+    // Request B (image 2) is issued afterwards, is fast, and resolves first.
+    // A's late rejection must not clobber the already-applied result of B.
+    const latestRequestId = { current: 0 }
+    let rejectA: (error: unknown) => void = () => undefined
+    let resolveB: (blob: Blob) => void = () => undefined
+
+    const requestIdA = ++latestRequestId.current
+    const fetchA = () => new Promise<Blob>((_resolve, reject) => { rejectA = reject })
+    const resultA = loadPrescriptionImage(fetchA, requestIdA, latestRequestId)
+
+    const requestIdB = ++latestRequestId.current
+    const blobB = new Blob(['image-b'])
+    const fetchB = () => new Promise<Blob>((resolve) => { resolveB = resolve })
+    const resultB = loadPrescriptionImage(fetchB, requestIdB, latestRequestId)
+
+    resolveB(blobB)
+    await expect(resultB).resolves.toBe(blobB)
+
+    rejectA(new Error('network error'))
+    await expect(resultA).resolves.toBeNull()
+  })
+
   it('shows action and image failures beside the open prescription detail', () => {
     const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
     const detail = readFileSync(new URL('./PrescriptionDetailPanel.tsx', import.meta.url), 'utf8')
 
     expect(page).toContain('actionError={error}')
     expect(detail).toContain('actionError && <p role="alert"')
+    expect(page).toContain('await loadPrescriptionImage(')
   })
 
 })

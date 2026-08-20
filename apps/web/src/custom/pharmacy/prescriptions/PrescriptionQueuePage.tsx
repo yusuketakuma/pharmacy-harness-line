@@ -61,6 +61,24 @@ export function prescriptionActionError(error: unknown): string {
   return '状態を更新できませんでした。'
 }
 
+// Resolves to the fetched blob only if this request is still the latest one
+// in flight; resolves to null (never throws) if a newer request superseded
+// it, whether this request succeeded or failed. A genuine failure of the
+// still-latest request rethrows so the caller can surface it.
+export async function loadPrescriptionImage(
+  fetchImage: () => Promise<Blob>,
+  requestId: number,
+  latestRequestId: { current: number },
+): Promise<Blob | null> {
+  try {
+    const blob = await fetchImage()
+    return requestId === latestRequestId.current ? blob : null
+  } catch (error) {
+    if (requestId !== latestRequestId.current) return null
+    throw error
+  }
+}
+
 export default function PrescriptionQueuePage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const [items, setItems] = useState<PrescriptionQueueItem[]>([])
@@ -184,9 +202,14 @@ export default function PrescriptionQueuePage() {
   const openImage = useCallback(async (file: PrescriptionFile, index: number) => {
     if (!selectedAccountId || !detail) return
     const requestId = ++imageRequestRef.current
+    setError('')
     try {
-      const blob = await prescriptionAdminApi.image(selectedAccountId, detail.submission.id, file.id)
-      if (requestId !== imageRequestRef.current) return
+      const blob = await loadPrescriptionImage(
+        () => prescriptionAdminApi.image(selectedAccountId, detail.submission.id, file.id),
+        requestId,
+        imageRequestRef,
+      )
+      if (!blob) return
       const url = URL.createObjectURL(blob)
       setViewer((current) => {
         if (current) URL.revokeObjectURL(current.url)
