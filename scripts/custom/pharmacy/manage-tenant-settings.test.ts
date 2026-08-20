@@ -197,7 +197,7 @@ describe('tenant settings CLI', () => {
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
-      [...baseArgs, '--rich-menu-default', 'group-a', '--apply'],
+      [...baseArgs, '--account-id', 'account-a', '--rich-menu-default', 'group-a', '--apply'],
       environment,
       fetcher,
       async () => Buffer.alloc(0),
@@ -207,7 +207,7 @@ describe('tenant settings CLI', () => {
     expect(exitCode).toBe(0);
     expect(fetcher).toHaveBeenCalledTimes(4);
     for (const [url, init] of fetcher.mock.calls.slice(1, 3)) {
-      expect(url).toBe('https://api.example.test/api/rich-menu-groups/group-a/apply-to-tag');
+      expect(url).toBe('https://api.example.test/api/rich-menu-groups/group-a/apply-to-tag?accountId=account-a');
       expect(init).toMatchObject({ method: 'POST' });
       expect(init?.headers).toMatchObject({
         Authorization: `Bearer ${platformSession}`,
@@ -230,7 +230,7 @@ describe('tenant settings CLI', () => {
     const fetcher = vi.fn<typeof fetch>();
 
     const exitCode = await runTenantSettings(
-      [...baseArgs, '--rich-menu-default', 'group-a'],
+      [...baseArgs, '--account-id', 'account-a', '--rich-menu-default', 'group-a'],
       environment,
       fetcher,
       async () => Buffer.alloc(0),
@@ -253,7 +253,7 @@ describe('tenant settings CLI', () => {
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
-      [...baseArgs, '--rich-menu-default', 'group-a', '--apply'],
+      [...baseArgs, '--account-id', 'account-a', '--rich-menu-default', 'group-a', '--apply'],
       environment,
       fetcher,
       async () => Buffer.alloc(0),
