@@ -48,16 +48,20 @@ vi.mock('../operations-access.js', () => ({
 
 import { pharmacyIntakeRoutes } from './routes.js';
 
-const env = { DB: {} as D1Database };
+const env = {
+  DB: {} as D1Database,
+  PHARMACY_PHI_KEY_V1: 'synthetic-pharmacy-phi-root-secret-v1',
+};
 const owner = { lineAccountId: 'account-1', friendId: 'friend-1' };
 
 function adminApp() {
   const app = new Hono<{
-    Bindings: { DB: D1Database };
-    Variables: { staff: { id: string; name: string; role: 'admin' } };
+    Bindings: { DB: D1Database; PHARMACY_PHI_KEY_V1?: string };
+    Variables: { staff: { id: string; name: string; role: 'admin' }; tenantId: string };
   }>();
   app.use('*', async (c, next) => {
     c.set('staff', { id: 'staff-1', name: 'Staff', role: 'admin' });
+    c.set('tenantId', 'tenant-1');
     await next();
   });
   app.route('/', pharmacyIntakeRoutes);
@@ -66,7 +70,9 @@ function adminApp() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.verify.mockResolvedValue({ lineUserId: 'U1', loginChannelId: 'login-1' });
+  mocks.verify.mockResolvedValue({
+    lineUserId: 'U1', loginChannelId: 'login-1', tenantId: 'tenant-1', lineAccountId: 'account-1',
+  });
   mocks.resolvePatient.mockResolvedValue(owner);
   mocks.listPatients.mockResolvedValue([{ id: 'patient-1', relationship: 'self' }]);
   mocks.listAdminPatients.mockResolvedValue([{ id: 'patient-1', relationship: 'self' }]);
@@ -143,7 +149,18 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(response.status).toBe(201);
     expect(mocks.createIntake).toHaveBeenCalledWith(
       env.DB, owner, 'patient-1', body,
+      { tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1 },
     );
+  });
+
+  it('fails before intake storage when the PHI key is unavailable', async () => {
+    const response = await pharmacyIntakeRoutes.request(
+      '/api/liff/pharmacy/patients/patient-1/intake?liffId=liff-1',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: '{}' },
+      { DB: env.DB },
+    );
+    expect(response.status).toBe(503);
+    expect(mocks.createIntake).not.toHaveBeenCalled();
   });
 
   it('updates a patient profile with an expected version', async () => {
@@ -198,7 +215,9 @@ describe('admin pharmacy patient routes', () => {
       '/api/custom/pharmacy/patients/patient-1/history?line_account_id=account-1', {}, env,
     );
     expect(response.status).toBe(200);
-    expect(mocks.history).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1');
+    expect(mocks.history).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1', {
+      tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1,
+    });
   });
 
   it('denies a staff member attempting another account history', async () => {
@@ -220,7 +239,9 @@ describe('admin pharmacy patient routes', () => {
     expect(payload.intake).toMatchObject({ answers: { allergiesStatus: 'none' } });
     expect(payload.intake).not.toHaveProperty('patient_snapshot_json');
     expect(payload.intake).not.toHaveProperty('idempotency_key');
-    expect(mocks.getLatestAdminIntake).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1');
+    expect(mocks.getLatestAdminIntake).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1', {
+      tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1,
+    });
   });
 
   it('fails closed when the patient-intake capability is disabled', async () => {

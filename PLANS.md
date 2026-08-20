@@ -2,19 +2,162 @@
 
 ## Active
 
+### LIFF-MENU - メインメニュー階層 + 6分割リッチメニュー - 2026-08-20 実装計画
+
+**目的**: 薬局LIFFに `/pharmacy/menu` のメインメニュー階層を追加し、患者向け薬局機能を1画面から直接開けるようにする。新規アカウントの初期リッチメニューは2500x1686の6分割へ変更し、低頻度・入力前提の「処方せん事前送信」「患者アンケート」はリッチメニュー直下から外してメインメニュー内のdirect URLへ移す。既存配信済みLIFF URLと旧3分割profileは壊さず、新profileを加算する。
+
+**6分割の選定**: 日常的な確認・相談を上位に置き、入力負荷・センシティブ性が高い機能は「すべての機能」内へ集約する。
+
+| 位置 | ラベル | action | 遷移先/送信内容 |
+|---|---|---|---|
+| 左上 | お薬を受け取る | URI | `page=pharmacy-receive` -> `/pharmacy/receive` |
+| 中上 | 受付状況 | URI | `page=pharmacy-prescription-history` -> `/prescriptions?view=history` |
+| 右上 | 服薬後フォロー | URI | `page=pharmacy-followup` -> `/pharmacy/medication-followup` |
+| 左下 | 薬局へ相談 | message | 固定文言 `薬局へ相談`。自由入力・PHIをaction dataへ入れない |
+| 中下 | 薬局情報 | URI | `page=pharmacy-info` -> `/pharmacy/info`。薬局名・営業時間・Google Maps等を表示 |
+| 右下 | すべての機能 | URI | `page=pharmacy-menu` -> `/pharmacy/menu` |
+
+- [x] **LIFF-MENU-0 現行導線・対象機能・互換境界を固定**
+  - 「全機能」は現行 `App.tsx` に実装済みの患者向け薬局画面とし、処方せん事前送信、受付履歴、患者情報・アンケート、お薬を受け取る、継続フォロー、服薬後フォロー、緊急避妊薬、薬局情報、薬局への相談を対象にする。booking/event/affiliate/webinar等のgeneric LIFFは混在させない。
+  - 既存 `/prescriptions`、`/pharmacy/*` routeと旧`page=pharmacy-*` URLは維持する。queryの`liffId`・`followUpId`・`submissionId`を落とさず、query parameterをtenant authorityにしない。
+  - **受入条件**: 上記mappingと全direct URLがsource/testで一意に対応し、旧URL互換とserver-side account authorizationを維持する。
+
+- [x] **LIFF-MENU-1 メインメニュー画面とdirect URL**
+  - `custom/pharmacy/menu` に最小のデータ定義と画面を追加する。カード全体を44px以上のリンクにし、見出し・短い説明・状態に依存しないアイコンを持たせる。画面内にセンシティブな患者状態やAPI取得結果は表示しない。
+  - 処方せん画面は `view=send|history` をallowlistで解釈し、事前送信と受付状況を別direct URLとして開けるようにする。不正値は既存の`send`へ安全にfallbackする。
+  - 薬局への相談はLIFFの`sendMessages()`で固定文言だけを送る確認付きbuttonとし、失敗時は画面内エラー、成功後は重複送信を防ぐ。message送信を使えない外部browserでは説明を返す。
+  - **Red -> Green**: 全カード、direct `view`、`liffId`保持、相談confirm/error/busy、semantic heading/link/button、未知route 404を先にtestで固定する。
+
+- [x] **LIFF-MENU-2 legacy query routingを加算**
+  - `pharmacy-menu` と `pharmacy-prescription-history` を `PHARMACY_LEGACY_PAGE_TARGETS` に追加する。既存keyは変更・削除しない。
+  - rootのgeneric `page=null -> /booking` は後方互換のため維持し、薬局トップは明示的な `/pharmacy/menu` / `page=pharmacy-menu` とする。
+  - **Red -> Green**: 新旧page key、query保持、unknown pageの安全fallbackを`legacy-route.test.ts`で確認する。
+
+- [x] **LIFF-MENU-3 account-scoped薬局情報の保存・管理・患者表示**
+  - 加算migration `custom_039_pharmacy_public_profile.sql` で `pharmacy_public_profiles` を作る。`line_account_id`をPK/FKとし、薬局名、電話番号、郵便番号、住所、営業時間(患者向け自由記述)、休業日・臨時案内、アクセス案内、駐車場案内、Google Maps URL、最終更新日時を保持する。PHI・staff個人情報・内部メモは保存しない。
+  - Google Maps URLは`https:`かつGoogle Mapsのallowlist hostだけを許可し、未設定時は住所から`https://www.google.com/maps/search/?api=1&query=`を安全に生成する。電話は`tel:`用文字列を数字・`+`・`-`へ制限し、自由記述をURLへ流用しない。
+  - staff API `GET/PUT /api/custom/pharmacy/public-profile` は既存staff/account authorizationと`line_account_id` scopeを必須にする。LIFF API `GET /api/liff/pharmacy/public-profile` は認証済みLIFF identityからaccountをserver-side解決し、queryをauthorityにしない。未設定時はaccount表示名だけの最小projectionを返す。
+  - 管理画面 `/pharmacy-info` を薬局機能sidebarへ追加し、選択accountごとに上記項目を編集する。保存中の二重送信防止、入力エラー、保存結果、未保存変更を明示する。
+  - LIFF `/pharmacy/info` は薬局名を先頭に、`本日の営業時間`ではなく誤判定を避けた「営業時間」全文、住所、Google Maps、電話、休業日/臨時案内、アクセス・駐車場を読みやすいカードで表示する。外部リンクは`noopener noreferrer`、電話/地図は44px以上、API失敗時は再試行を出す。
+  - **Red -> Green**: migrationのaccount FK/越境、repository validation、staff別account否定、LIFF identity別account否定、Google host/`javascript:`拒否、未設定fallback、管理画面form、LIFF loading/error/empty/full projectionを確認する。
+
+- [x] **LIFF-MENU-4 6分割large profileと初期設定**
+  - 新profile key `initial-large-3x2-v2`、generator version `2`、size `large`を追加し、3列幅`833/834/833` x 2行高`843/843`でLINE座標全体を隙間・重複なく覆う。
+  - bodyの`profileKey`省略時は新profileを選ぶ。旧`initial-compact-3x1`と`intake-single-action-v1`は明示指定時の互換profileとして残す。新profileは別generator keyで作り、既存published menuを暗黙更新・削除・default適用しない。
+  - account/tenant/capability/LIFF ID検証、draftのみreconcile、R2 image存在確認、race時のgenerator unique再利用を維持する。初期設定変更はlocal draft生成defaultまでで、LINE publish/default設定は既存の明示Human Gateを維持する。
+  - **Red -> Green**: 6area座標・action mapping・default profile・旧profile明示互換・published非書換・別tenant否定・idempotent retryを確認する。
+
+- [x] **LIFF-MENU-5 リッチメニュー画像を作成・検証**
+  - image generationで医療情報や患者写真を含まないフラットな6分割画像を作る。白〜淡緑基調、濃い文字、各枠に単純な識別アイコン、右下を視覚的に「すべての機能」と判別できる構成にする。
+  - final assetは `apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v2.jpg`、2500x1686、JPEG、1MiB以下。action labelと画像ラベルを完全一致させ、境界線をtap座標と一致させる。
+  - **Red -> Green**: `validateRichMenuImage()`、実寸、file size、profileのimage path/file name/content typeをtestで固定する。画像生成物は目視確認する。
+
+- [x] **LIFF-MENU-6 横断回帰・完了監査**
+  - LIFF navigation/legacy/menu/prescriptions/public-profile、Worker rich-menu/profile/public-profile routes、Web pharmacy-info、DB migration/generator isolation、既存薬局LIFF画面、`git diff --check`を実行する。
+  - automated notification、manual reply header、Meet consultation、PHI、tenant/account authorizationには変更を入れない。push/PR/deploy/LINE publish/default適用/production mutationは実施せず、実機tap確認と公開操作をHuman Gateとして残す。
+  - **実装証拠(2026-08-20)**: image generation由来の`2500x1686` JPEG(352,635 bytes)を目視・validator確認。最終回帰はWorker 187 files / 1727 tests、LIFF 18 / 67、Web 34 / 165、DB 52 / 285が成功し、`git diff --check`も成功。push/PR/deploy/LINE publish/default適用/production mutationは未実施。
+
+### FLE - pharmacy intake field-level encryption - 2026-08-20 実装計画
+
+**目的**: `pharmacy_patient_intake_responses.answers_json` と `patient_snapshot_json` の平文保存を、既存の `PHARMACY_PHI_KEY_V1` と Web Crypto を使うapplication-layer AES-256-GCMへ段階移行する。暗号化はauthorizationの代替にせず、既存の `line_account_id`・`owner_friend_id`・`patient_id` scopeを維持する。ローカル実装・migration生成・テストと、secret投入・本番backfill・plaintext scrub・restore drill・security/human approvalは別の証拠として扱う。
+
+- [x] **FLE-0 現行flow・設計・移行境界を固定**
+  - 全read/write callerは患者LIFFのlatest intake、staffのlatest/history、期限付き`phi:read` grant配下のplatform-admin patient history。通知・一覧summary・検索条件へanswers/snapshotを追加しない。
+  - 既存 `emergency-contraception/encryption.ts` は同じroot secretを使うが、AADと2KiB上限がintake契約に合わないため再利用しない。`line-credentials.ts` のversioned key・Web Crypto・strict base64url検証だけを最小の専用moduleへ踏襲し、新dependencyや汎用暗号frameworkは作らない。
+  - **受入条件**: 対象2field、全caller、rollback、外部Human Gateが本文とtest名で追跡でき、R2・patient profile・fulfillment codesへscopeを広げない。
+
+- [x] **FLE-1 加算envelope schemaと暗号primitive**
+  - `custom_040` で `pharmacy_patient_intake_envelopes` を追加する。1 response x 1 fieldの行とし、`response_id`・`line_account_id`・`owner_friend_id`・`patient_id` の複合FK、`field_name` allowlist、`schema_version`、`source_revision`、`envelope_version`、`key_version`、96-bit `nonce`、`ciphertext`、`encrypted_at`を保持する。旧table/columnは変更・削除しない。
+  - `UNIQUE(key_version, nonce)` で同一key nonce再利用をDBでも拒否する。AADはtenant/account/owner/patient/response/schema/revision/field/envelope versionを含み、wrong scope・field swap・tamper・unknown versionはfail closedする。
+  - **Red -> Green**: 実SQLite migration testとprimitive testを先に追加し、複合FK越境・field allowlist・nonce重複・round trip・AAD swap・tamper・secret未設定を確認する。bootstrap artifactsはmigration test green後に既存generatorで同期する。
+
+- [x] **FLE-2 authorization後のdual-read**
+  - owner/staff/platform-adminの既存scope解決後にのみenvelopeを読み、2fieldが両方存在するときだけ復号する。片方欠損・malformed・decrypt失敗時はlegacy plaintextへfallbackせずgeneric 5xxでfail closedする。
+  - envelopeが2fieldとも存在しないlegacy rowだけは、scrub完了まで旧JSONを読む。staff historyは選択したlatest responseだけ復号し、summary/list queryは平文・ciphertextをprojectionしない。
+  - **Red -> Green**: encrypted優先、legacy fallback、partial envelope拒否、wrong-account/AAD拒否、owner/staff/platform-admin callerへのsecret伝播、response/logへのciphertext・内部error非露出を固定する。
+
+- [x] **FLE-3 新規回答をencrypted-write-firstで原子的に保存**
+  - 次revisionをscope内で決定し、response rowと2 envelope rowを同じ`db.batch()`で保存する。legacy列には互換用JSONを一時保存するが、暗号化またはenvelope insert失敗時はresponseを残さない。idempotency再試行は既存rowをdual-readし、異なる同時revisionは409相当を維持する。
+  - secret未設定はD1書込み前に503でfail closedする。payload・ciphertext・nonce・patient identifierをログへ出さない。
+  - **Red -> Green**: atomic rollback、idempotent retry、concurrent revision conflict、archived/wrong-owner拒否、missing-key 503、既存consent/policy proofを確認する。
+
+- [x] **FLE-4 bounded/resumable backfillとcoverage**
+  - scopeとcursorを必須にした小batchでlegacy rowを暗号化し、encrypt -> decrypt -> byte-compareした2fieldだけをCASで挿入する。既存envelopeは上書きせず、partial/corrupt/mismatchで停止する。
+  - coverageはtenant/account単位の件数とerror codeのみ返し、payload・ciphertext・nonce・patient IDを出さない。dry-runをdefaultにし、production mutationは実行しない。
+  - **Red -> Green**: batch上限、cursor再開、既存row skip、CAS競合、partial/corrupt停止、tenant/account scope、PHI-free reportを確認する。
+
+- [x] **FLE-5 plaintext scrub・restoreを明示Human Gate付きで実装**
+  - coverage 100%、decrypt byte-compare、named approvalが揃ったrowだけ、legacy 2fieldをvalid empty JSON sentinelへ同一更新する。復号不能・partial envelope・coverage不足では1行もscrubしない。
+  - rollbackはverified envelopeから旧2fieldを復元するbounded toolを用意し、old Workerへ戻す前にrestore drillを要求する。secret投入、本番backfill/scrub/restoreはこの作業では実行しない。
+  - **Red -> Green**: approval欠如、coverage不足、tamper、途中再開、sentinel判定、restore byte equality、PHI-free reportを確認する。
+
+- [x] **FLE-FINAL 完了監査**
+  - migration/bootstrap/update-engine、intake repository/routes、platform-admin grant否定、LIFF/Web表示、`git diff --check`を実行する。local greenを本番暗号化完了と呼ばない。
+  - production completion gateはsecret provisioning、migration evidence、account別coverage 100%、scrub、restore drill、security review、named human approval。未実施なら`NOT_RUN`/Human Gateとして残す。
+  - **ローカル実装証拠(2026-08-20)**: `custom_040/041`、AES-GCM primitive、全caller dual-read/encrypted-write-first、dry-run既定のbounded backfill/coverage、named approval付きwrite-freeze/scrub/restore、CLI専用platform endpointを実装。`pnpm -r typecheck`、全package test（LIFF 18 files/67 tests、DB 56/304、Web 34/165、Worker 188/1737、その他workspace 336 tests）、script 14/121、additive migration 72件、`git diff --check`が成功。secret provisioning、本番migration/backfill/coverage/scrub/restore、restore drill、security review、named production approvalは`NOT_RUN`/Human Gate。
+  - **Oracle advisory**: `fle-final-security-review` はGPT-5.6 Sol/browser/Pro指定でdry-run後に開始したが、既存Oracle processのbrowser profile lockが300秒継続し、session status `error`。model回答・verified evidenceは得られず`BLOCKED`。fallbackや重複実行はしていない。
+
+### U22 - upstream v0.22.0 選別取り込み + follow-up 境界整理 - 2026-08-20 実装計画
+
+**比較基準**: 現行 `dev` HEAD `7cd1c76` と upstream tag `v0.22.0` (`c20c04f`) を機能単位で比較する。tag 全体は現行より古く、薬局 custom seam・tenant authorization・通知停止・PHI保護を欠くため、merge/cherry-pickはしない。既存コードへ最小差分で再実装し、各項目を Red -> Green で確認する。
+
+- [x] **U22-0 候補選別と古い計画記述の整合**
+  - upstream の実質機能は admin SSO、LINE Login/LIFF未設定時の案内、友だち追加リンクのapp-first化、管理画面内の読み取りにくいQR削除、brand/docs更新に分ける。
+  - **採用**: LINE Login/LIFF未設定時の503案内、読み取りにくい管理画面内QRの削除。
+  - **不採用**: admin SSOは発行元・tenant binding・platform-adminとの権限関係が未定義で、既存の個人別tenant/platform admin認証を迂回する新経路になるためYAGNI。app-first `/r/dashboard?account=` は現行のpharmacy modeで `/r/:ref` を明示的に404にする境界と衝突するため、その製品判断なしには入れない。brand/docs一括変更と依存関係の巻き戻しも行わない。
+  - `PLANS.md` 内の `.env.example`、V-3/V-4、`liff.ts`、H-4/H-5/H-6、E-6/E-7に関する古い「未実装/blocked」記述は、現行コード・後続完了節・Human Gateに合わせて履歴として訂正する。field-level encryption、retention残作業、Myna low、外部MFA/別originは完了扱いにしない。
+  - **受入条件**: 採用/不採用/外部Human Gate/後続実装が混在せず、完了済み項目について現行証拠と矛盾する「未実装」表現が残らない。
+
+- [x] **U22-1 LINE Login/LIFF未設定を500ではなく503で案内**
+  - upstreamの `login-unconfigured` パターンを再利用し、`/r/:ref`、`/auth/line`、`/auth/oauth`、`/auth/callback` で、account/pool/envを解決した後も有効なLIFF URLまたはLINE Login channel設定がない場合にfail closedする。
+  - 患者・友だち向け応答へ内部設定名、secret、tenant情報を出さず、`noindex` と管理者向け設定案内だけを返す。薬局専用LIFF routeや既存のaccount/tenant選択順序は変えない。
+  - **Red**: 未設定env/accountで現在の `liffUrl.match()` 例外または `client_id=undefined` を再現するroute testを先に追加する。
+  - **Green**: 503、設定案内、`noindex`、秘密情報非露出を確認し、設定済みの既存リダイレクト/landing testも再実行する。
+
+- [x] **U22-2 管理画面内の読み取りにくいQRを削除**
+  - upstream `bf2b5da` と同じく、角丸・quiet zone不足の240px QRを `FriendAddLinkCard` から削除する。リンクコピーは維持し、PC利用者は既存 `/auth/line` landingの24px padding付きQRを使えるため、新しいQR実装や依存関係は追加しない。
+  - **Red**: dashboardのsource/component contractで問題のQR toggle/imageが存在することを固定する最小テストを先に追加する。
+  - **Green**: QR toggle/imageだけが消え、選択accountの友だち追加リンクとcopy操作が残ることを確認する。
+
+- [x] **FUP-SCOPE-1 LIFF friend-add scenarioの二重防御をfail-closed化**
+  - `getScenariosForAccount(null) -> []` は既に実装済みだが、`liff.ts` の追加条件 `!scenario.line_account_id || !matchedAccountId || ...` はhelperが誤った行を返した場合にaccount-bound scenarioを許す。共有helperを変えず、route側の `!matchedAccountId` 許可だけを削除する。
+  - **Red**: account lookupがnullなのにaccount-bound scenarioが返る回帰fixtureでenrollされる現状を再現する。既存のaccount未紐付きscenarioのnull-account挙動は維持する。
+  - **Green**: account-bound scenarioはenroll/pushされず、account未紐付きscenarioと一致account scenarioは従来どおり動作する。LIFF 2 suiteとDB `custom_024` scope suiteを再実行する。
+
+- [x] **FUP-API-1 患者follow-up APIの重複JSON処理を共通化**
+  - `medication-followup/api.ts` 内の独自 `json()` を削除し、既存 `requestPharmacyJson()` を再利用する。新規helper・dependency・domain modelは追加しない。
+  - **Red**: API testを共通helper契約へ変更し、list/respondが同じ安全な境界を通ることを先に固定する。
+  - **Green**: 既存のrequest境界が持つ401/403/404/409/429/500/503の安全な日本語エラーとstatus/body保持をfollow-upにも適用し、follow-up API/Pageとrequest testを再実行する。
+
+- [x] **FUP-ERROR-1 staff follow-up routeの内部エラー非露出**
+  - schedule/transition routeがrepositoryの`error.message`をそのまま返す処理を、400/404/409/500の安全な固定文言へ集約する。既知のinvalid/not-found/conflictだけを分類し、未知エラーは500でfail closedする。
+  - **Red**: SQLite/内部識別子を含む未知エラーが現状400本文へ露出するfixtureと、既知conflictの409契約を追加する。
+  - **Green**: 未知エラー本文に内部文言がなく500、既知not-found/conflictは404/409を維持し、account/capability否定テストを含むroute suiteを再実行する。
+
+- [x] **REF-CONFIG-1 Vite 8 config loader警告をstdlibで解消**
+  - `apps/worker/vitest.config.ts` の暗黙 `__dirname` を、既存Node標準の `dirname(fileURLToPath(import.meta.url))` へ置換する。Node engine `>=20` 全域を守るため `import.meta.dirname` には上げない。
+  - CommonJS package内でESM syntaxを使う `apps/web`・`packages/db`・`packages/line-sdk` のVitest configは、内容を変えず `.mts` へ移してnative loaderへ明示する。
+  - **Red**: 現在のfocused test出力に `configLoader: 'native'` / `__dirname` 警告が出ることを記録済み。
+  - **Green**: Worker/Webの対象testが同じ件数で成功し、警告が消えることを確認する。
+
+- [x] **U22-FINAL 完了監査**
+  - 採用項目ごとのtest、follow-up tenant否定test、`git diff --check`を実行する。関連テストの成功をローカル実装証拠として記録し、push/PR/deploy/production operationや外部Human Gate完了とは区別する。
+  - upstream由来の変更が `custom/pharmacy` 境界、`line_account_id`、server-side authorization、PHI-free notification、manual送信header規約を弱めていないことをdiffで確認する。
+  - **実装証拠(2026-08-20)**: Worker 185 files / 1715 tests、Web 32 / 162、LIFF 15 / 59、DB `custom_024` 6、line-sdk 3が成功。Vite 8 config loader警告は解消し、`git diff --check`も成功。push/PR/deploy/production operationは実施しておらず、field-level encryption・処方箋画像以外のretention・Myna low・外部MFA/origin/role/alert・R2実機確認は未完了のまま維持する。
+
 ### 前提・検証メモ
-- 対象: `pharmacy-harness-line` ブランチ `v0.26.0/feature/logical-multitenancy`(ローカルチェックアウトで確認。HEAD SHA固定は E-1 で対応)。
+- 当初対象は `v0.26.0/feature/logical-multitenancy`。2026-08-20時点の継続作業は `pharmacy-harness-line` の `dev`、開始HEAD `7cd1c76`で実施する。
 - 2026-08-19: 元のセキュリティレビュー(Artifact/MD)に対し外部レビュー(REQUEST_CHANGES)を受領。指摘のうち検証可能なものは実コードで裏取りした上で本計画に反映した。盲信も無視もしていない。
 - **検証して却下した指摘**: 「`GET /images/:key` が無認証で処方箋・マイナ・着信チャット画像を配信している」という主張は、実コード(`apps/worker/src/routes/images.ts:103-119`)と矛盾するため却下。`/images/:key` は `PUBLIC_IMAGE_KEY` 正規表現(裸UUID.ext または `tenants/{id}/uploads/{uuid}.ext`)にマッチするキーのみ配信し、着信チャット画像のキー形式(`tenants/{id}/accounts/{id}/incoming/{id}.ext`)はこれにマッチしない。着信画像は別ルート `GET /api/images/:key`(:112-119)を通り、`canReadIncomingImage` でテナント所有権を検証してから配信される。外部レビュー自身が「GitHub上で指定ブランチを参照できず、main/dev(v0.25.0相当)で照合した」と明言しており、対象ブランチの差分に起因する誤指摘と判断。H-5「アクセス制御は正しい」の所見は維持する。
 - **妥当と判断し反映した指摘**: D1 `batch()` はSQLエラー時のみロールバックし、UPDATEが0件マッチしても「失敗」扱いにならない(→H-2の修正方針を再設計)。Cloudflare Workersはisolate間でモジュールグローバル状態を共有する保証がない(→H-1の深刻度表現を修正)。薬剤師法の条番号誤り(27条/28条)。個人情報保護法(APPI)関連所見は「違反確定」ではなく「コード上の証跡不足」に言い換える。
 - **未検証のまま計画に組み込んだ指摘**: 外部レビューが言及した「current-worktree レビュー」(broadcasts/booking/tag/generic webhook の越境所見)は、本セッションでは原文・対象コードともに未確認。裏取りせずタスク化はできないため、P1に調査タスクとして計上した(V-1〜V-5)。
-- 2026-08-19: V-1〜V-5を実コードで調査完了(結果はP1参照)。M-9(R2バケット名のdev/prod分離)を直接実施済み。P0/P1/P2/P3/P5の残タスクは、ファイルが重複しない10バッチに分けて`executor`エージェント(一部opus)へ並列実装を委任し、実行中。完了したエージェントから順にAGENTS.md/CLAUDE.mdのTDD規約に沿って変更内容・テスト結果を検証し、本ファイルのActiveから除去してDoneへ移す。
+- 2026-08-19: V-1〜V-5を実コードで調査完了(結果はP1参照)。M-9(R2バケット名のdev/prod分離)を直接実施済み。P0/P1/P2/P3/P5の残タスクは、ファイルが重複しない10バッチに分けて実装・検証し、同日中に全バッチ完了した。
 - **運用メモ(マイグレーション番号衝突)**: 並列実行の副作用として `custom_023_pharmacy_staff_api_key_hash.sql`(L-4バッチ)と `custom_023_pharmacy_webhook_durable_inbox.sql`(H-3バッチ)が同一番号で衝突していたのを検知し、前者を `custom_027_pharmacy_staff_api_key_hash.sql` へリネームして解消した。最終的に `custom_023`〜`custom_027` の5ファイルで衝突・欠番なし。
 - **運用メモ(スキーマ変更の相互作用)**: M-8バッチの`custom_026`が当初テーブル再作成(DROP+RENAME)方式でCHECK制約を拡張しており、M-5/M-6バッチが検証した「安全なD1更新は破壊的スキーマ変更を拒否する」というガードに抵触することが判明。既存テーブル拡張ではなく新規加算テーブル方式に本人が書き直して解消(詳細はM-8参照)。
 - **2026-08-19 完了: 10バッチすべて完了。** `bootstrap.sql`/`bootstrap-meta.json`を最終再生成し、モノレポ全体で最終検証を実施 ― `pnpm -r test`: line-sdk 3/3・sdk 55/55・liff 31/31・db 248/248・update-engine 215/215(`upgrade-matrix.test.ts`含む)・create-line-harness 61/61・web 52/52・worker 1541/1541(169ファイル)、全てグリーン。`pnpm -r typecheck`: 全パッケージエラーなし。P0/P1/P2/P3/P5は全項目完了。P4(法令遵守)とL-10(依存関係更新)は上記のとおり意図的に対象外。
-- **2026-08-19: 13コミットに分けてコミット済み**(`docs:`/`fix:`/`feat:`/`chore:` の粒度で機能ごとに分割、コミット順は本ファイルの記録と対応)。未追跡の `.claude/`・`.omc/`・`out/` は本セッションの作業物ではないため意図的に含めていない。要人手対応が2件残っている: `.env.example` への `STAFF_API_KEY_HASH_SECRET` 追記(L-4、サンドボックスのsecret-readガードでブロック)、PR作成の判断。
+- **2026-08-19: 13コミットに分けてコミット済み**(`docs:`/`fix:`/`feat:`/`chore:` の粒度で機能ごとに分割、コミット順は本ファイルの記録と対応)。未追跡の `.claude/`・`.omc/`・`out/` は本セッションの作業物ではないため意図的に含めていない。`.env.example` の `STAFF_API_KEY_HASH_SECRET` は後続コミット `b4a5ec9` で追記済み。PR作成は引き続き人の判断事項。
 
-### 新機能: 全体管理者(Platform Admin)ロール — 進行中
+### 新機能: 全体管理者(Platform Admin)ロール — ローカル実装完了・本番Human Gate残り
 2026-08-19、ユーザー指示によりP0〜P5の修正完了後に新規追加。各テナント管理者の上位に位置し、**個人の診療記録を含む全データ**(処方箋・問診・マイナ・服薬継続)を越権的に閲覧・編集できる新ロール。スコープはユーザーに確認済み(質問で確定): アクセス範囲は個人PHIまで含む全データ、ログは「監査ログ・Webhook/配信ログ・全体管理者自身の操作ログ」の3種。
 
 **設計方針**: 既存の`tenant_admin_credentials`/`tenant_admin_sessions`パターン(オペークセッション・ハッシュ化トークン・credential_version・must_change_password)を踏襲しつつ、テナントに紐付かないため**テーブル・Cookie・ミドルウェアを完全に分離**(`platform_admins`/`platform_admin_credentials`/`platform_admin_sessions`/`platform_admin_access_events`、Cookie名`lh_platform_admin_session`、`platformAdminAuthMiddleware`)。既存のテナント境界ミドルウェア群(`tenantAccountSelectorGuard`等)は`tenantId`未設定時にno-opする設計のため干渉しない。既存の`PLATFORM_ADMIN_KEY`(CLIプロビジョニング用の共有シークレット)とは別物 ― 個人を特定した監査証跡を残すため、全体管理者は個別のstaff身元を持つ人間ログインとして設計。
@@ -51,7 +194,7 @@
 
 **経営判断が必要なため実装せず、ユーザーに確認する**: MFA/re-authentication必須化、全体管理者専用の別オリジンへの分離、ロール細分化(Operator/Support/Auditor/Root)。いずれも大きなインフラ・製品判断を伴うため、下記の新規提案とあわせてユーザーに優先順位を確認する。
 
-### 新規提案: Tenant Control Center + 期限付きサポートモード — 実装中(最小MVP一式を選択)
+### 新規提案: Tenant Control Center + 期限付きサポートモード — MVPローカル実装完了・外部Human Gate残り
 
 2026-08-19、ユーザーから大規模な追加提案を受領。現行の「常時全権閲覧」ではなく、通常モード(PHI非表示・稼働状況/整合性/セキュリティの監視)とサポートモード(理由・チケット番号・期限・MFA再認証を伴う一時的なPHIアクセス)の2層構成への再設計。ユーザーは選択式確認の結果「最小MVP一式(ダッシュボード+サポートモード+基本操作)」を選択。
 
@@ -119,7 +262,7 @@
 - [x] **V-5** 確認済み。`packages/db/migrations/custom_014_pharmacy_logical_tenants.sql` は移行時に既存の全 `line_accounts` を無条件で `pharmacy_account_capabilities.mode='pharmacy'` にバックフィルし、かつ `apps/worker/src` 内で `INSERT INTO tenants` を行うコードパスは `custom/pharmacy/provisioning/routes.ts`(薬局テナント発行専用)の1箇所のみ。したがって「非薬局テナントが複数共存する」状態は現行の移行・発行経路からは作られず、V-1/V-3/V-4は**現状は到達不能**と判断できる。ただしこれはDB制約ではなく「移行スクリプトと発行経路がそうなっている」という規約上の保証にすぎず、将来のバグや手動DB操作で崩れうる。M-1の最終深刻度はLowに格下げ可能だが、code-level gapとしてV-1/V-3/V-4自体の修正・invariant補強は実施する。
 
 → **「tenant-invariant-safeguard」バッチ完了(2026-08-19)。** V-1はbroadcasts.tsを直接修正。V-5のinvariant補強については、要求していた「line_accountsにcapability行を保証するトリガー」が実は既に `custom_017_pharmacy_account_defaults.sql` の `line_accounts_default_pharmacy_capability` トリガーとして存在済みと判明(新規マイグレーションの重複作成は回避)。代わりに `packages/db/test/pharmacy-capability-invariant.test.ts`(出荷済みschemaに対する回帰テスト)と `apps/worker/src/custom/pharmacy/provisioning/tenant-insert-invariant.test.ts`(`INSERT INTO tenants` の実装箇所が`provisioning/routes.ts`の1箇所のみであることをgrepで検証する回帰テスト)を追加。テスト結果: packages/db 238件成功(既存の無関係な失敗1件のみ)/ apps/worker 1513件成功(既存の無関係な失敗7件のみ、rate-limit.test.tsのタイミング起因とmyna repository.race.test.tsの並行性タイミング起因、いずれもtenant-boundary.ts/broadcasts.tsを参照しないことを確認済み)/ packages/update-engine 205件成功(既存の無関係な失敗6件のみ)。`tsc --noEmit` エラーなし。
-V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ変更を伴う)は、上記invariantが効いている限り緊急度が下がるため今回のバッチには含めていない。**次回のスプリントでスキーマ変更込みの本格対応を計画すること(未実装・要別途タスク化のまま残す)。**
+V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化は、この時点では次回対応として保留したが、後続P7-7で`custom_034`・tenant-scoped routes・実DB越境否定テストまで実装済み。
 
 ---
 
@@ -143,7 +286,7 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
 - [x] **M-2** 完了(2026-08-19)。`continuity/routes.ts:44-46` の `use('/api/custom/pharmacy/continuity')` を `use('/api/custom/pharmacy/continuity/*')` に変更。導入済みHono 4.12.8で `/*` が親パス自身にもマッチすることを実証済みのため登録は1本で足りる。子ルートは operations-access チェックと capability チェックの両方をすり抜けていたことが判明(想定より1段深刻)。テスト2件追加(capability無効→403、権限外アカウント→403。修正前はいずれも201が返っていた)、成功。
 
 - [x] **M-1** 完了(2026-08-19、H-3と同一バッチ)。`scenarios`テーブルには`tenant_id`が存在しなかった(nullable `line_account_id`のみ)ため、`custom_024_scenario_tenant_scope.sql`で`tenant_id`列を追加しバックフィル(アカウント紐付き行は所属テナントを継承、アカウント未紐付き行はテナントが1つしかない場合のみ帰属させ、複数テナント環境では`NULL`のまま=どのテナントにもマッチしない設計)。`getScenariosForAccount(db, lineAccountId)`を新設し、テナント解決はSQL側で`tenant_line_accounts`から行うため呼び出し元の`tenantId`引数の取り違えでスコープが広がることもない。webhook.ts/routes/scenarios.tsの呼び出し元を更新、JS側フィルタは削除。テスト4件追加(2テナントでの未紐付きシナリオ相互不可視・fail-closed・バックフィル)、成功。V-5の調査で到達不能と確認済みだが、防御多層性として実装。
-  - **新規フォローアップ(未実装、要別途起票)**: 実装エージェントが `apps/worker/src/routes/liff.ts:916` に同種の未スコープパターンをM-1より悪い形で発見(`matchedAccountId`がnullの場合、*全*テナントのアカウント紐付きシナリオがマッチしてしまう)。既存テスト(`liff-oauth-scenario-gate.test.ts`, `liff-friend-add-scenarios.test.ts`)が現在のnullアカウント時の挙動を固定しているため、仕様変更は製品判断が必要と判断し意図的に未着手。V-5と合わせて次回起票すること。
+  - **後続対応済み**: `apps/worker/src/routes/liff.ts` の同型箇所はP7-6で`getScenariosForAccount()`へ移行し、null accountをSQL helperでfail-closed化した。2026-08-20のFUP-SCOPE-1ではroute側に残っていた冗長な`!matchedAccountId`許可も否定テスト付きで削除し、helper回帰時にもaccount-bound scenarioをenrollしない二重防御へ整理した。
 
 - [x] **M-3** 完了(2026-08-19、H-2と同一バッチ)。継続フォロー(`linkContinuitySubmission`/`completeContinuityAfterClose`/`pausePatientContinuity`)とマイナ(`markMynaLaunchRequested`/`recordMynaPatientReport`)の状態UPDATE+監査イベントINSERTを単一`db.batch`に統合。イベントINSERTは「UPDATE後の状態」を条件にした`INSERT ... SELECT ... WHERE`へ書き換え、UPDATEが不発(0件)でも孤立イベントが生まれない構造に変更。構造的テスト追加(UPDATE/INSERTがそれぞれ`operation: 'batch'`で発行されることをアサート)、成功。
 - [x] **M-4 / L-3** 完了(2026-08-19)。`custom_025_pharmacy_tenant_integrity_v2.sql` を新規作成し、`pharmacy_prescription_submissions.source_handoff_id` が同一 `line_account_id` の `pharmacy_myna_handoffs` を参照することをINSERT/UPDATE双方でトリガー検証(custom_022と同スタイルの`RAISE(ABORT, ...)`)。L-3は調査の結果、`pharmacy_prescription_files`/`_events` の `submission_id` は既に `REFERENCES pharmacy_prescription_submissions(id) ON DELETE CASCADE` のネイティブFKで保護済みと判明(`foreign_keys=ON`で存在しないIDへのINSERTが実際に失敗することを実証)、追加のトリガーは不要と判断し migration ヘッダーコメントに記録。テスト5件追加、対象5ファイル16テスト成功。`bootstrap.sql`/`bootstrap-meta.json` 再生成済み(ただし他バッチのマイグレーション追加により最終統合時に再生成が必要 ― 下記「運用メモ」参照)。
@@ -174,7 +317,7 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
 - (L-1 → 完了。M-10と同一バッチで対応済み、上記P3参照)
 - [x] **L-2** 完了(2026-08-19)。`listNextIntakeExpectations(db, accountId, friendId?)` を `listPatientExpectations(db, lineAccountId, friendId)`(必須)と `listAccountExpectations(db, lineAccountId)` の2関数に分割、SQL断片は共有ヘルパーで重複排除。患者向け/スタッフ向け両ルートの呼び出し元を更新。テスト追加、成功。
 - (L-3 → 完了。M-4と同一バッチで対応済み、上記P3参照)
-- [x] **L-4** 完了(2026-08-19)。`custom_027_pharmacy_staff_api_key_hash.sql` で `staff_members.api_key_hash` を追加(平文`api_key`列は後方互換のため維持、破壊的変更なし)。新規シークレット `STAFF_API_KEY_HASH_SECRET` を採用(`LINE_CREDENTIAL_KEY_V1`は薬局スコープ・ローテーション前提のため不適切と判断、既存キーとの衝突チェックも実施)。`getStaffByApiKey()` はハッシュ照合→レガシー平文照合の順にフォールバックし、平文一致時に機会的にハッシュを自動バックフィル(D1書き込み失敗時も認証は失敗させない設計)。シークレット未設定でも従来どおり平文照合で動作し、無停止でロールアウト可能。テスト5件追加、`packages/db` 244件成功・`tsc`エラーなし、`apps/worker` 認証関連124件成功。**要対応**: `.env.example` への `STAFF_API_KEY_HASH_SECRET` 追記はサンドボックスの secret-read ガードでブロックされているため未実施 ― 人手で追記すること(`docs/CUSTOMER_DELIVERY.md` には追記済み)。
+- [x] **L-4** 完了(2026-08-19)。`custom_027_pharmacy_staff_api_key_hash.sql` で `staff_members.api_key_hash` を追加(平文`api_key`列は後方互換のため維持、破壊的変更なし)。新規シークレット `STAFF_API_KEY_HASH_SECRET` を採用(`LINE_CREDENTIAL_KEY_V1`は薬局スコープ・ローテーション前提のため不適切と判断、既存キーとの衝突チェックも実施)。`getStaffByApiKey()` はハッシュ照合→レガシー平文照合の順にフォールバックし、平文一致時に機会的にハッシュを自動バックフィル(D1書き込み失敗時も認証は失敗させない設計)。シークレット未設定でも従来どおり平文照合で動作し、無停止でロールアウト可能。テスト5件追加、`packages/db` 244件成功・`tsc`エラーなし、`apps/worker` 認証関連124件成功。`.env.example` への `STAFF_API_KEY_HASH_SECRET` は後続コミット `b4a5ec9` で追記済み(`docs/CUSTOMER_DELIVERY.md`も同期済み)。
 - [x] **L-5** 完了(2026-08-19)。`bootstrap-tenant-admin.ts`/`setup-tenant.ts`のHMACメッセージにテナント識別子(tenant id / tenant code)を追加(`pharmacy-tenant-admin-bootstrap:{tenantId}:{idempotencyKey}`等)。同一テナント+同一idempotency-keyでの冪等性は維持しつつ、異なるテナント間での初期パスワード衝突を解消。テスト追加(同一テナント→同一パスワード、異なるテナント→異なるパスワード)、成功。
 - [x] **L-6** 完了(2026-08-19)。`rich-menus.ts`の`resolveLineClient`に`accountResourceOwnedByStaff`(既存ヘルパー再利用、再実装せず)による独立したテナント所有権チェックを追加。非所有アカウントは既存の「not found」相当のフォールバック(デフォルトのLINE_CHANNEL_ACCESS_TOKENクライアント)に扱いを統一。上流ガードをバイパスして直接呼び出す形のテストを追加し、単独でも越境を防ぐことを実証。
 - [x] **L-7** 完了(2026-08-19)。`PrescriptionPage.tsx`の`startResubmission`から`setOriginalConsent(true)`/`setNoticeConsent(true)`を削除。`canSubmitPrescription`が両同意を要求する既存ロジックはそのままのため、再提出時に「再度チェックしてください」という一行のヒントUIを追加。テスト追加(jsdom未導入のためソースコード契約テスト方式)、成功。
@@ -330,10 +473,10 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
   - **受入条件**: EC-0〜EC-4の要件別証跡を本節へ追記し、local code/test greenとproduction operationを混同しない。
   - **実装証跡(2026-08-19)**: Worker 5 files/66 tests、DB 1 file/12 tests、LIFF 3 files/13 tests、Web 3 files/7 tests、LIFF TypeScript build、`git diff --check`が成功。`custom_035`とbootstrap metadataを生成済み。厚労省一覧掲載、実在庫、当日の研修修了薬剤師勤務、メーカー紙記録運用、デプロイ、本番動作は未確認であり、human gateのまま。
 
-**却下・保留のまま(実装しない)**:
+**外部Human Gate・明示的スコープ外**:
 - Myna `tenant_alias` のグローバルユニーク衝突(low, `endpoint-repository.ts:148`)と `/r/myna/:tenantAlias` 未認証URL開示(low, `myna/routes.ts:184`)は今回のisolation調査で唯一生き残った2件。優先度lowのため今バッチには含めず次回起票。
-- H-4/H-5/H-6(法令遵守)は要判断事項1・2待ちで引き続きブロック。今回のスキャンでも実装対象外と再確認済み。
-- E-6(R2 lifecycle取得)・E-7(サマリ文言い換え)はリポジトリ外作業のため対象外。
+- H-4/H-5/H-6は後続P4で方針確定・実装済み。ただしR2 lifecycle実設定とP8の厚労省一覧掲載・実在庫・当日勤務・メーカー紙運用・deployment/production動作はコード外Human Gateのまま。
+- E-7は完了済み。E-6は証跡文書作成済みだが、live R2 lifecycle確認だけはCloudflare account IDがplaceholderのため`NOT_RUN`を維持する。
 
 ## Done
 

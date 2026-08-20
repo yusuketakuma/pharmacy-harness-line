@@ -1,4 +1,9 @@
 import type { PrescriptionPatient } from '../prescriptions/patient.js';
+import {
+  openPatientIntakeFields,
+  preparePatientIntakeEnvelopeStatements,
+  type PatientIntakeCryptoScope,
+} from './envelopes.js';
 
 export type PharmacyPatientOwner = PrescriptionPatient;
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
@@ -377,10 +382,35 @@ export async function createPatientIntakeResponse(
   owner: PharmacyPatientOwner,
   patientId: string,
   input: CreatePatientIntakeInput,
+  cryptoScope: PatientIntakeCryptoScope,
 ): Promise<PharmacyPatientIntakeResponse> {
   validateIntakeInput(input);
   const patient = await getPharmacyPatient(db, owner, patientId);
   if (!patient || patient.archived_at) throw new Error('patient not found');
+  const existing = await db.prepare(
+    `${INTAKE_SELECT}
+      WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
+        AND idempotency_key = ?`,
+  ).bind(
+    owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
+  ).first<PharmacyPatientIntakeResponse>();
+  if (existing) return openPatientIntakeFields(db, existing, cryptoScope);
+
+  const migration = await db.prepare(`SELECT phase
+    FROM pharmacy_patient_intake_migration_state
+    WHERE tenant_id = ? AND line_account_id = ?`).bind(
+    cryptoScope.tenantId, owner.lineAccountId,
+  ).first<{ phase: string }>();
+  if (migration && migration.phase !== 'scrubbed') {
+    throw new Error('patient intake storage failed');
+  }
+
+  const latest = await db.prepare(
+    `SELECT id, revision FROM pharmacy_patient_intake_responses
+      WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
+      ORDER BY revision DESC, id DESC LIMIT 1`,
+  ).bind(owner.lineAccountId, owner.friendId, patientId)
+    .first<{ id: string; revision: number }>();
   const now = new Date().toISOString();
   const snapshot = JSON.stringify({
     id: patient.id,
@@ -398,20 +428,39 @@ export async function createPatientIntakeResponse(
   });
   const answers = JSON.stringify(input.answers);
   const responseId = crypto.randomUUID();
-  const inserted = await db.prepare(
+  const response: PharmacyPatientIntakeResponse = {
+    id: responseId,
+    line_account_id: owner.lineAccountId,
+    owner_friend_id: owner.friendId,
+    patient_id: patientId,
+    revision: (latest?.revision ?? 0) + 1,
+    schema_version: INTAKE_SCHEMA_VERSION,
+    patient_snapshot_json: snapshot,
+    answers_json: answers,
+    base_response_id: latest?.id ?? null,
+    idempotency_key: input.idempotencyKey,
+    representative_consent_at: now,
+    privacy_consent_at: now,
+    created_at: now,
+  };
+  const responseStatement = db.prepare(
     `INSERT INTO pharmacy_patient_intake_responses
        (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
         patient_snapshot_json, answers_json, base_response_id,
         idempotency_key, representative_consent_at, privacy_consent_at, created_at,
         privacy_policy_version, privacy_policy_hash)
-     SELECT ?, ?, ?, p.id,
-            COALESCE((SELECT MAX(revision) FROM pharmacy_patient_intake_responses
-                       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = p.id), 0) + 1,
-            ${INTAKE_SCHEMA_VERSION}, ?, ?,
-            (SELECT id FROM pharmacy_patient_intake_responses
-              WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = p.id
-              ORDER BY revision DESC, id DESC LIMIT 1),
-            ?, ?, ?, ?,
+     SELECT ?, ?, ?, p.id, ?, ?,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM pharmacy_patient_intake_migration_state migration
+               WHERE migration.line_account_id = p.line_account_id
+                 AND migration.phase = 'scrubbed'
+            ) THEN '{}' ELSE ? END,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM pharmacy_patient_intake_migration_state migration
+               WHERE migration.line_account_id = p.line_account_id
+                 AND migration.phase = 'scrubbed'
+            ) THEN '{}' ELSE ? END,
+            ?, ?, ?, ?, ?,
             -- Consent proof: which published notice the patient agreed to just now.
             -- NULL when the tenant has not published one; intake is never blocked on it.
             (SELECT policy_version FROM pharmacy_tenant_privacy_policy
@@ -421,68 +470,79 @@ export async function createPatientIntakeResponse(
        FROM pharmacy_patients p
       WHERE p.id = ? AND p.line_account_id = ? AND p.owner_friend_id = ?
         AND p.archived_at IS NULL
-      RETURNING id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
-                patient_snapshot_json, answers_json, base_response_id, idempotency_key,
-                representative_consent_at, privacy_consent_at, created_at`,
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_patient_intake_migration_state migration
+           WHERE migration.line_account_id = p.line_account_id
+             AND migration.phase IN ('frozen', 'scrubbing', 'restoring', 'restored')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_patient_intake_responses
+           WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
+             AND idempotency_key = ?
+        )`,
   ).bind(
-    responseId,
-    owner.lineAccountId,
-    owner.friendId,
-    owner.lineAccountId,
-    owner.friendId,
-    snapshot,
-    answers,
-    owner.lineAccountId,
-    owner.friendId,
-    input.idempotencyKey,
-    now,
-    now,
-    now,
-    patientId,
-    owner.lineAccountId,
-    owner.friendId,
-  ).first<PharmacyPatientIntakeResponse>();
-  if (!inserted) {
-    const existing = await db.prepare(
+    response.id, response.line_account_id, response.owner_friend_id,
+    response.revision, response.schema_version, response.patient_snapshot_json,
+    response.answers_json, response.base_response_id, response.idempotency_key,
+    response.representative_consent_at, response.privacy_consent_at, response.created_at,
+    patientId, owner.lineAccountId, owner.friendId,
+    owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
+  );
+  const envelopeStatements = await preparePatientIntakeEnvelopeStatements(
+    db, response, cryptoScope, now,
+  );
+  try {
+    const results = await db.batch([responseStatement, ...envelopeStatements]);
+    if (results.length !== 3 || results.some((result) => result.meta?.changes !== 1)) {
+      throw new Error('patient intake storage failed');
+    }
+  } catch (error) {
+    const winner = await db.prepare(
       `${INTAKE_SELECT}
         WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
           AND idempotency_key = ?`,
     ).bind(
       owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
     ).first<PharmacyPatientIntakeResponse>();
-    if (existing) return existing;
-    throw new Error('patient intake conflict');
+    if (winner) return openPatientIntakeFields(db, winner, cryptoScope);
+    if (error instanceof Error && /constraint|unique/i.test(error.message)) {
+      throw new Error('patient intake conflict');
+    }
+    throw new Error('patient intake storage failed');
   }
-  return inserted;
+  return response;
 }
 
 export async function getLatestPatientIntake(
   db: D1Database,
   owner: PharmacyPatientOwner,
   patientId: string,
+  cryptoScope: PatientIntakeCryptoScope,
 ): Promise<PharmacyPatientIntakeResponse | null> {
-  return db.prepare(
+  const row = await db.prepare(
     `${INTAKE_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
       ORDER BY revision DESC, id DESC
       LIMIT 1`,
   ).bind(owner.lineAccountId, owner.friendId, patientId).first<PharmacyPatientIntakeResponse>();
+  return row ? openPatientIntakeFields(db, row, cryptoScope) : null;
 }
 
 export async function getLatestAdminPatientIntake(
   db: D1Database,
   lineAccountId: string,
   patientId: string,
+  cryptoScope: PatientIntakeCryptoScope,
 ): Promise<(AdminPatientIntakeSummary & { answers: Partial<PatientIntakeAnswers> }) | null> {
   const row = await db.prepare(
-    `SELECT id, patient_id, revision, schema_version, answers_json,
-            representative_consent_at, privacy_consent_at, created_at
-       FROM pharmacy_patient_intake_responses
+    `${INTAKE_SELECT}
       WHERE line_account_id = ? AND patient_id = ?
       ORDER BY revision DESC, id DESC
       LIMIT 1`,
-  ).bind(lineAccountId, patientId).first<AdminPatientIntakeRow>();
-  return row ? { ...toAdminIntakeSummary(row), answers: parseAdminIntakeAnswers(row.answers_json) } : null;
+  ).bind(lineAccountId, patientId).first<PharmacyPatientIntakeResponse>();
+  if (!row) return null;
+  const opened = await openPatientIntakeFields(db, row, cryptoScope);
+  return { ...toAdminIntakeSummary(opened), answers: parseAdminIntakeAnswers(opened.answers_json) };
 }
 
 export interface PharmacyPatientHistory {
@@ -542,7 +602,6 @@ type AdminPatientIntakeSummary = Pick<PharmacyPatientIntakeResponse,
   'id' | 'patient_id' | 'revision' | 'schema_version' |
   'representative_consent_at' | 'privacy_consent_at' | 'created_at'>;
 
-type AdminPatientIntakeRow = AdminPatientIntakeSummary & { answers_json: string };
 type AdminPharmacyPatient = Pick<PharmacyPatient,
   'id' | 'relationship' | 'name' | 'name_kana' | 'birth_date' | 'sex' |
   'contact_phone' | 'postal_code' | 'prefecture' | 'city' | 'address_line1' |
@@ -568,7 +627,7 @@ function toAdminPatient(patient: PharmacyPatient): AdminPharmacyPatient {
   };
 }
 
-function toAdminIntakeSummary(row: AdminPatientIntakeRow): AdminPatientIntakeSummary {
+function toAdminIntakeSummary(row: AdminPatientIntakeSummary): AdminPatientIntakeSummary {
   return {
     id: row.id,
     patient_id: row.patient_id,
@@ -597,19 +656,21 @@ export async function getAdminPharmacyPatientHistory(
   db: D1Database,
   lineAccountId: string,
   patientId: string,
+  cryptoScope: PatientIntakeCryptoScope,
 ): Promise<PharmacyPatientHistory | null> {
   const patient = await getAdminPharmacyPatient(db, lineAccountId, patientId);
   if (!patient) return null;
   const [
-    intakes, prescriptions, quotes, continuity, medicationFollowUps,
+    intakes, latestIntake, prescriptions, quotes, continuity, medicationFollowUps,
     prescriptionEvents, continuityEvents, medicationFollowUpEvents, nextIntakeEvents, myna,
   ] = await Promise.all([
-    db.prepare(`SELECT id, patient_id, revision, schema_version, answers_json,
+    db.prepare(`SELECT id, patient_id, revision, schema_version,
                        representative_consent_at, privacy_consent_at, created_at
                   FROM pharmacy_patient_intake_responses
                  WHERE line_account_id = ? AND patient_id = ?
                  ORDER BY revision DESC, id DESC`)
-      .bind(lineAccountId, patientId).all<AdminPatientIntakeRow>(),
+      .bind(lineAccountId, patientId).all<AdminPatientIntakeSummary>(),
+    getLatestAdminPatientIntake(db, lineAccountId, patientId, cryptoScope),
     db.prepare(`SELECT s.id, s.status, s.active_revision, s.desired_pickup_at,
                        s.requested_at, s.closed_at, s.created_at, s.updated_at
                   FROM pharmacy_prescription_submissions s
@@ -691,9 +752,7 @@ export async function getAdminPharmacyPatientHistory(
   return {
     patient,
     intakes: intakeSummaries,
-    latestIntake: intakes.results[0]
-      ? { ...intakeSummaries[0], answers: parseAdminIntakeAnswers(intakes.results[0].answers_json) }
-      : null,
+    latestIntake,
     prescriptions: prescriptions.results,
     quotes: quotes.results,
     continuity: continuity.results,

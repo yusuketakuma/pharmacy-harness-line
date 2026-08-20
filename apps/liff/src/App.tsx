@@ -14,6 +14,8 @@ import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // 
 import MynaReceivePage from './custom/pharmacy/myna/MynaReceivePage.js'; // custom:pharmacy-myna
 import MedicationFollowUpPage from './custom/pharmacy/medication-followup/MedicationFollowUpPage.js'; // custom:pharmacy-medication-followup
 import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception
+import MainMenuPage from './custom/pharmacy/menu/MainMenuPage.js'; // custom:pharmacy-menu
+import PharmacyInfoPage from './custom/pharmacy/public-profile/PharmacyInfoPage.js'; // custom:pharmacy-public-profile
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -32,6 +34,8 @@ export default function App() {
       <Route path="/affiliate" element={<Affiliate />} />
       <Route path="/webinar/:slug" element={<Webinar />} />
       <Route path="/prescriptions" element={<PrescriptionPage />} /> {/* custom:pharmacy-prescriptions */}
+      <Route path="/pharmacy/menu" element={<MainMenuPage />} /> {/* custom:pharmacy-menu */}
+      <Route path="/pharmacy/info" element={<PharmacyInfoPage />} /> {/* custom:pharmacy-public-profile */}
       <Route path="/pharmacy/patient-intake" element={<PatientIntakePage />} /> {/* custom:pharmacy-intake */}
       <Route path="/pharmacy/continuity" element={<ContinuityPage />} /> {/* custom:pharmacy-continuity */}
       <Route path="/pharmacy/receive" element={<MynaReceivePage />} /> {/* custom:pharmacy-myna */}

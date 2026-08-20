@@ -403,7 +403,9 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     (method === 'GET' && path === '/api/liff/pharmacy/emergency-contraception') ||
     (method === 'POST' && path === '/api/liff/pharmacy/emergency-contraception/intakes') ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/cancel$/.test(path));
-  if (isMedicationFollowUpPatientAction || isEmergencyContraceptionPatientAction) return next();
+  const isPublicProfilePatientAction =
+    method === 'GET' && path === '/api/liff/pharmacy/public-profile';
+  if (isMedicationFollowUpPatientAction || isEmergencyContraceptionPatientAction || isPublicProfilePatientAction) return next();
 
   if (
     path === '/webhook' ||
@@ -425,6 +427,8 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
       /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/admin-bootstrap$/.test(path)) ||
     (method === 'POST' &&
       /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/credentials\/(?:backfill|scrub|restore)$/.test(path)) ||
+    (method === 'POST' &&
+      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/intake-encryption\/(?:coverage|backfill|freeze|scrub|restore)$/.test(path)) ||
     path.startsWith('/auth/') ||
     path === '/setup' ||
     path === '/api/integrations/stripe/webhook' ||

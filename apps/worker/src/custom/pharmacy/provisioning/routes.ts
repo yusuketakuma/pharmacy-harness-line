@@ -18,6 +18,14 @@ import {
   scrubLegacyLineCredentials,
 } from './line-credential-backfill.js';
 import {
+  backfillPatientIntakeEnvelopes,
+  freezePatientIntakeWrites,
+  inspectPatientIntakeCoverage,
+  restorePatientIntakeLegacyFields,
+  scrubPatientIntakeLegacyFields,
+  type PatientIntakeMigrationApproval,
+} from '../intake/migration.js';
+import {
   platformAdminSessionTokenFromCookie,
   resolvePlatformAdminSession,
 } from '../platform-admin/auth.js';
@@ -333,6 +341,7 @@ async function rejectUnauthorizedPlatformRequest(c: Context<Env>): Promise<Respo
     c.env.LINE_CHANNEL_SECRET,
     c.env.CROSS_ACCOUNT_TOKEN_KEY,
     c.env.LINE_CREDENTIAL_KEY_V1,
+    c.env.PHARMACY_PHI_KEY_V1,
   ]) {
     if (tenantSecret && await sameSecret(c.env.PLATFORM_ADMIN_KEY, tenantSecret)) {
       return c.json({ success: false, error: 'Platform provisioning key is not isolated' }, 503);
@@ -861,6 +870,63 @@ for (const phase of ['backfill', 'scrub', 'restore'] as const) {
       } catch {
         return c.json({ success: false, error: `LINE credential ${phase} failed` }, 409);
       }
+    },
+  );
+}
+
+for (const phase of ['coverage', 'backfill', 'freeze', 'scrub', 'restore'] as const) {
+  tenantProvisioningRoutes.post(
+    `/api/platform/pharmacy/tenants/:tenantId/line-accounts/:lineAccountId/intake-encryption/${phase}`,
+    async (c) => {
+      const rejected = await rejectUnauthorizedPlatformRequest(c);
+      if (rejected) return rejected;
+      const rootSecret = c.env.PHARMACY_PHI_KEY_V1;
+      if (!rootSecret || encoder.encode(rootSecret).length < 32 || rootSecret.length > 4096) {
+        return c.json({ success: false, error: 'Patient intake encryption is not configured' }, 503);
+      }
+      const scope = {
+        tenantId: c.req.param('tenantId'),
+        lineAccountId: c.req.param('lineAccountId'),
+        rootSecret,
+      };
+      const body = phase === 'coverage'
+        ? {}
+        : asRecord(await c.req.json().catch(() => null));
+      if (!body) return c.json({ success: false, error: 'Invalid migration input' }, 400);
+      const approvalRecord = asRecord(body.approval);
+      const approval: PatientIntakeMigrationApproval | undefined = approvalRecord ? {
+        approvedBy: stringField(approvalRecord, 'approvedBy'),
+        approvalReference: stringField(approvalRecord, 'approvalReference'),
+        coverageTotal: approvalRecord.coverageTotal as number,
+        coverageDigest: stringField(approvalRecord, 'coverageDigest'),
+      } : undefined;
+      if ((phase === 'freeze' || phase === 'scrub' || phase === 'restore') && !approval) {
+        return c.json({ success: false, error: 'Named approval is required' }, 400);
+      }
+      const cursor = body.cursor === null || body.cursor === undefined
+        ? null
+        : typeof body.cursor === 'string' ? body.cursor : undefined;
+      const limit = body.limit === undefined ? 50 : body.limit;
+      if (cursor === undefined || !Number.isSafeInteger(limit)) {
+        return c.json({ success: false, error: 'Invalid migration input' }, 400);
+      }
+      const dryRun = body.dryRun !== false;
+      const result = phase === 'coverage'
+        ? await inspectPatientIntakeCoverage(c.env.DB, scope)
+        : phase === 'freeze'
+          ? await freezePatientIntakeWrites(c.env.DB, scope, approval!)
+          : phase === 'backfill'
+            ? await backfillPatientIntakeEnvelopes(c.env.DB, { ...scope, cursor, limit: limit as number, dryRun })
+            : phase === 'scrub'
+              ? await scrubPatientIntakeLegacyFields(c.env.DB, {
+                ...scope, cursor, limit: limit as number, dryRun, approval,
+              })
+              : await restorePatientIntakeLegacyFields(c.env.DB, {
+                ...scope, cursor, limit: limit as number, dryRun, approval,
+              });
+      return result.errorCode
+        ? c.json({ success: false, error: result.errorCode, data: result }, 409)
+        : c.json({ success: true, data: result });
     },
   );
 }

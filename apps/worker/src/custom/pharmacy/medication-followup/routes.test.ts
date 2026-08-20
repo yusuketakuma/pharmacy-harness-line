@@ -220,4 +220,33 @@ describe('medication follow-up staff routes', () => {
     );
     expect(response.status).toBe(400);
   });
+
+  it('does not expose internal scheduling errors', async () => {
+    mocks.schedule.mockRejectedValue(new Error('SQLITE_CONSTRAINT patient-123'));
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        submissionId: 'submission-a', dueAt: '2026-08-21T09:00:00.000Z',
+        idempotencyKey: 'request-a',
+      }) }, env,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain('SQLITE_CONSTRAINT patient-123');
+  });
+
+  it('keeps transition conflicts distinct without returning repository text', async () => {
+    mocks.transition.mockRejectedValue(new Error('medication follow-up transition conflict'));
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/followup-a/transitions?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        status: 'assigned', expectedVersion: 3,
+      }) }, env,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: '服薬後フォローは更新されています。再読み込みしてください。',
+    });
+  });
 });

@@ -604,11 +604,17 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
     if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
     throw error;
   }
+  if (!c.env.PHARMACY_PHI_KEY_V1) {
+    return c.json({ success: false, error: 'Service unavailable' }, 503);
+  }
 
   let lineAccountId: string | null = null;
   let history: Awaited<ReturnType<typeof getAdminPharmacyPatientHistory>> = null;
   for (const candidate of await lineAccountIds(c.env.DB, tenantId)) {
-    history = await getAdminPharmacyPatientHistory(c.env.DB, candidate, patientId);
+    history = await getAdminPharmacyPatientHistory(c.env.DB, candidate, patientId, {
+      tenantId,
+      rootSecret: c.env.PHARMACY_PHI_KEY_V1,
+    });
     if (history) {
       lineAccountId = candidate;
       break;

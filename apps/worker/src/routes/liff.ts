@@ -32,6 +32,7 @@ import { notifyAffiliateFriendAdd } from '../services/affiliate-notifier.js';
 import { verifyCallerLineIdentity, verifyCallerLineUserId } from '../services/liff-auth.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
 import { safeRedirectTarget } from '../lib/safe-redirect.js';
+import { loginUnconfiguredPage } from '../lib/login-unconfigured.js';
 import type { Env } from '../index.js';
 import { verifyCrossAccountToken } from '../lib/cross-account-token.js';
 import {
@@ -407,6 +408,10 @@ liffRoutes.get('/auth/line', async (c) => {
       }
     }
   }
+  if (!channelId || !liffUrl) {
+    return c.html(loginUnconfiguredPage(), 503);
+  }
+
   const callbackUrl = `${baseUrl}/auth/callback`;
 
   // xh: refs are X Harness one-time tokens — never forward to third-party URLs (liff.line.me / QR)
@@ -606,6 +611,10 @@ liffRoutes.get('/auth/oauth', async (c) => {
     }
   }
 
+  if (!channelId) {
+    return c.html(loginUnconfiguredPage(), 503);
+  }
+
   // Build OAuth URL with full state
   const callbackUrl = `${baseUrl}/auth/callback`;
   const state = JSON.stringify({
@@ -695,6 +704,10 @@ liffRoutes.get('/auth/callback', async (c) => {
         loginChannelId = account.login_channel_id;
         loginChannelSecret = account.login_channel_secret;
       }
+    }
+
+    if (!loginChannelId || !loginChannelSecret) {
+      return c.html(loginUnconfiguredPage(), 503);
     }
 
     // Exchange code for tokens
@@ -917,7 +930,7 @@ liffRoutes.get('/auth/callback', async (c) => {
         ? await getScenariosForAccount(db, matchedAccountId)
         : [];
       for (const scenario of scenarios) {
-        const scenarioAccountMatch = !scenario.line_account_id || !matchedAccountId || scenario.line_account_id === matchedAccountId;
+        const scenarioAccountMatch = !scenario.line_account_id || scenario.line_account_id === matchedAccountId;
         if (scenario.trigger_type !== 'friend_add' || !scenario.is_active || !scenarioAccountMatch) {
           continue;
         }

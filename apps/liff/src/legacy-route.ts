@@ -7,14 +7,20 @@ import { PHARMACY_LEGACY_PAGE_TARGETS } from './custom/pharmacy/rich-menu/legacy
  * changes topology during an update.
  */
 export function legacyQueryTarget(search: string): string {
-  const params = new URLSearchParams(search);
+  let params = new URLSearchParams(search);
   const page = params.get('page');
   params.delete('page');
 
   let pathname = '/booking';
   const pharmacyPath = page ? PHARMACY_LEGACY_PAGE_TARGETS[page] : undefined;
   if (pharmacyPath) {
-    pathname = pharmacyPath;
+    const [targetPath, targetQuery = ''] = pharmacyPath.split('?', 2);
+    pathname = targetPath;
+    const merged = new URLSearchParams(targetQuery);
+    params.forEach((value, key) => {
+      if (!merged.has(key)) merged.append(key, value);
+    });
+    params = merged;
   } else {
     switch (page) {
       case 'webinar': {

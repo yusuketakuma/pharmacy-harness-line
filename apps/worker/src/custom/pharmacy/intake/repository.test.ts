@@ -18,6 +18,8 @@ function fakeDb(row: unknown | unknown[], allRows: unknown[] = []): {
   const firstRows = Array.isArray(row) ? [...row] : [row];
   const prepare = vi.fn((sql: string) => ({
     bind: (...values: unknown[]) => ({
+      __sql: sql,
+      __values: values,
       run: async () => {
         calls.push({ sql, values, operation: 'run' });
         return { success: true, meta: { changes: 1 } };
@@ -32,10 +34,22 @@ function fakeDb(row: unknown | unknown[], allRows: unknown[] = []): {
       },
     }),
   }));
-  return { db: { prepare } as unknown as D1Database, calls };
+  const db = {
+    prepare,
+    batch: async (statements: Array<{ __sql: string; __values: unknown[] }>) => {
+      for (const statement of statements) {
+        calls.push({ sql: statement.__sql, values: statement.__values, operation: 'batch' });
+      }
+      return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+    },
+  } as unknown as D1Database;
+  return { db, calls };
 }
 
 const owner = { lineAccountId: 'account-1', friendId: 'friend-1' };
+const cryptoScope = {
+  tenantId: 'tenant-1', rootSecret: 'synthetic-pharmacy-phi-root-secret-v1',
+};
 
 describe('pharmacy patient repository', () => {
   it('validates and inserts a family patient in the owner scope', async () => {
@@ -133,11 +147,11 @@ describe('pharmacy patient repository', () => {
       address_line1: null, address_line2: null, archived_at: null,
     };
     const { db, calls } = fakeDb(patient, []);
-    await expect(getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1')).resolves.toMatchObject({
+    await expect(getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1', cryptoScope)).resolves.toMatchObject({
       patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [],
       continuity: [], medicationFollowUps: [], timeline: [],
     });
-    expect(calls).toHaveLength(11);
+    expect(calls).toHaveLength(12);
     expect(calls.slice(1).every((call) => call.values.includes('account-1') && call.values.includes('patient-1'))).toBe(true);
     expect(calls.slice(1).every((call) => !call.sql.includes('line_user_id'))).toBe(true);
     const eventSql = calls.find((call) => call.sql.includes('pharmacy_prescription_events'))?.sql;
@@ -172,7 +186,9 @@ describe('pharmacy patient repository', () => {
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => patient,
+          first: async () => sql.includes('pharmacy_patient_intake_migration_state')
+            ? null
+            : sql.includes('pharmacy_patient_intake_responses') ? intake : patient,
           all: async () => ({
             results: sql.includes('pharmacy_patient_intake_responses') ? [intake] : [],
           }),
@@ -180,7 +196,7 @@ describe('pharmacy patient repository', () => {
       }),
     } as unknown as D1Database;
 
-    const history = await getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1');
+    const history = await getAdminPharmacyPatientHistory(db, 'account-1', 'patient-1', cryptoScope);
 
     expect(history?.latestIntake).toMatchObject({
       id: 'intake-1',
@@ -210,14 +226,16 @@ describe('pharmacy patient repository', () => {
     };
     const historyDb = {
       prepare: (sql: string) => ({ bind: () => ({
-        first: async () => patient,
+        first: async () => sql.includes('pharmacy_patient_intake_migration_state')
+          ? null
+          : sql.includes('pharmacy_patient_intake_responses') ? intake : patient,
         all: async () => ({ results: sql.includes('pharmacy_patient_intake_responses') ? [intake] : [] }),
       }) }),
     } as unknown as D1Database;
     const latestDb = fakeDb(intake).db;
 
-    const history = await getAdminPharmacyPatientHistory(historyDb, 'account-1', 'patient-1');
-    const latest = await getLatestAdminPatientIntake(latestDb, 'account-1', 'patient-1');
+    const history = await getAdminPharmacyPatientHistory(historyDb, 'account-1', 'patient-1', cryptoScope);
+    const latest = await getLatestAdminPatientIntake(latestDb, 'account-1', 'patient-1', cryptoScope);
 
     expect(history?.patient).not.toHaveProperty('line_account_id');
     expect(history?.patient).not.toHaveProperty('owner_friend_id');
@@ -244,7 +262,7 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db, calls } = fakeDb([patient, { id: 'response-1', revision: 1 }]);
+    const { db, calls } = fakeDb([patient, null, null]);
     await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
       idempotencyKey: 'intake-123',
       answers: {
@@ -265,12 +283,59 @@ describe('pharmacy patient repository', () => {
       },
       representativeConsent: true,
       privacyConsent: true,
-    })).resolves.toMatchObject({ id: expect.any(String), revision: 1 });
+    }, cryptoScope)).resolves.toMatchObject({ id: expect.any(String), revision: 1 });
     expect(calls[0].sql).toContain('FROM pharmacy_patients');
-    expect(calls[1].sql).toContain('INSERT INTO pharmacy_patient_intake_responses');
-    expect(calls[1].values).toContain('account-1');
-    expect(calls[1].values).toContain('friend-1');
-    expect(calls[1].values).toContain('patient-1');
+    const responseWrite = calls.find((call) => call.operation === 'batch' &&
+      call.sql.includes('INSERT INTO pharmacy_patient_intake_responses'));
+    expect(responseWrite?.values).toEqual(expect.arrayContaining(['account-1', 'friend-1', 'patient-1']));
+    expect(calls.filter((call) => call.operation === 'batch' &&
+      call.sql.includes('INSERT INTO pharmacy_patient_intake_envelopes'))).toHaveLength(2);
+  });
+
+  it('fails closed when D1 reports an incomplete encrypted write', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, archived_at: null,
+    };
+    const { db } = fakeDb([patient, null]);
+    db.batch = vi.fn(async () => [
+      { success: true, meta: { changes: 0 } },
+      { success: true, meta: { changes: 1 } },
+      { success: true, meta: { changes: 1 } },
+    ]) as unknown as D1Database['batch'];
+
+    await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
+      idempotencyKey: 'intake-123',
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
+      representativeConsent: true,
+      privacyConsent: true,
+    }, cryptoScope)).rejects.toThrow('patient intake storage failed');
+  });
+
+  it('does not misreport an unknown D1 failure as a revision conflict', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, archived_at: null,
+    };
+    const { db } = fakeDb([patient, null, null]);
+    db.batch = vi.fn(async () => { throw new Error('D1 unavailable'); }) as D1Database['batch'];
+
+    await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
+      idempotencyKey: 'intake-123',
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
+      representativeConsent: true,
+      privacyConsent: true,
+    }, cryptoScope)).rejects.toThrow('patient intake storage failed');
   });
 
   it('rejects intake without both consents or required status answers', async () => {
@@ -285,7 +350,7 @@ describe('pharmacy patient repository', () => {
       answers: { allergiesStatus: 'none' } as never,
       representativeConsent: true,
       privacyConsent: false,
-    })).rejects.toThrow('intake consent required');
+    }, cryptoScope)).rejects.toThrow('intake consent required');
     expect(calls).toHaveLength(0);
   });
 
@@ -301,7 +366,7 @@ describe('pharmacy patient repository', () => {
       answers: { allergiesStatus: 'none', adverseReactionStatus: 'none' } as never,
       representativeConsent: true,
       privacyConsent: true,
-    })).rejects.toThrow('invalid intake answers');
+    }, cryptoScope)).rejects.toThrow('invalid intake answers');
     expect(calls).toHaveLength(0);
   });
 
@@ -321,7 +386,7 @@ describe('pharmacy patient repository', () => {
       } as never,
       representativeConsent: true,
       privacyConsent: true,
-    })).rejects.toThrow('invalid intake answers');
+    }, cryptoScope)).rejects.toThrow('invalid intake answers');
     expect(calls).toHaveLength(0);
   });
 
@@ -341,13 +406,13 @@ describe('pharmacy patient repository', () => {
       } as never,
       representativeConsent: true,
       privacyConsent: true,
-    })).rejects.toThrow('invalid intake answers');
+    }, cryptoScope)).rejects.toThrow('invalid intake answers');
     expect(calls).toHaveLength(0);
   });
 
   it('loads the newest intake revision within the owner scope', async () => {
     const { db, calls } = fakeDb({ id: 'response-2', revision: 2 });
-    await expect(getLatestPatientIntake(db, owner, 'patient-1')).resolves.toEqual({
+    await expect(getLatestPatientIntake(db, owner, 'patient-1', cryptoScope)).resolves.toEqual({
       id: 'response-2', revision: 2,
     });
     expect(calls[0].sql).toContain('line_account_id = ? AND owner_friend_id = ?');

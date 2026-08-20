@@ -7,8 +7,14 @@ const migrationMocks = vi.hoisted(() => ({
   backfillLineCredentials: vi.fn(),
   restoreLegacyLineCredentials: vi.fn(),
   scrubLegacyLineCredentials: vi.fn(),
+  backfillPatientIntakeEnvelopes: vi.fn(),
+  inspectPatientIntakeCoverage: vi.fn(),
+  freezePatientIntakeWrites: vi.fn(),
+  restorePatientIntakeLegacyFields: vi.fn(),
+  scrubPatientIntakeLegacyFields: vi.fn(),
 }));
 vi.mock('./line-credential-backfill.js', () => migrationMocks);
+vi.mock('../intake/migration.js', () => migrationMocks);
 
 import { tenantProvisioningRoutes } from './routes.js';
 
@@ -105,6 +111,7 @@ function bindings(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env
     PLATFORM_ADMIN_KEY: 'platform-key',
     CROSS_ACCOUNT_TOKEN_KEY: 'cross-account-token-key-for-tests',
     LINE_CREDENTIAL_KEY_V1: 'line-credential-root-key-for-tests-v1',
+    PHARMACY_PHI_KEY_V1: 'pharmacy-phi-root-key-for-tests-v1',
     LINE_CHANNEL_SECRET: 'default-secret',
     LINE_CHANNEL_ACCESS_TOKEN: 'default-token',
     LIFF_URL: 'https://liff.line.me/default',
@@ -491,5 +498,72 @@ describe('explicit legacy LINE credential migration', () => {
     expect(migrationMocks.backfillLineCredentials).not.toHaveBeenCalled();
     expect(migrationMocks.restoreLegacyLineCredentials).not.toHaveBeenCalled();
     expect(migrationMocks.scrubLegacyLineCredentials).not.toHaveBeenCalled();
+  });
+});
+
+describe('explicit patient intake encryption migration', () => {
+  const endpoint = '/api/platform/pharmacy/tenants/tenant-a/line-accounts/account-a/intake-encryption';
+  const report = {
+    counts: { scanned: 1, verified: 1, inserted: 0, skipped: 0, scrubbed: 0, restored: 0, conflicts: 0 },
+    errorCode: null,
+    nextCursor: null,
+  };
+
+  it('runs a dry-run backfill with tenant/account scope and no PHI response', async () => {
+    migrationMocks.backfillPatientIntakeEnvelopes.mockResolvedValue(report);
+    const fake = fakeDb();
+    const response = await app().request(`${endpoint}/backfill`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer platform-key', 'content-type': 'application/json' },
+      body: JSON.stringify({ cursor: null, limit: 25 }),
+    }, bindings(fake.db));
+
+    expect(response.status).toBe(200);
+    expect(migrationMocks.backfillPatientIntakeEnvelopes).toHaveBeenCalledWith(fake.db, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a',
+      rootSecret: 'pharmacy-phi-root-key-for-tests-v1', cursor: null, limit: 25, dryRun: true,
+    });
+    expect(await response.json()).toEqual({ success: true, data: report });
+  });
+
+  it('requires the PHI key and named approval for freeze', async () => {
+    const fake = fakeDb();
+    const missingKey = await app().request(`${endpoint}/coverage`, {
+      method: 'POST', headers: { authorization: 'Bearer platform-key' },
+    }, bindings(fake.db, { PHARMACY_PHI_KEY_V1: undefined }));
+    expect(missingKey.status).toBe(503);
+
+    const noApproval = await app().request(`${endpoint}/freeze`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer platform-key', 'content-type': 'application/json' },
+      body: '{}',
+    }, bindings(fake.db));
+    expect(noApproval.status).toBe(400);
+    expect(migrationMocks.freezePatientIntakeWrites).not.toHaveBeenCalled();
+  });
+
+  it('passes named approval to the write-freeze gate without exposing the key', async () => {
+    const coverage = {
+      counts: { scanned: 3, covered: 3 }, errorCode: null,
+      coverageTotal: 3, coverageDigest: 'a'.repeat(64),
+    };
+    migrationMocks.freezePatientIntakeWrites.mockResolvedValue(coverage);
+    const fake = fakeDb();
+    const approval = {
+      approvedBy: 'security-owner', approvalReference: 'TICKET-123',
+      coverageTotal: 3, coverageDigest: 'a'.repeat(64),
+    };
+    const response = await app().request(`${endpoint}/freeze`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer platform-key', 'content-type': 'application/json' },
+      body: JSON.stringify({ approval }),
+    }, bindings(fake.db));
+
+    expect(response.status).toBe(200);
+    expect(migrationMocks.freezePatientIntakeWrites).toHaveBeenCalledWith(fake.db, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a',
+      rootSecret: 'pharmacy-phi-root-key-for-tests-v1',
+    }, approval);
+    expect(await response.text()).not.toContain('pharmacy-phi-root-key-for-tests-v1');
   });
 });

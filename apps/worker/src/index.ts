@@ -92,6 +92,7 @@ import { webinarRoutes } from './routes/webinars.js';
 import { instagramEngagement } from './routes/instagram-engagement.js';
 import adminVersion from './routes/admin-version.js';
 import { mediaInquiries } from './routes/media-inquiries.js';
+import { loginUnconfiguredPage } from './lib/login-unconfigured.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
 import { fulfillmentRoutes } from './custom/pharmacy/fulfillment/routes.js'; // custom:pharmacy-fulfillment
@@ -104,6 +105,7 @@ import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/
 import { emergencyContraceptionRoutes } from './custom/pharmacy/emergency-contraception/routes.js'; // custom:pharmacy-emergency-contraception
 import { dataSubjectRequestRoutes } from './custom/pharmacy/data-subject-requests/routes.js'; // custom:pharmacy-data-subject-requests
 import { pharmacyPrivacyPolicyRoutes } from './custom/pharmacy/privacy-policy/routes.js'; // custom:pharmacy-privacy-policy
+import { pharmacyPublicProfileRoutes } from './custom/pharmacy/public-profile/routes.js'; // custom:pharmacy-public-profile
 import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.js'; // custom:pharmacy-provisioning
 import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminDashboardRoutes } from './custom/pharmacy/platform-admin/dashboard-routes.js'; // custom:pharmacy-platform-admin
@@ -287,6 +289,7 @@ app.route('/', dataSubjectRequestRoutes); // custom:pharmacy-data-subject-reques
 app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
 app.route('/', emergencyContraceptionRoutes); // custom:pharmacy-emergency-contraception
 app.route('/', pharmacyPrivacyPolicyRoutes); // custom:pharmacy-privacy-policy
+app.route('/', pharmacyPublicProfileRoutes); // custom:pharmacy-public-profile
 app.route('/', tenantProvisioningRoutes); // custom:pharmacy-provisioning
 app.route('/', platformAdminRoutes); // custom:pharmacy-platform-admin
 app.route('/', platformAdminDashboardRoutes); // custom:pharmacy-platform-admin
@@ -422,6 +425,10 @@ app.get('/r/:ref', async (c) => {
         if (pool.liff_id) liffUrl = `https://liff.line.me/${pool.liff_id}`;
       }
     }
+  }
+
+  if (!liffUrl) {
+    return c.html(loginUnconfiguredPage(), 503);
   }
 
   // Build LIFF URL with params (direct link for Universal Link)

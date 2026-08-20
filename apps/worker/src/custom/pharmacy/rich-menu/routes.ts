@@ -13,13 +13,15 @@ import type { Env } from '../../../index.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
 import {
   buildPharmacyInitialRichMenu,
+  buildPharmacyLegacyInitialRichMenu,
   buildPharmacySingleActionRichMenu,
   isPharmacyInitialRichMenuProfile,
   PHARMACY_INITIAL_PROFILE_KEY,
+  PHARMACY_LEGACY_INITIAL_PROFILE_KEY,
   PHARMACY_SINGLE_ACTION_PROFILE_KEY,
   PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH,
+  PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH,
   PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH,
-  PHARMACY_RICH_MENU_GENERATOR_VERSION,
 } from './profile.js';
 import { savePharmacyRichMenuImage } from './storage.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
@@ -66,7 +68,9 @@ function serializeGroup(group: RichMenuGroupWithPages) {
 async function loadInitialImage(c: Context<Env>, profileKey: string): Promise<Uint8Array> {
   const imagePath = profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
     ? PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH
-    : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH;
+    : profileKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+      ? PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH
+      : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH;
   const response = await c.env.ASSETS.fetch(
     new Request(new URL(imagePath, c.req.url)),
   );
@@ -94,7 +98,9 @@ async function attachInitialImage(
   const image = await loadInitialImage(c, profileKey);
   const fileName = profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
     ? 'initial-single-action-v1.jpg'
-    : 'initial-compact-3x1.jpg';
+    : profileKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+      ? 'initial-compact-3x1.jpg'
+      : 'initial-large-3x2-v2.jpg';
   await savePharmacyRichMenuImage({
     db: c.env.DB,
     images: c.env.IMAGES,
@@ -104,7 +110,7 @@ async function attachInitialImage(
     fileName,
     contentType: 'image/jpeg',
     bytes: image,
-    expectedSize: 'compact',
+    expectedSize: profileKey === PHARMACY_INITIAL_PROFILE_KEY ? 'large' : 'compact',
   });
   return true;
 }
@@ -189,7 +195,9 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c)
     : true;
   const input = generatorKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
     ? buildPharmacySingleActionRichMenu(accountId, account.liff_id, selected)
-    : buildPharmacyInitialRichMenu(accountId, account.liff_id);
+    : generatorKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+      ? buildPharmacyLegacyInitialRichMenu(accountId, account.liff_id)
+      : buildPharmacyInitialRichMenu(accountId, account.liff_id);
   if (existing) {
     const group = await getRichMenuGroupWithPages(c.env.DB, existing.id);
     if (!group) return c.json({ success: false, error: 'generated group disappeared' }, 500);
@@ -262,10 +270,12 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c)
       status: 'prepared',
       reused: false,
       imageAttached,
-      generatorVersion: PHARMACY_RICH_MENU_GENERATOR_VERSION,
+      generatorVersion: input.generatorVersion,
       imagePath: generatorKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
         ? PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH
-        : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH,
+        : generatorKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+          ? PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH
+          : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH,
       group: serializeGroup(refreshed),
     },
   });
