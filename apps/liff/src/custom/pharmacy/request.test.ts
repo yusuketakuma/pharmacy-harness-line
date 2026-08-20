@@ -41,6 +41,19 @@ describe('requestPharmacyLiff', () => {
       });
   });
 
+  it('maps 503 (feature unavailable) to a message distinct from server failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'Myna受付URLが設定されていません' }),
+      { status: 503 },
+    ));
+
+    await expect(requestPharmacyJson('/api/liff/pharmacy/myna-handoffs', 'Myna API'))
+      .rejects.toMatchObject({
+        message: 'この機能は現在利用できません。薬局にお問い合わせください。',
+        status: 503,
+      });
+  });
+
   it('shows a safe Japanese message instead of a raw server error', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
       JSON.stringify({ error: 'SQLITE_CONSTRAINT internal detail' }),

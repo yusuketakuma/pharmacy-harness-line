@@ -35,9 +35,11 @@ export async function requestPharmacyJson<T>(
             ? '内容が更新されています。画面を再読み込みしてください。'
             : response.status === 429
               ? '操作が集中しています。しばらく待って再度お試しください。'
-              : response.status >= 500
-                ? '薬局システムに接続できませんでした。時間をおいて再度お試しください。'
-                : '操作に失敗しました。内容を確認して再度お試しください。';
+              : response.status === 503
+                ? 'この機能は現在利用できません。薬局にお問い合わせください。'
+                : response.status >= 500
+                  ? '薬局システムに接続できませんでした。時間をおいて再度お試しください。'
+                  : '操作に失敗しました。内容を確認して再度お試しください。';
     throw Object.assign(new Error(message), {
       status: response.status,
       body,
