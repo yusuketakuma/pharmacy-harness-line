@@ -21,7 +21,7 @@ import {
   getAffiliateLinkByRefCode,
   getAffiliateOfferById,
   getAffiliateById,
-  getScenarios,
+  getScenariosForAccount,
   enrollFriendInScenario,
   jstNow,
 } from '@line-crm/db';
@@ -913,7 +913,9 @@ liffRoutes.get('/auth/callback', async (c) => {
         ? (await getLineAccountByChannelId(db, accountParam))?.id ?? null
         : null;
 
-      const scenarios = runAccountScenariosLiff ? await getScenarios(db) : [];
+      const scenarios = runAccountScenariosLiff
+        ? await getScenariosForAccount(db, matchedAccountId)
+        : [];
       for (const scenario of scenarios) {
         const scenarioAccountMatch = !scenario.line_account_id || !matchedAccountId || scenario.line_account_id === matchedAccountId;
         if (scenario.trigger_type !== 'friend_add' || !scenario.is_active || !scenarioAccountMatch) {

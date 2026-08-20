@@ -31,7 +31,7 @@ const dbMocks = {
   addTagToFriend: vi.fn().mockResolvedValue(undefined),
   getLineAccountByChannelId: vi.fn().mockResolvedValue(null),
   getLineAccountById: vi.fn().mockResolvedValue(null),
-  getScenarios: vi.fn().mockResolvedValue([]),
+  getScenariosForAccount: vi.fn().mockResolvedValue([]),
   enrollFriendInScenario: vi.fn().mockResolvedValue(null),
   getTrafficPoolBySlug: vi.fn().mockResolvedValue(null),
   getTrafficPoolById: vi.fn().mockResolvedValue(null),
@@ -132,7 +132,7 @@ beforeEach(() => {
   });
   dbMocks.getEntryRouteByRefCode.mockResolvedValue(null);
   dbMocks.getLineAccountByChannelId.mockResolvedValue(null);
-  dbMocks.getScenarios.mockResolvedValue([FRIEND_ADD_SCENARIO]);
+  dbMocks.getScenariosForAccount.mockResolvedValue([FRIEND_ADD_SCENARIO]);
   dbMocks.enrollFriendInScenario.mockResolvedValue(ENROLLMENT);
 });
 
@@ -167,7 +167,7 @@ describe('GET /auth/callback — friend_add auto-enroll delegates to pushImmedia
   });
 
   it('skips inactive and non-friend_add scenarios without enrolling', async () => {
-    dbMocks.getScenarios.mockResolvedValue([
+    dbMocks.getScenariosForAccount.mockResolvedValue([
       { ...FRIEND_ADD_SCENARIO, id: 'scn-paused', is_active: 0 },
       { ...FRIEND_ADD_SCENARIO, id: 'scn-tag', trigger_type: 'tag_added' },
     ]);
@@ -198,7 +198,7 @@ describe('GET /auth/callback — friend_add auto-enroll delegates to pushImmedia
       id: 'acct-9',
       channel_access_token: 'tok-9',
     });
-    dbMocks.getScenarios.mockResolvedValue([
+    dbMocks.getScenariosForAccount.mockResolvedValue([
       { ...FRIEND_ADD_SCENARIO, id: 'scn-mine', line_account_id: 'acct-9' },
       { ...FRIEND_ADD_SCENARIO, id: 'scn-other', line_account_id: 'acct-other' },
     ]);
@@ -219,7 +219,7 @@ describe('GET /auth/callback — friend_add auto-enroll delegates to pushImmedia
 
   it('a failure on one scenario neither skips the remaining scenarios nor aborts the callback', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    dbMocks.getScenarios.mockResolvedValue([
+    dbMocks.getScenariosForAccount.mockResolvedValue([
       { ...FRIEND_ADD_SCENARIO, id: 'scn-a' },
       { ...FRIEND_ADD_SCENARIO, id: 'scn-b' },
     ]);

@@ -2,6 +2,7 @@ import { jstNow } from './utils.js';
 import { enqueueMileageEvent } from './mileage.js';
 export interface Tag {
   id: string;
+  tenant_id: string | null;
   name: string;
   color: string;
   mileage_reward: number;
@@ -17,9 +18,10 @@ export interface FriendTag {
   assigned_at: string;
 }
 
-export async function getTags(db: D1Database): Promise<Tag[]> {
+export async function getTags(db: D1Database, tenantId: string | null = null): Promise<Tag[]> {
   const result = await db
-    .prepare(`SELECT * FROM tags ORDER BY name ASC`)
+    .prepare(`SELECT * FROM tags WHERE tenant_id IS ? ORDER BY name ASC`)
+    .bind(tenantId)
     .all<Tag>();
   return result.results;
 }
@@ -30,15 +32,18 @@ export interface TagWithCount extends Tag {
 
 export async function getTagsWithCounts(
   db: D1Database,
+  tenantId: string | null = null,
 ): Promise<TagWithCount[]> {
   const result = await db
     .prepare(
       `SELECT t.*, COUNT(ft.friend_id) AS friend_count
        FROM tags t
        LEFT JOIN friend_tags ft ON ft.tag_id = t.id
+       WHERE t.tenant_id IS ?
        GROUP BY t.id
        ORDER BY t.name ASC`,
     )
+    .bind(tenantId)
     .all<TagWithCount>();
   return result.results;
 }
@@ -46,6 +51,7 @@ export async function getTagsWithCounts(
 export interface CreateTagInput {
   name: string;
   color?: string;
+  tenantId?: string | null;
 }
 
 export async function createTag(
@@ -58,20 +64,25 @@ export async function createTag(
 
   await db
     .prepare(
-      `INSERT INTO tags (id, name, color, created_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO tags (id, name, color, tenant_id, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .bind(id, input.name, color, now)
+    .bind(id, input.name, color, input.tenantId ?? null, now)
     .run();
 
   return (await db
-    .prepare(`SELECT * FROM tags WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM tags WHERE id = ? AND tenant_id IS ?`)
+    .bind(id, input.tenantId ?? null)
     .first<Tag>())!;
 }
 
-export async function deleteTag(db: D1Database, id: string): Promise<void> {
-  await db.prepare(`DELETE FROM tags WHERE id = ?`).bind(id).run();
+export async function deleteTag(
+  db: D1Database,
+  id: string,
+  tenantId: string | null = null,
+): Promise<boolean> {
+  const result = await db.prepare(`DELETE FROM tags WHERE id = ? AND tenant_id IS ?`).bind(id, tenantId).run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function addTagToFriend(
@@ -115,13 +126,14 @@ export async function updateTagMileageSettings(
     multiplierBps: number | null;
     multiplierPriority: number;
   },
+  tenantId: string | null = null,
 ): Promise<Tag | null> {
   await db
     .prepare(
       `UPDATE tags
           SET mileage_reward = ?, referral_mileage_reward = ?,
               mileage_multiplier_bps = ?, mileage_multiplier_priority = ?
-        WHERE id = ?`,
+        WHERE id = ? AND tenant_id IS ?`,
     )
     .bind(
       input.rewardMiles,
@@ -129,9 +141,10 @@ export async function updateTagMileageSettings(
       input.multiplierBps,
       input.multiplierPriority,
       tagId,
+      tenantId,
     )
     .run();
-  return db.prepare(`SELECT * FROM tags WHERE id = ?`).bind(tagId).first<Tag>();
+  return db.prepare(`SELECT * FROM tags WHERE id = ? AND tenant_id IS ?`).bind(tagId, tenantId).first<Tag>();
 }
 
 /**

@@ -69,7 +69,7 @@ async function computeHmacSha256Hex(secret: string, body: string): Promise<strin
 
 webhooks.get('/api/webhooks/incoming', async (c) => {
   try {
-    const items = await getIncomingWebhooks(c.env.DB);
+    const items = await getIncomingWebhooks(c.env.DB, c.get('tenantId') ?? null);
     return c.json({
       success: true,
       data: items.map((w) => ({
@@ -102,6 +102,7 @@ webhooks.post('/api/webhooks/incoming', async (c) => {
       name: body.name,
       sourceType: body.sourceType,
       secret: body.secret as string,
+      tenantId: c.get('tenantId') ?? null,
     });
     return c.json(
       {
@@ -142,7 +143,7 @@ webhooks.put('/api/webhooks/incoming/:id', async (c) => {
     // would still be invalid. Otherwise migration 034 can be bypassed by
     // toggling isActive without touching the legacy null/short secret.
     if (body.isActive === true) {
-      const existing = await getIncomingWebhookById(c.env.DB, id);
+      const existing = await getIncomingWebhookById(c.env.DB, id, c.get('tenantId') ?? null);
       if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
       const effectiveSecret = body.secret ?? existing.secret;
       if (!effectiveSecret || effectiveSecret.length < MIN_SECRET_LENGTH) {
@@ -155,8 +156,8 @@ webhooks.put('/api/webhooks/incoming/:id', async (c) => {
         );
       }
     }
-    await updateIncomingWebhook(c.env.DB, id, body);
-    const updated = await getIncomingWebhookById(c.env.DB, id);
+    await updateIncomingWebhook(c.env.DB, id, body, c.get('tenantId') ?? null);
+    const updated = await getIncomingWebhookById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({
       success: true,
@@ -176,7 +177,8 @@ webhooks.put('/api/webhooks/incoming/:id', async (c) => {
 
 webhooks.delete('/api/webhooks/incoming/:id', async (c) => {
   try {
-    await deleteIncomingWebhook(c.env.DB, c.req.param('id'));
+    const deleted = await deleteIncomingWebhook(c.env.DB, c.req.param('id'), c.get('tenantId') ?? null);
+    if (deleted === false) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/webhooks/incoming/:id error:', err);
@@ -188,7 +190,7 @@ webhooks.delete('/api/webhooks/incoming/:id', async (c) => {
 
 webhooks.get('/api/webhooks/outgoing', async (c) => {
   try {
-    const items = await getOutgoingWebhooks(c.env.DB);
+    const items = await getOutgoingWebhooks(c.env.DB, c.get('tenantId') ?? null);
     return c.json({
       success: true,
       data: items.map((w) => ({
@@ -232,6 +234,7 @@ webhooks.post('/api/webhooks/outgoing', async (c) => {
       url: body.url,
       eventTypes: body.eventTypes ?? [],
       secret: body.secret as string,
+      tenantId: c.get('tenantId') ?? null,
     });
     return c.json(
       {
@@ -285,7 +288,7 @@ webhooks.put('/api/webhooks/outgoing/:id', async (c) => {
     // partial update. Without this, migration 034 can be bypassed by
     // sending {isActive:true} on a legacy http:// or secret-less row.
     if (body.isActive === true) {
-      const existing = await getOutgoingWebhookById(c.env.DB, id);
+      const existing = await getOutgoingWebhookById(c.env.DB, id, c.get('tenantId') ?? null);
       if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
       const effectiveSecret = body.secret ?? existing.secret;
       const effectiveUrl = body.url ?? existing.url;
@@ -306,8 +309,8 @@ webhooks.put('/api/webhooks/outgoing/:id', async (c) => {
         );
       }
     }
-    await updateOutgoingWebhook(c.env.DB, id, body);
-    const updated = await getOutgoingWebhookById(c.env.DB, id);
+    await updateOutgoingWebhook(c.env.DB, id, body, c.get('tenantId') ?? null);
+    const updated = await getOutgoingWebhookById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({
       success: true,
@@ -328,7 +331,8 @@ webhooks.put('/api/webhooks/outgoing/:id', async (c) => {
 
 webhooks.delete('/api/webhooks/outgoing/:id', async (c) => {
   try {
-    await deleteOutgoingWebhook(c.env.DB, c.req.param('id'));
+    const deleted = await deleteOutgoingWebhook(c.env.DB, c.req.param('id'), c.get('tenantId') ?? null);
+    if (deleted === false) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/webhooks/outgoing/:id error:', err);

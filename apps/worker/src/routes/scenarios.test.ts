@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 
 const dbMocks = {
-  getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   getScenarioById: vi.fn(),
   createScenario: vi.fn(),
   updateScenario: vi.fn(),
@@ -97,7 +97,8 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
       { id: 's-acc1', name: 'acc1', line_account_id: 'acc-1', ...rowBase },
       { id: 's-acc2', name: 'acc2', line_account_id: 'acc-2', ...rowBase },
     ];
-    const { db, calls } = makeScenarioDb(rows);
+    const { db } = makeScenarioDb(rows);
+    dbMocks.getScenariosForAccount.mockResolvedValue(rows.slice(0, 2));
 
     const res = await setupApp(db).request('/api/scenarios?lineAccountId=acc-1');
     expect(res.status).toBe(200);
@@ -112,23 +113,18 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
     // an account-specific scenario.
     const globalRow = body.data.find((d) => d.id === 's-global');
     expect(globalRow?.lineAccountId).toBeNull();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].sql).toMatch(/line_account_id IS NULL/);
-    expect(calls[0].sql).toMatch(/s\.line_account_id = \?/);
-    expect(calls[0].binds).toEqual(['acc-1']);
+    expect(dbMocks.getScenariosForAccount).toHaveBeenCalledWith(db, 'acc-1');
   });
 
-  test('falls back to getScenarios helper when no lineAccountId is provided', async () => {
-    dbMocks.getScenarios.mockResolvedValue([
-      { id: 's-x', name: 'x', line_account_id: null, ...rowBase },
-    ]);
+  test('returns no scenarios when no lineAccountId is provided', async () => {
+    dbMocks.getScenariosForAccount.mockResolvedValue([]);
     const { db } = makeScenarioDb([]);
 
     const res = await setupApp(db).request('/api/scenarios');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; data: { id: string }[] };
-    expect(body.data.map((d) => d.id)).toEqual(['s-x']);
-    expect(dbMocks.getScenarios).toHaveBeenCalledTimes(1);
+    expect(body.data).toEqual([]);
+    expect(dbMocks.getScenariosForAccount).toHaveBeenCalledWith(db, null);
   });
 
   test('returns empty array when filter matches nothing and no globals exist', async () => {
@@ -136,6 +132,7 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
       { id: 's-other', name: 'other', line_account_id: 'acc-other', ...rowBase },
     ];
     const { db } = makeScenarioDb(rows);
+    dbMocks.getScenariosForAccount.mockResolvedValue([]);
 
     const res = await setupApp(db).request('/api/scenarios?lineAccountId=acc-1');
     expect(res.status).toBe(200);

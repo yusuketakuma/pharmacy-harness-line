@@ -6,7 +6,7 @@ import {
   removeTagFromFriend,
   getFriendTags,
   getFormSubmissionsByFriend,
-  getScenarios,
+  getScenariosForAccount,
   enrollFriendInScenario,
   getMileageSummaryForFriend,
   getMileageHistoryForFriend,
@@ -570,7 +570,7 @@ friends.post('/api/friends/:id/tags', async (c) => {
     await addTagToFriend(db, friendId, body.tagId);
 
     // Enroll in tag_added scenarios that match this tag
-    const allScenarios = await getScenarios(db);
+    const allScenarios = await getScenariosForAccount(db, friend.line_account_id ?? null);
     for (const scenario of allScenarios) {
       if (scenario.trigger_type === 'tag_added' && scenario.is_active && scenario.trigger_tag_id === body.tagId) {
         const existing = await db

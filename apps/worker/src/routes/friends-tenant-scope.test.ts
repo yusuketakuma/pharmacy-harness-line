@@ -9,7 +9,7 @@ vi.mock('@line-crm/db', () => ({
   removeTagFromFriend: vi.fn(),
   getFriendTags: vi.fn(),
   getFormSubmissionsByFriend: vi.fn(),
-  getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   getMileageSummaryForFriend: vi.fn(),
   getMileageHistoryForFriend: vi.fn(),

@@ -34,9 +34,10 @@ function serializeTag(row: DbTag & { friend_count?: number }) {
 tags.get('/api/tags', async (c) => {
   try {
     const withCounts = c.req.query('withCounts') === '1';
+    const tenantId = c.get('tenantId') ?? null;
     const items = withCounts
-      ? await getTagsWithCounts(c.env.DB)
-      : await getTags(c.env.DB);
+      ? await getTagsWithCounts(c.env.DB, tenantId)
+      : await getTags(c.env.DB, tenantId);
     return c.json({ success: true, data: items.map(serializeTag) });
   } catch (err) {
     console.error('GET /api/tags error:', err);
@@ -79,7 +80,7 @@ tags.patch('/api/tags/:id/mileage', async (c) => {
       referralRewardMiles,
       multiplierBps,
       multiplierPriority,
-    });
+    }, c.get('tenantId') ?? null);
     if (!tag) return c.json({ success: false, error: 'Not found' }, 404);
     const queued = rewardMiles > 0 || referralRewardMiles > 0
       ? await enqueueHistoricTagMileage(c.env.DB, tag.id)
@@ -104,6 +105,7 @@ tags.post('/api/tags', async (c) => {
     const tag = await createTag(c.env.DB, {
       name,
       color: body.color,
+      tenantId: c.get('tenantId') ?? null,
     });
 
     return c.json({ success: true, data: serializeTag(tag) }, 201);
@@ -123,7 +125,9 @@ tags.post('/api/tags', async (c) => {
 tags.delete('/api/tags/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    await deleteTag(c.env.DB, id);
+    if (!await deleteTag(c.env.DB, id, c.get('tenantId') ?? null)) {
+      return c.json({ success: false, error: 'Not found' }, 404);
+    }
     return c.json({ success: true, data: null });
   } catch (err) {
     if (err instanceof Error && err.message.includes('FOREIGN KEY constraint')) {

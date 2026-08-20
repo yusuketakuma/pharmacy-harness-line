@@ -11,7 +11,7 @@ const dbMocks = {
   addTagToFriend: vi.fn(),
   removeTagFromFriend: vi.fn(),
   getFriendTags: vi.fn(),
-  getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   jstNow: vi.fn(() => '2026-08-09T00:00:00.000+09:00'),
 };
