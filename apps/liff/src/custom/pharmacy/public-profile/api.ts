@@ -3,6 +3,7 @@ import { requestPharmacyJson } from '../request.js';
 export interface PharmacyPublicProfile {
   display_name: string;
   phone: string;
+  fax_number: string;
   postal_code: string;
   address: string;
   business_hours: string;

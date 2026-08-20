@@ -34,6 +34,16 @@ export function pharmacyGoogleMapsUrl(
     : null;
 }
 
+function InfoLine({ label, value, className = 'mt-3 whitespace-pre-line text-sm leading-6 text-gray-700' }: {
+  label?: string;
+  value: string;
+  className?: string;
+}) {
+  return value ? <p className={className}>
+    {label && <><span className="font-medium">{label}</span><br /></>}{value}
+  </p> : null;
+}
+
 export function PharmacyInfoContent({ profile }: { profile: PharmacyPublicProfile }) {
   const mapUrl = pharmacyGoogleMapsUrl(profile);
   const phoneHref = profile.phone ? `tel:${profile.phone.replace(/[^0-9+]/g, '')}` : null;
@@ -47,22 +57,23 @@ export function PharmacyInfoContent({ profile }: { profile: PharmacyPublicProfil
       </section>
       <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="hours-title">
         <h2 id="hours-title" className="font-bold text-gray-950">営業時間</h2>
-        <p className="mt-2 whitespace-pre-line text-sm leading-7 text-gray-700">{profile.business_hours || '営業時間は薬局へお問い合わせください。'}</p>
-        {profile.prescription_reception_hours && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">処方せん受付時間</span><br />{profile.prescription_reception_hours}</p>}
-        {profile.after_hours_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">時間外の対応</span><br />{profile.after_hours_note}</p>}
+        <InfoLine value={profile.business_hours || '営業時間は薬局へお問い合わせください。'} className="mt-2 whitespace-pre-line text-sm leading-7 text-gray-700" />
+        <InfoLine label="処方せん受付時間" value={profile.prescription_reception_hours} />
+        <InfoLine label="時間外の対応" value={profile.after_hours_note} />
       </section>
       {(profile.services_note || profile.supported_languages || profile.payment_methods) && <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="services-title">
         <h2 id="services-title" className="font-bold text-gray-950">サービス・対応</h2>
-        {profile.services_note && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">利用できるサービス</span><br />{profile.services_note}</p>}
-        {profile.supported_languages && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">対応言語</span><br />{profile.supported_languages}</p>}
-        {profile.payment_methods && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">支払方法</span><br />{profile.payment_methods}</p>}
+        <InfoLine label="利用できるサービス" value={profile.services_note} className="mt-2" />
+        <InfoLine label="対応言語" value={profile.supported_languages} />
+        <InfoLine label="支払方法" value={profile.payment_methods} />
       </section>}
       <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="access-title">
         <h2 id="access-title" className="font-bold text-gray-950">住所・アクセス</h2>
         <p className="mt-2 text-sm leading-6 text-gray-700"><span className="font-medium">住所</span><br />{[profile.postal_code && `〒${profile.postal_code}`, profile.address].filter(Boolean).join(' ') || '未設定'}</p>
-        {profile.access_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">アクセス</span><br />{profile.access_note}</p>}
-        {profile.parking_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">駐車場</span><br />{profile.parking_note}</p>}
-        {profile.accessibility_note && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700"><span className="font-medium">バリアフリー</span><br />{profile.accessibility_note}</p>}
+        <InfoLine label="FAX番号" value={profile.fax_number} />
+        <InfoLine label="アクセス" value={profile.access_note} />
+        <InfoLine label="駐車場" value={profile.parking_note} />
+        <InfoLine label="バリアフリー" value={profile.accessibility_note} />
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {mapUrl && <a href={mapUrl} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-xl bg-green-700 px-4 py-3 text-center font-bold text-white">Google Mapsで開く</a>}
           {phoneHref && <a href={phoneHref} className="min-h-11 rounded-xl border border-green-600 bg-white px-4 py-3 text-center font-bold text-green-700">電話する</a>}

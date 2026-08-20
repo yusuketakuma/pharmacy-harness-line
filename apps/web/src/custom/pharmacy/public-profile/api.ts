@@ -5,6 +5,7 @@ export interface PharmacyPublicProfile {
   line_account_id: string
   display_name: string
   phone: string
+  fax_number: string
   postal_code: string
   address: string
   business_hours: string
@@ -25,6 +26,7 @@ export interface PharmacyPublicProfile {
 export interface PharmacyPublicProfileInput {
   displayName: string
   phone: string
+  faxNumber: string
   postalCode: string
   address: string
   businessHours: string
