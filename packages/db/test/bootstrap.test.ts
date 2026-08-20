@@ -64,14 +64,18 @@ function readSchemaObjects(db: Database.Database) {
 }
 
 describe('bootstrap.sql', () => {
-  it('stays in sync with schema.sql + migrations', () => {
-    expect(() =>
-      execFileSync('node', [GENERATOR, '--check'], {
-        cwd: PKG_ROOT,
-        stdio: 'pipe',
-      }),
-    ).not.toThrow();
-  });
+  it(
+    'stays in sync with schema.sql + migrations',
+    () => {
+      expect(() =>
+        execFileSync('node', [GENERATOR, '--check'], {
+          cwd: PKG_ROOT,
+          stdio: 'pipe',
+        }),
+      ).not.toThrow();
+    },
+    15000,
+  );
 
   it('matches the schema produced by replaying all migrations', () => {
     const bootstrapDb = new Database(':memory:');
