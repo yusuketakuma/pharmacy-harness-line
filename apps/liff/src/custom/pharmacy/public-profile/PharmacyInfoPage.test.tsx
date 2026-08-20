@@ -21,7 +21,8 @@ describe('pharmacy information LIFF page', () => {
   it('renders patient-useful public information and safe actions', () => {
     const html = renderToStaticMarkup(<PharmacyInfoContent profile={profile} />);
     for (const text of ['みどり薬局', '営業時間', '月〜金 9:00〜18:00', '住所',
-      'Google Mapsで開く', '電話する', 'FAX番号', '03-1234-5679', '休業・臨時案内', 'アクセス', '駐車場']) {
+      'Google Mapsで開く', '電話番号', '03-1234-5678', '電話する', 'FAX番号',
+      '03-1234-5679', '休業・臨時案内', 'アクセス', '駐車場']) {
       expect(html).toContain(text);
     }
     for (const text of ['処方せん受付時間', '時間外の対応', '利用できるサービス',
@@ -45,5 +46,13 @@ describe('pharmacy information LIFF page', () => {
     );
     expect(pharmacyGoogleMapsUrl({ ...profile, google_maps_url: 'https://maps.app.goo.gl/test' }))
       .toBe('https://maps.app.goo.gl/test');
+  });
+
+  it('keeps the FAX field visible when the pharmacy has not configured a number', () => {
+    const html = renderToStaticMarkup(<PharmacyInfoContent profile={{
+      ...profile, fax_number: '',
+    }} />);
+    expect(html).toContain('FAX番号');
+    expect(html).toContain('未設定');
   });
 });
