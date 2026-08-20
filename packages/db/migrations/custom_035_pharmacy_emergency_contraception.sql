@@ -93,6 +93,10 @@ CREATE TABLE IF NOT EXISTS pharmacy_emergency_intakes (
     CHECK (safe_contact_mode IN ('neutral_line', 'no_notification', 'phone', 'none')),
   consent_version     TEXT NOT NULL,
   risk_flags_json     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(risk_flags_json)),
+  -- Product the hold was taken against, captured from pharmacy_emergency_settings
+  -- at creation time. An account may stock several products at once, and settings
+  -- only point at the currently active one, so completion must not re-resolve it.
+  product_code        TEXT,
   idempotency_key     TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 160),
   expires_at          TEXT NOT NULL,
   reviewed_by         TEXT,
@@ -200,21 +204,29 @@ WHEN (
 ), 0)
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SLOT_UNAVAILABLE'); END;
 
+-- Stock is held and consumed per product. All three stock triggers below resolve
+-- against NEW.product_code, the product recorded on the intake row itself.
+-- The row carries it because the writer copies pharmacy_emergency_settings.product_code
+-- into the same INSERT, so at creation time NEW.product_code IS the live setting;
+-- afterwards the row keeps pointing at the product that was actually reserved even
+-- if an admin repoints settings at another stocked product. A live settings lookup
+-- at completion time would guard and decrement the wrong inventory row.
+-- NEW.product_code IS NULL never matches an inventory row, so an intake inserted
+-- without one is rejected by the creation guard rather than silently unbacked.
 CREATE TRIGGER IF NOT EXISTS pharmacy_emergency_intake_stock
 BEFORE INSERT ON pharmacy_emergency_intakes
 WHEN (
   SELECT COUNT(*)
     FROM pharmacy_emergency_intakes AS active
    WHERE active.line_account_id = NEW.line_account_id
+     AND active.product_code = NEW.product_code
      AND active.status IN ('provisional', 'reviewed')
      AND active.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ) >= COALESCE((
   SELECT inventory.on_hand
     FROM pharmacy_emergency_inventory AS inventory
-    INNER JOIN pharmacy_emergency_settings AS settings
-            ON settings.line_account_id = inventory.line_account_id
-           AND settings.product_code = inventory.product_code
    WHERE inventory.line_account_id = NEW.line_account_id
+     AND inventory.product_code = NEW.product_code
 ), 0)
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
 
@@ -223,10 +235,9 @@ BEFORE UPDATE OF status ON pharmacy_emergency_intakes
 WHEN NEW.status = 'completed' AND OLD.status <> 'completed' AND NOT EXISTS (
   SELECT 1
     FROM pharmacy_emergency_inventory AS inventory
-    INNER JOIN pharmacy_emergency_settings AS settings
-            ON settings.line_account_id = inventory.line_account_id
-           AND settings.product_code = inventory.product_code
-   WHERE inventory.line_account_id = NEW.line_account_id AND inventory.on_hand > 0
+   WHERE inventory.line_account_id = NEW.line_account_id
+     AND inventory.product_code = NEW.product_code
+     AND inventory.on_hand > 0
 )
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
 
@@ -238,10 +249,7 @@ BEGIN UPDATE pharmacy_emergency_inventory
          version = version + 1,
          updated_at = NEW.updated_at
    WHERE line_account_id = NEW.line_account_id
-     AND product_code = (
-       SELECT product_code FROM pharmacy_emergency_settings
-        WHERE line_account_id = NEW.line_account_id
-     ); END;
+     AND product_code = NEW.product_code; END;
 
 CREATE TRIGGER IF NOT EXISTS pharmacy_emergency_events_no_update
 BEFORE UPDATE ON pharmacy_emergency_intake_events

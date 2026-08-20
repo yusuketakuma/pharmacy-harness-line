@@ -930,6 +930,10 @@ CREATE TABLE pharmacy_emergency_intakes (
     CHECK (safe_contact_mode IN ('neutral_line', 'no_notification', 'phone', 'none')),
   consent_version     TEXT NOT NULL,
   risk_flags_json     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(risk_flags_json)),
+  -- Product the hold was taken against, captured from pharmacy_emergency_settings
+  -- at creation time. An account may stock several products at once, and settings
+  -- only point at the currently active one, so completion must not re-resolve it.
+  product_code        TEXT,
   idempotency_key     TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 160),
   expires_at          TEXT NOT NULL,
   reviewed_by         TEXT,
@@ -2698,20 +2702,16 @@ BEGIN UPDATE pharmacy_emergency_inventory
          version = version + 1,
          updated_at = NEW.updated_at
    WHERE line_account_id = NEW.line_account_id
-     AND product_code = (
-       SELECT product_code FROM pharmacy_emergency_settings
-        WHERE line_account_id = NEW.line_account_id
-     ); END;
+     AND product_code = NEW.product_code; END;
 
 CREATE TRIGGER pharmacy_emergency_completion_stock_guard
 BEFORE UPDATE OF status ON pharmacy_emergency_intakes
 WHEN NEW.status = 'completed' AND OLD.status <> 'completed' AND NOT EXISTS (
   SELECT 1
     FROM pharmacy_emergency_inventory AS inventory
-    INNER JOIN pharmacy_emergency_settings AS settings
-            ON settings.line_account_id = inventory.line_account_id
-           AND settings.product_code = inventory.product_code
-   WHERE inventory.line_account_id = NEW.line_account_id AND inventory.on_hand > 0
+   WHERE inventory.line_account_id = NEW.line_account_id
+     AND inventory.product_code = NEW.product_code
+     AND inventory.on_hand > 0
 )
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
 
@@ -2773,15 +2773,14 @@ WHEN (
   SELECT COUNT(*)
     FROM pharmacy_emergency_intakes AS active
    WHERE active.line_account_id = NEW.line_account_id
+     AND active.product_code = NEW.product_code
      AND active.status IN ('provisional', 'reviewed')
      AND active.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ) >= COALESCE((
   SELECT inventory.on_hand
     FROM pharmacy_emergency_inventory AS inventory
-    INNER JOIN pharmacy_emergency_settings AS settings
-            ON settings.line_account_id = inventory.line_account_id
-           AND settings.product_code = inventory.product_code
    WHERE inventory.line_account_id = NEW.line_account_id
+     AND inventory.product_code = NEW.product_code
 ), 0)
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
 

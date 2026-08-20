@@ -196,6 +196,7 @@ export async function getEmergencyServiceOverview(
        FROM pharmacy_emergency_inventory AS inventory
        LEFT JOIN pharmacy_emergency_intakes AS active
               ON active.line_account_id = inventory.line_account_id
+             AND active.product_code = inventory.product_code
              AND active.status IN ('provisional', 'reviewed')
              AND active.expires_at > ?
       WHERE inventory.line_account_id = ? AND inventory.product_code = ?
@@ -636,16 +637,24 @@ export async function createEmergencyIntake(
   const eventKey = `created:${input.idempotencyKey}`;
   await db.batch([
     db.prepare(
+      // product_code is copied from settings inside the INSERT itself, so the hold is
+      // anchored to the product that was active at this instant. The completion triggers
+      // read it back off the row instead of re-resolving the (by then possibly changed)
+      // settings value.
       `INSERT INTO pharmacy_emergency_intakes
         (id, reference_code, tenant_id, line_account_id, owner_friend_id, slot_id,
          status, encrypted_payload, payload_key_version, age_band, safe_contact_mode,
-         consent_version, risk_flags_json, idempotency_key, expires_at,
+         consent_version, risk_flags_json, product_code, idempotency_key, expires_at,
          version, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'provisional', ?, 1, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+       SELECT ?, ?, ?, settings.line_account_id, ?, ?, 'provisional', ?, 1, ?, ?, ?, ?,
+              settings.product_code, ?, ?, 1, ?, ?
+         FROM pharmacy_emergency_settings AS settings
+        WHERE settings.line_account_id = ?`,
     ).bind(
-      id, referenceCode(), input.tenantId, input.lineAccountId, input.friendId, input.slotId,
+      id, referenceCode(), input.tenantId, input.friendId, input.slotId,
       encryptedPayload, ageBand(input.age), input.safeContactMode, input.consentVersion,
       JSON.stringify(assessment.riskFlags), input.idempotencyKey, expiresAt, timestamp, timestamp,
+      input.lineAccountId,
     ),
     db.prepare(
       `INSERT INTO pharmacy_emergency_intake_events

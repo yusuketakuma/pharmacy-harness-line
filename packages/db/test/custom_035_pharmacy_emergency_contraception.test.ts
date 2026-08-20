@@ -106,11 +106,11 @@ function insertIntake(db: Database.Database, id: string, friendId = 'friend-a'):
   db.prepare(`INSERT INTO pharmacy_emergency_intakes
     (id, reference_code, tenant_id, line_account_id, owner_friend_id, slot_id,
      status, encrypted_payload, payload_key_version, age_band, safe_contact_mode,
-     consent_version, risk_flags_json, idempotency_key, expires_at,
+     consent_version, risk_flags_json, product_code, idempotency_key, expires_at,
      version, created_at, updated_at)
     VALUES (?, ?, 'tenant-a', 'account-a', ?, 'slot-a', 'provisional',
             'v1.nonce.ciphertext', 1, 'adult', 'neutral_line', '2026-08-19',
-            '[]', ?, '2099-08-19T00:00:00.000Z', 1, ?, ?)`).run(
+            '[]', 'norlevo-otc', ?, '2099-08-19T00:00:00.000Z', 1, ?, ?)`).run(
     id, `REF-${id}`, friendId, `idem-${id}`, NOW, NOW,
   );
 }
@@ -240,6 +240,43 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
     expect(db.prepare(`SELECT on_hand, version FROM pharmacy_emergency_inventory
       WHERE line_account_id = 'account-a' AND product_code = 'norlevo-otc'`).get())
       .toEqual({ on_hand: 0, version: 2 });
+  });
+
+  it('completes against the product held at intake creation, not the live settings product', async () => {
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    db.prepare(`INSERT INTO pharmacy_emergency_inventory
+      (line_account_id, product_code, on_hand, version, updated_by, created_at, updated_at)
+      VALUES ('account-a', 'levonelle-otc', 0, 1, 'staff-a', ?, ?)`).run(NOW, NOW);
+    const created = await createEmergencyIntake(d1, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'none', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-4',
+      encryptionSecret: 'test-secret', now: new Date(NOW),
+    });
+    expect(db.prepare(`SELECT product_code FROM pharmacy_emergency_intakes WHERE id = ?`)
+      .get(created.id)).toEqual({ product_code: 'norlevo-otc' });
+    // The admin repoints settings at another stocked product while the hold is outstanding.
+    db.prepare(`UPDATE pharmacy_emergency_settings
+      SET product_code = 'levonelle-otc' WHERE line_account_id = 'account-a'`).run();
+
+    await expect(transitionEmergencyIntake(d1, {
+      lineAccountId: 'account-a', intakeId: created.id, expectedVersion: 1,
+      toStatus: 'reviewed', staffId: 'staff-a', now: new Date(NOW),
+    })).resolves.toMatchObject({ status: 'reviewed' });
+    await expect(transitionEmergencyIntake(d1, {
+      lineAccountId: 'account-a', intakeId: created.id, expectedVersion: 2,
+      toStatus: 'completed', staffId: 'staff-a', now: new Date(NOW),
+    })).resolves.toMatchObject({ status: 'completed' });
+
+    expect(db.prepare(`SELECT product_code, on_hand, version FROM pharmacy_emergency_inventory
+      WHERE line_account_id = 'account-a' ORDER BY product_code`).all()).toEqual([
+      { product_code: 'levonelle-otc', on_hand: 0, version: 1 },
+      { product_code: 'norlevo-otc', on_hand: 0, version: 2 },
+    ]);
   });
 
   it('creates one encrypted owner-scoped provisional intake idempotently', async () => {
