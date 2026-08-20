@@ -24,7 +24,39 @@ export interface LineAccount {
   updated_at: string;
 }
 
+export interface ActiveTenantLineAccount extends LineAccount {
+  tenant_id: string;
+  pharmacy_mode: number;
+}
+
+// Tenant-scoped pharmacy reads expose credential state only. The actual
+// credential is resolved from pharmacy_line_credentials at the call site.
+const TENANT_LINE_ACCOUNT_COLUMNS = `
+  account.id,
+  account.channel_id,
+  account.name,
+  CASE WHEN account.channel_access_token LIKE 'encrypted:%'
+       THEN 'encrypted:v1' ELSE 'legacy:unavailable' END AS channel_access_token,
+  CASE WHEN account.channel_secret LIKE 'encrypted:%'
+       THEN 'encrypted:v1' ELSE 'legacy:unavailable' END AS channel_secret,
+  account.login_channel_id,
+  CASE WHEN account.login_channel_secret IS NULL THEN NULL
+       WHEN account.login_channel_secret LIKE 'encrypted:%' THEN 'encrypted:v1'
+       ELSE 'legacy:unavailable' END AS login_channel_secret,
+  account.liff_id,
+  account.is_active,
+  account.country,
+  account.role,
+  account.display_order,
+  account.token_expires_at,
+  account.og_site_name,
+  account.og_default_image_url,
+  account.og_default_description,
+  account.created_at,
+  account.updated_at`;
+
 export interface CreateLineAccountInput {
+  tenantId: string;
   channelId: string;
   name: string;
   channelAccessToken: string;
@@ -47,12 +79,19 @@ export async function createLineAccount(
   // Auto-fill display_order to (max existing + 1) so new accounts go to the end.
   // COALESCE handles the empty-table case: -1 + 1 = 0.
   const orderRow = await db
-    .prepare(`SELECT COALESCE(MAX(display_order), -1) + 1 AS next FROM line_accounts`)
+    .prepare(
+      `SELECT COALESCE(MAX(account.display_order), -1) + 1 AS next
+         FROM line_accounts AS account
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = account.id
+        WHERE mapping.tenant_id = ?`,
+    )
+    .bind(input.tenantId)
     .first<{ next: number }>();
   const displayOrder = orderRow?.next ?? 0;
 
-  await db
-    .prepare(
+  await db.batch([
+    db.prepare(
       `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret,
           login_channel_id, login_channel_secret, liff_id,
@@ -60,8 +99,7 @@ export async function createLineAccount(
           og_site_name, og_default_image_url, og_default_description,
           created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
+    ).bind(
       id,
       input.channelId,
       input.name,
@@ -76,10 +114,15 @@ export async function createLineAccount(
       input.ogDefaultDescription ?? null,
       now,
       now,
-    )
-    .run();
+    ),
+    db.prepare(
+      `INSERT INTO tenant_line_accounts
+         (tenant_id, line_account_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+    ).bind(input.tenantId, id, now, now),
+  ]);
 
-  return (await getLineAccountById(db, id))!;
+  return (await getLineAccountByIdForTenant(db, input.tenantId, id))!;
 }
 
 export async function getLineAccountById(
@@ -96,6 +139,68 @@ export async function getLineAccounts(db: D1Database): Promise<LineAccount[]> {
   const result = await db
     .prepare(`SELECT * FROM line_accounts ORDER BY display_order ASC, created_at ASC`)
     .all<LineAccount>();
+  return result.results;
+}
+
+export async function getLineAccountsForTenant(
+  db: D1Database,
+  tenantId: string,
+): Promise<LineAccount[]> {
+  const result = await db
+    .prepare(
+      `SELECT ${TENANT_LINE_ACCOUNT_COLUMNS}
+         FROM line_accounts AS account
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = account.id
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = mapping.tenant_id
+                AND tenant.status = 'active'
+        WHERE mapping.tenant_id = ?
+        ORDER BY account.display_order ASC, account.created_at ASC`,
+    )
+    .bind(tenantId)
+    .all<LineAccount>();
+  return result.results;
+}
+
+export async function getLineAccountByIdForTenant(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+): Promise<LineAccount | null> {
+  return db
+    .prepare(
+      `SELECT ${TENANT_LINE_ACCOUNT_COLUMNS}
+         FROM line_accounts AS account
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = account.id
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = mapping.tenant_id
+                AND tenant.status = 'active'
+        WHERE mapping.tenant_id = ?
+          AND account.id = ?`,
+    )
+    .bind(tenantId, id)
+    .first<LineAccount>();
+}
+
+export async function getActiveTenantLineAccounts(
+  db: D1Database,
+): Promise<ActiveTenantLineAccount[]> {
+  const result = await db
+    .prepare(
+      `SELECT ${TENANT_LINE_ACCOUNT_COLUMNS}, mapping.tenant_id,
+              1 AS pharmacy_mode
+         FROM line_accounts AS account
+         INNER JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = account.id
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = mapping.tenant_id
+                AND tenant.status = 'active'
+        WHERE account.is_active = 1
+        ORDER BY account.display_order ASC, account.created_at ASC`,
+    )
+    .all<ActiveTenantLineAccount>();
   return result.results;
 }
 

@@ -29,26 +29,27 @@ export const reasonLabel = (reason: string | null) => reason ? REASON_LABELS[rea
 export interface StatusAction {
   id: PrescriptionAdminAction
   label: string
+  confirm?: boolean
   danger?: boolean
 }
 
 export function actionsForStatus(status: PrescriptionStatus): StatusAction[] {
   if (status === 'received') return [
-    { id: 'accept', label: '確認して受付する' },
-    { id: 'request_resubmission', label: '再送を依頼' },
-    { id: 'cancel', label: 'キャンセル', danger: true },
+    { id: 'accept', label: '確認して受付する', confirm: true },
+    { id: 'request_resubmission', label: '再送を依頼', confirm: true },
+    { id: 'cancel', label: 'キャンセル', confirm: true, danger: true },
   ]
   if (status === 'accepted') return [
-    { id: 'ready', label: '準備完了にする' },
-    { id: 'request_resubmission', label: '再送を依頼' },
-    { id: 'cancel', label: 'キャンセル', danger: true },
+    { id: 'ready', label: '準備完了にする', confirm: true },
+    { id: 'request_resubmission', label: '再送を依頼', confirm: true },
+    { id: 'cancel', label: 'キャンセル', confirm: true, danger: true },
   ]
   if (status === 'ready') return [
-    { id: 'close', label: '受け渡し完了' },
-    { id: 'cancel', label: 'キャンセル', danger: true },
+    { id: 'close', label: '受け渡し完了', confirm: true },
+    { id: 'cancel', label: 'キャンセル', confirm: true, danger: true },
   ]
   if (status === 'draft' || status === 'needs_resubmission') {
-    return [{ id: 'cancel', label: 'キャンセル', danger: true }]
+    return [{ id: 'cancel', label: 'キャンセル', confirm: true, danger: true }]
   }
   return []
 }
@@ -62,6 +63,7 @@ export function PrescriptionDetailPanel({
   quoteSaving,
   acting,
   actionMessage,
+  actionError,
   reason,
   onOpenImage,
   onQuoteChange,
@@ -77,6 +79,7 @@ export function PrescriptionDetailPanel({
   quoteSaving: boolean
   acting: boolean
   actionMessage: string
+  actionError: string
   reason: string
   onOpenImage: (file: PrescriptionFile, index: number) => void
   onQuoteChange: (draft: FulfillmentQuoteDraft) => void
@@ -109,6 +112,7 @@ export function PrescriptionDetailPanel({
             </div>
           </div>
 
+          {actionError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
           {actionMessage && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{actionMessage}</p>}
 
           <dl className="grid gap-3 text-sm sm:grid-cols-3">

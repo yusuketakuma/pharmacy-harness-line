@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
+import type { Env } from '../index.js';
 
 vi.mock('@line-crm/db', () => ({
   getOperators: vi.fn(),
@@ -34,6 +35,9 @@ function fakeDb(row: Record<string, unknown>) {
           queries.push({ sql, params: statement.params });
           return { results: [row] };
         },
+        async first() {
+          return null;
+        },
       };
       return statement;
     },
@@ -61,7 +65,11 @@ describe('GET /api/chats list preview', () => {
       created_at: latest,
       updated_at: latest,
     });
-    const app = new Hono();
+    const app = new Hono<Env>();
+    app.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
     app.route('/', chats);
 
     const response = await app.request(
@@ -86,6 +94,8 @@ describe('GET /api/chats list preview', () => {
 
     const listSql = queries[0].sql;
     expect(listSql).toContain('FROM any_agg');
+    expect(listSql).toContain('tenant_line_accounts');
+    expect(queries[0].params).toContain('tenant-a');
     expect(listSql).not.toContain('in_agg AS');
     expect(listSql).not.toContain("WHERE direction = 'incoming'");
   });

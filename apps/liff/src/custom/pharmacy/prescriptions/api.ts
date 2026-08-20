@@ -6,6 +6,11 @@ export interface PrescriptionSubmission {
   active_revision: number | null;
   upload_revision: number;
   desired_pickup_at: string | null;
+  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null;
+  arrival_reported_at: string | null;
+  estimated_ready_at: string | null;
+  requirements_json: string | null;
+  fulfillment_method: string | null;
   resubmission_reason_code: string | null;
   requested_at: string | null;
   closed_at: string | null;
@@ -32,6 +37,7 @@ export const prescriptionApi = {
   reserve: (body: {
     idempotencyKey: string;
     desiredPickupAt: string | null;
+    desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
     originalPrescriptionConsent: boolean;
     readinessNoticeConsent: boolean;
     patientId?: string;
@@ -44,10 +50,16 @@ export const prescriptionApi = {
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/files/${position}`,
       { method: 'PUT', headers: { 'Content-Type': image.type }, body: image },
     ),
-  submit: (submissionId: string, expectedUpdatedAt: string) =>
+  submit: (submissionId: string, body: {
+    expectedUpdatedAt: string;
+    desiredPickupAt: string | null;
+    desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
+    originalPrescriptionConsent: boolean;
+    readinessNoticeConsent: boolean;
+  }) =>
     json<{ status: 'received' }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/submit`,
-      { expectedUpdatedAt },
+      body,
     ),
   history: () => request<{ submissions: PrescriptionSubmission[] }>(
     '/api/liff/pharmacy/prescriptions/me',
@@ -60,6 +72,11 @@ export const prescriptionApi = {
   reserveResubmission: (submissionId: string, expectedUpdatedAt: string) =>
     json<{ status: 'needs_resubmission' }>(
       `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/resubmission`,
+      { expectedUpdatedAt },
+    ),
+  arrive: (submissionId: string, expectedUpdatedAt: string) =>
+    json<{ arrivalReportedAt: string }>(
+      `/api/liff/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/arrival`,
       { expectedUpdatedAt },
     ),
 };

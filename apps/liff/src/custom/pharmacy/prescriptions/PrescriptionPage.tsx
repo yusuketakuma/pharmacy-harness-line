@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { prescriptionApi, type PrescriptionSubmission } from './api.js';
 import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
+import { pharmacyRoute } from '../navigation.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -45,21 +46,47 @@ const reasonLabels: Record<string, string> = {
   missing_page: '不足しているページがあります',
 };
 
+const requirementLabels: Record<string, string> = {
+  stock_check: '在庫を確認しています',
+  original_required: '処方せん原本を確認します',
+  patient_confirmation: '薬局から確認があります',
+  pharmacist_review: '薬剤師が内容を確認しています',
+};
+
+export function pendingRequirementLabels(value: string | null): string[] {
+  try {
+    const requirements = JSON.parse(value ?? '[]') as Array<{ code?: unknown; status?: unknown }>;
+    if (!Array.isArray(requirements)) return [];
+    return requirements
+      .filter((item) => item?.status === 'pending')
+      .map((item) => requirementLabels[String(item.code)] ?? '薬局から確認があります');
+  } catch {
+    return [];
+  }
+}
+
 export function requestedPrescriptionId(search: string): string | null {
   const value = new URLSearchParams(search).get('submissionId');
   return value && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
+}
+
+export function initialPrescriptionView(search: string): 'send' | 'history' {
+  return new URLSearchParams(search).get('view') === 'history' ? 'history' : 'send';
 }
 
 export default function PrescriptionPage() {
   const requestedSubmissionId = typeof window === 'undefined'
     ? null
     : requestedPrescriptionId(window.location.search);
-  const [tab, setTab] = useState<'send' | 'history'>('send');
+  const [tab, setTab] = useState<'send' | 'history'>(() => initialPrescriptionView(
+    typeof window === 'undefined' ? '' : window.location.search,
+  ));
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [originalConsent, setOriginalConsent] = useState(false);
   const [noticeConsent, setNoticeConsent] = useState(false);
   const [desiredPickupAt, setDesiredPickupAt] = useState('');
+  const [desiredFulfillmentMethod, setDesiredFulfillmentMethod] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [history, setHistory] = useState<PrescriptionSubmission[]>([]);
   const [patients, setPatients] = useState<PharmacyPatient[]>([]);
@@ -123,13 +150,12 @@ export default function PrescriptionPage() {
 
   function chooseFiles(selected: FileList | null) {
     if (!selected) return;
-    const validation = validatePrescriptionImages(selected);
-    if (validation) {
+    setFiles((current) => {
+      const next = [...current, ...Array.from(selected)];
+      const validation = validatePrescriptionImages(next);
       setError(validation);
-      return;
-    }
-    setError(null);
-    setFiles(Array.from(selected));
+      return validation ? current : next;
+    });
   }
 
   async function send() {
@@ -145,6 +171,7 @@ export default function PrescriptionPage() {
       const submission = replacement ?? (await prescriptionApi.reserve({
         idempotencyKey,
         desiredPickupAt: desiredPickupAt ? new Date(desiredPickupAt).toISOString() : null,
+        desiredFulfillmentMethod,
         originalPrescriptionConsent: originalConsent,
         readinessNoticeConsent: noticeConsent,
         patientId: selectedPatientId,
@@ -153,12 +180,19 @@ export default function PrescriptionPage() {
       for (const [index, file] of files.entries()) {
         await prescriptionApi.upload(submission.id, index + 1, file);
       }
-      await prescriptionApi.submit(submission.id, submission.updated_at);
+      await prescriptionApi.submit(submission.id, {
+        expectedUpdatedAt: submission.updated_at,
+        desiredPickupAt: desiredPickupAt ? new Date(desiredPickupAt).toISOString() : null,
+        desiredFulfillmentMethod,
+        originalPrescriptionConsent: originalConsent,
+        readinessNoticeConsent: noticeConsent,
+      });
       setFiles([]);
       setReplacement(null);
       setOriginalConsent(false);
       setNoticeConsent(false);
       setDesiredPickupAt('');
+      setDesiredFulfillmentMethod('PICKUP');
       setIdempotencyKey(crypto.randomUUID());
       setSuccess('処方せんを送信しました。薬局からの連絡をお待ちください。');
       await refreshHistory();
@@ -192,12 +226,26 @@ export default function PrescriptionPage() {
       const updated = (await refreshHistory()).find((entry) => entry.id === item.id);
       if (!updated) throw new Error('再提出情報を読み込めませんでした。');
       setReplacement(updated);
+      setDesiredFulfillmentMethod(updated.desired_fulfillment_method ?? 'PICKUP');
       setFiles([]);
-      setOriginalConsent(true);
-      setNoticeConsent(true);
       setTab('send');
     } catch (err) {
       setError(err instanceof Error ? err.message : '再提出を開始できませんでした。');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reportArrival(item: PrescriptionSubmission) {
+    if (busy || !window.confirm('薬局に到着したことを通知します。よろしいですか？')) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await prescriptionApi.arrive(item.id, item.updated_at);
+      setSuccess('来局しました。薬局へ到着を通知しました。');
+      await refreshHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '到着を通知できませんでした。');
     } finally {
       setBusy(false);
     }
@@ -223,12 +271,12 @@ export default function PrescriptionPage() {
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <h2 className="font-bold">患者を選択</h2>
               {loadingPatients ? <p className="text-sm text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
-                <p className="text-sm text-gray-600"><Link to="/pharmacy/patient-intake" className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
+                <p className="text-sm text-gray-600"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold text-green-700 underline">患者アンケート</Link>から患者情報を登録してください。</p>
               ) : <>
                 <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block w-full rounded-lg border border-gray-300 p-3" disabled={busy} aria-label="処方せんの患者">
                   {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}（{patient.birth_date}）</option>)}
                 </select>
-                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to="/pharmacy/patient-intake" className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
+                {!intakeResponseId && <p className="text-sm text-amber-700"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
               </>}
             </div>
             <div className="rounded-xl bg-white p-4 shadow-sm">
@@ -263,6 +311,12 @@ export default function PrescriptionPage() {
                 希望受取日時（任意）
                 <input type="datetime-local" value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
               </label>
+              <fieldset className="space-y-2 text-sm">
+                <legend className="font-medium">希望する受け取り方法</legend>
+                <label className="flex items-center gap-3"><input type="radio" name="fulfillment-method" value="PICKUP" checked={desiredFulfillmentMethod === 'PICKUP'} onChange={() => setDesiredFulfillmentMethod('PICKUP')} disabled={busy} className="h-5 w-5" />薬局で受け取る</label>
+                <label className="flex items-center gap-3"><input type="radio" name="fulfillment-method" value="DELIVERY" checked={desiredFulfillmentMethod === 'DELIVERY'} onChange={() => setDesiredFulfillmentMethod('DELIVERY')} disabled={busy} className="h-5 w-5" />配送を希望（薬局の確認後に確定）</label>
+              </fieldset>
+              {replacement && <p className="text-xs text-amber-700">再提出のため、同意事項に再度チェックしてください。</p>}
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={originalConsent} onChange={(event) => setOriginalConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>処方せん原本を持参します</span></label>
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={noticeConsent} onChange={(event) => setNoticeConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>準備完了通知をLINEで受け取ります</span></label>
             </div>
@@ -280,10 +334,21 @@ export default function PrescriptionPage() {
                 {history.map((item) => (
                   <li key={item.id} className="rounded-xl bg-white p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3"><div><p className="font-bold">{statusLabels[item.status] ?? item.status}</p><p className="mt-1 text-xs text-gray-600">{new Date(item.created_at).toLocaleString('ja-JP')}</p></div><span className="rounded-full bg-gray-100 px-2 py-1 text-xs">第{item.upload_revision}版</span></div>
+                    <div className="mt-3 rounded-lg bg-green-50 p-3 text-sm" aria-label="受付状況">
+                      <p className="font-bold text-green-800">受付状況</p>
+                      <p className="mt-1 text-gray-700">準備予定: {item.estimated_ready_at
+                        ? new Date(item.estimated_ready_at).toLocaleString('ja-JP')
+                        : '薬局で確認中'}</p>
+                      {pendingRequirementLabels(item.requirements_json).map((label) => (
+                        <p key={label} className="mt-1 text-amber-800">確認事項: {label}</p>
+                      ))}
+                    </div>
                     {item.resubmission_reason_code && <p className="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-800">{reasonLabels[item.resubmission_reason_code] ?? '画像をご確認ください'}</p>}
                     <div className="mt-3 flex justify-end gap-3">
                       {(item.status === 'draft' || item.status === 'received') && <button type="button" disabled={busy} onClick={() => void cancel(item)} className="text-sm text-red-700 disabled:opacity-50">キャンセル</button>}
                       {item.status === 'needs_resubmission' && <button type="button" disabled={busy} onClick={() => void startResubmission(item)} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">再撮影する</button>}
+                      {(item.status === 'accepted' || item.status === 'ready') && !item.arrival_reported_at && <button type="button" disabled={busy} onClick={() => void reportArrival(item)} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">来局しました</button>}
+                      {item.arrival_reported_at && <span className="text-sm font-medium text-green-700">到着通知済み</span>}
                     </div>
                   </li>
                 ))}

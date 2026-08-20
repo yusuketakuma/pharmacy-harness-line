@@ -48,6 +48,7 @@ export class LineHarness {
     const http = new HttpClient({
       baseUrl: this.apiUrl,
       apiKey: config.apiKey,
+      tenantId: config.tenantId,
       timeout: config.timeout ?? 30_000,
     })
 

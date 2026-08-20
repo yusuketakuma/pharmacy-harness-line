@@ -37,10 +37,21 @@ describe('growth dashboard source manager', () => {
   it('keeps every Release 1 metric and its denominator caveat visible', () => {
     const source = readFileSync(join(process.cwd(), 'src/custom/pharmacy/growth-loop/GrowthDashboardPage.tsx'), 'utf8')
     for (const label of [
-      '計測可能な友だち追加', '未成熟', '発行元分類率', 'other / (primary + other)',
+      '計測可能な友だち追加', '未成熟', '発行元分類率', 'その他 ÷ 分類済み',
       '遅延件数', '準備完了・予定なし', '確認済み使用期限', '期限前日通知後に期限内完了',
-      '通知上限で停止', '能動通知の試行', 'サンプル数', '推定される時間的関連',
+      '月間上限で見送り', '能動通知の試行', 'サンプル数', '推定される時間的関連',
       '集計月',
     ]) expect(source).toContain(label)
+  })
+
+  it('keeps source failures separate and never shows a previous month as the selected month', () => {
+    const source = readFileSync(join(process.cwd(), 'src/custom/pharmacy/growth-loop/GrowthDashboardPage.tsx'), 'utf8')
+
+    expect(source).toContain('Promise.allSettled')
+    expect(source).toContain('setSourceError')
+    expect(source).toContain('dataMonth === month')
+    expect(source).toContain('dataAccountId === selectedAccountId')
+    expect(source).toContain("timeZone: 'Asia/Tokyo'")
+    expect(source).toContain('その他 ÷ 分類済み')
   })
 })

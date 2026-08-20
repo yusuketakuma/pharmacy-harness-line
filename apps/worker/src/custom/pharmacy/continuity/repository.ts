@@ -16,6 +16,7 @@ export interface ContinuityObligation {
   reminder_count: number;
   created_at: string;
   updated_at: string;
+  patient_display_name?: string | null;
 }
 
 const OBLIGATION_SELECT = `
@@ -141,23 +142,31 @@ export async function linkContinuitySubmission(
   ).bind(lineAccountId, patient.patient_id, ownerFriendId).first<ContinuityObligation>();
   if (!obligation) return null;
   const now = new Date().toISOString();
-  const result = await db.prepare(
-    `UPDATE pharmacy_continuity_obligations
-        SET status = 'linked', candidate_submission_id = ?, updated_at = ?
-      WHERE id = ? AND line_account_id = ? AND status = 'active'
-        AND candidate_submission_id IS NULL`,
-  ).bind(submissionId, now, obligation.id, lineAccountId).run();
-  if ((result.meta?.changes ?? 0) !== 1) {
+  const [transition] = await db.batch([
+    db.prepare(
+      `UPDATE pharmacy_continuity_obligations
+          SET status = 'linked', candidate_submission_id = ?, updated_at = ?
+        WHERE id = ? AND line_account_id = ? AND status = 'active'
+          AND candidate_submission_id IS NULL`,
+    ).bind(submissionId, now, obligation.id, lineAccountId),
+    db.prepare(
+      `INSERT INTO pharmacy_continuity_events
+         (id, obligation_id, line_account_id, event_type, submission_id,
+          actor_type, created_at)
+       SELECT ?, o.id, o.line_account_id, 'linked', ?, ?, ?
+         FROM pharmacy_continuity_obligations o
+        WHERE o.id = ? AND o.line_account_id = ? AND o.status = 'linked'
+          AND o.candidate_submission_id = ? AND o.updated_at = ?`,
+    ).bind(
+      crypto.randomUUID(), submissionId, actorType, now,
+      obligation.id, lineAccountId, submissionId, now,
+    ),
+  ]);
+  if ((transition?.meta?.changes ?? 0) !== 1) {
     return obligation.status === 'linked' && obligation.candidate_submission_id === submissionId
       ? obligation
       : null;
   }
-  await db.prepare(
-    `INSERT INTO pharmacy_continuity_events
-       (id, obligation_id, line_account_id, event_type, submission_id,
-        actor_type, created_at)
-     VALUES (?, ?, ?, 'linked', ?, ?, ?)`,
-  ).bind(crypto.randomUUID(), obligation.id, lineAccountId, submissionId, actorType, now).run();
   return rowWithStatus(obligation as unknown as Record<string, unknown>, 'linked', submissionId);
 }
 
@@ -175,25 +184,30 @@ export async function completeContinuityAfterClose(
   ).bind(lineAccountId, submissionId).first<ContinuityObligation>();
   if (linked) {
     const timestamp = now.toISOString();
-    await db.prepare(
-      `UPDATE pharmacy_continuity_obligations
-          SET status = 'fulfilled', updated_at = ?
-        WHERE id = ? AND line_account_id = ? AND status = 'linked'`,
-    ).bind(timestamp, linked.id, lineAccountId).run();
-    await db.prepare(
-      `INSERT INTO pharmacy_continuity_events
-         (id, obligation_id, line_account_id, event_type, submission_id,
-          actor_type, actor_id, created_at)
-       SELECT ?, ?, ?, 'fulfilled', ?, 'staff', ?, ?
-        WHERE NOT EXISTS (
-          SELECT 1 FROM pharmacy_continuity_events existing
-           WHERE existing.obligation_id = ? AND existing.line_account_id = ?
-             AND existing.event_type = 'fulfilled' AND existing.submission_id = ?
-        )`,
-    ).bind(
-      crypto.randomUUID(), linked.id, lineAccountId, submissionId, actorId, timestamp,
-      linked.id, lineAccountId, submissionId,
-    ).run();
+    await db.batch([
+      db.prepare(
+        `UPDATE pharmacy_continuity_obligations
+            SET status = 'fulfilled', updated_at = ?
+          WHERE id = ? AND line_account_id = ? AND status = 'linked'`,
+      ).bind(timestamp, linked.id, lineAccountId),
+      db.prepare(
+        `INSERT INTO pharmacy_continuity_events
+           (id, obligation_id, line_account_id, event_type, submission_id,
+            actor_type, actor_id, created_at)
+         SELECT ?, o.id, o.line_account_id, 'fulfilled', ?, 'staff', ?, ?
+           FROM pharmacy_continuity_obligations o
+          WHERE o.id = ? AND o.line_account_id = ? AND o.status = 'fulfilled'
+            AND NOT EXISTS (
+              SELECT 1 FROM pharmacy_continuity_events existing
+               WHERE existing.obligation_id = ? AND existing.line_account_id = ?
+                 AND existing.event_type = 'fulfilled' AND existing.submission_id = ?
+            )`,
+      ).bind(
+        crypto.randomUUID(), submissionId, actorId, timestamp,
+        linked.id, lineAccountId,
+        linked.id, lineAccountId, submissionId,
+      ),
+    ]);
   }
   return openContinuityObligation(db, lineAccountId, submissionId, actorId, now);
 }
@@ -203,10 +217,16 @@ export async function listContinuityObligations(
   lineAccountId: string,
 ): Promise<ContinuityObligation[]> {
   const result = await db.prepare(
-    `${OBLIGATION_SELECT}
-      WHERE line_account_id = ?
-      ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'linked' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,
-               next_contact_at, id`,
+    `SELECT o.id, o.line_account_id, o.owner_friend_id, o.patient_id, o.source_submission_id,
+            o.candidate_submission_id, o.status, o.expected_next_from, o.expected_next_to,
+            o.next_contact_at, o.consent_at, o.last_reminded_at, o.reminder_count,
+            o.created_at, o.updated_at, f.display_name AS patient_display_name
+       FROM pharmacy_continuity_obligations o
+       LEFT JOIN friends f
+         ON f.id = o.owner_friend_id AND f.line_account_id = o.line_account_id
+      WHERE o.line_account_id = ?
+      ORDER BY CASE o.status WHEN 'active' THEN 0 WHEN 'linked' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,
+               o.next_contact_at, o.id`,
   ).bind(lineAccountId).all<ContinuityObligation>();
   return result.results;
 }
@@ -232,16 +252,24 @@ export async function pausePatientContinuity(
   obligationId: string,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const result = await db.prepare(
-    `UPDATE pharmacy_continuity_obligations
-        SET status = 'paused', updated_at = ?
-      WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-        AND status IN ('active','linked')`,
-  ).bind(now, obligationId, lineAccountId, ownerFriendId).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('continuity pause conflict');
-  await db.prepare(
-    `INSERT INTO pharmacy_continuity_events
-       (id, obligation_id, line_account_id, event_type, actor_type, actor_id, created_at)
-     VALUES (?, ?, ?, 'paused', 'patient', ?, ?)`,
-  ).bind(crypto.randomUUID(), obligationId, lineAccountId, ownerFriendId, now).run();
+  const [transition] = await db.batch([
+    db.prepare(
+      `UPDATE pharmacy_continuity_obligations
+          SET status = 'paused', updated_at = ?
+        WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
+          AND status IN ('active','linked')`,
+    ).bind(now, obligationId, lineAccountId, ownerFriendId),
+    db.prepare(
+      `INSERT INTO pharmacy_continuity_events
+         (id, obligation_id, line_account_id, event_type, actor_type, actor_id, created_at)
+       SELECT ?, o.id, o.line_account_id, 'paused', 'patient', ?, ?
+         FROM pharmacy_continuity_obligations o
+        WHERE o.id = ? AND o.line_account_id = ? AND o.owner_friend_id = ?
+          AND o.status = 'paused' AND o.updated_at = ?`,
+    ).bind(
+      crypto.randomUUID(), ownerFriendId, now,
+      obligationId, lineAccountId, ownerFriendId, now,
+    ),
+  ]);
+  if ((transition?.meta?.changes ?? 0) !== 1) throw new Error('continuity pause conflict');
 }

@@ -24,19 +24,23 @@ import {
   listAdminPrescriptionQueue,
   markPrescriptionFileDeleted,
   markPrescriptionFileReady,
+  recordPrescriptionFileViewed,
   reservePrescriptionDraft,
   reservePrescriptionFile,
   reservePrescriptionResubmission,
+  reportPrescriptionArrival,
   submitPrescription,
 } from './repository.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
   IMAGES?: R2Bucket;
   LINE_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
+  LINE_CREDENTIAL_KEY_V1?: string;
   WORKER_PUBLIC_URL?: string;
 };
 
@@ -57,6 +61,7 @@ function notificationOptions(requestUrl: string, env: PrescriptionBindings) {
     proxyDispatch: (request: Request) => Promise.resolve(
       lineProxy.fetch(request, env as Env['Bindings']),
     ),
+    lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
   };
 }
 
@@ -81,6 +86,9 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
     identity,
   );
   if (!patient) return c.json({ error: 'Prescription account not found' }, 404);
+  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   c.set('prescriptionPatient', patient);
   return next();
 });
@@ -93,6 +101,9 @@ prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) =
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
+    return c.json({ error: 'Prescription intake is not enabled' }, 403);
+  }
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();
 });
@@ -107,6 +118,7 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
   const desiredPickupAt = body.desiredPickupAt;
+  const desiredFulfillmentMethod = body.desiredFulfillmentMethod;
   const patientId = body.patientId;
   const intakeResponseId = body.intakeResponseId;
   if (
@@ -117,6 +129,8 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
       desiredPickupAt === null ||
       (typeof desiredPickupAt === 'string' && Number.isFinite(Date.parse(desiredPickupAt)))
     ) ||
+    (desiredFulfillmentMethod !== undefined && desiredFulfillmentMethod !== null &&
+      desiredFulfillmentMethod !== 'PICKUP' && desiredFulfillmentMethod !== 'DELIVERY') ||
     (patientId !== undefined && typeof patientId !== 'string') ||
     (intakeResponseId !== undefined && typeof intakeResponseId !== 'string') ||
     (patientId !== undefined && intakeResponseId === undefined) ||
@@ -128,6 +142,9 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
   const draftInput = {
     idempotencyKey: body.idempotencyKey,
     desiredPickupAt,
+    ...(desiredFulfillmentMethod === 'PICKUP' || desiredFulfillmentMethod === 'DELIVERY'
+      ? { desiredFulfillmentMethod }
+      : {}),
     originalPrescriptionConsent: body.originalPrescriptionConsent,
     readinessNoticeConsent: body.readinessNoticeConsent,
     ...(typeof patientId === 'string' && typeof intakeResponseId === 'string'
@@ -160,7 +177,13 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
   }
   if (
     typeof body.expectedUpdatedAt !== 'string' ||
-    !Number.isFinite(Date.parse(body.expectedUpdatedAt))
+    !Number.isFinite(Date.parse(body.expectedUpdatedAt)) ||
+    (body.desiredPickupAt !== null &&
+      (typeof body.desiredPickupAt !== 'string' || !Number.isFinite(Date.parse(body.desiredPickupAt)))) ||
+    (body.desiredFulfillmentMethod !== undefined && body.desiredFulfillmentMethod !== null &&
+      body.desiredFulfillmentMethod !== 'PICKUP' && body.desiredFulfillmentMethod !== 'DELIVERY') ||
+    body.originalPrescriptionConsent !== true ||
+    body.readinessNoticeConsent !== true
   ) {
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
   }
@@ -169,7 +192,13 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
       c.env.DB,
       patient,
       c.req.param('id'),
-      body.expectedUpdatedAt,
+      {
+        expectedUpdatedAt: body.expectedUpdatedAt,
+        desiredPickupAt: body.desiredPickupAt,
+        desiredFulfillmentMethod: (body.desiredFulfillmentMethod ?? null) as 'PICKUP' | 'DELIVERY' | null,
+        originalPrescriptionConsent: body.originalPrescriptionConsent,
+        readinessNoticeConsent: body.readinessNoticeConsent,
+      },
     );
     try {
       await enqueueActivityForAccount(
@@ -337,6 +366,22 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/resubmission', asy
   }
 });
 
+prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/arrival', async (c) => {
+  const patient = c.get('prescriptionPatient');
+  const expectedUpdatedAt = await readExpectedUpdatedAt(c.req);
+  if (!expectedUpdatedAt) return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
+  try {
+    return c.json(await reportPrescriptionArrival(
+      c.env.DB, patient, c.req.param('id'), expectedUpdatedAt,
+    ));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'prescription arrival conflict') {
+      return c.json({ error: 'Prescription changed or arrival was already reported' }, 409);
+    }
+    throw error;
+  }
+});
+
 const PRESCRIPTION_STATUSES = new Set([
   'draft', 'received', 'needs_resubmission', 'accepted', 'ready',
   'closed', 'cancelled',
@@ -391,6 +436,8 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/stats', async (c) => 
 
 prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', async (c) => {
   const lineAccountId = c.get('prescriptionLineAccountId');
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   if (!c.env.IMAGES) return c.json({ error: 'Image storage unavailable' }, 503);
   const file = await getAdminPrescriptionFile(
     c.env.DB, lineAccountId, c.req.param('id'), c.req.param('fileId'),
@@ -398,6 +445,9 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', a
   if (!file) return c.json({ error: 'Prescription image not found' }, 404);
   const object = await c.env.IMAGES.get(file.r2_key);
   if (!object) return c.json({ error: 'Prescription image not found' }, 404);
+  await recordPrescriptionFileViewed(
+    c.env.DB, lineAccountId, c.req.param('id'), c.req.param('fileId'), staff.id,
+  );
   return new Response(await object.arrayBuffer(), {
     headers: {
       'Content-Type': file.content_type,

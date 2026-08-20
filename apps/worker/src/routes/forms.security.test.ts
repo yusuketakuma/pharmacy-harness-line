@@ -26,6 +26,7 @@ vi.mock('@line-crm/db', () => ({
   getMessageTemplateById: vi.fn(),
   getLineAccountById: mocks.getLineAccountById,
   enrollFriendInScenario: vi.fn(),
+  applyMileageRulesForEvent: vi.fn().mockResolvedValue(undefined),
   jstNow: vi.fn(() => '2026-08-04T12:00:00+09:00'),
 }));
 

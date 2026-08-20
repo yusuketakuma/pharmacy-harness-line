@@ -209,7 +209,7 @@ async function resolveFriendId(
   const f = await c.env.DB
     .prepare(
       `SELECT id FROM friends
-        WHERE line_user_id = ? AND line_account_id = ?`,
+        WHERE provider_line_user_id = ? AND line_account_id = ?`,
     )
     .bind(lineUserId, accountId)
     .first<{ id: string }>();
@@ -227,7 +227,7 @@ async function notifyForBooking(
               m.name AS menu_name,
               s.display_name AS staff_name,
               la.channel_access_token,
-              f.line_user_id
+              f.provider_line_user_id AS line_user_id
          FROM bookings b
          INNER JOIN menus m ON m.id = b.menu_id
          INNER JOIN staff s ON s.id = b.staff_id

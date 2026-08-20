@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import CcPromptButton from '@/components/cc-prompt-button'
 import { useAccount } from '@/contexts/account-context'
+import GrowthDashboardPage from '@/custom/pharmacy/growth-loop/GrowthDashboardPage'
 
 const ccPrompts = [
   {
@@ -77,7 +78,6 @@ function StatCard({ title, value, loading, icon, href, accentColor = '#06C755' }
 function FriendAddLinkCard() {
   const { selectedAccount } = useAccount()
   const [copied, setCopied] = useState(false)
-  const [showQr, setShowQr] = useState(false)
   const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')
   const link = selectedAccount
     ? `${base}/auth/line?account=${encodeURIComponent(selectedAccount.channelId)}`
@@ -104,13 +104,6 @@ function FriendAddLinkCard() {
               : 'デフォルトアカウントへの追加リンク (UUID計測つき)'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowQr((v) => !v)}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 font-medium text-gray-600"
-        >
-          {showQr ? 'QRを隠す' : 'QR表示'}
-        </button>
       </div>
       <div className="flex items-stretch gap-2">
         <input
@@ -128,23 +121,11 @@ function FriendAddLinkCard() {
           {copied ? 'コピーしました ✓' : 'コピー'}
         </button>
       </div>
-      {showQr && (
-        <div className="mt-3 flex justify-center">
-          {/* eslint-disable-next-line @next/next/no-img-element -- worker QR proxy, not a static asset */}
-          <img
-            src={`${base}/api/qr?data=${encodeURIComponent(link)}&size=240x240`}
-            alt="友だち追加QRコード"
-            width={240}
-            height={240}
-            className="border border-gray-200 rounded-lg"
-          />
-        </div>
-      )}
     </div>
   )
 }
 
-export default function DashboardPage() {
+function GenericDashboardPage() {
   const { selectedAccountId, selectedAccount } = useAccount()
   const [stats, setStats] = useState<DashboardStats>({
     friendCount: null,
@@ -197,6 +178,10 @@ export default function DashboardPage() {
               ? scoringRes.value.data.length
               : null,
         })
+        if ([friendCountRes, scenariosRes, broadcastsRes, templatesRes, automationsRes, scoringRes]
+          .some((result) => result.status === 'rejected' || !result.value.success)) {
+          setError('一部のデータを取得できませんでした。値が「-」の項目は再読み込みしてください。')
+        }
       } catch {
         setError('データの読み込みに失敗しました')
       } finally {
@@ -225,24 +210,6 @@ export default function DashboardPage() {
       )}
 
       <FriendAddLinkCard />
-
-      {/* Demo banner */}
-      <a
-        href="https://your-worker.your-subdomain.workers.dev/auth/line?ref=dashboard"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block mb-6 p-4 rounded-xl border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 transition-colors"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-gray-900">LINE で体験する</p>
-            <p className="text-xs text-gray-500 mt-0.5">友だち追加でステップ配信・フォーム・自動返信を体験</p>
-          </div>
-          <span className="text-xs px-3 py-1.5 rounded-full text-white font-medium" style={{ backgroundColor: '#06C755' }}>
-            友だち追加
-          </span>
-        </div>
-      </a>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
@@ -418,4 +385,15 @@ export default function DashboardPage() {
       <CcPromptButton prompts={ccPrompts} />
     </div>
   )
+}
+
+export default function DashboardPage() {
+  const { selectedAccount, loading } = useAccount()
+  if (loading) return <p className="py-10 text-center text-gray-500">アカウントを読み込み中...</p>
+  if (!selectedAccount) return <div className="py-10 text-center">
+    <p className="text-gray-700">LINEアカウントがまだ登録されていません。</p>
+    <Link href="/accounts" className="mt-3 inline-block rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">アカウント設定を開く</Link>
+  </div>
+  if (selectedAccount?.pharmacyMode) return <GrowthDashboardPage />
+  return <GenericDashboardPage />
 }

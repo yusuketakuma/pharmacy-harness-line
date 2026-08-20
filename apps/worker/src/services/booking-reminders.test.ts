@@ -80,9 +80,14 @@ describe('processDueReminders', () => {
       }),
     );
     expect(updates.find((u) => u.sql.includes("status='sent'"))).toBeTruthy();
-    expect(queries.find((sql) => sql.includes('FROM booking_reminders'))).toContain(
-      'pharmacy_account_capabilities',
-    );
+    const dueQuery = queries.find((sql) => sql.includes('FROM booking_reminders'))!;
+    expect(dueQuery).toContain('pharmacy_account_capabilities');
+    expect(dueQuery).toContain('la.is_active = 1');
+    expect(dueQuery).toContain('tenant_line_accounts');
+    expect(dueQuery).toContain("tenant.status = 'active'");
+    expect(dueQuery).toContain('m.line_account_id = b.line_account_id');
+    expect(dueQuery).toContain('s.line_account_id = b.line_account_id');
+    expect(dueQuery).toContain('f.line_account_id = b.line_account_id');
   });
 
   test('未来の reminder は対象外（DB が返さない前提なので空入力）', async () => {

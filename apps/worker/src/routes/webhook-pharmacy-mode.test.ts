@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
 }));
 
+const credentialStoreMocks = vi.hoisted(() => ({
+  readLineCredential: vi.fn(),
+}));
+
 const friend = {
   id: 'friend-1',
   line_user_id: 'U-pharmacy',
@@ -31,7 +35,9 @@ const friend = {
 const dbMocks = vi.hoisted(() => ({
   upsertFriend: vi.fn(),
   getFriendByLineUserId: vi.fn(),
+  getFriendByLineUserIdForAccount: vi.fn(),
   getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   upsertChatOnMessage: vi.fn(),
   getEntryRouteByRefCode: vi.fn(),
@@ -41,24 +47,28 @@ const dbMocks = vi.hoisted(() => ({
 vi.mock('@line-crm/db', () => ({
   ...dbMocks,
   updateFriendFollowStatus: dbMocks.updateFriendFollowStatus,
-  getLineAccounts: vi.fn().mockResolvedValue([{
+  getActiveTenantLineAccounts: vi.fn().mockResolvedValue([{
     id: 'account-pharmacy',
+    tenant_id: 'tenant-pharmacy',
     is_active: 1,
     channel_secret: 'env-default-secret',
     channel_access_token: 'env-default-token',
   }]),
   jstNow: vi.fn().mockReturnValue('2026-08-18T09:00:00+09:00'),
+  toJstString: vi.fn((date: Date) => date.toISOString()),
   getMessageTemplateById: vi.fn(),
 }));
 
 vi.mock('@line-crm/line-sdk', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('@line-crm/line-sdk')),
   verifySignature: vi.fn().mockResolvedValue(true),
-  LineClient: vi.fn().mockImplementation(() => ({
-    getProfile: mocks.getProfile,
-    pushMessage: vi.fn(),
-    replyMessage: vi.fn(),
-  })),
+  LineClient: vi.fn().mockImplementation(function () {
+    return {
+      getProfile: mocks.getProfile,
+      pushMessage: vi.fn(),
+      replyMessage: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../custom/pharmacy/growth-loop/access.js', () => ({
@@ -75,18 +85,32 @@ vi.mock('../services/immediate-first-step.js', () => ({ pushImmediateFirstStep: 
 vi.mock('../services/local-line-proxy.js', () => ({
   dispatchLineProxyLocally: vi.fn().mockResolvedValue(new Response(null, { status: 200 })),
 }));
+vi.mock('../custom/pharmacy/provisioning/line-credential-store.js', () => credentialStoreMocks);
 
 import { webhook } from './webhook.js';
 
 function database() {
-  const statement = {
-    bind: vi.fn(),
-    run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
-    first: vi.fn().mockResolvedValue(null),
-    all: vi.fn().mockResolvedValue({ results: [] }),
-  };
-  statement.bind.mockReturnValue(statement);
-  return { prepare: vi.fn().mockReturnValue(statement) } as unknown as D1Database;
+  return {
+    prepare(sql: string) {
+      const statement = {
+        bind: vi.fn(),
+        run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
+        first: vi.fn().mockResolvedValue(
+          sql.includes('pharmacy_line_channel_identities')
+            ? {
+                id: 'account-pharmacy',
+                tenant_id: 'tenant-pharmacy',
+                channel_secret: 'env-default-secret',
+                channel_access_token: 'env-default-token',
+              }
+            : null,
+        ),
+        all: vi.fn().mockResolvedValue({ results: [] }),
+      };
+      statement.bind.mockReturnValue(statement);
+      return statement;
+    },
+  } as unknown as D1Database;
 }
 
 async function deliver(event: Record<string, unknown>, db: D1Database) {
@@ -106,6 +130,7 @@ async function deliver(event: Record<string, unknown>, db: D1Database) {
     body: JSON.stringify({ destination: 'bot', events: [event] }),
   }, {
     DB: db,
+    LINE_CREDENTIAL_KEY_V1: 'root-key-for-pharmacy-tests-v1',
     LINE_CHANNEL_SECRET: 'env-default-secret',
     LINE_CHANNEL_ACCESS_TOKEN: 'env-default-token',
   }, executionCtx);
@@ -115,13 +140,18 @@ async function deliver(event: Record<string, unknown>, db: D1Database) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  credentialStoreMocks.readLineCredential.mockImplementation(
+    async (_db: D1Database, _rootSecret: string, input: { kind: string }) =>
+      input.kind === 'channel_secret' ? 'env-default-secret' : 'env-default-token',
+  );
   mocks.pharmacyMode.mockResolvedValue(true);
   mocks.recordFollow.mockResolvedValue(undefined);
   mocks.matchAndReply.mockResolvedValue({ matched: false, replyTokenConsumed: false });
   mocks.getProfile.mockResolvedValue({ displayName: 'Patient' });
   dbMocks.upsertFriend.mockResolvedValue(friend);
-  dbMocks.getFriendByLineUserId.mockResolvedValue(friend);
+  dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(friend);
   dbMocks.getScenarios.mockResolvedValue([]);
+  dbMocks.getScenariosForAccount.mockResolvedValue([]);
   dbMocks.getEntryRouteByRefCode.mockResolvedValue(null);
 });
 
@@ -135,7 +165,7 @@ describe('pharmacy-mode webhook allowlist', () => {
 
     expect(mocks.recordFollow).toHaveBeenCalledOnce();
     expect(mocks.awardMileage).not.toHaveBeenCalled();
-    expect(dbMocks.getScenarios).not.toHaveBeenCalled();
+    expect(dbMocks.getScenariosForAccount).not.toHaveBeenCalled();
     expect(dbMocks.enrollFriendInScenario).not.toHaveBeenCalled();
     expect(mocks.fireEvent).not.toHaveBeenCalled();
   });

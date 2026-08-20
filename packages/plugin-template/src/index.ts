@@ -13,6 +13,7 @@ import { checkAndNotify } from './notify.js'
 export interface Env {
   LINE_HARNESS_API_URL: string
   LINE_HARNESS_API_KEY: string
+  LINE_HARNESS_TENANT_ID: string
   EXTERNAL_API_KEY: string
   LINE_ACCOUNT_ID?: string
 }

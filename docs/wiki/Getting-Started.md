@@ -29,6 +29,13 @@
 
 **⚠️ Messaging API チャネルだけでは不十分。LINE Login チャネルが必須。**
 
+> **薬局マルチテナント構成の注意**: Worker URL は API・Webhook・OAuth callback 用です。
+> 薬局の LIFF Endpoint URL は専用 Cloudflare Pages の URL
+> （`https://<LIFF_ORIGIN>/?liffId=<テナントのLIFF ID>`）を登録してください。
+> 管理画面の「LINE接続情報」または初期設定CLIが出力する値をそのまま使い、Worker URLを
+> LIFF Endpointへ設定しないでください。Workerを登録すると汎用クライアントが開き、薬局
+> の処方せん画面へ接続できません。
+
 Messaging API だけだと、友だち追加時に UUID（内部ユーザーID）が取得できない。
 LINE Login チャネルを作り、`/auth/line?ref=xxx` 経由で友だち追加させることで:
 - **UUID 自動取得**（`users` テーブルに自動登録 + `friends.user_id` に紐づけ）
@@ -40,7 +47,8 @@ LINE Login チャネルを作り、`/auth/line?ref=xxx` 経由で友だち追加
 
 1. LINE Developers Console → 同一プロバイダー内で「LINE Login」チャネルを作成
 2. 「LIFF」タブで LIFF アプリを追加
-3. エンドポイント URL: デプロイ後の Worker URL を設定（LIFF は Worker に統合されています）
+3. エンドポイント URL: 標準OSS構成では Worker URL を設定できます。薬局マルチテナント構成では、
+   専用 LIFF Pages URL（`https://<LIFF_ORIGIN>/?liffId=<テナントのLIFF ID>`）を設定します。
 4. Scope: `profile`, `openid` を有効化
 5. **Callback URL を設定（PC からの友だち追加に必須）**:
 
@@ -93,7 +101,10 @@ line-harness/
 └── pnpm-workspace.yaml
 ```
 
-> **Note**: LIFF フロントエンドは Worker に統合されています。`@cloudflare/vite-plugin` により Worker デプロイ時に自動ビルドされ、Workers Static Assets として配信されます。LIFF エンドポイント URL は Worker URL と同じです。
+> **Note（標準OSS構成）**: 標準機能のLIFFフロントエンドは Worker に統合できます。
+> ただし薬局マルチテナント構成では、`apps/liff` の患者向け画面を専用 Cloudflare Pagesへ
+> 配信し、WorkerはAPI・Webhookだけを担当します。薬局のLIFF Endpoint URLはWorker URLと
+> 同じではありません。
 
 ## 3. Cloudflare D1 データベース作成
 
@@ -168,6 +179,7 @@ npx wrangler secret put LINE_LOGIN_CHANNEL_SECRET
 | 変数名 | 説明 |
 |--------|------|
 | `NEXT_PUBLIC_API_URL` | Workers API の URL（例: `https://your-worker.your-subdomain.workers.dev`） |
+| `NEXT_PUBLIC_LIFF_ORIGIN` | 薬局LIFF Pagesの公開URL（薬局マルチテナントでは必須） |
 
 > **セキュリティ注意**: `NEXT_PUBLIC_*` にAPIキーを設定しないでください。管理画面のログインページでAPIキーを入力する方式に変更されました（v0.5.1+）。
 
@@ -209,7 +221,7 @@ pnpm dev:web
 
 ```bash
 cd apps/web
-npx wrangler pages deploy .next --project-name=your-admin-name
+npx wrangler pages deploy out --project-name=your-admin-name
 ```
 
 ### Vercel

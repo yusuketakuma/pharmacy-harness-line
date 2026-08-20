@@ -27,6 +27,7 @@ describe('fetchAndStoreIncomingImage', () => {
       fetch: fetchMock,
       workerUrl: 'https://worker.example.com',
       channelAccessToken: 'token-abc',
+      tenantId: 'tenant-a',
       accountId: 'acc-1',
       messageId: 'msg-xyz',
     });
@@ -39,9 +40,11 @@ describe('fetchAndStoreIncomingImage', () => {
     );
     expect(r2.put).toHaveBeenCalled();
     const [key, , opts] = r2.put.mock.calls[0];
-    expect(key).toBe('incoming-acc-1-msg-xyz.jpg');
+    expect(key).toBe('tenants/tenant-a/accounts/acc-1/incoming/msg-xyz.jpg');
     expect(opts.httpMetadata?.contentType).toBe('image/jpeg');
-    expect(result?.originalContentUrl).toBe('https://worker.example.com/images/incoming-acc-1-msg-xyz.jpg');
+    expect(result?.originalContentUrl).toBe(
+      'https://worker.example.com/api/images/tenants/tenant-a/accounts/acc-1/incoming/msg-xyz.jpg',
+    );
     expect(result?.previewImageUrl).toBe(result?.originalContentUrl);
   });
 
@@ -54,6 +57,7 @@ describe('fetchAndStoreIncomingImage', () => {
       fetch: fetchMock,
       workerUrl: 'https://worker.example.com',
       channelAccessToken: 'token-bad',
+      tenantId: 'tenant-a',
       accountId: 'acc-1',
       messageId: 'msg-y',
     });
@@ -77,6 +81,7 @@ describe('fetchAndStoreIncomingImage', () => {
       fetch: fetchMock,
       workerUrl: 'https://worker.example.com',
       channelAccessToken: 'token-abc',
+      tenantId: 'tenant-a',
       accountId: 'acc-1',
       messageId: 'msg-z',
     });
@@ -98,11 +103,12 @@ describe('fetchAndStoreIncomingImage', () => {
       fetch: fetchMock,
       workerUrl: 'https://worker.example.com',
       channelAccessToken: 'token-abc',
+      tenantId: 'tenant-a',
       accountId: 'a',
       messageId: 'm-png',
     });
 
     const [key] = r2.put.mock.calls[0];
-    expect(key).toBe('incoming-a-m-png.png');
+    expect(key).toBe('tenants/tenant-a/accounts/a/incoming/m-png.png');
   });
 });

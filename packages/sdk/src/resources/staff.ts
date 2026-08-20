@@ -1,5 +1,5 @@
 import type { HttpClient } from '../http.js'
-import type { ApiResponse, StaffMember, StaffProfile, CreateStaffInput, UpdateStaffInput } from '../types.js'
+import type { ApiResponse, StaffCredentialIssue, StaffMember, StaffProfile, CreateStaffInput, UpdateStaffInput } from '../types.js'
 
 export class StaffResource {
   constructor(private readonly http: HttpClient) {}
@@ -19,8 +19,8 @@ export class StaffResource {
     return res.data
   }
 
-  async create(input: CreateStaffInput): Promise<StaffMember> {
-    const res = await this.http.post<ApiResponse<StaffMember>>('/api/staff', input)
+  async create(input: CreateStaffInput): Promise<StaffMember & StaffCredentialIssue> {
+    const res = await this.http.post<ApiResponse<StaffMember & StaffCredentialIssue>>('/api/staff', input)
     return res.data
   }
 
@@ -33,8 +33,11 @@ export class StaffResource {
     await this.http.delete(`/api/staff/${id}`)
   }
 
-  async regenerateKey(id: string): Promise<{ apiKey: string }> {
-    const res = await this.http.post<ApiResponse<{ apiKey: string }>>(`/api/staff/${id}/regenerate-key`)
+  async resetPassword(id: string, loginId?: string): Promise<StaffCredentialIssue> {
+    const res = await this.http.post<ApiResponse<StaffCredentialIssue>>(
+      `/api/staff/${id}/reset-password`,
+      { loginId },
+    )
     return res.data
   }
 }

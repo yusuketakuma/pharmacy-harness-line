@@ -28,9 +28,9 @@ function makeEntry(version: string, overrides: Partial<ReleaseEntry> = {}): Rele
 
 function customerSourceUpdate(overrides: Record<string, unknown> = {}) {
   return {
-    release_id: 'yusuketakuma/line-harness-pharmacy@pharmacy-v0.8.0',
+    release_id: 'yusuketakuma/pharmacy-harness-line@pharmacy-v0.8.0',
     release_sequence: 8,
-    repository: 'yusuketakuma/line-harness-pharmacy',
+    repository: 'yusuketakuma/pharmacy-harness-line',
     commit: 'a'.repeat(40),
     previous_commit: 'b'.repeat(40),
     tag: 'pharmacy-v0.8.0',
@@ -159,7 +159,7 @@ describe('updateManifest', () => {
 
     const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest;
     expect(parsed.releases[0].customer_source_update).toMatchObject({
-      repository: 'yusuketakuma/line-harness-pharmacy',
+      repository: 'yusuketakuma/pharmacy-harness-line',
       tag: 'pharmacy-v0.8.0',
       commit: 'a'.repeat(40),
       update_class: 'compatible',
@@ -196,7 +196,7 @@ describe('updateManifest', () => {
   it('rejects replayed customer release sequences', () => {
     const existing = makeEntry('0.7.0', {
       customer_source_update: customerSourceUpdate({
-        release_id: 'yusuketakuma/line-harness-pharmacy@pharmacy-v0.7.0',
+        release_id: 'yusuketakuma/pharmacy-harness-line@pharmacy-v0.7.0',
         release_sequence: 8,
         tag: 'pharmacy-v0.7.0',
         commit: 'b'.repeat(40),

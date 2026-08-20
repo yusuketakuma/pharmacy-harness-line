@@ -1,4 +1,4 @@
-import { requestPharmacyLiff } from '../request.js';
+import { requestPharmacyJson } from '../request.js';
 
 export type MynaMethod = 'E_PRESCRIPTION' | 'PAPER' | 'MEDICAL_INSTITUTION_SENT';
 export type MynaPatientReport = 'COMPLETED' | 'NO_PRESCRIPTION_FOUND' | 'FAILED' | 'SWITCH_TO_PAPER';
@@ -11,15 +11,10 @@ export interface MynaHandoff {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await requestPharmacyLiff(path, {
+  return requestPharmacyJson<T>(path, 'マイナ受付', {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init.headers },
   });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(
-    body && typeof body.error === 'string' ? body.error : `Myna受付 API ${response.status}`,
-  );
-  return body as T;
 }
 
 function post<T>(path: string, body: unknown): Promise<T> {
@@ -27,6 +22,9 @@ function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const mynaApi = {
+  active: () => request<{ handoff: MynaHandoff | null }>(
+    '/api/liff/pharmacy/myna-handoffs/active',
+  ),
   create: (method: MynaMethod, correlationId: string, patientId?: string) =>
     post<{ handoff: MynaHandoff; launchUrl: string | null }>(
       '/api/liff/pharmacy/myna-handoffs',

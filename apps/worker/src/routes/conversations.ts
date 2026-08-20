@@ -1,11 +1,20 @@
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
+import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
 
 const conversations = new Hono<Env>();
 
 // GET /api/conversations?lineAccountId=&minHoursSince=&maxHoursSince=&limit=&offset=
 conversations.get('/api/conversations', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+
     const url = new URL(c.req.url);
     const accountId = url.searchParams.get('lineAccountId') ?? undefined;
     const minHoursSince = Number(url.searchParams.get('minHoursSince') ?? '0');
@@ -15,6 +24,9 @@ conversations.get('/api/conversations', async (c) => {
     const offset = Number(url.searchParams.get('offset') ?? '0');
 
     const whereAccount = accountId ? 'AND f.line_account_id = ?' : '';
+    const whereAssignedAccount = pharmacyTenant
+      ? `AND ${pharmacyStaffAccountPredicate('f.line_account_id', 'tenant_mapping')}`
+      : '';
     const whereMaxHours =
       maxHoursSince !== null
         ? `AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) <= ?`
@@ -65,7 +77,7 @@ conversations.get('/api/conversations', async (c) => {
       ${latestChatCte}
       SELECT
         f.id AS friend_id,
-        f.line_user_id,
+        f.provider_line_user_id AS line_user_id,
         f.display_name,
         f.line_account_id,
         la.name AS line_account_name,
@@ -74,12 +86,16 @@ conversations.get('/api/conversations', async (c) => {
         substr(lm.content, 1, 80) AS last_incoming_preview,
         lm.message_type AS last_incoming_type
       FROM friends f
+      INNER JOIN tenant_line_accounts tenant_mapping
+              ON tenant_mapping.line_account_id = f.line_account_id
       LEFT JOIN line_accounts la ON la.id = f.line_account_id
       INNER JOIN last_incoming li ON li.friend_id = f.id
       LEFT JOIN last_human lh ON lh.friend_id = f.id
       LEFT JOIN latest_msg lm ON lm.friend_id = f.id
       LEFT JOIN latest_chat lc ON lc.friend_id = f.id
       WHERE f.is_following = 1
+        AND tenant_mapping.tenant_id = ?
+        ${whereAssignedAccount}
         AND (lh.at IS NULL OR lh.at < li.at)
         ${whereNotResolved}
         AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) >= ?
@@ -89,7 +105,7 @@ conversations.get('/api/conversations', async (c) => {
       LIMIT ? OFFSET ?
     `;
 
-    const bindings: (string | number)[] = [minHoursSince];
+    const bindings: (string | number)[] = [tenantId, ...(pharmacyTenant ? [staff!.id] : []), minHoursSince];
     if (maxHoursSince !== null) bindings.push(maxHoursSince);
     if (accountId) bindings.push(accountId);
     bindings.push(limit, offset);
@@ -112,17 +128,21 @@ conversations.get('/api/conversations', async (c) => {
       ),
       ${latestChatCte}
       SELECT COUNT(*) AS total FROM friends f
+      INNER JOIN tenant_line_accounts tenant_mapping
+              ON tenant_mapping.line_account_id = f.line_account_id
       INNER JOIN last_incoming li ON li.friend_id = f.id
       LEFT JOIN last_human lh ON lh.friend_id = f.id
       LEFT JOIN latest_chat lc ON lc.friend_id = f.id
       WHERE f.is_following = 1
+        AND tenant_mapping.tenant_id = ?
+        ${whereAssignedAccount}
         AND (lh.at IS NULL OR lh.at < li.at)
         ${whereNotResolved}
         AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) >= ?
         ${whereMaxHours}
         ${whereAccount}
     `;
-    const countBindings: (string | number)[] = [minHoursSince];
+    const countBindings: (string | number)[] = [tenantId, ...(pharmacyTenant ? [staff!.id] : []), minHoursSince];
     if (maxHoursSince !== null) countBindings.push(maxHoursSince);
     if (accountId) countBindings.push(accountId);
 
@@ -181,16 +201,23 @@ conversations.get('/api/conversations', async (c) => {
 // GET /api/conversations/:friendId?limit=&before=
 conversations.get('/api/conversations/:friendId', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
     const friendId = c.req.param('friendId');
     const url = new URL(c.req.url);
     const limit = Math.min(Number(url.searchParams.get('limit') ?? '50'), 200);
     const before = url.searchParams.get('before');
 
     const friend = await c.env.DB.prepare(
-      `SELECT f.id, f.line_user_id, f.display_name, f.is_following, f.line_account_id, la.name AS line_account_name
-       FROM friends f LEFT JOIN line_accounts la ON la.id = f.line_account_id WHERE f.id = ?`,
+      `SELECT f.id, f.provider_line_user_id AS line_user_id, f.display_name, f.is_following, f.line_account_id, la.name AS line_account_name
+       FROM friends f
+       INNER JOIN tenant_line_accounts tenant_mapping
+               ON tenant_mapping.line_account_id = f.line_account_id
+       LEFT JOIN line_accounts la ON la.id = f.line_account_id
+       WHERE tenant_mapping.tenant_id = ? AND f.id = ?`,
     )
-      .bind(friendId)
+      .bind(tenantId, friendId)
       .first<{
         id: string;
         line_user_id: string;

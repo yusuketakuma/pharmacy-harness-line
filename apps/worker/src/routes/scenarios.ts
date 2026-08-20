@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import {
-  getScenarios,
+  getScenariosForAccount,
+  getScenariosForTenant,
   getScenarioById,
   createScenario,
   updateScenario,
@@ -177,25 +178,12 @@ function serializeFriendScenario(row: DbFriendScenario) {
 scenarios.get('/api/scenarios', async (c) => {
   try {
     const lineAccountId = c.req.query('lineAccountId');
-    let items: DbScenarioWithStepCount[];
-    if (lineAccountId) {
-      // NULL line_account_id = global scenario (webhook.ts:211 / liff.ts:878 fire it for every
-      // account). Include both account-bound and global rows so the list mirrors the engine.
-      const result = await c.env.DB
-        .prepare(
-          `SELECT s.*, COUNT(ss.id) as step_count
-           FROM scenarios s
-           LEFT JOIN scenario_steps ss ON s.id = ss.scenario_id
-           WHERE s.line_account_id IS NULL OR s.line_account_id = ?
-           GROUP BY s.id
-           ORDER BY s.created_at DESC`,
-        )
-        .bind(lineAccountId)
-        .all<DbScenarioWithStepCount>();
-      items = result.results;
-    } else {
-      items = await getScenarios(c.env.DB);
-    }
+    // No account filter is the console's "show everything I own", not the
+    // delivery path's "what fires for this inbound account" — the latter fails
+    // closed on a null account and would blank the list.
+    const items: DbScenarioWithStepCount[] = lineAccountId
+      ? await getScenariosForAccount(c.env.DB, lineAccountId)
+      : await getScenariosForTenant(c.env.DB, c.get('tenantId') ?? null);
     return c.json({
       success: true,
       data: items.map((row) => ({
@@ -260,6 +248,8 @@ scenarios.post('/api/scenarios', async (c) => {
       triggerType: body.triggerType,
       triggerTagId: body.triggerTagId ?? null,
       deliveryMode: deliveryMode as DeliveryMode,
+      // Account-unassigned scenarios only fire inside their own tenant (M-1).
+      tenantId: c.get('tenantId') ?? null,
     });
 
     // Save line_account_id if provided

@@ -26,7 +26,7 @@
 | upstream/main | `eedfd7ed3a147f425eb69b86b76cb1ab863efe35` |
 | pharmacy/dev HEAD | `2f01bee9422095437dcd1b7456cbc4eb963be2b5` |
 | 更新入口 | `.github/workflows/update-from-upstream.yml` が `dev` 向けPRを作成 |
-| 顧客更新入口 | `.github/workflows/customer-update.yml` が署名済みreleaseをPR化 |
+| 本番更新入口 | 中央`main`から単一Cloudflare環境へデプロイ。顧客別更新は行わない |
 
 ### 強い境界
 

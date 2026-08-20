@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import type { Env } from '../index.js';
+import { hasPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 const setup = new Hono<Env>();
 
-setup.get('/setup', (c) => {
+setup.get('/setup', async (c) => {
+  if (await hasPharmacyModeAccount(c.env.DB)) return c.notFound();
   return c.html(`<!DOCTYPE html>
 <html lang="ja">
 <head>

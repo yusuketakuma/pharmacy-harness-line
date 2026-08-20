@@ -1,5 +1,6 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
+import { readLineCredential } from '../provisioning/line-credential-store.js';
 import {
   listDueMedicationFollowUps,
   transitionMedicationFollowUp,
@@ -10,6 +11,7 @@ export async function processDueMedicationFollowUps(
   options: {
     proxyBaseUrl: string;
     proxyDispatch?: HarnessProxyDispatch;
+    lineCredentialKey?: string;
     now?: Date;
     limit?: number;
   },
@@ -35,7 +37,14 @@ export async function processDueMedicationFollowUps(
       result.skipped++;
       continue;
     }
-    if (!current.line_user_id || !current.channel_access_token) {
+    const accessToken = options.lineCredentialKey
+      ? await readLineCredential(db, options.lineCredentialKey, {
+        tenantId: current.tenant_id,
+        lineAccountId: current.line_account_id,
+        kind: 'channel_access_token',
+      }).catch(() => null)
+      : null;
+    if (!current.line_user_id || !accessToken) {
       result.skipped++;
       continue;
     }
@@ -44,17 +53,22 @@ export async function processDueMedicationFollowUps(
         db,
         proxyBaseUrl: options.proxyBaseUrl,
         proxyDispatch: options.proxyDispatch,
-        accessToken: current.channel_access_token,
+        accessToken,
         to: current.line_user_id,
         lineAccountId: current.line_account_id,
         friendId: current.owner_friend_id,
         messageId: 'medication_followup_v1',
         category: 'followup_care',
-        vars: { followUpId: current.id },
+        vars: {
+          followUpId: current.id,
+          ...(current.liff_id ? { liffId: current.liff_id } : {}),
+        },
         retryKey: `medication-followup:${current.id}`,
         now,
       });
-      if (outcome === 'in_progress') {
+      // 'paused' must not transition the follow-up to 'delivered' — nothing
+      // was delivered; it stays due until the tenant resumes sending.
+      if (outcome === 'in_progress' || outcome === 'paused') {
         result.skipped++;
         continue;
       }

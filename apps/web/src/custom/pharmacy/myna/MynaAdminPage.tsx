@@ -33,6 +33,24 @@ const verificationLabels: Array<[MynaVerificationStatus, string]> = [
   ['MANUAL_EXCEPTION', '手動例外として記録'],
 ]
 
+export function verificationOptionsForHandoffStatus(
+  status: MynaHandoff['status'],
+): Array<[MynaVerificationStatus, string]> {
+  if (status === 'CLOSED') return []
+  if (status === 'EXPIRED') return verificationLabels.filter(([value]) => value === 'PRESCRIPTION_EXPIRED')
+  return verificationLabels
+}
+
+function formatTokyo(value: string): string {
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo', dateStyle: 'short', timeStyle: 'short',
+  }).format(new Date(value))
+}
+
+export function verificationConfirmationMessage(label: string): string {
+  return `「${label}」として正式に記録します。記録後はこの画面から変更できません。よろしいですか？`
+}
+
 export default function MynaAdminPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const [handoffs, setHandoffs] = useState<MynaHandoff[]>([])
@@ -76,8 +94,9 @@ export default function MynaAdminPage() {
     } finally { setSaving(false) }
   }
 
-  async function verify(handoffId: string, status: MynaVerificationStatus) {
+  async function verify(handoffId: string, status: MynaVerificationStatus, label: string) {
     if (!selectedAccountId || saving) return
+    if (!window.confirm(verificationConfirmationMessage(label))) return
     setSaving(true); setError(''); setMessage('')
     try {
       await mynaAdminApi.verify(selectedAccountId, handoffId, { status, sourceSystem: 'pharmacy-admin' })
@@ -113,7 +132,7 @@ export default function MynaAdminPage() {
 
       <section className="rounded-xl border border-gray-200 bg-white" aria-labelledby="myna-queue-title">
         <div className="flex items-center justify-between border-b p-5"><div><h2 id="myna-queue-title" className="font-bold">確認キュー</h2><p className="mt-1 text-sm text-gray-500">「手続きを終えた」は正式受付を意味しません。</p></div><button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">再読み込み</button></div>
-        {handoffs.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">確認対象はありません。</p> : <ul className="divide-y divide-gray-200">{handoffs.map((handoff) => <li key={handoff.id} className="space-y-3 p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{methodLabels[handoff.method]}・{statusLabels[handoff.status]}</p><p className="mt-1 text-xs text-gray-500">受付ID: {handoff.id}</p></div><span className="text-xs text-gray-500">{new Date(handoff.created_at).toLocaleString('ja-JP')}</span></div>{handoff.status !== 'CLOSED' && handoff.status !== 'EXPIRED' && <div className="flex flex-wrap gap-2">{verificationLabels.map(([status, label]) => <button key={status} type="button" onClick={() => void verify(handoff.id, status)} disabled={saving} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{label}</button>)}</div>}</li>)}</ul>}
+        {loading && handoffs.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">確認キューを読み込み中…</p> : error && handoffs.length === 0 ? <p className="p-8 text-center text-sm text-red-600">確認キューを表示できません。再読み込みしてください。</p> : handoffs.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">確認対象はありません。</p> : <ul className="divide-y divide-gray-200">{handoffs.map((handoff) => <li key={handoff.id} className="space-y-3 p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{methodLabels[handoff.method]}・{statusLabels[handoff.status]}</p><p className="mt-1 text-xs text-gray-500">受付ID: {handoff.id}</p><p className="mt-1 text-xs text-gray-500">受付: {formatTokyo(handoff.created_at)} / 使用期限: {formatTokyo(handoff.expires_at)}</p></div></div>{verificationOptionsForHandoffStatus(handoff.status).length > 0 && <div className="flex flex-wrap gap-2">{verificationOptionsForHandoffStatus(handoff.status).map(([status, label]) => <button key={status} type="button" onClick={() => void verify(handoff.id, status, label)} disabled={saving} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{label}</button>)}</div>}</li>)}</ul>}
       </section>
     </div>
   )

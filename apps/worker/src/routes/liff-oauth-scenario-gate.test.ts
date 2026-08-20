@@ -40,7 +40,7 @@ const dbMocks = {
   addTagToFriend: vi.fn().mockResolvedValue(undefined),
   getLineAccountByChannelId: vi.fn().mockResolvedValue(null),
   getLineAccountById: vi.fn().mockResolvedValue(null),
-  getScenarios: vi.fn().mockResolvedValue([]),
+  getScenariosForAccount: vi.fn().mockResolvedValue([]),
   enrollFriendInScenario: vi.fn().mockResolvedValue(null),
   getScenarioSteps: vi.fn().mockResolvedValue([]),
   computeNextDeliveryAt: vi.fn(),
@@ -52,6 +52,9 @@ const dbMocks = {
   jstNow: () => '2026-07-19 00:00:00',
 };
 vi.mock('@line-crm/db', () => dbMocks);
+
+const pushImmediateFirstStep = vi.fn().mockResolvedValue(true);
+vi.mock('../services/immediate-first-step.js', () => ({ pushImmediateFirstStep }));
 
 const pharmacyAccessMocks = vi.hoisted(() => ({
   isPharmacyModeAccount: vi.fn(
@@ -149,7 +152,7 @@ beforeEach(() => {
     line_account_id: null,
     user_id: null,
   });
-  dbMocks.getScenarios.mockResolvedValue([friendAddScenario]);
+  dbMocks.getScenariosForAccount.mockResolvedValue([friendAddScenario]);
   dbMocks.enrollFriendInScenario.mockResolvedValue({ id: 'FS-1' });
   dbMocks.getScenarioSteps.mockResolvedValue([]);
   dbMocks.getLineAccountByChannelId.mockResolvedValue(null);
@@ -237,7 +240,7 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
       channel_access_token: 'generic-token',
       liff_id: '1000000002-Generic',
     });
-    dbMocks.getScenarios.mockResolvedValue([]);
+    dbMocks.getScenariosForAccount.mockResolvedValue([]);
     pharmacyAccessMocks.hasPharmacyModeAccount.mockResolvedValue(true);
 
     await callback({ form: 'form-1', account: 'CH-generic' });

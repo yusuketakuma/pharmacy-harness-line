@@ -18,6 +18,7 @@ import { LineHarness } from '@line-harness/sdk'
 const client = new LineHarness({
   apiUrl: 'https://your-worker.workers.dev',
   apiKey: 'your-api-key',
+  tenantId: 'your-tenant-id',
 })
 
 // Create a 3-step education scenario

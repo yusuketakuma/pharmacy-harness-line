@@ -19,6 +19,7 @@ import { buildOgHtml } from '../lib/og-html.js';
 import { resolveOgForTrackedLink } from '../lib/og-resolver.js';
 import { resolveTrackedLinkBaseUrl } from '../lib/link-base-url.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
+import { hasPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 const trackedLinks = new Hono<Env>();
 
@@ -75,7 +76,10 @@ async function resolveLinkAccount(
   }
   if (!accountId) return null;
   return db
-    .prepare(`SELECT * FROM line_accounts WHERE id = ?`)
+    .prepare(
+      `SELECT id, name, liff_id, og_site_name, og_default_image_url, og_default_description
+         FROM line_accounts WHERE id = ?`,
+    )
     .bind(accountId)
     .first<Record<string, unknown>>();
 }
@@ -303,6 +307,12 @@ trackedLinks.get('/t/:linkId', async (c) => {
     const account = await resolveLinkAccount(c.env.DB, link);
     const og = resolveOgForTrackedLink(link, account as any, canonical);
     return c.html(buildOgHtml(og));
+  }
+
+  // Pharmacy tenants do not use generic attribution, tags, or scenarios.
+  // Preserve existing links as redirects without accepting untrusted friend IDs.
+  if (await hasPharmacyModeAccount(c.env.DB)) {
+    return c.redirect(link.original_url, 302);
   }
 
   const useAppRedirect = isAppLinkDomain(link.original_url);

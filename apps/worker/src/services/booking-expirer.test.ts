@@ -83,9 +83,14 @@ describe('runExpirer', () => {
     const { db, queries } = stubDB([]);
     await runExpirer(db, { now: NOW, sender: vi.fn() });
 
-    expect(queries.find((sql) => sql.includes('FROM bookings'))).toContain(
-      'FROM pharmacy_account_capabilities',
-    );
+    const staleQuery = queries.find((sql) => sql.includes('FROM bookings'))!;
+    expect(staleQuery).toContain('FROM pharmacy_account_capabilities');
+    expect(staleQuery).toContain('la.is_active = 1');
+    expect(staleQuery).toContain('tenant_line_accounts');
+    expect(staleQuery).toContain("tenant.status = 'active'");
+    expect(staleQuery).toContain('m.line_account_id = b.line_account_id');
+    expect(staleQuery).toContain('s.line_account_id = b.line_account_id');
+    expect(staleQuery).toContain('f.line_account_id = b.line_account_id');
   });
 
   test('通知失敗しても expired 化は実行される', async () => {

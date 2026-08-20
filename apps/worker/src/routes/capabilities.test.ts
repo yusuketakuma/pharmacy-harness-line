@@ -66,4 +66,27 @@ describe('GET /api/capabilities', () => {
       expect(res.status).toBe(200);
     }
   });
+
+  test('returns the pharmacy allowlist for a pharmacy tenant', async () => {
+    const app = new Hono<any>();
+    app.use('*', async (c, next) => {
+      c.set('staff', { id: 'staff-a', role: 'owner' });
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
+    app.route('/', capabilities);
+    const db = {
+      prepare: () => ({ bind: () => ({ first: async () => ({ pharmacy_install: 1 }) }) }),
+    } as unknown as D1Database;
+
+    const res = await app.request('/api/capabilities', {}, { DB: db });
+    const body = await res.json() as CapabilitiesResponse;
+
+    expect(res.status).toBe(200);
+    expect(body.data.features).toEqual(expect.arrayContaining(['prescription_intake', 'manual_chat']));
+    expect(body.data.features).not.toContain('broadcasts');
+    expect(body.data.features).not.toContain('tags');
+    expect(body.data.endpoints.broadcasts).toBeUndefined();
+    expect(body.data.endpoints.tags).toBeUndefined();
+  });
 });

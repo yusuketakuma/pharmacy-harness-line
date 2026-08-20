@@ -48,4 +48,26 @@ describe('generic reminder exclusion for pharmacy accounts', () => {
     expect(pushMessage).not.toHaveBeenCalled();
     expect(mocks.complete).not.toHaveBeenCalled();
   });
+
+  it('does not send when the account is no longer mapped to an active tenant', async () => {
+    mocks.pharmacyMode.mockResolvedValue(false);
+    const prepare = vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn(() => statement),
+        first: vi.fn().mockResolvedValue(null),
+      };
+      expect(sql).toContain('tenant_line_accounts');
+      return statement;
+    });
+
+    const pushMessage = vi.fn();
+    await processReminderDeliveries(
+      { prepare } as unknown as D1Database,
+      { pushMessage } as never,
+    );
+
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(pushMessage).not.toHaveBeenCalled();
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
 });

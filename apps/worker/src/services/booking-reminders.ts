@@ -43,17 +43,25 @@ export async function processDueReminders(
               m.name AS menu_name,
               s.display_name AS staff_name,
               la.channel_access_token,
-              f.line_user_id
+              f.provider_line_user_id AS line_user_id
          FROM booking_reminders r
          INNER JOIN bookings b ON b.id = r.booking_id
-         INNER JOIN menus m ON m.id = b.menu_id
-         INNER JOIN staff s ON s.id = b.staff_id
+         INNER JOIN menus m
+                 ON m.id = b.menu_id AND m.line_account_id = b.line_account_id
+         INNER JOIN staff s
+                 ON s.id = b.staff_id AND s.line_account_id = b.line_account_id
          INNER JOIN line_accounts la ON la.id = b.line_account_id
-         INNER JOIN friends f ON f.id = b.friend_id
+         INNER JOIN tenant_line_accounts mapping
+                 ON mapping.line_account_id = la.id
+         INNER JOIN tenants tenant
+                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+         INNER JOIN friends f
+                 ON f.id = b.friend_id AND f.line_account_id = b.line_account_id
         WHERE r.status IN ('pending','failed')
           AND r.scheduled_at <= ?
           AND b.status = 'confirmed'
           AND b.starts_at > ?       -- 開始時刻を過ぎた予約のリマインダは送らない
+          AND la.is_active = 1
           AND NOT EXISTS (
             SELECT 1 FROM pharmacy_account_capabilities pac
              WHERE pac.line_account_id = b.line_account_id AND pac.mode = 'pharmacy'

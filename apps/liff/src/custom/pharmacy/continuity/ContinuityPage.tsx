@@ -5,6 +5,7 @@ import {
   type ContinuityObligation,
   type NextIntakeExpectation,
 } from './api.js';
+import { pharmacyRoute } from '../navigation.js';
 
 const labels: Record<ContinuityObligation['status'], string> = {
   active: '次回のご相談を受付中',
@@ -106,7 +107,7 @@ export default function ContinuityPage() {
             {(item.status === 'active' || item.status === 'linked') && <button type="button" onClick={() => void pause(item.id)} disabled={busy} className="mt-3 min-h-11 text-sm text-gray-600 underline disabled:opacity-50">フォローを一時停止</button>}
           </li>;
         })}</ul>}
-        <Link to="/prescriptions" className="block w-full rounded-xl bg-green-600 px-4 py-4 text-center font-bold text-white">処方せん事前送信へ</Link>
+        <Link to={pharmacyRoute('/prescriptions')} className="block w-full rounded-xl bg-green-600 px-4 py-4 text-center font-bold text-white">処方せん事前送信へ</Link>
       </div>
     </main>
   );

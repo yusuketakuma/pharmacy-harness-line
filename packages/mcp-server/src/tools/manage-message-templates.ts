@@ -1,21 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
-function getApiConfig() {
-  const apiUrl = process.env.LINE_HARNESS_API_URL;
-  const apiKey = process.env.LINE_HARNESS_API_KEY;
-  if (!apiUrl || !apiKey) throw new Error("LINE_HARNESS_API_URL and LINE_HARNESS_API_KEY required");
-  return { apiUrl, apiKey };
-}
+import { getHarnessApiConfig, getHarnessApiHeaders } from "../client.js";
 
 async function apiCall(path: string, method = "GET", body?: unknown) {
-  const { apiUrl, apiKey } = getApiConfig();
+  const { apiUrl } = getHarnessApiConfig();
   const res = await fetch(`${apiUrl}${path}`, {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: getHarnessApiHeaders(),
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const data = await res.json();

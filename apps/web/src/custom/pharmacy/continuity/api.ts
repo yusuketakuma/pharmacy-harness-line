@@ -12,6 +12,7 @@ export type ContinuityObligation = {
   next_contact_at: string
   reminder_count: number
   updated_at: string
+  patient_display_name: string | null
 }
 
 export type NextIntakeExpectation = {
@@ -49,4 +50,16 @@ export const continuityAdminApi = {
         body: JSON.stringify({ ...offer, idempotencyKey: crypto.randomUUID() }),
       },
     ),
+  endExpectation: (
+    accountId: string,
+    obligationId: string,
+    expectationId: string,
+    expectedVersion: number,
+  ) => fetchApi<{ expectation: NextIntakeExpectation }>(
+    `/api/custom/pharmacy/continuity/${encodeURIComponent(obligationId)}/expectations/${encodeURIComponent(expectationId)}/end?${accountQuery(accountId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ expectedVersion, idempotencyKey: crypto.randomUUID() }),
+    },
+  ),
 }

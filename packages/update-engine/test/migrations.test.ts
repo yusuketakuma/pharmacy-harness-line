@@ -36,12 +36,19 @@ describe('splitSqlStatements', () => {
     expect(splitSqlStatements('-- only a comment;\n; /* another */')).toEqual([]);
   });
 
-  it('rejects trigger bodies instead of splitting them incorrectly', () => {
-    expect(() =>
-      splitSqlStatements(
-        'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; END;',
-      ),
-    ).toThrow(/CREATE TRIGGER/);
+  it('keeps a simple trigger body atomic while splitting following statements', () => {
+    expect(splitSqlStatements(
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END; CREATE INDEX i ON b(x);',
+    )).toEqual([
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END',
+      'CREATE INDEX i ON b(x)',
+    ]);
+  });
+
+  it('fails closed for trigger grammar that needs a full SQL parser', () => {
+    expect(() => splitSqlStatements(
+      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = CASE WHEN x = 1 THEN 2 ELSE 3 END; END;',
+    )).toThrow(/CASE-bearing CREATE TRIGGER/);
   });
 });
 
@@ -170,6 +177,140 @@ describe('applyD1Migrations', () => {
     ).rejects.toThrow(/failed atomically: duplicate column/);
     expect(calls.some((call) => call.sql.includes('ADD COLUMN missing'))).toBe(true);
     expect(calls.some((call) => call.sql.includes('INSERT INTO _line_harness_migrations'))).toBe(true);
+  });
+
+  it('stops without a ledger row when D1 answers success:false', async () => {
+    const calls: string[] = [];
+    const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
+      calls.push(opts.sql);
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [] }] };
+      }
+      if (opts.sql.includes(`CREATE TABLE ${'_line_harness_migrations'}`)) {
+        return { success: true, result: [] };
+      }
+      // Cloudflare answers a failed statement with HTTP 200 + success:false.
+      return { success: false, result: [] };
+    });
+
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_first.sql', '042_second.sql'],
+        migrations: new Map([
+          ['041_first.sql', Buffer.from('CREATE TABLE first (id TEXT);')],
+          ['042_second.sql', Buffer.from('CREATE TABLE second (id TEXT);')],
+        ]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/D1 query failed/);
+    expect(calls.some((sql) => sql.includes('INSERT INTO _line_harness_migrations'))).toBe(false);
+    expect(calls.some((sql) => sql.includes('CREATE TABLE second'))).toBe(false);
+  });
+
+  it('never starts the next migration when an atomic apply answers success:false', async () => {
+    const calls: string[] = [];
+    const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
+      calls.push(opts.sql);
+      if (opts.sql.includes('sqlite_master')) {
+        return { success: true, result: [{ results: [{ name: '_line_harness_migrations' }] }] };
+      }
+      if (opts.sql.includes('SELECT checksum')) {
+        return { success: true, result: [{ results: [] }] };
+      }
+      return { success: false, result: [], errors: [{ message: 'FOREIGN KEY constraint failed' }] };
+    });
+
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_first.sql', '042_second.sql'],
+        migrations: new Map([
+          ['041_first.sql', Buffer.from('CREATE TABLE first (id TEXT);')],
+          ['042_second.sql', Buffer.from('CREATE TABLE second (id TEXT);')],
+        ]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/041_first\.sql failed atomically.*FOREIGN KEY constraint failed/s);
+    expect(calls.some((sql) => sql.includes('CREATE TABLE second'))).toBe(false);
+  });
+
+  it('skips a legacy trigger whose live definition already matches', async () => {
+    const trigger =
+      "CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends "
+      + "WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;";
+    const writes: string[] = [];
+    const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
+      if (opts.sql.includes("type='trigger'")) {
+        return {
+          success: true,
+          result: [{
+            results: [{
+              // SQLite stores the definition without IF NOT EXISTS and reflows whitespace.
+              sql: "CREATE TRIGGER friends_account_immutable\n  BEFORE UPDATE OF line_account_id ON friends\n"
+                + "  WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END",
+            }],
+          }],
+        };
+      }
+      if (opts.sql.includes('sqlite_master')) return { success: true, result: [{ results: [] }] };
+      writes.push(opts.sql);
+      return { success: true, result: [] };
+    });
+
+    const [result] = await applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['custom_016_demo.sql'],
+      migrations: new Map([
+        ['custom_016_demo.sql', Buffer.from(`CREATE TABLE demo (id TEXT);\n\n-- tenant integrity\n${trigger}`)],
+      ]),
+      execute: execute as any,
+    });
+
+    expect(result).toMatchObject({ executedStatements: 1, skippedStatements: 1 });
+    expect(writes.some((sql) => sql.includes('CREATE TRIGGER'))).toBe(false);
+    expect(writes.some((sql) => sql.includes('INSERT INTO _line_harness_migrations'))).toBe(true);
+  });
+
+  it('fails closed when a legacy trigger of the same name has a different body', async () => {
+    const trigger =
+      "CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends "
+      + "WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;";
+    const liveSql =
+      'CREATE TRIGGER friends_account_immutable BEFORE UPDATE OF line_account_id ON friends '
+      + 'WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT 1; END';
+    const writes: string[] = [];
+    const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
+      if (opts.sql.includes("type='trigger'")) {
+        return { success: true, result: [{ results: [{ sql: liveSql }] }] };
+      }
+      if (opts.sql.includes('sqlite_master')) return { success: true, result: [{ results: [] }] };
+      writes.push(opts.sql);
+      return { success: true, result: [] };
+    });
+
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['custom_016_demo.sql'],
+        migrations: new Map([['custom_016_demo.sql', Buffer.from(trigger)]]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/friends_account_immutable/);
+    const message = await applyD1Migrations({
+      creds,
+      databaseId: 'db',
+      names: ['custom_016_demo.sql'],
+      migrations: new Map([['custom_016_demo.sql', Buffer.from(trigger)]]),
+      execute: execute as any,
+    }).catch((error: Error) => error.message);
+    expect(message).toContain("RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE')");
+    expect(message).toContain('SELECT 1');
+    expect(writes.some((sql) => sql.includes('INSERT INTO _line_harness_migrations'))).toBe(false);
   });
 
   it('skips a migration whose matching checksum is already recorded', async () => {

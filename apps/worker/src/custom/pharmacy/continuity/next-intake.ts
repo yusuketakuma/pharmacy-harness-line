@@ -28,8 +28,8 @@ export interface NextIntakeExpectation {
 }
 
 export interface DueNextIntakeExpectation extends NextIntakeExpectation {
+  tenant_id: string;
   line_user_id: string;
-  channel_access_token: string;
 }
 
 type Timing =
@@ -124,11 +124,12 @@ async function transitionExpectation(
   input: {
     lineAccountId: string;
     expectationId: string;
-    fromStatus: 'offered' | 'accepted' | 'active';
+    fromStatus: 'offered' | 'accepted' | 'active' | 'reminded';
     toStatus: 'accepted' | 'active' | 'reminded' | 'ended';
-    actorType: 'patient' | 'system';
+    actorType: 'patient' | 'staff' | 'system';
     actorId: string;
     idempotencyKey: string;
+    expectedVersion?: number;
     friendId?: string;
     now: Date;
   },
@@ -143,6 +144,9 @@ async function transitionExpectation(
   ).bind(input.expectationId, input.lineAccountId, input.idempotencyKey)
     .first<{ ok: number }>();
   if (replay) return { expectation: current, changed: false };
+  if (input.expectedVersion !== undefined && current.version !== input.expectedVersion) {
+    throw new Error('expectation transition conflict');
+  }
   if (current.status === input.toStatus) return { expectation: current, changed: false };
   if (current.status !== input.fromStatus) throw new Error('expectation transition conflict');
 
@@ -322,6 +326,42 @@ export async function respondToNextIntakeExpectation(
   return result.expectation;
 }
 
+export async function endNextIntakeExpectation(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    expectationId: string;
+    expectedVersion: number;
+    staffId: string;
+    idempotencyKey: string;
+    now?: Date;
+  },
+): Promise<NextIntakeExpectation> {
+  if (!input.lineAccountId || !input.expectationId || !input.staffId ||
+      !Number.isInteger(input.expectedVersion) || !validOpaqueKey(input.idempotencyKey)) {
+    throw new Error('expectation unavailable');
+  }
+  const current = await getExpectation(db, input.lineAccountId, input.expectationId);
+  if (!current) throw new Error('expectation unavailable');
+  if (current.status === 'ended') return current;
+  if (current.status !== 'offered' && current.status !== 'accepted' &&
+      current.status !== 'active' && current.status !== 'reminded') {
+    throw new Error('expectation transition conflict');
+  }
+  const result = await transitionExpectation(db, {
+    lineAccountId: input.lineAccountId,
+    expectationId: input.expectationId,
+    fromStatus: current.status,
+    toStatus: 'ended',
+    actorType: 'staff',
+    actorId: input.staffId,
+    idempotencyKey: `staff:${input.idempotencyKey}`,
+    expectedVersion: input.expectedVersion,
+    now: input.now ?? new Date(),
+  });
+  return result.expectation;
+}
+
 export async function claimDueNextIntakeExpectations(
   db: D1Database,
   now = new Date(),
@@ -333,7 +373,7 @@ export async function claimDueNextIntakeExpectations(
             e.patient_id, e.status, e.timing_source, e.supply_days,
             e.expected_from, e.expected_to, e.reminder_at, e.reminded_at,
             e.version, e.created_by, e.created_at, e.updated_at,
-            friend.line_user_id, account.channel_access_token
+            friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
        FROM pharmacy_next_intake_expectations e
        INNER JOIN pharmacy_continuity_obligations o
          ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
@@ -341,6 +381,10 @@ export async function claimDueNextIntakeExpectations(
        INNER JOIN friends friend
          ON friend.id = e.owner_friend_id AND friend.line_account_id = e.line_account_id
        INNER JOIN line_accounts account ON account.id = e.line_account_id
+       INNER JOIN tenant_line_accounts mapping
+         ON mapping.line_account_id = e.line_account_id
+       INNER JOIN tenants tenant
+         ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
        INNER JOIN pharmacy_account_capabilities capability
          ON capability.line_account_id = e.line_account_id AND capability.mode = 'pharmacy'
         AND EXISTS (
@@ -406,27 +450,23 @@ export async function markNextIntakeExpectationReminded(
   return result.expectation;
 }
 
-export async function listNextIntakeExpectations(
-  db: D1Database,
-  lineAccountId: string,
-  friendId?: string,
-): Promise<NextIntakeExpectation[]> {
-  const result = await db.prepare(
-    `SELECT e.id, e.obligation_id, e.line_account_id, e.owner_friend_id,
-            e.patient_id, e.status, e.timing_source, e.supply_days,
-            e.expected_from, e.expected_to, e.reminder_at, e.reminded_at,
-            e.version, e.created_by, e.created_at, e.updated_at,
-            o.status AS continuity_status
-       FROM pharmacy_next_intake_expectations e
-       INNER JOIN pharmacy_continuity_obligations o
-         ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
-        AND o.owner_friend_id = e.owner_friend_id AND o.patient_id = e.patient_id
-      WHERE e.line_account_id = ?${friendId ? ' AND e.owner_friend_id = ?' : ''}
-      ORDER BY e.created_at DESC, e.id DESC`,
-  ).bind(lineAccountId, ...(friendId ? [friendId] : [])).all<
-    NextIntakeExpectation & { continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended' }
-  >();
-  return (result.results ?? []).map(({ continuity_status: continuityStatus, ...item }) => ({
+const LIST_EXPECTATIONS_SELECT = `
+    SELECT e.id, e.obligation_id, e.line_account_id, e.owner_friend_id,
+           e.patient_id, e.status, e.timing_source, e.supply_days,
+           e.expected_from, e.expected_to, e.reminder_at, e.reminded_at,
+           e.version, e.created_by, e.created_at, e.updated_at,
+           o.status AS continuity_status
+      FROM pharmacy_next_intake_expectations e
+      INNER JOIN pharmacy_continuity_obligations o
+        ON o.id = e.obligation_id AND o.line_account_id = e.line_account_id
+       AND o.owner_friend_id = e.owner_friend_id AND o.patient_id = e.patient_id`;
+
+function mapExpectationRows(
+  rows: readonly (NextIntakeExpectation & {
+    continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended';
+  })[],
+): NextIntakeExpectation[] {
+  return rows.map(({ continuity_status: continuityStatus, ...item }) => ({
     ...item,
     status: item.status === 'ended'
       ? 'ended'
@@ -434,4 +474,33 @@ export async function listNextIntakeExpectations(
         ? item.status
         : continuityStatus,
   }));
+}
+
+export async function listPatientExpectations(
+  db: D1Database,
+  lineAccountId: string,
+  friendId: string,
+): Promise<NextIntakeExpectation[]> {
+  const result = await db.prepare(
+    `${LIST_EXPECTATIONS_SELECT}
+      WHERE e.line_account_id = ? AND e.owner_friend_id = ?
+      ORDER BY e.created_at DESC, e.id DESC`,
+  ).bind(lineAccountId, friendId).all<
+    NextIntakeExpectation & { continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended' }
+  >();
+  return mapExpectationRows(result.results ?? []);
+}
+
+export async function listAccountExpectations(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<NextIntakeExpectation[]> {
+  const result = await db.prepare(
+    `${LIST_EXPECTATIONS_SELECT}
+      WHERE e.line_account_id = ?
+      ORDER BY e.created_at DESC, e.id DESC`,
+  ).bind(lineAccountId).all<
+    NextIntakeExpectation & { continuity_status: 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended' }
+  >();
+  return mapExpectationRows(result.results ?? []);
 }

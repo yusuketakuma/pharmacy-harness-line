@@ -1,8 +1,31 @@
 import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
-import { isPharmacyModeAccount } from './access.js';
+import { hasPharmacyModeAccount, isPharmacyModeAccount, isPharmacyTenant } from './access.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+const PHARMACY_ALLOWED_API_PREFIXES = [
+  '/api/auth',
+  '/api/custom/pharmacy',
+  '/api/liff/pharmacy',
+  '/api/capabilities',
+  '/api/line-accounts',
+  '/api/staff',
+  '/api/chats',
+  '/api/conversations',
+  '/api/inbox',
+  '/api/images',
+  '/api/rich-menu-groups',
+  '/api/rich-menu-images',
+  '/api/tags',
+] as const;
+
+const PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES = [
+  '/api/webhooks',
+  '/api/integrations/stripe',
+  '/api/qr',
+  '/api/public/media-inquiries',
+] as const;
 
 export const PHARMACY_DISABLED_GENERIC_API_PREFIXES = [
   '/api/broadcasts',
@@ -27,7 +50,42 @@ export const PHARMACY_DISABLED_GENERIC_API_PREFIXES = [
   '/api/events',
   '/api/liff/events',
   '/api/liff/send-form-link',
+  '/api/liff/affiliate',
+  '/api/liff/mileage',
+  '/api/liff/link',
+  '/api/tags',
+  '/api/operators',
+  '/api/rich-menus',
+  ...PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES,
 ] as const;
+
+function matchesPrefix(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+function isAllowedPharmacyApi(path: string): boolean {
+  if (PHARMACY_ALLOWED_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix))) return true;
+  if (path === '/api/account-settings/test-recipients') return true;
+  if (path === '/api/friends' || path === '/api/friends/count') return true;
+  if (/^\/api\/friends\/[^/]+\/(messages|rich-menu)$/.test(path)) return true;
+  return /^\/api\/friends\/(?!count$|ref-stats$)[^/]+$/.test(path);
+}
+
+export async function pharmacyTenantApiAllowlistGuard(
+  c: Context<Env>,
+  next: Next,
+): Promise<Response | void> {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return next();
+
+  if (!await isPharmacyTenant(c.env.DB, tenantId)) return next();
+
+  const path = new URL(c.req.url).pathname;
+  if (!isAllowedPharmacyApi(path)) {
+    return c.json({ success: false, error: 'Feature disabled for pharmacy tenant' }, 403);
+  }
+  return next();
+}
 
 function addAccountIds(target: Set<string>, value: unknown): void {
   if (typeof value === 'string' && value) target.add(value);
@@ -123,6 +181,14 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
 
 export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): Promise<Response | void> {
   const path = new URL(c.req.url).pathname;
+  if (path === '/api/tags' && c.get('tenantId') && SAFE_METHODS.has(c.req.method.toUpperCase())) {
+    return next();
+  }
+  if (!c.get('tenantId') &&
+      PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix)) &&
+      await hasPharmacyModeAccount(c.env.DB)) {
+    return c.json({ success: false, error: 'generic feature disabled for pharmacy install' }, 403);
+  }
   const identityLineUserField = path === '/api/meet-callback'
     ? 'line_user_id'
     : path === '/api/liff/send-form-link' ? 'lineUserId' : null;
@@ -136,7 +202,9 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
     }
   }
 
-  if (!SAFE_METHODS.has(c.req.method.toUpperCase()) && c.req.header('content-type')?.includes('application/json')) {
+  if (!SAFE_METHODS.has(c.req.method.toUpperCase())) {
+    // Content-Type is client-controlled; parse a clone so a JSON body marked
+    // as text/plain cannot bypass the account resolver.
     const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
     if (body) {
       if (identityLineUserField) {
@@ -165,8 +233,14 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   }
   for (const lineUserId of lineUserIds) {
     const friend = await c.env.DB.prepare(
-      `SELECT line_account_id FROM friends WHERE line_user_id = ?`,
-    ).bind(lineUserId).first<{ line_account_id: string | null }>();
+      `SELECT f.line_account_id
+         FROM friends f
+         LEFT JOIN pharmacy_account_capabilities capability
+           ON capability.line_account_id = f.line_account_id
+        WHERE f.provider_line_user_id = ? AND f.line_account_id IS NOT NULL
+        ORDER BY CASE WHEN capability.mode = 'pharmacy' THEN 0 ELSE 1 END, f.line_account_id
+        LIMIT 1`,
+    ).bind(lineUserId).first<{ line_account_id: string }>();
     if (friend?.line_account_id) accountIds.add(friend.line_account_id);
   }
 
@@ -174,7 +248,20 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
     for (const accountId of await resourceAccountIds(c, path)) accountIds.add(accountId);
   }
 
-  if (accountIds.size === 0 && !requiresOwnedIdentity) {
+  const tenantId = c.get('tenantId');
+  if (accountIds.size === 0 && !requiresOwnedIdentity && tenantId) {
+    const tenantAccounts = await c.env.DB.prepare(
+      `SELECT line_account_id
+         FROM tenant_line_accounts
+        WHERE tenant_id = ?`,
+    ).bind(tenantId).all<{ line_account_id: string }>();
+    for (const account of tenantAccounts.results) accountIds.add(account.line_account_id);
+    if (accountIds.size === 0) {
+      return c.json({ success: false, error: 'generic feature account scope required' }, 403);
+    }
+  }
+
+  if (accountIds.size === 0 && !requiresOwnedIdentity && !tenantId) {
     const account = await c.env.DB.prepare(
       `SELECT id FROM line_accounts WHERE channel_id = ? AND is_active = 1`,
     ).bind(c.env.LINE_CHANNEL_ID).first<{ id: string }>();
@@ -182,10 +269,7 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   }
 
   if (accountIds.size === 0) {
-    const pharmacyInstall = await c.env.DB.prepare(
-      `SELECT 1 AS ok FROM pharmacy_account_capabilities WHERE mode = 'pharmacy' LIMIT 1`,
-    ).first<{ ok: number }>();
-    if (pharmacyInstall) {
+    if (await hasPharmacyModeAccount(c.env.DB)) {
       return c.json({ success: false, error: 'generic feature account scope required' }, 403);
     }
   }

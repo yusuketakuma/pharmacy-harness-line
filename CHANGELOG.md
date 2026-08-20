@@ -1,5 +1,275 @@
 # Changelog
 
+## Pharmacy v0.28.0 (2026-08-21)
+
+### この更新で変わること
+
+`v0.28.0`では、患者がLINEから必要な機能へ迷わず進めるよう薬局LIFFとリッチメニューを再編し、来局判断に必要な薬局公開情報を薬局自身が管理できるようにしました。あわせて、患者問診の機微情報をフィールド単位で暗号化する保存・移行経路と、Platform Admin向けのtenant設定CLIを追加しています。
+
+### 患者向けLIFFメニュー
+
+- LIFF内に「すべての機能」画面を追加し、処方せん事前送信、受付状況、患者情報・アンケート、継続フォロー、服薬後フォロー、緊急避妊薬、薬局情報へ直接移動可能に
+- 「すべての機能」画面の右上に、現在動作しているLIFFアプリのバージョンを表示
+- 画面間の遷移と旧形式の`?page=`リンクでtenant固有の`liffId`を保持し、別のLINEアカウントへ誤って接続しないよう統一
+- 「来局前確認」を、患者が目的を理解しやすい「緊急避妊薬」へ変更。画面内では仮受付であり、販売・服用・在庫を保証しない既存の薬剤師判断境界を維持
+- 処方せん事前送信と役割が重複していた「お薬を受け取る」画面を現行メニューから廃止。公開済みリッチメニュー等の旧`/pharmacy/receive`リンクは、tenant固有の`liffId`を保ったまま処方せん事前送信へ転送
+- 機能未設定時のHTTP 503を通信障害として表示せず、「この機能は現在利用できません。薬局にお問い合わせください。」という患者向け案内へ変更
+
+### v3リッチメニュー
+
+- 標準の初期リッチメニューを2500x1686の6エリア構成へ更新
+- エリアを「緊急避妊薬」「受付状況」「服薬後フォロー」「薬局へ相談」「薬局情報」「すべての機能」で構成
+- 新しい`initial-large-3x2-v3`プロファイルと画像を追加し、新規作成時の標準プロファイルとして使用
+- 既存のcompact 3エリア版と単一処方せん受付版は互換用プロファイルとして保持
+- ドラフト作成だけではLINEへの登録、初期表示設定、既存友だちへの一括適用を行わない従来のhuman gateを維持
+
+### 患者向け薬局情報
+
+- LINEアカウント単位の公開プロフィールを追加し、患者向けLIFFに薬局名、郵便番号、住所、電話番号、FAX番号、営業時間を表示
+- 処方せん受付時間、時間外対応、休業・臨時案内、提供サービス、対応言語、支払方法、アクセス、駐車場、バリアフリー、公式サイトも任意項目として表示
+- Google Maps URLが未設定の場合は住所から検索URLを生成。設定URLはHTTPSのGoogle Mapsホストに限定
+- 公式サイトURLはHTTPSかつ認証情報を含まないURLだけを許可し、外部リンクには`noopener`/`noreferrer`を付与
+- 電話番号は`tel:`リンクとして利用でき、FAX番号を含む連絡先はサーバー側でも文字種と最大長を検証
+- 公開情報の最終更新日を表示。電話番号とFAX番号は常に項目を表示し、未登録時は「未設定」と明示。その他の任意項目は空欄のまま安全に省略
+
+### 薬局情報管理画面
+
+- 「患者向け薬局情報」編集画面を追加し、選択中のLINEアカウントに紐づく公開情報を編集可能に
+- 更新権限をowner/adminへ限定し、一般staffからの更新を拒否
+- `line_account_id`は認証済みstaffの割り当てとサーバー側middlewareから解決し、query parameterやrequest bodyの値を権限根拠として使用しない
+- 薬局名、住所、営業時間を必須化し、テキスト長、電話/FAX文字種、Google Maps URL、公式サイトURLを保存前に検証
+- アカウント切替中の遅いレスポンスが別アカウントのフォームを上書きしない読み込みガード、保存中の二重送信防止、未保存表示、成功・失敗フィードバックを追加
+
+### 患者問診のフィールドレベル暗号化
+
+- `pharmacy_patient_intake_responses`の`patient_snapshot_json`と`answers_json`を、AES-256-GCMの暗号化envelopeとして保存する経路を追加
+- 暗号化コンテキストをtenant、LINEアカウント、LINE上の所有者、患者、回答、schema、revision、field、envelope/key versionへ結び付け、別scopeへの暗号文差し替えや再利用をfail-closedで拒否
+- 1回答につき2つの必須field envelopeを保存し、片方だけ欠ける状態、nonce再利用、不正なfield名、scope不一致をDB制約と読み込み処理で拒否
+- 暗号化envelopeと回答本体を同じD1 batchで保存し、部分成功を許可しない
+- 移行期間はauthorization後のdual-readに対応。envelopeが揃う場合のみ復号し、移行開始後の不完全envelopeを平文へ暗黙fallbackしない
+- Worker secret `PHARMACY_PHI_KEY_V1`が未設定の場合は書き込み前に503で停止し、平文の新規保存を継続しない
+
+### 問診暗号化の移行・復旧
+
+- account単位の`frozen`、`scrubbing`、`scrubbed`、`restoring`、`restored`状態を持つ移行管理テーブルを追加
+- dry-runを既定とする上限付きbackfill、安定cursor、envelope byte検証、全件coverage digestを追加
+- 平文scrubと復旧には承認者、承認参照、承認時刻を必須化し、対象accountの書き込みをfreezeして件数ドリフトを防止
+- scrubは暗号化coverage確認後に既存JSON列を有効な空JSONへ置換し、restoreは保存済み暗号文から元のbyte列を復元
+- `restored`後も自動で通常書き込みへ戻さず、旧Workerへのrollback継続または再scrubを人が判断する境界を維持
+
+### Platform Admin tenant設定CLI
+
+- `pnpm tenant:settings`を追加し、Platform Admin認証を使ってtenant/account設定をAPI経由で取得・変更可能に
+- ownerだけが読めるローカル資格情報ファイルから接続情報を読み込み、tokenやsecret値を標準出力へ表示しない
+- 患者・処方せん・問診等のPHIルートを対象外とし、許可された設定APIだけを専用session scopeで利用
+- tenant IDに`:`を含む実環境の識別子へ対応し、Platform Admin identityをtenant/account境界検証まで保持
+- 変更操作はdry-run、明示確認、監査記録を通し、LINEへのpublish、default変更、friend適用等の外部変更を暗黙実行しない
+- リッチメニューの初期表示変更ではaccount scopeを必須化し、同じaccountを含むconfirmation token取得経路へ統一
+
+### データベースマイグレーション
+
+- `custom_039_pharmacy_public_profile.sql`: LINEアカウント・更新者staffへ外部キーで紐づく公開プロフィールを追加
+- `custom_040_pharmacy_patient_intake_envelopes.sql`: 問診PHIの暗号化envelope、field allowlist、nonce一意制約、tenant/account/患者/回答scope外部キーを追加
+- `custom_041_pharmacy_patient_intake_migration_state.sql`: account単位のwrite freeze、coverage、承認証跡、scrub/restore状態を追加
+- `custom_042_pharmacy_public_profile_details.sql`: 処方せん受付時間、時間外対応、サービス、バリアフリー、言語、支払方法、公式サイトを追加
+- `custom_043_pharmacy_public_profile_fax.sql`: 最大40文字のFAX番号を追加
+- すべて既存データを削除しないadditive migration。dev/prodへの適用は各環境のdeploy workflowとmigration ledgerを通す
+
+### 互換性と運用上の注意
+
+- 旧`pharmacy-receive`リンクは削除せず処方せん事前送信へ転送するため、既に公開済みのリッチメニューからも到達可能
+- 旧リッチメニュープロファイルは保持されるが、新規標準はv3。既存のLINEリッチメニューを自動置換しない
+- 暗号化移行、平文scrub、restore、LINEリッチメニュー公開・初期表示変更はhuman gateの対象
+- 本バージョン番号は共有薬局サービスの`pharmacy-v*`系列であり、OSS本体の`v*`系列とは別管理
+
+## Pharmacy v0.27.2 (2026-08-20)
+
+### この更新で変わること
+
+`v0.27.2`は`v0.27.1`のリリースワークフローで顕在化したCIの不安定さを修正するパッチリリースです。
+
+### CI安定化
+
+- `packages/db`の`bootstrap.sql`整合性チェックが、node subprocess起動を伴うためvitestデフォルトの5000msタイムアウトを稀に超え、CIランナー負荷時にflakyになっていた問題を修正(タイムアウトを15000msに延長)
+
+## Pharmacy v0.27.1 (2026-08-20)
+
+### この更新で変わること
+
+`v0.27.1`は`v0.27.0`のdev環境実機検証で見つかった不具合の修正と、CIの安定化を行うパッチリリースです。
+
+### 重要なバグ修正
+
+- マイナ在宅受付の受け渡し登録(`createMynaHandoff`)で、`pharmacy_myna_handoffs`への挿入が参照先の`pharmacy_prescription_expectations`挿入より先に実行されており、tenant整合性トリガーにより毎回`PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH`で失敗していた不具合を修正。LIFF側で「お薬を受け取る」操作が常に失敗する状態だったものが復旧
+
+### CI安定化
+
+- Repository Verify workflowで共有パッケージのビルド漏れにより`packages/plugin-template`/`packages/mcp-server`のtypecheckが失敗していた問題を修正
+- Repository Verify workflowのcheckoutがshallow cloneのため、タグ参照が必要なアップグレード互換性テストが失敗していた問題を修正(`fetch-depth: 0`を追加)
+
+### ドキュメント
+
+- `.env.example`に`STAFF_API_KEY_HASH_SECRET`・`PHARMACY_PHI_KEY_V1`(Worker secret)のプレースホルダーと設定方法の説明を追加
+
+## Pharmacy v0.27.0 (2026-08-20)
+
+### この更新で変わること
+
+`v0.27.0`では、個人情報保護法・薬剤師法に基づくプライバシー対応(利用目的通知・PHI保存期間・データ主体請求)、緊急避妊薬の来局前確認機能(Phase 1 MVP)、薬局管理画面・患者向けLIFFの安全性/正確性の一括改善、依存関係全体の最新化を行いました。
+
+### プライバシー・個人情報保護対応
+
+- テナント(各薬局)を個人情報取扱事業者と明示し、利用目的・問い合わせ窓口・委託関係を薬局ごとに設定できる機能を追加。問診同意にはその時点のポリシーバージョン・ハッシュを記録し、後からの改変と区別可能に
+- PHI(処方せん画像・問診回答・マイナ連携データ・LINEメッセージ等)の法定保存期間を一律3年と定義したretention matrixを整備し、期限を超えた処方せん画像を安全に削除するジョブを追加(対象外のデータは次回課題として明記)
+- 開示・訂正・利用停止・消去請求を受け付け、法定保存期間内は消去をDB制約レベルで拒否するデータ主体請求ワークフローを追加。legal hold判定は処方せん・問診・マイナ連携・服薬フォロー等9系統のPHIテーブルを横断して評価
+
+### 緊急避妊薬の来局前確認(Phase 1 MVP)
+
+- LINEを起点に、同意 → 最小限の確認 → 対応枠選択 → メーカー公式セルフチェック導線 → 仮受付番号、という来局前確認フローを追加
+- 薬局番号・研修修了薬剤師・在庫・プライバシー環境など必須設定が揃うまで受付を非公開にするfail-closedゲートをDBトリガーで実装
+- 性交後72時間の判定ロジックを独立した純粋関数として実装し境界値をテストで固定。販売可否の最終判断は店頭の薬剤師が紙のメーカーシートで行う設計とし、自動判定はしない
+- 患者向け画面・通知から薬品名・性交・妊娠等の直接的な語を排除し、中立的な表現に統一
+
+### 薬局管理画面・患者向けLIFFの安全性・正確性
+
+- 処方せん受け渡し・LINEアカウント有効化・緊急停止・マイナ確認など不可逆操作に確認ダイアログと二重送信防止を追加
+- JST/UTC混在表示、画像連打時のレース、服薬フォロー回答保存後の誤409応答、次回受診予告の停止不能など、データ不整合・誤表示・操作不能を多数修正
+- シナリオ・タグ・Webhook設定へのテナントスコープ追加により、テナント間のデータ越境経路を解消
+
+### 依存関係の全面更新
+
+- 開発ツールチェーン(vitest, vite, wrangler等)および本番依存(Hono, Next.js 16, React, @cloudflare/workers-types v5, zod v4等)を最新安定版へ更新
+- TypeScript 7への更新は、tsup・Next.jsのビルドツールチェーンとの非互換(内部Compiler APIへの依存)が実機で確認されたため見送り、5.9系を継続
+
+### セキュリティ
+
+- LIFFオリジンが `/api/liff/*` 以外の管理者向けルートにもcredentialed CORSアクセスできてしまう不備を修正
+- リポジトリ全体の検証(typecheck・test・migration整合性)を一本化したCI workflowを追加
+
+### その他
+
+- Cloudflare Pages資産ハッシュのwrangler互換性を修正
+
+## Pharmacy v0.26.0 (2026-08-19)
+
+### この更新で変わること
+
+`v0.26.0`では、`v0.25.0`で追加した薬局業務機能を、顧客ごとに分かれた実行環境から、1つの共有Worker・管理画面・薬局LIFFで安全に運用できる論理マルチテナント構成へ移行しました。
+薬局ごとの患者・職員・LINE認証情報・シナリオ・通知・リッチメニューは引き続き分離し、運営者向けにはTenant Control Centerを追加しています。
+
+### 共有マルチテナント基盤
+
+- 薬局を表す論理tenantを導入し、各LINE公式アカウント、職員、患者、処方せん、継続フォロー、シナリオ、通知をtenant境界へ関連付け
+- APIのquery parameterや画面上の選択値を権限根拠にせず、認証済みsession・職員割り当て・LINEアカウントの組み合わせをサーバー側で照合
+- LINE友だちをtenant内の識別子として扱い、同じLINE user IDが別tenantに存在しても患者情報や会話履歴が交差しないよう分離
+- account設定、staff、friends、chats、conversations、broadcasts、rich menus、scenariosなど既存経路のtenant scopeを統一
+- 処方せんとhandoffの所属不一致をDB triggerでも拒否し、アプリケーションの検証漏れだけで他tenantへ接続できないよう強化
+- 薬局tenantの作成、管理者bootstrap、LINE接続、初期設定を再実行可能なCLI/APIとして追加
+- 顧客ごとのcheckout・更新PR・個別配信workflowを廃止し、共有サービスの一括更新へ移行
+
+### Tenant Control Center / Platform Admin
+
+- 通常の薬局職員とは分離した`platform-admin`認証と専用ログイン画面を追加
+- tenant一覧、稼働状況、患者・職員・LINE接続・webhook・データ整合性の概要を横断確認できるダッシュボードを追加
+- tenant詳細画面から職員管理、LINE接続診断、webhook失敗の確認・手動再試行、送信一時停止状態を操作可能
+- 患者情報を確認するsupport modeは、理由・対象tenant・有効期限を持つ明示的なaccess grantがある場合だけ有効化
+- support grantを管理者sessionへ結び付け、別sessionへの流用、期限切れ、対象tenant外アクセスを拒否
+- support modeの開始・終了、患者情報の参照、設定変更、webhook再試行などを監査ログへ記録
+- 初回Platform Admin作成後はbootstrap経路を閉じ、未初期化環境だけで有効になるguardを追加
+- tenant単位で外向きメッセージを一時停止しながら、診断・復旧操作を続けられる運用経路を追加
+
+### LINE認証情報と職員認証
+
+- LINE channel secret、channel access tokenなどのtenant資格情報を専用storeへ移し、平文列の直接参照を廃止
+- 既存LINE認証情報を新しいtenant storeへ移行するbackfillツールと、移行前後の整合性検査を追加
+- 薬局職員API keyをkeyed hashで保存し、新規keyの平文永続化を停止
+- 旧形式API keyは移行期間中のみ互換照合し、利用を監査できる経路を維持
+- secret比較をconstant-time化し、token prefixだけでなくtoken全体をhashしたrate-limit keyへ変更
+- rate limitをclient IPにも関連付け、異なる接続元が同じ短縮識別子へ集中する問題を抑制
+- tenant管理者の初期password・職員割り当て・LINEアカウント割り当てを重複作成しないbootstrapへ統一
+
+### Webhook・通知・データ整合性
+
+- LINE webhookを処理前にdurable inboxへ保存し、永続化に成功してからackする方式へ変更
+- webhook event receiptを保存し、再送された同一eventの重複処理を防止
+- scenario照合をtenant単位へ限定し、別薬局の同名scenarioや友だち状態を選択しないよう修正
+- 失敗eventをTenant Control Centerから確認し、監査付きで手動再試行できる復旧経路を追加
+- マイナ受付確認と継続eventの書き込みをatomic化し、途中失敗で片方だけ保存される状態を防止
+- 服薬フォロー、次回事前送信、使用期限、準備予定、活動通知のrepository・cron・routeにtenant境界を追加
+- 薬局モードで許可されないbroadcast・marketing・汎用通知を、画面だけでなくroute・service・cronでもfail-closed
+- 通知logへ患者氏名、LINE ID、処方内容などを出力しないprivacy contract testを追加
+
+### 患者情報・処方せん画像の保護
+
+- Platform Adminを含む処方せん画像参照を監査eventとして記録
+- 画像取得時のtenant、処方せん、file revisionの対応関係を検証し、別tenantのobject key参照を拒否
+- 管理画面の画像取得から不要な`Cache-Control`request headerを除去し、別origin構成でのCORS preflight失敗を修正
+- browser cacheは`fetch`の`cache: no-store`で抑止し、WorkerのCORS allowlistを広げずに非保存動作を維持
+- 古い処方せん画像revision、期限切れobject、orphan cleanupをtenant境界内で処理
+- 患者・処方せん・継続情報の読み取りもtenant scopeを必須化し、support modeなしの横断参照を拒否
+
+### 薬局LIFFとリッチメニュー
+
+- LIFF内の処方せん受付、新規患者アンケート、マイナ受付、継続ページ間の移動でtenant固有`liffId`を保持
+- tenantを解決できない起動、未設定のLINEアカウント、許可されていない遷移をエラー画面でfail-closed
+- 共有LIFF buildから特定tenantの`VITE_LIFF_ID`依存を除去し、実行時のtenant情報で接続先を決定
+- リッチメニューprofileが空または不完全な場合の公開を拒否
+- 画像upload、公開、default切替、rollbackをtenant単位で検証し、失敗時に以前の公開状態を保持
+- 管理画面のアカウント設定にtenant専用LIFF URLを表示し、共有Worker URLとの取り違えを防止
+
+### Cloudflare配信とバージョン表示
+
+- `dev`と`main`を環境単位で直列化する共有Cloudflare deployment workflowへ統合
+- 開発環境のR2 bucketは`-dev`接尾辞を必須化し、本番画像bucketへの誤接続を拒否
+- deployment前にD1・R2・Secrets・Worker名・Admin origin・LIFF originを検証し、既存bindingをsnapshotして配信後に照合
+- additive migration検査をD1 response envelopeとtrigger bodyまで確認するfail-closed方式へ強化
+- Worker、Admin、薬局LIFF、Worker Assetsをbuild後、リリース番号・build時刻・成果物hashを注入してWorkerを再build
+- `/admin/version`が`0.26.0`を返すことをdeployment後に確認し、`0.0.0-dev`など古いmetadataの公開を検出
+- Admin bundleと薬局LIFF assetに期待したorigin・共有tenant runtime marker・受付routeが含まれることを配信後に確認
+- 配信作成、予約、イベント予約で使う`Idempotency-Key`をCORS許可headerへ追加
+
+### 廃止・整理した機能
+
+- 顧客ごとのsource checkout、更新manifest作成、更新policy、更新PR、個別Cloudflare配信workflowを廃止
+- 管理画面の旧更新ページ、更新banner、更新progress modal、client update hookを削除
+- tenant経路へ接続されない旧UI・重複service・未到達codeを削除し、確認済みの範囲で1,202行を削減
+- `customer-release.json`による個別顧客release sequenceを廃止し、共有deploymentと`pharmacy-v*`タグへrelease authorityを統一
+- SDK・MCPの薬局操作をtenant-scoped clientへ統一し、account指定なしの曖昧な操作を削減
+
+### データベース変更
+
+`v0.25.0`までの`custom_001`〜`custom_013`は編集せず、以下を追加しています。
+
+- `custom_014`: 薬局論理tenant
+- `custom_015`: tenant資格情報
+- `custom_016`: tenant単位のLINE友だちidentity
+- `custom_017`: LINEアカウントのtenant default
+- `custom_018`: LINE channel資格情報store
+- `custom_019`: tenant管理者bootstrap
+- `custom_020`: 既存薬局職員のaccount backfill
+- `custom_021`: webhook event receipt
+- `custom_022`: tenant整合性constraint
+- `custom_023`: durable webhook inbox
+- `custom_024`: scenario tenant scope
+- `custom_025`: tenant整合性constraint v2
+- `custom_026`: 処方せん画像参照監査event
+- `custom_027`: 薬局職員API key hash
+- `custom_028`: Platform Admin、session、監査基盤
+- `custom_029`: Platform Admin support access grant
+- `custom_030`: tenant単位の外向き送信一時停止
+- `custom_031`: support grantと管理者sessionのbinding
+- `custom_032`: Platform Admin bootstrap guard
+
+### v0.25.0から更新する際の重要事項
+
+- これは個別顧客deploymentから共有マルチテナントdeploymentへの運用変更を含みます。従来の顧客更新workflowは使用しません。
+- migrationは`custom_014`から`custom_032`までを番号順に適用し、既存migrationのchecksumとtrigger定義が一致することを確認してください。
+- LINE資格情報backfill後、tenant・LINEアカウント・職員・友だちidentityの対応件数を確認してから旧平文参照を停止してください。
+- `PLATFORM_ADMIN_KEY`、`CROSS_ACCOUNT_TOKEN_KEY`、`LINE_CREDENTIAL_KEY_V1`を共有Workerのsecretとして設定し、値をrepositoryやlogへ保存しないでください。
+- 開発環境ではWorker、D1、R2、Admin Pages、LIFF Pagesがすべて開発用resourceを向いていることを確認してください。
+- 本番反映前に、通常職員のtenant越境拒否、support grantの期限切れ、webhook再送、送信一時停止、LIFF tenant維持をsynthetic dataで確認してください。
+- `pharmacy-v0.26.0`タグは、必須CIとmigration検査が成功したmerge済み`dev` commitにのみ付与してください。
+
 ## Pharmacy v0.25.0 (2026-08-18)
 
 ### この更新で変わること
@@ -202,6 +472,8 @@
 - Cloudflare Workers Assets APIへ送るmanifestキーを必須の`/`始まりへ修正
 - migration完了後、Assets upload session作成時にHTTP 400（code 10304）で停止する問題を解消
 - 修正版CLI `create-line-harness@0.2.8` / update engine `0.0.10`を公開
+- Cloudflare Pagesのasset keyをWrangler互換BLAKE3へ修正し、deploy成功後に全パスHTTP 500となる問題を解消
+- Adminのみを安全に再同期する修正版CLI `create-line-harness@0.2.9` / update engine `0.0.11`を公開
 
 ### 安全なアップデート経路
 

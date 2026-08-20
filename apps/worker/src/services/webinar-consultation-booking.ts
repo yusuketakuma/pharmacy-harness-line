@@ -408,7 +408,7 @@ export async function bookWebinarConsultation(
   try {
     const recipient = await db
       .prepare(
-        `SELECT f.line_user_id, la.channel_access_token
+        `SELECT f.provider_line_user_id AS line_user_id, la.channel_access_token
            FROM friends f
            INNER JOIN line_accounts la ON la.id = f.line_account_id
           WHERE f.id = ? AND f.is_following = 1 AND la.is_active = 1`,

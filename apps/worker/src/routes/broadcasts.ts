@@ -14,6 +14,7 @@ import { processSegmentSend } from '../services/segment-send.js';
 import type { SegmentCondition } from '../services/segment-query.js';
 import { getLineAccountById } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 import {
   assertNoUnresolvedBroadcastVariables,
   getUnsupportedBroadcastVariables,
@@ -129,6 +130,16 @@ broadcasts.get('/api/broadcasts/:id', async (c) => {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
+    // Defense in depth: this route has no per-tenant WHERE clause (legacy
+    // generic-CRM table, out of scope for a full tenant-scoping migration
+    // here). When a tenant context is present, confirm the broadcast's
+    // account is actually owned by that tenant before returning it.
+    const tenantId = c.get('tenantId');
+    const lineAccountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
+    if (tenantId && lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+
     return c.json({ success: true, data: serializeBroadcast(broadcast) });
   } catch (err) {
     console.error('GET /api/broadcasts/:id error:', err);
@@ -176,14 +187,18 @@ broadcasts.get('/api/broadcasts/:id/preview-count', async (c) => {
       count = active;
       perAccount = breakdown;
     } else if (broadcast.target_type === 'tag' && broadcast.target_tag_id) {
-      // 注: ここは inline send パス (broadcast.ts:61 getFriendsByTag) が
-      // line_account_id でフィルタしないので、preview もアカウント横断で数える。
-      // 実際の送信先と modal 表示を一致させるための整合性。
+      // Keep preview recipients aligned with the account-scoped send query.
       const row = await c.env.DB.prepare(
         `SELECT COUNT(*) AS cnt FROM friends f
            INNER JOIN friend_tags ft ON ft.friend_id = f.id
-           WHERE ft.tag_id = ? AND f.is_following = 1`,
-      ).bind(broadcast.target_tag_id).first<{ cnt: number }>();
+           WHERE ft.tag_id = ?
+             AND f.is_following = 1
+             AND (? IS NULL OR f.line_account_id = ?)`,
+      ).bind(
+        broadcast.target_tag_id,
+        (raw.line_account_id as string | null) ?? null,
+        (raw.line_account_id as string | null) ?? null,
+      ).first<{ cnt: number }>();
       count = row?.cnt ?? 0;
     } else if (broadcast.target_type === 'all') {
       const accountId = (raw.line_account_id as string | null) || null;
@@ -656,7 +671,12 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
     // target_type='tag' で対象が多い場合はキュー方式
     if (existing.target_type === 'tag' && existing.target_tag_id) {
       const { getFriendsByTag } = await import('@line-crm/db');
-      const friends = await getFriendsByTag(c.env.DB, existing.target_tag_id);
+      const rawExisting = existing as unknown as Record<string, unknown>;
+      const friends = await getFriendsByTag(
+        c.env.DB,
+        existing.target_tag_id,
+        (rawExisting.line_account_id as string | null) ?? undefined,
+      );
       const followingCount = friends.filter(f => f.is_following).length;
 
       if (followingCount > 500) {
@@ -1014,8 +1034,10 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
 
     const placeholders = friendIds.map(() => '?').join(',');
     const friends = await c.env.DB.prepare(
-      `SELECT id, line_user_id, display_name FROM friends WHERE id IN (${placeholders})`
-    ).bind(...friendIds).all<{ id: string; line_user_id: string; display_name: string | null }>();
+      `SELECT id, provider_line_user_id AS line_user_id, display_name
+         FROM friends
+        WHERE id IN (${placeholders}) AND line_account_id = ?`
+    ).bind(...friendIds, accountId).all<{ id: string; line_user_id: string; display_name: string | null }>();
 
     const account = await getLineAccountById(c.env.DB, accountId);
     if (!account) return c.json({ success: false, error: 'LINE account not found' }, 400);

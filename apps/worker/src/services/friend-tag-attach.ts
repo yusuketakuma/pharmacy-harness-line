@@ -1,4 +1,4 @@
-import { getScenarios, enrollFriendInScenario, jstNow, enqueueMileageEvent } from '@line-crm/db';
+import { getFriendById, getScenariosForAccount, enrollFriendInScenario, jstNow, enqueueMileageEvent } from '@line-crm/db';
 import { fireEvent } from './event-bus.js';
 import { pushImmediateFirstStep, type ImmediatePushContext } from './immediate-first-step.js';
 
@@ -46,7 +46,8 @@ export async function attachTagAndFireSideEffects(
     console.error('tag mileage enqueue failed:', error);
   }
 
-  const scenarios = await getScenarios(db);
+  const friend = await getFriendById(db, friendId);
+  const scenarios = await getScenariosForAccount(db, friend?.line_account_id ?? null);
   for (const scenario of scenarios) {
     if (
       scenario.trigger_type === 'tag_added' &&

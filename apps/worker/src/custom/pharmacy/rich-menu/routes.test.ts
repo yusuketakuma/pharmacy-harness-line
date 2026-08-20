@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 
+const lineAccountLookup = vi.fn();
 const dbMocks = {
   createRichMenuGroup: vi.fn(),
-  getLineAccountById: vi.fn(),
+  getLineAccountById: lineAccountLookup,
+  getLineAccountByIdForTenant: lineAccountLookup,
   getRichMenuGroupByGeneratorKey: vi.fn(),
   getRichMenuGroupWithPages: vi.fn(),
+  updateRichMenuGroupMeta: vi.fn(),
+  replaceRichMenuPages: vi.fn(),
   setRichMenuPageImage: vi.fn(),
 };
 vi.mock('@line-crm/db', () => dbMocks);
@@ -20,8 +24,8 @@ const { pharmacyRichMenuRoutes } = await import('./routes.js');
 function group(overrides: Record<string, unknown> = {}) {
   return {
     id: 'group-1', account_id: 'account-a', name: '薬局初期メニュー', chat_bar_text: 'メニュー',
-    size: 'compact', default_page_id: 'page-1', is_default_for_all: 0, selected: 1,
-    status: 'draft', generator_key: 'initial-compact-3x1', generator_version: '1',
+    size: 'large', default_page_id: 'page-1', is_default_for_all: 0, selected: 1,
+    status: 'draft', generator_key: 'initial-large-3x2-v3', generator_version: '3',
     publishing_at: null, created_at: '', updated_at: '',
     pages: [{
       id: 'page-1', group_id: 'group-1', order_index: 0, name: '初期メニュー',
@@ -32,21 +36,30 @@ function group(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const PNG_2500x843 = new Uint8Array([
+const PNG_2500x1686 = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
   0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x09, 0xc4, 0x00, 0x00, 0x03, 0x4b,
+  0x00, 0x00, 0x09, 0xc4, 0x00, 0x00, 0x06, 0x96,
   0x08, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]);
 
-function app() {
+const PNG_2500x843 = new Uint8Array([
+  ...PNG_2500x1686.slice(0, 20),
+  0x00, 0x00, 0x03, 0x4b,
+  ...PNG_2500x1686.slice(24),
+]);
+
+function app(opts: { images?: R2Bucket } = {}) {
   const worker = new Hono<any>();
   worker.use('*', async (c, next) => {
     c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
+    c.set('tenantId', 'tenant-a');
     c.env = {
       DB: {} as D1Database,
-      IMAGES: { put: vi.fn() } as unknown as R2Bucket,
-      ASSETS: { fetch: vi.fn(async () => new Response(PNG_2500x843)) } as unknown as Fetcher,
+      IMAGES: opts.images ?? { put: vi.fn() } as unknown as R2Bucket,
+      ASSETS: { fetch: vi.fn(async (request: Request) => new Response(
+        request.url.includes('initial-large-3x2-v3') ? PNG_2500x1686 : PNG_2500x843,
+      )) } as unknown as Fetcher,
       LINE_CHANNEL_ID: 'channel-1',
     };
     c.set('staff', { id: 'staff-1', name: 'Staff', role: 'admin' });
@@ -80,6 +93,9 @@ describe('pharmacy rich-menu preparation', () => {
       method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
     });
     expect(res.status).toBe(409);
+    expect(dbMocks.getLineAccountById).toHaveBeenCalledWith(
+      expect.anything(), 'tenant-a', 'account-a',
+    );
     expect(dbMocks.createRichMenuGroup).not.toHaveBeenCalled();
   });
 
@@ -88,7 +104,7 @@ describe('pharmacy rich-menu preparation', () => {
     dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValueOnce(null);
     dbMocks.createRichMenuGroup.mockResolvedValue(group());
     dbMocks.getRichMenuGroupWithPages.mockResolvedValue(group({
-      pages: [{ ...group().pages[0], image_r2_key: 'rich-menus/account-a/group-1/page-1/initial-compact-3x1.jpg', image_content_type: 'image/jpeg' }],
+      pages: [{ ...group().pages[0], image_r2_key: 'rich-menus/account-a/group-1/page-1/initial-large-3x2-v3.jpg', image_content_type: 'image/jpeg' }],
     }));
     const response = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
       method: 'POST', body: JSON.stringify({ initial: true }), headers: { 'Content-Type': 'application/json' },
@@ -98,10 +114,10 @@ describe('pharmacy rich-menu preparation', () => {
     expect(body.data.status).toBe('prepared');
     expect(body.data.imageAttached).toBe(true);
     expect(dbMocks.createRichMenuGroup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      accountId: 'account-a', generatorKey: 'initial-compact-3x1', generatorVersion: '1',
+      accountId: 'account-a', generatorKey: 'initial-large-3x2-v3', generatorVersion: '3',
     }));
     expect(dbMocks.setRichMenuPageImage).toHaveBeenCalledWith(
-      expect.anything(), 'page-1', expect.stringContaining('/initial-compact-3x1.jpg'), 'image/jpeg',
+      expect.anything(), 'page-1', expect.stringContaining('/initial-large-3x2-v3.jpg'), 'image/jpeg',
     );
   });
 
@@ -114,7 +130,38 @@ describe('pharmacy rich-menu preparation', () => {
     const body = await res.json() as any;
     expect(body.data.status).toBe('already_prepared');
     expect(body.data.reused).toBe(true);
+    expect(body.data.reconciled).toBe(true);
+    expect(dbMocks.replaceRichMenuPages).toHaveBeenCalledWith(
+      expect.anything(),
+      'group-1',
+      expect.arrayContaining([expect.objectContaining({ id: 'page-1' })]),
+    );
     expect(dbMocks.createRichMenuGroup).not.toHaveBeenCalled();
+  });
+
+  test('fails closed when a prepared image key is missing from R2', async () => {
+    const prepared = group({
+      pages: [{
+        ...group().pages[0],
+        image_r2_key: 'rich-menus/account-a/group-1/page-1/missing.jpg',
+        image_content_type: 'image/jpeg',
+      }],
+    });
+    dbMocks.getLineAccountById.mockResolvedValue({ id: 'account-a', liff_id: '1234567890-AbCd' });
+    dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValue(prepared);
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue(prepared);
+    const images = {
+      put: vi.fn(),
+      head: vi.fn().mockResolvedValue(null),
+    } as unknown as R2Bucket;
+
+    const response = await app({ images }).request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
+      method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(response.status).toBe(500);
+    expect(images.head).toHaveBeenCalledWith('rich-menus/account-a/group-1/page-1/missing.jpg');
+    expect(images.put).not.toHaveBeenCalled();
   });
 
   test('prepares the versioned single-action profile with one full-size area and its image', async () => {
@@ -137,6 +184,33 @@ describe('pharmacy rich-menu preparation', () => {
     expect(dbMocks.setRichMenuPageImage).toHaveBeenCalledWith(
       expect.anything(), 'page-1', expect.stringContaining('/initial-single-action-v1.jpg'), 'image/jpeg',
     );
+  });
+
+  test('reports the explicit legacy profile version', async () => {
+    const legacy = group({ size: 'compact', generator_key: 'initial-compact-3x1', generator_version: '1' });
+    dbMocks.getLineAccountById.mockResolvedValue({ id: 'account-a', liff_id: '1234567890-AbCd' });
+    dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValueOnce(null);
+    dbMocks.createRichMenuGroup.mockResolvedValue(legacy);
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue(legacy);
+    const response = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
+      method: 'POST', body: JSON.stringify({ profileKey: 'initial-compact-3x1' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json() as any).data.generatorVersion).toBe('1');
+  });
+
+  test('does not rewrite a published profile when its LIFF actions are stale', async () => {
+    dbMocks.getLineAccountById.mockResolvedValue({ id: 'account-a', liff_id: '1234567890-NewId' });
+    dbMocks.getRichMenuGroupByGeneratorKey.mockResolvedValue(group({ status: 'published' }));
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue(group({ status: 'published' }));
+
+    const response = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-a', {
+      method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(response.status).toBe(409);
+    expect(dbMocks.replaceRichMenuPages).not.toHaveBeenCalled();
   });
 
   test('fails closed when the pharmacy rich-menu capability is disabled', async () => {

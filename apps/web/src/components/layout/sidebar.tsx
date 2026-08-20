@@ -23,11 +23,15 @@ const menuSections = [
     pharmacyOnly: true,
     items: [
       { href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
+      { href: '/pharmacy-info', label: '患者向け薬局情報', icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
+      { href: '/emergency-contraception', label: '緊急避妊薬', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
       { href: '/pharmacy-notifications', label: '薬局の動き', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' }, // custom:pharmacy-activity-notifications
       { href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
       { href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
       { href: '/myna', label: 'マイナ受付', icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
       { href: '/pharmacy-growth', label: '薬局Growth Loop', icon: 'M4 19h16M6 16V8m6 8V4m6 12v-6' }, // custom:pharmacy-growth-loop
+      { href: '/privacy-policy', label: '個人情報の取扱い', icon: 'M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3zm-2 9l2 2 4-4' }, // custom:pharmacy-privacy-policy
+      { href: '/data-subject-requests', label: '開示・消去請求', icon: 'M9 12h6m-6 4h4m1 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l6 6v10a2 2 0 01-2 2z' }, // custom:pharmacy-data-subject-requests
     ],
   },
   {
@@ -88,7 +92,6 @@ const menuSections = [
       { href: '/pools', label: 'プール管理', icon: 'M3 7h18M3 12h18M3 17h18' },
       { href: '/users', label: 'ユーザー一覧', icon: 'M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2' },
       { href: '/health', label: 'BAN検知', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-      { href: '/updates', label: 'アップデート履歴', icon: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' },
       { href: '/emergency', label: '緊急コントロール', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z', danger: true },
     ],
   },
@@ -129,6 +132,14 @@ function AccountSwitcher() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [])
+
   if (loading || accounts.length === 0) return null
 
   const displayName = selectedAccount?.displayName || selectedAccount?.name || ''
@@ -136,7 +147,8 @@ function AccountSwitcher() {
   return (
     <div ref={ref} className="px-3 py-3 border-b border-gray-200">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => { if (accounts.length > 1) setOpen(!open) }}
+        disabled={accounts.length === 1}
         className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-gray-50 transition-colors"
       >
         {selectedAccount && <AccountAvatar account={selectedAccount} size={28} />}
@@ -150,14 +162,14 @@ function AccountSwitcher() {
             </span>
           </p>
         </div>
-        <svg
+        {accounts.length > 1 && <svg
           className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        </svg>}
       </button>
 
       {open && (
@@ -285,6 +297,22 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {menuSections
           .filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)
+          .map((section) => ({
+            ...section,
+            items: section.items.filter((item) => {
+              // Pharmacy tenants get the 薬局機能 section (via section.pharmacyOnly)
+              // plus only the general entries the server actually permits them.
+              // Everything else 403s, so listing it is a dead end.
+              if (selectedAccount?.pharmacyMode && !section.pharmacyOnly &&
+                  !isPharmacyMenuPath(item.href)) return false
+              if (item.href === '/staff' && staffRole !== 'owner') return false
+              if (item.href === '/accounts' && staffRole === 'staff') return false
+              return true
+            }),
+          }))
+          // A section whose entries were all filtered out would otherwise render as a
+          // bare heading with nothing under it.
+          .filter((section) => section.items.length > 0)
           .map((section, si) => (
             <div key={si}>
               {section.label && (
@@ -292,12 +320,7 @@ export default function Sidebar() {
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{section.label}</p>
                 </div>
               )}
-              {section.items.filter((item) => {
-                if (selectedAccount?.pharmacyMode && !isPharmacyMenuPath(item.href)) return false
-                if (item.href === '/staff' && staffRole !== 'owner') return false
-                if (item.href === '/accounts' && staffRole === 'staff') return false
-                return true
-              }).map((item) => {
+              {section.items.map((item) => {
                 const active = isActive(item.href)
                 const isDanger = 'danger' in item && item.danger
                 return (
@@ -366,13 +389,13 @@ export default function Sidebar() {
             } catch {
               // Local cleanup still logs the browser out if the network call fails.
             }
-            localStorage.removeItem('lh_api_key')
             localStorage.removeItem('lh_csrf')
             localStorage.removeItem('lh_staff_name')
             localStorage.removeItem('lh_staff_role')
+            localStorage.removeItem('lh_selected_account')
             window.location.href = '/login'
           }}
-          className="flex items-center gap-2 text-xs text-gray-400 hover:text-red-500 transition-colors"
+          className="flex min-h-11 items-center gap-2 text-xs text-gray-600 hover:text-red-600 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

@@ -33,14 +33,32 @@ describe('legacyQueryTarget', () => {
   });
 
   it('opens the pharmacy rich-menu destinations', () => {
+    expect(legacyQueryTarget('?page=pharmacy-menu&liffId=123')).toBe(
+      '/pharmacy/menu?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-info&liffId=123')).toBe(
+      '/pharmacy/info?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-prescription-history&liffId=123')).toBe(
+      '/prescriptions?view=history&liffId=123',
+    );
     expect(legacyQueryTarget('?page=pharmacy-receive&liffId=123')).toBe(
-      '/pharmacy/receive?liffId=123',
+      '/prescriptions?view=send&liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-prescription-send&liffId=123')).toBe(
+      '/prescriptions?view=send&liffId=123',
     );
     expect(legacyQueryTarget('?page=pharmacy-intake&liffId=123')).toBe(
       '/pharmacy/patient-intake?liffId=123',
     );
     expect(legacyQueryTarget('?page=pharmacy-continuity&liffId=123')).toBe(
       '/pharmacy/continuity?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-followup&followUpId=followup-1&liffId=123')).toBe(
+      '/pharmacy/medication-followup?followUpId=followup-1&liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-emergency-contraception&liffId=123')).toBe(
+      '/pharmacy/emergency-contraception?liffId=123',
     );
   });
 });

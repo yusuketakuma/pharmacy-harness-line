@@ -42,7 +42,7 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
           navigateToChat()
         }
       }}
-      className="grid grid-cols-[80px_220px_120px_1fr_280px] gap-3 px-4 py-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer items-start focus:outline-none focus:bg-gray-50"
+      className="grid grid-cols-1 xl:grid-cols-[80px_220px_120px_minmax(160px,1fr)_240px] gap-3 px-4 py-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer items-start focus:outline-none focus:bg-gray-50"
     >
       {/* 対応マーク — chats.status 由来 (unread / in_progress / resolved). */}
       <div className="pt-1">
@@ -76,7 +76,7 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         )}
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-900 truncate">{friend.displayName}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">登録: {formatJstDate(friend.createdAt)}</p>
+          <p className="text-[10px] text-gray-600 mt-0.5">登録: {formatJstDate(friend.createdAt)}</p>
           {!isFollowing && (
             <p className="text-[10px] text-red-400 mt-0.5">ブロック / 退会</p>
           )}
@@ -90,12 +90,12 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
             <p className="text-xs font-medium text-blue-700 truncate" title={scenario.name}>
               {scenario.name}
             </p>
-            <p className="text-[10px] text-gray-400 mt-0.5">
+            <p className="text-[10px] text-gray-600 mt-0.5">
               {scenario.status === 'active' ? '配信中' : scenario.status === 'delivering' ? '配信処理中' : scenario.status}
             </p>
           </div>
         ) : (
-          <span className="text-xs text-gray-400">停止中</span>
+          <span className="text-xs text-gray-600">停止中</span>
         )}
       </div>
 
@@ -106,12 +106,12 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
             <p className="text-xs text-gray-700 line-clamp-2 break-all">
               {incoming.messageType === 'text' ? incoming.content : `[${incoming.messageType}]`}
             </p>
-            <p className="text-[10px] text-gray-400 mt-1">
+            <p className="text-[10px] text-gray-600 mt-1">
               ({formatJstTimestamp(incoming.createdAt)})
             </p>
           </>
         ) : (
-          <span className="text-xs text-gray-400">受信なし</span>
+          <span className="text-xs text-gray-600">受信なし</span>
         )}
       </div>
 
@@ -126,13 +126,13 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         )}
         {friend.firstTrackedLinkName && (
           <p className="text-[10px] text-gray-500">
-            <span className="text-gray-400">ASP_LP名：</span>
+            <span className="text-gray-600">ASP_LP名：</span>
             {friend.firstTrackedLinkName}
           </p>
         )}
         {friend.refCode && !friend.firstTrackedLinkName && (
           <p className="text-[10px] text-gray-500">
-            <span className="text-gray-400">流入：</span>
+            <span className="text-gray-600">流入：</span>
             {friend.refCode}
           </p>
         )}
@@ -144,7 +144,7 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
           if (!igUsername && !igAccountId) return null
           return (
             <p className="text-[10px] text-pink-600">
-              <span className="text-gray-400">IG流入：</span>
+              <span className="text-gray-600">IG流入：</span>
               {igUsername ? `@${igUsername}` : igAccountId}
             </p>
           )
@@ -152,13 +152,13 @@ export default function FriendListRow({ friend, onTagEditClick }: Props) {
         {friend.tags.length === 0 && !friend.firstTrackedLinkName && !friend.refCode &&
           !(friend as unknown as { metadata?: Record<string, unknown> }).metadata?.ig_account_username &&
           !(friend as unknown as { metadata?: Record<string, unknown> }).metadata?.ig_account_id && (
-          <span className="text-[10px] text-gray-300">—</span>
+          <span className="text-[10px] text-gray-600">—</span>
         )}
         {onTagEditClick && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onTagEditClick() }}
-            className="text-[10px] text-blue-600 hover:text-blue-800 underline mt-0.5"
+            className="mt-0.5 flex min-h-11 items-center text-xs text-blue-600 underline hover:text-blue-800"
           >
             タグ編集
           </button>

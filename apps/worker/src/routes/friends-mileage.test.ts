@@ -11,7 +11,7 @@ const dbMocks = {
   addTagToFriend: vi.fn(),
   removeTagFromFriend: vi.fn(),
   getFriendTags: vi.fn(),
-  getScenarios: vi.fn(),
+  getScenariosForAccount: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   jstNow: vi.fn(() => '2026-08-09T00:00:00.000+09:00'),
 };
@@ -25,9 +25,21 @@ const { friends } = await import('./friends.js');
 type Env = import('../index.js').Env;
 
 const API_KEY = 'test-owner-key';
+const tenantDb = {
+  prepare(sql: string) {
+    const statement = {
+      bind: () => statement,
+      first: async () => sql.includes('FROM tenants')
+        ? { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' }
+        : null,
+    };
+    return statement;
+  },
+} as unknown as D1Database;
 const env = {
-  DB: {} as D1Database,
+  DB: tenantDb,
   API_KEY,
+  LEGACY_ENV_OWNER_BYPASS: 'true',
 } as unknown as Env['Bindings'];
 
 function app() {
@@ -39,7 +51,7 @@ function app() {
 
 function call(path: string) {
   return app().request(path, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
+    headers: { Authorization: `Bearer ${API_KEY}`, 'X-Tenant-Id': 'generic' },
   }, env);
 }
 

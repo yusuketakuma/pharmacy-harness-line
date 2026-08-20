@@ -83,6 +83,46 @@ describe('executeD1Query', () => {
     ).rejects.toThrow(/D1 query failed HTTP 401/);
   });
 
+  it('throws on HTTP 200 with an envelope that reports success:false', async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: false,
+        result: [],
+        errors: [{ code: 7500, message: 'near "TRIGER": syntax error' }],
+      }),
+    } as unknown as Response);
+
+    await expect(
+      executeD1Query({ creds, databaseId: 'db123', sql: 'CREATE TRIGER t ...' }),
+    ).rejects.toThrow(/D1 query failed.*7500.*syntax error/s);
+  });
+
+  it('throws when one statement of a multi-statement response failed', async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        result: [
+          { success: true, results: [], meta: {} },
+          { success: false, error: 'table friends has no column named tenant_id' },
+        ],
+      }),
+    } as unknown as Response);
+
+    await expect(
+      executeD1Query({
+        creds,
+        databaseId: 'db123',
+        sql: 'CREATE TABLE a (id TEXT); ALTER TABLE friends ADD COLUMN tenant_id TEXT;',
+      }),
+    ).rejects.toThrow(/statement 2.*no column named tenant_id/s);
+  });
+
   it('passes params array correctly in body', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValue({

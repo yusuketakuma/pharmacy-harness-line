@@ -1,4 +1,4 @@
-import { quickReply, withQuickReply, type Message } from '@line-crm/line-sdk';
+import { quickReply, withQuickReply, type Message, type QuickReplyItem } from '@line-crm/line-sdk';
 
 export type PharmacyNotificationCategory =
   | 'transactional_care'
@@ -33,8 +33,13 @@ const REASONS: Record<NonNullable<PharmacyMessageVars['reasonCode']>, string> = 
   missing_page: '画像を確認できませんでした',
 };
 
-function prescriptionPageUrl(liffId: string, submissionId: string): string {
-  const query = new URLSearchParams({ page: 'prescription', submissionId });
+export function pharmacyPrescriptionPageUrl(liffId: string, submissionId: string): string {
+  const query = new URLSearchParams({ page: 'prescription', submissionId, liffId });
+  return `https://liff.line.me/${encodeURIComponent(liffId)}/?${query.toString()}`;
+}
+
+export function pharmacyMedicationFollowUpPageUrl(liffId: string, followUpId: string): string {
+  const query = new URLSearchParams({ page: 'pharmacy-followup', followUpId, liffId });
   return `https://liff.line.me/${encodeURIComponent(liffId)}/?${query.toString()}`;
 }
 
@@ -62,7 +67,7 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
           return '処方せんを確認し、受付しました。お薬を準備しています。';
         case 'needs_resubmission':
           return `処方せん画像をもう一度送信してください。${REASONS[vars.reasonCode ?? 'unreadable']}${vars.liffId && vars.submissionId
-            ? `\n再送する: ${prescriptionPageUrl(vars.liffId, vars.submissionId)}`
+            ? `\n再送する: ${pharmacyPrescriptionPageUrl(vars.liffId, vars.submissionId)}`
             : ''}`;
         case 'ready':
           return vars.intakeMethod === 'E_PRESCRIPTION'
@@ -155,18 +160,27 @@ export function buildApprovedPharmacyMessage(
   }
   if ((id === 'medication_followup_v1') !== Boolean(vars.followUpId) ||
       (vars.followUpId && !UUID_RE.test(vars.followUpId)) ||
-      (id === 'medication_followup_v1' && Object.keys(vars).some((key) => key !== 'followUpId'))) {
+      (id === 'medication_followup_v1' &&
+       Object.keys(vars).some((key) => key !== 'followUpId' && key !== 'liffId'))) {
     throw new Error('pharmacy notification variable rejected');
   }
   const text = textFor(id, vars);
   assertPharmacyAutomatedText(text);
   if (id === 'medication_followup_v1') {
     const followUpId = vars.followUpId!;
-    return withQuickReply({ type: 'text', text } as Message, quickReply([
+    const items: QuickReplyItem[] = [
       { type: 'action', action: { type: 'postback', label: '問題なし', data: `pharmacy-followup:${followUpId}:no_issue` } },
       { type: 'action', action: { type: 'postback', label: '気になることがある', data: `pharmacy-followup:${followUpId}:concern` } },
       { type: 'action', action: { type: 'postback', label: '薬剤師に相談したい', data: `pharmacy-followup:${followUpId}:pharmacist_requested` } },
-    ]));
+    ];
+    if (vars.liffId) items.push({
+      type: 'action',
+      action: {
+        type: 'uri', label: '詳しく確認する',
+        uri: pharmacyMedicationFollowUpPageUrl(vars.liffId, followUpId),
+      },
+    });
+    return withQuickReply({ type: 'text', text } as Message, quickReply(items));
   }
   return { type: 'text', text };
 }
@@ -182,12 +196,25 @@ export function isApprovedRenderedPharmacyMessage(
   if (!isPharmacyAutomatedMessageId(id) || message.type !== 'text') return false;
   const same = (candidate: Message) => JSON.stringify(candidate) === JSON.stringify(message);
   if (id === 'medication_followup_v1') {
-    const data = (message as Message & {
-      quickReply?: { items?: Array<{ action?: { data?: string } }> };
-    }).quickReply?.items?.[0]?.action?.data;
+    const items = (message as Message & {
+      quickReply?: { items?: Array<{ action?: { data?: string; uri?: string } }> };
+    }).quickReply?.items ?? [];
+    const data = items[0]?.action?.data;
     const followUpId = /^pharmacy-followup:([^:]+):no_issue$/.exec(data ?? '')?.[1];
     if (!followUpId || !UUID_RE.test(followUpId)) return false;
-    return same(buildApprovedPharmacyMessage(id, { followUpId }));
+    const uri = items[3]?.action?.uri;
+    if (!uri) return same(buildApprovedPharmacyMessage(id, { followUpId }));
+    try {
+      const url = new URL(uri);
+      const liffId = decodeURIComponent(url.pathname.split('/').filter(Boolean)[0] ?? '');
+      if (url.origin !== 'https://liff.line.me' ||
+          url.searchParams.get('page') !== 'pharmacy-followup' ||
+          url.searchParams.get('followUpId') !== followUpId ||
+          url.searchParams.get('liffId') !== liffId || !LIFF_ID_RE.test(liffId)) return false;
+      return same(buildApprovedPharmacyMessage(id, { followUpId, liffId }));
+    } catch {
+      return false;
+    }
   }
   if (id === 'prescription_status_v1') {
     const variants = [undefined, ...STATUSES]
@@ -200,14 +227,14 @@ export function isApprovedRenderedPharmacyMessage(
             buildApprovedPharmacyMessage(id, { status, intakeMethod }),
           )),
       );
-    const linkMatch = /再送する: https:\/\/liff\.line\.me\/([A-Za-z0-9_-]{1,64})\/\?page=prescription&submissionId=([^\s]+)$/.exec(message.text);
+    const linkMatch = /再送する: https:\/\/liff\.line\.me\/([A-Za-z0-9_-]{1,64})\/\?page=prescription&submissionId=([^&\s]+)&liffId=([A-Za-z0-9_-]{1,64})$/.exec(message.text);
     if (linkMatch) {
       try {
         const submissionId = decodeURIComponent(linkMatch[2]);
         if (OPAQUE_ID_RE.test(submissionId)) {
           variants.push(buildApprovedPharmacyMessage(id, {
             status: 'needs_resubmission',
-            liffId: linkMatch[1],
+            liffId: linkMatch[3],
             submissionId,
           }));
         }

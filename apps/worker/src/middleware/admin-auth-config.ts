@@ -19,6 +19,15 @@ import type { Env } from '../index.js';
 
 export type AdminSameSite = 'Strict' | 'Lax' | 'None';
 
+/** Headers accepted by the credentialed Admin/LIFF CORS surface. */
+export const CORS_ALLOW_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-CSRF-Token',
+  'X-Tenant-Id',
+  'Idempotency-Key',
+];
+
 export interface AdminAuthConfig {
   /** Admin origins used for credentialed requests and cookie topology. */
   allowedOrigins: string[];
@@ -212,11 +221,24 @@ export function resolveAdminAuthConfig(
   return { allowedOrigins, sameSite, secure: true, crossSite, misconfigured };
 }
 
+function isLiffApiRequest(requestUrl: string): boolean {
+  try {
+    return new URL(requestUrl).pathname.startsWith('/api/liff/');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * CORS origin resolver for credentialed admin and LIFF requests. Returns the
  * origin to echo back, or '' when it is not allowed (so no ACAO header is
  * set). Same-origin requests (and non-browser callers with no Origin header)
  * are always permitted; this keeps SDK/MCP Bearer callers working.
+ *
+ * LIFF origins are intentionally restricted to `/api/liff/*`. They must never
+ * receive credentialed CORS access to admin/session routes because a patient-
+ * facing LIFF compromise would otherwise inherit the administrator's browser
+ * cookies and could recover the CSRF token from `/api/auth/session`.
  */
 export function resolveCorsOrigin(
   env: AdminAuthEnv,
@@ -255,7 +277,8 @@ export function resolveCorsOrigin(
   const isAllowedAdmin = allowedOrigins.some((allowedOrigin) =>
     isAllowedAdminOrigin(normalizedOrigin, allowedOrigin),
   );
-  const isAllowedLiff = liffOrigins.includes(normalizedOrigin);
+  const isAllowedLiff =
+    isLiffApiRequest(requestUrl) && liffOrigins.includes(normalizedOrigin);
   return isAllowedAdmin || isAllowedLiff
     ? normalizedOrigin
     : '';

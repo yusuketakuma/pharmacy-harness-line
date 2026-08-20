@@ -24,9 +24,15 @@ vi.mock('@line-crm/db', () => dbMocks);
 // Import after the mock so index.ts binds the mocked helpers.
 const worker = (await import('../index.js')).default;
 
-// A stub DB is enough: every query goes through the mocked @line-crm/db
-// helpers, so the binding itself is never touched by the /r/:ref handler.
-const DB = {} as D1Database;
+function modeDb(pharmacy: boolean): D1Database {
+  return {
+    prepare: () => ({
+      bind: () => ({ first: async () => pharmacy ? { ok: 1 } : null }),
+    }),
+  } as unknown as D1Database;
+}
+
+const DB = modeDb(false);
 
 const MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
@@ -36,12 +42,12 @@ const env = {
   LIFF_URL: 'https://liff.line.me/1000000000-DefaultAA',
 } as unknown as import('../index.js').Env['Bindings'];
 
-function get(path: string) {
+function get(path: string, database: D1Database = DB) {
   return worker.fetch(
     new Request(`https://worker.example.com${path}`, {
       headers: { 'user-agent': MOBILE_UA },
     }),
-    env,
+    { ...env, DB: database },
     { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
   );
 }
@@ -52,6 +58,14 @@ beforeEach(() => {
 });
 
 describe('/r/:ref — affiliate_links fallback', () => {
+  it('rejects the legacy referral landing before account lookup in pharmacy mode', async () => {
+    const res = await get('/r/aff123', modeDb(true));
+
+    expect(res.status).toBe(404);
+    expect(dbMocks.getEntryRouteByRefCode).not.toHaveBeenCalled();
+    expect(dbMocks.getAffiliateLinkByRefCode).not.toHaveBeenCalled();
+  });
+
   it('(a) affiliate-only ref → landing page on the link account + click incremented', async () => {
     // entry_routes miss, affiliate_links hit.
     dbMocks.getEntryRouteByRefCode.mockResolvedValue(null);

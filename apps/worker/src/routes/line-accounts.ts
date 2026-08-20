@@ -1,11 +1,8 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { LineClient } from '@line-crm/line-sdk';
 import {
-  getLineAccounts,
-  getLineAccountById,
-  createLineAccount,
-  updateLineAccount,
-  updateLineAccountFields,
+  getLineAccountsForTenant,
+  getLineAccountByIdForTenant,
   updateLineAccountOrder,
   deleteLineAccount,
 } from '@line-crm/db';
@@ -19,9 +16,44 @@ import {
 } from '../services/follower-import.js';
 import type { FollowerImportClient } from '../services/follower-import.js';
 import type { Env } from '../index.js';
-import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import {
+  isPharmacyModeAccount,
+  isPharmacyTenant,
+} from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
+import { requireLineBotUserId } from '../custom/pharmacy/provisioning/line-connection.js';
+import {
+  createEncryptedLineAccount,
+  LINE_ACCOUNT_CONFLICT_ERROR,
+  updateEncryptedLineAccount,
+} from '../custom/pharmacy/provisioning/line-account-store.js';
+import {
+  readLineCredential,
+} from '../custom/pharmacy/provisioning/line-credential-store.js';
 
 const lineAccounts = new Hono<Env>();
+
+async function requireAccountAccess(
+  c: Context<Env>,
+  lineAccountId: string,
+): Promise<Response | null> {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+  if (!await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
+  return null;
+}
+
+async function accountAccessToken(c: Context<Env>, lineAccountId: string): Promise<string | null> {
+  const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+  if (!rootSecret) return null;
+  return readLineCredential(c.env.DB, rootSecret, {
+    tenantId: c.get('tenantId'),
+    lineAccountId,
+    kind: 'channel_access_token',
+  });
+}
 
 function serializeLineAccount(row: DbLineAccount) {
   return {
@@ -48,15 +80,6 @@ function serializeLineAccount(row: DbLineAccount) {
   };
 }
 
-function serializeLineAccountFull(row: DbLineAccount) {
-  return {
-    ...serializeLineAccount(row),
-    channelAccessToken: row.channel_access_token,
-    channelSecret: row.channel_secret,
-    loginChannelSecret: row.login_channel_secret,
-  };
-}
-
 // Fetch bot profile (displayName, pictureUrl) from LINE API
 async function fetchBotProfile(accessToken: string): Promise<{ displayName?: string; pictureUrl?: string; basicId?: string }> {
   try {
@@ -71,17 +94,54 @@ async function fetchBotProfile(accessToken: string): Promise<{ displayName?: str
   }
 }
 
+function configuredWebhookUrl(env: Env['Bindings']): string | null {
+  try {
+    const url = new URL(env.WORKER_PUBLIC_URL ?? env.WORKER_URL);
+    const local = url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !local) return null;
+    url.pathname = '/webhook';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/line-accounts - list all (with LINE profile + stats)
 lineAccounts.get('/api/line-accounts', async (c) => {
   try {
     const db = c.env.DB;
-    const items = await getLineAccounts(db);
+    const tenantId = c.get('tenantId');
+    const allItems = await getLineAccountsForTenant(db, tenantId);
+    const pharmacyTenant = await isPharmacyTenant(db, tenantId);
+    const tenantState = tenantId ? await db.prepare(
+      `SELECT outbound_messaging_paused_at FROM tenants WHERE id = ? LIMIT 1`,
+    ).bind(tenantId).first<{ outbound_messaging_paused_at: string | null }>() : null;
+    let items = allItems;
+    if (pharmacyTenant) {
+      const staff = c.get('staff');
+      if (!staff || staff.id === 'env-owner') {
+        items = [];
+      } else {
+        const assigned = await db.prepare(
+          `SELECT assignment.line_account_id
+             FROM pharmacy_staff_accounts AS assignment
+             INNER JOIN tenant_line_accounts AS mapping
+                     ON mapping.line_account_id = assignment.line_account_id
+                    AND mapping.tenant_id = ?
+            WHERE assignment.staff_id = ? AND assignment.is_active = 1`,
+        ).bind(tenantId, staff.id).all<{ line_account_id: string }>();
+        const assignedIds = new Set(assigned.results.map((row) => row.line_account_id));
+        items = allItems.filter((item) => assignedIds.has(item.id));
+      }
+    }
 
     // Get stats for all accounts in parallel
     const results = await Promise.all(
       items.map(async (item) => {
-        const [profile, friendCount, scenarioCount, msgCount, pharmacyMode] = await Promise.all([
-          fetchBotProfile(item.channel_access_token),
+        const [accessToken, friendCount, scenarioCount, msgCount, pharmacyMode] = await Promise.all([
+          accountAccessToken(c, item.id),
           db.prepare(`SELECT COUNT(*) as count FROM friends WHERE is_following = 1 AND line_account_id = ?`).bind(item.id).first<{ count: number }>(),
           db.prepare(
             `SELECT COUNT(*) as count FROM friend_scenarios fs
@@ -99,6 +159,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
           ).bind(item.id).first<{ count: number }>(),
           isPharmacyModeAccount(db, item.id),
         ]);
+        const profile = accessToken ? await fetchBotProfile(accessToken) : {};
 
         return {
           ...serializeLineAccount(item),
@@ -106,6 +167,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
           pictureUrl: profile.pictureUrl || null,
           basicId: profile.basicId || null,
           pharmacyMode,
+          outboundMessagingPausedAt: tenantState?.outbound_messaging_paused_at ?? null,
           stats: {
             friendCount: friendCount?.count ?? 0,
             activeScenarios: scenarioCount?.count ?? 0,
@@ -121,18 +183,21 @@ lineAccounts.get('/api/line-accounts', async (c) => {
   }
 });
 
-// GET /api/line-accounts/:id - get single (secrets only for owner/admin)
+// GET /api/line-accounts/:id - get single without returning stored credentials
 lineAccounts.get('/api/line-accounts/:id', async (c) => {
   try {
-    const account = await getLineAccountById(c.env.DB, c.req.param('id'));
+    const id = c.req.param('id');
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
+    const account = await getLineAccountByIdForTenant(
+      c.env.DB,
+      c.get('tenantId'),
+      id,
+    );
     if (!account) {
       return c.json({ success: false, error: 'LINE account not found' }, 404);
     }
-    const staff = c.get('staff');
-    const data = staff?.role === 'staff'
-      ? serializeLineAccount(account)
-      : serializeLineAccountFull(account);
-    return c.json({ success: true, data });
+    return c.json({ success: true, data: serializeLineAccount(account) });
   } catch (err) {
     console.error('GET /api/line-accounts/:id error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -142,17 +207,28 @@ lineAccounts.get('/api/line-accounts/:id', async (c) => {
 // GET /api/line-accounts/:id/follower-insight - compare DB state with LINE official follower stats
 lineAccounts.get('/api/line-accounts/:id/follower-insight', async (c) => {
   try {
+    const id = c.req.param('id');
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
     const date = c.req.query('date');
     if (!date || !/^\d{8}$/.test(date)) {
       return c.json({ success: false, error: 'date query is required in yyyyMMdd format' }, 400);
     }
 
-    const account = await getLineAccountById(c.env.DB, c.req.param('id'));
+    const account = await getLineAccountByIdForTenant(
+      c.env.DB,
+      c.get('tenantId'),
+      id,
+    );
     if (!account) {
       return c.json({ success: false, error: 'LINE account not found' }, 404);
     }
 
-    const client = new LineClient(account.channel_access_token);
+    const accessToken = await accountAccessToken(c, account.id);
+    if (!accessToken) {
+      return c.json({ success: false, error: 'LINE account credentials unavailable' }, 503);
+    }
+    const client = new LineClient(accessToken);
     const insight = await client.getFollowersInsight(date);
     return c.json({
       success: true,
@@ -176,7 +252,14 @@ lineAccounts.get('/api/line-accounts/:id/follower-insight', async (c) => {
 // No cron polls LINE: connection/UI performs a one-item capability probe, then
 // operator-approved step requests advance the D1 cursor until completion.
 lineAccounts.get('/api/line-accounts/:id/follower-import', async (c) => {
-  const account = await getLineAccountById(c.env.DB, c.req.param('id')!);
+  const id = c.req.param('id');
+  const denied = await requireAccountAccess(c, id);
+  if (denied) return denied;
+  const account = await getLineAccountByIdForTenant(
+    c.env.DB,
+    c.get('tenantId'),
+    id,
+  );
   if (!account) return c.json({ success: false, error: 'LINE account not found' }, 404);
   const state = await getFollowerImportState(c.env.DB, account.id);
   return c.json({ success: true, data: state });
@@ -187,9 +270,20 @@ lineAccounts.post(
   requireRole('owner', 'admin'),
   async (c) => {
     try {
-      const account = await getLineAccountById(c.env.DB, c.req.param('id')!);
+      const id = c.req.param('id')!;
+      const denied = await requireAccountAccess(c, id);
+      if (denied) return denied;
+      const account = await getLineAccountByIdForTenant(
+        c.env.DB,
+        c.get('tenantId'),
+        id,
+      );
       if (!account) return c.json({ success: false, error: 'LINE account not found' }, 404);
-      const client = new LineClient(account.channel_access_token);
+      const accessToken = await accountAccessToken(c, account.id);
+      if (!accessToken) {
+        return c.json({ success: false, error: 'LINE account credentials unavailable' }, 503);
+      }
+      const client = new LineClient(accessToken);
       const state = await detectFollowerImportCapability(
         c.env.DB,
         client as unknown as FollowerImportClient,
@@ -208,7 +302,14 @@ lineAccounts.post(
   '/api/line-accounts/:id/follower-import/start',
   requireRole('owner', 'admin'),
   async (c) => {
-    const account = await getLineAccountById(c.env.DB, c.req.param('id')!);
+    const id = c.req.param('id')!;
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
+    const account = await getLineAccountByIdForTenant(
+      c.env.DB,
+      c.get('tenantId'),
+      id,
+    );
     if (!account) return c.json({ success: false, error: 'LINE account not found' }, 404);
     try {
       const state = await startFollowerImport(c.env.DB, account.id);
@@ -226,15 +327,110 @@ lineAccounts.post(
   '/api/line-accounts/:id/follower-import/step',
   requireRole('owner', 'admin'),
   async (c) => {
-    const account = await getLineAccountById(c.env.DB, c.req.param('id')!);
+    const id = c.req.param('id')!;
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
+    const account = await getLineAccountByIdForTenant(
+      c.env.DB,
+      c.get('tenantId'),
+      id,
+    );
     if (!account) return c.json({ success: false, error: 'LINE account not found' }, 404);
-    const client = new LineClient(account.channel_access_token);
+    const accessToken = await accountAccessToken(c, account.id);
+    if (!accessToken) {
+      return c.json({ success: false, error: 'LINE account credentials unavailable' }, 503);
+    }
+    const client = new LineClient(accessToken);
     const result = await processFollowerImportStep(
       c.env.DB,
       client as unknown as FollowerImportClient,
       account.id,
     );
     return c.json({ success: true, data: result });
+  },
+);
+
+// Validate an existing account against LINE, bind its canonical bot identity,
+// and point LINE at the shared multi-tenant webhook. Safe to retry.
+lineAccounts.post(
+  '/api/line-accounts/:id/connect',
+  requireRole('owner'),
+  async (c) => {
+    const id = c.req.param('id')!;
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
+    const account = await getLineAccountByIdForTenant(
+      c.env.DB,
+      c.get('tenantId'),
+      id,
+    );
+    if (!account) return c.json({ success: false, error: 'LINE account not found' }, 404);
+
+    const webhookUrl = configuredWebhookUrl(c.env);
+    if (!webhookUrl) {
+      return c.json({ success: false, error: 'Public webhook URL is not configured' }, 503);
+    }
+
+    const accessToken = await accountAccessToken(c, account.id);
+    if (!accessToken) {
+      return c.json({ success: false, error: 'LINE account credentials unavailable' }, 503);
+    }
+    const client = new LineClient(accessToken);
+    let botUserId = '';
+    try {
+      const response = await client.request('GET', '/v2/bot/info');
+      botUserId = requireLineBotUserId(response.data);
+    } catch {
+      return c.json({ success: false, error: 'LINE access token validation failed' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    try {
+      await c.env.DB.batch([
+        c.env.DB.prepare(
+          `INSERT INTO pharmacy_line_channel_identities
+             (line_account_id, bot_user_id, created_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(line_account_id) DO UPDATE SET bot_user_id = excluded.bot_user_id`,
+        ).bind(account.id, botUserId, now),
+        c.env.DB.prepare(
+          `INSERT OR IGNORE INTO pharmacy_growth_events
+             (id, line_account_id, event_type, aggregate_id, subject_key,
+              schema_version, occurred_at, idempotency_key, metadata_json, created_at)
+           VALUES (?, ?, 'line_account_connected', ?, NULL, 1, ?, ?, '{}', ?)`,
+        ).bind(
+          crypto.randomUUID(), account.id, account.id, now,
+          `line-account-connected:${botUserId}`, now,
+        ),
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/constraint|unique/i.test(message)) {
+        return c.json({ success: false, error: 'This LINE account is already connected to another tenant' }, 409);
+      }
+      return c.json({ success: false, error: 'LINE connection could not be saved' }, 500);
+    }
+
+    try {
+      await client.request('PUT', '/v2/bot/channel/webhook/endpoint', { endpoint: webhookUrl });
+    } catch {
+      return c.json({
+        success: false,
+        error: 'LINE webhook configuration failed; retry connection',
+        data: { lineAccountId: account.id, identityRegistered: true, webhookConfigured: false, webhookUrl },
+      }, 502);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        lineAccountId: account.id,
+        identityRegistered: true,
+        webhookConfigured: true,
+        webhookUrl,
+        channelSecretVerification: 'pending_first_webhook',
+      },
+    });
   },
 );
 
@@ -330,9 +526,68 @@ async function checkUniqueLoginAndLiff(
   return null;
 }
 
+function validatePharmacyLiffConfiguration(values: {
+  loginChannelId: string | null | undefined;
+  loginChannelSecret: string | null | undefined;
+  liffId: string | null | undefined;
+}): string | null {
+  const { loginChannelId, loginChannelSecret, liffId } = values;
+  if (!loginChannelId || !loginChannelSecret || !liffId) {
+    return 'Pharmacy accounts require a LINE Login channel and LIFF ID';
+  }
+  if (!/^\d{6,32}$/u.test(loginChannelId) ||
+      !/^\d{6,32}-[A-Za-z0-9_-]{8,64}$/u.test(liffId) ||
+      !liffId.startsWith(`${loginChannelId}-`)) {
+    return 'LIFF ID must belong to the LINE Login channel';
+  }
+  return null;
+}
+
+async function pharmacyLiffConfigurationError(
+  db: D1Database,
+  rootSecret: string | undefined,
+  tenantId: string,
+  lineAccountId: string,
+  current: { login_channel_id: string | null; login_channel_secret: string | null; liff_id: string | null },
+  next: { loginChannelId?: string | null; loginChannelSecret?: string | null; liffId?: string | null },
+): Promise<string | null> {
+  if (!await isPharmacyModeAccount(db, lineAccountId)) return null;
+
+  let loginChannelSecret = next.loginChannelSecret === undefined
+    ? current.login_channel_secret
+    : next.loginChannelSecret;
+  if (next.loginChannelSecret === undefined && loginChannelSecret) {
+    if (!loginChannelSecret.startsWith('encrypted:')) {
+      return 'Pharmacy accounts require encrypted credential migration before LIFF updates';
+    }
+    loginChannelSecret = rootSecret
+      ? await readLineCredential(db, rootSecret, {
+        tenantId,
+        lineAccountId,
+        kind: 'login_channel_secret',
+      })
+      : null;
+  }
+
+  return validatePharmacyLiffConfiguration({
+    loginChannelId: next.loginChannelId === undefined
+      ? current.login_channel_id
+      : next.loginChannelId,
+    loginChannelSecret,
+    liffId: next.liffId === undefined ? current.liff_id : next.liffId,
+  });
+}
+
 // POST /api/line-accounts - create
 lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
   try {
+    if (await isPharmacyTenant(c.env.DB, c.get('tenantId'))) {
+      return c.json({
+        success: false,
+        error: 'LINE account provisioning is platform-managed for pharmacy tenants',
+      }, 403);
+    }
+
     const body = await c.req.json<{
       channelId: string;
       name: string;
@@ -352,6 +607,10 @@ lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
         400,
       );
     }
+    const credentialRootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+    if (!credentialRootSecret) {
+      return c.json({ success: false, error: 'LINE credential encryption is not configured' }, 503);
+    }
 
     // Optional fields: empty string from UI = "not provided" → store NULL.
     // Trim whitespace defensively (LINE IDs/secrets shouldn't have spaces;
@@ -369,13 +628,19 @@ lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
     const dupError = await checkUniqueLoginAndLiff(c.env.DB, { loginChannelId, liffId }, null);
     if (dupError) return c.json({ success: false, error: dupError }, 409);
 
-    const account = await createLineAccount(c.env.DB, {
+    const credentials = [
+      { kind: 'channel_access_token' as const, credential: body.channelAccessToken },
+      { kind: 'channel_secret' as const, credential: body.channelSecret },
+      ...(loginChannelSecret
+        ? [{ kind: 'login_channel_secret' as const, credential: loginChannelSecret }]
+        : []),
+    ];
+    const account = await createEncryptedLineAccount(c.env.DB, credentialRootSecret, {
+      tenantId: c.get('tenantId'),
       channelId: body.channelId,
       name: body.name,
-      channelAccessToken: body.channelAccessToken,
-      channelSecret: body.channelSecret,
+      credentials,
       loginChannelId,
-      loginChannelSecret,
       liffId,
       ogSiteName: normalizeOptionalString(body.ogSiteName) ?? null,
       ogDefaultImageUrl: normalizeOptionalString(body.ogDefaultImageUrl) ?? null,
@@ -388,40 +653,14 @@ lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
     try {
       await detectFollowerImportCapability(
         c.env.DB,
-        new LineClient(account.channel_access_token) as unknown as FollowerImportClient,
+        new LineClient(body.channelAccessToken) as unknown as FollowerImportClient,
         account.id,
       );
     } catch (err) {
       console.error('[line-accounts] follower import capability probe failed', err);
     }
 
-    // Auto-enroll new account into the 'main' traffic pool.
-    // If migration 039 ran before any LINE accounts existed (fresh tenant),
-    // the 'main' pool was never seeded — create it on the first account.
-    // createTrafficPool already mirrors activeAccountId into pool_accounts,
-    // so we only call addPoolAccount when the pool already exists.
-    // Non-fatal: account creation succeeds even if pool enrollment fails.
-    try {
-      const { getTrafficPoolBySlug, createTrafficPool, addPoolAccount } = await import(
-        '@line-crm/db'
-      );
-      const existingMain = await getTrafficPoolBySlug(c.env.DB, 'main');
-      if (!existingMain) {
-        await createTrafficPool(c.env.DB, {
-          slug: 'main',
-          name: 'メインプール',
-          activeAccountId: account.id,
-        });
-        console.log(`[line-accounts] created main pool (first-account bootstrap)`);
-      } else {
-        await addPoolAccount(c.env.DB, existingMain.id, account.id);
-        console.log(`[line-accounts] enrolled new account ${account.id} into main pool`);
-      }
-    } catch (err) {
-      console.error('[line-accounts] failed to auto-enroll into main pool', err);
-    }
-
-    return c.json({ success: true, data: serializeLineAccountFull(account) }, 201);
+    return c.json({ success: true, data: serializeLineAccount(account) }, 201);
   } catch (err) {
     // D1 surfaces UNIQUE-constraint violations as a thrown error. Surface
     // those as 409 so idempotent callers (e.g. create-line-harness retry
@@ -466,6 +705,13 @@ lineAccounts.patch(
         }
       }
 
+      const accountIds = new Set(
+        (await getLineAccountsForTenant(c.env.DB, c.get('tenantId'))).map(({ id }) => id),
+      );
+      if (body.ordered.some(({ id }) => !accountIds.has(id))) {
+        return c.json({ success: false, error: 'LINE account not found' }, 404);
+      }
+
       await updateLineAccountOrder(c.env.DB, body.ordered);
       return c.json({ success: true });
     } catch (err) {
@@ -491,6 +737,10 @@ lineAccounts.patch(
   async (c) => {
     try {
       const id = c.req.param('id')!;
+      const denied = await requireAccountAccess(c, id);
+      if (denied) return denied;
+      const current = await getLineAccountByIdForTenant(c.env.DB, c.get('tenantId'), id);
+      if (!current) return c.json({ success: false, error: 'not found' }, 404);
       const body = await c.req.json<{
         name?: string;
         isActive?: boolean;
@@ -516,10 +766,8 @@ lineAccounts.patch(
       const ogDefaultImageUrl = normalizeOptionalString(body.ogDefaultImageUrl);
       const ogDefaultDescription = normalizeOptionalString(body.ogDefaultDescription);
 
-      // Pre-validate Login pair + uniqueness against the existing row so the
-      // caller gets a clean error before we mutate. Skip the lookup entirely
-      // if the request doesn't touch any of the fields we'd validate, to
-      // avoid a wasted SELECT on the toggle-isActive hot path.
+      // Pre-validate Login pair + uniqueness against the tenant-scoped row so
+      // the caller gets a clean error before we mutate.
       //
       // The pair check only runs when the request itself touches Login
       // fields. That matters because the setup CLI (packages/create-line-
@@ -531,8 +779,6 @@ lineAccounts.patch(
         loginChannelId !== undefined || loginChannelSecret !== undefined;
       const touchesLoginOrLiff = touchesLogin || liffId !== undefined;
       if (touchesLoginOrLiff) {
-        const current = await getLineAccountById(c.env.DB, id);
-        if (!current) return c.json({ success: false, error: 'not found' }, 404);
         if (touchesLogin) {
           const pairError = validateLoginChannelPair(
             { loginChannelId, loginChannelSecret },
@@ -540,6 +786,15 @@ lineAccounts.patch(
           );
           if (pairError) return c.json({ success: false, error: pairError }, 400);
         }
+        const pharmacyError = await pharmacyLiffConfigurationError(
+          c.env.DB,
+          c.env.LINE_CREDENTIAL_KEY_V1,
+          c.get('tenantId'),
+          id,
+          current,
+          { loginChannelId, loginChannelSecret, liffId },
+        );
+        if (pharmacyError) return c.json({ success: false, error: pharmacyError }, 400);
         const dupError = await checkUniqueLoginAndLiff(
           c.env.DB,
           { loginChannelId, liffId },
@@ -548,50 +803,35 @@ lineAccounts.patch(
         if (dupError) return c.json({ success: false, error: dupError }, 409);
       }
 
-      const touchesOg =
-        ogSiteName !== undefined ||
-        ogDefaultImageUrl !== undefined ||
-        ogDefaultDescription !== undefined;
-
-      const fieldsTouched =
-        country !== undefined ||
-        role !== undefined ||
-        body.isActive !== undefined ||
-        touchesLoginOrLiff ||
-        touchesOg;
-
-      // Route to the fields helper when name is not being changed.
-      if (body.name === undefined && fieldsTouched) {
-        const updated = await updateLineAccountFields(c.env.DB, id, {
-          country,
-          role,
-          isActive: body.isActive,
-          loginChannelId,
-          loginChannelSecret,
-          liffId,
-          ogSiteName,
-          ogDefaultImageUrl,
-          ogDefaultDescription,
-        });
-        if (!updated) return c.json({ success: false, error: 'not found' }, 404);
-        return c.json({ success: true, data: serializeLineAccount(updated) });
-      }
-
-      // name is present — use the full updateLineAccount path
-      const updated = await updateLineAccount(c.env.DB, id, {
-        name: body.name,
-        is_active: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
-        login_channel_id: loginChannelId,
-        login_channel_secret: loginChannelSecret,
-        liff_id: liffId,
-        og_site_name: ogSiteName,
-        og_default_image_url: ogDefaultImageUrl,
-        og_default_description: ogDefaultDescription,
-      });
-      if (!updated) return c.json({ success: false, error: 'LINE account not found' }, 404);
+      const updated = await updateEncryptedLineAccount(
+        c.env.DB,
+        c.env.LINE_CREDENTIAL_KEY_V1,
+        {
+          tenantId: c.get('tenantId'),
+          lineAccountId: id,
+          expectedUpdatedAt: current.updated_at,
+          credentials: loginChannelSecret === undefined
+            ? []
+            : [{ kind: 'login_channel_secret', credential: loginChannelSecret }],
+          metadata: {
+            name: body.name,
+            country,
+            role,
+            isActive: body.isActive,
+            loginChannelId,
+            liffId,
+            ogSiteName,
+            ogDefaultImageUrl,
+            ogDefaultDescription,
+          },
+        },
+      );
       return c.json({ success: true, data: serializeLineAccount(updated) });
     } catch (err) {
       console.error('PATCH /api/line-accounts/:id error:', err);
+      if (err instanceof Error && err.message === LINE_ACCOUNT_CONFLICT_ERROR) {
+        return c.json({ success: false, error: LINE_ACCOUNT_CONFLICT_ERROR }, 409);
+      }
       return c.json({ success: false, error: 'Internal server error' }, 500);
     }
   },
@@ -608,6 +848,12 @@ lineAccounts.patch(
 lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
   try {
     const id = c.req.param('id')!;
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
+    const current = await getLineAccountByIdForTenant(c.env.DB, c.get('tenantId'), id);
+    if (!current) {
+      return c.json({ success: false, error: 'LINE account not found' }, 404);
+    }
     const body = await c.req.json<{
       name?: string;
       channelAccessToken?: string;
@@ -631,6 +877,12 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
     const ogSiteName = normalizeOptionalString(body.ogSiteName);
     const ogDefaultImageUrl = normalizeOptionalString(body.ogDefaultImageUrl);
     const ogDefaultDescription = normalizeOptionalString(body.ogDefaultDescription);
+    if (body.channelAccessToken !== undefined && !body.channelAccessToken.trim()) {
+      return c.json({ success: false, error: 'channelAccessToken cannot be empty' }, 400);
+    }
+    if (body.channelSecret !== undefined && !body.channelSecret.trim()) {
+      return c.json({ success: false, error: 'channelSecret cannot be empty' }, 400);
+    }
 
     // Validate Login pair + uniqueness identically to PATCH. PUT is the
     // owner-only credential rotation endpoint, so the same correctness
@@ -638,8 +890,6 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
     const putTouchesLogin =
       loginChannelId !== undefined || loginChannelSecret !== undefined;
     if (putTouchesLogin || liffId !== undefined) {
-      const current = await getLineAccountById(c.env.DB, id);
-      if (!current) return c.json({ success: false, error: 'LINE account not found' }, 404);
       if (putTouchesLogin) {
         const pairError = validateLoginChannelPair(
           { loginChannelId, loginChannelSecret },
@@ -647,6 +897,15 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
         );
         if (pairError) return c.json({ success: false, error: pairError }, 400);
       }
+    const pharmacyError = await pharmacyLiffConfigurationError(
+      c.env.DB,
+      c.env.LINE_CREDENTIAL_KEY_V1,
+      c.get('tenantId'),
+      id,
+      current,
+      { loginChannelId, loginChannelSecret, liffId },
+      );
+      if (pharmacyError) return c.json({ success: false, error: pharmacyError }, 400);
       const dupError = await checkUniqueLoginAndLiff(
         c.env.DB,
         { loginChannelId, liffId },
@@ -655,56 +914,50 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
       if (dupError) return c.json({ success: false, error: dupError }, 409);
     }
 
-    // Two-step update because metadata (country/role) lives on a separate
-    // helper from the credentials/name path. Skip whichever step has nothing
-    // to do so we don't bump updated_at gratuitously.
-    const credentialsTouched =
-      body.name !== undefined ||
-      body.channelAccessToken !== undefined ||
-      body.channelSecret !== undefined ||
-      loginChannelId !== undefined ||
-      loginChannelSecret !== undefined ||
-      liffId !== undefined ||
-      body.isActive !== undefined;
-
-    let updated = credentialsTouched
-      ? await updateLineAccount(c.env.DB, id, {
+    const credentialChanges = [
+      ...(body.channelAccessToken !== undefined
+        ? [{ kind: 'channel_access_token' as const, credential: body.channelAccessToken }]
+        : []),
+      ...(body.channelSecret !== undefined
+        ? [{ kind: 'channel_secret' as const, credential: body.channelSecret }]
+        : []),
+      ...(typeof loginChannelSecret === 'string'
+        ? [{ kind: 'login_channel_secret' as const, credential: loginChannelSecret }]
+        : []),
+    ];
+    const updated = await updateEncryptedLineAccount(
+      c.env.DB,
+      c.env.LINE_CREDENTIAL_KEY_V1,
+      {
+        tenantId: c.get('tenantId'),
+        lineAccountId: id,
+        expectedUpdatedAt: current.updated_at,
+        credentials: [
+          ...credentialChanges,
+          ...(loginChannelSecret === null
+            ? [{ kind: 'login_channel_secret' as const, credential: null }]
+            : []),
+        ],
+        metadata: {
           name: body.name,
-          channel_access_token: body.channelAccessToken,
-          channel_secret: body.channelSecret,
-          login_channel_id: loginChannelId,
-          login_channel_secret: loginChannelSecret,
-          liff_id: liffId,
-          is_active: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
-        })
-      : await getLineAccountById(c.env.DB, id);
+          isActive: body.isActive,
+          country,
+          role,
+          loginChannelId,
+          liffId,
+          ogSiteName,
+          ogDefaultImageUrl,
+          ogDefaultDescription,
+        },
+      },
+    );
 
-    if (!updated) {
-      return c.json({ success: false, error: 'LINE account not found' }, 404);
-    }
-
-    if (
-      country !== undefined ||
-      role !== undefined ||
-      ogSiteName !== undefined ||
-      ogDefaultImageUrl !== undefined ||
-      ogDefaultDescription !== undefined
-    ) {
-      updated = await updateLineAccountFields(c.env.DB, id, {
-        country,
-        role,
-        ogSiteName,
-        ogDefaultImageUrl,
-        ogDefaultDescription,
-      });
-      if (!updated) {
-        return c.json({ success: false, error: 'LINE account not found' }, 404);
-      }
-    }
-
-    return c.json({ success: true, data: serializeLineAccountFull(updated) });
+    return c.json({ success: true, data: serializeLineAccount(updated) });
   } catch (err) {
     console.error('PUT /api/line-accounts/:id error:', err);
+    if (err instanceof Error && err.message === LINE_ACCOUNT_CONFLICT_ERROR) {
+      return c.json({ success: false, error: LINE_ACCOUNT_CONFLICT_ERROR }, 409);
+    }
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -712,7 +965,21 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
 // DELETE /api/line-accounts/:id - delete
 lineAccounts.delete('/api/line-accounts/:id', requireRole('owner'), async (c) => {
   try {
-    await deleteLineAccount(c.env.DB, c.req.param('id')!);
+    if (await isPharmacyTenant(c.env.DB, c.get('tenantId'))) {
+      return c.json({
+        success: false,
+        error: 'LINE account deletion is platform-managed for pharmacy tenants',
+      }, 403);
+    }
+
+    const id = c.req.param('id')!;
+    const denied = await requireAccountAccess(c, id);
+    if (denied) return denied;
+    const account = await getLineAccountByIdForTenant(c.env.DB, c.get('tenantId'), id);
+    if (!account) {
+      return c.json({ success: false, error: 'LINE account not found' }, 404);
+    }
+    await deleteLineAccount(c.env.DB, id);
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/line-accounts/:id error:', err);

@@ -7,7 +7,12 @@ describe('ImagesResource', () => {
   let images: ImagesResource
 
   beforeEach(() => {
-    http = new HttpClient({ baseUrl: 'https://test.example.com', apiKey: 'test-key', timeout: 5000 })
+    http = new HttpClient({
+      baseUrl: 'https://test.example.com',
+      apiKey: 'test-key',
+      tenantId: 'tenant-test',
+      timeout: 5000,
+    })
     images = new ImagesResource(http)
   })
 

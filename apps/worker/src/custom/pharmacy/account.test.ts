@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 const access = vi.hoisted(() => vi.fn());
 
 vi.mock('./growth-loop/access.js', () => ({
-  canAccessPharmacyAccount: access,
+  resolveAccessiblePharmacyTenant: access,
 }));
 
 import type { Env } from '../../index.js';
@@ -14,27 +14,31 @@ const env = { DB: {} as D1Database } as Env['Bindings'];
 
 function app(staff: Env['Variables']['staff'] | null = {
   id: 'staff-a', name: 'Staff A', role: 'admin',
-}) {
+}, tenantId = 'tenant-a') {
   const root = new Hono<Env>();
   root.use('*', async (c, next) => {
-    if (staff) c.set('staff', staff);
+    if (staff) {
+      c.set('staff', staff);
+      c.set('tenantId', tenantId);
+    }
     await next();
   });
   root.use('/api/custom/pharmacy/*', pharmacyAccountGuard);
   root.get('/api/custom/pharmacy/example', (c) => c.json({
     accountId: c.get('pharmacyLineAccountId'),
+    tenantId: c.get('pharmacyTenantId'),
   }));
   return root;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  access.mockResolvedValue(true);
+  access.mockResolvedValue('tenant-a');
 });
 
 describe('pharmacy account guard', () => {
   it('rejects an account query parameter when staff is not assigned to it', async () => {
-    access.mockResolvedValue(false);
+    access.mockResolvedValue(null);
     const response = await app().request(
       '/api/custom/pharmacy/example?line_account_id=account-b', {}, env,
     );
@@ -49,7 +53,19 @@ describe('pharmacy account guard', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ accountId: 'account-a' });
+    await expect(response.json()).resolves.toEqual({
+      accountId: 'account-a',
+      tenantId: 'tenant-a',
+    });
+  });
+
+  it('rejects an authorized account that belongs to a different login tenant', async () => {
+    access.mockResolvedValue('tenant-b');
+    const response = await app().request(
+      '/api/custom/pharmacy/example?line_account_id=account-b', {}, env,
+    );
+
+    expect(response.status).toBe(403);
   });
 
   it('fails closed when account or authenticated staff is missing', async () => {

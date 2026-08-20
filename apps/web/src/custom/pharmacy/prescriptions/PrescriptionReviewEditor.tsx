@@ -49,11 +49,14 @@ export function PrescriptionReviewEditor({
   useEffect(() => {
     setClassification(source?.classification ?? 'unknown')
     setSourceId(source?.source_id ?? '')
+  }, [source, submissionId])
+
+  useEffect(() => {
     setIssuedOn(validity?.issued_on ?? '')
     setValidUntil(validity?.valid_until ?? '')
     setBasis(validity?.validity_basis ?? 'default_4_days')
     setVerification(validity?.verification_status ?? 'unverified')
-  }, [source, submissionId, validity])
+  }, [submissionId, validity])
 
   const choices = useMemo(() => medicalSources.filter((item) =>
     item.classification === classification && (item.is_active === 1 || item.id === source?.source_id),

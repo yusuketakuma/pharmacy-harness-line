@@ -26,6 +26,7 @@ interface LineAccountListItem {
   pictureUrl: string | null
   basicId: string | null
   isActive: boolean
+  pharmacyMode: boolean
   loginChannelId: string | null
   liffId: string | null
   createdAt: string
@@ -59,6 +60,12 @@ const ccPrompts = [
   },
 ]
 
+function accountToggleConfirmation(accountName: string, currentActive: boolean): string {
+  return currentActive
+    ? `「${accountName}」を無効にします。患者からのLINE受信と自動処理が停止します。よろしいですか？`
+    : `「${accountName}」を有効にします。LINE受信と自動処理が再開します。よろしいですか？`
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<LineAccountListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,12 +76,16 @@ export default function AccountsPage() {
   const [form, setForm] = useState<AccountFormState>(emptyAccountFormState)
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [mutatingAccountId, setMutatingAccountId] = useState<string | null>(null)
+  const [connectingAccountId, setConnectingAccountId] = useState<string | null>(null)
+  const [connectionResult, setConnectionResult] = useState<Record<string, { ok: boolean; message: string }>>({})
   const [preparingRichMenu, setPreparingRichMenu] = useState(false)
   const [justCreated, setJustCreated] = useState<{
     accountId: string
     liffId: string | null
     richMenuStatus: 'prepared' | 'configuration_required' | 'failed'
     richMenuGroupId: string | null
+    lineConnected: boolean
   } | null>(null)
 
   const load = async () => {
@@ -105,6 +116,10 @@ export default function AccountsPage() {
       setCreateError('Messaging API の必須項目を入力してください')
       return
     }
+    if (!form.loginChannelId.trim() || !form.loginChannelSecret.trim() || !form.liffId.trim()) {
+      setCreateError('LINE Login Channel ID・Secret・LIFF IDを入力してください')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await api.lineAccounts.create({
@@ -121,6 +136,14 @@ export default function AccountsPage() {
       })
       if (res.success) {
         const accountId = res.data?.id
+        let lineConnected = false
+        if (accountId) {
+          try {
+            lineConnected = (await api.lineAccounts.connect(accountId)).success
+          } catch {
+            lineConnected = false
+          }
+        }
         let richMenuStatus: 'prepared' | 'configuration_required' | 'failed' = 'failed'
         let richMenuGroupId: string | null = null
         if (accountId) {
@@ -143,6 +166,7 @@ export default function AccountsPage() {
           liffId: form.liffId.trim() || null,
           richMenuStatus,
           richMenuGroupId,
+          lineConnected,
         })
         setForm(emptyAccountFormState)
         setShowCreate(false)
@@ -158,14 +182,65 @@ export default function AccountsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このLINEアカウントを削除しますか？')) return
-    await api.lineAccounts.delete(id)
-    load()
+    if (mutatingAccountId !== null) return
+    if (!window.confirm('このLINEアカウントを削除しますか？')) return
+    setMutatingAccountId(id)
+    setError('')
+    try {
+      const result = await api.lineAccounts.delete(id)
+      if (!result.success) {
+        setError('LINEアカウントを削除できませんでした。')
+        return
+      }
+      await load()
+    } catch {
+      setError('LINEアカウントを削除できませんでした。')
+    } finally {
+      setMutatingAccountId(null)
+    }
   }
 
-  const handleToggle = async (id: string, currentActive: boolean) => {
-    await api.lineAccounts.update(id, { isActive: !currentActive })
-    load()
+  const handleToggle = async (id: string, accountName: string, currentActive: boolean) => {
+    if (mutatingAccountId !== null) return
+    if (!window.confirm(accountToggleConfirmation(accountName, currentActive))) return
+    setMutatingAccountId(id)
+    setError('')
+    try {
+      const result = await api.lineAccounts.update(id, { isActive: !currentActive })
+      if (!result.success) {
+        setError('LINEアカウントの状態を更新できませんでした。')
+        return
+      }
+      await load()
+    } catch {
+      setError('LINEアカウントの状態を更新できませんでした。')
+    } finally {
+      setMutatingAccountId(null)
+    }
+  }
+
+  const handleConnect = async (accountId: string) => {
+    setConnectingAccountId(accountId)
+    setConnectionResult((current) => ({ ...current, [accountId]: { ok: false, message: '' } }))
+    try {
+      const result = await api.lineAccounts.connect(accountId)
+      setConnectionResult((current) => ({
+        ...current,
+        [accountId]: {
+          ok: result.success,
+          message: result.success
+            ? 'LINE接続とWebhook設定を確認しました'
+            : result.error || 'LINE接続を確認できませんでした',
+        },
+      }))
+    } catch {
+      setConnectionResult((current) => ({
+        ...current,
+        [accountId]: { ok: false, message: 'LINE接続に失敗しました。設定を確認して再実行してください' },
+      }))
+    } finally {
+      setConnectingAccountId(null)
+    }
   }
 
   const prepareInitialRichMenu = async () => {
@@ -201,20 +276,22 @@ export default function AccountsPage() {
             >
               並び替えモード
             </button>
-            <button
-              onClick={() => {
-                const next = !showCreate
-                setShowCreate(next)
-                if (!next) {
-                  setForm(emptyAccountFormState)
-                  setCreateError('')
-                }
-              }}
-              className="px-4 py-2 rounded-lg text-white text-sm font-medium"
-              style={{ backgroundColor: '#06C755' }}
-            >
-              {showCreate ? 'キャンセル' : '+ アカウント追加'}
-            </button>
+            {!loading && !accounts.some((account) => account.pharmacyMode) && (
+              <button
+                onClick={() => {
+                  const next = !showCreate
+                  setShowCreate(next)
+                  if (!next) {
+                    setForm(emptyAccountFormState)
+                    setCreateError('')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg text-white text-sm font-medium"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                {showCreate ? 'キャンセル' : '+ アカウント追加'}
+              </button>
+            )}
           </div>
         }
       />
@@ -232,6 +309,9 @@ export default function AccountsPage() {
           </p>
           <p className="text-xs text-green-700 mb-3">
             次に LINE Developers Console で以下の URL を貼り付けてください。
+          </p>
+          <p className={`mb-3 text-xs ${justCreated.lineConnected ? 'text-green-700' : 'text-amber-700'}`}>
+            LINE接続: {justCreated.lineConnected ? 'Webhookまで自動設定済み' : '要確認（下のアカウント欄から再実行できます）'}
           </p>
           <AccountSetupUrls liffId={justCreated.liffId} heading="登録すべき URL" />
           <p className="mt-3 text-xs text-green-700">
@@ -265,7 +345,7 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {showCreate && (
+      {showCreate && !accounts.some((account) => account.pharmacyMode) && (
         <form onSubmit={handleCreate} className="bg-white rounded-lg border border-gray-200 p-6 mb-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -284,6 +364,8 @@ export default function AccountsPage() {
             state={form}
             update={updateForm}
             showMessagingRequired={true}
+            showLoginRequired={true}
+            defaultOpen={{ messaging: true, login: true, liff: true }}
           />
 
           <AccountSetupUrls liffId={form.liffId.trim() || null} />
@@ -307,7 +389,7 @@ export default function AccountsPage() {
 
       {loading ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
-      ) : accounts.length === 0 ? (
+      ) : error ? null : accounts.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
           <p className="mb-2">LINEアカウントが登録されていません</p>
           <p className="text-xs text-gray-300">LINE Developers Console からChannel情報を取得して登録してください</p>
@@ -340,10 +422,11 @@ export default function AccountsPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleToggle(account.id, account.isActive)}
-                  className={`text-xs px-2 py-0.5 rounded-full ${account.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+                  onClick={() => handleToggle(account.id, account.displayName, account.isActive)}
+                  disabled={mutatingAccountId !== null}
+                  className={`text-xs px-2 py-0.5 rounded-full disabled:opacity-50 ${account.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
                 >
-                  {account.isActive ? '有効' : '無効'}
+                  {mutatingAccountId === account.id ? '更新中…' : account.isActive ? '有効' : '無効'}
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-3 mb-4 py-3 border-t border-b border-gray-100">
@@ -394,6 +477,25 @@ export default function AccountsPage() {
               <TestRecipientsSetting accountId={account.id} />
               <FollowerImportButton accountId={account.id} onImported={load} />
 
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => handleConnect(account.id)}
+                  disabled={connectingAccountId === account.id}
+                  className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                >
+                  {connectingAccountId === account.id ? 'LINE接続を確認中…' : 'LINE接続を確認・更新'}
+                </button>
+                {connectionResult[account.id]?.message && (
+                  <p
+                    role="status"
+                    className={`mt-1 text-xs ${connectionResult[account.id].ok ? 'text-green-700' : 'text-red-600'}`}
+                  >
+                    {connectionResult[account.id].message}
+                  </p>
+                )}
+              </div>
+
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
                 <p className="text-xs text-gray-400">
                   登録: {new Date(account.createdAt).toLocaleDateString('ja-JP')}
@@ -405,22 +507,27 @@ export default function AccountsPage() {
                   >
                     編集
                   </button>
-                  <button
-                    onClick={() => handleDelete(account.id)}
-                    className="text-red-500 hover:text-red-700 text-xs"
-                  >
-                    削除
-                  </button>
+                  {!account.pharmacyMode && (
+                     <button
+                       onClick={() => handleDelete(account.id)}
+                       disabled={mutatingAccountId !== null}
+                       className="text-red-500 hover:text-red-700 text-xs disabled:opacity-50"
+                     >
+                      削除
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
-      <div className="mt-8">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">グローバル設定</h2>
-        <LinkBaseUrlSetting />
-      </div>
+      {!accounts.some((account) => account.pharmacyMode) && (
+        <div className="mt-8">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">グローバル設定</h2>
+          <LinkBaseUrlSetting />
+        </div>
+      )}
       <CcPromptButton prompts={ccPrompts} />
       {showReorder && (
         <ReorderMode

@@ -9,6 +9,7 @@ crons = ["0 * * * *"]
 [vars]
 # LINE Harness API connection
 LINE_HARNESS_API_URL = "https://your-line-harness.example.com"
+LINE_HARNESS_TENANT_ID = "your-tenant-id"
 # Set secrets via: wrangler secret put LINE_HARNESS_API_KEY
 # Set secrets via: wrangler secret put EXTERNAL_API_KEY
 

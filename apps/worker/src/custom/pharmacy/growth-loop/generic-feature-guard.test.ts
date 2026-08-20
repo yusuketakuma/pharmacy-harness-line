@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PHARMACY_DISABLED_GENERIC_API_PREFIXES,
   pharmacyGenericFeatureGuard,
+  pharmacyTenantApiAllowlistGuard,
 } from './generic-feature-guard.js';
 
 function db(pharmacyAccounts: string[]): D1Database {
@@ -12,8 +13,15 @@ function db(pharmacyAccounts: string[]): D1Database {
     prepare(sql: string) {
       const statement = (binds: unknown[]) => ({
         first: async <T>() => {
+          if (sql.includes('FROM tenant_line_accounts') && !sql.includes('WHERE tenant_id')) {
+            return (pharmacyAccounts.length > 0 ? { ok: 1 } : null) as T | null;
+          }
+          if (sql.includes('FROM tenant_line_accounts') && sql.includes('WHERE tenant_id')) {
+            return (pharmacyAccounts.length > 0 ? { ok: 1 } : null) as T | null;
+          }
           if (sql.includes('FROM pharmacy_account_capabilities')) {
-            if (sql.includes("WHERE mode = 'pharmacy'")) {
+            if (sql.includes("WHERE mode = 'pharmacy'") ||
+                (sql.includes('WHERE mode = ?') && binds[0] === 'pharmacy')) {
               return (pharmacyAccounts.length > 0 ? { ok: 1 } : null) as T | null;
             }
             return (pharmacyAccounts.includes(String(binds[0])) ? { mode: 'pharmacy' } : null) as T | null;
@@ -52,7 +60,9 @@ describe('pharmacy generic feature guard', () => {
       '/api/broadcasts', '/api/scenarios', '/api/automations', '/api/auto-replies',
       '/api/reminders', '/api/mileage', '/api/affiliates', '/api/traffic-pools', '/api/webinars',
       '/api/forms', '/api/meet-callback', '/api/booking', '/api/liff/booking',
-      '/api/events', '/api/liff/events', '/api/liff/send-form-link',
+      '/api/events', '/api/liff/events', '/api/liff/send-form-link', '/api/tags', '/api/operators',
+      '/api/rich-menus', '/api/liff/affiliate', '/api/liff/mileage', '/api/liff/link',
+      '/api/webhooks', '/api/integrations/stripe', '/api/qr', '/api/public/media-inquiries',
     ]));
     const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url).href), 'utf8');
     expect(indexSource).toContain('PHARMACY_DISABLED_GENERIC_API_PREFIXES');
@@ -87,12 +97,52 @@ describe('pharmacy generic feature guard', () => {
     expect(response.status).toBe(403);
   });
 
+  it('allows only the tenant-scoped tag read needed by the pharmacy friend filter', async () => {
+    const database = {
+      prepare(sql: string) {
+        const statement = (binds: unknown[]) => ({
+          first: async <T>() => {
+            if (sql.includes('FROM line_accounts') && sql.includes('channel_id')) {
+              return { id: 'generic-default' } as T;
+            }
+            if (sql.includes('FROM pharmacy_account_capabilities')) {
+              return (binds[0] === 'pharmacy-a' ? { mode: 'pharmacy' } : null) as T | null;
+            }
+            return null;
+          },
+          all: async <T>() => ({
+            results: (sql.includes('FROM tenant_line_accounts')
+              ? [{ line_account_id: 'pharmacy-a' }]
+              : []) as T[],
+          }),
+        });
+        return { bind: (...binds: unknown[]) => statement(binds), ...statement([]) };
+      },
+    } as unknown as D1Database;
+    const root = new Hono<any>();
+    root.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
+    root.use('*', pharmacyGenericFeatureGuard);
+    root.all('*', (c) => c.json({ ok: true }));
+
+    const [readResponse, writeResponse] = await Promise.all([
+      root.request('/api/tags', {}, { DB: database, LINE_CHANNEL_ID: 'generic-default-channel' }),
+      root.request('/api/tags', { method: 'POST' }, { DB: database, LINE_CHANNEL_ID: 'generic-default-channel' }),
+    ]);
+
+    expect(readResponse.status).toBe(200);
+    expect(writeResponse.status).toBe(403);
+  });
+
   it('fails closed when an unscoped request cannot resolve the default in a pharmacy install', async () => {
     const database = {
       prepare(sql: string) {
         const statement = (binds: unknown[]) => ({
           first: async <T>() => {
-            if (sql.includes("WHERE mode = 'pharmacy'")) return { ok: 1 } as T;
+            if (sql.includes("WHERE mode = 'pharmacy'") ||
+                (sql.includes('WHERE mode = ?') && binds[0] === 'pharmacy')) return { ok: 1 } as T;
             return null;
           },
           all: async <T>() => ({ results: [] as T[] }),
@@ -107,6 +157,36 @@ describe('pharmacy generic feature guard', () => {
     }, env);
 
     expect(response.status).toBe(403);
+  });
+
+  it('fails closed for global public CRM APIs in a mixed pharmacy install', async () => {
+    const database = {
+      prepare(sql: string) {
+        const statement = (binds: unknown[]) => ({
+          first: async <T>() => {
+            if (sql.includes('FROM line_accounts') && sql.includes('channel_id')) {
+              return { id: 'generic-default' } as T;
+            }
+            if (sql.includes("WHERE mode = 'pharmacy'") ||
+                (sql.includes('WHERE mode = ?') && binds[0] === 'pharmacy')) return { ok: 1 } as T;
+            if (sql.includes('FROM pharmacy_account_capabilities')) return null;
+            return null;
+          },
+          all: async <T>() => ({ results: [] as T[] }),
+        });
+        return { bind: (...binds: unknown[]) => statement(binds), ...statement([]) };
+      },
+    } as unknown as D1Database;
+    const { root, env } = app(database);
+
+    const responses = await Promise.all([
+      root.request('/api/qr?data=hello', {}, env),
+      root.request('/api/webhooks/incoming/webhook-a/receive', { method: 'POST' }, env),
+      root.request('/api/integrations/stripe/webhook', { method: 'POST' }, env),
+      root.request('/api/public/media-inquiries', { method: 'POST' }, env),
+    ]);
+
+    expect(responses.map(({ status }) => status)).toEqual([403, 403, 403, 403]);
   });
 
   it('server-resolves other high-risk generic resources', async () => {
@@ -216,7 +296,8 @@ describe('pharmacy generic feature guard', () => {
             }
             if (sql.includes('FROM friends')) return { line_account_id: 'generic-a' } as T;
             if (sql.includes('FROM line_accounts')) return { id: 'generic-a' } as T;
-            if (sql.includes("WHERE mode = 'pharmacy'")) return { ok: 1 } as T;
+            if (sql.includes("WHERE mode = 'pharmacy'") ||
+                (sql.includes('WHERE mode = ?') && binds[0] === 'pharmacy')) return { ok: 1 } as T;
             return null;
           },
           all: async <T>() => ({ results: [] as T[] }),
@@ -263,7 +344,8 @@ describe('pharmacy generic feature guard', () => {
                 line_account_id: binds[0] === 'U-fake-generic' ? 'generic-a' : null,
               } as T;
             }
-            if (sql.includes("WHERE mode = 'pharmacy'")) return { ok: 1 } as T;
+            if (sql.includes("WHERE mode = 'pharmacy'") ||
+                (sql.includes('WHERE mode = ?') && binds[0] === 'pharmacy')) return { ok: 1 } as T;
             return null;
           },
           all: async <T>() => ({ results: [] as T[] }),
@@ -333,5 +415,58 @@ describe('pharmacy generic feature guard', () => {
       ok: true,
       body: { lineAccountId: 'generic-a', name: 'allowed' },
     });
+  });
+});
+
+describe('pharmacy tenant API allowlist', () => {
+  function allowlistApp(pharmacyTenant: boolean) {
+    const database = {
+      prepare: () => ({
+        bind: () => ({ first: async () => pharmacyTenant ? { pharmacy_install: 1 } : null }),
+      }),
+    } as unknown as D1Database;
+    const root = new Hono<any>();
+    root.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
+    root.use('*', pharmacyTenantApiAllowlistGuard);
+    root.all('*', (c) => c.json({ ok: true }));
+    return { root, env: { DB: database } };
+  }
+
+  it('allows only pharmacy operations and manual care communication', async () => {
+    const { root, env } = allowlistApp(true);
+    const responses = await Promise.all([
+      root.request('/api/custom/pharmacy/prescriptions', {}, env),
+      root.request('/api/friends/friend-a/messages', {}, env),
+      root.request('/api/chats', {}, env),
+      root.request('/api/rich-menu-groups?accountId=account-a', {}, env),
+      root.request('/api/account-settings/test-recipients?accountId=account-a', {}, env),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200]);
+  });
+
+  it('rejects generic and nested growth features for a pharmacy tenant', async () => {
+    const { root, env } = allowlistApp(true);
+    const responses = await Promise.all([
+      root.request('/api/users', {}, env),
+      root.request('/api/friends/friend-a/tags', { method: 'POST' }, env),
+      root.request('/api/friends/friend-a/mileage', {}, env),
+      root.request('/api/account-settings/link-base-url', {}, env),
+      root.request('/api/rich-menus', {}, env),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
+  });
+
+  it('keeps generic tenant APIs backward compatible', async () => {
+    const { root, env } = allowlistApp(false);
+    const response = await root.request('/api/users', {}, env);
+    expect(response.status).toBe(200);
+  });
+
+  it('is mounted as a server-side contract', () => {
+    const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url).href), 'utf8');
+    expect(indexSource).toContain('pharmacyTenantApiAllowlistGuard');
   });
 });

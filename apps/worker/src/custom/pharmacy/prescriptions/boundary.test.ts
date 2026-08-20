@@ -23,6 +23,12 @@ it('keeps the Worker integration to one marked import and route mount', () => {
     'await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions',
   );
   expect(source).toContain(
+    "import { purgePrescriptionFilesPastRetention } from './custom/pharmacy/prescriptions/retention-purge.js'; // custom:pharmacy-prescriptions",
+  );
+  expect(source).toContain(
+    'await purgePrescriptionFilesPastRetention(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions',
+  );
+  expect(source).toContain(
     "import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake",
   );
   expect(source).toContain("app.route('/', pharmacyIntakeRoutes); // custom:pharmacy-intake");

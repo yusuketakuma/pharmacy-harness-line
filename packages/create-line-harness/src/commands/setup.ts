@@ -7,7 +7,12 @@ import { randomUUID } from "node:crypto";
 import { checkDeps } from "../steps/check-deps.js";
 import { ensureAuth, getAccountId } from "../steps/auth.js";
 import { promptLineCredentials } from "../steps/prompt.js";
-import { createDatabase } from "../steps/database.js";
+import {
+  assertLegacyCredentialSqlAllowed,
+  assertLegacySetupBundleAllowed,
+  createDatabase,
+  detectDatabaseSchema,
+} from "../steps/database.js";
 import { deployWorker, syncInstalledWorkerConfig } from "../steps/deploy-worker.js";
 import { ensureWorkersDevSubdomain } from "../steps/ensure-subdomain.js";
 import { deployAdmin } from "../steps/deploy-admin.js";
@@ -417,6 +422,10 @@ async function runSetupInner(
     );
   }
 
+  // The shared pharmacy release is provisioned into one central Cloudflare
+  // service. Stop before Cloudflare auth, LINE credential prompts, or writes.
+  assertLegacySetupBundleAllowed(repoDir);
+
   // Step 2: Authenticate with Cloudflare
   await ensureAuth();
 
@@ -567,6 +576,13 @@ async function runSetupInner(
     p.log.success(`D1 データベース: 作成済み（${state.d1DatabaseId}）`);
   }
 
+  // Pharmacy/multitenant databases are provisioned centrally. Detect the
+  // live schema before setting any setup-specific prerequisite and re-check
+  // immediately before the legacy credential SQL below.
+  assertLegacyCredentialSqlAllowed(
+    await detectDatabaseSchema(state.d1DatabaseName!),
+  );
+
   // Step 8: Create R2 bucket for image uploads
   const r2BucketName = `${state.projectName}-images`;
   if (!isDone(state, "r2")) {
@@ -665,6 +681,9 @@ async function runSetupInner(
   // via ON CONFLICT(channel_id), preserving any name the operator may have
   // set later in the dashboard.
   if (!isDone(state, "lineAccount")) {
+    assertLegacyCredentialSqlAllowed(
+      await detectDatabaseSchema(state.d1DatabaseName!),
+    );
     const s = p.spinner();
     s.start("LINE アカウント登録中...");
     // Two separate temp files so we can clean each one immediately and never

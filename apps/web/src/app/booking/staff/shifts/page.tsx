@@ -256,8 +256,8 @@ export default function StaffShiftsPage() {
               <p className="mt-1 text-sm text-gray-500">以前に作成した枠です。同じ日付では毎週設定よりこちらを優先します。</p>
             </div>
             {shifts.length === 0 ? <div className="p-8 text-center text-sm text-gray-500">応急枠はありません</div> : (
-              <div className="max-h-72 overflow-y-auto">
-                <table className="w-full text-sm">
+              <div className="max-h-72 overflow-auto">
+                <table className="min-w-full text-sm">
                   <thead className="sticky top-0 bg-white"><tr className="border-b"><th className="px-5 py-3 text-left">日付</th><th className="px-5 py-3 text-left">時間</th><th className="px-5 py-3 text-right">操作</th></tr></thead>
                   <tbody>{shifts.map((shift) => <tr key={shift.id} className="border-b border-gray-100"><td className="px-5 py-3 tabular-nums">{shift.work_date}</td><td className="px-5 py-3 tabular-nums">{shift.start_time}〜{shift.end_time}</td><td className="px-5 py-3 text-right"><button onClick={() => deleteShift(shift.id)} className="text-red-600 hover:underline">削除</button></td></tr>)}</tbody>
                 </table>

@@ -487,7 +487,7 @@ CREATE TABLE friends (
   unfollow_count   INTEGER NOT NULL DEFAULT 0,
   created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, ref_code TEXT, metadata TEXT NOT NULL DEFAULT '{}', line_account_id TEXT REFERENCES line_accounts(id), first_tracked_link_id TEXT REFERENCES tracked_links (id) ON DELETE SET NULL);
+, ref_code TEXT, metadata TEXT NOT NULL DEFAULT '{}', line_account_id TEXT REFERENCES line_accounts(id), first_tracked_link_id TEXT REFERENCES tracked_links (id) ON DELETE SET NULL, provider_line_user_id TEXT);
 
 CREATE TABLE google_calendar_connections (
   id            TEXT PRIMARY KEY,
@@ -513,7 +513,7 @@ CREATE TABLE incoming_webhooks (
   is_active   INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT);
 
 CREATE TABLE line_accounts (
   id                     TEXT PRIMARY KEY,
@@ -748,7 +748,7 @@ CREATE TABLE outgoing_webhooks (
   is_active   INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT);
 
 CREATE TABLE pharmacy_account_capabilities (
   line_account_id TEXT PRIMARY KEY REFERENCES line_accounts(id) ON DELETE CASCADE,
@@ -820,6 +820,216 @@ CREATE TABLE pharmacy_continuity_obligations (
     REFERENCES pharmacy_prescription_submissions(id, line_account_id, friend_id)
 );
 
+CREATE TABLE pharmacy_data_subject_request_events (
+  id              TEXT PRIMARY KEY,
+  request_id      TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  event_type      TEXT NOT NULL
+    CHECK (event_type IN ('received', 'identity_verified', 'legal_hold_assessed',
+                          'resolved', 'rejected')),
+  actor_staff_id  TEXT NOT NULL,
+  detail          TEXT CHECK (detail IS NULL OR length(detail) <= 2000),
+  occurred_at     TEXT NOT NULL,
+  UNIQUE (line_account_id, request_id, event_type),
+  FOREIGN KEY (request_id, line_account_id)
+    REFERENCES pharmacy_data_subject_requests(id, line_account_id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, actor_staff_id)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_data_subject_requests (
+  id                     TEXT PRIMARY KEY,
+  tenant_id              TEXT NOT NULL,
+  line_account_id        TEXT NOT NULL,
+  owner_friend_id        TEXT NOT NULL,
+  patient_id             TEXT NOT NULL,
+  request_type           TEXT NOT NULL
+    CHECK (request_type IN ('access', 'correction', 'suspension', 'erasure')),
+  status                 TEXT NOT NULL DEFAULT 'received'
+    CHECK (status IN ('received', 'identity_verified', 'legal_hold_assessed',
+                      'resolved', 'rejected')),
+  reason                 TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 1000),
+  legal_hold             INTEGER CHECK (legal_hold IS NULL OR legal_hold IN (0, 1)),
+  legal_hold_basis       TEXT CHECK (legal_hold_basis IS NULL OR
+                                     legal_hold_basis = 'pharmacist_law_enforcement_regulation_3y'),
+  legal_hold_release_at  TEXT,
+  outcome_note           TEXT CHECK (outcome_note IS NULL OR length(outcome_note) <= 2000),
+  version                INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  submitted_at           TEXT NOT NULL,
+  identity_verified_at   TEXT,
+  legal_hold_assessed_at TEXT,
+  resolved_at            TEXT,
+  resolved_by            TEXT,
+  created_by             TEXT NOT NULL,
+  created_at             TEXT NOT NULL,
+  updated_at             TEXT NOT NULL,
+  UNIQUE (id, line_account_id),
+  -- 本人確認前に法定保存判定へ進めない / 判定前に結果を確定できない。
+  CHECK (status <> 'identity_verified' OR identity_verified_at IS NOT NULL),
+  CHECK (status <> 'legal_hold_assessed' OR
+         (identity_verified_at IS NOT NULL AND legal_hold IS NOT NULL AND
+          legal_hold_assessed_at IS NOT NULL)),
+  CHECK (status NOT IN ('resolved', 'rejected') OR
+         (legal_hold IS NOT NULL AND resolved_at IS NOT NULL AND
+          resolved_by IS NOT NULL AND outcome_note IS NOT NULL)),
+  -- 法定保存期間中は消去・利用停止に応じられない。応じられない旨を記録して
+  -- 'rejected' で閉じるしかない構造にする(アプリ側の判断に依存させない)。
+  CHECK (status <> 'resolved' OR legal_hold = 0 OR
+         request_type IN ('access', 'correction')),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id),
+  FOREIGN KEY (line_account_id, created_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id),
+  FOREIGN KEY (line_account_id, resolved_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_admin_events (
+  id                TEXT PRIMARY KEY,
+  line_account_id   TEXT NOT NULL,
+  event_type        TEXT NOT NULL CHECK (event_type = 'inventory_updated'),
+  aggregate_id      TEXT NOT NULL,
+  actor_id          TEXT NOT NULL,
+  resulting_version INTEGER NOT NULL CHECK (resulting_version >= 1),
+  on_hand           INTEGER NOT NULL CHECK (on_hand >= 0),
+  occurred_at       TEXT NOT NULL,
+  FOREIGN KEY (line_account_id, actor_id)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_intake_events (
+  id              TEXT PRIMARY KEY,
+  intake_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  event_type      TEXT NOT NULL
+    CHECK (event_type IN ('created', 'reviewed', 'completed', 'cancelled', 'expired')),
+  actor_type      TEXT NOT NULL CHECK (actor_type IN ('patient', 'staff', 'system')),
+  actor_id        TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 160),
+  occurred_at     TEXT NOT NULL,
+  UNIQUE (line_account_id, idempotency_key),
+  FOREIGN KEY (intake_id, line_account_id)
+    REFERENCES pharmacy_emergency_intakes(id, line_account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_emergency_intakes (
+  id                  TEXT PRIMARY KEY,
+  reference_code      TEXT NOT NULL UNIQUE CHECK (length(reference_code) BETWEEN 12 AND 64),
+  tenant_id           TEXT NOT NULL,
+  line_account_id     TEXT NOT NULL,
+  owner_friend_id     TEXT NOT NULL,
+  slot_id             TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'provisional'
+    CHECK (status IN ('provisional', 'reviewed', 'completed', 'cancelled', 'expired')),
+  encrypted_payload   TEXT NOT NULL,
+  payload_key_version INTEGER NOT NULL DEFAULT 1 CHECK (payload_key_version >= 1),
+  age_band            TEXT NOT NULL CHECK (age_band IN ('under_16', '16_17', 'adult')),
+  safe_contact_mode   TEXT NOT NULL
+    CHECK (safe_contact_mode IN ('neutral_line', 'no_notification', 'phone', 'none')),
+  consent_version     TEXT NOT NULL,
+  risk_flags_json     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(risk_flags_json)),
+  -- Product the hold was taken against, captured from pharmacy_emergency_settings
+  -- at creation time. An account may stock several products at once, and settings
+  -- only point at the currently active one, so completion must not re-resolve it.
+  product_code        TEXT,
+  idempotency_key     TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 160),
+  expires_at          TEXT NOT NULL,
+  reviewed_by         TEXT,
+  reviewed_at         TEXT,
+  closed_by           TEXT,
+  closed_at           TEXT,
+  version             INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
+  UNIQUE (id, line_account_id),
+  UNIQUE (line_account_id, idempotency_key),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id),
+  FOREIGN KEY (owner_friend_id, line_account_id)
+    REFERENCES friends(id, line_account_id),
+  FOREIGN KEY (slot_id, line_account_id)
+    REFERENCES pharmacy_emergency_slots(id, line_account_id),
+  FOREIGN KEY (line_account_id, reviewed_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id),
+  FOREIGN KEY (line_account_id, closed_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_inventory (
+  line_account_id TEXT NOT NULL,
+  product_code    TEXT NOT NULL,
+  on_hand         INTEGER NOT NULL CHECK (on_hand >= 0),
+  version         INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  updated_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (line_account_id, product_code),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, updated_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_pharmacists (
+  line_account_id              TEXT NOT NULL,
+  staff_id                     TEXT NOT NULL,
+  training_registration_number TEXT NOT NULL,
+  is_active                    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at                   TEXT NOT NULL,
+  updated_at                   TEXT NOT NULL,
+  PRIMARY KEY (line_account_id, staff_id),
+  FOREIGN KEY (line_account_id, staff_id)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_emergency_settings (
+  line_account_id              TEXT PRIMARY KEY,
+  is_enabled                   INTEGER NOT NULL DEFAULT 0 CHECK (is_enabled IN (0, 1)),
+  pharmacy_registration_number TEXT NOT NULL,
+  product_code                 TEXT NOT NULL,
+  manufacturer_check_url       TEXT NOT NULL,
+  privacy_policy_url           TEXT NOT NULL,
+  privacy_contact              TEXT NOT NULL,
+  purpose_text                 TEXT NOT NULL,
+  consent_version              TEXT NOT NULL,
+  retention_days               INTEGER NOT NULL CHECK (retention_days BETWEEN 1 AND 365),
+  consultation_minutes         INTEGER NOT NULL CHECK (consultation_minutes BETWEEN 1 AND 180),
+  reservation_ttl_minutes      INTEGER NOT NULL CHECK (reservation_ttl_minutes BETWEEN 5 AND 1440),
+  privacy_space_ready          INTEGER NOT NULL DEFAULT 0 CHECK (privacy_space_ready IN (0, 1)),
+  drinking_water_ready         INTEGER NOT NULL DEFAULT 0 CHECK (drinking_water_ready IN (0, 1)),
+  partner_clinic_url           TEXT NOT NULL,
+  support_center_url           TEXT NOT NULL,
+  updated_by                   TEXT NOT NULL,
+  created_at                   TEXT NOT NULL,
+  updated_at                   TEXT NOT NULL,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, updated_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_slots (
+  id                  TEXT PRIMARY KEY,
+  line_account_id     TEXT NOT NULL,
+  pharmacist_staff_id TEXT NOT NULL,
+  starts_at           TEXT NOT NULL,
+  ends_at             TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open', 'cancelled')),
+  capacity            INTEGER NOT NULL DEFAULT 1 CHECK (capacity BETWEEN 1 AND 20),
+  version             INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_by          TEXT NOT NULL,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
+  UNIQUE (id, line_account_id),
+  UNIQUE (line_account_id, pharmacist_staff_id, starts_at),
+  CHECK (ends_at > starts_at),
+  FOREIGN KEY (line_account_id, pharmacist_staff_id)
+    REFERENCES pharmacy_emergency_pharmacists(line_account_id, staff_id),
+  FOREIGN KEY (line_account_id, created_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
 CREATE TABLE pharmacy_fulfillment_quotes (
   id                    TEXT PRIMARY KEY,
   submission_id         TEXT NOT NULL,
@@ -855,6 +1065,39 @@ CREATE TABLE pharmacy_growth_events (
   metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
   created_at TEXT NOT NULL,
   UNIQUE (line_account_id, idempotency_key)
+);
+
+CREATE TABLE pharmacy_line_channel_identities (
+  line_account_id TEXT PRIMARY KEY,
+  bot_user_id     TEXT NOT NULL UNIQUE CHECK (length(bot_user_id) BETWEEN 2 AND 128),
+  created_at      TEXT NOT NULL,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts (id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_line_credentials (
+  tenant_id       TEXT NOT NULL CHECK (length(tenant_id) > 0),
+  line_account_id TEXT NOT NULL CHECK (length(line_account_id) > 0),
+  credential_kind TEXT NOT NULL CHECK (
+    credential_kind IN ('channel_access_token', 'channel_secret', 'login_channel_secret')
+  ),
+  nonce           TEXT NOT NULL CHECK (length(nonce) > 0),
+  ciphertext      TEXT NOT NULL CHECK (length(ciphertext) > 0),
+  key_version     INTEGER NOT NULL DEFAULT 1 CHECK (key_version >= 1),
+  revision        INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  lookup_digest   TEXT,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (tenant_id, line_account_id, credential_kind),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts (tenant_id, line_account_id) ON DELETE CASCADE,
+  CHECK (
+    (credential_kind = 'channel_access_token' AND
+     lookup_digest IS NOT NULL AND
+     length(lookup_digest) = 64 AND
+     lookup_digest NOT GLOB '*[^0-9a-f]*')
+    OR
+    (credential_kind <> 'channel_access_token' AND lookup_digest IS NULL)
+  )
 );
 
 CREATE TABLE pharmacy_medical_sources (
@@ -1083,6 +1326,49 @@ CREATE TABLE pharmacy_notification_events (
     REFERENCES friends(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_patient_intake_envelopes (
+  response_id       TEXT NOT NULL,
+  tenant_id         TEXT NOT NULL,
+  line_account_id   TEXT NOT NULL,
+  owner_friend_id   TEXT NOT NULL,
+  patient_id        TEXT NOT NULL,
+  field_name        TEXT NOT NULL
+    CHECK (field_name IN ('patient_snapshot_json', 'answers_json')),
+  schema_version    INTEGER NOT NULL CHECK (schema_version >= 1),
+  source_revision   INTEGER NOT NULL CHECK (source_revision >= 1),
+  envelope_version  INTEGER NOT NULL CHECK (envelope_version >= 1),
+  key_version       INTEGER NOT NULL CHECK (key_version >= 1),
+  nonce             TEXT NOT NULL CHECK (length(nonce) = 16),
+  ciphertext        TEXT NOT NULL CHECK (length(ciphertext) BETWEEN 22 AND 90000),
+  encrypted_at      TEXT NOT NULL CHECK (length(encrypted_at) >= 20),
+  PRIMARY KEY (response_id, field_name),
+  UNIQUE (key_version, nonce),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id),
+  FOREIGN KEY (
+    response_id, patient_id, line_account_id, owner_friend_id, schema_version, source_revision
+  ) REFERENCES pharmacy_patient_intake_responses (
+    id, patient_id, line_account_id, owner_friend_id, schema_version, revision
+  ) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_patient_intake_migration_state (
+  tenant_id          TEXT NOT NULL,
+  line_account_id    TEXT PRIMARY KEY,
+  phase              TEXT NOT NULL
+    CHECK (phase IN ('frozen', 'scrubbing', 'scrubbed', 'restoring', 'restored')),
+  coverage_total     INTEGER NOT NULL CHECK (coverage_total >= 0),
+  coverage_digest    TEXT NOT NULL CHECK (
+    length(coverage_digest) = 64 AND coverage_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  approved_by        TEXT NOT NULL CHECK (length(approved_by) BETWEEN 1 AND 120),
+  approval_reference TEXT NOT NULL CHECK (length(approval_reference) BETWEEN 1 AND 240),
+  approved_at        TEXT NOT NULL CHECK (length(approved_at) >= 20),
+  updated_at         TEXT NOT NULL CHECK (length(updated_at) >= 20),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id)
+);
+
 CREATE TABLE pharmacy_patient_intake_responses (
   id                          TEXT PRIMARY KEY,
   line_account_id             TEXT NOT NULL,
@@ -1097,7 +1383,7 @@ CREATE TABLE pharmacy_patient_intake_responses (
   idempotency_key             TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
   representative_consent_at  TEXT NOT NULL,
   privacy_consent_at          TEXT NOT NULL,
-  created_at                  TEXT NOT NULL,
+  created_at                  TEXT NOT NULL, privacy_policy_version INTEGER, privacy_policy_hash TEXT,
   UNIQUE (id, patient_id, line_account_id, owner_friend_id),
   UNIQUE (line_account_id, patient_id, revision),
   UNIQUE (line_account_id, owner_friend_id, patient_id, idempotency_key),
@@ -1123,6 +1409,23 @@ CREATE TABLE pharmacy_patients (
   UNIQUE (id, line_account_id, owner_friend_id),
   FOREIGN KEY (owner_friend_id, line_account_id)
     REFERENCES friends(id, line_account_id)
+);
+
+CREATE TABLE pharmacy_phi_retention_purge_log (
+  id                TEXT PRIMARY KEY,
+  tenant_id         TEXT,
+  line_account_id   TEXT,
+  resource_type     TEXT NOT NULL
+    CHECK (resource_type IN ('prescription_file')),
+  resource_id       TEXT NOT NULL,
+  r2_key            TEXT,
+  -- The timestamp the 3-year boundary was measured against, copied verbatim
+  -- from the purged row. Without it the log cannot prove the row was actually
+  -- past retention rather than deleted early.
+  age_reference_at  TEXT NOT NULL,
+  retention_years   INTEGER NOT NULL CHECK (retention_years >= 1),
+  purged_at         TEXT NOT NULL,
+  UNIQUE (resource_type, resource_id)
 );
 
 CREATE TABLE pharmacy_prescription_events (
@@ -1224,7 +1527,9 @@ CREATE TABLE pharmacy_prescription_submissions (
   created_at                       TEXT NOT NULL,
   updated_at                       TEXT NOT NULL, intake_required INTEGER NOT NULL DEFAULT 0
   CHECK (intake_required IN (0, 1)), intake_method TEXT NOT NULL DEFAULT 'PAPER' CHECK
-    (intake_method IN ('E_PRESCRIPTION','PAPER','MEDICAL_INSTITUTION_SENT')), source_handoff_id TEXT,
+    (intake_method IN ('E_PRESCRIPTION','PAPER','MEDICAL_INSTITUTION_SENT')), source_handoff_id TEXT, desired_fulfillment_method TEXT CHECK (
+    desired_fulfillment_method IS NULL OR desired_fulfillment_method IN ('PICKUP','DELIVERY')
+  ), arrival_reported_at TEXT,
   UNIQUE (line_account_id, friend_id, idempotency_key),
   FOREIGN KEY (friend_id, line_account_id)
     REFERENCES friends(id, line_account_id)
@@ -1253,6 +1558,14 @@ CREATE TABLE pharmacy_prescription_validities (
     REFERENCES pharmacy_prescription_submissions(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_prescription_view_events (
+  id            TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL REFERENCES pharmacy_prescription_submissions(id) ON DELETE CASCADE,
+  file_id       TEXT NOT NULL REFERENCES pharmacy_prescription_files(id) ON DELETE CASCADE,
+  staff_id      TEXT NOT NULL,
+  viewed_at     TEXT NOT NULL
+);
+
 CREATE TABLE pharmacy_print_tasks (
   id                 TEXT PRIMARY KEY,
   line_account_id    TEXT NOT NULL,
@@ -1279,6 +1592,25 @@ CREATE TABLE pharmacy_print_tasks (
   UNIQUE (line_account_id, submission_id, revision),
   FOREIGN KEY (submission_id, line_account_id)
     REFERENCES pharmacy_prescription_submissions(id, line_account_id)
+);
+
+CREATE TABLE pharmacy_public_profiles (
+  line_account_id TEXT PRIMARY KEY,
+  display_name    TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 120),
+  phone           TEXT NOT NULL DEFAULT '' CHECK (length(phone) <= 40),
+  postal_code     TEXT NOT NULL DEFAULT '' CHECK (length(postal_code) <= 16),
+  address         TEXT NOT NULL CHECK (length(trim(address)) BETWEEN 1 AND 500),
+  business_hours  TEXT NOT NULL CHECK (length(trim(business_hours)) BETWEEN 1 AND 2000),
+  closure_notice  TEXT NOT NULL DEFAULT '' CHECK (length(closure_notice) <= 1000),
+  access_note     TEXT NOT NULL DEFAULT '' CHECK (length(access_note) <= 1000),
+  parking_note    TEXT NOT NULL DEFAULT '' CHECK (length(parking_note) <= 1000),
+  google_maps_url TEXT NOT NULL DEFAULT '' CHECK (length(google_maps_url) <= 2000),
+  updated_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL, prescription_reception_hours TEXT NOT NULL DEFAULT '' CHECK (length(prescription_reception_hours) <= 2000), after_hours_note TEXT NOT NULL DEFAULT '' CHECK (length(after_hours_note) <= 1000), services_note TEXT NOT NULL DEFAULT '' CHECK (length(services_note) <= 2000), accessibility_note TEXT NOT NULL DEFAULT '' CHECK (length(accessibility_note) <= 1000), supported_languages TEXT NOT NULL DEFAULT '' CHECK (length(supported_languages) <= 1000), payment_methods TEXT NOT NULL DEFAULT '' CHECK (length(payment_methods) <= 1000), website_url TEXT NOT NULL DEFAULT '' CHECK (length(website_url) <= 2000), fax_number TEXT NOT NULL DEFAULT '' CHECK (length(fax_number) <= 40),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, updated_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
 );
 
 CREATE TABLE pharmacy_staff_accounts (
@@ -1314,6 +1646,116 @@ CREATE TABLE pharmacy_submission_sources (
     REFERENCES pharmacy_prescription_submissions(id, line_account_id) ON DELETE CASCADE,
   FOREIGN KEY (source_id, line_account_id)
     REFERENCES pharmacy_medical_sources(id, line_account_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE pharmacy_tenant_admin_bootstraps (
+  tenant_id  TEXT PRIMARY KEY,
+  staff_id   TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (tenant_id, staff_id)
+    REFERENCES tenant_staff_memberships (tenant_id, staff_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE pharmacy_tenant_privacy_policy (
+  line_account_id  TEXT PRIMARY KEY,
+  purpose_text     TEXT NOT NULL CHECK (length(trim(purpose_text)) BETWEEN 1 AND 4000),
+  purpose_url      TEXT NOT NULL DEFAULT '' CHECK (length(purpose_url) <= 2000),
+  contact_point    TEXT NOT NULL CHECK (length(trim(contact_point)) BETWEEN 1 AND 1000),
+  entrustment_text TEXT NOT NULL CHECK (length(trim(entrustment_text)) BETWEEN 1 AND 2000),
+  policy_version   INTEGER NOT NULL DEFAULT 1 CHECK (policy_version >= 1),
+  content_hash     TEXT NOT NULL CHECK (length(content_hash) = 64),
+  updated_by       TEXT NOT NULL,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, updated_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_tenant_provisioning_requests (
+  idempotency_key_hash TEXT PRIMARY KEY
+                       CHECK (length(idempotency_key_hash) = 64
+                              AND idempotency_key_hash NOT GLOB '*[^0-9a-f]*'),
+  request_hash         TEXT NOT NULL,
+  actor_key_hash       TEXT NOT NULL,
+  tenant_id            TEXT NOT NULL,
+  line_account_id      TEXT NOT NULL,
+  staff_id             TEXT NOT NULL,
+  created_at           TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts (tenant_id, line_account_id) ON DELETE RESTRICT,
+  FOREIGN KEY (tenant_id, staff_id)
+    REFERENCES tenant_staff_memberships (tenant_id, staff_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE pharmacy_webhook_event_receipts (
+  tenant_id        TEXT NOT NULL,
+  line_account_id  TEXT NOT NULL,
+  webhook_event_id TEXT NOT NULL,
+  received_at      TEXT NOT NULL, payload TEXT, status TEXT NOT NULL DEFAULT 'completed'
+    CHECK (status IN ('pending', 'processing', 'completed', 'failed')), lease_until TEXT, retry_count INTEGER NOT NULL DEFAULT 0, dead_lettered_at TEXT,
+  PRIMARY KEY (tenant_id, line_account_id, webhook_event_id),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE platform_admin_access_events (
+  id                TEXT PRIMARY KEY,
+  platform_admin_id TEXT NOT NULL REFERENCES platform_admins(staff_id),
+  tenant_id         TEXT REFERENCES tenants(id),
+  action            TEXT NOT NULL,
+  resource_type     TEXT,
+  resource_id       TEXT,
+  detail_json       TEXT,
+  created_at        TEXT NOT NULL
+);
+
+CREATE TABLE platform_admin_access_grants (
+  id                 TEXT PRIMARY KEY,
+  platform_admin_id  TEXT NOT NULL REFERENCES platform_admins(staff_id),
+  tenant_id          TEXT NOT NULL REFERENCES tenants(id),
+  scopes             TEXT NOT NULL,       -- JSON array, e.g. ["phi:read"]
+  reason             TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 500),
+  ticket_reference   TEXT,
+  reauth_verified_at TEXT NOT NULL,       -- step-up: current password re-checked at grant issue time
+  issued_at          TEXT NOT NULL,
+  expires_at         TEXT NOT NULL,
+  revoked_at         TEXT,
+  revoked_by         TEXT
+, session_token_hash TEXT);
+
+CREATE TABLE platform_admin_credentials (
+  staff_id             TEXT PRIMARY KEY
+                        REFERENCES platform_admins(staff_id) ON DELETE CASCADE,
+  login_id             TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash        TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1
+                        CHECK (must_change_password IN (0, 1)),
+  credential_version   INTEGER NOT NULL DEFAULT 1
+                        CHECK (credential_version >= 1),
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL
+);
+
+CREATE TABLE platform_admin_sessions (
+  token_hash         TEXT PRIMARY KEY
+                      CHECK (length(token_hash) = 64
+                             AND token_hash NOT GLOB '*[^0-9a-f]*'),
+  staff_id           TEXT NOT NULL
+                      REFERENCES platform_admins(staff_id) ON DELETE CASCADE,
+  credential_version INTEGER NOT NULL CHECK (credential_version >= 1),
+  session_kind       TEXT NOT NULL CHECK (session_kind IN ('bootstrap', 'standard')),
+  expires_at         TEXT NOT NULL,
+  revoked_at         TEXT,
+  created_at         TEXT NOT NULL
+);
+
+CREATE TABLE platform_admins (
+  staff_id   TEXT PRIMARY KEY REFERENCES staff_members(id) ON DELETE CASCADE,
+  granted_by TEXT,
+  is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE pool_accounts (
@@ -1420,7 +1862,7 @@ CREATE TABLE scenarios (
   delivery_mode   TEXT NOT NULL DEFAULT 'relative' CHECK (delivery_mode IN ('relative', 'elapsed', 'absolute_time')),
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, line_account_id TEXT);
+, line_account_id TEXT, tenant_id TEXT);
 
 CREATE TABLE scoring_rules (
   id          TEXT PRIMARY KEY,
@@ -1471,7 +1913,7 @@ CREATE TABLE staff_members (
   is_active  INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, api_key_hash TEXT);
 
 CREATE TABLE staff_menus (
   staff_id                  TEXT NOT NULL,
@@ -1516,7 +1958,7 @@ CREATE TABLE tags (
   mileage_multiplier_bps      INTEGER CHECK (mileage_multiplier_bps IS NULL OR mileage_multiplier_bps BETWEEN 1000 AND 100000),
   mileage_multiplier_priority INTEGER NOT NULL DEFAULT 0,
   created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT);
 
 CREATE TABLE templates (
   id              TEXT PRIMARY KEY,
@@ -1527,6 +1969,70 @@ CREATE TABLE templates (
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
+
+CREATE TABLE tenant_admin_credentials (
+  tenant_id            TEXT NOT NULL,
+  staff_id             TEXT NOT NULL,
+  login_id             TEXT NOT NULL COLLATE NOCASE,
+  password_hash        TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1
+                       CHECK (must_change_password IN (0, 1)),
+  credential_version   INTEGER NOT NULL DEFAULT 1
+                       CHECK (credential_version >= 1),
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, staff_id),
+  UNIQUE (tenant_id, login_id),
+  FOREIGN KEY (tenant_id, staff_id)
+    REFERENCES tenant_staff_memberships (tenant_id, staff_id) ON DELETE CASCADE
+);
+
+CREATE TABLE tenant_admin_sessions (
+  token_hash         TEXT PRIMARY KEY
+                     CHECK (length(token_hash) = 64
+                            AND token_hash NOT GLOB '*[^0-9a-f]*'),
+  tenant_id          TEXT NOT NULL,
+  staff_id           TEXT NOT NULL,
+  credential_version INTEGER NOT NULL CHECK (credential_version >= 1),
+  session_kind       TEXT NOT NULL CHECK (session_kind IN ('bootstrap', 'standard')),
+  expires_at         TEXT NOT NULL,
+  revoked_at         TEXT,
+  created_at         TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, staff_id)
+    REFERENCES tenant_staff_memberships (tenant_id, staff_id) ON DELETE CASCADE
+);
+
+CREATE TABLE tenant_line_accounts (
+  tenant_id      TEXT NOT NULL,
+  line_account_id TEXT NOT NULL UNIQUE,
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (tenant_id, line_account_id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE tenant_staff_memberships (
+  tenant_id  TEXT NOT NULL,
+  staff_id   TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
+  is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (tenant_id, staff_id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (staff_id) REFERENCES staff_members(id) ON DELETE CASCADE
+);
+
+CREATE TABLE tenants (
+  id           TEXT PRIMARY KEY,
+  tenant_code  TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  display_name TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'active'
+               CHECK (status IN ('active', 'suspended')),
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+, outbound_messaging_paused_at TEXT);
 
 CREATE TABLE tracked_links (
   id TEXT PRIMARY KEY,
@@ -1840,8 +2346,19 @@ CREATE INDEX idx_health_logs_account ON account_health_logs (line_account_id);
 
 CREATE INDEX idx_idempotency_expires ON booking_idempotency_keys (expires_at);
 
+CREATE INDEX idx_incoming_webhooks_tenant_created
+  ON incoming_webhooks(tenant_id, created_at DESC);
+
 CREATE INDEX idx_line_accounts_display_order
   ON line_accounts (display_order, created_at);
+
+CREATE UNIQUE INDEX idx_line_accounts_liff_unique
+  ON line_accounts (liff_id)
+  WHERE liff_id IS NOT NULL AND liff_id != '';
+
+CREATE UNIQUE INDEX idx_line_accounts_login_channel_unique
+  ON line_accounts (login_channel_id)
+  WHERE login_channel_id IS NOT NULL AND login_channel_id != '';
 
 CREATE INDEX idx_link_clicks_friend ON link_clicks (friend_id);
 
@@ -1898,6 +2415,9 @@ CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
 
+CREATE INDEX idx_outgoing_webhooks_tenant_created
+  ON outgoing_webhooks(tenant_id, created_at DESC);
+
 CREATE INDEX idx_pharmacy_activity_notifications_open
   ON pharmacy_activity_notifications
      (line_account_id, acknowledged_at, created_at DESC, id DESC);
@@ -1918,6 +2438,30 @@ CREATE UNIQUE INDEX idx_pharmacy_continuity_open_patient
 CREATE INDEX idx_pharmacy_continuity_patient
   ON pharmacy_continuity_obligations (line_account_id, patient_id, created_at DESC, id);
 
+CREATE INDEX idx_pharmacy_data_subject_request_events_request
+  ON pharmacy_data_subject_request_events (line_account_id, request_id, occurred_at, id);
+
+CREATE INDEX idx_pharmacy_data_subject_requests_patient
+  ON pharmacy_data_subject_requests (line_account_id, patient_id, submitted_at DESC, id DESC);
+
+CREATE INDEX idx_pharmacy_data_subject_requests_queue
+  ON pharmacy_data_subject_requests (line_account_id, status, submitted_at DESC, id DESC);
+
+CREATE INDEX idx_pharmacy_emergency_admin_events_account
+  ON pharmacy_emergency_admin_events (line_account_id, occurred_at, id);
+
+CREATE INDEX idx_pharmacy_emergency_events_intake
+  ON pharmacy_emergency_intake_events (line_account_id, intake_id, occurred_at, id);
+
+CREATE INDEX idx_pharmacy_emergency_intakes_owner
+  ON pharmacy_emergency_intakes (line_account_id, owner_friend_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_pharmacy_emergency_intakes_queue
+  ON pharmacy_emergency_intakes (line_account_id, status, expires_at, created_at, id);
+
+CREATE INDEX idx_pharmacy_emergency_slots_available
+  ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);
+
 CREATE INDEX idx_pharmacy_fulfillment_quotes_decision
   ON pharmacy_fulfillment_quotes (line_account_id, decision, created_at DESC);
 
@@ -1929,6 +2473,10 @@ CREATE INDEX idx_pharmacy_growth_events_account_time
 
 CREATE INDEX idx_pharmacy_intake_responses_patient
   ON pharmacy_patient_intake_responses (line_account_id, patient_id, revision DESC, id DESC);
+
+CREATE INDEX idx_pharmacy_line_credentials_access_token
+  ON pharmacy_line_credentials (lookup_digest)
+  WHERE credential_kind = 'channel_access_token' AND lookup_digest IS NOT NULL;
 
 CREATE INDEX idx_pharmacy_medical_sources_account
   ON pharmacy_medical_sources(line_account_id, is_active, classification);
@@ -1980,12 +2528,26 @@ CREATE INDEX idx_pharmacy_next_intake_expectations_patient
 CREATE INDEX idx_pharmacy_notification_events_exposure
   ON pharmacy_notification_events(line_account_id, friend_id, occurred_at, category, outcome);
 
+CREATE INDEX idx_pharmacy_patient_intake_envelopes_scope
+  ON pharmacy_patient_intake_envelopes
+    (tenant_id, line_account_id, owner_friend_id, patient_id, response_id, field_name);
+
+CREATE INDEX idx_pharmacy_patient_intake_migration_state_scope
+  ON pharmacy_patient_intake_migration_state (tenant_id, line_account_id, phase);
+
+CREATE UNIQUE INDEX idx_pharmacy_patient_intake_responses_envelope_scope
+  ON pharmacy_patient_intake_responses
+    (id, patient_id, line_account_id, owner_friend_id, schema_version, revision);
+
 CREATE UNIQUE INDEX idx_pharmacy_patients_active_self
   ON pharmacy_patients (line_account_id, owner_friend_id)
   WHERE relationship = 'self' AND archived_at IS NULL;
 
 CREATE INDEX idx_pharmacy_patients_owner
   ON pharmacy_patients (line_account_id, owner_friend_id, archived_at, updated_at DESC, id);
+
+CREATE INDEX idx_pharmacy_phi_retention_purge_log_purged
+  ON pharmacy_phi_retention_purge_log (purged_at, resource_type);
 
 CREATE INDEX idx_pharmacy_prescription_events_submission
   ON pharmacy_prescription_events (submission_id, created_at, id);
@@ -2011,6 +2573,9 @@ CREATE UNIQUE INDEX idx_pharmacy_prescription_submissions_scope
 CREATE INDEX idx_pharmacy_prescription_validities_queue
   ON pharmacy_prescription_validities(line_account_id, verification_status, reminder_due_at);
 
+CREATE INDEX idx_pharmacy_prescription_view_events_submission
+  ON pharmacy_prescription_view_events (submission_id, viewed_at);
+
 CREATE INDEX idx_pharmacy_prescriptions_account_status_requested
   ON pharmacy_prescription_submissions (line_account_id, status, requested_at, id);
 
@@ -2025,6 +2590,31 @@ CREATE INDEX idx_pharmacy_staff_accounts_staff
 
 CREATE INDEX idx_pharmacy_submission_sources_account
   ON pharmacy_submission_sources(line_account_id, classification, entered_at);
+
+CREATE INDEX idx_pharmacy_tenant_provisioning_tenant
+  ON pharmacy_tenant_provisioning_requests (tenant_id, created_at);
+
+CREATE INDEX idx_pharmacy_webhook_event_receipts_received
+  ON pharmacy_webhook_event_receipts (received_at);
+
+CREATE INDEX idx_pharmacy_webhook_event_receipts_sweep
+  ON pharmacy_webhook_event_receipts (lease_until, received_at)
+  WHERE status <> 'completed' AND dead_lettered_at IS NULL;
+
+CREATE INDEX idx_platform_admin_access_events_admin
+  ON platform_admin_access_events (platform_admin_id, created_at);
+
+CREATE INDEX idx_platform_admin_access_events_tenant
+  ON platform_admin_access_events (tenant_id, created_at);
+
+CREATE INDEX idx_platform_admin_access_grants_active
+  ON platform_admin_access_grants (platform_admin_id, tenant_id, expires_at, revoked_at);
+
+CREATE INDEX idx_platform_admin_sessions_staff
+  ON platform_admin_sessions (staff_id, revoked_at, expires_at);
+
+CREATE UNIQUE INDEX idx_platform_admins_one_key_bootstrap
+  ON platform_admins (granted_by) WHERE granted_by = 'platform-admin-key';
 
 CREATE INDEX idx_ref_tracking_friend ON ref_tracking (friend_id);
 
@@ -2046,6 +2636,9 @@ CREATE INDEX idx_rich_menu_pages_group    ON rich_menu_pages(group_id, order_ind
 
 CREATE INDEX idx_scenario_steps_scenario_id ON scenario_steps (scenario_id);
 
+CREATE INDEX idx_scenarios_tenant_account
+  ON scenarios (tenant_id, line_account_id);
+
 CREATE INDEX idx_shifts_staff_date ON staff_shifts (staff_id, work_date);
 
 CREATE INDEX idx_staff_account_sort ON staff (line_account_id, sort_order);
@@ -2055,13 +2648,31 @@ CREATE INDEX idx_staff_availability_rules_staff
 
 CREATE UNIQUE INDEX idx_staff_members_api_key ON staff_members(api_key);
 
+CREATE UNIQUE INDEX idx_staff_members_api_key_hash
+  ON staff_members(api_key_hash);
+
 CREATE INDEX idx_staff_members_role ON staff_members(role);
 
 CREATE INDEX idx_stripe_events_friend ON stripe_events (friend_id);
 
 CREATE INDEX idx_stripe_events_type ON stripe_events (event_type);
 
+CREATE INDEX idx_tags_tenant_name
+  ON tags(tenant_id, name);
+
 CREATE INDEX idx_templates_category ON templates (category);
+
+CREATE INDEX idx_tenant_admin_credentials_login
+  ON tenant_admin_credentials (tenant_id, login_id);
+
+CREATE INDEX idx_tenant_admin_sessions_staff
+  ON tenant_admin_sessions (tenant_id, staff_id, revoked_at, expires_at);
+
+CREATE INDEX idx_tenant_line_accounts_tenant
+  ON tenant_line_accounts (tenant_id, line_account_id);
+
+CREATE INDEX idx_tenant_staff_memberships_staff
+  ON tenant_staff_memberships (staff_id, is_active, tenant_id);
 
 CREATE UNIQUE INDEX idx_tracked_links_dedup_key
   ON tracked_links (dedup_key) WHERE dedup_key IS NOT NULL;
@@ -2112,6 +2723,14 @@ CREATE INDEX idx_webinar_user_comments_webinar
 CREATE INDEX idx_webinar_viewers_webinar
   ON webinar_viewers (webinar_id, session_start_at);
 
+CREATE UNIQUE INDEX uq_friends_account_provider_user
+  ON friends (line_account_id, provider_line_user_id)
+  WHERE line_account_id IS NOT NULL AND provider_line_user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX uq_friends_unowned_provider_user
+  ON friends (provider_line_user_id)
+  WHERE line_account_id IS NULL AND provider_line_user_id IS NOT NULL;
+
 CREATE UNIQUE INDEX uq_google_calendar_connections_active_staff
   ON google_calendar_connections (staff_id)
   WHERE staff_id IS NOT NULL AND is_active = 1;
@@ -2119,6 +2738,140 @@ CREATE UNIQUE INDEX uq_google_calendar_connections_active_staff
 CREATE UNIQUE INDEX uq_rich_menu_groups_account_generator
   ON rich_menu_groups (account_id, generator_key)
   WHERE generator_key IS NOT NULL;
+
+CREATE TRIGGER friends_account_immutable BEFORE UPDATE OF line_account_id ON friends WHEN OLD.line_account_id IS NOT NULL AND NEW.line_account_id IS NOT OLD.line_account_id BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;
+
+CREATE TRIGGER friends_provider_id_compat_insert AFTER INSERT ON friends WHEN NEW.provider_line_user_id IS NULL BEGIN UPDATE friends SET provider_line_user_id = NEW.line_user_id WHERE id = NEW.id; END;
+
+CREATE TRIGGER friends_provider_id_required_update BEFORE UPDATE OF provider_line_user_id ON friends WHEN NEW.provider_line_user_id IS NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_PROVIDER_LINE_USER_ID_REQUIRED'); END;
+
+CREATE TRIGGER line_accounts_default_pharmacy_capability AFTER INSERT ON line_accounts BEGIN INSERT OR IGNORE INTO pharmacy_account_capabilities (line_account_id, mode, capabilities_json, proactive_monthly_limit, unfollow_alert_state, created_at, updated_at) VALUES (NEW.id, 'pharmacy', '["prescription_intake","patient_intake","fulfillment_quote","continuity","medication_followup","manual_chat","pharmacy_rich_menu","account_settings","pharmacy_dashboard"]', 1, 'alert_only', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')); END;
+
+CREATE TRIGGER pharmacy_continuity_events_submission_scope_insert BEFORE INSERT ON pharmacy_continuity_events WHEN NEW.submission_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_submissions AS submission WHERE submission.id = NEW.submission_id AND submission.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_CONTINUITY_SUBMISSION_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_continuity_events_submission_scope_update BEFORE UPDATE OF submission_id, line_account_id ON pharmacy_continuity_events WHEN NEW.submission_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_submissions AS submission WHERE submission.id = NEW.submission_id AND submission.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_CONTINUITY_SUBMISSION_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_data_subject_events_no_delete
+BEFORE DELETE ON pharmacy_data_subject_request_events
+BEGIN SELECT RAISE(ABORT, 'DATA_SUBJECT_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_data_subject_events_no_update
+BEFORE UPDATE ON pharmacy_data_subject_request_events
+BEGIN SELECT RAISE(ABORT, 'DATA_SUBJECT_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_admin_events_no_delete
+BEFORE DELETE ON pharmacy_emergency_admin_events
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_admin_events_no_update
+BEFORE UPDATE ON pharmacy_emergency_admin_events
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_completion_consume_stock
+AFTER UPDATE OF status ON pharmacy_emergency_intakes
+WHEN NEW.status = 'completed' AND OLD.status <> 'completed'
+BEGIN UPDATE pharmacy_emergency_inventory
+     SET on_hand = on_hand - 1,
+         version = version + 1,
+         updated_at = NEW.updated_at
+   WHERE line_account_id = NEW.line_account_id
+     AND product_code = NEW.product_code; END;
+
+CREATE TRIGGER pharmacy_emergency_completion_stock_guard
+BEFORE UPDATE OF status ON pharmacy_emergency_intakes
+WHEN NEW.status = 'completed' AND OLD.status <> 'completed' AND NOT EXISTS (
+  SELECT 1
+    FROM pharmacy_emergency_inventory AS inventory
+   WHERE inventory.line_account_id = NEW.line_account_id
+     AND inventory.product_code = NEW.product_code
+     AND inventory.on_hand > 0
+)
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_events_no_delete
+BEFORE DELETE ON pharmacy_emergency_intake_events
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_events_no_update
+BEFORE UPDATE ON pharmacy_emergency_intake_events
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_intake_readiness
+BEFORE INSERT ON pharmacy_emergency_intakes
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM pharmacy_emergency_settings AS settings
+    INNER JOIN pharmacy_emergency_slots AS slot
+            ON slot.id = NEW.slot_id
+           AND slot.line_account_id = settings.line_account_id
+           AND slot.status = 'open'
+           AND slot.starts_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    INNER JOIN pharmacy_emergency_pharmacists AS pharmacist
+            ON pharmacist.line_account_id = slot.line_account_id
+           AND pharmacist.staff_id = slot.pharmacist_staff_id
+           AND pharmacist.is_active = 1
+   WHERE settings.line_account_id = NEW.line_account_id
+     AND settings.is_enabled = 1
+     AND settings.privacy_space_ready = 1
+     AND settings.drinking_water_ready = 1
+     AND length(trim(settings.pharmacy_registration_number)) > 0
+     AND length(trim(settings.product_code)) > 0
+     AND length(trim(settings.manufacturer_check_url)) > 0
+     AND length(trim(settings.privacy_policy_url)) > 0
+     AND length(trim(settings.privacy_contact)) > 0
+     AND length(trim(settings.partner_clinic_url)) > 0
+     AND length(trim(settings.support_center_url)) > 0
+)
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SERVICE_NOT_READY'); END;
+
+CREATE TRIGGER pharmacy_emergency_intake_slot_capacity
+BEFORE INSERT ON pharmacy_emergency_intakes
+WHEN (
+  SELECT COUNT(*)
+    FROM pharmacy_emergency_intakes AS active
+   WHERE active.line_account_id = NEW.line_account_id
+     AND active.slot_id = NEW.slot_id
+     AND active.status IN ('provisional', 'reviewed')
+     AND active.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+) >= COALESCE((
+  SELECT slot.capacity
+    FROM pharmacy_emergency_slots AS slot
+   WHERE slot.id = NEW.slot_id AND slot.line_account_id = NEW.line_account_id
+), 0)
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SLOT_UNAVAILABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_intake_stock
+BEFORE INSERT ON pharmacy_emergency_intakes
+WHEN (
+  SELECT COUNT(*)
+    FROM pharmacy_emergency_intakes AS active
+   WHERE active.line_account_id = NEW.line_account_id
+     AND active.product_code = NEW.product_code
+     AND active.status IN ('provisional', 'reviewed')
+     AND active.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+) >= COALESCE((
+  SELECT inventory.on_hand
+    FROM pharmacy_emergency_inventory AS inventory
+   WHERE inventory.line_account_id = NEW.line_account_id
+     AND inventory.product_code = NEW.product_code
+), 0)
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
+
+CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF expectation_id, line_account_id ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_patient_intake_base_scope_insert BEFORE INSERT ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_patient_intake_base_scope_update BEFORE UPDATE OF base_response_id, line_account_id, owner_friend_id, patient_id ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_insert BEFORE INSERT ON pharmacy_prescription_submissions WHEN NEW.source_handoff_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_myna_handoffs AS handoff WHERE handoff.id = NEW.source_handoff_id AND handoff.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_update BEFORE UPDATE OF source_handoff_id, line_account_id ON pharmacy_prescription_submissions WHEN NEW.source_handoff_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_myna_handoffs AS handoff WHERE handoff.id = NEW.source_handoff_id AND handoff.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_staff_accounts_tenant_update BEFORE UPDATE OF line_account_id, staff_id ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 
 INSERT INTO auto_replies (id, keyword, match_type, response_type, response_content, template_id, line_account_id, is_active, created_at)
 VALUES ('builtin-mileage-wallet-keyword', 'マイル', 'exact', 'flex', '{"type":"bubble","size":"kilo","body":{"type":"box","layout":"vertical","paddingAll":"20px","contents":[{"type":"text","text":"あなたのHarnessマイル","weight":"bold","size":"lg","color":"#1e293b"},{"type":"text","text":"現在のマイル、獲得履歴、登録済みアカウント、次にマイルを獲得できる行動を確認できます。","wrap":true,"size":"sm","color":"#64748b","margin":"md"}]},"footer":{"type":"box","layout":"vertical","paddingAll":"16px","contents":[{"type":"button","style":"primary","color":"#06C755","height":"sm","action":{"type":"uri","label":"マイルを確認する","uri":"https://liff.line.me/{{liff_id}}/?page=affiliate&liffId={{liff_id}}"}}]}}', NULL, NULL, 1, '2026-08-11T00:00:00.000+09:00');

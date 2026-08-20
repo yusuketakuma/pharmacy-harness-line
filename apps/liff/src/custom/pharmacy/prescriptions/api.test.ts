@@ -10,6 +10,30 @@ import { prescriptionApi } from './api.js';
 afterEach(() => vi.restoreAllMocks());
 
 describe('prescriptionApi', () => {
+  it('reports arrival with the current version', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+    await prescriptionApi.arrive('submission-1', '2026-08-17T00:00:00.000Z');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/submission-1/arrival');
+  });
+
+  it('submits the current pickup request and confirmations', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+    await prescriptionApi.submit('submission-1', {
+      expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+      desiredPickupAt: '2026-08-19T09:00:00.000Z',
+      desiredFulfillmentMethod: 'DELIVERY',
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+      desiredPickupAt: '2026-08-19T09:00:00.000Z',
+      desiredFulfillmentMethod: 'DELIVERY',
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    });
+  });
+
   it('uploads the original image body with LINE auth and LIFF account context', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ file: { id: 'file-1', state: 'ready' } }), {

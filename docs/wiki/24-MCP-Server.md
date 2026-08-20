@@ -18,6 +18,7 @@ LINE Harness MCP Server は [Model Context Protocol](https://modelcontextprotoco
       "env": {
         "LINE_HARNESS_API_URL": "https://your-worker.workers.dev",
         "LINE_HARNESS_API_KEY": "your-api-key",
+        "LINE_HARNESS_TENANT_ID": "your-tenant-id",
         "LINE_HARNESS_ACCOUNT_ID": "your-line-account-id"
       }
     }
@@ -25,7 +26,7 @@ LINE Harness MCP Server は [Model Context Protocol](https://modelcontextprotoco
 }
 ```
 
-`LINE_HARNESS_ACCOUNT_ID` はリッチメニュー操作の必須固定スコープです。未設定・別アカウント指定は実行前に拒否されます。
+`LINE_HARNESS_TENANT_ID` は全API呼び出しの必須テナント境界です。`LINE_HARNESS_ACCOUNT_ID` はそのテナント内でリッチメニュー操作を固定する追加スコープです。
 
 ### Codex
 
@@ -39,6 +40,7 @@ args = ["-y", "@line-harness/mcp-server@latest"]
 [mcp_servers.line-harness.env]
 LINE_HARNESS_API_URL = "https://your-worker.workers.dev"
 LINE_HARNESS_API_KEY = "your-api-key"
+LINE_HARNESS_TENANT_ID = "your-tenant-id"
 LINE_HARNESS_ACCOUNT_ID = "your-line-account-id"
 ```
 
@@ -52,6 +54,7 @@ pnpm build
 # 実行
 LINE_HARNESS_API_URL=https://your-worker.workers.dev \
 LINE_HARNESS_API_KEY=your-api-key \
+LINE_HARNESS_TENANT_ID=your-tenant-id \
 LINE_HARNESS_ACCOUNT_ID=your-line-account-id \
 node dist/index.js
 ```

@@ -44,6 +44,4 @@ jobs:
       - run: pnpm --filter worker test
       - run: pnpm --filter worker build
         env:
-          VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
-          VITE_BOT_BASIC_ID: ${{ vars.VITE_BOT_BASIC_ID }}
           VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}

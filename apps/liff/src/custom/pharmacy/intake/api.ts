@@ -36,6 +36,18 @@ export interface PatientIntake {
   created_at: string;
 }
 
+/**
+ * The pharmacy's own APPI notice. The pharmacy — not the platform operator — is the
+ * 個人情報取扱事業者, so every string here is authored by that pharmacy.
+ */
+export interface TenantPrivacyPolicy {
+  purpose_text: string;
+  purpose_url: string;
+  contact_point: string;
+  entrustment_text: string;
+  policy_version: number;
+}
+
 export interface PatientIntakeAnswers {
   allergiesStatus: 'none' | 'yes' | 'unknown';
   allergiesDetail?: string;
@@ -105,6 +117,9 @@ export const patientIntakeApi = {
     addressLine2: string | null;
   }) => patchJson<{ status: 'updated' }>(
     `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}`, body,
+  ),
+  privacyPolicy: () => request<{ policy: TenantPrivacyPolicy | null }>(
+    '/api/liff/pharmacy/privacy-policy',
   ),
   latest: (patientId: string) => request<{ intake: PatientIntake | null }>(
     `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}/intake`,

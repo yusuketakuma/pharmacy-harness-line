@@ -20,18 +20,46 @@ vi.mock('@line-crm/db', () => dbMocks);
 const worker = (await import('../index.js')).default;
 
 const API_KEY = 'test-owner-key';
-const statement = { bind: () => statement, first: async () => null };
+const tenantDb = {
+  prepare(sql: string) {
+    let binds: unknown[] = [];
+    const statement = {
+      bind: (...args: unknown[]) => {
+        binds = args;
+        return statement;
+      },
+      first: async () => {
+        if (sql.includes('FROM tenants')) {
+          return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
+        }
+        if (sql.includes('FROM friends AS friend')) {
+          return binds[1] === 'ghost' ? null : { line_account_id: 'generic-a' };
+        }
+        if (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities')) {
+          return { ok: 1 };
+        }
+        return null;
+      },
+      all: async () => ({
+        results: sql.includes('FROM tenant_line_accounts') ? [{ line_account_id: 'generic-a' }] : [],
+      }),
+    };
+    return statement;
+  },
+} as unknown as D1Database;
 const env = {
-  DB: { prepare: () => statement } as unknown as D1Database,
+  DB: tenantDb,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
+  LEGACY_ENV_OWNER_BYPASS: 'true',
 } as unknown as import('../index.js').Env['Bindings'];
 
 // These routes sit behind authMiddleware. getStaffByApiKey is mocked to return
-// undefined, so the env API_KEY owner fallback authenticates the Bearer token.
+// undefined, so this fixture explicitly opts into the legacy env-owner fallback.
 function call(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${API_KEY}`);
+  headers.set('X-Tenant-Id', 'generic');
   return worker.fetch(
     new Request(`https://worker.example.com${path}`, { ...init, headers }),
     env,
@@ -66,9 +94,8 @@ describe('GET /api/friends/:id/journey', () => {
   it('returns empty events for an unknown friend', async () => {
     dbMocks.getFriendJourney.mockResolvedValue([]);
     const res = await call('/api/friends/ghost/journey');
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { events: unknown[] } };
-    expect(body.data.events).toEqual([]);
+    expect(res.status).toBe(403);
+    expect(dbMocks.getFriendJourney).not.toHaveBeenCalled();
   });
 });
 

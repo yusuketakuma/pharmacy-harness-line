@@ -15,8 +15,34 @@ import {
 import { addJitter, sleep } from './stealth.js';
 import { pushViaHarnessProxy } from './line-proxy-send.js';
 import type { HarnessProxyDispatch } from './line-proxy-send.js';
+import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 
 const LEAD_SECONDS = 300;
+
+async function isActiveMappedAccount(
+  db: D1Database,
+  accountId: string | null | undefined,
+  friendId: string,
+): Promise<boolean> {
+  if (!accountId || !friendId) return false;
+  try {
+    const row = await db.prepare(
+      `SELECT 1 AS ok
+         FROM tenant_line_accounts AS mapping
+         INNER JOIN line_accounts AS account
+                 ON account.id = mapping.line_account_id
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+         INNER JOIN friends AS f
+                 ON f.id = ? AND f.line_account_id = account.id
+        WHERE mapping.line_account_id = ? AND account.is_active = 1
+        LIMIT 1`,
+    ).bind(friendId, accountId).first<{ ok: number }>();
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+}
 
 export type WebinarProxyDeliveryOptions = {
   proxyBaseUrl: string;
@@ -80,6 +106,8 @@ export async function processWebinarReminders(
     const reg = due[i];
     try {
       if (options.canProcessAccount && !(await options.canProcessAccount(reg.account_id))) continue;
+      if (await isPharmacyModeAccount(db, reg.account_id)) continue;
+      if (!(await isActiveMappedAccount(db, reg.account_id, reg.friend_id))) continue;
       if (i > 0) await sleep(addJitter(50, 200));
       const friend = await getFriendById(db, reg.friend_id);
       if (!friend || !friend.is_following) {
@@ -124,6 +152,8 @@ export async function sendWebinarRegistrationConfirmation(
 ): Promise<void> {
   try {
     if (options.canProcessAccount && !(await options.canProcessAccount(webinar.account_id))) return;
+    if (await isPharmacyModeAccount(db, webinar.account_id)) return;
+    if (!(await isActiveMappedAccount(db, webinar.account_id, friendId))) return;
     const friend = await getFriendById(db, friendId);
     if (!friend || !friend.is_following) return;
     const { accessToken, liffId } = await resolveDeliveryConfig(db, webinar.account_id, options);

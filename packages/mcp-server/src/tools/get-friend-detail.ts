@@ -1,13 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getClient } from "../client.js";
-
-function getApiConfig() {
-  const apiUrl = process.env.LINE_HARNESS_API_URL;
-  const apiKey = process.env.LINE_HARNESS_API_KEY;
-  if (!apiUrl || !apiKey) throw new Error("LINE_HARNESS_API_URL and LINE_HARNESS_API_KEY required");
-  return { apiUrl, apiKey };
-}
+import { getClient, getHarnessApiConfig, getHarnessApiHeaders } from "../client.js";
 
 export function registerGetFriendDetail(server: McpServer): void {
   server.tool(
@@ -24,9 +17,9 @@ export function registerGetFriendDetail(server: McpServer): void {
 
         let messages = null;
         if (includeMessages) {
-          const { apiUrl, apiKey } = getApiConfig();
+          const { apiUrl } = getHarnessApiConfig();
           const res = await fetch(`${apiUrl}/api/friends/${friendId}/messages`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
+            headers: getHarnessApiHeaders(),
           });
           if (res.ok) {
             const data = await res.json() as { success: boolean; data: unknown[] };

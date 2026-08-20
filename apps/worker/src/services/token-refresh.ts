@@ -10,16 +10,14 @@
  * - token_expires_at is NULL (legacy, unknown expiry — refresh once to start tracking)
  */
 
-import { getLineAccounts, updateLineAccount } from '@line-crm/db';
+import { getActiveTenantLineAccounts, updateLineAccount } from '@line-crm/db';
 import type { LineAccount } from '@line-crm/db';
+import {
+  readLineCredential,
+} from '../custom/pharmacy/provisioning/line-credential-store.js';
+import { updateEncryptedLineAccount } from '../custom/pharmacy/provisioning/line-account-store.js';
 
 const REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60_000; // 7 days
-const JST_OFFSET_MS = 9 * 60 * 60_000;
-
-function jstNow(): string {
-  const jst = new Date(Date.now() + JST_OFFSET_MS);
-  return jst.toISOString().slice(0, -1) + '+09:00';
-}
 
 function shouldRefresh(account: LineAccount): boolean {
   if (!account.token_expires_at) return true; // unknown expiry
@@ -55,24 +53,48 @@ async function issueNewToken(
   return res.json() as Promise<TokenResponse>;
 }
 
-export async function refreshLineAccessTokens(db: D1Database): Promise<void> {
-  const accounts = await getLineAccounts(db);
+export async function refreshLineAccessTokens(
+  db: D1Database,
+  options: { lineCredentialKey?: string } = {},
+): Promise<void> {
+  const accounts = await getActiveTenantLineAccounts(db);
 
   for (const account of accounts) {
     if (!account.is_active) continue;
     if (!shouldRefresh(account)) continue;
 
     try {
-      const token = await issueNewToken(account.channel_id, account.channel_secret);
-      const expiresAt = new Date(Date.now() + token.expires_in * 1000 + JST_OFFSET_MS);
-      const expiresAtJst = expiresAt.toISOString().slice(0, -1) + '+09:00';
+      const pharmacyMode = account.pharmacy_mode === 1;
+      const credentialKey = options.lineCredentialKey;
+      if (pharmacyMode && !credentialKey) continue;
+      const channelSecret = pharmacyMode
+        ? await readLineCredential(db, credentialKey!, {
+            tenantId: account.tenant_id,
+            lineAccountId: account.id,
+            kind: 'channel_secret',
+          })
+        : account.channel_secret;
+      if (!channelSecret) continue;
 
-      await updateLineAccount(db, account.id, {
-        channel_access_token: token.access_token,
-        token_expires_at: expiresAtJst,
-      });
+      const token = await issueNewToken(account.channel_id, channelSecret);
+      const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
 
-      console.log(`🔄 Token refreshed: ${account.name} (expires ${expiresAtJst})`);
+      if (pharmacyMode) {
+        await updateEncryptedLineAccount(db, credentialKey!, {
+          tenantId: account.tenant_id,
+          lineAccountId: account.id,
+          expectedUpdatedAt: account.updated_at,
+          credentials: [{ kind: 'channel_access_token', credential: token.access_token }],
+          metadata: { tokenExpiresAt: expiresAt },
+        });
+      } else {
+        await updateLineAccount(db, account.id, {
+          channel_access_token: token.access_token,
+          token_expires_at: expiresAt,
+        });
+      }
+
+      console.log(`🔄 Token refreshed: ${account.name} (expires ${expiresAt})`);
     } catch (err) {
       console.error(`❌ Token refresh failed for ${account.name}:`, err);
     }

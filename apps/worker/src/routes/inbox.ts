@@ -9,6 +9,7 @@ import {
   getActivityDigest,
   parseActivityDigestHours,
 } from '../services/activity-digest.js';
+import { isPharmacyTenant } from '../custom/pharmacy/growth-loop/access.js';
 
 export const inbox = new Hono<Env>();
 
@@ -25,7 +26,14 @@ inbox.get('/api/inbox/activity-digest', async (c) => {
   }
 
   try {
-    const data = await getActivityDigest(c.env.DB, { hours });
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+    const data = await getActivityDigest(c.env.DB, tenantId, { hours }, pharmacyTenant ? staff!.id : undefined);
     return c.json({ success: true, data });
   } catch (err) {
     console.error('GET /api/inbox/activity-digest error:', err);
@@ -35,6 +43,13 @@ inbox.get('/api/inbox/activity-digest', async (c) => {
 
 inbox.get('/api/inbox/unanswered', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
     const q = c.req.query('q');
     const account = c.req.query('account') || undefined;
     const minWaitMinutesStr = c.req.query('minWaitMinutes');
@@ -49,7 +64,12 @@ inbox.get('/api/inbox/unanswered', async (c) => {
       pageSize: pageSizeStr ? Number.parseInt(pageSizeStr, 10) : undefined,
     };
 
-    const result = await computeUnansweredInbox(c.env.DB, opts);
+    const result = await computeUnansweredInbox(
+      c.env.DB,
+      tenantId,
+      opts,
+      pharmacyTenant ? staff!.id : undefined,
+    );
     return c.json({ success: true, data: result });
   } catch (err) {
     console.error('GET /api/inbox/unanswered error:', err);
@@ -59,7 +79,14 @@ inbox.get('/api/inbox/unanswered', async (c) => {
 
 inbox.get('/api/inbox/unanswered/count', async (c) => {
   try {
-    const result = await countUnanswered(c.env.DB);
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const staff = c.get('staff');
+    if (pharmacyTenant && (!staff || staff.id === 'env-owner')) {
+      return c.json({ success: false, error: 'Staff account assignment required' }, 403);
+    }
+    const result = await countUnanswered(c.env.DB, tenantId, pharmacyTenant ? staff!.id : undefined);
     return c.json({ success: true, data: result });
   } catch (err) {
     console.error('GET /api/inbox/unanswered/count error:', err);

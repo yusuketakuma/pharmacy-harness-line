@@ -6,12 +6,10 @@ import {
 } from './check-migrations';
 
 describe('checkMigration', () => {
-  it('rejects CREATE TRIGGER because its body cannot be split safely', () => {
-    const result = checkMigration(
+  it('allows additive CREATE TRIGGER migrations supported by the migration splitter', () => {
+    expect(checkMigration(
       'CREATE TRIGGER audit AFTER INSERT ON friends BEGIN INSERT INTO logs VALUES (NEW.id); END;',
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.violation).toContain('CREATE TRIGGER');
+    )).toEqual({ ok: true });
   });
   it('allows CREATE TABLE', () => {
     const sql = `CREATE TABLE foo (id INTEGER PRIMARY KEY, name TEXT);`;

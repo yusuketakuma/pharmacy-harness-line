@@ -2,22 +2,26 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import {
   createRichMenuGroup,
-  getLineAccountById,
+  getLineAccountByIdForTenant,
   getRichMenuGroupByGeneratorKey,
   getRichMenuGroupWithPages,
+  replaceRichMenuPages,
+  updateRichMenuGroupMeta,
   type RichMenuGroupWithPages,
 } from '@line-crm/db';
 import type { Env } from '../../../index.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
 import {
   buildPharmacyInitialRichMenu,
+  buildPharmacyLegacyInitialRichMenu,
   buildPharmacySingleActionRichMenu,
   isPharmacyInitialRichMenuProfile,
   PHARMACY_INITIAL_PROFILE_KEY,
+  PHARMACY_LEGACY_INITIAL_PROFILE_KEY,
   PHARMACY_SINGLE_ACTION_PROFILE_KEY,
   PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH,
+  PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH,
   PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH,
-  PHARMACY_RICH_MENU_GENERATOR_VERSION,
 } from './profile.js';
 import { savePharmacyRichMenuImage } from './storage.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
@@ -64,7 +68,9 @@ function serializeGroup(group: RichMenuGroupWithPages) {
 async function loadInitialImage(c: Context<Env>, profileKey: string): Promise<Uint8Array> {
   const imagePath = profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
     ? PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH
-    : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH;
+    : profileKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+      ? PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH
+      : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH;
   const response = await c.env.ASSETS.fetch(
     new Request(new URL(imagePath, c.req.url)),
   );
@@ -79,11 +85,22 @@ async function attachInitialImage(
   profileKey: string,
 ): Promise<boolean> {
   const page = group.pages[0];
-  if (!page || page.image_r2_key) return !!page?.image_r2_key;
+  if (!page) return false;
+  if (page.image_r2_key) {
+    const head = c.env.IMAGES.head;
+    if (typeof head !== 'function') return true;
+    const existingImage = await head.call(c.env.IMAGES, page.image_r2_key);
+    if (!existingImage) {
+      throw new Error('prepared pharmacy rich-menu image is missing from R2');
+    }
+    return true;
+  }
   const image = await loadInitialImage(c, profileKey);
   const fileName = profileKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
     ? 'initial-single-action-v1.jpg'
-    : 'initial-compact-3x1.jpg';
+    : profileKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+      ? 'initial-compact-3x1.jpg'
+      : 'initial-large-3x2-v3.jpg';
   await savePharmacyRichMenuImage({
     db: c.env.DB,
     images: c.env.IMAGES,
@@ -93,9 +110,42 @@ async function attachInitialImage(
     fileName,
     contentType: 'image/jpeg',
     bytes: image,
-    expectedSize: 'compact',
+    expectedSize: profileKey === PHARMACY_INITIAL_PROFILE_KEY ? 'large' : 'compact',
   });
   return true;
+}
+
+function profileMatches(
+  group: RichMenuGroupWithPages,
+  expected: ReturnType<typeof buildPharmacyInitialRichMenu>,
+): boolean {
+  if (
+    group.generator_key !== expected.generatorKey ||
+    group.generator_version !== expected.generatorVersion ||
+    group.name !== expected.name ||
+    group.chat_bar_text !== expected.chatBarText ||
+    group.size !== expected.size ||
+    group.selected !== (expected.selected ? 1 : 0) ||
+    group.pages.length !== expected.pages.length
+  ) return false;
+
+  return expected.pages.every((expectedPage, index) => {
+    const actualPage = group.pages[index];
+    if (!actualPage || actualPage.name !== expectedPage.name || actualPage.order_index !== expectedPage.orderIndex) {
+      return false;
+    }
+    if (actualPage.areas.length !== expectedPage.areas.length) return false;
+    return expectedPage.areas.every((expectedArea, areaIndex) => {
+      const actualArea = actualPage.areas[areaIndex];
+      return Boolean(actualArea) &&
+        actualArea.bounds_x === expectedArea.boundsX &&
+        actualArea.bounds_y === expectedArea.boundsY &&
+        actualArea.bounds_width === expectedArea.boundsWidth &&
+        actualArea.bounds_height === expectedArea.boundsHeight &&
+        actualArea.action_type === expectedArea.actionType &&
+        JSON.stringify(actualArea.actionData) === JSON.stringify(expectedArea.actionData);
+    });
+  });
 }
 
 pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c) => {
@@ -122,7 +172,11 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c)
     return c.json({ success: false, error: 'initial must be boolean' }, 400);
   }
 
-  const account = await getLineAccountById(c.env.DB, accountId);
+  const account = await getLineAccountByIdForTenant(
+    c.env.DB,
+    c.get('tenantId'),
+    accountId,
+  );
   if (!account) return c.json({ success: false, error: 'line account not found' }, 404);
   if (!account.liff_id) {
     return c.json({ success: false, error: 'LIFF ID is required before preparing the pharmacy menu' }, 409);
@@ -134,26 +188,59 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c)
     accountId,
     generatorKey,
   );
+  const selected = generatorKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
+    ? body.initial === undefined
+      ? existing?.selected === 1
+      : body.initial === true
+    : true;
+  const input = generatorKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
+    ? buildPharmacySingleActionRichMenu(accountId, account.liff_id, selected)
+    : generatorKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+      ? buildPharmacyLegacyInitialRichMenu(accountId, account.liff_id)
+      : buildPharmacyInitialRichMenu(accountId, account.liff_id);
   if (existing) {
     const group = await getRichMenuGroupWithPages(c.env.DB, existing.id);
     if (!group) return c.json({ success: false, error: 'generated group disappeared' }, 500);
-    const imageAttached = await attachInitialImage(c, accountId, group, generatorKey);
-    const refreshed = imageAttached ? await getRichMenuGroupWithPages(c.env.DB, group.id) : group;
+    if (!profileMatches(group, input)) {
+      if (group.status !== 'draft') {
+        return c.json({
+          success: false,
+          error: 'published pharmacy rich-menu must be unpublished before regeneration',
+        }, 409);
+      }
+      await updateRichMenuGroupMeta(c.env.DB, group.id, {
+        name: input.name,
+        chatBarText: input.chatBarText,
+        selected: input.selected,
+      });
+      await replaceRichMenuPages(
+        c.env.DB,
+        group.id,
+        input.pages.map((page, index) => ({
+          ...page,
+          id: group.pages[index]?.id,
+        })),
+      );
+    }
+    const refreshedGroup = profileMatches(group, input)
+      ? group
+      : await getRichMenuGroupWithPages(c.env.DB, group.id);
+    if (!refreshedGroup) return c.json({ success: false, error: 'generated group disappeared after reconcile' }, 500);
+    const imageAttached = await attachInitialImage(c, accountId, refreshedGroup, generatorKey);
+    const refreshed = imageAttached ? await getRichMenuGroupWithPages(c.env.DB, refreshedGroup.id) : refreshedGroup;
     if (!refreshed) return c.json({ success: false, error: 'generated group disappeared after image attach' }, 500);
     return c.json({
       success: true,
       data: {
         status: 'already_prepared',
         reused: true,
+        reconciled: !profileMatches(group, input),
         imageAttached,
         group: serializeGroup(refreshed),
       },
     });
   }
 
-  const input = generatorKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
-    ? buildPharmacySingleActionRichMenu(accountId, account.liff_id, body.initial === undefined ? false : body.initial === true)
-    : buildPharmacyInitialRichMenu(accountId, account.liff_id);
   let created: RichMenuGroupWithPages;
   try {
     created = await createRichMenuGroup(c.env.DB, input);
@@ -183,10 +270,12 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/prepare', async (c)
       status: 'prepared',
       reused: false,
       imageAttached,
-      generatorVersion: PHARMACY_RICH_MENU_GENERATOR_VERSION,
+      generatorVersion: input.generatorVersion,
       imagePath: generatorKey === PHARMACY_SINGLE_ACTION_PROFILE_KEY
         ? PHARMACY_SINGLE_ACTION_RICH_MENU_IMAGE_PATH
-        : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH,
+        : generatorKey === PHARMACY_LEGACY_INITIAL_PROFILE_KEY
+          ? PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH
+          : PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH,
       group: serializeGroup(refreshed),
     },
   });

@@ -1,8 +1,9 @@
 import { describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
-import { authMiddleware } from './auth.js';
-import { resolveCorsOrigin } from './admin-auth-config.js';
+import { authMiddleware, authenticateApiToken } from './auth.js';
+import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './admin-auth-config.js';
 import { adminAuth } from '../routes/admin-auth.js';
 import type { Env } from '../index.js';
 
@@ -16,10 +17,54 @@ vi.mock('@line-crm/db', () => ({
 const PAGES = 'https://your-admin.pages.dev';
 const LIFF = 'https://your-liff.pages.dev';
 const WORKERS = 'https://your-worker.your-subdomain.workers.dev';
+const TENANT_ID = 'tenant:pharmacy-a';
+const TENANT_CODE = 'pharmacy-a';
+
+function tenantDb(pharmacyMode = 1, sqlLog: string[] = []): D1Database {
+  return {
+    prepare(sql: string) {
+      sqlLog.push(sql);
+      return {
+        bind(...values: unknown[]) {
+          return {
+            first: async () => {
+              if (sql.includes('FROM platform_admin_sessions')) {
+                return {
+                  staff_id: 'platform-admin-1',
+                  name: 'Platform Owner',
+                  must_change_password: 0,
+                  credential_version: 1,
+                  session_kind: 'standard',
+                };
+              }
+              if (sql.includes('FROM tenants')) {
+                return values.includes(TENANT_ID) || values.includes(TENANT_CODE)
+                  ? {
+                      id: TENANT_ID,
+                      tenant_code: TENANT_CODE,
+                      display_name: 'Pharmacy A',
+                      pharmacy_mode: pharmacyMode,
+                    }
+                  : null;
+              }
+              if (sql.includes('FROM tenant_staff_memberships')) {
+                return values.includes('staff-1') && values.includes(TENANT_ID)
+                  ? { role: 'admin' }
+                  : null;
+              }
+              return null;
+            },
+            run: async () => ({ success: true, meta: { changes: 1 } }),
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+}
 
 function env(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
   return {
-    DB: {} as D1Database,
+    DB: tenantDb(),
     IMAGES: {} as R2Bucket,
     ASSETS: {} as Fetcher,
     LINE_CHANNEL_SECRET: 'secret',
@@ -31,6 +76,7 @@ function env(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
     LINE_LOGIN_CHANNEL_SECRET: 'login-secret',
     WORKER_URL: WORKERS,
     ...overrides,
+    CROSS_ACCOUNT_TOKEN_KEY: 'cross-account-token-key-for-tests',
   };
 }
 
@@ -44,11 +90,20 @@ function app() {
   a.use('*', cors({
     origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
     credentials: true,
+    allowHeaders: CORS_ALLOW_HEADERS,
   }));
   a.use('*', authMiddleware);
   a.route('/', adminAuth);
-  a.get('/api/protected', (c) => c.json({ success: true, data: c.get('staff') }));
+  a.get('/api/protected', (c) => c.json({
+    success: true,
+    data: { ...c.get('staff'), tenantId: c.get('tenantId') },
+  }));
   a.post('/api/protected', (c) => c.json({ success: true, data: c.get('staff') }));
+  a.get('/api/account-settings/link-base-url', (c) => c.json({
+    success: true,
+    data: { staff: c.get('staff'), tenantId: c.get('tenantId'), platformAdmin: c.get('platformAdmin') },
+  }));
+  a.get('/api/custom/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/forms/:id', (c) => c.json({ success: true, staff: c.get('staff') ?? null }));
   a.put('/api/forms/:id', (c) => c.json({ success: true }));
   a.delete('/api/forms/:id', (c) => c.json({ success: true }));
@@ -59,6 +114,14 @@ function app() {
   a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/continuity/expectations/:id/respond', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/medication-followups', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/medication-followups/:id/respond', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/emergency-contraception', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/emergency-contraception/intakes', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/emergency-contraception/intakes/:id/cancel', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
   return a;
@@ -75,51 +138,38 @@ function cookieFor(res: Response, name: string): string | undefined {
   return setCookies(res).find((c) => c.startsWith(`${name}=`));
 }
 
-describe('admin login cookie attributes', () => {
-  test('cross-site login sets HttpOnly Secure SameSite=None session + readable CSRF cookie', async () => {
-    const res = await app().request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ apiKey: 'staff-key' }),
-      headers: { 'Content-Type': 'application/json' },
-    }, crossSiteEnv());
-
-    expect(res.status).toBe(200);
-    const body = await res.json() as { success: boolean; data: { id: string }; csrfToken: string };
-    expect(body.data).toMatchObject({ id: 'staff-1', role: 'admin' });
-    expect(body.csrfToken).toBeTruthy();
-
-    const session = cookieFor(res, 'lh_admin_session') ?? '';
-    expect(session).toContain('lh_admin_session=staff-key');
-    expect(session).toContain('HttpOnly');
-    expect(session).toContain('Secure');
-    expect(session).toContain('SameSite=None');
-    expect(session).toContain('Max-Age=604800');
-
-    const csrf = cookieFor(res, 'lh_csrf') ?? '';
-    expect(csrf).toContain(`lh_csrf=${body.csrfToken}`);
-    expect(csrf).not.toContain('HttpOnly'); // SPA-readable (double-submit)
-    expect(csrf).toContain('SameSite=None');
+describe('admin login boundary', () => {
+  test('does not allow the retired browser API-key header through CORS', () => {
+    expect(CORS_ALLOW_HEADERS.map((header) => header.toLowerCase()))
+      .not.toContain('x-admin-api-key');
   });
 
-  test('same-site (custom domain) login uses SameSite=Lax', async () => {
+  test('rejects legacy API-key browser login without issuing cookies', async () => {
     const res = await app().request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ apiKey: 'staff-key' }),
-      headers: { 'Content-Type': 'application/json' },
-    }, env({ ADMIN_ORIGIN: 'https://admin.example.com', WORKER_URL: 'https://api.example.com' }));
-
-    expect(res.status).toBe(200);
-    expect(cookieFor(res, 'lh_admin_session') ?? '').toContain('SameSite=Lax');
-  });
-
-  test('invalid api key is rejected without a cookie', async () => {
-    const res = await app().request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ apiKey: 'wrong' }),
+      body: JSON.stringify({ apiKey: 'staff-key', pharmacyCode: TENANT_CODE }),
       headers: { 'Content-Type': 'application/json' },
     }, crossSiteEnv());
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(400);
     expect(cookieFor(res, 'lh_admin_session')).toBeUndefined();
+    expect(cookieFor(res, 'lh_tenant')).toBeUndefined();
+  });
+
+  test('runs password verification even when the tenant login does not exist', async () => {
+    const derive = vi.spyOn(crypto.subtle, 'deriveBits');
+    const res = await app().request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        pharmacyCode: 'missing',
+        loginId: 'missing',
+        password: 'A guessed password 42',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    }, crossSiteEnv());
+
+    expect(res.status).toBe(401);
+    expect(derive).toHaveBeenCalledTimes(1);
+    derive.mockRestore();
   });
 });
 
@@ -127,7 +177,11 @@ describe('topology guard', () => {
   test('cross-site WITHOUT opt-in refuses login with an actionable error', async () => {
     const res = await app().request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ apiKey: 'staff-key' }),
+      body: JSON.stringify({
+        pharmacyCode: TENANT_CODE,
+        loginId: 'admin',
+        password: 'Temporary password 42',
+      }),
       headers: { 'Content-Type': 'application/json' },
     }, env({ ADMIN_ORIGIN: PAGES })); // no ADMIN_ALLOW_CROSS_SITE
 
@@ -140,6 +194,37 @@ describe('topology guard', () => {
 });
 
 describe('protected API access', () => {
+  const platformSession = `pas_${'a'.repeat(43)}`;
+
+  test('allows a platform-admin session bearer only on tenant setting APIs', async () => {
+    const sqlLog: string[] = [];
+    const testEnv = env({ DB: tenantDb(1, sqlLog) });
+    const allowed = await app().request('/api/account-settings/link-base-url', {
+      headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
+    }, testEnv);
+
+    expect(allowed.status).toBe(200);
+    await expect(allowed.json()).resolves.toMatchObject({
+      data: {
+        staff: { id: 'platform-admin-1', role: 'owner' },
+        tenantId: TENANT_ID,
+        platformAdmin: { id: 'platform-admin-1' },
+      },
+    });
+    expect(sqlLog.some((sql) => sql.includes('INSERT INTO platform_admin_access_events'))).toBe(true);
+
+    const phi = await app().request('/api/custom/pharmacy/prescriptions', {
+      headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
+    }, testEnv);
+    expect(phi.status).toBe(401);
+  });
+
+  test('requires an explicit tenant for a platform-admin CLI session', async () => {
+    const response = await app().request('/api/account-settings/link-base-url', {
+      headers: { Authorization: `Bearer ${platformSession}` },
+    }, env());
+    expect(response.status).toBe(401);
+  });
   test('allows LIFF preflight requests for pharmacy APIs', async () => {
     const res = await app().request('/api/liff/pharmacy/patients?liffId=test', {
       method: 'OPTIONS',
@@ -154,6 +239,20 @@ describe('protected API access', () => {
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
   });
 
+  test('allows Idempotency-Key in cross-origin preflight requests', async () => {
+    const res = await app().request('/api/liff/booking/requests?liffId=test', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: LIFF,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'authorization, content-type, idempotency-key',
+      },
+    }, env({ LIFF_ORIGIN: LIFF }));
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Headers')?.toLowerCase()).toContain('idempotency-key');
+  });
+
   test('protects rich-menu image proxies instead of relying on an unguessable R2 key', async () => {
     const image = await app().request('/api/rich-menu-images/account/group/page/image.png', {}, crossSiteEnv());
     const external = await app().request('/api/rich-menu-groups/external/richmenu-1/image?accountId=account-1', {}, crossSiteEnv());
@@ -161,22 +260,50 @@ describe('protected API access', () => {
     expect(external.status).toBe(401);
   });
 
-  test('accepts the admin session cookie (GET, no CSRF needed)', async () => {
+  test('rejects an API key smuggled through the browser session cookie', async () => {
+    const res = await app().request('/api/protected', {
+      headers: { Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
+    }, crossSiteEnv());
+    expect(res.status).toBe(401);
+  });
+
+  test('rejects a valid session cookie without its tenant binding', async () => {
     const res = await app().request('/api/protected', {
       headers: { Cookie: 'lh_admin_session=staff-key' },
+    }, crossSiteEnv());
+    expect(res.status).toBe(401);
+  });
+
+  test('still accepts Bearer tokens for SDK / MCP callers', async () => {
+    const res = await app().request('/api/protected', {
+      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
     }, crossSiteEnv());
     expect(res.status).toBe(200);
     const body = await res.json() as { data: { id: string } };
     expect(body.data).toMatchObject({ id: 'staff-1', role: 'admin' });
   });
 
-  test('still accepts Bearer tokens for SDK / MCP callers', async () => {
+  test('does not let the global env key select arbitrary tenants by default', async () => {
+    const denied = await app().request('/api/protected', {
+      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+    }, crossSiteEnv());
+    expect(denied.status).toBe(401);
+
+    const legacy = await app().request('/api/protected', {
+      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+    }, env({
+      ADMIN_ORIGIN: PAGES,
+      ADMIN_ALLOW_CROSS_SITE: 'true',
+      LEGACY_ENV_OWNER_BYPASS: 'true',
+    }));
+    expect(legacy.status).toBe(401);
+  });
+
+  test('rejects a Bearer token without an explicit tenant header', async () => {
     const res = await app().request('/api/protected', {
       headers: { Authorization: 'Bearer env-key' },
     }, crossSiteEnv());
-    expect(res.status).toBe(200);
-    const body = await res.json() as { data: { id: string } };
-    expect(body.data).toMatchObject({ id: 'env-owner', role: 'owner' });
+    expect(res.status).toBe(401);
   });
 
   test('rejects requests with no credentials', async () => {
@@ -193,6 +320,70 @@ describe('protected API access', () => {
   });
 });
 
+describe('LEGACY_ENV_OWNER_BYPASS logging', () => {
+  test('logs accept_via=LEGACY_ENV_OWNER_BYPASS when the bypass path is actually taken', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const res = await app().request('/api/protected', {
+      headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
+    }, env({
+      DB: tenantDb(0), // non-pharmacy-mode tenant: the only case the bypass fires for
+      ADMIN_ORIGIN: PAGES,
+      ADMIN_ALLOW_CROSS_SITE: 'true',
+      LEGACY_ENV_OWNER_BYPASS: 'true',
+    }));
+    expect(res.status).toBe(200);
+    expect(log).toHaveBeenCalledWith(`[auth] accept_via=LEGACY_ENV_OWNER_BYPASS tenant=${TENANT_ID}`);
+    log.mockRestore();
+  });
+});
+
+describe('constant-time secret comparison', () => {
+  function fakeContext(overrides: Partial<Env['Bindings']> = {}): Context<Env> {
+    return { env: env(overrides) } as unknown as Context<Env>;
+  }
+
+  test('API_KEY: accepts an exact match', async () => {
+    const staff = await authenticateApiToken(fakeContext(), 'env-key');
+    expect(staff).toMatchObject({ id: 'env-owner' });
+  });
+
+  test('API_KEY: rejects a same-length near-miss', async () => {
+    // 'env-key' is 7 chars; 'env-kex' is also 7 chars but does not match.
+    const staff = await authenticateApiToken(fakeContext(), 'env-kex');
+    expect(staff).toBeNull();
+  });
+
+  test('API_KEY: rejects a different-length near-miss', async () => {
+    const staff = await authenticateApiToken(fakeContext(), 'env-key-but-longer');
+    expect(staff).toBeNull();
+  });
+
+  test('LEGACY_API_KEY: accepts an exact match', async () => {
+    const staff = await authenticateApiToken(
+      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
+      'legacy-key',
+    );
+    expect(staff).toMatchObject({ id: 'env-owner' });
+  });
+
+  test('LEGACY_API_KEY: rejects a same-length near-miss', async () => {
+    // Same length as 'legacy-key' (10 chars), differs in the last character.
+    const staff = await authenticateApiToken(
+      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
+      'legacy-kex',
+    );
+    expect(staff).toBeNull();
+  });
+
+  test('LEGACY_API_KEY: rejects a different-length near-miss', async () => {
+    const staff = await authenticateApiToken(
+      fakeContext({ LEGACY_API_KEY: 'legacy-key' }),
+      'legacy-key-but-longer',
+    );
+    expect(staff).toBeNull();
+  });
+});
+
 describe('public form method boundaries', () => {
   test('allows unauthenticated GET of a form definition', async () => {
     const res = await app().request('/api/forms/form-1', {}, crossSiteEnv());
@@ -202,10 +393,10 @@ describe('public form method boundaries', () => {
 
   test('authenticates an admin GET so the route can return private settings', async () => {
     const res = await app().request('/api/forms/form-1', {
-      headers: { Authorization: 'Bearer env-key' },
+      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
     }, crossSiteEnv());
     expect(res.status).toBe(200);
-    expect((await res.json() as { staff: { role: string } }).staff.role).toBe('owner');
+    expect((await res.json() as { staff: { role: string } }).staff.role).toBe('admin');
   });
 
   test.each(['PUT', 'DELETE'])('%s on the same form path requires admin auth', async (method) => {
@@ -283,84 +474,85 @@ describe('Myna LIFF auth boundary', () => {
   });
 });
 
+describe('continuity LIFF auth boundary', () => {
+  test('lets a patient response reach route-level LINE verification', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/continuity/expectations/expectation-1/respond',
+      { method: 'POST' },
+      crossSiteEnv(),
+    );
+    expect(response.status).toBe(200);
+  });
+
+  test('does not exempt an unsupported method on the same path', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/continuity/expectations/expectation-1/respond',
+      { method: 'DELETE' },
+      crossSiteEnv(),
+    );
+    expect(response.status).toBe(401);
+  });
+});
+
+describe('pharmacy follow-up and emergency LIFF auth boundary', () => {
+  test.each([
+    ['GET', '/api/liff/pharmacy/medication-followups'],
+    ['POST', '/api/liff/pharmacy/medication-followups/followup-1/respond'],
+    ['GET', '/api/liff/pharmacy/emergency-contraception'],
+    ['POST', '/api/liff/pharmacy/emergency-contraception/intakes'],
+    ['POST', '/api/liff/pharmacy/emergency-contraception/intakes/intake-1/cancel'],
+  ])('lets %s %s reach route-level LINE verification', async (method, path) => {
+    const response = await app().request(path, { method }, crossSiteEnv());
+    expect(response.status).toBe(200);
+  });
+
+  test.each([
+    ['DELETE', '/api/liff/pharmacy/medication-followups'],
+    ['GET', '/api/liff/pharmacy/medication-followups/followup-1/respond'],
+    ['DELETE', '/api/liff/pharmacy/emergency-contraception/intakes'],
+    ['GET', '/api/liff/pharmacy/emergency-contraception/intakes/intake-1/cancel'],
+  ])('does not exempt unsupported %s %s', async (method, path) => {
+    const response = await app().request(path, { method }, crossSiteEnv());
+    expect(response.status).toBe(401);
+  });
+});
+
+describe('pharmacy public-profile LIFF auth boundary', () => {
+  test('allows only GET through to route-level LINE verification', async () => {
+    expect((await app().request('/api/liff/pharmacy/public-profile', {}, crossSiteEnv())).status).toBe(200);
+    expect((await app().request('/api/liff/pharmacy/public-profile', {
+      method: 'DELETE',
+    }, crossSiteEnv())).status).toBe(401);
+  });
+});
+
 describe('CSRF protection', () => {
-  test('cookie-authenticated POST without an X-CSRF-Token is rejected', async () => {
-    const res = await app().request('/api/protected', {
-      method: 'POST',
-      headers: { Cookie: 'lh_admin_session=staff-key; lh_csrf=token-abc' },
-    }, crossSiteEnv());
-    expect(res.status).toBe(403);
-    expect((await res.json() as { error: string }).error).toMatch(/csrf/i);
-  });
-
-  test('cookie-authenticated POST with a mismatched token is rejected', async () => {
-    const res = await app().request('/api/protected', {
-      method: 'POST',
-      headers: {
-        Cookie: 'lh_admin_session=staff-key; lh_csrf=token-abc',
-        'X-CSRF-Token': 'token-WRONG',
-      },
-    }, crossSiteEnv());
-    expect(res.status).toBe(403);
-  });
-
-  test('cookie-authenticated POST with a matching double-submit token succeeds', async () => {
-    const res = await app().request('/api/protected', {
-      method: 'POST',
-      headers: {
-        Cookie: 'lh_admin_session=staff-key; lh_csrf=token-abc',
-        'X-CSRF-Token': 'token-abc',
-      },
-    }, crossSiteEnv());
-    expect(res.status).toBe(200);
-  });
-
   test('Bearer POST is exempt from CSRF (not cookie-driven)', async () => {
     const res = await app().request('/api/protected', {
       method: 'POST',
-      headers: { Authorization: 'Bearer env-key' },
+      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
     }, crossSiteEnv());
     expect(res.status).toBe(200);
   });
 });
 
 describe('logout', () => {
-  test('expires both the session and CSRF cookies', async () => {
+  test('expires the session, tenant, and CSRF cookies', async () => {
     const res = await app().request('/api/auth/logout', { method: 'POST' }, crossSiteEnv());
     expect(res.status).toBe(200);
     const session = cookieFor(res, 'lh_admin_session') ?? '';
+    const tenant = cookieFor(res, 'lh_tenant') ?? '';
     const csrf = cookieFor(res, 'lh_csrf') ?? '';
     expect(session).toContain('Max-Age=0');
+    expect(tenant).toContain('Max-Age=0');
     expect(csrf).toContain('Max-Age=0');
-  });
-});
-
-describe('session endpoint', () => {
-  test('returns the staff identity and a CSRF token', async () => {
-    const res = await app().request('/api/auth/session', {
-      headers: { Cookie: 'lh_admin_session=staff-key; lh_csrf=token-abc' },
-    }, crossSiteEnv());
-    expect(res.status).toBe(200);
-    const body = await res.json() as { data: { id: string }; csrfToken: string };
-    expect(body.data).toMatchObject({ id: 'staff-1' });
-    expect(body.csrfToken).toBe('token-abc');
-  });
-
-  test('mints and sets a CSRF cookie when none is present', async () => {
-    const res = await app().request('/api/auth/session', {
-      headers: { Cookie: 'lh_admin_session=staff-key' },
-    }, crossSiteEnv());
-    expect(res.status).toBe(200);
-    const body = await res.json() as { csrfToken: string };
-    expect(body.csrfToken).toBeTruthy();
-    expect(cookieFor(res, 'lh_csrf') ?? '').toContain(`lh_csrf=${body.csrfToken}`);
   });
 });
 
 describe('CORS allowed / blocked origins', () => {
   test('allowlisted admin origin is echoed back', async () => {
     const res = await app().request('/api/protected', {
-      headers: { Origin: PAGES, Cookie: 'lh_admin_session=staff-key' },
+      headers: { Origin: PAGES, Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
     }, crossSiteEnv());
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(PAGES);
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
@@ -369,7 +561,7 @@ describe('CORS allowed / blocked origins', () => {
   test('Cloudflare Pages preview origin for the admin project is echoed back', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
     const res = await app().request('/api/protected', {
-      headers: { Origin: preview, Cookie: 'lh_admin_session=staff-key' },
+      headers: { Origin: preview, Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
     }, crossSiteEnv());
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
@@ -392,7 +584,7 @@ describe('CORS allowed / blocked origins', () => {
 
   test('unknown origin gets no Access-Control-Allow-Origin header', async () => {
     const res = await app().request('/api/protected', {
-      headers: { Origin: 'https://evil.example.com', Cookie: 'lh_admin_session=staff-key' },
+      headers: { Origin: 'https://evil.example.com', Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
     }, crossSiteEnv());
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
