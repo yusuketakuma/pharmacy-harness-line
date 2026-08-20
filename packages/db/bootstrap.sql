@@ -1326,6 +1326,49 @@ CREATE TABLE pharmacy_notification_events (
     REFERENCES friends(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_patient_intake_envelopes (
+  response_id       TEXT NOT NULL,
+  tenant_id         TEXT NOT NULL,
+  line_account_id   TEXT NOT NULL,
+  owner_friend_id   TEXT NOT NULL,
+  patient_id        TEXT NOT NULL,
+  field_name        TEXT NOT NULL
+    CHECK (field_name IN ('patient_snapshot_json', 'answers_json')),
+  schema_version    INTEGER NOT NULL CHECK (schema_version >= 1),
+  source_revision   INTEGER NOT NULL CHECK (source_revision >= 1),
+  envelope_version  INTEGER NOT NULL CHECK (envelope_version >= 1),
+  key_version       INTEGER NOT NULL CHECK (key_version >= 1),
+  nonce             TEXT NOT NULL CHECK (length(nonce) = 16),
+  ciphertext        TEXT NOT NULL CHECK (length(ciphertext) BETWEEN 22 AND 90000),
+  encrypted_at      TEXT NOT NULL CHECK (length(encrypted_at) >= 20),
+  PRIMARY KEY (response_id, field_name),
+  UNIQUE (key_version, nonce),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id),
+  FOREIGN KEY (
+    response_id, patient_id, line_account_id, owner_friend_id, schema_version, source_revision
+  ) REFERENCES pharmacy_patient_intake_responses (
+    id, patient_id, line_account_id, owner_friend_id, schema_version, revision
+  ) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_patient_intake_migration_state (
+  tenant_id          TEXT NOT NULL,
+  line_account_id    TEXT PRIMARY KEY,
+  phase              TEXT NOT NULL
+    CHECK (phase IN ('frozen', 'scrubbing', 'scrubbed', 'restoring', 'restored')),
+  coverage_total     INTEGER NOT NULL CHECK (coverage_total >= 0),
+  coverage_digest    TEXT NOT NULL CHECK (
+    length(coverage_digest) = 64 AND coverage_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  approved_by        TEXT NOT NULL CHECK (length(approved_by) BETWEEN 1 AND 120),
+  approval_reference TEXT NOT NULL CHECK (length(approval_reference) BETWEEN 1 AND 240),
+  approved_at        TEXT NOT NULL CHECK (length(approved_at) >= 20),
+  updated_at         TEXT NOT NULL CHECK (length(updated_at) >= 20),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id)
+);
+
 CREATE TABLE pharmacy_patient_intake_responses (
   id                          TEXT PRIMARY KEY,
   line_account_id             TEXT NOT NULL,
@@ -1549,6 +1592,25 @@ CREATE TABLE pharmacy_print_tasks (
   UNIQUE (line_account_id, submission_id, revision),
   FOREIGN KEY (submission_id, line_account_id)
     REFERENCES pharmacy_prescription_submissions(id, line_account_id)
+);
+
+CREATE TABLE pharmacy_public_profiles (
+  line_account_id TEXT PRIMARY KEY,
+  display_name    TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 120),
+  phone           TEXT NOT NULL DEFAULT '' CHECK (length(phone) <= 40),
+  postal_code     TEXT NOT NULL DEFAULT '' CHECK (length(postal_code) <= 16),
+  address         TEXT NOT NULL CHECK (length(trim(address)) BETWEEN 1 AND 500),
+  business_hours  TEXT NOT NULL CHECK (length(trim(business_hours)) BETWEEN 1 AND 2000),
+  closure_notice  TEXT NOT NULL DEFAULT '' CHECK (length(closure_notice) <= 1000),
+  access_note     TEXT NOT NULL DEFAULT '' CHECK (length(access_note) <= 1000),
+  parking_note    TEXT NOT NULL DEFAULT '' CHECK (length(parking_note) <= 1000),
+  google_maps_url TEXT NOT NULL DEFAULT '' CHECK (length(google_maps_url) <= 2000),
+  updated_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, updated_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
 );
 
 CREATE TABLE pharmacy_staff_accounts (
@@ -2465,6 +2527,17 @@ CREATE INDEX idx_pharmacy_next_intake_expectations_patient
 
 CREATE INDEX idx_pharmacy_notification_events_exposure
   ON pharmacy_notification_events(line_account_id, friend_id, occurred_at, category, outcome);
+
+CREATE INDEX idx_pharmacy_patient_intake_envelopes_scope
+  ON pharmacy_patient_intake_envelopes
+    (tenant_id, line_account_id, owner_friend_id, patient_id, response_id, field_name);
+
+CREATE INDEX idx_pharmacy_patient_intake_migration_state_scope
+  ON pharmacy_patient_intake_migration_state (tenant_id, line_account_id, phase);
+
+CREATE UNIQUE INDEX idx_pharmacy_patient_intake_responses_envelope_scope
+  ON pharmacy_patient_intake_responses
+    (id, patient_id, line_account_id, owner_friend_id, schema_version, revision);
 
 CREATE UNIQUE INDEX idx_pharmacy_patients_active_self
   ON pharmacy_patients (line_account_id, owner_friend_id)

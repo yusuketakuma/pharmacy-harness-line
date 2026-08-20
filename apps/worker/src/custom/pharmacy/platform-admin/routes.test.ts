@@ -405,6 +405,7 @@ function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bin
     LINE_CHANNEL_ID: 'line-channel',
     LINE_LOGIN_CHANNEL_ID: 'login-channel',
     LINE_LOGIN_CHANNEL_SECRET: 'login-secret',
+    PHARMACY_PHI_KEY_V1: 'synthetic-pharmacy-phi-root-secret-v1',
     WORKER_URL: 'https://api.example.test',
     ADMIN_ORIGIN: 'https://admin.example.test',
     ...overrides,
@@ -801,6 +802,19 @@ describe('platform admin cross-tenant access', () => {
       testEnv,
     );
     expect(missing.status).toBe(404);
+  });
+
+  it('fails closed before reading patient detail when the PHI key is unavailable', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db, { PHARMACY_PHI_KEY_V1: undefined });
+    const { cookie } = await standardSession(testEnv);
+    seedGrant(store);
+    const response = await app().request(
+      '/api/platform-admin/tenants/tenant-a/patients/patient-1',
+      { headers: { cookie } },
+      testEnv,
+    );
+    expect(response.status).toBe(503);
   });
 
   it('returns all three log sources by default and one when type is given', async () => {

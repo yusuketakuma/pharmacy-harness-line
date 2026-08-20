@@ -215,6 +215,7 @@ describe('development deployment workflow contract', () => {
       'PLATFORM_ADMIN_KEY',
       'CROSS_ACCOUNT_TOKEN_KEY',
       'LINE_CREDENTIAL_KEY_V1',
+      'PHARMACY_PHI_KEY_V1',
     ]) {
       expect(sharedDeploy).toContain(name);
     }

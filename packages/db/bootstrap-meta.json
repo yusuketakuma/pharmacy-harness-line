@@ -112,7 +112,10 @@
     "custom_035_pharmacy_emergency_contraception.sql",
     "custom_036_pharmacy_tenant_privacy_policy.sql",
     "custom_037_pharmacy_phi_retention_purge_log.sql",
-    "custom_038_pharmacy_data_subject_requests.sql"
+    "custom_038_pharmacy_data_subject_requests.sql",
+    "custom_039_pharmacy_public_profile.sql",
+    "custom_040_pharmacy_patient_intake_envelopes.sql",
+    "custom_041_pharmacy_patient_intake_migration_state.sql"
   ],
-  "migrationCount": 113
+  "migrationCount": 116
 }

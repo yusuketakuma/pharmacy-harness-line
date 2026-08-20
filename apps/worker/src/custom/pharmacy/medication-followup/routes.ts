@@ -127,6 +127,20 @@ async function scope(c: Context<MedicationFollowUpEnv>): Promise<{
   return { lineAccountId, staff };
 }
 
+function followUpError(c: Context<MedicationFollowUpEnv>, error: unknown): Response {
+  const message = error instanceof Error ? error.message : '';
+  if (/not found/i.test(message)) {
+    return c.json({ error: '対象の服薬後フォローが見つかりません。' }, 404);
+  }
+  if (/already|conflict/i.test(message)) {
+    return c.json({ error: '服薬後フォローは更新されています。再読み込みしてください。' }, 409);
+  }
+  if (/invalid|due time/i.test(message)) {
+    return c.json({ error: '服薬後フォローの入力内容を確認してください。' }, 400);
+  }
+  return c.json({ error: '服薬後フォローを処理できませんでした。' }, 500);
+}
+
 medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups', async (c) => {
   const account = await scope(c);
   if (account instanceof Response) return account;
@@ -145,8 +159,7 @@ medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups', async
     });
     return c.json({ followUp: adminProjection(followUp) }, 201);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'medication follow-up scheduling failed';
-    return c.json({ error: message }, /already|conflict/i.test(message) ? 409 : 400);
+    return followUpError(c, error);
   }
 });
 
@@ -169,8 +182,6 @@ medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups/:id/tra
     });
     return c.json({ followUp: adminProjection(followUp) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'medication follow-up update failed';
-    const status = /not found/i.test(message) ? 404 : /conflict/i.test(message) ? 409 : 400;
-    return c.json({ error: message }, status);
+    return followUpError(c, error);
   }
 });

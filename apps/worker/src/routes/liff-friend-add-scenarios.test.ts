@@ -217,6 +217,18 @@ describe('GET /auth/callback — friend_add auto-enroll delegates to pushImmedia
     );
   });
 
+  it('does not enroll an account-bound scenario when account resolution fails', async () => {
+    dbMocks.getLineAccountByChannelId.mockResolvedValue(null);
+    dbMocks.getScenariosForAccount.mockResolvedValue([
+      { ...FRIEND_ADD_SCENARIO, id: 'scn-other', line_account_id: 'acct-other' },
+    ]);
+
+    await callback({ ref: '', account: 'missing-channel' });
+
+    expect(dbMocks.enrollFriendInScenario).not.toHaveBeenCalled();
+    expect(pushImmediateFirstStep).not.toHaveBeenCalled();
+  });
+
   it('a failure on one scenario neither skips the remaining scenarios nor aborts the callback', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     dbMocks.getScenariosForAccount.mockResolvedValue([

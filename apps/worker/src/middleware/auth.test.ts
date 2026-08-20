@@ -104,6 +104,8 @@ function app() {
   a.get('/api/liff/pharmacy/emergency-contraception', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/emergency-contraception/intakes', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/emergency-contraception/intakes/:id/cancel', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
   return a;
@@ -465,6 +467,15 @@ describe('pharmacy follow-up and emergency LIFF auth boundary', () => {
   ])('does not exempt unsupported %s %s', async (method, path) => {
     const response = await app().request(path, { method }, crossSiteEnv());
     expect(response.status).toBe(401);
+  });
+});
+
+describe('pharmacy public-profile LIFF auth boundary', () => {
+  test('allows only GET through to route-level LINE verification', async () => {
+    expect((await app().request('/api/liff/pharmacy/public-profile', {}, crossSiteEnv())).status).toBe(200);
+    expect((await app().request('/api/liff/pharmacy/public-profile', {
+      method: 'DELETE',
+    }, crossSiteEnv())).status).toBe(401);
   });
 });
 

@@ -22,11 +22,13 @@ import {
   updatePharmacyPatient,
 } from './repository.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import type { PatientIntakeCryptoScope } from './envelopes.js';
 
 type IntakeBindings = {
   DB: D1Database;
   LINE_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
+  PHARMACY_PHI_KEY_V1?: string;
 };
 
 type IntakeEnv = {
@@ -34,10 +36,21 @@ type IntakeEnv = {
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
     pharmacyPatient: PrescriptionPatient;
+    pharmacyTenantId: string;
+    tenantId: string;
   };
 };
 
 export const pharmacyIntakeRoutes = new Hono<IntakeEnv>();
+
+function intakeCryptoScope(
+  env: IntakeBindings,
+  tenantId: string | undefined,
+): PatientIntakeCryptoScope | null {
+  return tenantId && env.PHARMACY_PHI_KEY_V1
+    ? { tenantId, rootSecret: env.PHARMACY_PHI_KEY_V1 }
+    : null;
+}
 
 async function canUseAdminIntake(c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined }, accountId: string): Promise<boolean> {
   const staff = c.get('staff');
@@ -78,6 +91,7 @@ pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
     return c.json({ error: 'Patient intake is not enabled' }, 403);
   }
   c.set('pharmacyPatient', patient);
+  c.set('pharmacyTenantId', identity.tenantId);
   return next();
 });
 
@@ -159,16 +173,20 @@ pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
 });
 
 pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/intake', async (c) => {
+  const cryptoScope = intakeCryptoScope(c.env, c.get('pharmacyTenantId'));
+  if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
   const patient = await getPharmacyPatient(
     c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
   );
   if (!patient) return c.json({ error: 'Patient not found' }, 404);
   return c.json({ intake: await getLatestPatientIntake(
-    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
+    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), cryptoScope,
   ) });
 });
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) => {
+  const cryptoScope = intakeCryptoScope(c.env, c.get('pharmacyTenantId'));
+  if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
   const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
@@ -177,6 +195,7 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) =>
       c.get('pharmacyPatient'),
       c.req.param('id'),
       body as never,
+      cryptoScope,
     );
     return c.json({ intake }, 201);
   } catch (error) {
@@ -224,7 +243,11 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/history', async (c) 
   if (!(await canUseAdminIntake(c, lineAccountId))) {
     return c.json({ error: 'Forbidden' }, 403);
   }
-  const history = await getAdminPharmacyPatientHistory(c.env.DB, lineAccountId, c.req.param('id'));
+  const cryptoScope = intakeCryptoScope(c.env, c.get('tenantId'));
+  if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
+  const history = await getAdminPharmacyPatientHistory(
+    c.env.DB, lineAccountId, c.req.param('id'), cryptoScope,
+  );
   return history ? c.json({ history }) : c.json({ error: 'Patient not found' }, 404);
 });
 
@@ -248,7 +271,9 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/intake', async (c) =
   }
   const patient = await getAdminPharmacyPatient(c.env.DB, lineAccountId, c.req.param('id'));
   if (!patient) return c.json({ error: 'Patient not found' }, 404);
+  const cryptoScope = intakeCryptoScope(c.env, c.get('tenantId'));
+  if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
   return c.json({ intake: await getLatestAdminPatientIntake(
-    c.env.DB, lineAccountId, c.req.param('id'),
+    c.env.DB, lineAccountId, c.req.param('id'), cryptoScope,
   ) });
 });

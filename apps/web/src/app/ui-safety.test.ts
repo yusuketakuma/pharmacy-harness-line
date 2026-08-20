@@ -29,6 +29,14 @@ describe('cross-screen safety and accessibility', () => {
     expect(source('./page.tsx')).toContain('一部のデータを取得できませんでした')
   })
 
+  it('keeps the friend-add link without the hard-to-scan inline QR', () => {
+    const page = source('./page.tsx')
+    expect(page).toContain('友だち追加リンク')
+    expect(page).toContain('navigator.clipboard.writeText(link)')
+    expect(page).not.toContain('QR表示')
+    expect(page).not.toContain('/api/qr?data=${encodeURIComponent(link)}')
+  })
+
   it('keeps staff actions reachable on narrow screens', () => {
     const page = source('./staff/page.tsx')
     expect(page).toContain('border-gray-200 overflow-x-auto')

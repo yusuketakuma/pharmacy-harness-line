@@ -70,11 +70,17 @@ export function requestedPrescriptionId(search: string): string | null {
   return value && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
 }
 
+export function initialPrescriptionView(search: string): 'send' | 'history' {
+  return new URLSearchParams(search).get('view') === 'history' ? 'history' : 'send';
+}
+
 export default function PrescriptionPage() {
   const requestedSubmissionId = typeof window === 'undefined'
     ? null
     : requestedPrescriptionId(window.location.search);
-  const [tab, setTab] = useState<'send' | 'history'>('send');
+  const [tab, setTab] = useState<'send' | 'history'>(() => initialPrescriptionView(
+    typeof window === 'undefined' ? '' : window.location.search,
+  ));
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [originalConsent, setOriginalConsent] = useState(false);

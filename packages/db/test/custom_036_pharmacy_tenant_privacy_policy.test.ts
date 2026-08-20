@@ -150,7 +150,7 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
       answers: ANSWERS,
       representativeConsent: true,
       privacyConsent: true,
-    });
+    }, { tenantId: 'tenant-a', rootSecret: 'synthetic-pharmacy-phi-root-secret-v1' });
 
     expect(db.prepare(`SELECT privacy_policy_version, privacy_policy_hash
       FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`).get()).toEqual({
@@ -165,7 +165,7 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
       answers: ANSWERS,
       representativeConsent: true,
       privacyConsent: true,
-    });
+    }, { tenantId: 'tenant-b', rootSecret: 'synthetic-pharmacy-phi-root-secret-v1' });
 
     expect(db.prepare(`SELECT privacy_policy_version, privacy_policy_hash
       FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-b'`).get()).toEqual({

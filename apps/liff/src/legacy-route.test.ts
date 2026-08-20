@@ -33,6 +33,15 @@ describe('legacyQueryTarget', () => {
   });
 
   it('opens the pharmacy rich-menu destinations', () => {
+    expect(legacyQueryTarget('?page=pharmacy-menu&liffId=123')).toBe(
+      '/pharmacy/menu?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-info&liffId=123')).toBe(
+      '/pharmacy/info?liffId=123',
+    );
+    expect(legacyQueryTarget('?page=pharmacy-prescription-history&liffId=123')).toBe(
+      '/prescriptions?view=history&liffId=123',
+    );
     expect(legacyQueryTarget('?page=pharmacy-receive&liffId=123')).toBe(
       '/pharmacy/receive?liffId=123',
     );

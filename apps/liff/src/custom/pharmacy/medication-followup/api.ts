@@ -1,4 +1,4 @@
-import { requestPharmacyLiff } from '../request.js';
+import { requestPharmacyJson } from '../request.js';
 
 export type PatientMedicationFollowUpStatus =
   | 'scheduled' | 'due' | 'delivered' | 'no_issue' | 'concern'
@@ -18,23 +18,19 @@ export interface PatientMedicationFollowUp {
   version: number;
 }
 
-async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await requestPharmacyLiff(path, init);
-  if (!response.ok) throw new Error(`服薬後フォローを更新できませんでした (${response.status})`);
-  return response.json() as Promise<T>;
-}
-
 export const medicationFollowUpApi = {
-  list: () => json<{ followUps: PatientMedicationFollowUp[] }>(
+  list: () => requestPharmacyJson<{ followUps: PatientMedicationFollowUp[] }>(
     '/api/liff/pharmacy/medication-followups',
+    '服薬後フォローを取得できませんでした',
   ),
   respond: (
     followUpId: string,
     response: PatientMedicationFollowUpResponse,
     expectedVersion: number,
     idempotencyKey: string,
-  ) => json<{ followUp: PatientMedicationFollowUp }>(
+  ) => requestPharmacyJson<{ followUp: PatientMedicationFollowUp }>(
     `/api/liff/pharmacy/medication-followups/${encodeURIComponent(followUpId)}/respond`,
+    '服薬後フォローを更新できませんでした',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import PrescriptionPage, {
   canSubmitPrescription,
+  initialPrescriptionView,
   requestedPrescriptionId,
   validatePrescriptionImages,
   pendingRequirementLabels,
@@ -43,6 +44,13 @@ describe('prescription upload UI contract', () => {
     expect(requestedPrescriptionId('?page=prescription&submissionId=submission-1')).toBe('submission-1');
     expect(requestedPrescriptionId('?submissionId=patient%20name')).toBeNull();
     expect(requestedPrescriptionId('')).toBeNull();
+  });
+
+  it('allows only direct send and history views', () => {
+    expect(initialPrescriptionView('?view=history')).toBe('history');
+    expect(initialPrescriptionView('?view=send')).toBe('send');
+    expect(initialPrescriptionView('?view=admin')).toBe('send');
+    expect(initialPrescriptionView('')).toBe('send');
   });
 
   it('renders mobile labels, native controls, and an initially disabled submit', () => {
