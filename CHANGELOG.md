@@ -1,5 +1,24 @@
 # Changelog
 
+## Pharmacy v0.27.1 (2026-08-20)
+
+### この更新で変わること
+
+`v0.27.1`は`v0.27.0`のdev環境実機検証で見つかった不具合の修正と、CIの安定化を行うパッチリリースです。
+
+### 重要なバグ修正
+
+- マイナ在宅受付の受け渡し登録(`createMynaHandoff`)で、`pharmacy_myna_handoffs`への挿入が参照先の`pharmacy_prescription_expectations`挿入より先に実行されており、tenant整合性トリガーにより毎回`PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH`で失敗していた不具合を修正。LIFF側で「お薬を受け取る」操作が常に失敗する状態だったものが復旧
+
+### CI安定化
+
+- Repository Verify workflowで共有パッケージのビルド漏れにより`packages/plugin-template`/`packages/mcp-server`のtypecheckが失敗していた問題を修正
+- Repository Verify workflowのcheckoutがshallow cloneのため、タグ参照が必要なアップグレード互換性テストが失敗していた問題を修正(`fetch-depth: 0`を追加)
+
+### ドキュメント
+
+- `.env.example`に`STAFF_API_KEY_HASH_SECRET`・`PHARMACY_PHI_KEY_V1`(Worker secret)のプレースホルダーと設定方法の説明を追加
+
 ## Pharmacy v0.27.0 (2026-08-20)
 
 ### この更新で変わること
