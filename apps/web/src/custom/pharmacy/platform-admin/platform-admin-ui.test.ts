@@ -141,6 +141,23 @@ describe('platform admin control center UI contract', () => {
     expect(supportMode).toContain('終了');
   });
 
+  it('keeps support access visible when status refresh fails and clears PHI on end or expiry', () => {
+    expect(supportMode).not.toContain('.catch(() => setGrants([]))');
+    expect(supportMode).toContain('setLoadError(');
+    expect(supportMode).toContain('サポートモード状態を確認できません');
+    expect(supportMode).toContain('SUPPORT_ACCESS_EXPIRED');
+    expect(patientDetail).toContain('setDetail(null)');
+    expect(patientDetail).toContain('SUPPORT_GRANTS_CHANGED');
+    expect(patientDetail).toContain('SUPPORT_ACCESS_EXPIRED');
+  });
+
+  it('distinguishes an expired login from a platform API outage', () => {
+    expect(layout).toContain('PlatformAdminApiError');
+    expect(layout).toContain('caught.status === 401');
+    expect(layout).toContain('setSessionError(');
+    expect(layout).toContain('セッション状態を確認できませんでした');
+  });
+
   it('treats a 403 from the PHI routes as "start support mode", not a generic error', () => {
     // 403 is the only status those routes use for a missing grant.
     expect(api).toContain('export function isSupportModeRequired');
@@ -148,7 +165,8 @@ describe('platform admin control center UI contract', () => {
     for (const page of [patientList, patientDetail]) {
       expect(page).toContain('isSupportModeRequired(caught)');
       expect(page).toContain('setGrantMissing(true)');
-      expect(page).toContain('else setError(caught.message)');
+      expect(page).toContain('else setError(');
+      expect(page).not.toContain('else setError(caught.message)');
       expect(page).toContain('<SupportModeRequired');
     }
     expect(supportMode).toContain('このテナントの患者情報を見るにはサポートモードを開始してください');
@@ -196,12 +214,26 @@ describe('platform admin control center UI contract', () => {
     expect(api).not.toMatch(/channelSecret|accessToken/);
   });
 
+  it('shows the current outbound pause state and serializes confirmed changes', () => {
+    expect(api).toContain('outboundMessagingPausedAt: string | null');
+    expect(tenantDetail).toContain('outboundMessagingPausedAt={tenant.outboundMessagingPausedAt}');
+    expect(tenantDetail).toContain('if (changing || !window.confirm(');
+    expect(tenantDetail).toContain('disabled={changing || Boolean(outboundMessagingPausedAt)}');
+    expect(tenantDetail).toContain('disabled={changing || !outboundMessagingPausedAt}');
+  });
+
   it('offers webhook retry only for failed or dead-lettered rows', () => {
     expect(logs).toContain("row.status === 'failed' || Boolean(row.dead_lettered_at)");
     expect(logs).toContain('platformAdminApi.retryWebhookEvent(rowTenantId, webhookEventId)');
     // No tenant to scope the retry to means no button.
     expect(logs).toContain('if (!retryable || !rowTenantId || !webhookEventId) return null');
     expect(logs).toContain('再試行');
+  });
+
+  it('confirms webhook redelivery and allows only one retry at a time', () => {
+    expect(logs).toContain('if (retrying || !window.confirm(');
+    expect(logs).toContain('患者へのLINE送信が再実行される可能性があります');
+    expect(logs).toContain('disabled={Boolean(retrying)}');
   });
 
   it('routes every call through the shared authenticated client', () => {

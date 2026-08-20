@@ -31,13 +31,14 @@ function PatientList({ tenantId }: { tenantId: string }) {
   const [grantMissing, setGrantMissing] = useState(false)
 
   const load = useCallback(() => {
+    setPatients(null)
     setError('')
     setGrantMissing(false)
     platformAdminApi.patients(tenantId)
       .then((res) => setPatients(res.data))
       .catch((caught: Error) => {
         if (isSupportModeRequired(caught)) setGrantMissing(true)
-        else setError(caught.message)
+        else setError('患者一覧を取得できませんでした。再度お試しください。')
       })
   }, [tenantId])
 

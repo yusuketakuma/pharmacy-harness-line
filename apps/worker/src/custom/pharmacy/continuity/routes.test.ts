@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listPatientExpectations: vi.fn(),
   listAccountExpectations: vi.fn(),
   offerExpectation: vi.fn(),
+  endExpectation: vi.fn(),
   respondExpectation: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('./next-intake.js', () => ({
   listPatientExpectations: mocks.listPatientExpectations,
   listAccountExpectations: mocks.listAccountExpectations,
   offerNextIntakeExpectation: mocks.offerExpectation,
+  endNextIntakeExpectation: mocks.endExpectation,
   respondToNextIntakeExpectation: mocks.respondExpectation,
 }));
 vi.mock('../operations-access.js', () => ({
@@ -60,6 +62,7 @@ beforeEach(() => {
   mocks.listPatientExpectations.mockResolvedValue([{ id: 'expectation-1', status: 'offered' }]);
   mocks.listAccountExpectations.mockResolvedValue([{ id: 'expectation-1', status: 'offered' }]);
   mocks.offerExpectation.mockResolvedValue({ id: 'expectation-1', status: 'offered' });
+  mocks.endExpectation.mockResolvedValue({ id: 'expectation-1', status: 'ended' });
   mocks.respondExpectation.mockResolvedValue({ id: 'expectation-1', status: 'accepted' });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
@@ -178,6 +181,24 @@ describe('continuity routes', () => {
     );
     expect(response.status).toBe(403);
     expect(mocks.offerExpectation).not.toHaveBeenCalled();
+  });
+
+  it('lets assigned staff stop a pending next-intake notice with optimistic versioning', async () => {
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/continuity/obligation-1/expectations/expectation-1/end?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedVersion: 2, idempotencyKey: 'end-request-1' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.endExpectation).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-1', expectationId: 'expectation-1', expectedVersion: 2,
+      staffId: 'staff-1', idempotencyKey: 'end-request-1',
+    });
   });
 
   it('records next-intake consent only for the verified LINE friend', async () => {

@@ -76,7 +76,9 @@ describe('pharmacy notification policy', () => {
 
   it('builds only the fixed medication follow-up choices for an opaque id', () => {
     const followUpId = '123e4567-e89b-42d3-a456-426614174000';
-    const message = buildApprovedPharmacyMessage('medication_followup_v1', { followUpId });
+    const message = buildApprovedPharmacyMessage('medication_followup_v1', {
+      followUpId, liffId: '2000000000-AbCdEfGh',
+    });
     expect(message).toEqual({
       type: 'text',
       text: 'お薬を使い始めてからの体調はいかがですか。あてはまるものを選んでください。',
@@ -85,6 +87,7 @@ describe('pharmacy notification policy', () => {
           { type: 'action', action: { type: 'postback', label: '問題なし', data: `pharmacy-followup:${followUpId}:no_issue` } },
           { type: 'action', action: { type: 'postback', label: '気になることがある', data: `pharmacy-followup:${followUpId}:concern` } },
           { type: 'action', action: { type: 'postback', label: '薬剤師に相談したい', data: `pharmacy-followup:${followUpId}:pharmacist_requested` } },
+          { type: 'action', action: { type: 'uri', label: '詳しく確認する', uri: expect.stringContaining('page=pharmacy-followup') } },
         ],
       },
     });

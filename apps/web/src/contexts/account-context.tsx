@@ -19,6 +19,7 @@ export interface AccountWithStats {
   displayOrder: number
   liffId?: string | null
   pharmacyMode?: boolean
+  outboundMessagingPausedAt?: string | null
   stats?: {
     friendCount: number
     activeScenarios: number
@@ -41,6 +42,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [accounts, setAccounts] = useState<AccountWithStats[]>([])
   const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   const setSelectedAccountId = useCallback((id: string) => {
     setSelectedAccountIdState(id)
@@ -52,9 +54,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshAccounts = useCallback(async () => {
+    setError('')
     try {
       const res = await api.lineAccounts.list()
-      if (res.success && res.data.length > 0) {
+      if (!res.success) {
+        setError('LINEアカウント情報を取得できませんでした。再読み込みしてください。')
+        return
+      }
+      if (res.data.length > 0) {
         const list = res.data as AccountWithStats[]
         setAccounts(list)
 
@@ -76,7 +83,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         setSelectedAccountIdState(null)
       }
     } catch {
-      // Failed to load accounts
+      setError('LINEアカウント情報を取得できませんでした。再読み込みしてください。')
     } finally {
       setLoading(false)
     }
@@ -92,6 +99,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     <AccountContext.Provider
       value={{ accounts, selectedAccountId, selectedAccount, setSelectedAccountId, refreshAccounts, loading }}
     >
+      {error && <div role="alert" className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {children}
     </AccountContext.Provider>
   )

@@ -11,6 +11,7 @@ import {
   getAdminPrescriptionStats,
   listAdminPrescriptionQueue,
   recordPrescriptionFileViewed,
+  reportPrescriptionArrival,
   reservePrescriptionDraft,
   reservePrescriptionFile,
 } from './repository.js';
@@ -62,6 +63,7 @@ describe('reservePrescriptionDraft', () => {
         {
           idempotencyKey: 'request-123',
           desiredPickupAt: null,
+          desiredFulfillmentMethod: 'PICKUP',
           originalPrescriptionConsent: true,
           readinessNoticeConsent: true,
         },
@@ -69,6 +71,7 @@ describe('reservePrescriptionDraft', () => {
     ).resolves.toEqual(existing);
 
     expect(calls[0].sql).toContain('ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING');
+    expect(calls[0].sql).toContain('desired_fulfillment_method');
     expect(calls[1].sql).toContain('INSERT INTO pharmacy_prescription_events');
     expect(calls[2].sql).toContain(
       'WHERE line_account_id = ? AND friend_id = ? AND idempotency_key = ?',
@@ -310,11 +313,35 @@ describe('admin account-scoped repository', () => {
   });
 
   it('returns account-scoped pending count and oldest wait', async () => {
-    const stats = { pending_count: 2, oldest_wait_at: '2026-08-17T00:00:00Z' };
+    const stats = {
+      pending_count: 2,
+      oldest_wait_at: '2026-08-17T00:00:00Z',
+      draft_count: 1,
+      received_count: 2,
+      needs_resubmission_count: 3,
+      accepted_count: 4,
+      ready_count: 5,
+      closed_count: 6,
+      cancelled_count: 7,
+      total_count: 28,
+    };
     const { db, calls } = fakeDb(stats);
     await expect(getAdminPrescriptionStats(db, 'account-1')).resolves.toEqual(stats);
     expect(calls[0].sql).toContain('line_account_id = ?');
-    expect(calls[0].sql).toContain("status = 'received'");
+    expect(calls[0].sql).toContain("status = 'received' THEN 1");
+    expect(calls[0].sql).toContain('COUNT(*) AS total_count');
+  });
+
+  it('includes an account-scoped patient display name in queue rows', async () => {
+    const { db, calls } = fakeDb([]);
+    await listAdminPrescriptionQueue(db, 'account-1', {
+      status: null,
+      cursor: null,
+      limit: 20,
+    });
+    expect(calls[0].sql).toContain('INNER JOIN friends f');
+    expect(calls[0].sql).toContain('f.display_name AS patient_display_name');
+    expect(calls[0].sql).toContain('f.line_account_id = s.line_account_id');
   });
 
   it('loads scoped detail with file metadata but never exposes R2 keys', async () => {
@@ -358,6 +385,9 @@ describe('patient history, cancellation, and resubmission', () => {
     ]);
     expect(calls[0].sql).not.toContain('pharmacy_prescription_files');
     expect(calls[0].sql).not.toContain('r2_key');
+    expect(calls[0].sql).toContain('LEFT JOIN pharmacy_fulfillment_quotes');
+    expect(calls[0].sql).toContain('q.estimated_ready_at');
+    expect(calls[0].sql).toContain('q.requirements_json');
     expect(calls[0].values).toEqual(['account-1', 'friend-1']);
   });
 
@@ -387,6 +417,16 @@ describe('patient history, cancellation, and resubmission', () => {
     expect(calls[1].sql).toContain("'revision_reserved'");
   });
 
+  it('records arrival only for the owned accepted or ready submission with CAS', async () => {
+    const { db, calls } = fakeDb(null);
+    await expect(reportPrescriptionArrival(
+      db, patient, 'submission-1', '2026-08-17T00:00:00.000Z',
+    )).resolves.toMatchObject({ arrivalReportedAt: expect.any(String) });
+    expect(calls[0].sql).toContain("status IN ('accepted','ready')");
+    expect(calls[0].sql).toContain('line_account_id = ? AND friend_id = ?');
+    expect(calls[0].sql).toContain('arrival_reported_at IS NULL');
+  });
+
   it('rejects stale cancellation and resubmission updates', async () => {
     const { db } = fakeDb([], 0);
     await expect(cancelPrescription(db, patient, 'submission-1', 'stale'))
@@ -412,8 +452,16 @@ describe('submitPrescription', () => {
       db,
       { lineAccountId: 'account-1', friendId: 'friend-1' },
       'submission-1',
-      '2026-08-17T00:00:00.000Z',
+      {
+        expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+        desiredPickupAt: '2026-08-19T09:00:00.000Z',
+        originalPrescriptionConsent: true,
+        readinessNoticeConsent: true,
+      },
     );
+    expect(calls[0].sql).toContain('desired_pickup_at = ?');
+    expect(calls[0].sql).toContain('original_prescription_consent_at = ?');
+    expect(calls[0].sql).toContain('readiness_notice_consent_at = ?');
     expect(calls[0].sql).toContain('original_prescription_consent_at IS NOT NULL');
     expect(calls[0].sql).toContain('readiness_notice_consent_at IS NOT NULL');
     expect(calls[0].sql).toContain("f.state = 'ready'");
@@ -432,7 +480,12 @@ describe('submitPrescription', () => {
       db,
       { lineAccountId: 'account-1', friendId: 'friend-1' },
       'submission-1',
-      'stale-version',
+      {
+        expectedUpdatedAt: 'stale-version',
+        desiredPickupAt: null,
+        originalPrescriptionConsent: true,
+        readinessNoticeConsent: true,
+      },
     )).rejects.toThrow('prescription submit conflict');
   });
 });

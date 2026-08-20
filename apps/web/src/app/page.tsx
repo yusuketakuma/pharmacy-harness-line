@@ -198,6 +198,10 @@ function GenericDashboardPage() {
               ? scoringRes.value.data.length
               : null,
         })
+        if ([friendCountRes, scenariosRes, broadcastsRes, templatesRes, automationsRes, scoringRes]
+          .some((result) => result.status === 'rejected' || !result.value.success)) {
+          setError('一部のデータを取得できませんでした。値が「-」の項目は再読み込みしてください。')
+        }
       } catch {
         setError('データの読み込みに失敗しました')
       } finally {
@@ -226,24 +230,6 @@ function GenericDashboardPage() {
       )}
 
       <FriendAddLinkCard />
-
-      {/* Demo banner */}
-      <a
-        href="https://your-worker.your-subdomain.workers.dev/auth/line?ref=dashboard"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block mb-6 p-4 rounded-xl border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 transition-colors"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-gray-900">LINE で体験する</p>
-            <p className="text-xs text-gray-500 mt-0.5">友だち追加でステップ配信・フォーム・自動返信を体験</p>
-          </div>
-          <span className="text-xs px-3 py-1.5 rounded-full text-white font-medium" style={{ backgroundColor: '#06C755' }}>
-            友だち追加
-          </span>
-        </div>
-      </a>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
@@ -422,7 +408,12 @@ function GenericDashboardPage() {
 }
 
 export default function DashboardPage() {
-  const { selectedAccount } = useAccount()
+  const { selectedAccount, loading } = useAccount()
+  if (loading) return <p className="py-10 text-center text-gray-500">アカウントを読み込み中...</p>
+  if (!selectedAccount) return <div className="py-10 text-center">
+    <p className="text-gray-700">LINEアカウントがまだ登録されていません。</p>
+    <Link href="/accounts" className="mt-3 inline-block rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">アカウント設定を開く</Link>
+  </div>
   if (selectedAccount?.pharmacyMode) return <GrowthDashboardPage />
   return <GenericDashboardPage />
 }

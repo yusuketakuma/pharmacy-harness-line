@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   listHistory: vi.fn(),
   cancel: vi.fn(),
   reserveResubmission: vi.fn(),
+  reportArrival: vi.fn(),
   markFileDeleted: vi.fn(),
   listAdmin: vi.fn(),
   adminStats: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock('./repository.js', () => ({
   listPrescriptionHistory: mocks.listHistory,
   cancelPrescription: mocks.cancel,
   reservePrescriptionResubmission: mocks.reserveResubmission,
+  reportPrescriptionArrival: mocks.reportArrival,
   markPrescriptionFileDeleted: mocks.markFileDeleted,
   listAdminPrescriptionQueue: mocks.listAdmin,
   getAdminPrescriptionStats: mocks.adminStats,
@@ -124,6 +126,7 @@ describe('patient history, cancellation, and resubmission routes', () => {
       { id: 'file-1', r2_key: 'custom/pharmacy/prescriptions/submission-1/1/file-1' },
     ]);
     mocks.reserveResubmission.mockResolvedValue(undefined);
+    mocks.reportArrival.mockResolvedValue({ arrivalReportedAt: '2026-08-19T10:00:00.000Z' });
     mocks.markFileDeleted.mockResolvedValue(undefined);
     deleteObject.mockResolvedValue(undefined);
   });
@@ -178,6 +181,17 @@ describe('patient history, cancellation, and resubmission routes', () => {
     );
     expect(response.status).toBe(200);
     expect(mocks.reserveResubmission).toHaveBeenCalledWith(
+      env.DB, patient, 'submission-1', '2026-08-17T00:00:00.000Z',
+    );
+  });
+
+  it('records an authenticated patient arrival with account and owner scope', async () => {
+    const response = await request(
+      '/api/liff/pharmacy/prescriptions/submission-1/arrival',
+      'POST',
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.reportArrival).toHaveBeenCalledWith(
       env.DB, patient, 'submission-1', '2026-08-17T00:00:00.000Z',
     );
   });
@@ -358,12 +372,19 @@ describe('admin prescription routes', () => {
 });
 
 describe('POST /api/liff/pharmacy/prescriptions/:id/submit', () => {
-  const request = () => prescriptionRoutes.request(
+  const request = (body: Record<string, unknown> = {}) => prescriptionRoutes.request(
     '/api/liff/pharmacy/prescriptions/submission-1/submit?liffId=liff-1',
     {
       method: 'POST',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: '2026-08-17T00:00:00.000Z' }),
+      body: JSON.stringify({
+        expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+        desiredPickupAt: '2026-08-19T09:00:00.000Z',
+        desiredFulfillmentMethod: null,
+        originalPrescriptionConsent: true,
+        readinessNoticeConsent: true,
+        ...body,
+      }),
     },
     env,
   );
@@ -380,7 +401,13 @@ describe('POST /api/liff/pharmacy/prescriptions/:id/submit', () => {
       env.DB,
       { lineAccountId: 'account-1', friendId: 'friend-1' },
       'submission-1',
-      '2026-08-17T00:00:00.000Z',
+      {
+        expectedUpdatedAt: '2026-08-17T00:00:00.000Z',
+        desiredPickupAt: '2026-08-19T09:00:00.000Z',
+        desiredFulfillmentMethod: null,
+        originalPrescriptionConsent: true,
+        readinessNoticeConsent: true,
+      },
     );
     expect(mocks.notify).toHaveBeenCalledWith(
       env.DB,
@@ -389,6 +416,11 @@ describe('POST /api/liff/pharmacy/prescriptions/:id/submit', () => {
       expect.objectContaining({ proxyDispatch: expect.any(Function) }),
       'event-1',
     );
+  });
+
+  it('rejects submit when the current consent confirmation is missing', async () => {
+    expect((await request({ originalPrescriptionConsent: false })).status).toBe(400);
+    expect(mocks.submit).not.toHaveBeenCalled();
   });
 
   it('keeps a committed submission successful when continuity linking needs repair', async () => {
@@ -450,6 +482,7 @@ describe('POST /api/liff/pharmacy/prescriptions', () => {
     const response = await request({
       idempotencyKey: 'request-123',
       desiredPickupAt: null,
+      desiredFulfillmentMethod: 'PICKUP',
       originalPrescriptionConsent: true,
       readinessNoticeConsent: true,
     });
@@ -464,9 +497,20 @@ describe('POST /api/liff/pharmacy/prescriptions', () => {
     expect(mocks.reserveDraft).toHaveBeenCalledWith(env.DB, patient, {
       idempotencyKey: 'request-123',
       desiredPickupAt: null,
+      desiredFulfillmentMethod: 'PICKUP',
       originalPrescriptionConsent: true,
       readinessNoticeConsent: true,
     });
+  });
+
+  it('rejects an unsupported patient fulfillment preference', async () => {
+    const response = await request({
+      idempotencyKey: 'request-123', desiredPickupAt: null,
+      desiredFulfillmentMethod: 'DRONE',
+      originalPrescriptionConsent: true, readinessNoticeConsent: true,
+    });
+    expect(response.status).toBe(400);
+    expect(mocks.reserveDraft).not.toHaveBeenCalled();
   });
 
   it('passes the explicit patient and intake revision to the draft reservation', async () => {

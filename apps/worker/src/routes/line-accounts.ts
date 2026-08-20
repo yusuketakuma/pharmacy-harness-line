@@ -115,6 +115,9 @@ lineAccounts.get('/api/line-accounts', async (c) => {
     const tenantId = c.get('tenantId');
     const allItems = await getLineAccountsForTenant(db, tenantId);
     const pharmacyTenant = await isPharmacyTenant(db, tenantId);
+    const tenantState = tenantId ? await db.prepare(
+      `SELECT outbound_messaging_paused_at FROM tenants WHERE id = ? LIMIT 1`,
+    ).bind(tenantId).first<{ outbound_messaging_paused_at: string | null }>() : null;
     let items = allItems;
     if (pharmacyTenant) {
       const staff = c.get('staff');
@@ -164,6 +167,7 @@ lineAccounts.get('/api/line-accounts', async (c) => {
           pictureUrl: profile.pictureUrl || null,
           basicId: profile.basicId || null,
           pharmacyMode,
+          outboundMessagingPausedAt: tenantState?.outbound_messaging_paused_at ?? null,
           stats: {
             friendCount: friendCount?.count ?? 0,
             activeScenarios: scenarioCount?.count ?? 0,

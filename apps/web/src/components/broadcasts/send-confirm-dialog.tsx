@@ -28,12 +28,20 @@ export default function SendConfirmDialog({ title, targetCount, accountName, isM
     return () => clearTimeout(timer)
   }, [countdown])
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onCancel])
+
   const showBreakdown = isMultiAccount === true
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-4">配信を送信しますか？</h3>
+      <div role="dialog" aria-modal="true" aria-labelledby="send-confirm-title" className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
+        <h3 id="send-confirm-title" className="text-base font-semibold text-gray-900 mb-4">配信を送信しますか？</h3>
         <dl className="space-y-2 text-sm mb-4">
           <div className="flex justify-between">
             <dt className="text-gray-500">タイトル</dt>

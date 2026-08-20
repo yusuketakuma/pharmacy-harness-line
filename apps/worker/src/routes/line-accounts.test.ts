@@ -313,7 +313,9 @@ describe('GET /api/line-accounts', () => {
       prepare: vi.fn((sql: string) => ({
         bind: vi.fn(() => ({
           first: vi.fn().mockResolvedValue(
-            sql.includes('SELECT mode FROM pharmacy_account_capabilities')
+            sql.includes('outbound_messaging_paused_at')
+              ? { outbound_messaging_paused_at: '2026-08-19T09:00:00.000Z' }
+              : sql.includes('SELECT mode FROM pharmacy_account_capabilities')
               ? { mode: 'pharmacy' }
               : sql.includes('pharmacy_account_capabilities')
                 ? { pharmacy_install: 1 }
@@ -330,7 +332,11 @@ describe('GET /api/line-accounts', () => {
 
     expect(res.status).toBe(200);
     expect(dbMocks.getLineAccountsForTenant).toHaveBeenCalledWith(db, 'tenant-a');
-    expect(body.data[0]).toMatchObject({ id: 'acc-1', pharmacyMode: true });
+    expect(body.data[0]).toMatchObject({
+      id: 'acc-1',
+      pharmacyMode: true,
+      outboundMessagingPausedAt: '2026-08-19T09:00:00.000Z',
+    });
     expect(body.data[0]).not.toHaveProperty('channelAccessToken');
     expect(body.data[0]).not.toHaveProperty('channelSecret');
     expect(credentialMocks.readLineCredential).toHaveBeenCalledWith(

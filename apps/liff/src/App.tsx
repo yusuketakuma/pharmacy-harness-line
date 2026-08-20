@@ -12,6 +12,8 @@ import PrescriptionPage from './custom/pharmacy/prescriptions/PrescriptionPage.j
 import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake
 import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity
 import MynaReceivePage from './custom/pharmacy/myna/MynaReceivePage.js'; // custom:pharmacy-myna
+import MedicationFollowUpPage from './custom/pharmacy/medication-followup/MedicationFollowUpPage.js'; // custom:pharmacy-medication-followup
+import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -33,6 +35,8 @@ export default function App() {
       <Route path="/pharmacy/patient-intake" element={<PatientIntakePage />} /> {/* custom:pharmacy-intake */}
       <Route path="/pharmacy/continuity" element={<ContinuityPage />} /> {/* custom:pharmacy-continuity */}
       <Route path="/pharmacy/receive" element={<MynaReceivePage />} /> {/* custom:pharmacy-myna */}
+      <Route path="/pharmacy/medication-followup" element={<MedicationFollowUpPage />} /> {/* custom:pharmacy-medication-followup */}
+      <Route path="/pharmacy/emergency-contraception" element={<EmergencyContraceptionPage />} /> {/* custom:pharmacy-emergency-contraception */}
       <Route path="/" element={<LegacyEntryRedirect />} />
       <Route
         path="*"

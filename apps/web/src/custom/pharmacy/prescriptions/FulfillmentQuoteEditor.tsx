@@ -5,6 +5,7 @@ import type {
   FulfillmentDecision,
   FulfillmentMethod,
   FulfillmentQuote,
+  FulfillmentStatus,
 } from './api'
 
 const DECISION_LABELS: Record<FulfillmentDecision, string> = {
@@ -28,6 +29,17 @@ const METHOD_LABELS: Record<FulfillmentMethod, string> = {
   FACILITY_DELIVERY: '施設へ配送',
 }
 
+const FULFILLMENT_STATUS_LABELS: Record<FulfillmentStatus, string> = {
+  CHECKING: '確認中',
+  AVAILABLE: '準備可能',
+  PARTIALLY_AVAILABLE: '一部準備可能',
+  UNAVAILABLE: '準備不可',
+  PHARMACIST_REVIEW_REQUIRED: '薬剤師の確認が必要',
+}
+
+export const fulfillmentStatusLabel = (status: FulfillmentStatus) =>
+  FULFILLMENT_STATUS_LABELS[status]
+
 export interface FulfillmentQuoteDraft {
   decision: FulfillmentDecision
   reasonCodes: string[]
@@ -37,7 +49,21 @@ export interface FulfillmentQuoteDraft {
   method: FulfillmentMethod | ''
 }
 
-const dateTimeInputValue = (value: string | null | undefined) => value ? value.slice(0, 16) : ''
+const TOKYO_DATE_TIME = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
+
+const dateTimeInputValue = (value: string | null | undefined) => {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? TOKYO_DATE_TIME.format(date).replace(' ', 'T') : ''
+}
 
 export function fulfillmentQuoteDraft(quote: FulfillmentQuote | null): FulfillmentQuoteDraft {
   return {
@@ -75,6 +101,9 @@ export function FulfillmentQuoteEditor({
           const decision = event.target.value as FulfillmentDecision
           update({
             decision,
+            reasonCodes: decision === 'conditional' && draft.requirements.length === 0 && !draft.reasonCodes.includes('original_required')
+              ? [...draft.reasonCodes, 'original_required']
+              : draft.reasonCodes,
             requirements: decision === 'conditional' && draft.requirements.length === 0
               ? [{ code: 'original_required', status: 'pending' }]
               : draft.requirements,
@@ -85,7 +114,7 @@ export function FulfillmentQuoteEditor({
       </label>
       <fieldset className="mt-3 space-y-2">
         <legend className="text-sm font-medium">確認項目（自由記述なし）</legend>
-        {REASON_OPTIONS.map(([code, label]) => <label key={code} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.reasonCodes.includes(code)} onChange={(event) => update({
+        {REASON_OPTIONS.map(([code, label]) => <label key={code} className="flex min-h-11 cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={draft.reasonCodes.includes(code)} onChange={(event) => update({
           reasonCodes: event.target.checked
             ? [...draft.reasonCodes, code]
             : draft.reasonCodes.filter((item) => item !== code),
@@ -115,7 +144,7 @@ export function FulfillmentQuoteEditor({
         <label className="text-sm font-medium">受取方法<select value={draft.method} onChange={(event) => update({ method: event.target.value as FulfillmentMethod | '' })} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="">未定</option>{Object.entries(METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div>
       <label className="mt-3 block max-w-sm text-sm font-medium">回答の有効期限<input type="datetime-local" value={draft.validUntil} onChange={(event) => update({ validUntil: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2" /></label>
-      {quote && <p className="mt-3 text-xs text-gray-600">第{quote.revision}版・{DECISION_LABELS[quote.decision]}・状態 {quote.status}</p>}
+      {quote && <p className="mt-3 text-xs text-gray-600">第{quote.revision}版・{DECISION_LABELS[quote.decision]}・状態 {fulfillmentStatusLabel(quote.status)}</p>}
       <button type="button" onClick={onSave} disabled={saving} className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? '保存中…' : '受付内容を保存'}</button>
     </section>
   )

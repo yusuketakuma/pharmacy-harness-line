@@ -639,7 +639,18 @@ function FragmentRow({
   const friends = isExpanded && refDetail?.refCode === refCode ? refDetail.friends : null
   return (
     <Fragment>
-      <tr className="hover:bg-gray-50 cursor-pointer" onClick={onToggle}>
+      <tr
+        className="hover:bg-gray-50 cursor-pointer"
+        onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onToggle()
+          }
+        }}
+        tabIndex={0}
+        aria-expanded={isExpanded}
+      >
         {children}
       </tr>
       {isExpanded && (

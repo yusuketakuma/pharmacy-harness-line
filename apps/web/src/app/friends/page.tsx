@@ -165,8 +165,9 @@ export default function FriendsPage() {
         {/* Secondary filters — タグ + 対応マーク */}
         <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-gray-100">
           <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-600 font-medium whitespace-nowrap">タグ:</label>
+            <label htmlFor="friend-tag-filter" className="text-xs text-gray-600 font-medium whitespace-nowrap">タグ:</label>
             <select
+              id="friend-tag-filter"
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
               value={selectedTagId}
               onChange={(e) => handleTagFilterChange(e.target.value)}
@@ -178,8 +179,9 @@ export default function FriendsPage() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-600 font-medium whitespace-nowrap">対応マーク:</label>
+            <label htmlFor="friend-response-filter" className="text-xs text-gray-600 font-medium whitespace-nowrap">対応マーク:</label>
             <select
+              id="friend-response-filter"
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
               value={responseFilter}
               onChange={(e) => handleResponseFilterChange(e.target.value as ResponseFilter)}

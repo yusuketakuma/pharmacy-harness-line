@@ -168,7 +168,13 @@ function fakeDb(): Store {
       retry_count: 10, dead_lettered_at: '2026-01-02T00:00:00.000Z', lease_until: null,
     },
   ];
-  const stats = { line_account_count: 1, staff_count: 2, patient_count: 3 };
+  const stats = {
+    line_account_count: 1,
+    staff_count: 2,
+    patient_count: 3,
+    webhook_failure_count: 1,
+    line_config_issue_count: 0,
+  };
   let staleReceipt: WebhookReceipt | null = null;
 
   const db = {
@@ -207,6 +213,10 @@ function fakeDb(): Store {
                 (!bound || !grant.session_token_hash || grant.session_token_hash === values[3]))
               .sort((left, right) => (left.expires_at < right.expires_at ? 1 : -1))[0] ?? null;
           }
+          if (sql.includes('FROM tenants AS tenant')) {
+            const found = rows.find((tenant) => tenant.id === values[0]);
+            return found ? { ...found, ...stats } : null;
+          }
           if (sql.includes('FROM pharmacy_webhook_event_receipts')) {
             if (staleReceipt) {
               const snapshot = staleReceipt;
@@ -215,10 +225,6 @@ function fakeDb(): Store {
             }
             return receipts.find((receipt) => receipt.tenant_id === values[0] &&
               receipt.webhook_event_id === values[1]) ?? null;
-          }
-          if (sql.includes('FROM tenants AS tenant')) {
-            const found = rows.find((tenant) => tenant.id === values[0]);
-            return found ? { ...found, ...stats } : null;
           }
           if (sql.includes('FROM tenants')) {
             return rows.find((tenant) => tenant.id === values[0]) ?? null;
@@ -677,7 +683,10 @@ describe('platform admin cross-tenant access', () => {
     await expect(response.json()).resolves.toMatchObject({
       success: true,
       data: [
-        { id: 'tenant-a', tenantCode: 'pharmacy-a', status: 'active', patientCount: 3, staffCount: 2, lineAccountCount: 1 },
+        {
+          id: 'tenant-a', tenantCode: 'pharmacy-a', status: 'active', patientCount: 3,
+          staffCount: 2, lineAccountCount: 1, webhookFailureCount: 1, lineConfigIssueCount: 0,
+        },
         { id: 'tenant-b', status: 'suspended' },
       ],
     });
@@ -686,13 +695,18 @@ describe('platform admin cross-tenant access', () => {
 
   it('returns one tenant with its line accounts and 404s an unknown tenant', async () => {
     const store = fakeDb();
+    store.tenants[0].outbound_messaging_paused_at = '2026-08-19T08:00:00.000Z';
     const testEnv = env(store.db);
     const { cookie } = await standardSession(testEnv);
 
     const response = await app().request('/api/platform-admin/tenants/tenant-a', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      data: { id: 'tenant-a', lineAccounts: [{ id: 'account-a', name: 'Account A' }] },
+      data: {
+        id: 'tenant-a',
+        outboundMessagingPausedAt: '2026-08-19T08:00:00.000Z',
+        lineAccounts: [{ id: 'account-a', name: 'Account A' }],
+      },
     });
     expect(store.auditEvents.at(-1)).toMatchObject({ action: 'view_tenant', tenant_id: 'tenant-a' });
 

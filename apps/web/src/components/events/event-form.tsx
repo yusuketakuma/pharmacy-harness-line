@@ -939,7 +939,7 @@ function BulkSlotDialog({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
         <h3 className="text-lg font-bold mb-4 text-gray-900">予約枠の一括追加</h3>
         {err && <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded-lg mb-3 text-sm">{err}</div>}
         <div className="space-y-4">

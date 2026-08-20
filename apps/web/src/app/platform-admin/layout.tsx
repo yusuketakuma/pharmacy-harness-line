@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   clearPlatformAdminLocalState,
+  PlatformAdminApiError,
   platformAdminApi,
   setPlatformAdminName,
 } from '@/lib/platform-admin-api'
@@ -31,6 +32,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
   const isLogin = pathname === '/platform-admin/login'
   const [checked, setChecked] = useState(false)
   const [name, setName] = useState('')
+  const [sessionError, setSessionError] = useState('')
 
   useEffect(() => {
     if (isLogin) {
@@ -38,9 +40,10 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
       return
     }
     let cancelled = false
+    setSessionError('')
     platformAdminApi.session()
       .then((res) => {
-        if (!res?.success || !res?.data) throw new Error('unauthenticated')
+        if (!res?.success || !res?.data) throw new PlatformAdminApiError(401, 'unauthenticated')
         if (res.data.mustChangePassword) {
           if (!cancelled) router.replace('/platform-admin/login')
           return
@@ -51,8 +54,14 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
           setChecked(true)
         }
       })
-      .catch(() => {
-        if (!cancelled) router.replace('/platform-admin/login')
+      .catch((caught: unknown) => {
+        if (cancelled) return
+        if (caught instanceof PlatformAdminApiError && caught.status === 401) {
+          clearPlatformAdminLocalState()
+          router.replace('/platform-admin/login')
+          return
+        }
+        setSessionError('セッション状態を確認できませんでした。通信状態を確認して再読み込みしてください。')
       })
     return () => { cancelled = true }
   }, [isLogin, router])
@@ -64,6 +73,17 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
   }
 
   if (isLogin) return <>{children}</>
+
+  if (sessionError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+        <p role="alert" className="text-sm text-red-700">{sessionError}</p>
+        <button type="button" onClick={() => window.location.reload()} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">
+          再読み込み
+        </button>
+      </div>
+    )
+  }
 
   if (!checked) {
     return (

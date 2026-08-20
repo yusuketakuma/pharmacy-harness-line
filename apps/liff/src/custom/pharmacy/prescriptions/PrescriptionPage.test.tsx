@@ -6,6 +6,7 @@ import PrescriptionPage, {
   canSubmitPrescription,
   requestedPrescriptionId,
   validatePrescriptionImages,
+  pendingRequirementLabels,
 } from './PrescriptionPage.js';
 
 const source = readFileSync(
@@ -30,6 +31,12 @@ describe('prescription upload UI contract', () => {
     expect(validatePrescriptionImages([
       { type: 'image/png', size: 10 * 1024 * 1024 + 1 },
     ])).toMatch(/10MiB/);
+  });
+
+  it('adds later camera selections instead of replacing earlier pages', () => {
+    expect(source).toContain('setFiles((current) =>');
+    expect(source).toContain('const next = [...current, ...Array.from(selected)]');
+    expect(source).toContain('validatePrescriptionImages(next)');
   });
 
   it('accepts only an opaque submission id from a notification deep link', () => {
@@ -72,5 +79,33 @@ describe('prescription upload UI contract', () => {
     expect(canSubmitPrescription(2, true, false, false)).toBe(false);
     expect(canSubmitPrescription(2, false, true, false)).toBe(false);
     expect(canSubmitPrescription(2, true, true, false)).toBe(true);
+  });
+
+  it('sends the current pickup request and consent confirmations on final submit', () => {
+    expect(source).toContain('desiredPickupAt: desiredPickupAt ? new Date(desiredPickupAt).toISOString() : null');
+    expect(source).toContain('originalPrescriptionConsent: originalConsent');
+    expect(source).toContain('readinessNoticeConsent: noticeConsent');
+    expect(source).toContain('desiredFulfillmentMethod');
+    expect(source).toContain('薬局で受け取る');
+    expect(source).toContain('配送を希望');
+  });
+
+  it('shows the pharmacy preparation estimate and safe pending checks', () => {
+    expect(pendingRequirementLabels(JSON.stringify([
+      { code: 'stock_check', status: 'pending' },
+      { code: 'original_required', status: 'satisfied' },
+      { code: 'unknown_internal_code', status: 'pending' },
+    ]))).toEqual(['在庫を確認しています', '薬局から確認があります']);
+    expect(pendingRequirementLabels('invalid')).toEqual([]);
+    expect(source).toContain('item.estimated_ready_at');
+    expect(source).toContain('pendingRequirementLabels(item.requirements_json)');
+    expect(source).toContain('受付状況');
+  });
+
+  it('offers a confirmed serialized arrival notice for accepted or ready prescriptions', () => {
+    expect(source).toContain("item.status === 'accepted' || item.status === 'ready'");
+    expect(source).toContain('来局しました');
+    expect(source).toContain('prescriptionApi.arrive(item.id, item.updated_at)');
+    expect(source).toContain('window.confirm(');
   });
 });

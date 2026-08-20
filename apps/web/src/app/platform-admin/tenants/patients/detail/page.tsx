@@ -1,5 +1,5 @@
 'use client'
-import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -7,7 +7,11 @@ import {
   platformAdminApi,
   type PlatformPatientDetail,
 } from '@/lib/platform-admin-api'
-import { SupportModeRequired } from '@/components/platform-admin/support-mode'
+import {
+  SUPPORT_ACCESS_EXPIRED,
+  SUPPORT_GRANTS_CHANGED,
+  SupportModeRequired,
+} from '@/components/platform-admin/support-mode'
 
 const SEX_LABELS: Record<string, string> = {
   male: '男性', female: '女性', other: 'その他', prefer_not_to_say: '回答しない',
@@ -20,6 +24,17 @@ function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function dateText(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('ja-JP', {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+    timeZone: 'Asia/Tokyo',
+  }).format(date)
 }
 
 /** 同じ形のテーブルをセクションごとに使い回す。 */
@@ -60,21 +75,35 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
   const [error, setError] = useState('')
   // 403 は「サポートモード未開始」だけを意味する。一般エラーとは分けて扱う。
   const [grantMissing, setGrantMissing] = useState(false)
+  const requestId = useRef(0)
 
   const load = useCallback(() => {
+    const currentRequest = ++requestId.current
+    setDetail(null)
     setError('')
     setGrantMissing(false)
     platformAdminApi.patient(tenantId, patientId)
-      .then((res) => setDetail(res.data))
+      .then((res) => {
+        if (requestId.current === currentRequest) setDetail(res.data)
+      })
       .catch((caught: Error) => {
+        if (requestId.current !== currentRequest) return
         if (isSupportModeRequired(caught)) setGrantMissing(true)
-        else setError(caught.message)
+        else setError('患者情報を取得できませんでした。再度お試しください。')
       })
   }, [tenantId, patientId])
 
-  useEffect(load, [load])
+  useEffect(() => {
+    load()
+    window.addEventListener(SUPPORT_GRANTS_CHANGED, load)
+    window.addEventListener(SUPPORT_ACCESS_EXPIRED, load)
+    return () => {
+      window.removeEventListener(SUPPORT_GRANTS_CHANGED, load)
+      window.removeEventListener(SUPPORT_ACCESS_EXPIRED, load)
+    }
+  }, [load])
 
-  if (grantMissing) return <SupportModeRequired tenantId={tenantId} onStarted={load} />
+  if (grantMissing) return <SupportModeRequired tenantId={tenantId} />
   if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>
   if (!detail) return <p className="text-sm text-gray-500">読み込み中...</p>
 
@@ -109,8 +138,8 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           <div><dt className="text-gray-500">住所1</dt><dd>{text(patient.address_line1)}</dd></div>
           <div><dt className="text-gray-500">住所2</dt><dd>{text(patient.address_line2)}</dd></div>
           <div><dt className="text-gray-500">アーカイブ</dt><dd>{text(patient.archived_at)}</dd></div>
-          <div><dt className="text-gray-500">作成</dt><dd>{text(patient.created_at)}</dd></div>
-          <div><dt className="text-gray-500">更新</dt><dd>{text(patient.updated_at)}</dd></div>
+          <div><dt className="text-gray-500">作成</dt><dd>{dateText(patient.created_at)}</dd></div>
+          <div><dt className="text-gray-500">更新</dt><dd>{dateText(patient.updated_at)}</dd></div>
         </dl>
       </section>
 
@@ -119,7 +148,7 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
         {detail.latestIntake ? (
           <>
             <p className="mb-2 text-xs text-gray-500">
-              第{detail.latestIntake.revision}版 / schema v{detail.latestIntake.schema_version} / 回答日時 {text(detail.latestIntake.created_at)}
+              第{detail.latestIntake.revision}版 / schema v{detail.latestIntake.schema_version} / 回答日時 {dateText(detail.latestIntake.created_at)}
               {' / '}代理同意 {text(detail.latestIntake.representative_consent_at)}
               {' / '}個人情報同意 {text(detail.latestIntake.privacy_consent_at)}
             </p>
@@ -141,7 +170,7 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           ['schema', (row) => row.schema_version],
           ['代理同意', (row) => text(row.representative_consent_at)],
           ['個人情報同意', (row) => text(row.privacy_consent_at)],
-          ['回答日時', (row) => text(row.created_at)],
+          ['回答日時', (row) => dateText(row.created_at)],
         ]}
       />
 
@@ -155,8 +184,8 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           ['希望受取', (row) => text(row.desired_pickup_at)],
           ['申込', (row) => text(row.requested_at)],
           ['クローズ', (row) => text(row.closed_at)],
-          ['作成', (row) => text(row.created_at)],
-          ['更新', (row) => text(row.updated_at)],
+          ['作成', (row) => dateText(row.created_at)],
+          ['更新', (row) => dateText(row.updated_at)],
         ]}
       />
 
@@ -170,7 +199,7 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           ['状態', (row) => text(row.status)],
           ['受取予定', (row) => text(row.estimated_ready_at)],
           ['受取方法', (row) => text(row.fulfillment_method)],
-          ['作成', (row) => text(row.created_at)],
+          ['作成', (row) => dateText(row.created_at)],
         ]}
       />
 
@@ -180,12 +209,12 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
         columns={[
           ['ID', (row) => <span className="font-mono text-xs">{row.id}</span>],
           ['状態', (row) => row.status],
-          ['次回予定（開始）', (row) => text(row.expected_next_from)],
-          ['次回予定（終了）', (row) => text(row.expected_next_to)],
-          ['次回連絡', (row) => text(row.next_contact_at)],
+          ['次回予定（開始）', (row) => dateText(row.expected_next_from)],
+          ['次回予定（終了）', (row) => dateText(row.expected_next_to)],
+          ['次回連絡', (row) => dateText(row.next_contact_at)],
           ['リマインド回数', (row) => row.reminder_count],
-          ['作成', (row) => text(row.created_at)],
-          ['更新', (row) => text(row.updated_at)],
+          ['作成', (row) => dateText(row.created_at)],
+          ['更新', (row) => dateText(row.updated_at)],
         ]}
       />
 
@@ -196,12 +225,12 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           ['ID', (row) => <span className="font-mono text-xs">{row.id}</span>],
           ['元受付ID', (row) => <span className="font-mono text-xs">{row.source_submission_id}</span>],
           ['状態', (row) => row.status],
-          ['期限', (row) => text(row.due_at)],
-          ['送信', (row) => text(row.delivered_at)],
-          ['回答', (row) => text(row.responded_at)],
-          ['クローズ', (row) => text(row.closed_at)],
+          ['期限', (row) => dateText(row.due_at)],
+          ['送信', (row) => dateText(row.delivered_at)],
+          ['回答', (row) => dateText(row.responded_at)],
+          ['クローズ', (row) => dateText(row.closed_at)],
           ['版', (row) => row.version],
-          ['更新', (row) => text(row.updated_at)],
+          ['更新', (row) => dateText(row.updated_at)],
         ]}
       />
 
@@ -214,11 +243,11 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           ['状態', (row) => row.status],
           ['入力方法', (row) => row.timing_source],
           ['服用日数', (row) => text(row.supply_days)],
-          ['予定（開始）', (row) => text(row.expected_from)],
-          ['予定（終了）', (row) => text(row.expected_to)],
-          ['お知らせ日時', (row) => text(row.reminder_at)],
+          ['予定（開始）', (row) => dateText(row.expected_from)],
+          ['予定（終了）', (row) => dateText(row.expected_to)],
+          ['お知らせ日時', (row) => dateText(row.reminder_at)],
           ['お知らせ済み', (row) => text(row.reminded_at)],
-          ['更新', (row) => text(row.updated_at)],
+          ['更新', (row) => dateText(row.updated_at)],
         ]}
       />
 
@@ -231,9 +260,9 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           ['方式', (row) => row.method],
           ['起点', (row) => row.source],
           ['相関ID', (row) => <span className="font-mono text-xs">{row.correlation_id}</span>],
-          ['起動', (row) => text(row.launched_at)],
-          ['患者申告', (row) => text(row.patient_reported_at)],
-          ['期限', (row) => text(row.expires_at)],
+          ['起動', (row) => dateText(row.launched_at)],
+          ['患者申告', (row) => dateText(row.patient_reported_at)],
+          ['期限', (row) => dateText(row.expires_at)],
           ['クローズ', (row) => text(row.closed_at)],
         ]}
       />

@@ -35,10 +35,13 @@ interface AccountMigration {
   completedAt: string | null
 }
 
+type DisplayRisk = AccountHealthLog['riskLevel'] | 'unknown'
+
 const riskConfig = {
   normal: { label: '正常', color: 'bg-green-500', textColor: 'text-green-700', bgColor: 'bg-green-100' },
   warning: { label: '警告', color: 'bg-yellow-500', textColor: 'text-yellow-700', bgColor: 'bg-yellow-100' },
   danger: { label: '危険', color: 'bg-red-500', textColor: 'text-red-700', bgColor: 'bg-red-100' },
+  unknown: { label: '確認不能', color: 'bg-gray-500', textColor: 'text-gray-700', bgColor: 'bg-gray-100' },
 }
 
 const statusConfig: Record<AccountMigration['status'], { label: string; textColor: string; bgColor: string }> = {
@@ -70,7 +73,7 @@ const ccPrompts = [
 export default function HealthPage() {
   const [accounts, setAccounts] = useState<LineAccount[]>([])
   const [healthLogs, setHealthLogs] = useState<Record<string, AccountHealthLog[]>>({})
-  const [latestRisk, setLatestRisk] = useState<Record<string, AccountHealthLog['riskLevel']>>({})
+  const [latestRisk, setLatestRisk] = useState<Record<string, DisplayRisk>>({})
   const [migrations, setMigrations] = useState<AccountMigration[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -88,7 +91,7 @@ export default function HealthPage() {
         const data = res.data as unknown as LineAccount[]
         setAccounts(data)
         // Load health for each account
-        const risks: Record<string, AccountHealthLog['riskLevel']> = {}
+        const risks: Record<string, DisplayRisk> = {}
         for (const account of data) {
           try {
             const healthRes = await api.health.getHealth(account.id)
@@ -103,9 +106,11 @@ export default function HealthPage() {
               } else {
                 risks[account.id] = 'normal'
               }
+            } else {
+              risks[account.id] = 'unknown'
             }
           } catch {
-            risks[account.id] = 'normal'
+            risks[account.id] = 'unknown'
           }
         }
         setLatestRisk(risks)
@@ -186,7 +191,7 @@ export default function HealthPage() {
           {/* Account Health Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             {accounts.map((account) => {
-              const risk = latestRisk[account.id] || 'normal'
+              const risk = latestRisk[account.id] || 'unknown'
               const config = riskConfig[risk]
               const isExpanded = expandedId === account.id
               const logs = healthLogs[account.id] || []

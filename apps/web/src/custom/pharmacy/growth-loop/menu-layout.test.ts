@@ -28,11 +28,13 @@ describe('pharmacy admin menu layout', () => {
 
     const paths = [
       '/prescriptions',
+      '/emergency-contraception',
       '/pharmacy-notifications',
       '/patient-intakes',
       '/continuity',
       '/myna',
       '/pharmacy-growth',
+      '/privacy-policy',
     ]
     const positions = paths.map((path) => definition.indexOf(`href: '${path}'`))
     expect(positions.every((position) => position > sectionStart && position < generalStart)).toBe(true)

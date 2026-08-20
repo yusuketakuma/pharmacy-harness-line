@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
@@ -16,10 +16,29 @@ export default function LoginPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
+  useEffect(() => {
+    if (!apiUrl) return
+    let cancelled = false
+    void fetch(`${apiUrl}/api/auth/session`, { credentials: 'include' })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((sessionData) => {
+        if (cancelled || !sessionData?.data) return
+        if (sessionData.csrfToken) localStorage.setItem('lh_csrf', sessionData.csrfToken)
+        if (sessionData.data.mustChangePassword) {
+          setPasswordChangeRequired(true)
+          setError('初回パスワード変更を続けてください。現在の仮パスワードをもう一度入力してください')
+        } else {
+          router.replace('/')
+        }
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [apiUrl, router])
+
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!apiUrl) {
-      setError('NEXT_PUBLIC_API_URL is not set in build env')
+      setError('ログイン機能を利用できません。管理者へご連絡ください')
       return
     }
     setLoading(true)
@@ -36,7 +55,9 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(res.status === 401
           ? '薬局コード、管理者IDまたはパスワードが正しくありません'
-          : loginData?.error || 'ログインに失敗しました')
+          : res.status === 429
+            ? 'ログイン試行が多すぎます。しばらく待ってからお試しください'
+            : 'ログインに失敗しました。しばらく待ってからお試しください')
         return
       }
 
@@ -82,7 +103,9 @@ export default function LoginPage() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(data?.error || 'パスワードを変更できませんでした')
+        setError(res.status === 401
+          ? 'セッションが切れました。もう一度ログインしてください'
+          : 'パスワードを変更できませんでした。もう一度お試しください')
         return
       }
       if (data?.csrfToken) localStorage.setItem('lh_csrf', data.csrfToken)

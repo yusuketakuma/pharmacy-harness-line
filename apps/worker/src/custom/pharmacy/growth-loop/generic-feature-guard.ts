@@ -17,6 +17,7 @@ const PHARMACY_ALLOWED_API_PREFIXES = [
   '/api/images',
   '/api/rich-menu-groups',
   '/api/rich-menu-images',
+  '/api/tags',
 ] as const;
 
 const PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES = [
@@ -180,6 +181,9 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
 
 export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): Promise<Response | void> {
   const path = new URL(c.req.url).pathname;
+  if (path === '/api/tags' && c.get('tenantId') && SAFE_METHODS.has(c.req.method.toUpperCase())) {
+    return next();
+  }
   if (!c.get('tenantId') &&
       PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix)) &&
       await hasPharmacyModeAccount(c.env.DB)) {

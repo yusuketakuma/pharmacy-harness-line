@@ -144,10 +144,11 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
   friendId: string
   friend: FriendItem | null
   onBack: () => void
-  onSent: () => void
+  onSent: () => void | Promise<void>
 }) {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
+  const [directError, setDirectError] = useState('')
   const [messages, setMessages] = useState<MessageLog[]>([])
   const [loadingMessages, setLoadingMessages] = useState(true)
   const isComposingRef = useRef(false)
@@ -160,33 +161,45 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
         const res = await fetchApi<{ success: boolean; data: MessageLog[] }>(
           `/api/friends/${friendId}/messages`
         )
-        if (res.success) setMessages(res.data)
-      } catch { /* silent */ }
-      setLoadingMessages(false)
+        if (res.success) {
+          setMessages(res.data)
+          setDirectError('')
+        }
+      } catch {
+        setDirectError('メッセージ履歴を読み込めませんでした。再度お試しください。')
+      } finally {
+        setLoadingMessages(false)
+      }
     }
     loadMessages()
   }, [friendId])
 
   const handleSend = async () => {
     if (!message.trim() || sending || sendLockRef.current) return
+    const content = message.trim()
     sendLockRef.current = true
     setSending(true)
+    setDirectError('')
     try {
       await fetchApi(`/api/friends/${friendId}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ content: message, messageType: 'text' }),
+        body: JSON.stringify({ content, messageType: 'text' }),
       })
       setMessages((prev) => [...prev, {
         id: crypto.randomUUID(),
         direction: 'outgoing',
         messageType: 'text',
-        content: message,
+        content,
         createdAt: new Date().toISOString(),
       }])
       setMessage('')
-    } catch { /* silent */ }
-    setSending(false)
-    sendLockRef.current = false
+      await onSent()
+    } catch {
+      setDirectError('個別メッセージを送信できませんでした。入力内容は残っています。通信状態を確認して再度お試しください。')
+    } finally {
+      setSending(false)
+      sendLockRef.current = false
+    }
   }
 
   function renderContent(msg: MessageLog) {
@@ -222,7 +235,7 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-4 border-b border-gray-200 flex items-center gap-3">
-        <button onClick={onBack} className="lg:hidden text-gray-400 hover:text-gray-600">
+        <button type="button" onClick={onBack} aria-label="チャット一覧へ戻る" className="lg:hidden min-h-11 min-w-11 text-gray-400 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
@@ -262,6 +275,7 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
         )}
       </div>
       <div className="px-4 py-3 border-t border-gray-200">
+        {directError && <p role="alert" className="mb-2 text-sm text-red-600">{directError}</p>}
         <div className="flex gap-2">
           <input
             type="text"
@@ -778,7 +792,7 @@ export default function ChatsPage() {
         </div>
       )}
 
-      <div className="flex gap-4 h-[calc(100vh-120px)] lg:h-[calc(100vh-180px)]">
+      <div className="flex gap-4 h-[calc(100dvh-120px)] lg:h-[calc(100dvh-180px)]">
         {/* Left Panel: Chat List */}
         <div className={`w-full lg:w-96 lg:flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-200 flex-col overflow-hidden ${selectedChatId ? 'hidden lg:flex' : 'flex'}`}>
           {/* タブ (全て / 未読 / 対応中 / 解決済) は意図的に削除。直近メッセージが見やすい LINE 風一覧を優先。 */}
@@ -914,7 +928,7 @@ export default function ChatsPage() {
               friendId={selectedFriendId}
               friend={allFriends.find((f) => f.id === selectedFriendId) || null}
               onBack={() => setSelectedFriendId(null)}
-              onSent={() => { setSelectedFriendId(null); loadChats(); }}
+              onSent={async () => { setSelectedFriendId(null); await loadChats(); }}
             />
           ) : !selectedChatId ? (
             <div className="flex-1 flex items-center justify-center">
@@ -1023,7 +1037,7 @@ export default function ChatsPage() {
                       try {
                         const parsed = JSON.parse(msg.content)
                         bubbleContent = (
-                          <img src={parsed.originalContentUrl || parsed.previewImageUrl} alt="" className="max-w-[200px] rounded" />
+                          <img src={parsed.originalContentUrl || parsed.previewImageUrl} alt={msg.direction === 'incoming' ? '患者から受信した画像' : '送信した画像'} className="max-w-[200px] rounded" />
                         )
                       } catch {
                         bubbleContent = <span>🖼️ [画像]</span>

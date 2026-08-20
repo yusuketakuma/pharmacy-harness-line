@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   platformAdminApi,
@@ -35,21 +35,40 @@ export default function PlatformAdminDashboardPage() {
   const [dashboard, setDashboard] = useState<PlatformDashboard | null>(null)
   const [checks, setChecks] = useState<PlatformIntegrityCheck[] | null>(null)
   const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  useEffect(() => {
-    Promise.all([platformAdminApi.dashboard(), platformAdminApi.integrity()])
-      .then(([summary, integrity]) => {
-        setDashboard(summary.data)
-        setChecks(integrity.data)
-      })
-      .catch((caught: Error) => setError(caught.message))
+  const load = useCallback(async () => {
+    setRefreshing(true)
+    setError('')
+    const [summary, integrity] = await Promise.allSettled([
+      platformAdminApi.dashboard(),
+      platformAdminApi.integrity(),
+    ])
+    if (summary.status === 'fulfilled') setDashboard(summary.value.data)
+    if (integrity.status === 'fulfilled') setChecks(integrity.value.data)
+    if (summary.status === 'rejected' || integrity.status === 'rejected') {
+      setError('一部の情報を取得できませんでした。表示中の値は前回取得時点の可能性があります。')
+    }
+    if (summary.status === 'fulfilled' || integrity.status === 'fulfilled') setLastUpdated(new Date())
+    setRefreshing(false)
   }, [])
+
+  useEffect(() => { void load() }, [load])
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">ダッシュボード</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold">ダッシュボード</h1>
+          {lastUpdated && <p className="text-xs text-gray-500">最終更新: {lastUpdated.toLocaleString('ja-JP')}</p>}
+        </div>
+        <button type="button" onClick={() => void load()} disabled={refreshing} className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">
+          {refreshing ? '取得中...' : '再取得'}
+        </button>
+      </div>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      {!dashboard && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
+      {!dashboard && refreshing && <p className="text-sm text-gray-500">読み込み中...</p>}
 
       {dashboard && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">

@@ -35,9 +35,21 @@ describe('requestPharmacyLiff', () => {
 
     await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me', 'Prescription API'))
       .rejects.toMatchObject({
-        message: 'Prescription API 409',
+        message: '内容が更新されています。画面を再読み込みしてください。',
         status: 409,
         body: { error: 'Prescription changed' },
+      });
+  });
+
+  it('shows a safe Japanese message instead of a raw server error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'SQLITE_CONSTRAINT internal detail' }),
+      { status: 500 },
+    ));
+
+    await expect(requestPharmacyJson('/api/liff/pharmacy/prescriptions/me', 'Prescription API'))
+      .rejects.toMatchObject({
+        message: '薬局システムに接続できませんでした。時間をおいて再度お試しください。',
       });
   });
 });

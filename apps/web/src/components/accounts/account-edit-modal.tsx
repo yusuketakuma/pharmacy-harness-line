@@ -136,7 +136,6 @@ export default function AccountEditModal({
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-start sm:items-center justify-center p-4 overflow-y-auto"
-      onClick={onClose}
     >
       <div
         className="bg-white rounded-lg shadow-xl w-full max-w-2xl my-8"

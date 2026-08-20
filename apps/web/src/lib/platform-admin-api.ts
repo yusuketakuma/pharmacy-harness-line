@@ -78,9 +78,12 @@ export type PlatformTenant = {
   tenantCode: string
   displayName: string
   status: string
+  outboundMessagingPausedAt: string | null
   lineAccountCount: number
   staffCount: number
   patientCount: number
+  webhookFailureCount: number
+  lineConfigIssueCount: number
 }
 
 export type PlatformTenantLineAccount = {

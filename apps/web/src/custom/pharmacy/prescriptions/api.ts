@@ -20,8 +20,11 @@ export type PrescriptionAdminAction =
 export interface PrescriptionQueueItem {
   id: string
   friend_id: string
+  patient_display_name: string | null
   status: PrescriptionStatus
   desired_pickup_at: string | null
+  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null
+  arrival_reported_at: string | null
   requested_at: string | null
   created_at: string
   updated_at: string
@@ -103,6 +106,14 @@ export interface PrescriptionActionResult {
 export interface PrescriptionStats {
   pending_count: number
   oldest_wait_at: string | null
+  draft_count: number
+  received_count: number
+  needs_resubmission_count: number
+  accepted_count: number
+  ready_count: number
+  closed_count: number
+  cancelled_count: number
+  total_count: number
 }
 
 export type FulfillmentDecision =
@@ -148,11 +159,11 @@ const apiBase = process.env.NEXT_PUBLIC_API_URL
 if (!apiBase) throw new Error('NEXT_PUBLIC_API_URL is not set')
 
 export const prescriptionAdminApi = {
-  list: (accountId: string, cursor?: string) => fetchApi<{
+  list: (accountId: string, cursor?: string, status?: PrescriptionStatus) => fetchApi<{
     items: PrescriptionQueueItem[]
     nextCursor: string | null
   }>(
-    `/api/custom/pharmacy/prescriptions?${accountQuery(accountId)}&limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+    `/api/custom/pharmacy/prescriptions?${accountQuery(accountId)}&limit=50${status ? `&status=${encodeURIComponent(status)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
   ),
   stats: (accountId: string) => fetchApi<{ stats: PrescriptionStats }>(
     `/api/custom/pharmacy/prescriptions/stats?${accountQuery(accountId)}`,

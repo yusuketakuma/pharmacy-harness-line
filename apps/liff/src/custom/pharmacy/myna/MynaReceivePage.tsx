@@ -28,6 +28,11 @@ export default function MynaReceivePage() {
     }).catch((caught: unknown) => {
       setError(caught instanceof Error ? caught.message : '患者情報を読み込めませんでした。');
     });
+    void mynaApi.active().then((result) => {
+      setActive(result.handoff);
+    }).catch((caught: unknown) => {
+      setError(caught instanceof Error ? caught.message : '進行中の受付を読み込めませんでした。');
+    });
   }, []);
 
   async function startElectronicPrescription() {

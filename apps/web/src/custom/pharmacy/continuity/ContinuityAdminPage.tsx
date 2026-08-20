@@ -34,6 +34,12 @@ export function tokyoLocalToIso(value: string): string {
   return date.toISOString()
 }
 
+export function continuityPatientLabel(
+  item: Pick<ContinuityObligation, 'patient_id' | 'patient_display_name'>,
+): string {
+  return item.patient_display_name?.trim() || `患者ID: ${item.patient_id}`
+}
+
 export function NextIntakeOfferForm({
   obligationId,
   busy,
@@ -95,6 +101,9 @@ function ExpectationSummary({ expectation }: { expectation: NextIntakeExpectatio
   return <div>
     <p className="font-medium">{EXPECTATION_LABELS[expectation.status]}</p>
     <p className="mt-1 text-xs text-gray-600">{expectation.expected_from}〜{expectation.expected_to}</p>
+    <p className="mt-1 text-xs text-gray-600">お知らせ予定 {new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short',
+    }).format(new Date(expectation.reminder_at))}</p>
   </div>
 }
 
@@ -103,7 +112,9 @@ export default function ContinuityAdminPage() {
   const [items, setItems] = useState<ContinuityObligation[]>([])
   const [expectations, setExpectations] = useState<NextIntakeExpectation[]>([])
   const [loading, setLoading] = useState(false)
+  const [endingId, setEndingId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | ContinuityObligation['status']>('all')
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -127,6 +138,7 @@ export default function ContinuityAdminPage() {
     return result
   }, {}), [items])
   const expectationByObligation = new Map(expectations.map((item) => [item.obligation_id, item]))
+  const visibleItems = statusFilter === 'all' ? items : items.filter((item) => item.status === statusFilter)
 
   const offer = async (obligationId: string, input: NextIntakeOffer) => {
     if (!selectedAccountId) return
@@ -138,6 +150,24 @@ export default function ContinuityAdminPage() {
     } catch {
       setError('次回事前送信のお知らせを登録できませんでした。')
       setLoading(false)
+    }
+  }
+
+  const endExpectation = async (obligationId: string, expectation: NextIntakeExpectation) => {
+    if (!selectedAccountId || !window.confirm(
+      'この患者への次回事前送信のお知らせを取り消します。患者が了承済みでも今後の自動送信は行われません。よろしいですか？',
+    )) return
+    setEndingId(expectation.id)
+    setError('')
+    try {
+      await continuityAdminApi.endExpectation(
+        selectedAccountId, obligationId, expectation.id, expectation.version,
+      )
+      await load()
+    } catch {
+      setError('お知らせを取り消せませんでした。最新の状態を再読み込みして確認してください。')
+    } finally {
+      setEndingId(null)
     }
   }
 
@@ -154,13 +184,21 @@ export default function ContinuityAdminPage() {
       <div className="rounded-xl border border-gray-200 bg-white p-4"><p className="text-sm text-gray-500">紐付け済み</p><p className="mt-1 text-2xl font-bold">{counts.linked ?? 0}件</p></div>
       <div className="rounded-xl border border-gray-200 bg-white p-4"><p className="text-sm text-gray-500">一時停止</p><p className="mt-1 text-2xl font-bold">{counts.paused ?? 0}件</p></div>
     </div>
+    <label className="block max-w-xs text-sm">継続フォローを絞り込む
+      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2">
+        <option value="all">すべて</option>
+        {Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select>
+    </label>
     {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     {items.length === 0 && !loading
       ? <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-gray-500">継続フォローはありません。</div>
-      : <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white"><table className="min-w-full text-left text-sm"><thead className="bg-gray-50 text-gray-500"><tr><th className="px-4 py-3">状態</th><th className="px-4 py-3">次回のお知らせ</th></tr></thead><tbody className="divide-y divide-gray-200">{items.map((item) => {
+      : <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white"><table className="min-w-full text-left text-sm"><thead className="bg-gray-50 text-gray-500"><tr><th className="px-4 py-3">患者</th><th className="px-4 py-3">状態</th><th className="px-4 py-3">次回のお知らせ</th></tr></thead><tbody className="divide-y divide-gray-200">{visibleItems.map((item) => {
         const expectation = expectationByObligation.get(item.id)
-        return <tr key={item.id}><td className="px-4 py-3 font-medium">{STATUS_LABELS[item.status]}</td><td className="min-w-80 px-4 py-3">{expectation
-          ? <ExpectationSummary expectation={expectation} />
+        return <tr key={item.id}><td className="px-4 py-3 font-medium">{continuityPatientLabel(item)}</td><td className="px-4 py-3 font-medium">{STATUS_LABELS[item.status]}</td><td className="min-w-80 px-4 py-3">{expectation
+          ? <div className="space-y-2"><ExpectationSummary expectation={expectation} />
+            {(expectation.status === 'offered' || expectation.status === 'accepted' || expectation.status === 'active') && <button type="button" disabled={endingId === expectation.id} onClick={() => void endExpectation(item.id, expectation)} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50">{endingId === expectation.id ? '取り消し中…' : 'お知らせを取り消す'}</button>}
+          </div>
           : item.status === 'active'
             ? <NextIntakeOfferForm obligationId={item.id} busy={loading} onOffer={offer} />
             : <span className="text-gray-500">未設定</span>}</td></tr>
