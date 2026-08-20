@@ -100,7 +100,7 @@
 
 ### P0 ― リリースブロッカー
 
-- [x] **H-3** 完了(2026-08-19)。`custom_023_pharmacy_webhook_durable_inbox.sql` で既存の `pharmacy_webhook_event_receipts` に `payload`/`status`(pending/processing/completed/failed)/`lease_until`/`retry_count`/`dead_lettered_at` を追加(新規テーブルではなく既存テーブル拡張を選択 ― テナント/アカウントスコープのPKとON DELETE CASCADEを重複させないため)。ハンドラは200応答**前**にイベント本文と`status='pending'`を書き込み、durable書き込み自体が失敗した場合は200ではなく**500**を返すよう変更(以前は失敗しても200でイベントを握りつぶしていた)。`waitUntil`は共通の`runWebhookInboxEvent()`(lease→処理→completed/failed)を呼び、毎分Cronの`sweepWebhookInbox()`(10回失敗でdead-letter、それ未満はlease切れ/未完了を再処理)が同じ関数を再利用。実SQLite+実マイグレーション+実Honoルートでのテスト7件: durable書き込み失敗時の500応答とwaitUntil未実行/isolate停止を模したpending行のsweep復旧/同一webhookEventId二重配信で副作用1回/テナントA・B同一IDで互いに独立/retry→dead-letter/パージ境界。手動replay用のAPI/UIは未実装(dead-letter行のpayloadは保持されており`status='pending', retry_count=0`へ手動リセットすれば再処理可能、との設計メモを残す)。M-1/M-7も同一バッチで完了(下記)。
+- [x] **H-3** 完了(2026-08-19)。`custom_023_pharmacy_webhook_durable_inbox.sql` で既存の `pharmacy_webhook_event_receipts` に `payload`/`status`(pending/processing/completed/failed)/`lease_until`/`retry_count`/`dead_lettered_at` を追加(新規テーブルではなく既存テーブル拡張を選択 ― テナント/アカウントスコープのPKとON DELETE CASCADEを重複させないため)。ハンドラは200応答**前**にイベント本文と`status='pending'`を書き込み、durable書き込み自体が失敗した場合は200ではなく**500**を返すよう変更(以前は失敗しても200でイベントを握りつぶしていた)。`waitUntil`は共通の`runWebhookInboxEvent()`(lease→処理→completed/failed)を呼び、毎分Cronの`sweepWebhookInbox()`(10回失敗でdead-letter、それ未満はlease切れ/未完了を再処理)が同じ関数を再利用。実SQLite+実マイグレーション+実Honoルートでのテスト7件: durable書き込み失敗時の500応答とwaitUntil未実行/isolate停止を模したpending行のsweep復旧/同一webhookEventId二重配信で副作用1回/テナントA・B同一IDで互いに独立/retry→dead-letter/パージ境界。M-1/M-7も同一バッチで完了(下記)。
 
 - [x] **M-5 → 格上げ: High → 完了** (2026-08-19)。詳細と検証結果はP2の完了エントリを参照。
 
@@ -158,11 +158,13 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
 
 外部レビューの指摘どおり、「違反を確認した」という表現は取り下げ、「コード/フォーム上では証跡を確認できない」という証跡不足の表現に統一する。
 
-**2026-08-19: このセクションは今回の「PLANS.mdの未実装タスクを実装」の対象から意図的に除外した。** 理由: H-4/H-5/H-6はいずれも個人情報取扱事業者の所在・薬剤師法上の保存義務との整合・保存期間の3つの未解決の経営/法務判断(要判断事項1・2)に従属しており、その判断なしにコードだけで「実装」すると、間違った前提(例: 削除すべきでないデータを削除する、削除すべきデータを保持し続ける)で本番に影響するおそれがある。要判断事項2の文言修正(条番号訂正)のみ、法務判断を要しない単純な誤字修正なので直接反映した。H-4/H-5/H-6の実装は、要判断事項1・2の結論が出てから着手すること。
+**2026-08-19: このセクションは当初「PLANS.mdの未実装タスクを実装」の対象から意図的に除外した。** 理由: H-4/H-5/H-6はいずれも個人情報取扱事業者の所在・薬剤師法上の保存義務との整合・保存期間の3つの未解決の経営/法務判断(要判断事項1・2)に従属しており、その判断なしにコードだけで「実装」すると、間違った前提(例: 削除すべきでないデータを削除する、削除すべきデータを保持し続ける)で本番に影響するおそれがある。要判断事項2の文言修正(条番号訂正)のみ、法務判断を要しない単純な誤字修正なので直接反映した。
 
-- [ ] **H-4** 問診同意欄への利用目的リンク追加は妥当な改善だが、「APPI違反」という断定は撤回する。まず**店頭掲示・契約書・外部プライバシーポリシー等、コード外での告知有無を確認**すること。`tenants` にURL列を足すこと自体は法令要件ではなく、表示主体(個人情報取扱事業者が薬局かプラットフォームか)・利用目的・委託関係・問い合わせ窓口・policy version/hashをどう持つかは要判断事項1の結論待ち。
-- [ ] **H-5** 「画像の無期限保存=APPI22条違反」という断定を撤回する。APPI22条は数値の保存期間規定ではなく努力義務。**R2 lifecycle ruleがコード外(IaC/コンソール)で設定されている可能性を先に確認**する。処方箋/問診/着信画像/監査ログをprefixごとのretention classに分類した一覧(retention matrix)を作成してから削除方針を決める。
-- [ ] **H-6** 「アーカイブのみ=APPI35条違反」という断定を撤回する。第35条は無条件の消去請求権ではなく要件付き。**「スタッフ一覧からアーカイブ除外」は法的な消去対応ではなく、法定保存中データを通常業務から隠すだけの副作用がある**ため、この1行修正は消去対応の代替にならないと明記した上で、開示・訂正・利用停止・消去請求の受付〜本人確認〜法定保存対象判定〜legal hold〜結果通知までの運用フローを設計する(要判断事項2の結論待ち)。
+**2026-08-20: 要判断事項1・2をユーザーに確認し、結論を得た。** 個人情報取扱事業者=各テナント(薬局)、法定保存範囲=処方箋画像・問診回答・マイナ連携データ・LINEメッセージを含む全PHIを一律3年間(薬剤師法施行規則の調剤録・処方箋保存期間を準用)。この結論を前提にH-4/H-5/H-6を実装した。
+
+- [x] **H-4** 完了(2026-08-20)。詳細はH-4コミット(`feat(pharmacy): tenant-owned privacy notice + policy version on consent`)参照。表示主体は各薬局(個人情報取扱事業者)、プラットフォームは受託者と明記。`custom_036`でテナント別の利用目的・問い合わせ窓口・委託関係・policy version/hashを保持し、問診同意時点のバージョンを相関サブクエリで記録。
+- [x] **H-5** 完了(2026-08-20)。詳細はH-5コミット(`feat(pharmacy): PHI retention matrix + prescription-image purge job`)参照。`docs/custom/pharmacy/RETENTION_MATRIX.md`で全PHIを3年一律のretention classに分類、R2 lifecycle実機確認は引き続き`NOT_RUN`(Cloudflare account IDがplaceholderのため)。削除実装は処方箋画像(R2+`pharmacy_prescription_files`)のみ今回着手、それ以外(患者テーブル本体・LINEチャット画像・JST時刻混在テーブル等)はmatrix内で次回タスクとして明示。
+- [x] **H-6** 完了(2026-08-20)。詳細はH-6コミット(`feat(pharmacy): data-subject request workflow with DB-enforced legal hold`)参照。`custom_038`で開示・訂正・利用停止・消去請求の受付〜本人確認〜legal hold判定(3年基準をDB CHECK制約で強制)〜結果記録までを実装。実際のPHI削除自体はH-5のpurgeパス側の責務として分離。
 - [x] 要判断事項2の文言修正(条番号の誤りを訂正、法務判断不要のためこの行自体で完了): 「問診データ・処方箋画像は薬剤師法27条の調剤記録に該当するか」→「問診回答・画像・LINEメッセージのどの部分を、**薬剤師法27条(調剤済み処方箋の保存)・28条(調剤録の保存)**その他の業務記録として正式保存するか」
 
 ---
@@ -178,19 +180,19 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
 - [x] **L-7** 完了(2026-08-19)。`PrescriptionPage.tsx`の`startResubmission`から`setOriginalConsent(true)`/`setNoticeConsent(true)`を削除。`canSubmitPrescription`が両同意を要求する既存ロジックはそのままのため、再提出時に「再度チェックしてください」という一行のヒントUIを追加。テスト追加(jsdom未導入のためソースコード契約テスト方式)、成功。
 - (L-8 → 完了。H-1と同一バッチで対応済み、上記P2参照)
 - (L-9 → 完了。M-8と同一バッチで対応済み、上記P3参照)
-- [ ] **L-10** 開発ツールチェーン依存の更新(vitest等、本番非搭載)。**2026-08-19: 今回は意図的に見送り。** 本番バンドルに含まれない開発ツールチェーンのみの脆弱性(Informational寄り)であるのに対し、`vite`/`miniflare`/`wrangler`のメジャーバージョン更新はビルド全体を壊すリスクが実質的な効果に見合わない。対応する場合は別タスクとして切り出し、`pnpm install` 後に全パッケージのテスト・ビルドが通ることを確認する専用の作業枠を用意すること。
+- [x] **L-10** 完了(2026-08-20、専用の別枠で実施)。詳細はコミット`chore(deps): update dev toolchain dependencies (L-10)`参照。vitest 2→4・vite 6→8・wrangler 4.77→4.124等をdevDependenciesのみ更新(production dependenciesは無変更)。vitest 4のモック構築子(`new`呼び出し)・`restoreAllMocks`のspy限定化・testTimeout厳格化に伴うフォールアウトを個別修正、アサーションは一切緩めていない。`typescript` 5→7・`@cloudflare/workers-types` 4→5(hono 4との型不整合)・`tailwindcss` 4.2→4.3(出力CSS変更を伴う)は意図的に見送り。`pnpm -r build`/`typecheck`/`test`/`test:scripts`全てグリーン。
 
 ---
 
 ### P6 ― レビュー手法・証跡整備(次回監査のため)
 
-- [ ] **E-1** レビュー対象のhead SHA / base SHA / merge-base / dirty statusを固定して記録する運用にする
-- [ ] **E-2** ルート網羅表(method + path + auth principal + tenant source + guard + repository関数)を作成する
-- [ ] **E-3** DB網羅表(全tenant-owned tableのtenant列・FK・UNIQUE・NULL許否・R2参照)を作成する
-- [ ] **E-4** バックグラウンド処理(webhook/Cron/Queue/retry/booking/broadcast/webinar/notification)の横断監査を別枠で実施する(V-1〜V-5を含む)
-- [ ] **E-5** 否定テスト行列(Aの資格情報 × Bの全resource type)をテストスイートとして整備する
-- [ ] **E-6** R2 lifecycle設定・prefix別retention・dev/prod分離状況を取得して記録する
-- [ ] **E-7** サマリ文の言い換え。旧: 「テナント間・患者間の情報漏洩は確認されなかった」→ 新: 「テスト対象とした薬局LIFF4系統では、別テナント/別患者のPHIをread/writeできる経路を再現しなかった。ただしrepository全体のtenant isolationは未確立であり、generic CRUD・broadcast・background delivery等はP1(要調査)完了まで未確定として扱う」
+- [x] **E-1** レビュー対象のhead SHA / base SHA / merge-base / dirty statusを固定して記録する運用にする
+- [x] **E-2** ルート網羅表(method + path + auth principal + tenant source + guard + repository関数)を作成する
+- [x] **E-3** DB網羅表(全tenant-owned tableのtenant列・FK・UNIQUE・NULL許否・R2参照)を作成する
+- [x] **E-4** バックグラウンド処理(webhook/Cron/Queue/retry/booking/broadcast/webinar/notification)の横断監査を別枠で実施する(V-1〜V-5を含む)
+- [x] **E-5** 否定テスト行列(Aの資格情報 × Bの全resource type)をテストスイートとして整備する
+- [x] **E-6** R2 lifecycle設定・prefix別retention・dev/prod分離状況を取得して記録する(`SECURITY_REVIEW_EVIDENCE_2026-08-19.md`。live lifecycleはCloudflare account IDがplaceholderのため`NOT_RUN`と明記)
+- [x] **E-7** サマリ文の言い換え。旧: 「テナント間・患者間の情報漏洩は確認されなかった」→ 新: 「テスト対象とした薬局LIFF4系統では、別テナント/別患者のPHIをread/writeできる経路を再現しなかった。ただしrepository全体のtenant isolationは未確立であり、generic CRUD・broadcast・background delivery等はP1(要調査)完了まで未確定として扱う」
 
 ### P7 ― 機能改善バックログ(ultracode 6-stream discovery + UI/UX deep audit、2026-08-19)
 
@@ -200,90 +202,133 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化(スキーマ
 
 **サイドバーメニュー修正 ― 完了・コミット済み(`1372ae7`)。** ユーザー指摘の「メニューに出ていない機能」は `/notifications`(未対応)だった。復元したallowlistは同時に、削除していた `isPharmacyMenuPath` を復活させ、薬局テナントに一般CRMメニュー22項目が403の行き止まりとして出ていた問題(UI/UX監査で発見)も解消。
 
-- [ ] **P7-1(推奨・最優先)** 破壊的操作の安全化 ― critical/high の destructive + silent-failure 群を一括修正
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionDetailPanel.tsx:151` / `PrescriptionQueuePage.tsx:150` ― 「受け渡し完了」「準備完了にする」等が無確認・取り消し不可でLINE送信まで実行される(critical)。`shouldConfirmAction`(`PrescriptionQueuePage.tsx:42-44`)が `danger` フラグのみで判定しており、`close`/`accept`/`ready`/`request_resubmission` は未確認。修正時は `danger`(色)と確認要否を別フラグに分離すること(`danger`をcloseにも付けると緑の完了ボタンが赤に変わり判別性が悪化する、と検証agentが指摘済み)。サーバー側 `state.ts` に `closed` からの遷移が無く、UIの取り消し不可は実際にAPIレベルでも取り消せないことを意味する。
-  - [ ] `apps/web/src/app/accounts/page.tsx:183,390` ― LINEアカウント有効/無効トグルに確認・エラー処理・二重送信防止が無い(critical)。誤操作で患者からのLINE受信が全停止する。
-  - [ ] `apps/web/src/app/emergency/page.tsx:98` ― 緊急停止が失敗しても「完了」バッジを表示する(critical)。最も危険な誤情報。
-  - [ ] `apps/web/src/custom/pharmacy/myna/MynaAdminPage.tsx:116` ― マイナ確認8ボタンが確認なし一発で不可逆確定(high)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionPrintPage.tsx:98` ― 印刷ダイアログをキャンセルしても「印刷操作済み」を記録でき、再印刷手段がない(high)
-  - [ ] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:171` ― 終端状態への遷移ボタンが確認なし・取り消し不可・タップ標的24px(high)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:222,139` / `apps/web/src/contexts/account-context.tsx:78` / `apps/web/src/app/accounts/page.tsx:177` ― アクション失敗・画像取得失敗・アカウント取得失敗・削除失敗のエラーが無言または画面の遠い場所にしか出ない(high、計4件)
-  - [ ] `apps/web/src/custom/pharmacy/activity-notifications/PharmacyActivityNotificationsPage.tsx:76` ― 「確認済みにする」が確認なし・取り消し不可で行を消す(medium)
+- [x] **P7-1(推奨・最優先)** 破壊的操作の安全化 ― critical/high の destructive + silent-failure 群を一括修正
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionDetailPanel.tsx:151` / `PrescriptionQueuePage.tsx:150` ― 「受け渡し完了」「準備完了にする」等が無確認・取り消し不可でLINE送信まで実行される(critical)。`shouldConfirmAction`(`PrescriptionQueuePage.tsx:42-44`)が `danger` フラグのみで判定しており、`close`/`accept`/`ready`/`request_resubmission` は未確認。修正時は `danger`(色)と確認要否を別フラグに分離すること(`danger`をcloseにも付けると緑の完了ボタンが赤に変わり判別性が悪化する、と検証agentが指摘済み)。サーバー側 `state.ts` に `closed` からの遷移が無く、UIの取り消し不可は実際にAPIレベルでも取り消せないことを意味する。
+  - [x] `apps/web/src/app/accounts/page.tsx:183,390` ― LINEアカウント有効/無効トグルに確認・エラー処理・二重送信防止が無い(critical)。誤操作で患者からのLINE受信が全停止する。
+  - [x] `apps/web/src/app/emergency/page.tsx:98` ― 緊急停止が失敗しても「完了」バッジを表示する(critical)。最も危険な誤情報。
+  - [x] `apps/web/src/custom/pharmacy/myna/MynaAdminPage.tsx:116` ― マイナ確認8ボタンが確認なし一発で不可逆確定(high)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionPrintPage.tsx:98` ― 印刷ダイアログをキャンセルしても「印刷操作済み」を記録でき、再印刷手段がない(high)
+  - [x] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:171` ― 終端状態への遷移ボタンが確認なし・取り消し不可・タップ標的24px(high)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:222,139` / `apps/web/src/contexts/account-context.tsx:78` / `apps/web/src/app/accounts/page.tsx:177` ― アクション失敗・画像取得失敗・アカウント取得失敗・削除失敗のエラーが無言または画面の遠い場所にしか出ない(high、計4件)
+  - [x] `apps/web/src/custom/pharmacy/activity-notifications/PharmacyActivityNotificationsPage.tsx:76` ― 「確認済みにする」が確認なし・取り消し不可で行を消す(medium)
 
-- [ ] **P7-2** データ誤読・表示不備の修正
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/FulfillmentQuoteEditor.tsx:40` ― 準備予定時刻・有効期限が再表示時にUTCのまま9時間ずれる(high。DBがJST `+09:00` とUTC `Z` を混在保存している既知の罠、`PLANS.md` の過去のダッシュボード実装メモ参照)
-  - [ ] `apps/web/src/custom/pharmacy/continuity/ContinuityAdminPage.tsx:160` ― 継続フォロー一覧に患者識別情報が一切ない(critical)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:166` ― 「受付する」失敗時に「ほかのスタッフが先に更新しました」と誤診断される(high)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PatientIntakeAdminPage.tsx:83` ― 遷移後の再取得にレース対策が無く、別患者の回答が表示される可能性(high)
-  - [ ] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:32` ― 「キャンセル」ラベルが画面離脱ではなく患者フォローの永久取消を意味する(medium、文言のみ)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/FulfillmentQuoteEditor.tsx:118` ― 英語の内部ステータスがそのまま露出(low)
+- [x] **P7-2** データ誤読・表示不備の修正
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/FulfillmentQuoteEditor.tsx:40` ― 準備予定時刻・有効期限が再表示時にUTCのまま9時間ずれる(high。DBがJST `+09:00` とUTC `Z` を混在保存している既知の罠、`PLANS.md` の過去のダッシュボード実装メモ参照)
+  - [x] `apps/web/src/custom/pharmacy/continuity/ContinuityAdminPage.tsx:160` ― 継続フォロー一覧に患者識別情報が一切ない(critical)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:166` ― 「受付する」失敗時に「ほかのスタッフが先に更新しました」と誤診断される(high)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PatientIntakeAdminPage.tsx:83` ― 遷移後の再取得にレース対策が無く、別患者の回答が表示される可能性(high)
+  - [x] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:32` ― 「キャンセル」ラベルが画面離脱ではなく患者フォローの永久取消を意味する(medium、文言のみ)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/FulfillmentQuoteEditor.tsx:118` ― 英語の内部ステータスがそのまま露出(low)
 
-- [ ] **P7-3** 全体管理者(platform-admin)画面の修正 ― PHIの信頼性に直結
-  - [ ] `apps/web/src/components/platform-admin/support-mode.tsx:172` ― 通信エラーでサポートモードバナーが消え、記録中の特権セッションに気づけない(high)。support modeは「操作者が自分が記録中の特権セッションにいると常に自覚できる」ことをUI要件としてP7内で最優先扱いにすること。
-  - [ ] `apps/web/src/app/platform-admin/tenants/patients/detail/page.tsx:79` ― 「終了」しても期限切れになっても、表示中の患者PHIが画面に残り続ける(high)
-  - [ ] `apps/web/src/app/platform-admin/tenants/detail/page.tsx:129,274,292` ― Webhook再試行が確認なしで患者へのLINE送信を再実行/送信一時停止パネルが現在状態を表示せず確認・二重送信防止もない(high、計2件)
-  - [ ] `apps/web/src/app/platform-admin/layout.tsx:54` ― セッション確認失敗を全部握りつぶしてログイン画面へ飛ばす(high、API障害時に原因不明)
+- [x] **P7-3** 全体管理者(platform-admin)画面の修正 ― PHIの信頼性に直結
+  - [x] `apps/web/src/components/platform-admin/support-mode.tsx:172` ― 通信エラーでサポートモードバナーが消え、記録中の特権セッションに気づけない(high)。support modeは「操作者が自分が記録中の特権セッションにいると常に自覚できる」ことをUI要件としてP7内で最優先扱いにすること。
+  - [x] `apps/web/src/app/platform-admin/tenants/patients/detail/page.tsx:79` ― 「終了」しても期限切れになっても、表示中の患者PHIが画面に残り続ける(high)
+  - [x] `apps/web/src/app/platform-admin/tenants/detail/page.tsx:129,274,292` ― Webhook再試行が確認なしで患者へのLINE送信を再実行/送信一時停止パネルが現在状態を表示せず確認・二重送信防止もない(high、計2件)
+  - [x] `apps/web/src/app/platform-admin/layout.tsx:54` ― セッション確認失敗を全部握りつぶしてログイン画面へ飛ばす(high、API障害時に原因不明)
 
-- [ ] **P7-4** LIFF(患者側)UX改善 ― 17件確認済み、優先度が高いもののみ抜粋(残りは `whfy5hdne.output` / journal.jsonl 参照)
-  - [ ] `apps/liff/src/custom/pharmacy/prescriptions/PrescriptionPage.tsx:133` ― 2枚目の写真撮影が1枚目を無言で削除する(small、複数ページ処方せんで再現)
-  - [ ] `apps/liff/src/custom/pharmacy/prescriptions/PrescriptionPage.tsx:146` ― 再送信時に再チェックした同意欄・希望受取時間が失われる(medium。既存の `L-7`(同意チェックの自動オン廃止)と地続きの未完了フォロー)
-  - [ ] `apps/liff/src/custom/pharmacy/intake/PatientIntakePage.tsx:44` ― 半分入力した問診票がリロード/戻る操作で消える(medium)
-  - [ ] `apps/liff/src/custom/pharmacy/myna/MynaReceivePage.tsx:106` ― マイナ外部ウィンドウから戻ると結果パネルが消える(large)
-  - [ ] `apps/liff/src/custom/pharmacy/request.ts:28` ― APIエラー時に英語の生文字列がそのまま患者に見える(medium、根本原因は `apps/web/src/lib/api.ts` の `fetchApi` がサーバーエラーメッセージを握りつぶしていること。P7-1と共有原因の可能性、先にそちら側を直すと波及して直る)
+- [x] **P7-4** LIFF(患者側)UX改善 ― 17件確認済み、優先度が高いもののみ抜粋(残りは `whfy5hdne.output` / `journal.jsonl` 参照)
+  - [x] `apps/liff/src/custom/pharmacy/prescriptions/PrescriptionPage.tsx:133` ― 2枚目の写真撮影が1枚目を無言で削除する(small、複数ページ処方せんで再現)
+  - [x] `apps/liff/src/custom/pharmacy/prescriptions/PrescriptionPage.tsx:146` ― 再送信時に再チェックした同意欄・希望受取時間が失われる(medium。既存の `L-7`(同意チェックの自動オン廃止)と地続きの未完了フォロー)
+  - [x] `apps/liff/src/custom/pharmacy/intake/PatientIntakePage.tsx:44` ― 半分入力した問診票がリロード/戻る操作で消える(medium)
+  - [x] `apps/liff/src/custom/pharmacy/myna/MynaReceivePage.tsx:106` ― マイナ外部ウィンドウから戻ると結果パネルが消える(large)
+  - [x] `apps/liff/src/custom/pharmacy/request.ts:28` ― APIエラー時に英語の生文字列がそのまま患者に見える(medium、根本原因は `apps/web/src/lib/api.ts` の `fetchApi` がサーバーエラーメッセージを握りつぶしていること。P7-1と共有原因の可能性、先にそちら側を直すと波及して直る)
 
-- [ ] **P7-5(⑤の回答)** LIFFに追加すべき新機能 ― AI/OCR・マーケットプレイス・重複ドメインモデル禁止(AGENTS.md)を満たす形で選定済み、6件
-  - [ ] 受付状況カード(準備予定時刻・確認事項の見える化) ― `PrescriptionPage.tsx:282` 拡張、small
-  - [ ] マイナ受付の進行中セッション復帰 ― `MynaReceivePage.tsx:19` 拡張、small(P7-4のセッション消失問題と表裏)
-  - [ ] 受け取り希望(時間・方法)の申告と変更 ― `apps/worker/src/custom/pharmacy/prescriptions/routes.ts:302` 拡張、medium
-  - [ ] アンケート「前回から変更なし」ワンタップ更新 ― `PatientIntakePage.tsx:175` 拡張、small
-  - [ ] 服薬フォローアップのLIFF回答画面 ― 現状は管理画面 `MedicationFollowUpPanel.tsx` のみで患者側に応答手段がない、`medication-followup/repository.ts:291` 拡張、medium
-  - [ ] 来局しました(到着通知) ― `apps/worker/src/custom/pharmacy/prescriptions/repository.ts:510` 拡張、medium
+- [x] **P7-5(⑤の回答)** LIFFに追加すべき新機能 ― AI/OCR・マーケットプレイス・重複ドメインモデル禁止(AGENTS.md)を満たす形で選定済み、6件
+  - [x] 受付状況カード(準備予定時刻・確認事項の見える化) ― `PrescriptionPage.tsx:282` 拡張、small
+  - [x] マイナ受付の進行中セッション復帰 ― `MynaReceivePage.tsx:19` 拡張、small(P7-4のセッション消失問題と表裏)
+  - [x] 受け取り希望(時間・方法)の申告と変更 ― `apps/worker/src/custom/pharmacy/prescriptions/routes.ts:302` 拡張、medium
+  - [x] アンケート「前回から変更なし」ワンタップ更新 ― `PatientIntakePage.tsx:175` 拡張、small
+  - [x] 服薬フォローアップのLIFF回答画面 ― 完了(2026-08-19)。既存3択回答と同じ状態機械を再利用し、LINE所有者・`line_account_id`・capabilityでfail-closedにスコープしたLIFF一覧/回答APIと患者画面を追加。PHIなし通知から認証済みLIFFへの導線、非評価的な回答文言、緊急時119案内、確認・二重送信防止を実装。薬局側は要対応を先頭表示し、患者回答を`担当/優先確認 → 対応済み → 完了`まで閉じる前に記録する遷移へ修正。
+  - [x] 来局しました(到着通知) ― `apps/worker/src/custom/pharmacy/prescriptions/repository.ts:510` 拡張、medium
 
-- [ ] **P7-6(⑥のうち追加で判明した分)** `liff.ts:916` の `getScenarios(db)` 修正は3箇所の同型呼び出し漏れとセットで行うこと。単独修正すると兄弟箇所が壊れたまま残る。
-  - [ ] `apps/worker/src/routes/friends.ts:573`
-  - [ ] `apps/worker/src/services/friend-tag-attach.ts:49`
-  - [ ] `apps/worker/src/routes/scenarios.ts:197`
+- [x] **P7-6(⑥のうち追加で判明した分)** `liff.ts:916` の `getScenarios(db)` 修正は3箇所の同型呼び出し漏れとセットで行うこと。単独修正すると兄弟箇所が壊れたまま残る。
+  - [x] `apps/worker/src/routes/friends.ts:573`
+  - [x] `apps/worker/src/services/friend-tag-attach.ts:49`
+  - [x] `apps/worker/src/routes/scenarios.ts:197`
   - 変更後は `liff-oauth-scenario-gate.test.ts` / `liff-friend-add-scenarios.test.ts` がnullアカウント時の現行挙動を固定しているため、意図的な仕様変更として更新すること(黙って通すよう緩めない)。
 
-- [ ] **P7-7(残作業の棚卸し、⑥の残り)**
-  - [ ] `.env.example` に `STAFF_API_KEY_HASH_SECRET=` を追記(sandboxのsecret-read guardでブロックされるため人手で実施)
-  - [ ] `apps/worker/src/routes/tags.ts` / `webhooks.ts` へのtenant scopeカラム追加(V-3/V-4、スキーマ変更を伴うため別バッチ)
-  - [ ] field-level encryption設計ドキュメント作成(M-9フォローアップ、`answers_json`等が対象)
-  - [ ] E-1〜E-7(レビュー証跡整備、次回監査用)
-  - [ ] `PLANS.md:103` のH-3フォローアップ注記を削除(`platform-admin/routes.ts:434-500`・`platform-admin/logs/page.tsx:102-131`で実装済みと確認済み、注記だけが残っている)
+- [x] **P7-7(残作業の棚卸し、⑥の残り)**
+  - [x] `.env.example` に `STAFF_API_KEY_HASH_SECRET=` を追記
+  - [x] `apps/worker/src/routes/tags.ts` / `webhooks.ts` へのtenant scopeカラム追加(V-3/V-4、`custom_034`と実DB越境否定テストを追加)
+  - [x] field-level encryption設計ドキュメント作成(M-9フォローアップ、`answers_json`等が対象)
+  - [x] E-1〜E-7(レビュー証跡整備、次回監査用)
+  - [x] `PLANS.md:103` のH-3フォローアップ注記を削除(`platform-admin/routes.ts:434-500`・`platform-admin/logs/page.tsx:102-131`で実装済みと確認済み)
 
-- [ ] **P7-8(2026-08-19追記 ― 初回記入から漏れていた分)** P7作成時、workflow2の深掘り監査(pharmacyAdmin/platformAdminバケット)は全件転記したが、①それと同一file:lineで別カテゴリとして生き残った1件、②workflow1のサーベイ段階の指摘(workflow2は対象外だった画面横断チェック)、③complete­ness critic(監査自体が見落とした領域)の3種を転記し忘れていた。以下で補完する。
+- [x] **P7-8(2026-08-19追記 ― 初回記入から漏れていた分)** P7作成時、workflow2の深掘り監査(pharmacyAdmin/platformAdminバケット)は全件転記したが、①それと同一file:lineで別カテゴリとして生き残った1件、②workflow1のサーベイ段階の指摘(workflow2は対象外だった画面横断チェック)、③complete­ness critic(監査自体が見落とした領域)の3種を転記し忘れていた。以下で補完する。
 
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:150` ― 「キャンセル」確認ダイアログが患者へLINE通知が飛ぶこと・取り消し不可であることを説明せず、「キャンセル」という語自体がダイアログを閉じる意味にも読めるため誤ってOKしやすい(high, P7-1と同一バッチで直すこと)
-  - [ ] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:114` ― フォロー予約成功時に失敗と誤表示され、そのまま再試行すると重複予約が作られる(causes-error)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionReviewEditor.tsx:49` ― 発行者を保存すると、薬剤師が直前に入力した有効期限欄が無言で消える(causes-error、データ消失)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:96` ― 「LINEで通知しました」の緑バナーが次の処方せんに引き継がれ、実際には通知していない案件を通知済みと誤認させる(causes-error)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueueOverview.tsx:85,120,125` ― ステータスタブの件数が読み込み済み50件のみで集計される/初回フェッチ前から「該当なし」を描画する/キュー行に患者を特定する情報が一切ない(blocks-task、3件セット)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:132` ― 画像を高速にページ送りすると古いリクエストが後着ちして誤った患者の画像が表示されうる(blocks-task、レース条件)
-  - [ ] `apps/web/src/custom/pharmacy/myna/MynaAdminPage.tsx:116` ― 確認待ちキューが読み込み中でも「確認対象なし」と表示される(causes-error、empty-vs-loading)
-  - [ ] `apps/web/src/custom/pharmacy/intake/PatientIntakeAdminPage.tsx:129` ― 患者履歴の取得に失敗すると「読み込み中」のまま永久に固まる(slows-task、:83のレース問題とは別件)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionPrintPage.tsx:66` ― 一度「確認」した後は再印刷する手段がない(blocks-task、:98の「キャンセルしても記録される」問題とは別件)
-  - [ ] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionImageViewer.tsx:36` ― `aria-modal` を宣言しているがフォーカスを移動・トラップしない(a11y, low)
-  - [ ] `apps/web/src/lib/api.ts:145` ― セッション切れ(401)をその場で検知せず、以後の操作が汎用エラーのまま作業不能になる(blocks-task。P7-4のLIFF側`request.ts:28`と根本原因が同じ`fetchApi`の可能性が高く、先にこちらを直すと波及して直る見込み)
-  - [ ] `apps/web/src/app/page.tsx:426` ― 薬局テナントでもアカウント読み込み中は一般CRMダッシュボードが一瞬表示され、6本の403リクエストが飛ぶ(slows-task)
-  - [ ] `apps/web/src/app/login/page.tsx:39` ― ログイン失敗時にサーバーの内部エラー文字列がそのまま薬局スタッフに表示される(slows-task)
-  - [ ] `apps/web/src/app/friends/page.tsx:52` ― 友だち管理のタグ絞り込みが薬局テナントでは常に空になる(slows-task)
-  - [ ] `apps/web/src/app/page.tsx:232` ― 一般ダッシュボードのデモ用バナーがプレースホルダURLのまま残っている(cosmetic, low)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:150` ― 「キャンセル」確認ダイアログが患者へLINE通知が飛ぶこと・取り消し不可であることを説明せず、「キャンセル」という語自体がダイアログを閉じる意味にも読めるため誤ってOKしやすい(high, P7-1と同一バッチで直すこと)
+  - [x] `apps/web/src/custom/pharmacy/medication-followup/MedicationFollowUpPanel.tsx:114` ― フォロー予約成功時に失敗と誤表示され、そのまま再試行すると重複予約が作られる(causes-error)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionReviewEditor.tsx:49` ― 発行者を保存すると、薬剤師が直前に入力した有効期限欄が無言で消える(causes-error、データ消失)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:96` ― 「LINEで通知しました」の緑バナーが次の処方せんに引き継がれ、実際には通知していない案件を通知済みと誤認させる(causes-error)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueueOverview.tsx:85,120,125` ― ステータスタブの件数が読み込み済み50件のみで集計される/初回フェッチ前から「該当なし」を描画する/キュー行に患者を特定する情報が一切ない(blocks-task、3件セット)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.tsx:132` ― 画像を高速にページ送りすると古いリクエストが後着ちして誤った患者の画像が表示されうる(blocks-task、レース条件)
+  - [x] `apps/web/src/custom/pharmacy/myna/MynaAdminPage.tsx:116` ― 確認待ちキューが読み込み中でも「確認対象なし」と表示される(causes-error、empty-vs-loading)
+  - [x] `apps/web/src/custom/pharmacy/intake/PatientIntakeAdminPage.tsx:129` ― 患者履歴の取得に失敗すると「読み込み中」のまま永久に固まる(slows-task、:83のレース問題とは別件)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionPrintPage.tsx:66` ― 一度「確認」した後は再印刷する手段がない(blocks-task、:98の「キャンセルしても記録される」問題とは別件)
+  - [x] `apps/web/src/custom/pharmacy/prescriptions/PrescriptionImageViewer.tsx:36` ― `aria-modal` を宣言しているがフォーカスを移動・トラップしない(a11y, low)
+  - [x] `apps/web/src/lib/api.ts:145` ― セッション切れ(401)をその場で検知せず、以後の操作が汎用エラーのまま作業不能になる(blocks-task)
+  - [x] `apps/web/src/app/page.tsx:426` ― 薬局テナントでもアカウント読み込み中は一般CRMダッシュボードが一瞬表示され、6本の403リクエストが飛ぶ(slows-task)
+  - [x] `apps/web/src/app/login/page.tsx:39` ― ログイン失敗時にサーバーの内部エラー文字列がそのまま薬局スタッフに表示される(slows-task)
+  - [x] `apps/web/src/app/friends/page.tsx:52` ― 友だち管理のタグ絞り込みが薬局テナントでは常に空になる(slows-task)
+  - [x] `apps/web/src/app/page.tsx:232` ― 一般ダッシュボードのデモ用バナーがプレースホルダURLのまま残っている(cosmetic, low)
 
-- [ ] **P7-9(completeness critic が指摘した横断的な未調査領域、2026-08-19追記)** 個別findingではなく「次に何を調べるべきか」の指摘。着手前に該当領域を実コードで再調査してから個別タスク化すること。
-  - [ ] 薬局アカウントが0件の新規薬局が、ログイン直後にどのコンソールへ着地するか(`app/page.tsx:426`起点、一般CRMダッシュボードに迷い込む可能性)
-  - [ ] `apps/web/src/lib/api.ts` の `fetchApi` がサーバーのエラーメッセージを握りつぶしている疑い ― P7-1/P7-4/P7-8の複数の「エラーが分からない」系findingの共通原因である可能性が高く、優先調査推奨
-  - [ ] 複数スタッフによる同時操作(排他制御)がサーバー側では効いているがUIで一切説明されておらず、競合時にクライアントが復旧できない
-  - [ ] 全体管理者がテナントの送信を一時停止した状態が、薬局側コンソームには一切表示されない(`platform-admin`側のみで完結)
-  - [ ] 「停止」という言葉が画面ごとに異なる意味を持つ(全体管理者ダッシュボード/テナント詳細/緊急コントロールでそれぞれ別概念)
-  - [ ] `PrescriptionImageViewer` はズームしてもパン不可・回転で画像がクリップされる ― 処方せんを正確に読む唯一の画面であるため優先度は高いはず
-  - [ ] キュー・詳細パネルの状態がすべてコンポーネントstateでURLパラメータ化されておらず、リロードや共有リンクで文脈が失われる(全体管理者側コンソールとの設計方針の不一致)
-  - [ ] 印刷は別タブで開き、印刷元タブと状態が同期しない
-  - [ ] `緊急コントロール` は一般CRMの配信は止められるが、薬局側の送信経路(通知・継続フォロー等)には無力
-  - [ ] 共有タブレットでのセッション衛生 ― ログアウトしても前スタッフのアカウント選択が残る等
-  - [ ] `mustChangePassword` フローの途中でログイン画面がその状態を忘れる遷移がある(`auth-guard.tsx`)
+- [x] **P7-9(completeness critic が指摘した横断的な未調査領域、2026-08-19追記)** 実コード再調査と確認された不具合の実装を完了。
+  - [x] 薬局アカウントが0件の新規薬局: account読込完了まで待ち、0件時はアカウント設定への導線だけを表示。一般CRM APIを起動しない。
+  - [x] `fetchApi`: 500文字以内の構造化detailを保持し、401はブラウザ状態を消去して即時ログインへ遷移。患者向け/ログイン画面は内部文字列を直接表示しない。
+  - [x] 複数スタッフ操作: CASを使う処方せんと服薬フォローで409時に最新状態を再取得し、競合と再操作方法を説明。
+  - [x] 全体管理者の送信一時停止: `line-accounts`応答へtenant状態を追加し、薬局コンソール全画面に「患者向けLINE送信一時停止中」バナーを表示。
+  - [x] 「停止」の意味: platform-adminを「患者向けLINE送信」、Growth Loopを「能動的なお知らせの月間上限」と明記。緊急コントロールは薬局メニューから除外済み。
+  - [x] `PrescriptionImageViewer`: pointer dragによるパンを追加し、拡大・回転後も任意箇所を確認可能にした。
+  - [x] キュー・詳細: `status`/`submission`をURLへ同期し、リロード/共有リンクで復元。状態タブは発見した追加バグ(先頭50件だけの絞り込み)も既存server-side `status` filterへ接続して修正。
+  - [x] 印刷タブ同期: 印刷元がfocusへ戻ったとき、現在の詳細を再取得して印刷確認状態を同期。
+  - [x] 緊急コントロール: 調査の結果、薬局メニューから既に除外され、実効停止は`outbound_messaging_paused_at`を共通senderが全薬局通知前に検査していた。追加の偽ボタンは作らず、上記バナーで状態を可視化。
+  - [x] 共有タブレット: logout/401でCSRF・スタッフ表示・選択アカウントを消去。
+  - [x] `mustChangePassword`: ログイン画面で既存sessionを復元し、途中リロード後も初回パスワード変更フォームへ戻す。
 
-- [ ] **P7-10** workflow2は検証コストの都合で上位28件のみ実コード照合し、残り141件は未検証のまま severity 順に温存されている(重複排除後169件 − 検証28件)。優先度の高いものから着手する際は、まず journal.jsonl の `lens:*` / `screen:*` エージェント出力を読み、file:line単位で実在確認してから着手すること(未検証＝誤りの可能性を含む)。
+- [x] **P7-10** workflow2の残り141件をseverity順にjournalと現行file:lineで再照合し、実在した安全性・誤認・操作不能・アクセシビリティ問題を修正。重複、既修正、主観的レイアウト提案、内部エラーを患者/薬局へ露出すべきという安全境界と逆行する案、処方せん画像欠落時も印刷を続ける案などは実装対象から除外した。
+  - [x] **フォローアップ関連14件の実在確認と修正(2026-08-19)**: `MedicationFollowUpPanel` は過去日時の予約拒否、対象処方せんの識別、状態別の実時刻、送信前プレビュー、行単位busyを追加。患者LIFFは対象カード強調、状態別時刻、行単位busy、失敗時再取得/再読込を追加。`ContinuityAdminPage` は実送信日時と、staff・account scope・version CAS・監査イベント付きの予約取り消しを追加。親の患者画面はloading/error/emptyを分離し、JST表示と内部英語ラベルを修正。関連テスト: Worker 10 files/38 tests、Web 5 files/20 tests、LIFF 3 files/8 tests成功。
+  - [x] **隣接する薬局運用画面の実在確認と修正(2026-08-19)**: activity通知のpoll/ack競合とエラー消失、Growth Loopの月・薬局切替時の旧集計表示と発行元取得失敗の誤表示、Myna期限切れ受付を正式に「使用期限外」と記録できない問題を修正。表示時刻をJSTへ統一し、タップ領域と用語も整理。
+  - [x] **残る非フォローアップ指摘の実在確認と修正(2026-08-19)**: チャット送信失敗、ヘルス取得不能の正常誤表示、ダッシュボード部分失敗、全体管理ログ/監査/テナント健全性、特権操作の確認とsingle-flight、狭幅テーブル/モーダル/タップ領域/キーボード操作、内部エラー露出、JST表示、検索/絞り込み/ページ分割を修正。テナント一覧はWorker側で未解消Webhook失敗とLINE設定不足を集約し、1件ずつ開かずに障害を特定可能にした。検証: Web 27 files/139 tests、Worker follow-up/continuity/platform-admin 11 files/80 tests、LIFF follow-up/continuity 2 files/6 tests成功、`git diff --check`成功。
+
+### P8 - 緊急避妊薬の来局前確認 Phase 1 MVP - 2026-08-19 実装計画
+
+**調査根拠と境界**: 添付仕様421行を全文確認し、厚生労働省「[緊急避妊薬の調剤・販売について](https://www.mhlw.go.jp/stf/kinnkyuuhininnyaku.html)」(令和8年4月7日更新)および「[緊急避妊薬を調剤・販売する薬剤師及び販売する薬局・店舗販売業の店舗について・令和8年3月31日一部改正](https://www.mhlw.go.jp/content/11120000/001683896.pdf)」を一次情報として再確認した。今回のコード対象は、LINEを入口にした**来局前確認・仮受付・薬剤師レビュー**まで。販売可否の自動判定、オンライン販売、配送、代理受取、事前決済、製品別独自完全問診、メーカー紙チェックシートの電子置換は実装しない。店頭で研修修了薬剤師が最新メーカーシートを使って最終判断する。
+
+- [x] **EC-0 外部human gateをfail-closedで表現**
+  - [x] 薬局番号、研修修了薬剤師、単一取扱製品、メーカー公式セルフチェックURL、プライバシー確保、飲料水、連携先、利用目的/問い合わせ先/保存期間が揃うまで患者受付を公開しない。
+  - [x] コード上の準備完了と厚労省一覧掲載・実在庫・実勤務を別の主張として扱い、未確認時に「購入可能」「販売可」「服用できます」を表示しない。
+  - **受入条件**: 必須設定の欠落または販売枠の条件欠落時、患者APIとLIFFが受付不能理由と電話/直接相談の代替導線だけを返す。
+
+- [x] **EC-1 additive schemaと機微情報保護**
+  - [x] `custom_035` に account-scoped settings / trained pharmacist / service slot / inventory / provisional intake / immutable event を追加し、全query/mutationを`line_account_id`でスコープする。
+  - [x] 患者入力は性交日時、本人来局、面前服用、年齢帯、安全連絡方法、同意versionのPhase 1最小項目だけにし、自由記載・病歴・月経・性暴力詳細・画像を取得しない。
+  - [x] 性交日時をapplication-layer AES-GCMで暗号化し、ログ・例外・通知・患者一覧projectionへ平文を出さない。暗号鍵未設定時はfail closed。
+  - [x] pending仮受付にTTLを持たせ、期限切れ・取消・店頭対応不成立で在庫枠を解放する。患者所有権とstaff/account authorizationの否定テストを追加する。
+  - **受入条件**: 別テナント/別患者read-write不可、重複送信冪等、在庫1件への同時仮受付は1件だけ成立、保存行とログに平文性交日時が存在しない。
+
+- [x] **EC-2 72時間・例外フラグの純粋ロジックをTDD**
+  - [x] 推定服用時刻を枠開始時刻ではなく説明時間を加えた時刻として計算し、性交後72時間を超える枠は提示しない。時刻不明は当日00:00を用いた保守判定とし、結果は`risk_flags`で薬剤師へ送るだけで最終`eligible`を保存しない。
+  - [x] 16歳未満、16-17歳、3か月2回以上、本人来局不可、面前服用不可、通知不可を人レビュー用フラグとして扱い、自動販売不可にはしない。ただし代理受取/オンライン完結は仮受付を成立させない。
+  - **受入条件**: 71時間30分+30分説明、日跨ぎ、時刻不明、過去/未来日時、複数回利用、期限直前の境界テストがRed-Greenで固定される。
+
+- [x] **EC-3 患者LIFF**
+  - [x] 未チェック同意 -> 約60秒で完了できる最小確認 -> 対応枠選択 -> メーカー公式セルフチェック導線 -> 仮受付番号の順に進む。内部ナビゲーションは現在の`liffId`を保持する。時間依存の受診を遅らせる人工的な待機は設けない。
+  - [x] 通知安全性を患者が選択でき、画面・通知とも薬名/性交/妊娠を露出しない中立表現にする。期限超過・枠なしは薬局返信待ちにせず厚労省の販売薬局一覧と受診案内を表示する。
+  - [x] 二重送信防止、送信中、競合、再試行、期限切れ、取消をキーボード/モバイル双方で扱えるようにする。
+  - **受入条件**: LIFFコンポーネント/APIテストで同意未取得、72時間超過、在庫競合、成功、取消、内部エラー非露出を確認する。
+
+- [x] **EC-4 薬局管理画面**
+  - [x] 必須設定、研修修了薬剤師、販売枠、在庫数を管理し、公開可否と欠落条件を1画面で確認できるようにする。
+  - [x] 仮受付を期限/緊急度順に表示し、患者申告を「未確認」と明示する。レビュー済み、取消、期限切れ、店頭対応完了をCAS付きで記録し、販売可否自体は紙の最新メーカーシートへ残す。
+  - [x] 取消・店頭対応完了・在庫変更は確認ダイアログ、single-flight、成功/失敗表示、監査イベントを持つ。
+  - **受入条件**: account切替時の旧データ消去、別account拒否、競合再取得、空/読込/失敗状態、狭幅表示、キーボード操作をテストする。
+
+- [x] **EC-5 配線・回帰・リファクタリング**
+  - [x] Worker/LIFF/Webのroute・sidebar・API client・bootstrap metadataを最小差分で配線する。既存のLIFF identity、staff account guard、JSON parser、暗号化、JST表示、CAS/idempotencyパターンを再利用する。
+  - [x] 実装で見つけた共通バグは共有関数の根本で修正し、無関係な全ファイルの整形や新規依存追加は行わない。
+  - [x] 関連Worker/LIFF/Web/DBテストと`git diff --check`を最終編集後に再実行する。
+  - **受入条件**: EC-0〜EC-4の要件別証跡を本節へ追記し、local code/test greenとproduction operationを混同しない。
+  - **実装証跡(2026-08-19)**: Worker 5 files/66 tests、DB 1 file/12 tests、LIFF 3 files/13 tests、Web 3 files/7 tests、LIFF TypeScript build、`git diff --check`が成功。`custom_035`とbootstrap metadataを生成済み。厚労省一覧掲載、実在庫、当日の研修修了薬剤師勤務、メーカー紙記録運用、デプロイ、本番動作は未確認であり、human gateのまま。
 
 **却下・保留のまま(実装しない)**:
 - Myna `tenant_alias` のグローバルユニーク衝突(low, `endpoint-repository.ts:148`)と `/r/myna/:tenantAlias` 未認証URL開示(low, `myna/routes.ts:184`)は今回のisolation調査で唯一生き残った2件。優先度lowのため今バッチには含めず次回起票。
