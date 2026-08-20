@@ -41,6 +41,8 @@ function d1From(sqlite: Database.Database): D1Database {
 }
 
 const TS = '2026-08-20T00:00:00.000Z';
+/** 保存期間(3年)を確実に過ぎた時刻。土台の行はこれで作り、各テストが新しいPHIを足す。 */
+const OLD = '2019-01-01T00:00:00.000Z';
 
 function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
   db.prepare(`INSERT INTO line_accounts
@@ -61,7 +63,7 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
     (id, line_account_id, owner_friend_id, relationship, name, name_kana,
      birth_date, created_at, updated_at)
     VALUES (?, ?, ?, 'self', ?, ?, '1990-01-01', ?, ?)`).run(
-    `patient-${suffix}`, `account-${suffix}`, `friend-${suffix}`, suffix, suffix, TS, TS,
+    `patient-${suffix}`, `account-${suffix}`, `friend-${suffix}`, suffix, suffix, OLD, OLD,
   );
   db.prepare(`INSERT INTO staff_members
     (id, name, email, role, api_key, is_active, created_at, updated_at)
@@ -86,6 +88,30 @@ function seedPhi(db: Database.Database, suffix: 'a' | 'b', createdAt: string): v
     `intake-${suffix}`, `account-${suffix}`, `friend-${suffix}`, `patient-${suffix}`,
     `intake-key-${suffix}`, createdAt, createdAt, createdAt,
   );
+}
+
+/** pharmacy_medication_followups を1行。FKが要求する前提行はすべて OLD で作る。 */
+function seedMedicationFollowup(db: Database.Database, createdAt: string): void {
+  db.prepare(`INSERT INTO pharmacy_prescription_submissions
+    (id, line_account_id, friend_id, idempotency_key, status, created_at, updated_at)
+    VALUES ('submission-a', 'account-a', 'friend-a', 'sub-key-a', 'closed', ?, ?)`).run(OLD, OLD);
+  db.prepare(`INSERT INTO pharmacy_prescription_patients
+    (submission_id, line_account_id, owner_friend_id, patient_id, intake_response_id, created_at)
+    VALUES ('submission-a', 'account-a', 'friend-a', 'patient-a', 'intake-a', ?)`).run(OLD);
+  db.prepare(`INSERT INTO pharmacy_medication_followups
+    (id, line_account_id, owner_friend_id, patient_id, source_submission_id, status,
+     due_at, created_by, created_at, updated_at)
+    VALUES ('followup-a', 'account-a', 'friend-a', 'patient-a', 'submission-a', 'scheduled',
+            ?, 'staff-a', ?, ?)`).run(createdAt, createdAt, createdAt);
+}
+
+/** pharmacy_myna_handoffs を1行。 */
+function seedMynaHandoff(db: Database.Database, createdAt: string): void {
+  db.prepare(`INSERT INTO pharmacy_myna_handoffs
+    (id, line_account_id, friend_id, patient_id, method, status, source, correlation_id,
+     expires_at, created_at, updated_at)
+    VALUES ('handoff-a', 'account-a', 'friend-a', 'patient-a', 'E_PRESCRIPTION', 'CREATED',
+            'LIFF', 'corr-a', ?, ?, ?)`).run(createdAt, createdAt, createdAt);
 }
 
 describe('custom_038 pharmacy data subject requests', () => {
@@ -256,6 +282,59 @@ describe('custom_038 pharmacy data subject requests', () => {
       lineAccountId: 'account-b', requestId: created.id,
       expectedVersion: 2, staffId: 'staff-b', now: NOW,
     })).rejects.toThrow(/not found/i);
+  });
+
+  /** 消去請求を出して legal hold 判定まで進める。 */
+  async function assessErasure(): Promise<{ legal_hold: number; legal_hold_release_at: string | null }> {
+    const created = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'erasure', reason: '消去の申し出', staffId: 'staff-a', now: NOW,
+    });
+    const verified = await markDataSubjectIdentityVerified(d1, {
+      lineAccountId: 'account-a', requestId: created.id,
+      expectedVersion: created.version, staffId: 'staff-a', now: NOW,
+    });
+    return await assessDataSubjectLegalHold(d1, {
+      lineAccountId: 'account-a', requestId: created.id,
+      expectedVersion: verified.version, staffId: 'staff-a', now: NOW,
+    });
+  }
+
+  it('holds when the only recent PHI is a medication follow-up', async () => {
+    seedPhi(db, 'a', OLD);
+    seedMedicationFollowup(db, '2024-08-20T00:00:00.000Z');
+    await expect(assessErasure()).resolves.toMatchObject({
+      legal_hold: 1, legal_hold_release_at: '2027-08-20T00:00:00.000Z',
+    });
+  });
+
+  it('releases the hold once the medication follow-up is also past 3 years', async () => {
+    seedPhi(db, 'a', OLD);
+    seedMedicationFollowup(db, '2023-08-19T00:00:00.000Z');
+    // 起算日は残るが、すでに満了しているので hold は立たない。
+    await expect(assessErasure()).resolves.toMatchObject({
+      legal_hold: 0, legal_hold_release_at: '2026-08-19T00:00:00.000Z',
+    });
+  });
+
+  it('holds when the only recent PHI is a myna handoff', async () => {
+    seedPhi(db, 'a', OLD);
+    seedMynaHandoff(db, '2025-01-01T00:00:00.000Z');
+    await expect(assessErasure()).resolves.toMatchObject({
+      legal_hold: 1, legal_hold_release_at: '2028-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('holds on a follow-up transition event newer than its parent row', async () => {
+    seedPhi(db, 'a', OLD);
+    seedMedicationFollowup(db, OLD);
+    db.prepare(`INSERT INTO pharmacy_medication_followup_events
+      (id, followup_id, line_account_id, event_type, actor_type, idempotency_key, occurred_at)
+      VALUES ('followup-event-a', 'followup-a', 'account-a', 'escalated', 'staff',
+              'followup-event-key-a', ?)`).run('2025-06-01T00:00:00.000Z');
+    await expect(assessErasure()).resolves.toMatchObject({
+      legal_hold: 1, legal_hold_release_at: '2028-06-01T00:00:00.000Z',
+    });
   });
 
   it('refuses a request for a patient the account does not own', async () => {
