@@ -18,6 +18,7 @@
     "verify:ci": "pnpm -r typecheck && pnpm -r test && pnpm test:scripts && pnpm tsx scripts/check-migrations.ts",
     "build:bundle": "tsx scripts/release/build-bundle.ts",
     "tenant:setup": "tsx scripts/custom/pharmacy/setup-tenant.ts",
+    "tenant:settings": "tsx scripts/custom/pharmacy/manage-tenant-settings.ts",
     "tenant:admin-bootstrap": "tsx scripts/custom/pharmacy/bootstrap-tenant-admin.ts",
     "tenant:line-credentials": "tsx scripts/custom/pharmacy/migrate-line-credentials.ts",
     "platform:admin-bootstrap": "tsx scripts/custom/pharmacy/bootstrap-platform-admin.ts"

@@ -4,9 +4,13 @@ import type { Env } from '../index.js';
 import type { AdminSameSite } from './admin-auth-config.js';
 import {
   hashTenantAdminSessionToken,
+  isPlatformAdminSessionToken,
   isTenantAdminSessionToken,
 } from '../custom/pharmacy/provisioning/credentials.js';
 import { sameText } from '../custom/pharmacy/provisioning/line-credentials.js';
+import { resolvePlatformAdminSession } from '../custom/pharmacy/platform-admin/auth.js';
+import { recordPlatformAdminAccess } from '../custom/pharmacy/platform-admin/audit.js';
+import { isPlatformTenantSettingsPath } from '../custom/pharmacy/platform-admin/settings-scope.js';
 
 export const ADMIN_AUTH_COOKIE = 'lh_admin_session';
 export const TENANT_COOKIE = 'lh_tenant';
@@ -129,6 +133,29 @@ type RequestIdentity = TenantBoundIdentity & {
   credentialVersion: number | null;
   mustChangePassword: boolean;
 };
+
+async function resolvePlatformAdminTenant(
+  db: D1Database,
+  selector: string | null | undefined,
+): Promise<AuthenticatedTenant | null> {
+  const normalized = selector?.trim();
+  if (!normalized) return null;
+  try {
+    const tenant = await db.prepare(
+      `SELECT id, tenant_code, display_name
+         FROM tenants
+        WHERE status = 'active' AND (id = ? OR tenant_code = ? COLLATE NOCASE)
+        LIMIT 1`,
+    ).bind(normalized, normalized).first<{
+      id: string;
+      tenant_code: string;
+      display_name: string;
+    }>();
+    return tenant ? { id: tenant.id, code: tenant.tenant_code, name: tenant.display_name } : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve and authorize the tenant independently of the request selector.
@@ -259,6 +286,32 @@ async function authenticateRequest(
     return cookie && isTenantAdminSessionToken(cookie)
       ? authenticateOpaqueSession(c, cookie)
       : null;
+  }
+
+  if (isPlatformAdminSessionToken(bearer)) {
+    const path = new URL(c.req.url).pathname;
+    if (!isPlatformTenantSettingsPath(path)) return null;
+    const [resolved, tenant] = await Promise.all([
+      resolvePlatformAdminSession(c.env.DB, bearer),
+      resolvePlatformAdminTenant(c.env.DB, c.req.header(TENANT_HEADER)),
+    ]);
+    if (!resolved || resolved.mustChangePassword || !tenant) return null;
+    await recordPlatformAdminAccess(
+      c.env.DB,
+      resolved.admin.id,
+      tenant.id,
+      'tenant_settings_cli_request',
+      'api_path',
+      path,
+      { method: c.req.method.toUpperCase() },
+    );
+    return {
+      staff: { id: resolved.admin.id, name: resolved.admin.name, role: 'owner' },
+      tenant,
+      authMethod: 'api_key',
+      credentialVersion: null,
+      mustChangePassword: false,
+    };
   }
 
   const staff = await authenticateApiToken(c, bearer);
