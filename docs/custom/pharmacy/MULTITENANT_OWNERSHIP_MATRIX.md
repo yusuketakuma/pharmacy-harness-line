@@ -34,7 +34,7 @@ tenants; they must not be described as safe shared CRM features:
 
 - broadcasts, scenarios, automations, reminders, mileage, scoring;
 - affiliates, conversions, traffic pools, webinars, forms, events, booking;
-- generic tags, operators, generic rich menus, and global link settings;
+- operators, generic rich menus, and global link settings;
 - legacy OAuth/LIFF routes and generic OGP event/form previews.
 
 The API allowlist and generic-feature guard reject these routes before the
@@ -57,7 +57,7 @@ generic form/event preview queries for a pharmacy deployment.
 
 The following are intentionally not represented as completed:
 
-- physical tenant columns for dormant generic CRM tables;
+- physical tenant columns for dormant generic CRM tables other than the tenant-scoped tags and Webhook settings added by `custom_034`;
 - live Cloudflare D1/R2/Secrets verification or migration application;
 - live LIFF Pages asset freshness and actual LINE rich-menu publication;
 - external LINE default-menu/bulk-link success after a remote partial failure.
