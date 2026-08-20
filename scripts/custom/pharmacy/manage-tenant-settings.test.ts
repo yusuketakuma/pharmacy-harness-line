@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import { runTenantSettings } from './manage-tenant-settings.js';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readCredentialFile, runTenantSettings } from './manage-tenant-settings.js';
 
 const baseArgs = [
   '--worker-url', 'https://api.example.test',
@@ -10,6 +13,11 @@ const environment = {
   PHARMACY_PLATFORM_ADMIN_PASSWORD: 'platform-password-value',
 };
 const platformSession = `pas_${'a'.repeat(43)}`;
+const temporaryDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true });
+});
 
 function loginResponse(): Response {
   const headers = new Headers({ 'content-type': 'application/json' });
@@ -28,6 +36,17 @@ const logoutResponse = () => new Response(JSON.stringify({ success: true }), {
 });
 
 describe('tenant settings CLI', () => {
+  it('reads only an owner-only local credential file', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'tenant-settings-'));
+    temporaryDirectories.push(directory);
+    const path = join(directory, 'ph-id');
+    writeFileSync(path, 'platform-owner', { mode: 0o600 });
+
+    expect(readCredentialFile(path)).toBe('platform-owner');
+    chmodSync(path, 0o644);
+    expect(readCredentialFile(path)).toBeUndefined();
+  });
+
   it('reads a tenant-scoped admin API with a platform-admin session', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>()
@@ -64,6 +83,58 @@ describe('tenant settings CLI', () => {
     expect(output.join('\n')).not.toContain(environment.PHARMACY_PLATFORM_ADMIN_PASSWORD);
     expect(output.join('\n')).not.toContain(platformSession);
     expect(fetcher.mock.calls[2][0]).toBe('https://api.example.test/api/platform-admin/logout');
+  });
+
+  it('uses stored credentials when environment variables are absent', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--path', '/api/settings'],
+      {},
+      fetcher,
+      async () => Buffer.alloc(0),
+      () => undefined,
+      (service) => service === 'ph-id' ? 'platform-owner' : 'platform-password-value',
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      loginId: 'platform-owner',
+      password: 'platform-password-value',
+    });
+  });
+
+  it('accepts the deployed tenant:id format', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [
+        '--worker-url', 'https://api.example.test',
+        '--tenant-id', 'tenant:pharmacy-a',
+        '--path', '/api/settings',
+      ],
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      () => undefined,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(fetcher.mock.calls[1][1]?.headers).toMatchObject({
+      'X-Tenant-Id': 'tenant:pharmacy-a',
+    });
   });
 
   it('dry-runs mutations unless --apply is present', async () => {

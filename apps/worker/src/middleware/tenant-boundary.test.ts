@@ -61,6 +61,29 @@ describe('tenant account selector guard', () => {
     expect(response.status).toBe(200);
   });
 
+  it('allows a platform admin only for accounts mapped to the selected tenant', async () => {
+    const root = new Hono<Env>();
+    root.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      c.set('staff', { id: 'platform-admin-1', name: 'Platform Owner', role: 'owner' });
+      c.set('platformAdmin', { id: 'platform-admin-1', name: 'Platform Owner' });
+      await next();
+    });
+    root.use('*', tenantAccountSelectorGuard);
+    root.all('*', (c) => c.json({ ok: true }));
+    const db = {
+      prepare: () => ({
+        bind: (tenantId: string, accountId: string) => ({
+          first: async () => tenantId === 'tenant-a' && accountId === 'account-a' ? { ok: 1 } : null,
+        }),
+      }),
+    } as unknown as D1Database;
+    const env = { DB: db } as Env['Bindings'];
+
+    expect((await root.request('/api/rich-menu-groups?accountId=account-a', {}, env)).status).toBe(200);
+    expect((await root.request('/api/rich-menu-groups?accountId=account-b', {}, env)).status).toBe(403);
+  });
+
   it('rejects an unassigned pharmacy account even inside the same tenant', async () => {
     const root = new Hono<Env>();
     root.use('*', async (c, next) => {
