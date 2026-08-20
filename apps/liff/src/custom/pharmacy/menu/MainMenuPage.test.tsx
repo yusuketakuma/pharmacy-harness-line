@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import MainMenuPage, {
+  pharmacyAppVersion,
   pharmacyMainMenuItems,
   sendPharmacyConsultation,
 } from './MainMenuPage.js';
@@ -28,6 +29,7 @@ describe('pharmacy LIFF main menu', () => {
     expect(html).toContain('すべての機能');
     for (const item of pharmacyMainMenuItems()) expect(html).toContain(item.label);
     expect(html).toContain('薬局へ相談');
+    expect(html).toContain(`aria-label="アプリバージョン v${pharmacyAppVersion}"`);
   });
 
   it('sends only the fixed consultation message after confirmation', async () => {

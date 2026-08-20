@@ -1,9 +1,11 @@
 import liff from '@line/liff';
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import packageJson from '../../../../package.json';
 import { pharmacyRoute } from '../navigation.js';
 
 const CONSULTATION_MESSAGE = '薬局へ相談';
+export const pharmacyAppVersion = packageJson.version;
 
 export function pharmacyMainMenuItems(liffId?: string) {
   return [
@@ -64,8 +66,15 @@ export default function MainMenuPage() {
   return (
     <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
       <header className="border-b bg-white px-4 py-5">
-        <p className="text-xs font-bold tracking-wide text-green-700">PHARMACY MENU</p>
-        <h1 className="mt-1 text-xl font-bold text-gray-950">すべての機能</h1>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold tracking-wide text-green-700">PHARMACY MENU</p>
+            <h1 className="mt-1 text-xl font-bold text-gray-950">すべての機能</h1>
+          </div>
+          <span aria-label={`アプリバージョン v${pharmacyAppVersion}`} className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+            v{pharmacyAppVersion}
+          </span>
+        </div>
         <p className="mt-1 text-sm leading-6 text-gray-600">利用したい機能を選んでください。</p>
       </header>
       <div className="grid grid-cols-2 gap-3 p-4">

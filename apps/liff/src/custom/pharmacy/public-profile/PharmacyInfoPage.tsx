@@ -70,7 +70,8 @@ export function PharmacyInfoContent({ profile }: { profile: PharmacyPublicProfil
       <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="access-title">
         <h2 id="access-title" className="font-bold text-gray-950">住所・アクセス</h2>
         <p className="mt-2 text-sm leading-6 text-gray-700"><span className="font-medium">住所</span><br />{[profile.postal_code && `〒${profile.postal_code}`, profile.address].filter(Boolean).join(' ') || '未設定'}</p>
-        <InfoLine label="FAX番号" value={profile.fax_number} />
+        <InfoLine label="電話番号" value={profile.phone || '未設定'} />
+        <InfoLine label="FAX番号" value={profile.fax_number || '未設定'} />
         <InfoLine label="アクセス" value={profile.access_note} />
         <InfoLine label="駐車場" value={profile.parking_note} />
         <InfoLine label="バリアフリー" value={profile.accessibility_note} />
