@@ -4,11 +4,29 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import EmergencyContraceptionPage, {
   EMPTY_EMERGENCY_DRAFT,
+  EmergencyIntakeForm,
   MHLW_EMERGENCY_CONTRACEPTION_URL,
   canSubmitEmergencyIntake,
   toIntercourseAtPayload,
   type EmergencyIntakeDraft,
 } from './EmergencyContraceptionPage.js';
+import type { EmergencyServiceOverview } from './api.js';
+
+const readyService: EmergencyServiceOverview = {
+  ready: true,
+  reason: null,
+  consent: {
+    version: '2026-08-19',
+    purpose: '来局前確認と仮受付のため',
+    retention_days: 90,
+    privacy_policy_url: 'https://example.com/privacy',
+    privacy_contact: 'privacy@example.com',
+  },
+  manufacturer_check_url: 'https://example.com/self-check',
+  partner_clinic_url: null,
+  support_center_url: null,
+  slots: [{ id: 'slot-1', starts_at: '2026-08-18T10:00:00+09:00', ends_at: '2026-08-18T10:30:00+09:00', remaining: 1 }],
+};
 
 const completeDraft: EmergencyIntakeDraft = {
   ...EMPTY_EMERGENCY_DRAFT,
@@ -53,12 +71,40 @@ describe('emergency contraception patient page', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter><EmergencyContraceptionPage /></MemoryRouter>,
     );
-    expect(html).toContain('緊急避妊薬の来局前確認');
+    expect(html).toContain('来局前確認と仮受付');
     expect(html).toContain('仮受付');
     expect(html).toContain('販売・服用・在庫を保証しません');
     expect(html).toContain('厚生労働省');
     expect(html).toContain(MHLW_EMERGENCY_CONTRACEPTION_URL);
     expect(html).not.toContain('病歴');
+  });
+
+  it('keeps the mounted intake form content-neutral about the drug, intercourse, and pregnancy', () => {
+    const renderForm = (draft: EmergencyIntakeDraft) => renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={draft}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
+    );
+    const withTime = renderForm({ ...completeDraft, consentAccepted: true });
+    const dateOnly = renderForm({
+      ...completeDraft, consentAccepted: true, intercourseTimeUnknown: true, intercourseAt: '2026-08-18',
+    });
+
+    expect(withTime).toContain('対象となる出来事の日時');
+    expect(withTime).toContain('出来事があった日時');
+    expect(dateOnly).toContain('出来事があった日');
+    for (const html of [withTime, dateOnly]) {
+      expect(html).not.toMatch(/性交|妊娠|緊急避妊/);
+    }
+
+    expect(() => toIntercourseAtPayload({ intercourseAt: '', intercourseTimeUnknown: false }))
+      .toThrow(/^対象となる出来事の日時/);
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/性交|妊娠|緊急避妊/);
   });
 
   it('uses explicit consent without delaying time-sensitive care and keeps actions single-flight', () => {

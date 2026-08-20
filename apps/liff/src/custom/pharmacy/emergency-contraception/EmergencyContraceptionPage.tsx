@@ -113,7 +113,7 @@ export function toIntercourseAtPayload(draft: Pick<
 >): string {
   if (draft.intercourseTimeUnknown) return draft.intercourseAt;
   if (!validIntercourseAt({ ...EMPTY_EMERGENCY_DRAFT, ...draft })) {
-    throw new Error('性交日時を入力してください。');
+    throw new Error('対象となる出来事の日時を入力してください。');
   }
   return `${draft.intercourseAt}${draft.intercourseAt.length === 16 ? ':00' : ''}+09:00`;
 }
@@ -208,7 +208,7 @@ function IntakeList({
   );
 }
 
-function EmergencyIntakeForm({
+export function EmergencyIntakeForm({
   draft,
   service,
   busy,
@@ -231,9 +231,9 @@ function EmergencyIntakeForm({
       <p className="text-sm text-gray-600">必要な項目だけ入力してください。</p>
 
       <fieldset className="space-y-2">
-        <legend className="font-bold text-gray-900">性交日時</legend>
+        <legend className="font-bold text-gray-900">対象となる出来事の日時</legend>
         <label className="block text-sm text-gray-700" htmlFor="emergency-intercourse-at">
-          {draft.intercourseTimeUnknown ? '性交した日' : '性交した日時'}
+          {draft.intercourseTimeUnknown ? '出来事があった日' : '出来事があった日時'}
         </label>
         <input
           id="emergency-intercourse-at"
@@ -475,7 +475,7 @@ export default function EmergencyContraceptionPage() {
   return (
     <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
       <header className="border-b bg-white px-4 py-4">
-        <h1 className="text-lg font-bold text-gray-900">緊急避妊薬の来局前確認</h1>
+        <h1 className="text-lg font-bold text-gray-900">来局前確認と仮受付</h1>
         <p className="mt-1 text-sm text-gray-700">
           来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。
         </p>
