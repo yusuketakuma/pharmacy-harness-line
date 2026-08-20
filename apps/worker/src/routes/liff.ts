@@ -36,9 +36,13 @@ import { loginUnconfiguredPage } from '../lib/login-unconfigured.js';
 import type { Env } from '../index.js';
 import { verifyCrossAccountToken } from '../lib/cross-account-token.js';
 import {
+  PATIENT_PHARMACY_CAPABILITIES,
   hasPharmacyModeAccount,
   isPharmacyModeAccount,
+  parsePharmacyCapabilities,
 } from '../custom/pharmacy/growth-loop/access.js';
+import { resolvePrescriptionPatient } from '../custom/pharmacy/prescriptions/patient.js';
+import { listExistingPatientFeatures } from '../custom/pharmacy/growth-loop/patient-feature-access.js';
 
 
 // OAuth state base64 helpers. btoa() only accepts Latin-1, so a single
@@ -63,7 +67,6 @@ liffRoutes.use('/auth/*', async (c, next) => {
 });
 
 const legacyLiffApiPaths = new Set([
-  '/api/liff/config',
   '/api/liff/link',
   '/api/liff/send-form-link',
 ]);
@@ -1130,54 +1133,76 @@ liffRoutes.get('/auth/callback', async (c) => {
 
 // GET /api/liff/config - resolve account info from LIFF ID (public, no auth)
 liffRoutes.get('/api/liff/config', async (c) => {
+  c.header('Cache-Control', 'no-store');
   try {
     const liffId = c.req.query('liffId');
     if (!liffId) {
       return c.json({ success: false, error: 'liffId is required' }, 400);
     }
 
-    const account = await c.env.DB
+    const accounts = await c.env.DB
       .prepare(
-        `SELECT account.id, account.name, account.channel_access_token
+        `SELECT account.id, account.name, capability.mode, capability.capabilities_json,
+                revision.revision AS capability_revision
            FROM line_accounts AS account
            INNER JOIN tenant_line_accounts AS mapping
                    ON mapping.line_account_id = account.id
            INNER JOIN tenants AS tenant
                    ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
-          WHERE account.liff_id = ? AND account.is_active = 1`,
+           LEFT JOIN pharmacy_account_capabilities AS capability
+                  ON capability.line_account_id = account.id AND capability.mode = 'pharmacy'
+           LEFT JOIN pharmacy_account_capability_revisions AS revision
+                  ON revision.line_account_id = capability.line_account_id
+          WHERE account.liff_id = ? AND account.is_active = 1
+          LIMIT 2`,
       )
       .bind(liffId)
-      .first<{ id: string; name: string; channel_access_token: string }>();
+      .all<{
+        id: string;
+        name: string;
+        mode: 'pharmacy' | null;
+        capabilities_json: string | null;
+        capability_revision: number | null;
+      }>();
 
-    if (!account) {
+    const rows = accounts.results ?? [];
+    if (rows.length === 0) {
       return c.json({ success: false, error: 'LIFF account not found' }, 404);
     }
-    const accessToken = account.channel_access_token;
-    const accountName = account.name;
-    const accountId = account.id;
-
-    // Fetch bot basic ID from LINE API
-    let botBasicId = '';
-    try {
-      const botRes = await fetch('https://api.line.me/v2/bot/info', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (botRes.ok) {
-        const bot = await botRes.json() as { basicId?: string };
-        botBasicId = bot.basicId || '';
-      }
-    } catch {
-      // non-blocking
+    if (rows.length !== 1) {
+      return c.json({ success: false, error: 'LIFF account resolution is ambiguous' }, 409);
     }
+    const account = rows[0];
+    const capabilities = account.mode === 'pharmacy'
+      ? parsePharmacyCapabilities(account.capabilities_json)
+      : [];
+    const enabledFeatures = PATIENT_PHARMACY_CAPABILITIES.filter((capability) =>
+      capabilities.includes(capability));
 
     return c.json({
       success: true,
-      data: { botBasicId, accountName, accountId },
+      data: {
+        botBasicId: '',
+        accountName: account.name,
+        accountId: account.id,
+        enabledFeatures,
+        capabilityRevision: account.capability_revision,
+      },
     });
   } catch (err) {
     console.error('GET /api/liff/config error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
+});
+
+liffRoutes.get('/api/liff/pharmacy/feature-access', async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
+  if (!identity) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
+  if (!patient) return c.json({ success: false, error: 'Pharmacy account not found' }, 404);
+  const existingFeatures = await listExistingPatientFeatures(c.env.DB, patient);
+  return c.json({ success: true, data: { existingFeatures } });
 });
 
 // ─── Existing LIFF endpoints ────────────────────────────────────

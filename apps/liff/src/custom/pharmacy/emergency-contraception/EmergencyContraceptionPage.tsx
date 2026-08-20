@@ -122,6 +122,14 @@ function canCancel(status: EmergencyIntakeStatus): boolean {
   return status === 'provisional' || status === 'reviewed';
 }
 
+export function emergencyNextAction(status: EmergencyIntakeStatus): string {
+  if (status === 'provisional') return '薬剤師の確認をお待ちください。';
+  if (status === 'reviewed') return '対応枠の時間に本人が来局してください。';
+  if (status === 'completed') return '店頭対応は完了しています。販売記録は薬局で確認してください。';
+  if (status === 'cancelled') return '必要な場合は、受付可能な新しい対応枠を確認してください。';
+  return '期限切れです。受付可能な新しい対応枠を確認してください。';
+}
+
 export function EmergencyAlternativeLinks({
   service,
 }: {
@@ -173,16 +181,19 @@ export function EmergencyAlternativeLinks({
 
 function IntakeList({
   intakes,
+  serverNow,
   busy,
   onCancel,
 }: {
   intakes: EmergencyIntake[];
+  serverNow: string;
   busy: string | null;
   onCancel: (intake: EmergencyIntake) => Promise<void>;
 }) {
   return (
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
+      <p className="mt-1 text-xs text-gray-500">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
       {intakes.length === 0
         ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
         : <ul className="mt-3 space-y-3">{intakes.map((intake) => (
@@ -193,6 +204,7 @@ function IntakeList({
               対応枠：{formatTokyo(intake.slot_starts_at)}〜{formatTokyo(intake.slot_ends_at)}
             </p>
             <p className="mt-1 text-xs text-gray-600">有効期限：{formatTokyo(intake.expires_at)}</p>
+            <p className="mt-2 rounded-lg bg-green-50 p-2 text-sm text-green-900">次にすること：{emergencyNextAction(intake.status)}</p>
             {intake.status === 'provisional' && <p className="mt-2 text-xs text-amber-800">患者申告は薬剤師確認前です。</p>}
             {canCancel(intake.status) && <button
               type="button"
@@ -389,6 +401,7 @@ export default function EmergencyContraceptionPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [serverNow, setServerNow] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -397,6 +410,7 @@ export default function EmergencyContraceptionPage() {
       const result = await emergencyContraceptionApi.list();
       setService(result.service);
       setIntakes(result.intakes);
+      setServerNow(result.server_now);
     } catch (err) {
       setService(null);
       setError(err instanceof Error
@@ -527,7 +541,7 @@ export default function EmergencyContraceptionPage() {
                 onDraftChange={changeDraft}
                 onSubmit={submit}
               />}
-              <IntakeList intakes={intakes} busy={busy} onCancel={cancel} />
+              <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />
             </>
             : <>
               <section className="rounded-xl bg-white p-4 shadow-sm">
@@ -536,7 +550,7 @@ export default function EmergencyContraceptionPage() {
                   {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
                 </p>
               </section>
-              {intakes.length > 0 && <IntakeList intakes={intakes} busy={busy} onCancel={cancel} />}
+              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />}
             </>}
         <EmergencyAlternativeLinks service={service} />
       </div>

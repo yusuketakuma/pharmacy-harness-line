@@ -252,12 +252,18 @@ export async function createPharmacyPatient(
     created_at: now,
     updated_at: now,
   };
-  await db.prepare(
+  const result = await db.prepare(
     `INSERT INTO pharmacy_patients
        (id, line_account_id, owner_friend_id, relationship, name, name_kana,
         birth_date, sex, contact_phone, postal_code, prefecture, city,
         address_line1, address_line2, archived_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM pharmacy_account_capabilities AS capability
+         WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+           AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                        WHERE value = 'patient_intake')
+      )`,
   ).bind(
     patient.id,
     patient.line_account_id,
@@ -275,7 +281,9 @@ export async function createPharmacyPatient(
     patient.address_line2,
     now,
     now,
+    owner.lineAccountId,
   ).run();
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('FEATURE_DISABLED');
   return patient;
 }
 
@@ -346,7 +354,14 @@ export async function updatePharmacyPatient(
             sex = ?, contact_phone = ?, postal_code = ?, prefecture = ?,
             city = ?, address_line1 = ?, address_line2 = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-        AND archived_at IS NULL AND updated_at = ?`,
+        AND archived_at IS NULL AND updated_at = ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_account_capabilities AS capability
+           WHERE capability.line_account_id = pharmacy_patients.line_account_id
+             AND capability.mode = 'pharmacy'
+             AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                          WHERE value = 'patient_intake')
+        )`,
   ).bind(
     input.relationship, input.name.trim(), input.nameKana.trim(), input.birthDate,
     input.sex, input.contactPhone?.trim() || null,
@@ -479,6 +494,13 @@ export async function createPatientIntakeResponse(
           SELECT 1 FROM pharmacy_patient_intake_responses
            WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
              AND idempotency_key = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_account_capabilities AS capability
+           WHERE capability.line_account_id = p.line_account_id
+             AND capability.mode = 'pharmacy'
+             AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                          WHERE value = 'patient_intake')
         )`,
   ).bind(
     response.id, response.line_account_id, response.owner_friend_id,

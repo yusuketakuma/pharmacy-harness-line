@@ -78,6 +78,7 @@ export const emergencyContraceptionApi = {
   list: () => request<{
     service: EmergencyServiceOverview;
     intakes: EmergencyIntake[];
+    server_now: string;
   }>('/api/liff/pharmacy/emergency-contraception'),
 
   create: (body: CreateEmergencyIntakeInput) => post<{ intake: EmergencyIntake }>(

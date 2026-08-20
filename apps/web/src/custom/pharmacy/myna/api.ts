@@ -61,15 +61,19 @@ export interface MynaEndpoint {
   revision: number
 }
 
+export interface MynaHandoffDetail {
+  handoff: MynaHandoff
+  expectation: { receipt_status: string; shadow_submission_id: string | null } | null
+  verification: MynaVerification | null
+}
+
 export const mynaAdminApi = {
-  list: (accountId: string) => fetchApi<{ handoffs: MynaHandoff[] }>(
-    `/api/custom/pharmacy/myna-handoffs?${accountQuery(accountId)}`,
+  list: (accountId: string, status?: MynaHandoffStatus | '') => fetchApi<{ handoffs: MynaHandoff[] }>(
+    `/api/custom/pharmacy/myna-handoffs?${accountQuery(accountId)}${status ? `&status=${encodeURIComponent(status)}` : ''}`,
   ),
-  detail: (accountId: string, handoffId: string) => fetchApi<{
-    handoff: MynaHandoff
-    expectation: { receipt_status: string; shadow_submission_id: string | null } | null
-    verification: MynaVerification | null
-  }>(`/api/custom/pharmacy/myna-handoffs/${encodeURIComponent(handoffId)}?${accountQuery(accountId)}`),
+  detail: (accountId: string, handoffId: string) => fetchApi<MynaHandoffDetail>(
+    `/api/custom/pharmacy/myna-handoffs/${encodeURIComponent(handoffId)}?${accountQuery(accountId)}`,
+  ),
   verify: (accountId: string, handoffId: string, body: {
     status: MynaVerificationStatus
     sourceSystem: string

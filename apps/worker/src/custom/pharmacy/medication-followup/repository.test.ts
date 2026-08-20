@@ -22,4 +22,16 @@ describe('medication follow-up workflow', () => {
     expect(source).toContain('patient.owner_friend_id = f.owner_friend_id');
     expect(source).toContain(').bind(lineAccountId, friendId).all<PatientMedicationFollowUp>()');
   });
+
+  it('gates only new scheduling at the final account-scoped write', () => {
+    const source = readFileSync(
+      fileURLToPath(import.meta.url).replace(/repository\.test\.ts$/, 'repository.ts'),
+      'utf8',
+    );
+    const schedule = source.slice(
+      source.indexOf('export async function scheduleMedicationFollowUp'),
+      source.indexOf('export async function transitionMedicationFollowUp'),
+    );
+    expect(schedule).toContain("value = 'medication_followup'");
+  });
 });

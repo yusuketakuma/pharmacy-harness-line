@@ -141,13 +141,20 @@ export async function scheduleMedicationFollowUp(
         (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
          status, due_at, created_by, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?
-        WHERE NOT EXISTS (
+        WHERE EXISTS (
+          SELECT 1 FROM pharmacy_account_capabilities AS capability
+           WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+             AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                          WHERE value = 'medication_followup')
+        )
+          AND NOT EXISTS (
           SELECT 1 FROM pharmacy_medication_followup_events
            WHERE line_account_id = ? AND idempotency_key = ?
         )`,
     ).bind(
       id, input.lineAccountId, source.owner_friend_id, source.patient_id,
       input.submissionId, dueAt, input.staffId, timestamp, timestamp,
+      input.lineAccountId,
       input.lineAccountId, eventKey,
     ),
     db.prepare(

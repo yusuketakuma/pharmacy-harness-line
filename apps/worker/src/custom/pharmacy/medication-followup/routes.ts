@@ -66,9 +66,6 @@ medicationFollowUpRoutes.use('/api/liff/pharmacy/medication-followups/*', async 
     c.env.DB, c.req.query('liffId') ?? '', identity,
   );
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
-  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'medication_followup'))) {
-    return c.json({ error: 'Medication follow-up is not enabled' }, 403);
-  }
   c.set('medicationFollowUpPatient', patient);
   return next();
 });
@@ -121,9 +118,6 @@ async function scope(c: Context<MedicationFollowUpEnv>): Promise<{
   if (!(await canAccessPharmacyAccount(c.env.DB, staff, lineAccountId))) {
     return c.json({ error: 'Forbidden' }, 403);
   }
-  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'medication_followup'))) {
-    return c.json({ error: 'pharmacy capability is not enabled' }, 403);
-  }
   return { lineAccountId, staff };
 }
 
@@ -144,6 +138,9 @@ function followUpError(c: Context<MedicationFollowUpEnv>, error: unknown): Respo
 medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups', async (c) => {
   const account = await scope(c);
   if (account instanceof Response) return account;
+  if (!(await hasPharmacyCapability(c.env.DB, account.lineAccountId, 'medication_followup'))) {
+    return c.json({ error: 'pharmacy capability is not enabled', code: 'FEATURE_DISABLED' }, 409);
+  }
   const body = await readJsonObject(c.req);
   if (!body || typeof body.submissionId !== 'string' || typeof body.dueAt !== 'string' ||
       typeof body.idempotencyKey !== 'string') {

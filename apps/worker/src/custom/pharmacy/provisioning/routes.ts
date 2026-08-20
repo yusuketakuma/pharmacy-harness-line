@@ -1,7 +1,7 @@
 import { LineClient } from '@line-crm/line-sdk';
 import { Hono, type Context } from 'hono';
 import type { Env } from '../../../index.js';
-import { PHARMACY_CAPABILITIES } from '../growth-loop/access.js';
+import { DEFAULT_PHARMACY_CAPABILITIES } from '../growth-loop/access.js';
 import {
   hashTenantPassword,
   isValidAdminPassword,
@@ -499,7 +499,7 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
           (line_account_id, mode, capabilities_json, proactive_monthly_limit,
            unfollow_alert_state, created_at, updated_at)
          VALUES (?, 'pharmacy', ?, 1, 'alert_only', ?, ?)`,
-      ).bind(lineAccountId, JSON.stringify(PHARMACY_CAPABILITIES), now, now),
+      ).bind(lineAccountId, JSON.stringify(DEFAULT_PHARMACY_CAPABILITIES), now, now),
       c.env.DB.prepare(
         `INSERT INTO staff_members
           (id, name, email, role, api_key, is_active, created_at, updated_at)

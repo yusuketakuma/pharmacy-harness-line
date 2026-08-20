@@ -78,13 +78,13 @@ describe('continuity routes', () => {
     expect(mocks.adminList).not.toHaveBeenCalled();
   });
 
-  it('rejects staff obligations when continuity is disabled', async () => {
+  it('keeps staff obligations readable when continuity is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await adminApp().request(
       '/api/custom/pharmacy/continuity?line_account_id=account-1', {}, env,
     );
-    expect(response.status).toBe(403);
-    expect(mocks.adminList).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.adminList).toHaveBeenCalled();
   });
 
   it('lists staff obligations only with an account scope', async () => {
@@ -103,13 +103,13 @@ describe('continuity routes', () => {
     expect(mocks.listPatientExpectations).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
   });
 
-  it('rejects the patient continuity view when continuity is disabled', async () => {
+  it('keeps the patient continuity view readable when continuity is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await continuityRoutes.request('/api/liff/pharmacy/continuity?liffId=liff-1', {
       headers: { Authorization: 'Bearer token' },
     }, env);
-    expect(response.status).toBe(403);
-    expect(mocks.patientList).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.patientList).toHaveBeenCalled();
   });
 
   it('fails closed when the LINE identity cannot be resolved', async () => {
@@ -162,7 +162,7 @@ describe('continuity routes', () => {
       },
       env,
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(409);
     expect(mocks.offerExpectation).not.toHaveBeenCalled();
   });
 

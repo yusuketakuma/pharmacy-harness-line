@@ -1402,6 +1402,29 @@ export const api = {
       `${API_URL}/api/rich-menu-images/${encodeURIComponent(key)}`,
   },
   pharmacyGrowth: {
+    activeWork: (accountId: string) =>
+      fetchApi<ApiResponse<Record<
+        'prescription_intake' | 'electronic_prescription' | 'patient_intake' | 'continuity' |
+        'medication_followup' | 'emergency_contraception' | 'manual_chat' | 'pharmacy_info', number
+      >>>(`/api/custom/pharmacy/active-work?line_account_id=${encodeURIComponent(accountId)}`),
+    readiness: (accountId: string) =>
+      fetchApi<ApiResponse<{
+        accountId: string;
+        checkedAt: string;
+        electronicPrescription: {
+          status: 'READY' | 'BLOCKED' | 'UNVERIFIED';
+          capabilityEnabled: boolean;
+          endpointConfigured: boolean;
+          endpointEvidence: { status: 'UNVERIFIED'; source: 'manual_console'; checkedAt: string | null; freshnessHours: 24 };
+        };
+        emergencyContraception: {
+          status: 'READY' | 'BLOCKED';
+          capabilityEnabled: boolean;
+          trainedPharmacistAvailable: boolean;
+          inventoryAvailable: boolean;
+          futureSlotAvailable: boolean;
+        };
+      }>>(`/api/custom/pharmacy/readiness?line_account_id=${encodeURIComponent(accountId)}`),
     config: (accountId: string) =>
       fetchApi<ApiResponse<{
         line_account_id: string;
@@ -1409,7 +1432,26 @@ export const api = {
         capabilities: string[];
         proactive_monthly_limit: number;
         unfollow_alert_state: 'alert_only' | 'auto_pause';
+        revision: number;
+        created_at: string;
+        updated_at: string;
       } | null>>(`/api/custom/pharmacy/growth/config?line_account_id=${encodeURIComponent(accountId)}`),
+    saveConfig: (accountId: string, body: {
+      capabilities: string[];
+      expectedRevision: number;
+      proactiveMonthlyLimit: number;
+    }) => fetchApi<ApiResponse<{
+      line_account_id: string;
+      mode: 'pharmacy';
+      capabilities: string[];
+      proactive_monthly_limit: number;
+      unfollow_alert_state: 'alert_only' | 'auto_pause';
+      revision: number;
+      created_at: string;
+      updated_at: string;
+    }>>(`/api/custom/pharmacy/growth/config?line_account_id=${encodeURIComponent(accountId)}`, {
+      method: 'PUT', body: JSON.stringify(body),
+    }),
     dashboard: (accountId: string, from?: string, to?: string) => {
       const query = new URLSearchParams({ line_account_id: accountId });
       if (from) query.set('from', from);

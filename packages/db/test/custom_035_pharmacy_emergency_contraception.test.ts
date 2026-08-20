@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createEmergencyIntake,
   expireEmergencyIntakes,
+  getAdminEmergencyIntakeDetail,
   getEmergencyAdminConfig,
   getEmergencyServiceOverview,
   listAdminEmergencyIntakes,
@@ -16,6 +17,7 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATION = join(ROOT, 'migrations/custom_035_pharmacy_emergency_contraception.sql');
+const CAPABILITY_MIGRATION = join(ROOT, 'migrations/custom_044_pharmacy_v029_capabilities.sql');
 const NOW = '2026-08-19T00:00:00.000Z';
 // The readiness trigger checks `slot.starts_at` against SQLite's own real-clock `strftime('now')`,
 // which vitest's fake timers cannot mock. Anchor the slot window to the actual wall clock (not the
@@ -79,6 +81,10 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
 }
 
 function seedReadyService(db: Database.Database): void {
+  db.prepare(`UPDATE pharmacy_account_capabilities
+    SET capabilities_json = json_insert(capabilities_json, '$[#]', 'emergency_contraception'),
+        updated_at = ?
+    WHERE line_account_id = 'account-a'`).run(NOW);
   db.prepare(`INSERT INTO pharmacy_emergency_settings
     (line_account_id, is_enabled, pharmacy_registration_number, product_code,
      manufacturer_check_url, privacy_policy_url, privacy_contact,
@@ -124,6 +130,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
     db.exec(readFileSync(MIGRATION, 'utf8'));
+    db.exec(readFileSync(CAPABILITY_MIGRATION, 'utf8'));
     seedAccount(db, 'a');
     seedAccount(db, 'b');
     seedReadyService(db);
@@ -174,6 +181,15 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
           retention_days: 30,
         },
       });
+  });
+
+  it('does not offer or admit a slot assigned to an inactive pharmacy staff account', async () => {
+    db.prepare(`UPDATE pharmacy_staff_accounts SET is_active = 0
+      WHERE line_account_id = 'account-a' AND staff_id = 'staff-a'`).run();
+
+    await expect(getEmergencyServiceOverview(d1, 'account-a', new Date(NOW)))
+      .resolves.toMatchObject({ ready: false, reason: 'no_slots', slots: [] });
+    expect(() => insertIntake(db, 'inactive-staff-intake')).toThrow('EMERGENCY_SERVICE_NOT_READY');
   });
 
   it('updates inventory with CAS and an immutable account-scoped audit event', async () => {
@@ -315,7 +331,29 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       .get(created.id)).not.toEqual(expect.objectContaining({ encrypted_payload: expect.stringContaining('2026-08-18') }));
   });
 
-  it('decrypts self-reported time only for the trained pharmacist projection', async () => {
+  it('rejects new intake admission after the account capability is disabled', async () => {
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ? WHERE id = 'slot-a'`)
+      .run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    db.prepare(`UPDATE pharmacy_account_capabilities
+      SET capabilities_json = (SELECT json_group_array(value)
+        FROM json_each(pharmacy_account_capabilities.capabilities_json)
+        WHERE value <> 'emergency_contraception'), updated_at = ?
+      WHERE line_account_id = 'account-a'`).run(NOW);
+
+    await expect(createEmergencyIntake(d1, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-disabled',
+      encryptionSecret: 'test-secret', now: new Date(NOW),
+    })).rejects.toThrow('FEATURE_DISABLED');
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_emergency_intakes`).get())
+      .toEqual({ count: 0 });
+  });
+
+  it('keeps the queue non-PHI and decrypts only an audited trained-pharmacist detail', async () => {
     db.prepare(`UPDATE pharmacy_emergency_slots
       SET starts_at = ?, ends_at = ?
       WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
@@ -328,16 +366,31 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       encryptionSecret: 'test-secret', now: new Date(NOW),
     });
 
-    await expect(listAdminEmergencyIntakes(d1, 'account-a', 'staff-a', 'test-secret', new Date(NOW)))
-      .resolves.toEqual([expect.objectContaining({
-        id: created.id,
-        self_reported: expect.objectContaining({ intercourseAt: '2026-08-18T10:00:00+09:00' }),
-      })]);
-    const [adminIntake] = await listAdminEmergencyIntakes(
-      d1, 'account-a', 'staff-a', 'test-secret', new Date(NOW),
+    const page = await listAdminEmergencyIntakes(
+      d1, 'account-a', { limit: 20 }, new Date(NOW),
     );
-    expect(adminIntake).not.toHaveProperty('owner_friend_id');
-    await expect(listAdminEmergencyIntakes(d1, 'account-a', 'staff-b', 'test-secret', new Date(NOW)))
+    expect(page.intakes).toEqual([expect.objectContaining({ id: created.id })]);
+    expect(page.intakes[0]).not.toHaveProperty('self_reported');
+    expect(page.intakes[0]).not.toHaveProperty('owner_friend_id');
+    expect(page.intakes[0]).not.toHaveProperty('age_band');
+    expect(page.intakes[0]).not.toHaveProperty('safe_contact_mode');
+    expect(page.intakes[0]).not.toHaveProperty('consent_version');
+    expect(page.intakes[0]).not.toHaveProperty('risk_flags');
+    expect(JSON.stringify(page)).not.toContain('2026-08-18T10:00:00+09:00');
+
+    await expect(getAdminEmergencyIntakeDetail(
+      d1, 'account-a', created.id, 'staff-a', 'test-secret', new Date(NOW),
+    )).resolves.toEqual(expect.objectContaining({
+      id: created.id,
+      self_reported: expect.objectContaining({ intercourseAt: '2026-08-18T10:00:00+09:00' }),
+    }));
+    expect(db.prepare(`SELECT intake_id, line_account_id, staff_id
+      FROM pharmacy_emergency_intake_access_events`).all()).toEqual([{
+      intake_id: created.id, line_account_id: 'account-a', staff_id: 'staff-a',
+    }]);
+    await expect(getAdminEmergencyIntakeDetail(
+      d1, 'account-a', created.id, 'staff-b', 'test-secret', new Date(NOW),
+    ))
       .rejects.toThrow('trained pharmacist access required');
   });
 

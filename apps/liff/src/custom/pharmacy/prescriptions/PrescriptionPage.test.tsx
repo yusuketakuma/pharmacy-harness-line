@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import PrescriptionPage, {
   canSubmitPrescription,
+  canLaunchMynaPatientHandoff,
   initialPrescriptionView,
+  mynaPatientReportOptions,
   requestedPrescriptionId,
   validatePrescriptionImages,
   pendingRequirementLabels,
@@ -12,6 +15,10 @@ import PrescriptionPage, {
 
 const source = readFileSync(
   fileURLToPath(new URL('./PrescriptionPage.tsx', import.meta.url).href),
+  'utf8',
+);
+const appSource = readFileSync(
+  fileURLToPath(new URL('../../../App.tsx', import.meta.url).href),
   'utf8',
 );
 
@@ -46,16 +53,51 @@ describe('prescription upload UI contract', () => {
     expect(requestedPrescriptionId('')).toBeNull();
   });
 
-  it('allows only direct send and history views', () => {
+  it('allows only direct send, electronic, and history views', () => {
     expect(initialPrescriptionView('?view=history')).toBe('history');
+    expect(initialPrescriptionView('?view=electronic')).toBe('electronic');
     expect(initialPrescriptionView('?view=send')).toBe('send');
     expect(initialPrescriptionView('?view=admin')).toBe('send');
     expect(initialPrescriptionView('')).toBe('send');
   });
 
+  it('routes every tab change back through the feature gate', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+    );
+    expect(html).toContain('href="/prescriptions?view=send"');
+    expect(html).toContain('href="/prescriptions?view=electronic"');
+    expect(html).toContain('href="/prescriptions?view=history"');
+    expect(appSource).toContain('key={`${capability}:${allowExisting}`}');
+  });
+
+  it('reuses Myna handoffs for start, resume, patient report, cancel, and paper fallback', () => {
+    expect(source).toContain('mynaApi.active()');
+    expect(source).toMatch(/mynaApi\.create\(\s*'E_PRESCRIPTION'/)
+    expect(source).toContain('mynaApi.launch(');
+    expect(source).toContain('mynaApi.report(mynaHandoff.id, result)');
+    expect(source).toContain('MYNA_PATIENT_REPORT_OPTIONS');
+    expect(source).toContain('reportElectronic(result)');
+    expect(source).toContain('薬局での受領確認はまだ完了していません');
+  });
+
+  it('shows only transitions allowed by the current Myna patient state', () => {
+    expect(canLaunchMynaPatientHandoff('CREATED')).toBe(true);
+    expect(canLaunchMynaPatientHandoff('LAUNCH_REQUESTED')).toBe(true);
+    expect(canLaunchMynaPatientHandoff('PATIENT_REPORTED_COMPLETE')).toBe(false);
+    expect(mynaPatientReportOptions('CREATED').map(([result]) => result)).toEqual([
+      'COMPLETED', 'NO_PRESCRIPTION_FOUND', 'FAILED', 'SWITCH_TO_PAPER',
+    ]);
+    expect(mynaPatientReportOptions('PATIENT_REPORTED_COMPLETE').map(([result]) => result))
+      .toEqual(['SWITCH_TO_PAPER']);
+    expect(mynaPatientReportOptions('CLOSED')).toEqual([]);
+  });
+
   it('renders mobile labels, native controls, and an initially disabled submit', () => {
-    const html = renderToStaticMarkup(<PrescriptionPage />);
-    expect(html).toContain('処方せんを事前送信');
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+    );
+    expect(html).toContain('処方せん受付');
     expect(html).toContain('accept="image/jpeg,image/png"');
     expect(html).toContain('処方せん原本を持参します');
     expect(html).toContain('準備完了通知をLINEで受け取ります');

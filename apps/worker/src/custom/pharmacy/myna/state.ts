@@ -3,16 +3,19 @@ export type MynaMethod =
   | 'PAPER'
   | 'MEDICAL_INSTITUTION_SENT';
 
-export type MynaHandoffStatus =
-  | 'CREATED'
-  | 'LAUNCH_REQUESTED'
-  | 'PATIENT_REPORTED_COMPLETE'
-  | 'PATIENT_REPORTED_NO_PRESCRIPTION'
-  | 'SUPPORT_NEEDED'
-  | 'PAPER_FALLBACK'
-  | 'ABANDONED'
-  | 'EXPIRED'
-  | 'CLOSED';
+export const MYNA_HANDOFF_STATUSES = [
+  'CREATED',
+  'LAUNCH_REQUESTED',
+  'PATIENT_REPORTED_COMPLETE',
+  'PATIENT_REPORTED_NO_PRESCRIPTION',
+  'SUPPORT_NEEDED',
+  'PAPER_FALLBACK',
+  'ABANDONED',
+  'EXPIRED',
+  'CLOSED',
+] as const;
+
+export type MynaHandoffStatus = typeof MYNA_HANDOFF_STATUSES[number];
 
 export type MynaPatientReport =
   | 'COMPLETED'
@@ -63,6 +66,20 @@ const VERIFICATION_STATUSES = new Set<MynaVerificationStatus>([
 
 export function patientReportToStatus(result: MynaPatientReport): MynaHandoffStatus {
   return PATIENT_REPORT_STATUS[result];
+}
+
+export function canRecordMynaPatientReport(
+  status: MynaHandoffStatus,
+  result: MynaPatientReport,
+): boolean {
+  const next = patientReportToStatus(result);
+  if (status === next) return true;
+  if (status === 'CREATED' || status === 'LAUNCH_REQUESTED') return true;
+  return next === 'PAPER_FALLBACK' && (
+    status === 'PATIENT_REPORTED_COMPLETE' ||
+    status === 'PATIENT_REPORTED_NO_PRESCRIPTION' ||
+    status === 'SUPPORT_NEEDED'
+  );
 }
 
 export function canLaunchMynaHandoff(

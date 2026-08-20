@@ -73,7 +73,7 @@ describe('POST /api/liff/profile tenant boundary', () => {
     );
     const db = {
       prepare: () => ({
-        bind: () => ({ first: async () => null }),
+        bind: () => ({ first: async () => null, all: async () => ({ results: [] }) }),
       }),
     } as unknown as D1Database;
     const app = new Hono<Env>();

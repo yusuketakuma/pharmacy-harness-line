@@ -49,10 +49,11 @@ const PNG_2500x843 = new Uint8Array([
   ...PNG_2500x1686.slice(24),
 ]);
 
-function app(opts: { images?: R2Bucket } = {}) {
+function app(opts: { images?: R2Bucket; platformAdmin?: boolean } = {}) {
   const worker = new Hono<any>();
   worker.use('*', async (c, next) => {
-    c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
+    if (opts.platformAdmin) c.set('platformAdmin', { id: 'platform-admin-1' });
+    else c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
     c.set('tenantId', 'tenant-a');
     c.env = {
       DB: {} as D1Database,
@@ -62,7 +63,7 @@ function app(opts: { images?: R2Bucket } = {}) {
       )) } as unknown as Fetcher,
       LINE_CHANNEL_ID: 'channel-1',
     };
-    c.set('staff', { id: 'staff-1', name: 'Staff', role: 'admin' });
+    if (!opts.platformAdmin) c.set('staff', { id: 'staff-1', name: 'Staff', role: 'admin' });
     await next();
   });
   worker.route('/', pharmacyRichMenuRoutes);
@@ -78,6 +79,16 @@ beforeEach(() => {
 });
 
 describe('pharmacy rich-menu preparation', () => {
+  test('rejects platform admin before account, asset, or LINE access', async () => {
+    const res = await app({ platformAdmin: true }).request(
+      '/api/custom/pharmacy/rich-menus/prepare?accountId=account-a',
+      { method: 'POST', body: '{}' },
+    );
+    expect(res.status).toBe(403);
+    expect(access).not.toHaveBeenCalled();
+    expect(dbMocks.getLineAccountById).not.toHaveBeenCalled();
+  });
+
   test('rejects a staff member outside the requested account before reading account data', async () => {
     access.mockResolvedValue(false);
     const res = await app().request('/api/custom/pharmacy/rich-menus/prepare?accountId=account-b', {

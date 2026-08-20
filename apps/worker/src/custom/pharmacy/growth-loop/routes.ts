@@ -2,7 +2,11 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env } from '../../../index.js';
 import { readJsonObject } from '../json.js';
-import { canAccessPharmacyAccount, hasPharmacyCapability } from './access.js';
+import {
+  PATIENT_PHARMACY_CAPABILITIES,
+  canAccessPharmacyAccount,
+  hasPharmacyCapability,
+} from './access.js';
 import {
   classifySubmissionSource,
   createMedicalSource,
@@ -12,6 +16,8 @@ import {
   savePrescriptionValidity,
   setMedicalSourceActive,
 } from './repository.js';
+import { getPharmacyReadiness } from '../readiness.js';
+import { getActivePatientWorkCounts } from './active-work.js';
 
 export const pharmacyGrowthLoopRoutes = new Hono<Env>();
 
@@ -41,6 +47,21 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/growth/config', async (c) => 
   return c.json({ success: true, data: config });
 });
 
+pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/readiness', async (c) => {
+  const scope = await accountScope(c);
+  if (scope instanceof Response) return scope;
+  const readiness = await getPharmacyReadiness(c.env.DB, scope.accountId);
+  return readiness
+    ? c.json({ success: true, data: readiness })
+    : c.json({ success: false, error: 'pharmacy account not found' }, 404);
+});
+
+pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/active-work', async (c) => {
+  const scope = await accountScope(c);
+  if (scope instanceof Response) return scope;
+  return c.json({ success: true, data: await getActivePatientWorkCounts(c.env.DB, scope.accountId) });
+});
+
 pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => {
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
@@ -49,6 +70,14 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
   if (!Array.isArray(body.capabilities) || body.capabilities.some((value) => typeof value !== 'string')) {
     return c.json({ success: false, error: 'capabilities must be an array' }, 400);
   }
+  if (body.capabilities.some((value) =>
+    !(PATIENT_PHARMACY_CAPABILITIES as readonly string[]).includes(value as string))) {
+    return c.json({ success: false, error: 'unknown patient capability' }, 400);
+  }
+  if (typeof body.expectedRevision !== 'number' ||
+      !Number.isInteger(body.expectedRevision) || body.expectedRevision < 1) {
+    return c.json({ success: false, error: 'expectedRevision is required' }, 400);
+  }
   if (body.unfollowAlertState !== undefined && body.unfollowAlertState !== 'alert_only') {
     return c.json({ success: false, error: 'unfollow monitoring is alert-only in Release 1' }, 400);
   }
@@ -56,10 +85,12 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => 
   try {
     const config = await savePharmacyCapabilityConfig(
       c.env.DB, scope.accountId, body.capabilities, limit, 'alert_only', scope.staff.id,
+      body.expectedRevision,
     );
     return c.json({ success: true, data: config });
   } catch (error) {
-    return c.json({ success: false, error: error instanceof Error ? error.message : 'invalid config' }, 400);
+    const message = error instanceof Error ? error.message : 'invalid config';
+    return c.json({ success: false, error: message }, message.includes('stale') ? 409 : 400);
   }
 });
 

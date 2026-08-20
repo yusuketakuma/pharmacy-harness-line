@@ -4,6 +4,7 @@ import type { Env } from '../../../index.js';
 import { requireLineBotUserId } from '../provisioning/line-connection.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
+import { getPharmacyReadiness } from '../readiness.js';
 
 /**
  * Tenant operations for the platform admin: staff roster, session revocation
@@ -177,11 +178,26 @@ type LineStatusRow = {
   id: string;
   name: string;
   channel_id: string;
+  liff_id: string | null;
+  login_channel_id: string | null;
   is_active: number;
   bot_identity_count: number;
-  credential_count: number;
+  messaging_credential_count: number;
+  login_credential_count: number;
   last_webhook_received_at: string | null;
 };
+
+function expectedLiffEndpoint(origin: string | undefined, liffId: string | null): string | null {
+  if (!origin || !liffId) return null;
+  try {
+    const url = new URL('/', origin);
+    if (url.protocol !== 'https:' || url.username || url.password) return null;
+    url.searchParams.set('liffId', liffId);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
 /**
  * GET /api/platform-admin/tenants/:id/line-status — is this tenant's LINE
@@ -199,12 +215,18 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
   }
 
   const result = await c.env.DB.prepare(
-    `SELECT account.id, account.name, account.channel_id, account.is_active,
+    `SELECT account.id, account.name, account.channel_id, account.liff_id,
+            account.login_channel_id, account.is_active,
             (SELECT COUNT(*) FROM pharmacy_line_channel_identities AS identity
               WHERE identity.line_account_id = account.id) AS bot_identity_count,
             (SELECT COUNT(*) FROM pharmacy_line_credentials AS credential
               WHERE credential.tenant_id = mapping.tenant_id
-                AND credential.line_account_id = account.id) AS credential_count,
+                AND credential.line_account_id = account.id
+                AND credential.credential_kind IN ('channel_access_token', 'channel_secret')) AS messaging_credential_count,
+            (SELECT COUNT(*) FROM pharmacy_line_credentials AS credential
+              WHERE credential.tenant_id = mapping.tenant_id
+                AND credential.line_account_id = account.id
+                AND credential.credential_kind = 'login_channel_secret') AS login_credential_count,
             (SELECT MAX(receipt.received_at) FROM pharmacy_webhook_event_receipts AS receipt
               WHERE receipt.tenant_id = mapping.tenant_id
                 AND receipt.line_account_id = account.id) AS last_webhook_received_at
@@ -214,17 +236,27 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
       ORDER BY account.id`,
   ).bind(tenantId).all<LineStatusRow>();
 
+  const rows = result.results ?? [];
+  const readiness = await Promise.all(rows.map((row) => getPharmacyReadiness(c.env.DB, row.id)));
+
   await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_line_status');
   return c.json({
     success: true,
-    data: (result.results ?? []).map((row) => ({
+    data: rows.map((row, index) => ({
       id: row.id,
       name: row.name,
       channelId: row.channel_id,
       isActive: row.is_active === 1,
       hasBotIdentity: row.bot_identity_count > 0,
-      hasEncryptedCredential: row.credential_count > 0,
+      hasEncryptedCredential: row.messaging_credential_count + row.login_credential_count > 0,
+      liffIdConfigured: Boolean(row.liff_id),
+      loginChannelConfigured: Boolean(row.login_channel_id),
+      messagingCredentialsReady: row.messaging_credential_count === 2,
+      loginCredentialReady: row.login_credential_count === 1,
+      expectedLiffEndpoint: expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, row.liff_id),
+      liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
       lastWebhookReceivedAt: row.last_webhook_received_at,
+      readiness: readiness[index],
     })),
   });
 });

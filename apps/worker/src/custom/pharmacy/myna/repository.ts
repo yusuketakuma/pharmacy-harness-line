@@ -1,5 +1,6 @@
 import {
   canLaunchMynaHandoff,
+  canRecordMynaPatientReport,
   patientReportToStatus,
   type MynaHandoffStatus,
   type MynaMethod,
@@ -206,7 +207,7 @@ async function expireMynaHandoffs(
     `UPDATE pharmacy_myna_handoffs
         SET status = 'EXPIRED', updated_at = ?
       WHERE line_account_id = ?${idClause}
-        AND status NOT IN ('CLOSED','EXPIRED') AND expires_at <= ?`,
+        AND status NOT IN ('PAPER_FALLBACK','ABANDONED','CLOSED','EXPIRED') AND expires_at <= ?`,
   ).bind(...values).run();
 }
 
@@ -272,8 +273,11 @@ export async function createMynaHandoff(
     receipt_status: 'EXPECTED',
     shadow_submission_id: null,
   };
+  const requiredCapability = input.method === 'E_PRESCRIPTION'
+    ? 'electronic_prescription'
+    : 'prescription_intake';
   try {
-    await db.batch([
+    const results = await db.batch([
       // pharmacy_myna_handoffs_expectation_scope_insert (custom_022) requires the
       // referenced expectation row to already exist at INSERT time, so this must
       // run before the pharmacy_myna_handoffs insert below.
@@ -281,27 +285,48 @@ export async function createMynaHandoff(
         `INSERT INTO pharmacy_prescription_expectations
          (id, line_account_id, friend_id, patient_id, handoff_id, method,
           receipt_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'EXPECTED', ?, ?)`,
+         SELECT ?, ?, ?, ?, ?, ?, 'EXPECTED', ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities AS capability
+             WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+               AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                            WHERE value = ?)
+          )`,
       ).bind(
         expectationId, input.lineAccountId, input.friendId, input.patientId ?? null,
-        handoffId, input.method, now, now,
+        handoffId, input.method, now, now, input.lineAccountId, requiredCapability,
       ),
       db.prepare(
         `INSERT INTO pharmacy_myna_handoffs
          (id, line_account_id, friend_id, patient_id, expectation_id, method, status,
           source, correlation_id, expires_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?, ?, ?)`,
+         SELECT ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?, ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM pharmacy_prescription_expectations
+             WHERE id = ? AND line_account_id = ? AND handoff_id = ?
+          )`,
       ).bind(
         handoffId, input.lineAccountId, input.friendId, input.patientId ?? null,
         expectationId, input.method, input.source, input.correlationId, input.expiresAt, now, now,
+        expectationId, input.lineAccountId, handoffId,
       ),
       db.prepare(
         `INSERT INTO pharmacy_myna_events
          (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
           correlation_id, metadata_json, occurred_at)
-         VALUES (?, ?, ?, 'PRESCRIPTION_INTENT_CREATED', 'PATIENT_CONTACT', ?, ?, '{}', ?)`,
-      ).bind(crypto.randomUUID(), handoffId, input.lineAccountId, input.friendId, input.correlationId, now),
+         SELECT ?, ?, ?, 'PRESCRIPTION_INTENT_CREATED', 'PATIENT_CONTACT', ?, ?, '{}', ?
+          WHERE EXISTS (
+            SELECT 1 FROM pharmacy_myna_handoffs
+             WHERE id = ? AND line_account_id = ?
+          )`,
+      ).bind(
+        crypto.randomUUID(), handoffId, input.lineAccountId, input.friendId,
+        input.correlationId, now, handoffId, input.lineAccountId,
+      ),
     ]);
+    if (results.some((result) => (result.meta?.changes ?? 0) !== 1)) {
+      throw new Error('FEATURE_DISABLED');
+    }
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes('UNIQUE')) throw error;
     const raced = await getHandoffByCorrelation(
@@ -369,6 +394,9 @@ export async function recordMynaPatientReport(
   if (Date.parse(handoff.expires_at) <= Date.now()) throw new Error('Myna handoff expired');
   const next = patientReportToStatus(result);
   if (handoff.status === next) return handoff;
+  if (!canRecordMynaPatientReport(handoff.status, result)) {
+    throw new Error('Myna handoff report conflict');
+  }
   const now = new Date().toISOString();
   const eventType = result === 'COMPLETED'
     ? 'MYNA_PATIENT_REPORTED_COMPLETE'
@@ -441,7 +469,8 @@ export async function getActivePatientMynaHandoff(
     `${HANDOFF_SELECT}
       WHERE line_account_id = ? AND friend_id = ?
         AND method = 'E_PRESCRIPTION'
-        AND status IN ('CREATED','LAUNCH_REQUESTED')
+        AND status IN ('CREATED','LAUNCH_REQUESTED','PATIENT_REPORTED_COMPLETE',
+                       'PATIENT_REPORTED_NO_PRESCRIPTION','SUPPORT_NEEDED')
         AND expires_at > ?
       ORDER BY created_at DESC, id DESC
       LIMIT 1`,
@@ -480,6 +509,26 @@ function validateVerificationInput(input: RecordMynaVerificationInput): void {
   }
 }
 
+function replayVerification(
+  handoff: MynaHandoff,
+  expectation: MynaExpectation,
+  verification: MynaVerification,
+  input: RecordMynaVerificationInput,
+): MynaVerificationResult {
+  if (verification.status !== input.status ||
+      verification.reason_code !== (input.reasonCode ?? null) ||
+      verification.source_system !== input.sourceSystem ||
+      verification.source_reference !== (input.sourceReference ?? null)) {
+    throw new Error('Myna verification conflict');
+  }
+  return {
+    verification,
+    receiptStatus: expectation.receipt_status,
+    shadowSubmissionId: expectation.shadow_submission_id,
+    handoff,
+  };
+}
+
 export async function recordMynaVerification(
   db: D1Database,
   input: RecordMynaVerificationInput,
@@ -493,14 +542,14 @@ export async function recordMynaVerification(
       (input.status === 'E_PRESCRIPTION_RECEIVED' && handoff.method !== 'E_PRESCRIPTION')) {
     throw new Error('invalid Myna verification');
   }
+  const existingVerification = await getLatestVerification(
+    db, input.lineAccountId, input.handoffId,
+  );
+  if (existingVerification) {
+    return replayVerification(handoff, expectation, existingVerification, input);
+  }
   if (Date.parse(handoff.expires_at) <= Date.now() && input.status !== 'PRESCRIPTION_EXPIRED') {
     throw new Error('Myna handoff expired');
-  }
-  if (expectation.receipt_status === 'RECEIVED' && expectation.shadow_submission_id) {
-    const verification = await getLatestVerification(db, input.lineAccountId, input.handoffId);
-    if (verification?.status === 'E_PRESCRIPTION_RECEIVED') {
-      return { verification, receiptStatus: 'RECEIVED', shadowSubmissionId: expectation.shadow_submission_id, handoff };
-    }
   }
 
   const now = new Date().toISOString();
@@ -600,6 +649,14 @@ export async function recordMynaVerification(
   ).bind(nextHandoffStatus, nextHandoffStatus, now, now, ...guardValues));
   const results = await db.batch(statements);
   if ((results[results.length - 1]?.meta?.changes ?? 0) !== 1) {
+    const [currentHandoff, currentExpectation, verification] = await Promise.all([
+      getHandoff(db, input.lineAccountId, input.handoffId),
+      getExpectation(db, input.lineAccountId, input.handoffId),
+      getLatestVerification(db, input.lineAccountId, input.handoffId),
+    ]);
+    if (currentHandoff && currentExpectation && verification) {
+      return replayVerification(currentHandoff, currentExpectation, verification, input);
+    }
     throw new Error('Myna verification conflict');
   }
 

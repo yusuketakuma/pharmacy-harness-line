@@ -54,8 +54,7 @@ function intakeCryptoScope(
 
 async function canUseAdminIntake(c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined }, accountId: string): Promise<boolean> {
   const staff = c.get('staff');
-  return Boolean(staff && await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID) &&
-    await hasPharmacyCapability(c.env.DB, accountId, 'patient_intake'));
+  return Boolean(staff && await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID));
 }
 pharmacyIntakeRoutes.use('/api/custom/pharmacy/patients', async (c, next) => {
   const staff = c.get('staff');
@@ -87,9 +86,6 @@ pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
     identity,
   );
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
-  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'patient_intake'))) {
-    return c.json({ error: 'Patient intake is not enabled' }, 403);
-  }
   c.set('pharmacyPatient', patient);
   c.set('pharmacyTenantId', identity.tenantId);
   return next();
@@ -102,6 +98,9 @@ function parseJsonError(error: unknown): { error: string; status: 400 | 404 | 40
     return { error: 'Both representative and privacy consent are required', status: 400 };
   }
   if (message === 'patient not found') return { error: 'Patient not found', status: 404 };
+  if (message === 'FEATURE_DISABLED') {
+    return { error: 'Patient intake is not enabled', status: 409 };
+  }
   if (message.includes('conflict')) return { error: 'Patient data changed; retry', status: 409 };
   return null;
 }
@@ -113,6 +112,9 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients', async (c) => {
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
   const owner = c.get('pharmacyPatient');
+  if (!(await hasPharmacyCapability(c.env.DB, owner.lineAccountId, 'patient_intake'))) {
+    return c.json({ error: 'Patient intake is not enabled', code: 'FEATURE_DISABLED' }, 409);
+  }
   const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
@@ -145,6 +147,9 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id', async (c) => {
 });
 
 pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
+  if (!(await hasPharmacyCapability(c.env.DB, c.get('pharmacyPatient').lineAccountId, 'patient_intake'))) {
+    return c.json({ error: 'Patient intake is not enabled', code: 'FEATURE_DISABLED' }, 409);
+  }
   const body = await readJsonObject(c.req);
   if (!body || typeof body.expectedUpdatedAt !== 'string' ||
       !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
@@ -185,6 +190,9 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/intake', async (c) => 
 });
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) => {
+  if (!(await hasPharmacyCapability(c.env.DB, c.get('pharmacyPatient').lineAccountId, 'patient_intake'))) {
+    return c.json({ error: 'Patient intake is not enabled', code: 'FEATURE_DISABLED' }, 409);
+  }
   const cryptoScope = intakeCryptoScope(c.env, c.get('pharmacyTenantId'));
   if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
   const body = await readJsonObject(c.req);

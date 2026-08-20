@@ -33,7 +33,6 @@ import {
 } from './repository.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
-import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -86,9 +85,6 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
     identity,
   );
   if (!patient) return c.json({ error: 'Prescription account not found' }, 404);
-  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'prescription_intake'))) {
-    return c.json({ error: 'Prescription intake is not enabled' }, 403);
-  }
   c.set('prescriptionPatient', patient);
   return next();
 });
@@ -101,9 +97,6 @@ prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) =
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
-  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
-    return c.json({ error: 'Prescription intake is not enabled' }, 403);
-  }
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();
 });
@@ -161,6 +154,9 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
     }
     if (error instanceof Error && error.message === 'prescription patient link conflict') {
       return c.json({ error: 'Prescription patient link changed; retry' }, 409);
+    }
+    if (error instanceof Error && error.message === 'FEATURE_DISABLED') {
+      return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
     }
     throw error;
   }

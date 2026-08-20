@@ -129,6 +129,27 @@ describe('prescription validity', () => {
     expect(calls[0].values[3]).toBe('2026-08-04');
   });
 
+  it('creates a validity reminder only while prescription intake is enabled', async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        sql, values,
+        run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
+      }) }),
+      batch: async (statements: Array<{ run(): Promise<unknown> }>) => Promise.all(
+        statements.map((statement) => statement.run()),
+      ),
+    } as unknown as D1Database;
+
+    await savePrescriptionValidity(db, {
+      lineAccountId: 'account-a', submissionId: 'submission-a', issuedOn: '2026-08-01',
+      validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'verified', staffId: 'staff-a',
+    });
+
+    expect(calls[0].sql).toContain("value = 'prescription_intake'");
+    expect(calls[0].sql).toContain('CASE WHEN ? IS NOT NULL AND EXISTS');
+  });
+
   it('rejects a non-calendar date even when it matches the YYYY-MM-DD shape', async () => {
     const db = { prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) }) } as unknown as D1Database;
     await expect(savePrescriptionValidity(db, {
@@ -169,6 +190,16 @@ describe('prescription validity', () => {
 });
 
 describe('medical source classification', () => {
+  it('rejects unknown capability keys instead of silently dropping them', async () => {
+    const db = {
+      prepare: () => ({ bind: () => ({}) }),
+    } as unknown as D1Database;
+
+    await expect(savePharmacyCapabilityConfig(
+      db, 'account-a', ['pharmacy_dashboard', 'future_unknown'], 1, 'alert_only', 'staff-a',
+    )).rejects.toThrow('unknown pharmacy capability');
+  });
+
   it('commits capability and source mutations with account-scoped audit events', async () => {
     const batches: Array<Array<{ sql: string; values: unknown[] }>> = [];
     const db = {
@@ -179,7 +210,7 @@ describe('medical source classification', () => {
         first: async () => ({
           line_account_id: 'account-a', mode: 'pharmacy',
           capabilities_json: '["pharmacy_dashboard"]', proactive_monthly_limit: 1,
-          unfollow_alert_state: 'alert_only', created_at: '2026-08-18', updated_at: '2026-08-18',
+          unfollow_alert_state: 'alert_only', created_at: '2026-08-18', updated_at: '2026-08-18', revision: 7,
         }),
       }) }),
       batch: async (statements: Array<{ sql: string; values: unknown[] }>) => {
@@ -189,7 +220,7 @@ describe('medical source classification', () => {
     } as unknown as D1Database;
 
     await savePharmacyCapabilityConfig(
-      db, 'account-a', ['pharmacy_dashboard'], 1, 'alert_only', 'staff-a',
+      db, 'account-a', ['prescription_intake'], 1, 'alert_only', 'staff-a', 7,
     );
     await createMedicalSource(db, {
       lineAccountId: 'account-a', displayName: 'Clinic A', classification: 'primary', staffId: 'staff-a',
@@ -197,6 +228,8 @@ describe('medical source classification', () => {
     await setMedicalSourceActive(db, 'account-a', 'source-a', false, 'staff-a');
 
     expect(batches).toHaveLength(3);
+    expect(batches[0][0].sql).toContain('pharmacy_account_capability_revisions');
+    expect(batches[0][0].values).toContain(7);
     expect(batches.map((batch) => batch[1].values[2])).toEqual([
       'capability_config_updated', 'medical_source_created', 'medical_source_updated',
     ]);

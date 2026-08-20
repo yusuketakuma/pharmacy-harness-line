@@ -71,6 +71,8 @@ describe('reservePrescriptionDraft', () => {
     ).resolves.toEqual(existing);
 
     expect(calls[0].sql).toContain('ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING');
+    expect(calls[0].sql).toContain('pharmacy_account_capabilities');
+    expect(calls[0].values).toContain('prescription_intake');
     expect(calls[0].sql).toContain('desired_fulfillment_method');
     expect(calls[1].sql).toContain('INSERT INTO pharmacy_prescription_events');
     expect(calls[2].sql).toContain(
@@ -94,6 +96,18 @@ describe('reservePrescriptionDraft', () => {
       ),
     ).rejects.toThrow('invalid idempotency key');
     expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('fails a new reservation when the atomic capability predicate inserts nothing', async () => {
+    const { db } = fakeDb(null, 0);
+    await expect(reservePrescriptionDraft(
+      db,
+      { lineAccountId: 'account-1', friendId: 'friend-1' },
+      {
+        idempotencyKey: 'request-123', desiredPickupAt: null,
+        originalPrescriptionConsent: true, readinessNoticeConsent: true,
+      },
+    )).rejects.toThrow('FEATURE_DISABLED');
   });
 
   it('pins a family patient and intake revision when the new flow supplies both ids', async () => {

@@ -113,6 +113,14 @@ describe('Myna routes', () => {
     expect(mocks.list).not.toHaveBeenCalled();
   });
 
+  it('rejects an unknown handoff status filter before repository access', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-handoffs?line_account_id=account-1&status=UNKNOWN', {}, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.list).not.toHaveBeenCalled();
+  });
+
   it('creates a handoff for the authenticated LINE contact', async () => {
     const response = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
       method: 'POST',
@@ -127,6 +135,27 @@ describe('Myna routes', () => {
     expect(mocks.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION', source: 'LIFF',
     }));
+    expect(mocks.capability).toHaveBeenCalledWith(env.DB, 'account-1', 'electronic_prescription');
+  });
+
+  it('blocks only new electronic admission when its capability is off', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const blocked = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
+    }, env);
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({ code: 'FEATURE_DISABLED' });
+    expect(mocks.create).not.toHaveBeenCalled();
+
+    const active = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc',
+      { headers: { Authorization: 'Bearer line-token' } },
+      env,
+    );
+    expect(active.status).toBe(200);
+    expect(mocks.activePatient).toHaveBeenCalled();
   });
 
   it('restores only the authenticated LINE contact active handoff', async () => {

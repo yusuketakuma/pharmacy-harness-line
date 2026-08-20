@@ -129,6 +129,8 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                 <th className="px-3 py-2">Bot識別</th>
                 <th className="px-3 py-2">認証情報</th>
                 <th className="px-3 py-2">最終Webhook受信</th>
+                <th className="px-3 py-2">電子処方箋</th>
+                <th className="px-3 py-2">緊急避妊薬</th>
                 <th className="px-3 py-2">接続テスト</th>
               </tr>
             </thead>
@@ -137,12 +139,23 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                 const probe = probes[account.id]
                 return (
                   <tr key={account.id} className="border-t border-gray-100">
-                    <td className="px-3 py-2">{account.name}</td>
+                    <td className="px-3 py-2">
+                      <span>{account.name}</span>
+                      <span className="mt-1 block text-xs text-gray-500">
+                        LIFF {account.liffIdConfigured ? '設定済み' : '未設定'} / Login {account.loginChannelConfigured ? '設定済み' : '未設定'}
+                      </span>
+                      {account.expectedLiffEndpoint && <span className="block break-all font-mono text-[11px] text-gray-500">{account.expectedLiffEndpoint}</span>}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">{account.channelId}</td>
                     <td className="px-3 py-2">{account.isActive ? '有効' : '無効'}</td>
                     <td className="px-3 py-2">{account.hasBotIdentity ? 'あり' : 'なし'}</td>
-                    <td className="px-3 py-2">{account.hasEncryptedCredential ? 'あり' : 'なし'}</td>
+                    <td className="px-3 py-2">
+                      Messaging {account.messagingCredentialsReady ? 'READY' : 'BLOCKED'}
+                      <span className="block">Login {account.loginCredentialReady ? 'READY' : 'BLOCKED'}</span>
+                    </td>
                     <td className="px-3 py-2">{ymd(account.lastWebhookReceivedAt)}</td>
+                    <td className="px-3 py-2">{account.readiness?.electronicPrescription.status ?? 'BLOCKED'}</td>
+                    <td className="px-3 py-2">{account.readiness?.emergencyContraception.status ?? 'BLOCKED'}</td>
                     <td className="px-3 py-2">
                       <button
                         type="button"
@@ -162,7 +175,7 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                 )
               })}
               {accounts.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-500">LINEアカウントがありません</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">LINEアカウントがありません</td></tr>
               )}
             </tbody>
           </table>

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { verificationConfirmationMessage, verificationOptionsForHandoffStatus } from './MynaAdminPage.js'
+import { createRequestGate, verificationConfirmationMessage, verificationOptionsForHandoffStatus } from './MynaAdminPage.js'
 
 describe('Myna admin safety', () => {
   it('explains that a verification result is final before recording it', () => {
@@ -26,5 +26,30 @@ describe('Myna admin safety', () => {
       ['PRESCRIPTION_EXPIRED', '使用期限外'],
     ])
     expect(verificationOptionsForHandoffStatus('CLOSED')).toEqual([])
+  })
+
+  it('labels the electronic queue, filters status, and opens detail before linking the shadow submission', () => {
+    const page = readFileSync(new URL('./MynaAdminPage.tsx', import.meta.url), 'utf8')
+
+    expect(page).toContain('電子処方箋受付')
+    expect(page).toContain('mynaAdminApi.list(accountId, statusFilter)')
+    expect(page).toContain('mynaAdminApi.detail(accountId, handoffId)')
+    expect(page).toContain('/prescriptions?submission=')
+    expect(page).toContain('患者申告時刻')
+  })
+
+  it('discards stale responses and clears endpoint drafts when the account changes', () => {
+    const gate = createRequestGate()
+    const first = gate.start()
+    const second = gate.start()
+    expect(gate.isCurrent(first)).toBe(false)
+    expect(gate.isCurrent(second)).toBe(true)
+    gate.abort()
+    expect(gate.isCurrent(second)).toBe(false)
+
+    const page = readFileSync(new URL('./MynaAdminPage.tsx', import.meta.url), 'utf8')
+    expect(page).toContain('selectedAccountRef.current !== accountId')
+    expect(page).toContain("setEndpoint({ tenantAlias: '', endpointUrl: '', enabled: true })")
+    expect(page).toContain("setEndpointMasked('')")
   })
 })
