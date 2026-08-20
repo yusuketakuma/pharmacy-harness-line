@@ -6,7 +6,7 @@ import {
 } from './PharmacyInfoPage.js';
 
 const profile = {
-  line_account_id: 'account-a', display_name: 'みどり薬局', phone: '03-1234-5678',
+  line_account_id: 'account-a', display_name: 'みどり薬局', phone: '03-1234-5678', fax_number: '03-1234-5679',
   postal_code: '100-0001', address: '東京都千代田区千代田1-1',
   business_hours: '月〜金 9:00〜18:00', closure_notice: '日曜・祝日は休業',
   access_note: '駅東口から徒歩3分', parking_note: '店舗前に2台',
@@ -21,7 +21,7 @@ describe('pharmacy information LIFF page', () => {
   it('renders patient-useful public information and safe actions', () => {
     const html = renderToStaticMarkup(<PharmacyInfoContent profile={profile} />);
     for (const text of ['みどり薬局', '営業時間', '月〜金 9:00〜18:00', '住所',
-      'Google Mapsで開く', '電話する', '休業・臨時案内', 'アクセス', '駐車場']) {
+      'Google Mapsで開く', '電話する', 'FAX番号', '03-1234-5679', '休業・臨時案内', 'アクセス', '駐車場']) {
       expect(html).toContain(text);
     }
     for (const text of ['処方せん受付時間', '時間外の対応', '利用できるサービス',

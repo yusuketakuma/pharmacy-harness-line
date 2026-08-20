@@ -26,6 +26,7 @@ pharmacyPublicProfileRoutes.get('/api/liff/pharmacy/public-profile', async (c) =
   return profile ? c.json({ profile: {
     display_name: profile.display_name,
     phone: profile.phone,
+    fax_number: profile.fax_number,
     postal_code: profile.postal_code,
     address: profile.address,
     business_hours: profile.business_hours,
@@ -63,6 +64,7 @@ pharmacyPublicProfileRoutes.put('/api/custom/pharmacy/public-profile', async (c)
       staffId: staff.id,
       displayName: String(body.displayName ?? ''),
       phone: String(body.phone ?? ''),
+      faxNumber: String(body.faxNumber ?? ''),
       postalCode: String(body.postalCode ?? ''),
       address: String(body.address ?? ''),
       businessHours: String(body.businessHours ?? ''),

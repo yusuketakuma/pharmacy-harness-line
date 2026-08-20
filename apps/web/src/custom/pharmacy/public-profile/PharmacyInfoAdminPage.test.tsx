@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { publicProfileIssues } from './PharmacyInfoAdminPage'
 
 const complete = {
-  displayName: 'みどり薬局', phone: '03-1234-5678', postalCode: '100-0001',
+  displayName: 'みどり薬局', phone: '03-1234-5678', faxNumber: '03-1234-5679', postalCode: '100-0001',
   address: '東京都千代田区千代田1-1', businessHours: '月〜金 9:00〜18:00',
   closureNotice: '', accessNote: '', parkingNote: '', googleMapsUrl: '',
   prescriptionReceptionHours: '', afterHoursNote: '', servicesNote: '',
@@ -23,7 +23,7 @@ describe('pharmacy public profile admin page', () => {
 
   it('provides bounded fields, save feedback, and selected-account loading guards', () => {
     const source = readFileSync(new URL('./PharmacyInfoAdminPage.tsx', import.meta.url), 'utf8')
-    for (const field of ['薬局名', '電話番号', '郵便番号', '住所', '営業時間',
+    for (const field of ['薬局名', '電話番号', 'FAX番号', '郵便番号', '住所', '営業時間',
       '処方せん受付時間', '時間外の対応', '利用できるサービス', 'バリアフリー',
       '対応言語', '支払方法', '公式サイトURL', '休業・臨時案内', 'アクセス案内',
       '駐車場案内', 'Google Maps URL']) {

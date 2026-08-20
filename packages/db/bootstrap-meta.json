@@ -116,7 +116,8 @@
     "custom_039_pharmacy_public_profile.sql",
     "custom_040_pharmacy_patient_intake_envelopes.sql",
     "custom_041_pharmacy_patient_intake_migration_state.sql",
-    "custom_042_pharmacy_public_profile_details.sql"
+    "custom_042_pharmacy_public_profile_details.sql",
+    "custom_043_pharmacy_public_profile_fax.sql"
   ],
-  "migrationCount": 117
+  "migrationCount": 118
 }
