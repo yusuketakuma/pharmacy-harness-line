@@ -24,6 +24,18 @@ export async function accountResourceOwnedByStaff(
   accountId: string,
 ): Promise<boolean> {
   try {
+    const platformAdmin = c.get('platformAdmin');
+    if (platformAdmin?.id === c.get('staff')?.id) {
+      const mapped = await c.env.DB.prepare(
+        `SELECT 1 AS ok
+           FROM tenant_line_accounts AS mapping
+           INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
+          WHERE account.is_active = 1
+            AND mapping.tenant_id = ? AND mapping.line_account_id = ?
+          LIMIT 1`,
+      ).bind(tenantId, accountId).first<{ ok: number }>();
+      return Boolean(mapped);
+    }
     let pharmacyAccount = await isPharmacyModeAccount(c.env.DB, accountId);
     if (!pharmacyAccount) {
       // After the pharmacy migrations are installed, a missing capability row

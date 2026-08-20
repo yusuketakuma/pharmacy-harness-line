@@ -101,7 +101,7 @@ function app() {
   a.post('/api/protected', (c) => c.json({ success: true, data: c.get('staff') }));
   a.get('/api/account-settings/link-base-url', (c) => c.json({
     success: true,
-    data: { staff: c.get('staff'), tenantId: c.get('tenantId') },
+    data: { staff: c.get('staff'), tenantId: c.get('tenantId'), platformAdmin: c.get('platformAdmin') },
   }));
   a.get('/api/custom/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/forms/:id', (c) => c.json({ success: true, staff: c.get('staff') ?? null }));
@@ -208,6 +208,7 @@ describe('protected API access', () => {
       data: {
         staff: { id: 'platform-admin-1', role: 'owner' },
         tenantId: TENANT_ID,
+        platformAdmin: { id: 'platform-admin-1' },
       },
     });
     expect(sqlLog.some((sql) => sql.includes('INSERT INTO platform_admin_access_events'))).toBe(true);

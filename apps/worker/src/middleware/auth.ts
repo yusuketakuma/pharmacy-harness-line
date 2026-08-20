@@ -296,6 +296,7 @@ async function authenticateRequest(
       resolvePlatformAdminTenant(c.env.DB, c.req.header(TENANT_HEADER)),
     ]);
     if (!resolved || resolved.mustChangePassword || !tenant) return null;
+    c.set('platformAdmin', resolved.admin);
     await recordPlatformAdminAccess(
       c.env.DB,
       resolved.admin.id,

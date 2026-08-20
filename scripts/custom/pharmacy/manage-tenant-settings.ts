@@ -1,9 +1,14 @@
 import { readFile } from 'node:fs/promises';
+import { readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 type Environment = Record<string, string | undefined>;
 type Reader = (path: string) => Promise<Buffer>;
 type Writer = (line: string) => void;
+type CredentialReader = (service: string) => string | undefined;
 
 const VALUE_FLAGS = new Set([
   'worker-url', 'tenant-id', 'method', 'path', 'input', 'content-type', 'rich-menu-default',
@@ -42,7 +47,39 @@ Options:
   --input FILE
   --content-type TYPE (default: application/json)
   --apply (required to send a mutation)
-  --help`;
+  --help
+
+On macOS, ph-id and ph-pw are read from Keychain or ~/.config/pharmacy-harness when environment variables are unset.`;
+
+export function readCredentialFile(path: string): string | undefined {
+  try {
+    const stat = statSync(path);
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0 ||
+        (typeof process.getuid === 'function' && stat.uid !== process.getuid())) return undefined;
+    return readFileSync(path, 'utf8').replace(/\r?\n$/u, '') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readKeychainCredential(service: string): string | undefined {
+  if (process.platform !== 'darwin') return undefined;
+  try {
+    const value = execFileSync(
+      '/usr/bin/security',
+      ['find-generic-password', '-s', service, '-w'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return value.replace(/\r?\n$/u, '') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readStoredCredential(service: string): string | undefined {
+  return readKeychainCredential(service) ??
+    readCredentialFile(join(homedir(), '.config', 'pharmacy-harness', service));
+}
 
 function parseArgs(argv: string[]) {
   const values: Record<string, string> = {};
@@ -154,6 +191,7 @@ export async function runTenantSettings(
   fetcher: typeof fetch = fetch,
   reader: Reader = readFile,
   write: Writer = (line) => process.stdout.write(`${line}\n`),
+  credentialReader: CredentialReader = readStoredCredential,
 ): Promise<number> {
   try {
     const parsed = parseArgs(argv);
@@ -162,12 +200,12 @@ export async function runTenantSettings(
       return 0;
     }
 
-    const loginId = environment.PHARMACY_PLATFORM_ADMIN_LOGIN_ID?.trim();
-    const password = environment.PHARMACY_PLATFORM_ADMIN_PASSWORD;
+    const loginId = (environment.PHARMACY_PLATFORM_ADMIN_LOGIN_ID ?? credentialReader('ph-id'))?.trim();
+    const password = environment.PHARMACY_PLATFORM_ADMIN_PASSWORD ?? credentialReader('ph-pw');
     if (!loginId) throw new Error('PHARMACY_PLATFORM_ADMIN_LOGIN_ID is required');
     if (!password) throw new Error('PHARMACY_PLATFORM_ADMIN_PASSWORD is required');
     const tenantId = required(parsed.values, 'tenant-id');
-    if (!/^[A-Za-z0-9_-]{1,128}$/u.test(tenantId)) throw new Error('--tenant-id is invalid');
+    if (!/^[A-Za-z0-9_:-]{1,128}$/u.test(tenantId)) throw new Error('--tenant-id is invalid');
     const workerUrl = required(parsed.values, 'worker-url');
     const richMenuDefault = parsed.values['rich-menu-default']?.trim();
     if (richMenuDefault) {
