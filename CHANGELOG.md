@@ -1,5 +1,86 @@
 # Changelog
 
+## Pharmacy v0.28.0 (2026-08-21)
+
+### この更新で変わること
+
+`v0.28.0`では、患者がLINEから必要な機能へ迷わず進めるよう薬局LIFFとリッチメニューを再編し、来局判断に必要な薬局公開情報を薬局自身が管理できるようにしました。あわせて、患者問診の機微情報をフィールド単位で暗号化する保存・移行経路と、Platform Admin向けのtenant設定CLIを追加しています。
+
+### 患者向けLIFFメニュー
+
+- LIFF内に「すべての機能」画面を追加し、処方せん事前送信、受付状況、患者情報・アンケート、継続フォロー、服薬後フォロー、緊急避妊薬、薬局情報へ直接移動可能に
+- 画面間の遷移と旧形式の`?page=`リンクでtenant固有の`liffId`を保持し、別のLINEアカウントへ誤って接続しないよう統一
+- 「来局前確認」を、患者が目的を理解しやすい「緊急避妊薬」へ変更。画面内では仮受付であり、販売・服用・在庫を保証しない既存の薬剤師判断境界を維持
+- 処方せん事前送信と役割が重複していた「お薬を受け取る」画面を現行メニューから廃止。公開済みリッチメニュー等の旧`/pharmacy/receive`リンクは、tenant固有の`liffId`を保ったまま処方せん事前送信へ転送
+- 機能未設定時のHTTP 503を通信障害として表示せず、「この機能は現在利用できません。薬局にお問い合わせください。」という患者向け案内へ変更
+
+### v3リッチメニュー
+
+- 標準の初期リッチメニューを2500x1686の6エリア構成へ更新
+- エリアを「緊急避妊薬」「受付状況」「服薬後フォロー」「薬局へ相談」「薬局情報」「すべての機能」で構成
+- 新しい`initial-large-3x2-v3`プロファイルと画像を追加し、新規作成時の標準プロファイルとして使用
+- 既存のcompact 3エリア版と単一処方せん受付版は互換用プロファイルとして保持
+- ドラフト作成だけではLINEへの登録、初期表示設定、既存友だちへの一括適用を行わない従来のhuman gateを維持
+
+### 患者向け薬局情報
+
+- LINEアカウント単位の公開プロフィールを追加し、患者向けLIFFに薬局名、郵便番号、住所、電話番号、FAX番号、営業時間を表示
+- 処方せん受付時間、時間外対応、休業・臨時案内、提供サービス、対応言語、支払方法、アクセス、駐車場、バリアフリー、公式サイトも任意項目として表示
+- Google Maps URLが未設定の場合は住所から検索URLを生成。設定URLはHTTPSのGoogle Mapsホストに限定
+- 公式サイトURLはHTTPSかつ認証情報を含まないURLだけを許可し、外部リンクには`noopener`/`noreferrer`を付与
+- 電話番号は`tel:`リンクとして利用でき、FAX番号を含む連絡先はサーバー側でも文字種と最大長を検証
+- 公開情報の最終更新日を表示し、未設定項目は空欄のまま安全に省略
+
+### 薬局情報管理画面
+
+- 「患者向け薬局情報」編集画面を追加し、選択中のLINEアカウントに紐づく公開情報を編集可能に
+- 更新権限をowner/adminへ限定し、一般staffからの更新を拒否
+- `line_account_id`は認証済みstaffの割り当てとサーバー側middlewareから解決し、query parameterやrequest bodyの値を権限根拠として使用しない
+- 薬局名、住所、営業時間を必須化し、テキスト長、電話/FAX文字種、Google Maps URL、公式サイトURLを保存前に検証
+- アカウント切替中の遅いレスポンスが別アカウントのフォームを上書きしない読み込みガード、保存中の二重送信防止、未保存表示、成功・失敗フィードバックを追加
+
+### 患者問診のフィールドレベル暗号化
+
+- `pharmacy_patient_intake_responses`の`patient_snapshot_json`と`answers_json`を、AES-256-GCMの暗号化envelopeとして保存する経路を追加
+- 暗号化コンテキストをtenant、LINEアカウント、LINE上の所有者、患者、回答、schema、revision、field、envelope/key versionへ結び付け、別scopeへの暗号文差し替えや再利用をfail-closedで拒否
+- 1回答につき2つの必須field envelopeを保存し、片方だけ欠ける状態、nonce再利用、不正なfield名、scope不一致をDB制約と読み込み処理で拒否
+- 暗号化envelopeと回答本体を同じD1 batchで保存し、部分成功を許可しない
+- 移行期間はauthorization後のdual-readに対応。envelopeが揃う場合のみ復号し、移行開始後の不完全envelopeを平文へ暗黙fallbackしない
+- Worker secret `PHARMACY_PHI_KEY_V1`が未設定の場合は書き込み前に503で停止し、平文の新規保存を継続しない
+
+### 問診暗号化の移行・復旧
+
+- account単位の`frozen`、`scrubbing`、`scrubbed`、`restoring`、`restored`状態を持つ移行管理テーブルを追加
+- dry-runを既定とする上限付きbackfill、安定cursor、envelope byte検証、全件coverage digestを追加
+- 平文scrubと復旧には承認者、承認参照、承認時刻を必須化し、対象accountの書き込みをfreezeして件数ドリフトを防止
+- scrubは暗号化coverage確認後に既存JSON列を有効な空JSONへ置換し、restoreは保存済み暗号文から元のbyte列を復元
+- `restored`後も自動で通常書き込みへ戻さず、旧Workerへのrollback継続または再scrubを人が判断する境界を維持
+
+### Platform Admin tenant設定CLI
+
+- `pnpm tenant:settings`を追加し、Platform Admin認証を使ってtenant/account設定をAPI経由で取得・変更可能に
+- ownerだけが読めるローカル資格情報ファイルから接続情報を読み込み、tokenやsecret値を標準出力へ表示しない
+- 患者・処方せん・問診等のPHIルートを対象外とし、許可された設定APIだけを専用session scopeで利用
+- tenant IDに`:`を含む実環境の識別子へ対応し、Platform Admin identityをtenant/account境界検証まで保持
+- 変更操作はdry-run、明示確認、監査記録を通し、LINEへのpublish、default変更、friend適用等の外部変更を暗黙実行しない
+- リッチメニューの初期表示変更ではaccount scopeを必須化し、同じaccountを含むconfirmation token取得経路へ統一
+
+### データベースマイグレーション
+
+- `custom_039_pharmacy_public_profile.sql`: LINEアカウント・更新者staffへ外部キーで紐づく公開プロフィールを追加
+- `custom_040_pharmacy_patient_intake_envelopes.sql`: 問診PHIの暗号化envelope、field allowlist、nonce一意制約、tenant/account/患者/回答scope外部キーを追加
+- `custom_041_pharmacy_patient_intake_migration_state.sql`: account単位のwrite freeze、coverage、承認証跡、scrub/restore状態を追加
+- `custom_042_pharmacy_public_profile_details.sql`: 処方せん受付時間、時間外対応、サービス、バリアフリー、言語、支払方法、公式サイトを追加
+- `custom_043_pharmacy_public_profile_fax.sql`: 最大40文字のFAX番号を追加
+- すべて既存データを削除しないadditive migration。dev/prodへの適用は各環境のdeploy workflowとmigration ledgerを通す
+
+### 互換性と運用上の注意
+
+- 旧`pharmacy-receive`リンクは削除せず処方せん事前送信へ転送するため、既に公開済みのリッチメニューからも到達可能
+- 旧リッチメニュープロファイルは保持されるが、新規標準はv3。既存のLINEリッチメニューを自動置換しない
+- 暗号化移行、平文scrub、restore、LINEリッチメニュー公開・初期表示変更はhuman gateの対象
+- 本バージョン番号は共有薬局サービスの`pharmacy-v*`系列であり、OSS本体の`v*`系列とは別管理
+
 ## Pharmacy v0.27.2 (2026-08-20)
 
 ### この更新で変わること
