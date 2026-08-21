@@ -28,7 +28,7 @@
   - 患者向け同意文を「申告は薬剤師が対面で再確認／最終判断は店頭／申告の保存期間 N日／薬剤師の販売記録は法令により3年保存／3週間後の妊娠検査の案内」へ改定。`consent_version` の新版を必須化し、`purpose_text`/同意文変更時に version bump を強制（`saveEmergencySettings`）。intake に `consent_content_hash` を記録（payload 内、列追加なし）。旧 version で作成された v1 行を v2 目的で再解釈しない。
   - **DoD**: 旧 consent_version での create が 409、hash 不一致 create が 409、`EmergencyContraceptionPage.test.tsx` の consent 契約が更新されている。
 
-- [ ] **ECF-3 LIFF フォーム Phase A** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **ECF-3 LIFF フォーム Phase A** `[lane:gate]` `[tdd:required]` cc:完了 [44dd92f]
   - A3/A4/A5/A' の4チェックを追加（中立文言、製品名なし、「レボノルゲストレルを含む薬」）。該当時は送信可のまま代替導線（産婦人科・ワンストップ `support_center_url`・他薬局一覧）を同画面に表示。A1 文言から「(女性)」を外す。
   - A2 入力直後に服用期限と残り時間を表示し、期限超過枠を select で無効化（`outside_72_hours` の事前検証）。
   - D2 に「回数で受付をお断りするものではありません」を添える。完了画面に `support_center_url` を全員へ無条件表示。既存の `not.toMatch(/性交|妊娠|緊急避妊/)` 文言禁止を維持。
