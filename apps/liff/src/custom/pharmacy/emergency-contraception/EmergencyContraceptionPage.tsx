@@ -20,6 +20,10 @@ export interface EmergencyIntakeDraft {
   recentPurchaseCount: string;
   patientWillVisit: boolean;
   acceptsInPersonDose: boolean;
+  lngAllergy: boolean;
+  liverDisease: boolean;
+  currentlyPregnant: boolean;
+  breastfeeding: boolean;
   safeContactMode: EmergencySafeContactMode | '';
   consentAccepted: boolean;
   manufacturerCheckAcknowledged: boolean;
@@ -33,10 +37,29 @@ export const EMPTY_EMERGENCY_DRAFT: EmergencyIntakeDraft = {
   recentPurchaseCount: '',
   patientWillVisit: false,
   acceptsInPersonDose: false,
+  lngAllergy: false,
+  liverDisease: false,
+  currentlyPregnant: false,
+  breastfeeding: false,
   safeContactMode: '',
   consentAccepted: false,
   manufacturerCheckAcknowledged: false,
 };
+
+const DOSING_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+/** Client-side display only; the server remains authoritative for the 72h window. */
+export function emergencyIntakeDeadline(
+  draft: Pick<EmergencyIntakeDraft, 'intercourseAt' | 'intercourseTimeUnknown'>,
+): Date | null {
+  if (draft.intercourseTimeUnknown) {
+    if (!validDateOnly(draft.intercourseAt)) return null;
+    return new Date(new Date(`${draft.intercourseAt}T00:00:00+09:00`).getTime() + DOSING_WINDOW_MS);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(draft.intercourseAt)) return null;
+  const start = new Date(`${draft.intercourseAt}${draft.intercourseAt.length === 16 ? ':00' : ''}+09:00`);
+  return Number.isFinite(start.getTime()) ? new Date(start.getTime() + DOSING_WINDOW_MS) : null;
+}
 
 const SAFE_CONTACT_OPTIONS: Array<{
   value: Extract<EmergencySafeContactMode, 'neutral_line' | 'no_notification'>;
@@ -200,14 +223,31 @@ export function EmergencyAlternativeLinks({
   );
 }
 
+function EmergencyCautionAlternatives({ service }: { service: EmergencyServiceOverview }) {
+  const supportCenterUrl = safeExternalUrl(service.support_center_url);
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+      <p className="font-bold">当てはまる項目があるため、以下もあわせてご検討ください</p>
+      <p className="mt-1">送信は止まりません。来局時に薬剤師が対面で確認します。</p>
+      <div className="mt-2 grid gap-2">
+        <span className="block">・産婦人科の受診</span>
+        {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900">相談窓口を確認（外部サイト）</a>}
+        <a href={MHLW_EMERGENCY_CONTRACEPTION_URL} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900">厚生労働省の販売薬局一覧を確認（外部サイト）</a>
+      </div>
+    </div>
+  );
+}
+
 function IntakeList({
   intakes,
   serverNow,
+  supportCenterUrl,
   busy,
   onCancel,
 }: {
   intakes: EmergencyIntake[];
   serverNow: string;
+  supportCenterUrl: string | null;
   busy: string | null;
   onCancel: (intake: EmergencyIntake) => Promise<void>;
 }) {
@@ -215,6 +255,7 @@ function IntakeList({
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
       <p className="mt-1 text-xs text-gray-500">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
+      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="mt-2 inline-block text-sm font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
       {intakes.length === 0
         ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
         : <ul className="mt-3 space-y-3">{intakes.map((intake) => (
@@ -260,6 +301,9 @@ export function EmergencyIntakeForm({
   const errors = showErrors ? emergencyIntakeFieldErrors(draft) : {};
   const invalid = (key: keyof EmergencyIntakeDraft) => (errors[key] ? true : undefined);
   const fieldClass = 'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 aria-[invalid]:border-red-500';
+  const deadline = emergencyIntakeDeadline(draft);
+  const remainingHours = deadline ? Math.max(0, Math.round((deadline.getTime() - Date.now()) / (60 * 60 * 1000))) : null;
+  const showCaution = draft.lngAllergy || draft.liverDisease || draft.currentlyPregnant;
   return (
     <form
       className="space-y-4 rounded-xl bg-white p-4 shadow-sm"
@@ -284,6 +328,7 @@ export function EmergencyIntakeForm({
           className={fieldClass}
         />
         <FieldError message={errors.intercourseAt} />
+        {deadline && <p className="text-sm text-gray-700">服用期限：{formatTokyo(deadline.toISOString())}（残り約{remainingHours}時間）</p>}
         <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
           <input
             type="checkbox"
@@ -308,9 +353,12 @@ export function EmergencyIntakeForm({
           className={fieldClass}
         >
           <option value="">対応枠を選択</option>
-          {service.slots.map((slot) => <option key={slot.id} value={slot.id}>
-            {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）
-          </option>)}
+          {service.slots.map((slot) => {
+            const pastDeadline = deadline !== null && new Date(slot.ends_at).getTime() > deadline.getTime();
+            return <option key={slot.id} value={slot.id} disabled={pastDeadline}>
+              {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）{pastDeadline ? '（期限超過）' : ''}
+            </option>;
+          })}
         </select>
         <FieldError message={errors.slotId} />
       </label>
@@ -350,8 +398,54 @@ export function EmergencyIntakeForm({
             className={fieldClass}
           />
           <FieldError message={errors.recentPurchaseCount} />
+          <p className="text-xs text-gray-500">回数によって受付をお断りするものではありません。安全のための確認です。</p>
         </label>
       </div>
+
+      <fieldset className="space-y-2">
+        <legend className="font-bold text-gray-900">あてはまる場合はチェックしてください（送信は止まりません）</legend>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.lngAllergy}
+            onChange={(event) => onDraftChange('lngAllergy', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          レボノルゲストレルを含む薬でアレルギー症状が出たことがある
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.liverDisease}
+            onChange={(event) => onDraftChange('liverDisease', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          肝臓病の診断を受けている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.currentlyPregnant}
+            onChange={(event) => onDraftChange('currentlyPregnant', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          現在、お腹に赤ちゃんがいることが分かっている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.breastfeeding}
+            onChange={(event) => onDraftChange('breastfeeding', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          授乳中
+        </label>
+        {showCaution && <EmergencyCautionAlternatives service={service} />}
+      </fieldset>
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">来局と服用方法の確認</legend>
@@ -513,6 +607,10 @@ export default function EmergencyContraceptionPage() {
         recentPurchaseCount: Number(draft.recentPurchaseCount),
         patientWillVisit: draft.patientWillVisit,
         acceptsInPersonDose: draft.acceptsInPersonDose,
+        lngAllergy: draft.lngAllergy,
+        liverDisease: draft.liverDisease,
+        currentlyPregnant: draft.currentlyPregnant,
+        breastfeeding: draft.breastfeeding,
         safeContactMode: draft.safeContactMode as EmergencySafeContactMode,
         consentVersion: service.consent.version,
         manufacturerCheckAcknowledged: draft.manufacturerCheckAcknowledged,
@@ -577,6 +675,14 @@ export default function EmergencyContraceptionPage() {
               <li>受付番号 {submittedCode} を来局時にお伝えください。</li>
             </ul>
           </>}
+          {safeExternalUrl(service?.support_center_url ?? null) && <a
+            href={safeExternalUrl(service?.support_center_url ?? null) ?? undefined}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mt-2 inline-block font-bold text-green-900 underline"
+          >
+            相談窓口を見る（外部サイト）
+          </a>}
         </div>}
         {loading
           ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-600">受付状況を読み込み中...</p>
@@ -632,7 +738,7 @@ export default function EmergencyContraceptionPage() {
                   onDraftChange={changeDraft}
                   onSubmit={review}
                 />}
-              <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />
+              <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />
             </>
             : <>
               <section className="rounded-xl bg-white p-4 shadow-sm">
@@ -641,7 +747,7 @@ export default function EmergencyContraceptionPage() {
                   {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
                 </p>
               </section>
-              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />}
+              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />}
             </>}
         <EmergencyAlternativeLinks service={service} />
       </div>

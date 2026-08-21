@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EmergencyContraceptionPage, {
   EMPTY_EMERGENCY_DRAFT,
   EmergencyIntakeForm,
@@ -198,5 +198,107 @@ describe('emergency intake submit flow (WP-12)', () => {
     expect(source).toContain('この内容で送信する');
     expect(source).toContain('window.scrollTo(0, 0)');
     expect(source).toContain('次にすること');
+  });
+});
+
+describe('emergency contraception phase A flags (ECF-3)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-18T00:00:00+09:00'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('defaults the A3/A4/A5/A-prime flags to false and never blocks submission', () => {
+    expect(EMPTY_EMERGENCY_DRAFT.lngAllergy).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.liverDisease).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.currentlyPregnant).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.breastfeeding).toBe(false);
+    const draft = {
+      ...completeDraft, consentAccepted: true,
+      lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
+    };
+    expect(canSubmitEmergencyIntake(draft)).toBe(true);
+    expect(emergencyIntakeFieldErrors(draft)).toEqual({});
+  });
+
+  it('renders neutral-wording checkboxes for the flags without the banned vocabulary', () => {
+    const draft = {
+      ...completeDraft, consentAccepted: true,
+      lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
+    };
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm draft={draft} service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+    );
+    expect(html).toContain('レボノルゲストレルを含む薬でアレルギー症状が出たことがある');
+    expect(html).toContain('肝臓病の診断を受けている');
+    expect(html).toContain('授乳中');
+    expect(html).not.toContain('女性');
+    expect(html).not.toMatch(/性交|妊娠|緊急避妊/);
+  });
+
+  it('shows caution alternatives once a flag is checked without disabling submission', () => {
+    const flagged = renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={{ ...completeDraft, consentAccepted: true, lngAllergy: true }}
+        service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}}
+      />,
+    );
+    expect(flagged).toContain('産婦人科');
+    expect(flagged).not.toMatch(/<button type="submit" disabled=""/);
+
+    const unflagged = renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={{ ...completeDraft, consentAccepted: true }}
+        service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}}
+      />,
+    );
+    expect(unflagged).not.toContain('産婦人科');
+  });
+
+  it('shows a dosing deadline preview computed client-side from the event time', () => {
+    const draft = { ...completeDraft, consentAccepted: true, intercourseAt: '2026-08-18T10:00' };
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm draft={draft} service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+    );
+    expect(html).toMatch(/服用期限[:：].*残り約\d+時間/);
+  });
+
+  it('disables slot options that end after the dosing deadline', () => {
+    const lateService: EmergencyServiceOverview = {
+      ...readyService,
+      slots: [
+        { id: 'slot-ok', starts_at: '2026-08-18T11:00:00+09:00', ends_at: '2026-08-18T11:30:00+09:00', remaining: 1 },
+        { id: 'slot-late', starts_at: '2026-08-22T09:00:00+09:00', ends_at: '2026-08-22T09:30:00+09:00', remaining: 1 },
+      ],
+    };
+    const draft = { ...completeDraft, consentAccepted: true, intercourseAt: '2026-08-18T10:00', slotId: 'slot-ok' };
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm draft={draft} service={lateService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+    );
+    expect(html).toContain('期限超過');
+    expect(html).toMatch(/<option[^>]*value="slot-late"[^>]*disabled=""/);
+    expect(html).not.toMatch(/<option[^>]*value="slot-ok"[^>]*disabled=""/);
+  });
+
+  it('shows the D2 reassurance helper text next to the recent purchase count', () => {
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={{ ...completeDraft, consentAccepted: true }}
+        service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}}
+      />,
+    );
+    expect(html).toContain('回数によって受付をお断りするものではありません。安全のための確認です。');
+  });
+
+  it('sends the new flags to the create API and shows the support center link unconditionally', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('lngAllergy: draft.lngAllergy');
+    expect(source).toContain('liverDisease: draft.liverDisease');
+    expect(source).toContain('currentlyPregnant: draft.currentlyPregnant');
+    expect(source).toContain('breastfeeding: draft.breastfeeding');
+    expect(source).toContain('相談窓口を見る');
+    expect(source).toContain('support_center_url');
   });
 });

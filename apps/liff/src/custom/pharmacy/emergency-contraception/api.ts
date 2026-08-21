@@ -56,6 +56,10 @@ export interface CreateEmergencyIntakeInput {
   recentPurchaseCount: number;
   patientWillVisit: boolean;
   acceptsInPersonDose: boolean;
+  lngAllergy: boolean;
+  liverDisease: boolean;
+  currentlyPregnant: boolean;
+  breastfeeding: boolean;
   safeContactMode: EmergencySafeContactMode;
   consentVersion: string;
   manufacturerCheckAcknowledged: boolean;
