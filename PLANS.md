@@ -23,7 +23,7 @@
   - V030-6「package/tagは全gate後」の逸脱を事実として記録し、次回releaseの順序をV031-5のDoDへ転記する。P0〜P8、LIFF-MENU、FLE、U22 の完了節は `## Done` へ移す。
   - **DoD**: PLANS.md に未説明の `- [ ]` が残らず、外部gateが全件registerに1行ずつ `担当 / 実施条件 / 状態` を持つ。`git diff --check` 成功。
 
-- [ ] **NEXT-1 Myna launch URLの署名トークン化（alias列挙の遮断）** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **NEXT-1 Myna launch URLの署名トークン化（alias列挙の遮断）** `[lane:gate]` `[tdd:required]` cc:完了 [4ef8593]
   - `launchUrl()`（`myna/routes.ts:77-80`）の呼び出し元は認証済みhandler 2箇所（`:145`, `:173`）のみ。public alias の代わりに `MYNA_ENDPOINT_ENCRYPTION_KEY` 由来のHMAC短命トークン（`lineAccountId|exp`）をpathへ埋め、`/r/myna/:token` が検証後にのみ302する。migration不要、外部browser導線（`openExternalBrowser=1`）は維持する。
   - 旧 `/r/myna/:tenantAlias` は一定期間併存させず、同一releaseで廃止し固定404へ（既存active handoffのURLは短命なので互換不要。要確認: handoff有効期限がトークン期限を超えないこと）。
   - 暫定として `rate-limit.ts:171` の `/r/` 無条件skipを `/r/myna/` に適用しないよう1行で限定する（本修正が入っても残す）。
