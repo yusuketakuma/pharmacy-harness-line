@@ -30,7 +30,7 @@
   - **Red -> Green**: 期限切れ/改竄/別accountトークン404、有効トークンのみ302、`Location` にaliasが含まれない、unknown/expired応答の一致、no-store/no-referrer/CSP維持、rate limit適用、`routes.test.ts:245` の既存privacy header testが通る。`[tdd:required]`
   - **DoD**: `myna/routes.test.ts` に上記negative testが追加され `pnpm --filter worker test -- myna` green、`MYNA_LAUNCH_URL.md` 作成済み。
 
-- [ ] **NEXT-2 緊急避妊薬 `retention_days` purge** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **NEXT-2 緊急避妊薬 `retention_days` purge** `[lane:gate]` `[tdd:required]` cc:完了 [779584c]
   - `custom_049` で `pharmacy_phi_retention_purge_log.resource_type` CHECKを拡張する。SQLiteはCHECK変更不可のため、`check-migrations.ts` が拒否するDROP/RENAMEを避けて**加算の新table**（例: `pharmacy_phi_retention_purge_log_v2`）または新resource種別用の別logを作る。先にmigration、次にcode。
   - `prescriptions/retention-purge.ts` を雛形に、account別 `retention_days` を超えた `pharmacy_emergency_*` intake（encrypted_payload, age_band, risk_flags_json, event）をleaf→root順で削除する。`legal_hold = 1 AND (legal_hold_release_at IS NULL OR > now)` の患者配下はskipし件数のみ記録。1バッチ=1 account、account間を跨がず、1 accountの失敗で他accountを止めない。
   - 既存の6h cron block（`index.ts:1252-1291`）へ同形式で登録し、`boundary.test.ts:29` と同じ呼び出し行assertionを追加する（dead code防止）。
@@ -42,11 +42,11 @@
   - `purgePrescriptionFilesPastRetention` に NEXT-2 と同じ legal hold 述語を追加する。現状は保存基準が一致するため実害なしだが、`legal_hold_release_at` が3年を超えた瞬間に不整合になる。
   - **DoD**: `retention-purge.test.ts` に「hold中は `skipped:1, purged:0`」が追加されgreen。
 
-- [ ] **NEXT-4 incoming LINE画像の追跡column（forward-only）** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **NEXT-4 incoming LINE画像の追跡column（forward-only）** `[lane:gate]` `[tdd:required]` cc:完了 [e028b86]
   - `incoming-image.ts:63` で書くR2 keyが `messages_log.content` のJSON内URLにしか無い。`custom_050` で追跡column（または加算table）を足し、`webhook.ts:781` の書込時に保存する。既存objectの遡及sweepとprefix年齢による盲目削除はしない（`RETENTION_MATRIX.md:197-200`）。purge本体は3年境界と同じく非目標。
   - **DoD**: 実SQLite testで新着画像のkeyが追跡され、既存rowはNULLのまま。`messages_log` のJST書式に触れない。
 
-- [ ] **NEXT-5 retention 3年purgeの削除順序spec（実装なし）** `[lane:fast]` `[tdd:skip:docs-only]` cc:WIP
+- [x] **NEXT-5 retention 3年purgeの削除順序spec（実装なし）** `[lane:fast]` `[tdd:skip:docs-only]` cc:完了 [2c1422a]
   - `RETENTION_MATRIX.md:180-215` の未解決点を表にする: ON DELETE CASCADE無しの約11 table のleaf→root順、`pharmacy_data_subject_requests` → `pharmacy_patients` FK（ON DELETE無し）、`candidate_submission_id` が新しいsubmissionを指す件、JST `+09:00` table（`messages_log`/`chats`/`friends`）の別cutoff。
   - **DoD**: 各tableに削除順番号・依存先・書式・cutoff関数名が1行ずつ記載され、実装taskは2029年到達前のV0.3x backlogとして別起票。
 
