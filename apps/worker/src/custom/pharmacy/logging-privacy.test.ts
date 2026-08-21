@@ -21,7 +21,7 @@ const PATTERNS = [
 describe('pharmacy log privacy contract', () => {
   it('scans the whole worker source tree', () => {
     expect(sources.length).toBeGreaterThan(100);
-    expect(sources.some(({ file }) => file === join('routes', 'webhook.ts'))).toBe(true);
+    expect(sources.some(({ file }) => file === join('routes', 'integrations', 'webhook.ts'))).toBe(true);
   });
 
   it('does not write LINE user identifiers, credentials, or form answers to application logs', () => {

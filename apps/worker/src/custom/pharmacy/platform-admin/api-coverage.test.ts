@@ -5,10 +5,10 @@ import { mynaRoutes } from '../myna/routes.js';
 import { pharmacyPrivacyPolicyRoutes } from '../privacy-policy/routes.js';
 import { pharmacyPublicProfileRoutes } from '../public-profile/routes.js';
 import { pharmacyRichMenuRoutes } from '../rich-menu/routes.js';
-import { staff } from '../../../routes/staff.js';
-import { lineAccounts } from '../../../routes/line-accounts.js';
-import { richMenuGroups } from '../../../routes/rich-menu-groups.js';
-import { accountSettings } from '../../../routes/account-settings.js';
+import { staff } from '../../../routes/admin/staff.js';
+import { lineAccounts } from '../../../routes/admin/line-accounts.js';
+import { richMenuGroups } from '../../../routes/messaging/rich-menu-groups.js';
+import { accountSettings } from '../../../routes/admin/account-settings.js';
 import {
   findPharmacyAdminApiCoverage,
   findPharmacyAdminApiDeferred,

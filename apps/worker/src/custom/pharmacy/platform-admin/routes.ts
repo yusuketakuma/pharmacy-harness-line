@@ -15,7 +15,7 @@ import {
   listAdminPharmacyPatients,
 } from '../intake/repository.js';
 import { listMynaHandoffs } from '../myna/repository.js';
-import { runWebhookInboxEvent } from '../../../routes/webhook.js';
+import { runWebhookInboxEvent } from '../../../routes/integrations/webhook.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
 import { log } from '../../../lib/log.js';
 import {

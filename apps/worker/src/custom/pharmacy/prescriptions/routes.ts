@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../../../index.js';
 import { getPharmacyAccountId } from '../account.js';
-import { lineProxy } from '../../../routes/line-proxy.js';
+import { lineProxy } from '../../../routes/integrations/line-proxy.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { inspectPrescriptionImage } from './image.js';
 import {

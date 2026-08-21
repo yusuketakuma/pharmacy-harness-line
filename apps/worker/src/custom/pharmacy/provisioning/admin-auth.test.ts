@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { authMiddleware } from '../../../middleware/auth.js';
-import { adminAuth } from '../../../routes/admin-auth.js';
+import { adminAuth } from '../../../routes/admin/admin-auth.js';
 import { hashTenantPassword } from './credentials.js';
 
 vi.mock('@line-crm/db', () => ({

@@ -4,7 +4,7 @@ import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { authMiddleware, authenticateApiToken } from './auth.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './admin-auth-config.js';
-import { adminAuth } from '../routes/admin-auth.js';
+import { adminAuth } from '../routes/admin/admin-auth.js';
 import type { Env } from '../index.js';
 
 vi.mock('@line-crm/db', () => ({

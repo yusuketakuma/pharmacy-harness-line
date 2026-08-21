@@ -12,7 +12,7 @@ vi.mock('@line-crm/db', () => ({ getStaffByApiKey: vi.fn(async () => null) }));
 // then hand it to that one function", which is what this double asserts.
 const webhookRetry = vi.hoisted(() =>
   vi.fn(async (_runner: unknown, _row: unknown) => 'completed' as const));
-vi.mock('../../../routes/webhook.js', () => ({ runWebhookInboxEvent: webhookRetry }));
+vi.mock('../../../routes/integrations/webhook.js', () => ({ runWebhookInboxEvent: webhookRetry }));
 
 const patient = {
   id: 'patient-1',
