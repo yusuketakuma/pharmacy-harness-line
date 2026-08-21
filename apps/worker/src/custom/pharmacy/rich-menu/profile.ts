@@ -141,10 +141,10 @@ export function diagnosePharmacyRichMenuActions(
   liffId: string,
   orderedActions: readonly PharmacyRichMenuActionKey[],
 ): string[] {
-  const expected = buildCatalogAreas(liffId, orderedActions);
+  const expected = orderedManifest(buildCatalogAreas(liffId, orderedActions));
   if (areas.length !== expected.length) return ['ACTION_COUNT_INVALID'];
   const reasons: string[] = [];
-  areas.forEach((area, index) => {
+  orderedManifest(areas).forEach((area, index) => {
     const target = expected[index];
     if (area.boundsX !== target.boundsX || area.boundsY !== target.boundsY ||
         area.boundsWidth !== target.boundsWidth || area.boundsHeight !== target.boundsHeight) {
