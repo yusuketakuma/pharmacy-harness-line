@@ -62,11 +62,38 @@ export function patientProfileDraft(patient: PharmacyPatient): PatientProfileDra
   };
 }
 
+export type PatientProfileErrors = Partial<Record<keyof PatientProfileDraft, string>>;
+
+export function patientProfileErrors(draft: PatientProfileDraft): PatientProfileErrors {
+  const errors: PatientProfileErrors = {};
+  if (!draft.name.trim()) errors.name = '氏名を入力してください';
+  if (!draft.nameKana.trim()) errors.nameKana = '氏名カナを入力してください';
+  if (!draft.birthDate) errors.birthDate = '生年月日を入力してください';
+  const hasAddress = Boolean(
+    draft.postalCode.trim() || draft.prefecture || draft.city.trim() ||
+    draft.addressLine1.trim() || draft.addressLine2.trim(),
+  );
+  if (hasAddress) {
+    if (!/^\d{3}-?\d{4}$/.test(draft.postalCode.trim())) errors.postalCode = '郵便番号は 000-0000 の形式で入力してください';
+    if (!draft.prefecture) errors.prefecture = '都道府県を選んでください';
+    if (!draft.city.trim()) errors.city = '市区町村を入力してください';
+    if (!draft.addressLine1.trim()) errors.addressLine1 = '番地を入力してください';
+  }
+  return errors;
+}
+
+const REQUIRED_BADGE = <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-bold text-red-800">必須</span>;
+
+function FieldError({ message }: { message?: string }) {
+  return message ? <span role="alert" className="mt-1 block text-sm font-bold text-red-700">{message}</span> : null;
+}
+
 export function PatientProfileForm({
   draft,
   editing,
   busy,
   showAddress,
+  errors = {},
   onChange,
   onToggleAddress,
   onSubmit,
@@ -75,6 +102,7 @@ export function PatientProfileForm({
   editing: boolean;
   busy: boolean;
   showAddress: boolean;
+  errors?: PatientProfileErrors;
   onChange: <K extends keyof PatientProfileDraft>(
     key: K,
     value: PatientProfileDraft[K],
@@ -99,16 +127,19 @@ export function PatientProfileForm({
         </select>
       </label>
       <label className="block text-sm">
-        氏名
-        <input required autoComplete="name" value={draft.name} onChange={(event) => onChange('name', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" />
+        氏名{REQUIRED_BADGE}
+        <input required aria-invalid={errors.name ? true : undefined} autoComplete="name" value={draft.name} onChange={(event) => onChange('name', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" />
+        <FieldError message={errors.name} />
       </label>
       <label className="block text-sm">
-        氏名カナ
-        <input required autoComplete="off" value={draft.nameKana} onChange={(event) => onChange('nameKana', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" />
+        氏名カナ{REQUIRED_BADGE}
+        <input required aria-invalid={errors.nameKana ? true : undefined} autoComplete="off" value={draft.nameKana} onChange={(event) => onChange('nameKana', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" />
+        <FieldError message={errors.nameKana} />
       </label>
       <label className="block text-sm">
-        生年月日
-        <input required type="date" autoComplete="bday" value={draft.birthDate} onChange={(event) => onChange('birthDate', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" />
+        生年月日{REQUIRED_BADGE}
+        <input required aria-invalid={errors.birthDate ? true : undefined} type="date" autoComplete="bday" value={draft.birthDate} onChange={(event) => onChange('birthDate', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" />
+        <FieldError message={errors.birthDate} />
       </label>
       <label className="block text-sm">
         性別（任意）
@@ -129,29 +160,33 @@ export function PatientProfileForm({
       {showAddress && <div className="space-y-3 rounded-lg bg-gray-50 p-3">
         <label className="block text-sm">
           郵便番号
-          <input inputMode="numeric" autoComplete="postal-code" value={draft.postalCode} onChange={(event) => onChange('postalCode', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" placeholder="000-0000" maxLength={8} />
+          <input aria-invalid={errors.postalCode ? true : undefined} inputMode="numeric" autoComplete="postal-code" value={draft.postalCode} onChange={(event) => onChange('postalCode', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" placeholder="000-0000" maxLength={8} />
+          <FieldError message={errors.postalCode} />
         </label>
         <label className="block text-sm">
           都道府県
-          <select autoComplete="address-level1" value={draft.prefecture} onChange={(event) => onChange('prefecture', event.target.value)} className="mt-1 block w-full rounded-lg border p-3">
+          <select aria-invalid={errors.prefecture ? true : undefined} autoComplete="address-level1" value={draft.prefecture} onChange={(event) => onChange('prefecture', event.target.value)} className="mt-1 block w-full rounded-lg border p-3">
             <option value="">選択してください</option>
             {prefectures.map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
+          <FieldError message={errors.prefecture} />
         </label>
         <label className="block text-sm">
           市区町村
-          <input autoComplete="address-level2" value={draft.city} onChange={(event) => onChange('city', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" maxLength={120} />
+          <input aria-invalid={errors.city ? true : undefined} autoComplete="address-level2" value={draft.city} onChange={(event) => onChange('city', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" maxLength={120} />
+          <FieldError message={errors.city} />
         </label>
         <label className="block text-sm">
           番地
-          <input autoComplete="street-address" value={draft.addressLine1} onChange={(event) => onChange('addressLine1', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" maxLength={240} />
+          <input aria-invalid={errors.addressLine1 ? true : undefined} autoComplete="street-address" value={draft.addressLine1} onChange={(event) => onChange('addressLine1', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" maxLength={240} />
+          <FieldError message={errors.addressLine1} />
         </label>
         <label className="block text-sm">
           建物名・部屋番号（任意）
           <input autoComplete="address-line2" value={draft.addressLine2} onChange={(event) => onChange('addressLine2', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" maxLength={240} />
         </label>
       </div>}
-      <button type="button" onClick={onSubmit} disabled={busy} className="w-full rounded-lg bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">
+      <button type="button" onClick={onSubmit} disabled={busy} className="min-h-11 w-full rounded-lg bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">
         {editing ? '患者情報を更新する' : '患者を登録する'}
       </button>
     </div>

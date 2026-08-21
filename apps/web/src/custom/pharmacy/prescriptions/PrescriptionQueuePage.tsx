@@ -287,7 +287,7 @@ export default function PrescriptionQueuePage() {
     <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">処方せん事前送信</h1>
+          <h1 className="text-2xl font-bold text-gray-900">処方せん受付</h1>
           <p className="mt-1 text-sm text-gray-500">患者さんから届いた画像とアンケートを確認し、受付状況を更新します。</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button>
@@ -309,7 +309,9 @@ export default function PrescriptionQueuePage() {
           setActionMessage('')
           closeViewer()
           updateUrl(tab, id)
-          void openDetail(id)
+          void openDetail(id).then(() => {
+            document.getElementById('prescription-detail-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          })
         }}
         onLoadMore={(cursor) => void load(cursor)}
       />

@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import Booking from './pages/Booking.js';
 import BookingHistory from './pages/BookingHistory.js';
 import Event from './pages/Event.js';
@@ -17,6 +18,7 @@ import MainMenuPage from './custom/pharmacy/menu/MainMenuPage.js'; // custom:pha
 import PharmacyInfoPage from './custom/pharmacy/public-profile/PharmacyInfoPage.js'; // custom:pharmacy-public-profile
 import { deprecatedReceiveTarget } from './custom/pharmacy/navigation.js';
 import PharmacyFeatureGate from './custom/pharmacy/menu/PharmacyFeatureGate.js';
+import { PharmacyAccessProvider, PharmacyShell } from './custom/pharmacy/PharmacyShell.js';
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -31,9 +33,25 @@ function PrescriptionRoute() {
   const view = new URLSearchParams(useLocation().search).get('view');
   const capability = view === 'electronic' ? 'electronic_prescription' : 'prescription_intake';
   const allowExisting = view === 'history' || view === 'electronic';
-  return <PharmacyFeatureGate key={`${capability}:${allowExisting}`} capability={capability} allowExisting={allowExisting}>
+  const screenTitle = view === 'electronic' ? '電子処方箋' : view === 'history' ? '受付状況' : '処方せん事前送信';
+  return <PharmacyPage screenTitle={screenTitle} capability={capability} allowExisting={allowExisting}>
     <PrescriptionPage />
-  </PharmacyFeatureGate>;
+  </PharmacyPage>;
+}
+
+function PharmacyPage({ screenTitle, capability, allowExisting = false, children }: {
+  screenTitle: string;
+  capability?: import('./custom/pharmacy/menu/PharmacyFeatureGate.js').PatientFeature;
+  allowExisting?: boolean;
+  children: ReactNode;
+}) {
+  return <PharmacyAccessProvider>
+    <PharmacyShell screenTitle={screenTitle}>
+      {capability
+        ? <PharmacyFeatureGate capability={capability} allowExisting={allowExisting}>{children}</PharmacyFeatureGate>
+        : children}
+    </PharmacyShell>
+  </PharmacyAccessProvider>;
 }
 
 export default function App() {
@@ -48,13 +66,13 @@ export default function App() {
       <Route path="/affiliate" element={<Affiliate />} />
       <Route path="/webinar/:slug" element={<Webinar />} />
       <Route path="/prescriptions" element={<PrescriptionRoute />} /> {/* custom:pharmacy-prescriptions */}
-      <Route path="/pharmacy/menu" element={<MainMenuPage />} /> {/* custom:pharmacy-menu */}
-      <Route path="/pharmacy/info" element={<PharmacyFeatureGate capability="pharmacy_info"><PharmacyInfoPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-public-profile */}
-      <Route path="/pharmacy/patient-intake" element={<PharmacyFeatureGate capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-intake */}
-      <Route path="/pharmacy/continuity" element={<PharmacyFeatureGate capability="continuity" allowExisting><ContinuityPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-continuity */}
+      <Route path="/pharmacy/menu" element={<PharmacyPage screenTitle="すべての機能"><MainMenuPage /></PharmacyPage>} /> {/* custom:pharmacy-menu */}
+      <Route path="/pharmacy/info" element={<PharmacyPage screenTitle="薬局情報" capability="pharmacy_info"><PharmacyInfoPage /></PharmacyPage>} /> {/* custom:pharmacy-public-profile */}
+      <Route path="/pharmacy/patient-intake" element={<PharmacyPage screenTitle="患者アンケート" capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyPage>} /> {/* custom:pharmacy-intake */}
+      <Route path="/pharmacy/continuity" element={<PharmacyPage screenTitle="継続フォロー" capability="continuity" allowExisting><ContinuityPage /></PharmacyPage>} /> {/* custom:pharmacy-continuity */}
       <Route path="/pharmacy/receive" element={<DeprecatedReceiveRedirect />} /> {/* custom:pharmacy-myna */}
-      <Route path="/pharmacy/medication-followup" element={<PharmacyFeatureGate capability="medication_followup" allowExisting><MedicationFollowUpPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-medication-followup */}
-      <Route path="/pharmacy/emergency-contraception" element={<PharmacyFeatureGate capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-emergency-contraception */}
+      <Route path="/pharmacy/medication-followup" element={<PharmacyPage screenTitle="服薬後フォロー" capability="medication_followup" allowExisting><MedicationFollowUpPage /></PharmacyPage>} /> {/* custom:pharmacy-medication-followup */}
+      <Route path="/pharmacy/emergency-contraception" element={<PharmacyPage screenTitle="緊急避妊薬" capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyPage>} /> {/* custom:pharmacy-emergency-contraception */}
       <Route path="/" element={<LegacyEntryRedirect />} />
       <Route
         path="*"

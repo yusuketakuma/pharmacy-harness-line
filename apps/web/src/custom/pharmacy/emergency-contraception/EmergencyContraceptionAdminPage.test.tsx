@@ -65,4 +65,11 @@ describe('emergency contraception admin safety', () => {
     expect(page).toContain('新しい受付から表示します')
     expect(page).not.toContain('未確認の仮受付を先に表示します')
   })
+
+  it('shows an account-scoped neutral reminder switch keyed by its revision', () => {
+    const page = readFileSync(new URL('./EmergencyContraceptionAdminPage.tsx', import.meta.url), 'utf8')
+    expect(page).toContain('予約前の中立LINE通知')
+    expect(page).toContain('emergencyContraceptionAdminApi.reminderControl')
+    expect(page).toContain('expectedRevision: reminderControl.revision')
+  })
 })

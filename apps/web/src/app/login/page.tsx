@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { safeNextPath } from '@/lib/safe-next-path'
 
 export default function LoginPage() {
   const [pharmacyCode, setPharmacyCode] = useState('')
@@ -12,7 +13,15 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [nextPath, setNextPath] = useState('/')
   const router = useRouter()
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    setNextPath(safeNextPath(params.get('next')))
+    if (params.get('reason') === 'expired') setNotice('セッションの有効期限が切れました。もう一度ログインしてください')
+  }, [])
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
 
@@ -28,12 +37,12 @@ export default function LoginPage() {
           setPasswordChangeRequired(true)
           setError('初回パスワード変更を続けてください。現在の仮パスワードをもう一度入力してください')
         } else {
-          router.replace('/')
+          router.replace(nextPath)
         }
       })
       .catch(() => undefined)
     return () => { cancelled = true }
-  }, [apiUrl, router])
+  }, [apiUrl, router, nextPath])
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -55,6 +64,8 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(res.status === 401
           ? '薬局コード、管理者IDまたはパスワードが正しくありません'
+          : res.status === 403
+            ? 'このアカウントは無効化されています。薬局のオーナーにご確認ください'
           : res.status === 429
             ? 'ログイン試行が多すぎます。しばらく待ってからお試しください'
             : 'ログインに失敗しました。しばらく待ってからお試しください')
@@ -70,7 +81,7 @@ export default function LoginPage() {
         setPasswordChangeRequired(true)
         return
       }
-      router.push('/')
+      router.push(nextPath)
     } catch {
       setError('接続に失敗しました')
     } finally {
@@ -112,7 +123,7 @@ export default function LoginPage() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-      router.push('/')
+      router.push(nextPath)
     } catch {
       setError('接続に失敗しました')
     } finally {
@@ -147,6 +158,7 @@ export default function LoginPage() {
           </form>
         ) : (
           <form onSubmit={handleLogin}>
+            {notice && <p role="status" className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-4">{notice}</p>}
             <label htmlFor="pharmacy-code" className="block text-sm font-medium text-gray-700 mb-1">薬局コード</label>
             {/* type="text" + inputMode, never type="number": a numeric input would drop
                 the leading zero of a code like 004821, and legacy tenants still have
@@ -163,6 +175,7 @@ export default function LoginPage() {
             <button type="submit" disabled={loading || !pharmacyCode || !loginId || !password} className="w-full py-3 text-white font-medium rounded-lg disabled:opacity-50" style={{ backgroundColor: '#06C755' }}>
               {loading ? 'ログイン中...' : 'ログイン'}
             </button>
+            <p className="text-xs text-gray-500 mt-4">パスワードを忘れた場合は、薬局のオーナーまたは管理者に仮パスワードの再発行を依頼してください。</p>
           </form>
         )}
       </div>

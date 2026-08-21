@@ -14,7 +14,7 @@ it('keeps LIFF integration to one marked import and route', () => {
     "import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake",
   );
   expect(source).toContain(
-    '<Route path="/pharmacy/patient-intake" element={<PharmacyFeatureGate capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyFeatureGate>} /> {/* custom:pharmacy-intake */}',
+    '<Route path="/pharmacy/patient-intake" element={<PharmacyPage screenTitle="患者アンケート" capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyPage>} /> {/* custom:pharmacy-intake */}',
   );
   expect(source).toContain(
     "import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity",

@@ -19,8 +19,10 @@ describe('legacyQueryTarget', () => {
     );
   });
 
-  it('keeps booking as the safe default', () => {
-    expect(legacyQueryTarget('')).toBe('/booking');
+  it('opens the pharmacy menu by default in the pharmacy build', () => {
+    expect(legacyQueryTarget('')).toBe('/pharmacy/menu');
+    expect(legacyQueryTarget('?liffId=123')).toBe('/pharmacy/menu?liffId=123');
+    expect(legacyQueryTarget('?page=unknown-form&liffId=123')).toBe('/pharmacy/menu?liffId=123');
     expect(legacyQueryTarget('?page=salon-book&liffId=123')).toBe(
       '/booking?liffId=123',
     );

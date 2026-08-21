@@ -296,6 +296,61 @@ export type PlatformDashboard = {
   webhookPending: number
   activeSupportGrants: number
   tenantsWithStaleActivity: number
+  pharmacyReadiness: {
+    checkedAt: string
+    statusCounts: PlatformReadinessStatusCounts
+    tenants: Array<{
+      tenantId: string
+      statusCounts: PlatformReadinessStatusCounts
+      accounts: Array<{
+        accountId: string
+        checkedAt: string
+        statusCounts: PlatformReadinessStatusCounts
+      }>
+    }>
+  }
+  versions: {
+    sellerRelease: string | null
+    liffPackageVersion: string
+    liffArtifactHash: string
+    webRuntime: PlatformRuntimeVersion
+    workerRuntime: PlatformRuntimeVersion
+  }
+}
+
+export type PlatformReadinessStatus = 'READY' | 'BLOCKED' | 'UNVERIFIED'
+export type PlatformReadinessStatusCounts = Record<PlatformReadinessStatus, number>
+export type PlatformRuntimeVersion = {
+  packageVersion: string
+  bundleVersion: string
+  artifactHash: string
+  releasedAt: string
+}
+
+export type PlatformReadinessReasonCode =
+  | 'LIFF_ID_MISSING' | 'LIFF_PUBLIC_ORIGIN_INVALID' | 'LIFF_ENDPOINT_UNVERIFIED'
+  | 'ELECTRONIC_CAPABILITY_DISABLED' | 'ELECTRONIC_ENDPOINT_MISSING' | 'ELECTRONIC_ENDPOINT_UNVERIFIED'
+  | 'EMERGENCY_CAPABILITY_DISABLED' | 'EMERGENCY_REQUIREMENTS_INCOMPLETE'
+  | 'EMERGENCY_TRAINED_PHARMACIST_MISSING' | 'EMERGENCY_INVENTORY_UNAVAILABLE'
+  | 'EMERGENCY_FUTURE_SLOT_UNAVAILABLE' | 'RICH_MENU_CAPABILITY_DISABLED'
+  | 'RICH_MENU_LAYOUT_MISSING' | 'RICH_MENU_SAVED_VERSION_MISSING'
+  | 'RICH_MENU_CAPABILITY_REVISION_STALE' | 'RICH_MENU_CATALOG_STALE'
+  | 'RICH_MENU_UPLOAD_UNVERIFIED' | 'RICH_MENU_PUBLISHED_VERSION_MISSING'
+  | 'RICH_MENU_DEFAULT_NOT_RECORDED' | 'RICH_MENU_DEFAULT_READBACK_UNVERIFIED'
+
+export type PlatformConfigurationDoctor = {
+  accountId: string
+  checkedAt: string
+  status: PlatformReadinessStatus
+  reasonCodes: string[]
+  checks: Array<{
+    key: string
+    required: boolean
+    status: PlatformReadinessStatus
+    reasonCodes: string[]
+    impact: string
+    fixHref: string
+  }>
 }
 
 export type PlatformTenantHealth = {
@@ -343,12 +398,26 @@ export type PlatformLineStatus = {
   loginCredentialReady: boolean
   expectedLiffEndpoint: string | null
   liffEndpointEvidence: { status: 'UNVERIFIED'; source: 'manual_console'; checkedAt: string | null }
+  liffReasonCodes: PlatformReadinessReasonCode[]
   lastWebhookReceivedAt: string | null
+  configurationDoctor: PlatformConfigurationDoctor
   readiness: {
     accountId: string
     checkedAt: string
-    electronicPrescription: { status: 'READY' | 'BLOCKED' | 'UNVERIFIED' }
-    emergencyContraception: { status: 'READY' | 'BLOCKED' }
+    electronicPrescription: { status: PlatformReadinessStatus; reasonCodes: PlatformReadinessReasonCode[] }
+    emergencyContraception: { status: 'READY' | 'BLOCKED'; reasonCodes: PlatformReadinessReasonCode[] }
+    richMenu: {
+      status: PlatformReadinessStatus
+      syncStatus: 'CURRENT' | 'STALE' | 'UNVERIFIED'
+      layoutConfigured: boolean
+      savedVersionAvailable: boolean
+      capabilityRevisionCurrent: boolean
+      uploadVerified: boolean
+      publishedVersionAvailable: boolean
+      currentDefaultRecorded: boolean
+      defaultReadbackVerified: boolean
+      reasonCodes: PlatformReadinessReasonCode[]
+    }
   } | null
 }
 
@@ -356,6 +425,43 @@ export type PlatformLineStatus = {
 export type PlatformLineProbe =
   | { ok: true; botUserId: string; displayName: string | null }
   | { ok: false; error: string }
+
+export type PlatformTenantProvisioningInput = {
+  tenantName: string
+  admin: {
+    loginId: string
+    displayName: string
+    email: string | null
+    temporaryPassword: string
+  }
+  line: {
+    channelId: string
+    displayName: string
+    channelAccessToken: string
+    channelSecret: string
+    loginChannelId: string
+    loginChannelSecret: string
+    liffId: string
+  }
+}
+
+export type PlatformTenantProvisioningResult = {
+  tenantId: string
+  tenantCode: string
+  tenantName: string
+  lineAccountId: string
+  lineAccountName: string
+  staffId: string
+  adminLoginId: string
+  replayed: boolean
+  urls: { admin: string; webhook: string; liffEndpoint: string }
+  line: {
+    tokenValidated: boolean
+    webhookConfigured: boolean | null
+    channelSecretVerification?: 'pending_first_webhook'
+  }
+  manualSteps?: string[]
+}
 
 type Envelope<T> = { success: boolean; data: T; csrfToken?: string }
 
@@ -373,6 +479,15 @@ export const platformAdminApi = {
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
   tenants: () => platformAdminFetch<Envelope<PlatformTenant[]>>('/tenants'),
+  provisionTenant: (input: PlatformTenantProvisioningInput, idempotencyKey: string) =>
+    platformAdminFetch<Envelope<PlatformTenantProvisioningResult>>(
+      '/tenants',
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    ),
   tenant: (id: string) =>
     platformAdminFetch<Envelope<PlatformTenantDetail>>(`/tenants/${encodeURIComponent(id)}`),
   updateTenant: (id: string, changes: { displayName?: string; status?: string }) =>

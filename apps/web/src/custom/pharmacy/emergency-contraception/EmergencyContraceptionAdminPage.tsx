@@ -13,6 +13,7 @@ import {
   type EmergencyIntakeSummary,
   type EmergencyPharmacist,
   type EmergencyRiskFlag,
+  type EmergencyReminderControl,
   type EmergencySlot,
 } from './api'
 
@@ -39,6 +40,10 @@ const emptySlotDraft = {
   startsAt: '',
   endsAt: '',
   capacity: '1',
+}
+
+const emptyReminderControl: EmergencyReminderControl = {
+  state: 'inactive', revision: 0, timeZone: 'Asia/Tokyo', updatedAt: null,
 }
 
 const STATUS_LABELS: Record<EmergencyIntakeStatus, string> = {
@@ -198,6 +203,7 @@ export default function EmergencyContraceptionAdminPage() {
   const [inventory, setInventory] = useState<EmergencyInventory[]>([])
   const [inventoryDrafts, setInventoryDrafts] = useState<Record<string, InventoryDraft>>({})
   const [slots, setSlots] = useState<EmergencySlot[]>([])
+  const [reminderControl, setReminderControl] = useState<EmergencyReminderControl>(emptyReminderControl)
   const [intakes, setIntakes] = useState<EmergencyIntakeSummary[]>([])
   const [selectedDetail, setSelectedDetail] = useState<AdminEmergencyIntake | null>(null)
   const [statusFilter, setStatusFilter] = useState<EmergencyIntakeStatus | ''>('')
@@ -229,9 +235,10 @@ export default function EmergencyContraceptionAdminPage() {
     setLoading(true)
     setError('')
     setQueueError('')
-    const [configResult, intakeResult] = await Promise.allSettled([
+    const [configResult, intakeResult, reminderResult] = await Promise.allSettled([
       emergencyContraceptionAdminApi.config(accountId),
       emergencyContraceptionAdminApi.intakes(accountId, { ...queueFiltersRef.current, limit: 50 }),
+      emergencyContraceptionAdminApi.reminderControl(accountId),
     ])
     if (!requestGate.isCurrent(request) || selectedAccountRef.current !== accountId) return
     if (configResult.status === 'fulfilled') {
@@ -270,6 +277,8 @@ export default function EmergencyContraceptionAdminPage() {
     } else {
       setQueueError('受付キューを表示できません。研修修了薬剤師の権限または通信状態を確認してください。')
     }
+    if (reminderResult.status === 'fulfilled') setReminderControl(reminderResult.value)
+    else setError('予約前通知の設定を取得できませんでした。')
     setLoading(false)
   }, [requestGate, selectedAccountId])
 
@@ -281,6 +290,7 @@ export default function EmergencyContraceptionAdminPage() {
     setInventory([])
     setInventoryDrafts({})
     setSlots([])
+    setReminderControl(emptyReminderControl)
     setIntakes([])
     setSelectedDetail(null)
     setStatusFilter('')
@@ -317,6 +327,30 @@ export default function EmergencyContraceptionAdminPage() {
       await load()
     } catch {
       if (selectedAccountRef.current === accountId) setError('受付設定を保存できませんでした。入力値と権限を確認してください。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setBusy('')
+    }
+  }
+
+  async function toggleReminderControl() {
+    if (!selectedAccountId || busy || reminderControl.state === 'frozen') return
+    const accountId = selectedAccountId
+    const state = reminderControl.state === 'active' ? 'inactive' : 'active'
+    if (state === 'active' && !window.confirm(
+      '予約1時間前の中立的なLINE通知を有効にします。通知を希望した受付だけが対象です。よろしいですか？',
+    )) return
+    setBusy('reminder-control')
+    setError('')
+    setMessage('')
+    try {
+      const saved = await emergencyContraceptionAdminApi.saveReminderControl(accountId, {
+        state, expectedRevision: reminderControl.revision,
+      })
+      if (selectedAccountRef.current !== accountId) return
+      setReminderControl(saved)
+      setMessage(state === 'active' ? '予約前の中立LINE通知を有効にしました。' : '予約前の中立LINE通知を無効にしました。')
+    } catch {
+      if (selectedAccountRef.current === accountId) setError('予約前通知の設定を更新できませんでした。再読み込みしてから再試行してください。')
     } finally {
       if (selectedAccountRef.current === accountId) setBusy('')
     }
@@ -516,7 +550,7 @@ export default function EmergencyContraceptionAdminPage() {
     <div className="mx-auto max-w-7xl space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">緊急避妊薬 Phase 1 管理</h1>
+          <h1 className="text-2xl font-bold text-gray-900">緊急避妊薬</h1>
           <p className="mt-1 text-sm text-gray-600">受付設定、研修修了薬剤師、在庫、対応枠、受付キューをLINEアカウント単位で管理します。</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading || Boolean(busy)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button>
@@ -532,9 +566,22 @@ export default function EmergencyContraceptionAdminPage() {
       {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {message && <div role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</div>}
 
+      <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="emergency-reminder-title">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="emergency-reminder-title" className="text-lg font-semibold">予約前の中立LINE通知</h2>
+            <p className="mt-1 text-sm text-gray-600">通知を希望した受付へ、予約1時間前に内容を特定しない定型文だけを送ります。日本時間の21時〜8時は送信しません。</p>
+            <p className="mt-1 text-xs text-gray-500">状態: {reminderControl.state === 'active' ? '有効' : reminderControl.state === 'frozen' ? '停止固定' : '無効'}</p>
+          </div>
+          <button type="button" onClick={() => void toggleReminderControl()} disabled={busy !== '' || reminderControl.state === 'frozen'} aria-pressed={reminderControl.state === 'active'} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 ${reminderControl.state === 'active' ? 'border border-red-300 bg-white text-red-700' : 'bg-green-600 text-white'}`}>
+            {busy === 'reminder-control' ? '更新中…' : reminderControl.state === 'active' ? '通知を無効にする' : reminderControl.state === 'frozen' ? '停止固定中' : '通知を有効にする'}
+          </button>
+        </div>
+      </section>
+
       <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="emergency-settings-title">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 id="emergency-settings-title" className="text-lg font-semibold">受付 readiness 設定</h2><p className="mt-1 text-sm text-gray-600">必要な運用条件と案内先を記録します。設定済みでも患者ごとの最終判断は薬剤師が行います。</p></div>
+          <div><h2 id="emergency-settings-title" className="text-lg font-semibold">受付条件の設定</h2><p className="mt-1 text-sm text-gray-600">必要な運用条件と案内先を記録します。設定済みでも患者ごとの最終判断は薬剤師が行います。</p></div>
           <p className="text-sm font-medium">受付機能: {config.enabled ? '有効' : '無効'}（機能設定で変更）</p>
         </div>
         <form className="mt-4 space-y-4" onSubmit={(event) => { event.preventDefault(); void saveConfig() }}>
@@ -574,7 +621,7 @@ export default function EmergencyContraceptionAdminPage() {
         <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="emergency-inventory-title">
           <h2 id="emergency-inventory-title" className="text-lg font-semibold">在庫</h2>
           <p className="mt-1 text-sm text-gray-600">在庫数だけを記録します。販売の可否を自動判定する表示ではありません。</p>
-          <div className="mt-4 space-y-3">{inventory.length === 0 ? <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">商品コードを受付設定に入力して保存すると、在庫を登録できます。</p> : inventory.map((item) => { const draft = inventoryDrafts[item.product_code] ?? { onHand: String(item.on_hand), version: item.version }; return <div key={item.product_code} className="flex flex-wrap items-end gap-2 rounded-lg border border-gray-200 p-3"><div className="min-w-48 flex-1"><p className="text-sm font-medium">商品コード: {item.product_code}</p><p className="mt-1 text-xs text-gray-500">更新: {item.updated_at ? formatDate(item.updated_at) : '未登録'} / version {draft.version}</p></div><label className="text-sm">在庫数<input type="number" min="0" value={draft.onHand} onChange={(event) => setInventoryDrafts((current) => ({ ...current, [item.product_code]: { ...draft, onHand: event.target.value } }))} className="mt-1 w-28 rounded-lg border border-gray-300 px-3 py-2" /></label><button type="button" onClick={() => void saveInventory(item.product_code)} disabled={busy !== ''} className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">{busy === `inventory:${item.product_code}` ? '更新中…' : '在庫を更新'}</button></div> })}</div>
+          <div className="mt-4 space-y-3">{inventory.length === 0 ? <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">商品コードを受付設定に入力して保存すると、在庫を登録できます。</p> : inventory.map((item) => { const draft = inventoryDrafts[item.product_code] ?? { onHand: String(item.on_hand), version: item.version }; return <div key={item.product_code} className="flex flex-wrap items-end gap-2 rounded-lg border border-gray-200 p-3"><div className="min-w-48 flex-1"><p className="text-sm font-medium">商品コード: {item.product_code}</p><p className="mt-1 text-xs text-gray-500">更新: {item.updated_at ? formatDate(item.updated_at) : '未登録'}</p></div><label className="text-sm">在庫数<input type="number" min="0" value={draft.onHand} onChange={(event) => setInventoryDrafts((current) => ({ ...current, [item.product_code]: { ...draft, onHand: event.target.value } }))} className="mt-1 w-28 rounded-lg border border-gray-300 px-3 py-2" /></label><button type="button" onClick={() => void saveInventory(item.product_code)} disabled={busy !== ''} className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">{busy === `inventory:${item.product_code}` ? '更新中…' : '在庫を更新'}</button></div> })}</div>
         </section>
       </div>
 

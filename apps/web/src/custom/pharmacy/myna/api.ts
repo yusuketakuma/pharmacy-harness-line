@@ -89,4 +89,12 @@ export const mynaAdminApi = {
     fetchApi<{ endpoint: MynaEndpoint }>(`/api/custom/pharmacy/myna-endpoint?${accountQuery(accountId)}`, {
       method: 'PUT', body: JSON.stringify(body),
     }),
+  setEndpointEnabled: (accountId: string, enabled: boolean, expectedRevision: number) =>
+    fetchApi<{ endpoint: MynaEndpoint }>(`/api/custom/pharmacy/myna-endpoint?${accountQuery(accountId)}`, {
+      method: 'PATCH', body: JSON.stringify({ enabled, expectedRevision }),
+    }),
+  verifyEndpoint: (accountId: string, expectedRevision: number) =>
+    fetchApi<{ checkedAt: string }>(`/api/custom/pharmacy/myna-endpoint/verification?${accountQuery(accountId)}`, {
+      method: 'POST', body: JSON.stringify({ expectedRevision }),
+    }),
 }

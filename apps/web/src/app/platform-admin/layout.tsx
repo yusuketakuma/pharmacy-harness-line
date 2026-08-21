@@ -100,7 +100,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
       </div>
       <SupportModeBanner />
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-purple-200 bg-white px-4 py-3">
-        <span className="font-bold text-purple-900">Platform Admin</span>
+        <span className="font-bold text-purple-900">全体管理者</span>
         <nav className="flex flex-wrap gap-3 text-sm">
           {NAV.map((item) => (
             <Link

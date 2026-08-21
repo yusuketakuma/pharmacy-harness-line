@@ -74,6 +74,13 @@ export interface EmergencyAdminConfig {
   slots: EmergencySlot[]
 }
 
+export interface EmergencyReminderControl {
+  state: 'inactive' | 'active' | 'frozen'
+  revision: number
+  timeZone: 'Asia/Tokyo'
+  updatedAt: string | null
+}
+
 export interface EmergencyIntakeSummary {
   id: string
   reference_code: string
@@ -129,6 +136,16 @@ export const emergencyContraceptionAdminApi = {
       { method: 'PUT', body: JSON.stringify(settings) },
     )
   },
+  reminderControl: (accountId: string) => fetchApi<EmergencyReminderControl>(
+    `${path}/reminders?${accountQuery(accountId)}`,
+  ),
+  saveReminderControl: (
+    accountId: string,
+    body: { state: EmergencyReminderControl['state']; expectedRevision: number },
+  ) => fetchApi<EmergencyReminderControl>(
+    `${path}/reminders?${accountQuery(accountId)}`,
+    { method: 'PUT', body: JSON.stringify(body) },
+  ),
   setPharmacist: (
     accountId: string,
     staffId: string,

@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAccount } from '../../../contexts/account-context'
-import { mynaAdminApi, type MynaHandoff, type MynaHandoffDetail, type MynaHandoffStatus, type MynaVerificationStatus } from './api'
+import { mynaAdminApi, type MynaEndpoint, type MynaHandoff, type MynaHandoffDetail, type MynaHandoffStatus, type MynaVerificationStatus } from './api'
 
 const statusLabels: Record<MynaHandoff['status'], string> = {
   CREATED: '受付開始',
   LAUNCH_REQUESTED: '外部受付を開いた',
   PATIENT_REPORTED_COMPLETE: '患者が操作完了を申告',
-  PATIENT_REPORTED_NO_PRESCRIPTION: '処方箋が見つからないと申告',
+  PATIENT_REPORTED_NO_PRESCRIPTION: '処方せんが見つからないと申告',
   SUPPORT_NEEDED: '操作支援が必要',
   PAPER_FALLBACK: '紙へ切替',
   ABANDONED: '中断',
@@ -19,17 +19,17 @@ const statusLabels: Record<MynaHandoff['status'], string> = {
 
 const methodLabels: Record<MynaHandoff['method'], string> = {
   E_PRESCRIPTION: '電子処方箋',
-  PAPER: '紙の処方箋',
+  PAPER: '紙の処方せん',
   MEDICAL_INSTITUTION_SENT: '医療機関から送信済み',
 }
 
 const verificationLabels: Array<[MynaVerificationStatus, string]> = [
   ['E_PRESCRIPTION_RECEIVED', '電子処方箋を確認した'],
-  ['CONSENT_ONLY_OR_NO_PRESCRIPTION', '同意登録のみ／処方箋なし'],
-  ['NO_RECORD_FOUND', '対象処方箋が見つからない'],
+  ['CONSENT_ONLY_OR_NO_PRESCRIPTION', '同意登録のみ／処方せんなし'],
+  ['NO_RECORD_FOUND', '対象処方せんが見つからない'],
   ['SUBMITTED_TO_OTHER_PHARMACY', '他薬局へ提出済み'],
   ['PRESCRIPTION_EXPIRED', '使用期限外'],
-  ['PAPER_FALLBACK', '紙処方箋へ切替'],
+  ['PAPER_FALLBACK', '紙処方せんへ切替'],
   ['PATIENT_MISMATCH', '患者確認が必要'],
   ['MANUAL_EXCEPTION', '手動例外として記録'],
 ]
@@ -66,6 +66,7 @@ export default function MynaAdminPage() {
   const [handoffs, setHandoffs] = useState<MynaHandoff[]>([])
   const [endpoint, setEndpoint] = useState<{ tenantAlias: string; endpointUrl: string; enabled: boolean }>({ tenantAlias: '', endpointUrl: '', enabled: true })
   const [endpointMasked, setEndpointMasked] = useState('')
+  const [endpointConfig, setEndpointConfig] = useState<MynaEndpoint | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -90,9 +91,11 @@ export default function MynaAdminPage() {
       setHandoffs(queue.handoffs)
       setSelectedDetail(null)
       if (config.endpoint) {
+        setEndpointConfig(config.endpoint)
         setEndpoint({ tenantAlias: config.endpoint.tenant_alias, endpointUrl: '', enabled: config.endpoint.enabled })
         setEndpointMasked(config.endpoint.endpoint_url_masked)
       } else {
+        setEndpointConfig(null)
         setEndpoint({ tenantAlias: '', endpointUrl: '', enabled: true })
         setEndpointMasked('')
       }
@@ -110,6 +113,7 @@ export default function MynaAdminPage() {
     setHandoffs([])
     setEndpoint({ tenantAlias: '', endpointUrl: '', enabled: true })
     setEndpointMasked('')
+    setEndpointConfig(null)
     setSelectedDetail(null)
     setError('')
     setMessage('')
@@ -131,10 +135,46 @@ export default function MynaAdminPage() {
       const result = await mynaAdminApi.saveEndpoint(accountId, input)
       if (selectedAccountRef.current !== accountId) return
       setEndpointMasked(result.endpoint.endpoint_url_masked)
+      setEndpointConfig(result.endpoint)
       setEndpoint((current) => ({ ...current, endpointUrl: '' }))
       setMessage('Myna受付URLを保存しました。')
     } catch {
       if (selectedAccountRef.current === accountId) setError('URLを保存できませんでした。許可された公式ホストか確認してください。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setSaving(false)
+    }
+  }
+
+  async function setEndpointEnabled(enabled: boolean) {
+    if (!selectedAccountId || saving || !endpointConfig) return
+    if (!window.confirm(enabled ? '電子処方箋連携を再開しますか？' : '電子処方箋連携を停止しますか？')) return
+    const accountId = selectedAccountId
+    setSaving(true); setError(''); setMessage('')
+    try {
+      const result = await mynaAdminApi.setEndpointEnabled(accountId, enabled, endpointConfig.revision)
+      if (selectedAccountRef.current !== accountId) return
+      setEndpointConfig(result.endpoint)
+      setEndpoint((current) => ({ ...current, enabled: result.endpoint.enabled }))
+      setMessage(enabled ? '電子処方箋連携を再開しました。動作確認を記録してください。' : '電子処方箋連携を停止しました。')
+    } catch {
+      if (selectedAccountRef.current === accountId) setError('電子処方箋連携の状態を変更できませんでした。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setSaving(false)
+    }
+  }
+
+  async function verifyEndpoint() {
+    if (!selectedAccountId || saving || !endpointConfig?.enabled) return
+    if (!window.confirm('LINE公式画面から受付URLを開き、正常に表示できることを確認しましたか？')) return
+    const accountId = selectedAccountId
+    setSaving(true); setError(''); setMessage('')
+    try {
+      const result = await mynaAdminApi.verifyEndpoint(accountId, endpointConfig.revision)
+      if (selectedAccountRef.current !== accountId) return
+      setEndpointConfig((current) => current ? { ...current, last_verified_at: result.checkedAt } : current)
+      setMessage('公式画面での動作確認時刻を記録しました。')
+    } catch {
+      if (selectedAccountRef.current === accountId) setError('動作確認を記録できませんでした。')
     } finally {
       if (selectedAccountRef.current === accountId) setSaving(false)
     }
@@ -187,6 +227,14 @@ export default function MynaAdminPage() {
         <h2 id="myna-endpoint-title" className="font-bold">薬局固有のMyna受付URL</h2>
         <p className="mt-1 text-sm text-gray-600">URLは暗号化して保存し、許可した公式ホスト以外へは遷移しません。</p>
         {endpointMasked && <p className="mt-2 text-sm text-gray-700">現在の設定: {endpointMasked}</p>}
+        {endpointConfig && <div className="mt-3 rounded-lg bg-gray-50 p-3 text-sm">
+          <label className="flex min-h-11 items-center gap-3 font-medium">
+            <input type="checkbox" checked={endpointConfig.enabled} disabled={saving} onChange={(event) => void setEndpointEnabled(event.target.checked)} className="h-5 w-5" />
+            電子処方箋連携を利用する
+          </label>
+          <p className="mt-1 text-gray-600">最終動作確認: {endpointConfig.last_verified_at ? formatTokyo(endpointConfig.last_verified_at) : '未確認'}</p>
+          <button type="button" onClick={() => void verifyEndpoint()} disabled={saving || !endpointConfig.enabled} className="mt-2 min-h-11 rounded-lg border border-green-700 px-3 text-sm font-bold text-green-800 disabled:opacity-50">公式画面で動作確認済みとして記録</button>
+        </div>}
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium">テナント別名<input value={endpoint.tenantAlias} onChange={(event) => setEndpoint((current) => ({ ...current, tenantAlias: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="pharmacy-a" /></label>
           <label className="text-sm font-medium">公式URL<input value={endpoint.endpointUrl} onChange={(event) => setEndpoint((current) => ({ ...current, endpointUrl: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="https://..." /></label>

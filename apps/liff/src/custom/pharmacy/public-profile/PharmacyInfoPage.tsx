@@ -52,7 +52,7 @@ export function PharmacyInfoContent({ profile }: { profile: PharmacyPublicProfil
     <div className="space-y-4 p-4">
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <p className="text-xs font-bold tracking-wide text-green-700">PHARMACY</p>
-        <h1 className="mt-1 text-2xl font-bold text-gray-950">{profile.display_name}</h1>
+        <h2 className="mt-1 text-2xl font-bold text-gray-950">{profile.display_name}</h2>
         {profile.closure_notice && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900"><span className="font-bold">休業・臨時案内</span><br />{profile.closure_notice}</p>}
       </section>
       <section className="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="hours-title">

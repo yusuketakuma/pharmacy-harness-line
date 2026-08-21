@@ -7,10 +7,12 @@ import { fileURLToPath } from 'node:url';
 import {
   emptyPatientProfileDraft,
   PatientProfileForm,
+  patientProfileErrors,
 } from './PatientProfileForm.js';
 import {
   INITIAL_INTAKE_ANSWERS,
   PatientQuestionnaire,
+  safetyUnansweredKeys,
 } from './PatientQuestionnaire.js';
 
 const answers = {
@@ -83,6 +85,24 @@ describe('patient intake UI contract', () => {
     expect(html).toContain('ステップ');
   });
 
+  it('names radio groups by answer key and marks the chosen option', () => {
+    const html = renderToStaticMarkup(<PatientQuestionnaire
+      answers={INITIAL_INTAKE_ANSWERS}
+      step={1}
+      busy={false}
+      showPregnancyQuestions={false}
+      representativeConsent={false}
+      privacyConsent={false}
+      onAnswersChange={() => undefined}
+      onRepresentativeConsentChange={() => undefined}
+      onPrivacyConsentChange={() => undefined}
+    />);
+    expect(html).toContain('name="allergiesStatus"');
+    expect(html).toContain('name="medicationStatus"');
+    expect(html).not.toContain('name="アレルギー"');
+    expect(html).toContain('peer-checked:before:content-');
+  });
+
   it('restores an unfinished answer draft without persisting consent', () => {
     expect(source).toContain('sessionStorage.getItem(intakeDraftKey(patientId))');
     expect(source).toContain('sessionStorage.setItem(intakeDraftKey(selectedId)');
@@ -142,5 +162,100 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('本人または代理人として');
     expect(source).toContain('個人情報の利用目的');
     expect(source).toContain('saveIntake(latestAnswers, true, true)');
+  });
+});
+
+describe('patient intake submit flow (WP-12)', () => {
+  it('starts the four safety questions unanswered and blocks submission until answered', () => {
+    expect(INITIAL_INTAKE_ANSWERS.allergiesStatus).toBe('');
+    expect(INITIAL_INTAKE_ANSWERS.adverseReactionStatus).toBe('');
+    expect(INITIAL_INTAKE_ANSWERS.medicationStatus).toBe('');
+    expect(INITIAL_INTAKE_ANSWERS.medicalHistoryStatus).toBe('');
+    expect(canSubmitIntake(INITIAL_INTAKE_ANSWERS, true, true, false)).toBe(false);
+    expect(safetyUnansweredKeys(INITIAL_INTAKE_ANSWERS, 1)).toEqual([
+      'allergiesStatus', 'adverseReactionStatus', 'medicationStatus',
+    ]);
+    expect(safetyUnansweredKeys({ ...INITIAL_INTAKE_ANSWERS, allergiesStatus: 'none' }, 1))
+      .toEqual(['adverseReactionStatus', 'medicationStatus']);
+    expect(safetyUnansweredKeys(INITIAL_INTAKE_ANSWERS, 2)).toEqual(['medicalHistoryStatus']);
+    expect(safetyUnansweredKeys(answers, 1)).toEqual([]);
+  });
+
+  it('marks required safety questions and shows a field-level message when skipped', () => {
+    const html = renderToStaticMarkup(<PatientQuestionnaire
+      answers={INITIAL_INTAKE_ANSWERS}
+      step={1}
+      busy={false}
+      showPregnancyQuestions={false}
+      representativeConsent={false}
+      privacyConsent={false}
+      showErrors
+      onAnswersChange={() => undefined}
+      onRepresentativeConsentChange={() => undefined}
+      onPrivacyConsentChange={() => undefined}
+    />);
+    expect(html).toContain('必須');
+    expect(html).toContain('どれか1つを選んでください');
+    expect(source).toContain('safetyUnansweredKeys(answers, intakeStep)');
+  });
+
+  it('shows the full answer summary before sending', () => {
+    const html = renderToStaticMarkup(<PatientQuestionnaire
+      answers={{ ...answers, allergiesStatus: 'yes', smokingStatus: 'never' }}
+      step={3}
+      busy={false}
+      showPregnancyQuestions={false}
+      representativeConsent={false}
+      privacyConsent={false}
+      onAnswersChange={() => undefined}
+      onRepresentativeConsentChange={() => undefined}
+      onPrivacyConsentChange={() => undefined}
+    />);
+    expect(html).toContain('送信内容の確認');
+    expect(html).toContain('アレルギー');
+    expect(html).toContain('吸わない');
+    expect(html).not.toContain('回答済み');
+  });
+
+  it('validates the patient profile field by field', () => {
+    expect(patientProfileErrors(emptyPatientProfileDraft('self'))).toEqual({
+      name: '氏名を入力してください',
+      nameKana: '氏名カナを入力してください',
+      birthDate: '生年月日を入力してください',
+    });
+    expect(patientProfileErrors({
+      ...emptyPatientProfileDraft('self'), name: '山田', nameKana: 'ヤマダ', birthDate: '1950-01-01', postalCode: '12',
+    })).toEqual({
+      postalCode: '郵便番号は 000-0000 の形式で入力してください',
+      prefecture: '都道府県を選んでください',
+      city: '市区町村を入力してください',
+      addressLine1: '番地を入力してください',
+    });
+    expect(patientProfileErrors({
+      ...emptyPatientProfileDraft('self'), name: '山田', nameKana: 'ヤマダ', birthDate: '1950-01-01',
+    })).toEqual({});
+  });
+
+  it('renders required badges and field-level errors in the profile form', () => {
+    const html = renderToStaticMarkup(
+      <PatientProfileForm
+        draft={emptyPatientProfileDraft('child')}
+        editing={false}
+        busy={false}
+        showAddress={false}
+        errors={{ name: '氏名を入力してください' }}
+        onChange={() => undefined}
+        onToggleAddress={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(html).toContain('必須');
+    expect(html).toContain('氏名を入力してください');
+    expect(html).toContain('aria-invalid="true"');
+  });
+
+  it('shows a success card with next steps and scrolls to top', () => {
+    expect(source).toContain('window.scrollTo(0, 0)');
+    expect(source).toContain('次にすること');
   });
 });

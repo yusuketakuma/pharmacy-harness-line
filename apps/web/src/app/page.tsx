@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import CcPromptButton from '@/components/cc-prompt-button'
 import { useAccount } from '@/contexts/account-context'
 import GrowthDashboardPage from '@/custom/pharmacy/growth-loop/GrowthDashboardPage'
+import TodayOperationsSummary from '@/custom/pharmacy/growth-loop/TodayOperationsSummary'
 
 const ccPrompts = [
   {
@@ -394,6 +395,6 @@ export default function DashboardPage() {
     <p className="text-gray-700">LINEアカウントがまだ登録されていません。</p>
     <Link href="/accounts" className="mt-3 inline-block rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">アカウント設定を開く</Link>
   </div>
-  if (selectedAccount?.pharmacyMode) return <GrowthDashboardPage />
+  if (selectedAccount?.pharmacyMode) return <><TodayOperationsSummary /><GrowthDashboardPage /></>
   return <GenericDashboardPage />
 }

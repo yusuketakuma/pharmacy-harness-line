@@ -16,6 +16,23 @@ export function canSubmitPrescription(
   return imageCount >= 1 && imageCount <= 4 && originalConsent && noticeConsent && !busy;
 }
 
+export function prescriptionUnmetReasons(input: {
+  imageCount: number;
+  originalConsent: boolean;
+  noticeConsent: boolean;
+  patientSelected: boolean;
+  intakeDone: boolean;
+}): string[] {
+  const reasons: string[] = [];
+  if (!input.patientSelected) reasons.push('患者を選んでください');
+  if (!input.intakeDone) reasons.push('患者アンケートに回答してください');
+  if (input.imageCount < 1) reasons.push('処方せんの写真を1枚以上選んでください');
+  if (input.imageCount > 4) reasons.push('処方せんの写真は4枚までにしてください');
+  if (!input.originalConsent) reasons.push('「処方せん原本を持参します」にチェックしてください');
+  if (!input.noticeConsent) reasons.push('「準備完了通知をLINEで受け取ります」にチェックしてください');
+  return reasons;
+}
+
 export function validatePrescriptionImages(
   files: ArrayLike<{ type: string; size: number }>,
 ): string | null {
@@ -24,7 +41,7 @@ export function validatePrescriptionImages(
     if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
       return '画像はJPEGまたはPNGを選択してください。';
     }
-    if (file.size > MAX_IMAGE_BYTES) return '画像1枚は10MiB以下にしてください。';
+    if (file.size > MAX_IMAGE_BYTES) return '画像1枚は10MB以下にしてください。';
   }
   return null;
 }
@@ -54,9 +71,25 @@ const requirementLabels: Record<string, string> = {
   pharmacist_review: '薬剤師が内容を確認しています',
 };
 
+const mynaStatusLabels: Record<string, string> = {
+  CREATED: '手続き開始前',
+  LAUNCH_REQUESTED: '外部画面で手続き中',
+  PATIENT_REPORTED_COMPLETE: '完了を申告済み（薬局確認待ち）',
+  PATIENT_REPORTED_NO_PRESCRIPTION: '処方せんが見つからなかったと申告済み',
+  SUPPORT_NEEDED: '薬局が確認中',
+  COMPLETED: '薬局で受領済み',
+  CLOSED: '終了',
+  EXPIRED: '期限切れ',
+  CANCELLED: 'キャンセル済み',
+};
+
+export function mynaStatusLabel(status: string): string {
+  return mynaStatusLabels[status] ?? '手続き中';
+}
+
 const MYNA_PATIENT_REPORT_OPTIONS = [
   ['COMPLETED', '手続きを終えた'],
-  ['NO_PRESCRIPTION_FOUND', '処方箋が見つからなかった'],
+  ['NO_PRESCRIPTION_FOUND', '処方せんが見つからなかった'],
   ['FAILED', '電子手続きを中止'],
   ['SWITCH_TO_PAPER', '紙の処方せんに切り替える'],
 ] as const satisfies ReadonlyArray<readonly [MynaPatientReport, string]>;
@@ -120,9 +153,14 @@ export default function PrescriptionPage() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [sentSubmission, setSentSubmission] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null);
   const [mynaHandoff, setMynaHandoff] = useState<MynaHandoff | null>(null);
   const [loadingMyna, setLoadingMyna] = useState(true);
   const mynaBusy = useRef(false);
+  // datetime-local expects local time without seconds; past slots cannot be requested.
+  const pickupMin = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
   const refreshHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -140,6 +178,12 @@ export default function PrescriptionPage() {
   }, [openView, requestedSubmissionId]);
 
   useEffect(() => { void refreshHistory(); }, [refreshHistory]);
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.focus();
+      errorRef.current?.scrollIntoView({ block: 'center' });
+    }
+  }, [error]);
   useEffect(() => {
     let active = true;
     void mynaApi.active().then((result) => {
@@ -194,12 +238,22 @@ export default function PrescriptionPage() {
     });
   }
 
+  const unmetReasons = prescriptionUnmetReasons({
+    imageCount: files.length,
+    originalConsent,
+    noticeConsent,
+    patientSelected: Boolean(selectedPatientId),
+    intakeDone: Boolean(intakeResponseId),
+  });
+  const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
+
   async function send() {
     if (!canSubmitPrescription(files.length, originalConsent, noticeConsent, busy)) return;
     if (!selectedPatientId || !intakeResponseId) {
       setError('先に患者アンケートを回答してください。');
       return;
     }
+    setConfirming(false);
     setBusy(true);
     setError(null);
     setSuccess(null);
@@ -231,8 +285,10 @@ export default function PrescriptionPage() {
       setDesiredFulfillmentMethod('PICKUP');
       setIdempotencyKey(crypto.randomUUID());
       setSuccess('処方せんを送信しました。薬局からの連絡をお待ちください。');
+      setSentSubmission(true);
       await refreshHistory();
       openView('history');
+      window.scrollTo(0, 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : '送信に失敗しました。もう一度お試しください。');
     } finally {
@@ -264,6 +320,8 @@ export default function PrescriptionPage() {
       setReplacement(updated);
       setDesiredFulfillmentMethod(updated.desired_fulfillment_method ?? 'PICKUP');
       setFiles([]);
+      setConfirming(false);
+      setSentSubmission(false);
       openView('send');
     } catch (err) {
       setError(err instanceof Error ? err.message : '再提出を開始できませんでした。');
@@ -331,22 +389,29 @@ export default function PrescriptionPage() {
 
   return (
     <main className="max-w-md mx-auto min-h-screen bg-gray-50 pb-10">
-      <header className="bg-white border-b px-4 py-4">
-        <h1 className="text-lg font-bold text-gray-900">処方せん受付</h1>
-        <p className="text-xs text-gray-600 mt-1">紙の事前送信または電子処方箋を選べます。</p>
-      </header>
       <nav className="grid grid-cols-3 bg-white border-b" aria-label="処方せんメニュー">
         {(['send', 'electronic', 'history'] as const).map((view) => <Link
           key={view}
           to={pharmacyRoute(`/prescriptions?view=${view}`)}
           aria-current={tab === view ? 'page' : undefined}
           className={`min-h-11 py-3 text-center text-sm ${tab === view ? 'border-b-2 border-green-600 font-bold text-green-700' : 'text-gray-600'}`}
-        >{view === 'send' ? '紙を送信' : view === 'electronic' ? '電子処方箋' : '送信履歴'}</Link>)}
+        >{view === 'send' ? '処方せんを送る' : view === 'electronic' ? '電子処方箋' : '受付状況'}</Link>)}
       </nav>
 
       <div className="p-4 space-y-4">
-        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-        {success && <div role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{success}</div>}
+        <p className="text-sm leading-6 text-gray-600">処方せん受付では、紙の事前送信または電子処方箋を選べます。</p>
+        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 focus:outline-none">{error}</div>}
+        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+          <p className="font-bold">{success}</p>
+          {sentSubmission && <>
+            <p className="mt-2 font-bold">次にすること</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              <li>薬局からの確認連絡をLINEでお待ちください。</li>
+              <li>来局時は処方せんの原本をお持ちください。</li>
+              <li>状況はこの「受付状況」画面でいつでも確認できます。</li>
+            </ul>
+          </>}
+        </div>}
 
         {tab === 'electronic' ? (
           <section className="space-y-4" aria-labelledby="electronic-prescription-heading">
@@ -355,7 +420,7 @@ export default function PrescriptionPage() {
               <p className="mt-2 text-sm leading-6 text-gray-700">外部の受付画面で手続きします。患者情報・LINE ID・LIFF IDは外部URLへ付けません。</p>
               <p className="mt-2 text-xs leading-5 text-amber-800">「手続きを終えた」は患者からの申告です。薬局で確認するまで正式な受領にはなりません。</p>
               {loadingMyna ? <p className="py-6 text-center text-sm text-gray-500">状況を読み込み中...</p> : <>
-                {mynaHandoff && <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm"><p className="font-medium">電子処方箋の手続き状況</p><p className="mt-1 text-gray-600">状態: {mynaHandoff.status} / 期限: {new Date(mynaHandoff.expires_at).toLocaleString('ja-JP')}</p></div>}
+                {mynaHandoff && <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm"><p className="font-medium">電子処方箋の手続き状況</p><p className="mt-1 text-gray-600">状態: {mynaStatusLabel(mynaHandoff.status)} / 期限: {new Date(mynaHandoff.expires_at).toLocaleString('ja-JP')}</p></div>}
                 {(!mynaHandoff || canLaunchMynaPatientHandoff(mynaHandoff.status)) && <button type="button" onClick={() => void launchElectronic()} disabled={busy} className="mt-4 min-h-11 w-full rounded-xl bg-green-600 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? '処理中…' : mynaHandoff ? '外部画面へ戻る' : '電子処方箋の手続きを始める'}</button>}
                 {mynaHandoff && mynaPatientReportOptions(mynaHandoff.status).length > 0 && <div className="mt-4 grid gap-2">{mynaPatientReportOptions(mynaHandoff.status).map(([result, label]) => <button key={result} type="button" onClick={() => void reportElectronic(result)} disabled={busy} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">{label}</button>)}</div>}
               </>}
@@ -394,7 +459,7 @@ export default function PrescriptionPage() {
                   {previews.map((url, index) => (
                     <li key={url} className="relative">
                       <img src={url} alt={`選択した処方せん ${index + 1}`} className="aspect-[4/3] w-full rounded-lg object-cover" />
-                      <button type="button" onClick={() => setFiles((items) => items.filter((_, i) => i !== index))} className="absolute right-1 top-1 rounded bg-black/70 px-2 py-1 text-xs text-white" aria-label={`画像${index + 1}を削除`}>削除</button>
+                      <button type="button" onClick={() => setFiles((items) => items.filter((_, i) => i !== index))} className="absolute right-1 top-1 min-h-11 rounded bg-black/70 px-3 py-2 text-base text-white" aria-label={`画像${index + 1}を削除`}>削除</button>
                     </li>
                   ))}
                 </ul>
@@ -404,7 +469,7 @@ export default function PrescriptionPage() {
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <label className="block text-sm font-medium">
                 希望受取日時（任意）
-                <input type="datetime-local" value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
+                <input type="datetime-local" min={pickupMin} value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
               </label>
               <fieldset className="space-y-2 text-sm">
                 <legend className="font-medium">希望する受け取り方法</legend>
@@ -416,14 +481,35 @@ export default function PrescriptionPage() {
               <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={noticeConsent} onChange={(event) => setNoticeConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>準備完了通知をLINEで受け取ります</span></label>
             </div>
 
-            <button type="button" onClick={() => void send()} disabled={!canSubmitPrescription(files.length, originalConsent, noticeConsent, busy)} className="w-full rounded-xl bg-green-600 px-4 py-4 font-bold text-white disabled:bg-gray-300">
-              {busy ? '送信中…' : replacement ? '再提出する' : '薬局へ送信する'}
-            </button>
+            {unmetReasons.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-bold">送信するには、次を確認してください</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">{unmetReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+            </div>}
+            {confirming ? (
+              <div className="space-y-3 rounded-xl border-2 border-green-600 bg-white p-4" role="group" aria-labelledby="confirm-heading">
+                <h2 id="confirm-heading" className="font-bold">送信内容の確認</h2>
+                <ul className="space-y-1 text-sm text-gray-800">
+                  <li>患者: {selectedPatient ? selectedPatient.name : '未選択'}</li>
+                  <li>処方せんの写真: {files.length}枚</li>
+                  <li>希望受取日時: {desiredPickupAt ? new Date(desiredPickupAt).toLocaleString('ja-JP') : '指定なし'}</li>
+                  <li>受け取り方法: {desiredFulfillmentMethod === 'PICKUP' ? '薬局で受け取る' : '配送を希望'}</li>
+                  <li>原本の持参・LINE通知: 同意済み</li>
+                </ul>
+                <button type="button" onClick={() => void send()} disabled={busy} className="min-h-11 w-full rounded-xl bg-green-600 px-4 py-4 font-bold text-white disabled:bg-gray-300">
+                  {busy ? '送信中…' : 'この内容で送信する'}
+                </button>
+                <button type="button" onClick={() => setConfirming(false)} disabled={busy} className="min-h-11 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-50">修正する</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirming(true)} disabled={unmetReasons.length > 0 || busy} className="min-h-11 w-full rounded-xl bg-green-600 px-4 py-4 font-bold text-white disabled:bg-gray-300">
+                {busy ? '送信中…' : replacement ? '再提出の内容を確認する' : '送信内容を確認する'}
+              </button>
+            )}
             <p className="text-xs leading-5 text-gray-600">この送信だけでは受付完了ではありません。薬局の受付内容の確認連絡をご確認ください。</p>
           </section>
         ) : (
           <section aria-labelledby="history-heading">
-            <h2 id="history-heading" className="font-bold">送信履歴</h2>
+            <h2 id="history-heading" className="font-bold">受付状況</h2>
             {loadingHistory ? <p className="py-8 text-center text-gray-500">読み込み中...</p> : history.length === 0 ? <p className="py-8 text-center text-gray-500">送信履歴はありません。</p> : (
               <ul className="mt-3 space-y-3">
                 {history.map((item) => (
@@ -434,15 +520,16 @@ export default function PrescriptionPage() {
                       <p className="mt-1 text-gray-700">準備予定: {item.estimated_ready_at
                         ? new Date(item.estimated_ready_at).toLocaleString('ja-JP')
                         : '薬局で確認中'}</p>
+                      {item.desired_pickup_at && <p className="mt-1 text-gray-700">希望受取: {new Date(item.desired_pickup_at).toLocaleString('ja-JP')}</p>}
                       {pendingRequirementLabels(item.requirements_json).map((label) => (
                         <p key={label} className="mt-1 text-amber-800">確認事項: {label}</p>
                       ))}
                     </div>
                     {item.resubmission_reason_code && <p className="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-800">{reasonLabels[item.resubmission_reason_code] ?? '画像をご確認ください'}</p>}
                     <div className="mt-3 flex justify-end gap-3">
-                      {(item.status === 'draft' || item.status === 'received') && <button type="button" disabled={busy} onClick={() => void cancel(item)} className="text-sm text-red-700 disabled:opacity-50">キャンセル</button>}
-                      {item.status === 'needs_resubmission' && <button type="button" disabled={busy} onClick={() => void startResubmission(item)} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">再撮影する</button>}
-                      {(item.status === 'accepted' || item.status === 'ready') && !item.arrival_reported_at && <button type="button" disabled={busy} onClick={() => void reportArrival(item)} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">来局しました</button>}
+                      {(item.status === 'draft' || item.status === 'received') && <button type="button" disabled={busy} onClick={() => void cancel(item)} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 text-sm font-bold text-red-700 disabled:opacity-50">送信を取り消す</button>}
+                      {item.status === 'needs_resubmission' && <button type="button" disabled={busy} onClick={() => void startResubmission(item)} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-base font-bold text-white disabled:opacity-50">再撮影する</button>}
+                      {(item.status === 'accepted' || item.status === 'ready') && !item.arrival_reported_at && <button type="button" disabled={busy} onClick={() => void reportArrival(item)} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-base font-bold text-white disabled:opacity-50">来局しました</button>}
                       {item.arrival_reported_at && <span className="text-sm font-medium text-green-700">到着通知済み</span>}
                     </div>
                   </li>

@@ -6,6 +6,7 @@ import Header from '@/components/layout/header'
 import { useAccount } from '@/contexts/account-context'
 import { api } from '@/lib/api'
 import { ApplyToTagModal } from '@/components/rich-menus/apply-to-tag-modal'
+import { PharmacyRichMenuLayoutPanel } from '@/custom/pharmacy/rich-menu/PharmacyRichMenuLayoutPanel'
 
 type RichMenuGroupListItem = {
   id: string
@@ -63,6 +64,10 @@ export default function RichMenusListPage() {
 
   const reload = useCallback(async () => {
     if (!selectedAccount?.id) return
+    if (selectedAccount.pharmacyMode) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     setExternalError(null)
@@ -95,7 +100,7 @@ export default function RichMenusListPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedAccount?.id])
+  }, [selectedAccount?.id, selectedAccount?.pharmacyMode])
 
   useEffect(() => {
     reload()
@@ -161,7 +166,7 @@ export default function RichMenusListPage() {
       <Header
         title="リッチメニュー"
         description="LINE トーク画面下に表示されるメニュー。タブ切替対応。"
-        action={
+        action={!selectedAccount?.pharmacyMode ? (
           <Link
             href="/rich-menus/new"
             className="inline-flex items-center gap-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
@@ -169,8 +174,10 @@ export default function RichMenusListPage() {
           >
             <span className="text-lg leading-none">+</span> 新規作成
           </Link>
-        }
+        ) : undefined}
       />
+
+      {selectedAccount?.pharmacyMode && <PharmacyRichMenuLayoutPanel accountId={selectedAccount.id} />}
 
       {!selectedAccount && (
         <div className="text-sm text-gray-500">
@@ -178,18 +185,18 @@ export default function RichMenusListPage() {
         </div>
       )}
 
-      {selectedAccount && loading && (
+      {selectedAccount && !selectedAccount.pharmacyMode && loading && (
         <div className="text-sm text-gray-500">読み込み中...</div>
       )}
 
-      {selectedAccount && !loading && error && (
+      {selectedAccount && !selectedAccount.pharmacyMode && !loading && error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded mb-4">
           {error}
         </div>
       )}
 
       {/* LINE 公式アカウントの現状 (admin 管理外の rich menu も含む) */}
-      {selectedAccount && !loading && external && (
+      {selectedAccount && !selectedAccount.pharmacyMode && !loading && external && (
         <ExternalSection
           accountId={selectedAccount.id}
           accountName={selectedAccount.displayName || selectedAccount.name}
@@ -198,20 +205,21 @@ export default function RichMenusListPage() {
           onImport={handleImport}
         />
       )}
-      {selectedAccount && !loading && externalError && (
+      {selectedAccount && !selectedAccount.pharmacyMode && !loading && externalError && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded mb-6">
           LINE 公式アカウントの状態取得に失敗しました: {externalError}
         </div>
       )}
 
       {/* Admin 管理メニュー見出し */}
-      {selectedAccount && !loading && !error && (
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">
-          管理画面で作成・編集するメニュー
-        </h2>
+      {selectedAccount && !selectedAccount.pharmacyMode && !loading && !error && (
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-gray-700">保存済みリッチメニュー画像</h2>
+          <p className="mt-1 text-xs text-gray-500">画像付きメニューを複数保存し、LINE登録済みの画像へ切り替えられます。</p>
+        </div>
       )}
 
-      {selectedAccount && !loading && !error && groups.length === 0 && (
+      {selectedAccount && !selectedAccount.pharmacyMode && !loading && !error && groups.length === 0 && (
         <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-12 text-center">
           <p className="text-gray-500 mb-4">
             まだリッチメニューが作成されていません。
@@ -226,7 +234,7 @@ export default function RichMenusListPage() {
         </div>
       )}
 
-      {selectedAccount && !loading && !error && groups.length > 0 && (
+      {selectedAccount && !selectedAccount.pharmacyMode && !loading && !error && groups.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {groups.map((g) => (
             <div
@@ -282,7 +290,7 @@ export default function RichMenusListPage() {
                       className="font-medium hover:underline"
                       style={{ color: '#06C755' }}
                     >
-                      {g.isDefaultForAll ? '初期表示を解除' : '初期表示に設定'}
+                      {g.isDefaultForAll ? '初期表示を解除' : 'この画像に切替'}
                     </button>
                     <button
                       onClick={() => setApplyTo(g)}
@@ -312,14 +320,14 @@ export default function RichMenusListPage() {
         </div>
       )}
 
-      {applyTo && (
+      {!selectedAccount?.pharmacyMode && applyTo && (
         <ApplyToTagModal
           groupId={applyTo.id}
           groupName={applyTo.name}
           onClose={() => setApplyTo(null)}
         />
       )}
-      {initialTarget && (
+      {!selectedAccount?.pharmacyMode && initialTarget && (
         <ApplyToTagModal
           groupId={initialTarget.id}
           groupName={initialTarget.name}
