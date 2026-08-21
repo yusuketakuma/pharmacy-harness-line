@@ -29,6 +29,8 @@ vi.mock('../../services/local-line-proxy.js', () => ({
   dispatchLineProxyLocally: vi.fn().mockResolvedValue(new Response(null, { status: 200 })),
 }));
 
+import { toJstString } from '@line-crm/db';
+
 import { purgeWebhookEventReceipts, sweepWebhookInbox, webhook } from './webhook.js';
 
 const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/db');
@@ -284,6 +286,55 @@ describe('webhook durable inbox (H-3)', () => {
     expect(retiring.deadLettered).toBe(1);
     expect(retiring.claimed).toBe(0);
     expect(receipts()[0].dead_lettered_at).not.toBeNull();
+  });
+
+  test('a pending row stale for over 24h is dead-lettered without touching its payload', async () => {
+    const now = new Date('2026-08-19T10:00:00.000Z');
+    const stalePayload = JSON.stringify({ webhookEventId: 'event-stale' });
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+       VALUES ('tenant-a', 'account-a', 'event-stale', ?, ?, 'pending', 0)`,
+    ).run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)), stalePayload);
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+       VALUES ('tenant-a', 'account-a', 'event-fresh', ?, '{}', 'pending', 0)`,
+    ).run(toJstString(new Date(now.getTime() - 1 * 60 * 60_000)));
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+       VALUES ('tenant-a', 'account-a', 'event-old-completed', ?, '{}', 'completed', 0)`,
+    ).run(toJstString(new Date(now.getTime() - 400 * 60 * 60_000)));
+    // Stale but still under the attempt cap and mid-retry — must keep its retry path.
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+       VALUES ('tenant-a', 'account-a', 'event-failed-retrying', ?, '{}', 'failed', 3)`,
+    ).run(toJstString(new Date(now.getTime() - 25 * 60 * 60_000)));
+    // Stale but currently leased (being processed right now) — must not be
+    // dead-lettered mid-flight.
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count, lease_until)
+       VALUES ('tenant-a', 'account-a', 'event-leased', ?, '{}', 'processing', 1, ?)`,
+    ).run(
+      toJstString(new Date(now.getTime() - 25 * 60 * 60_000)),
+      toJstString(new Date(now.getTime() + 5 * 60_000)),
+    );
+
+    const swept = await sweepWebhookInbox({ db, now });
+
+    expect(swept.deadLettered).toBe(1);
+
+    const byId = Object.fromEntries(receipts().map((row) => [row.webhook_event_id, row]));
+    expect(byId['event-stale']).toMatchObject({ status: 'pending', retry_count: 0 });
+    expect(byId['event-stale'].dead_lettered_at).not.toBeNull();
+    expect(byId['event-stale'].payload).toBe(stalePayload);
+    expect(byId['event-fresh']).toMatchObject({ status: 'pending', retry_count: 0, dead_lettered_at: null });
+    expect(byId['event-old-completed']).toMatchObject({ status: 'completed', dead_lettered_at: null });
+    expect(byId['event-failed-retrying']).toMatchObject({ status: 'failed', retry_count: 3, dead_lettered_at: null });
+    expect(byId['event-leased']).toMatchObject({ status: 'processing', retry_count: 1, dead_lettered_at: null });
   });
 });
 
