@@ -51,6 +51,18 @@ export function buildPharmacyRichMenuCatalogJobs(): PharmacyRichMenuCatalogJob[]
   });
 }
 
+export function buildCompositeTileArgs(
+  tile: string,
+  bounds: PharmacyRichMenuBounds,
+): string[] {
+  const { x, y, width, height } = bounds;
+  return [
+    '(', tile, '-resize', `${width}x${height}`,
+    '-background', '#f3fff8', '-gravity', 'center', '-extent', `${width}x${height}`, ')',
+    '-gravity', 'northwest', '-geometry', `+${x}+${y}`, '-composite',
+  ];
+}
+
 function runMagick(binary: string, args: string[]) {
   execFileSync(binary, args, { stdio: 'ignore' });
 }
@@ -102,12 +114,7 @@ export async function generatePharmacyRichMenuCatalog(input: {
       const height = job.size === 'large' ? 1686 : 843;
       const args = ['-size', `2500x${height}`, 'xc:#f3fff8'];
       job.cells.forEach((cell, slot) => {
-        const { x, y, width, height: cellHeight } = job.bounds[slot];
-        args.push(
-          '(', tiles.get(cell)!, '-resize', `${width}x${cellHeight}`,
-          '-background', '#f3fff8', '-gravity', 'center', '-extent', `${width}x${cellHeight}`, ')',
-          '-geometry', `+${x}+${y}`, '-composite',
-        );
+        args.push(...buildCompositeTileArgs(tiles.get(cell)!, job.bounds[slot]));
       });
       const borders = job.bounds.map(({ x, y, width, height: cellHeight }) =>
         `rectangle ${x},${y} ${x + width},${y + cellHeight}`).join(' ');
