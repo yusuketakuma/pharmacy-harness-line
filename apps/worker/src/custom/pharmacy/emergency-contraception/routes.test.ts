@@ -123,8 +123,27 @@ describe('emergency contraception patient routes', () => {
     expect(mocks.create).toHaveBeenCalledWith(env.DB, expect.objectContaining({
       tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a',
       encryptionSecret: 'phi-secret', idempotencyKey: 'request-key-1',
+      lngAllergy: false, liverDisease: false, currentlyPregnant: false, breastfeeding: false,
     }));
     expect(mocks.create.mock.calls[0][1]).not.toMatchObject({ tenantId: 'tenant-b' });
+  });
+
+  it('forwards A3/A4/A5/A-prime pre-visit flags when the client sends them', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-flags',
+      lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(201);
+    expect(mocks.create).toHaveBeenCalledWith(env.DB, expect.objectContaining({
+      lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
+    }));
   });
 
   it('fails closed without the PHI key and never exposes repository details', async () => {

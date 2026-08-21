@@ -1,5 +1,8 @@
 import { openEmergencyPayload, sealEmergencyPayload } from './encryption.js';
-import { assessEmergencyPrecheck, type EmergencyRiskFlag } from './policy.js';
+import {
+  assessEmergencyPrecheck, getChecklistVersion,
+  type EmergencyDetailFlag, type EmergencyRiskFlag,
+} from './policy.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 export type EmergencyIntakeStatus =
@@ -57,21 +60,26 @@ export interface AdminEmergencyQueueItem {
   slot_ends_at: string;
 }
 
-export interface EmergencyIntakeProjection {
+// Patient-facing shape returned by listOwnerEmergencyIntakes: no age_band,
+// safe_contact_mode, consent_version, or risk_flags (see docs/pharmacy/EC_PREVISIT_FORM.md §4).
+export interface EmergencyOwnerIntakeProjection {
   id: string;
   reference_code: string;
   slot_id: string;
   status: EmergencyIntakeStatus;
-  age_band: EmergencyIntakeRow['age_band'];
-  safe_contact_mode: EmergencySafeContactMode;
-  consent_version: string;
-  risk_flags: EmergencyRiskFlag[];
   expires_at: string;
   version: number;
   created_at: string;
   updated_at: string;
   slot_starts_at: string;
   slot_ends_at: string;
+}
+
+export interface EmergencyIntakeProjection extends EmergencyOwnerIntakeProjection {
+  age_band: EmergencyIntakeRow['age_band'];
+  safe_contact_mode: EmergencySafeContactMode;
+  consent_version: string;
+  risk_flags: EmergencyRiskFlag[];
 }
 
 export interface AdminEmergencyIntake extends EmergencyIntakeProjection {
@@ -82,6 +90,14 @@ export interface AdminEmergencyIntake extends EmergencyIntakeProjection {
   self_reported: {
     intercourseAt: string;
     intercourseTimeUnknown: boolean;
+    // Payload schema_version 2 fields (A3/A4/A5/A'). v1 rows (sealed before this
+    // change) map these to null instead of throwing.
+    lngAllergy: boolean | null;
+    liverDisease: boolean | null;
+    currentlyPregnant: boolean | null;
+    breastfeeding: boolean | null;
+    detailFlags: EmergencyDetailFlag[] | null;
+    checklistVersion: string | null;
   } | null;
 }
 
@@ -101,6 +117,10 @@ export interface CreateEmergencyIntakeInput {
   manufacturerCheckAcknowledged: boolean;
   idempotencyKey: string;
   encryptionSecret: string;
+  lngAllergy?: boolean;
+  liverDisease?: boolean;
+  currentlyPregnant?: boolean;
+  breastfeeding?: boolean;
   now?: Date;
 }
 
@@ -507,11 +527,32 @@ export async function setEmergencyInventory(
   }
 }
 
-function projection(row: EmergencyProjectionRow, now: Date): EmergencyIntakeProjection {
-  const status = ['provisional', 'reviewed'].includes(row.status) &&
+function projectedStatus(row: Pick<EmergencyProjectionRow, 'status' | 'expires_at'>, now: Date): EmergencyIntakeStatus {
+  return ['provisional', 'reviewed'].includes(row.status) &&
     new Date(row.expires_at).getTime() <= now.getTime()
     ? 'expired'
     : row.status;
+}
+
+// Patient-facing projection (listOwnerEmergencyIntakes). Deliberately excludes
+// age_band, safe_contact_mode, consent_version, and risk_flags — those are
+// clinical/review signals for staff only (see docs/pharmacy/EC_PREVISIT_FORM.md §4).
+function ownerProjection(row: EmergencyProjectionRow, now: Date): EmergencyOwnerIntakeProjection {
+  return {
+    id: row.id,
+    reference_code: row.reference_code,
+    slot_id: row.slot_id,
+    status: projectedStatus(row, now),
+    expires_at: row.expires_at,
+    version: row.version,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    slot_starts_at: row.slot_starts_at,
+    slot_ends_at: row.slot_ends_at,
+  };
+}
+
+function adminProjection(row: EmergencyProjectionRow, now: Date): EmergencyIntakeProjection {
   let riskFlags: EmergencyRiskFlag[] = [];
   try {
     const parsed = JSON.parse(row.risk_flags_json);
@@ -520,20 +561,11 @@ function projection(row: EmergencyProjectionRow, now: Date): EmergencyIntakeProj
     riskFlags = [];
   }
   return {
-    id: row.id,
-    reference_code: row.reference_code,
-    slot_id: row.slot_id,
-    status,
+    ...ownerProjection(row, now),
     age_band: row.age_band,
     safe_contact_mode: row.safe_contact_mode,
     consent_version: row.consent_version,
     risk_flags: riskFlags,
-    expires_at: row.expires_at,
-    version: row.version,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    slot_starts_at: row.slot_starts_at,
-    slot_ends_at: row.slot_ends_at,
   };
 }
 
@@ -638,14 +670,15 @@ export async function createEmergencyIntake(
       AND intake.idempotency_key = ?`)
     .bind(input.lineAccountId, input.friendId, input.idempotencyKey)
     .first<EmergencyIntakeRow>();
-  if (replay) return projection(replay, now);
+  if (replay) return adminProjection(replay, now);
   if (!(await hasPharmacyCapability(db, input.lineAccountId, 'emergency_contraception'))) {
     throw new Error('FEATURE_DISABLED');
   }
 
   const service = await db.prepare(
     `SELECT settings.consent_version, settings.consultation_minutes,
-            settings.reservation_ttl_minutes, slot.starts_at, slot.ends_at
+            settings.reservation_ttl_minutes, settings.product_code,
+            slot.starts_at, slot.ends_at
        FROM pharmacy_emergency_settings AS settings
        INNER JOIN pharmacy_emergency_slots AS slot
                ON slot.line_account_id = settings.line_account_id AND slot.id = ?
@@ -658,12 +691,17 @@ export async function createEmergencyIntake(
     consent_version: string;
     consultation_minutes: number;
     reservation_ttl_minutes: number;
+    product_code: string;
     starts_at: string;
     ends_at: string;
   }>();
   if (!service || service.consent_version !== input.consentVersion) {
     throw new Error('service is not ready');
   }
+  const lngAllergy = input.lngAllergy === true;
+  const liverDisease = input.liverDisease === true;
+  const currentlyPregnant = input.currentlyPregnant === true;
+  const breastfeeding = input.breastfeeding === true;
   const assessment = assessEmergencyPrecheck({
     intercourseAt: input.intercourseAt,
     intercourseTimeUnknown: input.intercourseTimeUnknown,
@@ -674,6 +712,10 @@ export async function createEmergencyIntake(
     patientWillVisit: input.patientWillVisit,
     acceptsInPersonDose: input.acceptsInPersonDose,
     safeContactAvailable: input.safeContactMode === 'neutral_line' || input.safeContactMode === 'phone',
+    lngAllergy,
+    liverDisease,
+    currentlyPregnant,
+    breastfeeding,
     now,
   });
   if (!assessment.canCreateProvisional) throw new Error(assessment.blockingReason ?? 'service unavailable');
@@ -682,8 +724,15 @@ export async function createEmergencyIntake(
   const timestamp = now.toISOString();
   const expiresAt = new Date(now.getTime() + service.reservation_ttl_minutes * 60_000).toISOString();
   const encryptedPayload = await sealEmergencyPayload({
+    schema_version: 2,
     intercourseAt: input.intercourseAt,
     intercourseTimeUnknown: input.intercourseTimeUnknown,
+    lngAllergy,
+    liverDisease,
+    currentlyPregnant,
+    breastfeeding,
+    detailFlags: assessment.detailFlags,
+    checklistVersion: getChecklistVersion(service.product_code),
   }, input.encryptionSecret, {
     tenantId: input.tenantId,
     lineAccountId: input.lineAccountId,
@@ -736,7 +785,7 @@ export async function createEmergencyIntake(
   }
   const saved = await getIntake(db, input.lineAccountId, id);
   if (!saved || saved.owner_friend_id !== input.friendId) throw new Error('provisional intake conflict');
-  return projection(saved, now);
+  return adminProjection(saved, now);
 }
 
 export async function listOwnerEmergencyIntakes(
@@ -744,13 +793,13 @@ export async function listOwnerEmergencyIntakes(
   lineAccountId: string,
   friendId: string,
   now = new Date(),
-): Promise<EmergencyIntakeProjection[]> {
+): Promise<EmergencyOwnerIntakeProjection[]> {
   await expireEmergencyIntakes(db, lineAccountId, now);
   const rows = await db.prepare(`${INTAKE_SELECT}
     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?
     ORDER BY intake.created_at DESC, intake.id DESC`)
     .bind(lineAccountId, friendId).all<EmergencyIntakeRow>();
-  return rows.results.map((row) => projection(row, now));
+  return rows.results.map((row) => ownerProjection(row, now));
 }
 
 export async function cancelOwnerEmergencyIntake(
@@ -773,7 +822,7 @@ export async function cancelOwnerEmergencyIntake(
     `SELECT 1 AS ok FROM pharmacy_emergency_intake_events
       WHERE intake_id = ? AND line_account_id = ? AND idempotency_key = ?`,
   ).bind(input.intakeId, input.lineAccountId, input.idempotencyKey).first<{ ok: number }>();
-  if (replay) return projection(current, now);
+  if (replay) return adminProjection(current, now);
   if (!['provisional', 'reviewed'].includes(current.status) ||
       current.version !== input.expectedVersion ||
       new Date(current.expires_at).getTime() <= now.getTime()) throw new Error('cancellation conflict');
@@ -809,7 +858,7 @@ export async function cancelOwnerEmergencyIntake(
   }
   const saved = await getIntake(db, input.lineAccountId, input.intakeId);
   if (!saved) throw new Error('intake not found');
-  return projection(saved, now);
+  return adminProjection(saved, now);
 }
 
 async function requireTrainedPharmacist(
@@ -912,7 +961,7 @@ export async function getAdminEmergencyIntakeDetail(
   // openEmergencyPayload would throw on the empty ciphertext, turning an expected
   // "this record aged out" state into a 503 outage for staff.
   if (row.encrypted_payload === '') {
-    return { ...projection(row, now), redacted: true, self_reported: null };
+    return { ...adminProjection(row, now), redacted: true, self_reported: null };
   }
   const payload = await openEmergencyPayload(row.encrypted_payload, encryptionSecret, {
     tenantId: row.tenant_id,
@@ -924,12 +973,25 @@ export async function getAdminEmergencyIntakeDetail(
       typeof payload.intercourseTimeUnknown !== 'boolean') {
     throw new Error('encrypted intake is invalid');
   }
+  // schema_version 2 payloads carry A3/A4/A5/A' detail; v1 rows (sealed before
+  // this change) have none of these keys, so they map to null instead of throwing.
+  const schemaVersion = typeof payload.schema_version === 'number' ? payload.schema_version : 1;
   return {
-    ...projection(row, now),
+    ...adminProjection(row, now),
     redacted: false,
     self_reported: {
       intercourseAt: payload.intercourseAt,
       intercourseTimeUnknown: payload.intercourseTimeUnknown,
+      lngAllergy: schemaVersion >= 2 && typeof payload.lngAllergy === 'boolean' ? payload.lngAllergy : null,
+      liverDisease: schemaVersion >= 2 && typeof payload.liverDisease === 'boolean' ? payload.liverDisease : null,
+      currentlyPregnant: schemaVersion >= 2 && typeof payload.currentlyPregnant === 'boolean' ? payload.currentlyPregnant : null,
+      breastfeeding: schemaVersion >= 2 && typeof payload.breastfeeding === 'boolean' ? payload.breastfeeding : null,
+      detailFlags: schemaVersion >= 2 && Array.isArray(payload.detailFlags)
+        ? payload.detailFlags as EmergencyDetailFlag[]
+        : null,
+      checklistVersion: schemaVersion >= 2 && typeof payload.checklistVersion === 'string'
+        ? payload.checklistVersion
+        : null,
     },
   };
 }
@@ -1008,5 +1070,5 @@ export async function transitionEmergencyIntake(
   }
   const saved = await getIntake(db, input.lineAccountId, input.intakeId);
   if (!saved) throw new Error('intake not found');
-  return projection(saved, now);
+  return adminProjection(saved, now);
 }

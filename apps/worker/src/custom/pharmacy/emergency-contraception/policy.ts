@@ -3,7 +3,18 @@ export type EmergencyRiskFlag =
   | 'under_16'
   | 'minor_review'
   | 'repeat_purchase_review'
-  | 'notification_unavailable';
+  | 'notification_unavailable'
+  | 'pre_review_flagged';
+
+// Detail flags for A3/A4/A5/A' (lng allergy, liver disease, current pregnancy,
+// breastfeeding). These never change canCreateProvisional and are never stored
+// in plaintext risk_flags_json — only the single pre_review_flagged summary is.
+// The detailed breakdown lives inside the encrypted payload (schema_version 2).
+export type EmergencyDetailFlag =
+  | 'lng_allergy'
+  | 'liver_disease'
+  | 'pregnancy_reported'
+  | 'breastfeeding_advice';
 
 export type EmergencyBlockingReason =
   | 'patient_presence_required'
@@ -20,6 +31,10 @@ export interface EmergencyPrecheckInput {
   patientWillVisit: boolean;
   acceptsInPersonDose: boolean;
   safeContactAvailable: boolean;
+  lngAllergy: boolean;
+  liverDisease: boolean;
+  currentlyPregnant: boolean;
+  breastfeeding: boolean;
   now?: Date;
 }
 
@@ -29,6 +44,17 @@ export interface EmergencyPrecheckAssessment {
   canCreateProvisional: boolean;
   blockingReason: EmergencyBlockingReason | null;
   riskFlags: EmergencyRiskFlag[];
+  detailFlags: EmergencyDetailFlag[];
+}
+
+// product_code -> manufacturer checklist version. Copied into the intake payload
+// at creation time and defaults to the current single-product checklist when a
+// product has no explicit entry yet.
+const CHECKLIST_VERSIONS: Record<string, string> = {};
+const DEFAULT_CHECKLIST_VERSION = 'lng-2026-08';
+
+export function getChecklistVersion(productCode: string): string {
+  return CHECKLIST_VERSIONS[productCode] ?? DEFAULT_CHECKLIST_VERSION;
 }
 
 const HOUR_MS = 60 * 60_000;
@@ -74,6 +100,13 @@ export function assessEmergencyPrecheck(
   if (input.recentPurchaseCount >= 1) riskFlags.push('repeat_purchase_review');
   if (!input.safeContactAvailable) riskFlags.push('notification_unavailable');
 
+  const detailFlags: EmergencyDetailFlag[] = [];
+  if (input.lngAllergy) detailFlags.push('lng_allergy');
+  if (input.liverDisease) detailFlags.push('liver_disease');
+  if (input.currentlyPregnant) detailFlags.push('pregnancy_reported');
+  if (input.breastfeeding) detailFlags.push('breastfeeding_advice');
+  if (detailFlags.length > 0) riskFlags.push('pre_review_flagged');
+
   const blockingReason = !input.patientWillVisit
     ? 'patient_presence_required'
     : !input.acceptsInPersonDose
@@ -88,5 +121,6 @@ export function assessEmergencyPrecheck(
     canCreateProvisional: blockingReason === null,
     blockingReason,
     riskFlags,
+    detailFlags,
   };
 }

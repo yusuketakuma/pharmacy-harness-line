@@ -332,6 +332,28 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       .get(created.id)).not.toEqual(expect.objectContaining({ encrypted_payload: expect.stringContaining(input.intercourseAt) }));
   });
 
+  it('excludes clinical fields from the owner-facing intake list (owner/admin projection split)', async () => {
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    await createEmergencyIntake(d1, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
+      age: 15, recentPurchaseCount: 1, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-owner-projection',
+      encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
+    });
+
+    const owned = await listOwnerEmergencyIntakes(d1, 'account-a', 'friend-a', new Date(REOPENED_NOW));
+    expect(owned).toHaveLength(1);
+    expect(owned[0]).not.toHaveProperty('risk_flags');
+    expect(owned[0]).not.toHaveProperty('age_band');
+    expect(owned[0]).not.toHaveProperty('safe_contact_mode');
+    expect(owned[0]).not.toHaveProperty('consent_version');
+    expect(owned[0]).toMatchObject({ id: expect.any(String), status: 'provisional' });
+  });
+
   it('rejects new intake admission after the account capability is disabled', async () => {
     db.prepare(`UPDATE pharmacy_emergency_slots
       SET starts_at = ?, ends_at = ? WHERE id = 'slot-a'`)

@@ -11,6 +11,10 @@ const base = {
   patientWillVisit: true,
   acceptsInPersonDose: true,
   safeContactAvailable: true,
+  lngAllergy: false,
+  liverDisease: false,
+  currentlyPregnant: false,
+  breastfeeding: false,
   now: new Date('2026-08-19T10:00:00+09:00'),
 };
 
@@ -82,5 +86,28 @@ describe('assessEmergencyPrecheck', () => {
     })).toThrow('invalid intercourse time');
     expect(() => assessEmergencyPrecheck({ ...base, intercourseAt: 'not-a-date' }))
       .toThrow('invalid intercourse time');
+  });
+});
+
+describe('assessEmergencyPrecheck v2 pre-review flags (A3/A4/A5/A-prime)', () => {
+  it('adds no detail flags and omits pre_review_flagged when none apply', () => {
+    const result = assessEmergencyPrecheck(base);
+    expect(result.detailFlags).toEqual([]);
+    expect(result.riskFlags).not.toContain('pre_review_flagged');
+    expect(result.canCreateProvisional).toBe(true);
+    expect(result).not.toHaveProperty('eligible');
+  });
+
+  it.each([
+    ['lngAllergy', 'lng_allergy'],
+    ['liverDisease', 'liver_disease'],
+    ['currentlyPregnant', 'pregnancy_reported'],
+    ['breastfeeding', 'breastfeeding_advice'],
+  ] as const)('flags %s as a payload-internal detail without changing canCreateProvisional', (field, detailFlag) => {
+    const result = assessEmergencyPrecheck({ ...base, [field]: true });
+    expect(result.canCreateProvisional).toBe(true);
+    expect(result.riskFlags).toContain('pre_review_flagged');
+    expect(result.detailFlags).toContain(detailFlag);
+    expect(result).not.toHaveProperty('eligible');
   });
 });

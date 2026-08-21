@@ -84,6 +84,12 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       manufacturerCheckAcknowledged: body.manufacturerCheckAcknowledged,
       idempotencyKey: body.idempotencyKey,
       encryptionSecret: c.env.PHARMACY_PHI_KEY_V1,
+      // A3/A4/A5/A': optional booleans, default false so existing LIFF clients
+      // that predate this form revision keep working unchanged.
+      lngAllergy: body.lngAllergy === true,
+      liverDisease: body.liverDisease === true,
+      currentlyPregnant: body.currentlyPregnant === true,
+      breastfeeding: body.breastfeeding === true,
     });
     return c.json({ intake }, 201);
   } catch (error) {
