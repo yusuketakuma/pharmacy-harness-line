@@ -179,6 +179,18 @@ describe('pharmacy rich-menu profile', () => {
     }
   });
 
+  it('diagnoses persisted actions independently of database row order', () => {
+    const order = [
+      'prescription-send', 'prescription-history', 'medication-followup',
+      'manual-chat', 'pharmacy-info',
+    ] as const;
+    const areas = buildPharmacyCatalogRichMenu(
+      'account-a', '1234567890-AbCd', order, 'Menu',
+    ).pages[0].areas.toReversed();
+
+    expect(diagnosePharmacyRichMenuActions(areas, '1234567890-AbCd', order)).toEqual([]);
+  });
+
   it('rejects changed bounds and action types before LINE publication', () => {
     const order = ['pharmacy-info'] as const;
     const areas = buildPharmacyCatalogRichMenu(
