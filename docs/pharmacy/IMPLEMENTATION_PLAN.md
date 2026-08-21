@@ -74,7 +74,7 @@ admin dashboard.
   in this task, so live development or production application state remains a
   separate human gate.
 
-See `docs/custom/pharmacy/MULTITENANT_OWNERSHIP_MATRIX.md` for the explicit
+See `docs/pharmacy/MULTITENANT_OWNERSHIP_MATRIX.md` for the explicit
 ownership/deny matrix and residuals. This is still partial deployment evidence:
 local tests do not prove live Pages freshness, D1 migration state, R2/Secrets
 preservation, or LINE rich-menu publication.

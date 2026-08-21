@@ -65,5 +65,5 @@
     </g>
     <text x="220" y="316" text-anchor="middle" font-size="9.5" fill="#6e1f4d">保存期間は retention matrix (PHI 一律 3 年) に従い、期限超過の処方せん画像を purge</text>
   </g>
-  <text x="480" y="430" text-anchor="middle" font-size="10" fill="#8c959f">記載はコードに存在する仕組みの要約です。監査レポートと設計文書は docs/custom/pharmacy を参照。</text>
+  <text x="480" y="430" text-anchor="middle" font-size="10" fill="#8c959f">記載はコードに存在する仕組みの要約です。監査レポートと設計文書は docs/pharmacy を参照。</text>
 </svg>

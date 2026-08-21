@@ -109,7 +109,7 @@ OSS の Issue / PR は、ユーザーが自分で検証しなくてもよい状�
 
 OSS PR は、merge 前に sandbox gate を通す。特に auth / CORS / LIFF / migration / webhook / scenario / broadcast / cron に触る PR は、OSS CI 成功だけで merge しない。
 
-詳細手順は `docs/OSS-SANDBOX-MERGE-GATE.md` を参照すること。
+詳細手順は `docs/upstream/OSS-SANDBOX-MERGE-GATE.md` を参照すること。
 
 ### 2.5 フローチャート
 

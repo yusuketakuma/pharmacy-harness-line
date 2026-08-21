@@ -2,7 +2,7 @@
 //
 // Business decision (2026-08-19): all PHI is kept for exactly 3 years, applying
 // the 薬剤師法施行規則 retention duty for 調剤録/調剤済み処方箋 uniformly to every
-// PHI-bearing store. Matrix: docs/custom/pharmacy/RETENTION_MATRIX.md.
+// PHI-bearing store. Matrix: docs/pharmacy/RETENTION_MATRIX.md.
 //
 // This is deliberately NOT part of cleanupPrescriptionImages. That job reaps
 // images whose *workflow* is over (cancelled, abandoned draft, closed 30 days

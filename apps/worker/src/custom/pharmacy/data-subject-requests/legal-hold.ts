@@ -30,7 +30,7 @@ export function assessRetention(
 
 /**
  * 患者に紐づくPHI表と、その行の保存期間起算列。
- * docs/custom/pharmacy/RETENTION_MATRIX.md で患者に紐づくPHIと分類した表を網羅する。
+ * docs/pharmacy/RETENTION_MATRIX.md で患者に紐づくPHIと分類した表を網羅する。
  * 一部でも漏らすと、まだ保存期間中のPHIが残っているのに legal hold が外れる。
  *
  * 監査表(`*_events`)を含める理由: 親行の `created_at` より後に発生し、

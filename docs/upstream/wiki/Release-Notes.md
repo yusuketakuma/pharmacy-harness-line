@@ -123,7 +123,7 @@ Self-serve affiliate tracking with a full funnel timeline (click → friend add 
 
 - Booking reminders run before heavy scheduled jobs (prevents cron-starvation misses) and after token refresh.
 - `/o` share URLs return OGP HTML to link-preview bots; cross-account OGP fallback leak fixed.
-- Update banner: hidden for builds without embedded versions (self-hosted CI/CD), softer fork wording, manual-update guide link fixed (`docs/wiki/26-Manual-Update.md`).
+- Update banner: hidden for builds without embedded versions (self-hosted CI/CD), softer fork wording, manual-update guide link fixed (`docs/upstream/wiki/26-Manual-Update.md`).
 - `/updates` page shows guidance instead of "Failed to fetch" when self-update is not configured.
 
 ### Database

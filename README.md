@@ -77,7 +77,7 @@ pnpm tenant:settings -- --preflight --account-id <line_account_id>
 pnpm rich-menu:catalog
 ```
 
-各コマンドの引数と前提は `scripts/custom/pharmacy/` 内の各スクリプト、運用手順は [docs/custom/pharmacy](docs/custom/pharmacy) と [docs/manual](docs/manual) を参照してください。
+各コマンドの引数と前提は `scripts/custom/pharmacy/` 内の各スクリプト、運用手順は [docs/pharmacy](docs/pharmacy) と [docs/upstream/manual](docs/upstream/manual) を参照してください。
 
 > 本番デプロイ、D1 schema 適用、tenant の有効化、LINE への変更 (リッチメニュー公開・初期表示変更・友だち一括適用) は、すべて人間の明示操作です。CLI や管理画面はドラフトと検証までを行い、外部への反映を暗黙に実行しません。
 
@@ -169,7 +169,7 @@ LINE Harness の機能はそのまま残っています: 友だち管理、タ�
 
 ## 運用・セキュリティ
 
-- 設計と証跡: [MULTITENANT_OWNERSHIP_MATRIX](docs/custom/pharmacy/MULTITENANT_OWNERSHIP_MATRIX.md)、[FIELD_LEVEL_ENCRYPTION_DESIGN](docs/custom/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md)、[RETENTION_MATRIX](docs/custom/pharmacy/RETENTION_MATRIX.md)、[SECURITY_REVIEW_EVIDENCE_2026-08-19](docs/custom/pharmacy/SECURITY_REVIEW_EVIDENCE_2026-08-19.md)。
+- 設計と証跡: [MULTITENANT_OWNERSHIP_MATRIX](docs/pharmacy/MULTITENANT_OWNERSHIP_MATRIX.md)、[FIELD_LEVEL_ENCRYPTION_DESIGN](docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md)、[RETENTION_MATRIX](docs/pharmacy/RETENTION_MATRIX.md)、[SECURITY_REVIEW_EVIDENCE_2026-08-19](docs/pharmacy/SECURITY_REVIEW_EVIDENCE_2026-08-19.md)。
 - 脆弱性の報告は [SECURITY.md](SECURITY.md) に従い非公開で行ってください。
 - 検証: `pnpm verify:ci` (typecheck / test / migration 整合性)。
 
@@ -182,8 +182,8 @@ OSS パッケージの version (`package.json`) と、薬局サービスのリ�
 ## 今後の予定とロードマップ
 
 - [CHANGELOG](CHANGELOG.md) — リリースごとの変更履歴 (Pharmacy v0.23 以降)
-- [GROWTH_LOOP_ROADMAP](docs/custom/pharmacy/GROWTH_LOOP_ROADMAP.md) — 薬局統計 (Growth Loop) の段階的な拡張計画
-- [GROWTH_LOOP_KPI_CONTRACT](docs/custom/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md) — 計測する KPI とその定義
+- [GROWTH_LOOP_ROADMAP](docs/pharmacy/GROWTH_LOOP_ROADMAP.md) — 薬局統計 (Growth Loop) の段階的な拡張計画
+- [GROWTH_LOOP_KPI_CONTRACT](docs/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md) — 計測する KPI とその定義
 - [PLANS.md](PLANS.md) — 進行中タスクの一覧
 
 ---
@@ -191,15 +191,15 @@ OSS パッケージの version (`package.json`) と、薬局サービスのリ�
 ## ドキュメント
 
 - [CHANGELOG](CHANGELOG.md) — Pharmacy v0.23 以降の変更履歴
-- [docs/custom/pharmacy](docs/custom/pharmacy) — 薬局固有の設計・運用文書
-  - [customer-production-update-checklist](docs/custom/pharmacy/customer-production-update-checklist.md)
-  - [PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS](docs/custom/pharmacy/PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md)
-  - [rich-menu-update-review](docs/custom/pharmacy/rich-menu-update-review.md)
-  - [患者向け 1 枚マニュアル](docs/custom/pharmacy/manual-patient.md) / [薬局スタッフ向け 1 枚マニュアル](docs/custom/pharmacy/manual-staff.md)
-- [docs/PHARMACY_IMPLEMENTATION_PLAN.md](docs/PHARMACY_IMPLEMENTATION_PLAN.md) — 不変条件と中央デプロイ契約
-- [docs/ADMIN-AUTH.md](docs/ADMIN-AUTH.md) — 管理画面認証
-- [docs/manual](docs/manual) — フォーク元の運用マニュアル (汎用 CRM 機能)
-- [docs/wiki](docs/wiki) — フォーク元の機能別 Wiki (配信・タグ・MCP など)
+- [docs/pharmacy](docs/pharmacy) — 薬局固有の設計・運用文書
+  - [customer-production-update-checklist](docs/pharmacy/customer-production-update-checklist.md)
+  - [PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS](docs/pharmacy/PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md)
+  - [rich-menu-update-review](docs/pharmacy/rich-menu-update-review.md)
+  - [患者向け 1 枚マニュアル](docs/pharmacy/manual-patient.md) / [薬局スタッフ向け 1 枚マニュアル](docs/pharmacy/manual-staff.md)
+- [docs/pharmacy/IMPLEMENTATION_PLAN.md](docs/pharmacy/IMPLEMENTATION_PLAN.md) — 不変条件と中央デプロイ契約
+- [docs/pharmacy/ADMIN-AUTH.md](docs/pharmacy/ADMIN-AUTH.md) — 管理画面認証
+- [docs/upstream/manual](docs/upstream/manual) — フォーク元の運用マニュアル (汎用 CRM 機能)
+- [docs/upstream/wiki](docs/upstream/wiki) — フォーク元の機能別 Wiki (配信・タグ・MCP など)
 - [AGENTS.md](AGENTS.md) — このリポジトリで作業する際の境界 (custom/pharmacy seam、PHI-free、human gate)
 
 ---

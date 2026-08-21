@@ -574,7 +574,7 @@ npx create-line-harness@latest update
 - Google Meet付き予定、`meet_consultations`、前日・1時間前のLINEリマインド、確定通知を一括作成
 - 管理画面からGoogleアカウント本人が許可するOAuth接続を追加。サービスアカウントキーとカレンダー共有は不要
 - OAuth権限は `calendar.events` と `calendar.events.freebusy` の2つだけに限定
-- 設定とエラー解決を `docs/wiki/28-Google-Calendar-and-Webinar-Booking.md` に追加
+- 設定とエラー解決を `docs/upstream/wiki/28-Google-Calendar-and-Webinar-Booking.md` に追加
 
 ### その他
 

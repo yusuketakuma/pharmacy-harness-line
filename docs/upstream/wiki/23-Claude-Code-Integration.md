@@ -36,7 +36,7 @@ CLAUDE.md またはプロジェクトの memory に以下を記載:
 - API URL: https://your-worker.your-subdomain.workers.dev
 - API Key: (wrangler secretで管理)
 - SDK: @line-harness/sdk (packages/sdk/)
-- ドキュメント: /Users/axpr/claudecode/tools/line-harness/docs/wiki/
+- ドキュメント: /Users/axpr/claudecode/tools/line-harness/docs/upstream/wiki/
 ```
 
 ### 3. SDK の利用 (TypeScript プロジェクトの場合)
@@ -378,4 +378,4 @@ Stripe の `metadata` に `line_friend_id` を設定するだけで:
 | `packages/db/src/` | データベースクエリ |
 | `packages/sdk/src/` | TypeScript SDK ソース |
 | `packages/line-sdk/src/` | LINE API クライアント |
-| `docs/wiki/` | ドキュメント |
+| `docs/upstream/wiki/` | ドキュメント |
