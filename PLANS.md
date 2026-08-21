@@ -40,7 +40,7 @@
 
 #### Phase B（販売記録・対面確認、別リリース）
 
-- [ ] **ECF-5 custom_051 対面確認・販売記録 schema** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **ECF-5 custom_051 対面確認・販売記録 schema** `[lane:gate]` `[tdd:required]` cc:完了 [53156d1]
   - `pharmacy_emergency_counter_confirmations`（PK: account/intake/section、`checklist_version`、`mismatch_items_json`、staff、時刻）と `pharmacy_emergency_sale_records`（§5 の平文列＋ `determination_encrypted`、`owner_friend_id`、`UNIQUE(line_account_id,intake_id)`、no_update/no_delete trigger）。additive のみ、既存 CHECK に触れない。bootstrap 再生成、`check-migrations` green。
   - **DoD**: `packages/db/test/custom_051_*.test.ts` で cross-account FK throw、immutable、UNIQUE 冪等、legal hold join 可能を確認。
 
