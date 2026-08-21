@@ -39,6 +39,7 @@ import {
   PHARMACY_RICH_MENU_CATALOG_VERSION,
   loadPharmacyRichMenuCatalogImage,
 } from './catalog.js';
+import { sha256Hex } from './hash.js';
 
 export const pharmacyRichMenuRoutes = new Hono<Env>();
 
@@ -63,12 +64,6 @@ async function canManagePharmacyRichMenu(c: Context<Env>, accountId: string): Pr
   return Boolean(staff) &&
     await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID) &&
     await hasPharmacyCapability(c.env.DB, accountId, 'pharmacy_rich_menu');
-}
-
-async function sha256(value: string | Uint8Array): Promise<string> {
-  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function groupManifestAreas(group: RichMenuGroupWithPages): RichMenuAreaInput[] | null {
@@ -564,7 +559,7 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/versions', async (c
   const catalogImage = await loadPharmacyRichMenuCatalogImage(c.env.IMAGES, effectiveOrder);
   const input = buildPharmacyCatalogRichMenu(accountId, account.liff_id, effectiveOrder, body.name);
   const manifestHash = await hashPharmacyRichMenuManifest(input.pages[0]?.areas ?? []);
-  const liffIdHash = await sha256(account.liff_id);
+  const liffIdHash = await sha256Hex(account.liff_id);
   const created = await createRichMenuGroup(c.env.DB, input);
   const page = created.pages[0];
   if (!page) {

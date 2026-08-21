@@ -5,6 +5,7 @@ import {
   type PharmacyRichMenuActionKey,
 } from './layout.js';
 import { PHARMACY_RICH_MENU_CATALOG_VERSION } from './catalog.js';
+import { sha256Hex } from './hash.js';
 
 export const PHARMACY_INITIAL_PROFILE_KEY = 'initial-large-3x2-v4';
 export const PHARMACY_PREVIOUS_INITIAL_PROFILE_KEY = 'initial-large-3x2-v3';
@@ -172,10 +173,7 @@ export async function hashPharmacyRichMenuManifest(
     actionData: Object.fromEntries(Object.entries(area.actionData).sort(([left], [right]) =>
       left.localeCompare(right))),
   })).sort((left, right) => left.boundsY - right.boundsY || left.boundsX - right.boundsX);
-  const digest = await crypto.subtle.digest(
-    'SHA-256', new TextEncoder().encode(JSON.stringify(canonical)),
-  );
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return sha256Hex(JSON.stringify(canonical));
 }
 
 export type PharmacyRichMenuSlotDiff = {

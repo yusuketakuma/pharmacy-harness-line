@@ -2,6 +2,7 @@ import type { RichMenuAreaInput, RichMenuGroupWithPages } from '@line-crm/db';
 import { validateRichMenuImage } from '../../../lib/image-validator.js';
 import { getPharmacyCapabilityConfig } from '../growth-loop/repository.js';
 import { loadPharmacyRichMenuCatalogImage, PHARMACY_RICH_MENU_CATALOG_VERSION } from './catalog.js';
+import { sha256Hex } from './hash.js';
 import { derivePharmacyRichMenuLayout } from './layout.js';
 import { diagnosePharmacyRichMenuActions, hashPharmacyRichMenuManifest } from './profile.js';
 import {
@@ -14,12 +15,6 @@ export type PharmacyRichMenuPublishReadiness = {
   reasonCodes: string[];
   evidenceDigest: string | null;
 };
-
-async function sha256(value: string | Uint8Array): Promise<string> {
-  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 function blocked(reasonCodes: string[]): PharmacyRichMenuPublishReadiness {
   return { status: 'BLOCKED', reasonCodes: [...new Set(reasonCodes)], evidenceDigest: null };
@@ -38,7 +33,7 @@ export async function getPharmacyRichMenuPublishReadiness(input: {
     getPharmacyRichMenuDraftBinding(input.db, input.accountId, input.group.id),
     getPharmacyRichMenuLayout(input.db, input.accountId),
     getPharmacyCapabilityConfig(input.db, input.accountId),
-    sha256(input.liffId),
+    sha256Hex(input.liffId),
   ]);
   if (!binding) return blocked(['VERSION_BINDING_MISSING']);
   const reasons: string[] = [];
@@ -99,14 +94,14 @@ export async function getPharmacyRichMenuPublishReadiness(input: {
   const validation = validateRichMenuImage(bytes, bytes.byteLength);
   if (saved.httpMetadata?.contentType !== 'image/jpeg' || !validation.ok ||
       validation.size !== binding.menuSize || validation.format !== 'jpeg' ||
-      await sha256(bytes) !== binding.imageHash) {
+      await sha256Hex(bytes) !== binding.imageHash) {
     reasons.push('SAVED_IMAGE_CHANGED');
   }
   if (reasons.length > 0) return blocked(reasons);
   return {
     status: 'READY',
     reasonCodes: [],
-    evidenceDigest: await sha256(JSON.stringify({
+    evidenceDigest: await sha256Hex(JSON.stringify({
       groupId: input.group.id,
       groupStatus: input.group.status,
       groupUpdatedAt: input.group.updated_at,

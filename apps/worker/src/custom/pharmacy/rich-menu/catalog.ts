@@ -5,6 +5,7 @@ import {
   type PharmacyRichMenuActionKey,
   type PharmacyRichMenuSize,
 } from './layout.js';
+import { sha256Hex } from './hash.js';
 
 export const PHARMACY_RICH_MENU_CATALOG_VERSION = 'v4-2';
 const CATALOG_PREFIX = `rich-menu-catalog/${PHARMACY_RICH_MENU_CATALOG_VERSION}`;
@@ -63,11 +64,6 @@ function validateCatalog(value: unknown): Map<string, PharmacyRichMenuCatalogEnt
   return entries;
 }
 
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 export async function loadPharmacyRichMenuCatalogImage(
   images: R2Bucket,
   orderedActions: readonly PharmacyRichMenuActionKey[],
@@ -100,7 +96,7 @@ export async function loadPharmacyRichMenuCatalogImage(
   if (!validation.ok || validation.size !== entry.size || validation.format !== 'jpeg') {
     throw new Error('pharmacy rich-menu catalog image is not LINE-compliant');
   }
-  if (await sha256(bytes) !== entry.imageHash) {
+  if (await sha256Hex(bytes) !== entry.imageHash) {
     throw new Error('pharmacy rich-menu catalog image hash does not match manifest');
   }
   return { ...entry, bytes, byteLength: entry.bytes };
