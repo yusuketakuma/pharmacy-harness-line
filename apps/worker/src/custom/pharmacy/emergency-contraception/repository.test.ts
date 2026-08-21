@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createEmergencyIntake, getAdminEmergencyIntakeDetail, getEmergencySaleRecord,
   listCounterConfirmations, recordEmergencySale, saveEmergencySettings,
-  transitionEmergencyIntake, upsertCounterConfirmation,
+  transitionEmergencyIntake, recordCounterConfirmation,
 } from './repository.js';
 
 const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
@@ -389,7 +389,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
       lineAccountId: 'account-a', intakeId, expectedVersion: 2, toStatus: 'completed', staffId: 'staff-a',
     })).rejects.toThrow('transition conflict');
 
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-a',
     });
@@ -405,7 +405,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
 
     await expect(recordEmergencySale(db, soldInput(intakeId))).rejects.toThrow('transition conflict');
 
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: ['A3'], staffId: 'staff-a',
     });
@@ -426,7 +426,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
   it('replays a duplicate sale request idempotently instead of inserting a second row', async () => {
     seedAccount('a');
     const { id: intakeId } = await createReviewedIntake('a');
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-a',
     });
@@ -443,7 +443,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
   it('records a refusal as a cancelled intake with outcome refused', async () => {
     seedAccount('a');
     const { id: intakeId } = await createReviewedIntake('a');
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-a',
     });
@@ -465,7 +465,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
     await expect(recordEmergencySale(db, {
       ...soldInput(intakeId), lineAccountId: 'account-b', staffId: 'staff-b',
     })).rejects.toThrow('intake not found');
-    await expect(upsertCounterConfirmation(db, {
+    await expect(recordCounterConfirmation(db, {
       lineAccountId: 'account-b', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-b',
     })).rejects.toThrow('intake not found');
@@ -474,7 +474,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
   it('rejects a sale with a stale expectedVersion (CAS conflict)', async () => {
     seedAccount('a');
     const { id: intakeId } = await createReviewedIntake('a');
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-a',
     });
@@ -482,26 +482,64 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
       .rejects.toThrow('transition conflict');
   });
 
-  it('lists and updates a section confirmation keyed by its primary key (upsert, not INSERT OR REPLACE)', async () => {
+  it('lists a section confirmation keyed by its primary key, only for a trained pharmacist', async () => {
     seedAccount('a');
     const { id: intakeId } = await createReviewedIntake('a');
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: ['A3'], staffId: 'staff-a',
     });
-    await upsertCounterConfirmation(db, {
+    const list = await listCounterConfirmations(db, 'account-a', intakeId, 'staff-a');
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: ['A3'] });
+
+    await expect(listCounterConfirmations(db, 'account-a', intakeId, 'staff-untrained'))
+      .rejects.toThrow('trained pharmacist access required');
+  });
+
+  it('rejects a second confirmation for the same section (insert-only, not upsert)', async () => {
+    seedAccount('a');
+    // A second trained pharmacist under the same account, for the "different
+    // staff" duplicate attempt below.
+    sqlite.prepare(`INSERT INTO staff_members
+      (id, name, role, api_key, is_active, created_at, updated_at)
+      VALUES ('staff-a2', 'Staff A2', 'admin', 'key-a2', 1, ?, ?)`).run(now, now);
+    sqlite.prepare(`INSERT INTO tenant_staff_memberships
+      (tenant_id, staff_id, role, is_active, created_at, updated_at)
+      VALUES ('tenant-a', 'staff-a2', 'admin', 1, ?, ?)`).run(now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_staff_accounts
+      (line_account_id, staff_id, is_active, created_at, updated_at)
+      VALUES ('account-a', 'staff-a2', 1, ?, ?)`).run(now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_emergency_pharmacists
+      (line_account_id, staff_id, training_registration_number, is_active, created_at, updated_at)
+      VALUES ('account-a', 'staff-a2', 'TRAIN-A2', 1, ?, ?)`).run(now, now);
+
+    const { id: intakeId } = await createReviewedIntake('a');
+    await recordCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: ['A3'], staffId: 'staff-a',
+    });
+
+    // Same staff, second attempt.
+    await expect(recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-a',
-    });
-    const list = await listCounterConfirmations(db, 'account-a', intakeId);
+    })).rejects.toThrow('counter confirmation exists');
+    // Different staff, second attempt.
+    await expect(recordCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a2',
+    })).rejects.toThrow('counter confirmation exists');
+
+    const list = await listCounterConfirmations(db, 'account-a', intakeId, 'staff-a');
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: [] });
+    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: ['A3'], staff_id: 'staff-a' });
   });
 
   it('decrypts a sale determination only after the fail-closed access audit succeeds', async () => {
     seedAccount('a');
     const { id: intakeId } = await createReviewedIntake('a');
-    await upsertCounterConfirmation(db, {
+    await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
       mismatchItems: [], staffId: 'staff-a',
     });

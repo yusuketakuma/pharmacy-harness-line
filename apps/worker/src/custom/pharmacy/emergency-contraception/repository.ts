@@ -1248,7 +1248,9 @@ export async function listCounterConfirmations(
   db: D1Database,
   lineAccountId: string,
   intakeId: string,
+  staffId: string,
 ): Promise<EmergencyCounterConfirmation[]> {
+  await requireTrainedPharmacist(db, lineAccountId, staffId);
   const rows = await db.prepare(
     `SELECT section, checklist_version, mismatch_items_json, staff_id, confirmed_at
        FROM pharmacy_emergency_counter_confirmations
@@ -1258,7 +1260,7 @@ export async function listCounterConfirmations(
   return rows.results.map(counterConfirmationProjection);
 }
 
-export async function upsertCounterConfirmation(
+export async function recordCounterConfirmation(
   db: D1Database,
   input: {
     lineAccountId: string;
@@ -1278,26 +1280,32 @@ export async function upsertCounterConfirmation(
   await requireTrainedPharmacist(db, input.lineAccountId, input.staffId);
   const intake = await getIntake(db, input.lineAccountId, input.intakeId);
   if (!intake) throw new Error('intake not found');
+  // Insert-only: the counter confirmation is a one-time in-person attestation,
+  // not a mutable draft. A second confirmation for the same (account, intake,
+  // section) is rejected — not silently overwritten by a later pharmacist —
+  // so pre-check existence before the INSERT (and still treat any PK conflict
+  // from the INSERT itself the same way, closing the race window).
+  const existing = await db.prepare(
+    `SELECT 1 AS ok FROM pharmacy_emergency_counter_confirmations
+      WHERE line_account_id = ? AND intake_id = ? AND section = ?`,
+  ).bind(input.lineAccountId, input.intakeId, input.section).first<{ ok: number }>();
+  if (existing) throw new Error('counter confirmation exists');
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
-  // Not INSERT OR REPLACE (house style: that would silently drop columns not
-  // supplied on conflict / bypass row-level intent). INSERT ... ON CONFLICT DO
-  // UPDATE keyed on the (line_account_id, intake_id, section) PK, same pattern
-  // as setEmergencyPharmacist's upsert above.
-  const result = await db.prepare(
-    `INSERT INTO pharmacy_emergency_counter_confirmations
-      (line_account_id, intake_id, section, checklist_version, mismatch_items_json, staff_id, confirmed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (line_account_id, intake_id, section) DO UPDATE SET
-       checklist_version = excluded.checklist_version,
-       mismatch_items_json = excluded.mismatch_items_json,
-       staff_id = excluded.staff_id,
-       confirmed_at = excluded.confirmed_at`,
-  ).bind(
-    input.lineAccountId, input.intakeId, input.section, input.checklistVersion,
-    JSON.stringify(input.mismatchItems), input.staffId, timestamp,
-  ).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('counter confirmation conflict');
+  let result: D1Result;
+  try {
+    result = await db.prepare(
+      `INSERT INTO pharmacy_emergency_counter_confirmations
+        (line_account_id, intake_id, section, checklist_version, mismatch_items_json, staff_id, confirmed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      input.lineAccountId, input.intakeId, input.section, input.checklistVersion,
+      JSON.stringify(input.mismatchItems), input.staffId, timestamp,
+    ).run();
+  } catch {
+    throw new Error('counter confirmation exists');
+  }
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('counter confirmation exists');
   return {
     section: input.section, checklist_version: input.checklistVersion,
     mismatch_items: input.mismatchItems, staff_id: input.staffId, confirmed_at: timestamp,

@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   getReminderControl: vi.fn(),
   saveReminderControl: vi.fn(),
   listCounterConfirmations: vi.fn(),
-  upsertCounterConfirmation: vi.fn(),
+  recordCounterConfirmation: vi.fn(),
   recordEmergencySale: vi.fn(),
   getEmergencySaleRecord: vi.fn(),
 }));
@@ -42,7 +42,7 @@ vi.mock('./repository.js', () => ({
   getAdminEmergencyIntakeDetail: mocks.detail,
   transitionEmergencyIntake: mocks.transition,
   listCounterConfirmations: mocks.listCounterConfirmations,
-  upsertCounterConfirmation: mocks.upsertCounterConfirmation,
+  recordCounterConfirmation: mocks.recordCounterConfirmation,
   recordEmergencySale: mocks.recordEmergencySale,
   getEmergencySaleRecord: mocks.getEmergencySaleRecord,
 }));
@@ -473,7 +473,7 @@ describe('emergency contraception counter confirmation and sale routes (ECF-7)',
     mocks.listCounterConfirmations.mockResolvedValue([
       { section: 'A', checklist_version: 'lng-2026-08', mismatch_items: [], staff_id: 'staff-a', confirmed_at: '2026-08-22T00:00:00.000Z' },
     ]);
-    mocks.upsertCounterConfirmation.mockResolvedValue({
+    mocks.recordCounterConfirmation.mockResolvedValue({
       section: 'A', checklist_version: 'lng-2026-08', mismatch_items: [], staff_id: 'staff-a', confirmed_at: '2026-08-22T00:00:00.000Z',
     });
     mocks.recordEmergencySale.mockResolvedValue({ id: 'sale-a', outcome: 'sold', sold_at: '2026-08-22T00:00:00.000Z' });
@@ -490,14 +490,14 @@ describe('emergency contraception counter confirmation and sale routes (ECF-7)',
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a', {}, env,
     );
     expect(response.status).toBe(200);
-    expect(mocks.listCounterConfirmations).toHaveBeenCalledWith(env.DB, 'account-a', 'intake-a');
+    expect(mocks.listCounterConfirmations).toHaveBeenCalledWith(env.DB, 'account-a', 'intake-a', 'staff-a');
 
     response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'lng-2026-08', mismatchItems: ['A3'] }) }, env,
     );
     expect(response.status).toBe(200);
-    expect(mocks.upsertCounterConfirmation).toHaveBeenCalledWith(env.DB, {
+    expect(mocks.recordCounterConfirmation).toHaveBeenCalledWith(env.DB, {
       lineAccountId: 'account-a', intakeId: 'intake-a', section: 'A',
       checklistVersion: 'lng-2026-08', mismatchItems: ['A3'], staffId: 'staff-a',
     });
@@ -511,22 +511,30 @@ describe('emergency contraception counter confirmation and sale routes (ECF-7)',
     expect(mocks.listCounterConfirmations).not.toHaveBeenCalled();
   });
 
+  it('maps an untrained staff read to 403', async () => {
+    mocks.listCounterConfirmations.mockRejectedValueOnce(new Error('trained pharmacist access required'));
+    const response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a', {}, env,
+    );
+    expect(response.status).toBe(403);
+  });
+
   it('maps counter confirmation failures to 403/404/409', async () => {
-    mocks.upsertCounterConfirmation.mockRejectedValueOnce(new Error('trained pharmacist access required'));
+    mocks.recordCounterConfirmation.mockRejectedValueOnce(new Error('trained pharmacist access required'));
     let response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'v1', mismatchItems: [] }) }, env,
     );
     expect(response.status).toBe(403);
 
-    mocks.upsertCounterConfirmation.mockRejectedValueOnce(new Error('intake not found'));
+    mocks.recordCounterConfirmation.mockRejectedValueOnce(new Error('intake not found'));
     response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'v1', mismatchItems: [] }) }, env,
     );
     expect(response.status).toBe(404);
 
-    mocks.upsertCounterConfirmation.mockRejectedValueOnce(new Error('counter confirmation conflict'));
+    mocks.recordCounterConfirmation.mockRejectedValueOnce(new Error('counter confirmation exists'));
     response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'v1', mismatchItems: [] }) }, env,

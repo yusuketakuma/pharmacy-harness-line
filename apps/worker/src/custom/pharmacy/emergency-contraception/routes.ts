@@ -20,7 +20,7 @@ import {
   setEmergencyInventory,
   setEmergencyPharmacist,
   transitionEmergencyIntake,
-  upsertCounterConfirmation,
+  recordCounterConfirmation,
   type EmergencyCounterSection,
   type EmergencySafeContactMode,
 } from './repository.js';
@@ -428,10 +428,14 @@ emergencyContraceptionRoutes.get(
     const section = c.req.param('section');
     if (!COUNTER_SECTIONS.has(section)) return c.json({ error: 'Invalid section' }, 400);
     try {
-      const confirmations = await listCounterConfirmations(c.env.DB, scope.lineAccountId, c.req.param('id'));
+      const confirmations = await listCounterConfirmations(
+        c.env.DB, scope.lineAccountId, c.req.param('id'), scope.staff.id,
+      );
       const confirmation = confirmations.find((item) => item.section === section) ?? null;
       return c.json({ confirmation });
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (/trained pharmacist/.test(message)) return c.json({ error: 'Forbidden' }, 403);
       return c.json({ error: 'Service unavailable' }, 503);
     }
   },
@@ -449,7 +453,7 @@ emergencyContraceptionRoutes.put(
       return c.json({ error: '入力内容を確認してください' }, 400);
     }
     try {
-      const confirmation = await upsertCounterConfirmation(c.env.DB, {
+      const confirmation = await recordCounterConfirmation(c.env.DB, {
         lineAccountId: scope.lineAccountId,
         intakeId: c.req.param('id'),
         section: section as EmergencyCounterSection,
