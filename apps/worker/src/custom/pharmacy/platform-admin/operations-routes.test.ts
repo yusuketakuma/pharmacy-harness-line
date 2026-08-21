@@ -429,13 +429,13 @@ describe('platform admin LINE status', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: expect.any(URLSearchParams),
-      redirect: 'error',
+      redirect: 'manual',
       signal: expect.any(AbortSignal),
     });
     expect(fetcher).toHaveBeenNthCalledWith(2, 'https://api.line.me/liff/v1/apps', {
       method: 'GET',
       headers: { Authorization: 'Bearer stateless-token' },
-      redirect: 'error',
+      redirect: 'manual',
       signal: expect.any(AbortSignal),
     });
     expect(JSON.stringify(body)).not.toContain('stateless-token');
