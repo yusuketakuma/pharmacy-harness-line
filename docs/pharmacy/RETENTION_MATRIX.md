@@ -254,3 +254,47 @@ Ordered by risk. None of these are enforced today.
    outlive the data they describe. Decide the offset before implementing.
    `pharmacy_emergency_intake_events` joins this group (see item 5): its
    `BEFORE DELETE` trigger blocks any purge job today, deliberately.
+
+## 3-year purge: deletion order spec (not implemented)
+
+Derived from `packages/db/bootstrap.sql` FK declarations only (`grep -n
+"REFERENCES\|ON DELETE"` per table, 2026-08-22) — nothing here is guessed.
+"Depends on" = the table(s) this row's FK points at; those are deleted
+**after** this row regardless of `ON DELETE CASCADE`, since the purge job
+deletes leaf-first explicitly for auditability rather than relying on cascade.
+
+| # | Table | Age ref col | Format | Cutoff helper | Depends on (deleted after) | Notes/blockers |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `pharmacy_prescription_events` | `created_at` | Z | `retentionCutoff()` | submissions (CASCADE) | |
+| 2 | `pharmacy_prescription_view_events` | `viewed_at` | Z | `retentionCutoff()` | submissions, files (both CASCADE) | |
+| 3 | `pharmacy_prescription_validities` | `created_at` | Z | `retentionCutoff()` | submissions (CASCADE) | |
+| 4 | `pharmacy_submission_sources` | `entered_at` | Z | `retentionCutoff()` | submissions (CASCADE) | |
+| 5 | `pharmacy_submission_attributes` | `created_at` | Z | `retentionCutoff()` | submissions (CASCADE) | |
+| 6 | `pharmacy_myna_verifications` | `created_at` | Z | `retentionCutoff()` | myna_handoffs (no CASCADE) | |
+| 7 | `pharmacy_myna_events` | `occurred_at` | Z | `retentionCutoff()` | myna_handoffs (no CASCADE) | |
+| 8 | `pharmacy_continuity_events` | `created_at` | Z | `retentionCutoff()` | continuity_obligations (no CASCADE) | |
+| 9 | `pharmacy_next_intake_expectation_events` | `occurred_at` | Z | `retentionCutoff()` | next_intake_expectations (no CASCADE) | |
+| 10 | `pharmacy_next_intake_expectations` | `created_at` | Z | `retentionCutoff()` | continuity_obligations, patients (no CASCADE) | |
+| 11 | `pharmacy_medication_followup_events` | `occurred_at` | Z | `retentionCutoff()` | medication_followups (no CASCADE) | |
+| 12 | `pharmacy_medication_followups` | `created_at` | Z | `retentionCutoff()` | patients, prescription_patients (no CASCADE) | |
+| 13 | `pharmacy_continuity_obligations` | `created_at` | Z | `retentionCutoff()` | patients, submissions ×2 (no CASCADE) | `candidate_submission_id` can reference a **newer** submission than `source_submission_id` — its own deletion order is `unknown`, resolve before implementing |
+| 14 | `pharmacy_prescription_expectations` | `created_at` | Z | `retentionCutoff()` | myna_handoffs, friends, patients, submissions (no CASCADE) | |
+| 15 | `pharmacy_myna_handoffs` | `created_at` | Z | `retentionCutoff()` | friends, patients (no CASCADE) | |
+| 16 | `pharmacy_prescription_patients` | `created_at` | Z | `retentionCutoff()` | submissions, patients, intake_responses (no CASCADE) | |
+| 17 | `pharmacy_fulfillment_quotes` | `created_at` | Z | `retentionCutoff()` | submissions (no CASCADE) | |
+| 18 | `pharmacy_print_tasks` | `created_at` | Z | `retentionCutoff()` | submissions (no CASCADE) | |
+| 19 | `pharmacy_data_subject_requests` | `created_at` | Z | `retentionCutoff()` | patients (no CASCADE) | its child `pharmacy_data_subject_request_events` has its own immutable-audit `BEFORE DELETE` trigger (`pharmacy_data_subject_events_no_delete`); `unknown` whether a closed request row itself may be purged while that event trail must survive |
+| 20 | `pharmacy_patient_intake_responses` | `created_at` | Z | `retentionCutoff()` | patients (no CASCADE); self via `base_response_id` (no CASCADE) | leaf-first within one patient's own revision chain |
+| 21 | `pharmacy_prescription_submissions` | `created_at` | Z | `retentionCutoff()` | friends (no CASCADE) | root of the prescription aggregate; delete only after 1–5, 14, 16–18 |
+| 22 | `pharmacy_patients` | `created_at` | Z | `retentionCutoff()` | friends (no CASCADE) | delete only after 10, 12, 13, 15, 16, 19, 20 |
+| 23 | `messages_log` | `created_at` | **+09:00** | `retentionCutoffJst()` (not implemented) | friends (CASCADE) | only surviving pointer to incoming-image R2 keys (inside JSON `content`) — deleting the row without reconciling R2 first orphans the object (deferred item 3) |
+| 24 | `chats` | `created_at` | **+09:00** | `retentionCutoffJst()` (not implemented) | friends (CASCADE) | |
+| 25 | `friends` | `created_at` | **+09:00** | `retentionCutoffJst()` (not implemented) | — (root) | delete only after 21–24 |
+| 26 | `pharmacy_emergency_intake_events` | `occurred_at` | Z | n/a | emergency_intakes (CASCADE, blocked) | **redact, not delete** — `pharmacy_emergency_events_no_delete` `BEFORE DELETE` trigger aborts every delete including FK-cascaded ones (NEXT-2) |
+| 27 | `pharmacy_emergency_admin_events` | `occurred_at` | Z | n/a | — (audit) | **redact, not delete** — `pharmacy_emergency_admin_events_no_delete` `BEFORE DELETE` trigger aborts every delete, same shape as row 26 |
+| 28 | `pharmacy_activity_notifications`, `platform_admin_access_events` | `created_at` | Z | `retentionCutoff()` | none blocking (only line_account/staff FKs) | audit-only; no `no_delete` trigger, but sequence **after** everything above per existing "audit-only" guidance |
+
+`pharmacy_emergency_intakes` itself is already **redact, not delete** (see
+"Enforced" above, NEXT-2) — it is not in this table because it has a purge
+job today. Implementing any row above is out of scope here; tracked as
+2029+ V0.3x backlog per DoD.
