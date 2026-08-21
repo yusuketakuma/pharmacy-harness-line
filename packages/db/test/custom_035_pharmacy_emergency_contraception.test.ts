@@ -15,6 +15,7 @@ import {
   listOwnerEmergencyIntakes,
   setEmergencyInventory,
   transitionEmergencyIntake,
+  upsertCounterConfirmation,
 } from '../../../apps/worker/src/custom/pharmacy/emergency-contraception/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -315,6 +316,12 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       lineAccountId: 'account-a', intakeId: created.id, expectedVersion: 1,
       toStatus: 'reviewed', staffId: 'staff-a', now: new Date(REOPENED_NOW),
     })).resolves.toMatchObject({ status: 'reviewed' });
+    // completed requires the in-person 'A' section counter confirmation (ECF-7).
+    await upsertCounterConfirmation(d1, {
+      lineAccountId: 'account-a', intakeId: created.id, section: 'A',
+      checklistVersion: 'lng-2026-08', mismatchItems: [], staffId: 'staff-a',
+      now: new Date(REOPENED_NOW),
+    });
     await expect(transitionEmergencyIntake(d1, {
       lineAccountId: 'account-a', intakeId: created.id, expectedVersion: 2,
       toStatus: 'completed', staffId: 'staff-a', now: new Date(REOPENED_NOW),
