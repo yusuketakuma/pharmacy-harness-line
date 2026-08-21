@@ -81,6 +81,22 @@
 | FLE production secret/backfill/coverage/scrub/restore drill | ops + named approval | FLE-FINAL条件 | `NOT_RUN` |
 | 真のMFA / 別origin / role細分化 / 異常検知 | 経営・インフラ | 製品判断 | 未決 |
 | 緊急避妊薬: 厚労省一覧掲載・実在庫・当日勤務・紙記録運用 | 薬局 | EC-0 | 未確認 |
+| V029-13: dev deploy後のPages asset marker/Worker API/CORS証跡記録 | 実装者(dev deploy実行者) | dev環境へのdeploy完了後に確認・記録する | NOT_RUN |
+| V029-13: dev deploy後のcanonical readiness証跡記録 | 実装者(dev deploy実行者) | 同上 | NOT_RUN |
+| V029-13: dev deploy後のLINE Endpoint自動/manual evidence記録 | 実装者(dev deploy実行者) | 同上 | NOT_RUN |
+| V029-13: 実LINE端末Human Gate一式(Myna外部遷移/復帰/紙fallback、機能ON/OFF/全OFF、active drain、disabled旧rich-menu tap、緊急避妊薬status、通知同梱時のみ承認済み中立通知、薬局情報/FAX、右上version) | 薬局staff/実機端末操作者 | dev deploy後に実LINE端末で1項目ずつ確認する | NOT_RUN |
+| V029-13: GitHub Release本文(`pharmacy-v0.29.0`) | リリース担当者 | seller tag出荷後、明示指示を受けて作成する | NOT_RUN |
+| V029-13: production code deploy/account activation/LINE mutation | 運用担当者 | 個別の明示指示を受けてから実行する | NOT_RUN |
+| V030-0: synthetic account受入(実v0.29 binary rollback drill、remote current/known-good identity確定) | 実装者/運用担当者 | 外部受入セッションで固定する | NOT_RUN |
+| V030-2/V030-2D: 実ブラウザ狭幅・200% zoom確認 | 実装者/QA | 実端末・実ブラウザで目視確認する | NOT_RUN |
+| V030-2/V030-2D/V030-3: 実LINE lifecycle確認(初期表示切替・保存versionのLINE登録・candidate作成〜upload〜set-default〜read-back) | 薬局staff/運用担当者 | synthetic accountで明示Human Gateとして実施する | NOT_RUN |
+| V030-3: 初期設定end-to-end実証(local prepare→LINE create/upload→set-default→read-back一致) | 実装者/運用担当者 | V030-6のsynthetic account受入と同時に実施する | NOT_RUN |
+| V030-6: schema apply | 運用担当者 | 個別の明示指示を受けてから実行する | NOT_RUN |
+| V030-6: production code deploy | 運用担当者 | 個別の明示指示を受けてから実行する | NOT_RUN |
+| V030-6: account activation(新lifecycle/reminderをONへ) | 運用担当者 | deploy後もdefault inactiveのままであることを確認してから、個別の明示指示を受けて実行する | NOT_RUN |
+| V030-6: LINE candidate create/upload/set-default/rollbackの一連のmutation | 運用担当者/薬局staff | account activation後、synthetic accountでのend-to-end実証を経てから実行する | NOT_RUN |
+| V030-6: code rollback drill(新activation停止、remote default維持、pending reminder停止、reconcile確認) | 運用担当者 | production incident対応手順として個別に実施する | NOT_RUN |
+| V030-6: GitHub Release本文(`pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`) | リリース担当者 | 各seller tag出荷後、明示指示を受けて作成する | NOT_RUN |
 
 ### V029 - 電子処方箋・緊急避妊薬・機能ON/OFF + 安全なreadiness - 2026-08-21 Oracle反映版
 
@@ -235,7 +251,7 @@
   - `apps/liff`、`apps/web`、`apps/worker`、`packages/db`の薬局custom seam一覧と依存図はread-only evidenceとして作り、移動候補は次版backlogへ送る。
   - **完了条件**: behavior不変、旧internal branch/reference 0件、focused tests再green、diffがsecurity-sensitiveな変更を追跡可能な大きさに保たれる。
 
-- [ ] **V029-13 focused regression・dev受入・release準備**
+- [x] **V029-13 focused regression・dev受入・release準備**
   - R1 previous reader、R2 migration、R3 capability write、R4 disable/create race、R5 drain matrix、R6 cron/notification isolation、R7/R8 Myna ownershipとpatient/staff境界、R9 endpoint probe、R10/R11 EC privacy/status、R12/R13 LIFF public/auth/drain、R14 readiness parity、R15 platform-admin/zero-LINE-callを必須contract suiteとする。
   - focused tests、薬局custom seam回帰、typecheck、build、migration fixture、static route/deep-linkをgreenにする。既存未コミット作業を混入させずexact-path commitする。
   - dev deploy後にPages asset marker/Worker API/CORS、canonical readiness、LINE Endpointの自動またはmanual evidenceを別々に記録する。
@@ -243,6 +259,7 @@
   - package `0.29.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.29.0`は明示指示により準備する。GitHub Release本文、dev push/main merge/deploy/activation/LINE mutationは個別の明示指示を受ける。
   - **Oracle evidence**: session `pharmacy-v029-full-plan-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、`thinkingTime=pro`、transcript validation `ok`。判定`CHANGE`を上記順序・権限縮小・延期へ反映済み。
   - **v0.29.0完了条件**: previous-version互換、atomic admission/drain、Myna patient/staff境界、EC detail decrypt、LIFF public/auth分離、platform-admin read-only、上記zero-call対象pathがgreen。未説明の`BLOCKED`なし。`UNVERIFIED` accountはactivationしない。
+  - **完了(2026-08-22, ローカル/リリース分)**: focused regression・build・migration fixtureのローカルgreenは2026-08-21実装レビュー(下記)で確認済み。seller tag `pharmacy-v0.29.0`(`git log`上でmainの祖先として確認済み)、package `0.29.0`、`CHANGELOG.md`「Pharmacy v0.29.0 (2026-08-21)」を確認した。dev push/main mergeはgit履歴上で確認できるが、dev deploy後のPages asset marker/Worker API/CORS/canonical readiness/LINE Endpoint証跡記録、実LINE端末Human Gate一式、GitHub Release本文、production deploy/account activation/LINE mutationはこのセッションの証跡(`git log`/`CHANGELOG.md`)からは確認できず未実施として扱う。詳細はNEXTセクションのHuman Gate registerを参照。
 
 #### 2026-08-21 実装レビュー・refactor証跡
 
@@ -345,7 +362,12 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 | 薬局管理画面 | account別「本日の対応」read-only summary、deep link、partial failure表示 | domain横断のbounded action queue |
 | 全体管理画面 | 非PHI pharmacy readiness集約、LIFF/menu/version evidence | fleet drift、予約切替状態、redacted support snapshot |
 
-- [ ] **V030-0 v0.29.0前提証拠と0.30.0 Red contractを固定**
+#### patch release履歴
+
+- **v0.30.1 (2026-08-21)**: リッチメニュー左上を「処方せん送信」へ修正し、新規accountの初期並び順を確定した。緊急避妊薬はリッチメニュー直下から外し「すべての機能」からの導線を維持。修正画像を`v4-2`へ上書きせずimmutable prefix`rich-menu-catalog/v4-3/`として分離し、旧catalogをrollback用に保持。Cloudflare反映待ちの`/admin/version`確認を12回まで拡張。Worker・Web・LIFF・SDK・MCP server・root packageのruntime versionを`0.30.1`へ統一。
+- **v0.30.2 (2026-08-22)**: 6画面リッチメニューのsource画像をtap領域と同じ3列×2行境界で切り出す修正、catalog versionを`v4-4`へ更新(旧catalogは上書きせず保持)。228枚のJPEGを圧縮しdeploy時50MB upload budget内に収める検査を追加、catalog未変更pushでは画像生成・R2公開をskip。rich-menu readinessをcheck順非依存化し、configuration doctorから薬局LIFF endpointへ実接続してDNS/接続/redirect/upstream応答/本文検査の各段階を非機微なstageとして表示する診断を追加。runtime version注入のshell quoting不具合を修正し、bundle/package versionへsemantic version検査を追加。runtime package versionを`0.30.2`へ統一。
+
+- [x] **V030-0 v0.29.0前提証拠と0.30.0 Red contractを固定**
   - v0.29.0のcapability revision、atomic admission/drain、LIFF public/auth分離、canonical readiness、platform-admin denial、notification outbox/idempotencyのgreen証拠を確認する。
   - frozen v0.29 Worker/reader/dispatcherがv0.30のadditive draft dataと新reminder kindを安全に無視し、LINE mutation・通知送信を行わないことを固定する。greenにできなければ先行expand releaseまたはrollback中のmutation/send freezeを必須にする。
   - V029-7がstatus cardだけで完了した場合は、既存方式を再利用したstaff-triggered通知contractをschedulerより先に独立sliceでgreenにする。最初のdelivery pathと時刻schedulerを同時導入しない。
@@ -354,6 +376,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - stale capability/layout/LIFF revision、cross-tenant/account、画像/action差替え、confirmation再利用、LINE partial failure、reminder二重実行をRed testで再現する。rename後旧importはV030-5のmoveが別承認された場合だけ対象にする。
   - **受入条件**: v0.30.0のbase commit、対象account、外部mutation境界、rollback対象、前提testが追跡できる。
   - **進捗(2026-08-21)**: base seller tagは`pharmacy-v0.29.0` / `554d750d3b2bc67b8da76e61207f90b712df3056`。capability互換、atomic outbox/idempotency、inactive/frozen account control、legacy mutation bypass拒否、v3 rollback profile、additive schemaをfocused testで確認した。synthetic対象account、実v0.29 binary rollback、remote current/known-good identityは外部受入時に固定するため未完了。
+  - **完了(2026-08-22, ローカル/リリース分)**: 上記focused testのローカルgreenをもってRed contract固定を完了とする。synthetic account受入・実v0.29 binary rollback drill・remote current/known-good identityの外部受入固定は`git log`/`CHANGELOG.md`からは確認できず、NEXTセクションのHuman Gate registerへ未実施として計上した。
 
 - [x] **V030-1 初期preset・account別menu layout・immutable draft**
   - 新profile `initial-large-3x2-v4`をrelease catalogの承認済みtile sourceにし、左上画像ラベルを「処方せん送信」へ変更する。現行`v3`は既存published menuのrollback証跡として変更・削除しない。
@@ -375,7 +398,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - **Red -> Green**: same-account複数version、同一variant再保存、別account非表示、image/action hash binding、rename CAS、published/current/known-good/`UNVERIFIED`削除拒否、R2 key分離を確認する。
   - **完了(2026-08-21)**: 保存versionの作成・account別一覧・複数保持・immutable binding、`updated_at`を再利用したrename/delete CASをgreen化した。deleteはdraft・remote IDなし・current/known-good/`UNVERIFIED`以外だけをatomicに許可し、generic `force=true`からの迂回も拒否する。known-good/`UNVERIFIED`はV030-3のaccount-scoped operation evidenceから導出し、管理画面へ表示する。
 
-- [ ] **V030-2 薬局管理画面の配置編集・画像/action preview**
+- [x] **V030-2 薬局管理画面の配置編集・画像/action preview**
   - アカウント登録完了画面とrich-menu管理画面に「初期設定を開始/再開」を表示する。`READY`でない項目は不足理由と修正導線を示し、準備済み・LINE登録済み・画像upload済み・初期表示済み・`UNVERIFIED`を一つの「完了」に丸めない。
   - 初期設定flowはownerが各外部mutationを確認し、途中失敗後は保存済みoperation stateから安全に再開できるようにする。画面を閉じてもremote menuを作り直さず、結果不明時は自動retryしない。
   - owner向けに5項目の並べ替えと最後の固定fallbackを表示し、dragだけでなく上下左右buttonとkeyboardで操作できるようにする。薬局accountでは従来のraw全体画像作成・編集UIを表示せず、保存versionの作成・LINE登録・切替へ一本化する。44px target、狭幅、未保存変更、account切替を扱う。
@@ -384,6 +407,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - 44px targetとkeyboard操作に加え、programmatic name/position/state、reorder後のfocus、保存・CAS conflict・validation errorのscreen-reader通知を備え、drag・色・位置だけへ依存しない。
   - **Red -> Green**: 初期設定のREADY/BLOCKED/UNVERIFIED表示と再開、layout操作、accessibility、画像寸法/type/size、draft freeze後のbyte/hash/object mismatch、未confirm upload、preview overlay、別accountを確認する。
   - **進捗(2026-08-21)**: アカウント登録・連携後にcanonical readinessを取得し、`READY`/`BLOCKED`/`UNVERIFIED`を「初期設定を確認/開始/再開」と不足項目の修正導線へ反映した。rich-menu管理画面にも同じ状態表示と配置editorへの導線を追加し、機能OFF時は設定画面へ案内する。Web薬局custom seam 28 files / 127 testsがgreen。development R2への全variant登録・read-backは完了。実ブラウザの狭幅・200% zoomと実LINE lifecycleは外部受入のため未完了。
+  - **完了(2026-08-22, ローカル/リリース分)**: 上記進捗と、seller tag `pharmacy-v0.30.0`/`CHANGELOG.md`「Pharmacy v0.30.0 (2026-08-21)」の「v4リッチメニュー運用」記述をもってローカル実装完了とする。実ブラウザ狭幅・200% zoom確認、実LINE lifecycle確認は`git log`/`CHANGELOG.md`からは確認できず、NEXTセクションのHuman Gate registerへ未実施として計上した。
 
 - [x] **V030-2A 公開中menuとdraftの差分表示**
   - fresh read-back済みのcurrent default manifestとimmutable draftをslot単位で比較し、`同一`、`追加`、`削除`、`移動`、`action変更`、`画像変更`を表示する。remote evidenceが古い場合は「公開中」と断定せず`UNVERIFIED`とする。
@@ -404,14 +428,15 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - **Red -> Green**: `v4`全adaptive枠、未知page/host、欠落・別LIFF ID、disabled action、固定message改変、all-functions欠落、LINE call 0件を確認する。
   - **完了(2026-08-21)**: 228 variantのserver-derived manifestを全件診断し、枠数・座標・action type・LIFF URL・固定messageの不一致をreason code化した。hashごと誤設定された未知host/page、別LIFF ID、disabled action、all-functions欠落もpublish/set-default readinessで`BLOCKED`となり、LINE credential・lock・API call前に停止する。管理画面はaction診断reasonを日本語で表示する。Worker 69件、LIFF route 5件、Web 3件がgreen。
 
-- [ ] **V030-2D 保存済み画像version一覧・管理画面切替**
+- [x] **V030-2D 保存済み画像version一覧・管理画面切替**
   - rich-menu管理画面へthumbnail付きsaved version一覧を追加し、current default、known-good、draft、upload済み、published、`UNVERIFIED`をbadgeと説明で区別する。account切替時は旧responseを破棄する。
   - previewは保存済みexact JPEGとserver-derived tap overlayを表示する。「この画像へ切替」は画像単体置換ではなく、versionのremote richMenuIdをV030-3 set-default候補へ渡す。未uploadならcreate/upload flowへ案内し、結果不明時は自動retryしない。
   - version rename/delete、切替、rollbackは別操作とする。44px target、keyboard、狭幅、200% zoom、screen-reader statusを備える。
   - **Red -> Green**: 複数thumbnail、current/known-good表示、preview action一致、未upload導線、switch dry-run/confirmation、cross-account、account switch race、保護version delete拒否を確認する。
   - **進捗(2026-08-21)**: thumbnail一覧、current/known-good/`UNVERIFIED`表示、account switch race防止、rename、安全なdraft削除、未upload時のLINE登録導線、switch/explicit rollback導線をgreen化した。`UNVERIFIED` publishは「状態を再確認」でGET-only照合し、安全に不足段階を特定できた場合だけHuman Gate付き「登録を再開」を表示する。保存済みexact JPEGとserver-derived tap overlay preview、LINEのcompact `2500x843`とlarge `2500x1686`を含む全228 variantのlocal release artifact・hash/寸法/1MB上限を検証した。保存画像・group一覧/詳細/作成/編集/公開系は、queryやR2 keyをauthorityにせずserver-side tenant/account lookupを必須化した。development R2への全variant登録・read-backは完了。200% zoomの実ブラウザ確認と実LINE切替は未完了。
+  - **完了(2026-08-22, ローカル/リリース分)**: 上記進捗と、seller tag `pharmacy-v0.30.0`/`CHANGELOG.md`「Pharmacy v0.30.0 (2026-08-21)」の保存version管理・rollback候補記述をもってローカル実装完了とする。200% zoom実ブラウザ確認、実LINE切替確認は`git log`/`CHANGELOG.md`からは確認できず、NEXTセクションのHuman Gate registerへ未実施として計上した。
 
-- [ ] **V030-3 local prepare・LINE create/upload・set-default・rollbackを分離**
+- [x] **V030-3 local prepare・LINE create/upload・set-default・rollbackを分離**
   - 初期設定を「稼働済み」と判定する条件は、`v4` draft作成、LINE candidate作成、exact image upload、account-wide default設定、fresh read-back一致の全完了とする。local draftだけを「初期設定完了」と表示しない。
   - 保存済みversion作成はlocal-onlyとし、tenant/account/current revisions、immutable draft、exact preview confirmationを検証して期限付きoperation confirmationを発行する。旧全体画像`prepare` APIは利用しない。LINE callは0件とする。
   - `create/upload`は一つの明示LINE mutation gateとする。最初のLINE call前にlocal intentを保存し、remote richMenuIdは次のexternal call前に保存する。draftへhash-bindしたrelease catalogのexact JPEGだけをuploadし、結果不明時は`UNVERIFIED`で停止してblind retryしない。
@@ -421,6 +446,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - canonical readinessへdraft freshness、upload evidence、current/expected default一致、checked_at、`UNVERIFIED`を集約する。config保存、health、preflight、cronはLINE mutation・暗黙refreshを行わない。
   - **Red -> Green**: 初期設定happy pathと各段階からのresume、local prepare zero-call、client remote ID/credential拒否、create/upload/defaultの結果不明、read-back不一致、confirmation再利用、legacy bypass、cross-account remote ID、code rollback freeze、explicit rollbackを確認する。
   - **進捗(2026-08-21)**: additive `custom_046`へaccount-scoped operationとpublish phase（intent、remote作成、画像upload、alias作成、D1確定）を保存し、順不同の進行とphase evidenceなしの成功をDB制約で拒否した。通常publishは各LINE call後にphaseを永続化し、結果不明時はremote menu list・画像bytes・alias targetをGET-onlyで照合する。安全に不足段階を特定できた場合だけ、期限付きresume confirmationを一度消費してcreate/image/aliasの1段階を実行し、read-back一致後に進める。`set-default`/`rollback`もfresh current defaultでreconcileし、全confirmation再利用をDBで拒否する。管理画面の再確認・Human Gate付きresumeまでgreen。account lifecycleはdefault `inactive`、明示`active`後はlegacy publish/unpublish/default-clear/bulk/orphan-deleteを最初のLINE call前に409、`frozen`では新publish/resume/set-defaultも409とし、GET-only reconcileは維持した。実v0.29 binaryへのrollback drillと初期設定end-to-end実証は未完了。
+  - **完了(2026-08-22, ローカル/リリース分)**: 上記進捗と、seller tag `pharmacy-v0.30.0`/`CHANGELOG.md`「Pharmacy v0.30.0 (2026-08-21)」のLINE登録・初期表示切替・rollback分離記述をもってローカル実装完了とする。実v0.29 binaryへのrollback drill、初期設定end-to-end実証(実LINE)は`git log`/`CHANGELOG.md`からは確認できず、NEXTセクションのHuman Gate registerへ未実施として計上した。
 
 - [x] **V030-4 緊急避妊薬の時刻起点中立reminder**
   - rich menuとは独立したaccount activation sliceとし、v0.29.0のstaff-triggered通知と既存outbox/idempotencyを再利用する。V029-7がstatus cardのみならV030-0の通知baselineを先にgreenにし、新しいscheduler frameworkは作らない。
@@ -495,7 +521,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - **conditional Red -> Green -> Refactor**: moveを承認した場合だけ移動前behavior、旧reference 0件、focused test、custom seam回帰を確認する。
   - **完了(2026-08-21)**: `apps/liff`、`apps/web`、`apps/worker`の`custom/pharmacy`、`custom_045`〜`custom_047` migration/test、entry route/callerをread-onlyで棚卸しした。責務不一致や重複ownershipによる具体的欠陥は確認されなかったため、既定どおり`git mv`は`DEFER`し、no-moveで完了とした。
 
-- [ ] **V030-6 regression・dev受入・release準備**
+- [x] **V030-6 regression・dev受入・release準備**
   - rich menu draft/layout/catalog image/action/saved versions/管理画面切替/LINE lifecycle、公開中との差分、ON/OFF同期アシスト、tap link診断、CLI/API coverage/doctor、LIFF共通shell、薬局summary、全体管理readiness、scheduled reminderのfocused testsと薬局custom seam全体、typecheck、build、migration fixtureをgreenにする。repository move回帰はV030-5を別承認した場合だけ必須にする。
   - release用画像generatorを同じ入力で2回実行してcatalog manifestと全JPEG hashが一致すること、合法variantが228件で欠落/重複0件であること、各画像がCompact `2500x843`またはLarge `2500x1686`・JPEG・LINE byte上限内であること、catalog総容量が設定したdeploy上限内であることをgateにする。runtime/packageへ画像renderer依存を追加しない。
   - schema apply、code deploy、account activation、LINE candidate create/upload、set-default、rollbackは独立Human Gateとし、一つの承認から他を推論しない。deployだけでは全accountの新lifecycle/reminderをinactiveに保つ。
@@ -505,6 +531,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - package `0.30.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.30.0`、GitHub Release本文は全gate後に揃える。dev push/main merge/tag/deploy/account activation/LINE mutationは個別の明示指示を受ける。
   - **Oracle evidence**: session `pharmacy-v029-v030-split-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、`thinkingTime=pro`、transcript validation `ok`。判定`CHANGE`をdraft確定点、LINE lifecycle、reminder occurrence、activation、conditional moveへ反映済み。
   - **進捗(2026-08-21)**: release generatorを同一sourceから再実行し、228 JPEG、manifest、全SHA-256が既存local artifactと完全一致することを確認した。catalog総容量を50MB以下に制限するdeploy gateも追加し、現在artifactは36,954,062 bytes。development R2へ228画像とmanifestを登録し、全remote objectのbyte/hash/size一致を確認した。Worker rich-menu/DB/LIFF/Web/CLI・doctorのfocused testsはgreen。最新確認はWorker 93 files / 795 tests、Web薬局custom seam 28 files / 127 tests、LIFF薬局custom seam 16 files / 69 tests、deploy workflow・CLI契約 2 files / 62 tests。schema apply、deploy、account activation、LINE mutation、実端末受入、rollback drill、package/release metadataは未実行。
+  - **完了(2026-08-22, ローカル/リリース分)**: 上記focused testのローカルgreenに加え、seller tag `pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`、package version、`CHANGELOG.md`「Pharmacy v0.30.0/v0.30.1/v0.30.2」を確認した。**方針からの逸脱を記録する**: 本節は当初「package `0.30.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.30.0`、GitHub Release本文は全gate後に揃える」としていたが、実際には schema apply・production code deploy・account activation・LINE candidate create/upload/set-default・rollback drill・実端末受入がいずれも`NOT_RUN`のまま、`pharmacy-v0.30.0`/`v0.30.1`/`v0.30.2`のpackage/tag/CHANGELOGだけが先行して出荷された(3タグとも`git log`上でmainの祖先として確認できるが、上記gateの実施証跡は`git log`/`CHANGELOG.md`からは確認できない)。この逸脱は事実として記録するに留め、遡って各gateを実施済みと扱わない。GitHub Release本文、schema apply、production deploy、account activation、LINE candidate create/upload/set-default、code rollback drill、synthetic account実端末受入は未実施のままNEXTセクションのHuman Gate registerへ計上した。
 
 ### V031 - privacy-safe menu分析・予約切替・preset共有 - 0.31.0実装予定
 
@@ -572,6 +599,9 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - 薬局管理画面へ期間別action opens、予約一覧/取消/再開、preset copy previewを追加する。44px target、keyboard、狭幅、timezone明示、account切替、screen-reader statusを確認する。
   - analytics、schedule、copy、LIFF timeline、薬局action queue、platform fleet driftのfocused tests、mixed-version、tenant/account authorization、privacy field scan、scheduler concurrency、v0.30 rollback回帰をgreenにする。実LINE端末はsynthetic accountだけを使い、未来時刻の切替とread-backをHuman Gateで確認する。
   - package `0.31.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.31.0`、GitHub Release本文は全gate後に揃える。schema apply、deploy、activation、schedule作成、LINE mutation、dev push/main merge/tagは個別の明示指示を受ける。
+  - seller tagはHuman Gate register全行がNOT_RUN以外になってから(V030-6でpackage/tag/CHANGELOGがgateより先行出荷された逸脱の再発防止)。
+
+## Done
 
 ### LIFF-MENU - メインメニュー階層 + 6分割リッチメニュー - 2026-08-20 実装計画
 
@@ -1048,8 +1078,6 @@ V-3(tags.ts)・V-4(webhooks.ts)自体のテナントスコープ化は、この�
 - Myna `tenant_alias` のグローバルユニーク衝突(low, `endpoint-repository.ts:148`)と `/r/myna/:tenantAlias` 未認証URL開示(low, `myna/routes.ts:184`)は今回のisolation調査で唯一生き残った2件。優先度lowのため今バッチには含めず次回起票。
 - H-4/H-5/H-6は後続P4で方針確定・実装済み。ただしR2 lifecycle実設定とP8の厚労省一覧掲載・実在庫・当日勤務・メーカー紙運用・deployment/production動作はコード外Human Gateのまま。
 - E-7は完了済み。E-6は証跡文書作成済みだが、live R2 lifecycle確認だけはCloudflare account IDがplaceholderのため`NOT_RUN`を維持する。
-
-## Done
 
 - [x] 2026-08-19: マルチテナント化差分(`v0.26.0/feature/logical-multitenancy`)の初回セキュリティレビュー実施、Artifact/Markdownで報告(High 6 / Medium 10 / Low 10)
 - [x] 2026-08-19: 外部レビュー(REQUEST_CHANGES)を受領。技術指摘を実コードで検証し本計画に反映。`GET /images/:key` 無認証PHI漏洩の指摘は実コード確認(`apps/worker/src/routes/images.ts:103-119`)により却下、その他の妥当な指摘(D1 batch()挙動・isolate非共有・薬剤師法条番号・APPI文言)は反映済み
