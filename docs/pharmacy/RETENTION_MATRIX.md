@@ -52,7 +52,7 @@ in this repository can *find* the object to delete it.
 | Prefix | Contents | PHI | Age reference | Enforcement |
 | --- | --- | --- | --- | --- |
 | `custom/pharmacy/prescriptions/tenants/{tenantId}/{submissionId}/{revision}/{fileId}` | 処方箋画像 | yes — highest density (patient name, drugs, prescriber, clinic) | `pharmacy_prescription_files.created_at` | **enforced** — `purgePrescriptionFilesPastRetention` (6h cron) |
-| `tenants/{tenantId}/accounts/{accountId}/incoming/{messageId}.{ext}` | 着信 LINE チャット画像 | yes — patient may send anything | none in a column | **not enforced** — see "Deferred" |
+| `tenants/{tenantId}/accounts/{accountId}/incoming/{messageId}.{ext}` | 着信 LINE チャット画像 | yes — patient may send anything | `pharmacy_incoming_image_objects.stored_at` (`custom_050`, forward-only from commit e028b86) | **not enforced** — the R2 key is now tracked, but no purge job consumes it and there is no backfill for objects written before `custom_050`; see "Deferred" |
 | `tenants/{tenantId}/uploads/{uuid}.{ext}` | 管理者アップロード画像 (broadcast/template assets) | not by design; no patient path writes here | none | **not enforced** — no DB row at all |
 | `rich-menus/{accountId}/{groupId}/{pageId}/{...}` | リッチメニュー画像 | no — regenerable configuration asset | `rich_menu_pages` row | out of PHI scope; replaced/deleted images already orphan |
 | `webinars/{prefix}/...` | HLS 動画 | no — marketing, not a pharmacy surface | n/a | written out-of-band, never reaped |
@@ -73,7 +73,7 @@ string and a `Z` string do not compare correctly against the same cutoff.
 | Table | PHI | Age reference | Format | Enforcement |
 | --- | --- | --- | --- | --- |
 | `pharmacy_prescription_files` | R2 pointer to the 処方箋画像 | `created_at` NOT NULL | ISO `Z` | R2 object deleted, row set `state='deleted'`, logged in `pharmacy_phi_retention_purge_log` |
-| `pharmacy_webhook_event_receipts` | raw LINE webhook body — message text, `userId`, image ids | `received_at` NOT NULL | **JST `+09:00`** | already purged at **30 days** for settled rows (M-7, `purgeWebhookEventReceipts`); `pending`/`processing` rows are never purged and can therefore outlive 3 years |
+| `pharmacy_webhook_event_receipts` | raw LINE webhook body — message text, `userId`, image ids | `received_at` NOT NULL | **JST `+09:00`** | purged at **30 days** for both settled and dead-lettered rows (M-7 + NEXT-6, `purgeWebhookEventReceipts`); `sweepWebhookInbox` dead-letters any `pending`/`processing` row past 24h with no live lease, so nothing can silently outlive 3 years anymore |
 | `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` | **partially enforced** — account's own `pharmacy_emergency_settings.retention_days` (1–365) takes precedence over the uniform 3-year rule for the self-declaration payload only (NEXT-2); see "Emergency contraception retention" below for the residual identifying columns this does **not** clear |
 
 ### Not yet enforced — 3-year boundary defined, no purge job
@@ -230,7 +230,8 @@ cascade the evidence away with it.
 
 ## Deferred to a follow-up task
 
-Ordered by risk. None of these are enforced today.
+Ordered by risk. None of these are fully enforced today (item 5 is
+partially enforced — see below and the Enforced table).
 
 1. **Prescription aggregate row deletion.** The image is gone at 3 years but the
    surrounding rows remain. Deleting a submission requires an ordered delete
@@ -245,11 +246,14 @@ Ordered by risk. None of these are enforced today.
    identity PHI in the schema. Blocked on (1): `pharmacy_prescription_patients`
    holds a foreign key to both, and `base_response_id` forms a self-referencing
    revision chain that must be deleted leaf-first.
-3. **Incoming LINE chat images** (`tenants/{t}/accounts/{a}/incoming/`). No column
-   stores the key — it survives only as a URL inside `messages_log.content` JSON.
-   Enforcement needs either a tracking column (additive migration) or a bounded
-   `R2.list()` sweep reconciled against `messages_log`. Do not blind-delete by
-   prefix age; there is no age reference on the object that this repository owns.
+3. **Incoming LINE chat images** (`tenants/{t}/accounts/{a}/incoming/`). The R2
+   key is now tracked (`pharmacy_incoming_image_objects`, `custom_050`, commit
+   e028b86): `webhook.ts` writes a row with `stored_at` best-effort alongside
+   every incoming image, forward-only. What's still missing: no purge job reads
+   this table yet, and there is no backfill for objects stored before
+   `custom_050` — those still survive only as a URL inside `messages_log.content`
+   JSON. Do not blind-delete by prefix age for the pre-`custom_050` set; there
+   is no age reference on those objects that this repository owns.
 4. **`messages_log` / `chats` / `friends`.** JST-formatted timestamps, so they
    need their own cutoff string — the UTC cutoff used above is wrong for them by
    9 hours, and mixing the two is exactly the kind of silent off-by-one that
@@ -269,10 +273,12 @@ Ordered by risk. None of these are enforced today.
    `pharmacy_emergency_intake_events` remains unenforced: its immutable-delete
    trigger makes it structurally an audit table, so it is sequenced with item 7
    below, not with its parent.
-6. **`pharmacy_webhook_event_receipts` stragglers.** Settled rows are purged at 30
-   days, but `pending`/`processing` rows are deliberately never purged and carry
-   raw LINE message bodies. A row stuck pending for 3 years is a PHI retention
-   hole *and* a stuck-queue bug; fix the bug, do not add a delete.
+6. ~~**`pharmacy_webhook_event_receipts` stragglers.**~~ **Resolved (NEXT-6,
+   commit e663658).** `sweepWebhookInbox` dead-letters any `pending`/`processing`
+   row older than 24h with no live lease; `purgeWebhookEventReceipts` then
+   removes dead-lettered rows the same way it already removed `completed` ones,
+   at 30 days. The fix was the queue bug, not a new raw delete — the principle
+   that stuck rows must be fixed rather than blind-deleted held.
 7. **Audit tables.** Sequencing question, not a mechanism question — they must
    outlive the data they describe. Decide the offset before implementing.
    `pharmacy_emergency_intake_events` joins this group (see item 5): its
@@ -313,7 +319,7 @@ deletes leaf-first explicitly for auditability rather than relying on cascade.
 | 23 | `messages_log` | `created_at` | **+09:00** | `retentionCutoffJst()` (not implemented) | friends (CASCADE) | only surviving pointer to incoming-image R2 keys (inside JSON `content`) — deleting the row without reconciling R2 first orphans the object (deferred item 3) |
 | 24 | `chats` | `created_at` | **+09:00** | `retentionCutoffJst()` (not implemented) | friends (CASCADE) | |
 | 25 | `friends` | `created_at` | **+09:00** | `retentionCutoffJst()` (not implemented) | — (root) | delete only after 21–24 |
-| 26 | `pharmacy_emergency_intake_events` | `occurred_at` | Z | n/a | emergency_intakes (CASCADE, blocked) | **redact, not delete** — `pharmacy_emergency_events_no_delete` `BEFORE DELETE` trigger aborts every delete including FK-cascaded ones (NEXT-2) |
+| 26 | `pharmacy_emergency_intake_events` | `occurred_at` | Z | n/a | emergency_intakes (CASCADE, blocked) | **redact, not delete** — solely because `pharmacy_emergency_events_no_delete` `BEFORE DELETE` trigger aborts every delete including FK-cascaded ones; NEXT-2 only redacts the parent `pharmacy_emergency_intakes` row, it does not touch this table |
 | 27 | `pharmacy_emergency_admin_events` | `occurred_at` | Z | n/a | — (audit) | **redact, not delete** — `pharmacy_emergency_admin_events_no_delete` `BEFORE DELETE` trigger aborts every delete, same shape as row 26 |
 | 28 | `pharmacy_activity_notifications`, `platform_admin_access_events` | `created_at` | Z | `retentionCutoff()` | none blocking (only line_account/staff FKs) | audit-only; no `no_delete` trigger, but sequence **after** everything above per existing "audit-only" guidance |
 
