@@ -63,6 +63,10 @@ export function buildCompositeTileArgs(
   ];
 }
 
+export function buildCatalogEncodingArgs(path: string): string[] {
+  return ['-strip', '-interlace', 'Plane', '-quality', '60', path];
+}
+
 function runMagick(binary: string, args: string[]) {
   execFileSync(binary, args, { stdio: 'ignore' });
 }
@@ -121,7 +125,7 @@ export async function generatePharmacyRichMenuCatalog(input: {
       args.push(
         '-fill', 'none', '-stroke', '#dbe7e1', '-strokewidth', '4',
         '-draw', borders,
-        '-strip', '-interlace', 'Plane', '-quality', '82', path,
+        ...buildCatalogEncodingArgs(path),
       );
       runMagick(magick, args);
       const generated = await sha256File(path);

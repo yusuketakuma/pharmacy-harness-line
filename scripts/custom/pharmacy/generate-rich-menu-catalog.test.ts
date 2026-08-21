@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCatalogEncodingArgs,
   buildCompositeTileArgs,
   buildPharmacyRichMenuCatalogJobs,
 } from './generate-rich-menu-catalog.js';
 
 describe('pharmacy rich-menu release catalog generator', () => {
+  it('keeps the complete catalog within its release upload budget', () => {
+    expect(buildCatalogEncodingArgs('/tmp/menu.jpg')).toEqual([
+      '-strip', '-interlace', 'Plane', '-quality', '60', '/tmp/menu.jpg',
+    ]);
+  });
+
   it('anchors composited tiles to their top-left bounds', () => {
     expect(buildCompositeTileArgs('/tmp/tile.png', {
       x: 0,
