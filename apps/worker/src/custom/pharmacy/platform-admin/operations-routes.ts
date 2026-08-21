@@ -21,6 +21,7 @@ export const platformAdminOperationsRoutes = new Hono<Env>();
 
 const LINE_PROBE_TIMEOUT_MS = 5000;
 const PROBE_TIMEOUT_ERROR = 'LINE API request timed out';
+const LIFF_VERIFY_TIMEOUT_MS = 5000;
 
 async function tenantExists(db: D1Database, tenantId: string): Promise<boolean> {
   const row = await db.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
@@ -203,6 +204,72 @@ function expectedLiffEndpoint(origin: string | undefined, liffId: string | null)
   }
 }
 
+type LiffEndpointEvidence =
+  | { status: 'MATCH'; source: 'line_api'; checkedAt: string }
+  | {
+    status: 'MISMATCH'; source: 'line_api'; checkedAt: string;
+    reason: 'LIFF_ID_NOT_FOUND' | 'ENDPOINT_URL_MISMATCH';
+  }
+  | { status: 'ERROR'; source: 'line_api'; checkedAt: string };
+
+async function verifyLiffEndpoint(
+  loginChannelId: string,
+  loginChannelSecret: string,
+  liffId: string,
+  expectedEndpoint: string,
+): Promise<LiffEndpointEvidence> {
+  const checkedAt = new Date().toISOString();
+  try {
+    const tokenResponse = await fetch('https://api.line.me/oauth2/v3/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: loginChannelId,
+        client_secret: loginChannelSecret,
+      }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(LIFF_VERIFY_TIMEOUT_MS),
+    });
+    if (!tokenResponse.ok) return { status: 'ERROR', source: 'line_api', checkedAt };
+    const tokenPayload = await tokenResponse.json().catch(() => null) as {
+      access_token?: unknown;
+    } | null;
+    if (typeof tokenPayload?.access_token !== 'string' || !tokenPayload.access_token) {
+      return { status: 'ERROR', source: 'line_api', checkedAt };
+    }
+
+    const appsResponse = await fetch('https://api.line.me/liff/v1/apps', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
+      redirect: 'error',
+      signal: AbortSignal.timeout(LIFF_VERIFY_TIMEOUT_MS),
+    });
+    if (appsResponse.status === 404) {
+      return { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'LIFF_ID_NOT_FOUND' };
+    }
+    if (!appsResponse.ok) return { status: 'ERROR', source: 'line_api', checkedAt };
+    const appsPayload = await appsResponse.json().catch(() => null) as { apps?: unknown } | null;
+    if (!Array.isArray(appsPayload?.apps)) {
+      return { status: 'ERROR', source: 'line_api', checkedAt };
+    }
+    const matches = appsPayload.apps.filter((app): app is { liffId: string; view?: { url?: unknown } } =>
+      Boolean(app && typeof app === 'object' && (app as { liffId?: unknown }).liffId === liffId));
+    if (matches.length === 0) {
+      return { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'LIFF_ID_NOT_FOUND' };
+    }
+    const [match] = matches;
+    if (matches.length !== 1 || !match || typeof match.view?.url !== 'string') {
+      return { status: 'ERROR', source: 'line_api', checkedAt };
+    }
+    return match.view.url === expectedEndpoint
+      ? { status: 'MATCH', source: 'line_api', checkedAt }
+      : { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'ENDPOINT_URL_MISMATCH' };
+  } catch {
+    return { status: 'ERROR', source: 'line_api', checkedAt };
+  }
+}
+
 /**
  * GET /api/platform-admin/tenants/:id/line-status — is this tenant's LINE
  * wiring complete and receiving traffic?
@@ -214,6 +281,10 @@ function expectedLiffEndpoint(origin: string | undefined, liffId: string | null)
 platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status', async (c) => {
   const admin = c.get('platformAdmin');
   const tenantId = c.req.param('id');
+  const verifyLiffAccountId = c.req.query('verifyLiffEndpoint')?.trim() || null;
+  if (verifyLiffAccountId && !/^[A-Za-z0-9_-]{1,128}$/u.test(verifyLiffAccountId)) {
+    return c.json({ success: false, error: 'Invalid LINE account id' }, 400);
+  }
   if (!(await tenantExists(c.env.DB, tenantId))) {
     return c.json({ success: false, error: 'Tenant not found' }, 404);
   }
@@ -252,6 +323,11 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
   ).bind(tenantId).all<LineStatusRow>();
 
   const rows = result.results ?? [];
+  const verifyLiffRow = verifyLiffAccountId
+    ? rows.find((row) => row.id === verifyLiffAccountId) : null;
+  if (verifyLiffAccountId && !verifyLiffRow) {
+    return c.json({ success: false, error: 'LINE account not found for this tenant' }, 404);
+  }
   const readiness = await Promise.allSettled(
     rows.map((row) => getPharmacyReadiness(c.env.DB, row.id)),
   );
@@ -273,22 +349,60 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
       ? 'READY' as const : 'UNVERIFIED' as const;
   }));
 
-  await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_line_status');
+  let liveLiffEvidence: LiffEndpointEvidence | null = null;
+  if (verifyLiffRow) {
+    const endpoint = expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, verifyLiffRow.liff_id);
+    if (!c.env.LINE_CREDENTIAL_KEY_V1 || !verifyLiffRow.login_channel_id ||
+        !verifyLiffRow.liff_id || !endpoint) {
+      liveLiffEvidence = {
+        status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+      };
+    } else {
+      try {
+        const loginSecret = await readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+          tenantId, lineAccountId: verifyLiffRow.id, kind: 'login_channel_secret',
+        });
+        liveLiffEvidence = loginSecret
+          ? await verifyLiffEndpoint(
+            verifyLiffRow.login_channel_id, loginSecret, verifyLiffRow.liff_id, endpoint,
+          )
+          : { status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString() };
+      } catch {
+        liveLiffEvidence = {
+          status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+        };
+      }
+    }
+  }
+
+  await recordPlatformAdminAccess(
+    c.env.DB,
+    admin.id,
+    tenantId,
+    verifyLiffAccountId ? 'verify_liff_endpoint' : 'view_line_status',
+    verifyLiffAccountId ? 'line_account' : undefined,
+    verifyLiffAccountId ?? undefined,
+    liveLiffEvidence ? { status: liveLiffEvidence.status } : undefined,
+  );
   return c.json({
     success: true,
     data: rows.map((row, index) => {
       const endpoint = expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, row.liff_id);
+      const liffEvidence = row.id === verifyLiffAccountId && liveLiffEvidence
+        ? liveLiffEvidence
+        : { status: 'UNVERIFIED' as const, source: 'manual_console' as const, checkedAt: null };
+      const liffEndpointReady = liffEvidence.status === 'MATCH';
       const liffReasonCodes = !row.liff_id
         ? ['LIFF_ID_MISSING']
         : endpoint
-          ? ['LIFF_ENDPOINT_UNVERIFIED']
+          ? liffEndpointReady ? [] : ['LIFF_ENDPOINT_UNVERIFIED']
           : ['LIFF_PUBLIC_ORIGIN_INVALID'];
       const readinessResult = readiness[index];
       const accountReadiness = readinessResult?.status === 'fulfilled'
         ? readinessResult.value : null;
       const configurationDoctor = buildPharmacyConfigurationDoctor({
         accountId: row.id,
-        checkedAt: accountReadiness?.checkedAt ?? new Date().toISOString(),
+        checkedAt: liffEvidence.checkedAt ?? accountReadiness?.checkedAt ?? new Date().toISOString(),
         tenantMapped: true,
         tenantActive: row.tenant_status === 'active',
         accountActive: row.is_active === 1,
@@ -297,7 +411,7 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
         botIdentityConfigured: row.bot_identity_count > 0,
         liffIdConfigured: Boolean(row.liff_id),
         liffOriginValid: Boolean(endpoint),
-        liffEndpointStatus: 'UNVERIFIED',
+        liffEndpointStatus: liffEndpointReady ? 'READY' : 'UNVERIFIED',
         loginChannelConfigured: Boolean(row.login_channel_id),
         messagingCredentialsConfigured: row.messaging_credential_count === 2,
         loginCredentialConfigured: row.login_credential_count === 1,
@@ -316,7 +430,7 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
       messagingCredentialsReady: row.messaging_credential_count === 2,
       loginCredentialReady: row.login_credential_count === 1,
       expectedLiffEndpoint: endpoint,
-      liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
+      liffEndpointEvidence: liffEvidence,
       liffReasonCodes,
       lastWebhookReceivedAt: row.last_webhook_received_at,
       readiness: accountReadiness,

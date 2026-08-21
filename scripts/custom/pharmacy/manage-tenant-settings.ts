@@ -286,6 +286,7 @@ export async function runTenantSettings(
         `/api/platform-admin/tenants/${encodeURIComponent(tenantId)}/line-status`,
         endpoint(workerUrl, '/api/settings').origin,
       );
+      if (parsed.doctor) url.searchParams.set('verifyLiffEndpoint', accountId);
       return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
         const response = await fetcher(url.toString(), {
           method: 'GET', redirect: 'error', signal: AbortSignal.timeout(60_000),
