@@ -18,7 +18,7 @@
 
 **非目標**: 3年境界purgeの本体実装（初commit 2026-03-23のため2029年まで対象行が存在しない。設計とmatrix更新に留める）、全repo一括format、V031着手（V030-3のread-back/rollback実証が無い）、真のMFA/別origin/role細分化（インフラ判断）、production migration/backfill/scrub/deploy/LINE mutation。
 
-- [ ] **NEXT-0 台帳突合とHuman Gate register** `[lane:fast]` `[tdd:skip:docs-only]` cc:WIP
+- [x] **NEXT-0 台帳突合とHuman Gate register** `[lane:fast]` `[tdd:skip:docs-only]` cc:完了 [245dca7]
   - V029-13、V030-0/2/2D/3/6 のローカル完了分をrelease evidence（tag、CHANGELOG v0.29.0/0.30.0/0.30.1/0.30.2）付きで `[x]` にし、未実施の外部gateを本節末尾の「Human Gate register」へ `NOT_RUN` / `unknown` で移す。patch release 0.30.1/0.30.2 の内容を V030 節へ履歴として追記する。
   - V030-6「package/tagは全gate後」の逸脱を事実として記録し、次回releaseの順序をV031-5のDoDへ転記する。P0〜P8、LIFF-MENU、FLE、U22 の完了節は `## Done` へ移す。
   - **DoD**: PLANS.md に未説明の `- [ ]` が残らず、外部gateが全件registerに1行ずつ `担当 / 実施条件 / 状態` を持つ。`git diff --check` 成功。
@@ -38,7 +38,7 @@
   - **Red -> Green**（`retention-purge.test.ts` の6構成を踏襲、実SQLite）: ±1日境界、log行完全一致、書式不一致行skip、legal hold skip、冪等、batch上限、cross-account非影響、ログ/例外にpayload・氏名・電話・住所が出ない。
   - **DoD**: 新testファイルgreen、`custom_049` が `scripts/check-migrations.ts` green、bootstrap artifact再生成、`RETENTION_MATRIX.md` の「Enforced」へ移動。
 
-- [ ] **NEXT-3 既存処方箋purgeへlegal hold除外を後付け** `[lane:gate]` `[tdd:required]` cc:完了 [4b769e4]
+- [x] **NEXT-3 既存処方箋purgeへlegal hold除外を後付け** `[lane:gate]` `[tdd:required]` cc:完了 [4b769e4]
   - `purgePrescriptionFilesPastRetention` に NEXT-2 と同じ legal hold 述語を追加する。現状は保存基準が一致するため実害なしだが、`legal_hold_release_at` が3年を超えた瞬間に不整合になる。
   - **DoD**: `retention-purge.test.ts` に「hold中は `skipped:1, purged:0`」が追加されgreen。
 
@@ -50,7 +50,7 @@
   - `RETENTION_MATRIX.md:180-215` の未解決点を表にする: ON DELETE CASCADE無しの約11 table のleaf→root順、`pharmacy_data_subject_requests` → `pharmacy_patients` FK（ON DELETE無し）、`candidate_submission_id` が新しいsubmissionを指す件、JST `+09:00` table（`messages_log`/`chats`/`friends`）の別cutoff。
   - **DoD**: 各tableに削除順番号・依存先・書式・cutoff関数名が1行ずつ記載され、実装taskは2029年到達前のV0.3x backlogとして別起票。
 
-- [ ] **NEXT-6 webhook inbox 滞留検知** `[lane:fast]` `[tdd:required]` cc:完了 [e663658]
+- [x] **NEXT-6 webhook inbox 滞留検知** `[lane:fast]` `[tdd:required]` cc:完了 [e663658]
   - `pending`/`processing` receiptは生LINE本文を保持したまま永久に残る。`sweepWebhookInbox` に滞留時間上限（例: 24h）超過の件数ログとdead-letter化を足す。削除は足さない（`RETENTION_MATRIX.md:210-213`）。
   - **DoD**: 既存inbox testに「24h超pendingがdead_letteredへ遷移、本文は不変」が追加されgreen。
 
