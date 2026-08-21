@@ -202,6 +202,9 @@ describe('tenant settings CLI', () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(output.join('\n'))).toMatchObject({ status: 'READY', reasonCodes: [] });
+    expect(fetcher.mock.calls[1][0]).toBe(
+      'https://api.example.test/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-a',
+    );
   });
 
   it('rejects applying a read-only preflight before login', async () => {

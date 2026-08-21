@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { platformAdminAuthMiddleware } from './auth.js';
 import { platformAdminOperationsRoutes } from './operations-routes.js';
@@ -50,6 +50,8 @@ beforeEach(() => {
     },
   }));
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 type SessionRow = { tenant_id: string; staff_id: string; expires_at: string; revoked_at: string | null };
 
@@ -396,6 +398,63 @@ describe('platform admin tenant session revocation', () => {
 });
 
 describe('platform admin LINE status', () => {
+  it('verifies the configured LIFF endpoint live for the explicitly selected account', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: 'stateless-token', expires_in: 900, token_type: 'Bearer',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ apps: [{
+        liffId: 'liff-a', view: { url: 'https://liff.example.test/?liffId=liff-a' },
+      }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-a',
+      env(fakeDb().db),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { data: Array<Record<string, any>> };
+    const account = body.data.find((candidate) => candidate.id === 'account-a');
+    expect(account).toMatchObject({
+      liffEndpointEvidence: { status: 'MATCH', source: 'line_api' },
+      liffReasonCodes: [],
+      configurationDoctor: {
+        checks: expect.arrayContaining([
+          expect.objectContaining({ key: 'liffEndpoint', status: 'READY', reasonCodes: [] }),
+        ]),
+      },
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(1, 'https://api.line.me/oauth2/v3/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: expect.any(URLSearchParams),
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(2, 'https://api.line.me/liff/v1/apps', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer stateless-token' },
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
+    });
+    expect(JSON.stringify(body)).not.toContain('stateless-token');
+  });
+
+  it('rejects an account outside the tenant before decrypting or calling LINE', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-b',
+      env(fakeDb().db),
+    );
+
+    expect(response.status).toBe(404);
+    expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('reports presence booleans only, never credential material', async () => {
     const store = fakeDb();
     const response = await get('/api/platform-admin/tenants/tenant-a/line-status', env(store.db));
