@@ -12,11 +12,11 @@
 
 #### Phase A（先行、schema変更なし）
 
-- [ ] **ECF-0 契約固定・Red** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **ECF-0 契約固定・Red** `[lane:gate]` `[tdd:required]` cc:完了 [ad9f0a8]
   - `policy.test.ts` に v2 describe: A3/A4/A5/A' は `canCreateProvisional` を変えずフラグのみ、全A非該当でフラグ0、`eligible` を返さない、72h edge 不変。`encryption.test.ts` に最大 v2 payload の seal（2048 byte 以内か実測。超過時のみ ECF-2 で上限変更＋鍵導出修正）、`v1.` prefix 維持、v1 固定文字列の復号。`custom_035` test に owner projection が `risk_flags`/`age_band` を返さない Red。
   - **DoD**: 上記が全て Red で存在し、`ADMIN_QUEUE_SELECT` 非臨床列の回帰テストが追加されている。
 
-- [ ] **ECF-1 payload v2・policy v2・owner projection 分離** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **ECF-1 payload v2・policy v2・owner projection 分離** `[lane:gate]` `[tdd:required]` cc:完了 [ad9f0a8]
   - `repository.ts:684-692` の seal 対象に `schema_version: 2`、`lngAllergy`/`liverDisease`/`currentlyPregnant`/`breastfeeding` を追加。`:923-926` の read は `schema_version ?? 1` で分岐し v1 は null 補完。`encrypted_payload === ''` 分岐は schema 分岐より前に維持。
   - `policy.ts` に `lng_allergy`/`liver_disease`/`pregnancy_reported`/`breastfeeding_advice` を**payload 内フラグ**として算出し、`risk_flags_json` には `pre_review_flagged` だけを追加。`RISK_FLAG_LABELS` 更新。
   - `projection()` を `ownerProjection`（status/reference/slot/expires/version のみ）と `adminProjection` に分離。
@@ -24,7 +24,7 @@
   - **Red -> Green**: ECF-0 の Red、既存 routes/repository テストは objectContaining に v2 必須フィールドを**追加**（緩めない）。
   - **DoD**: `pnpm --filter worker test -- emergency-contraception` green、`custom_035` test green、v1 行の detail が落ちない。
 
-- [ ] **ECF-2 同意 v2・content hash** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **ECF-2 同意 v2・content hash** `[lane:gate]` `[tdd:required]` cc:WIP
   - 患者向け同意文を「申告は薬剤師が対面で再確認／最終判断は店頭／申告の保存期間 N日／薬剤師の販売記録は法令により3年保存／3週間後の妊娠検査の案内」へ改定。`consent_version` の新版を必須化し、`purpose_text`/同意文変更時に version bump を強制（`saveEmergencySettings`）。intake に `consent_content_hash` を記録（payload 内、列追加なし）。旧 version で作成された v1 行を v2 目的で再解釈しない。
   - **DoD**: 旧 consent_version での create が 409、hash 不一致 create が 409、`EmergencyContraceptionPage.test.tsx` の consent 契約が更新されている。
 
