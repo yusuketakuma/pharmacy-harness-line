@@ -24,7 +24,7 @@
   - **Red -> Green**: ECF-0 の Red、既存 routes/repository テストは objectContaining に v2 必須フィールドを**追加**（緩めない）。
   - **DoD**: `pnpm --filter worker test -- emergency-contraception` green、`custom_035` test green、v1 行の detail が落ちない。
 
-- [ ] **ECF-2 同意 v2・content hash** `[lane:gate]` `[tdd:required]` cc:WIP
+- [x] **ECF-2 同意 v2・content hash** `[lane:gate]` `[tdd:required]` cc:完了 [20f8c8a]
   - 患者向け同意文を「申告は薬剤師が対面で再確認／最終判断は店頭／申告の保存期間 N日／薬剤師の販売記録は法令により3年保存／3週間後の妊娠検査の案内」へ改定。`consent_version` の新版を必須化し、`purpose_text`/同意文変更時に version bump を強制（`saveEmergencySettings`）。intake に `consent_content_hash` を記録（payload 内、列追加なし）。旧 version で作成された v1 行を v2 目的で再解釈しない。
   - **DoD**: 旧 consent_version での create が 409、hash 不一致 create が 409、`EmergencyContraceptionPage.test.tsx` の consent 契約が更新されている。
 
@@ -34,7 +34,7 @@
   - D2 に「回数で受付をお断りするものではありません」を添える。完了画面に `support_center_url` を全員へ無条件表示。既存の `not.toMatch(/性交|妊娠|緊急避妊/)` 文言禁止を維持。
   - **DoD**: `EmergencyContraceptionPage.test.tsx` の `emergencyIntakeFieldErrors` にキー追加（完全一致は維持）、renderToStaticMarkup で代替導線・期限表示・A1 文言を固定、`pnpm --filter liff test` green。
 
-- [ ] **ECF-4 Phase A 回帰・manual 更新** `[lane:gate]` `[tdd:skip:docs-and-regression]` cc:TODO
+- [ ] **ECF-4 Phase A 回帰・manual 更新** `[lane:gate]` `[tdd:skip:docs-and-regression]` cc:WIP
   - `manual-patient.md` / `manual-staff.md` の EC 手順を v2 Phase A へ更新。`pnpm verify:ci` green。`RETENTION_MATRIX.md` の EC 行に payload v2 の項目を追記（列は不変）。
   - **DoD**: verify:ci exit 0、manual 2件に A3〜A' と代替導線の記述がある。
 
