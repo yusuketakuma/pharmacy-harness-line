@@ -67,15 +67,14 @@ export async function purgePrescriptionFilesPastRetention(
   // The purge-log row is the completion marker, so a run interrupted between
   // the R2 delete and the log write simply retries (R2 delete is idempotent).
   // A file's patient is only known once intake review links a
-  // pharmacy_prescription_patients row; a file with no such row has no legal
-  // hold to check (the LEFT JOIN leaves patient.patient_id NULL, and the
-  // NOT EXISTS below is vacuously true for a NULL comparison).
+  // pharmacy_prescription_patients row. Before that, fail closed on any active
+  // hold for the submission owner; once linked, require the exact patient.
   const heldClause = `
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_data_subject_requests hold
-           WHERE hold.patient_id = patient.patient_id
-             AND hold.line_account_id = patient.line_account_id
-             AND hold.owner_friend_id = patient.owner_friend_id
+           WHERE hold.line_account_id = s.line_account_id
+             AND hold.owner_friend_id = s.friend_id
+             AND (patient.patient_id IS NULL OR hold.patient_id = patient.patient_id)
              AND hold.legal_hold = 1
              AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)
         )`;
@@ -105,9 +104,9 @@ export async function purgePrescriptionFilesPastRetention(
        ${dueQueryBase}
         AND EXISTS (
           SELECT 1 FROM pharmacy_data_subject_requests hold
-           WHERE hold.patient_id = patient.patient_id
-             AND hold.line_account_id = patient.line_account_id
-             AND hold.owner_friend_id = patient.owner_friend_id
+           WHERE hold.line_account_id = s.line_account_id
+             AND hold.owner_friend_id = s.friend_id
+             AND (patient.patient_id IS NULL OR hold.patient_id = patient.patient_id)
              AND hold.legal_hold = 1
              AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)
         )`,

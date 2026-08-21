@@ -255,6 +255,26 @@ describe('emergency contraception patient routes', () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
+  it('rejects extra menstruation signal keys instead of sealing free-form data', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-extra-signal',
+      menstruationSignals: {
+        noneApply: false, unknown: true, overOneMonthNoPeriod: false,
+        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+        freeText: 'patient-authored note',
+      },
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a C2 exclusivity violation (noneApply with a signal) with 400 before calling the repository', async () => {
     const body = {
       slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
@@ -281,6 +301,22 @@ describe('emergency contraception patient routes', () => {
       safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
       manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-bad-date',
       lastMenstruationDate: 20260801,
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-calendar lastMenstruationDate before it reaches the repository', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-invalid-calendar-date',
+      lastMenstruationDate: '2026-02-30',
     };
     const response = await app().request(
       '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
@@ -419,6 +455,26 @@ describe('emergency contraception staff routes', () => {
     await expect(response.json()).resolves.toMatchObject({ code: 'EMERGENCY_CONSENT_VERSION_STALE' });
   });
 
+  it('maps a blocked retention increase to 409', async () => {
+    mocks.saveSettings.mockRejectedValueOnce(new Error('EMERGENCY_RETENTION_INCREASE_BLOCKED'));
+    const response = await app('admin').request(
+      '/api/custom/pharmacy/emergency-contraception/config',
+      {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          pharmacyRegistrationNumber: 'REG-A', productCode: 'norlevo-otc',
+          manufacturerCheckUrl: 'https://manufacturer.example/check',
+          privacyPolicyUrl: 'https://example.test/privacy', privacyContact: '窓口',
+          purposeText: '来局前確認と仮受付のため', consentVersion: '2026-08-22',
+          retentionDays: 60, consultationMinutes: 30, reservationTtlMinutes: 30,
+          privacySpaceReady: true, drinkingWaterReady: true,
+          partnerClinicUrl: 'https://clinic.example', supportCenterUrl: 'https://support.example',
+        }),
+      }, env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: 'EMERGENCY_RETENTION_INCREASE_BLOCKED' });
+  });
+
   it('lists a bounded non-PHI queue and decrypts only the selected detail', async () => {
     let response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes?line_account_id=account-a&status=provisional&slotId=slot-a&deadlineBefore=2026-08-22T00%3A00%3A00.000Z&limit=20', {}, env,
@@ -494,12 +550,12 @@ describe('emergency contraception counter confirmation and sale routes (ECF-7)',
 
     response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'lng-2026-08', mismatchItems: ['A3'] }) }, env,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'lng-2026-08', mismatchItems: ['lngAllergy'] }) }, env,
     );
     expect(response.status).toBe(200);
     expect(mocks.recordCounterConfirmation).toHaveBeenCalledWith(env.DB, {
       lineAccountId: 'account-a', intakeId: 'intake-a', section: 'A',
-      checklistVersion: 'lng-2026-08', mismatchItems: ['A3'], staffId: 'staff-a',
+      checklistVersion: 'lng-2026-08', mismatchItems: ['lngAllergy'], staffId: 'staff-a',
     });
   });
 

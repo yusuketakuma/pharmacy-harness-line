@@ -37,6 +37,12 @@ type EmergencyRouteEnv = {
 
 export const emergencyContraceptionRoutes = new Hono<EmergencyRouteEnv>();
 
+function validDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 emergencyContraceptionRoutes.use('/api/liff/pharmacy/emergency-contraception/*', async (c, next) => {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
@@ -68,8 +74,13 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
     'noneApply', 'unknown', 'overOneMonthNoPeriod',
     'notRecoveredAfterBirth', 'lastPeriodDifferent', 'earlierConcernOver3Weeks',
   ] as const;
+  const signalKeys = signalsBody !== null && typeof signalsBody === 'object'
+    ? Object.keys(signalsBody)
+    : [];
   const validSignalsShape = signalsBody === undefined || (
     signalsBody !== null && typeof signalsBody === 'object' &&
+    signalKeys.length === MENSTRUATION_SIGNAL_KEYS.length &&
+    signalKeys.every((key) => MENSTRUATION_SIGNAL_KEYS.includes(key as typeof MENSTRUATION_SIGNAL_KEYS[number])) &&
     MENSTRUATION_SIGNAL_KEYS.every((key) => typeof (signalsBody as Record<string, unknown>)[key] === 'boolean')
   );
   if (!body || typeof body.slotId !== 'string' || typeof body.intercourseAt !== 'string' ||
@@ -91,7 +102,7 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       (body.stJohnsWort !== undefined && typeof body.stJohnsWort !== 'boolean') ||
       // C1: optional, string (YYYY-MM-DD) or null (defaults to null = 不明).
       (body.lastMenstruationDate !== undefined && body.lastMenstruationDate !== null &&
-       typeof body.lastMenstruationDate !== 'string') ||
+       (typeof body.lastMenstruationDate !== 'string' || !validDateOnly(body.lastMenstruationDate))) ||
       // C2: optional, all 6 signal keys must be boolean when present.
       !validSignalsShape ||
       // D3: optional, boolean or null (未定).
@@ -263,6 +274,9 @@ emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/c
   } catch (error) {
     if (error instanceof Error && error.message === 'EMERGENCY_CONSENT_VERSION_STALE') {
       return c.json({ error: '同意文言または保存期間を変更する場合は、同意バージョンを更新してください', code: 'EMERGENCY_CONSENT_VERSION_STALE' }, 409);
+    }
+    if (error instanceof Error && error.message === 'EMERGENCY_RETENTION_INCREASE_BLOCKED') {
+      return c.json({ error: '未削除の受付がある間は保存期間を延長できません', code: 'EMERGENCY_RETENTION_INCREASE_BLOCKED' }, 409);
     }
     return c.json({ error: '設定内容を確認してください' }, 400);
   }

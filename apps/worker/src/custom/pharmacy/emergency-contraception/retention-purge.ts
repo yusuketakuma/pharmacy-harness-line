@@ -131,26 +131,46 @@ export async function purgeEmergencyIntakesPastRetention(
       if (toPurge.length === 0) continue;
 
       const statements = toPurge.flatMap((row) => [
-        db.prepare(
-          `UPDATE pharmacy_emergency_intakes
-              SET encrypted_payload = '', risk_flags_json = '[]', updated_at = ?
-            WHERE id = ? AND line_account_id = ?`,
-        ).bind(nowIso, row.id, account.line_account_id),
-        // Written last: the evidence that a specific intake's PHI was cleared by
-        // the retention rule has to survive whatever eventually happens to the
-        // intake row it describes, and its presence is what makes this idempotent.
+        // Marker-first is safe because D1 batch is atomic. Rechecking the hold
+        // here closes the gap between candidate selection and redaction.
         db.prepare(
           `INSERT OR IGNORE INTO pharmacy_emergency_retention_purge_log
              (id, line_account_id, resource_type, resource_id, age_reference_at,
               retention_days, purged_at)
-           VALUES (?, ?, 'emergency_intake', ?, ?, ?, ?)`,
+           SELECT ?, intake.line_account_id, 'emergency_intake', intake.id,
+                  intake.created_at, ?, ?
+             FROM pharmacy_emergency_intakes AS intake
+            WHERE intake.id = ? AND intake.line_account_id = ?
+              AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
+              AND NOT EXISTS (
+                SELECT 1 FROM pharmacy_data_subject_requests dsr
+                 WHERE dsr.line_account_id = intake.line_account_id
+                   AND dsr.owner_friend_id = intake.owner_friend_id
+                   AND dsr.legal_hold = 1
+                   AND (dsr.legal_hold_release_at IS NULL OR dsr.legal_hold_release_at > ?)
+              )`,
         ).bind(
-          crypto.randomUUID(), account.line_account_id, row.id, row.created_at,
-          account.retention_days, nowIso,
+          crypto.randomUUID(), account.retention_days, nowIso,
+          row.id, account.line_account_id, nowIso,
         ),
+        db.prepare(
+          `UPDATE pharmacy_emergency_intakes
+              SET encrypted_payload = '', risk_flags_json = '[]', updated_at = ?
+            WHERE id = ? AND line_account_id = ?
+              AND (encrypted_payload <> '' OR risk_flags_json <> '[]')
+              AND EXISTS (
+                SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
+                 WHERE purged.resource_type = 'emergency_intake'
+                   AND purged.line_account_id = pharmacy_emergency_intakes.line_account_id
+                   AND purged.resource_id = pharmacy_emergency_intakes.id
+              )`,
+        ).bind(nowIso, row.id, account.line_account_id),
       ]);
-      await db.batch(statements);
-      result.purged += toPurge.length;
+      const batchResults = await db.batch(statements);
+      result.purged += batchResults.reduce(
+        (count, item, index) => count + (index % 2 === 1 ? item.meta?.changes ?? 0 : 0),
+        0,
+      );
     } catch {
       // Deliberately no error content logged here (may echo bound values on
       // some drivers) — the caller logs only this function's numeric counts.

@@ -95,6 +95,16 @@ const SECTION_FIELDS: Record<EmergencyCounterSection, Array<{ key: keyof SelfRep
   ],
 }
 
+type MenstruationSignalKey = keyof NonNullable<SelfReported['menstruationSignals']>
+const MENSTRUATION_SIGNAL_FIELDS: Array<{ key: MenstruationSignalKey; label: string }> = [
+  { key: 'noneApply', label: '当てはまるものはない' },
+  { key: 'unknown', label: 'わからない' },
+  { key: 'overOneMonthNoPeriod', label: '約1か月を超えて月経がない' },
+  { key: 'notRecoveredAfterBirth', label: '出産等の後に月経が回復していない' },
+  { key: 'lastPeriodDifferent', label: '直近の月経がいつもと違う' },
+  { key: 'earlierConcernOver3Weeks', label: '今回より前の心配な出来事から3週間以上' },
+]
+
 const REFUSAL_REASON_OPTIONS = [
   { value: 'age_uncertain', label: '年齢確認不能' },
   { value: 'contraindication', label: '禁忌に該当' },
@@ -804,12 +814,14 @@ export default function EmergencyContraceptionAdminPage() {
                     </div>
                     <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
                       {SECTION_FIELDS[section].map(({ key, label }) => <div key={String(key)}><dt className="text-gray-500">{label}</dt><dd>{formatSelfReportedValue(selfReported[key] as boolean | string | null)}</dd></div>)}
+                      {section === 'C' && MENSTRUATION_SIGNAL_FIELDS.map(({ key, label }) => <div key={key}><dt className="text-gray-500">{label}</dt><dd>{formatSelfReportedValue(selfReported.menstruationSignals?.[key])}</dd></div>)}
                     </dl>
                     {section === 'C' && <p className="mt-1 text-xs text-amber-900">薬剤師のみ表示: 妊娠検査推奨 {selfReported.pregnancyTestRecommended ? 'あり' : 'なし'}</p>}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <label className="text-xs text-gray-600">申告と相違があった項目
                         <select multiple value={mismatchDrafts[section]} onChange={(event) => setMismatchDrafts((current) => ({ ...current, [section]: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="mt-1 min-h-16 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs">
                           {SECTION_FIELDS[section].map(({ key, label }) => <option key={String(key)} value={String(key)}>{label}</option>)}
+                          {section === 'C' && MENSTRUATION_SIGNAL_FIELDS.map(({ key, label }) => <option key={key} value={`menstruationSignals.${key}`}>{label}</option>)}
                         </select>
                       </label>
                       <button type="button" onClick={() => void confirmSection(intake, section)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{busy === `confirm:${section}` ? '記録中…' : '対面で確認した'}</button>

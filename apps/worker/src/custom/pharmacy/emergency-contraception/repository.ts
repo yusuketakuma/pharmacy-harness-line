@@ -437,7 +437,7 @@ export async function saveEmergencySettings(
     throw new Error('EMERGENCY_CONSENT_VERSION_STALE');
   }
   const timestamp = (input.now ?? new Date()).toISOString();
-  await db.prepare(
+  const result = await db.prepare(
     `INSERT INTO pharmacy_emergency_settings
       (line_account_id, is_enabled, pharmacy_registration_number, product_code,
        manufacturer_check_url, privacy_policy_url, privacy_contact, consent_version,
@@ -467,7 +467,13 @@ export async function saveEmergencySettings(
        partner_clinic_url = excluded.partner_clinic_url,
        support_center_url = excluded.support_center_url,
        updated_by = excluded.updated_by,
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at
+     WHERE excluded.retention_days <= pharmacy_emergency_settings.retention_days
+        OR NOT EXISTS (
+          SELECT 1 FROM pharmacy_emergency_intakes AS intake
+           WHERE intake.line_account_id = excluded.line_account_id
+             AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
+        )`,
   ).bind(
     input.lineAccountId, input.lineAccountId, input.pharmacyRegistrationNumber.trim(),
     input.productCode, ...urls.slice(0, 2), input.privacyContact.trim(), input.consentVersion,
@@ -476,6 +482,10 @@ export async function saveEmergencySettings(
     input.privacySpaceReady ? 1 : 0, input.drinkingWaterReady ? 1 : 0,
     input.partnerClinicUrl, input.supportCenterUrl, input.staffId, timestamp, timestamp,
   ).run();
+  // ponytail: account-wide freeze; add per-intake retention snapshots when overlapping policies are needed.
+  if (current && input.retentionDays > current.retention_days && (result.meta?.changes ?? 0) !== 1) {
+    throw new Error('EMERGENCY_RETENTION_INCREASE_BLOCKED');
+  }
 }
 
 export async function setEmergencyPharmacist(
@@ -1213,6 +1223,16 @@ export async function transitionEmergencyIntake(
 // never the patient's self-reported answers themselves.
 export type EmergencyCounterSection = 'A' | 'B' | 'C' | 'D';
 const COUNTER_SECTIONS = new Set<EmergencyCounterSection>(['A', 'B', 'C', 'D']);
+const COUNTER_MISMATCH_FIELDS: Record<EmergencyCounterSection, ReadonlySet<string>> = {
+  A: new Set(['lngAllergy', 'liverDisease', 'currentlyPregnant', 'breastfeeding']),
+  B: new Set(['underMedicalTreatment', 'drugAllergyHistory', 'heartKidneyGiDisease', 'stJohnsWort']),
+  C: new Set([
+    'lastMenstruationDate', 'menstruationSignals.noneApply', 'menstruationSignals.unknown',
+    'menstruationSignals.overOneMonthNoPeriod', 'menstruationSignals.notRecoveredAfterBirth',
+    'menstruationSignals.lastPeriodDifferent', 'menstruationSignals.earlierConcernOver3Weeks',
+  ]),
+  D: new Set(['idDocumentAvailable']),
+};
 
 export interface EmergencyCounterConfirmation {
   section: EmergencyCounterSection;
@@ -1274,12 +1294,14 @@ export async function recordCounterConfirmation(
 ): Promise<EmergencyCounterConfirmation> {
   if (!COUNTER_SECTIONS.has(input.section) || !input.checklistVersion.trim() ||
       !Array.isArray(input.mismatchItems) ||
-      input.mismatchItems.some((item) => typeof item !== 'string' || !item.trim())) {
+      input.mismatchItems.some((item) => !COUNTER_MISMATCH_FIELDS[input.section].has(item))) {
     throw new Error('invalid counter confirmation');
   }
   await requireTrainedPharmacist(db, input.lineAccountId, input.staffId);
   const intake = await getIntake(db, input.lineAccountId, input.intakeId);
   if (!intake) throw new Error('intake not found');
+  const checklistVersion = getChecklistVersion(intake.product_code);
+  if (input.checklistVersion !== checklistVersion) throw new Error('invalid counter confirmation');
   // Insert-only: the counter confirmation is a one-time in-person attestation,
   // not a mutable draft. A second confirmation for the same (account, intake,
   // section) is rejected — not silently overwritten by a later pharmacist —
@@ -1299,7 +1321,7 @@ export async function recordCounterConfirmation(
         (line_account_id, intake_id, section, checklist_version, mismatch_items_json, staff_id, confirmed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
-      input.lineAccountId, input.intakeId, input.section, input.checklistVersion,
+      input.lineAccountId, input.intakeId, input.section, checklistVersion,
       JSON.stringify(input.mismatchItems), input.staffId, timestamp,
     ).run();
   } catch {
@@ -1307,7 +1329,7 @@ export async function recordCounterConfirmation(
   }
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('counter confirmation exists');
   return {
-    section: input.section, checklist_version: input.checklistVersion,
+    section: input.section, checklist_version: checklistVersion,
     mismatch_items: input.mismatchItems, staff_id: input.staffId, confirmed_at: timestamp,
   };
 }
@@ -1326,6 +1348,8 @@ const IDENTITY_CHECKS = new Set<EmergencyIdentityCheck>(['document', 'verbal', '
 const IN_PERSON_DOSES = new Set<EmergencyInPersonDose>(['done', 'not_done']);
 const PREGNANCY_TEST_RESULTS = new Set<EmergencyPregnancyTestResult>(['not_done', 'negative', 'positive']);
 const REFERRALS = new Set<EmergencyReferral>(['none', 'obgyn', 'pediatrics', 'onestop', 'child_guidance']);
+const REFUSAL_REASON_CODES = new Set(['age_uncertain', 'contraindication', 'checklist_incomplete', 'patient_declined', 'other']);
+const EXPLAINED_ITEMS = new Set(['three_week_check', 'contraception_guidance', 'sti_guidance', 'breastfeeding_24h']);
 
 export interface EmergencySaleRecordSummary {
   id: string;
@@ -1377,8 +1401,11 @@ export async function recordEmergencySale(
       !PREGNANCY_TEST_RESULTS.has(input.pregnancyTest) || !REFERRALS.has(input.referral) ||
       !Number.isInteger(input.checklistSheetsReceived) || input.checklistSheetsReceived < 0 ||
       !Number.isInteger(input.expectedVersion) ||
-      !Array.isArray(input.explained) || input.explained.some((item) => typeof item !== 'string') ||
-      (input.refusalReasonCode !== null && typeof input.refusalReasonCode !== 'string')) {
+      !Array.isArray(input.explained) || input.explained.some((item) => !EXPLAINED_ITEMS.has(item)) ||
+      (input.outcome === 'sold' && (input.inPersonDose !== 'done' || input.checklistSheetsReceived < 1)) ||
+      (input.outcome === 'refused'
+        ? !input.refusalReasonCode || !REFUSAL_REASON_CODES.has(input.refusalReasonCode)
+        : input.refusalReasonCode !== null)) {
     throw new Error('invalid sale record');
   }
   await requireTrainedPharmacist(db, input.lineAccountId, input.staffId);

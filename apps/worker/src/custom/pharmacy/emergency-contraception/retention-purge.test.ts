@@ -249,6 +249,24 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     expect(intakePhi().find((r) => r.id === released)).toMatchObject({ encrypted_payload: '' });
   });
 
+  test('rechecks legal hold inside the redaction batch to close the selection race', async () => {
+    seedAccount('a', 30);
+    const held = insertIntake('a', '2023-01-01T00:00:00.000Z');
+    const racingDb = {
+      ...db,
+      batch: async (statements: RunnableStatement[]) => {
+        insertLegalHold('a', 'friend-a', null);
+        return db.batch(statements);
+      },
+    } as unknown as D1Database;
+
+    const result = await purgeEmergencyIntakesPastRetention(racingDb, { now: NOW });
+
+    expect(result.purged).toBe(0);
+    expect(intakePhi().find((r) => r.id === held)).toMatchObject({ encrypted_payload: 'v1.nonce.ciphertext' });
+    expect(purgeLog()).toEqual([]);
+  });
+
   test('is idempotent: a logged redaction is never repeated', async () => {
     seedAccount('a', 30);
     insertIntake('a', '2023-01-01T00:00:00.000Z');

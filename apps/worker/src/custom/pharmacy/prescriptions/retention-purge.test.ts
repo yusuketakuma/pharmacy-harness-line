@@ -250,6 +250,20 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     expect(remainingFiles()).toEqual([{ id: 'file-held', state: 'ready' }]);
   });
 
+  test('fails closed for an unlinked submission when its owner has an active legal hold', async () => {
+    insertFile('file-unlinked', PURGED_AT);
+    insertFile('file-linked', PURGED_AT);
+    attachPatient('file-linked', 'patient-held');
+    seedLegalHold('patient-held', null);
+    const images = { delete: vi.fn().mockResolvedValue(undefined) } as unknown as R2Bucket;
+
+    const result = await purgePrescriptionFilesPastRetention(db, images, { now: NOW });
+
+    expect(result).toEqual({ purged: 0, failed: 0, skipped: 2 });
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(purgeLog()).toEqual([]);
+  });
+
   test('purges a file whose legal hold was already released', async () => {
     insertFile('file-released', PURGED_AT);
     attachPatient('file-released', 'patient-released');

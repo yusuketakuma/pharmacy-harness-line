@@ -62,7 +62,10 @@ function settingsDb(
     prepare: (sql: string) => ({
       bind: (...values: unknown[]) => ({
         first: async () => currentRow,
-        run: async () => { calls.push({ sql, values }); return { meta: { changes: 1 } }; },
+        run: async () => {
+          calls.push({ sql, values });
+          return { meta: { changes: 1 } };
+        },
       }),
     }),
   } as unknown as D1Database;
@@ -119,6 +122,7 @@ describe('emergency contraception settings authority', () => {
     })).resolves.toBeUndefined();
     expect(calls).toHaveLength(1);
   });
+
 });
 
 describe('emergency contraception v2 payload round-trip (B1-B4/C1-C2/D3, ECF-6)', () => {
@@ -381,6 +385,23 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
     db = d1From(sqlite);
   });
 
+  it('rejects a retention increase while an unredacted intake still relies on the old promise', async () => {
+    seedAccount('a');
+    await createReviewedIntake('a');
+
+    await expect(saveEmergencySettings(db, {
+      lineAccountId: 'account-a', staffId: 'staff-a', pharmacyRegistrationNumber: 'REG-A',
+      productCode: 'norlevo-otc', manufacturerCheckUrl: 'https://manufacturer.example/check',
+      privacyPolicyUrl: 'https://pharmacy.example/privacy', privacyContact: 'privacy@example.test',
+      purposeText: 'reason', consentVersion: 'consent-a-v2', retentionDays: 60,
+      consultationMinutes: 30, reservationTtlMinutes: 30, privacySpaceReady: true,
+      drinkingWaterReady: true, partnerClinicUrl: 'https://clinic.example',
+      supportCenterUrl: 'https://support.example',
+    })).rejects.toThrow('EMERGENCY_RETENTION_INCREASE_BLOCKED');
+    expect(sqlite.prepare(`SELECT retention_days FROM pharmacy_emergency_settings
+      WHERE line_account_id = 'account-a'`).get()).toEqual({ retention_days: 30 });
+  });
+
   it('blocks the direct completed transition until the A section counter confirmation exists', async () => {
     seedAccount('a');
     const { id: intakeId } = await createReviewedIntake('a');
@@ -407,7 +428,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
 
     await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
-      mismatchItems: ['A3'], staffId: 'staff-a',
+      mismatchItems: ['lngAllergy'], staffId: 'staff-a',
     });
     const sale = await recordEmergencySale(db, soldInput(intakeId));
     expect(sale.outcome).toBe('sold');
@@ -487,14 +508,50 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
     const { id: intakeId } = await createReviewedIntake('a');
     await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
-      mismatchItems: ['A3'], staffId: 'staff-a',
+      mismatchItems: ['lngAllergy'], staffId: 'staff-a',
     });
     const list = await listCounterConfirmations(db, 'account-a', intakeId, 'staff-a');
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: ['A3'] });
+    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: ['lngAllergy'] });
 
     await expect(listCounterConfirmations(db, 'account-a', intakeId, 'staff-untrained'))
       .rejects.toThrow('trained pharmacist access required');
+  });
+
+  it('rejects client-authored checklist versions and non-field mismatch text', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+
+    await expect(recordCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'client-version',
+      mismatchItems: [], staffId: 'staff-a',
+    })).rejects.toThrow('invalid counter confirmation');
+    await expect(recordCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: ['患者の自由記載'], staffId: 'staff-a',
+    })).rejects.toThrow('invalid counter confirmation');
+  });
+
+  it('rejects non-contract sale determination values before sealing them', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+    await recordCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+
+    await expect(recordEmergencySale(db, soldInput(intakeId, {
+      explained: ['free-form clinical note'],
+    }))).rejects.toThrow('invalid sale record');
+    await expect(recordEmergencySale(db, soldInput(intakeId, {
+      outcome: 'refused', refusalReasonCode: 'free-form reason',
+    }))).rejects.toThrow('invalid sale record');
+    await expect(recordEmergencySale(db, soldInput(intakeId, {
+      inPersonDose: 'not_done',
+    }))).rejects.toThrow('invalid sale record');
+    await expect(recordEmergencySale(db, soldInput(intakeId, {
+      checklistSheetsReceived: 0,
+    }))).rejects.toThrow('invalid sale record');
   });
 
   it('rejects a second confirmation for the same section (insert-only, not upsert)', async () => {
@@ -517,7 +574,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
     const { id: intakeId } = await createReviewedIntake('a');
     await recordCounterConfirmation(db, {
       lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
-      mismatchItems: ['A3'], staffId: 'staff-a',
+      mismatchItems: ['lngAllergy'], staffId: 'staff-a',
     });
 
     // Same staff, second attempt.
@@ -533,7 +590,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
 
     const list = await listCounterConfirmations(db, 'account-a', intakeId, 'staff-a');
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: ['A3'], staff_id: 'staff-a' });
+    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: ['lngAllergy'], staff_id: 'staff-a' });
   });
 
   it('decrypts a sale determination only after the fail-closed access audit succeeds', async () => {

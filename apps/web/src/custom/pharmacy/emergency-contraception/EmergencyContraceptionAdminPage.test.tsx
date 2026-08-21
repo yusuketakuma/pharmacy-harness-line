@@ -75,6 +75,14 @@ describe('emergency contraception admin safety', () => {
     expect(page).not.toContain('未確認の仮受付を先に表示します')
   })
 
+  it('shows every C2 menstruation signal for in-person reconciliation', () => {
+    const page = readFileSync(new URL('./EmergencyContraceptionAdminPage.tsx', import.meta.url), 'utf8')
+    expect(page).toContain('約1か月を超えて月経がない')
+    expect(page).toContain('出産等の後に月経が回復していない')
+    expect(page).toContain('今回より前の心配な出来事から3週間以上')
+    expect(page).toContain("`menstruationSignals.${key}`")
+  })
+
   it('shows an account-scoped neutral reminder switch keyed by its revision', () => {
     const page = readFileSync(new URL('./EmergencyContraceptionAdminPage.tsx', import.meta.url), 'utf8')
     expect(page).toContain('予約前の中立LINE通知')

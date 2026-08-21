@@ -464,9 +464,9 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
     expect(rows[0].stored_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   });
 
-  test('a tracking insert failure still returns the normal webhook result', async () => {
+  test('a tracking insert failure leaves the event retryable until the R2 key is tracked', async () => {
     const r2 = makeR2Stub();
-    const failing = d1From(sqlite, (sql) => sql.includes('INSERT INTO pharmacy_incoming_image_objects'));
+    const failing = d1From(sqlite, (sql) => sql.includes('pharmacy_incoming_image_objects'));
     const { ctx, settle } = makeCtx();
 
     const response = await post(
@@ -477,11 +477,25 @@ describe('incoming image R2 key tracking (NEXT-4)', () => {
 
     expect(response.status).toBe(200);
     expect(trackedObjects()).toHaveLength(0);
-    // The message itself was still logged despite the tracking-insert failure.
-    const logged = sqlite.prepare(
+    expect(sqlite.prepare(
+      `SELECT status FROM pharmacy_webhook_event_receipts WHERE webhook_event_id = 'event-img-2'`,
+    ).get()).toEqual({ status: 'failed' });
+    expect(sqlite.prepare(
       `SELECT content FROM messages_log WHERE direction = 'incoming'`,
-    ).all() as Array<{ content: string }>;
-    expect(logged).toHaveLength(1);
-    expect(JSON.parse(logged[0].content).originalContentUrl).toContain('message-img-2.jpg');
+    ).all()).toHaveLength(0);
+
+    const retried = await sweepWebhookInbox({
+      db,
+      credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+      workerUrl: ENV.WORKER_URL,
+      r2,
+      now: new Date('2026-08-22T00:00:00.000Z'),
+    });
+
+    expect(retried).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+    expect(trackedObjects()).toHaveLength(1);
+    expect(sqlite.prepare(
+      `SELECT content FROM messages_log WHERE direction = 'incoming'`,
+    ).all()).toHaveLength(1);
   });
 });
