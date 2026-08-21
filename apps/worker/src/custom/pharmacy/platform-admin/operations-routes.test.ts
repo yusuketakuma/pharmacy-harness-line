@@ -455,6 +455,29 @@ describe('platform admin LINE status', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it('records a fixed diagnostic reason without returning the LINE error body', async () => {
+    const store = fakeDb();
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response('upstream detail must not escape', { status: 401 }),
+    ));
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-a',
+      env(store.db),
+    );
+    const body = await response.json() as { data: Array<Record<string, any>> };
+
+    expect(body.data[0]).toMatchObject({
+      liffEndpointEvidence: {
+        status: 'ERROR', source: 'line_api', reason: 'TOKEN_REQUEST_FAILED',
+      },
+    });
+    expect(store.auditEvents.at(-1)?.detail_json).toBe(
+      JSON.stringify({ status: 'ERROR', reason: 'TOKEN_REQUEST_FAILED' }),
+    );
+    expect(JSON.stringify(body)).not.toContain('upstream detail');
+  });
+
   it('reports presence booleans only, never credential material', async () => {
     const store = fakeDb();
     const response = await get('/api/platform-admin/tenants/tenant-a/line-status', env(store.db));
