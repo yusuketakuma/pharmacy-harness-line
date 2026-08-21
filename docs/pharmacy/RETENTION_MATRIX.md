@@ -76,6 +76,16 @@ string and a `Z` string do not compare correctly against the same cutoff.
 | `pharmacy_webhook_event_receipts` | raw LINE webhook body — message text, `userId`, image ids | `received_at` NOT NULL | **JST `+09:00`** | purged at **30 days** for both settled and dead-lettered rows (M-7 + NEXT-6, `purgeWebhookEventReceipts`); `sweepWebhookInbox` dead-letters any `pending`/`processing` row past 24h with no live lease, so nothing can silently outlive 3 years anymore |
 | `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` | **partially enforced** — account's own `pharmacy_emergency_settings.retention_days` (1–365) takes precedence over the uniform 3-year rule for the self-declaration payload only (NEXT-2); see "Emergency contraception retention" below for the residual identifying columns this does **not** clear |
 
+Plaintext column set for `pharmacy_emergency_intakes` is unchanged by the ECF-4
+Phase A payload v2 rollout, except that `risk_flags_json` may now also contain
+`pre_review_flagged` (one summary flag, no breakdown) alongside the existing
+`time_unknown`/`under_16`/`minor_review`/`repeat_purchase_review`/`notification_unavailable`
+values. `encrypted_payload` (`schema_version: 2`) additionally carries
+`lngAllergy`, `liverDisease`, `currentlyPregnant`, `breastfeeding`,
+`detailFlags`, `checklistVersion`, `consentContentHash` — all inside the
+existing AES-GCM envelope, no new plaintext columns. `listOwnerEmergencyIntakes`
+(patient-facing projection) does not carry `risk_flags` or `age_band`.
+
 ### Not yet enforced — 3-year boundary defined, no purge job
 
 Prescription aggregate (root `pharmacy_prescription_submissions.created_at`):
