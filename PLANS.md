@@ -34,7 +34,7 @@
   - D2 に「回数で受付をお断りするものではありません」を添える。完了画面に `support_center_url` を全員へ無条件表示。既存の `not.toMatch(/性交|妊娠|緊急避妊/)` 文言禁止を維持。
   - **DoD**: `EmergencyContraceptionPage.test.tsx` の `emergencyIntakeFieldErrors` にキー追加（完全一致は維持）、renderToStaticMarkup で代替導線・期限表示・A1 文言を固定、`pnpm --filter liff test` green。
 
-- [ ] **ECF-4 Phase A 回帰・manual 更新** `[lane:gate]` `[tdd:skip:docs-and-regression]` cc:WIP
+- [x] **ECF-4 Phase A 回帰・manual 更新** `[lane:gate]` `[tdd:skip:docs-and-regression]` cc:完了 [c27710c]
   - `manual-patient.md` / `manual-staff.md` の EC 手順を v2 Phase A へ更新。`pnpm verify:ci` green。`RETENTION_MATRIX.md` の EC 行に payload v2 の項目を追記（列は不変）。
   - **DoD**: verify:ci exit 0、manual 2件に A3〜A' と代替導線の記述がある。
 
