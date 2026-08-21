@@ -15,6 +15,8 @@ function app() {
     (c) => c.json({ success: true }),
   );
   a.get('/api/liff/pharmacy/patients', (c) => c.json({ success: true }));
+  a.get('/r/myna/:token', (c) => c.json({ success: true }));
+  a.get('/r/other', (c) => c.json({ success: true }));
   return a;
 }
 
@@ -167,6 +169,25 @@ describe('rate-limit unauthenticated classification (H-1: pharmacy LIFF)', () =>
       headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${JWT_HEADER_PREFIX}.over.sig` },
     }, env);
     expect(blocked.status).toBe(429);
+  });
+});
+
+describe('rate-limit unauthenticated classification (NEXT-1: Myna launch redirect)', () => {
+  test('/r/myna/:token is IP-keyed and limited, unlike /r/other which is skipped', async () => {
+    const ip = '203.0.113.90';
+    const a = app();
+    for (let i = 0; i < 100; i++) {
+      const res = await a.request('/r/myna/some-token', { headers: { 'cf-connecting-ip': ip } }, env);
+      expect(res.status).toBe(200);
+    }
+    const blocked = await a.request('/r/myna/some-token', { headers: { 'cf-connecting-ip': ip } }, env);
+    expect(blocked.status).toBe(429);
+
+    // /r/ prefix in general (e.g. non-Myna share links) stays skipped: unlimited.
+    for (let i = 0; i < 101; i++) {
+      const res = await a.request('/r/other', { headers: { 'cf-connecting-ip': ip } }, env);
+      expect(res.status).toBe(200);
+    }
   });
 });
 

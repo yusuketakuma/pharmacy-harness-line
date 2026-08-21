@@ -1,12 +1,12 @@
 const textEncoder = new TextEncoder();
 
-function base64UrlEncode(bytes: Uint8Array): string {
+export function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function base64UrlDecode(value: string): Uint8Array {
+export function base64UrlDecode(value: string): Uint8Array {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
   const binary = atob(padded);
@@ -43,6 +43,24 @@ async function derivedKey(secret: string): Promise<CryptoKey> {
     'HMAC', hmacKey, textEncoder.encode(`myna-endpoint:encryption:${KEY_VERSION}`),
   );
   return crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+/**
+ * Key for signing/verifying the short-lived launch redirect token
+ * (`GET /r/myna/:token`). Derived from the same encryption secret with a
+ * distinct label so it can never be reused as the endpoint-URL AES-GCM key.
+ */
+export async function launchTokenKey(secret: string): Promise<CryptoKey> {
+  if (!secret) throw new Error('Myna endpoint encryption key is not configured');
+  const hmacKey = await crypto.subtle.importKey(
+    'raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const material = await crypto.subtle.sign(
+    'HMAC', hmacKey, textEncoder.encode(`myna-endpoint:launch-token:${KEY_VERSION}`),
+  );
+  return crypto.subtle.importKey(
+    'raw', material, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'],
+  );
 }
 
 export function normalizeEndpointUrl(value: string, allowedHosts: string[]): string {

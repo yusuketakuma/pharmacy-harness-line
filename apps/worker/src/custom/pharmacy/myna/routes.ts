@@ -30,11 +30,11 @@ import {
 import {
   getActiveMynaEndpoint,
   getAdminMynaEndpoint,
-  getMynaEndpointByAlias,
   markMynaEndpointVerified,
   saveMynaEndpoint,
   setMynaEndpointEnabled,
 } from './endpoint-repository.js';
+import { base64UrlDecode, base64UrlEncode, launchTokenKey } from './endpoint.js';
 
 type MynaBindings = Pick<Env['Bindings'], 'DB' | 'WORKER_PUBLIC_URL'> & {
   LINE_CHANNEL_ID?: string;
@@ -74,9 +74,57 @@ function allowedHosts(c: { env: MynaBindings }): string[] {
   return (c.env.MYNA_ALLOWED_HOSTS ?? '').split(',').map((host) => host.trim()).filter(Boolean);
 }
 
-function launchUrl(c: { req: { url: string }; env: MynaBindings }, tenantAlias: string): string {
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+// Token lifetime: 30 min, matching the Myna handoff expiry set in
+// repository.ts createMynaHandoff (expiresAt = now + 30 * 60_000). A launch
+// link is worthless once its handoff has expired, so the token need not
+// outlive it.
+const LAUNCH_TOKEN_TTL_MS = 30 * 60_000;
+
+/**
+ * Signs a short-lived `lineAccountId|exp` token so `/r/myna/:token` never
+ * exposes the tenant alias (or any other stable identifier) in a public URL.
+ */
+async function signLaunchToken(secret: string, lineAccountId: string): Promise<string> {
+  const payload = `${lineAccountId}|${Date.now() + LAUNCH_TOKEN_TTL_MS}`;
+  const signature = await crypto.subtle.sign(
+    'HMAC', await launchTokenKey(secret), textEncoder.encode(payload),
+  );
+  return `${base64UrlEncode(textEncoder.encode(payload))}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+/** Verifies signature + expiry via crypto.subtle.verify (constant-time by construction). */
+async function verifyLaunchToken(secret: string, token: string): Promise<string | null> {
+  const [payloadPart, sigPart] = token.split('.');
+  if (!payloadPart || !sigPart) return null;
+  let payload: string;
+  let signature: Uint8Array;
+  try {
+    payload = textDecoder.decode(base64UrlDecode(payloadPart));
+    signature = base64UrlDecode(sigPart);
+  } catch {
+    return null;
+  }
+  const valid = await crypto.subtle.verify(
+    'HMAC', await launchTokenKey(secret), signature, textEncoder.encode(payload),
+  );
+  if (!valid) return null;
+  const match = /^(.+)\|(\d+)$/.exec(payload);
+  if (!match) return null;
+  const [, lineAccountId, expText] = match;
+  const exp = Number(expText);
+  if (!Number.isFinite(exp) || exp <= Date.now()) return null;
+  return lineAccountId;
+}
+
+async function launchUrl(c: { req: { url: string }; env: MynaBindings }, lineAccountId: string): Promise<string> {
   const origin = c.env.WORKER_PUBLIC_URL || new URL(c.req.url).origin;
-  return `${origin}/r/myna/${encodeURIComponent(tenantAlias)}?openExternalBrowser=1`;
+  const secret = encryptionSecret(c);
+  if (!secret) throw new Error('Myna endpoint encryption is not configured');
+  const token = await signLaunchToken(secret, lineAccountId);
+  return `${origin}/r/myna/${token}?openExternalBrowser=1`;
 }
 
 async function patientGate(c: Context<MynaEnv>, next: Next) {
@@ -142,7 +190,7 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
     return c.json({
       handoff: result.handoff,
       expectation: result.expectation,
-      launchUrl: endpoint ? launchUrl(c, endpoint.tenant_alias) : null,
+      launchUrl: endpoint ? await launchUrl(c, endpoint.line_account_id) : null,
     }, 201);
   } catch (error) {
     return mapMynaError(c, error);
@@ -170,7 +218,7 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/launch', async (c) => {
     const handoff = await markMynaLaunchRequested(
       c.env.DB, patient.lineAccountId, patient.friendId, c.req.param('id'),
     );
-    return c.json({ handoff, launchUrl: launchUrl(c, endpoint.tenant_alias) }, 200, {
+    return c.json({ handoff, launchUrl: await launchUrl(c, endpoint.line_account_id) }, 200, {
       'Cache-Control': 'no-store',
     });
   } catch (error) {
@@ -194,12 +242,16 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/patient-report', async (c)
   }
 });
 
-// The redirect intentionally accepts only the tenant alias. No patient or LINE identifier is forwarded.
-mynaRoutes.get('/r/myna/:tenantAlias', async (c) => {
+// The redirect accepts only a short-lived signed token (see signLaunchToken /
+// verifyLaunchToken above) — never the tenant alias or a patient/LINE
+// identifier. Invalid, tampered, expired, or unknown-account tokens all get
+// the same generic 404 so the response never confirms which case occurred.
+mynaRoutes.get('/r/myna/:token', async (c) => {
   const secret = encryptionSecret(c);
   if (!secret) return c.text('Myna受付を利用できません', 503);
   try {
-    const endpoint = await getMynaEndpointByAlias(c.env.DB, c.req.param('tenantAlias'), secret);
+    const lineAccountId = await verifyLaunchToken(secret, c.req.param('token'));
+    const endpoint = lineAccountId ? await getActiveMynaEndpoint(c.env.DB, lineAccountId, secret) : null;
     if (!endpoint) return c.text('Myna受付を利用できません', 404);
     return new Response(null, {
       status: 302,
