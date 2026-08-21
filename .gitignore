@@ -22,3 +22,6 @@ apps/worker/dist/
 .claude/worktrees/
 .line-harness-setup.json
 .line-harness-config.json
+
+# local wrangler overrides (contain real account ids)
+wrangler.local.toml

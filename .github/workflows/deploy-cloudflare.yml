@@ -105,6 +105,17 @@ jobs:
           echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
           echo "release_version=$(node -p 'require("./apps/worker/package.json").version')" >> "$GITHUB_OUTPUT"
 
+      - name: Generate Pharmacy rich-menu catalog
+        run: |
+          if ! command -v magick >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes imagemagick
+          fi
+          image_tool="$(command -v magick || command -v convert)"
+          pnpm rich-menu:catalog -- \
+            --output "$RUNNER_TEMP/pharmacy-rich-menu-catalog" \
+            --magick "$image_tool"
+
       - name: Build Admin Panel
         run: |
           pnpm --filter web build
@@ -120,6 +131,9 @@ jobs:
         run: |
           pnpm tsx apps/worker/scripts/inject-version.ts \
             --version "$RELEASE_VERSION" \
+            --worker-package-version "$(node -p 'require(\"./apps/worker/package.json\").version')" \
+            --web-package-version "$(node -p 'require(\"./apps/web/package.json\").version')" \
+            --liff-package-version "$(node -p 'require(\"./apps/liff/package.json\").version')" \
             --worker apps/worker/dist/line_harness/index.js \
             --worker-assets apps/worker/dist/client \
             --admin apps/web/out \
@@ -236,6 +250,52 @@ jobs:
         run: |
           result="$(pnpm tsx scripts/deploy/apply-migrations.ts)"
           echo "result=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Pharmacy rich-menu catalog
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}
+        run: |
+          catalog_dir="$RUNNER_TEMP/pharmacy-rich-menu-catalog"
+          manifest="$catalog_dir/manifest.json"
+          test "$(jq '.entries | length' "$manifest")" = "228"
+          catalog_total_bytes="$(jq '[.entries[].bytes] | add' "$manifest")"
+          test "$catalog_total_bytes" -le 50000000
+          catalog_version="$(jq -r '.catalogVersion' "$manifest")"
+          [[ "$catalog_version" =~ ^v[0-9]+-[0-9]+$ ]]
+          manifest_key="rich-menu-catalog/$catalog_version/manifest.json"
+          remote_manifest="$(mktemp)"
+          if npx wrangler r2 object get "$R2_BUCKET_NAME/$manifest_key" \
+              --file "$remote_manifest" --remote \
+              --config apps/worker/dist/line_harness/wrangler.json >/dev/null 2>&1; then
+            cmp --silent "$manifest" "$remote_manifest" || {
+              echo "Existing rich-menu catalog differs; bump the catalog version"
+              exit 1
+            }
+          else
+            while IFS=$'\t' read -r variant_key object_key; do
+              [[ "$variant_key" =~ ^v[0-9]+-(compact|large)-[a-z0-9.-]+$ ]]
+              test "$object_key" = "rich-menu-catalog/$catalog_version/$variant_key.jpg"
+              test -f "$catalog_dir/$variant_key.jpg"
+              remote_image="$(mktemp)"
+              if npx wrangler r2 object get "$R2_BUCKET_NAME/$object_key" \
+                  --file "$remote_image" --remote \
+                  --config apps/worker/dist/line_harness/wrangler.json >/dev/null 2>&1; then
+                cmp --silent "$catalog_dir/$variant_key.jpg" "$remote_image" || {
+                  echo "Existing rich-menu catalog image differs; bump the catalog version"
+                  exit 1
+                }
+              else
+                npx wrangler r2 object put "$R2_BUCKET_NAME/$object_key" \
+                  --file "$catalog_dir/$variant_key.jpg" --content-type image/jpeg --remote \
+                  --config apps/worker/dist/line_harness/wrangler.json
+              fi
+            done < <(jq -r '.entries[] | [.variantKey, .objectKey] | @tsv' "$manifest")
+            npx wrangler r2 object put "$R2_BUCKET_NAME/$manifest_key" \
+              --file "$manifest" --content-type application/json --remote \
+              --config apps/worker/dist/line_harness/wrangler.json
+          fi
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
