@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   transition: vi.fn(),
   getReminderControl: vi.fn(),
   saveReminderControl: vi.fn(),
+  listCounterConfirmations: vi.fn(),
+  upsertCounterConfirmation: vi.fn(),
+  recordEmergencySale: vi.fn(),
+  getEmergencySaleRecord: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -37,6 +41,10 @@ vi.mock('./repository.js', () => ({
   listAdminEmergencyIntakes: mocks.listAdmin,
   getAdminEmergencyIntakeDetail: mocks.detail,
   transitionEmergencyIntake: mocks.transition,
+  listCounterConfirmations: mocks.listCounterConfirmations,
+  upsertCounterConfirmation: mocks.upsertCounterConfirmation,
+  recordEmergencySale: mocks.recordEmergencySale,
+  getEmergencySaleRecord: mocks.getEmergencySaleRecord,
 }));
 vi.mock('./reminders.js', () => ({
   getEmergencyReminderControl: mocks.getReminderControl,
@@ -457,5 +465,148 @@ describe('emergency contraception staff routes', () => {
       expect(response.status).toBe(400);
     }
     expect(mocks.listAdmin).not.toHaveBeenCalled();
+  });
+});
+
+describe('emergency contraception counter confirmation and sale routes (ECF-7)', () => {
+  beforeEach(() => {
+    mocks.listCounterConfirmations.mockResolvedValue([
+      { section: 'A', checklist_version: 'lng-2026-08', mismatch_items: [], staff_id: 'staff-a', confirmed_at: '2026-08-22T00:00:00.000Z' },
+    ]);
+    mocks.upsertCounterConfirmation.mockResolvedValue({
+      section: 'A', checklist_version: 'lng-2026-08', mismatch_items: [], staff_id: 'staff-a', confirmed_at: '2026-08-22T00:00:00.000Z',
+    });
+    mocks.recordEmergencySale.mockResolvedValue({ id: 'sale-a', outcome: 'sold', sold_at: '2026-08-22T00:00:00.000Z' });
+    mocks.getEmergencySaleRecord.mockResolvedValue({
+      id: 'sale-a', outcome: 'sold', sold_at: '2026-08-22T00:00:00.000Z', product_code: 'norlevo-otc',
+      checklist_version: 'lng-2026-08', identity_check: 'document', in_person_dose: 'done',
+      checklist_sheets_received: 1, pharmacist_staff_id: 'staff-a', training_registration_number: 'TRAIN-A',
+      pregnancy_test: 'negative', refusal_reason_code: null, referral: 'none', explained: [],
+    });
+  });
+
+  it('reads and writes a section counter confirmation scoped to the intake', async () => {
+    let response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a', {}, env,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.listCounterConfirmations).toHaveBeenCalledWith(env.DB, 'account-a', 'intake-a');
+
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'lng-2026-08', mismatchItems: ['A3'] }) }, env,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.upsertCounterConfirmation).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-a', intakeId: 'intake-a', section: 'A',
+      checklistVersion: 'lng-2026-08', mismatchItems: ['A3'], staffId: 'staff-a',
+    });
+  });
+
+  it('rejects an out-of-range section before repository access', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/E?line_account_id=account-a', {}, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.listCounterConfirmations).not.toHaveBeenCalled();
+  });
+
+  it('maps counter confirmation failures to 403/404/409', async () => {
+    mocks.upsertCounterConfirmation.mockRejectedValueOnce(new Error('trained pharmacist access required'));
+    let response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'v1', mismatchItems: [] }) }, env,
+    );
+    expect(response.status).toBe(403);
+
+    mocks.upsertCounterConfirmation.mockRejectedValueOnce(new Error('intake not found'));
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'v1', mismatchItems: [] }) }, env,
+    );
+    expect(response.status).toBe(404);
+
+    mocks.upsertCounterConfirmation.mockRejectedValueOnce(new Error('counter confirmation conflict'));
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/counter-confirmations/A?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ checklistVersion: 'v1', mismatchItems: [] }) }, env,
+    );
+    expect(response.status).toBe(409);
+  });
+
+  it('records a sale and reads it back scoped to the staff line account', async () => {
+    let response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        expectedVersion: 2, outcome: 'sold', identityCheck: 'document', inPersonDose: 'done',
+        checklistSheetsReceived: 1, pregnancyTest: 'negative', refusalReasonCode: null,
+        referral: 'none', explained: ['three_week_check'],
+      }) }, env,
+    );
+    expect(response.status).toBe(201);
+    expect(mocks.recordEmergencySale).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-a', intakeId: 'intake-a', staffId: 'staff-a', expectedVersion: 2,
+      outcome: 'sold', identityCheck: 'document', inPersonDose: 'done', checklistSheetsReceived: 1,
+      pregnancyTest: 'negative', refusalReasonCode: null, referral: 'none',
+      explained: ['three_week_check'], encryptionSecret: 'phi-secret',
+    });
+
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a', {}, env,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.getEmergencySaleRecord).toHaveBeenCalledWith(env.DB, 'account-a', 'intake-a', 'staff-a', 'phi-secret');
+  });
+
+  it('fails closed without the PHI key on the sale endpoints', async () => {
+    const noKeyEnv = { ...env, PHARMACY_PHI_KEY_V1: undefined };
+    let response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }, noKeyEnv,
+    );
+    expect(response.status).toBe(503);
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a', {}, noKeyEnv,
+    );
+    expect(response.status).toBe(503);
+    expect(mocks.recordEmergencySale).not.toHaveBeenCalled();
+    expect(mocks.getEmergencySaleRecord).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed sale body before repository access', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedVersion: 1 }) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.recordEmergencySale).not.toHaveBeenCalled();
+  });
+
+  it('maps sale failures to 403/404/409', async () => {
+    const body = JSON.stringify({
+      expectedVersion: 2, outcome: 'sold', identityCheck: 'document', inPersonDose: 'done',
+      checklistSheetsReceived: 1, pregnancyTest: 'negative', refusalReasonCode: null,
+      referral: 'none', explained: [],
+    });
+    mocks.recordEmergencySale.mockRejectedValueOnce(new Error('trained pharmacist access required'));
+    let response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, env,
+    );
+    expect(response.status).toBe(403);
+
+    mocks.recordEmergencySale.mockRejectedValueOnce(new Error('intake not found'));
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, env,
+    );
+    expect(response.status).toBe(404);
+
+    mocks.recordEmergencySale.mockRejectedValueOnce(new Error('transition conflict'));
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/sale?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, env,
+    );
+    expect(response.status).toBe(409);
   });
 });

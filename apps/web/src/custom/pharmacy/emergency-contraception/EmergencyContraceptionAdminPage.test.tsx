@@ -49,9 +49,18 @@ describe('emergency contraception admin safety', () => {
     expect(page).toContain('emergencyContraceptionAdminApi.intakeDetail')
     expect(page).toContain('申告詳細を確認')
     expect(page).not.toContain('intake.self_reported')
-    expect(page).not.toContain('販売可')
     expect(page).not.toContain('checked={config.enabled}')
     expect(page).toContain('機能設定で変更')
+  })
+
+  it('keeps 販売可 scoped to the pharmacist entry section, not the neutral queue display', () => {
+    const page = readFileSync(new URL('./EmergencyContraceptionAdminPage.tsx', import.meta.url), 'utf8')
+    const entrySectionStart = page.indexOf('aria-label="薬剤師記入欄"')
+    const entrySectionEnd = page.indexOf('</div>}', entrySectionStart)
+    expect(entrySectionStart).toBeGreaterThan(-1)
+    const outsideEntrySection = page.slice(0, entrySectionStart) + page.slice(entrySectionEnd)
+    expect(outsideEntrySection).not.toContain('販売可')
+    expect(page.slice(entrySectionStart, entrySectionEnd)).toContain('販売可')
   })
 
   it('supports bounded queue filtering and cursor pagination', () => {

@@ -2,9 +2,11 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  createEmergencyIntake, getAdminEmergencyIntakeDetail, saveEmergencySettings,
+  createEmergencyIntake, getAdminEmergencyIntakeDetail, getEmergencySaleRecord,
+  listCounterConfirmations, recordEmergencySale, saveEmergencySettings,
+  transitionEmergencyIntake, upsertCounterConfirmation,
 } from './repository.js';
 
 const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
@@ -276,5 +278,277 @@ describe('emergency contraception v2 payload round-trip (B1-B4/C1-C2/D3, ECF-6)'
       pregnancyTestRecommended: true, // date null => recommended by default
       idDocumentAvailable: null,
     });
+  });
+});
+
+describe('emergency contraception counter confirmation and sale record (Phase B, ECF-7)', () => {
+  let sqlite: Sqlite3Database;
+  let db: D1Database;
+  const now = '2026-08-01T00:00:00.000Z';
+  const secret = 'phase-b-sale-test-secret';
+
+  function seedAccount(suffix: 'a' | 'b'): void {
+    sqlite.prepare(`INSERT INTO line_accounts
+      (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      `account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, now, now,
+    );
+    sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'active', ?, ?)`).run(`tenant-${suffix}`, suffix, suffix, now, now);
+    sqlite.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?)`).run(`tenant-${suffix}`, `account-${suffix}`, now, now);
+    sqlite.prepare(`INSERT INTO friends
+      (id, line_user_id, provider_line_user_id, line_account_id, is_following, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 1, ?, ?)`).run(
+      `friend-${suffix}`, `legacy-u-${suffix}`, `U-${suffix}`, `account-${suffix}`, now, now,
+    );
+    sqlite.prepare(`INSERT INTO staff_members
+      (id, name, role, api_key, is_active, created_at, updated_at)
+      VALUES (?, ?, 'admin', ?, 1, ?, ?)`).run(`staff-${suffix}`, `Staff ${suffix}`, `key-${suffix}`, now, now);
+    sqlite.prepare(`INSERT INTO tenant_staff_memberships
+      (tenant_id, staff_id, role, is_active, created_at, updated_at)
+      VALUES (?, ?, 'admin', 1, ?, ?)`).run(`tenant-${suffix}`, `staff-${suffix}`, now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_staff_accounts
+      (line_account_id, staff_id, is_active, created_at, updated_at)
+      VALUES (?, ?, 1, ?, ?)`).run(`account-${suffix}`, `staff-${suffix}`, now, now);
+    sqlite.prepare(`UPDATE pharmacy_account_capabilities
+      SET capabilities_json = json_insert(capabilities_json, '$[#]', 'emergency_contraception'), updated_at = ?
+      WHERE line_account_id = ? AND mode = 'pharmacy'`).run(now, `account-${suffix}`);
+    sqlite.prepare(`INSERT INTO pharmacy_emergency_settings
+      (line_account_id, is_enabled, pharmacy_registration_number, product_code,
+       manufacturer_check_url, privacy_policy_url, privacy_contact,
+       purpose_text, consent_version, retention_days, consultation_minutes, reservation_ttl_minutes,
+       privacy_space_ready, drinking_water_ready, partner_clinic_url, support_center_url,
+       updated_by, created_at, updated_at)
+      VALUES (?, 1, ?, 'norlevo-otc',
+              'https://manufacturer.example/check', 'https://pharmacy.example/privacy',
+              'privacy@example.test', 'reason', ?, 30, 30, 30, 1, 1,
+              'https://clinic.example', 'https://support.example', ?, ?, ?)`).run(
+      `account-${suffix}`, `REG-${suffix}`, `consent-${suffix}`, `staff-${suffix}`, now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_emergency_pharmacists
+      (line_account_id, staff_id, training_registration_number, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?)`).run(`account-${suffix}`, `staff-${suffix}`, `TRAIN-${suffix}`, now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_emergency_slots
+      (id, line_account_id, pharmacist_staff_id, starts_at, ends_at, status,
+       capacity, version, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, '2099-01-01T00:00:00.000Z', '2099-01-01T00:30:00.000Z', 'open', 1, 1, ?, ?, ?)`).run(
+      `slot-${suffix}`, `account-${suffix}`, `staff-${suffix}`, `staff-${suffix}`, now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_emergency_inventory
+      (line_account_id, product_code, on_hand, version, updated_by, created_at, updated_at)
+      VALUES (?, 'norlevo-otc', 10, 1, ?, ?, ?)`).run(`account-${suffix}`, `staff-${suffix}`, now, now);
+  }
+
+  // Creates a provisional intake and immediately reviews it (version becomes 2),
+  // the precondition state for a sale.
+  async function createReviewedIntake(suffix: 'a' | 'b'): Promise<{ id: string }> {
+    const { emergencyConsentContentHash } = await import('./repository.js');
+    const consentContentHash = await emergencyConsentContentHash({
+      retentionDays: 30, consentVersion: `consent-${suffix}`,
+    });
+    const created = await createEmergencyIntake(db, {
+      tenantId: `tenant-${suffix}`, lineAccountId: `account-${suffix}`, friendId: `friend-${suffix}`,
+      slotId: `slot-${suffix}`,
+      intercourseAt: '2098-12-30T00:00:00+09:00', intercourseTimeUnknown: false,
+      now: new Date('2098-12-31T00:00:00.000Z'),
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'no_notification', consentVersion: `consent-${suffix}`, consentContentHash,
+      manufacturerCheckAcknowledged: true, idempotencyKey: `idem-sale-${suffix}-1`,
+      encryptionSecret: secret,
+    });
+    await transitionEmergencyIntake(db, {
+      lineAccountId: `account-${suffix}`, intakeId: created.id, expectedVersion: created.version,
+      toStatus: 'reviewed', staffId: `staff-${suffix}`,
+    });
+    return { id: created.id };
+  }
+
+  function soldInput(intakeId: string, overrides: Partial<Parameters<typeof recordEmergencySale>[1]> = {}) {
+    return {
+      lineAccountId: 'account-a', intakeId, staffId: 'staff-a', expectedVersion: 2,
+      outcome: 'sold' as const, identityCheck: 'document' as const, inPersonDose: 'done' as const,
+      checklistSheetsReceived: 1, pregnancyTest: 'negative' as const, refusalReasonCode: null,
+      referral: 'none' as const, explained: ['three_week_check'], encryptionSecret: secret,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    sqlite = new Sqlite(':memory:');
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    db = d1From(sqlite);
+  });
+
+  it('blocks the direct completed transition until the A section counter confirmation exists', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+
+    await expect(transitionEmergencyIntake(db, {
+      lineAccountId: 'account-a', intakeId, expectedVersion: 2, toStatus: 'completed', staffId: 'staff-a',
+    })).rejects.toThrow('transition conflict');
+
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+    const transitioned = await transitionEmergencyIntake(db, {
+      lineAccountId: 'account-a', intakeId, expectedVersion: 2, toStatus: 'completed', staffId: 'staff-a',
+    });
+    expect(transitioned.status).toBe('completed');
+  });
+
+  it('rejects a sale until the A section is confirmed, then seals the determination and completes it', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+
+    await expect(recordEmergencySale(db, soldInput(intakeId))).rejects.toThrow('transition conflict');
+
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: ['A3'], staffId: 'staff-a',
+    });
+    const sale = await recordEmergencySale(db, soldInput(intakeId));
+    expect(sale.outcome).toBe('sold');
+
+    const detail = await getAdminEmergencyIntakeDetail(db, 'account-a', intakeId, 'staff-a', secret);
+    expect(detail.status).toBe('completed');
+
+    const row = sqlite.prepare(`SELECT * FROM pharmacy_emergency_sale_records WHERE intake_id = ?`)
+      .get(intakeId) as Record<string, unknown>;
+    expect(String(row.determination_encrypted)).toMatch(/^v1\./);
+    expect(() => JSON.parse(String(row.determination_encrypted))).toThrow();
+    expect(JSON.stringify(row)).not.toContain('three_week_check');
+    expect(JSON.stringify(row)).not.toContain('negative');
+  });
+
+  it('replays a duplicate sale request idempotently instead of inserting a second row', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+
+    const first = await recordEmergencySale(db, soldInput(intakeId));
+    const second = await recordEmergencySale(db, soldInput(intakeId));
+    expect(second).toEqual(first);
+
+    const count = sqlite.prepare(`SELECT COUNT(*) AS n FROM pharmacy_emergency_sale_records WHERE intake_id = ?`)
+      .get(intakeId) as { n: number };
+    expect(count.n).toBe(1);
+  });
+
+  it('records a refusal as a cancelled intake with outcome refused', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+
+    const sale = await recordEmergencySale(db, soldInput(intakeId, {
+      outcome: 'refused', pregnancyTest: 'not_done', refusalReasonCode: 'age_uncertain',
+    }));
+    expect(sale.outcome).toBe('refused');
+
+    const detail = await getAdminEmergencyIntakeDetail(db, 'account-a', intakeId, 'staff-a', secret);
+    expect(detail.status).toBe('cancelled');
+  });
+
+  it('rejects a sale and a counter confirmation for a cross-account intake id', async () => {
+    seedAccount('a');
+    seedAccount('b');
+    const { id: intakeId } = await createReviewedIntake('a');
+
+    await expect(recordEmergencySale(db, {
+      ...soldInput(intakeId), lineAccountId: 'account-b', staffId: 'staff-b',
+    })).rejects.toThrow('intake not found');
+    await expect(upsertCounterConfirmation(db, {
+      lineAccountId: 'account-b', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-b',
+    })).rejects.toThrow('intake not found');
+  });
+
+  it('rejects a sale with a stale expectedVersion (CAS conflict)', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+    await expect(recordEmergencySale(db, soldInput(intakeId, { expectedVersion: 99 })))
+      .rejects.toThrow('transition conflict');
+  });
+
+  it('lists and updates a section confirmation keyed by its primary key (upsert, not INSERT OR REPLACE)', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: ['A3'], staffId: 'staff-a',
+    });
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+    const list = await listCounterConfirmations(db, 'account-a', intakeId);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ section: 'A', mismatch_items: [] });
+  });
+
+  it('decrypts a sale determination only after the fail-closed access audit succeeds', async () => {
+    seedAccount('a');
+    const { id: intakeId } = await createReviewedIntake('a');
+    await upsertCounterConfirmation(db, {
+      lineAccountId: 'account-a', intakeId, section: 'A', checklistVersion: 'lng-2026-08',
+      mismatchItems: [], staffId: 'staff-a',
+    });
+    await recordEmergencySale(db, soldInput(intakeId));
+
+    const detail = await getEmergencySaleRecord(db, 'account-a', intakeId, 'staff-a', secret);
+    expect(detail.pregnancy_test).toBe('negative');
+    expect(detail.referral).toBe('none');
+    const accessEvents = sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM pharmacy_emergency_intake_access_events WHERE intake_id = ?`,
+    ).get(intakeId) as { n: number };
+    expect(accessEvents.n).toBe(1);
+  });
+
+  it('skips decrypting the determination when the fail-closed access audit insert reports zero rows', async () => {
+    // A fake D1 surface (not real SQLite) so the audit INSERT can be forced to
+    // fail while requireTrainedPharmacist still succeeds — real SQLite can't
+    // desynchronize those two checks inside a single call. The ciphertext is
+    // deliberately garbage: if decrypt were still attempted, it would throw
+    // 'encrypted intake is invalid' instead of the audit-failure message,
+    // proving the two are distinguishable and ordered.
+    function fakeDb(auditChanges: number): D1Database {
+      return {
+        prepare: (sql: string) => ({
+          bind: (..._values: unknown[]) => ({
+            first: async () => {
+              if (sql.includes('FROM pharmacy_emergency_sale_records AS sale')) {
+                return {
+                  id: 'sale-1', product_code: 'norlevo-otc', checklist_version: 'lng-2026-08',
+                  outcome: 'sold', identity_check: 'document', in_person_dose: 'done',
+                  checklist_sheets_received: 1, pharmacist_staff_id: 'staff-a',
+                  training_registration_number: 'TRAIN-A', determination_encrypted: 'v1.garbage.garbage',
+                  sold_at: now, tenant_id: 'tenant-a', owner_friend_id: 'friend-a',
+                };
+              }
+              // requireTrainedPharmacist
+              return { ok: 1 };
+            },
+            run: async () => ({ meta: { changes: auditChanges } }),
+          }),
+        }),
+      } as unknown as D1Database;
+    }
+
+    await expect(getEmergencySaleRecord(fakeDb(0), 'account-a', 'intake-1', 'staff-a', secret))
+      .rejects.toThrow('sensitive read audit unavailable');
+    await expect(getEmergencySaleRecord(fakeDb(1), 'account-a', 'intake-1', 'staff-a', secret))
+      .rejects.toThrow('encrypted intake is invalid');
   });
 });

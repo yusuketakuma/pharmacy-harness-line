@@ -24,6 +24,7 @@ interface EmergencyIntakeRow {
   status: EmergencyIntakeStatus;
   encrypted_payload: string;
   payload_key_version: number;
+  product_code: string;
   age_band: 'under_16' | '16_17' | 'adult';
   safe_contact_mode: EmergencySafeContactMode;
   consent_version: string;
@@ -186,7 +187,7 @@ interface EmergencySettingsRow {
 const INTAKE_SELECT = `
   SELECT intake.id, intake.reference_code, intake.tenant_id, intake.line_account_id,
          intake.owner_friend_id, intake.slot_id, intake.status, intake.encrypted_payload,
-         intake.payload_key_version, intake.age_band, intake.safe_contact_mode,
+         intake.payload_key_version, intake.product_code, intake.age_band, intake.safe_contact_mode,
          intake.consent_version, intake.risk_flags_json, intake.expires_at,
          intake.reviewed_by, intake.reviewed_at, intake.closed_by, intake.closed_at,
          intake.version, intake.created_at, intake.updated_at,
@@ -1149,6 +1150,10 @@ export async function transitionEmergencyIntake(
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
   const eventId = crypto.randomUUID();
+  // completed requires the in-person 'A' section counter confirmation (see
+  // docs/pharmacy/EC_PREVISIT_FORM.md §5). Folded into the CAS WHERE of both
+  // statements (not a trigger) so an incomplete confirmation neither records
+  // a false 'completed' event nor advances the intake status.
   const results = await db.batch([
     db.prepare(
       `INSERT INTO pharmacy_emergency_intake_events
@@ -1156,11 +1161,15 @@ export async function transitionEmergencyIntake(
          idempotency_key, occurred_at)
        SELECT ?, id, line_account_id, ?, 'staff', ?, ?, ?
          FROM pharmacy_emergency_intakes
-        WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?`,
+        WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?
+          AND (? != 'completed' OR EXISTS (
+            SELECT 1 FROM pharmacy_emergency_counter_confirmations
+             WHERE line_account_id = ? AND intake_id = ? AND section = 'A'))`,
     ).bind(
       eventId, input.toStatus, input.staffId,
       `transition:${input.intakeId}:${input.expectedVersion}:${input.toStatus}`,
       timestamp, input.intakeId, input.lineAccountId, current.status, input.expectedVersion,
+      input.toStatus, input.lineAccountId, input.intakeId,
     ),
     db.prepare(
       `UPDATE pharmacy_emergency_intakes
@@ -1174,7 +1183,10 @@ export async function transitionEmergencyIntake(
               updated_at = ?
         WHERE id = ? AND line_account_id = ? AND status = ? AND version = ?
           AND EXISTS (SELECT 1 FROM pharmacy_emergency_intake_events
-                       WHERE id = ? AND intake_id = ? AND line_account_id = ?)`,
+                       WHERE id = ? AND intake_id = ? AND line_account_id = ?)
+          AND (? != 'completed' OR EXISTS (
+            SELECT 1 FROM pharmacy_emergency_counter_confirmations
+             WHERE line_account_id = ? AND intake_id = ? AND section = 'A'))`,
     ).bind(
       input.toStatus,
       input.toStatus, current.slot_ends_at,
@@ -1185,6 +1197,7 @@ export async function transitionEmergencyIntake(
       timestamp,
       input.intakeId, input.lineAccountId, current.status, input.expectedVersion,
       eventId, input.intakeId, input.lineAccountId,
+      input.toStatus, input.lineAccountId, input.intakeId,
     ),
   ]);
   if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
@@ -1193,4 +1206,327 @@ export async function transitionEmergencyIntake(
   const saved = await getIntake(db, input.lineAccountId, input.intakeId);
   if (!saved) throw new Error('intake not found');
   return adminProjection(saved, now);
+}
+
+// Phase B: in-store counter confirmation (docs/pharmacy/EC_PREVISIT_FORM.md §5).
+// Only the section-level confirmation and any noted mismatch are recorded —
+// never the patient's self-reported answers themselves.
+export type EmergencyCounterSection = 'A' | 'B' | 'C' | 'D';
+const COUNTER_SECTIONS = new Set<EmergencyCounterSection>(['A', 'B', 'C', 'D']);
+
+export interface EmergencyCounterConfirmation {
+  section: EmergencyCounterSection;
+  checklist_version: string;
+  mismatch_items: string[];
+  staff_id: string;
+  confirmed_at: string;
+}
+
+interface EmergencyCounterConfirmationRow {
+  section: EmergencyCounterSection;
+  checklist_version: string;
+  mismatch_items_json: string;
+  staff_id: string;
+  confirmed_at: string;
+}
+
+function counterConfirmationProjection(row: EmergencyCounterConfirmationRow): EmergencyCounterConfirmation {
+  let mismatchItems: string[] = [];
+  try {
+    const parsed = JSON.parse(row.mismatch_items_json);
+    if (Array.isArray(parsed)) mismatchItems = parsed as string[];
+  } catch {
+    mismatchItems = [];
+  }
+  return {
+    section: row.section, checklist_version: row.checklist_version, mismatch_items: mismatchItems,
+    staff_id: row.staff_id, confirmed_at: row.confirmed_at,
+  };
+}
+
+export async function listCounterConfirmations(
+  db: D1Database,
+  lineAccountId: string,
+  intakeId: string,
+): Promise<EmergencyCounterConfirmation[]> {
+  const rows = await db.prepare(
+    `SELECT section, checklist_version, mismatch_items_json, staff_id, confirmed_at
+       FROM pharmacy_emergency_counter_confirmations
+      WHERE line_account_id = ? AND intake_id = ?
+      ORDER BY section`,
+  ).bind(lineAccountId, intakeId).all<EmergencyCounterConfirmationRow>();
+  return rows.results.map(counterConfirmationProjection);
+}
+
+export async function upsertCounterConfirmation(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    intakeId: string;
+    section: EmergencyCounterSection;
+    checklistVersion: string;
+    mismatchItems: string[];
+    staffId: string;
+    now?: Date;
+  },
+): Promise<EmergencyCounterConfirmation> {
+  if (!COUNTER_SECTIONS.has(input.section) || !input.checklistVersion.trim() ||
+      !Array.isArray(input.mismatchItems) ||
+      input.mismatchItems.some((item) => typeof item !== 'string' || !item.trim())) {
+    throw new Error('invalid counter confirmation');
+  }
+  await requireTrainedPharmacist(db, input.lineAccountId, input.staffId);
+  const intake = await getIntake(db, input.lineAccountId, input.intakeId);
+  if (!intake) throw new Error('intake not found');
+  const now = input.now ?? new Date();
+  const timestamp = now.toISOString();
+  // Not INSERT OR REPLACE (house style: that would silently drop columns not
+  // supplied on conflict / bypass row-level intent). INSERT ... ON CONFLICT DO
+  // UPDATE keyed on the (line_account_id, intake_id, section) PK, same pattern
+  // as setEmergencyPharmacist's upsert above.
+  const result = await db.prepare(
+    `INSERT INTO pharmacy_emergency_counter_confirmations
+      (line_account_id, intake_id, section, checklist_version, mismatch_items_json, staff_id, confirmed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (line_account_id, intake_id, section) DO UPDATE SET
+       checklist_version = excluded.checklist_version,
+       mismatch_items_json = excluded.mismatch_items_json,
+       staff_id = excluded.staff_id,
+       confirmed_at = excluded.confirmed_at`,
+  ).bind(
+    input.lineAccountId, input.intakeId, input.section, input.checklistVersion,
+    JSON.stringify(input.mismatchItems), input.staffId, timestamp,
+  ).run();
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('counter confirmation conflict');
+  return {
+    section: input.section, checklist_version: input.checklistVersion,
+    mismatch_items: input.mismatchItems, staff_id: input.staffId, confirmed_at: timestamp,
+  };
+}
+
+// Phase B statutory sale record (docs/pharmacy/EC_PREVISIT_FORM.md §5, 医薬総発
+// 0331 第2号 4(3)). Refusal cannot use its own status — status/event_type CHECKs
+// are additive-only — so 'refused' maps to intake status 'cancelled' and 'sold'
+// maps to 'completed', both requiring the 'A' section counter confirmation.
+export type EmergencyIdentityCheck = 'document' | 'verbal' | 'unverified';
+export type EmergencyInPersonDose = 'done' | 'not_done';
+export type EmergencySaleOutcome = 'sold' | 'refused';
+export type EmergencyPregnancyTestResult = 'not_done' | 'negative' | 'positive';
+export type EmergencyReferral = 'none' | 'obgyn' | 'pediatrics' | 'onestop' | 'child_guidance';
+
+const IDENTITY_CHECKS = new Set<EmergencyIdentityCheck>(['document', 'verbal', 'unverified']);
+const IN_PERSON_DOSES = new Set<EmergencyInPersonDose>(['done', 'not_done']);
+const PREGNANCY_TEST_RESULTS = new Set<EmergencyPregnancyTestResult>(['not_done', 'negative', 'positive']);
+const REFERRALS = new Set<EmergencyReferral>(['none', 'obgyn', 'pediatrics', 'onestop', 'child_guidance']);
+
+export interface EmergencySaleRecordSummary {
+  id: string;
+  outcome: EmergencySaleOutcome;
+  sold_at: string;
+}
+
+export interface EmergencySaleRecordDetail extends EmergencySaleRecordSummary {
+  product_code: string;
+  checklist_version: string;
+  identity_check: EmergencyIdentityCheck;
+  in_person_dose: EmergencyInPersonDose;
+  checklist_sheets_received: number;
+  pharmacist_staff_id: string;
+  training_registration_number: string;
+  pregnancy_test: EmergencyPregnancyTestResult;
+  refusal_reason_code: string | null;
+  referral: EmergencyReferral;
+  explained: string[];
+}
+
+export interface RecordEmergencySaleInput {
+  lineAccountId: string;
+  intakeId: string;
+  staffId: string;
+  expectedVersion: number;
+  outcome: EmergencySaleOutcome;
+  identityCheck: EmergencyIdentityCheck;
+  inPersonDose: EmergencyInPersonDose;
+  checklistSheetsReceived: number;
+  pregnancyTest: EmergencyPregnancyTestResult;
+  refusalReasonCode: string | null;
+  referral: EmergencyReferral;
+  explained: string[];
+  encryptionSecret: string;
+  now?: Date;
+}
+
+function saleRecordSummary(row: { id: string; outcome: string; sold_at: string }): EmergencySaleRecordSummary {
+  return { id: row.id, outcome: row.outcome as EmergencySaleOutcome, sold_at: row.sold_at };
+}
+
+export async function recordEmergencySale(
+  db: D1Database,
+  input: RecordEmergencySaleInput,
+): Promise<EmergencySaleRecordSummary> {
+  if ((input.outcome !== 'sold' && input.outcome !== 'refused') ||
+      !IDENTITY_CHECKS.has(input.identityCheck) || !IN_PERSON_DOSES.has(input.inPersonDose) ||
+      !PREGNANCY_TEST_RESULTS.has(input.pregnancyTest) || !REFERRALS.has(input.referral) ||
+      !Number.isInteger(input.checklistSheetsReceived) || input.checklistSheetsReceived < 0 ||
+      !Number.isInteger(input.expectedVersion) ||
+      !Array.isArray(input.explained) || input.explained.some((item) => typeof item !== 'string') ||
+      (input.refusalReasonCode !== null && typeof input.refusalReasonCode !== 'string')) {
+    throw new Error('invalid sale record');
+  }
+  await requireTrainedPharmacist(db, input.lineAccountId, input.staffId);
+
+  // Idempotency key sale:{intakeId}: a replayed request returns the existing
+  // immutable record instead of retrying the mutation.
+  const existing = await db.prepare(
+    `SELECT id, outcome, sold_at FROM pharmacy_emergency_sale_records
+      WHERE line_account_id = ? AND intake_id = ?`,
+  ).bind(input.lineAccountId, input.intakeId).first<{ id: string; outcome: string; sold_at: string }>();
+  if (existing) return saleRecordSummary(existing);
+
+  const intake = await getIntake(db, input.lineAccountId, input.intakeId);
+  if (!intake) throw new Error('intake not found');
+  const pharmacist = await db.prepare(
+    `SELECT training_registration_number FROM pharmacy_emergency_pharmacists
+      WHERE line_account_id = ? AND staff_id = ? AND is_active = 1`,
+  ).bind(input.lineAccountId, input.staffId).first<{ training_registration_number: string }>();
+  if (!pharmacist) throw new Error('trained pharmacist access required');
+
+  const toStatus = input.outcome === 'sold' ? 'completed' : 'cancelled';
+  const now = input.now ?? new Date();
+  const timestamp = now.toISOString();
+  const saleId = crypto.randomUUID();
+  const eventId = crypto.randomUUID();
+  const determinationEncrypted = await sealEmergencyPayload({
+    pregnancyTest: input.pregnancyTest,
+    refusalReasonCode: input.refusalReasonCode,
+    referral: input.referral,
+    explained: input.explained,
+  }, input.encryptionSecret, {
+    tenantId: intake.tenant_id, lineAccountId: intake.line_account_id,
+    friendId: intake.owner_friend_id, intakeId: intake.id,
+  });
+  const checklistVersion = getChecklistVersion(intake.product_code);
+
+  // Event-first batch, same shape as transitionEmergencyIntake: the sale
+  // outcome always requires the 'A' section counter confirmation (the
+  // in-person reconciliation that must happen before any final sold/refused
+  // decision), gated in the CAS WHERE — not a trigger.
+  const results = await db.batch([
+    db.prepare(
+      `INSERT INTO pharmacy_emergency_intake_events
+        (id, intake_id, line_account_id, event_type, actor_type, actor_id,
+         idempotency_key, occurred_at)
+       SELECT ?, id, line_account_id, ?, 'staff', ?, ?, ?
+         FROM pharmacy_emergency_intakes
+        WHERE id = ? AND line_account_id = ? AND status = 'reviewed' AND version = ?
+          AND EXISTS (SELECT 1 FROM pharmacy_emergency_counter_confirmations
+                       WHERE line_account_id = ? AND intake_id = ? AND section = 'A')`,
+    ).bind(
+      eventId, toStatus, input.staffId, `sale:${input.intakeId}`, timestamp,
+      input.intakeId, input.lineAccountId, input.expectedVersion,
+      input.lineAccountId, input.intakeId,
+    ),
+    db.prepare(
+      `UPDATE pharmacy_emergency_intakes
+          SET status = ?, closed_by = ?, closed_at = ?, version = version + 1, updated_at = ?
+        WHERE id = ? AND line_account_id = ? AND status = 'reviewed' AND version = ?
+          AND EXISTS (SELECT 1 FROM pharmacy_emergency_intake_events
+                       WHERE id = ? AND intake_id = ? AND line_account_id = ?)`,
+    ).bind(
+      toStatus, input.staffId, timestamp, timestamp,
+      input.intakeId, input.lineAccountId, input.expectedVersion,
+      eventId, input.intakeId, input.lineAccountId,
+    ),
+    db.prepare(
+      `INSERT INTO pharmacy_emergency_sale_records
+        (id, line_account_id, intake_id, owner_friend_id, product_code, checklist_version,
+         quantity, outcome, identity_check, in_person_dose, checklist_sheets_received,
+         pharmacist_staff_id, training_registration_number, determination_encrypted,
+         determination_key_version, sold_at, created_at)
+       SELECT ?, intake.line_account_id, intake.id, intake.owner_friend_id, intake.product_code, ?,
+              1, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
+         FROM pharmacy_emergency_intakes AS intake
+        WHERE intake.id = ? AND intake.line_account_id = ?
+          AND EXISTS (SELECT 1 FROM pharmacy_emergency_intake_events
+                       WHERE id = ? AND intake_id = ? AND line_account_id = ?)`,
+    ).bind(
+      saleId, checklistVersion, input.outcome, input.identityCheck, input.inPersonDose,
+      input.checklistSheetsReceived, input.staffId, pharmacist.training_registration_number,
+      determinationEncrypted, timestamp, timestamp,
+      input.intakeId, input.lineAccountId,
+      eventId, input.intakeId, input.lineAccountId,
+    ),
+  ]);
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1 ||
+      (results[2]?.meta?.changes ?? 0) !== 1) {
+    throw new Error('transition conflict');
+  }
+  return { id: saleId, outcome: input.outcome, sold_at: timestamp };
+}
+
+export async function getEmergencySaleRecord(
+  db: D1Database,
+  lineAccountId: string,
+  intakeId: string,
+  staffId: string,
+  encryptionSecret: string,
+  now = new Date(),
+): Promise<EmergencySaleRecordDetail> {
+  await requireTrainedPharmacist(db, lineAccountId, staffId);
+  const row = await db.prepare(
+    `SELECT sale.id, sale.product_code, sale.checklist_version, sale.outcome,
+            sale.identity_check, sale.in_person_dose, sale.checklist_sheets_received,
+            sale.pharmacist_staff_id, sale.training_registration_number,
+            sale.determination_encrypted, sale.sold_at, intake.tenant_id, intake.owner_friend_id
+       FROM pharmacy_emergency_sale_records AS sale
+       INNER JOIN pharmacy_emergency_intakes AS intake
+               ON intake.id = sale.intake_id AND intake.line_account_id = sale.line_account_id
+      WHERE sale.intake_id = ? AND sale.line_account_id = ?`,
+  ).bind(intakeId, lineAccountId).first<{
+    id: string; product_code: string; checklist_version: string; outcome: string;
+    identity_check: string; in_person_dose: string; checklist_sheets_received: number;
+    pharmacist_staff_id: string; training_registration_number: string;
+    determination_encrypted: string; sold_at: string; tenant_id: string; owner_friend_id: string;
+  }>();
+  if (!row) throw new Error('sale record not found');
+  // Fail-closed access audit: decrypt only proceeds once the audited INSERT
+  // (still-active pharmacist membership at read time) reports exactly one row.
+  const accessedAt = now.toISOString();
+  const audit = await db.prepare(
+    `INSERT INTO pharmacy_emergency_intake_access_events
+      (id, intake_id, line_account_id, staff_id, accessed_at)
+     SELECT ?, intake.id, intake.line_account_id, ?, ?
+       FROM pharmacy_emergency_intakes AS intake
+      WHERE intake.id = ? AND intake.line_account_id = ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_emergency_pharmacists AS pharmacist
+          INNER JOIN pharmacy_staff_accounts AS assignment
+                  ON assignment.line_account_id = pharmacist.line_account_id
+                 AND assignment.staff_id = pharmacist.staff_id
+                 AND assignment.is_active = 1
+         WHERE pharmacist.line_account_id = intake.line_account_id
+           AND pharmacist.staff_id = ? AND pharmacist.is_active = 1
+        )`,
+  ).bind(crypto.randomUUID(), staffId, accessedAt, intakeId, lineAccountId, staffId).run();
+  if ((audit.meta?.changes ?? 0) !== 1) throw new Error('sensitive read audit unavailable');
+  const determination = await openEmergencyPayload(row.determination_encrypted, encryptionSecret, {
+    tenantId: row.tenant_id, lineAccountId, friendId: row.owner_friend_id, intakeId,
+  });
+  return {
+    id: row.id, outcome: row.outcome as EmergencySaleOutcome, sold_at: row.sold_at,
+    product_code: row.product_code, checklist_version: row.checklist_version,
+    identity_check: row.identity_check as EmergencyIdentityCheck,
+    in_person_dose: row.in_person_dose as EmergencyInPersonDose,
+    checklist_sheets_received: row.checklist_sheets_received,
+    pharmacist_staff_id: row.pharmacist_staff_id,
+    training_registration_number: row.training_registration_number,
+    pregnancy_test: PREGNANCY_TEST_RESULTS.has(determination.pregnancyTest as EmergencyPregnancyTestResult)
+      ? determination.pregnancyTest as EmergencyPregnancyTestResult
+      : 'not_done',
+    refusal_reason_code: typeof determination.refusalReasonCode === 'string' ? determination.refusalReasonCode : null,
+    referral: REFERRALS.has(determination.referral as EmergencyReferral)
+      ? determination.referral as EmergencyReferral
+      : 'none',
+    explained: Array.isArray(determination.explained) ? determination.explained as string[] : [],
+  };
 }
