@@ -103,6 +103,7 @@ import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // cust
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
 import { emergencyContraceptionRoutes } from './custom/pharmacy/emergency-contraception/routes.js'; // custom:pharmacy-emergency-contraception
+import { processEmergencyAppointmentReminders } from './custom/pharmacy/emergency-contraception/notifications.js'; // custom:pharmacy-emergency-contraception
 import { dataSubjectRequestRoutes } from './custom/pharmacy/data-subject-requests/routes.js'; // custom:pharmacy-data-subject-requests
 import { pharmacyPrivacyPolicyRoutes } from './custom/pharmacy/privacy-policy/routes.js'; // custom:pharmacy-privacy-policy
 import { pharmacyPublicProfileRoutes } from './custom/pharmacy/public-profile/routes.js'; // custom:pharmacy-public-profile
@@ -171,6 +172,7 @@ export type Env = {
     WORKER_PUBLIC_URL?: string;
     ADMIN_PUBLIC_URL?: string;
     LIFF_PUBLIC_URL?: string;
+    PHARMACY_SELLER_RELEASE?: string;
     // Google Calendar booking sync. Store the private key as a Worker secret.
     // Calendar owners only enter/share their Google Calendar ID in admin UI.
     GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
@@ -1191,6 +1193,22 @@ async function scheduled(
       }
     }).catch(() => {
       console.error('[pharmacy-medication-followup] processor failed');
+    }));
+
+    jobs.push(processEmergencyAppointmentReminders(env.DB, { // custom:pharmacy-emergency-contraception
+      proxyBaseUrl:
+        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.generated + result.sent + result.failed + result.suppressed > 0) {
+        console.log(
+          `[pharmacy-emergency-reminder] generated=${result.generated} sent=${result.sent} failed=${result.failed} skipped=${result.skipped} suppressed=${result.suppressed}`,
+        );
+      }
+    }).catch(() => {
+      console.error('[pharmacy-emergency-reminder] processor failed');
     }));
   }
 

@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../index.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { deny } from './deny.js';
 
 const ACCOUNT_KEYS = [
   'lineAccountId',
@@ -100,12 +101,12 @@ export const tenantAccountSelectorGuard: MiddlewareHandler<Env> = async (c, next
 
   // Path-bound account routes cannot rely on a query/body selector. Exclude
   // the bulk order endpoint, whose path segment is not an account id.
-  const pathAccountId = /^\/api\/line-accounts\/([^/]+)/.exec(new URL(c.req.url).pathname)?.[1];
+  const pathAccountId = /^\/api\/line-accounts\/([^/]+)/.exec(c.req.path)?.[1];
   if (pathAccountId && pathAccountId !== 'order') accountIds.add(pathAccountId);
 
   for (const accountId of accountIds) {
     if (!await accountResourceOwnedByStaff(c, tenantId, accountId)) {
-      return c.json({ success: false, error: 'Forbidden' }, 403);
+      return deny(c, 403, 'Forbidden');
     }
   }
 
@@ -118,7 +119,7 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
   const tenantId = c.get('tenantId');
   if (!tenantId) return next();
 
-  const path = new URL(c.req.url).pathname;
+  const path = c.req.path; // decoded path Hono routed on; raw pathname may be percent-encoded
   const bodyFriendIds = new Set<string>();
   const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
   if (body) {
@@ -156,10 +157,10 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
   };
 
   for (const friendId of bodyFriendIds) {
-    if (!await isOwned(friendId)) return c.json({ success: false, error: 'Forbidden' }, 403);
+    if (!await isOwned(friendId)) return deny(c, 403, 'Forbidden');
   }
   if (resourceId && !await isOwned(resourceId, acceptsChatId)) {
-    return c.json({ success: false, error: 'Forbidden' }, 403);
+    return deny(c, 403, 'Forbidden');
   }
 
   return next();
@@ -169,7 +170,7 @@ export const tenantRichMenuResourceGuard: MiddlewareHandler<Env> = async (c, nex
   const tenantId = c.get('tenantId');
   if (!tenantId) return next();
 
-  const path = new URL(c.req.url).pathname;
+  const path = c.req.path; // decoded path Hono routed on; raw pathname may be percent-encoded
   const groupId = /^\/api\/rich-menu-groups\/([^/]+)/.exec(path)?.[1];
   if (groupId && groupId !== 'external' && groupId !== 'import') {
     const group = await c.env.DB.prepare(
@@ -179,7 +180,7 @@ export const tenantRichMenuResourceGuard: MiddlewareHandler<Env> = async (c, nex
         LIMIT 1`,
     ).bind(groupId).first<{ account_id: string }>();
     if (!group || !await accountResourceOwnedByStaff(c, tenantId, group.account_id)) {
-      return c.json({ success: false, error: 'Forbidden' }, 403);
+      return deny(c, 403, 'Forbidden');
     }
   }
 
@@ -187,15 +188,15 @@ export const tenantRichMenuResourceGuard: MiddlewareHandler<Env> = async (c, nex
   try {
     decodedPath = decodeURIComponent(path);
   } catch {
-    return c.json({ success: false, error: 'Forbidden' }, 403);
+    return deny(c, 403, 'Forbidden');
   }
   const imageAccountId = /^\/api\/rich-menu-images\/rich-menus\/([^/]+)\//.exec(decodedPath)?.[1];
   if (path.startsWith('/api/rich-menu-images/') && !imageAccountId) {
-    return c.json({ success: false, error: 'Forbidden' }, 403);
+    return deny(c, 403, 'Forbidden');
   }
   if (imageAccountId) {
     if (!await accountResourceOwnedByStaff(c, tenantId, imageAccountId)) {
-      return c.json({ success: false, error: 'Forbidden' }, 403);
+      return deny(c, 403, 'Forbidden');
     }
   }
 

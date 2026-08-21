@@ -23,6 +23,9 @@ export async function savePharmacyRichMenuImage(input: {
   }
   const validation = validateRichMenuImage(input.bytes, input.bytes.byteLength);
   if (!validation.ok) throw new Error(validation.error);
+  if (validation.format !== (input.contentType === 'image/png' ? 'png' : 'jpeg')) {
+    throw new Error('image byte format does not match content type');
+  }
   if (input.expectedSize && validation.size !== input.expectedSize) {
     throw new Error(`image size '${validation.size}' does not match expected '${input.expectedSize}'`);
   }

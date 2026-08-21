@@ -67,6 +67,9 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('release_version=$(node -p');
     expect(sharedDeploy).toContain("node -p 'require(\"./apps/worker/package.json\").version'");
     expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
+    expect(sharedDeploy).toContain('--worker-package-version');
+    expect(sharedDeploy).toContain('--web-package-version');
+    expect(sharedDeploy).toContain('--liff-package-version');
     expect(sharedDeploy).toContain('--worker apps/worker/dist/line_harness/index.js');
     expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
     expect(sharedDeploy).toContain('--admin apps/web/out');
@@ -74,6 +77,24 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('for attempt in 1 2 3 4 5');
     expect(sharedDeploy).toContain('sleep 5');
     expect(sharedDeploy).toContain('test "$actual_version" = "$EXPECTED_VERSION"');
+  });
+
+  test('publishes the immutable pharmacy rich-menu catalog before the Worker', () => {
+    const generate = stepIndex('Generate Pharmacy rich-menu catalog');
+    const publish = stepIndex('Publish Pharmacy rich-menu catalog');
+    const deploy = stepIndex('Deploy to Cloudflare Workers');
+
+    expect(generate).toBeLessThan(publish);
+    expect(publish).toBeLessThan(deploy);
+    expect(sharedDeploy).toContain('pnpm rich-menu:catalog');
+    expect(sharedDeploy).toContain('r2 object get');
+    expect(sharedDeploy).toContain('cmp --silent');
+    expect(sharedDeploy).toContain('r2 object put');
+    expect(sharedDeploy).toContain('manifest.json');
+    expect(sharedDeploy).toContain('catalog_total_bytes');
+    expect(sharedDeploy).toContain('50000000');
+    expect(sharedDeploy).toContain('remote_image="$(mktemp)"');
+    expect(sharedDeploy).toContain('Existing rich-menu catalog image differs');
   });
 
   test('checks out and deploys the exact source SHA with pinned actions', () => {

@@ -4,6 +4,7 @@ import {
 } from '@line-crm/db';
 import type { StaffMember } from '@line-crm/db';
 import { requireRole } from '../middleware/role-guard.js';
+import { tenantAuditStatement } from '../lib/tenant-audit.js';
 import type { Env } from '../index.js';
 import {
   generateTemporaryPassword,
@@ -13,6 +14,13 @@ import {
 const staff = new Hono<Env>();
 
 type TenantStaffMember = StaffMember & { login_id: string | null };
+type TenantStaffAccount = {
+  id: string;
+  name: string;
+  assigned: number;
+  target_active: number;
+  active_staff_count: number;
+};
 
 async function getTenantStaffMembers(db: D1Database, tenantId: string): Promise<TenantStaffMember[]> {
   const result = await db.prepare(
@@ -69,6 +77,46 @@ function serializeStaff(row: TenantStaffMember) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+async function getTenantStaffAccounts(
+  db: D1Database,
+  tenantId: string,
+  staffId: string,
+): Promise<TenantStaffAccount[]> {
+  const result = await db.prepare(
+    `SELECT account.id, account.name,
+            EXISTS (
+              SELECT 1 FROM pharmacy_staff_accounts AS assignment
+               WHERE assignment.line_account_id = account.id
+                 AND assignment.staff_id = ? AND assignment.is_active = 1
+            ) AS assigned,
+            EXISTS (
+              SELECT 1 FROM pharmacy_staff_accounts AS assignment
+              INNER JOIN tenant_staff_memberships AS membership
+                      ON membership.tenant_id = mapping.tenant_id
+                     AND membership.staff_id = assignment.staff_id
+                     AND membership.is_active = 1
+              INNER JOIN staff_members AS active_staff
+                      ON active_staff.id = assignment.staff_id AND active_staff.is_active = 1
+               WHERE assignment.line_account_id = account.id
+                 AND assignment.staff_id = ? AND assignment.is_active = 1
+            ) AS target_active,
+            (SELECT COUNT(*) FROM pharmacy_staff_accounts AS assignment
+              INNER JOIN tenant_staff_memberships AS membership
+                      ON membership.tenant_id = mapping.tenant_id
+                     AND membership.staff_id = assignment.staff_id
+                     AND membership.is_active = 1
+              INNER JOIN staff_members AS active_staff
+                      ON active_staff.id = assignment.staff_id AND active_staff.is_active = 1
+             WHERE assignment.line_account_id = account.id AND assignment.is_active = 1)
+              AS active_staff_count
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
+      WHERE mapping.tenant_id = ?
+      ORDER BY account.display_order, account.created_at`,
+  ).bind(staffId, staffId, tenantId).all<TenantStaffAccount>();
+  return result.results;
 }
 
 // GET /api/staff/me — any authenticated user (MUST be before /:id)
@@ -141,6 +189,71 @@ staff.get('/api/staff/:id', requireRole('owner'), async (c) => {
   }
 });
 
+staff.get('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+  const staffId = c.req.param('id')!;
+  if (!await getTenantStaffById(c.env.DB, tenantId, staffId)) {
+    return c.json({ success: false, error: 'Staff member not found' }, 404);
+  }
+  const accounts = await getTenantStaffAccounts(c.env.DB, tenantId, staffId);
+  return c.json({
+    success: true,
+    data: accounts.map(({ id, name, assigned }) => ({ id, name, assigned: assigned === 1 })),
+  });
+});
+
+staff.put('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+  const staffId = c.req.param('id')!;
+  if (!await getTenantStaffById(c.env.DB, tenantId, staffId)) {
+    return c.json({ success: false, error: 'Staff member not found' }, 404);
+  }
+  const body = await c.req.json<{ accountIds?: unknown }>().catch(() => null);
+  if (!body || !Array.isArray(body.accountIds) || body.accountIds.length > 100 ||
+      body.accountIds.some((id) => typeof id !== 'string' || !id || id.length > 128) ||
+      new Set(body.accountIds).size !== body.accountIds.length) {
+    return c.json({ success: false, error: 'accountIds is invalid' }, 400);
+  }
+  const accountIds = body.accountIds as string[];
+  const accounts = await getTenantStaffAccounts(c.env.DB, tenantId, staffId);
+  const tenantAccountIds = new Set(accounts.map(({ id }) => id));
+  if (accountIds.some((id) => !tenantAccountIds.has(id))) {
+    return c.json({ success: false, error: 'Account is outside the authenticated tenant' }, 400);
+  }
+  const selected = new Set(accountIds);
+  if (accounts.some((account) => !selected.has(account.id) &&
+      account.target_active === 1 && account.active_staff_count <= 1)) {
+    return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
+  }
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE pharmacy_staff_accounts
+          SET is_active = 0, updated_at = ?
+        WHERE staff_id = ? AND line_account_id IN (
+          SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?
+        )`,
+    ).bind(now, staffId, tenantId),
+    ...accountIds.map((accountId) => c.env.DB.prepare(
+      `INSERT INTO pharmacy_staff_accounts
+        (line_account_id, staff_id, is_active, created_at, updated_at)
+       VALUES (?, ?, 1, ?, ?)
+       ON CONFLICT(line_account_id, staff_id) DO UPDATE SET
+         is_active = 1, updated_at = excluded.updated_at`,
+    ).bind(accountId, staffId, now, now)),
+    tenantAuditStatement(c.env.DB, {
+      tenantId, actorStaffId: c.get('staff').id, action: 'staff.accounts_updated',
+      resourceType: 'staff', resourceId: staffId, detail: { count: accountIds.length },
+    }),
+  ]);
+  return c.json({
+    success: true,
+    data: accounts.map(({ id, name }) => ({ id, name, assigned: selected.has(id) })),
+  });
+});
+
 // POST /api/staff — owner only. Create staff with a one-time temporary password.
 staff.post('/api/staff', requireRole('owner'), async (c) => {
   try {
@@ -208,6 +321,10 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
             credential_version, created_at, updated_at)
          VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
       ).bind(tenantId, id, loginId, passwordHash, now, now),
+      tenantAuditStatement(c.env.DB, {
+        tenantId, actorStaffId: c.get('staff').id, action: 'staff.created',
+        resourceType: 'staff', resourceId: id, detail: { role: body.role },
+      }),
     ]);
 
     const member = await getTenantStaffById(c.env.DB, tenantId, id);
@@ -279,11 +396,18 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
         sets.push('is_active = ?');
         values.push(body.isActive ? 1 : 0);
       }
-      await c.env.DB.prepare(
-        `UPDATE tenant_staff_memberships
-            SET ${sets.join(', ')}
-          WHERE tenant_id = ? AND staff_id = ?`,
-      ).bind(...values, tenantId, id).run();
+      await c.env.DB.batch([
+        c.env.DB.prepare(
+          `UPDATE tenant_staff_memberships
+              SET ${sets.join(', ')}
+            WHERE tenant_id = ? AND staff_id = ?`,
+        ).bind(...values, tenantId, id),
+        tenantAuditStatement(c.env.DB, {
+          tenantId, actorStaffId: c.get('staff').id, action: 'staff.role_changed',
+          resourceType: 'staff', resourceId: id,
+          detail: { role: body.role ?? null, isActive: body.isActive ?? null },
+        }),
+      ]);
     }
 
     const updated = await getTenantStaffById(c.env.DB, tenantId, id);
@@ -335,6 +459,10 @@ staff.delete('/api/staff/:id', requireRole('owner'), async (c) => {
             SET revoked_at = ?
           WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
       ).bind(now, tenantId, id),
+      tenantAuditStatement(c.env.DB, {
+        tenantId, actorStaffId: currentStaff.id, action: 'staff.deleted',
+        resourceType: 'staff', resourceId: id,
+      }),
     ]);
     return c.json({ success: true, data: null });
   } catch (err) {
@@ -380,6 +508,10 @@ staff.post('/api/staff/:id/reset-password', requireRole('owner'), async (c) => {
             SET revoked_at = ?
           WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
       ).bind(now, tenantId, id),
+      tenantAuditStatement(c.env.DB, {
+        tenantId, actorStaffId: c.get('staff').id, action: 'staff.reset_password',
+        resourceType: 'staff', resourceId: id,
+      }),
     ]);
     return c.json({ success: true, data: { loginId, temporaryPassword } });
   } catch (err) {

@@ -10,12 +10,18 @@ describe('GET /admin/version', () => {
     expect(res.status).toBe(200);
     const j = (await res.json()) as {
       version: string;
+      worker_package_version: string;
+      web_package_version: string;
+      liff_package_version: string;
       worker_hash: string;
       admin_hash: string;
       liff_hash: string;
       released_at: string;
     };
     expect(j.version).toMatch(/^\d+\.\d+\.\d+(-\w+)?$/);
+    expect(j.worker_package_version).toMatch(/^\d+\.\d+\.\d+(-\w+)?$/);
+    expect(j.web_package_version).toMatch(/^\d+\.\d+\.\d+(-\w+)?$/);
+    expect(j.liff_package_version).toMatch(/^\d+\.\d+\.\d+(-\w+)?$/);
     expect(j.worker_hash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(j.admin_hash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(j.liff_hash).toMatch(/^sha256:[a-f0-9]{64}$/);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { safeRedirectTarget } from './safe-redirect';
+import { redirectOriginAllowlist, safeRedirectTarget } from './safe-redirect';
 
 describe('safeRedirectTarget', () => {
   it('allows http(s) absolute URLs (tracked-link / marketing destinations are intentional)', () => {
@@ -51,5 +51,30 @@ describe('safeRedirectTarget', () => {
 
   it('tolerates leading/trailing whitespace around an otherwise valid target', () => {
     expect(safeRedirectTarget('  https://example.com  ')).toBe('https://example.com');
+  });
+});
+
+describe('safeRedirectTarget with an origin allowlist (pharmacy mode)', () => {
+  const origins = redirectOriginAllowlist({
+    WORKER_URL: 'https://worker.example.com',
+    LIFF_URL: 'https://liff.line.me/1000000000-abc',
+    ADMIN_ORIGIN: 'https://admin.example.com, https://admin2.example.com',
+    LIFF_PUBLIC_URL: undefined,
+  });
+
+  it('derives origins from configured URLs', () => {
+    expect([...origins].sort()).toEqual([
+      'https://admin.example.com', 'https://admin2.example.com', 'https://liff.line.me', 'https://worker.example.com',
+    ]);
+  });
+
+  it('allows root-relative paths and allowlisted origins only', () => {
+    expect(safeRedirectTarget('/thanks', origins)).toBe('/thanks');
+    expect(safeRedirectTarget('https://worker.example.com/x?y=1', origins)).toBe('https://worker.example.com/x?y=1');
+    expect(safeRedirectTarget('https://admin2.example.com/', origins)).toBe('https://admin2.example.com/');
+    expect(safeRedirectTarget('https://evil.example.net/', origins)).toBeNull();
+    expect(safeRedirectTarget('https://worker.example.com.evil.net/', origins)).toBeNull();
+    expect(safeRedirectTarget('http://worker.example.com/', origins)).toBeNull();
+    expect(safeRedirectTarget('line://ti/p/@abc', origins)).toBeNull();
   });
 });

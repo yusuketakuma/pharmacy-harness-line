@@ -84,7 +84,7 @@ describe('tenant admin bootstrap CLI', () => {
     expect(output.join('\n')).toContain('Tenant admin is already configured');
   });
 
-  it('reuses a supplied idempotency key with a reproducible temporary password', async () => {
+  it('reuses a supplied idempotency key but never reproduces a temporary password', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
@@ -102,8 +102,23 @@ describe('tenant admin bootstrap CLI', () => {
     expect((second.headers as Record<string, string>)['Idempotency-Key'])
       .toBe('bootstrap-retry-20260819');
     expect(JSON.parse(String(first.body)).temporaryPassword)
-      .toBe(JSON.parse(String(second.body)).temporaryPassword);
+      .not.toBe(JSON.parse(String(second.body)).temporaryPassword);
     expect(output.filter((line) => line.includes('再実行キー')).length).toBe(2);
+  });
+
+  it('does not print the locally generated password when the server replayed', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { tenantCode: 'pharmacy-a', adminLoginId: 'admin-a', replayed: true },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    const exitCode = await runTenantAdminBootstrap(args, environment, fetcher, (line) => output.push(line));
+
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as { temporaryPassword: string };
+    expect(exitCode).toBe(0);
+    expect(output.join('\n')).not.toContain(body.temporaryPassword);
+    expect(output.join('\n')).toContain('再実行');
   });
 
   it('derives a different temporary password for a different tenant reusing the same idempotency key', async () => {

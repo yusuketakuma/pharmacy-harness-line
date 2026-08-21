@@ -6,6 +6,7 @@ import {
   addTagToFriend,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { clampLimitOffset } from '../lib/pagination.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
 
 const stripe = new Hono<Env>();
@@ -31,8 +32,9 @@ stripe.get('/api/integrations/stripe/events', async (c) => {
   try {
     const friendId = c.req.query('friendId') ?? undefined;
     const eventType = c.req.query('eventType') ?? undefined;
-    const limit = Number(c.req.query('limit') ?? '100');
-    const items = await getStripeEvents(c.env.DB, { friendId, eventType, limit });
+    const page = clampLimitOffset(c.req.query('limit'), undefined, 100);
+    if (!page) return c.json({ success: false, error: 'limit が不正です' }, 400);
+    const items = await getStripeEvents(c.env.DB, { friendId, eventType, limit: page.limit });
     return c.json({
       success: true,
       data: items.map((e) => ({

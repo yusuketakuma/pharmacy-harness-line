@@ -10,6 +10,7 @@ import {
 } from '@line-crm/db';
 import { sendAdConversions } from '../services/ad-conversion.js';
 import type { Env } from '../index.js';
+import { clampLimitOffset } from '../lib/pagination.js';
 
 function maskConfig(config: Record<string, unknown>): Record<string, unknown> {
   const masked: Record<string, unknown> = {};
@@ -173,8 +174,9 @@ adPlatforms.delete('/api/ad-platforms/:id', async (c) => {
 adPlatforms.get('/api/ad-platforms/:id/logs', async (c) => {
   try {
     const id = c.req.param('id');
-    const limit = Number(c.req.query('limit') ?? '50');
-    const logs = await getAdConversionLogs(c.env.DB, id, limit);
+    const page = clampLimitOffset(c.req.query('limit'), undefined, 50);
+    if (!page) return c.json({ success: false, error: 'limit が不正です' }, 400);
+    const logs = await getAdConversionLogs(c.env.DB, id, page.limit);
 
     return c.json({
       success: true,

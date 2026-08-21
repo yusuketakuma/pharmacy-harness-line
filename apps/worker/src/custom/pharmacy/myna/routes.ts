@@ -31,7 +31,9 @@ import {
   getActiveMynaEndpoint,
   getAdminMynaEndpoint,
   getMynaEndpointByAlias,
+  markMynaEndpointVerified,
   saveMynaEndpoint,
+  setMynaEndpointEnabled,
 } from './endpoint-repository.js';
 
 type MynaBindings = Pick<Env['Bindings'], 'DB' | 'WORKER_PUBLIC_URL'> & {
@@ -103,6 +105,7 @@ mynaRoutes.use('/api/liff/pharmacy/myna-handoffs/*', patientGate);
 mynaRoutes.use('/api/custom/pharmacy/myna-handoffs', adminGate);
 mynaRoutes.use('/api/custom/pharmacy/myna-handoffs/*', adminGate);
 mynaRoutes.use('/api/custom/pharmacy/myna-endpoint', adminGate);
+mynaRoutes.use('/api/custom/pharmacy/myna-endpoint/*', adminGate);
 
 mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
   const patient = c.get('mynaPatient');
@@ -316,6 +319,58 @@ mynaRoutes.put('/api/custom/pharmacy/myna-endpoint', async (c) => {
     });
     return c.json({ endpoint });
   } catch (error) {
+    return mapMynaError(c, error);
+  }
+});
+
+mynaRoutes.patch('/api/custom/pharmacy/myna-endpoint', async (c) => {
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (staff.role === 'staff') return c.json({ error: '管理者権限が必要です' }, 403);
+  const lineAccountId = getPharmacyAccountId(c);
+  const secret = encryptionSecret(c);
+  const body = await readJsonObject(c.req);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!secret) return c.json({ error: 'Myna endpoint encryption is not configured' }, 503);
+  if (!body || typeof body.enabled !== 'boolean' || !Number.isInteger(body.expectedRevision) ||
+      Number(body.expectedRevision) < 1 ||
+      Object.keys(body).some((key) => key !== 'enabled' && key !== 'expectedRevision')) {
+    return c.json({ error: 'enabled and expectedRevision are required' }, 400);
+  }
+  try {
+    return c.json({ endpoint: await setMynaEndpointEnabled(
+      c.env.DB, lineAccountId, body.enabled, Number(body.expectedRevision), staff.id, secret,
+    ) });
+  } catch (error) {
+    if (String(error).includes('stale Myna endpoint revision')) {
+      return c.json({ error: 'Myna endpoint configuration changed' }, 409);
+    }
+    if (String(error).includes('Myna endpoint not found')) {
+      return c.json({ error: 'Myna endpoint not found' }, 404);
+    }
+    return mapMynaError(c, error);
+  }
+});
+
+mynaRoutes.post('/api/custom/pharmacy/myna-endpoint/verification', async (c) => {
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (staff.role === 'staff') return c.json({ error: '管理者権限が必要です' }, 403);
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  const body = await readJsonObject(c.req);
+  if (!body || !Number.isInteger(body.expectedRevision) || Number(body.expectedRevision) < 1 ||
+      Object.keys(body).some((key) => key !== 'expectedRevision')) {
+    return c.json({ error: 'expectedRevision is required' }, 400);
+  }
+  try {
+    return c.json({ checkedAt: await markMynaEndpointVerified(
+      c.env.DB, lineAccountId, Number(body.expectedRevision),
+    ) });
+  } catch (error) {
+    if (String(error).includes('stale Myna endpoint revision')) {
+      return c.json({ error: 'Myna endpoint configuration changed' }, 409);
+    }
     return mapMynaError(c, error);
   }
 });

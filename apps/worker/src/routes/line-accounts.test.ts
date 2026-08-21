@@ -73,10 +73,12 @@ type TestEnv = {
 function makeDbStub(firstResult: unknown = null): D1Database {
   return {
     prepare: vi.fn((sql: string) => ({
-      bind: vi.fn(() => ({
+      bind: vi.fn((...params: unknown[]) => ({
+        params,
         first: vi.fn().mockResolvedValue(
           sql.includes('pharmacy_account_capabilities') ? null : firstResult,
         ),
+        run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       })),
     })),
   } as unknown as D1Database;
@@ -93,9 +95,20 @@ function makePharmacyDbStub(): D1Database {
               ? { pharmacy_install: 1 }
               : null,
         ),
+        run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       })),
     })),
   } as unknown as D1Database;
+}
+
+/** Params bound to every tenant_admin_audit_events insert issued on this stub. */
+function auditWrites(db: D1Database): unknown[][] {
+  const prepare = (db as unknown as { prepare: ReturnType<typeof vi.fn> }).prepare;
+  return prepare.mock.calls.flatMap((call: unknown[], index: number): unknown[][] =>
+    String(call[0]).includes('INSERT INTO tenant_admin_audit_events')
+      ? (prepare.mock.results[index].value as { bind: ReturnType<typeof vi.fn> }).bind.mock.results
+        .map((result) => (result.value as { params: unknown[] }).params)
+      : []);
 }
 
 function setupApp(
@@ -923,7 +936,8 @@ describe('Login pair / uniqueness validation', () => {
 describe('PUT /api/line-accounts/:id', () => {
   test('rotates Messaging credentials in encrypted storage without writing plaintext metadata', async () => {
     dbMocks.getLineAccountByIdForTenant.mockResolvedValue(fakeAccount);
-    const res = await setupApp('owner').request('/api/line-accounts/acc-1', {
+    const db = makeDbStub();
+    const res = await setupApp('owner', db).request('/api/line-accounts/acc-1', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -947,6 +961,25 @@ describe('PUT /api/line-accounts/:id', () => {
         ],
       }),
     );
+    const audits = auditWrites(db);
+    expect(audits).toHaveLength(1);
+    expect(audits[0].slice(1, 8)).toEqual([
+      'tenant-a', 'acc-1', 'test-staff', 'line_account.credentials_updated', 'line_account', 'acc-1',
+      JSON.stringify({ kinds: ['channel_access_token', 'channel_secret'] }),
+    ]);
+    expect(JSON.stringify(audits)).not.toContain('a'.repeat(32));
+  });
+
+  test('does not write an audit row when no credential changes', async () => {
+    dbMocks.getLineAccountByIdForTenant.mockResolvedValue(fakeAccount);
+    const db = makeDbStub();
+    const res = await setupApp('owner', db).request('/api/line-accounts/acc-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '変更後' }),
+    });
+    expect(res.status).toBe(200);
+    expect(auditWrites(db)).toHaveLength(0);
   });
 
   test('does not update account metadata when an atomic credential rotation fails', async () => {

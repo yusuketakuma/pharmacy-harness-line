@@ -31,6 +31,9 @@ import { argv, exit, stderr, stdout } from 'node:process';
 
 export interface VersionData {
   version: string;
+  workerPackageVersion: string;
+  webPackageVersion: string;
+  liffPackageVersion: string;
   workerHash: string;
   adminHash: string;
   liffHash: string;
@@ -90,6 +93,9 @@ function write(outPath: string, v: VersionData): void {
     '// Regenerated on every build; values reflect the artifacts being shipped.',
     '',
     `export const BUNDLE_VERSION = ${JSON.stringify(v.version)};`,
+    `export const WORKER_PACKAGE_VERSION = ${JSON.stringify(v.workerPackageVersion)};`,
+    `export const WEB_PACKAGE_VERSION = ${JSON.stringify(v.webPackageVersion)};`,
+    `export const LIFF_PACKAGE_VERSION = ${JSON.stringify(v.liffPackageVersion)};`,
     `export const WORKER_HASH = ${JSON.stringify(v.workerHash)};`,
     `export const ADMIN_HASH = ${JSON.stringify(v.adminHash)};`,
     `export const LIFF_HASH = ${JSON.stringify(v.liffHash)};`,
@@ -111,6 +117,9 @@ export const injectVersion = {
 
 interface CliArgs {
   version?: string;
+  workerPackageVersion?: string;
+  webPackageVersion?: string;
+  liffPackageVersion?: string;
   worker?: string;
   admin?: string;
   liff?: string;
@@ -134,6 +143,15 @@ function parseArgs(args: string[]): CliArgs {
     switch (key) {
       case 'version':
         out.version = value;
+        break;
+      case 'worker-package-version':
+        out.workerPackageVersion = value;
+        break;
+      case 'web-package-version':
+        out.webPackageVersion = value;
+        break;
+      case 'liff-package-version':
+        out.liffPackageVersion = value;
         break;
       case 'worker':
         out.worker = value;
@@ -182,6 +200,9 @@ function hashArtifact(label: string, p: string): string {
 function main(rawArgs: string[]): void {
   const args = parseArgs(rawArgs);
   const version = requireArg(args, 'version');
+  const workerPackageVersion = requireArg(args, 'workerPackageVersion');
+  const webPackageVersion = requireArg(args, 'webPackageVersion');
+  const liffPackageVersion = requireArg(args, 'liffPackageVersion');
   const workerPath = requireArg(args, 'worker');
   const adminPath = requireArg(args, 'admin');
   const liffPath = requireArg(args, 'liff');
@@ -196,6 +217,9 @@ function main(rawArgs: string[]): void {
 
   write(outPath, {
     version,
+    workerPackageVersion,
+    webPackageVersion,
+    liffPackageVersion,
     workerHash,
     adminHash,
     liffHash,
@@ -206,6 +230,9 @@ function main(rawArgs: string[]): void {
   stdout.write(
     JSON.stringify({
       version,
+      workerPackageVersion,
+      webPackageVersion,
+      liffPackageVersion,
       workerHash,
       adminHash,
       liffHash,

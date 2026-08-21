@@ -31,9 +31,10 @@ import { pushImmediateFirstStep } from '../services/immediate-first-step.js';
 import { notifyAffiliateFriendAdd } from '../services/affiliate-notifier.js';
 import { verifyCallerLineIdentity, verifyCallerLineUserId } from '../services/liff-auth.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
-import { safeRedirectTarget } from '../lib/safe-redirect.js';
+import { redirectOriginAllowlist, safeRedirectTarget } from '../lib/safe-redirect.js';
 import { loginUnconfiguredPage } from '../lib/login-unconfigured.js';
 import type { Env } from '../index.js';
+import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
 import { verifyCrossAccountToken } from '../lib/cross-account-token.js';
 import {
   PATIENT_PHARMACY_CAPABILITIES,
@@ -147,11 +148,9 @@ async function linkIgIgsid(
       })
         .then(async (res) => {
           if (!res.ok) {
-            console.error(
-              'IG Harness link-line failed:',
-              res.status,
-              await res.text().catch(() => ''),
-            );
+            // Upstream body may echo request fields; log only status + error code.
+            const errBody = await res.json<{ error?: string }>().catch(() => ({} as { error?: string }));
+            console.error('IG Harness link-line failed:', JSON.stringify({ status: res.status, error: errBody.error ?? null }));
           }
         })
         .catch((err) => console.error('IG Harness link-line error:', err)),
@@ -727,8 +726,9 @@ liffRoutes.get('/auth/callback', async (c) => {
     });
 
     if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      console.error('Token exchange failed:', errText);
+      // Upstream body may echo sensitive values; log only status + error code.
+      const errBody = await tokenRes.json<{ error?: string }>().catch(() => ({} as { error?: string }));
+      console.error('Token exchange failed:', JSON.stringify({ status: tokenRes.status, error: errBody.error ?? null }));
       return c.html(errorPage('Token exchange failed'));
     }
 
@@ -904,7 +904,7 @@ liffRoutes.get('/auth/callback', async (c) => {
             .prepare('UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?')
             .bind(JSON.stringify(meta), jstNow(), friend.id)
             .run();
-          console.log(`X Harness: linked @${xhResult.xUsername} to friend ${friend.id}`);
+          console.log(`X Harness: linked x account to friend ${friend.id}`);
         }
         // Apply gate actions (tag + scenario) from X Harness
         if (xhResult) {
@@ -983,7 +983,16 @@ liffRoutes.get('/auth/callback', async (c) => {
     // http(s) destinations and root-relative paths are honored (external
     // marketing/LP redirects are an intentional feature; javascript:/data:/
     // protocol-relative targets are not).
-    const safeRedirect = safeRedirectTarget(redirect);
+    // Pharmacy-mode accounts get an allowlist (configured worker/LIFF/admin
+    // origins) instead of the denylist: no third-party LP funnels there.
+    const pharmacyRedirectScope = Boolean(redirect) && (
+      await isPharmacyModeAccount(db, friend?.line_account_id)
+      || (!friend?.line_account_id && await hasPharmacyModeAccount(db))
+    );
+    const safeRedirect = safeRedirectTarget(
+      redirect,
+      pharmacyRedirectScope ? redirectOriginAllowlist(c.env as unknown as Record<string, string | undefined>) : undefined,
+    );
     if (safeRedirect) {
       return c.redirect(safeRedirect);
     }
@@ -1371,7 +1380,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
               .prepare('UPDATE friends SET metadata = ? WHERE id = ?')
               .bind(JSON.stringify(meta), friend.id)
               .run();
-            console.log(`X Harness: linked @${xhResult.xUsername} to friend ${friend.id}`);
+            console.log(`X Harness: linked x account to friend ${friend.id}`);
           }
           if (xhResult) {
             await applyXHarnessActions(db, friend.id, xhResult);
@@ -1441,7 +1450,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
             .prepare('UPDATE friends SET metadata = ? WHERE id = ?')
             .bind(JSON.stringify(meta), friend.id)
             .run();
-          console.log(`X Harness: linked @${xhResult.xUsername} to friend ${friend.id}`);
+          console.log(`X Harness: linked x account to friend ${friend.id}`);
         }
         if (xhResult) {
           await applyXHarnessActions(db, friend.id, xhResult);
@@ -1469,9 +1478,15 @@ liffRoutes.post('/api/liff/link', async (c) => {
 liffRoutes.get('/api/analytics/ref-summary', async (c) => {
   try {
     const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const lineAccountId = c.req.query('lineAccountId');
+    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
     const accountFilter = lineAccountId ? 'AND f.line_account_id = ?' : '';
-    const accountBinds = lineAccountId ? [lineAccountId] : [];
+    const accountBinds = lineAccountId ? [tenantId, lineAccountId] : [tenantId];
+    const tenantJoin = 'INNER JOIN tenant_line_accounts tm ON tm.line_account_id = f.line_account_id AND tm.tenant_id = ?';
 
     // friends 起点で集計することで、entry_routes に登録されていない ref
     // (例えば X Harness が発行する UUID ref) も summary に拾えるようにする。
@@ -1486,6 +1501,7 @@ liffRoutes.get('/api/analytics/ref-summary', async (c) => {
           COUNT(DISTINCT rt.id) as click_count,
           MAX(f.created_at) as latest_at
         FROM friends f
+        ${tenantJoin}
         LEFT JOIN entry_routes er ON er.ref_code = f.ref_code
         LEFT JOIN ref_tracking rt ON rt.ref_code = f.ref_code AND rt.friend_id = f.id
         WHERE f.ref_code IS NOT NULL AND f.ref_code != ''
@@ -1502,15 +1518,15 @@ liffRoutes.get('/api/analytics/ref-summary', async (c) => {
         latest_at: string | null;
       }>();
 
-    const totalStmt = lineAccountId
-      ? db.prepare(`SELECT COUNT(*) as count FROM friends WHERE line_account_id = ?`).bind(lineAccountId)
-      : db.prepare(`SELECT COUNT(*) as count FROM friends`);
-    const totalFriendsRes = await totalStmt.first<{ count: number }>();
+    const totalFriendsRes = await db
+      .prepare(`SELECT COUNT(*) as count FROM friends f ${tenantJoin} WHERE 1 = 1 ${accountFilter}`)
+      .bind(...accountBinds)
+      .first<{ count: number }>();
 
-    const refStmt = lineAccountId
-      ? db.prepare(`SELECT COUNT(*) as count FROM friends WHERE ref_code IS NOT NULL AND ref_code != '' AND line_account_id = ?`).bind(lineAccountId)
-      : db.prepare(`SELECT COUNT(*) as count FROM friends WHERE ref_code IS NOT NULL AND ref_code != ''`);
-    const friendsWithRefRes = await refStmt.first<{ count: number }>();
+    const friendsWithRefRes = await db
+      .prepare(`SELECT COUNT(*) as count FROM friends f ${tenantJoin} WHERE f.ref_code IS NOT NULL AND f.ref_code != '' ${accountFilter}`)
+      .bind(...accountBinds)
+      .first<{ count: number }>();
 
     const totalFriends = totalFriendsRes?.count ?? 0;
     const friendsWithRef = friendsWithRefRes?.count ?? 0;
@@ -1549,14 +1565,29 @@ liffRoutes.get('/api/analytics/ref/:refCode', async (c) => {
     // the friends table but have never been registered (X Harness UUIDs,
     // external campaign IDs, etc.) and we still want their friend list to
     // expand — name just falls back to the raw ref_code in that case.
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    // entry_routes has no tenant column; a route is visible to a tenant only
+    // when one of its own friends arrived through it (same join as below).
     const routeRow = await db
-      .prepare(`SELECT ref_code, name FROM entry_routes WHERE ref_code = ?`)
-      .bind(refCode)
+      .prepare(
+        `SELECT er.ref_code, er.name
+         FROM entry_routes er
+         WHERE er.ref_code = ?
+           AND EXISTS (
+             SELECT 1 FROM friends f
+             INNER JOIN tenant_line_accounts tm ON tm.line_account_id = f.line_account_id AND tm.tenant_id = ?
+             WHERE f.ref_code = er.ref_code
+           )`,
+      )
+      .bind(refCode, tenantId)
       .first<{ ref_code: string; name: string }>();
-
     const lineAccountId = c.req.query('lineAccountId');
+    if (lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
     const accountFilter = lineAccountId ? 'AND f.line_account_id = ?' : '';
-    const binds = lineAccountId ? [refCode, refCode, lineAccountId] : [refCode, refCode];
+    const binds = lineAccountId ? [tenantId, refCode, refCode, lineAccountId] : [tenantId, refCode, refCode];
 
     const friends = await db
       .prepare(
@@ -1566,6 +1597,7 @@ liffRoutes.get('/api/analytics/ref/:refCode', async (c) => {
           f.ref_code,
           rt.created_at as tracked_at
         FROM friends f
+        INNER JOIN tenant_line_accounts tm ON tm.line_account_id = f.line_account_id AND tm.tenant_id = ?
         LEFT JOIN ref_tracking rt ON f.id = rt.friend_id AND rt.ref_code = ?
         WHERE f.ref_code = ? ${accountFilter}
         ORDER BY rt.created_at DESC`,
@@ -1821,16 +1853,18 @@ interface XHarnessTokenResult {
  * Resolve an X Harness token to get the linked X username + gate config (tag, scenario).
  * The token IS the secret — no Bearer auth needed on the resolve endpoint.
  */
-async function resolveXHarnessToken(
+export async function resolveXHarnessToken(
   token: string,
   env: { X_HARNESS_URL?: string },
 ): Promise<XHarnessTokenResult | null> {
   if (!env.X_HARNESS_URL) return null;
+  // Token is interpolated into the upstream path — accept only opaque token chars.
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(token)) return null;
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout — must not block login flow
     try {
-      const res = await fetch(`${env.X_HARNESS_URL}/api/tokens/${token}/resolve`, {
+      const res = await fetch(`${env.X_HARNESS_URL}/api/tokens/${encodeURIComponent(token)}/resolve`, {
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
       });

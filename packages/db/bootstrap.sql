@@ -1003,6 +1003,52 @@ CREATE TABLE pharmacy_emergency_pharmacists (
     REFERENCES pharmacy_staff_accounts(line_account_id, staff_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_emergency_reminder_controls (
+  line_account_id  TEXT PRIMARY KEY,
+  state            TEXT NOT NULL CHECK (state IN ('inactive', 'active', 'frozen')),
+  time_zone        TEXT NOT NULL DEFAULT 'Asia/Tokyo' CHECK (time_zone = 'Asia/Tokyo'),
+  revision         INTEGER NOT NULL CHECK (revision >= 1),
+  updated_by       TEXT NOT NULL,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id, updated_by)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_emergency_reminders (
+  id               TEXT PRIMARY KEY,
+  line_account_id  TEXT NOT NULL,
+  intake_id        TEXT NOT NULL,
+  reminder_kind    TEXT NOT NULL CHECK (reminder_kind = 'appointment_neutral_v1'),
+  anchor_at        TEXT NOT NULL,
+  due_at           TEXT NOT NULL,
+  deadline_at      TEXT NOT NULL,
+  occurrence_hash  TEXT NOT NULL
+    CHECK (length(occurrence_hash) = 64 AND occurrence_hash NOT GLOB '*[^0-9a-f]*'),
+  status           TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'processing', 'sent', 'suppressed', 'failed')),
+  attempt_count    INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  claim_token      TEXT,
+  claimed_at       TEXT,
+  reason_code      TEXT CHECK (reason_code IS NULL OR reason_code IN (
+                     'QUIET_HOURS_PAST_DEADLINE', 'ACTIVATION_DISABLED',
+                     'FEATURE_DISABLED', 'CONTACT_NOT_ALLOWED', 'INTAKE_INACTIVE',
+                     'INTAKE_EXPIRED', 'ANCHOR_CHANGED', 'DEADLINE_PASSED',
+                     'RECIPIENT_UNAVAILABLE', 'CREDENTIAL_UNAVAILABLE', 'SEND_FAILED'
+                   )),
+  sent_at          TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  UNIQUE (line_account_id, intake_id, reminder_kind, anchor_at),
+  UNIQUE (line_account_id, occurrence_hash),
+  CHECK (deadline_at > due_at),
+  CHECK ((status = 'processing') = (claim_token IS NOT NULL AND claimed_at IS NOT NULL)),
+  CHECK ((status = 'sent') = (sent_at IS NOT NULL)),
+  FOREIGN KEY (intake_id, line_account_id)
+    REFERENCES pharmacy_emergency_intakes(id, line_account_id) ON DELETE CASCADE
+);
+
 CREATE TABLE pharmacy_emergency_settings (
   line_account_id              TEXT PRIMARY KEY,
   is_enabled                   INTEGER NOT NULL DEFAULT 0 CHECK (is_enabled IN (0, 1)),
@@ -1633,6 +1679,93 @@ CREATE TABLE pharmacy_public_profiles (
     REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
 );
 
+CREATE TABLE pharmacy_rich_menu_draft_bindings (
+  group_id             TEXT PRIMARY KEY,
+  line_account_id      TEXT NOT NULL,
+  layout_revision      INTEGER NOT NULL CHECK (layout_revision >= 1),
+  capability_revision  INTEGER NOT NULL CHECK (capability_revision >= 1),
+  liff_id_hash         TEXT NOT NULL CHECK (length(liff_id_hash) = 64),
+  catalog_version      TEXT NOT NULL CHECK (length(catalog_version) > 0),
+  menu_size            TEXT NOT NULL CHECK (menu_size IN ('large', 'compact')),
+  catalog_variant_key  TEXT NOT NULL CHECK (length(catalog_variant_key) > 0),
+  catalog_object_key   TEXT NOT NULL CHECK (length(catalog_object_key) > 0),
+  manifest_hash        TEXT NOT NULL CHECK (length(manifest_hash) = 64),
+  image_hash           TEXT NOT NULL CHECK (length(image_hash) = 64),
+  created_at           TEXT NOT NULL,
+  FOREIGN KEY (group_id) REFERENCES rich_menu_groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id)
+    REFERENCES pharmacy_rich_menu_layouts(line_account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_rich_menu_layouts (
+  line_account_id      TEXT PRIMARY KEY,
+  preferred_order_json TEXT NOT NULL
+    CHECK (json_valid(preferred_order_json)
+      AND json_type(preferred_order_json) = 'array'
+      AND json_array_length(preferred_order_json) = 5),
+  revision             INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL,
+  FOREIGN KEY (line_account_id)
+    REFERENCES pharmacy_account_capabilities(line_account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_rich_menu_lifecycle_controls (
+  line_account_id  TEXT PRIMARY KEY,
+  state            TEXT NOT NULL CHECK (state IN ('inactive', 'active', 'frozen')),
+  revision         INTEGER NOT NULL CHECK (revision >= 1),
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  FOREIGN KEY (line_account_id)
+    REFERENCES pharmacy_account_capabilities(line_account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_rich_menu_operation_confirmations (
+  confirmation_id  TEXT PRIMARY KEY CHECK (length(confirmation_id) BETWEEN 1 AND 128),
+  operation_id     TEXT NOT NULL,
+  line_account_id  TEXT NOT NULL,
+  publish_phase    TEXT NOT NULL CHECK (publish_phase IN (
+                       'intent_recorded', 'remote_created', 'image_uploaded', 'alias_created'
+                     )),
+  evidence_digest  TEXT NOT NULL CHECK (length(evidence_digest) = 64),
+  created_at       TEXT NOT NULL,
+  FOREIGN KEY (operation_id) REFERENCES pharmacy_rich_menu_operations(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE pharmacy_rich_menu_operations (
+  id                        TEXT PRIMARY KEY,
+  group_id                  TEXT NOT NULL,
+  line_account_id           TEXT NOT NULL,
+  confirmation_id           TEXT NOT NULL UNIQUE CHECK (length(confirmation_id) BETWEEN 1 AND 128),
+  kind                      TEXT NOT NULL CHECK (kind IN ('publish', 'set_default', 'rollback')),
+  status                    TEXT NOT NULL CHECK (status IN ('running', 'unknown', 'succeeded', 'failed')),
+  evidence_digest           TEXT NOT NULL CHECK (length(evidence_digest) = 64),
+  publish_phase             TEXT CHECK (publish_phase IS NULL OR publish_phase IN (
+                                'intent_recorded', 'remote_created', 'image_uploaded',
+                                'alias_created', 'committed'
+                              )),
+  publish_alias_id          TEXT CHECK (publish_alias_id IS NULL OR length(publish_alias_id) BETWEEN 1 AND 100),
+  publish_menu_name         TEXT CHECK (publish_menu_name IS NULL OR length(publish_menu_name) BETWEEN 1 AND 300),
+  expected_default_menu_id  TEXT CHECK (expected_default_menu_id IS NULL OR length(expected_default_menu_id) > 0),
+  default_read_at           TEXT,
+  remote_rich_menu_id       TEXT CHECK (remote_rich_menu_id IS NULL OR length(remote_rich_menu_id) > 0),
+  verified_default_menu_id  TEXT CHECK (verified_default_menu_id IS NULL OR length(verified_default_menu_id) > 0),
+  reason_code               TEXT CHECK (reason_code IS NULL OR length(reason_code) > 0),
+  created_at                TEXT NOT NULL,
+  updated_at                TEXT NOT NULL,
+  verified_at               TEXT,
+  FOREIGN KEY (group_id) REFERENCES rich_menu_groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  CHECK (
+    (kind = 'publish' AND publish_phase IS NOT NULL
+      AND publish_alias_id IS NOT NULL AND publish_menu_name IS NOT NULL)
+    OR
+    (kind <> 'publish' AND publish_phase IS NULL
+      AND publish_alias_id IS NULL AND publish_menu_name IS NULL)
+  )
+);
+
 CREATE TABLE pharmacy_staff_accounts (
   line_account_id TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
   staff_id TEXT NOT NULL,
@@ -1988,6 +2121,19 @@ CREATE TABLE templates (
   message_content TEXT NOT NULL,
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+
+CREATE TABLE tenant_admin_audit_events (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT,
+  line_account_id TEXT,
+  actor_staff_id  TEXT NOT NULL,
+  action          TEXT NOT NULL,
+  resource_type   TEXT,
+  resource_id     TEXT,
+  detail_json     TEXT,
+  created_at      TEXT NOT NULL,
+  CHECK (tenant_id IS NOT NULL OR line_account_id IS NOT NULL)
 );
 
 CREATE TABLE tenant_admin_credentials (
@@ -2483,6 +2629,9 @@ CREATE INDEX idx_pharmacy_emergency_intakes_owner
 CREATE INDEX idx_pharmacy_emergency_intakes_queue
   ON pharmacy_emergency_intakes (line_account_id, status, expires_at, created_at, id);
 
+CREATE INDEX idx_pharmacy_emergency_reminders_due
+  ON pharmacy_emergency_reminders(status, due_at, deadline_at, line_account_id, id);
+
 CREATE INDEX idx_pharmacy_emergency_slots_available
   ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);
 
@@ -2609,6 +2758,19 @@ CREATE INDEX idx_pharmacy_prescriptions_friend_history
 CREATE INDEX idx_pharmacy_print_tasks_open
   ON pharmacy_print_tasks (line_account_id, status, created_at, id);
 
+CREATE INDEX idx_pharmacy_rich_menu_draft_account
+  ON pharmacy_rich_menu_draft_bindings(line_account_id, created_at, group_id);
+
+CREATE UNIQUE INDEX idx_pharmacy_rich_menu_one_unresolved
+  ON pharmacy_rich_menu_operations(line_account_id)
+  WHERE status IN ('running', 'unknown');
+
+CREATE INDEX idx_pharmacy_rich_menu_operation_confirmations_operation
+  ON pharmacy_rich_menu_operation_confirmations(line_account_id, operation_id, created_at);
+
+CREATE INDEX idx_pharmacy_rich_menu_operations_group
+  ON pharmacy_rich_menu_operations(line_account_id, group_id, created_at);
+
 CREATE INDEX idx_pharmacy_staff_accounts_staff
   ON pharmacy_staff_accounts (staff_id, is_active, line_account_id);
 
@@ -2685,6 +2847,12 @@ CREATE INDEX idx_tags_tenant_name
   ON tags(tenant_id, name);
 
 CREATE INDEX idx_templates_category ON templates (category);
+
+CREATE INDEX idx_tenant_admin_audit_events_account
+  ON tenant_admin_audit_events (line_account_id, created_at);
+
+CREATE INDEX idx_tenant_admin_audit_events_tenant
+  ON tenant_admin_audit_events (tenant_id, created_at);
 
 CREATE INDEX idx_tenant_admin_credentials_login
   ON tenant_admin_credentials (tenant_id, login_id);
@@ -2952,6 +3120,23 @@ WHEN (
 ), 0)
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_STOCK_UNAVAILABLE'); END;
 
+CREATE TRIGGER pharmacy_emergency_reminder_identity_immutable
+BEFORE UPDATE ON pharmacy_emergency_reminders
+WHEN NEW.line_account_id IS NOT OLD.line_account_id
+  OR NEW.intake_id IS NOT OLD.intake_id
+  OR NEW.reminder_kind IS NOT OLD.reminder_kind
+  OR NEW.anchor_at IS NOT OLD.anchor_at
+  OR NEW.due_at IS NOT OLD.due_at
+  OR NEW.deadline_at IS NOT OLD.deadline_at
+  OR NEW.occurrence_hash IS NOT OLD.occurrence_hash
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_REMINDER_IDENTITY_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_reminder_terminal_immutable
+BEFORE UPDATE ON pharmacy_emergency_reminders
+WHEN OLD.status IN ('sent', 'suppressed')
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_REMINDER_TERMINAL_IMMUTABLE'); END;
+
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF expectation_id, line_account_id ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
@@ -2964,9 +3149,159 @@ CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_insert BEF
 
 CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_update BEFORE UPDATE OF source_handoff_id, line_account_id ON pharmacy_prescription_submissions WHEN NEW.source_handoff_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_myna_handoffs AS handoff WHERE handoff.id = NEW.source_handoff_id AND handoff.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH'); END;
 
+CREATE TRIGGER pharmacy_rich_menu_draft_account_scope
+BEFORE INSERT ON pharmacy_rich_menu_draft_bindings
+WHEN NOT EXISTS (
+  SELECT 1 FROM rich_menu_groups
+   WHERE id = NEW.group_id AND account_id = NEW.line_account_id
+)
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_DRAFT_ACCOUNT_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_draft_immutable
+BEFORE UPDATE ON pharmacy_rich_menu_draft_bindings
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_DRAFT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_draft_size
+BEFORE INSERT ON pharmacy_rich_menu_draft_bindings
+WHEN EXISTS (
+  SELECT 1 FROM rich_menu_groups
+   WHERE id = NEW.group_id
+     AND account_id = NEW.line_account_id
+     AND size <> NEW.menu_size
+)
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_GROUP_SIZE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_draft_status
+BEFORE INSERT ON pharmacy_rich_menu_draft_bindings
+WHEN EXISTS (
+  SELECT 1 FROM rich_menu_groups
+   WHERE id = NEW.group_id
+     AND account_id = NEW.line_account_id
+     AND status <> 'draft'
+)
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_GROUP_NOT_DRAFT'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_account_scope
+BEFORE INSERT ON pharmacy_rich_menu_operations
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM pharmacy_rich_menu_draft_bindings binding
+    JOIN rich_menu_groups menu_group ON menu_group.id = binding.group_id
+   WHERE binding.group_id = NEW.group_id
+     AND binding.line_account_id = NEW.line_account_id
+     AND menu_group.account_id = NEW.line_account_id
+)
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_ACCOUNT_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_default_read_immutable
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN OLD.default_read_at IS NOT NULL
+ AND (NEW.expected_default_menu_id IS NOT OLD.expected_default_menu_id
+   OR NEW.default_read_at IS NOT OLD.default_read_at)
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_DEFAULT_READ_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_identity_immutable
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN NEW.group_id IS NOT OLD.group_id
+  OR NEW.line_account_id IS NOT OLD.line_account_id
+  OR NEW.confirmation_id IS NOT OLD.confirmation_id
+  OR NEW.kind IS NOT OLD.kind
+  OR NEW.evidence_digest IS NOT OLD.evidence_digest
+  OR NEW.publish_alias_id IS NOT OLD.publish_alias_id
+  OR NEW.publish_menu_name IS NOT OLD.publish_menu_name
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_IDENTITY_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_insert_running
+BEFORE INSERT ON pharmacy_rich_menu_operations
+WHEN NEW.status <> 'running'
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_MUST_START_RUNNING'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_no_resume_unknown
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN OLD.status = 'unknown' AND NEW.status = 'running'
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_UNKNOWN_REQUIRES_RECONCILIATION'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_protected_delete
+BEFORE DELETE ON pharmacy_rich_menu_operations
+WHEN OLD.status <> 'failed' OR OLD.remote_rich_menu_id IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_PROTECTED'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_publish_phase_evidence
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN NEW.kind = 'publish'
+ AND (
+   (NEW.publish_phase IN ('remote_created', 'image_uploaded', 'alias_created', 'committed')
+     AND NEW.remote_rich_menu_id IS NULL)
+   OR
+   (NEW.publish_phase = 'committed' AND NOT EXISTS (
+     SELECT 1 FROM rich_menu_pages page
+      WHERE page.group_id = NEW.group_id
+        AND page.line_richmenu_id = NEW.remote_rich_menu_id
+        AND page.alias_id = NEW.publish_alias_id
+   ))
+ )
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_PUBLISH_PHASE_EVIDENCE_REQUIRED'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_publish_phase_order
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN NEW.publish_phase IS NOT OLD.publish_phase
+ AND NOT (
+   (OLD.publish_phase = 'intent_recorded' AND NEW.publish_phase = 'remote_created')
+   OR (OLD.publish_phase = 'remote_created' AND NEW.publish_phase = 'image_uploaded')
+   OR (OLD.publish_phase = 'image_uploaded' AND NEW.publish_phase = 'alias_created')
+   OR (OLD.publish_phase = 'alias_created' AND NEW.publish_phase = 'committed')
+ )
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_PUBLISH_PHASE_INVALID'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_remote_id_immutable
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN OLD.remote_rich_menu_id IS NOT NULL
+ AND NEW.remote_rich_menu_id IS NOT OLD.remote_rich_menu_id
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_REMOTE_ID_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_success_evidence
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN NEW.status = 'succeeded'
+ AND (
+   NEW.remote_rich_menu_id IS NULL
+   OR NEW.verified_at IS NULL
+   OR (NEW.kind = 'publish' AND NEW.publish_phase <> 'committed')
+   OR (NEW.kind IN ('set_default', 'rollback')
+     AND (NEW.default_read_at IS NULL
+       OR NEW.verified_default_menu_id IS NOT NEW.remote_rich_menu_id))
+ )
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_SUCCESS_EVIDENCE_REQUIRED'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_operation_terminal_immutable
+BEFORE UPDATE ON pharmacy_rich_menu_operations
+WHEN OLD.status IN ('succeeded', 'failed')
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_OPERATION_TERMINAL_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_rich_menu_resume_confirmation_scope
+BEFORE INSERT ON pharmacy_rich_menu_operation_confirmations
+WHEN NOT EXISTS (
+  SELECT 1 FROM pharmacy_rich_menu_operations operation
+   WHERE operation.id = NEW.operation_id
+     AND operation.line_account_id = NEW.line_account_id
+     AND operation.kind = 'publish'
+     AND operation.status IN ('running', 'unknown')
+     AND operation.publish_phase = NEW.publish_phase
+     AND operation.evidence_digest = NEW.evidence_digest
+)
+BEGIN SELECT RAISE(ABORT, 'RICH_MENU_RESUME_CONFIRMATION_EVIDENCE_MISMATCH'); END;
+
 CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_staff_accounts_tenant_update BEFORE UPDATE OF line_account_id, staff_id ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
+
+CREATE TRIGGER tenant_admin_audit_events_immutable_delete
+BEFORE DELETE ON tenant_admin_audit_events
+BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER tenant_admin_audit_events_immutable_update
+BEFORE UPDATE ON tenant_admin_audit_events
+BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
 
 INSERT INTO auto_replies (id, keyword, match_type, response_type, response_content, template_id, line_account_id, is_active, created_at)
 VALUES ('builtin-mileage-wallet-keyword', 'マイル', 'exact', 'flex', '{"type":"bubble","size":"kilo","body":{"type":"box","layout":"vertical","paddingAll":"20px","contents":[{"type":"text","text":"あなたのHarnessマイル","weight":"bold","size":"lg","color":"#1e293b"},{"type":"text","text":"現在のマイル、獲得履歴、登録済みアカウント、次にマイルを獲得できる行動を確認できます。","wrap":true,"size":"sm","color":"#64748b","margin":"md"}]},"footer":{"type":"box","layout":"vertical","paddingAll":"16px","contents":[{"type":"button","style":"primary","color":"#06C755","height":"sm","action":{"type":"uri","label":"マイルを確認する","uri":"https://liff.line.me/{{liff_id}}/?page=affiliate&liffId={{liff_id}}"}}]}}', NULL, NULL, 1, '2026-08-11T00:00:00.000+09:00');

@@ -20,6 +20,8 @@ import {
   isValidAdminPassword,
   verifyTenantPassword,
 } from '../custom/pharmacy/provisioning/credentials.js';
+import { log } from '../lib/log.js';
+import { tenantAuditStatement } from '../lib/tenant-audit.js';
 
 export const adminAuth = new Hono<Env>();
 const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
@@ -114,6 +116,12 @@ adminAuth.post('/api/auth/login', async (c) => {
     row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
   );
   if (!row || !passwordValid) {
+    log('auth.login_failed', {
+      realm: 'tenant',
+      ip: c.req.header('cf-connecting-ip'),
+      reason: row ? 'bad_password' : 'unknown_login',
+      tenant_id: row?.id,
+    }, 'warn');
     return c.json({ success: false, error: 'Unauthorized' }, 401);
   }
 
@@ -177,6 +185,9 @@ adminAuth.post('/api/auth/change-password', async (c) => {
     credential_version: number;
   }>();
   if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
+    log('auth.password_change_failed', {
+      realm: 'tenant', tenant_id: tenantId, staff_id: staffId, reason: 'bad_current_password',
+    }, 'warn');
     return c.json({ success: false, error: 'Current password is incorrect' }, 401);
   }
   if (newPassword === currentPassword) {
@@ -198,10 +209,15 @@ adminAuth.post('/api/auth/change-password', async (c) => {
         WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL
           AND credential_version <= ?`,
     ).bind(now, tenantId, staffId, credentialVersion),
+    tenantAuditStatement(c.env.DB, {
+      tenantId, actorStaffId: staffId, action: 'staff.password_changed',
+      resourceType: 'staff', resourceId: staffId,
+    }),
   ]);
   if (results[0].meta.changes !== 1) {
     return c.json({ success: false, error: 'Credential changed concurrently' }, 409);
   }
+  log('auth.password_changed', { realm: 'tenant', tenant_id: tenantId, staff_id: staffId });
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();

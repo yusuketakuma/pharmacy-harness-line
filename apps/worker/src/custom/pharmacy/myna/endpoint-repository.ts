@@ -85,7 +85,7 @@ async function decodeRuntime(
   row: EndpointRow,
   encryptionSecret: string,
 ): Promise<MynaEndpointRuntimeConfig> {
-  const endpointUrl = await decryptEndpointUrl(row.endpoint_url_encrypted, encryptionSecret);
+  const endpointUrl = await decryptEndpointUrl(row.endpoint_url_encrypted, encryptionSecret, { lineAccountId: row.line_account_id });
   const normalized = normalizeEndpointUrl(endpointUrl, [row.allowed_host]);
   if (await sha256Hex(normalized) !== row.endpoint_url_hash) {
     throw new Error('Myna endpoint integrity check failed');
@@ -134,13 +134,58 @@ export async function getAdminMynaEndpoint(
 ): Promise<MynaEndpointAdminConfig | null> {
   const row = await db.prepare(
     `${endpointSelect}
-      WHERE line_account_id = ? AND retired_at IS NULL
+      WHERE line_account_id = ?
       ORDER BY revision DESC, updated_at DESC
       LIMIT 1`,
   ).bind(lineAccountId).first<EndpointRow>();
   if (!row) return null;
-  const endpointUrl = await decryptEndpointUrl(row.endpoint_url_encrypted, encryptionSecret);
+  const endpointUrl = await decryptEndpointUrl(row.endpoint_url_encrypted, encryptionSecret, { lineAccountId: row.line_account_id });
   return decodeAdmin(row, normalizeEndpointUrl(endpointUrl, [row.allowed_host]));
+}
+
+export async function setMynaEndpointEnabled(
+  db: D1Database,
+  lineAccountId: string,
+  enabled: boolean,
+  expectedRevision: number,
+  staffId: string,
+  encryptionSecret: string,
+): Promise<MynaEndpointAdminConfig> {
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('stale Myna endpoint revision');
+  }
+  const current = await db.prepare(
+    `${endpointSelect}
+      WHERE line_account_id = ?
+      ORDER BY revision DESC, updated_at DESC
+      LIMIT 1`,
+  ).bind(lineAccountId).first<EndpointRow>();
+  if (!current) throw new Error('Myna endpoint not found');
+  if (current.revision !== expectedRevision) throw new Error('stale Myna endpoint revision');
+  const now = new Date().toISOString();
+  const result = await db.prepare(
+    `UPDATE pharmacy_myna_endpoint_configs
+        SET enabled = ?, retired_at = ?, last_verified_at = NULL,
+            updated_by = ?, updated_at = ?
+      WHERE id = ? AND line_account_id = ? AND revision = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_myna_endpoint_configs AS newer
+           WHERE newer.line_account_id = ? AND newer.revision > ?
+        )`,
+  ).bind(
+    enabled ? 1 : 0, enabled ? null : now, staffId, now,
+    current.id, lineAccountId, expectedRevision, lineAccountId, expectedRevision,
+  ).run();
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('stale Myna endpoint revision');
+  const endpointUrl = await decryptEndpointUrl(current.endpoint_url_encrypted, encryptionSecret, { lineAccountId: current.line_account_id });
+  return decodeAdmin({
+    ...current,
+    enabled: enabled ? 1 : 0,
+    retired_at: enabled ? null : now,
+    last_verified_at: null,
+    updated_by: staffId,
+    updated_at: now,
+  }, normalizeEndpointUrl(endpointUrl, [current.allowed_host]));
 }
 
 function validateSaveInput(input: SaveMynaEndpointInput): string {
@@ -157,10 +202,10 @@ export async function saveMynaEndpoint(
 ): Promise<MynaEndpointAdminConfig> {
   const endpointUrl = validateSaveInput(input);
   const endpointHash = await sha256Hex(endpointUrl);
-  const encrypted = await encryptEndpointUrl(endpointUrl, input.encryptionSecret);
+  const encrypted = await encryptEndpointUrl(endpointUrl, input.encryptionSecret, { lineAccountId: input.lineAccountId });
   const current = await db.prepare(
     `${endpointSelect}
-      WHERE line_account_id = ? AND retired_at IS NULL
+      WHERE line_account_id = ?
       ORDER BY revision DESC, updated_at DESC
       LIMIT 1`,
   ).bind(input.lineAccountId).first<EndpointRow>();
@@ -226,11 +271,21 @@ export async function saveMynaEndpoint(
 export async function markMynaEndpointVerified(
   db: D1Database,
   lineAccountId: string,
-): Promise<void> {
+  expectedRevision: number,
+): Promise<string> {
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('stale Myna endpoint revision');
+  }
   const now = new Date().toISOString();
-  await db.prepare(
+  const result = await db.prepare(
     `UPDATE pharmacy_myna_endpoint_configs
         SET last_verified_at = ?, updated_at = ?
-      WHERE line_account_id = ? AND enabled = 1 AND retired_at IS NULL`,
-  ).bind(now, now, lineAccountId).run();
+      WHERE line_account_id = ? AND revision = ? AND enabled = 1 AND retired_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_myna_endpoint_configs AS newer
+           WHERE newer.line_account_id = ? AND newer.revision > ?
+        )`,
+  ).bind(now, now, lineAccountId, expectedRevision, lineAccountId, expectedRevision).run();
+  if ((result.meta?.changes ?? 0) !== 1) throw new Error('stale Myna endpoint revision');
+  return now;
 }

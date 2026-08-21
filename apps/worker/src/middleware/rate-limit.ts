@@ -75,6 +75,9 @@ const UNAUTHENTICATED_PATTERNS: Array<string | RegExp> = [
 
 const SENSITIVE_PATHS = new Set([
   '/api/auth/login',
+  '/api/auth/change-password',
+  '/api/platform-admin/login',
+  '/api/platform-admin/change-password',
 ]);
 
 // Exact match doesn't work here: every sub-path under this prefix
@@ -160,7 +163,9 @@ const IP_CEILING_MAX = 3000;
 const IP_CEILING_WINDOW = 60_000; // 1 min
 
 export async function rateLimitMiddleware(c: Context<Env>, next: Next): Promise<Response | void> {
-  const path = new URL(c.req.url).pathname;
+  // c.req.path is the decoded path Hono routed on; the raw URL pathname can
+  // hide a sensitive path behind percent-encoding (e.g. /log%69n).
+  const path = c.req.path;
 
   // Skip rate limiting for docs / static assets
   if (path === '/docs' || path === '/openapi.json' || path.startsWith('/r/')) {

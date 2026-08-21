@@ -270,3 +270,15 @@ export async function getFriendsByTag(
     .all<Friend>();
   return result.results;
 }
+
+export async function tagBelongsToTenant(
+  db: D1Database,
+  tagId: string,
+  tenantId: string | null,
+): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
+    .bind(tagId, tenantId)
+    .first<{ id: string }>();
+  return row !== null;
+}

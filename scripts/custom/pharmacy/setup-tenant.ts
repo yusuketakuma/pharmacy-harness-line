@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 type Writer = (line: string) => void;
@@ -93,19 +93,11 @@ function requestId(values: Record<string, string>): string {
   return supplied || randomUUID();
 }
 
-// Keyed on the LINE channel id, not the pharmacy code: the code is now assigned by the
-// server and does not exist yet at this point. The channel id is the tenant identity the
-// caller does hold, and the server enforces it unique on line_accounts.channel_id — so two
-// pharmacies that reuse one idempotency key still derive different initial passwords.
-function temporaryPassword(
-  platformKey: string,
-  lineChannelId: string,
-  idempotencyKey: string,
-): string {
-  const digest = createHmac('sha256', platformKey)
-    .update(`pharmacy-tenant-setup:${lineChannelId}:${idempotencyKey}`)
-    .digest('base64url');
-  return `Tmp-${digest.slice(0, 32)}`;
+// Random per run: never derivable from the platform key + printed idempotency key.
+// The server excludes the password from the idempotency request hash, so a retry
+// with a fresh password is still a replay that keeps the originally stored one.
+function temporaryPassword(): string {
+  return `Tmp-${randomBytes(24).toString('base64url')}`;
 }
 
 function workerEndpoint(raw: string): string {
@@ -154,7 +146,7 @@ export async function runTenantSetup(
     const endpoint = workerEndpoint(required(parsed.values, 'worker-url'));
     const channelId = required(parsed.values, 'line-channel-id');
     const idempotencyKey = requestId(parsed.values);
-    const generatedTemporaryPassword = temporaryPassword(platformKey, channelId, idempotencyKey);
+    const generatedTemporaryPassword = temporaryPassword();
     const body = {
       tenantName: required(parsed.values, 'tenant-name'),
       admin: {
@@ -213,6 +205,7 @@ export async function runTenantSetup(
       data?: {
         tenantCode?: unknown;
         adminLoginId?: unknown;
+        replayed?: unknown;
         urls?: Record<string, unknown>;
         line?: Record<string, unknown>;
         manualSteps?: unknown;
@@ -229,7 +222,12 @@ export async function runTenantSetup(
     write(`薬局コード: ${safeText(payload.data.tenantCode, '未取得')}`);
     write('薬局コードはサーバーが発行します。控え忘れた場合は同じ --idempotency-key で再実行してください。');
     write(`管理者ID: ${safeText(payload.data.adminLoginId, body.admin.loginId)}`);
-    write(`仮パスワード（初回のみ表示）: ${generatedTemporaryPassword}`);
+    if (payload.data.replayed === true) {
+      // The server kept the original credential; this run's password was never stored.
+      write('再実行のため仮パスワードは新規発行されません。控えが無い場合は管理画面のパスワード再発行を使ってください。');
+    } else {
+      write(`仮パスワード（初回のみ表示）: ${generatedTemporaryPassword}`);
+    }
     write(`管理画面: ${safeText(urls.admin, '未設定')}`);
     write(`Webhook URL: ${safeText(urls.webhook, '未設定')}`);
     write(`LIFF Endpoint URL: ${safeText(urls.liffEndpoint, '未設定')}`);

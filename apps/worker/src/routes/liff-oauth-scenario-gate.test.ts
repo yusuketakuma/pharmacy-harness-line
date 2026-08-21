@@ -252,3 +252,35 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
     ).toBe(false);
   });
 });
+
+describe('GET /auth/callback — redirect + logging hardening', () => {
+  it('logs only status on token exchange failure, never the upstream body', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"invalid_grant","secret":"UPSTREAM-BODY"}', { status: 400 })));
+
+    await callback();
+
+    const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+    expect(logged).not.toContain('UPSTREAM-BODY');
+    expect(logged).toContain('400');
+    errorSpy.mockRestore();
+  });
+
+  it('pharmacy mode: only allowlisted origins are honoured for ?redirect=', async () => {
+    dbMocks.upsertFriend.mockResolvedValue({ id: 'F-1', line_user_id: 'U-login', line_account_id: 'pharmacy-a', user_id: null });
+    pharmacyAccessMocks.isPharmacyModeAccount.mockImplementation(async (_db, id) => id === 'pharmacy-a');
+
+    const evil = await callback({ redirect: 'https://evil.example.net/phish' });
+    expect(evil.headers.get('location') ?? '').not.toContain('evil.example.net');
+
+    const ok = await callback({ redirect: 'https://worker.example.com/thanks' });
+    expect(ok.status).toBe(302);
+    expect(ok.headers.get('location')).toBe('https://worker.example.com/thanks');
+  });
+
+  it('non-pharmacy mode keeps external marketing redirects', async () => {
+    const res = await callback({ redirect: 'https://lp.example.net/thanks' });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://lp.example.net/thanks');
+  });
+});

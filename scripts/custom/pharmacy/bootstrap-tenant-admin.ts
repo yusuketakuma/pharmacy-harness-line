@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 type Writer = (line: string) => void;
@@ -54,11 +54,11 @@ function requestId(values: Record<string, string>): string {
   return supplied || randomUUID();
 }
 
-function temporaryPassword(platformKey: string, tenantId: string, idempotencyKey: string): string {
-  const digest = createHmac('sha256', platformKey)
-    .update(`pharmacy-tenant-admin-bootstrap:${tenantId}:${idempotencyKey}`)
-    .digest('base64url');
-  return `Tmp-${digest.slice(0, 32)}`;
+// Random per run: never derivable from the platform key + printed idempotency key.
+// A replay (lost response) therefore cannot re-present the stored password; the
+// server recognizes the replay by (tenantId, loginId) and leaves the original intact.
+function temporaryPassword(): string {
+  return `Tmp-${randomBytes(24).toString('base64url')}`;
 }
 
 function endpoint(values: Record<string, string>): string {
@@ -91,13 +91,13 @@ export async function runTenantAdminBootstrap(
     const platformKey = environment.PHARMACY_PLATFORM_ADMIN_KEY?.trim();
     if (!platformKey) throw new Error('PHARMACY_PLATFORM_ADMIN_KEY is required');
     const url = endpoint(parsed.values);
-    const tenantId = required(parsed.values, 'tenant-id');
+    required(parsed.values, 'tenant-id');
     const idempotencyKey = requestId(parsed.values);
     const body = {
       loginId: required(parsed.values, 'admin-id'),
       displayName: required(parsed.values, 'admin-name'),
       email: parsed.values['admin-email']?.trim() || null,
-      temporaryPassword: temporaryPassword(platformKey, tenantId, idempotencyKey),
+      temporaryPassword: temporaryPassword(),
     };
     if (parsed.dryRun) {
       write('Dry run passed. No request was sent.');
@@ -132,11 +132,20 @@ export async function runTenantAdminBootstrap(
     const payload = await response.json().catch(() => null) as {
       success?: boolean;
       error?: unknown;
-      data?: { tenantCode?: unknown; adminLoginId?: unknown };
+      data?: { tenantCode?: unknown; adminLoginId?: unknown; replayed?: unknown };
     } | null;
     if (!response.ok || !payload?.success || !payload.data) {
       write(`Tenant admin bootstrap failed (${response.status}): ${safeText(payload?.error, 'Unknown server error')}`);
       return 1;
+    }
+
+    if (payload.data.replayed === true) {
+      // The server kept the original credential; this run's password was never stored.
+      write('管理者ログインは既に発行済みです（再実行のため新規発行なし）。');
+      write(`薬局コード: ${safeText(payload.data.tenantCode, '未設定')}`);
+      write(`管理者ID: ${safeText(payload.data.adminLoginId, body.loginId)}`);
+      write('仮パスワードは作成時の1回だけ表示されます。控えが無い場合は管理画面のパスワード再発行を使ってください。');
+      return 0;
     }
 
     write('既存テナントの管理者ログインを発行しました。');

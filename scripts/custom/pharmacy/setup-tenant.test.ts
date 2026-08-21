@@ -142,7 +142,7 @@ describe('tenant setup CLI', () => {
     expect(output.join('\n')).toContain('PHARMACY_LINE_LOGIN_CHANNEL_SECRET');
   });
 
-  it('reuses a supplied idempotency key and derives the same temporary password', async () => {
+  it('reuses a supplied idempotency key but never reproduces a temporary password', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
@@ -165,8 +165,26 @@ describe('tenant setup CLI', () => {
     expect((second.headers as Record<string, string>)['Idempotency-Key'])
       .toBe('setup-retry-20260819');
     expect(JSON.parse(String(first.body)).admin.temporaryPassword)
-      .toBe(JSON.parse(String(second.body)).admin.temporaryPassword);
+      .not.toBe(JSON.parse(String(second.body)).admin.temporaryPassword);
     expect(output.filter((line) => line.includes('再実行キー')).length).toBe(2);
+  });
+
+  it('does not print the locally generated password when the server replayed', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { tenantCode: '004821', adminLoginId: 'admin-a', replayed: true, urls: {}, line: {} },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    const exitCode = await runTenantSetup(args, secrets, fetcher, (line) => output.push(line));
+
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as {
+      admin: { temporaryPassword: string };
+    };
+    expect(exitCode).toBe(0);
+    expect(output.join('\n')).toContain('薬局コード: 004821');
+    expect(output.join('\n')).not.toContain(body.admin.temporaryPassword);
+    expect(output.join('\n')).toContain('再実行');
   });
 
   it('derives a different temporary password for a different tenant reusing the same idempotency key', async () => {

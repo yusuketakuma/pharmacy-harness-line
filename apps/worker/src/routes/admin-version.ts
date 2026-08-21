@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import {
   BUNDLE_VERSION,
+  WORKER_PACKAGE_VERSION,
+  WEB_PACKAGE_VERSION,
+  LIFF_PACKAGE_VERSION,
   WORKER_HASH,
   ADMIN_HASH,
   LIFF_HASH,
@@ -14,6 +17,9 @@ const app = new Hono();
 app.get('/version', (c) =>
   c.json({
     version: BUNDLE_VERSION,
+    worker_package_version: WORKER_PACKAGE_VERSION,
+    web_package_version: WEB_PACKAGE_VERSION,
+    liff_package_version: LIFF_PACKAGE_VERSION,
     worker_hash: WORKER_HASH,
     admin_hash: ADMIN_HASH,
     liff_hash: LIFF_HASH,

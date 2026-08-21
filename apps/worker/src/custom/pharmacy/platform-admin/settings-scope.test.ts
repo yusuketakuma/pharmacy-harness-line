@@ -8,9 +8,14 @@ describe('platform tenant settings scope', () => {
     '/api/rich-menu-groups/group-a/publish',
     '/api/custom/pharmacy/rich-menus/prepare',
     '/api/custom/pharmacy/growth/config',
+    '/api/custom/pharmacy/readiness',
     '/api/custom/pharmacy/privacy-policy',
     '/api/custom/pharmacy/public-profile',
+    '/api/custom/pharmacy/myna-endpoint',
     '/api/custom/pharmacy/emergency-contraception/config',
+    '/api/custom/pharmacy/emergency-contraception/reminders',
+    '/api/custom/pharmacy/emergency-contraception/inventory',
+    '/api/custom/pharmacy/emergency-contraception/slots',
     '/api/custom/pharmacy/emergency-contraception/pharmacists/staff-a',
     '/api/automations/automation-a',
     '/api/auto-replies/reply-a',
@@ -23,12 +28,14 @@ describe('platform tenant settings scope', () => {
     '/api/templates/template-a',
     '/api/webhooks/outgoing/webhook-a',
   ])('allows a tenant configuration path: %s', (path) => {
-    expect(isPlatformTenantSettingsPath(path)).toBe(true);
+    expect(isPlatformTenantSettingsPath('GET', path)).toBe(true);
   });
 
   it.each([
     '/api/liff/pharmacy/patients',
     '/api/custom/pharmacy/prescriptions',
+    '/api/custom/pharmacy/myna-handoffs',
+    '/api/custom/pharmacy/emergency-contraception/intakes',
     '/api/friends',
     '/api/chats',
     '/api/broadcasts',
@@ -41,6 +48,25 @@ describe('platform tenant settings scope', () => {
     '/api/webhooks/incoming/webhook-a/receive',
     '/api/platform-admin/tenants',
   ])('rejects PHI or operational paths: %s', (path) => {
-    expect(isPlatformTenantSettingsPath(path)).toBe(false);
+    expect(isPlatformTenantSettingsPath('GET', path)).toBe(false);
+  });
+
+  it.each([
+    ['POST', '/api/staff'],
+    ['PATCH', '/api/staff/staff-a'],
+    ['PUT', '/api/staff/staff-a/accounts'],
+    ['POST', '/api/staff/staff-a/reset-password'],
+    ['DELETE', '/api/staff/staff-a'],
+    ['DELETE', '/api/line-accounts/account-a'],
+  ])('rejects tenant credential mutations over the Bearer path: %s %s', (method, path) => {
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
+  });
+
+  it.each([
+    ['GET', '/api/staff'],
+    ['GET', '/api/staff/staff-a'],
+    ['PUT', '/api/account-settings/link-base-url'],
+  ])('keeps read and non-credential settings writes: %s %s', (method, path) => {
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(true);
   });
 });

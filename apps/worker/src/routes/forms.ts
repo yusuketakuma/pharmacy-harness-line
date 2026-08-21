@@ -27,6 +27,37 @@ import type {
 import type { Env } from '../index.js';
 import { awardActivityMileage } from '../services/activity-mileage.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { validateHttpsUrl } from '../lib/validate-https-url.js';
+
+const WEBHOOK_HEADER_ALLOWED = (name: string) =>
+  /^(authorization|content-type|x-[a-z0-9-]+)$/i.test(name);
+
+// Returns a Japanese error message when the webhook settings are unsafe, else null.
+function validateWebhookSettings(url: unknown, headers: unknown): string | null {
+  if (url != null && url !== '' && validateHttpsUrl(url)) {
+    return 'Webhook URL は公開ホストの https:// URL を指定してください';
+  }
+  if (headers != null && headers !== '') {
+    const parsed = parseWebhookHeaders(headers);
+    if (!parsed) return 'Webhook ヘッダーは JSON オブジェクトで指定してください';
+    if (!Object.keys(parsed).every(WEBHOOK_HEADER_ALLOWED)) {
+      return 'Webhook ヘッダーは Authorization / Content-Type / X-* のみ指定できます';
+    }
+  }
+  return null;
+}
+
+function parseWebhookHeaders(raw: unknown): Record<string, string> | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (!Object.values(parsed).every((v) => typeof v === 'string')) return null;
+    return parsed as Record<string, string>;
+  } catch {
+    return null;
+  }
+}
 
 const forms = new Hono<Env>();
 
@@ -222,6 +253,10 @@ forms.post('/api/forms', async (c) => {
     if (!body.name) {
       return c.json({ success: false, error: 'name is required' }, 400);
     }
+    const webhookError = validateWebhookSettings(body.onSubmitWebhookUrl, body.onSubmitWebhookHeaders);
+    if (webhookError) {
+      return c.json({ success: false, error: webhookError }, 400);
+    }
 
     const form = await createForm(c.env.DB, {
       name: body.name,
@@ -268,6 +303,11 @@ forms.put('/api/forms/:id', async (c) => {
       ogDescription?: string | null;
       ogImageUrl?: string | null;
     }>();
+
+    const webhookError = validateWebhookSettings(body.onSubmitWebhookUrl, body.onSubmitWebhookHeaders);
+    if (webhookError) {
+      return c.json({ success: false, error: webhookError }, 400);
+    }
 
     // Only include fields that were explicitly sent (avoid undefined → null conversion)
     const updates: Record<string, unknown> = {};
@@ -733,6 +773,11 @@ async function callFormWebhook(
   submissionData: Record<string, unknown>,
 ): Promise<{ passed: boolean; data: unknown }> {
   if (!form.on_submit_webhook_url) return { passed: true, data: null };
+  // Defense in depth for rows stored before create/update validation existed.
+  if (validateHttpsUrl(form.on_submit_webhook_url)) {
+    console.error('Form webhook skipped: unsafe destination', { form_id: form.id });
+    return { passed: true, data: null };
+  }
 
   try {
     // Replace {field_name} placeholders in URL with submitted values
@@ -743,11 +788,9 @@ async function callFormWebhook(
 
     // Parse headers
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (form.on_submit_webhook_headers) {
-      try {
-        const parsed = JSON.parse(form.on_submit_webhook_headers) as Record<string, string>;
-        Object.assign(headers, parsed);
-      } catch { /* ignore invalid headers */ }
+    const parsedHeaders = parseWebhookHeaders(form.on_submit_webhook_headers);
+    for (const [k, v] of Object.entries(parsedHeaders ?? {})) {
+      if (WEBHOOK_HEADER_ALLOWED(k)) headers[k] = v;
     }
 
     // Determine method: GET if URL has {placeholders} replaced, POST otherwise

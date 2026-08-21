@@ -71,4 +71,20 @@ describe('pharmacy rich-menu image storage', () => {
     })).rejects.toThrow(/expected 'large'/i);
     expect(put).not.toHaveBeenCalled();
   });
+
+  it('rejects bytes whose format does not match the declared content type', async () => {
+    const put = vi.fn();
+    await expect(savePharmacyRichMenuImage({
+      db: {} as D1Database,
+      images: { put } as unknown as R2Bucket,
+      accountId: 'account-a',
+      groupId: 'group-a',
+      pageId: 'page-a',
+      fileName: 'menu.jpg',
+      contentType: 'image/jpeg',
+      bytes: PNG_2500x843,
+    })).rejects.toThrow(/format|content type/i);
+    expect(put).not.toHaveBeenCalled();
+    expect(setRichMenuPageImage).not.toHaveBeenCalled();
+  });
 });

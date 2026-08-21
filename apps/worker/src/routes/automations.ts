@@ -8,6 +8,7 @@ import {
   getAutomationLogs,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { clampLimitOffset } from '../lib/pagination.js';
 
 const automations = new Hono<Env>();
 
@@ -175,8 +176,9 @@ automations.delete('/api/automations/:id', async (c) => {
 automations.get('/api/automations/:id/logs', async (c) => {
   try {
     const automationId = c.req.param('id');
-    const limit = Number(c.req.query('limit') ?? '100');
-    const logs = await getAutomationLogs(c.env.DB, automationId, limit);
+    const page = clampLimitOffset(c.req.query('limit'), undefined, 100);
+    if (!page) return c.json({ success: false, error: 'limit が不正です' }, 400);
+    const logs = await getAutomationLogs(c.env.DB, automationId, page.limit);
     return c.json({
       success: true,
       data: logs.map((l) => ({

@@ -539,6 +539,9 @@ describe('platform admin authentication', () => {
     );
     expect(unknown.status).toBe(401);
 
+    expect(store.auditEvents).toHaveLength(0);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const wrong = await app().request(
       '/api/platform-admin/login',
       loginRequest('Wrong password 42'),
@@ -546,7 +549,13 @@ describe('platform admin authentication', () => {
     );
     expect(wrong.status).toBe(401);
     expect(cookieValue(wrong, 'lh_platform_admin_session')).toBe('');
-    expect(store.auditEvents).toHaveLength(0);
+    expect(store.auditEvents).toMatchObject([{ action: 'login_failed', tenant_id: null }]);
+    const lines = warn.mock.calls.map((call) => String(call[0]));
+    const failed = lines.find((line) => line.includes('"event":"auth.login_failed"'));
+    expect(JSON.parse(failed!)).toMatchObject({ realm: 'platform_admin', reason: 'bad_password' });
+    expect(lines.join('\n')).not.toContain('Wrong password 42');
+    expect(lines.join('\n')).not.toContain(admin.login_id);
+    warn.mockRestore();
   });
 
   it('refuses to log in when the cookie topology is misconfigured', async () => {

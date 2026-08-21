@@ -33,6 +33,7 @@ import {
 } from './repository.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
+import { recordTenantAudit } from '../../../lib/tenant-audit.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -455,12 +456,17 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', a
 
 prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id', async (c) => {
   const lineAccountId = c.get('prescriptionLineAccountId');
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   const detail = await getAdminPrescriptionDetail(
     c.env.DB, lineAccountId, c.req.param('id'),
   );
-  return detail
-    ? c.json(detail)
-    : c.json({ error: 'Prescription submission not found' }, 404);
+  if (!detail) return c.json({ error: 'Prescription submission not found' }, 404);
+  await recordTenantAudit(c.env.DB, {
+    lineAccountId, actorStaffId: staff.id, action: 'phi.prescription_detail_viewed',
+    resourceType: 'prescription_submission', resourceId: c.req.param('id'),
+  });
+  return c.json(detail);
 });
 
 const ADMIN_ACTIONS = {

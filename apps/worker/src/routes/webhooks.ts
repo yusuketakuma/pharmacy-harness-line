@@ -12,6 +12,9 @@ import {
   deleteOutgoingWebhook,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { validateHttpsUrl } from '../lib/validate-https-url.js';
+
+export { validateHttpsUrl };
 
 const webhooks = new Hono<Env>();
 
@@ -20,22 +23,6 @@ const MIN_SECRET_LENGTH = 32;
 function validateSecret(secret: unknown): string | null {
   if (typeof secret !== 'string' || secret.length < MIN_SECRET_LENGTH) {
     return `secret must be at least ${MIN_SECRET_LENGTH} characters`;
-  }
-  return null;
-}
-
-function validateHttpsUrl(url: unknown): string | null {
-  if (typeof url !== 'string' || url.length === 0) {
-    return 'url is required';
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return 'url must be a valid absolute URL';
-  }
-  if (parsed.protocol !== 'https:') {
-    return 'url must use https:// scheme';
   }
   return null;
 }

@@ -392,3 +392,54 @@ describe('LIFF identity enforcement', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('api.line.me'))).toBe(false);
   });
 });
+
+describe('webhook URL / header validation (INJ-1)', () => {
+  const post = (body: Record<string, unknown>) =>
+    app(true).request('/api/forms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'f', ...body }),
+    }, env().bindings);
+
+  test('rejects http:// webhook URL on create', async () => {
+    expect((await post({ onSubmitWebhookUrl: 'http://example.test/hook' })).status).toBe(400);
+  });
+
+  test('rejects literal IP and localhost webhook URLs', async () => {
+    expect((await post({ onSubmitWebhookUrl: 'https://127.0.0.1/hook' })).status).toBe(400);
+    expect((await post({ onSubmitWebhookUrl: 'https://localhost/hook' })).status).toBe(400);
+    expect((await post({ onSubmitWebhookUrl: 'https://[::1]/hook' })).status).toBe(400);
+  });
+
+  test('rejects header names outside the allowlist', async () => {
+    const res = await post({
+      onSubmitWebhookUrl: 'https://example.test/hook',
+      onSubmitWebhookHeaders: JSON.stringify({ Host: 'evil' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects http:// webhook URL on update', async () => {
+    const res = await app(true).request('/api/forms/form-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ onSubmitWebhookUrl: 'http://example.test/hook' }),
+    }, env().bindings);
+    expect(res.status).toBe(400);
+  });
+
+  test('does not fetch a stored non-https webhook URL at submit time', async () => {
+    mocks.getFormById.mockResolvedValue({ ...baseForm, on_submit_webhook_url: 'http://169.254.169.254/latest' });
+    mocks.verifyCallerLineUserId.mockResolvedValue('line-real');
+    mocks.getFriendByLineUserId.mockResolvedValue({ id: 'friend-real', line_user_id: null, display_name: 'U', metadata: '{}' });
+    const webhookFetch = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', webhookFetch);
+    const res = await app().request('/api/forms/form-1/submit', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { x_username: 'a' } }),
+    }, env().bindings);
+    expect(webhookFetch).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+  });
+});

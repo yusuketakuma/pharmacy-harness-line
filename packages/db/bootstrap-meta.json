@@ -118,7 +118,11 @@
     "custom_041_pharmacy_patient_intake_migration_state.sql",
     "custom_042_pharmacy_public_profile_details.sql",
     "custom_043_pharmacy_public_profile_fax.sql",
-    "custom_044_pharmacy_v029_capabilities.sql"
+    "custom_044_pharmacy_v029_capabilities.sql",
+    "custom_045_pharmacy_rich_menu_layouts.sql",
+    "custom_046_pharmacy_rich_menu_operations.sql",
+    "custom_047_pharmacy_emergency_reminders.sql",
+    "custom_048_tenant_admin_audit_events.sql"
   ],
-  "migrationCount": 119
+  "migrationCount": 123
 }

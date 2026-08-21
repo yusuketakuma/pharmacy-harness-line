@@ -2,6 +2,11 @@ import { Hono } from 'hono';
 import { toJstString } from '@line-crm/db';
 import type { Env } from '../../../index.js';
 import { recordPlatformAdminAccess } from './audit.js';
+import { getPharmacyReadiness, type PharmacyReadinessStatus } from '../readiness.js';
+import {
+  ADMIN_HASH, BUNDLE_VERSION, LIFF_HASH, LIFF_PACKAGE_VERSION, RELEASED_AT,
+  WEB_PACKAGE_VERSION, WORKER_HASH, WORKER_PACKAGE_VERSION,
+} from '../../../_version.js';
 
 /**
  * Read-only operational and health views for the platform admin. Mounted
@@ -21,6 +26,19 @@ const STALE_ACTIVITY_MS = 30 * DAY_MS;
 const STALE_PENDING_WEBHOOK_MS = 60 * 60 * 1000;
 const SAMPLE_LIMIT = 5;
 
+type ReadinessCounts = Record<PharmacyReadinessStatus, number>;
+type AccountReadinessRow = { tenant_id: string; line_account_id: string };
+
+const emptyReadinessCounts = (): ReadinessCounts => ({ READY: 0, BLOCKED: 0, UNVERIFIED: 0 });
+
+function addReadinessCounts(target: ReadinessCounts, source: ReadinessCounts): void {
+  for (const status of ['READY', 'BLOCKED', 'UNVERIFIED'] as const) target[status] += source[status];
+}
+
+function sellerRelease(value: string | undefined): string | null {
+  return value && /^pharmacy-v\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i.test(value) ? value : null;
+}
+
 // pharmacy_webhook_event_receipts.received_at is written with jstNow()
 // (+09:00), while sessions and grants use toISOString() (Z). Both compare
 // lexicographically only against a cutoff in their own format.
@@ -34,7 +52,7 @@ const utcCutoff = (ms: number) => new Date(Date.now() - ms).toISOString();
  */
 platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
   const admin = c.get('platformAdmin');
-  const row = await c.env.DB.prepare(
+  const [row, accountRows] = await Promise.all([c.env.DB.prepare(
     `SELECT
        (SELECT COUNT(*) FROM tenants) AS total_tenants,
        (SELECT COUNT(*) FROM tenants WHERE status = 'active') AS active_tenants,
@@ -54,8 +72,7 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
                            FROM tenant_admin_sessions AS session
                           WHERE session.tenant_id = tenant.id), '') < ?)
          AS tenants_with_stale_activity`,
-  ).bind(jstCutoff(DAY_MS), new Date().toISOString(), utcCutoff(STALE_ACTIVITY_MS))
-    .first<{
+  ).bind(jstCutoff(DAY_MS), new Date().toISOString(), utcCutoff(STALE_ACTIVITY_MS)).first<{
       total_tenants: number;
       active_tenants: number;
       suspended_tenants: number;
@@ -63,7 +80,49 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
       webhook_pending: number;
       active_support_grants: number;
       tenants_with_stale_activity: number;
-    }>();
+    }>(), c.env.DB.prepare(
+    `SELECT mapping.tenant_id, mapping.line_account_id
+       FROM tenant_line_accounts AS mapping
+       INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
+      ORDER BY mapping.tenant_id, mapping.line_account_id`,
+  ).bind().all<AccountReadinessRow>()]);
+
+  const checkedAt = new Date();
+  const mappings = accountRows.results ?? [];
+  const readinessResults = await Promise.allSettled(
+    mappings.map((mapping) => getPharmacyReadiness(c.env.DB, mapping.line_account_id, checkedAt)),
+  );
+  const totalReadiness = emptyReadinessCounts();
+  const tenants = new Map<string, {
+    tenantId: string;
+    statusCounts: ReadinessCounts;
+    accounts: Array<{ accountId: string; checkedAt: string; statusCounts: ReadinessCounts }>;
+  }>();
+  for (const [index, mapping] of mappings.entries()) {
+    const result = readinessResults[index];
+    const readiness = result.status === 'fulfilled' ? result.value : null;
+    const statusCounts = emptyReadinessCounts();
+    if (readiness) {
+      for (const status of [
+        readiness.electronicPrescription.status,
+        readiness.emergencyContraception.status,
+        readiness.richMenu.status,
+      ]) statusCounts[status] += 1;
+    } else {
+      statusCounts.UNVERIFIED = 3;
+    }
+    const tenant = tenants.get(mapping.tenant_id) ?? {
+      tenantId: mapping.tenant_id, statusCounts: emptyReadinessCounts(), accounts: [],
+    };
+    addReadinessCounts(tenant.statusCounts, statusCounts);
+    tenant.accounts.push({
+      accountId: mapping.line_account_id,
+      checkedAt: readiness?.checkedAt ?? checkedAt.toISOString(),
+      statusCounts,
+    });
+    tenants.set(mapping.tenant_id, tenant);
+    addReadinessCounts(totalReadiness, statusCounts);
+  }
 
   await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'list_dashboard');
   return c.json({
@@ -76,6 +135,28 @@ platformAdminDashboardRoutes.get('/api/platform-admin/dashboard', async (c) => {
       webhookPending: row?.webhook_pending ?? 0,
       activeSupportGrants: row?.active_support_grants ?? 0,
       tenantsWithStaleActivity: row?.tenants_with_stale_activity ?? 0,
+      pharmacyReadiness: {
+        checkedAt: checkedAt.toISOString(),
+        statusCounts: totalReadiness,
+        tenants: [...tenants.values()],
+      },
+      versions: {
+        sellerRelease: sellerRelease(c.env.PHARMACY_SELLER_RELEASE),
+        liffPackageVersion: LIFF_PACKAGE_VERSION,
+        liffArtifactHash: LIFF_HASH,
+        webRuntime: {
+          packageVersion: WEB_PACKAGE_VERSION,
+          bundleVersion: BUNDLE_VERSION,
+          artifactHash: ADMIN_HASH,
+          releasedAt: RELEASED_AT,
+        },
+        workerRuntime: {
+          packageVersion: WORKER_PACKAGE_VERSION,
+          bundleVersion: BUNDLE_VERSION,
+          artifactHash: WORKER_HASH,
+          releasedAt: RELEASED_AT,
+        },
+      },
     },
   });
 });

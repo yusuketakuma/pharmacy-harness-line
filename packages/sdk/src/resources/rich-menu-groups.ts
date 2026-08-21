@@ -2,8 +2,6 @@ import type { HttpClient } from '../http.js'
 import type {
   ApiResponse,
   CreateRichMenuGroupInput,
-  PreparePharmacyRichMenuInput,
-  PreparePharmacyRichMenuResult,
   RichMenuGroup,
   UpdateRichMenuGroupInput,
 } from '../types.js'
@@ -129,14 +127,4 @@ export class RichMenuGroupsResource {
     return res.data
   }
 
-  async preparePharmacy(
-    input: PreparePharmacyRichMenuInput = {},
-    accountId?: string,
-  ): Promise<PreparePharmacyRichMenuResult> {
-    const res = await this.http.post<ApiResponse<PreparePharmacyRichMenuResult>>(
-      this.path('/api/custom/pharmacy/rich-menus/prepare', accountId),
-      input,
-    )
-    return res.data
-  }
 }

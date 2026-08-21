@@ -29,7 +29,10 @@ beforeEach(async () => {
   credential.password_hash = await hashTenantPassword('Temporary pass 42');
   credential.must_change_password = 1;
   credential.credential_version = 1;
+  auditEvents.length = 0;
 });
+
+const auditEvents: Array<{ action: string; detail: string | null }> = [];
 
 function tenantDb(): D1Database {
   const sessions = new Map<string, {
@@ -71,6 +74,10 @@ function tenantDb(): D1Database {
           return null;
         },
         async run() {
+          if (sql.includes('INSERT INTO tenant_admin_audit_events')) {
+            auditEvents.push({ action: String(values[4]), detail: values[7] as string | null });
+            return { meta: { changes: 1 } };
+          }
           if (sql.includes('INSERT INTO tenant_admin_sessions')) {
             const kind = sql.includes("'standard'") ? 'standard' : values[4] as 'bootstrap' | 'standard';
             const expiresAt = sql.includes("'standard'") ? String(values[4]) : String(values[5]);
@@ -397,6 +404,7 @@ describe('tenant admin password authentication', () => {
     expect(changed.status).toBe(200);
     expect(credential.must_change_password).toBe(0);
     expect(credential.credential_version).toBe(2);
+    expect(auditEvents).toEqual([{ action: 'staff.password_changed', detail: null }]);
 
     const oldSession = await app().request('/api/protected', {
       headers: { cookie: oldCookie },

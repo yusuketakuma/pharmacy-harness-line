@@ -171,9 +171,10 @@ async function verifyCallerLineUserId(c: Context<Env>): Promise<string | null> {
       const verified = await res.json<{ sub?: string }>();
       if (verified.sub) return verified.sub;
     } else {
-      const errBody = await res.text().catch(() => '');
+      const errBody = await res.json<{ error?: string }>().catch(() => ({} as { error?: string }));
       console.log(
-        `[verifyCallerLineUserId] verify fail channel=${channelId} status=${res.status} body=${errBody.slice(0, 200)}`,
+        `[verifyCallerLineUserId] verify fail channel=${channelId}`,
+        JSON.stringify({ status: res.status, error: errBody.error ?? null }),
       );
     }
   }

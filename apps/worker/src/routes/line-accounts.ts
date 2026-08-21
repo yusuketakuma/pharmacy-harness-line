@@ -21,6 +21,7 @@ import {
   isPharmacyTenant,
 } from '../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
 import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
+import { recordTenantAudit } from '../lib/tenant-audit.js';
 import { requireLineBotUserId } from '../custom/pharmacy/provisioning/line-connection.js';
 import {
   createEncryptedLineAccount,
@@ -684,6 +685,20 @@ lineAccounts.post('/api/line-accounts', requireRole('owner'), async (c) => {
 
 // PATCH /api/line-accounts/order — bulk update display_order
 // IMPORTANT: must be declared BEFORE /:id so Hono matches the literal "order" first.
+// Audit row carries credential kinds only, never values. Written after the
+// store's own batch: the rotation batch lives in line-account-store.ts.
+function auditCredentialsUpdated(c: Context<Env>, lineAccountId: string, kinds: string[]) {
+  return recordTenantAudit(c.env.DB, {
+    tenantId: c.get('tenantId'),
+    lineAccountId,
+    actorStaffId: c.get('staff').id,
+    action: 'line_account.credentials_updated',
+    resourceType: 'line_account',
+    resourceId: lineAccountId,
+    detail: { kinds },
+  });
+}
+
 lineAccounts.patch(
   '/api/line-accounts/order',
   requireRole('owner', 'admin'),
@@ -826,6 +841,9 @@ lineAccounts.patch(
           },
         },
       );
+      if (loginChannelSecret !== undefined) {
+        await auditCredentialsUpdated(c, id, ['login_channel_secret']);
+      }
       return c.json({ success: true, data: serializeLineAccount(updated) });
     } catch (err) {
       console.error('PATCH /api/line-accounts/:id error:', err);
@@ -925,6 +943,10 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
         ? [{ kind: 'login_channel_secret' as const, credential: loginChannelSecret }]
         : []),
     ];
+    const credentialKinds = [
+      ...credentialChanges.map(({ kind }) => kind),
+      ...(loginChannelSecret === null ? ['login_channel_secret' as const] : []),
+    ];
     const updated = await updateEncryptedLineAccount(
       c.env.DB,
       c.env.LINE_CREDENTIAL_KEY_V1,
@@ -951,6 +973,7 @@ lineAccounts.put('/api/line-accounts/:id', requireRole('owner'), async (c) => {
         },
       },
     );
+    if (credentialKinds.length > 0) await auditCredentialsUpdated(c, id, credentialKinds);
 
     return c.json({ success: true, data: serializeLineAccount(updated) });
   } catch (err) {

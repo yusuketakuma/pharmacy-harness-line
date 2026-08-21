@@ -15,6 +15,7 @@ import {
 import { IDENTITY_KEY_SQL } from '../lib/identity-key.js';
 import { notifyAffiliateApproval } from '../services/affiliate-notifier.js';
 import type { Env } from '../index.js';
+import { clampLimitOffset } from '../lib/pagination.js';
 
 const conversions = new Hono<Env>();
 
@@ -130,14 +131,16 @@ conversions.post('/api/conversions/track', async (c) => {
 // GET /api/conversions/events - list events with filters
 conversions.get('/api/conversions/events', async (c) => {
   try {
+    const page = clampLimitOffset(c.req.query('limit'), c.req.query('offset'), 100);
+    if (!page) return c.json({ success: false, error: 'limit / offset が不正です' }, 400);
     const events = await getConversionEvents(c.env.DB, {
       conversionPointId: c.req.query('conversionPointId'),
       friendId: c.req.query('friendId'),
       affiliateCode: c.req.query('affiliateCode'),
       startDate: c.req.query('startDate'),
       endDate: c.req.query('endDate'),
-      limit: Number(c.req.query('limit') ?? '100'),
-      offset: Number(c.req.query('offset') ?? '0'),
+      limit: page.limit,
+      offset: page.offset,
     });
 
     return c.json({

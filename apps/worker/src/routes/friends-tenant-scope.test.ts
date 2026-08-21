@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
+const mocks = vi.hoisted(() => ({
+  addTagToFriend: vi.fn(),
+  tagBelongsToTenant: vi.fn(),
+  getFriendById: vi.fn(),
+}));
+
 vi.mock('@line-crm/db', () => ({
   getFriends: vi.fn(),
-  getFriendById: vi.fn(),
+  getFriendById: mocks.getFriendById,
   getFriendCount: vi.fn(),
-  addTagToFriend: vi.fn(),
+  addTagToFriend: mocks.addTagToFriend,
+  tagBelongsToTenant: mocks.tagBelongsToTenant,
   removeTagFromFriend: vi.fn(),
   getFriendTags: vi.fn(),
   getFormSubmissionsByFriend: vi.fn(),
@@ -78,5 +85,27 @@ describe('friend collection tenant scope', () => {
       expect(query.sql).toContain('tenant_line_accounts');
       expect(query.params).toContain('tenant-a');
     }
+  });
+});
+
+describe('friend route hardening (WP-09)', () => {
+  it('rejects non-numeric limit with 400', async () => {
+    const { app, env } = setup();
+    const response = await app.request('/api/friends?limit=abc', {}, env);
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses to attach a tag owned by another tenant', async () => {
+    const { app, env } = setup();
+    mocks.getFriendById.mockResolvedValue({ id: 'friend-1', line_account_id: null });
+    mocks.tagBelongsToTenant.mockResolvedValue(false);
+    const response = await app.request('/api/friends/friend-1/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tagId: 'tag-of-tenant-b' }),
+    }, env);
+    expect(response.status).toBe(404);
+    expect(mocks.tagBelongsToTenant).toHaveBeenCalledWith(expect.anything(), 'tag-of-tenant-b', 'tenant-a');
+    expect(mocks.addTagToFriend).not.toHaveBeenCalled();
   });
 });

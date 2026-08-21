@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   enqueueActivity: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
+  audit: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -73,6 +74,9 @@ vi.mock('../operations-access.js', () => ({
 }));
 vi.mock('../growth-loop/access.js', () => ({
   hasPharmacyCapability: mocks.capability,
+}));
+vi.mock('../../../lib/tenant-audit.js', () => ({
+  recordTenantAudit: mocks.audit,
 }));
 
 import { prescriptionRoutes } from './routes.js';
@@ -251,6 +255,28 @@ describe('admin prescription routes', () => {
       { status: null, cursor: null, limit: 21 },
     );
     expect(JSON.stringify(await response.json())).not.toContain('thumbnail');
+  });
+
+  it('audits a staff prescription detail view with ids only', async () => {
+    mocks.audit.mockResolvedValue(undefined);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions/submission-1?line_account_id=account-1', {}, adminEnv,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.audit).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-1', actorStaffId: 'staff-1',
+      action: 'phi.prescription_detail_viewed',
+      resourceType: 'prescription_submission', resourceId: 'submission-1',
+    });
+  });
+
+  it('does not audit a missing prescription detail', async () => {
+    mocks.adminDetail.mockResolvedValue(null);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/prescriptions/submission-9?line_account_id=account-1', {}, adminEnv,
+    );
+    expect(response.status).toBe(404);
+    expect(mocks.audit).not.toHaveBeenCalled();
   });
 
   it('denies a private image not owned by the requested account', async () => {

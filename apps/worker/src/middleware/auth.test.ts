@@ -104,6 +104,8 @@ function app() {
     data: { staff: c.get('staff'), tenantId: c.get('tenantId'), platformAdmin: c.get('platformAdmin') },
   }));
   a.get('/api/custom/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.get('/api/staff', (c) => c.json({ success: true }));
+  a.post('/api/staff', (c) => c.json({ success: true }));
   a.get('/api/forms/:id', (c) => c.json({ success: true, staff: c.get('staff') ?? null }));
   a.put('/api/forms/:id', (c) => c.json({ success: true }));
   a.delete('/api/forms/:id', (c) => c.json({ success: true }));
@@ -121,6 +123,10 @@ function app() {
   a.post('/api/liff/pharmacy/emergency-contraception/intakes', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/emergency-contraception/intakes/:id/cancel', (c) => c.json({ success: true }));
   a.get('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/privacy-policy', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/feature-access', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/myna-handoffs/active', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/prescriptions/:id/arrival', (c) => c.json({ success: true }));
   a.delete('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
@@ -157,19 +163,39 @@ describe('admin login boundary', () => {
 
   test('runs password verification even when the tenant login does not exist', async () => {
     const derive = vi.spyOn(crypto.subtle, 'deriveBits');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const res = await app().request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({
         pharmacyCode: 'missing',
-        loginId: 'missing',
+        loginId: 'missing-login-id',
         password: 'A guessed password 42',
       }),
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
     }, crossSiteEnv());
 
     expect(res.status).toBe(401);
     expect(derive).toHaveBeenCalledTimes(1);
+    const lines = warn.mock.calls.map((call) => String(call[0]));
+    const failed = lines.find((line) => line.includes('"event":"auth.login_failed"'));
+    expect(failed).toBeDefined();
+    expect(JSON.parse(failed!)).toMatchObject({ realm: 'tenant', ip: '203.0.113.9', reason: 'unknown_login' });
+    expect(lines.join('\n')).not.toMatch(/missing-login-id|guessed password/);
     derive.mockRestore();
+    warn.mockRestore();
+  });
+
+  test('logs a denied request without the client body', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const res = await app().request('/api/protected', {}, env());
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({ success: false, error: 'Unauthorized' });
+    const denied = warn.mock.calls.map((call) => String(call[0]))
+      .find((line) => line.includes('"event":"authz.denied"'));
+    expect(JSON.parse(denied!)).toMatchObject({
+      route: '/api/protected', method: 'GET', status: 401, reason: 'Unauthorized',
+    });
+    warn.mockRestore();
   });
 });
 
@@ -217,6 +243,33 @@ describe('protected API access', () => {
       headers: { Authorization: `Bearer ${platformSession}`, 'X-Tenant-Id': TENANT_ID },
     }, testEnv);
     expect(phi.status).toBe(401);
+  });
+
+  test.each([
+    ['GET', '/api/liff/pharmacy/privacy-policy'],
+    ['GET', '/api/liff/pharmacy/feature-access'],
+    ['GET', '/api/liff/pharmacy/myna-handoffs/active'],
+    ['POST', '/api/liff/pharmacy/prescriptions/rx-1/arrival'],
+  ])('lets the route-level LINE gate handle the patient action %s %s', async (method, path) => {
+    const res = await app().request(path, { method }, env());
+    expect(res.status).toBe(200);
+  });
+
+  test('blocks tenant staff credential issuance over a platform-admin session bearer', async () => {
+    const headers = {
+      Authorization: `Bearer ${platformSession}`,
+      'X-Tenant-Id': TENANT_ID,
+      'Content-Type': 'application/json',
+    };
+    const read = await app().request('/api/staff', { headers }, env());
+    expect(read.status).toBe(200);
+
+    const create = await app().request('/api/staff', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: 'x', loginId: 'new-staff', role: 'owner' }),
+    }, env());
+    expect(create.status).toBe(401);
   });
 
   test('requires an explicit tenant for a platform-admin CLI session', async () => {

@@ -3,6 +3,7 @@ import {
   getFriends,
   getFriendById,
   addTagToFriend,
+  tagBelongsToTenant,
   removeTagFromFriend,
   getFriendTags,
   getFormSubmissionsByFriend,
@@ -19,6 +20,7 @@ import { readLineCredential } from '../custom/pharmacy/provisioning/line-credent
 import type { Env } from '../index.js';
 import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
 import { accountResourceOwnedByStaff } from '../middleware/tenant-boundary.js';
+import { clampLimitOffset } from '../lib/pagination.js';
 
 const friends = new Hono<Env>();
 
@@ -116,8 +118,9 @@ friends.get('/api/friends', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
-    const limit = Number(c.req.query('limit') ?? '50');
-    const offset = Number(c.req.query('offset') ?? '0');
+    const page = clampLimitOffset(c.req.query('limit'), c.req.query('offset'), 50);
+    if (!page) return c.json({ success: false, error: 'limit / offset が不正です' }, 400);
+    const { limit, offset } = page;
     const tagId = c.req.query('tagId');
     const lineAccountId = c.req.query('lineAccountId');
     const search = c.req.query('search');
@@ -567,6 +570,9 @@ friends.post('/api/friends/:id/tags', async (c) => {
     if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
     const denied = await requireFriendAccess(c, friend);
     if (denied) return denied;
+    if (!await tagBelongsToTenant(db, body.tagId, c.get('tenantId') ?? null)) {
+      return c.json({ success: false, error: 'Tag not found' }, 404);
+    }
     await addTagToFriend(db, friendId, body.tagId);
 
     // Enroll in tag_added scenarios that match this tag

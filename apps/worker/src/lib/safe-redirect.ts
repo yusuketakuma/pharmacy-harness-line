@@ -27,7 +27,32 @@ const DANGEROUS_SCHEMES = new Set(['javascript:', 'data:', 'vbscript:', 'file:']
  * @returns the trimmed redirect string when safe, or null when the caller
  *          should fall back to the default completion screen.
  */
-export function safeRedirectTarget(raw: string | null | undefined): string | null {
+export function safeRedirectTarget(
+  raw: string | null | undefined,
+  allowedOrigins?: ReadonlySet<string>,
+): string | null {
+  const value = safeRedirectTargetDenylist(raw);
+  if (value === null || !allowedOrigins || value.startsWith('/')) return value;
+  // Pharmacy mode: absolute targets must be https on a configured first-party origin.
+  const url = new URL(value);
+  return url.protocol === 'https:' && allowedOrigins.has(url.origin) ? value : null;
+}
+
+/** Origins of the configured worker / LIFF / admin URLs (comma-separated values allowed). */
+export function redirectOriginAllowlist(env: Record<string, string | undefined>): Set<string> {
+  const origins = new Set<string>();
+  for (const key of ['WORKER_URL', 'WORKER_PUBLIC_URL', 'LIFF_URL', 'LIFF_PUBLIC_URL', 'LIFF_ORIGIN', 'ADMIN_PUBLIC_URL', 'ADMIN_ORIGIN']) {
+    for (const part of (env[key] ?? '').split(',')) {
+      try {
+        const origin = new URL(part.trim()).origin;
+        if (origin !== 'null') origins.add(origin);
+      } catch { /* unset / malformed: skip */ }
+    }
+  }
+  return origins;
+}
+
+function safeRedirectTargetDenylist(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const value = raw.trim();
   if (!value) return null;
