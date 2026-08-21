@@ -55,6 +55,11 @@ function bucket(value = manifest(), bytes = image) {
 }
 
 describe('pharmacy rich-menu static catalog', () => {
+  it('uses a new immutable prefix for the v0.30.0 catalog', () => {
+    expect(PHARMACY_RICH_MENU_CATALOG_VERSION).toBe('v4-3');
+    expect(PHARMACY_RICH_MENU_CATALOG_MANIFEST_KEY).toBe('rich-menu-catalog/v4-3/manifest.json');
+  });
+
   it('loads only the exact server-derived variant and verifies its bytes', async () => {
     const { bucket: images, get } = bucket();
     const result = await loadPharmacyRichMenuCatalogImage(images, [
