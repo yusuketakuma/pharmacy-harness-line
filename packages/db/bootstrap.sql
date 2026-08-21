@@ -1147,6 +1147,14 @@ CREATE TABLE pharmacy_growth_events (
   UNIQUE (line_account_id, idempotency_key)
 );
 
+CREATE TABLE pharmacy_incoming_image_objects (
+  r2_key          TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  message_id      TEXT NOT NULL,
+  stored_at       TEXT NOT NULL
+);
+
 CREATE TABLE pharmacy_line_channel_identities (
   line_account_id TEXT PRIMARY KEY,
   bot_user_id     TEXT NOT NULL UNIQUE CHECK (length(bot_user_id) BETWEEN 2 AND 128),
@@ -2663,6 +2671,9 @@ CREATE INDEX idx_pharmacy_fulfillment_quotes_submission
 
 CREATE INDEX idx_pharmacy_growth_events_account_time
   ON pharmacy_growth_events(line_account_id, occurred_at, event_type);
+
+CREATE INDEX idx_pharmacy_incoming_image_objects_account
+  ON pharmacy_incoming_image_objects (line_account_id, stored_at);
 
 CREATE INDEX idx_pharmacy_intake_responses_patient
   ON pharmacy_patient_intake_responses (line_account_id, patient_id, revision DESC, id DESC);

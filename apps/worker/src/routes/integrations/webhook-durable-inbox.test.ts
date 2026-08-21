@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 
 const lineClientMocks = vi.hoisted(() => ({
@@ -109,6 +109,25 @@ function textEvent(suffix: 'a' | 'b', webhookEventId: string) {
   };
 }
 
+function imageEvent(suffix: 'a' | 'b', webhookEventId: string, messageId: string) {
+  return {
+    type: 'message',
+    replyToken: `reply-${webhookEventId}`,
+    message: { type: 'image', id: messageId },
+    timestamp: 1_755_000_000_000,
+    source: { type: 'user', userId: `U-${suffix}` },
+    webhookEventId,
+    deliveryContext: { isRedelivery: false },
+    mode: 'active',
+  };
+}
+
+function makeR2Stub() {
+  return {
+    put: vi.fn(async () => null),
+  };
+}
+
 /** Mirrors WEBHOOK_INBOX_MAX_ATTEMPTS in webhook.ts. */
 const WEBHOOK_ATTEMPT_CAP = 10;
 
@@ -118,14 +137,20 @@ const ENV = {
   LIFF_URL: 'https://liff.line.me/1234-abcd',
 } as const;
 
-function post(db: D1Database, suffix: 'a' | 'b', events: unknown[], executionCtx: ExecutionContext) {
+function post(
+  db: D1Database,
+  suffix: 'a' | 'b',
+  events: unknown[],
+  executionCtx: ExecutionContext,
+  envOverrides: Record<string, unknown> = {},
+) {
   const app = new Hono();
   app.route('/', webhook);
   return app.request('/webhook', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Line-Signature': `${'A'.repeat(43)}=` },
     body: JSON.stringify({ destination: `bot-${suffix}`, events }),
-  }, { ...ENV, DB: db }, executionCtx);
+  }, { ...ENV, DB: db, ...envOverrides }, executionCtx);
 }
 
 function makeCtx() {
@@ -384,5 +409,79 @@ describe('webhook receipt purge (M-7)', () => {
     expect(remaining()).toEqual([
       'completed-29d', 'pending-31d', 'pending-400d', 'processing-400d',
     ]);
+  });
+});
+
+describe('incoming image R2 key tracking (NEXT-4)', () => {
+  let sqlite: Sqlite3Database;
+  let db: D1Database;
+  let originalFetch: typeof fetch;
+
+  const trackedObjects = () => sqlite.prepare(
+    `SELECT r2_key, tenant_id, line_account_id, message_id, stored_at
+       FROM pharmacy_incoming_image_objects`,
+  ).all() as Array<{
+    r2_key: string; tenant_id: string; line_account_id: string;
+    message_id: string; stored_at: string;
+  }>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlite = new Sqlite(':memory:');
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    seedTenant(sqlite, 'a');
+    db = d1From(sqlite);
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () =>
+      new Response(new ArrayBuffer(10), { status: 200, headers: { 'Content-Type': 'image/jpeg' } }),
+    ) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('a stored incoming image produces exactly one tracking row', async () => {
+    const r2 = makeR2Stub();
+    const { ctx, settle } = makeCtx();
+
+    const response = await post(
+      db, 'a', [imageEvent('a', 'event-img-1', 'message-img-1')], ctx,
+      { IMAGES: r2 },
+    );
+    await settle();
+
+    expect(response.status).toBe(200);
+    const rows = trackedObjects();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenant_id: 'tenant-a',
+      line_account_id: 'account-a',
+      message_id: 'message-img-1',
+      r2_key: 'tenants/tenant-a/accounts/account-a/incoming/message-img-1.jpg',
+    });
+    expect(rows[0].stored_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  });
+
+  test('a tracking insert failure still returns the normal webhook result', async () => {
+    const r2 = makeR2Stub();
+    const failing = d1From(sqlite, (sql) => sql.includes('INSERT INTO pharmacy_incoming_image_objects'));
+    const { ctx, settle } = makeCtx();
+
+    const response = await post(
+      failing, 'a', [imageEvent('a', 'event-img-2', 'message-img-2')], ctx,
+      { IMAGES: r2 },
+    );
+    await settle();
+
+    expect(response.status).toBe(200);
+    expect(trackedObjects()).toHaveLength(0);
+    // The message itself was still logged despite the tracking-insert failure.
+    const logged = sqlite.prepare(
+      `SELECT content FROM messages_log WHERE direction = 'incoming'`,
+    ).all() as Array<{ content: string }>;
+    expect(logged).toHaveLength(1);
+    expect(JSON.parse(logged[0].content).originalContentUrl).toContain('message-img-2.jpg');
   });
 });

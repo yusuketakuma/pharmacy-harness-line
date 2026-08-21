@@ -123,7 +123,8 @@
     "custom_046_pharmacy_rich_menu_operations.sql",
     "custom_047_pharmacy_emergency_reminders.sql",
     "custom_048_tenant_admin_audit_events.sql",
-    "custom_049_pharmacy_emergency_retention_purge_log.sql"
+    "custom_049_pharmacy_emergency_retention_purge_log.sql",
+    "custom_050_incoming_image_objects.sql"
   ],
-  "migrationCount": 124
+  "migrationCount": 125
 }

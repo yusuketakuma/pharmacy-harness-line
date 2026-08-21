@@ -796,6 +796,21 @@ async function handleEvent(
       });
       if (refs) {
         finalContent = JSON.stringify(refs);
+        // Tracking row for future retention tooling (NEXT-4). Best-effort:
+        // a failure here must not fail the webhook path, since the image
+        // is already stored and the JSON URL is already in finalContent.
+        try {
+          await db
+            .prepare(
+              `INSERT INTO pharmacy_incoming_image_objects
+                 (r2_key, tenant_id, line_account_id, message_id, stored_at)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+            .bind(refs.r2Key, tenantId, lineAccountId, lineMessageId, new Date().toISOString())
+            .run();
+        } catch (err) {
+          console.error('[webhook] incoming image tracking insert failed', err);
+        }
       }
     }
 
