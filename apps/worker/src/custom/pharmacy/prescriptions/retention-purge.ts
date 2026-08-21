@@ -64,24 +64,54 @@ export async function purgePrescriptionFilesPastRetention(
 
   // The purge-log row is the completion marker, so a run interrupted between
   // the R2 delete and the log write simply retries (R2 delete is idempotent).
-  const due = await db.prepare(
-    `SELECT f.id AS file_id, f.r2_key, f.created_at,
-            mapping.tenant_id AS tenant_id, s.line_account_id
+  // A file's patient is only known once intake review links a
+  // pharmacy_prescription_patients row; a file with no such row has no legal
+  // hold to check (the LEFT JOIN leaves patient.patient_id NULL, and the
+  // NOT EXISTS below is vacuously true for a NULL comparison).
+  const heldClause = `
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_data_subject_requests hold
+           WHERE hold.patient_id = patient.patient_id
+             AND hold.line_account_id = patient.line_account_id
+             AND hold.owner_friend_id = patient.owner_friend_id
+             AND hold.legal_hold = 1
+             AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)
+        )`;
+  const dueQueryBase = `
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
        LEFT JOIN tenant_line_accounts mapping ON mapping.line_account_id = s.line_account_id
+       LEFT JOIN pharmacy_prescription_patients patient ON patient.submission_id = f.submission_id
       WHERE f.created_at GLOB ?
         AND f.created_at < ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_phi_retention_purge_log purged
            WHERE purged.resource_type = 'prescription_file'
              AND purged.resource_id = f.id
-        )
+        )`;
+
+  const due = await db.prepare(
+    `SELECT f.id AS file_id, f.r2_key, f.created_at,
+            mapping.tenant_id AS tenant_id, s.line_account_id
+       ${dueQueryBase}${heldClause}
       ORDER BY f.created_at, f.id
       LIMIT ?`,
-  ).bind(UTC_TIMESTAMP_GLOB, cutoff, limit).all<PurgeCandidate>();
+  ).bind(UTC_TIMESTAMP_GLOB, cutoff, nowIso, limit).all<PurgeCandidate>();
 
-  const result = { purged: 0, failed: 0, skipped: 0 };
+  const heldCount = await db.prepare(
+    `SELECT COUNT(*) AS n
+       ${dueQueryBase}
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_data_subject_requests hold
+           WHERE hold.patient_id = patient.patient_id
+             AND hold.line_account_id = patient.line_account_id
+             AND hold.owner_friend_id = patient.owner_friend_id
+             AND hold.legal_hold = 1
+             AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)
+        )`,
+  ).bind(UTC_TIMESTAMP_GLOB, cutoff, nowIso).first<{ n: number }>();
+
+  const result = { purged: 0, failed: 0, skipped: heldCount?.n ?? 0 };
   for (const file of due.results ?? []) {
     try {
       await images.delete(file.r2_key);
