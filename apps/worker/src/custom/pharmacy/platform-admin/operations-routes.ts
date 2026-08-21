@@ -235,7 +235,7 @@ async function verifyLiffEndpoint(
         client_id: loginChannelId,
         client_secret: loginChannelSecret,
       }),
-      redirect: 'error',
+      redirect: 'manual',
       signal: AbortSignal.timeout(LIFF_VERIFY_TIMEOUT_MS),
     });
     if (!tokenResponse.ok) {
@@ -255,7 +255,7 @@ async function verifyLiffEndpoint(
     const appsResponse = await fetch('https://api.line.me/liff/v1/apps', {
       method: 'GET',
       headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
-      redirect: 'error',
+      redirect: 'manual',
       signal: AbortSignal.timeout(LIFF_VERIFY_TIMEOUT_MS),
     });
     if (appsResponse.status === 404) {
