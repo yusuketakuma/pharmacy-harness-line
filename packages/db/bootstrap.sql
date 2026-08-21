@@ -1049,6 +1049,20 @@ CREATE TABLE pharmacy_emergency_reminders (
     REFERENCES pharmacy_emergency_intakes(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_emergency_retention_purge_log (
+  id                TEXT PRIMARY KEY,
+  line_account_id   TEXT NOT NULL,
+  resource_type     TEXT NOT NULL
+    CHECK (resource_type IN ('emergency_intake')),
+  resource_id       TEXT NOT NULL,
+  -- The intake's created_at, copied verbatim, so an audit can confirm the
+  -- row was actually past the account's own retention_days boundary.
+  age_reference_at  TEXT NOT NULL,
+  retention_days    INTEGER NOT NULL CHECK (retention_days BETWEEN 1 AND 365),
+  purged_at         TEXT NOT NULL,
+  UNIQUE (resource_type, resource_id)
+);
+
 CREATE TABLE pharmacy_emergency_settings (
   line_account_id              TEXT PRIMARY KEY,
   is_enabled                   INTEGER NOT NULL DEFAULT 0 CHECK (is_enabled IN (0, 1)),
@@ -2631,6 +2645,12 @@ CREATE INDEX idx_pharmacy_emergency_intakes_queue
 
 CREATE INDEX idx_pharmacy_emergency_reminders_due
   ON pharmacy_emergency_reminders(status, due_at, deadline_at, line_account_id, id);
+
+CREATE INDEX idx_pharmacy_emergency_retention_purge_log_account
+  ON pharmacy_emergency_retention_purge_log (line_account_id, purged_at);
+
+CREATE INDEX idx_pharmacy_emergency_retention_purge_log_purged
+  ON pharmacy_emergency_retention_purge_log (purged_at, resource_type);
 
 CREATE INDEX idx_pharmacy_emergency_slots_available
   ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);

@@ -74,6 +74,7 @@ string and a `Z` string do not compare correctly against the same cutoff.
 | --- | --- | --- | --- | --- |
 | `pharmacy_prescription_files` | R2 pointer to the 処方箋画像 | `created_at` NOT NULL | ISO `Z` | R2 object deleted, row set `state='deleted'`, logged in `pharmacy_phi_retention_purge_log` |
 | `pharmacy_webhook_event_receipts` | raw LINE webhook body — message text, `userId`, image ids | `received_at` NOT NULL | **JST `+09:00`** | already purged at **30 days** for settled rows (M-7, `purgeWebhookEventReceipts`); `pending`/`processing` rows are never purged and can therefore outlive 3 years |
+| `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` | **account's own `pharmacy_emergency_settings.retention_days` (1–365) takes precedence over the uniform 3-year rule** — resolved 2026-08-22 (NEXT-2), see "Emergency contraception retention" below |
 
 ### Not yet enforced — 3-year boundary defined, no purge job
 
@@ -118,11 +119,12 @@ Continuity / follow-up:
 | `pharmacy_medication_followups` | status leaks clinical signal (`concern`, `escalated`) | `created_at` NOT NULL | ISO `Z` |
 | `pharmacy_medication_followup_events` | transition audit | **`occurred_at`** NOT NULL | ISO `Z` |
 
-Emergency contraception (`custom_035`) — the most sensitive category:
+Emergency contraception (`custom_035`) — the most sensitive category, and the
+only PHI store with its own **shorter** boundary; see "Enforced" above for the
+`pharmacy_emergency_intakes` row, now moved out of this deferred section:
 
 | Table | PHI | Age reference | Format |
 | --- | --- | --- | --- |
-| `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` |
 | `pharmacy_emergency_intake_events` | transition audit | **`occurred_at`** NOT NULL | ISO `Z` |
 
 Core LINE tables:
@@ -168,6 +170,41 @@ images whose *workflow* ended and by design never touches the active revision of
 a live submission. Past three years the image goes regardless of status,
 including rows the workflow cleanup marked `deleted` but failed to remove from R2.
 
+### Emergency contraception retention (NEXT-2)
+
+`apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts`,
+registered on the same 6-hour cron tick. Enforces each account's own
+`pharmacy_emergency_settings.retention_days` (1–365, `custom_035`) — the
+patient-facing promise shown at consent time
+(`EmergencyContraceptionPage.tsx` "保存期間 N日間"), which is shorter than and
+takes precedence over the uniform 3-year rule for this one table.
+
+Same fail-closed rules as the prescriptions job (unparseable `created_at` is
+kept and counted separately, per-account `db.batch()`, one account's failure
+never stops another, bounded to 100 intakes per account per tick), plus a
+legal-hold check: an intake is never purged while its patient has an active
+`pharmacy_data_subject_requests` row (`custom_038`) with `legal_hold = 1` and
+no expired `legal_hold_release_at`. EC intakes carry no `patient_id` (PHI-minimal
+by design), so the hold is matched on `(line_account_id, owner_friend_id)`.
+
+**What "purge" means here is redaction, not row deletion.**
+`pharmacy_emergency_intake_events` has an unconditional `BEFORE DELETE` trigger
+(`pharmacy_emergency_events_no_delete`) that aborts every delete — including
+ones a `FOREIGN KEY ... ON DELETE CASCADE` issues on the intake's behalf, since
+SQLite fires a child table's `BEFORE DELETE` triggers for FK-cascaded deletes
+too. Physically deleting the intake row is therefore impossible without
+weakening that immutable-audit-trail guarantee, which this task does not do.
+Instead the job clears the two columns that actually hold the patient's
+answers — `encrypted_payload` (set to `''`) and `risk_flags_json` (set to
+`'[]'`) — and leaves the row and its immutable event trail in place. `age_band`
+and `safe_contact_mode` are left untouched: both are coarse, non-freeform
+values with no PHI content once the payload is gone, and `age_band`'s `CHECK`
+constraint has no "redacted" member to move to. The purge is logged in
+`pharmacy_emergency_retention_purge_log` (`custom_049`) the same way — a new
+table rather than widening `pharmacy_phi_retention_purge_log`'s `resource_type`
+`CHECK`, which SQLite cannot `ALTER` without a rebuild the additive-only
+migration policy forbids.
+
 `pharmacy_phi_retention_purge_log`
 (`packages/db/migrations/custom_037_pharmacy_phi_retention_purge_log.sql`) records
 `resource_id`, `r2_key`, the `age_reference_at` the boundary was measured
@@ -202,14 +239,18 @@ Ordered by risk. None of these are enforced today.
    9 hours, and mixing the two is exactly the kind of silent off-by-one that
    deletes live data. Also the largest row counts, so a bounded batching strategy
    matters more than for prescriptions.
-5. **Emergency contraception (`custom_035`).** Already has its own
-   `pharmacy_emergency_settings.retention_days` (1–365) knob, which is *shorter*
-   than 3 years and product-specific. Confirm with the operator whether the
-   uniform 3-year rule raises that floor or whether the shorter, deliberately
-   chosen window wins before touching it.
+5. ~~**Emergency contraception (`custom_035`).**~~ **Resolved 2026-08-22
+   (NEXT-2).** The account's own `pharmacy_emergency_settings.retention_days`
+   (1–365) — shorter than 3 years and a patient-facing promise — takes
+   precedence over the uniform rule for `pharmacy_emergency_intakes`. See
+   "Emergency contraception retention" above. `pharmacy_emergency_intake_events`
+   remains unenforced: its immutable-delete trigger makes it structurally an
+   audit table, so it is sequenced with item 7 below, not with its parent.
 6. **`pharmacy_webhook_event_receipts` stragglers.** Settled rows are purged at 30
    days, but `pending`/`processing` rows are deliberately never purged and carry
    raw LINE message bodies. A row stuck pending for 3 years is a PHI retention
    hole *and* a stuck-queue bug; fix the bug, do not add a delete.
 7. **Audit tables.** Sequencing question, not a mechanism question — they must
    outlive the data they describe. Decide the offset before implementing.
+   `pharmacy_emergency_intake_events` joins this group (see item 5): its
+   `BEFORE DELETE` trigger blocks any purge job today, deliberately.

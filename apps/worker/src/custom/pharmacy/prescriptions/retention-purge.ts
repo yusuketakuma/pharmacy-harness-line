@@ -41,7 +41,9 @@ const PURGE_BATCH_LIMIT = 50;
  * cutoff and be deleted. Those are kept instead — a missed purge is
  * recoverable, a wrong delete is not.
  */
-const UTC_TIMESTAMP_GLOB =
+// Exported so other retention purges (e.g. emergency-contraception/retention-purge.ts)
+// use the exact same fail-closed shape instead of re-deriving it.
+export const UTC_TIMESTAMP_GLOB =
   '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
 
 /** Calendar-correct so leap days do not shift the boundary. */
