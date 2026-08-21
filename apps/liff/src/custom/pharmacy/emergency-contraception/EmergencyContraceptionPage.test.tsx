@@ -45,6 +45,8 @@ const completeDraft: EmergencyIntakeDraft = {
   recentPurchaseCount: '0',
   patientWillVisit: true,
   acceptsInPersonDose: true,
+  // C2 must be answered (noneApply/unknown/at least one signal) before submit.
+  menstruationSignals: { ...EMPTY_EMERGENCY_DRAFT.menstruationSignals, noneApply: true },
   safeContactMode: 'neutral_line',
   manufacturerCheckAcknowledged: true,
 };
@@ -166,6 +168,7 @@ describe('emergency intake submit flow (WP-12)', () => {
       safeContactMode: '連絡方法をどちらか選んでください',
       manufacturerCheckAcknowledged: 'セルフチェックの確認にチェックしてください',
       consentAccepted: '説明と利用目的への同意にチェックしてください',
+      menstruationSignals: '当てはまるものを選ぶか、「当てはまるものはない」または「わからない」を選んでください',
     });
     expect(emergencyIntakeFieldErrors({ ...completeDraft, consentAccepted: true })).toEqual({});
     for (const message of Object.values(emergencyIntakeFieldErrors(EMPTY_EMERGENCY_DRAFT))) {

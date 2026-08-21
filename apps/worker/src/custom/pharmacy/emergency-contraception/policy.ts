@@ -149,10 +149,12 @@ export function assessEmergencyPrecheck(
   if (detailFlags.length > 0) riskFlags.push('pre_review_flagged');
 
   // C1/C2: pharmacist-only signal, never mirrored into risk_flags_json.
+  // Safe-side default: recommended unless the patient explicitly said "none
+  // apply" AND the date is known. This also covers the unanswered case (no
+  // signal checked, noneApply/unknown both false) — treated the same as
+  // "unknown" rather than silently defaulting to "no test needed".
   const signals = input.menstruationSignals;
-  const pregnancyTestRecommended = input.lastMenstruationDate === null || signals.unknown ||
-    signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
-    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+  const pregnancyTestRecommended = !(signals.noneApply && input.lastMenstruationDate !== null);
 
   const blockingReason = !input.patientWillVisit
     ? 'patient_presence_required'

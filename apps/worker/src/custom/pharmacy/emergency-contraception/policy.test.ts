@@ -186,8 +186,10 @@ describe('assessEmergencyPrecheck pregnancy test recommendation (C1/C2)', () => 
 });
 
 describe('validMenstruationSignals exclusivity', () => {
-  it('accepts none of noneApply/unknown/signals set', () => {
+  it('accepts an unanswered C2 (noneApply/unknown/signals all unset) but recommends a test as the safe default', () => {
     expect(validMenstruationSignals(noSignals)).toBe(true);
+    const result = assessEmergencyPrecheck({ ...base, lastMenstruationDate: '2026-08-01', menstruationSignals: noSignals });
+    expect(result.pregnancyTestRecommended).toBe(true);
   });
 
   it('accepts multiple positive signals together', () => {

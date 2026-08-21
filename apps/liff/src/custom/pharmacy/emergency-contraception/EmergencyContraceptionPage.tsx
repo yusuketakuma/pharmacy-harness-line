@@ -88,6 +88,14 @@ function validMenstruationSignalsClient(signals: EmergencyMenstruationSignals): 
   return true;
 }
 
+// C2 must be explicitly answered before submit: noneApply, unknown, or at
+// least one signal. Leaving it untouched is not the same as "none apply".
+function menstruationSignalsAnswered(signals: EmergencyMenstruationSignals): boolean {
+  return signals.noneApply || signals.unknown ||
+    signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
+    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+}
+
 /** Next-steps shown on the completion screen; never includes any computed judgement. */
 export function emergencyCompletionNextSteps(anyPhaseBFlagChecked: boolean, referenceCode: string): string[] {
   const steps = [
@@ -194,6 +202,8 @@ export function emergencyIntakeFieldErrors(draft: EmergencyIntakeDraft): Emergen
   if (!draft.consentAccepted) errors.consentAccepted = '説明と利用目的への同意にチェックしてください';
   if (!validMenstruationSignalsClient(draft.menstruationSignals)) {
     errors.menstruationSignals = '「当てはまるものはない」「わからない」と具体的な項目は同時に選べません';
+  } else if (!menstruationSignalsAnswered(draft.menstruationSignals)) {
+    errors.menstruationSignals = '当てはまるものを選ぶか、「当てはまるものはない」または「わからない」を選んでください';
   }
   return errors;
 }
