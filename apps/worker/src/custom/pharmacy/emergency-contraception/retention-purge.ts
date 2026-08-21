@@ -2,6 +2,13 @@
 // the per-account promise shown to the patient at consent time
 // (EmergencyContraceptionPage.tsx "保存期間 N日間"). Nothing purged this before.
 //
+// CAVEAT (open question, not resolved here): this only clears encrypted_payload
+// and risk_flags_json. owner_friend_id, age_band, safe_contact_mode, status, and
+// the immutable intake_events/reminders/access_events audit trails all survive
+// past retention_days, so an identifying "friend X consulted about EC on date Y"
+// record persists. See RETENTION_MATRIX.md "Emergency contraception retention"
+// for the full residual-column list and the tombstoning question this leaves open.
+//
 // Fail-closed rules, mirroring prescriptions/retention-purge.ts (H-5):
 //   - An intake is purgeable only when created_at matches the UTC-`Z` shape the
 //     runtime actually writes. Anything else is unparseable and is kept, not

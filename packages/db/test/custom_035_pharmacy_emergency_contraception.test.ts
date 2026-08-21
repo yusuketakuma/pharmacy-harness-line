@@ -395,6 +395,42 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       .rejects.toThrow('trained pharmacist access required');
   });
 
+  it('returns a redacted detail instead of failing decryption once retention-purge has cleared the payload', async () => {
+    // NEXT-2's retention-purge.ts redacts encrypted_payload to '' in place
+    // rather than deleting the row (see RETENTION_MATRIX.md). Simulate that here
+    // directly, since exercising the cron job itself is covered by its own tests.
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    const created = await createEmergencyIntake(d1, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'no_notification', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-redacted',
+      encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
+    });
+    db.prepare(`UPDATE pharmacy_emergency_intakes
+        SET encrypted_payload = '', risk_flags_json = '[]'
+      WHERE id = ?`).run(created.id);
+
+    await expect(getAdminEmergencyIntakeDetail(
+      d1, 'account-a', created.id, 'staff-a', 'test-secret', new Date(REOPENED_NOW),
+    )).resolves.toEqual(expect.objectContaining({
+      id: created.id, redacted: true, self_reported: null,
+    }));
+    // The access audit still records the read; only the decrypt attempt is skipped.
+    expect(db.prepare(`SELECT intake_id, staff_id
+      FROM pharmacy_emergency_intake_access_events`).all()).toEqual([{
+      intake_id: created.id, staff_id: 'staff-a',
+    }]);
+
+    const page = await listAdminEmergencyIntakes(
+      d1, 'account-a', { limit: 20 }, new Date(REOPENED_NOW),
+    );
+    expect(page.intakes).toEqual([expect.objectContaining({ id: created.id })]);
+  });
+
   it('uses CAS transitions and appends an immutable event', async () => {
     db.prepare(`UPDATE pharmacy_emergency_slots
       SET starts_at = ?, ends_at = ?

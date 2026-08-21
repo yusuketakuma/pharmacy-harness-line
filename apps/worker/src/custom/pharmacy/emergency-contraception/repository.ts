@@ -75,10 +75,14 @@ export interface EmergencyIntakeProjection {
 }
 
 export interface AdminEmergencyIntake extends EmergencyIntakeProjection {
+  // NEXT-2: once retention-purge.ts has redacted encrypted_payload (past the
+  // account's retention_days), there is nothing left to decrypt. self_reported
+  // is null and redacted is true instead of decrypting and throwing.
+  redacted: boolean;
   self_reported: {
     intercourseAt: string;
     intercourseTimeUnknown: boolean;
-  };
+  } | null;
 }
 
 export interface CreateEmergencyIntakeInput {
@@ -903,6 +907,13 @@ export async function getAdminEmergencyIntakeDetail(
     crypto.randomUUID(), staffId, accessedAt, intakeId, lineAccountId, staffId,
   ).run();
   if ((audit.meta?.changes ?? 0) !== 1) throw new Error('sensitive read audit unavailable');
+  // NEXT-2: retention-purge.ts redacts encrypted_payload to '' past retention_days
+  // rather than deleting the row. There is nothing to decrypt at that point —
+  // openEmergencyPayload would throw on the empty ciphertext, turning an expected
+  // "this record aged out" state into a 503 outage for staff.
+  if (row.encrypted_payload === '') {
+    return { ...projection(row, now), redacted: true, self_reported: null };
+  }
   const payload = await openEmergencyPayload(row.encrypted_payload, encryptionSecret, {
     tenantId: row.tenant_id,
     lineAccountId: row.line_account_id,
@@ -915,6 +926,7 @@ export async function getAdminEmergencyIntakeDetail(
   }
   return {
     ...projection(row, now),
+    redacted: false,
     self_reported: {
       intercourseAt: payload.intercourseAt,
       intercourseTimeUnknown: payload.intercourseTimeUnknown,

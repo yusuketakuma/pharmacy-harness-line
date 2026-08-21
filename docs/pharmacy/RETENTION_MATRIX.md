@@ -74,7 +74,7 @@ string and a `Z` string do not compare correctly against the same cutoff.
 | --- | --- | --- | --- | --- |
 | `pharmacy_prescription_files` | R2 pointer to the 処方箋画像 | `created_at` NOT NULL | ISO `Z` | R2 object deleted, row set `state='deleted'`, logged in `pharmacy_phi_retention_purge_log` |
 | `pharmacy_webhook_event_receipts` | raw LINE webhook body — message text, `userId`, image ids | `received_at` NOT NULL | **JST `+09:00`** | already purged at **30 days** for settled rows (M-7, `purgeWebhookEventReceipts`); `pending`/`processing` rows are never purged and can therefore outlive 3 years |
-| `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` | **account's own `pharmacy_emergency_settings.retention_days` (1–365) takes precedence over the uniform 3-year rule** — resolved 2026-08-22 (NEXT-2), see "Emergency contraception retention" below |
+| `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` | **partially enforced** — account's own `pharmacy_emergency_settings.retention_days` (1–365) takes precedence over the uniform 3-year rule for the self-declaration payload only (NEXT-2); see "Emergency contraception retention" below for the residual identifying columns this does **not** clear |
 
 ### Not yet enforced — 3-year boundary defined, no purge job
 
@@ -205,6 +205,22 @@ table rather than widening `pharmacy_phi_retention_purge_log`'s `resource_type`
 `CHECK`, which SQLite cannot `ALTER` without a rebuild the additive-only
 migration policy forbids.
 
+**Residual identifying data past `retention_days` (open question, not
+resolved by NEXT-2).** Redacting `encrypted_payload` and `risk_flags_json`
+only clears the self-declaration payload. Everything else on the row, and
+every table that links back to it, is retained indefinitely today:
+`owner_friend_id` (identifies the LINE friend), `age_band`, `safe_contact_mode`,
+`product_code`, `status`, `slot_id`, `reference_code`, `created_at`/`updated_at`,
+`reviewed_by`/`reviewed_at`, `closed_by`/`closed_at` on the intake row itself,
+plus the immutable `pharmacy_emergency_intake_events` (`custom_035`),
+`pharmacy_emergency_reminders` (`custom_047`), and
+`pharmacy_emergency_intake_access_events` (`custom_044`) audit trails. Together
+these still let a reader reconstruct "friend X consulted about EC on date Y,
+age band Z" past the promised N days. Whether the patient promise requires
+tombstoning `owner_friend_id` / `age_band` — which would need a migration and
+a deliberate change to the no-delete audit invariant this document has
+otherwise treated as fixed — is an open product question, not decided here.
+
 `pharmacy_phi_retention_purge_log`
 (`packages/db/migrations/custom_037_pharmacy_phi_retention_purge_log.sql`) records
 `resource_id`, `r2_key`, the `age_reference_at` the boundary was measured
@@ -239,13 +255,20 @@ Ordered by risk. None of these are enforced today.
    9 hours, and mixing the two is exactly the kind of silent off-by-one that
    deletes live data. Also the largest row counts, so a bounded batching strategy
    matters more than for prescriptions.
-5. ~~**Emergency contraception (`custom_035`).**~~ **Resolved 2026-08-22
-   (NEXT-2).** The account's own `pharmacy_emergency_settings.retention_days`
-   (1–365) — shorter than 3 years and a patient-facing promise — takes
-   precedence over the uniform rule for `pharmacy_emergency_intakes`. See
-   "Emergency contraception retention" above. `pharmacy_emergency_intake_events`
-   remains unenforced: its immutable-delete trigger makes it structurally an
-   audit table, so it is sequenced with item 7 below, not with its parent.
+5. **Emergency contraception (`custom_035`) — partially enforced, open
+   question.** NEXT-2 (2026-08-22) enforces the account's own
+   `pharmacy_emergency_settings.retention_days` (1–365) — shorter than 3 years
+   and a patient-facing promise — but only for `pharmacy_emergency_intakes`'
+   self-declaration payload (`encrypted_payload`, `risk_flags_json`, redacted
+   in place). See "Emergency contraception retention" above for the residual
+   identifying columns (`owner_friend_id`, `age_band`, status, and the
+   event/reminder/access audit rows) this does **not** clear. Open question:
+   does the patient promise require tombstoning `owner_friend_id` / `age_band`
+   too? That would need a migration and a change to the no-delete audit
+   invariant, and is a human product decision, not resolved here.
+   `pharmacy_emergency_intake_events` remains unenforced: its immutable-delete
+   trigger makes it structurally an audit table, so it is sequenced with item 7
+   below, not with its parent.
 6. **`pharmacy_webhook_event_receipts` stragglers.** Settled rows are purged at 30
    days, but `pending`/`processing` rows are deliberately never purged and carry
    raw LINE message bodies. A row stuck pending for 3 years is a PHI retention
