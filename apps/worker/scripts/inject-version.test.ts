@@ -319,4 +319,24 @@ describe('injectVersion.write', () => {
     expect(content).toContain('export const WORKER_ASSETS_HASH = "sha256:dddd"');
     expect(content).toContain('export const RELEASED_AT = "2026-05-12T03:00:00Z"');
   });
+
+  it.each(['workerPackageVersion', 'webPackageVersion', 'liffPackageVersion'] as const)(
+    'rejects an empty %s',
+    (field) => {
+      const data = {
+        version: '0.8.0',
+        workerPackageVersion: '0.8.0',
+        webPackageVersion: '0.8.0',
+        liffPackageVersion: '0.8.0',
+        workerHash: 'sha256:aaaa',
+        adminHash: 'sha256:bbbb',
+        liffHash: 'sha256:cccc',
+        workerAssetsHash: 'sha256:dddd',
+        releasedAt: '2026-05-12T03:00:00Z',
+      };
+
+      expect(() => injectVersion.write(join(dir, '_version.ts'), { ...data, [field]: '' }))
+        .toThrow(`inject-version: ${field} must be a semantic version`);
+    },
+  );
 });

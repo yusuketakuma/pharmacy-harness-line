@@ -65,6 +65,8 @@ describe('pharmacy rich-menu layout panel', () => {
     const page = readFileSync(join(HERE, '../../../app/rich-menus/page.tsx'), 'utf8');
     const accounts = readFileSync(join(HERE, '../../../app/accounts/page.tsx'), 'utf8');
     const featureSettings = readFileSync(join(HERE, '../growth-loop/FeatureSettingsPage.tsx'), 'utf8');
+    const resetStart = panel.indexOf('useEffect(() => {\n    setLayout(null)');
+    const accountReset = panel.slice(resetStart, panel.indexOf('\n  }, [load])', resetStart));
 
     expect(api).toContain('/api/custom/pharmacy/rich-menus/layout?accountId=');
     expect(api).toContain('/api/custom/pharmacy/rich-menus/lifecycle?accountId=');
@@ -108,6 +110,12 @@ describe('pharmacy rich-menu layout panel', () => {
     expect(panel).toContain('aria-modal="true"');
     expect(panel).toContain('page.imageR2Key !== version.imageR2Key');
     expect(panel).toContain('accountRef.current !== requestedAccountId');
+    expect(accountReset).toContain('setSaving(false)');
+    expect(accountReset).toContain('setLifecycleSaving(false)');
+    expect(accountReset).toContain('setCreating(false)');
+    expect(accountReset).toContain('setRenaming(null)');
+    expect(accountReset).toContain('setDeleting(null)');
+    expect(accountReset).toContain('setPublishing(null)');
     expect(panel).toContain('check.actionType');
     expect(panel).toContain('initialSetDefaultIntent={switchIntent}');
     expect(panel).toContain('<ApplyToTagModal');

@@ -1,5 +1,17 @@
 # Changelog
 
+## Pharmacy v0.30.2 (2026-08-22)
+
+### リッチメニューと運用診断の安定化
+
+- 6画面リッチメニューの画像とtap領域のずれを修正し、228画像のcatalogをLINEのupload上限内へ圧縮
+- configuration doctorのrich-menu readinessを順序に依存しない判定へ修正し、LIFF endpointのredirect・upstream status・失敗段階を安全に表示
+- catalogが変更されていないdeployでは画像生成とR2公開を省略
+- 新しいimmutable catalogの公開時はR2 object一覧を1回取得し、途中再開で既存の画像だけを再照合して未作成画像だけをupload
+- runtime version注入で空のpackage versionを生成していたshell quotingを修正し、空値や不正なsemantic versionをbuild時に拒否
+- リッチメニュー管理中にaccountを切り替えた際、旧accountの処理中表示が新accountへ残る不具合を修正
+- database migrationは追加せず、runtime package versionを`0.30.2`へ統一
+
 ## Pharmacy v0.30.1 (2026-08-21)
 
 ### リッチメニュー初期表示の修正
