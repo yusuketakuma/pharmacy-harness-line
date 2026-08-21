@@ -1,6 +1,6 @@
 # 緊急避妊薬 事前情報収集フォーム v2（product contract）
 
-状態: 計画確定 2026-08-22。実装は `PLANS.md` の `ECF` 節。precedence: 本書 > `PLANS.md`。
+状態: Phase A/B 実装済み（ローカル）。実装は `PLANS.md` の `ECF` 節。precedence: 本書 > `PLANS.md`。
 
 ## 1. 方針（operator 裁定 2026-08-22）
 
@@ -28,12 +28,12 @@
 | A4 | 肝臓病の診断を受けている | 同上 |
 | A5 | 現在妊娠している | 同上（受診勧奨対象） |
 | A' | 授乳中 | フラグ（24時間授乳回避の説明用） |
-| B1 | 医師の治療を受けている | フラグ。完了画面に「お薬手帳を持参」 |
+| B1 | 医師の治療を受けている | フラグ。完了画面に「お薬手帳を持参」（実装: B1〜B4 のいずれか1つでもチェックされれば表示。より安全側） |
 | B2 | 薬でアレルギー症状が出たことがある | フラグ |
 | B3 | 心臓病・腎臓病・重度の消化器疾患の診断 | フラグ |
 | B4 | セイヨウオトギリソウ（セント・ジョーンズ・ワート）を含む食品を摂っている | フラグ |
 | C1 | 直近の月経開始日（不明可） | payload |
-| C2 | 当てはまるものにチェック（複数可）／当てはまらない／わからない: 直近月経から約1か月超で月経なし・出産等の後に月経未回復・直近月経がいつもと違った（量が少ない/期間が短い）・直近月経以降、今回より前に妊娠の可能性が心配だった出来事があり3週間以上経過 | server が `pregnancy_test_recommended` を算出（**薬剤師のみ表示**、患者に見せない） |
+| C2 | 当てはまるものにチェック（複数可）／当てはまらない／わからない: 直近月経から約1か月超で月経なし・出産等の後に月経未回復・直近月経がいつもと違った（量が少ない/期間が短い）・直近月経以降、今回より前に妊娠の可能性が心配だった出来事があり3週間以上経過 | server が `pregnancy_test_recommended` を算出（**薬剤師のみ表示**、患者に見せない）。**未回答は『わからない』と同じ扱い（検査推奨）**: `noneApply` かつ月経開始日が既知の場合のみ `false`、それ以外（未回答・`unknown`・いずれかの signal 該当のいずれも）は `true` |
 | D1 | 年齢（既存） | `under_16` / `minor_review`（既存） |
 | D2 | 過去3か月の使用回数（既存）＋「回数で受付をお断りするものではありません」 | `repeat_purchase_review`（既存） |
 | D3 | 本人確認書類を持参できる（任意） | payload |
@@ -50,14 +50,18 @@
 - `checklist_version`（`product_code → version` の code 内 map）を intake・対面確認・販売記録に複写する。`manufacturer_check_url` は単一取扱製品前提を管理画面に注記（併売は別判断）。
 - access audit に「どの項目を見たか」を足さない。
 
-## 5. 薬剤師側（Phase B）
+## 5. 薬剤師側（Phase B・実装済み）
 
-- detail: A〜D をセクション別に「申告（未確認）」表示。**対面確認はセクション単位の✓＋「申告と相違あった項目」だけ個別マーク**（薬剤師ID・時刻）。A セクション✓なしでは `completed` に遷移できない（CAS UPDATE の WHERE に畳む。trigger は作らない）。
+- detail: A〜D をセクション別に「申告（未確認）」表示。**対面確認はセクション単位の✓＋「申告と相違があった項目」だけ個別マーク**（薬剤師ID・時刻）。A セクション✓なしでは `completed` に遷移できない（CAS UPDATE の WHERE に畳む。trigger は作らない）。
+  - API: `PUT /api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section`（`section` は `A`/`B`/`C`/`D`）。`pharmacy_emergency_counter_confirmations` へ `INSERT ... ON CONFLICT (line_account_id, intake_id, section) DO UPDATE` で upsert する — セクションを再確認しても行が増えず、最新の確認だけが残る。`mismatch_items_json` には申告フィールドのキー（例: `lngAllergy`）だけを保持し、患者の実際の回答値は含まない。
+  - `event_type` の CHECK は additive-only で拡張していないため、対面確認そのものには専用の管理イベントを作らない（別テーブルの行そのものが記録）。
+  - `GET /api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section` で単一セクションの確認状態を取得する。
 - 販売記録 `pharmacy_emergency_sale_records`（additive、immutable trigger、`UNIQUE(line_account_id, intake_id)`、`owner_friend_id` 保持で legal hold 対象）:
+  - API: `POST /api/custom/pharmacy/emergency-contraception/intakes/:id/sale`（`sale:{intakeId}` の idempotency key で再送は既存の不変レコードをそのまま返す）、`GET .../sale` で取得。
   - 平文: `outcome(sold|refused)`、`sold_at`、`product_code`、`quantity=1`、`pharmacist_staff_id`、`training_registration_number`（複写）、`in_person_dose`、`identity_check(document|verbal|unverified)`、`checklist_sheets_received`、`checklist_version`
-  - **暗号化**: 妊娠検査結果、販売不可理由コード、受診勧奨先、紹介先（児相通告を含む）、説明済み項目
-  - 販売不可は `status='cancelled'` ＋ `outcome='refused'`（status/event_type の CHECK は拡張不可）
-  - 保存 class は **一律3年**（2年は法令下限）。`retention_days` redaction の対象外。
+  - **暗号化**（`determination_encrypted`）: 妊娠検査結果、販売不可理由コード、受診勧奨先、紹介先（児相通告を含む）、説明済み項目
+  - 販売不可は `status='cancelled'` ＋ `outcome='refused'`（status/event_type の CHECK は拡張不可）。管理画面の「薬剤師記入欄」で「販売」を「販売しなかった」にすると、理由（年齢確認不能／禁忌に該当／チェックシート不備／本人の辞退／その他）の選択が現れる。
+  - 保存 class は **一律3年**（2年は法令下限）。`retention_days` redaction の対象外 — `pharmacy_emergency_intakes.encrypted_payload` の redaction は sale_records には及ばない。`determination_encrypted` を持つため、3年境界の実 purge が来たときは行削除ではなく `determination_encrypted` の redaction になる（`no_delete` trigger のため。`RETENTION_MATRIX.md` NEXT-5 順序表を参照）。
 - 読み取りは `requireTrainedPharmacist` ＋ fail-closed access event。platform-admin からは `patient-operation` DEFERRED。
 
 ## 6. 非目標
@@ -66,5 +70,5 @@
 
 ## 7. リリース分割
 
-- **Phase A**（先行・小）: A3/A4/A5/A' を payload v2 で追加、期限の事前表示、owner projection 分離、同意 v2、代替導線。schema 変更なし。
-- **Phase B**: B/C/D3、対面確認、販売記録（custom_051）、管理画面 detail/記入欄、manual 更新。
+- **Phase A**（先行・小、実装済み）: A3/A4/A5/A' を payload v2 で追加、期限の事前表示、owner projection 分離、同意 v2、代替導線。schema 変更なし。
+- **Phase B**（実装済み・ローカル）: B/C/D3、対面確認、販売記録（custom_051）、管理画面 detail/記入欄、manual 更新。

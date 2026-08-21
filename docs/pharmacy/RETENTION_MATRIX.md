@@ -86,6 +86,37 @@ values. `encrypted_payload` (`schema_version: 2`) additionally carries
 existing AES-GCM envelope, no new plaintext columns. `listOwnerEmergencyIntakes`
 (patient-facing projection) does not carry `risk_flags` or `age_band`.
 
+ECF-6 (Phase B) adds the following fields to the same `schema_version: 2`
+encrypted payload, still inside the existing AES-GCM envelope with no new
+plaintext columns: `underMedicalTreatment`, `drugAllergyHistory`,
+`heartKidneyGiDisease`, `stJohnsWort` (B1-B4), `lastMenstruationDate`,
+`menstruationSignals` (C1/C2), `idDocumentAvailable` (D3), and the
+server-computed `pregnancy_test_recommended` (pharmacist-only; never shown to
+the patient, never mirrored into `risk_flags_json`).
+
+### Phase B additions (ECF-5): counter confirmations and sale records
+
+| Table | PHI | Age reference | Format | Enforcement |
+| --- | --- | --- | --- | --- |
+| `pharmacy_emergency_counter_confirmations` | none — `mismatch_items_json` holds only item codes (e.g. `lngAllergy`), never the patient's actual answers, which stay sealed in `pharmacy_emergency_intakes.encrypted_payload` | `confirmed_at` NOT NULL | ISO `Z` | **not enforced** — 3-year class, same as the intake it confirms; no purge job today |
+| `pharmacy_emergency_sale_records` | plaintext `outcome`/`sold_at`/`product_code`/`identity_check`/`in_person_dose`/`checklist_sheets_received`/`pharmacist_staff_id`/`training_registration_number`; `determination_encrypted` (AES-GCM: pregnancy test result, refusal reason code, referral, explained items) | `sold_at` NOT NULL | ISO `Z` | **not enforced** — 3-year class (statutory minimum per 医薬総発 0331 第2号 4(3)), **not** the account's `retention_days`; see below |
+
+`pharmacy_emergency_sale_records` carries its own `owner_friend_id` column
+(not resolved via a join to the intake) specifically so the legal-hold query
+against `pharmacy_data_subject_requests(line_account_id, owner_friend_id)`
+stays a plain equality lookup even after the parent intake row has been
+redacted by NEXT-2. It is **not** touched by the `retention_days` redaction
+described above — that redaction only clears `pharmacy_emergency_intakes.encrypted_payload`
+/ `risk_flags_json`, never the statutory sale record, which is a distinct
+table with its own 3-year class and an unconditional `BEFORE UPDATE` /
+`BEFORE DELETE` trigger (`pharmacy_emergency_sale_records_no_update` /
+`pharmacy_emergency_sale_records_no_delete`) making it immutable. Because of
+that `no_delete` trigger, a future 3-year boundary purge cannot delete this
+row outright — like `pharmacy_emergency_intake_events` (row 26 below), it must
+**redact `determination_encrypted`** (set to `''`) rather than delete, leaving
+the plaintext statutory columns (`outcome`, `sold_at`, `product_code`,
+`identity_check`, etc.) in place as the durable record required by law.
+
 ### Not yet enforced — 3-year boundary defined, no purge job
 
 Prescription aggregate (root `pharmacy_prescription_submissions.created_at`):
@@ -332,6 +363,7 @@ deletes leaf-first explicitly for auditability rather than relying on cascade.
 | 26 | `pharmacy_emergency_intake_events` | `occurred_at` | Z | n/a | emergency_intakes (CASCADE, blocked) | **redact, not delete** — solely because `pharmacy_emergency_events_no_delete` `BEFORE DELETE` trigger aborts every delete including FK-cascaded ones; NEXT-2 only redacts the parent `pharmacy_emergency_intakes` row, it does not touch this table |
 | 27 | `pharmacy_emergency_admin_events` | `occurred_at` | Z | n/a | — (audit) | **redact, not delete** — `pharmacy_emergency_admin_events_no_delete` `BEFORE DELETE` trigger aborts every delete, same shape as row 26 |
 | 28 | `pharmacy_activity_notifications`, `platform_admin_access_events` | `created_at` | Z | `retentionCutoff()` | none blocking (only line_account/staff FKs) | audit-only; no `no_delete` trigger, but sequence **after** everything above per existing "audit-only" guidance |
+| 29 | `pharmacy_emergency_sale_records` (custom_051) | `sold_at` | Z | `retentionCutoff()` | emergency_intakes (no CASCADE; owner match enforced by `pharmacy_emergency_sale_owner_match` BEFORE INSERT trigger, not a FK) | **redact, not delete** — `pharmacy_emergency_sale_records_no_delete` `BEFORE DELETE` trigger aborts every delete (same shape as row 26); a 3-year purge must instead redact `determination_encrypted` (set to `''`), leaving the statutory plaintext columns (`outcome`, `sold_at`, `product_code`, `identity_check`, `in_person_dose`, `pharmacist_staff_id`, `training_registration_number`, `checklist_sheets_received`) in place; legal-hold check joins via its own `owner_friend_id` column, not via `pharmacy_emergency_intakes` |
 
 `pharmacy_emergency_intakes` itself is already **redact, not delete** (see
 "Enforced" above, NEXT-2) — it is not in this table because it has a purge
