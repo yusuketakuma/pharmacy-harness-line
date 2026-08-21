@@ -2,6 +2,86 @@
 
 ## Active
 
+### NEXT - v0.30.2後の残作業整理・Myna公開URL署名化・retention実施 - 2026-08-22 計画
+
+**基準**: `dev` / `1c42cfd`。seller release `pharmacy-v0.30.2`（2026-08-22）まで出荷済み、全package `0.30.2`。`team_validation_mode: subagent`（Product / Architecture / Security / QA / Skeptic の5視点を独立read-onlyレビューし、本節は反映後）。
+
+**判明した前提**:
+
+- V029-13・V030-0/2/2D/3/6 の未完了部分はすべて外部Human Gate（実LINE端末受入、v0.29 binary rollback drill、synthetic account初期設定end-to-end、schema apply/activation evidence）。CHANGELOG・git log・`.claude/state/`・`docs/pharmacy/` のいずれにも実施証跡がない（`not_observed`、absentとは断定しない）。V030-6は「package/tagは全gate後」と定めていたが、`pharmacy-v0.30.0`〜`0.30.2` はgate未実施のまま発行された。これは台帳遅れではなくrelease policy逸脱として記録する。
+- `tenant_alias` は `custom_005:35` でglobal UNIQUEであり、cross-tenant衝突・誤lookupは構造上起きない。以前の「alias衝突」起票は**却下**。実在する問題は `/r/myna/:tenantAlias` が無認証（`auth.ts:476`）かつrate limit除外（`rate-limit.ts:171`）で、302 `Location` に復号済みendpoint URL（path/query含む）を返すため、alias総当たりでテナント側URLが列挙できること。
+- retention: purge jobは処方箋画像（`prescriptions/retention-purge.ts`）とwebhook receipt（30日）だけ。`pharmacy_phi_retention_purge_log.resource_type` のCHECKは `'prescription_file'` のみ（`custom_037:22`）。既存purgeは `pharmacy_data_subject_requests.legal_hold` を参照しない。`pharmacy_emergency_settings.retention_days`（1〜365日）は同意画面で患者に「保存期間 N日間」と表示している（`EmergencyContraceptionPage.tsx:589`）が、削除処理が存在しない。
+- lint/formatter設定はrepoに存在せず、AGENTS.mdにも要件がない。CI（`repository-verify.yml`）は `verify:ci` のみ。
+- LIFF version contract（`MainMenuPage.test.tsx:46`）は `0.30.2` で整合、LIFF 19 files / 100 tests green。
+
+**Spec delta**: `docs/pharmacy/RETENTION_MATRIX.md` へ (1) 緊急避妊薬 `retention_days` を一律3年より優先する患者約束として明記し「Enforced」へ移動、(2) 「Not yet enforced」の各表へ削除順序（leaf→root）とFK依存、JST/UTC書式別cutoffを追記、(3) incoming画像の追跡方式をadditive columnへ確定。Myna launch URLの契約（aliasを公開URLへ出さず短命署名トークンを使う）は `docs/pharmacy/SECURITY_REVIEW_EVIDENCE_2026-08-19.md` の後継として `docs/pharmacy/MYNA_LAUNCH_URL.md` に1ページで固定する。root `spec.md` は存在しないため既存 `docs/pharmacy/` を product contract として扱う。
+
+**非目標**: 3年境界purgeの本体実装（初commit 2026-03-23のため2029年まで対象行が存在しない。設計とmatrix更新に留める）、全repo一括format、V031着手（V030-3のread-back/rollback実証が無い）、真のMFA/別origin/role細分化（インフラ判断）、production migration/backfill/scrub/deploy/LINE mutation。
+
+- [ ] **NEXT-0 台帳突合とHuman Gate register** `[lane:fast]` `[tdd:skip:docs-only]` cc:TODO
+  - V029-13、V030-0/2/2D/3/6 のローカル完了分をrelease evidence（tag、CHANGELOG v0.29.0/0.30.0/0.30.1/0.30.2）付きで `[x]` にし、未実施の外部gateを本節末尾の「Human Gate register」へ `NOT_RUN` / `unknown` で移す。patch release 0.30.1/0.30.2 の内容を V030 節へ履歴として追記する。
+  - V030-6「package/tagは全gate後」の逸脱を事実として記録し、次回releaseの順序をV031-5のDoDへ転記する。P0〜P8、LIFF-MENU、FLE、U22 の完了節は `## Done` へ移す。
+  - **DoD**: PLANS.md に未説明の `- [ ]` が残らず、外部gateが全件registerに1行ずつ `担当 / 実施条件 / 状態` を持つ。`git diff --check` 成功。
+
+- [ ] **NEXT-1 Myna launch URLの署名トークン化（alias列挙の遮断）** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `launchUrl()`（`myna/routes.ts:77-80`）の呼び出し元は認証済みhandler 2箇所（`:145`, `:173`）のみ。public alias の代わりに `MYNA_ENDPOINT_ENCRYPTION_KEY` 由来のHMAC短命トークン（`lineAccountId|exp`）をpathへ埋め、`/r/myna/:token` が検証後にのみ302する。migration不要、外部browser導線（`openExternalBrowser=1`）は維持する。
+  - 旧 `/r/myna/:tenantAlias` は一定期間併存させず、同一releaseで廃止し固定404へ（既存active handoffのURLは短命なので互換不要。要確認: handoff有効期限がトークン期限を超えないこと）。
+  - 暫定として `rate-limit.ts:171` の `/r/` 無条件skipを `/r/myna/` に適用しないよう1行で限定する（本修正が入っても残す）。
+  - **Red -> Green**: 期限切れ/改竄/別accountトークン404、有効トークンのみ302、`Location` にaliasが含まれない、unknown/expired応答の一致、no-store/no-referrer/CSP維持、rate limit適用、`routes.test.ts:245` の既存privacy header testが通る。`[tdd:required]`
+  - **DoD**: `myna/routes.test.ts` に上記negative testが追加され `pnpm --filter worker test -- myna` green、`MYNA_LAUNCH_URL.md` 作成済み。
+
+- [ ] **NEXT-2 緊急避妊薬 `retention_days` purge** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `custom_049` で `pharmacy_phi_retention_purge_log.resource_type` CHECKを拡張する。SQLiteはCHECK変更不可のため、`check-migrations.ts` が拒否するDROP/RENAMEを避けて**加算の新table**（例: `pharmacy_phi_retention_purge_log_v2`）または新resource種別用の別logを作る。先にmigration、次にcode。
+  - `prescriptions/retention-purge.ts` を雛形に、account別 `retention_days` を超えた `pharmacy_emergency_*` intake（encrypted_payload, age_band, risk_flags_json, event）をleaf→root順で削除する。`legal_hold = 1 AND (legal_hold_release_at IS NULL OR > now)` の患者配下はskipし件数のみ記録。1バッチ=1 account、account間を跨がず、1 accountの失敗で他accountを止めない。
+  - 既存の6h cron block（`index.ts:1252-1291`）へ同形式で登録し、`boundary.test.ts:29` と同じ呼び出し行assertionを追加する（dead code防止）。
+  - dry-run: 既存jobに無い新surfaceのため `options.dryRun` を**この新job限定**で持たず、代わりにlimit上限（100）と件数ログで揃える。全jobへのdry-run統一は非目標。
+  - **Red -> Green**（`retention-purge.test.ts` の6構成を踏襲、実SQLite）: ±1日境界、log行完全一致、書式不一致行skip、legal hold skip、冪等、batch上限、cross-account非影響、ログ/例外にpayload・氏名・電話・住所が出ない。
+  - **DoD**: 新testファイルgreen、`custom_049` が `scripts/check-migrations.ts` green、bootstrap artifact再生成、`RETENTION_MATRIX.md` の「Enforced」へ移動。
+
+- [ ] **NEXT-3 既存処方箋purgeへlegal hold除外を後付け** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `purgePrescriptionFilesPastRetention` に NEXT-2 と同じ legal hold 述語を追加する。現状は保存基準が一致するため実害なしだが、`legal_hold_release_at` が3年を超えた瞬間に不整合になる。
+  - **DoD**: `retention-purge.test.ts` に「hold中は `skipped:1, purged:0`」が追加されgreen。
+
+- [ ] **NEXT-4 incoming LINE画像の追跡column（forward-only）** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `incoming-image.ts:63` で書くR2 keyが `messages_log.content` のJSON内URLにしか無い。`custom_050` で追跡column（または加算table）を足し、`webhook.ts:781` の書込時に保存する。既存objectの遡及sweepとprefix年齢による盲目削除はしない（`RETENTION_MATRIX.md:197-200`）。purge本体は3年境界と同じく非目標。
+  - **DoD**: 実SQLite testで新着画像のkeyが追跡され、既存rowはNULLのまま。`messages_log` のJST書式に触れない。
+
+- [ ] **NEXT-5 retention 3年purgeの削除順序spec（実装なし）** `[lane:fast]` `[tdd:skip:docs-only]` cc:TODO
+  - `RETENTION_MATRIX.md:180-215` の未解決点を表にする: ON DELETE CASCADE無しの約11 table のleaf→root順、`pharmacy_data_subject_requests` → `pharmacy_patients` FK（ON DELETE無し）、`candidate_submission_id` が新しいsubmissionを指す件、JST `+09:00` table（`messages_log`/`chats`/`friends`）の別cutoff。
+  - **DoD**: 各tableに削除順番号・依存先・書式・cutoff関数名が1行ずつ記載され、実装taskは2029年到達前のV0.3x backlogとして別起票。
+
+- [ ] **NEXT-6 webhook inbox 滞留検知** `[lane:fast]` `[tdd:required]` cc:TODO
+  - `pending`/`processing` receiptは生LINE本文を保持したまま永久に残る。`sweepWebhookInbox` に滞留時間上限（例: 24h）超過の件数ログとdead-letter化を足す。削除は足さない（`RETENTION_MATRIX.md:210-213`）。
+  - **DoD**: 既存inbox testに「24h超pendingがdead_letteredへ遷移、本文は不変」が追加されgreen。
+
+- [ ] **NEXT-7（Optional）lint baseline** `[lane:fast]` `[tdd:skip:tooling]` cc:TODO
+  - 採用するなら Biome 1依存（root devDependency、`biome.json` は `recommended` のみ）、`"lint": "biome check ."` を `verify:ci` へ追加。初回整形は**単独commit**に隔離し、NEXT-1〜6 のdiffと混ぜない。採用しない場合はこの行を `Reject: typecheck+testのみで4 release出荷済み` として閉じる。
+  - **DoD**: `pnpm lint` exit 0 かつ `repository-verify.yml` にstepが存在する（configだけは不合格）。
+
+- [ ] **NEXT-8（Optional）FLE Oracle security review再実行** cc:TODO
+  - `fle-final-security-review` はbrowser profile lockで `error` のまま。`oracle --dry-run summary --files-report` → 許可済みallowlistのみ添付で再実行し、`verified=yes` か `NOT_RUN` を記録する。advisory扱い。
+
+**Reject（コードで解決しない／今回やらない）**:
+
+| 項目 | 理由 |
+|---|---|
+| Myna `tenant_alias` のaccount単位一意化 | global UNIQUEが安全性の根拠。緩めると `getMynaEndpointByAlias` が非決定的になり他薬局へredirectし得る。NEXT-1で公開面からaliasが消えるため論点消滅 |
+| 3年purge本体（約20 table） | 対象行が2029年まで存在せず、誤削除は調剤録の法定保存を壊す。NEXT-5のspecのみ |
+| V031-0〜5 | V030-3のread-back/rollback実証が無い。register解消後に再判定 |
+| 全repo一括format | release review を整形diffで埋没させる |
+
+**Human Gate register（コード外、`NOT_RUN`）**:
+
+| gate | 担当 | 実施条件 | 状態 |
+|---|---|---|---|
+| R2 lifecycle実設定のread-only確認 | Cloudflare account権限者 | API 1回。既存ruleが画像を消していればDB行が孤立する障害 | `NOT_RUN`（account ID placeholder） |
+| V030 synthetic account 初期設定end-to-end（実LINE端末、左上「処方せん送信」、rollback read-back） | owner + 実端末 | dev deploy済みWorker/Pages、synthetic account | `unknown` |
+| v0.29 binary rollback drill | deploy権限者 | 新activation停止→remote default不変→pending reminder zero-send | `NOT_RUN` |
+| LINE Endpoint manual evidence（Console） | owner | V029-1の手順 | `UNVERIFIED` |
+| FLE production secret/backfill/coverage/scrub/restore drill | ops + named approval | FLE-FINAL条件 | `NOT_RUN` |
+| 真のMFA / 別origin / role細分化 / 異常検知 | 経営・インフラ | 製品判断 | 未決 |
+| 緊急避妊薬: 厚労省一覧掲載・実在庫・当日勤務・紙記録運用 | 薬局 | EC-0 | 未確認 |
+
 ### V029 - 電子処方箋・緊急避妊薬・機能ON/OFF + 安全なreadiness - 2026-08-21 Oracle反映版
 
 **基準**: `dev` / `0b9cffff5d002f6e5eae716690bbfd134c0c3427`。seller releaseは`pharmacy-v0.29.0`を予定するが、package versionと`CHANGELOG.md`はrelease準備時にだけ更新する。schema適用、code deploy、account別機能activation、LINE mutationは別々の明示Human Gateとし、一つの承認から次を推測しない。
