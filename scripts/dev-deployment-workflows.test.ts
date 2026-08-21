@@ -110,7 +110,7 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('remote_image="$(mktemp)"');
     expect(sharedDeploy).toContain('Existing rich-menu catalog image differs');
     expect(sharedDeploy).toContain('/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000');
-    expect(sharedDeploy).toContain(".success == true and .result_info.is_truncated == false");
+    expect(sharedDeploy).toContain(".success == true and ((.result_info.is_truncated // false) == false)");
     expect(sharedDeploy).toContain(".result[].key");
     expect(sharedDeploy).toContain('grep -Fqx -- "$object_key" "$existing_keys"');
     expect(sharedDeploy).toContain('Existing manifest could not be read');
