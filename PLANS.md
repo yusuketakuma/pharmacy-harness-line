@@ -40,11 +40,11 @@
 
 #### Phase B（販売記録・対面確認、別リリース）
 
-- [ ] **ECF-5 custom_051 対面確認・販売記録 schema** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **ECF-5 custom_051 対面確認・販売記録 schema** `[lane:gate]` `[tdd:required]` cc:WIP
   - `pharmacy_emergency_counter_confirmations`（PK: account/intake/section、`checklist_version`、`mismatch_items_json`、staff、時刻）と `pharmacy_emergency_sale_records`（§5 の平文列＋ `determination_encrypted`、`owner_friend_id`、`UNIQUE(line_account_id,intake_id)`、no_update/no_delete trigger）。additive のみ、既存 CHECK に触れない。bootstrap 再生成、`check-migrations` green。
   - **DoD**: `packages/db/test/custom_051_*.test.ts` で cross-account FK throw、immutable、UNIQUE 冪等、legal hold join 可能を確認。
 
-- [ ] **ECF-6 patient フォーム Phase B（B1〜B4・C1/C2・D3）** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **ECF-6 patient フォーム Phase B（B1〜B4・C1/C2・D3）** `[lane:gate]` `[tdd:required]` cc:WIP
   - payload v2 に追加、`pregnancy_test_recommended` を server 算出（患者非表示）。B 該当で完了画面に「お薬手帳を持参」。C2 は複数チェック＋「当てはまらない」「わからない」排他。
   - **DoD**: policy test で C いずれか該当/不明→true、全非該当かつ C1 既知→false、owner projection に出ない。
 
