@@ -67,9 +67,11 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('release_version=$(node -p');
     expect(sharedDeploy).toContain("node -p 'require(\"./apps/worker/package.json\").version'");
     expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
-    expect(sharedDeploy).toContain('--worker-package-version');
-    expect(sharedDeploy).toContain('--web-package-version');
-    expect(sharedDeploy).toContain('--liff-package-version');
+    const injectRun = deploy.steps[inject].run as string;
+    expect(injectRun).toContain('--worker-package-version "$(node -p \'require("./apps/worker/package.json").version\')"');
+    expect(injectRun).toContain('--web-package-version "$(node -p \'require("./apps/web/package.json").version\')"');
+    expect(injectRun).toContain('--liff-package-version "$(node -p \'require("./apps/liff/package.json").version\')"');
+    expect(injectRun).not.toContain('require(\\"');
     expect(sharedDeploy).toContain('--worker apps/worker/dist/line_harness/index.js');
     expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
     expect(sharedDeploy).toContain('--admin apps/web/out');
@@ -107,6 +109,11 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('50000000');
     expect(sharedDeploy).toContain('remote_image="$(mktemp)"');
     expect(sharedDeploy).toContain('Existing rich-menu catalog image differs');
+    expect(sharedDeploy).toContain('/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000');
+    expect(sharedDeploy).toContain(".success == true and .result_info.is_truncated == false");
+    expect(sharedDeploy).toContain(".result[].key");
+    expect(sharedDeploy).toContain('grep -Fqx -- "$object_key" "$existing_keys"');
+    expect(sharedDeploy).toContain('Existing manifest could not be read');
   });
 
   test('checks out and deploys the exact source SHA with pinned actions', () => {

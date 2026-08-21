@@ -154,9 +154,9 @@ jobs:
         run: |
           pnpm tsx apps/worker/scripts/inject-version.ts \
             --version "$RELEASE_VERSION" \
-            --worker-package-version "$(node -p 'require(\"./apps/worker/package.json\").version')" \
-            --web-package-version "$(node -p 'require(\"./apps/web/package.json\").version')" \
-            --liff-package-version "$(node -p 'require(\"./apps/liff/package.json\").version')" \
+            --worker-package-version "$(node -p 'require("./apps/worker/package.json").version')" \
+            --web-package-version "$(node -p 'require("./apps/web/package.json").version')" \
+            --liff-package-version "$(node -p 'require("./apps/liff/package.json").version')" \
             --worker apps/worker/dist/line_harness/index.js \
             --worker-assets apps/worker/dist/client \
             --admin apps/web/out \
@@ -298,14 +298,30 @@ jobs:
               exit 1
             }
           else
+            catalog_prefix="rich-menu-catalog/$catalog_version/"
+            encoded_bucket="$(jq -rn --arg value "$R2_BUCKET_NAME" '$value | @uri')"
+            encoded_prefix="$(jq -rn --arg value "$catalog_prefix" '$value | @uri')"
+            inventory="$(mktemp)"
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000" \
+              > "$inventory"
+            jq -e '.success == true and .result_info.is_truncated == false' "$inventory" >/dev/null
+            existing_keys="$(mktemp)"
+            jq -r '.result[].key' "$inventory" > "$existing_keys"
+            if grep -Fqx -- "$manifest_key" "$existing_keys"; then
+              echo "Existing manifest could not be read"
+              exit 1
+            fi
             while IFS=$'\t' read -r variant_key object_key; do
               [[ "$variant_key" =~ ^v[0-9]+-(compact|large)-[a-z0-9.-]+$ ]]
               test "$object_key" = "rich-menu-catalog/$catalog_version/$variant_key.jpg"
               test -f "$catalog_dir/$variant_key.jpg"
-              remote_image="$(mktemp)"
-              if npx wrangler r2 object get "$R2_BUCKET_NAME/$object_key" \
+              if grep -Fqx -- "$object_key" "$existing_keys"; then
+                remote_image="$(mktemp)"
+                npx wrangler r2 object get "$R2_BUCKET_NAME/$object_key" \
                   --file "$remote_image" --remote \
-                  --config apps/worker/dist/line_harness/wrangler.json >/dev/null 2>&1; then
+                  --config apps/worker/dist/line_harness/wrangler.json >/dev/null
                 cmp --silent "$catalog_dir/$variant_key.jpg" "$remote_image" || {
                   echo "Existing rich-menu catalog image differs; bump the catalog version"
                   exit 1
