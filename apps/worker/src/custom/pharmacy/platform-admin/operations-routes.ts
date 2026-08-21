@@ -210,7 +210,12 @@ type LiffEndpointEvidence =
     status: 'MISMATCH'; source: 'line_api'; checkedAt: string;
     reason: 'LIFF_ID_NOT_FOUND' | 'ENDPOINT_URL_MISMATCH';
   }
-  | { status: 'ERROR'; source: 'line_api'; checkedAt: string };
+  | {
+    status: 'ERROR'; source: 'line_api'; checkedAt: string;
+    reason: 'CONFIGURATION_UNAVAILABLE' | 'CREDENTIAL_UNAVAILABLE' |
+      'TOKEN_REQUEST_FAILED' | 'TOKEN_RESPONSE_INVALID' |
+      'APPS_REQUEST_FAILED' | 'APPS_RESPONSE_INVALID' | 'REQUEST_FAILED';
+  };
 
 async function verifyLiffEndpoint(
   loginChannelId: string,
@@ -231,12 +236,14 @@ async function verifyLiffEndpoint(
       redirect: 'error',
       signal: AbortSignal.timeout(LIFF_VERIFY_TIMEOUT_MS),
     });
-    if (!tokenResponse.ok) return { status: 'ERROR', source: 'line_api', checkedAt };
+    if (!tokenResponse.ok) {
+      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'TOKEN_REQUEST_FAILED' };
+    }
     const tokenPayload = await tokenResponse.json().catch(() => null) as {
       access_token?: unknown;
     } | null;
     if (typeof tokenPayload?.access_token !== 'string' || !tokenPayload.access_token) {
-      return { status: 'ERROR', source: 'line_api', checkedAt };
+      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'TOKEN_RESPONSE_INVALID' };
     }
 
     const appsResponse = await fetch('https://api.line.me/liff/v1/apps', {
@@ -248,10 +255,12 @@ async function verifyLiffEndpoint(
     if (appsResponse.status === 404) {
       return { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'LIFF_ID_NOT_FOUND' };
     }
-    if (!appsResponse.ok) return { status: 'ERROR', source: 'line_api', checkedAt };
+    if (!appsResponse.ok) {
+      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'APPS_REQUEST_FAILED' };
+    }
     const appsPayload = await appsResponse.json().catch(() => null) as { apps?: unknown } | null;
     if (!Array.isArray(appsPayload?.apps)) {
-      return { status: 'ERROR', source: 'line_api', checkedAt };
+      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'APPS_RESPONSE_INVALID' };
     }
     const matches = appsPayload.apps.filter((app): app is { liffId: string; view?: { url?: unknown } } =>
       Boolean(app && typeof app === 'object' && (app as { liffId?: unknown }).liffId === liffId));
@@ -260,13 +269,13 @@ async function verifyLiffEndpoint(
     }
     const [match] = matches;
     if (matches.length !== 1 || !match || typeof match.view?.url !== 'string') {
-      return { status: 'ERROR', source: 'line_api', checkedAt };
+      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'APPS_RESPONSE_INVALID' };
     }
     return match.view.url === expectedEndpoint
       ? { status: 'MATCH', source: 'line_api', checkedAt }
       : { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'ENDPOINT_URL_MISMATCH' };
   } catch {
-    return { status: 'ERROR', source: 'line_api', checkedAt };
+    return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'REQUEST_FAILED' };
   }
 }
 
@@ -356,6 +365,7 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
         !verifyLiffRow.liff_id || !endpoint) {
       liveLiffEvidence = {
         status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+        reason: 'CONFIGURATION_UNAVAILABLE',
       };
     } else {
       try {
@@ -366,10 +376,14 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
           ? await verifyLiffEndpoint(
             verifyLiffRow.login_channel_id, loginSecret, verifyLiffRow.liff_id, endpoint,
           )
-          : { status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString() };
+          : {
+            status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+            reason: 'CREDENTIAL_UNAVAILABLE',
+          };
       } catch {
         liveLiffEvidence = {
           status: 'ERROR', source: 'line_api', checkedAt: new Date().toISOString(),
+          reason: 'CREDENTIAL_UNAVAILABLE',
         };
       }
     }
@@ -382,7 +396,12 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
     verifyLiffAccountId ? 'verify_liff_endpoint' : 'view_line_status',
     verifyLiffAccountId ? 'line_account' : undefined,
     verifyLiffAccountId ?? undefined,
-    liveLiffEvidence ? { status: liveLiffEvidence.status } : undefined,
+    liveLiffEvidence
+      ? {
+        status: liveLiffEvidence.status,
+        ...('reason' in liveLiffEvidence ? { reason: liveLiffEvidence.reason } : {}),
+      }
+      : undefined,
   );
   return c.json({
     success: true,
