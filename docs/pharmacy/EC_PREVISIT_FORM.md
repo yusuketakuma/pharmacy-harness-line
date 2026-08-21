@@ -53,7 +53,7 @@
 ## 5. 薬剤師側（Phase B・実装済み）
 
 - detail: A〜D をセクション別に「申告（未確認）」表示。**対面確認はセクション単位の✓＋「申告と相違があった項目」だけ個別マーク**（薬剤師ID・時刻）。A セクション✓なしでは `completed` に遷移できない（CAS UPDATE の WHERE に畳む。trigger は作らない）。
-  - API: `PUT /api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section`（`section` は `A`/`B`/`C`/`D`）。`pharmacy_emergency_counter_confirmations` へ `INSERT ... ON CONFLICT (line_account_id, intake_id, section) DO UPDATE` で upsert する — セクションを再確認しても行が増えず、最新の確認だけが残る。`mismatch_items_json` には申告フィールドのキー（例: `lngAllergy`）だけを保持し、患者の実際の回答値は含まない。
+  - API: `PUT /api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section`（`section` は `A`/`B`/`C`/`D`）。`pharmacy_emergency_counter_confirmations` へ **insert-only** で記録する — 同じ (account, intake, section) の再確認は 409 で拒否し、最初に確認した薬剤師・時刻・相違項目を上書きしない（販売記録を法的にゲートする行のため。訂正ワークフローは別途の製品判断）。`mismatch_items_json` には申告フィールドのキー（例: `lngAllergy`）だけを保持し、患者の実際の回答値は含まない。
   - `event_type` の CHECK は additive-only で拡張していないため、対面確認そのものには専用の管理イベントを作らない（別テーブルの行そのものが記録）。
   - `GET /api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section` で単一セクションの確認状態を取得する。
 - 販売記録 `pharmacy_emergency_sale_records`（additive、immutable trigger、`UNIQUE(line_account_id, intake_id)`、`owner_friend_id` 保持で legal hold 対象）:
