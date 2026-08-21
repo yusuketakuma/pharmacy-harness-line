@@ -2,15 +2,32 @@
 
 ## Pharmacy v0.30.2 (2026-08-22)
 
-### リッチメニューと運用診断の安定化
+### リッチメニュー画像とR2公開
 
-- 6画面リッチメニューの画像とtap領域のずれを修正し、228画像のcatalogをLINEのupload上限内へ圧縮
-- configuration doctorのrich-menu readinessを順序に依存しない判定へ修正し、LIFF endpointのredirect・upstream status・失敗段階を安全に表示
-- catalogが変更されていないdeployでは画像生成とR2公開を省略
-- 新しいimmutable catalogの公開時はR2 object一覧を1回取得し、途中再開で既存の画像だけを再照合して未作成画像だけをupload
-- runtime version注入で空のpackage versionを生成していたshell quotingを修正し、空値や不正なsemantic versionをbuild時に拒否
-- リッチメニュー管理中にaccountを切り替えた際、旧accountの処理中表示が新accountへ残る不具合を修正
-- database migrationは追加せず、runtime package versionを`0.30.2`へ統一
+- 6画面リッチメニューのsource画像を、LINEへ登録するtap領域と同じ3列×2行の境界で切り出すよう修正
+- catalog versionを`v4-4`へ更新し、位置修正前のimmutable catalogを上書きせずrollback可能な状態を維持
+- 228枚のJPEGを品質劣化が目立たない範囲で圧縮し、catalog全体をdeploy時の50MB upload budget内へ収める検査を追加
+- catalog入力に変更がないpushでは画像生成とR2公開を両方skipし、通常deployによる不要なCPU・R2アクセスを停止
+- 新しいimmutable catalogの公開時はR2 object一覧を1回取得し、途中再開で既に存在する画像だけをbyte比較
+- 一覧にない画像だけをuploadし、全画像の確認後にmanifestを最後に公開する順序を維持
+- 既存manifestが取得できないのに一覧上は存在する場合は公開を中断し、通信障害を未作成と誤認しないよう修正
+
+### configuration doctorとLIFF疎通診断
+
+- rich-menu readinessを固定されたcheck順に依存しない判定へ変更し、check追加・並び替えでREADY判定が壊れないよう修正
+- configuration doctorから薬局LIFF endpointへ実際に接続し、HTMLを返す公開画面まで到達できるか検査
+- DNS・接続・redirect・upstream応答・本文検査のどの段階で失敗したかを非機微なstageとして表示
+- upstream HTTP statusを安全な数値だけで返し、response本文やcredentialを診断結果へ含めない境界を追加
+- 手動redirectを追跡して各遷移先をallowlist検査し、外部hostへの意図しない接続を防止
+- WorkerのTypeScript targetでも診断route testを実行できる互換修正を追加
+
+### deployment metadataと管理画面
+
+- runtime version注入のshell quotingを修正し、Worker・Web・LIFFのpackage versionが空文字になる問題を解消
+- bundle versionと3つのpackage versionにsemantic version検査を追加し、空値・不正値をdeploy前に拒否
+- リッチメニュー管理中にaccountを切り替えた際、旧accountの保存・公開・名称変更・削除処理のbusy表示が新accountへ残る不具合を修正
+- runtime package versionを`0.30.2`へ統一し、LIFF表示とrelease contract testも同じversionへ更新
+- database migration、保存済みリッチメニュー、LINE初期表示の自動変更は追加していない
 
 ## Pharmacy v0.30.1 (2026-08-21)
 
@@ -19,8 +36,18 @@
 - 薬局リッチメニューの左上を「処方せん送信」とし、`pharmacy-prescription-send`へ遷移するv4メニューを初期表示に使用
 - 新規accountの初期並び順も「処方せん送信」「受付状況」「服薬後フォロー」「薬局へ相談」「薬局情報」の順に固定
 - 緊急避妊薬はリッチメニュー直下から外し、accountで有効な場合だけ「すべての機能」から利用できる既存導線を維持
+- 修正画像を既存の`v4-2`へ上書きせず、immutable prefix `rich-menu-catalog/v4-3/`として分離
+- Workerが参照するcatalog versionとmanifest keyを`v4-3`へ更新し、旧catalogをrollback用に保持
+- catalog versionとmanifest keyを固定する回帰testを追加し、画像変更時にversion更新を忘れる事故を防止
+
+### deploymentとversion整合性
+
+- Cloudflare反映待ちで古いWorker versionを読む場合に備え、`/admin/version`の確認を5回から12回へ拡張
+- 5秒間隔・最大約60秒の範囲で期待versionを待ち、最終的に一致しないdeployは従来どおり失敗扱いを維持
+- Worker・Web・LIFF・SDK・MCP server・root packageのruntime versionを`0.30.1`へ統一
+- LIFFの画面内version表示testを`0.30.1`へ更新し、package versionとの不一致を検出
 - 既存のv3メニューと公開済みcatalogを変更・削除せず、rollback候補として保持
-- database migrationは追加せず、runtime package versionを`0.30.1`へ統一
+- database migration、顧客設定、LINE初期表示を自動変更する処理は追加していない
 
 ## Pharmacy v0.30.0 (2026-08-21)
 
@@ -238,6 +265,13 @@
 ### CI安定化
 
 - `packages/db`の`bootstrap.sql`整合性チェックが、node subprocess起動を伴うためvitestデフォルトの5000msタイムアウトを稀に超え、CIランナー負荷時にflakyになっていた問題を修正(タイムアウトを15000msに延長)
+- timeout変更をbootstrap生成・同期検査のtestだけに限定し、repository全体のtest timeoutは緩和していない
+- bootstrap.sqlの期待内容、checksum、migration整合性の判定条件は変更せず、待機可能時間だけを延長
+
+### release scope
+
+- runtime package versionを`0.27.2`へ統一し、CHANGELOGとversion contractを更新
+- Worker、Web、LIFF、database schema、顧客データ、LINE設定に機能変更は追加していない
 
 ## Pharmacy v0.27.1 (2026-08-20)
 
@@ -248,15 +282,26 @@
 ### 重要なバグ修正
 
 - マイナ在宅受付の受け渡し登録(`createMynaHandoff`)で、`pharmacy_myna_handoffs`への挿入が参照先の`pharmacy_prescription_expectations`挿入より先に実行されており、tenant整合性トリガーにより毎回`PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH`で失敗していた不具合を修正。LIFF側で「お薬を受け取る」操作が常に失敗する状態だったものが復旧
+- expectationを先に作成し、そのIDを参照するhandoffを同じbatch内の後続statementで作成する順序へ修正
+- 複数statementのbind値と実行順を固定するrepository testを追加し、tenant/account境界を弱めずに再発を防止
+- triggerや外部キーを緩和せず、既存のscope mismatch拒否をそのまま維持
 
 ### CI安定化
 
 - Repository Verify workflowで共有パッケージのビルド漏れにより`packages/plugin-template`/`packages/mcp-server`のtypecheckが失敗していた問題を修正
+- typecheck前に依存するworkspace packageをbuildし、生成型がないfresh checkoutでも同じ検証結果になるよう統一
 - Repository Verify workflowのcheckoutがshallow cloneのため、タグ参照が必要なアップグレード互換性テストが失敗していた問題を修正(`fetch-depth: 0`を追加)
+- release tagを使う互換性testをskipせず、CI側で必要なgit historyを取得する方針を維持
 
 ### ドキュメント
 
 - `.env.example`に`STAFF_API_KEY_HASH_SECRET`・`PHARMACY_PHI_KEY_V1`(Worker secret)のプレースホルダーと設定方法の説明を追加
+- secret値は例示せず、Cloudflare Worker secretとして設定する境界だけを明記
+
+### release scope
+
+- runtime package versionを`0.27.1`へ統一し、CHANGELOGとversion contractを更新
+- database migrationと既存顧客データの変更は追加していない
 
 ## Pharmacy v0.27.0 (2026-08-20)
 
