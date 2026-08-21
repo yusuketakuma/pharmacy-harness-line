@@ -186,7 +186,7 @@ describe('pharmacy rich-menu profile', () => {
     ] as const;
     const areas = buildPharmacyCatalogRichMenu(
       'account-a', '1234567890-AbCd', order, 'Menu',
-    ).pages[0].areas.toReversed();
+    ).pages[0].areas.slice().reverse();
 
     expect(diagnosePharmacyRichMenuActions(areas, '1234567890-AbCd', order)).toEqual([]);
   });
