@@ -8,7 +8,7 @@ const source = readFileSync(
   'utf8',
 );
 const webhookSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '../../../routes/webhook.ts'),
+  join(dirname(fileURLToPath(import.meta.url)), '../../../routes/integrations/webhook.ts'),
   'utf8',
 );
 

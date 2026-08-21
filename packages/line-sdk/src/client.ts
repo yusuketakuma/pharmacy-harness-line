@@ -23,6 +23,19 @@ export interface FollowerIdsPage {
   next?: string;
 }
 
+/**
+ * Error for a non-2xx LINE response. Carries status plus the upstream
+ * `message`/`error` field only — never the raw body, which can echo request
+ * payloads (user ids, message text) into logs.
+ */
+async function lineApiError(res: Response): Promise<Error> {
+  const body = (await res.json().catch(() => null)) as { message?: unknown; error?: unknown } | null;
+  const detail = body && typeof (body.message ?? body.error) === 'string'
+    ? String(body.message ?? body.error).slice(0, 200)
+    : '';
+  return new Error(`LINE API error: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);
+}
+
 export class LineClient {
   constructor(private readonly channelAccessToken: string) {}
 
@@ -59,10 +72,7 @@ export class LineClient {
     }
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(
-        `LINE API error: ${res.status} ${res.statusText} — ${text}`,
-      );
+      throw await lineApiError(res);
     }
 
     // Some endpoints (e.g. push, reply) return an empty body with 200.
@@ -213,8 +223,7 @@ export class LineClient {
     });
     if (res.status === 404) return null;
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`LINE API error: ${res.status} ${res.statusText} — ${text}`);
+      throw await lineApiError(res);
     }
     const data = (await res.json()) as { richMenuId: string };
     return data.richMenuId;
@@ -260,10 +269,7 @@ export class LineClient {
       body: imageData,
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(
-        `LINE API error: ${res.status} ${res.statusText} — ${text}`,
-      );
+      throw await lineApiError(res);
     }
   }
 

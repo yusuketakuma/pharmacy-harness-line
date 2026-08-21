@@ -214,7 +214,7 @@ describe('decorateForFriendPush — shared cron/instant pipeline', () => {
   });
 
   test("substitutes {{liff_id}} with the delivering account's LIFF (multi-account form URLs)", async () => {
-    dbMocks.getLineAccountById.mockResolvedValue({ id: 'acc-1b', liff_id: '2009668520-YghzbHx9' });
+    dbMocks.getLineAccountById.mockResolvedValue({ id: 'acc-1b', liff_id: '2000000000-AbCdEfGh' });
     const content = 'フォーム: https://liff.line.me/{{liff_id}}?page=form&id=f-1&liffId={{liff_id}}';
     const out = await decorateForFriendPush(DB, 'text', content, WORKER, {
       lineAccountId: 'acc-1b',
@@ -222,7 +222,7 @@ describe('decorateForFriendPush — shared cron/instant pipeline', () => {
     });
     expect(dbMocks.getLineAccountById).toHaveBeenCalledWith(DB, 'acc-1b');
     expect(out.content).toBe(
-      'フォーム: https://liff.line.me/2009668520-YghzbHx9?page=form&id=f-1&liffId=2009668520-YghzbHx9',
+      'フォーム: https://liff.line.me/2000000000-AbCdEfGh?page=form&id=f-1&liffId=2000000000-AbCdEfGh',
     );
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canLaunchMynaHandoff,
+  canRecordMynaPatientReport,
   canRecordVerification,
   patientReportToStatus,
   verificationToReceiptStatus,
@@ -29,5 +30,14 @@ describe('Myna handoff state', () => {
     expect(canRecordVerification('CONSENT_ONLY_OR_NO_PRESCRIPTION')).toBe(true);
     expect(canRecordVerification('SUBMITTED_TO_OTHER_PHARMACY')).toBe(true);
     expect(canRecordVerification('PATIENT_MISMATCH')).toBe(true);
+  });
+
+  it('keeps terminal patient states final and only permits paper fallback after a report', () => {
+    expect(canRecordMynaPatientReport('CREATED', 'COMPLETED')).toBe(true);
+    expect(canRecordMynaPatientReport('PATIENT_REPORTED_COMPLETE', 'COMPLETED')).toBe(true);
+    expect(canRecordMynaPatientReport('PATIENT_REPORTED_COMPLETE', 'NO_PRESCRIPTION_FOUND')).toBe(false);
+    expect(canRecordMynaPatientReport('PATIENT_REPORTED_COMPLETE', 'SWITCH_TO_PAPER')).toBe(true);
+    expect(canRecordMynaPatientReport('PAPER_FALLBACK', 'COMPLETED')).toBe(false);
+    expect(canRecordMynaPatientReport('ABANDONED', 'SWITCH_TO_PAPER')).toBe(false);
   });
 });

@@ -41,6 +41,9 @@ export type GroupInput = {
 
 export interface LineRichMenuClient {
   createRichMenu(payload: unknown): Promise<{ richMenuId: string }>;
+  getRichMenuList(): Promise<unknown[]>;
+  getRichMenuImage(richMenuId: string): Promise<Uint8Array | null>;
+  getRichMenuAlias(aliasId: string): Promise<string | null>;
   uploadRichMenuImage(richMenuId: string, image: Uint8Array, contentType: string): Promise<void>;
   deleteRichMenuAlias(aliasId: string): Promise<void>;
   createRichMenuAlias(aliasId: string, richMenuId: string): Promise<void>;
@@ -103,6 +106,55 @@ export type PublishResult = {
   pages: { pageId: string; aliasId: string; newRichMenuId: string }[];
 };
 
+export type PublishProgressPhase = 'remote_created' | 'image_uploaded' | 'alias_created';
+
+export type PublishRichMenuOptions = {
+  generation?: string;
+  remoteMenuName?: string;
+  preserveRemoteOnError?: boolean;
+  onProgress?: (
+    phase: PublishProgressPhase,
+    pageId: string,
+    richMenuId: string,
+    aliasId: string,
+  ) => Promise<void>;
+};
+
+export function buildLineRichMenuPayload(group: GroupInput, page: PageInput, name: string) {
+  return {
+    size: SIZE_DIMENSIONS[group.size],
+    selected: group.selected,
+    name,
+    chatBarText: group.chatBarText,
+    areas: page.areas.map((area) => ({
+      bounds: area.bounds,
+      action: { type: area.actionType, ...area.actionData },
+    })),
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+export function matchesLineRichMenuPayload(remote: unknown, expected: ReturnType<typeof buildLineRichMenuPayload>): boolean {
+  if (!remote || typeof remote !== 'object') return false;
+  const value = remote as Record<string, unknown>;
+  return canonicalJson({
+    size: value.size,
+    selected: value.selected,
+    name: value.name,
+    chatBarText: value.chatBarText,
+    areas: value.areas,
+  }) === canonicalJson(expected);
+}
+
 async function readR2Object(r2: R2Like, key: string): Promise<Uint8Array> {
   const obj = await r2.get(key);
   if (!obj) throw new Error(`R2 image missing: ${key}`);
@@ -114,12 +166,15 @@ export async function publishRichMenuGroup(
   group: GroupInput,
   line: LineRichMenuClient,
   r2: R2Like,
+  options: PublishRichMenuOptions = {},
 ): Promise<PublishResult> {
-  const generation = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
+  if (options.remoteMenuName && group.pages.length !== 1) {
+    throw new Error('remoteMenuName requires exactly one page');
+  }
+  const generation = options.generation ?? crypto.randomUUID().replaceAll('-', '').slice(0, 8);
   const resolvedPages = resolveSwitcherActions(group.pages, group.id, generation);
   resolvedPages.sort((a, b) => a.orderIndex - b.orderIndex);
 
-  const dimensions = SIZE_DIMENSIONS[group.size];
   const results: { pageId: string; aliasId: string; newRichMenuId: string }[] = [];
   const createdResources: {
     aliasId: string;
@@ -134,16 +189,9 @@ export async function publishRichMenuGroup(
       }
 
       // 1. richmenu 作成
-      const created = await line.createRichMenu({
-        size: dimensions,
-        selected: group.selected,
-        name: `${group.id.slice(0, 8)} - ${page.name}`,
-        chatBarText: group.chatBarText,
-        areas: page.areas.map((a) => ({
-          bounds: a.bounds,
-          action: { type: a.actionType, ...a.actionData },
-        })),
-      });
+      const created = await line.createRichMenu(buildLineRichMenuPayload(
+        group, page, options.remoteMenuName ?? `${group.id.slice(0, 8)} - ${page.name}`,
+      ));
       const newRichMenuId = created.richMenuId;
       const aliasId = buildAliasId(group.id, page.orderIndex, generation);
       const resource = {
@@ -152,20 +200,24 @@ export async function publishRichMenuGroup(
         aliasCreated: false,
       };
       createdResources.push(resource);
+      await options.onProgress?.('remote_created', page.id, newRichMenuId, aliasId);
 
       // 2. 画像 upload
       const bytes = await readR2Object(r2, page.imageR2Key);
       await line.uploadRichMenuImage(newRichMenuId, bytes, page.imageContentType);
+      await options.onProgress?.('image_uploaded', page.id, newRichMenuId, aliasId);
 
       // 3. generation-scoped alias。旧generationはD1確定まで一切変更しない。
       await line.createRichMenuAlias(aliasId, newRichMenuId);
       resource.aliasCreated = true;
+      await options.onProgress?.('alias_created', page.id, newRichMenuId, aliasId);
 
       results.push({ pageId: page.id, aliasId, newRichMenuId });
     }
 
     return { pages: results };
   } catch (error) {
+    if (options.preserveRemoteOnError) throw error;
     // 途中で失敗した場合、今回作った richmenu / alias だけを best-effort で戻す。
     // 旧 richmenu はまだ削除していないため、既存公開状態を維持できる。
     for (const resource of createdResources.reverse()) {

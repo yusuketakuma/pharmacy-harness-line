@@ -22,3 +22,14 @@ apps/worker/dist/
 .claude/worktrees/
 .line-harness-setup.json
 .line-harness-config.json
+
+# local wrangler overrides (contain real account ids)
+wrangler.local.toml
+
+# AI agent / harness runtime state (never source)
+.claude/
+.omc/
+.codex/
+.harness-mem/
+.harness-worktrees/
+/out/

@@ -47,20 +47,28 @@ export function NextIntakeExpectationCard({
   </section>;
 }
 
+const LOAD_ERROR_MESSAGE = '読み込みに失敗しました。時間をおいてもう一度お試しください。';
+
 export default function ContinuityPage() {
   const [items, setItems] = useState<ContinuityObligation[]>([]);
   const [expectations, setExpectations] = useState<NextIntakeExpectation[]>([]);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const result = await continuityApi.list();
       setItems(result.obligations);
       setExpectations(result.expectations);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '継続フォローを読み込めませんでした。');
+      console.error(err);
+      setError(LOAD_ERROR_MESSAGE);
+    } finally {
+      setLoading(false);
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -73,7 +81,8 @@ export default function ContinuityPage() {
       setSuccess('継続フォローを一時停止しました。');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '継続フォローを変更できませんでした。');
+      console.error(err);
+      setError('継続フォローを変更できませんでした。時間をおいてもう一度お試しください。');
     } finally { setBusy(false); }
   }
 
@@ -84,7 +93,8 @@ export default function ContinuityPage() {
       setSuccess(response === 'accepted' ? '次回事前送信のお知らせを登録しました。' : '今回は登録しません。');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '次回事前送信のお知らせを変更できませんでした。');
+      console.error(err);
+      setError('次回事前送信のお知らせを変更できませんでした。時間をおいてもう一度お試しください。');
     } finally { setBusy(false); }
   }
 
@@ -92,11 +102,15 @@ export default function ContinuityPage() {
 
   return (
     <main className="max-w-md mx-auto min-h-screen bg-gray-50 pb-10">
-      <header className="bg-white border-b px-4 py-4"><h1 className="text-lg font-bold text-gray-900">継続フォロー</h1><p className="mt-1 text-xs text-gray-600">次回の処方せん事前送信に向けたお知らせを確認できます。</p></header>
       <div className="p-4 space-y-4">
-        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        <p className="text-sm leading-6 text-gray-600">次回の処方せん事前送信に向けたお知らせを確認できます。</p>
+        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <p>{error}</p>
+          <button type="button" onClick={() => void load()} disabled={loading} className="mt-2 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
+        </div>}
         {success && <div role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{success}</div>}
-        {items.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">現在、継続フォローはありません。</p> : <ul className="space-y-3">{items.map((item) => {
+        {loading ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">継続フォローを読み込み中...</p>
+          : items.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">現在、継続フォローはありません。</p> : <ul className="space-y-3">{items.map((item) => {
           const expectation = expectationByObligation.get(item.id);
           return <li key={item.id} className="rounded-xl bg-white p-4 shadow-sm">
             <p className="font-bold">{labels[item.status]}</p>

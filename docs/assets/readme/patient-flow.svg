@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" viewBox="0 0 960 470" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
+  <rect width="960" height="470" rx="16" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="480" y="40" text-anchor="middle" font-size="20" font-weight="700" fill="#24292f">患者向け LIFF — 処方せん事前送信の流れ</text>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8c959f"/></marker>
+    <g id="phone"><rect width="150" height="290" rx="18" fill="#f6f8fa" stroke="#8c959f" stroke-width="1.5"/><rect x="8" y="10" width="134" height="270" rx="10" fill="#ffffff" stroke="#d0d7de"/><rect x="55" y="14" width="40" height="5" rx="2.5" fill="#d0d7de"/></g>
+  </defs>
+
+  <!-- 1 menu -->
+  <g transform="translate(30,70)">
+    <use href="#phone"/>
+    <text x="75" y="36" text-anchor="middle" font-size="10" font-weight="700" fill="#24292f">すべての機能</text>
+    <rect x="16" y="46" width="118" height="26" rx="5" fill="#e8f8ee" stroke="#06c755"/><text x="75" y="63" text-anchor="middle" font-size="8.5" fill="#0b5c2c">処方せん事前送信</text>
+    <rect x="16" y="76" width="118" height="26" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="93" text-anchor="middle" font-size="8.5" fill="#24292f">受付状況</text>
+    <rect x="16" y="106" width="118" height="26" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="123" text-anchor="middle" font-size="8.5" fill="#24292f">電子処方箋</text>
+    <rect x="16" y="136" width="118" height="26" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="153" text-anchor="middle" font-size="8.5" fill="#24292f">患者情報・アンケート</text>
+    <rect x="16" y="166" width="118" height="26" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="183" text-anchor="middle" font-size="8.5" fill="#24292f">継続フォロー / 服薬後フォロー</text>
+    <rect x="16" y="196" width="118" height="26" rx="5" fill="#fff1f1" stroke="#e5a2a2"/><text x="75" y="213" text-anchor="middle" font-size="8.5" fill="#8b1e1e">緊急避妊薬</text>
+    <rect x="16" y="226" width="118" height="26" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="243" text-anchor="middle" font-size="8.5" fill="#24292f">薬局情報</text>
+    <text x="75" y="318" text-anchor="middle" font-size="11" font-weight="700" fill="#24292f">1. メニュー</text>
+    <text x="75" y="334" text-anchor="middle" font-size="9" fill="#57606a">薬局が ON にした機能だけ表示</text>
+  </g>
+  <line x1="186" y1="215" x2="210" y2="215" stroke="#8c959f" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- 2 capture -->
+  <g transform="translate(216,70)">
+    <use href="#phone"/>
+    <text x="75" y="36" text-anchor="middle" font-size="10" font-weight="700" fill="#24292f">処方せんを撮影</text>
+    <rect x="22" y="48" width="106" height="120" rx="6" fill="#eef1f4" stroke="#8c959f" stroke-dasharray="4 3"/>
+    <rect x="38" y="64" width="74" height="88" rx="3" fill="#ffffff" stroke="#d0d7de"/>
+    <line x1="46" y1="80" x2="104" y2="80" stroke="#d0d7de"/><line x1="46" y1="92" x2="104" y2="92" stroke="#d0d7de"/><line x1="46" y1="104" x2="90" y2="104" stroke="#d0d7de"/><line x1="46" y1="116" x2="104" y2="116" stroke="#d0d7de"/>
+    <text x="75" y="186" text-anchor="middle" font-size="8" fill="#57606a">複数枚 OK・撮り直し可</text>
+    <rect x="22" y="200" width="106" height="22" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="215" text-anchor="middle" font-size="8" fill="#24292f">受け取り希望時間</text>
+    <rect x="22" y="232" width="106" height="26" rx="6" fill="#06c755"/><text x="75" y="249" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">次へ</text>
+    <text x="75" y="318" text-anchor="middle" font-size="11" font-weight="700" fill="#24292f">2. 撮影・入力</text>
+    <text x="75" y="334" text-anchor="middle" font-size="9" fill="#57606a">画像は R2 に tenant 別保存</text>
+  </g>
+  <line x1="372" y1="215" x2="396" y2="215" stroke="#8c959f" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- 3 confirm -->
+  <g transform="translate(402,70)">
+    <use href="#phone"/>
+    <text x="75" y="36" text-anchor="middle" font-size="10" font-weight="700" fill="#24292f">送信内容の確認</text>
+    <rect x="22" y="48" width="106" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+    <rect x="30" y="56" width="34" height="42" rx="3" fill="#ffffff" stroke="#d0d7de"/><rect x="68" y="56" width="34" height="42" rx="3" fill="#ffffff" stroke="#d0d7de"/>
+    <text x="75" y="126" text-anchor="middle" font-size="8" fill="#24292f">枚数: 2枚</text>
+    <text x="75" y="142" text-anchor="middle" font-size="8" fill="#24292f">受け取り: 本日 17:00 頃</text>
+    <text x="75" y="158" text-anchor="middle" font-size="8" fill="#24292f">ジェネリック希望: あり</text>
+    <rect x="22" y="176" width="106" height="30" rx="5" fill="#fff8e6" stroke="#f2cc60"/><text x="75" y="188" text-anchor="middle" font-size="7.5" fill="#7a5a00">原本は来局時に必ず</text><text x="75" y="199" text-anchor="middle" font-size="7.5" fill="#7a5a00">お持ちください</text>
+    <rect x="22" y="232" width="106" height="26" rx="6" fill="#06c755"/><text x="75" y="249" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">この内容で送信</text>
+    <text x="75" y="318" text-anchor="middle" font-size="11" font-weight="700" fill="#24292f">3. 確認</text>
+    <text x="75" y="334" text-anchor="middle" font-size="9" fill="#57606a">二重送信を防止</text>
+  </g>
+  <line x1="558" y1="215" x2="582" y2="215" stroke="#8c959f" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- 4 done -->
+  <g transform="translate(588,70)">
+    <use href="#phone"/>
+    <circle cx="75" cy="70" r="20" fill="#e8f8ee" stroke="#06c755" stroke-width="2"/><path d="M65 70 l7 7 l13 -14" fill="none" stroke="#06c755" stroke-width="3"/>
+    <text x="75" y="108" text-anchor="middle" font-size="10" font-weight="700" fill="#24292f">送信完了</text>
+    <text x="75" y="124" text-anchor="middle" font-size="8" fill="#57606a">受付番号 A-0123</text>
+    <rect x="22" y="138" width="106" height="82" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="30" y="154" font-size="8" font-weight="700" fill="#24292f">次にやること</text>
+    <text x="30" y="170" font-size="7.5" fill="#24292f">・準備ができたら LINE で通知</text>
+    <text x="30" y="184" font-size="7.5" fill="#24292f">・原本と保険証を持参</text>
+    <text x="30" y="198" font-size="7.5" fill="#24292f">・受付状況はいつでも確認可</text>
+    <rect x="22" y="232" width="106" height="26" rx="6" fill="#ffffff" stroke="#06c755"/><text x="75" y="249" text-anchor="middle" font-size="9" font-weight="700" fill="#0b5c2c">受付状況を見る</text>
+    <text x="75" y="318" text-anchor="middle" font-size="11" font-weight="700" fill="#24292f">4. 完了</text>
+    <text x="75" y="334" text-anchor="middle" font-size="9" fill="#57606a">通知は PHI を含まない定型文</text>
+  </g>
+  <line x1="744" y1="215" x2="768" y2="215" stroke="#8c959f" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- 5 status -->
+  <g transform="translate(774,70)">
+    <use href="#phone"/>
+    <text x="75" y="36" text-anchor="middle" font-size="10" font-weight="700" fill="#24292f">受付状況</text>
+    <g transform="translate(22,48)">
+      <circle cx="8" cy="10" r="6" fill="#06c755"/><text x="22" y="14" font-size="8" fill="#24292f">受付済み</text>
+      <line x1="8" y1="16" x2="8" y2="36" stroke="#06c755" stroke-width="2"/>
+      <circle cx="8" cy="42" r="6" fill="#06c755"/><text x="22" y="46" font-size="8" fill="#24292f">薬局が確認</text>
+      <line x1="8" y1="48" x2="8" y2="68" stroke="#d0d7de" stroke-width="2"/>
+      <circle cx="8" cy="74" r="6" fill="#ffffff" stroke="#8c959f" stroke-width="2"/><text x="22" y="78" font-size="8" fill="#57606a">準備中</text>
+      <line x1="8" y1="80" x2="8" y2="100" stroke="#d0d7de" stroke-width="2"/>
+      <circle cx="8" cy="106" r="6" fill="#ffffff" stroke="#8c959f" stroke-width="2"/><text x="22" y="110" font-size="8" fill="#57606a">お渡し可能</text>
+    </g>
+    <rect x="22" y="176" width="106" height="30" rx="5" fill="#f6f8fa" stroke="#d0d7de"/><text x="75" y="188" text-anchor="middle" font-size="7.5" fill="#24292f">処方せんの有効期限を表示</text><text x="75" y="199" text-anchor="middle" font-size="7.5" fill="#57606a">期限前にリマインド</text>
+    <rect x="22" y="232" width="106" height="26" rx="6" fill="#ffffff" stroke="#8c959f"/><text x="75" y="249" text-anchor="middle" font-size="9" fill="#24292f">薬局へ相談</text>
+    <text x="75" y="318" text-anchor="middle" font-size="11" font-weight="700" fill="#24292f">5. 受付状況</text>
+    <text x="75" y="334" text-anchor="middle" font-size="9" fill="#57606a">状態と次の行動を 1 画面で</text>
+  </g>
+
+  <!-- entry points -->
+  <g transform="translate(30,420)">
+    <rect width="900" height="36" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="16" y="23" font-size="11" fill="#24292f"><tspan font-weight="700">別の入口:</tspan>  電子処方箋 (マイナ) → 外部手続きへ遷移し、薬局受領を待つ status card  /  緊急避妊薬 → 同意・最小限の確認・対応枠選択 → 仮受付番号 (販売判断は店頭の薬剤師)</text>
+  </g>
+</svg>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { pharmacyRoute } from '../navigation.js';
 import {
@@ -98,14 +98,35 @@ function validInteger(value: string, minimum: number, maximum?: number): boolean
     (maximum === undefined || number <= maximum);
 }
 
+export type EmergencyIntakeErrors = Partial<Record<keyof EmergencyIntakeDraft, string>>;
+
+/** Field-level messages; wording stays neutral about the drug and the event. */
+export function emergencyIntakeFieldErrors(draft: EmergencyIntakeDraft): EmergencyIntakeErrors {
+  const errors: EmergencyIntakeErrors = {};
+  if (!validIntercourseAt(draft)) {
+    errors.intercourseAt = draft.intercourseTimeUnknown ? '出来事があった日を入力してください' : '出来事があった日時を入力してください';
+  }
+  if (!draft.slotId) errors.slotId = '希望する対応枠を選んでください';
+  if (!validInteger(draft.age, 0, 120)) errors.age = '年齢を0〜120の整数で入力してください';
+  if (!validInteger(draft.recentPurchaseCount, 0)) errors.recentPurchaseCount = '過去3か月の利用回数を0以上の整数で入力してください';
+  if (!draft.patientWillVisit) errors.patientWillVisit = '「本人が薬局へ来局します」にチェックしてください';
+  if (!draft.acceptsInPersonDose) errors.acceptsInPersonDose = '「薬剤師の面前で服用します」にチェックしてください';
+  if (!SAFE_CONTACT_OPTIONS.some((option) => option.value === draft.safeContactMode)) {
+    errors.safeContactMode = '連絡方法をどちらか選んでください';
+  }
+  if (!draft.manufacturerCheckAcknowledged) errors.manufacturerCheckAcknowledged = 'セルフチェックの確認にチェックしてください';
+  if (!draft.consentAccepted) errors.consentAccepted = '説明と利用目的への同意にチェックしてください';
+  return errors;
+}
+
 export function canSubmitEmergencyIntake(
   draft: EmergencyIntakeDraft,
 ): boolean {
-  return draft.consentAccepted && draft.manufacturerCheckAcknowledged &&
-    Boolean(draft.slotId) && validIntercourseAt(draft) &&
-    validInteger(draft.age, 0, 120) && validInteger(draft.recentPurchaseCount, 0) &&
-    draft.patientWillVisit && draft.acceptsInPersonDose &&
-    SAFE_CONTACT_OPTIONS.some((option) => option.value === draft.safeContactMode);
+  return Object.keys(emergencyIntakeFieldErrors(draft)).length === 0;
+}
+
+function FieldError({ id, message }: { id?: string; message?: string }) {
+  return message ? <p id={id} role="alert" className="text-sm font-bold text-red-700">{message}</p> : null;
 }
 
 export function toIntercourseAtPayload(draft: Pick<
@@ -120,6 +141,14 @@ export function toIntercourseAtPayload(draft: Pick<
 
 function canCancel(status: EmergencyIntakeStatus): boolean {
   return status === 'provisional' || status === 'reviewed';
+}
+
+export function emergencyNextAction(status: EmergencyIntakeStatus): string {
+  if (status === 'provisional') return '薬剤師の確認をお待ちください。';
+  if (status === 'reviewed') return '対応枠の時間に本人が来局してください。';
+  if (status === 'completed') return '店頭対応は完了しています。販売記録は薬局で確認してください。';
+  if (status === 'cancelled') return '必要な場合は、受付可能な新しい対応枠を確認してください。';
+  return '期限切れです。受付可能な新しい対応枠を確認してください。';
 }
 
 export function EmergencyAlternativeLinks({
@@ -173,16 +202,19 @@ export function EmergencyAlternativeLinks({
 
 function IntakeList({
   intakes,
+  serverNow,
   busy,
   onCancel,
 }: {
   intakes: EmergencyIntake[];
+  serverNow: string;
   busy: string | null;
   onCancel: (intake: EmergencyIntake) => Promise<void>;
 }) {
   return (
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
+      <p className="mt-1 text-xs text-gray-500">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
       {intakes.length === 0
         ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
         : <ul className="mt-3 space-y-3">{intakes.map((intake) => (
@@ -193,6 +225,7 @@ function IntakeList({
               対応枠：{formatTokyo(intake.slot_starts_at)}〜{formatTokyo(intake.slot_ends_at)}
             </p>
             <p className="mt-1 text-xs text-gray-600">有効期限：{formatTokyo(intake.expires_at)}</p>
+            <p className="mt-2 rounded-lg bg-green-50 p-2 text-sm text-green-900">次にすること：{emergencyNextAction(intake.status)}</p>
             {intake.status === 'provisional' && <p className="mt-2 text-xs text-amber-800">患者申告は薬剤師確認前です。</p>}
             {canCancel(intake.status) && <button
               type="button"
@@ -212,16 +245,21 @@ export function EmergencyIntakeForm({
   draft,
   service,
   busy,
+  showErrors = false,
   onDraftChange,
   onSubmit,
 }: {
   draft: EmergencyIntakeDraft;
   service: EmergencyServiceOverview;
   busy: string | null;
+  showErrors?: boolean;
   onDraftChange: <K extends keyof EmergencyIntakeDraft>(key: K, value: EmergencyIntakeDraft[K]) => void;
   onSubmit: () => Promise<void>;
 }) {
   const disabled = busy !== null;
+  const errors = showErrors ? emergencyIntakeFieldErrors(draft) : {};
+  const invalid = (key: keyof EmergencyIntakeDraft) => (errors[key] ? true : undefined);
+  const fieldClass = 'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 aria-[invalid]:border-red-500';
   return (
     <form
       className="space-y-4 rounded-xl bg-white p-4 shadow-sm"
@@ -242,8 +280,10 @@ export function EmergencyIntakeForm({
           onChange={(event) => onDraftChange('intercourseAt', event.currentTarget.value)}
           disabled={disabled}
           required
-          className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+          aria-invalid={invalid('intercourseAt')}
+          className={fieldClass}
         />
+        <FieldError message={errors.intercourseAt} />
         <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
           <input
             type="checkbox"
@@ -264,13 +304,15 @@ export function EmergencyIntakeForm({
           onChange={(event) => onDraftChange('slotId', event.currentTarget.value)}
           disabled={disabled}
           required
-          className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+          aria-invalid={invalid('slotId')}
+          className={fieldClass}
         >
           <option value="">対応枠を選択</option>
           {service.slots.map((slot) => <option key={slot.id} value={slot.id}>
             {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）
           </option>)}
         </select>
+        <FieldError message={errors.slotId} />
       </label>
 
       <div className="grid grid-cols-2 gap-3">
@@ -287,8 +329,10 @@ export function EmergencyIntakeForm({
             onChange={(event) => onDraftChange('age', event.currentTarget.value)}
             disabled={disabled}
             required
-            className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+            aria-invalid={invalid('age')}
+            className={fieldClass}
           />
+          <FieldError message={errors.age} />
         </label>
         <label className="block space-y-1 text-sm text-gray-700" htmlFor="emergency-recent-count">
           <span className="font-bold text-gray-900">過去3か月の利用回数</span>
@@ -302,8 +346,10 @@ export function EmergencyIntakeForm({
             onChange={(event) => onDraftChange('recentPurchaseCount', event.currentTarget.value)}
             disabled={disabled}
             required
-            className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"
+            aria-invalid={invalid('recentPurchaseCount')}
+            className={fieldClass}
           />
+          <FieldError message={errors.recentPurchaseCount} />
         </label>
       </div>
 
@@ -319,6 +365,7 @@ export function EmergencyIntakeForm({
           />
           本人が薬局へ来局します
         </label>
+        <FieldError message={errors.patientWillVisit} />
         <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
           <input
             type="checkbox"
@@ -329,6 +376,7 @@ export function EmergencyIntakeForm({
           />
           薬剤師の面前で服用します
         </label>
+        <FieldError message={errors.acceptsInPersonDose} />
       </fieldset>
 
       <fieldset className="space-y-2">
@@ -345,6 +393,7 @@ export function EmergencyIntakeForm({
           />
           {option.label}
         </label>)}
+        <FieldError message={errors.safeContactMode} />
       </fieldset>
 
       {safeExternalUrl(service.manufacturer_check_url) && <div className="rounded-lg border border-green-200 bg-green-50 p-3">
@@ -367,14 +416,16 @@ export function EmergencyIntakeForm({
           />
           セルフチェックを確認しました
         </label>
+        <FieldError message={errors.manufacturerCheckAcknowledged} />
       </div>}
 
+      {showErrors && !draft.consentAccepted && <p role="alert" className="text-sm font-bold text-amber-900">送信するには、上の「説明と明示同意」の同意にチェックしてください。</p>}
       <button
         type="submit"
-        disabled={disabled}
+        disabled={disabled || !draft.consentAccepted}
         className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50"
       >
-        {busy === 'submit' ? '送信中...' : '仮受付を送信'}
+        {busy === 'submit' ? '送信中...' : '送信内容を確認する'}
       </button>
       <p className="text-xs text-gray-600">送信後も販売は確定しません。来局時に薬剤師が確認します。</p>
     </form>
@@ -389,6 +440,17 @@ export default function EmergencyContraceptionPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [serverNow, setServerNow] = useState('');
+  const [showErrors, setShowErrors] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [submittedCode, setSubmittedCode] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.focus();
+      errorRef.current?.scrollIntoView({ block: 'center' });
+    }
+  }, [error]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -397,6 +459,7 @@ export default function EmergencyContraceptionPage() {
       const result = await emergencyContraceptionApi.list();
       setService(result.service);
       setIntakes(result.intakes);
+      setServerNow(result.server_now);
     } catch (err) {
       setService(null);
       setError(err instanceof Error
@@ -409,6 +472,8 @@ export default function EmergencyContraceptionPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const selectedSlot = service?.slots.find((slot) => slot.id === draft.slotId);
+
   function changeDraft<K extends keyof EmergencyIntakeDraft>(
     key: K,
     value: EmergencyIntakeDraft[K],
@@ -416,11 +481,26 @@ export default function EmergencyContraceptionPage() {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
-  async function submit() {
-    if (busy || !service?.consent || !canSubmitEmergencyIntake(draft)) {
-      setError('同意、セルフチェック、確認項目をすべて確認してください。');
+  async function review() {
+    if (busy || !service?.consent) return;
+    if (!canSubmitEmergencyIntake(draft)) {
+      setShowErrors(true);
+      setError('赤く表示された項目を確認してください。');
       return;
     }
+    setShowErrors(false);
+    setError('');
+    setConfirming(true);
+  }
+
+  async function submit() {
+    if (busy || !service?.consent || !canSubmitEmergencyIntake(draft)) {
+      setShowErrors(true);
+      setConfirming(false);
+      setError('赤く表示された項目を確認してください。');
+      return;
+    }
+    setConfirming(false);
     setBusy('submit');
     setError('');
     setSuccess('');
@@ -440,7 +520,9 @@ export default function EmergencyContraceptionPage() {
       });
       setIntakes((current) => [result.intake, ...current.filter((item) => item.id !== result.intake.id)]);
       setDraft(EMPTY_EMERGENCY_DRAFT);
+      setSubmittedCode(result.intake.reference_code);
       setSuccess(`仮受付番号 ${result.intake.reference_code} を受け付けました。販売は確定していません。`);
+      window.scrollTo(0, 0);
     } catch (err) {
       setError(err instanceof Error
         ? err.message
@@ -461,6 +543,7 @@ export default function EmergencyContraceptionPage() {
         intake.id, intake.version, crypto.randomUUID(),
       );
       setIntakes((current) => current.map((item) => item.id === result.intake.id ? result.intake : item));
+      setSubmittedCode('');
       setSuccess('仮受付を取消しました。');
     } catch (err) {
       await load();
@@ -474,22 +557,27 @@ export default function EmergencyContraceptionPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
-      <header className="border-b bg-white px-4 py-4">
-        <h1 className="text-lg font-bold text-gray-900">緊急避妊薬</h1>
-        <p className="mt-1 text-sm text-gray-700">
-          来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。
-        </p>
-      </header>
       <div className="space-y-4 p-4">
+        <p className="text-sm leading-6 text-gray-700">緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。</p>
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <p className="font-bold">仮受付であり、販売・服用・在庫を保証しません</p>
           <p className="mt-1">最終的な販売可否は、来局時に研修を修了した薬剤師が確認します。</p>
         </section>
-        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
+        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 focus:outline-none">
           <p>{error}</p>
           <button type="button" onClick={() => void load()} className="mt-2 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
         </div>}
-        {success && <div role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{success}</div>}
+        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+          <p className="font-bold">{success}</p>
+          {submittedCode && <>
+            <p className="mt-2 font-bold">次にすること</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              <li>薬剤師の確認をお待ちください。結果は下の「これまでの仮受付」に表示されます。</li>
+              <li>選んだ対応枠の時間に、本人が薬局へ来局してください。</li>
+              <li>受付番号 {submittedCode} を来局時にお伝えください。</li>
+            </ul>
+          </>}
+        </div>}
         {loading
           ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-600">受付状況を読み込み中...</p>
           : service?.ready && service.consent
@@ -520,14 +608,31 @@ export default function EmergencyContraceptionPage() {
                   説明と利用目的を確認し、来局前確認に同意します
                 </label>
               </section>
-              {draft.consentAccepted && <EmergencyIntakeForm
-                draft={draft}
-                service={service}
-                busy={busy}
-                onDraftChange={changeDraft}
-                onSubmit={submit}
-              />}
-              <IntakeList intakes={intakes} busy={busy} onCancel={cancel} />
+              {confirming
+                ? <section className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm" aria-labelledby="emergency-confirm">
+                  <h2 id="emergency-confirm" className="font-bold text-gray-900">送信内容の確認</h2>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm text-gray-800">
+                    <dt className="text-gray-600">出来事の{draft.intercourseTimeUnknown ? '日' : '日時'}</dt><dd>{draft.intercourseTimeUnknown ? draft.intercourseAt : formatTokyo(toIntercourseAtPayload(draft))}</dd>
+                    <dt className="text-gray-600">希望する対応枠</dt><dd>{selectedSlot ? `${formatTokyo(selectedSlot.starts_at)}〜${formatTokyo(selectedSlot.ends_at)}` : '未選択'}</dd>
+                    <dt className="text-gray-600">年齢</dt><dd>{draft.age}歳</dd>
+                    <dt className="text-gray-600">過去3か月の利用回数</dt><dd>{draft.recentPurchaseCount}回</dd>
+                    <dt className="text-gray-600">来局・服用方法</dt><dd>本人が来局し、薬剤師の面前で服用</dd>
+                    <dt className="text-gray-600">連絡方法</dt><dd>{SAFE_CONTACT_OPTIONS.find((option) => option.value === draft.safeContactMode)?.label ?? '未選択'}</dd>
+                  </dl>
+                  <button type="button" onClick={() => void submit()} disabled={busy !== null} className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+                    {busy === 'submit' ? '送信中...' : 'この内容で送信する'}
+                  </button>
+                  <button type="button" onClick={() => setConfirming(false)} disabled={busy !== null} className="min-h-11 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-bold text-gray-700 disabled:opacity-50">修正する</button>
+                </section>
+                : <EmergencyIntakeForm
+                  draft={draft}
+                  service={service}
+                  busy={busy}
+                  showErrors={showErrors}
+                  onDraftChange={changeDraft}
+                  onSubmit={review}
+                />}
+              <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />
             </>
             : <>
               <section className="rounded-xl bg-white p-4 shadow-sm">
@@ -536,7 +641,7 @@ export default function EmergencyContraceptionPage() {
                   {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
                 </p>
               </section>
-              {intakes.length > 0 && <IntakeList intakes={intakes} busy={busy} onCancel={cancel} />}
+              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />}
             </>}
         <EmergencyAlternativeLinks service={service} />
       </div>

@@ -7,7 +7,7 @@ import {
   type PlatformIntegrityCheck,
 } from '@/lib/platform-admin-api'
 
-const TILES: Array<[keyof PlatformDashboard, string]> = [
+const TILES = [
   ['totalTenants', 'テナント総数'],
   ['activeTenants', '稼働中'],
   ['suspendedTenants', '停止中'],
@@ -15,7 +15,7 @@ const TILES: Array<[keyof PlatformDashboard, string]> = [
   ['webhookPending', 'Webhook未処理'],
   ['activeSupportGrants', '有効なサポートモード'],
   ['tenantsWithStaleActivity', '30日以上ログインなし'],
-]
+] as const
 
 const CHECK_LABELS: Record<string, string> = {
   orphaned_tenant_line_accounts: '孤立したLINEアカウント紐付け',
@@ -80,6 +80,35 @@ export default function PlatformAdminDashboardPage() {
           ))}
         </div>
       )}
+
+      {dashboard && <section className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div><h2 className="font-semibold">薬局readiness</h2><p className="text-xs text-gray-500">患者数や対応中件数を含まない設定状態です。</p></div>
+          <p className="text-xs text-gray-500">更新: {new Date(dashboard.pharmacyReadiness.checkedAt).toLocaleString('ja-JP')}</p>
+        </div>
+        <dl className="mt-3 grid grid-cols-3 gap-3 text-sm">
+          {(['READY', 'BLOCKED', 'UNVERIFIED'] as const).map((status) => <div key={status} className="rounded bg-gray-50 p-3"><dt className="text-xs text-gray-500">{status}</dt><dd className="text-xl font-bold">{dashboard.pharmacyReadiness.statusCounts[status]}</dd></div>)}
+        </dl>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-sm"><thead className="bg-gray-50 text-left text-xs text-gray-600"><tr><th className="px-3 py-2">tenant / account</th><th className="px-3 py-2">READY</th><th className="px-3 py-2">BLOCKED</th><th className="px-3 py-2">UNVERIFIED</th><th className="px-3 py-2">確認時刻</th></tr></thead>
+            <tbody>{dashboard.pharmacyReadiness.tenants.flatMap((tenant) => [
+              <tr key={tenant.tenantId} className="border-t border-gray-200 bg-gray-50 font-medium"><td className="px-3 py-2 font-mono text-xs">{tenant.tenantId}</td><td className="px-3 py-2">{tenant.statusCounts.READY}</td><td className="px-3 py-2">{tenant.statusCounts.BLOCKED}</td><td className="px-3 py-2">{tenant.statusCounts.UNVERIFIED}</td><td className="px-3 py-2">tenant合計</td></tr>,
+              ...tenant.accounts.map((account) => <tr key={`${tenant.tenantId}:${account.accountId}`} className="border-t border-gray-100"><td className="px-3 py-2 pl-6 font-mono text-xs text-gray-600">{account.accountId}</td><td className="px-3 py-2">{account.statusCounts.READY}</td><td className="px-3 py-2">{account.statusCounts.BLOCKED}</td><td className="px-3 py-2">{account.statusCounts.UNVERIFIED}</td><td className="px-3 py-2">{new Date(account.checkedAt).toLocaleString('ja-JP')}</td></tr>),
+            ])}</tbody>
+          </table>
+        </div>
+      </section>}
+
+      {dashboard && <section className="rounded-lg border border-gray-200 bg-white p-4">
+        <h2 className="font-semibold">バージョン識別</h2>
+        <p className="mt-1 text-xs text-gray-500">seller release、LIFF package、Web runtime、Worker runtimeは別々の証拠として表示します。</p>
+        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div><dt className="text-gray-500">seller release</dt><dd className="font-mono">{dashboard.versions.sellerRelease ?? '未設定'}</dd></div>
+          <div><dt className="text-gray-500">LIFF package</dt><dd className="font-mono">{dashboard.versions.liffPackageVersion}</dd></div>
+          <div><dt className="text-gray-500">Web runtime</dt><dd className="font-mono">package {dashboard.versions.webRuntime.packageVersion}<span className="block text-xs text-gray-500">bundle {dashboard.versions.webRuntime.bundleVersion}</span></dd></div>
+          <div><dt className="text-gray-500">Worker runtime</dt><dd className="font-mono">package {dashboard.versions.workerRuntime.packageVersion}<span className="block text-xs text-gray-500">bundle {dashboard.versions.workerRuntime.bundleVersion}</span></dd></div>
+        </dl>
+      </section>}
 
       {checks && (
         <section className="rounded-lg border border-gray-200 bg-white p-4">

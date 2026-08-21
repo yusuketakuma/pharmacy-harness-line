@@ -1,11 +1,13 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Header from '@/components/layout/header'
-import { fetchApi } from '@/lib/api'
+import { ApiError, fetchApi } from '@/lib/api'
 import type { ApiResponse } from '@line-crm/shared'
 import type { StaffMember } from '@line-crm/shared'
 
 type NewCredential = { loginId: string; temporaryPassword: string; staffId: string }
+type StaffAccountAssignment = { id: string; name: string; assigned: boolean }
+type AssignmentEditor = { member: StaffMember; accounts: StaffAccountAssignment[] }
 
 function RoleBadge({ role }: { role: string }) {
   const styles =
@@ -27,9 +29,14 @@ export default function StaffPage() {
   const [members, setMembers] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [assignmentEditor, setAssignmentEditor] = useState<AssignmentEditor | null>(null)
+  const [assignmentLoading, setAssignmentLoading] = useState(false)
+  const [assignmentError, setAssignmentError] = useState('')
 
   const [newCredential, setNewCredential] = useState<NewCredential | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copyError, setCopyError] = useState('')
+  const [mutatingId, setMutatingId] = useState<string | null>(null)
 
   // Create form
   const [showForm, setShowForm] = useState(false)
@@ -103,6 +110,9 @@ export default function StaffPage() {
   }
 
   const handleToggleActive = async (member: StaffMember) => {
+    if (mutatingId !== null) return
+    if (member.isActive && !confirm(`${member.name} を無効化しますか？\nこのスタッフはログインできなくなります。`)) return
+    setMutatingId(member.id)
     try {
       await fetchApi<ApiResponse<StaffMember>>(`/api/staff/${member.id}`, {
         method: 'PATCH',
@@ -111,12 +121,16 @@ export default function StaffPage() {
       await loadMembers()
     } catch {
       setError('更新に失敗しました')
+    } finally {
+      setMutatingId(null)
     }
   }
 
   const handleResetPassword = async (member: StaffMember) => {
     const loginId = member.loginId || window.prompt(`${member.name} の管理者IDを入力してください`)?.trim()
     if (!loginId || !confirm(`${member.name} の仮パスワードを再発行しますか？\n現在のログインセッションは無効になります。`)) return
+    if (mutatingId !== null) return
+    setMutatingId(member.id)
     try {
       const res = await fetchApi<ApiResponse<{ loginId: string; temporaryPassword: string }>>(`/api/staff/${member.id}/reset-password`, {
         method: 'POST',
@@ -130,24 +144,72 @@ export default function StaffPage() {
       }
     } catch {
       setError('仮パスワードの再発行に失敗しました')
+    } finally {
+      setMutatingId(null)
     }
   }
 
   const handleDelete = async (member: StaffMember) => {
     if (!confirm(`${member.name} を削除しますか？\nこの操作は元に戻せません。`)) return
+    if (mutatingId !== null) return
+    setMutatingId(member.id)
     try {
       await fetchApi<ApiResponse<null>>(`/api/staff/${member.id}`, { method: 'DELETE' })
       await loadMembers()
     } catch {
       setError('削除に失敗しました')
+    } finally {
+      setMutatingId(null)
     }
   }
 
   const handleCopy = async () => {
     if (!newCredential) return
-    await navigator.clipboard.writeText(newCredential.temporaryPassword)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setCopyError('')
+    try {
+      await navigator.clipboard.writeText(newCredential.temporaryPassword)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopyError('コピーできませんでした。表示された仮パスワードを手で控えてください。')
+    }
+  }
+
+  const openAssignments = async (member: StaffMember) => {
+    setAssignmentLoading(true)
+    setAssignmentError('')
+    try {
+      const res = await fetchApi<ApiResponse<StaffAccountAssignment[]>>(`/api/staff/${member.id}/accounts`)
+      if (!res.success) throw new Error(res.error)
+      setAssignmentEditor({ member, accounts: res.data })
+    } catch {
+      setAssignmentError('担当薬局を取得できませんでした。')
+    } finally {
+      setAssignmentLoading(false)
+    }
+  }
+
+  const saveAssignments = async () => {
+    if (!assignmentEditor || assignmentLoading) return
+    const { member, accounts } = assignmentEditor
+    const accountIds = accounts.filter(({ assigned }) => assigned).map(({ id }) => id)
+    setAssignmentLoading(true)
+    setAssignmentError('')
+    try {
+      const res = await fetchApi<ApiResponse<StaffAccountAssignment[]>>(`/api/staff/${member.id}/accounts`, {
+        method: 'PUT',
+        body: JSON.stringify({ accountIds: accountIds }),
+      })
+      if (!res.success) throw new Error(res.error)
+      setAssignmentEditor({ member, accounts: res.data })
+      setAssignmentEditor(null)
+    } catch (caught) {
+      setAssignmentError(caught instanceof ApiError && caught.status === 409
+        ? 'この薬局の担当者を0人にはできません。別の担当者を設定してから変更してください。'
+        : '担当薬局を保存できませんでした。')
+    } finally {
+      setAssignmentLoading(false)
+    }
   }
 
   return (
@@ -188,8 +250,27 @@ export default function StaffPage() {
               閉じる
             </button>
           </div>
+          {copyError && <p role="alert" className="mt-2 text-xs text-red-700">{copyError}</p>}
         </div>
       )}
+
+      {assignmentEditor && <section className="mb-6 rounded-lg border border-green-200 bg-white p-5" aria-labelledby="staff-assignment-title">
+        <h2 id="staff-assignment-title" className="font-semibold text-gray-900">{assignmentEditor.member.name}の担当薬局</h2>
+        <p className="mt-1 text-sm text-gray-600">このスタッフが操作できるLINEアカウントを選択します。この薬局の担当者を0人にはできません。</p>
+        <div className="mt-3 divide-y divide-gray-200">{assignmentEditor.accounts.map((account) => <label key={account.id} className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm">
+          <span>{account.name}</span>
+          <input type="checkbox" checked={account.assigned} disabled={assignmentLoading} onChange={(event) => setAssignmentEditor((current) => current ? {
+            ...current,
+            accounts: current.accounts.map((item) => item.id === account.id ? { ...item, assigned: event.target.checked } : item),
+          } : current)} className="h-5 w-5" />
+        </label>)}</div>
+        {assignmentError && <p role="alert" className="mt-3 text-sm text-red-700">{assignmentError}</p>}
+        <div className="mt-4 flex gap-2">
+          <button type="button" onClick={() => void saveAssignments()} disabled={assignmentLoading} className="min-h-11 rounded-lg bg-green-600 px-4 text-sm font-medium text-white disabled:opacity-50">保存</button>
+          <button type="button" onClick={() => setAssignmentEditor(null)} disabled={assignmentLoading} className="min-h-11 rounded-lg border border-gray-300 px-4 text-sm">キャンセル</button>
+        </div>
+      </section>}
+      {!assignmentEditor && assignmentError && <p role="alert" className="mb-4 text-sm text-red-700">{assignmentError}</p>}
 
       {/* Create form */}
       {showForm && (
@@ -324,23 +405,31 @@ export default function StaffPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      {member.role !== 'owner' && (
+                     <div className="flex items-center justify-end gap-2">
+                       <button
+                         onClick={() => void openAssignments(member)}
+                         disabled={assignmentLoading}
+                         className="px-2.5 py-1 text-xs font-medium text-green-700 bg-white border border-green-200 rounded hover:bg-green-50 disabled:opacity-50"
+                       >担当薬局を設定</button>
+                       {member.role !== 'owner' && (
                         <>
                           <button
                             onClick={() => handleToggleActive(member)}
-                            className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                            disabled={mutatingId !== null}
+                            className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
                           >
                             {member.isActive ? '無効化' : '有効化'}
                           </button>
                           <button
                             onClick={() => handleResetPassword(member)}
+                            disabled={mutatingId !== null}
                             className="px-2.5 py-1 text-xs font-medium text-blue-600 bg-white border border-blue-200 rounded hover:bg-blue-50 transition-colors"
                           >
                             仮パスワード再発行
                           </button>
                           <button
                             onClick={() => handleDelete(member)}
+                            disabled={mutatingId !== null}
                             className="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-200 rounded hover:bg-red-50 transition-colors"
                           >
                             削除

@@ -18,6 +18,7 @@ type Props = {
   onClose: () => void
   initialMode?: InitialMode
   initialDefaultEnabled?: boolean
+  initialSetDefaultIntent?: 'switch' | 'rollback'
 }
 
 export function ApplyToTagModal({
@@ -26,6 +27,7 @@ export function ApplyToTagModal({
   onClose,
   initialMode = 'all-followers',
   initialDefaultEnabled = true,
+  initialSetDefaultIntent = 'switch',
 }: Props) {
   const [tags, setTags] = useState<Tag[]>([])
   const [mode, setMode] = useState<Mode>({ kind: initialMode })
@@ -61,7 +63,11 @@ export function ApplyToTagModal({
           ? { mode: 'bulk-link' as const, tagId: mode.tagId }
           : mode.kind === 'all-followers'
             ? { mode: 'bulk-link' as const, tagId: null }
-            : { mode: 'set-default' as const, enabled: defaultEnabled }
+            : {
+                mode: 'set-default' as const,
+                enabled: defaultEnabled,
+                intent: initialSetDefaultIntent,
+              }
       const preview = await api.richMenuGroups.applyToTag(groupId, {
         ...params,
         dryRun: true,
@@ -69,7 +75,9 @@ export function ApplyToTagModal({
       if (!preview.success) throw new Error(preview.error ?? '確認内容の取得に失敗しました')
       const confirmationMessage =
         mode.kind === 'set-default'
-          ? defaultEnabled
+          ? initialSetDefaultIntent === 'rollback'
+            ? '確認済みの旧リッチメニューへ戻します。現在の初期表示を再確認してから切り替えます。\n\n続行しますか？'
+            : defaultEnabled
             ? 'このリッチメニューをLINE公式アカウントの初期表示に設定します。\n\n新規友だちを含む、個別設定のない友だちに表示されます。\n現在の別メニューの初期表示は解除されます。\n\n続行しますか？'
             : 'このリッチメニューをLINE公式アカウントの初期表示から解除します。\n\n個別に表示設定された友だちのメニューは変更されません。\n\n続行しますか？'
           : `この操作を実行します。対象: ${preview.data?.affected ?? 0} 名\n\n続行しますか？`
@@ -99,7 +107,9 @@ export function ApplyToTagModal({
         <div className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">
             {mode.kind === 'set-default'
-              ? '初期表示のリッチメニューを設定'
+              ? initialSetDefaultIntent === 'rollback'
+                ? '確認済みリッチメニューへ戻す'
+                : '初期表示のリッチメニューを設定'
               : '友だちにこのメニューを表示'}
           </h2>
           <p className="text-sm text-gray-500 mb-5 break-all">「{groupName}」</p>

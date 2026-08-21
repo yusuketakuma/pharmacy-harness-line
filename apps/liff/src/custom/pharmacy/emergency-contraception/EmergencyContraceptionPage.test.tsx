@@ -7,6 +7,8 @@ import EmergencyContraceptionPage, {
   EmergencyIntakeForm,
   MHLW_EMERGENCY_CONTRACEPTION_URL,
   canSubmitEmergencyIntake,
+  emergencyIntakeFieldErrors,
+  emergencyNextAction,
   toIntercourseAtPayload,
   type EmergencyIntakeDraft,
 } from './EmergencyContraceptionPage.js';
@@ -115,6 +117,86 @@ describe('emergency contraception patient page', () => {
     expect(source).not.toContain('setInterval');
     expect(source).toContain('crypto.randomUUID()');
     expect(app).toContain("import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception");
-    expect(app).toContain('<Route path="/pharmacy/emergency-contraception" element={<EmergencyContraceptionPage />} /> {/* custom:pharmacy-emergency-contraception */}');
+    expect(app).toContain('<Route path="/pharmacy/emergency-contraception" element={<PharmacyPage screenTitle="緊急避妊薬" capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyPage>} /> {/* custom:pharmacy-emergency-contraception */}');
+  });
+
+  it('shows a server-timed status card with the next patient action', () => {
+    expect(emergencyNextAction('provisional')).toContain('薬剤師の確認')
+    expect(emergencyNextAction('reviewed')).toContain('本人が来局')
+    expect(emergencyNextAction('expired')).toContain('新しい対応枠')
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('サーバー確認時刻')
+    expect(source).toContain('serverNow')
+  });
+});
+
+describe('emergency intake submit flow (WP-12)', () => {
+  it('reports a neutral message for each unmet field', () => {
+    expect(emergencyIntakeFieldErrors(EMPTY_EMERGENCY_DRAFT)).toEqual({
+      intercourseAt: '出来事があった日時を入力してください',
+      slotId: '希望する対応枠を選んでください',
+      age: '年齢を0〜120の整数で入力してください',
+      recentPurchaseCount: '過去3か月の利用回数を0以上の整数で入力してください',
+      patientWillVisit: '「本人が薬局へ来局します」にチェックしてください',
+      acceptsInPersonDose: '「薬剤師の面前で服用します」にチェックしてください',
+      safeContactMode: '連絡方法をどちらか選んでください',
+      manufacturerCheckAcknowledged: 'セルフチェックの確認にチェックしてください',
+      consentAccepted: '説明と利用目的への同意にチェックしてください',
+    });
+    expect(emergencyIntakeFieldErrors({ ...completeDraft, consentAccepted: true })).toEqual({});
+    for (const message of Object.values(emergencyIntakeFieldErrors(EMPTY_EMERGENCY_DRAFT))) {
+      expect(message).not.toMatch(/性交|妊娠|緊急避妊/);
+    }
+  });
+
+  it('keeps the form visible before consent and disables submit until consent is given', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).not.toContain('{draft.consentAccepted && <EmergencyIntakeForm');
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={completeDraft}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
+    );
+    expect(html).toMatch(/<button type="submit" disabled=""/);
+    expect(html).not.toContain('同意にチェックしてください');
+    const afterAttempt = renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={completeDraft}
+        service={readyService}
+        busy={null}
+        showErrors
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
+    );
+    expect(afterAttempt).toContain('同意にチェックしてください');
+  });
+
+  it('shows field-level errors next to the field after a failed attempt', () => {
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm
+        draft={{ ...EMPTY_EMERGENCY_DRAFT, consentAccepted: true }}
+        service={readyService}
+        busy={null}
+        showErrors
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
+    );
+    expect(html).toContain('希望する対応枠を選んでください');
+    expect(html).toContain('年齢を0〜120の整数で入力してください');
+    expect(html).toContain('aria-invalid="true"');
+  });
+
+  it('confirms before sending and shows next steps after success', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('送信内容の確認');
+    expect(source).toContain('この内容で送信する');
+    expect(source).toContain('window.scrollTo(0, 0)');
+    expect(source).toContain('次にすること');
   });
 });

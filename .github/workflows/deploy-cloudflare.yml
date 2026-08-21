@@ -105,6 +105,40 @@ jobs:
           echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
           echo "release_version=$(node -p 'require("./apps/worker/package.json").version')" >> "$GITHUB_OUTPUT"
 
+      - name: Detect Pharmacy rich-menu catalog changes
+        id: rich-menu-catalog
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null || \
+            git fetch --no-tags --depth=1 origin "$BEFORE_SHA"
+          if git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- \
+              apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v4.jpg \
+              apps/worker/src/custom/pharmacy/rich-menu/catalog.ts \
+              apps/worker/src/custom/pharmacy/rich-menu/layout.ts \
+              apps/worker/src/lib/image-validator.ts \
+              scripts/custom/pharmacy/generate-rich-menu-catalog.ts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate Pharmacy rich-menu catalog
+        if: steps.rich-menu-catalog.outputs.changed == 'true'
+        run: |
+          if ! command -v magick >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes imagemagick
+          fi
+          image_tool="$(command -v magick || command -v convert)"
+          pnpm rich-menu:catalog -- \
+            --output "$RUNNER_TEMP/pharmacy-rich-menu-catalog" \
+            --magick "$image_tool"
+
       - name: Build Admin Panel
         run: |
           pnpm --filter web build
@@ -120,6 +154,9 @@ jobs:
         run: |
           pnpm tsx apps/worker/scripts/inject-version.ts \
             --version "$RELEASE_VERSION" \
+            --worker-package-version "$(node -p 'require("./apps/worker/package.json").version')" \
+            --web-package-version "$(node -p 'require("./apps/web/package.json").version')" \
+            --liff-package-version "$(node -p 'require("./apps/liff/package.json").version')" \
             --worker apps/worker/dist/line_harness/index.js \
             --worker-assets apps/worker/dist/client \
             --admin apps/web/out \
@@ -237,6 +274,69 @@ jobs:
           result="$(pnpm tsx scripts/deploy/apply-migrations.ts)"
           echo "result=$result" >> "$GITHUB_OUTPUT"
 
+      - name: Publish Pharmacy rich-menu catalog
+        if: steps.rich-menu-catalog.outputs.changed == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}
+        run: |
+          catalog_dir="$RUNNER_TEMP/pharmacy-rich-menu-catalog"
+          manifest="$catalog_dir/manifest.json"
+          test "$(jq '.entries | length' "$manifest")" = "228"
+          catalog_total_bytes="$(jq '[.entries[].bytes] | add' "$manifest")"
+          test "$catalog_total_bytes" -le 50000000
+          catalog_version="$(jq -r '.catalogVersion' "$manifest")"
+          [[ "$catalog_version" =~ ^v[0-9]+-[0-9]+$ ]]
+          manifest_key="rich-menu-catalog/$catalog_version/manifest.json"
+          remote_manifest="$(mktemp)"
+          if npx wrangler r2 object get "$R2_BUCKET_NAME/$manifest_key" \
+              --file "$remote_manifest" --remote \
+              --config apps/worker/dist/line_harness/wrangler.json >/dev/null 2>&1; then
+            cmp --silent "$manifest" "$remote_manifest" || {
+              echo "Existing rich-menu catalog differs; bump the catalog version"
+              exit 1
+            }
+          else
+            catalog_prefix="rich-menu-catalog/$catalog_version/"
+            encoded_bucket="$(jq -rn --arg value "$R2_BUCKET_NAME" '$value | @uri')"
+            encoded_prefix="$(jq -rn --arg value "$catalog_prefix" '$value | @uri')"
+            inventory="$(mktemp)"
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000" \
+              > "$inventory"
+            jq -e '.success == true and .result_info.is_truncated == false' "$inventory" >/dev/null
+            existing_keys="$(mktemp)"
+            jq -r '.result[].key' "$inventory" > "$existing_keys"
+            if grep -Fqx -- "$manifest_key" "$existing_keys"; then
+              echo "Existing manifest could not be read"
+              exit 1
+            fi
+            while IFS=$'\t' read -r variant_key object_key; do
+              [[ "$variant_key" =~ ^v[0-9]+-(compact|large)-[a-z0-9.-]+$ ]]
+              test "$object_key" = "rich-menu-catalog/$catalog_version/$variant_key.jpg"
+              test -f "$catalog_dir/$variant_key.jpg"
+              if grep -Fqx -- "$object_key" "$existing_keys"; then
+                remote_image="$(mktemp)"
+                npx wrangler r2 object get "$R2_BUCKET_NAME/$object_key" \
+                  --file "$remote_image" --remote \
+                  --config apps/worker/dist/line_harness/wrangler.json >/dev/null
+                cmp --silent "$catalog_dir/$variant_key.jpg" "$remote_image" || {
+                  echo "Existing rich-menu catalog image differs; bump the catalog version"
+                  exit 1
+                }
+              else
+                npx wrangler r2 object put "$R2_BUCKET_NAME/$object_key" \
+                  --file "$catalog_dir/$variant_key.jpg" --content-type image/jpeg --remote \
+                  --config apps/worker/dist/line_harness/wrangler.json
+              fi
+            done < <(jq -r '.entries[] | [.variantKey, .objectKey] | @tsv' "$manifest")
+            npx wrangler r2 object put "$R2_BUCKET_NAME/$manifest_key" \
+              --file "$manifest" --content-type application/json --remote \
+              --config apps/worker/dist/line_harness/wrangler.json
+          fi
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
         with:
@@ -258,7 +358,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
           WORKER_URL: ${{ vars.WORKER_URL }}
         run: |
-          for attempt in 1 2 3 4 5; do
+          for attempt in {1..12}; do
             actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${WORKER_URL%/}/admin/version" | jq -r '.version')"
             test "$actual_version" = "$EXPECTED_VERSION" && break

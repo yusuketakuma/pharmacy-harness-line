@@ -53,7 +53,9 @@ describe('prescription validity reminders', () => {
     expect(queries[1]).toContain("s.status = 'ready'");
     expect(queries[1]).toContain('f.provider_line_user_id AS line_user_id');
     expect(queries[1]).toContain('mapping.tenant_id AS tenant_id');
-    expect(calls.find((sql) => sql.includes('SET reminder_claimed_at = ?'))).toContain("s.status = 'ready'");
+    const claimSql = calls.find((sql) => sql.includes('SET reminder_claimed_at = ?')) ?? '';
+    expect(claimSql).toContain("s.status = 'ready'");
+    expect(claimSql).toContain("value = 'prescription_intake'");
   });
 
   it('does not send when another cron invocation wins the claim', async () => {

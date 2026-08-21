@@ -162,6 +162,13 @@ describe('existing tenant admin bootstrap', () => {
     await expect(replay.json()).resolves.toMatchObject({ data: { replayed: true } });
     expect(fake.batches).toHaveLength(1);
 
+    // The CLI now sends a fresh random password on every run, so a retry of a
+    // lost response carries a different password and must still be a replay.
+    const retry = await app().request(endpoint, request('Different temporary 77'), env(fake.db));
+    expect(retry.status).toBe(200);
+    await expect(retry.json()).resolves.toMatchObject({ data: { replayed: true } });
+    expect(fake.batches).toHaveLength(1);
+
     const other = await app().request(endpoint, {
       ...request('Another temporary 84'),
       body: JSON.stringify({

@@ -297,6 +297,9 @@ describe('injectVersion.write', () => {
     const outPath = join(dir, '_version.ts');
     injectVersion.write(outPath, {
       version: '0.8.0',
+      workerPackageVersion: '0.8.0-worker',
+      webPackageVersion: '0.8.0-web',
+      liffPackageVersion: '0.8.0-liff',
       workerHash: 'sha256:aaaa',
       adminHash: 'sha256:bbbb',
       liffHash: 'sha256:cccc',
@@ -307,10 +310,33 @@ describe('injectVersion.write', () => {
     expect(existsSync(outPath)).toBe(true);
     const content = readFileSync(outPath, 'utf8');
     expect(content).toContain('export const BUNDLE_VERSION = "0.8.0"');
+    expect(content).toContain('export const WORKER_PACKAGE_VERSION = "0.8.0-worker"');
+    expect(content).toContain('export const WEB_PACKAGE_VERSION = "0.8.0-web"');
+    expect(content).toContain('export const LIFF_PACKAGE_VERSION = "0.8.0-liff"');
     expect(content).toContain('export const WORKER_HASH = "sha256:aaaa"');
     expect(content).toContain('export const ADMIN_HASH = "sha256:bbbb"');
     expect(content).toContain('export const LIFF_HASH = "sha256:cccc"');
     expect(content).toContain('export const WORKER_ASSETS_HASH = "sha256:dddd"');
     expect(content).toContain('export const RELEASED_AT = "2026-05-12T03:00:00Z"');
   });
+
+  it.each(['workerPackageVersion', 'webPackageVersion', 'liffPackageVersion'] as const)(
+    'rejects an empty %s',
+    (field) => {
+      const data = {
+        version: '0.8.0',
+        workerPackageVersion: '0.8.0',
+        webPackageVersion: '0.8.0',
+        liffPackageVersion: '0.8.0',
+        workerHash: 'sha256:aaaa',
+        adminHash: 'sha256:bbbb',
+        liffHash: 'sha256:cccc',
+        workerAssetsHash: 'sha256:dddd',
+        releasedAt: '2026-05-12T03:00:00Z',
+      };
+
+      expect(() => injectVersion.write(join(dir, '_version.ts'), { ...data, [field]: '' }))
+        .toThrow(`inject-version: ${field} must be a semantic version`);
+    },
+  );
 });

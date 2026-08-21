@@ -12,7 +12,8 @@ export type PharmacyAutomatedMessageId =
   | 'prescription_status_v1'
   | 'continuity_reminder_v1'
   | 'prescription_validity_reminder_v1'
-  | 'medication_followup_v1';
+  | 'medication_followup_v1'
+  | 'appointment_reminder_v1';
 
 export type PharmacyMessageVars = {
   status?: 'received' | 'accepted' | 'needs_resubmission' | 'ready' | 'closed' | 'cancelled';
@@ -55,6 +56,8 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
         : '処方せんの使用期限が近づいています。薬局へご相談ください。';
     case 'medication_followup_v1':
       return 'お薬を使い始めてからの体調はいかがですか。あてはまるものを選んでください。';
+    case 'appointment_reminder_v1':
+      return 'ご予約の時間が近づいています。必要に応じてLINEアプリで内容をご確認ください。';
     case 'prescription_status_v1':
       switch (vars.status) {
         case 'received':
@@ -91,6 +94,7 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
   'continuity_reminder_v1',
   'prescription_validity_reminder_v1',
   'medication_followup_v1',
+  'appointment_reminder_v1',
 ]);
 const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'intakeMethod', 'liffId', 'submissionId', 'genericDate', 'genericTime', 'followUpId']);
 const STATUSES = new Set(['received', 'accepted', 'needs_resubmission', 'ready', 'closed', 'cancelled']);
@@ -156,6 +160,9 @@ export function buildApprovedPharmacyMessage(
     throw new Error('pharmacy notification variable rejected');
   }
   if (vars.genericTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(vars.genericTime)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (id === 'appointment_reminder_v1' && Object.keys(vars).length > 0) {
     throw new Error('pharmacy notification variable rejected');
   }
   if ((id === 'medication_followup_v1') !== Boolean(vars.followUpId) ||

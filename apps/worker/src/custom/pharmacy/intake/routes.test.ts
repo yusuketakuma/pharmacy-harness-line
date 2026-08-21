@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   history: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
+  audit: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -44,6 +45,9 @@ vi.mock('../growth-loop/access.js', () => ({
 }));
 vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
+}));
+vi.mock('../../../lib/tenant-audit.js', () => ({
+  recordTenantAudit: mocks.audit,
 }));
 
 import { pharmacyIntakeRoutes } from './routes.js';
@@ -114,11 +118,11 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalledWith(env.DB, owner, false);
   });
 
-  it('rejects the patient list when patient intake is disabled', async () => {
+  it('keeps the patient list readable when patient intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await request('/api/liff/pharmacy/patients');
-    expect(response.status).toBe(403);
-    expect(mocks.listPatients).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listPatients).toHaveBeenCalled();
   });
 
   it('creates a family patient after validating the JSON boundary', async () => {
@@ -133,6 +137,15 @@ describe('LIFF pharmacy patient and intake routes', () => {
       sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
       addressLine1: null, addressLine2: null,
     });
+  });
+
+  it('blocks only new patient admission when patient intake is disabled', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const response = await request('/api/liff/pharmacy/patients', 'POST', {
+      relationship: 'self', name: '本人', nameKana: 'ホンニン', birthDate: '2000-01-01',
+    });
+    expect(response.status).toBe(409);
+    expect(mocks.createPatient).not.toHaveBeenCalled();
   });
 
   it('creates an intake revision only when both consents are supplied', async () => {
@@ -220,6 +233,24 @@ describe('admin pharmacy patient routes', () => {
     });
   });
 
+  it('audits staff PHI views with ids only', async () => {
+    const audit = (resourceId: string, action: string) => ({
+      lineAccountId: 'account-1', actorStaffId: 'staff-1', action,
+      resourceType: 'pharmacy_patient', resourceId,
+    });
+    for (const [path, action] of [
+      ['/api/custom/pharmacy/patients/patient-1/history', 'phi.intake_history_viewed'],
+      ['/api/custom/pharmacy/patients/patient-1/intake', 'phi.intake_viewed'],
+      ['/api/custom/pharmacy/patients/patient-1', 'phi.patient_viewed'],
+    ] as const) {
+      mocks.audit.mockClear();
+      const response = await adminApp().request(`${path}?line_account_id=account-1`, {}, env);
+      expect(response.status).toBe(200);
+      expect(mocks.audit).toHaveBeenCalledWith(env.DB, audit('patient-1', action));
+    }
+    expect(JSON.stringify(mocks.audit.mock.calls)).not.toContain('allergies');
+  });
+
   it('denies a staff member attempting another account history', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await adminApp().request(
@@ -244,12 +275,12 @@ describe('admin pharmacy patient routes', () => {
     });
   });
 
-  it('fails closed when the patient-intake capability is disabled', async () => {
+  it('keeps existing admin patient records readable when patient intake is disabled', async () => {
     mocks.capability.mockResolvedValue(false);
     const response = await adminApp().request(
       '/api/custom/pharmacy/patients?line_account_id=account-1', {}, env,
     );
-    expect(response.status).toBe(403);
-    expect(mocks.listAdminPatients).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.listAdminPatients).toHaveBeenCalled();
   });
 });

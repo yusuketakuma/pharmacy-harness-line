@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { endNextIntakeExpectation } from './next-intake.js'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 function fakeDb(firstRows: unknown[]) {
   const rows = [...firstRows]
@@ -22,6 +24,18 @@ function fakeDb(firstRows: unknown[]) {
 }
 
 describe('next-intake staff cancellation', () => {
+  it('gates only a new expectation at the final account-scoped write', () => {
+    const source = readFileSync(
+      fileURLToPath(import.meta.url).replace(/next-intake\.test\.ts$/, 'next-intake.ts'),
+      'utf8',
+    )
+    const offer = source.slice(
+      source.indexOf('export async function offerNextIntakeExpectation'),
+      source.indexOf('export async function respondToNextIntakeExpectation'),
+    )
+    expect(offer).toContain("value = 'continuity'")
+  })
+
   it('ends the account-scoped expectation and its staff audit event atomically', async () => {
     const current = { id: 'expectation-1', status: 'accepted', version: 2 }
     const ended = { ...current, status: 'ended', version: 3 }

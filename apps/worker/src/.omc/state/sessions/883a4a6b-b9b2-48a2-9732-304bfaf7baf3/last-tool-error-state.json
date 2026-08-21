@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"sed -n '1,50p' packages/db/migrations/custom_014_pharmacy_logical_tenants.sql 2>/dev/null; echo \\\"=== any other tenant provisioning route besides platform/pharmacy? ===\\\"; grep -rln \\\"INSE...",
-  "error": "Exit code 2\n=== any other tenant provisioning route besides platform/pharmacy? ===\ncustom/pharmacy/provisioning/routes.ts\n=== staff-invite / signup routes that might create a generic tenant ===",
-  "timestamp": "2026-08-18T23:30:51.619Z",
-  "retry_count": 1
-}

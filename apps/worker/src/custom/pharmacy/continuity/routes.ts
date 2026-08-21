@@ -42,8 +42,8 @@ function expectationView(item: NextIntakeExpectation) {
     updated_at: item.updated_at,
   };
 }
-// Wildcard also matches the bare collection path, so child routes such as
-// POST /continuity/:id/expectations run the same account + capability gate.
+// Wildcard also matches the bare collection path. Capability checks live on
+// new admission only so existing records remain readable and finishable.
 continuityRoutes.use('/api/custom/pharmacy/continuity/*', async (c, next) => {
   const staff = c.get('staff');
   const account = getPharmacyAccountId(c);
@@ -52,9 +52,6 @@ continuityRoutes.use('/api/custom/pharmacy/continuity/*', async (c, next) => {
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, account, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
-  if (!(await hasPharmacyCapability(c.env.DB, account, 'continuity'))) {
-    return c.json({ error: 'Continuity is not enabled' }, 403);
-  }
   return next();
 });
 
@@ -63,9 +60,6 @@ continuityRoutes.use('/api/liff/pharmacy/continuity/*', async (c, next) => {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
-  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'continuity'))) {
-    return c.json({ error: 'Continuity is not enabled' }, 403);
-  }
   c.set('continuityPatient', patient);
   return next();
 });
@@ -131,6 +125,9 @@ continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations', async 
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   const account = getPharmacyAccountId(c);
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
+  if (!(await hasPharmacyCapability(c.env.DB, account, 'continuity'))) {
+    return c.json({ error: 'Continuity is not enabled', code: 'FEATURE_DISABLED' }, 409);
+  }
   const body = await readJsonObject(c.req);
   if (!body || typeof body.idempotencyKey !== 'string') {
     return c.json({ error: 'Invalid next-intake offer' }, 400);

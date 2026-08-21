@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   alias: vi.fn(),
   admin: vi.fn(),
   saveEndpoint: vi.fn(),
+  setEndpointEnabled: vi.fn(),
+  markEndpointVerified: vi.fn(),
   verifyIdentity: vi.fn(),
   resolvePatient: vi.fn(),
   enqueueActivity: vi.fn(),
@@ -34,6 +36,8 @@ vi.mock('./endpoint-repository.js', () => ({
   getMynaEndpointByAlias: mocks.alias,
   getAdminMynaEndpoint: mocks.admin,
   saveMynaEndpoint: mocks.saveEndpoint,
+  setMynaEndpointEnabled: mocks.setEndpointEnabled,
+  markMynaEndpointVerified: mocks.markEndpointVerified,
 }));
 vi.mock('../../../services/liff-auth.js', () => ({
   verifyCallerLineIdentity: mocks.verifyIdentity,
@@ -101,15 +105,79 @@ beforeEach(() => {
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
+  mocks.setEndpointEnabled.mockResolvedValue({
+    id: 'endpoint-1', line_account_id: 'account-1', tenant_alias: 'pharmacy-a',
+    endpoint_url_masked: 'https://myna.example.test/…', enabled: false,
+    last_verified_at: null, revision: 1,
+  });
+  mocks.markEndpointVerified.mockResolvedValue(undefined);
 });
 
 describe('Myna routes', () => {
+  it('changes endpoint enabled state without receiving the plaintext URL again', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: false, expectedRevision: 1 }),
+      }, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.setEndpointEnabled).toHaveBeenCalledWith(
+      env.DB, 'account-1', false, 1, 'staff-1', 'test-secret',
+    );
+  });
+
+  it('records a manual official-console verification for the assigned account', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: 1 }),
+      }, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.markEndpointVerified).toHaveBeenCalledWith(env.DB, 'account-1', 1);
+  });
+
+  it('requires an endpoint revision and maps stale writes to conflict', async () => {
+    const invalid = await app().request(
+      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: false }),
+      }, env,
+    );
+    expect(invalid.status).toBe(400);
+    expect(mocks.setEndpointEnabled).not.toHaveBeenCalled();
+
+    mocks.markEndpointVerified.mockRejectedValueOnce(new Error('stale Myna endpoint revision'));
+    const stale = await app().request(
+      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: 1 }),
+      }, env,
+    );
+    expect(stale.status).toBe(409);
+  });
+
   it('rejects an admin handoff read outside the assigned account', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await app().request(
       '/api/custom/pharmacy/myna-handoffs?line_account_id=account-b', {}, env,
     );
     expect(response.status).toBe(403);
+    expect(mocks.list).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown handoff status filter before repository access', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-handoffs?line_account_id=account-1&status=UNKNOWN', {}, env,
+    );
+    expect(response.status).toBe(400);
     expect(mocks.list).not.toHaveBeenCalled();
   });
 
@@ -127,6 +195,27 @@ describe('Myna routes', () => {
     expect(mocks.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION', source: 'LIFF',
     }));
+    expect(mocks.capability).toHaveBeenCalledWith(env.DB, 'account-1', 'electronic_prescription');
+  });
+
+  it('blocks only new electronic admission when its capability is off', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const blocked = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
+    }, env);
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({ code: 'FEATURE_DISABLED' });
+    expect(mocks.create).not.toHaveBeenCalled();
+
+    const active = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc',
+      { headers: { Authorization: 'Bearer line-token' } },
+      env,
+    );
+    expect(active.status).toBe(200);
+    expect(mocks.activePatient).toHaveBeenCalled();
   });
 
   it('restores only the authenticated LINE contact active handoff', async () => {

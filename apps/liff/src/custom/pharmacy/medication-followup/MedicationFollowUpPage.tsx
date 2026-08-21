@@ -109,11 +109,8 @@ export default function MedicationFollowUpPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
-      <header className="border-b bg-white px-4 py-4">
-        <h1 className="text-lg font-bold text-gray-900">服薬後フォロー</h1>
-        <p className="mt-1 text-sm text-gray-600">お薬を使ってからの状況を薬局へ伝えられます。飲み忘れがあっても責めることはありません。</p>
-      </header>
       <div className="space-y-4 p-4">
+        <p className="text-sm leading-6 text-gray-600">服薬後フォローでは、お薬を使ってからの状況を薬局へ伝えられます。飲み忘れがあっても責めることはありません。</p>
         <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           強い息苦しさ、意識がもうろうとするなど緊急性が高い場合、この画面の回答を待たず、緊急時は119へ連絡してください。
         </section>

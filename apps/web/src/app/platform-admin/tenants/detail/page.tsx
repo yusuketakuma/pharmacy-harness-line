@@ -1,4 +1,6 @@
 'use client'
+import { roleLabel, tenantStatusLabel } from '@/lib/platform-admin-labels'
+import { readinessStatusLabel } from '@/custom/pharmacy/growth-loop/FeatureSettingsPage'
 import { Suspense, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -11,6 +13,12 @@ import {
   type PlatformTenantHealth,
 } from '@/lib/platform-admin-api'
 import { SupportModeStartForm } from '@/components/platform-admin/support-mode'
+
+function ReasonCodes({ reasonCodes }: { reasonCodes: readonly string[] }) {
+  return reasonCodes.length > 0
+    ? <span className="mt-1 block font-mono text-[11px] text-gray-500">{reasonCodes.join(', ')}</span>
+    : null
+}
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -129,6 +137,11 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                 <th className="px-3 py-2">Bot識別</th>
                 <th className="px-3 py-2">認証情報</th>
                 <th className="px-3 py-2">最終Webhook受信</th>
+                <th className="px-3 py-2">LIFF endpoint</th>
+                <th className="px-3 py-2">電子処方箋</th>
+                <th className="px-3 py-2">緊急避妊薬</th>
+                <th className="px-3 py-2">リッチメニュー</th>
+                <th className="px-3 py-2">設定診断</th>
                 <th className="px-3 py-2">接続テスト</th>
               </tr>
             </thead>
@@ -137,12 +150,47 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                 const probe = probes[account.id]
                 return (
                   <tr key={account.id} className="border-t border-gray-100">
-                    <td className="px-3 py-2">{account.name}</td>
+                    <td className="px-3 py-2">
+                      <span>{account.name}</span>
+                      <span className="mt-1 block text-xs text-gray-500">
+                        LIFF {account.liffIdConfigured ? '設定済み' : '未設定'} / LINEログイン {account.loginChannelConfigured ? '設定済み' : '未設定'}
+                      </span>
+                      {account.expectedLiffEndpoint && <span className="block break-all font-mono text-[11px] text-gray-500">{account.expectedLiffEndpoint}</span>}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">{account.channelId}</td>
                     <td className="px-3 py-2">{account.isActive ? '有効' : '無効'}</td>
                     <td className="px-3 py-2">{account.hasBotIdentity ? 'あり' : 'なし'}</td>
-                    <td className="px-3 py-2">{account.hasEncryptedCredential ? 'あり' : 'なし'}</td>
+                    <td className="px-3 py-2">
+                      メッセージ配信 {account.messagingCredentialsReady ? '準備完了' : '要対応'}
+                      <span className="block">LINEログイン {account.loginCredentialReady ? '準備完了' : '要対応'}</span>
+                    </td>
                     <td className="px-3 py-2">{ymd(account.lastWebhookReceivedAt)}</td>
+                    <td className="px-3 py-2">{readinessStatusLabel(account.liffEndpointEvidence.status)}<ReasonCodes reasonCodes={account.liffReasonCodes} /></td>
+                    <td className="px-3 py-2">{readinessStatusLabel(account.readiness?.electronicPrescription.status ?? 'BLOCKED')}<ReasonCodes reasonCodes={account.readiness?.electronicPrescription.reasonCodes ?? []} /></td>
+                    <td className="px-3 py-2">{readinessStatusLabel(account.readiness?.emergencyContraception.status ?? 'BLOCKED')}<ReasonCodes reasonCodes={account.readiness?.emergencyContraception.reasonCodes ?? []} /></td>
+                    <td className="px-3 py-2">
+                      {readinessStatusLabel(account.readiness?.richMenu.status ?? 'BLOCKED')}
+                      {account.readiness?.richMenu && <span className="mt-1 block text-[11px] text-gray-500">
+                        同期状態 {account.readiness.richMenu.syncStatus === 'CURRENT' ? '同期済み' : '未同期'} /
+                        配置設定 {account.readiness.richMenu.layoutConfigured ? '済' : '未'} /
+                        下書き {account.readiness.richMenu.savedVersionAvailable ? '済' : '未'} /
+                        機能設定との整合 {account.readiness.richMenu.capabilityRevisionCurrent ? '最新' : '古い'} /
+                        画像アップロード {account.readiness.richMenu.uploadVerified ? '確認済' : '未確認'} /
+                        既定メニュー記録 {account.readiness.richMenu.currentDefaultRecorded ? '済' : '未'} /
+                        公開状態の確認 {account.readiness.richMenu.defaultReadbackVerified ? '確認済' : '未確認'}
+                      </span>}
+                      <ReasonCodes reasonCodes={account.readiness?.richMenu.reasonCodes ?? []} />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <span className="font-medium">{readinessStatusLabel(account.configurationDoctor.status)}</span>
+                      <ReasonCodes reasonCodes={account.configurationDoctor.reasonCodes} />
+                      <ul className="mt-2 space-y-2">{account.configurationDoctor.checks
+                        .filter((check) => check.required && check.status !== 'READY')
+                        .map((check) => <li key={check.key} className="text-xs text-gray-600">
+                          <span className="block">{check.impact}</span>
+                          <Link href={check.fixHref} className="inline-block min-h-11 py-2 text-purple-800 underline">設定を開く</Link>
+                        </li>)}</ul>
+                    </td>
                     <td className="px-3 py-2">
                       <button
                         type="button"
@@ -162,7 +210,7 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                 )
               })}
               {accounts.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-500">LINEアカウントがありません</td></tr>
+                <tr><td colSpan={12} className="px-3 py-6 text-center text-gray-500">LINEアカウントがありません</td></tr>
               )}
             </tbody>
           </table>
@@ -246,7 +294,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
                   <tr key={member.staffId} className="border-t border-gray-100">
                     <td className="px-3 py-2">{member.name}</td>
                     <td className="px-3 py-2">{member.email ?? '—'}</td>
-                    <td className="px-3 py-2">{member.role}</td>
+                    <td className="px-3 py-2">{roleLabel(member.role)}</td>
                     <td className="px-3 py-2">
                       {member.isActive ? '有効' : '無効'}
                       {!member.membershipActive && <span className="ml-1 text-xs text-gray-500">(所属停止)</span>}
@@ -414,7 +462,7 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
           <div><dt className="text-gray-500">テナントコード</dt><dd className="font-mono">{tenant.tenantCode}</dd></div>
           <div><dt className="text-gray-500">名称</dt><dd>{tenant.displayName}</dd></div>
-          <div><dt className="text-gray-500">ステータス</dt><dd>{tenant.status}</dd></div>
+          <div><dt className="text-gray-500">ステータス</dt><dd>{tenantStatusLabel(tenant.status)}</dd></div>
           <div><dt className="text-gray-500">LINEアカウント数</dt><dd>{tenant.lineAccountCount}</dd></div>
           <div><dt className="text-gray-500">スタッフ数</dt><dd>{tenant.staffCount}</dd></div>
           <div><dt className="text-gray-500">登録患者数</dt><dd>{tenant.patientCount}</dd></div>
@@ -446,8 +494,8 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
               onChange={(event) => setStatus(event.target.value)}
               className="mt-1 block w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2"
             >
-              <option value="active">active</option>
-              <option value="suspended">suspended</option>
+              <option value="active">稼働中</option>
+              <option value="suspended">停止中</option>
             </select>
           </label>
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}

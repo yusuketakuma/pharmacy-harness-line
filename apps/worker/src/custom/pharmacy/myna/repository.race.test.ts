@@ -117,6 +117,41 @@ function database(expiresAt: string, onBeforeBatch?: () => Promise<void>) {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('Myna verification write atomicity', () => {
+  it('replays the same formal verification without duplicating records', async () => {
+    const fake = database('2099-08-19T00:00:00.000Z');
+    const input = {
+      lineAccountId: 'account-1', handoffId: 'handoff-1', staffId: 'staff-1',
+      status: 'E_PRESCRIPTION_RECEIVED' as const, sourceSystem: 'pharmacy-terminal',
+      sourceReference: 'same-reference',
+    };
+    try {
+      const first = await recordMynaVerification(fake.db, input);
+      const replay = await recordMynaVerification(fake.db, input);
+      expect(replay.verification.id).toBe(first.verification.id);
+      expect(fake.count('pharmacy_myna_verifications')).toBe(1);
+      expect(fake.count('pharmacy_myna_events')).toBe(3);
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('rejects a different formal verification after the first result', async () => {
+    const fake = database('2099-08-19T00:00:00.000Z');
+    try {
+      await recordMynaVerification(fake.db, {
+        lineAccountId: 'account-1', handoffId: 'handoff-1', staffId: 'staff-1',
+        status: 'E_PRESCRIPTION_RECEIVED', sourceSystem: 'pharmacy-terminal',
+      });
+      await expect(recordMynaVerification(fake.db, {
+        lineAccountId: 'account-1', handoffId: 'handoff-1', staffId: 'staff-1',
+        status: 'PRESCRIPTION_EXPIRED', sourceSystem: 'pharmacy-terminal',
+      })).rejects.toThrow(/conflict/i);
+      expect(fake.count('pharmacy_myna_verifications')).toBe(1);
+    } finally {
+      fake.close();
+    }
+  });
+
   it('lets only one of two concurrent verifications take effect', async () => {
     const fake = database('2099-08-19T00:00:00.000Z');
     try {

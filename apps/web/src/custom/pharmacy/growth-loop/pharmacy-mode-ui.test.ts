@@ -9,9 +9,10 @@ describe('pharmacy mode UI boundary', () => {
     const dashboard = read('app/page.tsx')
 
     expect(dashboard).toContain("import GrowthDashboardPage from '@/custom/pharmacy/growth-loop/GrowthDashboardPage'")
+    expect(dashboard).toContain("import TodayOperationsSummary from '@/custom/pharmacy/growth-loop/TodayOperationsSummary'")
     expect(dashboard).toContain('if (loading) return')
     expect(dashboard).toContain('if (!selectedAccount) return')
-    expect(dashboard).toContain('if (selectedAccount?.pharmacyMode) return <GrowthDashboardPage />')
+    expect(dashboard).toContain('if (selectedAccount?.pharmacyMode) return <><TodayOperationsSummary /><GrowthDashboardPage /></>')
     expect(dashboard).not.toContain('your-worker.your-subdomain.workers.dev')
   })
 

@@ -87,6 +87,9 @@ function makeMockLineClient(opts: { currentDefault?: string | null } = {}): Mock
       calls.push('create');
       return { richMenuId: `lm-${calls.filter((c) => c === 'create').length}` };
     }),
+    getRichMenuList: vi.fn(async () => []),
+    getRichMenuImage: vi.fn(async () => null),
+    getRichMenuAlias: vi.fn(async () => null),
     uploadRichMenuImage: vi.fn(async () => {
       calls.push('upload');
     }),
@@ -122,6 +125,70 @@ function makeMockR2(): R2Like {
 }
 
 describe('publishRichMenuGroup', () => {
+  it('persists each new remote id before uploading its image', async () => {
+    const line = makeMockLineClient();
+    const r2 = makeMockR2();
+    await publishRichMenuGroup(
+      {
+        id: 'gid12345-aaaa', size: 'large', chatBarText: 'menu', isDefaultForAll: false, selected: false,
+        pages: [{
+          id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.png',
+          imageContentType: 'image/png', lineRichMenuId: null, areas: [],
+        }],
+      },
+      line,
+      r2,
+      {
+        onProgress: async (phase, _pageId, richMenuId) => {
+          line.calls.push(`${phase}-${richMenuId}`);
+        },
+      },
+    );
+    expect(line.calls.slice(0, 5)).toEqual([
+      'create', 'remote_created-lm-1', 'upload', 'image_uploaded-lm-1', 'create-alias',
+    ]);
+  });
+
+  it('keeps a pharmacy remote candidate for stage reconciliation after an unknown upload result', async () => {
+    const line = makeMockLineClient();
+    line.uploadRichMenuImage = vi.fn(async () => {
+      line.calls.push('upload');
+      throw new Error('network result unknown');
+    });
+    const createdPayloads: unknown[] = [];
+    line.createRichMenu = vi.fn(async (payload) => {
+      line.calls.push('create');
+      createdPayloads.push(payload);
+      return { richMenuId: 'lm-pharmacy' };
+    });
+
+    await expect(publishRichMenuGroup(
+      {
+        id: 'gid12345-aaaa', size: 'compact', chatBarText: 'menu',
+        isDefaultForAll: false, selected: true,
+        pages: [{
+          id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.jpg',
+          imageContentType: 'image/jpeg', lineRichMenuId: null, areas: [],
+        }],
+      },
+      line,
+      makeMockR2(),
+      {
+        generation: 'confirm1',
+        remoteMenuName: 'pharmacy-gid12345-confirm1',
+        preserveRemoteOnError: true,
+        onProgress: async (phase) => { line.calls.push(`persist-${phase}`); },
+      },
+    )).rejects.toThrow('network result unknown');
+
+    expect(createdPayloads).toEqual([
+      expect.objectContaining({ name: 'pharmacy-gid12345-confirm1' }),
+    ]);
+    expect(line.calls).toEqual(['create', 'persist-remote_created', 'upload']);
+    expect(line.deleteRichMenu).not.toHaveBeenCalled();
+    expect(line.deleteRichMenuAlias).not.toHaveBeenCalled();
+  });
+
   it('rolls back newly created LINE resources when a later page fails', async () => {
     const line = makeMockLineClient();
     let uploads = 0;

@@ -55,8 +55,6 @@ export type {
   RichMenuGroup,
   CreateRichMenuGroupInput,
   UpdateRichMenuGroupInput,
-  PreparePharmacyRichMenuInput,
-  PreparePharmacyRichMenuResult,
   TrackedLink,
   LinkClick,
   TrackedLinkWithClicks,

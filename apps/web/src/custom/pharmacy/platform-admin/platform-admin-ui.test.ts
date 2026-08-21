@@ -10,6 +10,7 @@ describe('platform admin UI contract', () => {
   const login = read('app', 'platform-admin', 'login', 'page.tsx');
   const layout = read('app', 'platform-admin', 'layout.tsx');
   const tenantDetail = read('app', 'platform-admin', 'tenants', 'detail', 'page.tsx');
+  const tenantNew = read('app', 'platform-admin', 'tenants', 'new', 'page.tsx');
   const shell = read('components', 'app-shell.tsx');
 
   it('logs in without a pharmacy code — a platform admin login id is global', () => {
@@ -82,6 +83,22 @@ describe('platform admin UI contract', () => {
     expect(audit).toContain('detail_json');
     expect(audit).toContain('JSON.parse(raw)');
     expect(audit).toContain("platformAdminApi.audit({ all, limit: 200 })");
+  });
+
+  it('provides a platform-admin-only guided tenant and LINE setup flow', () => {
+    const tenants = read('app', 'platform-admin', 'tenants', 'page.tsx');
+    expect(tenants).toContain('/platform-admin/tenants/new');
+    expect(tenantNew).toContain('テナントと初期管理者');
+    expect(tenantNew).toContain('Messaging API');
+    expect(tenantNew).toContain('LINE Login / LIFF');
+    expect(tenantNew).toContain('入力内容の確認');
+    expect(tenantNew).toContain('platformAdminApi.provisionTenant')
+    expect(tenantNew).toContain("setChannelAccessToken('')")
+    expect(tenantNew).toContain("setChannelSecret('')")
+    expect(tenantNew).toContain("setLoginChannelSecret('')")
+    expect(api).toContain("'/tenants',")
+    expect(api).toContain("'Idempotency-Key': idempotencyKey")
+    expect(tenantNew).not.toContain('contexts/account-context')
   });
 });
 
@@ -199,6 +216,11 @@ describe('platform admin control center UI contract', () => {
       expect(dashboard).toContain(check);
     }
     expect(layout).toContain("{ href: '/platform-admin', label: 'ダッシュボード' }");
+    for (const label of ['薬局readiness', 'READY', 'BLOCKED', 'UNVERIFIED', 'seller release', 'LIFF package', 'Web runtime', 'Worker runtime']) {
+      expect(dashboard).toContain(label);
+    }
+    expect(dashboard).toContain('dashboard.pharmacyReadiness.tenants')
+    expect(dashboard).toContain('dashboard.versions.liffPackageVersion')
   });
 
   it('wires health, LINE diagnostics and the outbound pause into the tenant page', () => {
@@ -211,7 +233,17 @@ describe('platform admin control center UI contract', () => {
     expect(tenantDetail).toContain('probe.ok ?');
     // No secret-bearing field is ever displayed; the API only exposes presence booleans.
     expect(api).toContain('hasEncryptedCredential: boolean');
-    expect(api).not.toMatch(/channelSecret|accessToken/);
+    const lineStatusType = api.slice(
+      api.indexOf('export type PlatformLineStatus'),
+      api.indexOf('/** A failed probe'),
+    );
+    expect(lineStatusType).not.toMatch(/\bchannelSecret\s*:|\baccessToken\s*:/);
+    for (const label of ['LIFF endpoint', 'リッチメニュー', '設定診断', 'configurationDoctor', 'check.impact', 'check.fixHref', 'reasonCodes', 'layoutConfigured', 'savedVersionAvailable', 'syncStatus', 'capabilityRevisionCurrent', 'uploadVerified', 'currentDefaultRecorded', 'defaultReadbackVerified']) {
+      expect(tenantDetail).toContain(label);
+    }
+    expect(api).toContain('liffReasonCodes: PlatformReadinessReasonCode[]')
+    expect(api).toContain('configurationDoctor: PlatformConfigurationDoctor')
+    expect(api).toContain('sellerRelease: string | null')
   });
 
   it('shows the current outbound pause state and serializes confirmed changes', () => {

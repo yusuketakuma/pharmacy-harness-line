@@ -193,3 +193,47 @@ describe('rate-limit SENSITIVE_PATHS (L-8: platform pharmacy tenant sub-paths)',
     expect(blocked.status).toBe(429);
   });
 });
+
+describe('rate-limit SENSITIVE_PATHS (percent-encoded path bypass)', () => {
+  test('an encoded login path is still limited to ten attempts per minute', async () => {
+    const a = app();
+    a.post('/api/platform-admin/login', (c) => c.json({ success: true }));
+    const encoded = '/api/platform-admin/log%69n';
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await a.request(encoded, {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.50' },
+      }, env);
+      expect(response.status).toBe(200);
+    }
+    const blocked = await a.request(encoded, {
+      method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.50' },
+    }, env);
+    expect(blocked.status).toBe(429);
+  });
+});
+
+describe('rate-limit SENSITIVE_PATHS (AUTH-2: platform-admin login / password change)', () => {
+  const ipByPath: Record<string, string> = {
+    '/api/platform-admin/login': '203.0.113.40',
+    '/api/platform-admin/change-password': '203.0.113.41',
+    '/api/auth/change-password': '203.0.113.42',
+  };
+
+  test.each(Object.keys(ipByPath))('limits %s to ten attempts per minute', async (path) => {
+    const ip = ipByPath[path];
+    const a = app();
+    a.post(path, (c) => c.json({ success: true }));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await a.request(path, {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer rotated-${attempt}` },
+      }, env);
+      expect(response.status).toBe(200);
+    }
+    const blocked = await a.request(path, {
+      method: 'POST',
+      headers: { 'cf-connecting-ip': ip, Authorization: 'Bearer another-value' },
+    }, env);
+    expect(blocked.status).toBe(429);
+  });
+});

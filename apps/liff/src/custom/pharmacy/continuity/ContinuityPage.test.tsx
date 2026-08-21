@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +10,14 @@ describe('continuity patient hub', () => {
     expect(html).toContain('継続フォロー');
     expect(html).toContain('処方せん事前送信へ');
     expect(html).not.toContain('患者名');
+  });
+
+  it('shows a loading state first and offers reload on error', () => {
+    const html = renderToStaticMarkup(<MemoryRouter><ContinuityPage /></MemoryRouter>);
+    expect(html).toContain('読み込み中');
+    expect(html).not.toContain('現在、継続フォローはありません');
+    const source = readFileSync(new URL('./ContinuityPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('再読み込み');
   });
 
   it('asks the patient before enabling a next-intake reminder', () => {

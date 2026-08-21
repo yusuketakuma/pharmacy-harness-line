@@ -250,6 +250,13 @@ export async function offerNextIntakeExpectation(
               'offered', ?, ?, ?, ?, ?, 1, ?, ?, ?
          FROM pharmacy_continuity_obligations o
         WHERE o.id = ? AND o.line_account_id = ? AND o.status = 'active'
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities AS capability
+             WHERE capability.line_account_id = o.line_account_id
+               AND capability.mode = 'pharmacy'
+               AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                            WHERE value = 'continuity')
+          )
           AND NOT EXISTS (
             SELECT 1 FROM pharmacy_next_intake_expectation_events
              WHERE line_account_id = ? AND idempotency_key = ?

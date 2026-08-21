@@ -17,6 +17,7 @@ import AccountSetupUrls from '@/components/accounts/account-setup-urls'
 import AccountEditModal from '@/components/accounts/account-edit-modal'
 import LinkBaseUrlSetting from '@/components/accounts/link-base-url-setting'
 import FollowerImportButton from '@/components/accounts/follower-import-button'
+import { useAccount } from '@/contexts/account-context'
 
 interface LineAccountListItem {
   id: string
@@ -67,6 +68,7 @@ function accountToggleConfirmation(accountName: string, currentActive: boolean):
 }
 
 export default function AccountsPage() {
+  const { refreshAccounts, setSelectedAccountId } = useAccount()
   const [accounts, setAccounts] = useState<LineAccountListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -79,13 +81,11 @@ export default function AccountsPage() {
   const [mutatingAccountId, setMutatingAccountId] = useState<string | null>(null)
   const [connectingAccountId, setConnectingAccountId] = useState<string | null>(null)
   const [connectionResult, setConnectionResult] = useState<Record<string, { ok: boolean; message: string }>>({})
-  const [preparingRichMenu, setPreparingRichMenu] = useState(false)
   const [justCreated, setJustCreated] = useState<{
-    accountId: string
     liffId: string | null
-    richMenuStatus: 'prepared' | 'configuration_required' | 'failed'
-    richMenuGroupId: string | null
     lineConnected: boolean
+    richMenuStatus: 'READY' | 'BLOCKED' | 'UNVERIFIED'
+    setupChecks: Array<{ key: string; status: 'BLOCKED' | 'UNVERIFIED'; impact: string; fixHref: string }>
   } | null>(null)
 
   const load = async () => {
@@ -137,40 +137,43 @@ export default function AccountsPage() {
       if (res.success) {
         const accountId = res.data?.id
         let lineConnected = false
+        let richMenuStatus: 'READY' | 'BLOCKED' | 'UNVERIFIED' = 'UNVERIFIED'
+        let setupChecks: Array<{
+          key: string; status: 'BLOCKED' | 'UNVERIFIED'; impact: string; fixHref: string
+        }> = []
         if (accountId) {
           try {
             lineConnected = (await api.lineAccounts.connect(accountId)).success
           } catch {
             lineConnected = false
           }
-        }
-        let richMenuStatus: 'prepared' | 'configuration_required' | 'failed' = 'failed'
-        let richMenuGroupId: string | null = null
-        if (accountId) {
           try {
-            const menu = await api.richMenuGroups.preparePharmacy(accountId, { initial: true })
-            if (menu.success) {
-              richMenuStatus = menu.data.status === 'prepared' || menu.data.status === 'already_prepared'
-                ? 'prepared'
-                : 'configuration_required'
-              richMenuGroupId = menu.data.group?.id ?? null
-            } else if (menu.error?.toLowerCase().includes('liff')) {
-              richMenuStatus = 'configuration_required'
+            const readiness = await api.pharmacyGrowth.readiness(accountId)
+            if (readiness.success) {
+              richMenuStatus = readiness.data.richMenu.status
+              setupChecks = readiness.data.configurationDoctor.checks
+                .filter((check): check is typeof check & { status: 'BLOCKED' | 'UNVERIFIED' } =>
+                  check.required && check.status !== 'READY')
+                .slice(0, 3)
+                .map((check) => ({
+                  key: check.key, status: check.status, impact: check.impact, fixHref: check.fixHref,
+                }))
             }
           } catch {
-            richMenuStatus = form.liffId.trim() ? 'failed' : 'configuration_required'
+            richMenuStatus = 'UNVERIFIED'
           }
+          await Promise.all([load(), refreshAccounts()])
+          setSelectedAccountId(accountId)
         }
         setJustCreated({
-          accountId: accountId ?? '',
           liffId: form.liffId.trim() || null,
-          richMenuStatus,
-          richMenuGroupId,
           lineConnected,
+          richMenuStatus,
+          setupChecks,
         })
         setForm(emptyAccountFormState)
         setShowCreate(false)
-        load()
+        if (!accountId) await load()
       } else {
         setCreateError(res.error || '登録に失敗しました')
       }
@@ -243,26 +246,6 @@ export default function AccountsPage() {
     }
   }
 
-  const prepareInitialRichMenu = async () => {
-    if (!justCreated?.accountId) return
-    setPreparingRichMenu(true)
-    try {
-      const menu = await api.richMenuGroups.preparePharmacy(justCreated.accountId, { initial: true })
-      const menuError = menu.success ? '' : menu.error ?? ''
-      setJustCreated((current) => current ? {
-        ...current,
-        richMenuStatus: menu.success && (menu.data.status === 'prepared' || menu.data.status === 'already_prepared')
-          ? 'prepared'
-          : menuError.toLowerCase().includes('liff') ? 'configuration_required' : 'failed',
-        richMenuGroupId: menu.success ? menu.data.group?.id ?? current.richMenuGroupId : current.richMenuGroupId,
-      } : current)
-    } catch {
-      setJustCreated((current) => current ? { ...current, richMenuStatus: 'failed' } : current)
-    } finally {
-      setPreparingRichMenu(false)
-    }
-  }
-
   return (
     <div>
       <Header
@@ -303,7 +286,7 @@ export default function AccountsPage() {
       )}
 
       {justCreated && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+        <div aria-live="polite" className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
           <p className="text-sm font-semibold text-green-800 mb-2">
             ✓ アカウントを登録しました
           </p>
@@ -314,28 +297,20 @@ export default function AccountsPage() {
             LINE接続: {justCreated.lineConnected ? 'Webhookまで自動設定済み' : '要確認（下のアカウント欄から再実行できます）'}
           </p>
           <AccountSetupUrls liffId={justCreated.liffId} heading="登録すべき URL" />
-          <p className="mt-3 text-xs text-green-700">
-            初期リッチメニュー:{' '}
-            {justCreated.richMenuStatus === 'prepared' ? (
-              justCreated.richMenuGroupId ? (
-                <Link href={`/rich-menus/edit?id=${justCreated.richMenuGroupId}`} className="underline">下書きを確認</Link>
-              ) : '準備済み'
-            ) : justCreated.richMenuStatus === 'configuration_required' ? (
-              'LIFF ID 登録後に準備できます'
-            ) : (
-              '準備に失敗しました。リッチメニュー画面から再実行してください'
-            )}
-          </p>
-          {justCreated.richMenuStatus !== 'prepared' && (
-            <button
-              type="button"
-              onClick={prepareInitialRichMenu}
-              disabled={preparingRichMenu || !justCreated.liffId}
-              className="mt-2 text-xs text-green-800 underline disabled:no-underline disabled:opacity-50"
-            >
-              {preparingRichMenu ? '初期メニューを準備中...' : '初期メニューを再実行'}
-            </button>
-          )}
+          <div className="mt-3 rounded-lg bg-white/70 p-3 text-xs text-green-900">
+            <p className="font-semibold">初期リッチメニュー: {justCreated.richMenuStatus}</p>
+            {justCreated.setupChecks.length > 0 && <ul className="mt-2 space-y-2">
+              {justCreated.setupChecks.map((check) => <li key={check.key}>
+                <span>{check.status}: {check.impact}</span>{' '}
+                <Link href={check.fixHref} className="inline-flex min-h-11 items-center underline">設定を開く</Link>
+              </li>)}
+            </ul>}
+            <Link href="/rich-menus" className="mt-2 inline-flex min-h-11 items-center font-semibold underline">
+              {justCreated.richMenuStatus === 'READY'
+                ? '初期設定を確認'
+                : justCreated.richMenuStatus === 'UNVERIFIED' ? '初期設定を再開' : '初期設定を開始'}
+            </Link>
+          </div>
           <button
             onClick={() => setJustCreated(null)}
             className="mt-3 text-xs text-green-700 underline"

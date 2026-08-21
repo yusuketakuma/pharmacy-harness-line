@@ -1,5 +1,6 @@
 import { openEmergencyPayload, sealEmergencyPayload } from './encryption.js';
 import { assessEmergencyPrecheck, type EmergencyRiskFlag } from './policy.js';
+import { hasPharmacyCapability } from '../growth-loop/access.js';
 
 export type EmergencyIntakeStatus =
   | 'provisional'
@@ -32,6 +33,26 @@ interface EmergencyIntakeRow {
   version: number;
   created_at: string;
   updated_at: string;
+  slot_starts_at: string;
+  slot_ends_at: string;
+}
+
+type EmergencyProjectionRow = Pick<EmergencyIntakeRow,
+  'id' | 'reference_code' | 'slot_id' | 'status' | 'age_band' |
+  'safe_contact_mode' | 'consent_version' | 'risk_flags_json' | 'expires_at' |
+  'version' | 'created_at' | 'updated_at' | 'slot_starts_at' | 'slot_ends_at'>;
+
+type AdminEmergencyQueueRow = Pick<EmergencyIntakeRow,
+  'id' | 'reference_code' | 'slot_id' | 'status' | 'expires_at' | 'version' |
+  'created_at' | 'slot_starts_at' | 'slot_ends_at'>;
+
+export interface AdminEmergencyQueueItem {
+  id: string;
+  reference_code: string;
+  slot_id: string;
+  status: EmergencyIntakeStatus;
+  expires_at: string;
+  version: number;
   slot_starts_at: string;
   slot_ends_at: string;
 }
@@ -129,6 +150,14 @@ const INTAKE_SELECT = `
     INNER JOIN pharmacy_emergency_slots AS slot
             ON slot.id = intake.slot_id AND slot.line_account_id = intake.line_account_id`;
 
+const ADMIN_QUEUE_SELECT = `
+  SELECT intake.id, intake.reference_code, intake.slot_id, intake.status,
+         intake.expires_at, intake.version, intake.created_at,
+         slot.starts_at AS slot_starts_at, slot.ends_at AS slot_ends_at
+    FROM pharmacy_emergency_intakes AS intake
+    INNER JOIN pharmacy_emergency_slots AS slot
+            ON slot.id = intake.slot_id AND slot.line_account_id = intake.line_account_id`;
+
 const SAFE_CONTACT_MODES = new Set<EmergencySafeContactMode>([
   'neutral_line', 'no_notification', 'phone', 'none',
 ]);
@@ -211,6 +240,9 @@ export async function getEmergencyServiceOverview(
        INNER JOIN pharmacy_emergency_pharmacists AS pharmacist
                ON pharmacist.line_account_id = slot.line_account_id
               AND pharmacist.staff_id = slot.pharmacist_staff_id AND pharmacist.is_active = 1
+       INNER JOIN pharmacy_staff_accounts AS assignment
+               ON assignment.line_account_id = pharmacist.line_account_id
+              AND assignment.staff_id = pharmacist.staff_id AND assignment.is_active = 1
        LEFT JOIN pharmacy_emergency_intakes AS active
               ON active.line_account_id = slot.line_account_id AND active.slot_id = slot.id
              AND active.status IN ('provisional', 'reviewed') AND active.expires_at > ?
@@ -289,7 +321,6 @@ export async function saveEmergencySettings(
   input: {
     lineAccountId: string;
     staffId: string;
-    enabled: boolean;
     pharmacyRegistrationNumber: string;
     productCode: string;
     manufacturerCheckUrl: string;
@@ -326,9 +357,13 @@ export async function saveEmergencySettings(
        retention_days, consultation_minutes, reservation_ttl_minutes,
        privacy_space_ready, drinking_water_ready, partner_clinic_url,
        support_center_url, updated_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     SELECT ?, EXISTS (
+       SELECT 1 FROM pharmacy_account_capabilities AS capability
+        WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
+          AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                       WHERE value = 'emergency_contraception')
+     ), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
      ON CONFLICT (line_account_id) DO UPDATE SET
-       is_enabled = excluded.is_enabled,
        pharmacy_registration_number = excluded.pharmacy_registration_number,
        product_code = excluded.product_code,
        manufacturer_check_url = excluded.manufacturer_check_url,
@@ -346,7 +381,7 @@ export async function saveEmergencySettings(
        updated_by = excluded.updated_by,
        updated_at = excluded.updated_at`,
   ).bind(
-    input.lineAccountId, input.enabled ? 1 : 0, input.pharmacyRegistrationNumber.trim(),
+    input.lineAccountId, input.lineAccountId, input.pharmacyRegistrationNumber.trim(),
     input.productCode, ...urls.slice(0, 2), input.privacyContact.trim(), input.consentVersion,
     input.purposeText.trim(),
     input.retentionDays, input.consultationMinutes, input.reservationTtlMinutes,
@@ -468,7 +503,7 @@ export async function setEmergencyInventory(
   }
 }
 
-function projection(row: EmergencyIntakeRow, now: Date): EmergencyIntakeProjection {
+function projection(row: EmergencyProjectionRow, now: Date): EmergencyIntakeProjection {
   const status = ['provisional', 'reviewed'].includes(row.status) &&
     new Date(row.expires_at).getTime() <= now.getTime()
     ? 'expired'
@@ -493,6 +528,20 @@ function projection(row: EmergencyIntakeRow, now: Date): EmergencyIntakeProjecti
     version: row.version,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    slot_starts_at: row.slot_starts_at,
+    slot_ends_at: row.slot_ends_at,
+  };
+}
+
+function queueProjection(row: AdminEmergencyQueueRow, now: Date): AdminEmergencyQueueItem {
+  return {
+    id: row.id,
+    reference_code: row.reference_code,
+    slot_id: row.slot_id,
+    status: ['provisional', 'reviewed'].includes(row.status) &&
+      new Date(row.expires_at).getTime() <= now.getTime() ? 'expired' : row.status,
+    expires_at: row.expires_at,
+    version: row.version,
     slot_starts_at: row.slot_starts_at,
     slot_ends_at: row.slot_ends_at,
   };
@@ -586,6 +635,9 @@ export async function createEmergencyIntake(
     .bind(input.lineAccountId, input.friendId, input.idempotencyKey)
     .first<EmergencyIntakeRow>();
   if (replay) return projection(replay, now);
+  if (!(await hasPharmacyCapability(db, input.lineAccountId, 'emergency_contraception'))) {
+    throw new Error('FEATURE_DISABLED');
+  }
 
   const service = await db.prepare(
     `SELECT settings.consent_version, settings.consultation_minutes,
@@ -635,7 +687,7 @@ export async function createEmergencyIntake(
     intakeId: id,
   });
   const eventKey = `created:${input.idempotencyKey}`;
-  await db.batch([
+  const results = await db.batch([
     db.prepare(
       // product_code is copied from settings inside the INSERT itself, so the hold is
       // anchored to the product that was active at this instant. The completion triggers
@@ -649,7 +701,14 @@ export async function createEmergencyIntake(
        SELECT ?, ?, ?, settings.line_account_id, ?, ?, 'provisional', ?, 1, ?, ?, ?, ?,
               settings.product_code, ?, ?, 1, ?, ?
          FROM pharmacy_emergency_settings AS settings
-        WHERE settings.line_account_id = ?`,
+        WHERE settings.line_account_id = ?
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_account_capabilities AS capability
+             WHERE capability.line_account_id = settings.line_account_id
+               AND capability.mode = 'pharmacy'
+               AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
+                            WHERE value = 'emergency_contraception')
+          )`,
     ).bind(
       id, referenceCode(), input.tenantId, input.friendId, input.slotId,
       encryptedPayload, ageBand(input.age), input.safeContactMode, input.consentVersion,
@@ -668,6 +727,9 @@ export async function createEmergencyIntake(
       id, input.lineAccountId, input.friendId,
     ),
   ]);
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
+    throw new Error('FEATURE_DISABLED');
+  }
   const saved = await getIntake(db, input.lineAccountId, id);
   if (!saved || saved.owner_friend_id !== input.friendId) throw new Error('provisional intake conflict');
   return projection(saved, now);
@@ -766,36 +828,98 @@ async function requireTrainedPharmacist(
 export async function listAdminEmergencyIntakes(
   db: D1Database,
   lineAccountId: string,
+  options: {
+    status?: EmergencyIntakeStatus;
+    slotId?: string;
+    deadlineBefore?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
+  now = new Date(),
+): Promise<{ intakes: AdminEmergencyQueueItem[]; next_cursor: string | null }> {
+  await expireEmergencyIntakes(db, lineAccountId, now);
+  const limit = Math.min(100, Math.max(1, options.limit ?? 50));
+  const status = options.status && TRANSITIONS[options.status] ? options.status : null;
+  const slotId = options.slotId ?? null;
+  const deadlineBefore = options.deadlineBefore ?? null;
+  const cursorSeparator = options.cursor?.lastIndexOf('|') ?? -1;
+  const cursorCreatedAt = cursorSeparator > 0 ? options.cursor!.slice(0, cursorSeparator) : null;
+  const cursorId = cursorSeparator > 0 ? options.cursor!.slice(cursorSeparator + 1) : null;
+  if (options.cursor && (!cursorCreatedAt || !Number.isFinite(Date.parse(cursorCreatedAt)) ||
+      !cursorId || !/^[A-Za-z0-9._:-]{1,128}$/.test(cursorId))) {
+    throw new Error('invalid emergency intake cursor');
+  }
+  const rows = await db.prepare(`${ADMIN_QUEUE_SELECT}
+    WHERE intake.line_account_id = ?
+      AND (? IS NULL OR intake.status = ?)
+      AND (? IS NULL OR intake.slot_id = ?)
+      AND (? IS NULL OR intake.expires_at <= ?)
+      AND (? IS NULL OR intake.created_at < ?
+           OR (intake.created_at = ? AND intake.id < ?))
+    ORDER BY intake.created_at DESC, intake.id DESC
+    LIMIT ?`)
+    .bind(
+      lineAccountId, status, status,
+      slotId, slotId, deadlineBefore, deadlineBefore,
+      cursorCreatedAt, cursorCreatedAt, cursorCreatedAt, cursorId,
+      limit + 1,
+    ).all<AdminEmergencyQueueRow>();
+  const page = rows.results.slice(0, limit);
+  const last = page.at(-1);
+  return {
+    intakes: page.map((row) => queueProjection(row, now)),
+    next_cursor: rows.results.length > limit && last ? `${last.created_at}|${last.id}` : null,
+  };
+}
+
+export async function getAdminEmergencyIntakeDetail(
+  db: D1Database,
+  lineAccountId: string,
+  intakeId: string,
   staffId: string,
   encryptionSecret: string,
   now = new Date(),
-): Promise<AdminEmergencyIntake[]> {
+): Promise<AdminEmergencyIntake> {
   await requireTrainedPharmacist(db, lineAccountId, staffId);
-  await expireEmergencyIntakes(db, lineAccountId, now);
-  const rows = await db.prepare(`${INTAKE_SELECT}
-    WHERE intake.line_account_id = ?
-    ORDER BY CASE intake.status WHEN 'provisional' THEN 0 WHEN 'reviewed' THEN 1 ELSE 2 END,
-             intake.expires_at, intake.created_at, intake.id`)
-    .bind(lineAccountId).all<EmergencyIntakeRow>();
-  return Promise.all(rows.results.map(async (row) => {
-    const payload = await openEmergencyPayload(row.encrypted_payload, encryptionSecret, {
-      tenantId: row.tenant_id,
-      lineAccountId: row.line_account_id,
-      friendId: row.owner_friend_id,
-      intakeId: row.id,
-    });
-    if (typeof payload.intercourseAt !== 'string' ||
-        typeof payload.intercourseTimeUnknown !== 'boolean') {
-      throw new Error('encrypted intake is invalid');
-    }
-    return {
-      ...projection(row, now),
-      self_reported: {
-        intercourseAt: payload.intercourseAt,
-        intercourseTimeUnknown: payload.intercourseTimeUnknown,
-      },
-    };
-  }));
+  const row = await getIntake(db, lineAccountId, intakeId);
+  if (!row) throw new Error('intake not found');
+  const accessedAt = now.toISOString();
+  const audit = await db.prepare(
+    `INSERT INTO pharmacy_emergency_intake_access_events
+      (id, intake_id, line_account_id, staff_id, accessed_at)
+     SELECT ?, intake.id, intake.line_account_id, ?, ?
+       FROM pharmacy_emergency_intakes AS intake
+      WHERE intake.id = ? AND intake.line_account_id = ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_emergency_pharmacists AS pharmacist
+          INNER JOIN pharmacy_staff_accounts AS assignment
+                  ON assignment.line_account_id = pharmacist.line_account_id
+                 AND assignment.staff_id = pharmacist.staff_id
+                 AND assignment.is_active = 1
+         WHERE pharmacist.line_account_id = intake.line_account_id
+           AND pharmacist.staff_id = ? AND pharmacist.is_active = 1
+        )`,
+  ).bind(
+    crypto.randomUUID(), staffId, accessedAt, intakeId, lineAccountId, staffId,
+  ).run();
+  if ((audit.meta?.changes ?? 0) !== 1) throw new Error('sensitive read audit unavailable');
+  const payload = await openEmergencyPayload(row.encrypted_payload, encryptionSecret, {
+    tenantId: row.tenant_id,
+    lineAccountId: row.line_account_id,
+    friendId: row.owner_friend_id,
+    intakeId: row.id,
+  });
+  if (typeof payload.intercourseAt !== 'string' ||
+      typeof payload.intercourseTimeUnknown !== 'boolean') {
+    throw new Error('encrypted intake is invalid');
+  }
+  return {
+    ...projection(row, now),
+    self_reported: {
+      intercourseAt: payload.intercourseAt,
+      intercourseTimeUnknown: payload.intercourseTimeUnknown,
+    },
+  };
 }
 
 const TRANSITIONS: Record<EmergencyIntakeStatus, readonly EmergencyIntakeStatus[]> = {

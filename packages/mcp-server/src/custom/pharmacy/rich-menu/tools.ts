@@ -15,16 +15,12 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
     'manage_pharmacy_rich_menus',
     '薬局用リッチメニューを管理する。画像保存とページ間切替を含み、アカウントはLINE_HARNESS_ACCOUNT_IDに固定され、変更操作はdry-runと確認を必須にする。',
     {
-      action: z.enum(['list', 'inspect', 'prepare', 'publish', 'unpublish', 'delete', 'apply_to_tag', 'save_image', 'set_switch']),
+      action: z.enum(['list', 'inspect', 'publish', 'unpublish', 'delete', 'apply_to_tag', 'set_switch']),
       groupId: z.string().optional(),
-      pageId: z.string().optional(),
       sourcePageId: z.string().optional(),
       areaId: z.string().optional(),
       targetPageId: z.string().optional(),
       accountId: z.string().optional(),
-      profileKey: z.string().optional(),
-      imageData: z.string().optional().describe('PNG/JPEG image data as base64 or a data URI'),
-      imageContentType: z.enum(['image/png', 'image/jpeg']).default('image/jpeg'),
       mode: z.enum(['bulk-link', 'set-default']).optional(),
       tagId: z.string().nullable().optional(),
       enabled: z.boolean().optional().describe('set-default の初期表示を有効化するか'),
@@ -33,7 +29,7 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
       confirmationToken: z.string().optional(),
       force: z.boolean().default(false),
     },
-    async ({ action, groupId, pageId, sourcePageId, areaId, targetPageId, accountId, profileKey, imageData, imageContentType, mode, tagId, enabled, dryRun, confirm, confirmationToken, force }) => {
+    async ({ action, groupId, sourcePageId, areaId, targetPageId, accountId, mode, tagId, enabled, dryRun, confirm, confirmationToken, force }) => {
       try {
         const resolvedAccountId = pinnedAccountId(accountId);
         const client = getClient();
@@ -42,51 +38,9 @@ export function registerPharmacyRichMenuTools(server: McpServer): void {
           return result({ success: true, accountId: resolvedAccountId, groups: await client.richMenuGroups.list(resolvedAccountId) });
         }
 
-        if (action === 'prepare') {
-          return result({
-            success: true,
-            accountId: resolvedAccountId,
-            preparation: await client.richMenuGroups.preparePharmacy({ profileKey, initial: true }, resolvedAccountId),
-          });
-        }
-
         if (!groupId) throw new Error('groupId is required for this action');
         if (action === 'inspect') {
           return result({ success: true, accountId: resolvedAccountId, group: await client.richMenuGroups.get(groupId, resolvedAccountId) });
-        }
-
-        if (action === 'save_image') {
-          if (!pageId) throw new Error('pageId is required for save_image');
-          if (!imageData) throw new Error('imageData is required for save_image');
-          requireConfirmation(dryRun, confirm, 'save_image');
-          if (dryRun) {
-            return result({
-              success: true,
-              dryRun: true,
-              requiresConfirmation: true,
-              operation: 'save_image',
-              accountId: resolvedAccountId,
-              groupId,
-              pageId,
-              imageContentType,
-              imageAttached: true,
-            });
-          }
-          const image = await client.richMenuGroups.uploadImage(
-            groupId,
-            pageId,
-            imageData,
-            imageContentType,
-            resolvedAccountId,
-          );
-          return result({
-            success: true,
-            operation: 'save_image',
-            accountId: resolvedAccountId,
-            groupId,
-            pageId,
-            image,
-          });
         }
 
         if (action === 'set_switch') {

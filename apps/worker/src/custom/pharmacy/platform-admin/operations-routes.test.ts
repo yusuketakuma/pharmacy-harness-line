@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { platformAdminAuthMiddleware } from './auth.js';
 import { platformAdminOperationsRoutes } from './operations-routes.js';
@@ -18,6 +18,12 @@ lineSdkMocks.LineClient.mockImplementation(function () {
   return lineClientMocks;
 });
 
+const readinessMocks = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock('../readiness.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../readiness.js')>(),
+  getPharmacyReadiness: readinessMocks.get,
+}));
+
 const SESSION_TOKEN = `pas_${'a'.repeat(43)}`;
 const CSRF = 'csrf-value';
 const AUTH = {
@@ -28,6 +34,24 @@ const AUTH = {
 const NOW = '2026-08-19T00:00:00.000Z';
 const FUTURE = '2099-01-01T00:00:00.000Z';
 const PAST = '2020-01-01T00:00:00.000Z';
+
+beforeEach(() => {
+  readinessMocks.get.mockImplementation(async (_db: D1Database, accountId: string) => ({
+    accountId,
+    checkedAt: '2026-08-21T00:00:00.000Z',
+    electronicPrescription: { status: 'UNVERIFIED' },
+    emergencyContraception: { status: 'BLOCKED' },
+    richMenu: {
+      status: 'UNVERIFIED', capabilityRevisionCurrent: false,
+      layoutConfigured: true, savedVersionAvailable: true, uploadVerified: true,
+      publishedVersionAvailable: true, currentDefaultRecorded: true,
+      defaultReadbackVerified: false,
+      reasonCodes: ['RICH_MENU_CAPABILITY_REVISION_STALE'],
+    },
+  }));
+});
+
+afterEach(() => vi.unstubAllGlobals());
 
 type SessionRow = { tenant_id: string; staff_id: string; expires_at: string; revoked_at: string | null };
 
@@ -62,16 +86,22 @@ function fakeDb(): Store {
   const lineAccounts = [
     {
       tenant_id: 'tenant-a', id: 'account-a', name: 'Account A', channel_id: '1000', is_active: 1,
-      bot_identity_count: 1, credential_count: 1,
+      liff_id: 'liff-a', login_channel_id: 'login-a', bot_identity_count: 1,
+      messaging_credential_count: 2, login_credential_count: 1,
+      tenant_status: 'active', active_staff_assignment_count: 1, capability_config_count: 1,
       last_webhook_received_at: '2026-08-18T09:00:00.000Z',
     },
     {
       tenant_id: 'tenant-a', id: 'account-a2', name: 'Account A2', channel_id: '1001', is_active: 0,
-      bot_identity_count: 0, credential_count: 0, last_webhook_received_at: null,
+      liff_id: null, login_channel_id: null, bot_identity_count: 0,
+      messaging_credential_count: 0, login_credential_count: 0, last_webhook_received_at: null,
+      tenant_status: 'active', active_staff_assignment_count: 0, capability_config_count: 0,
     },
     {
       tenant_id: 'tenant-b', id: 'account-b', name: 'Account B', channel_id: '2000', is_active: 1,
-      bot_identity_count: 1, credential_count: 1, last_webhook_received_at: null,
+      liff_id: 'liff-b', login_channel_id: 'login-b', bot_identity_count: 1,
+      messaging_credential_count: 2, login_credential_count: 1, last_webhook_received_at: null,
+      tenant_status: 'active', active_staff_assignment_count: 1, capability_config_count: 1,
     },
   ];
 
@@ -206,6 +236,7 @@ function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bin
     LINE_LOGIN_CHANNEL_ID: 'login-channel',
     LINE_LOGIN_CHANNEL_SECRET: 'login-secret',
     WORKER_URL: 'https://api.example.test',
+    LIFF_PUBLIC_URL: 'https://liff.example.test',
     ADMIN_ORIGIN: 'https://admin.example.test',
     LINE_CREDENTIAL_KEY_V1: 'line-credential-root-key-for-tests',
     ...overrides,
@@ -230,6 +261,7 @@ function post(path: string, testEnv: Env['Bindings']) {
 
 beforeEach(() => {
   credentialMocks.readLineCredential.mockReset();
+  credentialMocks.readLineCredential.mockResolvedValue('configured-value');
   lineClientMocks.request.mockReset();
   lineSdkMocks.LineClient.mockClear();
 });
@@ -366,13 +398,93 @@ describe('platform admin tenant session revocation', () => {
 });
 
 describe('platform admin LINE status', () => {
+  it('verifies the configured LIFF endpoint live for the explicitly selected account', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: 'stateless-token', expires_in: 900, token_type: 'Bearer',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ apps: [{
+        liffId: 'liff-a', view: { url: 'https://liff.example.test/?liffId=liff-a' },
+      }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-a',
+      env(fakeDb().db),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { data: Array<Record<string, any>> };
+    const account = body.data.find((candidate) => candidate.id === 'account-a');
+    expect(account).toMatchObject({
+      liffEndpointEvidence: { status: 'MATCH', source: 'line_api' },
+      liffReasonCodes: [],
+      configurationDoctor: {
+        checks: expect.arrayContaining([
+          expect.objectContaining({ key: 'liffEndpoint', status: 'READY', reasonCodes: [] }),
+        ]),
+      },
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(1, 'https://api.line.me/oauth2/v3/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: expect.any(URLSearchParams),
+      redirect: 'manual',
+      signal: expect.any(AbortSignal),
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(2, 'https://api.line.me/liff/v1/apps', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer stateless-token' },
+      redirect: 'manual',
+      signal: expect.any(AbortSignal),
+    });
+    expect(JSON.stringify(body)).not.toContain('stateless-token');
+  });
+
+  it('rejects an account outside the tenant before decrypting or calling LINE', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-b',
+      env(fakeDb().db),
+    );
+
+    expect(response.status).toBe(404);
+    expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('records a fixed diagnostic reason without returning the LINE error body', async () => {
+    const store = fakeDb();
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response('upstream detail must not escape', { status: 401 }),
+    ));
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status?verifyLiffEndpoint=account-a',
+      env(store.db),
+    );
+    const body = await response.json() as { data: Array<Record<string, any>> };
+
+    expect(body.data[0]).toMatchObject({
+      liffEndpointEvidence: {
+        status: 'ERROR', source: 'line_api', reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: 401,
+      },
+    });
+    expect(store.auditEvents.at(-1)?.detail_json).toBe(
+      JSON.stringify({ status: 'ERROR', reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: 401 }),
+    );
+    expect(JSON.stringify(body)).not.toContain('upstream detail');
+  });
+
   it('reports presence booleans only, never credential material', async () => {
     const store = fakeDb();
     const response = await get('/api/platform-admin/tenants/tenant-a/line-status', env(store.db));
 
     expect(response.status).toBe(200);
     const body = await response.json() as { data: unknown };
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       success: true,
       data: [
         {
@@ -382,7 +494,30 @@ describe('platform admin LINE status', () => {
           isActive: true,
           hasBotIdentity: true,
           hasEncryptedCredential: true,
+          liffIdConfigured: true,
+          loginChannelConfigured: true,
+          messagingCredentialsReady: true,
+          loginCredentialReady: true,
+          expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
+          liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
+          liffReasonCodes: ['LIFF_ENDPOINT_UNVERIFIED'],
           lastWebhookReceivedAt: '2026-08-18T09:00:00.000Z',
+          readiness: {
+            accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z',
+            electronicPrescription: { status: 'UNVERIFIED' },
+            emergencyContraception: { status: 'BLOCKED' },
+            richMenu: {
+              status: 'UNVERIFIED', capabilityRevisionCurrent: false,
+              layoutConfigured: true, savedVersionAvailable: true, uploadVerified: true,
+              publishedVersionAvailable: true, currentDefaultRecorded: true,
+              defaultReadbackVerified: false,
+              reasonCodes: ['RICH_MENU_CAPABILITY_REVISION_STALE'],
+            },
+          },
+          configurationDoctor: {
+            accountId: 'account-a', status: 'UNVERIFIED',
+            reasonCodes: ['LIFF_ENDPOINT_UNVERIFIED'],
+          },
         },
         {
           id: 'account-a2',
@@ -391,7 +526,34 @@ describe('platform admin LINE status', () => {
           isActive: false,
           hasBotIdentity: false,
           hasEncryptedCredential: false,
+          liffIdConfigured: false,
+          loginChannelConfigured: false,
+          messagingCredentialsReady: false,
+          loginCredentialReady: false,
+          expectedLiffEndpoint: null,
+          liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
+          liffReasonCodes: ['LIFF_ID_MISSING'],
           lastWebhookReceivedAt: null,
+          readiness: {
+            accountId: 'account-a2', checkedAt: '2026-08-21T00:00:00.000Z',
+            electronicPrescription: { status: 'UNVERIFIED' },
+            emergencyContraception: { status: 'BLOCKED' },
+            richMenu: {
+              status: 'UNVERIFIED', capabilityRevisionCurrent: false,
+              layoutConfigured: true, savedVersionAvailable: true, uploadVerified: true,
+              publishedVersionAvailable: true, currentDefaultRecorded: true,
+              defaultReadbackVerified: false,
+              reasonCodes: ['RICH_MENU_CAPABILITY_REVISION_STALE'],
+            },
+          },
+          configurationDoctor: {
+            accountId: 'account-a2', status: 'BLOCKED',
+            reasonCodes: expect.arrayContaining([
+              'ACCOUNT_INACTIVE', 'STAFF_ASSIGNMENT_MISSING', 'CAPABILITY_CONFIG_MISSING',
+              'BOT_IDENTITY_MISSING', 'LIFF_ID_MISSING', 'LOGIN_CHANNEL_MISSING',
+              'MESSAGING_CREDENTIAL_MISSING', 'LOGIN_CREDENTIAL_MISSING',
+            ]),
+          },
         },
       ],
     });
@@ -399,6 +561,31 @@ describe('platform admin LINE status', () => {
     // payload — not as a value, and not as a field name that could carry one.
     expect(JSON.stringify(body)).not.toMatch(/token|secret/iu);
     expect(store.auditEvents.at(-1)).toMatchObject({ action: 'view_line_status', tenant_id: 'tenant-a' });
+  });
+
+  it('keeps the tenant diagnostic available when one readiness read cannot be verified', async () => {
+    readinessMocks.get.mockImplementation(async (_db: D1Database, accountId: string) => {
+      if (accountId === 'account-a2') throw new Error('readiness unavailable');
+      return {
+        accountId, checkedAt: '2026-08-21T00:00:00.000Z',
+        electronicPrescription: { status: 'UNVERIFIED' },
+        emergencyContraception: { status: 'BLOCKED' },
+        richMenu: { status: 'UNVERIFIED' },
+      };
+    });
+
+    const response = await get(
+      '/api/platform-admin/tenants/tenant-a/line-status', env(fakeDb().db),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as { data: Array<Record<string, unknown>> };
+    expect(body.data.find((account) => account.id === 'account-a2')).toMatchObject({
+      readiness: null,
+      configurationDoctor: {
+        accountId: 'account-a2',
+        reasonCodes: expect.arrayContaining(['READINESS_UNAVAILABLE']),
+      },
+    });
   });
 
   it('404s an unknown tenant', async () => {

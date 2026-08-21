@@ -69,6 +69,7 @@ describe('pharmacy patient repository', () => {
     })).resolves.toMatchObject({ id: expect.any(String) });
     expect(calls[0].sql).toContain('INSERT INTO pharmacy_patients');
     expect(calls[0].sql).toContain('line_account_id');
+    expect(calls[0].sql).toContain("value = 'patient_intake'");
     expect(calls[0].values).toContain('account-1');
     expect(calls[0].values).toContain('friend-1');
   });
@@ -254,6 +255,7 @@ describe('pharmacy patient repository', () => {
     })).resolves.toBeUndefined();
     expect(calls[0].sql).toContain('UPDATE pharmacy_patients');
     expect(calls[0].sql).toContain('owner_friend_id = ?');
+    expect(calls[0].sql).toContain("value = 'patient_intake'");
   });
 
   it('creates an immutable intake revision with consent and a patient snapshot', async () => {
@@ -288,6 +290,7 @@ describe('pharmacy patient repository', () => {
     const responseWrite = calls.find((call) => call.operation === 'batch' &&
       call.sql.includes('INSERT INTO pharmacy_patient_intake_responses'));
     expect(responseWrite?.values).toEqual(expect.arrayContaining(['account-1', 'friend-1', 'patient-1']));
+    expect(responseWrite?.sql).toContain("value = 'patient_intake'");
     expect(calls.filter((call) => call.operation === 'batch' &&
       call.sql.includes('INSERT INTO pharmacy_patient_intake_envelopes'))).toHaveLength(2);
   });

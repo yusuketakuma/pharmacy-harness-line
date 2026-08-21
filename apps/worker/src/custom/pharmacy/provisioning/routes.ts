@@ -1,11 +1,10 @@
 import { LineClient } from '@line-crm/line-sdk';
 import { Hono, type Context } from 'hono';
 import type { Env } from '../../../index.js';
-import { PHARMACY_CAPABILITIES } from '../growth-loop/access.js';
+import { DEFAULT_PHARMACY_CAPABILITIES } from '../growth-loop/access.js';
 import {
   hashTenantPassword,
   isValidAdminPassword,
-  verifyTenantPassword,
 } from './credentials.js';
 import { requireLineBotUserId } from './line-connection.js';
 import {
@@ -29,6 +28,10 @@ import {
   platformAdminSessionTokenFromCookie,
   resolvePlatformAdminSession,
 } from '../platform-admin/auth.js';
+import {
+  platformAdminAccessStatement,
+  recordPlatformAdminAccess,
+} from '../platform-admin/audit.js';
 
 type ProvisioningInput = {
   tenantName: string;
@@ -220,7 +223,10 @@ async function sameSecret(left: string, right: string): Promise<boolean> {
 }
 
 async function requestHash(input: ProvisioningInput): Promise<string> {
-  return hex(await sha256(JSON.stringify(input)));
+  // The CLI generates a fresh random temporary password on every run, so the
+  // password must not take part in replay matching (a retry would 409 forever).
+  const admin = { ...input.admin, temporaryPassword: undefined };
+  return hex(await sha256(JSON.stringify({ ...input, admin })));
 }
 
 async function findReceipt(
@@ -350,17 +356,17 @@ async function rejectUnauthorizedPlatformRequest(c: Context<Env>): Promise<Respo
   return null;
 }
 
-tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
-  const rejected = await rejectUnauthorizedPlatformRequest(c);
-  if (rejected) return rejected;
+async function provisionTenant(
+  c: Context<Env>,
+  actorKeyHash: string,
+  platformAdminId: string | null,
+) {
   const credentialRootSecret = c.env.LINE_CREDENTIAL_KEY_V1!;
   const idempotencyKey = c.req.header('idempotency-key') ?? '';
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u.test(idempotencyKey)) {
     return c.json({ success: false, error: 'Valid Idempotency-Key is required' }, 400);
   }
   const idempotencyKeyHash = hex(await sha256(idempotencyKey));
-  const actorKeyHash = hex(await sha256(c.env.PLATFORM_ADMIN_KEY!));
-
   const input = parseInput(await c.req.json().catch(() => null));
   if (!input) return c.json({ success: false, error: 'Invalid tenant setup data' }, 400);
   const urls = setupUrls(c, input.line.liffId);
@@ -372,6 +378,12 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
   if (existing) {
     if (existing.request_hash !== hash) {
       return c.json({ success: false, error: 'Idempotency key already used for different data' }, 409);
+    }
+    if (platformAdminId) {
+      await recordPlatformAdminAccess(
+        c.env.DB, platformAdminId, existing.tenant_id,
+        'tenant_provision_replay', 'tenant', existing.tenant_id,
+      );
     }
     return c.json({
       success: true,
@@ -499,7 +511,7 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
           (line_account_id, mode, capabilities_json, proactive_monthly_limit,
            unfollow_alert_state, created_at, updated_at)
          VALUES (?, 'pharmacy', ?, 1, 'alert_only', ?, ?)`,
-      ).bind(lineAccountId, JSON.stringify(PHARMACY_CAPABILITIES), now, now),
+      ).bind(lineAccountId, JSON.stringify(DEFAULT_PHARMACY_CAPABILITIES), now, now),
       c.env.DB.prepare(
         `INSERT INTO staff_members
           (id, name, email, role, api_key, is_active, created_at, updated_at)
@@ -546,10 +558,21 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
         JSON.stringify({ actor_key_hash: actorKeyHash.slice(0, 16) }),
         now,
       ),
+      ...(platformAdminId ? [platformAdminAccessStatement(
+        c.env.DB, platformAdminId, tenantId,
+        'tenant_provision', 'tenant', tenantId,
+        { lineAccountId },
+      )] : []),
     ]);
   } catch (error) {
     const raced = await findReceipt(c.env.DB, idempotencyKeyHash);
     if (raced?.request_hash === hash) {
+      if (platformAdminId) {
+        await recordPlatformAdminAccess(
+          c.env.DB, platformAdminId, raced.tenant_id,
+          'tenant_provision_replay', 'tenant', raced.tenant_id,
+        );
+      }
       return c.json({
         success: true,
         data: {
@@ -589,6 +612,22 @@ tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
       ],
     },
   }, 201);
+}
+
+tenantProvisioningRoutes.post('/api/platform/pharmacy/tenants', async (c) => {
+  const rejected = await rejectUnauthorizedPlatformRequest(c);
+  if (rejected) return rejected;
+  return provisionTenant(c, hex(await sha256(c.env.PLATFORM_ADMIN_KEY!)), null);
+});
+
+tenantProvisioningRoutes.post('/api/platform-admin/tenants', async (c) => {
+  const admin = c.get('platformAdmin');
+  if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const rootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
+  if (!rootSecret || encoder.encode(rootSecret).length < 32 || rootSecret.length > 4096) {
+    return c.json({ success: false, error: 'LINE credential encryption is not configured' }, 503);
+  }
+  return provisionTenant(c, hex(await sha256(`platform-admin:${admin.id}`)), admin.id);
 });
 
 tenantProvisioningRoutes.post(
@@ -604,10 +643,12 @@ tenantProvisioningRoutes.post(
     if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
 
     if (tenant.bootstrap_staff_id) {
+      // Replay is recognized from (tenantId, loginId) while the bootstrap
+      // credential is still unused — same rule as the platform-admins route.
+      // The CLI password is random per run, so it is deliberately not
+      // re-verified and the stored password is not rotated.
       const replayed = tenant.login_id === input.loginId &&
-        tenant.must_change_password === 1 &&
-        tenant.password_hash !== null &&
-        await verifyTenantPassword(input.temporaryPassword, tenant.password_hash);
+        tenant.must_change_password === 1;
       if (!replayed) {
         return c.json({ success: false, error: 'Tenant admin is already configured' }, 409);
       }
@@ -686,8 +727,7 @@ tenantProvisioningRoutes.post(
       );
       const raced = await findTenantAdminBootstrap(c.env.DB, tenantId);
       const replayed = raced?.bootstrap_staff_id && raced.login_id === input.loginId &&
-        raced.must_change_password === 1 && raced.password_hash !== null &&
-        await verifyTenantPassword(input.temporaryPassword, raced.password_hash);
+        raced.must_change_password === 1;
       if (replayed) {
         return c.json({
           success: true,

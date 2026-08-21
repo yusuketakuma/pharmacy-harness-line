@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
   cancelSlot: vi.fn(),
   setInventory: vi.fn(),
   listAdmin: vi.fn(),
+  detail: vi.fn(),
   transition: vi.fn(),
+  getReminderControl: vi.fn(),
+  saveReminderControl: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -32,7 +35,12 @@ vi.mock('./repository.js', () => ({
   cancelEmergencySlot: mocks.cancelSlot,
   setEmergencyInventory: mocks.setInventory,
   listAdminEmergencyIntakes: mocks.listAdmin,
+  getAdminEmergencyIntakeDetail: mocks.detail,
   transitionEmergencyIntake: mocks.transition,
+}));
+vi.mock('./reminders.js', () => ({
+  getEmergencyReminderControl: mocks.getReminderControl,
+  saveEmergencyReminderControl: mocks.saveReminderControl,
 }));
 
 import { emergencyContraceptionRoutes } from './routes.js';
@@ -71,8 +79,18 @@ beforeEach(() => {
   });
   mocks.cancelOwner.mockResolvedValue({ id: 'intake-a', status: 'cancelled', version: 2 });
   mocks.adminConfig.mockResolvedValue({ settings: null, pharmacists: [], inventory: [], slots: [] });
-  mocks.listAdmin.mockResolvedValue([]);
+  mocks.listAdmin.mockResolvedValue({ intakes: [], next_cursor: null });
+  mocks.detail.mockResolvedValue({
+    id: 'intake-a', status: 'provisional', version: 1,
+    self_reported: { intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false },
+  });
   mocks.transition.mockResolvedValue({ id: 'intake-a', status: 'reviewed', version: 2 });
+  mocks.getReminderControl.mockResolvedValue({
+    state: 'inactive', revision: 0, timeZone: 'Asia/Tokyo', updatedAt: null,
+  });
+  mocks.saveReminderControl.mockResolvedValue({
+    state: 'active', revision: 1, timeZone: 'Asia/Tokyo', updatedAt: '2026-08-21T00:00:00.000Z',
+  });
 });
 
 describe('emergency contraception patient routes', () => {
@@ -129,12 +147,50 @@ describe('emergency contraception patient routes', () => {
     expect(response.status).toBe(409);
     expect(await response.text()).not.toContain('EMERGENCY_STOCK_UNAVAILABLE');
   });
+
+  it('maps a final-write capability rejection to FEATURE_DISABLED', async () => {
+    mocks.create.mockRejectedValue(new Error('FEATURE_DISABLED'));
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      {
+        method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00',
+          intercourseTimeUnknown: false, age: 20, recentPurchaseCount: 0,
+          patientWillVisit: true, acceptsInPersonDose: true,
+          safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+          manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-3',
+        }),
+      }, env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: 'FEATURE_DISABLED' });
+  });
 });
 
 describe('emergency contraception staff routes', () => {
+  it('lets only owner/admin activate neutral reminders for the guarded account', async () => {
+    let response = await app('staff').request(
+      '/api/custom/pharmacy/emergency-contraception/reminders',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state: 'active', expectedRevision: 0 }) }, env,
+    );
+    expect(response.status).toBe(403);
+    response = await app('admin').request(
+      '/api/custom/pharmacy/emergency-contraception/reminders',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state: 'active', expectedRevision: 0 }) }, env,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.saveReminderControl).toHaveBeenCalledWith(env.DB, expect.objectContaining({
+      lineAccountId: 'account-a', staffId: 'staff-a', state: 'active', expectedRevision: 0,
+    }));
+    response = await app().request('/api/custom/pharmacy/emergency-contraception/reminders', {}, env);
+    expect(response.status).toBe(200);
+    expect(mocks.getReminderControl).toHaveBeenCalledWith(env.DB, 'account-a');
+  });
+
   it('allows settings changes only to owner/admin and uses the guarded account context', async () => {
     const config = {
-      enabled: false, pharmacyRegistrationNumber: 'REG-A', productCode: 'norlevo-otc',
+      enabled: true, pharmacyRegistrationNumber: 'REG-A', productCode: 'norlevo-otc',
       manufacturerCheckUrl: 'https://manufacturer.example/check',
       privacyPolicyUrl: 'https://example.test/privacy', privacyContact: '窓口',
       purposeText: '来局前確認と仮受付のため',
@@ -156,14 +212,27 @@ describe('emergency contraception staff routes', () => {
       lineAccountId: 'account-a', staffId: 'staff-a', productCode: 'norlevo-otc',
       purposeText: '来局前確認と仮受付のため',
     }));
+    expect(mocks.saveSettings.mock.calls[0]?.[1]).not.toHaveProperty('enabled');
   });
 
-  it('limits decrypted queue access and CAS transitions to repository-enforced trained pharmacists', async () => {
+  it('lists a bounded non-PHI queue and decrypts only the selected detail', async () => {
     let response = await app().request(
-      '/api/custom/pharmacy/emergency-contraception/intakes?line_account_id=account-a', {}, env,
+      '/api/custom/pharmacy/emergency-contraception/intakes?line_account_id=account-a&status=provisional&slotId=slot-a&deadlineBefore=2026-08-22T00%3A00%3A00.000Z&limit=20', {}, env,
     );
     expect(response.status).toBe(200);
-    expect(mocks.listAdmin).toHaveBeenCalledWith(env.DB, 'account-a', 'staff-a', 'phi-secret');
+    expect(mocks.listAdmin).toHaveBeenCalledWith(env.DB, 'account-a', {
+      status: 'provisional', slotId: 'slot-a',
+      deadlineBefore: '2026-08-22T00:00:00.000Z', cursor: undefined, limit: 20,
+    });
+    expect(mocks.detail).not.toHaveBeenCalled();
+
+    response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes/intake-a?line_account_id=account-a', {}, env,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.detail).toHaveBeenCalledWith(
+      env.DB, 'account-a', 'intake-a', 'staff-a', 'phi-secret',
+    );
 
     response = await app().request(
       '/api/custom/pharmacy/emergency-contraception/intakes/intake-a/transitions?line_account_id=account-a',
@@ -174,5 +243,23 @@ describe('emergency contraception staff routes', () => {
       lineAccountId: 'account-a', intakeId: 'intake-a', expectedVersion: 1,
       toStatus: 'reviewed', staffId: 'staff-a',
     });
+  });
+
+  it('does not misreport queue storage failure as an invalid cursor', async () => {
+    mocks.listAdmin.mockRejectedValueOnce(new Error('D1 unavailable'));
+    const response = await app().request(
+      '/api/custom/pharmacy/emergency-contraception/intakes?line_account_id=account-a', {}, env,
+    );
+    expect(response.status).toBe(503);
+  });
+
+  it('rejects malformed slot and deadline filters before repository access', async () => {
+    for (const query of ['slotId=patient%20name', 'deadlineBefore=tomorrow']) {
+      const response = await app().request(
+        `/api/custom/pharmacy/emergency-contraception/intakes?line_account_id=account-a&${query}`, {}, env,
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.listAdmin).not.toHaveBeenCalled();
   });
 });

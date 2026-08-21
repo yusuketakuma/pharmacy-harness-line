@@ -1,17 +1,26 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import PrescriptionPage, {
   canSubmitPrescription,
+  canLaunchMynaPatientHandoff,
   initialPrescriptionView,
+  mynaPatientReportOptions,
   requestedPrescriptionId,
   validatePrescriptionImages,
   pendingRequirementLabels,
+  mynaStatusLabel,
+  prescriptionUnmetReasons,
 } from './PrescriptionPage.js';
 
 const source = readFileSync(
   fileURLToPath(new URL('./PrescriptionPage.tsx', import.meta.url).href),
+  'utf8',
+);
+const appSource = readFileSync(
+  fileURLToPath(new URL('../../../App.tsx', import.meta.url).href),
   'utf8',
 );
 
@@ -31,7 +40,7 @@ describe('prescription upload UI contract', () => {
     ])).toMatch(/JPEGまたはPNG/);
     expect(validatePrescriptionImages([
       { type: 'image/png', size: 10 * 1024 * 1024 + 1 },
-    ])).toMatch(/10MiB/);
+    ])).toMatch(/10MB/);
   });
 
   it('adds later camera selections instead of replacing earlier pages', () => {
@@ -46,16 +55,51 @@ describe('prescription upload UI contract', () => {
     expect(requestedPrescriptionId('')).toBeNull();
   });
 
-  it('allows only direct send and history views', () => {
+  it('allows only direct send, electronic, and history views', () => {
     expect(initialPrescriptionView('?view=history')).toBe('history');
+    expect(initialPrescriptionView('?view=electronic')).toBe('electronic');
     expect(initialPrescriptionView('?view=send')).toBe('send');
     expect(initialPrescriptionView('?view=admin')).toBe('send');
     expect(initialPrescriptionView('')).toBe('send');
   });
 
+  it('routes every tab change back through the feature gate', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+    );
+    expect(html).toContain('href="/prescriptions?view=send"');
+    expect(html).toContain('href="/prescriptions?view=electronic"');
+    expect(html).toContain('href="/prescriptions?view=history"');
+    expect(appSource).toContain('<PharmacyPage screenTitle={screenTitle} capability={capability} allowExisting={allowExisting}>');
+  });
+
+  it('reuses Myna handoffs for start, resume, patient report, cancel, and paper fallback', () => {
+    expect(source).toContain('mynaApi.active()');
+    expect(source).toMatch(/mynaApi\.create\(\s*'E_PRESCRIPTION'/)
+    expect(source).toContain('mynaApi.launch(');
+    expect(source).toContain('mynaApi.report(mynaHandoff.id, result)');
+    expect(source).toContain('MYNA_PATIENT_REPORT_OPTIONS');
+    expect(source).toContain('reportElectronic(result)');
+    expect(source).toContain('薬局での受領確認はまだ完了していません');
+  });
+
+  it('shows only transitions allowed by the current Myna patient state', () => {
+    expect(canLaunchMynaPatientHandoff('CREATED')).toBe(true);
+    expect(canLaunchMynaPatientHandoff('LAUNCH_REQUESTED')).toBe(true);
+    expect(canLaunchMynaPatientHandoff('PATIENT_REPORTED_COMPLETE')).toBe(false);
+    expect(mynaPatientReportOptions('CREATED').map(([result]) => result)).toEqual([
+      'COMPLETED', 'NO_PRESCRIPTION_FOUND', 'FAILED', 'SWITCH_TO_PAPER',
+    ]);
+    expect(mynaPatientReportOptions('PATIENT_REPORTED_COMPLETE').map(([result]) => result))
+      .toEqual(['SWITCH_TO_PAPER']);
+    expect(mynaPatientReportOptions('CLOSED')).toEqual([]);
+  });
+
   it('renders mobile labels, native controls, and an initially disabled submit', () => {
-    const html = renderToStaticMarkup(<PrescriptionPage />);
-    expect(html).toContain('処方せんを事前送信');
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+    );
+    expect(html).toContain('処方せん受付');
     expect(html).toContain('accept="image/jpeg,image/png"');
     expect(html).toContain('処方せん原本を持参します');
     expect(html).toContain('準備完了通知をLINEで受け取ります');
@@ -115,5 +159,74 @@ describe('prescription upload UI contract', () => {
     expect(source).toContain('来局しました');
     expect(source).toContain('prescriptionApi.arrive(item.id, item.updated_at)');
     expect(source).toContain('window.confirm(');
+  });
+});
+
+describe('prescription quick wins (WP-11)', () => {
+  it('uses menu-matching tab labels and plain 処方せん wording', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+    );
+    expect(html).toContain('処方せんを送る');
+    expect(html).toContain('電子処方箋');
+    expect(html).toContain('受付状況');
+    expect(html).not.toContain('紙を送信');
+    expect(html).not.toContain('送信履歴');
+    expect(source).toContain('処方せんが見つからなかった');
+  });
+
+  it('shows Japanese Myna status labels and a safe fallback for unknown states', () => {
+    expect(mynaStatusLabel('CREATED')).toBe('手続き開始前');
+    expect(mynaStatusLabel('PATIENT_REPORTED_COMPLETE')).toBe('完了を申告済み（薬局確認待ち）');
+    expect(mynaStatusLabel('SOME_FUTURE_STATE')).toBe('手続き中');
+    expect(source).not.toContain('状態: {mynaHandoff.status}');
+  });
+
+  it('gives the cancel action a tappable bordered button with plain wording', () => {
+    expect(source).toMatch(/onClick=\{\(\) => void cancel\(item\)\} className="min-h-11[^"]*border[^"]*"[^>]*>送信を取り消す</);
+  });
+
+  it('limits pickup time to the future and shows the requested time in history', () => {
+    expect(source).toMatch(/type="datetime-local"[^>]*min=\{/);
+    expect(source).toContain('item.desired_pickup_at');
+    expect(source).toContain('希望受取');
+  });
+});
+
+describe('prescription submit flow (WP-12)', () => {
+  it('lists every unmet requirement in plain Japanese', () => {
+    expect(prescriptionUnmetReasons({
+      imageCount: 0, originalConsent: false, noticeConsent: false, patientSelected: false, intakeDone: false,
+    })).toEqual([
+      '患者を選んでください',
+      '患者アンケートに回答してください',
+      '処方せんの写真を1枚以上選んでください',
+      '「処方せん原本を持参します」にチェックしてください',
+      '「準備完了通知をLINEで受け取ります」にチェックしてください',
+    ]);
+    expect(prescriptionUnmetReasons({
+      imageCount: 5, originalConsent: true, noticeConsent: true, patientSelected: true, intakeDone: true,
+    })).toEqual(['処方せんの写真は4枚までにしてください']);
+    expect(prescriptionUnmetReasons({
+      imageCount: 2, originalConsent: true, noticeConsent: true, patientSelected: true, intakeDone: true,
+    })).toEqual([]);
+  });
+
+  it('shows the unmet list next to the submit button and focuses errors', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/prescriptions?view=send']}><PrescriptionPage /></MemoryRouter>,
+    );
+    expect(html).toContain('送信するには');
+    expect(html).toContain('処方せんの写真を1枚以上選んでください');
+    expect(source).toContain('errorRef.current?.focus()');
+  });
+
+  it('asks for confirmation before sending and shows next steps after success', () => {
+    expect(source).toContain('送信内容の確認');
+    expect(source).toContain('この内容で送信する');
+    expect(source).toContain('修正する');
+    expect(source).toContain("setConfirming(true)");
+    expect(source).toContain('window.scrollTo(0, 0)');
+    expect(source).toContain('次にすること');
   });
 });

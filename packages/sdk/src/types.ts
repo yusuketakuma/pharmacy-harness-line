@@ -378,20 +378,6 @@ export interface UpdateRichMenuGroupInput {
   pages?: CreateRichMenuGroupInput['pages']
 }
 
-export interface PreparePharmacyRichMenuInput {
-  profileKey?: string
-  initial?: boolean
-}
-
-export interface PreparePharmacyRichMenuResult {
-  group: RichMenuGroup
-  reused: boolean
-  status: 'prepared' | 'already_prepared' | 'configuration_required'
-  imageAttached?: boolean
-  imagePath?: string
-  generatorVersion?: string
-}
-
 // ─── Segment ─────────────────────────────────────────────
 export interface SegmentRule {
   type: 'tag_exists' | 'tag_not_exists' | 'metadata_equals' | 'metadata_not_equals' | 'ref_code' | 'is_following'

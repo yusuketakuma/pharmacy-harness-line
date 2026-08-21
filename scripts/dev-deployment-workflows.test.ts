@@ -55,25 +55,65 @@ describe('development deployment workflow contract', () => {
     const buildMeta = stepIndex('Capture build metadata');
     const inject = stepIndex('Inject runtime release metadata');
     const rebuild = stepIndex('Rebuild Worker with runtime release metadata');
-    const deploy = stepIndex('Deploy to Cloudflare Workers');
+    const workerDeploy = stepIndex('Deploy to Cloudflare Workers');
     const verifyVersion = stepIndex('Verify deployed runtime version');
 
     expect(buildMeta).toBeLessThan(stepIndex('Build Admin Panel'));
     expect(inject).toBeGreaterThan(stepIndex('Build Admin Panel'));
     expect(inject).toBeLessThan(rebuild);
-    expect(rebuild).toBeLessThan(deploy);
+    expect(rebuild).toBeLessThan(workerDeploy);
     expect(verifyVersion).toBeGreaterThan(stepIndex('Verify Worker health'));
     expect(verifyVersion).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
     expect(sharedDeploy).toContain('release_version=$(node -p');
     expect(sharedDeploy).toContain("node -p 'require(\"./apps/worker/package.json\").version'");
     expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
+    const injectRun = deploy.steps[inject].run as string;
+    expect(injectRun).toContain('--worker-package-version "$(node -p \'require("./apps/worker/package.json").version\')"');
+    expect(injectRun).toContain('--web-package-version "$(node -p \'require("./apps/web/package.json").version\')"');
+    expect(injectRun).toContain('--liff-package-version "$(node -p \'require("./apps/liff/package.json").version\')"');
+    expect(injectRun).not.toContain('require(\\"');
     expect(sharedDeploy).toContain('--worker apps/worker/dist/line_harness/index.js');
     expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
     expect(sharedDeploy).toContain('--admin apps/web/out');
     expect(sharedDeploy).toContain('--liff apps/liff/dist');
-    expect(sharedDeploy).toContain('for attempt in 1 2 3 4 5');
+    expect(sharedDeploy).toContain('for attempt in {1..12}');
     expect(sharedDeploy).toContain('sleep 5');
     expect(sharedDeploy).toContain('test "$actual_version" = "$EXPECTED_VERSION"');
+  });
+
+  test('publishes the immutable pharmacy rich-menu catalog before the Worker', () => {
+    const detect = stepIndex('Detect Pharmacy rich-menu catalog changes');
+    const generate = stepIndex('Generate Pharmacy rich-menu catalog');
+    const publish = stepIndex('Publish Pharmacy rich-menu catalog');
+    const workerDeploy = stepIndex('Deploy to Cloudflare Workers');
+
+    expect(detect).toBeGreaterThan(-1);
+    expect(detect).toBeLessThan(generate);
+    expect(generate).toBeLessThan(publish);
+    expect(publish).toBeLessThan(workerDeploy);
+    expect(deploy.steps[generate].if).toBe(
+      "steps.rich-menu-catalog.outputs.changed == 'true'",
+    );
+    expect(deploy.steps[publish].if).toBe(
+      "steps.rich-menu-catalog.outputs.changed == 'true'",
+    );
+    expect(sharedDeploy).toContain('git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA"');
+    expect(sharedDeploy).toContain('initial-large-3x2-v4.jpg');
+    expect(sharedDeploy).toContain('generate-rich-menu-catalog.ts');
+    expect(sharedDeploy).toContain('pnpm rich-menu:catalog');
+    expect(sharedDeploy).toContain('r2 object get');
+    expect(sharedDeploy).toContain('cmp --silent');
+    expect(sharedDeploy).toContain('r2 object put');
+    expect(sharedDeploy).toContain('manifest.json');
+    expect(sharedDeploy).toContain('catalog_total_bytes');
+    expect(sharedDeploy).toContain('50000000');
+    expect(sharedDeploy).toContain('remote_image="$(mktemp)"');
+    expect(sharedDeploy).toContain('Existing rich-menu catalog image differs');
+    expect(sharedDeploy).toContain('/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000');
+    expect(sharedDeploy).toContain(".success == true and .result_info.is_truncated == false");
+    expect(sharedDeploy).toContain(".result[].key");
+    expect(sharedDeploy).toContain('grep -Fqx -- "$object_key" "$existing_keys"');
+    expect(sharedDeploy).toContain('Existing manifest could not be read');
   });
 
   test('checks out and deploys the exact source SHA with pinned actions', () => {

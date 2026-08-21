@@ -216,12 +216,16 @@ describe('custom_012 pharmacy next-intake expectations', () => {
   });
 
   it('rejects a stale patient response after continuity is paused', async () => {
+    db.prepare(`UPDATE pharmacy_account_capabilities
+      SET capabilities_json = '["continuity"]' WHERE line_account_id = 'account-b'`).run();
     const item = await offerNextIntakeExpectation(d1, {
       lineAccountId: 'account-b', obligationId: 'continuity-b',
       timing: { source: 'manual_supply_days', supplyDays: 28 },
       staffId: 'staff-b', idempotencyKey: 'offer-paused-b',
       now: new Date('2026-08-18T01:00:00.000Z'),
     });
+    db.prepare(`UPDATE pharmacy_account_capabilities
+      SET capabilities_json = '[]' WHERE line_account_id = 'account-b'`).run();
     db.prepare("UPDATE pharmacy_continuity_obligations SET status = 'paused' WHERE id = ?")
       .run('continuity-b');
 

@@ -11,6 +11,7 @@ import { sameText } from '../custom/pharmacy/provisioning/line-credentials.js';
 import { resolvePlatformAdminSession } from '../custom/pharmacy/platform-admin/auth.js';
 import { recordPlatformAdminAccess } from '../custom/pharmacy/platform-admin/audit.js';
 import { isPlatformTenantSettingsPath } from '../custom/pharmacy/platform-admin/settings-scope.js';
+import { deny } from './deny.js';
 
 export const ADMIN_AUTH_COOKIE = 'lh_admin_session';
 export const TENANT_COOKIE = 'lh_tenant';
@@ -290,7 +291,7 @@ async function authenticateRequest(
 
   if (isPlatformAdminSessionToken(bearer)) {
     const path = new URL(c.req.url).pathname;
-    if (!isPlatformTenantSettingsPath(path)) return null;
+    if (!isPlatformTenantSettingsPath(c.req.method, path)) return null;
     const [resolved, tenant] = await Promise.all([
       resolvePlatformAdminSession(c.env.DB, bearer),
       resolvePlatformAdminTenant(c.env.DB, c.req.header(TENANT_HEADER)),
@@ -422,7 +423,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     (method === 'POST' && path === '/api/liff/pharmacy/prescriptions') ||
     (method === 'GET' && path === '/api/liff/pharmacy/prescriptions/me') ||
     (method === 'PUT' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/files\/[^/]+$/.test(path)) ||
-    (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission)$/.test(path));
+    (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission|arrival)$/.test(path));
   if (isPrescriptionPatientAction) return next();
 
   // custom:pharmacy-intake — patient profiles and intake revisions verify the
@@ -437,6 +438,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // LINE ID token in their own middleware; admin verification remains staff-authenticated.
   const isMynaPatientAction =
     (method === 'POST' && path === '/api/liff/pharmacy/myna-handoffs') ||
+    (method === 'GET' && path === '/api/liff/pharmacy/myna-handoffs/active') ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/myna-handoffs\/[^/]+\/(launch|patient-report)$/.test(path));
   if (isMynaPatientAction) return next();
 
@@ -458,7 +460,11 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     (method === 'POST' && path === '/api/liff/pharmacy/emergency-contraception/intakes') ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/cancel$/.test(path));
   const isPublicProfilePatientAction =
-    method === 'GET' && path === '/api/liff/pharmacy/public-profile';
+    method === 'GET' && (
+      path === '/api/liff/pharmacy/public-profile' ||
+      path === '/api/liff/pharmacy/privacy-policy' ||
+      path === '/api/liff/pharmacy/feature-access'
+    );
   if (isMedicationFollowUpPatientAction || isEmergencyContraceptionPatientAction || isPublicProfilePatientAction) return next();
 
   if (
@@ -508,7 +514,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   const cookie = adminSessionTokenFromCookie(c);
   const identity = await authenticateRequest(c, bearer, cookie);
   if (!identity) {
-    return c.json({ success: false, error: 'Unauthorized' }, 401);
+    return deny(c, 401, 'Unauthorized');
   }
 
   // CSRF protection applies ONLY to cookie-authenticated, state-changing
@@ -519,13 +525,13 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     const header = c.req.header(CSRF_HEADER);
     const expected = csrfTokenFromCookie(c);
     if (!header || !expected || header !== expected) {
-      return c.json({ success: false, error: 'CSRF token mismatch' }, 403);
+      return deny(c, 403, 'csrf_mismatch', 'CSRF token mismatch');
     }
   }
 
   if (identity.mustChangePassword &&
       path !== '/api/auth/session' && path !== '/api/auth/change-password') {
-    return c.json({ success: false, error: 'Password change required' }, 403);
+    return deny(c, 403, 'password_change_required', 'Password change required');
   }
 
   setTenantIdentity(c, identity);

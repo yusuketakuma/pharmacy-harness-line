@@ -1,16 +1,31 @@
 import type { AuthenticatedStaff } from '../../../middleware/auth.js';
 
-export const PHARMACY_CAPABILITIES = [
+export const PATIENT_PHARMACY_CAPABILITIES = [
   'prescription_intake',
   'patient_intake',
-  'fulfillment_quote',
+  'electronic_prescription',
   'continuity',
   'medication_followup',
+  'emergency_contraception',
   'manual_chat',
+  'pharmacy_info',
+] as const;
+
+export const MANAGEMENT_PHARMACY_CAPABILITIES = [
+  'fulfillment_quote',
   'pharmacy_rich_menu',
   'account_settings',
   'pharmacy_dashboard',
 ] as const;
+
+export const PHARMACY_CAPABILITIES = [
+  ...PATIENT_PHARMACY_CAPABILITIES,
+  ...MANAGEMENT_PHARMACY_CAPABILITIES,
+] as const;
+
+export const DEFAULT_PHARMACY_CAPABILITIES = PHARMACY_CAPABILITIES.filter(
+  (capability) => capability !== 'electronic_prescription' && capability !== 'emergency_contraception',
+);
 
 export type PharmacyCapability = (typeof PHARMACY_CAPABILITIES)[number];
 
@@ -51,6 +66,7 @@ export interface PharmacyCapabilityConfig {
   capabilities: PharmacyCapability[];
   proactive_monthly_limit: number;
   unfollow_alert_state: 'alert_only' | 'auto_pause';
+  revision: number;
   created_at: string;
   updated_at: string;
 }

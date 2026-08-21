@@ -11,7 +11,8 @@ export function legacyQueryTarget(search: string): string {
   const page = params.get('page');
   params.delete('page');
 
-  let pathname = '/booking';
+  // Pharmacy build: the menu is the safe default, not the salon booking page.
+  let pathname = '/pharmacy/menu';
   const pharmacyPath = page ? PHARMACY_LEGACY_PAGE_TARGETS[page] : undefined;
   if (pharmacyPath) {
     const [targetPath, targetQuery = ''] = pharmacyPath.split('?', 2);
@@ -48,13 +49,13 @@ export function legacyQueryTarget(search: string): string {
         break;
       case 'book':
       case 'salon-book':
-      case null:
         pathname = '/booking';
         break;
+      case null:
       default:
         // The Pages app does not implement every Worker-client page (notably
-        // forms). Preserve today's fallback instead of inventing a broken path.
-        pathname = '/booking';
+        // forms). Fall back to the pharmacy menu instead of a broken path.
+        pathname = '/pharmacy/menu';
     }
   }
 

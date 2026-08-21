@@ -30,4 +30,19 @@ describe('Myna endpoint protection', () => {
       .resolves.toBe('https://myna.example.test/pharmacy/abc');
     await expect(decryptEndpointUrl(encrypted, 'other-secret')).rejects.toThrow();
   });
+
+  it('binds v2 ciphertext to the owning account and still reads legacy v1 values', async () => {
+    const url = 'https://myna.example.test/pharmacy/abc';
+    const scope = { lineAccountId: 'account-a' };
+    const encrypted = await encryptEndpointUrl(url, 'test-secret', scope);
+    expect(encrypted.startsWith('v2.')).toBe(true);
+    await expect(decryptEndpointUrl(encrypted, 'test-secret', scope)).resolves.toBe(url);
+    await expect(decryptEndpointUrl(encrypted, 'test-secret', { lineAccountId: 'account-b' }))
+      .rejects.toThrow('invalid encrypted endpoint URL');
+    await expect(decryptEndpointUrl(encrypted, 'test-secret')).rejects.toThrow();
+
+    const legacy = await encryptEndpointUrl(url, 'test-secret');
+    expect(legacy.startsWith('v1.')).toBe(true);
+    await expect(decryptEndpointUrl(legacy, 'test-secret', scope)).resolves.toBe(url);
+  });
 });

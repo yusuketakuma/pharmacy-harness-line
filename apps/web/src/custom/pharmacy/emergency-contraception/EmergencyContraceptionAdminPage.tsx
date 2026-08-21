@@ -10,8 +10,10 @@ import {
   type EmergencyConfigInput,
   type EmergencyIntakeStatus,
   type EmergencyInventory,
+  type EmergencyIntakeSummary,
   type EmergencyPharmacist,
   type EmergencyRiskFlag,
+  type EmergencyReminderControl,
   type EmergencySlot,
 } from './api'
 
@@ -38,6 +40,10 @@ const emptySlotDraft = {
   startsAt: '',
   endsAt: '',
   capacity: '1',
+}
+
+const emptyReminderControl: EmergencyReminderControl = {
+  state: 'inactive', revision: 0, timeZone: 'Asia/Tokyo', updatedAt: null,
 }
 
 const STATUS_LABELS: Record<EmergencyIntakeStatus, string> = {
@@ -197,7 +203,13 @@ export default function EmergencyContraceptionAdminPage() {
   const [inventory, setInventory] = useState<EmergencyInventory[]>([])
   const [inventoryDrafts, setInventoryDrafts] = useState<Record<string, InventoryDraft>>({})
   const [slots, setSlots] = useState<EmergencySlot[]>([])
-  const [intakes, setIntakes] = useState<AdminEmergencyIntake[]>([])
+  const [reminderControl, setReminderControl] = useState<EmergencyReminderControl>(emptyReminderControl)
+  const [intakes, setIntakes] = useState<EmergencyIntakeSummary[]>([])
+  const [selectedDetail, setSelectedDetail] = useState<AdminEmergencyIntake | null>(null)
+  const [statusFilter, setStatusFilter] = useState<EmergencyIntakeStatus | ''>('')
+  const [slotFilter, setSlotFilter] = useState('')
+  const [deadlineFilter, setDeadlineFilter] = useState('')
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [slotDraft, setSlotDraft] = useState({ ...emptySlotDraft })
   const [newPharmacistStaffId, setNewPharmacistStaffId] = useState('')
   const [newPharmacistRegistration, setNewPharmacistRegistration] = useState('')
@@ -207,6 +219,12 @@ export default function EmergencyContraceptionAdminPage() {
   const [queueError, setQueueError] = useState('')
   const [message, setMessage] = useState('')
   const requestGate = useRef(createRequestGate()).current
+  const queueFiltersRef = useRef({ status: statusFilter, slotId: slotFilter, deadlineBefore: '' })
+  queueFiltersRef.current = {
+    status: statusFilter,
+    slotId: slotFilter,
+    deadlineBefore: localDateTimeToIso(deadlineFilter),
+  }
   const selectedAccountRef = useRef(selectedAccountId)
   selectedAccountRef.current = selectedAccountId
 
@@ -217,9 +235,10 @@ export default function EmergencyContraceptionAdminPage() {
     setLoading(true)
     setError('')
     setQueueError('')
-    const [configResult, intakeResult] = await Promise.allSettled([
+    const [configResult, intakeResult, reminderResult] = await Promise.allSettled([
       emergencyContraceptionAdminApi.config(accountId),
-      emergencyContraceptionAdminApi.intakes(accountId),
+      emergencyContraceptionAdminApi.intakes(accountId, { ...queueFiltersRef.current, limit: 50 }),
+      emergencyContraceptionAdminApi.reminderControl(accountId),
     ])
     if (!requestGate.isCurrent(request) || selectedAccountRef.current !== accountId) return
     if (configResult.status === 'fulfilled') {
@@ -253,9 +272,13 @@ export default function EmergencyContraceptionAdminPage() {
     }
     if (intakeResult.status === 'fulfilled') {
       setIntakes(intakeResult.value.intakes)
+      setNextCursor(intakeResult.value.next_cursor)
+      setSelectedDetail(null)
     } else {
       setQueueError('受付キューを表示できません。研修修了薬剤師の権限または通信状態を確認してください。')
     }
+    if (reminderResult.status === 'fulfilled') setReminderControl(reminderResult.value)
+    else setError('予約前通知の設定を取得できませんでした。')
     setLoading(false)
   }, [requestGate, selectedAccountId])
 
@@ -267,7 +290,14 @@ export default function EmergencyContraceptionAdminPage() {
     setInventory([])
     setInventoryDrafts({})
     setSlots([])
+    setReminderControl(emptyReminderControl)
     setIntakes([])
+    setSelectedDetail(null)
+    setStatusFilter('')
+    setSlotFilter('')
+    setDeadlineFilter('')
+    setNextCursor(null)
+    queueFiltersRef.current = { status: '', slotId: '', deadlineBefore: '' }
     setSlotDraft({ ...emptySlotDraft })
     setNewPharmacistStaffId('')
     setNewPharmacistRegistration('')
@@ -297,6 +327,30 @@ export default function EmergencyContraceptionAdminPage() {
       await load()
     } catch {
       if (selectedAccountRef.current === accountId) setError('受付設定を保存できませんでした。入力値と権限を確認してください。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setBusy('')
+    }
+  }
+
+  async function toggleReminderControl() {
+    if (!selectedAccountId || busy || reminderControl.state === 'frozen') return
+    const accountId = selectedAccountId
+    const state = reminderControl.state === 'active' ? 'inactive' : 'active'
+    if (state === 'active' && !window.confirm(
+      '予約1時間前の中立的なLINE通知を有効にします。通知を希望した受付だけが対象です。よろしいですか？',
+    )) return
+    setBusy('reminder-control')
+    setError('')
+    setMessage('')
+    try {
+      const saved = await emergencyContraceptionAdminApi.saveReminderControl(accountId, {
+        state, expectedRevision: reminderControl.revision,
+      })
+      if (selectedAccountRef.current !== accountId) return
+      setReminderControl(saved)
+      setMessage(state === 'active' ? '予約前の中立LINE通知を有効にしました。' : '予約前の中立LINE通知を無効にしました。')
+    } catch {
+      if (selectedAccountRef.current === accountId) setError('予約前通知の設定を更新できませんでした。再読み込みしてから再試行してください。')
     } finally {
       if (selectedAccountRef.current === accountId) setBusy('')
     }
@@ -427,7 +481,44 @@ export default function EmergencyContraceptionAdminPage() {
     }
   }
 
-  async function transition(intake: AdminEmergencyIntake, status: Exclude<EmergencyIntakeStatus, 'provisional'>) {
+  async function loadIntakeDetail(intakeId: string) {
+    if (!selectedAccountId || busy) return
+    const accountId = selectedAccountId
+    setBusy(`detail:${intakeId}`)
+    setQueueError('')
+    try {
+      const result = await emergencyContraceptionAdminApi.intakeDetail(accountId, intakeId)
+      if (selectedAccountRef.current === accountId) setSelectedDetail(result.intake)
+    } catch {
+      if (selectedAccountRef.current === accountId) setQueueError('申告詳細を表示できません。研修修了状態と通信状態を確認してください。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setBusy('')
+    }
+  }
+
+  async function loadQueue(cursor?: string, append = false) {
+    if (!selectedAccountId) return
+    const accountId = selectedAccountId
+    setBusy(append ? 'queue-more' : 'queue-filter')
+    setQueueError('')
+    try {
+      const result = await emergencyContraceptionAdminApi.intakes(accountId, {
+        ...queueFiltersRef.current,
+        cursor,
+        limit: 50,
+      })
+      if (selectedAccountRef.current !== accountId) return
+      setIntakes((current) => append ? [...current, ...result.intakes] : result.intakes)
+      setNextCursor(result.next_cursor)
+      if (!append) setSelectedDetail(null)
+    } catch {
+      if (selectedAccountRef.current === accountId) setQueueError('受付キューを表示できません。研修修了薬剤師の権限または通信状態を確認してください。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setBusy('')
+    }
+  }
+
+  async function transition(intake: EmergencyIntakeSummary, status: Exclude<EmergencyIntakeStatus, 'provisional'>) {
     if (!selectedAccountId || busy || !window.confirm(transitionConfirmationMessage(status))) return
     const accountId = selectedAccountId
     setBusy(`intake:${intake.id}`)
@@ -459,7 +550,7 @@ export default function EmergencyContraceptionAdminPage() {
     <div className="mx-auto max-w-7xl space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">緊急避妊薬 Phase 1 管理</h1>
+          <h1 className="text-2xl font-bold text-gray-900">緊急避妊薬</h1>
           <p className="mt-1 text-sm text-gray-600">受付設定、研修修了薬剤師、在庫、対応枠、受付キューをLINEアカウント単位で管理します。</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading || Boolean(busy)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button>
@@ -475,10 +566,23 @@ export default function EmergencyContraceptionAdminPage() {
       {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {message && <div role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</div>}
 
+      <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="emergency-reminder-title">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="emergency-reminder-title" className="text-lg font-semibold">予約前の中立LINE通知</h2>
+            <p className="mt-1 text-sm text-gray-600">通知を希望した受付へ、予約1時間前に内容を特定しない定型文だけを送ります。日本時間の21時〜8時は送信しません。</p>
+            <p className="mt-1 text-xs text-gray-500">状態: {reminderControl.state === 'active' ? '有効' : reminderControl.state === 'frozen' ? '停止固定' : '無効'}</p>
+          </div>
+          <button type="button" onClick={() => void toggleReminderControl()} disabled={busy !== '' || reminderControl.state === 'frozen'} aria-pressed={reminderControl.state === 'active'} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 ${reminderControl.state === 'active' ? 'border border-red-300 bg-white text-red-700' : 'bg-green-600 text-white'}`}>
+            {busy === 'reminder-control' ? '更新中…' : reminderControl.state === 'active' ? '通知を無効にする' : reminderControl.state === 'frozen' ? '停止固定中' : '通知を有効にする'}
+          </button>
+        </div>
+      </section>
+
       <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="emergency-settings-title">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 id="emergency-settings-title" className="text-lg font-semibold">受付 readiness 設定</h2><p className="mt-1 text-sm text-gray-600">必要な運用条件と案内先を記録します。設定済みでも患者ごとの最終判断は薬剤師が行います。</p></div>
-          <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig((current) => ({ ...current, enabled: event.target.checked }))} />受付機能を有効にする</label>
+          <div><h2 id="emergency-settings-title" className="text-lg font-semibold">受付条件の設定</h2><p className="mt-1 text-sm text-gray-600">必要な運用条件と案内先を記録します。設定済みでも患者ごとの最終判断は薬剤師が行います。</p></div>
+          <p className="text-sm font-medium">受付機能: {config.enabled ? '有効' : '無効'}（機能設定で変更）</p>
         </div>
         <form className="mt-4 space-y-4" onSubmit={(event) => { event.preventDefault(); void saveConfig() }}>
           <div className="grid gap-3 md:grid-cols-3">
@@ -517,7 +621,7 @@ export default function EmergencyContraceptionAdminPage() {
         <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="emergency-inventory-title">
           <h2 id="emergency-inventory-title" className="text-lg font-semibold">在庫</h2>
           <p className="mt-1 text-sm text-gray-600">在庫数だけを記録します。販売の可否を自動判定する表示ではありません。</p>
-          <div className="mt-4 space-y-3">{inventory.length === 0 ? <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">商品コードを受付設定に入力して保存すると、在庫を登録できます。</p> : inventory.map((item) => { const draft = inventoryDrafts[item.product_code] ?? { onHand: String(item.on_hand), version: item.version }; return <div key={item.product_code} className="flex flex-wrap items-end gap-2 rounded-lg border border-gray-200 p-3"><div className="min-w-48 flex-1"><p className="text-sm font-medium">商品コード: {item.product_code}</p><p className="mt-1 text-xs text-gray-500">更新: {item.updated_at ? formatDate(item.updated_at) : '未登録'} / version {draft.version}</p></div><label className="text-sm">在庫数<input type="number" min="0" value={draft.onHand} onChange={(event) => setInventoryDrafts((current) => ({ ...current, [item.product_code]: { ...draft, onHand: event.target.value } }))} className="mt-1 w-28 rounded-lg border border-gray-300 px-3 py-2" /></label><button type="button" onClick={() => void saveInventory(item.product_code)} disabled={busy !== ''} className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">{busy === `inventory:${item.product_code}` ? '更新中…' : '在庫を更新'}</button></div> })}</div>
+          <div className="mt-4 space-y-3">{inventory.length === 0 ? <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">商品コードを受付設定に入力して保存すると、在庫を登録できます。</p> : inventory.map((item) => { const draft = inventoryDrafts[item.product_code] ?? { onHand: String(item.on_hand), version: item.version }; return <div key={item.product_code} className="flex flex-wrap items-end gap-2 rounded-lg border border-gray-200 p-3"><div className="min-w-48 flex-1"><p className="text-sm font-medium">商品コード: {item.product_code}</p><p className="mt-1 text-xs text-gray-500">更新: {item.updated_at ? formatDate(item.updated_at) : '未登録'}</p></div><label className="text-sm">在庫数<input type="number" min="0" value={draft.onHand} onChange={(event) => setInventoryDrafts((current) => ({ ...current, [item.product_code]: { ...draft, onHand: event.target.value } }))} className="mt-1 w-28 rounded-lg border border-gray-300 px-3 py-2" /></label><button type="button" onClick={() => void saveInventory(item.product_code)} disabled={busy !== ''} className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">{busy === `inventory:${item.product_code}` ? '更新中…' : '在庫を更新'}</button></div> })}</div>
         </section>
       </div>
 
@@ -528,9 +632,18 @@ export default function EmergencyContraceptionAdminPage() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white" aria-labelledby="emergency-queue-title">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b p-5"><div><h2 id="emergency-queue-title" className="text-lg font-semibold">受付キュー</h2><p className="mt-1 text-sm text-gray-600">未確認の仮受付を先に表示します。ここで最終適格性・販売の可否は自動判定しません。</p></div></div>
+        <div className="border-b p-5">
+          <h2 id="emergency-queue-title" className="text-lg font-semibold">受付キュー</h2>
+          <p className="mt-1 text-sm text-gray-600">新しい受付から表示します。ここで最終適格性・販売の可否は自動判定しません。</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1.5fr_1.2fr_auto]">
+            <label className="text-sm">状態<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as EmergencyIntakeStatus | '')} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="">すべて</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="text-sm">対応枠<select value={slotFilter} onChange={(event) => setSlotFilter(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="">すべて</option>{slots.map((slot) => <option key={slot.id} value={slot.id}>{formatSlot(slot)}</option>)}</select></label>
+            <label className="text-sm">期限まで<input type="datetime-local" value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+            <button type="button" onClick={() => void loadQueue()} disabled={busy !== ''} className="min-h-11 self-end rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">絞り込む</button>
+          </div>
+        </div>
         {queueError && <p role="alert" className="m-5 rounded-lg bg-red-50 p-3 text-sm text-red-700">{queueError}</p>}
-         {loading && intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">受付キューを読み込み中...</p> : queueError && intakes.length === 0 ? <p className="p-8 text-center text-sm text-red-600">受付キューを表示できません。再読み込みしてください。</p> : intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">未確認の受付はありません。</p> : <ul className="divide-y divide-gray-200">{intakes.map((intake) => <li key={intake.id} className="space-y-3 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{emergencyIntakeStatusLabel(intake.status)}</p>{intake.status === 'provisional' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">未確認</span>}</div><p className="mt-1 font-mono text-xs text-gray-500">受付番号: {intake.reference_code}</p><p className="mt-1 text-sm text-gray-600">対応枠: {formatSlot({ starts_at: intake.slot_starts_at, ends_at: intake.slot_ends_at })} / 期限: {formatDate(intake.expires_at)}</p></div><span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">{AGE_BAND_LABELS[intake.age_band]}</span></div><dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-gray-500">患者申告（未確認）</dt><dd>{intake.self_reported.intercourseTimeUnknown ? '時刻不明' : formatDate(intake.self_reported.intercourseAt)}</dd></div><div><dt className="text-gray-500">連絡方法</dt><dd>{SAFE_CONTACT_LABELS[intake.safe_contact_mode]}</dd></div><div><dt className="text-gray-500">同意文書</dt><dd>{intake.consent_version}</dd></div><div><dt className="text-gray-500">更新</dt><dd>{formatDate(intake.updated_at)}</dd></div></dl><div><p className="text-sm font-medium">リスクフラグ</p>{intake.risk_flags.length === 0 ? <p className="mt-1 text-sm text-gray-500">なし</p> : <ul className="mt-1 flex flex-wrap gap-2">{intake.risk_flags.map((flag) => <li key={flag} className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">{emergencyRiskFlagLabel(flag)}</li>)}</ul>}</div><div className="flex flex-wrap gap-2">{intake.status === 'provisional' && <button type="button" onClick={() => void transition(intake, 'reviewed')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">薬剤師確認済みにする</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'cancelled')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm text-red-700 disabled:opacity-50">受付を取消</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'expired')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">期限切れとして記録</button>}{intake.status === 'reviewed' && <button type="button" onClick={() => void transition(intake, 'completed')} disabled={busy !== ''} className="min-h-11 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">店頭対応完了として記録</button>}</div></li>)}</ul>}
+         {loading && intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">受付キューを読み込み中...</p> : queueError && intakes.length === 0 ? <p className="p-8 text-center text-sm text-red-600">受付キューを表示できません。再読み込みしてください。</p> : intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">該当する受付はありません。</p> : <><ul className="divide-y divide-gray-200">{intakes.map((intake) => <li key={intake.id} className="space-y-3 p-5"><div><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{emergencyIntakeStatusLabel(intake.status)}</p>{intake.status === 'provisional' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">未確認</span>}</div><p className="mt-1 font-mono text-xs text-gray-500">受付番号: {intake.reference_code}</p><p className="mt-1 text-sm text-gray-600">対応枠: {formatSlot({ starts_at: intake.slot_starts_at, ends_at: intake.slot_ends_at })} / 期限: {formatDate(intake.expires_at)}</p></div><dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-gray-500">患者申告（未確認）</dt><dd>{selectedDetail?.id === intake.id ? (selectedDetail.self_reported.intercourseTimeUnknown ? '時刻不明' : formatDate(selectedDetail.self_reported.intercourseAt)) : <button type="button" onClick={() => void loadIntakeDetail(intake.id)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{busy === `detail:${intake.id}` ? '確認中…' : '申告詳細を確認'}</button>}</dd></div><div><dt className="text-gray-500">年齢帯</dt><dd>{selectedDetail?.id === intake.id ? AGE_BAND_LABELS[selectedDetail.age_band] : '詳細確認後に表示'}</dd></div><div><dt className="text-gray-500">連絡方法</dt><dd>{selectedDetail?.id === intake.id ? SAFE_CONTACT_LABELS[selectedDetail.safe_contact_mode] : '詳細確認後に表示'}</dd></div><div><dt className="text-gray-500">同意文書</dt><dd>{selectedDetail?.id === intake.id ? selectedDetail.consent_version : '詳細確認後に表示'}</dd></div></dl><div><p className="text-sm font-medium">リスクフラグ</p>{selectedDetail?.id !== intake.id ? <p className="mt-1 text-sm text-gray-500">詳細確認後に表示</p> : selectedDetail.risk_flags.length === 0 ? <p className="mt-1 text-sm text-gray-500">なし</p> : <ul className="mt-1 flex flex-wrap gap-2">{selectedDetail.risk_flags.map((flag) => <li key={flag} className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">{emergencyRiskFlagLabel(flag)}</li>)}</ul>}</div><div className="flex flex-wrap gap-2">{intake.status === 'provisional' && <button type="button" onClick={() => void transition(intake, 'reviewed')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">薬剤師確認済みにする</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'cancelled')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm text-red-700 disabled:opacity-50">受付を取消</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'expired')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">期限切れとして記録</button>}{intake.status === 'reviewed' && <button type="button" onClick={() => void transition(intake, 'completed')} disabled={busy !== ''} className="min-h-11 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">店頭対応完了として記録</button>}</div></li>)}</ul>{nextCursor && <div className="border-t p-4 text-center"><button type="button" onClick={() => void loadQueue(nextCursor, true)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">{busy === 'queue-more' ? '読込中…' : '次を表示'}</button></div>}</>}
       </section>
     </div>
   )

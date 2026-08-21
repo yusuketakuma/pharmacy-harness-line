@@ -14,6 +14,19 @@ describe('pharmacy notification policy', () => {
     expect(() => buildApprovedPharmacyMessage('unknown' as never)).toThrow(/unknown/);
   });
 
+  it('renders the appointment reminder without exposing the feature or clinical details', () => {
+    const message = buildApprovedPharmacyMessage('appointment_reminder_v1');
+    expect(message).toEqual({
+      type: 'text',
+      text: 'ご予約の時間が近づいています。必要に応じてLINEアプリで内容をご確認ください。',
+    });
+    expect(JSON.stringify(message)).not.toMatch(/緊急|避妊|性交|妊娠|薬|患者|年齢/u);
+    expect(isApprovedRenderedPharmacyMessage('appointment_reminder_v1', message)).toBe(true);
+    expect(() => buildApprovedPharmacyMessage('appointment_reminder_v1', {
+      genericDate: '2026-08-21',
+    })).toThrow(/variable rejected/u);
+  });
+
   it('rejects clinical or free-form payloads at the final fence', () => {
     expect(() => assertPharmacyAutomatedText('薬剤名: ロキソニン')).toThrow(/rejected/);
     expect(() => assertPharmacyAutomatedText('糖尿病について確認します')).toThrow(/rejected/);

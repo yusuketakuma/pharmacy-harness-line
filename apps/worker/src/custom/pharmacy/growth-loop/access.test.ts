@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MANAGEMENT_PHARMACY_CAPABILITIES,
+  PATIENT_PHARMACY_CAPABILITIES,
   canAccessPharmacyAccount,
   hasPharmacyCapability,
   hasPharmacyModeAccount,
   isPharmacyTenant,
   isPharmacyModeAccount,
+  parsePharmacyCapabilities,
   resolveAccessiblePharmacyTenant,
 } from './access.js';
 
@@ -165,5 +168,35 @@ describe('pharmacy account mode', () => {
     await expect(isPharmacyTenant(unavailable, 'tenant-a')).resolves.toBe(true);
     await expect(hasPharmacyModeAccount(unavailable)).resolves.toBe(true);
     await expect(hasPharmacyCapability(unavailable, 'account-a', 'prescription_intake')).resolves.toBe(false);
+  });
+});
+
+describe('pharmacy capability compatibility', () => {
+  it('recognizes v0.29 patient capabilities without mixing management capabilities', () => {
+    expect(PATIENT_PHARMACY_CAPABILITIES).toEqual(expect.arrayContaining([
+      'electronic_prescription', 'emergency_contraception', 'pharmacy_info',
+    ]));
+    expect(MANAGEMENT_PHARMACY_CAPABILITIES).toEqual(expect.arrayContaining([
+      'pharmacy_rich_menu', 'account_settings', 'pharmacy_dashboard',
+    ]));
+    expect(PATIENT_PHARMACY_CAPABILITIES).not.toEqual(expect.arrayContaining([
+      'pharmacy_rich_menu', 'account_settings', 'pharmacy_dashboard',
+    ]));
+  });
+
+  it('keeps known capabilities when a frozen reader encounters v0.29 keys', () => {
+    const raw = JSON.stringify([
+      'prescription_intake', 'electronic_prescription', 'emergency_contraception',
+      'pharmacy_info', 'pharmacy_dashboard', 'future_unknown',
+    ]);
+    expect(parsePharmacyCapabilities(raw)).toEqual([
+      'prescription_intake', 'electronic_prescription', 'emergency_contraception',
+      'pharmacy_info', 'pharmacy_dashboard',
+    ]);
+
+    const frozenV028 = new Set(['prescription_intake', 'pharmacy_dashboard']);
+    expect((JSON.parse(raw) as string[]).filter((value) => frozenV028.has(value))).toEqual([
+      'prescription_intake', 'pharmacy_dashboard',
+    ]);
   });
 });

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../../../index.js';
 import { getPharmacyAccountId } from '../account.js';
-import { lineProxy } from '../../../routes/line-proxy.js';
+import { lineProxy } from '../../../routes/integrations/line-proxy.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { inspectPrescriptionImage } from './image.js';
 import {
@@ -33,7 +33,7 @@ import {
 } from './repository.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
-import { hasPharmacyCapability } from '../growth-loop/access.js';
+import { recordTenantAudit } from '../../../lib/tenant-audit.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -86,9 +86,6 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
     identity,
   );
   if (!patient) return c.json({ error: 'Prescription account not found' }, 404);
-  if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, 'prescription_intake'))) {
-    return c.json({ error: 'Prescription intake is not enabled' }, 403);
-  }
   c.set('prescriptionPatient', patient);
   return next();
 });
@@ -101,9 +98,6 @@ prescriptionRoutes.use('/api/custom/pharmacy/prescriptions/*', async (c, next) =
   if (!(await canAccessPharmacyOperationsAccount(
     c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
   ))) return c.json({ error: 'Forbidden' }, 403);
-  if (!(await hasPharmacyCapability(c.env.DB, lineAccountId, 'prescription_intake'))) {
-    return c.json({ error: 'Prescription intake is not enabled' }, 403);
-  }
   c.set('prescriptionLineAccountId', lineAccountId);
   return next();
 });
@@ -161,6 +155,9 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
     }
     if (error instanceof Error && error.message === 'prescription patient link conflict') {
       return c.json({ error: 'Prescription patient link changed; retry' }, 409);
+    }
+    if (error instanceof Error && error.message === 'FEATURE_DISABLED') {
+      return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
     }
     throw error;
   }
@@ -459,12 +456,17 @@ prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id/files/:fileId', a
 
 prescriptionRoutes.get('/api/custom/pharmacy/prescriptions/:id', async (c) => {
   const lineAccountId = c.get('prescriptionLineAccountId');
+  const staff = c.get('staff');
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
   const detail = await getAdminPrescriptionDetail(
     c.env.DB, lineAccountId, c.req.param('id'),
   );
-  return detail
-    ? c.json(detail)
-    : c.json({ error: 'Prescription submission not found' }, 404);
+  if (!detail) return c.json({ error: 'Prescription submission not found' }, 404);
+  await recordTenantAudit(c.env.DB, {
+    lineAccountId, actorStaffId: staff.id, action: 'phi.prescription_detail_viewed',
+    resourceType: 'prescription_submission', resourceId: c.req.param('id'),
+  });
+  return c.json(detail);
 });
 
 const ADMIN_ACTIONS = {
