@@ -2,6 +2,61 @@
 
 ## Active
 
+### ECF - 緊急避妊薬 事前情報収集フォーム v2 - 2026-08-22 計画
+
+**product contract**: `docs/pharmacy/EC_PREVISIT_FORM.md`（本書 > Plans.md）。`team_validation_mode: subagent`（Product / Architecture / Security / QA / Skeptic 5視点の独立レビュー反映済み）。**Spec delta**: 同ファイル新規作成。P8 EC-1 の受入条件「病歴・月経を取得しない」は operator 裁定（2026-08-22「情報をLINE経由で事前取得し、対面指導は必ず実施しつつ時間短縮」）により supersede。
+
+**基準**: `dev` / `aa8046e`。一次情報は審査報告書（MHLW 001622315）、医薬総発0331第2号、ノルレボ／レソエル72 添付文書（しない・相談リストは両製品同一）、アリナミン製薬のLINE/オンライン事前チェック購入フロー。
+
+**決定事項**（レビューで確定）: A3/A4/A5 は送信を止めず強フラグ＋代替導線 ／ 「支援情報の希望」設問は作らず `support_center_url` を全員に無条件表示 ／ C は1ブロックのチェック群 ／ 新項目は全て暗号化payload内、平文は `pre_review_flagged` 1個 ／ 患者向け projection から `risk_flags`・`age_band` を外す ／ 同意は新版強制＋content hash ／ 販売記録は一律3年class・機微判定は暗号化・児相通告の平文enum禁止 ／ 対面確認はセクション単位✓＋相違のみ個別 ／ `status`/`event_type`/`resource_type` の CHECK は拡張不可（販売不可＝`cancelled`＋`outcome='refused'`）／ 3週間後通知は対象外。
+
+#### Phase A（先行、schema変更なし）
+
+- [ ] **ECF-0 契約固定・Red** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `policy.test.ts` に v2 describe: A3/A4/A5/A' は `canCreateProvisional` を変えずフラグのみ、全A非該当でフラグ0、`eligible` を返さない、72h edge 不変。`encryption.test.ts` に最大 v2 payload の seal（2048 byte 以内か実測。超過時のみ ECF-2 で上限変更＋鍵導出修正）、`v1.` prefix 維持、v1 固定文字列の復号。`custom_035` test に owner projection が `risk_flags`/`age_band` を返さない Red。
+  - **DoD**: 上記が全て Red で存在し、`ADMIN_QUEUE_SELECT` 非臨床列の回帰テストが追加されている。
+
+- [ ] **ECF-1 payload v2・policy v2・owner projection 分離** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `repository.ts:684-692` の seal 対象に `schema_version: 2`、`lngAllergy`/`liverDisease`/`currentlyPregnant`/`breastfeeding` を追加。`:923-926` の read は `schema_version ?? 1` で分岐し v1 は null 補完。`encrypted_payload === ''` 分岐は schema 分岐より前に維持。
+  - `policy.ts` に `lng_allergy`/`liver_disease`/`pregnancy_reported`/`breastfeeding_advice` を**payload 内フラグ**として算出し、`risk_flags_json` には `pre_review_flagged` だけを追加。`RISK_FLAG_LABELS` 更新。
+  - `projection()` を `ownerProjection`（status/reference/slot/expires/version のみ）と `adminProjection` に分離。
+  - `checklist_version` を `product_code` map から intake INSERT へ複写（列は Phase B の custom_051 まで payload 内に保持）。
+  - **Red -> Green**: ECF-0 の Red、既存 routes/repository テストは objectContaining に v2 必須フィールドを**追加**（緩めない）。
+  - **DoD**: `pnpm --filter worker test -- emergency-contraception` green、`custom_035` test green、v1 行の detail が落ちない。
+
+- [ ] **ECF-2 同意 v2・content hash** `[lane:gate]` `[tdd:required]` cc:TODO
+  - 患者向け同意文を「申告は薬剤師が対面で再確認／最終判断は店頭／申告の保存期間 N日／薬剤師の販売記録は法令により3年保存／3週間後の妊娠検査の案内」へ改定。`consent_version` の新版を必須化し、`purpose_text`/同意文変更時に version bump を強制（`saveEmergencySettings`）。intake に `consent_content_hash` を記録（payload 内、列追加なし）。旧 version で作成された v1 行を v2 目的で再解釈しない。
+  - **DoD**: 旧 consent_version での create が 409、hash 不一致 create が 409、`EmergencyContraceptionPage.test.tsx` の consent 契約が更新されている。
+
+- [ ] **ECF-3 LIFF フォーム Phase A** `[lane:gate]` `[tdd:required]` cc:TODO
+  - A3/A4/A5/A' の4チェックを追加（中立文言、製品名なし、「レボノルゲストレルを含む薬」）。該当時は送信可のまま代替導線（産婦人科・ワンストップ `support_center_url`・他薬局一覧）を同画面に表示。A1 文言から「(女性)」を外す。
+  - A2 入力直後に服用期限と残り時間を表示し、期限超過枠を select で無効化（`outside_72_hours` の事前検証）。
+  - D2 に「回数で受付をお断りするものではありません」を添える。完了画面に `support_center_url` を全員へ無条件表示。既存の `not.toMatch(/性交|妊娠|緊急避妊/)` 文言禁止を維持。
+  - **DoD**: `EmergencyContraceptionPage.test.tsx` の `emergencyIntakeFieldErrors` にキー追加（完全一致は維持）、renderToStaticMarkup で代替導線・期限表示・A1 文言を固定、`pnpm --filter liff test` green。
+
+- [ ] **ECF-4 Phase A 回帰・manual 更新** `[lane:gate]` `[tdd:skip:docs-and-regression]` cc:TODO
+  - `manual-patient.md` / `manual-staff.md` の EC 手順を v2 Phase A へ更新。`pnpm verify:ci` green。`RETENTION_MATRIX.md` の EC 行に payload v2 の項目を追記（列は不変）。
+  - **DoD**: verify:ci exit 0、manual 2件に A3〜A' と代替導線の記述がある。
+
+#### Phase B（販売記録・対面確認、別リリース）
+
+- [ ] **ECF-5 custom_051 対面確認・販売記録 schema** `[lane:gate]` `[tdd:required]` cc:TODO
+  - `pharmacy_emergency_counter_confirmations`（PK: account/intake/section、`checklist_version`、`mismatch_items_json`、staff、時刻）と `pharmacy_emergency_sale_records`（§5 の平文列＋ `determination_encrypted`、`owner_friend_id`、`UNIQUE(line_account_id,intake_id)`、no_update/no_delete trigger）。additive のみ、既存 CHECK に触れない。bootstrap 再生成、`check-migrations` green。
+  - **DoD**: `packages/db/test/custom_051_*.test.ts` で cross-account FK throw、immutable、UNIQUE 冪等、legal hold join 可能を確認。
+
+- [ ] **ECF-6 patient フォーム Phase B（B1〜B4・C1/C2・D3）** `[lane:gate]` `[tdd:required]` cc:TODO
+  - payload v2 に追加、`pregnancy_test_recommended` を server 算出（患者非表示）。B 該当で完了画面に「お薬手帳を持参」。C2 は複数チェック＋「当てはまらない」「わからない」排他。
+  - **DoD**: policy test で C いずれか該当/不明→true、全非該当かつ C1 既知→false、owner projection に出ない。
+
+- [ ] **ECF-7 管理画面 detail・対面確認・薬剤師記入欄・販売記録** `[lane:gate]` `[tdd:required]` cc:TODO
+  - detail を A〜D セクション表示、セクション✓＋相違個別マーク、薬剤師記入欄（本人確認・妊娠検査・販売可否＋理由・面前服用・説明済み・受診勧奨・紹介・紙受領枚数）。`completed` 遷移は A セクション✓を CAS UPDATE の WHERE で要求。販売記録 write は `sale:{intakeId}` idempotency、event-first batch、`requireTrainedPharmacist`、fail-closed access event。販売不可＝`cancelled`＋`refused`。platform-admin coverage に `patient-operation` DEFERRED 登録。
+  - **DoD**: 不完全✓で `completed` が conflict、CAS 衝突 409、cross-account 404、`EmergencyContraceptionAdminPage.test.tsx` の「自動判定しない」assertion を維持しつつ記入欄を固定。
+
+- [ ] **ECF-8 Phase B 回帰・docs** `[lane:gate]` `[tdd:skip:docs-and-regression]` cc:TODO
+  - `RETENTION_MATRIX.md` に sale_records（3年class、legal hold 対象、redaction 対象外）を追加、manual 更新、`verify:ci` green。
+
+**Reject**: 支援希望設問の保存、`pregnancy_test_recommended` の平文化、児相通告の平文enum、2年保存class、3週間後自動通知、製品別チェック表、status/event_type CHECK の変更。
+
 ### NEXT - v0.30.2後の残作業整理・Myna公開URL署名化・retention実施 - 2026-08-22 計画
 
 **基準**: `dev` / `1c42cfd`。seller release `pharmacy-v0.30.2`（2026-08-22）まで出荷済み、全package `0.30.2`。`team_validation_mode: subagent`（Product / Architecture / Security / QA / Skeptic の5視点を独立read-onlyレビューし、本節は反映後）。
