@@ -282,6 +282,47 @@ function IntakeList({
   );
 }
 
+export function EmergencyConsentSection({
+  consent,
+  consentAccepted,
+  busy,
+  onToggle,
+}: {
+  consent: NonNullable<EmergencyServiceOverview['consent']>;
+  consentAccepted: boolean;
+  busy: string | null;
+  onToggle: (checked: boolean) => void;
+}) {
+  return (
+    <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
+      <h2 id="emergency-consent" className="font-bold text-gray-900">説明と明示同意</h2>
+      <p className="whitespace-pre-wrap text-sm text-gray-700">{consent.text_v2}</p>
+      <dl className="space-y-1 text-sm text-gray-700">
+        <div><dt className="font-bold">申告の保存期間 / 販売記録</dt><dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd></div>
+        <div><dt className="font-bold">問い合わせ先</dt><dd>{consent.privacy_contact}</dd></div>
+      </dl>
+      <a
+        href={safeExternalUrl(consent.privacy_policy_url) ?? undefined}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="text-sm font-bold text-green-800 underline"
+      >
+        個人情報の利用目的・問い合わせ先を確認（外部サイト）
+      </a>
+      <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <input
+          type="checkbox"
+          checked={consentAccepted}
+          onChange={(event) => onToggle(event.currentTarget.checked)}
+          disabled={busy !== null}
+          className="size-5"
+        />
+        説明と利用目的を確認し、来局前確認に同意します
+      </label>
+    </section>
+  );
+}
+
 export function EmergencyIntakeForm({
   draft,
   service,
@@ -613,6 +654,7 @@ export default function EmergencyContraceptionPage() {
         breastfeeding: draft.breastfeeding,
         safeContactMode: draft.safeContactMode as EmergencySafeContactMode,
         consentVersion: service.consent.version,
+        consentContentHash: service.consent.content_hash,
         manufacturerCheckAcknowledged: draft.manufacturerCheckAcknowledged,
         idempotencyKey: crypto.randomUUID(),
       });
@@ -688,32 +730,12 @@ export default function EmergencyContraceptionPage() {
           ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-600">受付状況を読み込み中...</p>
           : service?.ready && service.consent
             ? <>
-              <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
-                <h2 id="emergency-consent" className="font-bold text-gray-900">説明と明示同意</h2>
-                <dl className="space-y-1 text-sm text-gray-700">
-                  <div><dt className="font-bold">利用目的</dt><dd>{service.consent.purpose}</dd></div>
-                  <div><dt className="font-bold">保存期間</dt><dd>{service.consent.retention_days}日間</dd></div>
-                  <div><dt className="font-bold">問い合わせ先</dt><dd>{service.consent.privacy_contact}</dd></div>
-                </dl>
-                <a
-                  href={safeExternalUrl(service.consent.privacy_policy_url) ?? undefined}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-sm font-bold text-green-800 underline"
-                >
-                  個人情報の利用目的・問い合わせ先を確認（外部サイト）
-                </a>
-                <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={draft.consentAccepted}
-                    onChange={(event) => changeDraft('consentAccepted', event.currentTarget.checked)}
-                    disabled={busy !== null}
-                    className="size-5"
-                  />
-                  説明と利用目的を確認し、来局前確認に同意します
-                </label>
-              </section>
+              <EmergencyConsentSection
+                consent={service.consent}
+                consentAccepted={draft.consentAccepted}
+                busy={busy}
+                onToggle={(checked) => changeDraft('consentAccepted', checked)}
+              />
               {confirming
                 ? <section className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm" aria-labelledby="emergency-confirm">
                   <h2 id="emergency-confirm" className="font-bold text-gray-900">送信内容の確認</h2>

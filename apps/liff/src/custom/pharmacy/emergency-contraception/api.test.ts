@@ -35,6 +35,7 @@ describe('emergency contraception patient API', () => {
       breastfeeding: false,
       safeContactMode: 'neutral_line' as const,
       consentVersion: '2026-08-19',
+      consentContentHash: 'hash-a',
       manufacturerCheckAcknowledged: true,
       idempotencyKey: 'create-key-1',
     };

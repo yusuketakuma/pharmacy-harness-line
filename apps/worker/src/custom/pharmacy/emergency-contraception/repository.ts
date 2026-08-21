@@ -98,6 +98,7 @@ export interface AdminEmergencyIntake extends EmergencyIntakeProjection {
     breastfeeding: boolean | null;
     detailFlags: EmergencyDetailFlag[] | null;
     checklistVersion: string | null;
+    consentContentHash: string | null;
   } | null;
 }
 
@@ -114,6 +115,7 @@ export interface CreateEmergencyIntakeInput {
   acceptsInPersonDose: boolean;
   safeContactMode: EmergencySafeContactMode;
   consentVersion: string;
+  consentContentHash: string;
   manufacturerCheckAcknowledged: boolean;
   idempotencyKey: string;
   encryptionSecret: string;
@@ -133,6 +135,8 @@ export interface EmergencyServiceOverview {
     retention_days: number;
     privacy_policy_url: string;
     privacy_contact: string;
+    text_v2: string;
+    content_hash: string;
   };
   manufacturer_check_url: string | null;
   partner_clinic_url: string | null;
@@ -195,6 +199,30 @@ function validHttpsUrl(value: string): boolean {
   }
 }
 
+// Consent v2 (see docs/pharmacy/EC_PREVISIT_FORM.md §3 row E and §4): the patient
+// projection cannot prove which exact wording a purpose_text/consent_version pair
+// stood for, since either can be edited independently in pharmacy_emergency_settings.
+// text_v2 is a server-owned constant (never authored, never stored) and
+// content_hash binds it to the account's retention_days and consent_version, so a
+// hash mismatch at create time proves the settings changed underneath the patient.
+export function emergencyConsentTextV2(retentionDays: number): string {
+  return `申告内容は来局時に薬剤師が対面で再確認し、最終的な判断は店頭で薬剤師が行います。` +
+    `申告内容の保存期間は${retentionDays}日間です。` +
+    `薬剤師が作成する販売記録は法令により3年間保存され、申告内容とは別に扱われます。` +
+    `服用から3週間後を目安に、検査薬または受診で結果をご確認いただくご案内をお送りします。`;
+}
+
+export async function emergencyConsentContentHash(input: {
+  retentionDays: number;
+  consentVersion: string;
+}): Promise<string> {
+  const canonical = JSON.stringify([
+    emergencyConsentTextV2(input.retentionDays), input.retentionDays, input.consentVersion,
+  ]);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function settingsComplete(settings: EmergencySettingsRow): boolean {
   return Boolean(
     settings.pharmacy_registration_number.trim() && settings.product_code.trim() &&
@@ -235,6 +263,11 @@ export async function getEmergencyServiceOverview(
       retention_days: settings.retention_days,
       privacy_policy_url: settings.privacy_policy_url,
       privacy_contact: settings.privacy_contact,
+      text_v2: emergencyConsentTextV2(settings.retention_days),
+      content_hash: await emergencyConsentContentHash({
+        retentionDays: settings.retention_days,
+        consentVersion: settings.consent_version,
+      }),
     },
     manufacturer_check_url: settings.manufacturer_check_url,
     partner_clinic_url: settings.partner_clinic_url,
@@ -371,6 +404,19 @@ export async function saveEmergencySettings(
       !Number.isInteger(input.consultationMinutes) || input.consultationMinutes < 1 || input.consultationMinutes > 180 ||
       !Number.isInteger(input.reservationTtlMinutes) || input.reservationTtlMinutes < 5 || input.reservationTtlMinutes > 1440) {
     throw new Error('invalid emergency service settings');
+  }
+  // Consent v2 forced bump: consent_version is a free string, so nothing else proves
+  // it still names the exact wording the patient read. If purpose_text or
+  // retention_days (both baked into text_v2 / content_hash) changes while
+  // consent_version stays put, the stored version would silently stop matching what
+  // it once described. Require the caller to mint a new version instead.
+  const current = await db.prepare(
+    `SELECT purpose_text, retention_days, consent_version
+       FROM pharmacy_emergency_settings WHERE line_account_id = ?`,
+  ).bind(input.lineAccountId).first<{ purpose_text: string; retention_days: number; consent_version: string }>();
+  if (current && current.consent_version === input.consentVersion &&
+      (current.purpose_text !== input.purposeText.trim() || current.retention_days !== input.retentionDays)) {
+    throw new Error('EMERGENCY_CONSENT_VERSION_STALE');
   }
   const timestamp = (input.now ?? new Date()).toISOString();
   await db.prepare(
@@ -677,7 +723,7 @@ export async function createEmergencyIntake(
 
   const service = await db.prepare(
     `SELECT settings.consent_version, settings.consultation_minutes,
-            settings.reservation_ttl_minutes, settings.product_code,
+            settings.reservation_ttl_minutes, settings.product_code, settings.retention_days,
             slot.starts_at, slot.ends_at
        FROM pharmacy_emergency_settings AS settings
        INNER JOIN pharmacy_emergency_slots AS slot
@@ -692,11 +738,23 @@ export async function createEmergencyIntake(
     consultation_minutes: number;
     reservation_ttl_minutes: number;
     product_code: string;
+    retention_days: number;
     starts_at: string;
     ends_at: string;
   }>();
-  if (!service || service.consent_version !== input.consentVersion) {
-    throw new Error('service is not ready');
+  if (!service) throw new Error('service is not ready');
+  // Consent v2 (docs/pharmacy/EC_PREVISIT_FORM.md §3 row E): version and hash are
+  // checked separately from service readiness so a stale consent maps to its own
+  // 409, not a generic "not ready" 503.
+  if (service.consent_version !== input.consentVersion) {
+    throw new Error('EMERGENCY_CONSENT_VERSION_MISMATCH');
+  }
+  const expectedConsentHash = await emergencyConsentContentHash({
+    retentionDays: service.retention_days,
+    consentVersion: service.consent_version,
+  });
+  if (input.consentContentHash !== expectedConsentHash) {
+    throw new Error('EMERGENCY_CONSENT_HASH_MISMATCH');
   }
   const lngAllergy = input.lngAllergy === true;
   const liverDisease = input.liverDisease === true;
@@ -733,6 +791,7 @@ export async function createEmergencyIntake(
     breastfeeding,
     detailFlags: assessment.detailFlags,
     checklistVersion: getChecklistVersion(service.product_code),
+    consentContentHash: input.consentContentHash,
   }, input.encryptionSecret, {
     tenantId: input.tenantId,
     lineAccountId: input.lineAccountId,
@@ -991,6 +1050,9 @@ export async function getAdminEmergencyIntakeDetail(
         : null,
       checklistVersion: schemaVersion >= 2 && typeof payload.checklistVersion === 'string'
         ? payload.checklistVersion
+        : null,
+      consentContentHash: schemaVersion >= 2 && typeof payload.consentContentHash === 'string'
+        ? payload.consentContentHash
         : null,
     },
   };

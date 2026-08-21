@@ -62,6 +62,7 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       typeof body.recentPurchaseCount !== 'number' || typeof body.patientWillVisit !== 'boolean' ||
       typeof body.acceptsInPersonDose !== 'boolean' || typeof body.safeContactMode !== 'string' ||
       typeof body.consentVersion !== 'string' ||
+      typeof body.consentContentHash !== 'string' ||
       typeof body.manufacturerCheckAcknowledged !== 'boolean' ||
       typeof body.idempotencyKey !== 'string' ||
       // A3/A4/A5/A': optional, but if present must be boolean (default false when absent).
@@ -86,6 +87,7 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       acceptsInPersonDose: body.acceptsInPersonDose,
       safeContactMode: body.safeContactMode as EmergencySafeContactMode,
       consentVersion: body.consentVersion,
+      consentContentHash: body.consentContentHash,
       manufacturerCheckAcknowledged: body.manufacturerCheckAcknowledged,
       idempotencyKey: body.idempotencyKey,
       encryptionSecret: c.env.PHARMACY_PHI_KEY_V1,
@@ -101,6 +103,9 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
     const message = error instanceof Error ? error.message : '';
     if (message === 'FEATURE_DISABLED') {
       return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
+    }
+    if (message === 'EMERGENCY_CONSENT_VERSION_MISMATCH' || message === 'EMERGENCY_CONSENT_HASH_MISMATCH') {
+      return c.json({ error: '同意内容が更新されています。最新の内容をご確認のうえ再度送信してください', code: message }, 409);
     }
     if (/stock|slot|conflict/i.test(message)) {
       return c.json({ error: '選択した枠を確保できませんでした。最新の空きを確認してください' }, 409);
@@ -212,7 +217,10 @@ emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/c
       supportCenterUrl: String(body.supportCenterUrl ?? ''),
     });
     return c.body(null, 204);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'EMERGENCY_CONSENT_VERSION_STALE') {
+      return c.json({ error: '同意文言または保存期間を変更する場合は、同意バージョンを更新してください', code: 'EMERGENCY_CONSENT_VERSION_STALE' }, 409);
+    }
     return c.json({ error: '設定内容を確認してください' }, 400);
   }
 });

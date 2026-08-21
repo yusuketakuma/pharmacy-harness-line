@@ -111,7 +111,7 @@ describe('emergency contraception patient routes', () => {
     const body = {
       slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
-      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
       manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-1',
       tenantId: 'tenant-b', lineAccountId: 'account-b', friendId: 'friend-b',
     };
@@ -132,7 +132,7 @@ describe('emergency contraception patient routes', () => {
     const body = {
       slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
-      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
       manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-flags',
       lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
     };
@@ -150,7 +150,7 @@ describe('emergency contraception patient routes', () => {
     const body = {
       slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
-      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
       manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-bad-flag',
       lngAllergy: 'yes',
     };
@@ -175,7 +175,7 @@ describe('emergency contraception patient routes', () => {
       { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify({
         slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
         age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
-        safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+        safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
         manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-2',
       }) }, env,
     );
@@ -193,13 +193,34 @@ describe('emergency contraception patient routes', () => {
           slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00',
           intercourseTimeUnknown: false, age: 20, recentPurchaseCount: 0,
           patientWillVisit: true, acceptsInPersonDose: true,
-          safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+          safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
           manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-3',
         }),
       }, env,
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ code: 'FEATURE_DISABLED' });
+  });
+
+  it('maps a stale consent version or content hash to a distinct 409', async () => {
+    for (const rejection of ['EMERGENCY_CONSENT_VERSION_MISMATCH', 'EMERGENCY_CONSENT_HASH_MISMATCH']) {
+      mocks.create.mockRejectedValueOnce(new Error(rejection));
+      const response = await app().request(
+        '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+        {
+          method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00',
+            intercourseTimeUnknown: false, age: 20, recentPurchaseCount: 0,
+            patientWillVisit: true, acceptsInPersonDose: true,
+            safeContactMode: 'neutral_line', consentVersion: '2026-08-01', consentContentHash: 'stale-hash',
+            manufacturerCheckAcknowledged: true, idempotencyKey: `request-key-consent-${rejection}`,
+          }),
+        }, env,
+      );
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ code: rejection });
+    }
   });
 });
 
@@ -248,6 +269,26 @@ describe('emergency contraception staff routes', () => {
       purposeText: '来局前確認と仮受付のため',
     }));
     expect(mocks.saveSettings.mock.calls[0]?.[1]).not.toHaveProperty('enabled');
+  });
+
+  it('maps a forced consent version bump rejection to 409', async () => {
+    mocks.saveSettings.mockRejectedValueOnce(new Error('EMERGENCY_CONSENT_VERSION_STALE'));
+    const response = await app('admin').request(
+      '/api/custom/pharmacy/emergency-contraception/config?line_account_id=account-b',
+      {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          enabled: true, pharmacyRegistrationNumber: 'REG-A', productCode: 'norlevo-otc',
+          manufacturerCheckUrl: 'https://manufacturer.example/check',
+          privacyPolicyUrl: 'https://example.test/privacy', privacyContact: '窓口',
+          purposeText: '変更後の来局前確認と仮受付のため',
+          consentVersion: '2026-08-19', retentionDays: 30, consultationMinutes: 30,
+          reservationTtlMinutes: 30, privacySpaceReady: true, drinkingWaterReady: true,
+          partnerClinicUrl: 'https://clinic.example', supportCenterUrl: 'https://support.example',
+        }),
+      }, env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: 'EMERGENCY_CONSENT_VERSION_STALE' });
   });
 
   it('lists a bounded non-PHI queue and decrypts only the selected detail', async () => {

@@ -44,6 +44,7 @@ describe('emergency intake encryption', () => {
       breastfeeding: true,
       detailFlags: ['lng_allergy', 'liver_disease', 'pregnancy_reported', 'breastfeeding_advice'],
       checklistVersion: 'lng-2026-08',
+      consentContentHash: 'a'.repeat(64),
     };
     const plaintextBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
     expect(plaintextBytes).toBeLessThanOrEqual(2048);

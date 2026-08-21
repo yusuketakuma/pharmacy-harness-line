@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EmergencyContraceptionPage, {
   EMPTY_EMERGENCY_DRAFT,
+  EmergencyConsentSection,
   EmergencyIntakeForm,
   MHLW_EMERGENCY_CONTRACEPTION_URL,
   canSubmitEmergencyIntake,
@@ -23,6 +24,10 @@ const readyService: EmergencyServiceOverview = {
     retention_days: 90,
     privacy_policy_url: 'https://example.com/privacy',
     privacy_contact: 'privacy@example.com',
+    text_v2: '申告内容は来局時に薬剤師が対面で再確認し、最終的な判断は店頭で薬剤師が行います。'
+      + '申告内容の保存期間は90日間です。薬剤師が作成する販売記録は法令により3年間保存され、'
+      + '申告内容とは別に扱われます。服用から3週間後を目安に、検査薬または受診で結果をご確認いただくご案内をお送りします。',
+    content_hash: 'test-content-hash',
   },
   manufacturer_check_url: 'https://example.com/self-check',
   partner_clinic_url: null,
@@ -107,12 +112,30 @@ describe('emergency contraception patient page', () => {
       .toThrow(/^対象となる出来事の日時/);
   });
 
+  it('renders the v2 consent text with the 3-year sale record notice and stays content-neutral', () => {
+    const html = renderToStaticMarkup(
+      <EmergencyConsentSection
+        consent={readyService.consent!}
+        consentAccepted={false}
+        busy={null}
+        onToggle={() => {}}
+      />,
+    );
+    expect(html).toContain('3年');
+    expect(html).toContain('対面');
+    expect(html).toContain('90日');
+    expect(html).not.toMatch(/性交|妊娠|緊急避妊/);
+    expect(html.match(/type="checkbox"/g)).toHaveLength(1);
+  });
+
   it('uses explicit consent without delaying time-sensitive care and keeps actions single-flight', () => {
     const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
     const app = readFileSync(new URL('../../../App.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('service.consent.purpose');
-    expect(source).toContain('service.consent.retention_days');
-    expect(source).toContain('service.consent.privacy_contact');
+    expect(source).toContain('consent.text_v2');
+    expect(source).toContain('consent.retention_days');
+    expect(source).toContain('consent.privacy_contact');
+    expect(source).toContain('service.consent.content_hash');
+    expect(source).toContain('consentContentHash: service.consent.content_hash');
     expect(source).toContain("setBusy('submit')");
     expect(source).not.toContain('setInterval');
     expect(source).toContain('crypto.randomUUID()');

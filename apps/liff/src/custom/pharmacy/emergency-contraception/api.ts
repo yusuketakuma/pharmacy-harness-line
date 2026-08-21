@@ -19,6 +19,8 @@ export interface EmergencyServiceOverview {
     retention_days: number;
     privacy_policy_url: string;
     privacy_contact: string;
+    text_v2: string;
+    content_hash: string;
   } | null;
   manufacturer_check_url: string | null;
   partner_clinic_url: string | null;
@@ -31,15 +33,14 @@ export interface EmergencyServiceOverview {
   }>;
 }
 
+// Patient-facing shape only: the server's owner projection deliberately excludes
+// age_band, safe_contact_mode, consent_version, and risk_flags (clinical/review
+// signals for staff only, see docs/pharmacy/EC_PREVISIT_FORM.md §4).
 export interface EmergencyIntake {
   id: string;
   reference_code: string;
   slot_id: string;
   status: EmergencyIntakeStatus;
-  age_band: 'under_16' | '16_17' | 'adult';
-  safe_contact_mode: EmergencySafeContactMode;
-  consent_version: string;
-  risk_flags: Array<'time_unknown' | 'under_16' | 'minor_review' | 'repeat_purchase_review' | 'notification_unavailable'>;
   expires_at: string;
   version: number;
   created_at: string;
@@ -62,6 +63,7 @@ export interface CreateEmergencyIntakeInput {
   breastfeeding: boolean;
   safeContactMode: EmergencySafeContactMode;
   consentVersion: string;
+  consentContentHash: string;
   manufacturerCheckAcknowledged: boolean;
   idempotencyKey: string;
 }

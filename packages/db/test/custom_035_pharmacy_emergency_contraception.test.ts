@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   cancelOwnerEmergencyIntake,
   createEmergencyIntake,
+  emergencyConsentContentHash,
   expireEmergencyIntakes,
   getAdminEmergencyIntakeDetail,
   getEmergencyAdminConfig,
@@ -26,6 +27,10 @@ const REOPENED_NOW = Date.now();
 const REOPENED_INTERCOURSE_AT = new Date(REOPENED_NOW - 24 * 60 * 60 * 1000).toISOString();
 const REOPENED_SLOT_STARTS_AT = new Date(REOPENED_NOW + 60 * 60 * 1000).toISOString();
 const REOPENED_SLOT_ENDS_AT = new Date(REOPENED_NOW + 90 * 60 * 1000).toISOString();
+// seedReadyService always sets retention_days=30, consent_version='2026-08-19'.
+const CONSENT_CONTENT_HASH = await emergencyConsentContentHash({
+  retentionDays: 30, consentVersion: '2026-08-19',
+});
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
 function d1From(sqlite: Database.Database): D1Database {
@@ -181,8 +186,33 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
           version: '2026-08-19',
           purpose: '来局前確認と仮受付のため',
           retention_days: 30,
+          text_v2: expect.stringContaining('30日間'),
+          content_hash: CONSENT_CONTENT_HASH,
         },
       });
+  });
+
+  it('rejects create with an outdated consent_version or a content_hash that no longer matches', async () => {
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    const base = {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line' as const, manufacturerCheckAcknowledged: true,
+      encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
+    };
+    await expect(createEmergencyIntake(d1, {
+      ...base, consentVersion: '2020-01-01', consentContentHash: CONSENT_CONTENT_HASH,
+      idempotencyKey: 'request-key-stale-version',
+    })).rejects.toThrow('EMERGENCY_CONSENT_VERSION_MISMATCH');
+    await expect(createEmergencyIntake(d1, {
+      ...base, consentVersion: '2026-08-19', consentContentHash: 'not-the-real-hash',
+      idempotencyKey: 'request-key-stale-hash',
+    })).rejects.toThrow('EMERGENCY_CONSENT_HASH_MISMATCH');
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_emergency_intakes`).get())
+      .toEqual({ count: 0 });
   });
 
   it('does not offer or admit a slot assigned to an inactive pharmacy staff account', async () => {
@@ -272,7 +302,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'none', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-4',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-4',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
     expect(db.prepare(`SELECT product_code FROM pharmacy_emergency_intakes WHERE id = ?`)
@@ -314,6 +344,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       acceptsInPersonDose: true,
       safeContactMode: 'neutral_line' as const,
       consentVersion: '2026-08-19',
+      consentContentHash: CONSENT_CONTENT_HASH,
       manufacturerCheckAcknowledged: true,
       idempotencyKey: 'request-key-1',
       encryptionSecret: 'test-secret',
@@ -344,7 +375,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 15, recentPurchaseCount: 1, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-owner-projection',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-owner-projection',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
     for (const field of ['risk_flags', 'age_band', 'safe_contact_mode', 'consent_version']) {
@@ -385,7 +416,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-disabled',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-disabled',
       encryptionSecret: 'test-secret', now: new Date(NOW),
     })).rejects.toThrow('FEATURE_DISABLED');
     expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_emergency_intakes`).get())
@@ -401,7 +432,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'no_notification', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-2',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-2',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
 
@@ -445,7 +476,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'no_notification', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-redacted',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-redacted',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
     db.prepare(`UPDATE pharmacy_emergency_intakes
@@ -478,7 +509,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'none', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-3',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-3',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
     await expect(transitionEmergencyIntake(d1, {
