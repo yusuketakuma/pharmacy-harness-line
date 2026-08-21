@@ -214,7 +214,8 @@ type LiffEndpointEvidence =
     status: 'ERROR'; source: 'line_api'; checkedAt: string;
     reason: 'CONFIGURATION_UNAVAILABLE' | 'CREDENTIAL_UNAVAILABLE' |
       'TOKEN_REQUEST_FAILED' | 'TOKEN_RESPONSE_INVALID' |
-      'APPS_REQUEST_FAILED' | 'APPS_RESPONSE_INVALID' | 'REQUEST_FAILED';
+      'APPS_REQUEST_FAILED' | 'APPS_RESPONSE_INVALID';
+    upstreamStatus?: number;
   };
 
 async function verifyLiffEndpoint(
@@ -224,6 +225,7 @@ async function verifyLiffEndpoint(
   expectedEndpoint: string,
 ): Promise<LiffEndpointEvidence> {
   const checkedAt = new Date().toISOString();
+  let requestStage: 'TOKEN' | 'APPS' = 'TOKEN';
   try {
     const tokenResponse = await fetch('https://api.line.me/oauth2/v3/token', {
       method: 'POST',
@@ -237,7 +239,10 @@ async function verifyLiffEndpoint(
       signal: AbortSignal.timeout(LIFF_VERIFY_TIMEOUT_MS),
     });
     if (!tokenResponse.ok) {
-      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'TOKEN_REQUEST_FAILED' };
+      return {
+        status: 'ERROR', source: 'line_api', checkedAt,
+        reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: tokenResponse.status,
+      };
     }
     const tokenPayload = await tokenResponse.json().catch(() => null) as {
       access_token?: unknown;
@@ -246,6 +251,7 @@ async function verifyLiffEndpoint(
       return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'TOKEN_RESPONSE_INVALID' };
     }
 
+    requestStage = 'APPS';
     const appsResponse = await fetch('https://api.line.me/liff/v1/apps', {
       method: 'GET',
       headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
@@ -256,7 +262,10 @@ async function verifyLiffEndpoint(
       return { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'LIFF_ID_NOT_FOUND' };
     }
     if (!appsResponse.ok) {
-      return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'APPS_REQUEST_FAILED' };
+      return {
+        status: 'ERROR', source: 'line_api', checkedAt,
+        reason: 'APPS_REQUEST_FAILED', upstreamStatus: appsResponse.status,
+      };
     }
     const appsPayload = await appsResponse.json().catch(() => null) as { apps?: unknown } | null;
     if (!Array.isArray(appsPayload?.apps)) {
@@ -275,7 +284,10 @@ async function verifyLiffEndpoint(
       ? { status: 'MATCH', source: 'line_api', checkedAt }
       : { status: 'MISMATCH', source: 'line_api', checkedAt, reason: 'ENDPOINT_URL_MISMATCH' };
   } catch {
-    return { status: 'ERROR', source: 'line_api', checkedAt, reason: 'REQUEST_FAILED' };
+    return {
+      status: 'ERROR', source: 'line_api', checkedAt,
+      reason: requestStage === 'TOKEN' ? 'TOKEN_REQUEST_FAILED' : 'APPS_REQUEST_FAILED',
+    };
   }
 }
 
@@ -400,6 +412,9 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
       ? {
         status: liveLiffEvidence.status,
         ...('reason' in liveLiffEvidence ? { reason: liveLiffEvidence.reason } : {}),
+        ...('upstreamStatus' in liveLiffEvidence && liveLiffEvidence.upstreamStatus !== undefined
+          ? { upstreamStatus: liveLiffEvidence.upstreamStatus }
+          : {}),
       }
       : undefined,
   );

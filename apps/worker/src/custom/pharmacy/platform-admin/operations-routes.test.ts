@@ -469,11 +469,11 @@ describe('platform admin LINE status', () => {
 
     expect(body.data[0]).toMatchObject({
       liffEndpointEvidence: {
-        status: 'ERROR', source: 'line_api', reason: 'TOKEN_REQUEST_FAILED',
+        status: 'ERROR', source: 'line_api', reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: 401,
       },
     });
     expect(store.auditEvents.at(-1)?.detail_json).toBe(
-      JSON.stringify({ status: 'ERROR', reason: 'TOKEN_REQUEST_FAILED' }),
+      JSON.stringify({ status: 'ERROR', reason: 'TOKEN_REQUEST_FAILED', upstreamStatus: 401 }),
     );
     expect(JSON.stringify(body)).not.toContain('upstream detail');
   });
