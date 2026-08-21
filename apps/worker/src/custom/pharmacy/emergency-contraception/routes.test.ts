@@ -146,6 +146,22 @@ describe('emergency contraception patient routes', () => {
     }));
   });
 
+  it('rejects a non-boolean pre-visit flag before it reaches the repository', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-bad-flag',
+      lngAllergy: 'yes',
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it('fails closed without the PHI key and never exposes repository details', async () => {
     let response = await app().request(
       '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',

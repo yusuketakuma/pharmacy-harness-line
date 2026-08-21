@@ -658,7 +658,7 @@ export async function expireEmergencyIntakes(
 export async function createEmergencyIntake(
   db: D1Database,
   input: CreateEmergencyIntakeInput,
-): Promise<EmergencyIntakeProjection> {
+): Promise<EmergencyOwnerIntakeProjection> {
   const now = input.now ?? new Date();
   if (!input.tenantId || !input.lineAccountId || !input.friendId || !input.slotId ||
       !input.idempotencyKey || input.idempotencyKey.length < 8 || input.idempotencyKey.length > 160 ||
@@ -670,7 +670,7 @@ export async function createEmergencyIntake(
       AND intake.idempotency_key = ?`)
     .bind(input.lineAccountId, input.friendId, input.idempotencyKey)
     .first<EmergencyIntakeRow>();
-  if (replay) return adminProjection(replay, now);
+  if (replay) return ownerProjection(replay, now);
   if (!(await hasPharmacyCapability(db, input.lineAccountId, 'emergency_contraception'))) {
     throw new Error('FEATURE_DISABLED');
   }
@@ -785,7 +785,7 @@ export async function createEmergencyIntake(
   }
   const saved = await getIntake(db, input.lineAccountId, id);
   if (!saved || saved.owner_friend_id !== input.friendId) throw new Error('provisional intake conflict');
-  return adminProjection(saved, now);
+  return ownerProjection(saved, now);
 }
 
 export async function listOwnerEmergencyIntakes(
@@ -812,7 +812,7 @@ export async function cancelOwnerEmergencyIntake(
     idempotencyKey: string;
     now?: Date;
   },
-): Promise<EmergencyIntakeProjection> {
+): Promise<EmergencyOwnerIntakeProjection> {
   const now = input.now ?? new Date();
   if (!input.idempotencyKey || input.idempotencyKey.length < 8 || input.idempotencyKey.length > 160 ||
       !Number.isInteger(input.expectedVersion)) throw new Error('invalid cancellation');
@@ -822,7 +822,7 @@ export async function cancelOwnerEmergencyIntake(
     `SELECT 1 AS ok FROM pharmacy_emergency_intake_events
       WHERE intake_id = ? AND line_account_id = ? AND idempotency_key = ?`,
   ).bind(input.intakeId, input.lineAccountId, input.idempotencyKey).first<{ ok: number }>();
-  if (replay) return adminProjection(current, now);
+  if (replay) return ownerProjection(current, now);
   if (!['provisional', 'reviewed'].includes(current.status) ||
       current.version !== input.expectedVersion ||
       new Date(current.expires_at).getTime() <= now.getTime()) throw new Error('cancellation conflict');
@@ -858,7 +858,7 @@ export async function cancelOwnerEmergencyIntake(
   }
   const saved = await getIntake(db, input.lineAccountId, input.intakeId);
   if (!saved) throw new Error('intake not found');
-  return adminProjection(saved, now);
+  return ownerProjection(saved, now);
 }
 
 async function requireTrainedPharmacist(

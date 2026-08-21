@@ -63,7 +63,12 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       typeof body.acceptsInPersonDose !== 'boolean' || typeof body.safeContactMode !== 'string' ||
       typeof body.consentVersion !== 'string' ||
       typeof body.manufacturerCheckAcknowledged !== 'boolean' ||
-      typeof body.idempotencyKey !== 'string') {
+      typeof body.idempotencyKey !== 'string' ||
+      // A3/A4/A5/A': optional, but if present must be boolean (default false when absent).
+      (body.lngAllergy !== undefined && typeof body.lngAllergy !== 'boolean') ||
+      (body.liverDisease !== undefined && typeof body.liverDisease !== 'boolean') ||
+      (body.currentlyPregnant !== undefined && typeof body.currentlyPregnant !== 'boolean') ||
+      (body.breastfeeding !== undefined && typeof body.breastfeeding !== 'boolean')) {
     return c.json({ error: '入力内容を確認してください' }, 400);
   }
   const owner = c.get('emergencyPatient');
