@@ -18,19 +18,19 @@
 
 **非目標**: 3年境界purgeの本体実装（初commit 2026-03-23のため2029年まで対象行が存在しない。設計とmatrix更新に留める）、全repo一括format、V031着手（V030-3のread-back/rollback実証が無い）、真のMFA/別origin/role細分化（インフラ判断）、production migration/backfill/scrub/deploy/LINE mutation。
 
-- [ ] **NEXT-0 台帳突合とHuman Gate register** `[lane:fast]` `[tdd:skip:docs-only]` cc:TODO
+- [ ] **NEXT-0 台帳突合とHuman Gate register** `[lane:fast]` `[tdd:skip:docs-only]` cc:WIP
   - V029-13、V030-0/2/2D/3/6 のローカル完了分をrelease evidence（tag、CHANGELOG v0.29.0/0.30.0/0.30.1/0.30.2）付きで `[x]` にし、未実施の外部gateを本節末尾の「Human Gate register」へ `NOT_RUN` / `unknown` で移す。patch release 0.30.1/0.30.2 の内容を V030 節へ履歴として追記する。
   - V030-6「package/tagは全gate後」の逸脱を事実として記録し、次回releaseの順序をV031-5のDoDへ転記する。P0〜P8、LIFF-MENU、FLE、U22 の完了節は `## Done` へ移す。
   - **DoD**: PLANS.md に未説明の `- [ ]` が残らず、外部gateが全件registerに1行ずつ `担当 / 実施条件 / 状態` を持つ。`git diff --check` 成功。
 
-- [ ] **NEXT-1 Myna launch URLの署名トークン化（alias列挙の遮断）** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **NEXT-1 Myna launch URLの署名トークン化（alias列挙の遮断）** `[lane:gate]` `[tdd:required]` cc:WIP
   - `launchUrl()`（`myna/routes.ts:77-80`）の呼び出し元は認証済みhandler 2箇所（`:145`, `:173`）のみ。public alias の代わりに `MYNA_ENDPOINT_ENCRYPTION_KEY` 由来のHMAC短命トークン（`lineAccountId|exp`）をpathへ埋め、`/r/myna/:token` が検証後にのみ302する。migration不要、外部browser導線（`openExternalBrowser=1`）は維持する。
   - 旧 `/r/myna/:tenantAlias` は一定期間併存させず、同一releaseで廃止し固定404へ（既存active handoffのURLは短命なので互換不要。要確認: handoff有効期限がトークン期限を超えないこと）。
   - 暫定として `rate-limit.ts:171` の `/r/` 無条件skipを `/r/myna/` に適用しないよう1行で限定する（本修正が入っても残す）。
   - **Red -> Green**: 期限切れ/改竄/別accountトークン404、有効トークンのみ302、`Location` にaliasが含まれない、unknown/expired応答の一致、no-store/no-referrer/CSP維持、rate limit適用、`routes.test.ts:245` の既存privacy header testが通る。`[tdd:required]`
   - **DoD**: `myna/routes.test.ts` に上記negative testが追加され `pnpm --filter worker test -- myna` green、`MYNA_LAUNCH_URL.md` 作成済み。
 
-- [ ] **NEXT-2 緊急避妊薬 `retention_days` purge** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **NEXT-2 緊急避妊薬 `retention_days` purge** `[lane:gate]` `[tdd:required]` cc:WIP
   - `custom_049` で `pharmacy_phi_retention_purge_log.resource_type` CHECKを拡張する。SQLiteはCHECK変更不可のため、`check-migrations.ts` が拒否するDROP/RENAMEを避けて**加算の新table**（例: `pharmacy_phi_retention_purge_log_v2`）または新resource種別用の別logを作る。先にmigration、次にcode。
   - `prescriptions/retention-purge.ts` を雛形に、account別 `retention_days` を超えた `pharmacy_emergency_*` intake（encrypted_payload, age_band, risk_flags_json, event）をleaf→root順で削除する。`legal_hold = 1 AND (legal_hold_release_at IS NULL OR > now)` の患者配下はskipし件数のみ記録。1バッチ=1 account、account間を跨がず、1 accountの失敗で他accountを止めない。
   - 既存の6h cron block（`index.ts:1252-1291`）へ同形式で登録し、`boundary.test.ts:29` と同じ呼び出し行assertionを追加する（dead code防止）。
@@ -38,7 +38,7 @@
   - **Red -> Green**（`retention-purge.test.ts` の6構成を踏襲、実SQLite）: ±1日境界、log行完全一致、書式不一致行skip、legal hold skip、冪等、batch上限、cross-account非影響、ログ/例外にpayload・氏名・電話・住所が出ない。
   - **DoD**: 新testファイルgreen、`custom_049` が `scripts/check-migrations.ts` green、bootstrap artifact再生成、`RETENTION_MATRIX.md` の「Enforced」へ移動。
 
-- [ ] **NEXT-3 既存処方箋purgeへlegal hold除外を後付け** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **NEXT-3 既存処方箋purgeへlegal hold除外を後付け** `[lane:gate]` `[tdd:required]` cc:完了 [4b769e4]
   - `purgePrescriptionFilesPastRetention` に NEXT-2 と同じ legal hold 述語を追加する。現状は保存基準が一致するため実害なしだが、`legal_hold_release_at` が3年を超えた瞬間に不整合になる。
   - **DoD**: `retention-purge.test.ts` に「hold中は `skipped:1, purged:0`」が追加されgreen。
 
@@ -50,7 +50,7 @@
   - `RETENTION_MATRIX.md:180-215` の未解決点を表にする: ON DELETE CASCADE無しの約11 table のleaf→root順、`pharmacy_data_subject_requests` → `pharmacy_patients` FK（ON DELETE無し）、`candidate_submission_id` が新しいsubmissionを指す件、JST `+09:00` table（`messages_log`/`chats`/`friends`）の別cutoff。
   - **DoD**: 各tableに削除順番号・依存先・書式・cutoff関数名が1行ずつ記載され、実装taskは2029年到達前のV0.3x backlogとして別起票。
 
-- [ ] **NEXT-6 webhook inbox 滞留検知** `[lane:fast]` `[tdd:required]` cc:TODO
+- [ ] **NEXT-6 webhook inbox 滞留検知** `[lane:fast]` `[tdd:required]` cc:完了 [e663658]
   - `pending`/`processing` receiptは生LINE本文を保持したまま永久に残る。`sweepWebhookInbox` に滞留時間上限（例: 24h）超過の件数ログとdead-letter化を足す。削除は足さない（`RETENTION_MATRIX.md:210-213`）。
   - **DoD**: 既存inbox testに「24h超pendingがdead_letteredへ遷移、本文は不変」が追加されgreen。
 
