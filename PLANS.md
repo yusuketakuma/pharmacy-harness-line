@@ -42,11 +42,11 @@
   - `purgePrescriptionFilesPastRetention` に NEXT-2 と同じ legal hold 述語を追加する。現状は保存基準が一致するため実害なしだが、`legal_hold_release_at` が3年を超えた瞬間に不整合になる。
   - **DoD**: `retention-purge.test.ts` に「hold中は `skipped:1, purged:0`」が追加されgreen。
 
-- [ ] **NEXT-4 incoming LINE画像の追跡column（forward-only）** `[lane:gate]` `[tdd:required]` cc:TODO
+- [ ] **NEXT-4 incoming LINE画像の追跡column（forward-only）** `[lane:gate]` `[tdd:required]` cc:WIP
   - `incoming-image.ts:63` で書くR2 keyが `messages_log.content` のJSON内URLにしか無い。`custom_050` で追跡column（または加算table）を足し、`webhook.ts:781` の書込時に保存する。既存objectの遡及sweepとprefix年齢による盲目削除はしない（`RETENTION_MATRIX.md:197-200`）。purge本体は3年境界と同じく非目標。
   - **DoD**: 実SQLite testで新着画像のkeyが追跡され、既存rowはNULLのまま。`messages_log` のJST書式に触れない。
 
-- [ ] **NEXT-5 retention 3年purgeの削除順序spec（実装なし）** `[lane:fast]` `[tdd:skip:docs-only]` cc:TODO
+- [ ] **NEXT-5 retention 3年purgeの削除順序spec（実装なし）** `[lane:fast]` `[tdd:skip:docs-only]` cc:WIP
   - `RETENTION_MATRIX.md:180-215` の未解決点を表にする: ON DELETE CASCADE無しの約11 table のleaf→root順、`pharmacy_data_subject_requests` → `pharmacy_patients` FK（ON DELETE無し）、`candidate_submission_id` が新しいsubmissionを指す件、JST `+09:00` table（`messages_log`/`chats`/`friends`）の別cutoff。
   - **DoD**: 各tableに削除順番号・依存先・書式・cutoff関数名が1行ずつ記載され、実装taskは2029年到達前のV0.3x backlogとして別起票。
 
@@ -81,6 +81,7 @@
 | FLE production secret/backfill/coverage/scrub/restore drill | ops + named approval | FLE-FINAL条件 | `NOT_RUN` |
 | 真のMFA / 別origin / role細分化 / 異常検知 | 経営・インフラ | 製品判断 | 未決 |
 | 緊急避妊薬: 厚労省一覧掲載・実在庫・当日勤務・紙記録運用 | 薬局 | EC-0 | 未確認 |
+| 緊急避妊薬 `retention_days` の意味（NEXT-2は自己申告payloadのみredact。`owner_friend_id`/`age_band`/status/event・reminder・access auditの識別可能な残存をtombstoneするか） | 経営・法務 | 患者向け「保存期間N日間」の解釈を決定。tombstone採用時はmigration + no-delete audit invariantの変更が必要 | 未決 |
 | V029-13: dev deploy後のPages asset marker/Worker API/CORS証跡記録 | 実装者(dev deploy実行者) | dev環境へのdeploy完了後に確認・記録する | NOT_RUN |
 | V029-13: dev deploy後のcanonical readiness証跡記録 | 実装者(dev deploy実行者) | 同上 | NOT_RUN |
 | V029-13: dev deploy後のLINE Endpoint自動/manual evidence記録 | 実装者(dev deploy実行者) | 同上 | NOT_RUN |
