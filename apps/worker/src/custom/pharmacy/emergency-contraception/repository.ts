@@ -1,7 +1,7 @@
 import { openEmergencyPayload, sealEmergencyPayload } from './encryption.js';
 import {
-  assessEmergencyPrecheck, getChecklistVersion,
-  type EmergencyDetailFlag, type EmergencyRiskFlag,
+  assessEmergencyPrecheck, getChecklistVersion, validMenstruationSignals,
+  type EmergencyDetailFlag, type EmergencyMenstruationSignals, type EmergencyRiskFlag,
 } from './policy.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
 
@@ -90,12 +90,22 @@ export interface AdminEmergencyIntake extends EmergencyIntakeProjection {
   self_reported: {
     intercourseAt: string;
     intercourseTimeUnknown: boolean;
-    // Payload schema_version 2 fields (A3/A4/A5/A'). v1 rows (sealed before this
-    // change) map these to null instead of throwing.
+    // Payload schema_version 2 fields (A3/A4/A5/A', B1-B4, C1/C2, D3). v1 rows
+    // (sealed before this change) map these to null instead of throwing.
     lngAllergy: boolean | null;
     liverDisease: boolean | null;
     currentlyPregnant: boolean | null;
     breastfeeding: boolean | null;
+    underMedicalTreatment: boolean | null;
+    drugAllergyHistory: boolean | null;
+    heartKidneyGiDisease: boolean | null;
+    stJohnsWort: boolean | null;
+    lastMenstruationDate: string | null;
+    menstruationSignals: EmergencyMenstruationSignals | null;
+    // Pharmacist-only computed signal (see docs/pharmacy/EC_PREVISIT_FORM.md §3
+    // row C2) — never shown to the patient, never in risk_flags_json.
+    pregnancyTestRecommended: boolean | null;
+    idDocumentAvailable: boolean | null;
     detailFlags: EmergencyDetailFlag[] | null;
     checklistVersion: string | null;
     consentContentHash: string | null;
@@ -123,6 +133,13 @@ export interface CreateEmergencyIntakeInput {
   liverDisease?: boolean;
   currentlyPregnant?: boolean;
   breastfeeding?: boolean;
+  underMedicalTreatment?: boolean;
+  drugAllergyHistory?: boolean;
+  heartKidneyGiDisease?: boolean;
+  stJohnsWort?: boolean;
+  lastMenstruationDate?: string | null;
+  menstruationSignals?: EmergencyMenstruationSignals;
+  idDocumentAvailable?: boolean | null;
   now?: Date;
 }
 
@@ -760,6 +777,19 @@ export async function createEmergencyIntake(
   const liverDisease = input.liverDisease === true;
   const currentlyPregnant = input.currentlyPregnant === true;
   const breastfeeding = input.breastfeeding === true;
+  const underMedicalTreatment = input.underMedicalTreatment === true;
+  const drugAllergyHistory = input.drugAllergyHistory === true;
+  const heartKidneyGiDisease = input.heartKidneyGiDisease === true;
+  const stJohnsWort = input.stJohnsWort === true;
+  const lastMenstruationDate = input.lastMenstruationDate ?? null;
+  const menstruationSignals: EmergencyMenstruationSignals = input.menstruationSignals ?? {
+    noneApply: false, unknown: false, overOneMonthNoPeriod: false,
+    notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+  };
+  const idDocumentAvailable = input.idDocumentAvailable ?? null;
+  if (!validMenstruationSignals(menstruationSignals)) {
+    throw new Error('invalid menstruation signals');
+  }
   const assessment = assessEmergencyPrecheck({
     intercourseAt: input.intercourseAt,
     intercourseTimeUnknown: input.intercourseTimeUnknown,
@@ -774,6 +804,12 @@ export async function createEmergencyIntake(
     liverDisease,
     currentlyPregnant,
     breastfeeding,
+    underMedicalTreatment,
+    drugAllergyHistory,
+    heartKidneyGiDisease,
+    stJohnsWort,
+    lastMenstruationDate,
+    menstruationSignals,
     now,
   });
   if (!assessment.canCreateProvisional) throw new Error(assessment.blockingReason ?? 'service unavailable');
@@ -789,6 +825,14 @@ export async function createEmergencyIntake(
     liverDisease,
     currentlyPregnant,
     breastfeeding,
+    underMedicalTreatment,
+    drugAllergyHistory,
+    heartKidneyGiDisease,
+    stJohnsWort,
+    lastMenstruationDate,
+    menstruationSignals,
+    pregnancyTestRecommended: assessment.pregnancyTestRecommended,
+    idDocumentAvailable,
     detailFlags: assessment.detailFlags,
     checklistVersion: getChecklistVersion(service.product_code),
     consentContentHash: input.consentContentHash,
@@ -1045,6 +1089,22 @@ export async function getAdminEmergencyIntakeDetail(
       liverDisease: schemaVersion >= 2 && typeof payload.liverDisease === 'boolean' ? payload.liverDisease : null,
       currentlyPregnant: schemaVersion >= 2 && typeof payload.currentlyPregnant === 'boolean' ? payload.currentlyPregnant : null,
       breastfeeding: schemaVersion >= 2 && typeof payload.breastfeeding === 'boolean' ? payload.breastfeeding : null,
+      underMedicalTreatment: schemaVersion >= 2 && typeof payload.underMedicalTreatment === 'boolean' ? payload.underMedicalTreatment : null,
+      drugAllergyHistory: schemaVersion >= 2 && typeof payload.drugAllergyHistory === 'boolean' ? payload.drugAllergyHistory : null,
+      heartKidneyGiDisease: schemaVersion >= 2 && typeof payload.heartKidneyGiDisease === 'boolean' ? payload.heartKidneyGiDisease : null,
+      stJohnsWort: schemaVersion >= 2 && typeof payload.stJohnsWort === 'boolean' ? payload.stJohnsWort : null,
+      lastMenstruationDate: schemaVersion >= 2 && (typeof payload.lastMenstruationDate === 'string' || payload.lastMenstruationDate === null)
+        ? payload.lastMenstruationDate as string | null
+        : null,
+      menstruationSignals: schemaVersion >= 2 && payload.menstruationSignals && typeof payload.menstruationSignals === 'object'
+        ? payload.menstruationSignals as EmergencyMenstruationSignals
+        : null,
+      pregnancyTestRecommended: schemaVersion >= 2 && typeof payload.pregnancyTestRecommended === 'boolean'
+        ? payload.pregnancyTestRecommended
+        : null,
+      idDocumentAvailable: schemaVersion >= 2 && (typeof payload.idDocumentAvailable === 'boolean' || payload.idDocumentAvailable === null)
+        ? payload.idDocumentAvailable as boolean | null
+        : null,
       detailFlags: schemaVersion >= 2 && Array.isArray(payload.detailFlags)
         ? payload.detailFlags as EmergencyDetailFlag[]
         : null,

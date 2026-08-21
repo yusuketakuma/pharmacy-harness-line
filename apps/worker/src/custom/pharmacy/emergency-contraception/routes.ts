@@ -19,6 +19,7 @@ import {
   transitionEmergencyIntake,
   type EmergencySafeContactMode,
 } from './repository.js';
+import { validMenstruationSignals, type EmergencyMenstruationSignals } from './policy.js';
 import { getEmergencyReminderControl, saveEmergencyReminderControl } from './reminders.js';
 
 type EmergencyRouteEnv = {
@@ -57,6 +58,15 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
     return c.json({ error: '現在この受付を利用できません' }, 503);
   }
   const body = await readJsonObject(c.req);
+  const signalsBody = body?.menstruationSignals;
+  const MENSTRUATION_SIGNAL_KEYS = [
+    'noneApply', 'unknown', 'overOneMonthNoPeriod',
+    'notRecoveredAfterBirth', 'lastPeriodDifferent', 'earlierConcernOver3Weeks',
+  ] as const;
+  const validSignalsShape = signalsBody === undefined || (
+    signalsBody !== null && typeof signalsBody === 'object' &&
+    MENSTRUATION_SIGNAL_KEYS.every((key) => typeof (signalsBody as Record<string, unknown>)[key] === 'boolean')
+  );
   if (!body || typeof body.slotId !== 'string' || typeof body.intercourseAt !== 'string' ||
       typeof body.intercourseTimeUnknown !== 'boolean' || typeof body.age !== 'number' ||
       typeof body.recentPurchaseCount !== 'number' || typeof body.patientWillVisit !== 'boolean' ||
@@ -65,12 +75,33 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       typeof body.consentContentHash !== 'string' ||
       typeof body.manufacturerCheckAcknowledged !== 'boolean' ||
       typeof body.idempotencyKey !== 'string' ||
-      // A3/A4/A5/A': optional, but if present must be boolean (default false when absent).
+      // A3/A4/A5/A' and B1-B4: optional, but if present must be boolean (default false when absent).
       (body.lngAllergy !== undefined && typeof body.lngAllergy !== 'boolean') ||
       (body.liverDisease !== undefined && typeof body.liverDisease !== 'boolean') ||
       (body.currentlyPregnant !== undefined && typeof body.currentlyPregnant !== 'boolean') ||
-      (body.breastfeeding !== undefined && typeof body.breastfeeding !== 'boolean')) {
+      (body.breastfeeding !== undefined && typeof body.breastfeeding !== 'boolean') ||
+      (body.underMedicalTreatment !== undefined && typeof body.underMedicalTreatment !== 'boolean') ||
+      (body.drugAllergyHistory !== undefined && typeof body.drugAllergyHistory !== 'boolean') ||
+      (body.heartKidneyGiDisease !== undefined && typeof body.heartKidneyGiDisease !== 'boolean') ||
+      (body.stJohnsWort !== undefined && typeof body.stJohnsWort !== 'boolean') ||
+      // C1: optional, string (YYYY-MM-DD) or null (defaults to null = 不明).
+      (body.lastMenstruationDate !== undefined && body.lastMenstruationDate !== null &&
+       typeof body.lastMenstruationDate !== 'string') ||
+      // C2: optional, all 6 signal keys must be boolean when present.
+      !validSignalsShape ||
+      // D3: optional, boolean or null (未定).
+      (body.idDocumentAvailable !== undefined && body.idDocumentAvailable !== null &&
+       typeof body.idDocumentAvailable !== 'boolean')) {
     return c.json({ error: '入力内容を確認してください' }, 400);
+  }
+  const menstruationSignals: EmergencyMenstruationSignals = signalsBody
+    ? signalsBody as EmergencyMenstruationSignals
+    : {
+      noneApply: false, unknown: false, overOneMonthNoPeriod: false,
+      notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+    };
+  if (!validMenstruationSignals(menstruationSignals)) {
+    return c.json({ error: '当てはまるものはない・わからない・具体的な項目のいずれかのみ選んでください' }, 400);
   }
   const owner = c.get('emergencyPatient');
   try {
@@ -91,12 +122,19 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       manufacturerCheckAcknowledged: body.manufacturerCheckAcknowledged,
       idempotencyKey: body.idempotencyKey,
       encryptionSecret: c.env.PHARMACY_PHI_KEY_V1,
-      // A3/A4/A5/A': optional booleans, default false so existing LIFF clients
-      // that predate this form revision keep working unchanged.
+      // A3/A4/A5/A' and B1-B4: optional booleans, default false so existing LIFF
+      // clients that predate this form revision keep working unchanged.
       lngAllergy: body.lngAllergy === true,
       liverDisease: body.liverDisease === true,
       currentlyPregnant: body.currentlyPregnant === true,
       breastfeeding: body.breastfeeding === true,
+      underMedicalTreatment: body.underMedicalTreatment === true,
+      drugAllergyHistory: body.drugAllergyHistory === true,
+      heartKidneyGiDisease: body.heartKidneyGiDisease === true,
+      stJohnsWort: body.stJohnsWort === true,
+      lastMenstruationDate: (body.lastMenstruationDate as string | null | undefined) ?? null,
+      menstruationSignals,
+      idDocumentAvailable: (body.idDocumentAvailable as boolean | null | undefined) ?? null,
     });
     return c.json({ intake }, 201);
   } catch (error) {

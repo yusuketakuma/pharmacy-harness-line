@@ -162,6 +162,126 @@ describe('emergency contraception patient routes', () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
+  it('forwards B1-B4/C1-C2/D3 pre-visit fields when the client sends them', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-phase-b',
+      underMedicalTreatment: true, drugAllergyHistory: true, heartKidneyGiDisease: true, stJohnsWort: true,
+      lastMenstruationDate: '2026-08-01',
+      menstruationSignals: {
+        noneApply: false, unknown: false, overOneMonthNoPeriod: true,
+        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+      },
+      idDocumentAvailable: true,
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(201);
+    expect(mocks.create).toHaveBeenCalledWith(env.DB, expect.objectContaining({
+      underMedicalTreatment: true, drugAllergyHistory: true, heartKidneyGiDisease: true, stJohnsWort: true,
+      lastMenstruationDate: '2026-08-01',
+      menstruationSignals: {
+        noneApply: false, unknown: false, overOneMonthNoPeriod: true,
+        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+      },
+      idDocumentAvailable: true,
+    }));
+  });
+
+  it('defaults B1-B4/C1-C2/D3 fields when the client omits them entirely', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-phase-b-defaults',
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(201);
+    expect(mocks.create).toHaveBeenCalledWith(env.DB, expect.objectContaining({
+      underMedicalTreatment: false, drugAllergyHistory: false, heartKidneyGiDisease: false, stJohnsWort: false,
+      lastMenstruationDate: null,
+      menstruationSignals: {
+        noneApply: false, unknown: false, overOneMonthNoPeriod: false,
+        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+      },
+      idDocumentAvailable: null,
+    }));
+  });
+
+  it('rejects a non-boolean Phase B flag before it reaches the repository', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-bad-phase-b-flag',
+      underMedicalTreatment: 'yes',
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a menstruationSignals shape with a non-boolean key', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-bad-signals-shape',
+      menstruationSignals: { noneApply: 'true', unknown: false, overOneMonthNoPeriod: false, notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false },
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a C2 exclusivity violation (noneApply with a signal) with 400 before calling the repository', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-exclusivity',
+      menstruationSignals: {
+        noneApply: true, unknown: false, overOneMonthNoPeriod: true,
+        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+      },
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string, non-null lastMenstruationDate before it reaches the repository', async () => {
+    const body = {
+      slotId: 'slot-a', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19', consentContentHash: 'hash-a',
+      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-bad-date',
+      lastMenstruationDate: 20260801,
+    };
+    const response = await app().request(
+      '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',
+      { method: 'POST', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it('fails closed without the PHI key and never exposes repository details', async () => {
     let response = await app().request(
       '/api/liff/pharmacy/emergency-contraception/intakes?liffId=liff-a',

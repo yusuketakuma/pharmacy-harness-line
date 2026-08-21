@@ -8,6 +8,7 @@ import EmergencyContraceptionPage, {
   EmergencyIntakeForm,
   MHLW_EMERGENCY_CONTRACEPTION_URL,
   canSubmitEmergencyIntake,
+  emergencyCompletionNextSteps,
   emergencyIntakeFieldErrors,
   emergencyNextAction,
   toIntercourseAtPayload,
@@ -323,5 +324,96 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     expect(source).toContain('breastfeeding: draft.breastfeeding');
     expect(source).toContain('相談窓口を見る');
     expect(source).toContain('support_center_url');
+  });
+});
+
+const noSignals = {
+  noneApply: false,
+  unknown: false,
+  overOneMonthNoPeriod: false,
+  notRecoveredAfterBirth: false,
+  lastPeriodDifferent: false,
+  earlierConcernOver3Weeks: false,
+};
+
+describe('emergency contraception phase B fields (ECF-6)', () => {
+  it('defaults the B1-B4/C1-C2/D3 fields to neutral values', () => {
+    expect(EMPTY_EMERGENCY_DRAFT.underMedicalTreatment).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.drugAllergyHistory).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.heartKidneyGiDisease).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.stJohnsWort).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.lastMenstruationDate).toBe('');
+    expect(EMPTY_EMERGENCY_DRAFT.lastMenstruationDateUnknown).toBe(false);
+    expect(EMPTY_EMERGENCY_DRAFT.menstruationSignals).toEqual(noSignals);
+    expect(EMPTY_EMERGENCY_DRAFT.idDocumentAvailable).toBe('undecided');
+  });
+
+  it('never blocks submission based on B/C/D3 answers', () => {
+    const draft = {
+      ...completeDraft, consentAccepted: true,
+      underMedicalTreatment: true, drugAllergyHistory: true, heartKidneyGiDisease: true, stJohnsWort: true,
+      lastMenstruationDateUnknown: true,
+      menstruationSignals: { ...noSignals, unknown: true },
+      idDocumentAvailable: 'no' as const,
+    };
+    expect(canSubmitEmergencyIntake(draft)).toBe(true);
+    expect(emergencyIntakeFieldErrors(draft)).toEqual({});
+  });
+
+  it('flags a C2 exclusivity conflict without blocking other fields', () => {
+    const conflicted = {
+      ...completeDraft, consentAccepted: true,
+      menstruationSignals: { ...noSignals, noneApply: true, overOneMonthNoPeriod: true },
+    };
+    expect(emergencyIntakeFieldErrors(conflicted).menstruationSignals).toBeTruthy();
+    expect(canSubmitEmergencyIntake(conflicted)).toBe(false);
+
+    const clean = {
+      ...completeDraft, consentAccepted: true,
+      menstruationSignals: { ...noSignals, overOneMonthNoPeriod: true },
+    };
+    expect(emergencyIntakeFieldErrors(clean).menstruationSignals).toBeUndefined();
+  });
+
+  it('renders B/C/D3 sections with neutral wording and no banned vocabulary', () => {
+    const draft = {
+      ...completeDraft, consentAccepted: true,
+      underMedicalTreatment: true, drugAllergyHistory: true, heartKidneyGiDisease: true, stJohnsWort: true,
+      menstruationSignals: { ...noSignals, earlierConcernOver3Weeks: true },
+    };
+    const html = renderToStaticMarkup(
+      <EmergencyIntakeForm draft={draft} service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+    );
+    expect(html).toContain('医師の治療を受けている');
+    expect(html).toContain('薬でアレルギー症状が出たことがある');
+    expect(html).toContain('心臓病・腎臓病・重度の消化器疾患の診断');
+    expect(html).toContain('セイヨウオトギリソウ');
+    expect(html).toContain('直近の月経が始まった日');
+    expect(html).toContain('わからない');
+    expect(html).toContain('当てはまるものにチェック');
+    expect(html).toContain('当てはまるものはない');
+    expect(html).toContain('直近の月経のあとで、今回より前に心配な出来事があり、3週間以上たっている');
+    expect(html).toContain('本人確認書類を持参できる');
+    expect(html).not.toMatch(/性交|妊娠|緊急避妊/);
+  });
+
+  it('shows お薬手帳 guidance on the completion screen only when a B item was checked', () => {
+    expect(emergencyCompletionNextSteps(false, 'EC-TEST1')).not.toContain('来局時にお薬手帳をお持ちください。');
+    expect(emergencyCompletionNextSteps(true, 'EC-TEST1')).toContain('来局時にお薬手帳をお持ちください。');
+  });
+
+  it('never shows pregnancy_test_recommended or any computed judgement to the patient', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).not.toContain('pregnancy_test_recommended');
+    expect(source).not.toContain('pregnancyTestRecommended');
+  });
+
+  it('sends the B/C/D3 fields to the create API', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('underMedicalTreatment: draft.underMedicalTreatment');
+    expect(source).toContain('drugAllergyHistory: draft.drugAllergyHistory');
+    expect(source).toContain('heartKidneyGiDisease: draft.heartKidneyGiDisease');
+    expect(source).toContain('stJohnsWort: draft.stJohnsWort');
+    expect(source).toContain('menstruationSignals: draft.menstruationSignals');
   });
 });

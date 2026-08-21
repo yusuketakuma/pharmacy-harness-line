@@ -49,6 +49,15 @@ export interface EmergencyIntake {
   slot_ends_at: string;
 }
 
+export interface EmergencyMenstruationSignals {
+  noneApply: boolean;
+  unknown: boolean;
+  overOneMonthNoPeriod: boolean;
+  notRecoveredAfterBirth: boolean;
+  lastPeriodDifferent: boolean;
+  earlierConcernOver3Weeks: boolean;
+}
+
 export interface CreateEmergencyIntakeInput {
   slotId: string;
   intercourseAt: string;
@@ -61,6 +70,13 @@ export interface CreateEmergencyIntakeInput {
   liverDisease: boolean;
   currentlyPregnant: boolean;
   breastfeeding: boolean;
+  underMedicalTreatment: boolean;
+  drugAllergyHistory: boolean;
+  heartKidneyGiDisease: boolean;
+  stJohnsWort: boolean;
+  lastMenstruationDate: string | null;
+  menstruationSignals: EmergencyMenstruationSignals;
+  idDocumentAvailable: boolean | null;
   safeContactMode: EmergencySafeContactMode;
   consentVersion: string;
   consentContentHash: string;
