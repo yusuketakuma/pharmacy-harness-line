@@ -306,7 +306,7 @@ jobs:
               --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000" \
               > "$inventory"
-            jq -e '.success == true and .result_info.is_truncated == false' "$inventory" >/dev/null
+            jq -e '.success == true and ((.result_info.is_truncated // false) == false)' "$inventory" >/dev/null
             existing_keys="$(mktemp)"
             jq -r '.result[].key' "$inventory" > "$existing_keys"
             if grep -Fqx -- "$manifest_key" "$existing_keys"; then
