@@ -55,13 +55,13 @@ describe('development deployment workflow contract', () => {
     const buildMeta = stepIndex('Capture build metadata');
     const inject = stepIndex('Inject runtime release metadata');
     const rebuild = stepIndex('Rebuild Worker with runtime release metadata');
-    const deploy = stepIndex('Deploy to Cloudflare Workers');
+    const workerDeploy = stepIndex('Deploy to Cloudflare Workers');
     const verifyVersion = stepIndex('Verify deployed runtime version');
 
     expect(buildMeta).toBeLessThan(stepIndex('Build Admin Panel'));
     expect(inject).toBeGreaterThan(stepIndex('Build Admin Panel'));
     expect(inject).toBeLessThan(rebuild);
-    expect(rebuild).toBeLessThan(deploy);
+    expect(rebuild).toBeLessThan(workerDeploy);
     expect(verifyVersion).toBeGreaterThan(stepIndex('Verify Worker health'));
     expect(verifyVersion).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
     expect(sharedDeploy).toContain('release_version=$(node -p');
@@ -80,12 +80,24 @@ describe('development deployment workflow contract', () => {
   });
 
   test('publishes the immutable pharmacy rich-menu catalog before the Worker', () => {
+    const detect = stepIndex('Detect Pharmacy rich-menu catalog changes');
     const generate = stepIndex('Generate Pharmacy rich-menu catalog');
     const publish = stepIndex('Publish Pharmacy rich-menu catalog');
-    const deploy = stepIndex('Deploy to Cloudflare Workers');
+    const workerDeploy = stepIndex('Deploy to Cloudflare Workers');
 
+    expect(detect).toBeGreaterThan(-1);
+    expect(detect).toBeLessThan(generate);
     expect(generate).toBeLessThan(publish);
-    expect(publish).toBeLessThan(deploy);
+    expect(publish).toBeLessThan(workerDeploy);
+    expect(deploy.steps[generate].if).toBe(
+      "steps.rich-menu-catalog.outputs.changed == 'true'",
+    );
+    expect(deploy.steps[publish].if).toBe(
+      "steps.rich-menu-catalog.outputs.changed == 'true'",
+    );
+    expect(sharedDeploy).toContain('git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA"');
+    expect(sharedDeploy).toContain('initial-large-3x2-v4.jpg');
+    expect(sharedDeploy).toContain('generate-rich-menu-catalog.ts');
     expect(sharedDeploy).toContain('pnpm rich-menu:catalog');
     expect(sharedDeploy).toContain('r2 object get');
     expect(sharedDeploy).toContain('cmp --silent');
