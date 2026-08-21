@@ -318,7 +318,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
           WORKER_URL: ${{ vars.WORKER_URL }}
         run: |
-          for attempt in 1 2 3 4 5; do
+          for attempt in {1..12}; do
             actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${WORKER_URL%/}/admin/version" | jq -r '.version')"
             test "$actual_version" = "$EXPECTED_VERSION" && break
