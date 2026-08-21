@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   alias: vi.fn(),
   admin: vi.fn(),
   saveEndpoint: vi.fn(),
+  setEndpointEnabled: vi.fn(),
+  markEndpointVerified: vi.fn(),
   verifyIdentity: vi.fn(),
   resolvePatient: vi.fn(),
   enqueueActivity: vi.fn(),
@@ -34,6 +36,8 @@ vi.mock('./endpoint-repository.js', () => ({
   getMynaEndpointByAlias: mocks.alias,
   getAdminMynaEndpoint: mocks.admin,
   saveMynaEndpoint: mocks.saveEndpoint,
+  setMynaEndpointEnabled: mocks.setEndpointEnabled,
+  markMynaEndpointVerified: mocks.markEndpointVerified,
 }));
 vi.mock('../../../services/liff-auth.js', () => ({
   verifyCallerLineIdentity: mocks.verifyIdentity,
@@ -101,9 +105,65 @@ beforeEach(() => {
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
+  mocks.setEndpointEnabled.mockResolvedValue({
+    id: 'endpoint-1', line_account_id: 'account-1', tenant_alias: 'pharmacy-a',
+    endpoint_url_masked: 'https://myna.example.test/…', enabled: false,
+    last_verified_at: null, revision: 1,
+  });
+  mocks.markEndpointVerified.mockResolvedValue(undefined);
 });
 
 describe('Myna routes', () => {
+  it('changes endpoint enabled state without receiving the plaintext URL again', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: false, expectedRevision: 1 }),
+      }, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.setEndpointEnabled).toHaveBeenCalledWith(
+      env.DB, 'account-1', false, 1, 'staff-1', 'test-secret',
+    );
+  });
+
+  it('records a manual official-console verification for the assigned account', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: 1 }),
+      }, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.markEndpointVerified).toHaveBeenCalledWith(env.DB, 'account-1', 1);
+  });
+
+  it('requires an endpoint revision and maps stale writes to conflict', async () => {
+    const invalid = await app().request(
+      '/api/custom/pharmacy/myna-endpoint?line_account_id=account-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: false }),
+      }, env,
+    );
+    expect(invalid.status).toBe(400);
+    expect(mocks.setEndpointEnabled).not.toHaveBeenCalled();
+
+    mocks.markEndpointVerified.mockRejectedValueOnce(new Error('stale Myna endpoint revision'));
+    const stale = await app().request(
+      '/api/custom/pharmacy/myna-endpoint/verification?line_account_id=account-1', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: 1 }),
+      }, env,
+    );
+    expect(stale.status).toBe(409);
+  });
+
   it('rejects an admin handoff read outside the assigned account', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await app().request(

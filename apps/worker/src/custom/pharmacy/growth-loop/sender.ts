@@ -86,6 +86,8 @@ export async function sendPharmacyAutomatedPush(
     ? 'continuity'
     : input.messageId === 'medication_followup_v1'
       ? 'medication_followup'
+      : input.messageId === 'appointment_reminder_v1'
+        ? 'emergency_contraception'
       : 'prescription_intake';
   if (!accountConfig || !accountConfig.capabilities.includes(requiredCapability)) {
     throw new Error('pharmacy notification capability is not enabled');
@@ -107,7 +109,7 @@ export async function sendPharmacyAutomatedPush(
   if (pausedRow?.outbound_messaging_paused_at) {
     console.log(
       `[pharmacy-notification] skipped, not sent — outbound messaging paused since ${pausedRow.outbound_messaging_paused_at} ` +
-      `(line_account=${input.lineAccountId} message=${input.messageId} retry_key=${input.retryKey})`,
+      `(line_account=${input.lineAccountId} message=${input.messageId})`,
     );
     return 'paused';
   }

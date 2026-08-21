@@ -15,8 +15,9 @@ import {
   listAdminPharmacyPatients,
 } from '../intake/repository.js';
 import { listMynaHandoffs } from '../myna/repository.js';
-import { runWebhookInboxEvent } from '../../../routes/webhook.js';
+import { runWebhookInboxEvent } from '../../../routes/integrations/webhook.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
+import { log } from '../../../lib/log.js';
 import {
   AccessGrantError,
   createAccessGrant,
@@ -175,6 +176,15 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
     row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
   );
   if (!row || !passwordValid) {
+    log('auth.login_failed', {
+      realm: 'platform_admin',
+      ip: c.req.header('cf-connecting-ip'),
+      reason: row ? 'bad_password' : 'unknown_login',
+      platform_admin_id: row?.staff_id,
+    }, 'warn');
+    // The audit table requires a real platform_admin_id, so only a known
+    // admin's failed attempt can be recorded there; unknown logins stay log-only.
+    if (row) await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login_failed');
     return c.json({ success: false, error: 'Unauthorized' }, 401);
   }
 
@@ -269,6 +279,9 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
        FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`,
   ).bind(admin.id).first<{ password_hash: string; credential_version: number }>();
   if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
+    log('auth.password_change_failed', {
+      realm: 'platform_admin', platform_admin_id: admin.id, reason: 'bad_current_password',
+    }, 'warn');
     return c.json({ success: false, error: 'Current password is incorrect' }, 401);
   }
 
@@ -294,6 +307,7 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   if (results[0].meta.changes !== 1) {
     return c.json({ success: false, error: 'Credential changed concurrently' }, 409);
   }
+  log('auth.password_changed', { realm: 'platform_admin', platform_admin_id: admin.id });
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();

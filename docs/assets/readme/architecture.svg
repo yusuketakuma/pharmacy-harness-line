@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
+  <rect width="960" height="560" rx="16" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="480" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#24292f">アーキテクチャ</text>
+  <defs><marker id="m" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#57606a"/></marker></defs>
+
+  <!-- clients row -->
+  <g transform="translate(40,64)">
+    <rect width="200" height="78" rx="10" fill="#e8f8ee" stroke="#06c755" stroke-width="1.5"/>
+    <text x="100" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#0b5c2c">LINE Platform</text>
+    <text x="100" y="48" text-anchor="middle" font-size="10" fill="#24292f">Messaging API / Webhook</text>
+    <text x="100" y="64" text-anchor="middle" font-size="10" fill="#24292f">LINE Login / リッチメニュー</text>
+  </g>
+  <g transform="translate(270,64)">
+    <rect width="200" height="78" rx="10" fill="#e8f8ee" stroke="#06c755" stroke-width="1.5"/>
+    <text x="100" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#0b5c2c">LIFF (apps/liff)</text>
+    <text x="100" y="48" text-anchor="middle" font-size="10" fill="#24292f">React / Vite ・ 患者向け</text>
+    <text x="100" y="64" text-anchor="middle" font-size="10" fill="#24292f">Worker から static 配信</text>
+  </g>
+  <g transform="translate(500,64)">
+    <rect width="200" height="78" rx="10" fill="#eaf2fd" stroke="#0969da" stroke-width="1.5"/>
+    <text x="100" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#0a3069">管理画面 (apps/web)</text>
+    <text x="100" y="48" text-anchor="middle" font-size="10" fill="#24292f">Next.js ・ Cloudflare Pages</text>
+    <text x="100" y="64" text-anchor="middle" font-size="10" fill="#24292f">薬局スタッフ用 UI</text>
+  </g>
+  <g transform="translate(730,64)">
+    <rect width="190" height="78" rx="10" fill="#f3eefc" stroke="#8250df" stroke-width="1.5"/>
+    <text x="95" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#3e1f8a">/platform-admin</text>
+    <text x="95" y="48" text-anchor="middle" font-size="10" fill="#24292f">同じ web app 内の別画面</text>
+    <text x="95" y="64" text-anchor="middle" font-size="10" fill="#24292f">別認証・別セッション</text>
+  </g>
+
+  <!-- arrows to worker -->
+  <line x1="140" y1="142" x2="300" y2="210" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <line x1="370" y1="142" x2="400" y2="210" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <line x1="600" y1="142" x2="540" y2="210" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <line x1="825" y1="142" x2="640" y2="210" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <text x="200" y="185" font-size="9" fill="#57606a">webhook (署名検証)</text>
+  <text x="392" y="185" font-size="9" fill="#57606a">ID token</text>
+  <text x="560" y="185" font-size="9" fill="#57606a">session cookie + CSRF</text>
+  <text x="720" y="185" font-size="9" fill="#57606a">platform-admin session</text>
+
+  <!-- worker -->
+  <g transform="translate(160,212)">
+    <rect width="640" height="150" rx="12" fill="#fff7e6" stroke="#f48120" stroke-width="1.5"/>
+    <text x="320" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#7a3e00">Cloudflare Worker — apps/worker (Hono)</text>
+    <g font-size="10" fill="#24292f">
+      <rect x="16" y="40" width="196" height="92" rx="8" fill="#ffffff" stroke="#f4b26b"/>
+      <text x="114" y="58" text-anchor="middle" font-weight="700">middleware</text>
+      <text x="26" y="76">auth / role-guard</text>
+      <text x="26" y="90">tenant-boundary</text>
+      <text x="26" y="104">rate-limit / deny</text>
+      <text x="26" y="118">CORS allowlist</text>
+      <rect x="222" y="40" width="196" height="92" rx="8" fill="#ffffff" stroke="#f4b26b"/>
+      <text x="320" y="58" text-anchor="middle" font-weight="700">custom/pharmacy/*</text>
+      <text x="232" y="76">prescriptions / myna</text>
+      <text x="232" y="90">emergency-contraception</text>
+      <text x="232" y="104">intake / continuity / followup</text>
+      <text x="232" y="118">platform-admin / readiness</text>
+      <rect x="428" y="40" width="196" height="92" rx="8" fill="#ffffff" stroke="#f4b26b"/>
+      <text x="526" y="58" text-anchor="middle" font-weight="700">cron / 汎用 CRM</text>
+      <text x="438" y="76">期限リマインド・retention purge</text>
+      <text x="438" y="90">durable webhook inbox</text>
+      <text x="438" y="104">シナリオ / 配信 / 自動化</text>
+      <text x="438" y="118">lib/log.ts (構造化ログ)</text>
+    </g>
+  </g>
+
+  <!-- storage -->
+  <line x1="320" y1="362" x2="250" y2="400" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <line x1="480" y1="362" x2="480" y2="400" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <line x1="640" y1="362" x2="710" y2="400" stroke="#57606a" stroke-width="1.5" marker-end="url(#m)"/>
+  <g transform="translate(120,402)">
+    <rect width="240" height="80" rx="10" fill="#f6f8fa" stroke="#8c959f"/>
+    <text x="120" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#24292f">D1 (SQLite)</text>
+    <text x="120" y="44" text-anchor="middle" font-size="10" fill="#24292f">packages/db ・ custom_0NN 追加型 migration</text>
+    <text x="120" y="60" text-anchor="middle" font-size="10" fill="#24292f">tenant 整合性 trigger ・ 監査テーブル</text>
+  </g>
+  <g transform="translate(380,402)">
+    <rect width="200" height="80" rx="10" fill="#f6f8fa" stroke="#8c959f"/>
+    <text x="100" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#24292f">R2</text>
+    <text x="100" y="44" text-anchor="middle" font-size="10" fill="#24292f">処方せん画像</text>
+    <text x="100" y="60" text-anchor="middle" font-size="10" fill="#24292f">tenant/account prefix ・ 認証付き読み出し</text>
+  </g>
+  <g transform="translate(600,402)">
+    <rect width="240" height="80" rx="10" fill="#f6f8fa" stroke="#8c959f"/>
+    <text x="120" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#24292f">Worker Secrets</text>
+    <text x="120" y="44" text-anchor="middle" font-size="10" fill="#24292f">PHARMACY_PHI_KEY_V1 (問診暗号化)</text>
+    <text x="120" y="60" text-anchor="middle" font-size="10" fill="#24292f">STAFF_API_KEY_HASH_SECRET ほか</text>
+  </g>
+
+  <!-- bottom: packages & CI -->
+  <g transform="translate(40,500)">
+    <rect width="880" height="44" rx="8" fill="#eaeef2"/>
+    <text x="16" y="18" font-size="10.5" fill="#24292f"><tspan font-weight="700">packages/</tspan> db ・ shared ・ line-sdk ・ sdk ・ mcp-server ・ create-line-harness ・ update-engine ・ plugin-template</text>
+    <text x="16" y="35" font-size="10.5" fill="#24292f"><tspan font-weight="700">CI (GitHub Actions):</tspan> worker-ci ・ web-ci ・ repository-verify (typecheck / test / migration 整合性) ・ deploy workflow は明示実行 ・ Dependabot で依存更新</text>
+  </g>
+</svg>

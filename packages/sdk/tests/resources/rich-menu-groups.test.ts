@@ -15,7 +15,7 @@ function mockHttp(overrides: Partial<HttpClient> = {}): HttpClient {
 }
 
 describe('RichMenuGroupsResource', () => {
-  it('lists and prepares pharmacy menus in the configured account', async () => {
+  it('lists menus in the configured account', async () => {
     const group = {
       id: 'group-1',
       accountId: 'account-a',
@@ -31,23 +31,11 @@ describe('RichMenuGroupsResource', () => {
     }
     const http = mockHttp({
       get: vi.fn().mockResolvedValue({ success: true, data: [group] }),
-      post: vi.fn().mockResolvedValue({
-        success: true,
-        data: { group, reused: false, status: 'prepared' },
-      }),
     })
     const resource = new RichMenuGroupsResource(http, 'account-a')
 
     await expect(resource.list()).resolves.toEqual([group])
-    await expect(resource.preparePharmacy({ initial: true })).resolves.toMatchObject({
-      reused: false,
-    })
-
     expect(http.get).toHaveBeenCalledWith('/api/rich-menu-groups?accountId=account-a')
-    expect(http.post).toHaveBeenCalledWith(
-      '/api/custom/pharmacy/rich-menus/prepare?accountId=account-a',
-      { initial: true },
-    )
   })
 
   it('requires explicit confirmation for live operations and exposes dry-run payloads', async () => {

@@ -69,7 +69,7 @@ export async function configureAdminAuth(options: AdminAuthOptions): Promise<voi
           })
           .join("\n") +
         `\n※ 複数の Cloudflare アカウントを使っている場合は npx wrangler whoami で対象アカウントを確認してください。` +
-        `\n詳細: docs/ADMIN-AUTH.md`,
+        `\n詳細: docs/pharmacy/ADMIN-AUTH.md`,
     );
   }
 }

@@ -19,6 +19,7 @@ import {
   transitionEmergencyIntake,
   type EmergencySafeContactMode,
 } from './repository.js';
+import { getEmergencyReminderControl, saveEmergencyReminderControl } from './reminders.js';
 
 type EmergencyRouteEnv = {
   Bindings: Env['Bindings'] & { PHARMACY_PHI_KEY_V1?: string };
@@ -142,6 +143,36 @@ emergencyContraceptionRoutes.get('/api/custom/pharmacy/emergency-contraception/c
   const scope = staffScope(c);
   if (scope instanceof Response) return scope;
   return c.json(await getEmergencyAdminConfig(c.env.DB, scope.lineAccountId));
+});
+
+emergencyContraceptionRoutes.get('/api/custom/pharmacy/emergency-contraception/reminders', async (c) => {
+  const scope = staffScope(c);
+  if (scope instanceof Response) return scope;
+  return c.json(await getEmergencyReminderControl(c.env.DB, scope.lineAccountId));
+});
+
+emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/reminders', async (c) => {
+  const scope = staffScope(c);
+  if (scope instanceof Response) return scope;
+  if (!ownerOrAdmin(scope.staff.role)) return c.json({ error: 'Forbidden' }, 403);
+  const body = await readJsonObject(c.req);
+  if (!body || !['inactive', 'active', 'frozen'].includes(String(body.state)) ||
+      !Number.isInteger(body.expectedRevision) || Number(body.expectedRevision) < 0) {
+    return c.json({ error: 'Invalid reminder control' }, 400);
+  }
+  try {
+    return c.json(await saveEmergencyReminderControl(c.env.DB, {
+      lineAccountId: scope.lineAccountId,
+      staffId: scope.staff.id,
+      state: body.state as 'inactive' | 'active' | 'frozen',
+      expectedRevision: Number(body.expectedRevision),
+    }));
+  } catch (error) {
+    if (String(error).includes('stale emergency reminder revision')) {
+      return c.json({ error: 'Reminder control was updated by another staff member' }, 409);
+    }
+    return c.json({ error: 'Reminder control could not be updated' }, 400);
+  }
 });
 
 emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/config', async (c) => {

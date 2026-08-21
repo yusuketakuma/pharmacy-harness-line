@@ -1,5 +1,10 @@
+export const STARTUP_ERROR_MESSAGE =
+  'LINEのトーク画面からもう一度開いてください。それでも開けない場合は、薬局へお問い合わせください。';
+
+/** Patients see only a fixed message; the raw error goes to the console for staff. */
 export function startupErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  console.error('liff startup failed', error);
+  return STARTUP_ERROR_MESSAGE;
 }
 
 export function renderStartupError(root: HTMLElement, error: unknown): void {

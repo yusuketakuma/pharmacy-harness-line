@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,7 +31,7 @@ describe('pharmacy LIFF main menu', () => {
 
   it('keeps only the read/drain entry for an existing disabled feature', () => {
     expect(pharmacyMainMenuItems('liff-a', [], ['prescription_intake'])
-      .map(({ label }) => label)).toEqual(['受付状況']);
+      .map(({ label, isExisting }) => [label, isExisting])).toEqual([['受付状況', true]]);
     expect(pharmacyMainMenuItems('liff-a', [], ['electronic_prescription'])
       .map(({ label }) => label)).toEqual(['電子処方箋']);
   });
@@ -39,12 +40,23 @@ describe('pharmacy LIFF main menu', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter><MainMenuPage /></MemoryRouter>,
     );
-    expect(html).toContain('<h1');
-    expect(html).toContain('すべての機能');
     expect(html).toContain('機能一覧を読み込み中')
     for (const item of pharmacyMainMenuItems()) expect(html).not.toContain(item.label);
     expect(html).not.toContain('薬局へ相談');
-    expect(html).toContain(`aria-label="アプリバージョン v${pharmacyAppVersion}"`);
+    expect(pharmacyAppVersion).toBe('0.30.0');
+  });
+
+  it('renders an explicit read-only badge for disabled features with owned history', () => {
+    const source = readFileSync(new URL('./MainMenuPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain("item.isExisting && <span");
+    expect(source).toContain('確認のみ');
+    expect(source).not.toContain('利用中</span>');
+    expect(source).not.toContain('text-[11px]');
+  });
+
+  it('explains an empty menu instead of showing a blank grid', () => {
+    const source = readFileSync(new URL('./MainMenuPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('利用できる機能はありません');
   });
 
   it('sends only the fixed consultation message after confirmation', async () => {

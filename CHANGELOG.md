@@ -1,5 +1,59 @@
 # Changelog
 
+## Pharmacy v0.30.0 (2026-08-21)
+
+### この更新で変わること
+
+`v0.30.0`では、薬局ごとのリッチメニューを保存versionとして安全に作成・確認・公開・切替できる運用基盤、緊急避妊薬の中立的な予約リマインド、設定不足を一か所で確認できる診断画面を追加しました。患者・staff画面は説明書なしでも次の操作が分かる日本語表示へ整理し、認証・tenant境界・監査・ログの防御も強化しています。
+
+### v4リッチメニュー運用
+
+- accountごとの並び順とcapability revisionから、有効機能だけを含むCompact/Large画像候補を生成。228通りの事前生成JPEG catalogをhashで検証
+- 保存versionをlayout、capability、LIFF ID、catalog、画像、tap action manifestのhashへ固定し、設定変更後の古いversionを公開前に拒否
+- 画像とtap領域のpreview、公開中versionとの差分、version名変更、安全な未公開draft削除を管理画面へ追加
+- LINE登録、初期表示切替、rollbackを別操作として維持し、dry-runで発行した短時間confirmation tokenを実行時に必須化
+- LINE応答が不確定な操作を`running`/`unknown`として保存し、read-backによるreconcileと不足段階だけのresumeに対応。結果不明時の盲目的な再実行を防止
+- `inactive`/`active`/`frozen`の運用状態とrevision CASを追加。状態変更だけではLINEの画像や初期表示を変更しない
+- SHA-256 lowercase-hex処理を共通関数へ集約し、catalog、manifest、publish readiness、version作成の同一処理を一本化
+
+### 緊急避妊薬の予約リマインド
+
+- 予約1時間前の中立的なLINE通知を追加し、8:00〜21:00 JSTのquiet-hours境界と予約時刻を過ぎる通知の抑止を実装
+- account単位の`inactive`/`active`/`frozen`制御、revision CAS、claim TTL、重複生成防止、失敗後の安全な再取得に対応
+- 送信直前にtenant/account、capability、機能設定、受付状態、期限、予約時刻、友だち状態を再確認し、条件不一致を理由code付きで抑止
+- 自動通知は既存のPHI-free承認済みtemplateとidempotency経路だけを使用し、資格情報取得失敗や結果不明時をfail-closedで記録
+
+### 設定診断・日次運用・画面改善
+
+- tenant mapping、account、staff assignment、capability、bot identity、LIFF、LINE credential、機能別readinessをまとめる非PHIのconfiguration doctorを追加
+- 管理画面へ「本日の業務」集計、機能別の対応件数・状態、rich-menu readiness、設定不足から修正画面へ進む導線を追加
+- Platform Adminへtenant作成、staff初期登録、credential設定状況、release/version情報をまとめた設定導線を追加
+- 患者LIFFへ日本語の起動エラー、必須条件一覧、送信前確認、field単位errorとfocus移動、完了後の次の行動を追加
+- staff sidebarを「本日の業務」「患者対応」「設定」「コンプライアンス」に整理し、「薬局 Growth Loop」の表示名を「薬局統計」へ変更。routeと内部識別子は維持
+- session切れ後の安全なlogin復帰、44px以上の操作領域、二重送信防止、account切替中のstale response防止を主要画面へ反映
+
+### セキュリティ・tenant境界・監査
+
+- Platform Admin Bearer認証からstaff資格情報変更へ到達できた経路を閉鎖し、許可method/pathをserver側allowlistで限定
+- login・password変更のrate limit、decoded path判定、pharmacy modeのredirect origin allowlist、LIFF route allowlistを強化
+- form webhook URLをHTTPSかつpublic hostへ限定し、localhost・private IPと危険なheaderを拒否
+- friends、tags、analytics等のqueryをtenant scopeへ修正し、limit/offsetをserver側で制限
+- Myna endpoint暗号化をAAD付きAES-GCM v2へ更新し、既存v1暗号文のread互換を維持
+- allowlist方式の構造化loggerと401/403共通deny logを追加。password、token、LINE user ID、問診回答、upstream response本文を記録しない検査をWorker全体へ拡張
+- staff・credential・password変更と処方せん・問診閲覧をtenant監査eventへ記録
+
+### データベース・開発環境・リポジトリ構成
+
+- `custom_045_pharmacy_rich_menu_layouts.sql`: account別layoutと運用状態を追加
+- `custom_046_pharmacy_rich_menu_operations.sql`: 保存version binding、公開・切替・rollback操作、confirmation証跡を追加
+- `custom_047_pharmacy_emergency_reminders.sql`: 予約リマインド、claim、抑止理由、account別制御を追加
+- `custom_048_tenant_admin_audit_events.sql`: tenant管理操作と機微情報閲覧の監査eventを追加
+- Node.jsを22以上、TypeScriptを5.9系へ統一し、Dependabot、Cloudflare deploy workflow、`esbuild`安全版overrideを追加
+- Workerの汎用routeを`admin`、`booking`、`crm`、`integrations`、`liff`、`marketing`、`messaging`へ再配置。公開HTTP pathは変更しない
+- 薬局正本文書を`docs/pharmacy/`、fork元の汎用文書を`docs/upstream/`へ分離し、`docs/README.md`と各領域の`AGENTS.md`を追加
+- agent runtime stateをsource treeから削除し、患者・staff向け一枚manual、README図解、画面例、MIT Licenseを追加
+- package versionとseller tagは別identity。本版のseller tagは`pharmacy-v0.30.0`であり、push、GitHub Release、deploy、migration適用、LINE変更は別の明示操作として扱う
+
 ## Pharmacy v0.29.0 (2026-08-21)
 
 ### この更新で変わること
@@ -574,7 +628,7 @@ npx create-line-harness@latest update
 - Google Meet付き予定、`meet_consultations`、前日・1時間前のLINEリマインド、確定通知を一括作成
 - 管理画面からGoogleアカウント本人が許可するOAuth接続を追加。サービスアカウントキーとカレンダー共有は不要
 - OAuth権限は `calendar.events` と `calendar.events.freebusy` の2つだけに限定
-- 設定とエラー解決を `docs/wiki/28-Google-Calendar-and-Webinar-Booking.md` に追加
+- 設定とエラー解決を `docs/upstream/wiki/28-Google-Calendar-and-Webinar-Booking.md` に追加
 
 ### その他
 

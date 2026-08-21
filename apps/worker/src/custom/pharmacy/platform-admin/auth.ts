@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../../../index.js';
 import { buildCookie } from '../../../middleware/auth.js';
+import { deny } from '../../../middleware/deny.js';
 import type { AdminSameSite } from '../../../middleware/admin-auth-config.js';
 import {
   hashTenantAdminSessionToken,
@@ -151,16 +152,16 @@ export const platformAdminAuthMiddleware: MiddlewareHandler<Env> = async (c, nex
   if (path === '/api/platform-admin/login') return next();
 
   const token = platformAdminSessionTokenFromCookie(c);
-  if (!token) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  if (!token) return deny(c, 401, 'platform_admin_session_missing', 'Unauthorized');
 
   const resolved = await resolvePlatformAdminSession(c.env.DB, token);
-  if (!resolved) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  if (!resolved) return deny(c, 401, 'platform_admin_session_invalid', 'Unauthorized');
 
   if (!SAFE_METHODS.has(c.req.method.toUpperCase())) {
     const header = c.req.header(PLATFORM_ADMIN_CSRF_HEADER);
     const expected = platformAdminCsrfTokenFromCookie(c);
     if (!header || !expected || header !== expected) {
-      return c.json({ success: false, error: 'CSRF token mismatch' }, 403);
+      return deny(c, 403, 'platform_admin_csrf_mismatch', 'CSRF token mismatch');
     }
   }
 
@@ -168,7 +169,7 @@ export const platformAdminAuthMiddleware: MiddlewareHandler<Env> = async (c, nex
       path !== '/api/platform-admin/session' &&
       path !== '/api/platform-admin/change-password' &&
       path !== '/api/platform-admin/logout') {
-    return c.json({ success: false, error: 'Password change required' }, 403);
+    return deny(c, 403, 'platform_admin_password_change_required', 'Password change required');
   }
 
   c.set('platformAdmin', resolved.admin);

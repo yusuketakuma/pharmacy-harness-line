@@ -19,20 +19,38 @@ const appBuildDate = appBuildTime ? appBuildTime.replace('T', ' ').replace(/\.\d
 
 const menuSections = [
   {
-    label: '薬局機能',
+    label: '本日の業務',
     pharmacyOnly: true,
     items: [
-      { href: '/pharmacy-features', label: '機能設定', icon: 'M12 6V3m0 18v-3m6-6h3M3 12h3m10.243-4.243 2.121-2.121M5.636 18.364l2.121-2.121m8.486 0 2.121 2.121M5.636 5.636l2.121 2.121' }, // custom:pharmacy-feature-settings
-      { href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
-      { href: '/pharmacy-info', label: '患者向け薬局情報', icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
-      { href: '/emergency-contraception', label: '緊急避妊薬', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
-      { href: '/pharmacy-notifications', label: '薬局の動き', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' }, // custom:pharmacy-activity-notifications
-      { href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
-      { href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
-      { href: '/myna', label: 'マイナ受付', icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
-      { href: '/pharmacy-growth', label: '薬局Growth Loop', icon: 'M4 19h16M6 16V8m6 8V4m6 12v-6' }, // custom:pharmacy-growth-loop
-      { href: '/privacy-policy', label: '個人情報の取扱い', icon: 'M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3zm-2 9l2 2 4-4' }, // custom:pharmacy-privacy-policy
-      { href: '/data-subject-requests', label: '開示・消去請求', icon: 'M9 12h6m-6 4h4m1 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l6 6v10a2 2 0 01-2 2z' }, // custom:pharmacy-data-subject-requests
+{ href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
+{ href: '/myna', label: '電子処方箋受付', icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
+{ href: '/emergency-contraception', label: '緊急避妊薬', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
+{ href: '/pharmacy-notifications', label: '薬局の動き', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' }, // custom:pharmacy-activity-notifications
+    ],
+  },
+  {
+    label: '患者対応',
+    pharmacyOnly: true,
+    items: [
+{ href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
+{ href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
+    ],
+  },
+  {
+    label: '設定',
+    pharmacyOnly: true,
+    items: [
+{ href: '/pharmacy-features', label: '機能設定', icon: 'M12 6V3m0 18v-3m6-6h3M3 12h3m10.243-4.243 2.121-2.121M5.636 18.364l2.121-2.121m8.486 0 2.121 2.121M5.636 5.636l2.121 2.121' }, // custom:pharmacy-feature-settings
+{ href: '/pharmacy-info', label: '患者向け薬局情報', icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
+{ href: '/pharmacy-growth', label: '薬局統計', icon: 'M4 19h16M6 16V8m6 8V4m6 12v-6' }, // custom:pharmacy-growth-loop
+    ],
+  },
+  {
+    label: 'コンプライアンス',
+    pharmacyOnly: true,
+    items: [
+{ href: '/privacy-policy', label: '個人情報の取扱い', icon: 'M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3zm-2 9l2 2 4-4' }, // custom:pharmacy-privacy-policy
+{ href: '/data-subject-requests', label: '開示・消去請求', icon: 'M9 12h6m-6 4h4m1 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l6 6v10a2 2 0 01-2 2z' }, // custom:pharmacy-data-subject-requests
     ],
   },
   {

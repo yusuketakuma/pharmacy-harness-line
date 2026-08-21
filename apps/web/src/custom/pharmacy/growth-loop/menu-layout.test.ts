@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('pharmacy admin menu layout', () => {
-  it('keeps pharmacy-only features in the first, dedicated section', () => {
+  it('groups pharmacy-only features by daily work before the general sections', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'components', 'layout', 'sidebar.tsx'),
       'utf8',
@@ -12,11 +12,25 @@ describe('pharmacy admin menu layout', () => {
       source.indexOf('const menuSections ='),
       source.indexOf('function AccountAvatar'),
     )
-    const sectionStart = definition.indexOf("label: '薬局機能'")
     const generalStart = definition.indexOf('label: null')
-    expect(sectionStart).toBeGreaterThanOrEqual(0)
-    expect(sectionStart).toBeLessThan(generalStart)
-    expect(definition.slice(sectionStart, generalStart)).toContain('pharmacyOnly: true')
+    const groups: Record<string, string[]> = {
+      '本日の業務': ['/prescriptions', '/myna', '/emergency-contraception', '/pharmacy-notifications'],
+      '患者対応': ['/patient-intakes', '/continuity'],
+      '設定': ['/pharmacy-features', '/pharmacy-info', '/pharmacy-growth'],
+      'コンプライアンス': ['/privacy-policy', '/data-subject-requests'],
+    }
+    const sectionStarts = Object.keys(groups).map((label) => definition.indexOf(`label: '${label}',\n    pharmacyOnly: true`))
+    expect(sectionStarts.every((position) => position >= 0 && position < generalStart)).toBe(true)
+    expect(sectionStarts).toEqual([...sectionStarts].sort((a, b) => a - b))
+    Object.entries(groups).forEach(([, paths], index) => {
+      const start = sectionStarts[index]
+      const end = sectionStarts[index + 1] ?? generalStart
+      for (const path of paths) {
+        expect(definition.match(new RegExp(`href: '${path}'`, 'g')), path).toHaveLength(1)
+        const position = definition.indexOf(`href: '${path}'`)
+        expect(position > start && position < end, path).toBe(true)
+      }
+    })
     expect(source).toContain(
       '.filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)',
     )
@@ -25,22 +39,5 @@ describe('pharmacy admin menu layout', () => {
     // rendered as a bare heading.
     expect(source).toContain('isPharmacyMenuPath(item.href)')
     expect(source).toContain('.filter((section) => section.items.length > 0)')
-
-    const paths = [
-      '/prescriptions',
-      '/emergency-contraception',
-      '/pharmacy-notifications',
-      '/patient-intakes',
-      '/continuity',
-      '/myna',
-      '/pharmacy-growth',
-      '/privacy-policy',
-    ]
-    const positions = paths.map((path) => definition.indexOf(`href: '${path}'`))
-    expect(positions.every((position) => position > sectionStart && position < generalStart)).toBe(true)
-    expect(positions).toEqual([...positions].sort((a, b) => a - b))
-    for (const path of paths) {
-      expect(definition.match(new RegExp(`href: '${path}'`, 'g'))).toHaveLength(1)
-    }
   })
 })

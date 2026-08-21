@@ -4,6 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+  findPharmacyAdminApiCoverage,
+  type PharmacyAdminApiCoverage,
+} from '../../../apps/worker/src/custom/pharmacy/platform-admin/api-coverage.js';
 
 type Environment = Record<string, string | undefined>;
 type Reader = (path: string) => Promise<Buffer>;
@@ -11,7 +15,8 @@ type Writer = (line: string) => void;
 type CredentialReader = (service: string) => string | undefined;
 
 const VALUE_FLAGS = new Set([
-  'worker-url', 'tenant-id', 'account-id', 'method', 'path', 'input', 'content-type', 'rich-menu-default',
+  'worker-url', 'tenant-id', 'account-id', 'method', 'path', 'input', 'content-type',
+  'rich-menu-default', 'rich-menu-publish', 'rich-menu-rollback',
 ]);
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const BLOCKED_PATH_PREFIXES = [
@@ -43,11 +48,24 @@ Set the published rich menu used by default:
     --rich-menu-default GROUP_ID \\
     --apply
 
+Publish a saved rich-menu version:
+  pnpm tenant:settings -- ... \\
+    --account-id LINE_ACCOUNT_ID \\
+    --rich-menu-publish GROUP_ID \\
+    --apply
+
+Roll back to a known-good rich-menu version:
+  pnpm tenant:settings -- ... \\
+    --account-id LINE_ACCOUNT_ID \\
+    --rich-menu-rollback GROUP_ID \\
+    --apply
+
 Options:
   --method GET|POST|PUT|PATCH|DELETE (default: GET)
   --input FILE
   --content-type TYPE (default: application/json)
   --preflight --account-id LINE_ACCOUNT_ID (read-only activation check)
+  --doctor --account-id LINE_ACCOUNT_ID (read-only config check; exits 0/2/3)
   --apply (required to send a mutation)
   --help
 
@@ -87,6 +105,7 @@ function parseArgs(argv: string[]) {
   const values: Record<string, string> = {};
   let apply = false;
   let preflight = false;
+  let doctor = false;
   let help = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -97,6 +116,10 @@ function parseArgs(argv: string[]) {
     }
     if (argument === '--preflight') {
       preflight = true;
+      continue;
+    }
+    if (argument === '--doctor') {
+      doctor = true;
       continue;
     }
     if (argument === '--help' || argument === '-h') {
@@ -111,7 +134,8 @@ function parseArgs(argv: string[]) {
     values[argument.slice(2)] = value;
     index += 1;
   }
-  return { values, apply, preflight, help };
+  if (preflight && doctor) throw new Error('--preflight and --doctor cannot be combined');
+  return { values, apply, preflight, doctor, help };
 }
 
 function required(values: Record<string, string>, key: string): string {
@@ -135,6 +159,39 @@ function endpoint(workerUrl: string, path: string): URL {
     throw new Error('--path must be a relative /api/ tenant admin path');
   }
   return url;
+}
+
+function accountPin(
+  coverage: PharmacyAdminApiCoverage,
+  url: URL,
+  values: Record<string, string>,
+): string | undefined {
+  const supplied = values['account-id']?.trim();
+  if (coverage.accountScope === 'tenant') {
+    if (supplied) throw new Error('--account-id is not supported for this tenant-scoped path');
+    return undefined;
+  }
+  const accountId = required(values, 'account-id');
+  if (!/^[A-Za-z0-9_-]{1,128}$/u.test(accountId)) throw new Error('--account-id is invalid');
+  if (coverage.accountScope === 'path:last') {
+    const pathAccountId = decodeURIComponent(url.pathname.slice(url.pathname.lastIndexOf('/') + 1));
+    if (pathAccountId !== accountId) throw new Error('--path account does not match --account-id');
+    return accountId;
+  }
+  if (coverage.accountScope === 'path:before-last') {
+    const segments = url.pathname.split('/').filter(Boolean);
+    const pathAccountId = decodeURIComponent(segments.at(-2) ?? '');
+    if (pathAccountId !== accountId) throw new Error('--path account does not match --account-id');
+    return accountId;
+  }
+  const queryKey = coverage.accountScope.slice('query:'.length);
+  const scoped = ['accountId', 'account_id', 'line_account_id']
+    .flatMap((key) => url.searchParams.getAll(key));
+  if (url.searchParams.getAll(queryKey).length !== 1 ||
+      scoped.length === 0 || scoped.some((value) => value !== accountId)) {
+    throw new Error('--path account does not match --account-id');
+  }
+  return accountId;
 }
 
 type PlatformSession = { token: string; cookie: string; csrfToken: string };
@@ -200,6 +257,7 @@ export async function runTenantSettings(
   write: Writer = (line) => process.stdout.write(`${line}\n`),
   credentialReader: CredentialReader = readStoredCredential,
 ): Promise<number> {
+  const doctorRequested = argv.includes('--doctor');
   try {
     const parsed = parseArgs(argv);
     if (parsed.help) {
@@ -214,11 +272,13 @@ export async function runTenantSettings(
     const tenantId = required(parsed.values, 'tenant-id');
     if (!/^[A-Za-z0-9_:-]{1,128}$/u.test(tenantId)) throw new Error('--tenant-id is invalid');
     const workerUrl = required(parsed.values, 'worker-url');
-    if (parsed.preflight) {
-      if (parsed.apply) throw new Error('--preflight cannot be combined with --apply');
+    if (parsed.preflight || parsed.doctor) {
+      const command = parsed.doctor ? '--doctor' : '--preflight';
+      if (parsed.apply) throw new Error(`${command} cannot be combined with --apply`);
       if (parsed.values.method || parsed.values.path || parsed.values.input ||
-          parsed.values['content-type'] || parsed.values['rich-menu-default']) {
-        throw new Error('--preflight cannot be combined with request or mutation options');
+          parsed.values['content-type'] || parsed.values['rich-menu-default'] ||
+          parsed.values['rich-menu-publish'] || parsed.values['rich-menu-rollback']) {
+        throw new Error(`${command} cannot be combined with request or mutation options`);
       }
       const accountId = required(parsed.values, 'account-id');
       if (!/^[A-Za-z0-9_-]{1,128}$/u.test(accountId)) throw new Error('--account-id is invalid');
@@ -226,7 +286,7 @@ export async function runTenantSettings(
         `/api/platform-admin/tenants/${encodeURIComponent(tenantId)}/line-status`,
         endpoint(workerUrl, '/api/settings').origin,
       );
-      return withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
+      return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
         const response = await fetcher(url.toString(), {
           method: 'GET', redirect: 'error', signal: AbortSignal.timeout(60_000),
           headers: { Cookie: session.cookie },
@@ -235,62 +295,76 @@ export async function runTenantSettings(
           success?: boolean;
           data?: Array<{
             id?: unknown;
-            liffIdConfigured?: unknown;
-            loginChannelConfigured?: unknown;
-            messagingCredentialsReady?: unknown;
-            loginCredentialReady?: unknown;
-            expectedLiffEndpoint?: unknown;
-            liffEndpointEvidence?: { status?: unknown };
-            readiness?: {
-              electronicPrescription?: { status?: unknown; capabilityEnabled?: unknown };
-              emergencyContraception?: { status?: unknown; capabilityEnabled?: unknown };
-            } | null;
+            configurationDoctor?: {
+              accountId?: unknown;
+              checkedAt?: unknown;
+              status?: unknown;
+              reasonCodes?: unknown;
+              checks?: unknown;
+            };
           }>;
         } | null;
         const account = payload?.data?.find((candidate) => candidate.id === accountId);
         if (!response.ok || !payload?.success || !account) {
           write(response.ok ? 'Preflight account was not found.' : `Request failed (${response.status}).`);
-          return 1;
+          return parsed.doctor ? 3 : 1;
         }
-        const blocked = account.liffIdConfigured !== true || account.loginChannelConfigured !== true ||
-          account.messagingCredentialsReady !== true || account.loginCredentialReady !== true ||
-          (account.readiness?.electronicPrescription?.capabilityEnabled === true &&
-            account.readiness.electronicPrescription.status === 'BLOCKED') ||
-          (account.readiness?.emergencyContraception?.capabilityEnabled === true &&
-            account.readiness.emergencyContraception.status === 'BLOCKED');
-        const unverified = account.liffEndpointEvidence?.status !== 'READY' ||
-          (account.readiness?.electronicPrescription?.capabilityEnabled === true &&
-            account.readiness.electronicPrescription.status === 'UNVERIFIED');
+        const projection = account.configurationDoctor;
+        if (projection?.accountId !== accountId || typeof projection.checkedAt !== 'string' ||
+            !['READY', 'BLOCKED', 'UNVERIFIED'].includes(String(projection.status)) ||
+            !Array.isArray(projection.reasonCodes) ||
+            !projection.reasonCodes.every((value) => typeof value === 'string') ||
+            !Array.isArray(projection.checks)) {
+          write('Configuration doctor projection unavailable.');
+          return parsed.doctor ? 3 : 1;
+        }
+        const status = projection.status as 'READY' | 'BLOCKED' | 'UNVERIFIED';
         write(JSON.stringify({
-          accountId,
-          status: blocked ? 'BLOCKED' : unverified ? 'UNVERIFIED' : 'READY',
-          expectedLiffEndpoint: account.expectedLiffEndpoint,
-          liffEndpointEvidence: account.liffEndpointEvidence,
-          electronicPrescription: account.readiness?.electronicPrescription,
-          emergencyContraception: account.readiness?.emergencyContraception,
+          accountId: projection.accountId,
+          checkedAt: projection.checkedAt,
+          status,
+          reasonCodes: projection.reasonCodes,
+          checks: projection.checks,
+          localCredentials: {
+            loginIdConfigured: Boolean(loginId),
+            passwordConfigured: Boolean(password),
+          },
         }, null, 2));
-        return blocked || unverified ? 1 : 0;
+        if (parsed.doctor) return status === 'READY' ? 0 : status === 'BLOCKED' ? 2 : 3;
+        return status === 'READY' ? 0 : 1;
       });
     }
     const richMenuDefault = parsed.values['rich-menu-default']?.trim();
-    if (richMenuDefault) {
-      if (!/^[A-Za-z0-9_-]{1,128}$/u.test(richMenuDefault)) {
-        throw new Error('--rich-menu-default is invalid');
+    const richMenuPublish = parsed.values['rich-menu-publish']?.trim();
+    const richMenuRollback = parsed.values['rich-menu-rollback']?.trim();
+    if ([richMenuDefault, richMenuPublish, richMenuRollback].filter(Boolean).length > 1) {
+      throw new Error('rich-menu publish, default, and rollback options cannot be combined');
+    }
+    const richMenuGroupId = richMenuDefault ?? richMenuPublish ?? richMenuRollback;
+    if (richMenuGroupId) {
+      const option = richMenuDefault ? '--rich-menu-default'
+        : richMenuPublish ? '--rich-menu-publish' : '--rich-menu-rollback';
+      if (!/^[A-Za-z0-9_-]{1,128}$/u.test(richMenuGroupId)) {
+        throw new Error(`${option} is invalid`);
       }
       if (parsed.values.method || parsed.values.path || parsed.values.input || parsed.values['content-type']) {
-        throw new Error('--rich-menu-default cannot be combined with request options');
+        throw new Error(`${option} cannot be combined with request options`);
       }
       const accountId = required(parsed.values, 'account-id');
       if (!/^[A-Za-z0-9_-]{1,128}$/u.test(accountId)) throw new Error('--account-id is invalid');
       const url = endpoint(
         workerUrl,
-        `/api/rich-menu-groups/${encodeURIComponent(richMenuDefault)}/apply-to-tag?accountId=${encodeURIComponent(accountId)}`,
+        `/api/rich-menu-groups/${encodeURIComponent(richMenuGroupId)}/${richMenuPublish ? 'publish' : 'apply-to-tag'}?accountId=${encodeURIComponent(accountId)}`,
       );
+      if (!findPharmacyAdminApiCoverage('POST', url.pathname)) {
+        throw new Error('Rich menu operation is not in pharmacy admin API coverage');
+      }
       if (!parsed.apply) {
-        write(`Dry run: set rich menu ${richMenuDefault} as default for tenant ${tenantId}. Add --apply to send.`);
+        const action = richMenuPublish ? 'publish' : richMenuRollback ? 'rollback' : 'set default';
+        write(`Dry run: ${action} rich menu ${richMenuGroupId} for tenant ${tenantId}. Add --apply to send.`);
         return 0;
       }
-      return withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
+      return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
         const request = async (body: Record<string, unknown>) => fetcher(url.toString(), {
           method: 'POST',
           redirect: 'error',
@@ -302,7 +376,13 @@ export async function runTenantSettings(
           },
           body: JSON.stringify(body),
         });
-        const preview = await request({ mode: 'set-default', enabled: true, dryRun: true });
+        const previewBody = !richMenuPublish
+          ? {
+              mode: 'set-default', enabled: true,
+              ...(richMenuRollback ? { intent: 'rollback' } : {}), dryRun: true,
+            }
+          : { dryRun: true };
+        const preview = await request(previewBody);
         const previewPayload = await preview.json().catch(() => null) as {
           success?: boolean;
           data?: { confirmationToken?: unknown };
@@ -312,24 +392,38 @@ export async function runTenantSettings(
           write(preview.ok ? 'Rich menu confirmation token was not returned.' : `Request failed (${preview.status}).`);
           return 1;
         }
-        const applied = await request({
-          mode: 'set-default', enabled: true, dryRun: false, confirmationToken,
-        });
+        const applied = await request(!richMenuPublish
+          ? {
+              mode: 'set-default', enabled: true,
+              ...(richMenuRollback ? { intent: 'rollback' } : {}),
+              dryRun: false, confirmationToken,
+            }
+          : { dryRun: false, confirmationToken });
         const appliedPayload = await applied.json().catch(() => null) as { success?: boolean } | null;
         if (!applied.ok || !appliedPayload?.success) {
           write(`Request failed (${applied.status}).`);
           return 1;
         }
-        write(`Default rich menu updated for tenant ${tenantId}.`);
+        write(richMenuPublish
+          ? `Rich menu version published for tenant ${tenantId}.`
+          : richMenuRollback
+            ? `Rich menu rolled back for tenant ${tenantId}.`
+            : `Default rich menu updated for tenant ${tenantId}.`);
         return 0;
       });
     }
 
-    if (parsed.values['account-id']) throw new Error('--account-id requires --rich-menu-default');
-
     const method = (parsed.values.method ?? 'GET').toUpperCase();
     if (method !== 'GET' && !MUTATING_METHODS.has(method)) throw new Error('--method is invalid');
     const url = endpoint(workerUrl, required(parsed.values, 'path'));
+    const coverage = findPharmacyAdminApiCoverage(method, url.pathname);
+    if (!coverage || !coverage.safeOutput) {
+      throw new Error('--path is not in pharmacy admin API coverage');
+    }
+    if (coverage.mutationGate === 'confirmation') {
+      throw new Error('Use the dedicated rich-menu option for confirmation-gated operations');
+    }
+    const accountId = accountPin(coverage, url, parsed.values);
     const inputPath = parsed.values.input;
     if (method === 'GET' && inputPath) throw new Error('--input cannot be used with GET');
     if (method === 'GET' && parsed.apply) throw new Error('--apply cannot be used with GET');
@@ -339,10 +433,18 @@ export async function runTenantSettings(
     if (inputPath) {
       body = await reader(inputPath);
       if (contentType === 'application/json') {
+        let input: Record<string, unknown>;
         try {
-          JSON.parse(body.toString('utf8'));
+          input = JSON.parse(body.toString('utf8')) as Record<string, unknown>;
         } catch {
           throw new Error('--input must contain valid JSON');
+        }
+        if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+          throw new Error('--input must contain a JSON object');
+        }
+        if (accountId && ['accountId', 'account_id', 'line_account_id'].some((key) =>
+          input[key] !== undefined && input[key] !== accountId)) {
+          throw new Error('--input account does not match --account-id');
         }
       }
     }
@@ -352,7 +454,7 @@ export async function runTenantSettings(
       return 0;
     }
 
-    return withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
+    return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
       const response = await fetcher(url.toString(), {
         method,
         redirect: 'error',
@@ -378,13 +480,14 @@ export async function runTenantSettings(
       try {
         write(JSON.stringify(JSON.parse(text), null, 2));
       } catch {
-        write(text);
+        write('Response was not safe JSON.');
+        return 1;
       }
       return 0;
     });
   } catch (error) {
     write(error instanceof Error ? error.message : 'Tenant settings request failed');
-    return 1;
+    return doctorRequested ? 3 : 1;
   }
 }
 

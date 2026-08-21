@@ -1,13 +1,13 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
 import type {
   PrescriptionQueueItem,
   PrescriptionStats,
   PrescriptionStatus,
 } from './api'
 
-const STATUS_LABELS: Record<PrescriptionStatus, string> = {
+export const PRESCRIPTION_STATUS_LABELS: Record<PrescriptionStatus, string> = {
   draft: '下書き',
   received: '受付内容の確認待ち',
   needs_resubmission: '再送依頼中',
@@ -29,7 +29,7 @@ const TABS: Array<{ value: PrescriptionQueueTab; label: string }> = [
   { value: 'cancelled', label: 'キャンセル' },
 ]
 
-export const statusLabel = (status: PrescriptionStatus) => STATUS_LABELS[status]
+export const statusLabel = (status: PrescriptionStatus) => PRESCRIPTION_STATUS_LABELS[status]
 
 export function isTemporaryDeploymentError(error: unknown): boolean {
   return typeof error === 'object' && error !== null &&
@@ -46,6 +46,17 @@ function waitingAge(value: string | null): string {
   if (minutes < 60) return `${minutes}分`
   const hours = Math.floor(minutes / 60)
   return hours < 24 ? `${hours}時間` : `${Math.floor(hours / 24)}日`
+}
+
+// Client-side narrowing of the already-loaded queue: patient name (partial) or
+// submission id (受付番号, partial). Empty query keeps everything.
+export function filterPrescriptionQueueItems<T extends Pick<PrescriptionQueueItem, 'id' | 'patient_display_name'>>(
+  items: T[], query: string,
+): T[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return items
+  return items.filter((item) =>
+    (item.patient_display_name ?? '').toLowerCase().includes(needle) || item.id.toLowerCase().includes(needle))
 }
 
 export function PrescriptionQueueEmptyState({ temporaryError = false }: { temporaryError?: boolean }) {
@@ -82,7 +93,8 @@ export function PrescriptionQueueOverview({
   onOpenDetail: (id: string) => void
   onLoadMore: (cursor: string) => void
 }) {
-  const visibleItems = tab === 'all' ? items : items.filter((item) => item.status === tab)
+  const [query, setQuery] = useState('')
+  const visibleItems = filterPrescriptionQueueItems(tab === 'all' ? items : items.filter((item) => item.status === tab), query)
   const counts: Record<PrescriptionQueueTab, number> = {
     all: stats.total_count,
     draft: stats.draft_count,
@@ -122,8 +134,9 @@ export function PrescriptionQueueOverview({
         ))}
       </div>
 
+      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="患者名または受付番号で絞り込み" aria-label="患者名または受付番号で絞り込み" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm sm:max-w-sm" />
       {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {temporaryError ? <PrescriptionQueueEmptyState temporaryError /> : visibleItems.length === 0 && !loading ? <PrescriptionQueueEmptyState /> : (
+      {temporaryError ? <PrescriptionQueueEmptyState temporaryError /> : visibleItems.length === 0 && !loading ? (query ? <p className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-600">「{query.trim()}」に一致する処方せんは読み込み済みの一覧にありません。</p> : <PrescriptionQueueEmptyState />) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <ul className="divide-y divide-gray-200">
             {visibleItems.map((item) => (

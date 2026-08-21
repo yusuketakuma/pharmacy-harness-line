@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
+  <rect width="960" height="440" rx="16" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="480" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#24292f">データ分離と個人情報 (PHI) 保護</text>
+  <text x="480" y="58" text-anchor="middle" font-size="12" fill="#57606a">「query parameter は権限の根拠にしない」「自動通知に PHI を載せない」をコードと DB 制約で守る</text>
+
+  <!-- tenant isolation illustration -->
+  <g transform="translate(40,80)">
+    <rect width="420" height="330" rx="12" fill="#f6f8fa" stroke="#8c959f"/>
+    <text x="210" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#24292f">tenant 分離 (line_account_id で scope)</text>
+    <g transform="translate(20,44)">
+      <rect width="180" height="120" rx="8" fill="#ffffff" stroke="#0969da" stroke-width="1.5"/>
+      <text x="90" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#0a3069">薬局 A (tenant A)</text>
+      <text x="90" y="40" text-anchor="middle" font-size="9" fill="#24292f">LINE 公式アカウント A</text>
+      <rect x="14" y="52" width="152" height="18" rx="4" fill="#eaf2fd"/><text x="90" y="65" text-anchor="middle" font-size="9" fill="#24292f">患者 / 処方せん / 問診</text>
+      <rect x="14" y="76" width="152" height="18" rx="4" fill="#eaf2fd"/><text x="90" y="89" text-anchor="middle" font-size="9" fill="#24292f">職員 / シナリオ / タグ</text>
+      <text x="90" y="110" text-anchor="middle" font-size="8.5" fill="#57606a">staff A は A のデータだけ</text>
+    </g>
+    <g transform="translate(220,44)">
+      <rect width="180" height="120" rx="8" fill="#ffffff" stroke="#06c755" stroke-width="1.5"/>
+      <text x="90" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#0b5c2c">薬局 B (tenant B)</text>
+      <text x="90" y="40" text-anchor="middle" font-size="9" fill="#24292f">LINE 公式アカウント B</text>
+      <rect x="14" y="52" width="152" height="18" rx="4" fill="#e8f8ee"/><text x="90" y="65" text-anchor="middle" font-size="9" fill="#24292f">患者 / 処方せん / 問診</text>
+      <rect x="14" y="76" width="152" height="18" rx="4" fill="#e8f8ee"/><text x="90" y="89" text-anchor="middle" font-size="9" fill="#24292f">職員 / シナリオ / タグ</text>
+      <text x="90" y="110" text-anchor="middle" font-size="8.5" fill="#57606a">同じ LINE ユーザーでも別レコード</text>
+    </g>
+    <line x1="210" y1="54" x2="210" y2="154" stroke="#cf222e" stroke-width="3" stroke-dasharray="6 4"/>
+    <g transform="translate(20,178)" font-size="9.5" fill="#24292f">
+      <text y="12">・認証済み session + 職員割り当て + LINE アカウントをサーバー側で照合</text>
+      <text y="30">・処方せん / handoff の所属不一致は DB trigger でも拒否</text>
+      <text y="48">・R2 の画像は tenant/account prefix。別 tenant の object key は拒否</text>
+      <text y="66">・全体管理者の横断参照は期限付き support grant が必須、全件監査</text>
+      <text y="84">・LINE 資格情報は専用 store、staff API key は keyed hash で保存</text>
+      <text y="102">・webhook は durable inbox へ保存してから ack、重複 event を排除</text>
+      <text y="120">・rate limit は token 全体の hash + client IP で判定</text>
+    </g>
+  </g>
+
+  <!-- PHI protections -->
+  <g transform="translate(480,80)">
+    <rect width="440" height="330" rx="12" fill="#fdf2f8" stroke="#bf3989"/>
+    <text x="220" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#6e1f4d">PHI (患者の健康情報) の扱い</text>
+    <g transform="translate(16,40)">
+      <rect width="408" height="56" rx="8" fill="#ffffff" stroke="#e5a2a2"/>
+      <text x="12" y="20" font-size="11" font-weight="700" fill="#24292f">LIFF の本人確認</text>
+      <text x="12" y="38" font-size="9.5" fill="#24292f">LINE ID token を Worker で検証。patient/friend ID を URL に載せない</text>
+      <text x="12" y="50" font-size="9" fill="#57606a">外部 (電子処方箋) へはサーバーが返す allowlist 済み URL だけ</text>
+    </g>
+    <g transform="translate(16,104)">
+      <rect width="408" height="56" rx="8" fill="#ffffff" stroke="#e5a2a2"/>
+      <text x="12" y="20" font-size="11" font-weight="700" fill="#24292f">通知テンプレートは PHI-free</text>
+      <text x="12" y="38" font-size="9.5" fill="#24292f">自動 LINE 通知は承認済み定型文のみ。薬品名・患者名・内容を含めない</text>
+      <text x="12" y="50" font-size="9" fill="#57606a">緊急避妊薬の画面・通知は中立的な表現に統一</text>
+    </g>
+    <g transform="translate(16,168)">
+      <rect width="408" height="56" rx="8" fill="#ffffff" stroke="#e5a2a2"/>
+      <text x="12" y="20" font-size="11" font-weight="700" fill="#24292f">構造化ログ (allowlist 方式)</text>
+      <text x="12" y="38" font-size="9.5" fill="#24292f">lib/log.ts が許可したキーだけ出力。PHI・secret・生レスポンスは落とさない</text>
+      <text x="12" y="50" font-size="9" fill="#57606a">logging-privacy.test.ts で regex 検査。問診回答は AES-256-GCM で field 暗号化</text>
+    </g>
+    <g transform="translate(16,232)">
+      <rect width="408" height="56" rx="8" fill="#ffffff" stroke="#e5a2a2"/>
+      <text x="12" y="20" font-size="11" font-weight="700" fill="#24292f">監査と本人請求</text>
+      <text x="12" y="38" font-size="9.5" fill="#24292f">画像閲覧・sensitive read・設定変更を tenant / platform-admin 監査 event へ</text>
+      <text x="12" y="50" font-size="9" fill="#57606a">開示・訂正・利用停止・消去請求を受付。法定保存期間内の消去は DB 制約で拒否</text>
+    </g>
+    <text x="220" y="316" text-anchor="middle" font-size="9.5" fill="#6e1f4d">保存期間は retention matrix (PHI 一律 3 年) に従い、期限超過の処方せん画像を purge</text>
+  </g>
+  <text x="480" y="430" text-anchor="middle" font-size="10" fill="#8c959f">記載はコードに存在する仕組みの要約です。監査レポートと設計文書は docs/pharmacy を参照。</text>
+</svg>

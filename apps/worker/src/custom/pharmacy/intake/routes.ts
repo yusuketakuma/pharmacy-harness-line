@@ -23,6 +23,7 @@ import {
 } from './repository.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import type { PatientIntakeCryptoScope } from './envelopes.js';
+import { recordTenantAudit } from '../../../lib/tenant-audit.js';
 
 type IntakeBindings = {
   DB: D1Database;
@@ -50,6 +51,18 @@ function intakeCryptoScope(
   return tenantId && env.PHARMACY_PHI_KEY_V1
     ? { tenantId, rootSecret: env.PHARMACY_PHI_KEY_V1 }
     : null;
+}
+
+function auditPhiView(
+  c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined },
+  lineAccountId: string,
+  patientId: string,
+  action: string,
+): Promise<void> {
+  return recordTenantAudit(c.env.DB, {
+    lineAccountId, actorStaffId: c.get('staff')!.id, action,
+    resourceType: 'pharmacy_patient', resourceId: patientId,
+  });
 }
 
 async function canUseAdminIntake(c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined }, accountId: string): Promise<boolean> {
@@ -256,7 +269,9 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/history', async (c) 
   const history = await getAdminPharmacyPatientHistory(
     c.env.DB, lineAccountId, c.req.param('id'), cryptoScope,
   );
-  return history ? c.json({ history }) : c.json({ error: 'Patient not found' }, 404);
+  if (!history) return c.json({ error: 'Patient not found' }, 404);
+  await auditPhiView(c, lineAccountId, c.req.param('id'), 'phi.intake_history_viewed');
+  return c.json({ history });
 });
 
 pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id', async (c) => {
@@ -267,7 +282,9 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
   const patient = await getAdminPharmacyPatient(c.env.DB, lineAccountId, c.req.param('id'));
-  return patient ? c.json({ patient }) : c.json({ error: 'Patient not found' }, 404);
+  if (!patient) return c.json({ error: 'Patient not found' }, 404);
+  await auditPhiView(c, lineAccountId, c.req.param('id'), 'phi.patient_viewed');
+  return c.json({ patient });
 });
 
 pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/intake', async (c) => {
@@ -281,7 +298,9 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/intake', async (c) =
   if (!patient) return c.json({ error: 'Patient not found' }, 404);
   const cryptoScope = intakeCryptoScope(c.env, c.get('tenantId'));
   if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
-  return c.json({ intake: await getLatestAdminPatientIntake(
+  const intake = await getLatestAdminPatientIntake(
     c.env.DB, lineAccountId, c.req.param('id'), cryptoScope,
-  ) });
+  );
+  await auditPhiView(c, lineAccountId, c.req.param('id'), 'phi.intake_viewed');
+  return c.json({ intake });
 });

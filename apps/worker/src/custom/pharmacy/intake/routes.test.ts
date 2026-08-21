@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   history: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
+  audit: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -44,6 +45,9 @@ vi.mock('../growth-loop/access.js', () => ({
 }));
 vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
+}));
+vi.mock('../../../lib/tenant-audit.js', () => ({
+  recordTenantAudit: mocks.audit,
 }));
 
 import { pharmacyIntakeRoutes } from './routes.js';
@@ -227,6 +231,24 @@ describe('admin pharmacy patient routes', () => {
     expect(mocks.history).toHaveBeenCalledWith(env.DB, 'account-1', 'patient-1', {
       tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1,
     });
+  });
+
+  it('audits staff PHI views with ids only', async () => {
+    const audit = (resourceId: string, action: string) => ({
+      lineAccountId: 'account-1', actorStaffId: 'staff-1', action,
+      resourceType: 'pharmacy_patient', resourceId,
+    });
+    for (const [path, action] of [
+      ['/api/custom/pharmacy/patients/patient-1/history', 'phi.intake_history_viewed'],
+      ['/api/custom/pharmacy/patients/patient-1/intake', 'phi.intake_viewed'],
+      ['/api/custom/pharmacy/patients/patient-1', 'phi.patient_viewed'],
+    ] as const) {
+      mocks.audit.mockClear();
+      const response = await adminApp().request(`${path}?line_account_id=account-1`, {}, env);
+      expect(response.status).toBe(200);
+      expect(mocks.audit).toHaveBeenCalledWith(env.DB, audit('patient-1', action));
+    }
+    expect(JSON.stringify(mocks.audit.mock.calls)).not.toContain('allergies');
   });
 
   it('denies a staff member attempting another account history', async () => {

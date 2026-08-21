@@ -133,6 +133,16 @@ function app(): Hono<Env> {
   return instance;
 }
 
+function platformApp(db: D1Database): Hono<Env> {
+  const instance = new Hono<Env>();
+  instance.use('*', async (c, next) => {
+    c.set('platformAdmin', { id: 'platform-admin-1', name: 'Platform Owner' });
+    await next();
+  });
+  instance.route('/', tenantProvisioningRoutes);
+  return instance;
+}
+
 function request(body = requestBody, key = 'setup-request-123') {
   return {
     method: 'POST',
@@ -154,6 +164,47 @@ afterEach(() => {
 });
 
 describe('platform tenant provisioning', () => {
+  it('allows only an authenticated platform admin to use the browser provisioning route', async () => {
+    const fake = fakeDb();
+    const lineFetch = vi.spyOn(globalThis, 'fetch');
+    const response = await app().request('/api/platform-admin/tenants', {
+      method: 'POST', headers: { origin: 'https://admin.example.test', 'content-type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    }, bindings(fake.db));
+
+    expect(response.status).toBe(401);
+    expect(fake.batches).toHaveLength(0);
+    expect(lineFetch).not.toHaveBeenCalled();
+  });
+
+  it('reuses the atomic provisioning transaction and audit for the platform-admin wizard', async () => {
+    const fake = fakeDb();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ userId: 'U123' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const response = await platformApp(fake.db).request('/api/platform-admin/tenants', {
+      method: 'POST',
+      headers: {
+        origin: 'https://admin.example.test',
+        'content-type': 'application/json',
+        'idempotency-key': 'browser-setup-123',
+      },
+      body: JSON.stringify(requestBody),
+    }, bindings(fake.db));
+
+    expect(response.status).toBe(201);
+    const text = await response.text();
+    expect(text).not.toContain(requestBody.admin.temporaryPassword);
+    expect(text).not.toContain(requestBody.line.channelAccessToken);
+    expect(text).not.toContain(requestBody.line.channelSecret);
+    expect(text).not.toContain(requestBody.line.loginChannelSecret);
+    expect(fake.batches[0].some(({ sql, values }) =>
+      sql.includes('platform_admin_access_events') && values.includes('platform-admin-1') &&
+      values.includes('tenant_provision'))).toBe(true);
+  });
+
   it('fails closed when the platform key is missing or wrong', async () => {
     const fake = fakeDb();
     const noSecret = await app().request(
@@ -322,6 +373,16 @@ describe('platform tenant provisioning', () => {
       bindings(fake.db),
     );
     expect(mismatch.status).toBe(409);
+    expect(fake.batches).toHaveLength(1);
+
+    // A retried CLI run sends a fresh random password; only the password may differ.
+    const retried = await app().request(
+      '/api/platform/pharmacy/tenants',
+      request({ ...requestBody, admin: { ...requestBody.admin, temporaryPassword: 'Other pass 99' } }),
+      bindings(fake.db),
+    );
+    expect(retried.status).toBe(200);
+    await expect(retried.json()).resolves.toMatchObject({ data: { replayed: true } });
     expect(fake.batches).toHaveLength(1);
   });
 

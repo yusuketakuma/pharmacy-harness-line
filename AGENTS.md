@@ -20,3 +20,14 @@ deployment, and completion claims require explicit evidence and a human gate.
 The OSS package version and `pharmacy-v*` seller release version are separate
 identities; never infer one from the other. Local code, passing tests, release
 metadata, deployment evidence, and production operation are distinct claims.
+
+## Repository map
+
+- `apps/worker/` — Cloudflare Worker (Hono + D1 + R2)。HTTP ルートは `apps/worker/src/routes/<domain>/` にドメイン単位で配置し、薬局固有の実装は `apps/worker/src/custom/pharmacy/` に置く。
+- `apps/web/` — 管理画面 SPA (Cloudflare Pages)。
+- `apps/liff/` — 患者向け LIFF アプリ。
+- `packages/*` — 共有コード。`db` (schema + migrations、薬局向けは `custom_NNN`)、`shared`、`sdk`、`line-sdk`、`mcp-server`、`update-engine`、`create-line-harness` (installer CLI)、`plugin-template`。
+- `scripts/custom/pharmacy/` — テナント作成・スタッフ登録などの薬局運用スクリプト。
+- `docs/pharmacy/` — このフォークの正本となる設計・運用・監査文書。`docs/upstream/` はフォーク元の汎用 CRM 文書で、古い場合がある。入口は `docs/README.md`。
+- `PLANS.md` — タスク台帳。`CHANGELOG.md` — リリース履歴。
+- `.claude/`、`.omc/` などエージェントのランタイム状態はコミットしない。

@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { loginRedirectPath } from '@/lib/safe-next-path'
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -33,7 +34,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         if (data.csrfToken) localStorage.setItem('lh_csrf', data.csrfToken)
         if (!cancelled) setChecked(true)
       } catch {
-        if (!cancelled) router.replace('/login')
+        if (!cancelled) router.replace(loginRedirectPath())
       }
     }
 

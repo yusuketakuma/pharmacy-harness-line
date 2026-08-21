@@ -211,7 +211,9 @@ describe('platform admin dashboard aggregate', () => {
   beforeEach(async () => {
     sqlite = fresh('ON');
     cookie = await seedPlatformAdmin(sqlite);
-    testEnv = { DB: d1From(sqlite) } as unknown as Env['Bindings'];
+    testEnv = {
+      DB: d1From(sqlite), PHARMACY_SELLER_RELEASE: 'pharmacy-v0.30.0-dev',
+    } as unknown as Env['Bindings'];
 
     seedTenant(sqlite, 'tenant-a', 'pharmacy-a', 'active');
     seedTenant(sqlite, 'tenant-b', 'pharmacy-b', 'suspended');
@@ -252,7 +254,8 @@ describe('platform admin dashboard aggregate', () => {
   it('counts tenants, webhook health, grants and stale tenants', async () => {
     const response = await app().request('/api/platform-admin/dashboard', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    const body = await response.json() as { success: boolean; data: Record<string, unknown> };
+    expect(body).toMatchObject({
       success: true,
       data: {
         totalTenants: 3,
@@ -262,8 +265,27 @@ describe('platform admin dashboard aggregate', () => {
         webhookPending: 3,
         activeSupportGrants: 1,
         tenantsWithStaleActivity: 2,
+        pharmacyReadiness: {
+          statusCounts: { READY: 0, BLOCKED: 6, UNVERIFIED: 0 },
+          tenants: [
+            { tenantId: 'tenant-a', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 }, accounts: [
+              { accountId: 'account-a', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 } },
+            ] },
+            { tenantId: 'tenant-b', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 }, accounts: [
+              { accountId: 'account-b', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 } },
+            ] },
+          ],
+        },
+        versions: {
+          sellerRelease: 'pharmacy-v0.30.0-dev',
+          liffPackageVersion: '0.30.0',
+          webRuntime: { packageVersion: '0.29.0', bundleVersion: '0.0.0-dev' },
+          workerRuntime: { packageVersion: '0.29.0', bundleVersion: '0.0.0-dev' },
+        },
       },
     });
+    expect(String((body.data.pharmacyReadiness as { checkedAt: string }).checkedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(JSON.stringify(body.data)).not.toMatch(/patient|friend|prescriptionCount|activeCase|token|secret|credential/iu);
   });
 
   it('records one list_dashboard access event with no tenant', async () => {

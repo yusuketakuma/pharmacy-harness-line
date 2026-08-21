@@ -5,21 +5,11 @@ import { useAccount } from '../../../contexts/account-context'
 import { pharmacyIntakeAdminApi, type PharmacyPatient, type PharmacyPatientHistory } from './api'
 import { MedicationFollowUpPanel } from '../medication-followup/MedicationFollowUpPanel'
 
-const RELATIONSHIP_LABELS: Record<PharmacyPatient['relationship'], string> = {
-  self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
-}
+import {
+  ADHERENCE_LABELS, ALCOHOL_LABELS, MEDICAL_HISTORY_TAG_LABELS, NOTEBOOK_LABELS, PREGNANCY_LABELS,
+  RELATIONSHIP_LABELS, SEX_LABELS, SMOKING_LABELS, STATUS_LABELS,
+} from './labels'
 
-const STATUS_LABELS: Record<string, string> = { none: 'なし', yes: 'あり', unknown: 'わからない' }
-const NOTEBOOK_LABELS: Record<string, string> = { paper: '紙', electronic: '電子', none: '持っていない', unknown: 'わからない' }
-const PREGNANCY_LABELS: Record<string, string> = { not_applicable: '該当なし', yes: 'あり', no: 'なし', unknown: 'わからない' }
-const SMOKING_LABELS: Record<string, string> = { never: '吸わない', former: '過去に吸っていた', current: '現在吸っている', unknown: 'わからない' }
-const ALCOHOL_LABELS: Record<string, string> = { none: '飲まない', occasional: 'たまに', weekly: '週1〜2日', frequent: '週3日以上', unknown: 'わからない' }
-const ADHERENCE_LABELS: Record<string, string> = { none: 'ほぼない', sometimes: 'ときどきある', often: 'よくある', unknown: 'わからない' }
-const MEDICAL_HISTORY_TAG_LABELS: Record<string, string> = {
-  hypertension: '高血圧', diabetes: '糖尿病', dyslipidemia: '脂質異常症', heart_disease: '心臓の病気',
-  kidney_disease: '腎臓の病気', liver_disease: '肝臓の病気', asthma: '喘息', other: 'その他',
-}
-const SEX_LABELS: Record<string, string> = { male: '男性', female: '女性', other: 'その他', prefer_not_to_say: '回答しない' }
 const HISTORY_STATUS_LABELS: Record<string, string> = {
   draft: '下書き', received: '受信', accepted: '受付済み', ready: '準備完了',
   closed: '完了', cancelled: 'キャンセル', needs_resubmission: '再提出依頼',
@@ -73,6 +63,8 @@ export default function PatientIntakeAdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const listRequestGate = useRef(createPatientListRequestGate()).current
+  // ponytail: patient list API has no follow-up filter yet; ?followup=attention only guides to the panel.
+  const [followupFocus] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('followup') === 'attention')
   const historyRequestGate = useRef(createPatientListRequestGate()).current
 
   const selected = patients.find((patient) => patient.id === selectedId) ?? null
@@ -105,6 +97,11 @@ export default function PatientIntakeAdminPage() {
     setHistoryLoading(true)
     setSelectedId(patientId)
   }
+
+  useEffect(() => {
+    if (!followupFocus || !history) return
+    document.getElementById('medication-followup-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [followupFocus, history])
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -153,9 +150,10 @@ export default function PatientIntakeAdminPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-bold text-gray-900">新規患者アンケート</h1><p className="mt-1 text-sm text-gray-500">本人・ご家族の回答版を薬局アカウント内で確認します。</p></div>
+        <div><h1 className="text-2xl font-bold text-gray-900">患者アンケート</h1><p className="mt-1 text-sm text-gray-500">本人・ご家族の回答版を薬局アカウント内で確認します。</p></div>
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button>
       </div>
+      {followupFocus && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">服薬フォローの要対応を確認します。患者を選ぶと「服薬フォロー」欄まで移動します。</p>}
       {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <section className="rounded-xl border border-gray-200 bg-white p-4" aria-labelledby="patient-list-title">

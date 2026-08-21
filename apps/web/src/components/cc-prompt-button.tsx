@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import PromptModal, { type PromptTemplate } from '@/components/prompt-modal'
+import { useAccount } from '@/contexts/account-context'
 
 interface CcPromptButtonProps {
   prompts: PromptTemplate[]
@@ -9,6 +10,9 @@ interface CcPromptButtonProps {
 
 export default function CcPromptButton({ prompts }: CcPromptButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const { selectedAccount } = useAccount()
+  // 薬局スタッフ向け画面では開発者向けの CC 依頼ボタンを出さない。
+  if (selectedAccount?.pharmacyMode) return null
 
   return (
     <>

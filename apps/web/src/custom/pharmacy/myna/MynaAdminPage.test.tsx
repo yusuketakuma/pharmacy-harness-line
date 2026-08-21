@@ -52,4 +52,24 @@ describe('Myna admin safety', () => {
     expect(page).toContain("setEndpoint({ tenantAlias: '', endpointUrl: '', enabled: true })")
     expect(page).toContain("setEndpointMasked('')")
   })
+
+  it('can disable or re-enable the saved endpoint without re-entering its secret URL', () => {
+    const page = readFileSync(new URL('./MynaAdminPage.tsx', import.meta.url), 'utf8')
+    const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
+
+    expect(page).toContain('mynaAdminApi.setEndpointEnabled')
+    expect(page).toContain('endpointConfig.revision')
+    expect(page).toContain('電子処方箋連携を利用する')
+    expect(api).toContain("method: 'PATCH'")
+  })
+
+  it('records explicit official-console verification without exposing the URL', () => {
+    const page = readFileSync(new URL('./MynaAdminPage.tsx', import.meta.url), 'utf8')
+    const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
+
+    expect(page).toContain('mynaAdminApi.verifyEndpoint')
+    expect(page).toContain('endpointConfig.revision')
+    expect(page).toContain('公式画面で動作確認済みとして記録')
+    expect(api).toContain('/myna-endpoint/verification?')
+  })
 })

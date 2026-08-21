@@ -17,6 +17,7 @@ import { ApiError } from '../../../lib/api.js'
 import { PrescriptionImageViewer } from './PrescriptionImageViewer.js'
 import {
   PrescriptionQueueEmptyState,
+  filterPrescriptionQueueItems,
   isTemporaryDeploymentError,
   statusLabel,
 } from './PrescriptionQueueOverview.js'
@@ -33,6 +34,21 @@ import {
 } from './PrescriptionPrintPage.js'
 
 describe('prescription admin UI contract', () => {
+  it('filters the loaded queue by patient name or submission id and scrolls to the detail', () => {
+    const items = [
+      { id: 'sub-0001', patient_display_name: '山田 太郎', status: 'received' },
+      { id: 'sub-0002', patient_display_name: null, status: 'received' },
+    ] as Parameters<typeof filterPrescriptionQueueItems>[0]
+    expect(filterPrescriptionQueueItems(items, '')).toHaveLength(2)
+    expect(filterPrescriptionQueueItems(items, ' 太郎 ')).toEqual([items[0]])
+    expect(filterPrescriptionQueueItems(items, '0002')).toEqual([items[1]])
+    expect(filterPrescriptionQueueItems(items, 'なし')).toEqual([])
+    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
+    expect(page).toContain("document.getElementById('prescription-detail-title')?.scrollIntoView(")
+    const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8')
+    expect(overview).toContain('aria-label="患者名または受付番号で絞り込み"')
+  })
+
   it('shows fixed Japanese status and resubmission reason labels', () => {
     expect(statusLabel('needs_resubmission')).toBe('再送依頼中')
     expect(reasonLabel('glare')).toBe('光が反射しています')

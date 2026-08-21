@@ -1,6 +1,6 @@
 {
   "name": "@line-harness/sdk",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "description": "AI-native SDK for LINE Harness — programmatic LINE official account automation",
   "type": "module",
   "exports": {
@@ -43,11 +43,11 @@
     "url": "https://github.com/Shudesu/line-harness-oss/issues"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "devDependencies": {
     "tsup": "^8.5.1",
-    "typescript": "^5.5.0",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   }
 }

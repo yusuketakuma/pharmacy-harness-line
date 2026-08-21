@@ -35,63 +35,63 @@ import {
   tenantRichMenuResourceGuard,
 } from './middleware/tenant-boundary.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
-import { webhook, sweepWebhookInbox, purgeWebhookEventReceipts } from './routes/webhook.js';
-import { friends } from './routes/friends.js';
-import { tags } from './routes/tags.js';
-import { scenarios } from './routes/scenarios.js';
-import { broadcasts } from './routes/broadcasts.js';
-import { users } from './routes/users.js';
-import { lineAccounts } from './routes/line-accounts.js';
-import { conversions } from './routes/conversions.js';
-import { affiliates } from './routes/affiliates.js';
-import { affiliateOffers } from './routes/affiliate-offers.js';
-import { duplicates } from './routes/duplicates.js';
-import { usersGrouped } from './routes/users-grouped.js';
-import { inbox } from './routes/inbox.js';
-import { openapi } from './routes/openapi.js';
-import { liffRoutes } from './routes/liff.js';
-import { affiliateSelfRoutes } from './routes/affiliate-self.js';
+import { webhook, sweepWebhookInbox, purgeWebhookEventReceipts } from './routes/integrations/webhook.js';
+import { friends } from './routes/crm/friends.js';
+import { tags } from './routes/crm/tags.js';
+import { scenarios } from './routes/messaging/scenarios.js';
+import { broadcasts } from './routes/messaging/broadcasts.js';
+import { users } from './routes/admin/users.js';
+import { lineAccounts } from './routes/admin/line-accounts.js';
+import { conversions } from './routes/marketing/conversions.js';
+import { affiliates } from './routes/marketing/affiliates.js';
+import { affiliateOffers } from './routes/marketing/affiliate-offers.js';
+import { duplicates } from './routes/crm/duplicates.js';
+import { usersGrouped } from './routes/admin/users-grouped.js';
+import { inbox } from './routes/crm/inbox.js';
+import { openapi } from './routes/admin/openapi.js';
+import { liffRoutes } from './routes/liff/liff.js';
+import { affiliateSelfRoutes } from './routes/marketing/affiliate-self.js';
 // Round 3 ルート
-import { webhooks } from './routes/webhooks.js';
-import { calendar } from './routes/calendar.js';
-import { meetConsultations } from './routes/meet-consultations.js';
-import { reminders } from './routes/reminders.js';
-import { scoring } from './routes/scoring.js';
-import { templates } from './routes/templates.js';
-import { chats } from './routes/chats.js';
-import { conversations } from './routes/conversations.js';
+import { webhooks } from './routes/integrations/webhooks.js';
+import { calendar } from './routes/booking/calendar.js';
+import { meetConsultations } from './routes/booking/meet-consultations.js';
+import { reminders } from './routes/messaging/reminders.js';
+import { scoring } from './routes/crm/scoring.js';
+import { templates } from './routes/messaging/templates.js';
+import { chats } from './routes/crm/chats.js';
+import { conversations } from './routes/crm/conversations.js';
 // notifications ルート (notification_rules CRUD + notifications 一覧) は
 // インボックス機能 (/api/inbox/unanswered) に置き換えたため削除。
 // DB テーブル notification_rules / notifications は archive 目的で残してある。
-import { stripe } from './routes/stripe.js';
-import { health } from './routes/health.js';
-import { automations } from './routes/automations.js';
-import { richMenus } from './routes/rich-menus.js';
-import { trackedLinks } from './routes/tracked-links.js';
-import { entryRoutes } from './routes/entry-routes.js';
-import { forms } from './routes/forms.js';
-import { adPlatforms } from './routes/ad-platforms.js';
-import { staff } from './routes/staff.js';
-import { capabilities } from './routes/capabilities.js';
-import { images } from './routes/images.js';
-import { accountSettings } from './routes/account-settings.js';
-import { setup } from './routes/setup.js';
-import { autoReplies } from './routes/auto-replies.js';
-import { adminAuth } from './routes/admin-auth.js';
+import { stripe } from './routes/marketing/stripe.js';
+import { health } from './routes/admin/health.js';
+import { automations } from './routes/messaging/automations.js';
+import { richMenus } from './routes/messaging/rich-menus.js';
+import { trackedLinks } from './routes/marketing/tracked-links.js';
+import { entryRoutes } from './routes/messaging/entry-routes.js';
+import { forms } from './routes/messaging/forms.js';
+import { adPlatforms } from './routes/marketing/ad-platforms.js';
+import { staff } from './routes/admin/staff.js';
+import { capabilities } from './routes/admin/capabilities.js';
+import { images } from './routes/admin/images.js';
+import { accountSettings } from './routes/admin/account-settings.js';
+import { setup } from './routes/admin/setup.js';
+import { autoReplies } from './routes/messaging/auto-replies.js';
+import { adminAuth } from './routes/admin/admin-auth.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './middleware/admin-auth-config.js';
-import booking from './routes/booking.js';
-import events from './routes/events.js';
-import { trafficPools } from './routes/traffic-pools.js';
-import { meetCallback } from './routes/meet-callback.js';
-import { messageTemplates } from './routes/message-templates.js';
-import dedupPreview from './routes/dedup-preview.js';
-import { profileRefresh } from './routes/profile-refresh.js';
-import { richMenuGroups } from './routes/rich-menu-groups.js';
-import { lineProxy } from './routes/line-proxy.js';
-import { webinarRoutes } from './routes/webinars.js';
-import { instagramEngagement } from './routes/instagram-engagement.js';
-import adminVersion from './routes/admin-version.js';
-import { mediaInquiries } from './routes/media-inquiries.js';
+import booking from './routes/booking/booking.js';
+import events from './routes/booking/events.js';
+import { trafficPools } from './routes/messaging/traffic-pools.js';
+import { meetCallback } from './routes/booking/meet-callback.js';
+import { messageTemplates } from './routes/messaging/message-templates.js';
+import dedupPreview from './routes/crm/dedup-preview.js';
+import { profileRefresh } from './routes/crm/profile-refresh.js';
+import { richMenuGroups } from './routes/messaging/rich-menu-groups.js';
+import { lineProxy } from './routes/integrations/line-proxy.js';
+import { webinarRoutes } from './routes/messaging/webinars.js';
+import { instagramEngagement } from './routes/marketing/instagram-engagement.js';
+import adminVersion from './routes/admin/admin-version.js';
+import { mediaInquiries } from './routes/admin/media-inquiries.js';
 import { loginUnconfiguredPage } from './lib/login-unconfigured.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
@@ -103,6 +103,7 @@ import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // cust
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
 import { emergencyContraceptionRoutes } from './custom/pharmacy/emergency-contraception/routes.js'; // custom:pharmacy-emergency-contraception
+import { processEmergencyAppointmentReminders } from './custom/pharmacy/emergency-contraception/notifications.js'; // custom:pharmacy-emergency-contraception
 import { dataSubjectRequestRoutes } from './custom/pharmacy/data-subject-requests/routes.js'; // custom:pharmacy-data-subject-requests
 import { pharmacyPrivacyPolicyRoutes } from './custom/pharmacy/privacy-policy/routes.js'; // custom:pharmacy-privacy-policy
 import { pharmacyPublicProfileRoutes } from './custom/pharmacy/public-profile/routes.js'; // custom:pharmacy-public-profile
@@ -171,6 +172,7 @@ export type Env = {
     WORKER_PUBLIC_URL?: string;
     ADMIN_PUBLIC_URL?: string;
     LIFF_PUBLIC_URL?: string;
+    PHARMACY_SELLER_RELEASE?: string;
     // Google Calendar booking sync. Store the private key as a Worker secret.
     // Calendar owners only enter/share their Google Calendar ID in admin UI.
     GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
@@ -1191,6 +1193,22 @@ async function scheduled(
       }
     }).catch(() => {
       console.error('[pharmacy-medication-followup] processor failed');
+    }));
+
+    jobs.push(processEmergencyAppointmentReminders(env.DB, { // custom:pharmacy-emergency-contraception
+      proxyBaseUrl:
+        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.generated + result.sent + result.failed + result.suppressed > 0) {
+        console.log(
+          `[pharmacy-emergency-reminder] generated=${result.generated} sent=${result.sent} failed=${result.failed} skipped=${result.skipped} suppressed=${result.suppressed}`,
+        );
+      }
+    }).catch(() => {
+      console.error('[pharmacy-emergency-reminder] processor failed');
     }));
   }
 

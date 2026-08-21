@@ -1,5 +1,5 @@
 import type { ExecutionContext } from 'hono';
-import { lineProxy } from '../routes/line-proxy.js';
+import { lineProxy } from '../routes/integrations/line-proxy.js';
 import type { Env } from '../index.js';
 
 /** 公開URLへの自己 fetch を避け、Harness proxy の同じ handler をWorker内で実行する。 */

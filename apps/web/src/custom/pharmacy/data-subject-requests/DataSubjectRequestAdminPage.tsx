@@ -223,7 +223,7 @@ export default function DataSubjectRequestAdminPage() {
     <div className="mx-auto max-w-7xl space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">開示・訂正・利用停止・消去請求</h1>
+          <h1 className="text-2xl font-bold text-gray-900">開示・消去請求</h1>
           <p className="mt-1 text-sm text-gray-600">
             本人からの請求を受け付け、本人確認と法定保存対象の判定を経て、対応結果を記録します。
           </p>

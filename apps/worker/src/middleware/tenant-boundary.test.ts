@@ -168,6 +168,12 @@ function resourceApp(ownedFriendIds: string[], ownedChatIds: string[] = []) {
 }
 
 describe('tenant friend resource guard', () => {
+  it('matches a percent-encoded friend id against the decoded route param', async () => {
+    const { root, env } = resourceApp(['friend a']);
+    expect((await root.request('/api/friends/friend%20a', {}, env)).status).toBe(200);
+    expect((await root.request('/api/friends/friend%20b', {}, env)).status).toBe(403);
+  });
+
   it('rejects friend and chat ids outside the authenticated tenant', async () => {
     const { root, env } = resourceApp(['friend-a'], ['chat-a']);
     const responses = await Promise.all([

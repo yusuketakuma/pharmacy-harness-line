@@ -15,71 +15,20 @@ function registeredHandler() {
   ) => Promise<{ content: Array<{ text: string }> }>
 }
 
-describe('pharmacy rich-menu MCP image saving', () => {
+describe('pharmacy rich-menu MCP tools', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubEnv('LINE_HARNESS_ACCOUNT_ID', 'account-a')
   })
 
-  it('previews image persistence without writing', async () => {
-    const uploadImage = vi.fn()
-    getClient.mockReturnValue({ richMenuGroups: { uploadImage } })
-    const handler = registeredHandler()
+  it('does not expose raw full-image saving', () => {
+    const server = { tool: vi.fn() }
+    registerPharmacyRichMenuTools(server as never)
+    const schema = server.tool.mock.calls[0]?.[2] as {
+      action: { safeParse: (value: unknown) => { success: boolean } }
+    }
 
-    const response = await handler({
-      action: 'save_image',
-      accountId: 'account-a',
-      groupId: 'group-a',
-      pageId: 'page-a',
-      imageData: 'aGVsbG8=',
-      imageContentType: 'image/jpeg',
-      dryRun: true,
-      confirm: false,
-      force: false,
-    })
-
-    expect(JSON.parse(response.content[0].text)).toMatchObject({
-      success: true,
-      dryRun: true,
-      operation: 'save_image',
-      imageAttached: true,
-    })
-    expect(uploadImage).not.toHaveBeenCalled()
-  })
-
-  it('persists the image through the account-scoped SDK resource', async () => {
-    const uploadImage = vi.fn().mockResolvedValue({
-      imageR2Key: 'rich-menus/account-a/group-a/page-a/image.jpg',
-      imageContentType: 'image/jpeg',
-      size: 'compact',
-    })
-    getClient.mockReturnValue({ richMenuGroups: { uploadImage } })
-    const handler = registeredHandler()
-
-    const response = await handler({
-      action: 'save_image',
-      accountId: 'account-a',
-      groupId: 'group-a',
-      pageId: 'page-a',
-      imageData: 'aGVsbG8=',
-      imageContentType: 'image/jpeg',
-      dryRun: false,
-      confirm: true,
-      force: false,
-    })
-
-    expect(uploadImage).toHaveBeenCalledWith(
-      'group-a',
-      'page-a',
-      'aGVsbG8=',
-      'image/jpeg',
-      'account-a',
-    )
-    expect(JSON.parse(response.content[0].text)).toMatchObject({
-      success: true,
-      operation: 'save_image',
-      image: { imageR2Key: expect.stringContaining('group-a/page-a') },
-    })
+    expect(schema.action.safeParse('save_image').success).toBe(false)
   })
 
   it('previews a page-to-page tab switch without changing the group', async () => {

@@ -5,6 +5,7 @@ import { requireLineBotUserId } from '../provisioning/line-connection.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
 import { getPharmacyReadiness } from '../readiness.js';
+import { buildPharmacyConfigurationDoctor } from '../configuration-doctor.js';
 
 /**
  * Tenant operations for the platform admin: staff roster, session revocation
@@ -185,6 +186,9 @@ type LineStatusRow = {
   messaging_credential_count: number;
   login_credential_count: number;
   last_webhook_received_at: string | null;
+  tenant_status: string;
+  active_staff_assignment_count: number;
+  capability_config_count: number;
 };
 
 function expectedLiffEndpoint(origin: string | undefined, liffId: string | null): string | null {
@@ -217,6 +221,16 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
   const result = await c.env.DB.prepare(
     `SELECT account.id, account.name, account.channel_id, account.liff_id,
             account.login_channel_id, account.is_active,
+            tenant.status AS tenant_status,
+            (SELECT COUNT(*) FROM pharmacy_staff_accounts AS assignment
+              INNER JOIN staff_members AS staff ON staff.id = assignment.staff_id
+              INNER JOIN tenant_staff_memberships AS membership
+                      ON membership.staff_id = assignment.staff_id
+                     AND membership.tenant_id = mapping.tenant_id
+               WHERE assignment.line_account_id = account.id AND assignment.is_active = 1
+                 AND staff.is_active = 1 AND membership.is_active = 1) AS active_staff_assignment_count,
+            (SELECT COUNT(*) FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = account.id AND capability.mode = 'pharmacy') AS capability_config_count,
             (SELECT COUNT(*) FROM pharmacy_line_channel_identities AS identity
               WHERE identity.line_account_id = account.id) AS bot_identity_count,
             (SELECT COUNT(*) FROM pharmacy_line_credentials AS credential
@@ -231,18 +245,66 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
               WHERE receipt.tenant_id = mapping.tenant_id
                 AND receipt.line_account_id = account.id) AS last_webhook_received_at
        FROM tenant_line_accounts AS mapping
+       INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id
        INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id
       WHERE mapping.tenant_id = ?
       ORDER BY account.id`,
   ).bind(tenantId).all<LineStatusRow>();
 
   const rows = result.results ?? [];
-  const readiness = await Promise.all(rows.map((row) => getPharmacyReadiness(c.env.DB, row.id)));
+  const readiness = await Promise.allSettled(
+    rows.map((row) => getPharmacyReadiness(c.env.DB, row.id)),
+  );
+  const credentialStatus = await Promise.all(rows.map(async (row) => {
+    if (row.messaging_credential_count !== 2 || row.login_credential_count !== 1 ||
+        !c.env.LINE_CREDENTIAL_KEY_V1) return 'UNVERIFIED' as const;
+    const values = await Promise.all([
+      readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+        tenantId, lineAccountId: row.id, kind: 'channel_access_token',
+      }),
+      readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+        tenantId, lineAccountId: row.id, kind: 'channel_secret',
+      }),
+      readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+        tenantId, lineAccountId: row.id, kind: 'login_channel_secret',
+      }),
+    ]);
+    return values.every((value) => typeof value === 'string' && value.length > 0)
+      ? 'READY' as const : 'UNVERIFIED' as const;
+  }));
 
   await recordPlatformAdminAccess(c.env.DB, admin.id, tenantId, 'view_line_status');
   return c.json({
     success: true,
-    data: rows.map((row, index) => ({
+    data: rows.map((row, index) => {
+      const endpoint = expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, row.liff_id);
+      const liffReasonCodes = !row.liff_id
+        ? ['LIFF_ID_MISSING']
+        : endpoint
+          ? ['LIFF_ENDPOINT_UNVERIFIED']
+          : ['LIFF_PUBLIC_ORIGIN_INVALID'];
+      const readinessResult = readiness[index];
+      const accountReadiness = readinessResult?.status === 'fulfilled'
+        ? readinessResult.value : null;
+      const configurationDoctor = buildPharmacyConfigurationDoctor({
+        accountId: row.id,
+        checkedAt: accountReadiness?.checkedAt ?? new Date().toISOString(),
+        tenantMapped: true,
+        tenantActive: row.tenant_status === 'active',
+        accountActive: row.is_active === 1,
+        staffAssigned: row.active_staff_assignment_count > 0,
+        capabilityConfigured: row.capability_config_count > 0,
+        botIdentityConfigured: row.bot_identity_count > 0,
+        liffIdConfigured: Boolean(row.liff_id),
+        liffOriginValid: Boolean(endpoint),
+        liffEndpointStatus: 'UNVERIFIED',
+        loginChannelConfigured: Boolean(row.login_channel_id),
+        messagingCredentialsConfigured: row.messaging_credential_count === 2,
+        loginCredentialConfigured: row.login_credential_count === 1,
+        credentialStatus: credentialStatus[index],
+        readiness: accountReadiness,
+      });
+      return {
       id: row.id,
       name: row.name,
       channelId: row.channel_id,
@@ -253,11 +315,14 @@ platformAdminOperationsRoutes.get('/api/platform-admin/tenants/:id/line-status',
       loginChannelConfigured: Boolean(row.login_channel_id),
       messagingCredentialsReady: row.messaging_credential_count === 2,
       loginCredentialReady: row.login_credential_count === 1,
-      expectedLiffEndpoint: expectedLiffEndpoint(c.env.LIFF_PUBLIC_URL, row.liff_id),
+      expectedLiffEndpoint: endpoint,
       liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
+      liffReasonCodes,
       lastWebhookReceivedAt: row.last_webhook_received_at,
-      readiness: readiness[index],
-    })),
+      readiness: accountReadiness,
+      configurationDoctor,
+      };
+    }),
   });
 });
 

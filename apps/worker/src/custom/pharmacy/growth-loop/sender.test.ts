@@ -87,6 +87,23 @@ describe('pharmacy automated sender', () => {
     expect(push).toHaveBeenCalledOnce();
   });
 
+  it('requires emergency contraception activation for the neutral appointment reminder', async () => {
+    const reminder = {
+      ...base,
+      messageId: 'appointment_reminder_v1' as const,
+      retryKey: 'a'.repeat(64),
+    };
+    await expect(sendPharmacyAutomatedPush({ ...reminder, db: {} as D1Database }))
+      .rejects.toThrow(/capability/u);
+    config.mockResolvedValue({ capabilities: ['emergency_contraception'], proactive_monthly_limit: 1 });
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+    ]);
+    await expect(sendPharmacyAutomatedPush({ ...reminder, db })).resolves.toBe('sent');
+    expect(push).toHaveBeenCalledOnce();
+  });
+
   it('requires account, friend, and database context at runtime', async () => {
     await expect(sendPharmacyAutomatedPush({
       ...base, db: undefined, lineAccountId: undefined, friendId: undefined,
@@ -166,11 +183,15 @@ describe('pharmacy automated sender', () => {
     // proactive monthly cap and can still go out once the tenant resumes.
     const seen: string[] = [];
     const db = scriptedDb([], seen, '2026-08-19T00:00:00.000Z');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('paused');
     expect(push).not.toHaveBeenCalled();
     expect(seen).toHaveLength(1);
     expect(seen[0]).toContain('FROM tenant_line_accounts');
+    expect(log.mock.calls.flat().join(' ')).not.toContain(base.retryKey);
+    expect(log.mock.calls.flat().join(' ')).not.toContain('retry_key');
+    log.mockRestore();
   });
 
   it('sends normally when the tenant is not paused', async () => {

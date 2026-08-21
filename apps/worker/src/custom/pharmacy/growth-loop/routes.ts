@@ -4,8 +4,8 @@ import type { Env } from '../../../index.js';
 import { readJsonObject } from '../json.js';
 import {
   PATIENT_PHARMACY_CAPABILITIES,
-  canAccessPharmacyAccount,
   hasPharmacyCapability,
+  resolveAccessiblePharmacyTenant,
 } from './access.js';
 import {
   classifySubmissionSource,
@@ -17,20 +17,25 @@ import {
   setMedicalSourceActive,
 } from './repository.js';
 import { getPharmacyReadiness } from '../readiness.js';
+import { getPharmacyConfigurationDoctor } from '../configuration-doctor.js';
 import { getActivePatientWorkCounts } from './active-work.js';
+import { getPharmacyOperationsSummary } from './operations-summary.js';
 
 export const pharmacyGrowthLoopRoutes = new Hono<Env>();
 
 async function accountScope(c: Context<Env>): Promise<
-  { accountId: string; staff: { id: string; role: 'owner' | 'admin' | 'staff' } } | Response
+  { accountId: string; tenantId: string; staff: { id: string; role: 'owner' | 'admin' | 'staff' } } | Response
 > {
   const accountId = c.req.query('line_account_id') ?? c.req.query('accountId');
   const staff = c.get('staff');
   if (!accountId) return c.json({ success: false, error: 'line_account_id is required' }, 400);
-  if (!staff || !(await canAccessPharmacyAccount(c.env.DB, staff, accountId))) {
+  const tenantId = staff
+    ? await resolveAccessiblePharmacyTenant(c.env.DB, staff, accountId)
+    : null;
+  if (!tenantId || tenantId !== c.get('tenantId')) {
     return c.json({ success: false, error: 'pharmacy account access denied' }, 403);
   }
-  return { accountId, staff };
+  return { accountId, tenantId, staff };
 }
 
 async function requireCapability(c: Context<Env>, accountId: string, capability: Parameters<typeof hasPharmacyCapability>[2]): Promise<Response | null> {
@@ -51,15 +56,28 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/readiness', async (c) => {
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
   const readiness = await getPharmacyReadiness(c.env.DB, scope.accountId);
-  return readiness
-    ? c.json({ success: true, data: readiness })
-    : c.json({ success: false, error: 'pharmacy account not found' }, 404);
+  if (!readiness) return c.json({ success: false, error: 'pharmacy account not found' }, 404);
+  const configurationDoctor = await getPharmacyConfigurationDoctor({
+    db: c.env.DB,
+    tenantId: scope.tenantId,
+    accountId: scope.accountId,
+    liffPublicUrl: c.env.LIFF_PUBLIC_URL,
+    credentialKey: c.env.LINE_CREDENTIAL_KEY_V1,
+    readiness,
+  });
+  return c.json({ success: true, data: { ...readiness, configurationDoctor } });
 });
 
 pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/active-work', async (c) => {
   const scope = await accountScope(c);
   if (scope instanceof Response) return scope;
   return c.json({ success: true, data: await getActivePatientWorkCounts(c.env.DB, scope.accountId) });
+});
+
+pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/operations-summary', async (c) => {
+  const scope = await accountScope(c);
+  if (scope instanceof Response) return scope;
+  return c.json({ success: true, data: await getPharmacyOperationsSummary(c.env.DB, scope.accountId) });
 });
 
 pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/config', async (c) => {

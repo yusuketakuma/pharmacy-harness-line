@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" font-family="Hiragino Sans, Noto Sans JP, sans-serif">
+  <rect width="960" height="520" rx="16" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="480" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#24292f">薬局スタッフ管理画面 — 処方せん受付</text>
+  <!-- window -->
+  <rect x="40" y="60" width="880" height="430" rx="10" fill="#f6f8fa" stroke="#8c959f"/>
+  <rect x="40" y="60" width="880" height="28" rx="10" fill="#eaeef2"/>
+  <circle cx="60" cy="74" r="5" fill="#d0d7de"/><circle cx="76" cy="74" r="5" fill="#d0d7de"/><circle cx="92" cy="74" r="5" fill="#d0d7de"/>
+  <text x="480" y="78" text-anchor="middle" font-size="10" fill="#57606a">admin — さくら薬局 本店 (tenant: sakura-honten)</text>
+
+  <!-- sidebar -->
+  <rect x="40" y="88" width="200" height="402" fill="#ffffff" stroke="#d0d7de"/>
+  <g font-size="10.5" fill="#24292f">
+    <text x="56" y="112" font-size="9" font-weight="700" fill="#8c959f">本日の業務</text>
+    <rect x="48" y="120" width="184" height="22" rx="5" fill="#eaf2fd"/><text x="60" y="135" font-weight="700" fill="#0969da">処方せん受付</text>
+    <text x="60" y="160">電子処方箋受付</text>
+    <text x="60" y="180">緊急避妊薬</text>
+    <text x="60" y="200">薬局の動き</text>
+    <text x="56" y="228" font-size="9" font-weight="700" fill="#8c959f">患者対応</text>
+    <text x="60" y="248">患者アンケート</text>
+    <text x="60" y="268">継続フォロー</text>
+    <text x="60" y="296" font-size="9" font-weight="700" fill="#8c959f">設定</text>
+    <text x="60" y="316">機能設定</text>
+    <text x="60" y="336">患者向け薬局情報</text>
+    <text x="60" y="356">薬局統計</text>
+    <text x="56" y="384" font-size="9" font-weight="700" fill="#8c959f">コンプライアンス</text>
+    <text x="60" y="404">個人情報の取扱い</text>
+    <text x="60" y="424">開示・消去請求</text>
+    <text x="56" y="452" font-size="9" font-weight="700" fill="#8c959f">汎用 CRM</text>
+    <text x="60" y="472" fill="#57606a">友だち / 個別チャット / リッチメニュー …</text>
+  </g>
+
+  <!-- queue -->
+  <g transform="translate(256,100)">
+    <text x="0" y="14" font-size="14" font-weight="700" fill="#24292f">受付キュー</text>
+    <g font-size="9" transform="translate(150,0)">
+      <rect width="46" height="18" rx="9" fill="#0969da"/><text x="23" y="12.5" text-anchor="middle" fill="#ffffff">すべて 12</text>
+      <rect x="52" width="46" height="18" rx="9" fill="#ffffff" stroke="#d0d7de"/><text x="75" y="12.5" text-anchor="middle" fill="#24292f">未確認 3</text>
+      <rect x="104" width="46" height="18" rx="9" fill="#ffffff" stroke="#d0d7de"/><text x="127" y="12.5" text-anchor="middle" fill="#24292f">準備中 6</text>
+      <rect x="156" width="56" height="18" rx="9" fill="#ffffff" stroke="#d0d7de"/><text x="184" y="12.5" text-anchor="middle" fill="#24292f">お渡し可 3</text>
+    </g>
+    <g font-size="10">
+      <rect y="30" width="400" height="22" fill="#eaeef2"/>
+      <text x="8" y="45" fill="#57606a">受付番号</text><text x="80" y="45" fill="#57606a">患者</text><text x="190" y="45" fill="#57606a">受付時刻</text><text x="270" y="45" fill="#57606a">希望</text><text x="340" y="45" fill="#57606a">状態</text>
+      <rect y="52" width="400" height="30" fill="#eaf2fd" stroke="#0969da"/>
+      <text x="8" y="71" fill="#24292f">A-0123</text><text x="80" y="71" fill="#24292f">田中 ○○ 様</text><text x="190" y="71" fill="#24292f">14:02</text><text x="270" y="71" fill="#24292f">17:00</text>
+      <rect x="332" y="59" width="56" height="16" rx="8" fill="#fff8e6" stroke="#f2cc60"/><text x="360" y="71" text-anchor="middle" font-size="8.5" fill="#7a5a00">未確認</text>
+      <rect y="82" width="400" height="30" fill="#ffffff" stroke="#d0d7de"/>
+      <text x="8" y="101" fill="#24292f">A-0122</text><text x="80" y="101" fill="#24292f">佐藤 ○○ 様</text><text x="190" y="101" fill="#24292f">13:41</text><text x="270" y="101" fill="#24292f">16:30</text>
+      <rect x="332" y="89" width="56" height="16" rx="8" fill="#eaf2fd" stroke="#9cc4f3"/><text x="360" y="101" text-anchor="middle" font-size="8.5" fill="#0a3069">準備中</text>
+      <rect y="112" width="400" height="30" fill="#ffffff" stroke="#d0d7de"/>
+      <text x="8" y="131" fill="#24292f">E-0044</text><text x="80" y="131" fill="#24292f">鈴木 ○○ 様</text><text x="190" y="131" fill="#24292f">13:20</text><text x="270" y="131" fill="#24292f">—</text>
+      <rect x="332" y="119" width="56" height="16" rx="8" fill="#f3eefc" stroke="#c9b8f0"/><text x="360" y="131" text-anchor="middle" font-size="8.5" fill="#3e1f8a">電子 申告</text>
+      <rect y="142" width="400" height="30" fill="#ffffff" stroke="#d0d7de"/>
+      <text x="8" y="161" fill="#24292f">A-0121</text><text x="80" y="161" fill="#24292f">高橋 ○○ 様</text><text x="190" y="161" fill="#24292f">12:55</text><text x="270" y="161" fill="#24292f">15:00</text>
+      <rect x="332" y="149" width="56" height="16" rx="8" fill="#e8f8ee" stroke="#8fd8a8"/><text x="360" y="161" text-anchor="middle" font-size="8.5" fill="#0b5c2c">お渡し可</text>
+      <rect y="172" width="400" height="30" fill="#ffffff" stroke="#d0d7de"/>
+      <text x="8" y="191" fill="#24292f">A-0120</text><text x="80" y="191" fill="#24292f">伊藤 ○○ 様</text><text x="190" y="191" fill="#24292f">12:10</text><text x="270" y="191" fill="#24292f">13:30</text>
+      <rect x="332" y="179" width="56" height="16" rx="8" fill="#fff1f1" stroke="#e5a2a2"/><text x="360" y="191" text-anchor="middle" font-size="8.5" fill="#8b1e1e">期限間近</text>
+      <rect y="202" width="400" height="30" fill="#ffffff" stroke="#d0d7de"/>
+      <text x="8" y="221" fill="#24292f">A-0119</text><text x="80" y="221" fill="#24292f">渡辺 ○○ 様</text><text x="190" y="221" fill="#24292f">11:48</text><text x="270" y="221" fill="#24292f">13:00</text>
+      <rect x="332" y="209" width="56" height="16" rx="8" fill="#eaeef2" stroke="#d0d7de"/><text x="360" y="221" text-anchor="middle" font-size="8.5" fill="#57606a">完了</text>
+    </g>
+    <text x="0" y="262" font-size="9" fill="#57606a">一覧は受付番号・状態・枠・期限のみ。詳細は同一 tenant のスタッフだけが開ける。</text>
+    <text x="0" y="300" font-size="9" fill="#8c959f">50 件ごとの cursor pagination / 状態・枠・期限で絞り込み</text>
+  </g>
+
+  <!-- detail pane -->
+  <g transform="translate(680,100)">
+    <rect width="224" height="376" rx="8" fill="#ffffff" stroke="#0969da"/>
+    <text x="12" y="22" font-size="12" font-weight="700" fill="#24292f">A-0123 の詳細</text>
+    <rect x="12" y="32" width="200" height="90" rx="4" fill="#eef1f4" stroke="#d0d7de"/>
+    <rect x="40" y="40" width="60" height="74" rx="2" fill="#ffffff" stroke="#d0d7de"/><rect x="110" y="40" width="60" height="74" rx="2" fill="#ffffff" stroke="#d0d7de"/>
+    <text x="112" y="138" text-anchor="middle" font-size="8" fill="#57606a">画像閲覧は監査イベントに記録</text>
+    <g font-size="9.5" fill="#24292f">
+      <text x="12" y="160">受け取り希望: 本日 17:00</text>
+      <text x="12" y="176">ジェネリック: 希望あり</text>
+      <text x="12" y="192">有効期限: 08/24 (あと 3 日)</text>
+      <text x="12" y="208">問診: 登録済み (暗号化保存)</text>
+    </g>
+    <rect x="12" y="224" width="200" height="26" rx="6" fill="#0969da"/><text x="112" y="241" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff">確認して準備中にする</text>
+    <rect x="12" y="256" width="200" height="26" rx="6" fill="#ffffff" stroke="#06c755"/><text x="112" y="273" text-anchor="middle" font-size="10" fill="#0b5c2c">お渡し可能を通知 (定型文)</text>
+    <rect x="12" y="288" width="200" height="26" rx="6" fill="#ffffff" stroke="#8c959f"/><text x="112" y="305" text-anchor="middle" font-size="10" fill="#24292f">処方せんを印刷</text>
+    <rect x="12" y="320" width="200" height="26" rx="6" fill="#ffffff" stroke="#cf222e"/><text x="112" y="337" text-anchor="middle" font-size="10" fill="#cf222e">取消 (確認ダイアログ)</text>
+    <text x="112" y="366" text-anchor="middle" font-size="8" fill="#8c959f">患者名・内容は通知文に載らない</text>
+  </g>
+  <text x="480" y="508" text-anchor="middle" font-size="11" fill="#57606a">画面はイメージです。患者名は仮名、数値はダミーです。</text>
+</svg>

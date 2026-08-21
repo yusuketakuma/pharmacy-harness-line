@@ -25,7 +25,7 @@ describe('fetchApi errors', () => {
   it('clears browser session state and redirects immediately on 401', async () => {
     const removeItem = vi.fn()
     const assign = vi.fn()
-    vi.stubGlobal('window', { location: { assign } })
+    vi.stubGlobal('window', { location: { assign, pathname: '/prescriptions', search: '?submission=abc' } })
     vi.stubGlobal('localStorage', { getItem: () => '', removeItem })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
       JSON.stringify({ error: 'internal detail' }),
@@ -36,6 +36,6 @@ describe('fetchApi errors', () => {
     await expect(fetchApi('/api/test')).rejects.toMatchObject({ status: 401 })
     expect(removeItem).toHaveBeenCalledWith('lh_csrf')
     expect(removeItem).toHaveBeenCalledWith('lh_selected_account')
-    expect(assign).toHaveBeenCalledWith('/login')
+    expect(assign).toHaveBeenCalledWith('/login?reason=expired&next=%2Fprescriptions%3Fsubmission%3Dabc')
   })
 })

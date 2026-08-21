@@ -96,7 +96,7 @@ export default function GrowthDashboardPage() {
       setDataMonth(month)
       setDataAccountId(selectedAccountId)
     } catch {
-      setError('薬局Growth Loopの集計を取得できませんでした。薬局モードと権限を確認してください。')
+      setError('薬局統計の集計を取得できませんでした。薬局モードと権限を確認してください。')
     } finally { setLoading(false) }
   }, [month, selectedAccountId])
 
@@ -126,7 +126,7 @@ export default function GrowthDashboardPage() {
   if (!selectedAccountId) return <p className="py-10 text-center text-gray-500">LINEアカウントを登録してください。</p>
   if (loading && (!data || dataMonth !== month || dataAccountId !== selectedAccountId)) return <p className="py-10 text-center text-gray-500">集計を読み込み中...</p>
   return <main className="mx-auto max-w-7xl space-y-5">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-bold text-gray-900">薬局 Growth Loop</h1><p className="mt-1 text-sm text-gray-500">受付入口、約束時刻、期限確認を薬局単位で確認します。</p></div><div className="flex items-end gap-2"><label className="text-sm text-gray-700">集計月<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="mt-1 block rounded-lg border border-gray-300 bg-white px-3 py-2" /></label><button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button></div></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-bold text-gray-900">薬局統計</h1><p className="mt-1 text-sm text-gray-500">受付入口、約束時刻、期限確認を薬局単位で確認します。</p></div><div className="flex items-end gap-2"><label className="text-sm text-gray-700">集計月<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="mt-1 block rounded-lg border border-gray-300 bg-white px-3 py-2" /></label><button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">再読み込み</button></div></div>
     {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     {data && dataMonth === month && dataAccountId === selectedAccountId && <>
       <section>

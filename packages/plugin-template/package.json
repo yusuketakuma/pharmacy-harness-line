@@ -21,7 +21,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^26.2.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.5.0",
+    "typescript": "^5.9.3",
     "wrangler": "^4.124.0",
     "zod": "^4.4.3"
   }

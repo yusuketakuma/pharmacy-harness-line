@@ -1,4 +1,5 @@
 'use client'
+import { tenantStatusLabel } from '@/lib/platform-admin-labels'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { platformAdminApi, type PlatformTenant } from '@/lib/platform-admin-api'
@@ -34,7 +35,10 @@ export default function PlatformAdminTenantsPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold">テナント一覧</h1>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">テナント一覧</h1>
+        <Link href="/platform-admin/tenants/new" className="inline-flex min-h-11 items-center rounded-lg bg-purple-800 px-4 text-sm font-semibold text-white">新規テナントを設定</Link>
+      </div>
       <label htmlFor="tenant-search" className="mb-4 block max-w-md text-sm">テナントを検索
         <input id="tenant-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
       </label>
@@ -67,7 +71,7 @@ export default function PlatformAdminTenantsPage() {
                   </td>
                   <td className="px-3 py-2">{tenant.displayName}</td>
                   <td className="px-3 py-2">
-                    <span className={statusBadgeClass(tenant.status)}>{tenant.status}</span>
+                    <span className={statusBadgeClass(tenant.status)}>{tenantStatusLabel(tenant.status)}</span>
                     {tenant.outboundMessagingPausedAt && (
                       <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">患者向けLINE送信一時停止中</span>
                     )}

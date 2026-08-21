@@ -13,12 +13,9 @@ import {
   SupportModeRequired,
 } from '@/components/platform-admin/support-mode'
 
-const SEX_LABELS: Record<string, string> = {
-  male: '男性', female: '女性', other: 'その他', prefer_not_to_say: '回答しない',
-}
-const RELATIONSHIP_LABELS: Record<string, string> = {
-  self: '本人', child: '子', spouse: '配偶者', parent: '親', other: 'その他',
-}
+import {
+  RELATIONSHIP_LABELS, SEX_LABELS, intakeAnswerText, intakeQuestionLabel,
+} from '@/custom/pharmacy/intake/labels'
 
 function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
@@ -130,7 +127,7 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
           <div><dt className="text-gray-500">カナ</dt><dd>{text(patient.name_kana)}</dd></div>
           <div><dt className="text-gray-500">生年月日</dt><dd>{text(patient.birth_date)}</dd></div>
           <div><dt className="text-gray-500">性別</dt><dd>{patient.sex ? SEX_LABELS[patient.sex] ?? patient.sex : '—'}</dd></div>
-          <div><dt className="text-gray-500">続柄</dt><dd>{RELATIONSHIP_LABELS[patient.relationship] ?? patient.relationship}</dd></div>
+          <div><dt className="text-gray-500">続柄</dt><dd>{RELATIONSHIP_LABELS[patient.relationship as keyof typeof RELATIONSHIP_LABELS] ?? patient.relationship}</dd></div>
           <div><dt className="text-gray-500">電話</dt><dd>{text(patient.contact_phone)}</dd></div>
           <div><dt className="text-gray-500">郵便番号</dt><dd>{text(patient.postal_code)}</dd></div>
           <div><dt className="text-gray-500">都道府県</dt><dd>{text(patient.prefecture)}</dd></div>
@@ -154,7 +151,7 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
             </p>
             <dl className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
               {Object.entries(detail.latestIntake.answers).map(([key, value]) => (
-                <div key={key}><dt className="text-gray-500">{key}</dt><dd>{text(value)}</dd></div>
+                <div key={key}><dt className="text-gray-500">{intakeQuestionLabel(key)}</dt><dd>{intakeAnswerText(key, value)}</dd></div>
               ))}
             </dl>
           </>
@@ -175,7 +172,7 @@ function PatientDetail({ tenantId, patientId }: { tenantId: string; patientId: s
       />
 
       <Section
-        title="処方箋"
+        title="処方せん"
         rows={detail.prescriptions}
         columns={[
           ['受付ID', (row) => <span className="font-mono text-xs">{row.id}</span>],
