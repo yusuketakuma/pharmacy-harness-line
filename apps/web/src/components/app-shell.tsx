@@ -13,6 +13,24 @@ function OutboundPauseBanner() {
   </div>
 }
 
+function AccountScopedLayout({ children }: { children: React.ReactNode }) {
+  const { selectedAccountId } = useAccount()
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <div className="flex flex-1 min-h-0">
+        <Sidebar />
+        <main key={selectedAccountId ?? 'no-account'} className="flex-1 overflow-auto pt-[72px] lg:pt-0">
+          <div className="px-4 pb-6 sm:px-6 lg:pt-8 lg:px-8 lg:pb-8">
+            <OutboundPauseBanner />
+            {children}
+          </div>
+        </main>
+      </div>
+    </div>
+  )
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
@@ -29,17 +47,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
       <AccountProvider>
-        <div className="flex min-h-screen flex-col">
-          <div className="flex flex-1 min-h-0">
-            <Sidebar />
-            <main className="flex-1 overflow-auto pt-[72px] lg:pt-0">
-              <div className="px-4 pb-6 sm:px-6 lg:pt-8 lg:px-8 lg:pb-8">
-                <OutboundPauseBanner />
-                {children}
-              </div>
-            </main>
-          </div>
-        </div>
+        <AccountScopedLayout>{children}</AccountScopedLayout>
       </AccountProvider>
     </AuthGuard>
   )
