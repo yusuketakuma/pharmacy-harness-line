@@ -24,6 +24,5 @@ export interface PharmacyPublicProfile {
 export const pharmacyPublicProfileApi = {
   get: () => requestPharmacyJson<{ profile: PharmacyPublicProfile }>(
     '/api/liff/pharmacy/public-profile',
-    '薬局情報を取得できませんでした',
   ),
 };

@@ -22,7 +22,7 @@ function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  return requestPharmacyJson<T>(path, 'Prescription API', init);
+  return requestPharmacyJson<T>(path, init);
 }
 
 function json<T>(path: string, body: unknown): Promise<T> {

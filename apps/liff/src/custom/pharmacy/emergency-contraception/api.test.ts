@@ -15,7 +15,6 @@ describe('emergency contraception patient API', () => {
     await emergencyContraceptionApi.list();
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/emergency-contraception',
-      'Emergency contraception API',
       undefined,
     );
   });
@@ -52,7 +51,6 @@ describe('emergency contraception patient API', () => {
     await emergencyContraceptionApi.create(body);
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/emergency-contraception/intakes',
-      'Emergency contraception API',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,7 +63,6 @@ describe('emergency contraception patient API', () => {
     await emergencyContraceptionApi.cancel('intake/1', 3, 'cancel-key-1');
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/emergency-contraception/intakes/intake%2F1/cancel',
-      'Emergency contraception API',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ expectedVersion: 3, idempotencyKey: 'cancel-key-1' }),

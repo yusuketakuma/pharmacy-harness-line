@@ -11,7 +11,7 @@ export interface MynaHandoff {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  return requestPharmacyJson<T>(path, 'マイナ受付', {
+  return requestPharmacyJson<T>(path, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init.headers },
   });
