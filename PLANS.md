@@ -697,7 +697,8 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - `Repository Verify`を全PRで必ず報告される唯一の基準checkにし、Worker/Web/LIFFのcritical test/buildを含める。path filter付きrequired checkは作らない。
   - migration contract、beta E2E smoke、security contract、supply-chain baselineを実在させてgreenを確認した後だけrequiredへ登録する。存在しないcheck名を先にrequiredへ登録しない。
   - `main`/`dev`/`beta`のdirect push禁止、admin enforcement、auth/tenant/DB/deploy/Platform Admin変更の独立review ownerを設定し、GitHub APIでfresh read-backする。self-approvalしかできない構成ではgateを閉じない。
-  - **ローカル実装進捗(2026-08-22)**: `feature/v031-release-governance`へ切り出し、重複していたWorker/Web CIを削除して`Repository Verify` 1本へ統合した。全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildをpath filterなしで実行する。Red -> Greenのworkflow契約、`pnpm verify:ci`（計3,250 tests、migration 82件）、3アプリbuildがgreen。GitHub fresh read-backではmain/devともrequired status checksは未設定。required check登録、独立reviewer、実workflow runのfresh read-backは未実施のため、本項は未完了のまま維持する。
+  - **ローカル実装進捗(2026-08-22)**: `feature/v031-release-governance`へ切り出し、重複していたWorker/Web CIを削除して`Repository Verify` 1本へ統合した。全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildをpath filterなしで実行する。Red -> Greenのworkflow契約、`pnpm verify:ci`（計3,250 tests、migration 82件）、3アプリbuildがgreen。
+  - **GitHub実行証跡(2026-08-22)**: PR `#77`の`Repository Verify / verify`（run `32561951117`、job `97004785951`）がPASS。main/devのrequired status checksをGitHub Actions app `15368`の`verify` 1件、`strict=true`で登録し、admin enforcement、force-push禁止、branch削除禁止をfresh read-backした。必須approvalは0件、独立reviewerとbeta branchは未設定のため、本項は未完了のまま維持する。
 - [ ] **V031-2 beta deploymentをproductionから分離**
   - beta branch/environmentとbeta専用Worker/D1/R2/Pages/LIFFを追加し、production reviewerとbeta reviewerを設定する。既存development/production resourceをbetaとして流用しない。
   - source SHA、package version、seller release、release channel、environment、migration set、schema fingerprint、Worker/LIFF/Admin artifact hashとdeployment ID、workflow run、Human Go、stageをrelease manifestへ固定する。deploy時に再buildする場合はhash完全一致を必須にする。
