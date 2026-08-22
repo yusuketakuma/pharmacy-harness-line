@@ -137,11 +137,20 @@ describe('development deployment workflow contract', () => {
     expect(workflow).toContain('--base dev');
   });
 
-  test('Worker CI runs for integration and production pushes', () => {
-    const workflow = read('.github/workflows/worker-ci.yml');
-    expect(workflow).toContain('branches: [main, dev]');
-    expect(workflow).not.toContain('VITE_LIFF_ID');
-    expect(workflow).not.toContain('VITE_BOT_BASIC_ID');
+  test('reports one required CI context for every pull request', () => {
+    const repositoryVerify = parse(read('.github/workflows/repository-verify.yml')) as any;
+
+    expect(repositoryVerify.on.pull_request).toBeNull();
+    expect(repositoryVerify.on.push.branches).toEqual(['main', 'dev']);
+    expect(existsSync('.github/workflows/worker-ci.yml')).toBe(false);
+    expect(existsSync('.github/workflows/web-ci.yml')).toBe(false);
+
+    const steps = repositoryVerify.jobs.verify.steps;
+    expect(steps.some((step: { run?: string }) => step.run === 'pnpm verify:ci')).toBe(true);
+    const build = steps.find(
+      (step: { name?: string }) => step.name === 'Build critical applications',
+    );
+    expect(build.run).toBe('pnpm --filter worker --filter web --filter liff build');
   });
 
   test('development Worker uses an isolated R2 bucket', () => {
@@ -263,24 +272,28 @@ describe('development deployment workflow contract', () => {
   });
 
   test('records a pre-migration D1 bookmark and post-smoke deployment evidence', () => {
+    const inject = deploy.steps[stepIndex('Inject runtime release metadata')];
+    const record = deploy.steps[stepIndex('Record release evidence')];
+
     expect(sharedDeploy).toContain('scripts/deploy/release-state.ts --with-bookmark');
     expect(sharedDeploy).toContain('scripts/deploy/record-release-evidence.ts');
     expect(sharedDeploy).toContain('BEFORE_STATE: ${{ steps.before.outputs.state }}');
     expect(sharedDeploy).toContain('MIGRATION_RESULT: ${{ steps.migrations.outputs.result }}');
     expect(sharedDeploy).toContain('SOURCE_SHA: ${{ github.sha }}');
+    expect(inject.id).toBe('release_artifacts');
+    expect(inject.run).toContain('metadata="$(pnpm tsx apps/worker/scripts/inject-version.ts');
+    expect(inject.run).toContain('echo "metadata=$metadata" >> "$GITHUB_OUTPUT"');
+    expect(record.env).toMatchObject({
+      ARTIFACT_METADATA: '${{ steps.release_artifacts.outputs.metadata }}',
+      DEPLOY_TARGET: '${{ env.DEPLOY_TARGET }}',
+      PHARMACY_SELLER_RELEASE: '${{ vars.PHARMACY_SELLER_RELEASE }}',
+      RELEASE_STAGE: '${{ vars.RELEASE_STAGE }}',
+    });
   });
 
   test('publishes and verifies the Admin route on the configured Pages branch', () => {
     expect(sharedDeploy).toContain('--branch="$GITHUB_REF_NAME"');
     expect(sharedDeploy).toContain('${ADMIN_ORIGIN%/}/prescriptions');
-  });
-
-  test('Web CI gates Admin changes before deployment', () => {
-    const workflow = read('.github/workflows/web-ci.yml');
-    expect(workflow).toContain('pull_request:');
-    expect(workflow).toContain('branches: [main, dev]');
-    expect(workflow).toContain('pnpm --filter web test');
-    expect(workflow).toContain('pnpm --filter web build');
   });
 
   test('builds the update engine before release workspace tests import it', () => {

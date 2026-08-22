@@ -122,10 +122,10 @@ function imageEvent(suffix: 'a' | 'b', webhookEventId: string, messageId: string
   };
 }
 
-function makeR2Stub() {
+function makeR2Stub(): R2Bucket {
   return {
     put: vi.fn(async () => null),
-  };
+  } as unknown as R2Bucket;
 }
 
 /** Mirrors WEBHOOK_INBOX_MAX_ATTEMPTS in webhook.ts. */

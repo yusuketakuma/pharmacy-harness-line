@@ -254,7 +254,7 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     const held = insertIntake('a', '2023-01-01T00:00:00.000Z');
     const racingDb = {
       ...db,
-      batch: async (statements: RunnableStatement[]) => {
+      batch: async (statements: D1PreparedStatement[]) => {
         insertLegalHold('a', 'friend-a', null);
         return db.batch(statements);
       },

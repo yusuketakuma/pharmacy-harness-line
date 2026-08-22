@@ -122,37 +122,40 @@
 |---|---|
 | Myna `tenant_alias` のaccount単位一意化 | global UNIQUEが安全性の根拠。緩めると `getMynaEndpointByAlias` が非決定的になり他薬局へredirectし得る。NEXT-1で公開面からaliasが消えるため論点消滅 |
 | 3年purge本体（約20 table） | 対象行が2029年まで存在せず、誤削除は調剤録の法定保存を壊す。NEXT-5のspecのみ |
-| V031-0〜5 | V030-3のread-back/rollback実証が無い。register解消後に再判定 |
+| 旧V031-0〜5（分析/scheduler/preset/timeline/queue同梱案） | V040-CBで分割・延期済み。現行V031-0〜5はrelease governance/assuranceとして有効 |
 | 全repo一括format | release review を整形diffで埋没させる |
 
-**Human Gate register（コード外、`NOT_RUN`）**:
+**Human Gate register（コード外のcanonical evidence status）**:
+
+状態は`PASS`、`FAIL`、`NOT_RUN`、`UNVERIFIED`、`BLOCKED`だけを使う。コード、test、release、deploy、activation、外部操作を相互に推論しない。GitHub Issuesが無効な間は、このregisterとV040-CBのP0 blocker registerを`open P0`のauthorityとし、V031/V032/V033/V037/V038/V039の未完了mandatory checklistを`open P1`の分母とする。`STRETCH`のV034/V035/V036はscopeへ明示昇格した場合だけP1へ数える。
 
 | gate | 担当 | 実施条件 | 状態 |
 |---|---|---|---|
 | R2 lifecycle実設定のread-only確認 | Cloudflare account権限者 | API 1回。既存ruleが画像を消していればDB行が孤立する障害 | `NOT_RUN`（account ID placeholder） |
-| V030 synthetic account 初期設定end-to-end（実LINE端末、左上「処方せん送信」、rollback read-back） | owner + 実端末 | dev deploy済みWorker/Pages、synthetic account | `unknown` |
+| V030 synthetic account 初期設定end-to-end（実LINE端末、左上「処方せん送信」、rollback read-back） | owner + 実端末 | dev deploy済みWorker/Pages、synthetic account | `UNVERIFIED` |
 | v0.29 binary rollback drill | deploy権限者 | 新activation停止→remote default不変→pending reminder zero-send | `NOT_RUN` |
 | LINE Endpoint manual evidence（Console） | owner | V029-1の手順 | `UNVERIFIED` |
 | FLE production secret/backfill/coverage/scrub/restore drill | ops + named approval | FLE-FINAL条件 | `NOT_RUN` |
-| 真のMFA / 別origin / role細分化 / 異常検知 | 経営・インフラ | 製品判断 | 未決 |
-| 緊急避妊薬: 厚労省一覧掲載・実在庫・当日勤務・紙記録運用 | 薬局 | EC-0 | 未確認 |
-| 緊急避妊薬 `retention_days` の意味（NEXT-2は自己申告payloadのみredact。`owner_friend_id`/`age_band`/status/event・reminder・access auditの識別可能な残存をtombstoneするか） | 経営・法務 | 患者向け「保存期間N日間」の解釈を決定。tombstone採用時はmigration + no-delete audit invariantの変更が必要 | 未決 |
+| 真のMFA / 別origin / role細分化 / 異常検知 | 経営・インフラ | 製品判断 | `BLOCKED` |
+| 緊急避妊薬: 厚労省一覧掲載・実在庫・当日勤務・紙記録運用 | 薬局 | EC-0 | `BLOCKED` |
+| 緊急避妊薬 `retention_days` の意味（NEXT-2は自己申告payloadのみredact。`owner_friend_id`/`age_band`/status/event・reminder・access auditの識別可能な残存をtombstoneするか） | 経営・法務 | 患者向け「保存期間N日間」の解釈を決定。tombstone採用時はmigration + no-delete audit invariantの変更が必要 | `BLOCKED` |
 | V029-13: dev deploy後のPages asset marker/Worker API/CORS証跡記録 | 実装者(dev deploy実行者) | dev環境へのdeploy完了後に確認・記録する | NOT_RUN |
 | V029-13: dev deploy後のcanonical readiness証跡記録 | 実装者(dev deploy実行者) | 同上 | NOT_RUN |
 | V029-13: dev deploy後のLINE Endpoint自動/manual evidence記録 | 実装者(dev deploy実行者) | 同上 | NOT_RUN |
 | V029-13: 実LINE端末Human Gate一式(Myna外部遷移/復帰/紙fallback、機能ON/OFF/全OFF、active drain、disabled旧rich-menu tap、緊急避妊薬status、通知同梱時のみ承認済み中立通知、薬局情報/FAX、右上version) | 薬局staff/実機端末操作者 | dev deploy後に実LINE端末で1項目ずつ確認する | NOT_RUN |
-| V029-13: GitHub Release本文(`pharmacy-v0.29.0`) | リリース担当者 | seller tag出荷後、明示指示を受けて作成する | NOT_RUN |
-| V029-13: production code deploy/account activation/LINE mutation | 運用担当者 | 個別の明示指示を受けてから実行する | NOT_RUN |
+| V029-13: GitHub Release本文(`pharmacy-v0.29.0`) | リリース担当者 | GitHub APIで本文をfresh read-backする | `PASS`（2026-08-22 read-back） |
+| V029-13: production code deploy | 運用担当者 | GitHub deployment/runとsource SHAをfresh read-backする | `PASS`（run `32507393605`、source `b26e890f424c735b11b895fb715f090851421c89`） |
+| V029-13: account activation/LINE mutation | 運用担当者 | 個別の明示指示を受けてから実行する | `NOT_RUN` |
 | V030-0: synthetic account受入(実v0.29 binary rollback drill、remote current/known-good identity確定) | 実装者/運用担当者 | 外部受入セッションで固定する | NOT_RUN |
 | V030-2/V030-2D: 実ブラウザ狭幅・200% zoom確認 | 実装者/QA | 実端末・実ブラウザで目視確認する | NOT_RUN |
 | V030-2/V030-2D/V030-3: 実LINE lifecycle確認(初期表示切替・保存versionのLINE登録・candidate作成〜upload〜set-default〜read-back) | 薬局staff/運用担当者 | synthetic accountで明示Human Gateとして実施する | NOT_RUN |
 | V030-3: 初期設定end-to-end実証(local prepare→LINE create/upload→set-default→read-back一致) | 実装者/運用担当者 | V030-6のsynthetic account受入と同時に実施する | NOT_RUN |
-| V030-6: schema apply | 運用担当者 | 個別の明示指示を受けてから実行する | NOT_RUN |
-| V030-6: production code deploy | 運用担当者 | 個別の明示指示を受けてから実行する | NOT_RUN |
+| V030-6: production schema fingerprint/read-back | 運用担当者 | workflow migration stepだけでなく、fresh D1 schema/migration setを照合する | `PASS`（2026-08-22 read-only。schema 410件、fingerprint `sha256:ddae0c74769f973dac6828f47a53b2c1a4ab8a7dfc765c5cf7e9bfa375504e14`、migration 123/123 checksum一致） |
+| V030-6: production code deploy | 運用担当者 | GitHub deployment/runとsource SHAをfresh read-backする | `PASS`（deployment `6025995862`、run `32507393605`） |
 | V030-6: account activation(新lifecycle/reminderをONへ) | 運用担当者 | deploy後もdefault inactiveのままであることを確認してから、個別の明示指示を受けて実行する | NOT_RUN |
 | V030-6: LINE candidate create/upload/set-default/rollbackの一連のmutation | 運用担当者/薬局staff | account activation後、synthetic accountでのend-to-end実証を経てから実行する | NOT_RUN |
 | V030-6: code rollback drill(新activation停止、remote default維持、pending reminder停止、reconcile確認) | 運用担当者 | production incident対応手順として個別に実施する | NOT_RUN |
-| V030-6: GitHub Release本文(`pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`) | リリース担当者 | 各seller tag出荷後、明示指示を受けて作成する | NOT_RUN |
+| V030-6: GitHub Release本文(`pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`) | リリース担当者 | GitHub APIで各本文をfresh read-backする | `PASS`（2026-08-22 read-back） |
 
 ### V029 - 電子処方箋・緊急避妊薬・機能ON/OFF + 安全なreadiness - 2026-08-21 Oracle反映版
 
@@ -587,75 +590,229 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - package `0.30.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.30.0`、GitHub Release本文は全gate後に揃える。dev push/main merge/tag/deploy/account activation/LINE mutationは個別の明示指示を受ける。
   - **Oracle evidence**: session `pharmacy-v029-v030-split-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、`thinkingTime=pro`、transcript validation `ok`。判定`CHANGE`をdraft確定点、LINE lifecycle、reminder occurrence、activation、conditional moveへ反映済み。
   - **進捗(2026-08-21)**: release generatorを同一sourceから再実行し、228 JPEG、manifest、全SHA-256が既存local artifactと完全一致することを確認した。catalog総容量を50MB以下に制限するdeploy gateも追加し、現在artifactは36,954,062 bytes。development R2へ228画像とmanifestを登録し、全remote objectのbyte/hash/size一致を確認した。Worker rich-menu/DB/LIFF/Web/CLI・doctorのfocused testsはgreen。最新確認はWorker 93 files / 795 tests、Web薬局custom seam 28 files / 127 tests、LIFF薬局custom seam 16 files / 69 tests、deploy workflow・CLI契約 2 files / 62 tests。schema apply、deploy、account activation、LINE mutation、実端末受入、rollback drill、package/release metadataは未実行。
-  - **完了(2026-08-22, ローカル/リリース分)**: 上記focused testのローカルgreenに加え、seller tag `pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`、package version、`CHANGELOG.md`「Pharmacy v0.30.0/v0.30.1/v0.30.2」を確認した。**方針からの逸脱を記録する**: 本節は当初「package `0.30.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.30.0`、GitHub Release本文は全gate後に揃える」としていたが、実際には schema apply・production code deploy・account activation・LINE candidate create/upload/set-default・rollback drill・実端末受入がいずれも`NOT_RUN`のまま、`pharmacy-v0.30.0`/`v0.30.1`/`v0.30.2`のpackage/tag/CHANGELOGだけが先行して出荷された(3タグとも`git log`上でmainの祖先として確認できるが、上記gateの実施証跡は`git log`/`CHANGELOG.md`からは確認できない)。この逸脱は事実として記録するに留め、遡って各gateを実施済みと扱わない。GitHub Release本文、schema apply、production deploy、account activation、LINE candidate create/upload/set-default、code rollback drill、synthetic account実端末受入は未実施のままNEXTセクションのHuman Gate registerへ計上した。
+  - **完了(2026-08-22, ローカル/リリース分)**: 上記focused testのローカルgreenに加え、seller tag `pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`、package version、`CHANGELOG.md`「Pharmacy v0.30.0/v0.30.1/v0.30.2」を確認した。**方針からの逸脱を記録する**: package/tag/CHANGELOG/GitHub Releaseとproduction code deployは外部受入gateより先行した。2026-08-22のlive GitHub read-backでは各GitHub Release本文とproduction deployment run `32507393605`（source `b26e890f424c735b11b895fb715f090851421c89`）を確認したが、これをaccount activation、LINE lifecycle、rollback、実端末受入、production business operationの証拠へ代用しない。production D1 schema fingerprintはworkflow migration step成功だけでは閉じず`UNVERIFIED`、account activation、LINE candidate create/upload/set-default、code rollback drill、synthetic account実端末受入は`NOT_RUN`のままHuman Gate registerへ計上する。
 
-### V031 - privacy-safe menu分析・予約切替・preset共有 - 0.31.0実装予定
+### V040-CB - v0.31.0〜v0.40.0 Stage 0からCore Closed Betaへのroadmap - 2026-08-22多角review反映版
 
-**位置付け**: seller release `pharmacy-v0.31.0`として実装予定。v0.30.0でimmutable draft、LINE create/upload/default/read-back、explicit rollback、capability同期、tap link診断がgreenかつsynthetic accountで実証された後に着手する。v0.31.0はmenu運用の改善に限定し、患者domainや緊急避妊薬reminderを同時拡張しない。
+**結論**: 2026-09-01のmilestone名は`v0.40.0`を維持するが、この日の最大成果は外部患者を入れないStage 0 synthetic internal alpha / beta candidateとする。Stage 2の24時間とStage 3の48〜72時間を省略せず、Stage 3観察完了後だけCore Closed Betaを名乗る。全gateが連続してPASSした場合の最短目標は2026-09-04〜05である。日付はearliest targetであり、gate未達ならversion、tag、`CHANGELOG.md`の完了表記を進めない。
 
-**目的**: 個人を記録しないmenu利用傾向を薬局ownerが把握し、検証済みmenuを指定日時に安全に切り替え、同一tenant内の別accountへallowlist配置だけを再利用できるようにする。
+**この節が置き換える計画**: 旧V031に同居していたmenu独自分析、予約切替、preset共有、患者timeline、職員action queue、fleet driftを分割する。`V031-L1`はv0.34.0、`V031-A1`はv0.35.0、`V031-P1`はv0.37.0へ移し、custom menu action counter、custom rich-menu scheduler、preset共有はv0.41.0以降へ延期する。
 
-**非目標**: unique user数、患者追跡、friend/patient ID・IP・User-Agent・raw URL/queryのanalytics保存、緊急避妊薬等の関心推定、A/B test、患者別menu、AI最適化、任意条件式、毎週繰り返しschedule、任意URL/image/actionのaccount間copy、platform admin mutation。
+**Oracle evidence**: session `review-the-proposed-pharmacy-harness`と`pharmacy-v040-roadmap-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、thinking `Pro`。restore/特権Human Gateをbackfill・scrubより先に置くこと、mixed-version migrationを各versionで継続すること、9月1日をStage 0に限定すること、consent/proxy、final-artifact assurance、重大incident時のglobal quarantineを反映した。
 
-**画面別アップデート候補**:
+#### 再調査時点のbaseline
 
-| surface | v0.31.0での候補 | 境界 |
+| 項目 | 2026-08-22の確認結果 | roadmap上の扱い |
 |---|---|---|
-| 患者LIFF | 対応中recordの時系列とserver-owned次行動 | owner認証済み最小projection、raw医療情報なし |
-| 薬局管理画面 | domain横断action queue、menu分析・予約・preset UI | read-only union、domain mutationは既存detailのみ |
-| 全体管理画面 | version/readiness/menu scheduleのfleet driftとsupport snapshot | 非PHI read-only、tenant比較analyticsなし |
+| source / release identity | `HEAD=71c7a42`、package `0.30.2`、最新seller tag `pharmacy-v0.30.2` | package、seller tag、deploy、activation、production operationを別証拠として扱う |
+| GitHub branch protection | `main`/`dev`は保護済みだがrequired status checksなし、必須review 0件 | v0.31.0の最優先Human Gate |
+| deploy topology | workflowは`main`/`dev`だけをproduction/developmentへdeploy。`beta` branch/environmentなし | betaをproductionから分離するまで外部患者を入れない |
+| assurance workflow | `Repository Verify` 1本で全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildを実行する。Playwright/CodeQL/SBOM/provenance workflowは未確認 | v0.31.0でbaselineを構築・初回実行し、v0.39.0はfinal artifactへの再実行だけにする |
+| auth | password 12〜128文字、PBKDF2-SHA256 100,000回、opaque session/CSRFあり。TOTP/WebAuthnと永続lockoutなし | v0.33.0で認証入口とabuse protectionを強化 |
+| rate limit | isolate内`Map`のsliding window | coarse burst防御として残し、認証lockoutのauthorityにしない |
+| LINE着信画像 | `custom_050`のR2 object trackingと、追跡失敗時のdurable retryを実装済み | 再実装せず、v0.32.0でbackfill/lifecycle/read-backを実証 |
+| stuck webhook | 24時間超の`pending`/`processing`をdead-letter化する処理を実装済み | 再実装せず、v0.32.0でalert/運用証拠を実証 |
+| v0.30 external evidence | GitHub Release本文、production code deploy、production D1 schema/migration read-backは`PASS`。seller tag commitとdeploy source SHAは別だがruntime-bearing path差分0。activation、LINE create/upload/default/read-back/rollback、実端末受入は`NOT_RUN` | code deploy済みを業務受入済みと扱わず、残りをv0.31.0の停止条件にする |
 
-- [ ] **V031-0 v0.30.0運用証拠とRed contractを固定**
-  - v0.30.0のcurrent default read-back、rollback、partial failure、capability stale、tap preflight、operation auditをfixture化する。v0.30 readerがv0.31 schedule/aggregate dataを安全に無視し、予約LINE mutationを実行しないmixed-version testを作る。
-  - analytics、schedule execution、layout copyは別々のaccount activationとし、deploy時は全account OFFにする。1機能のactivationから他を推論しない。
-  - **受入条件**: base commit、対象account、current known-good remote ID、timezone、activation、rollback候補、zero-send/mutation baselineを追跡できる。
+#### Canonical statusと外部患者導入前P0 blocker register
 
-- [ ] **V031-1 個人を記録しないmenu action集計**
-  - 指標名はunique tapではなく`menu action opens`とする。server-derived profile version、slot、allowlist action key、account timezoneの日付だけで日次counterをatomic incrementし、raw event rowを保存しない。
-  - friend/patient ID、IP、User-Agent、referrer、raw URL/query、LIFF tokenをanalytics repository/API/logへ渡さない。少数行動からセンシティブな関心を推測しないよう、管理画面は7日以上の期間単位かつcount 5未満を「少数」として非表示にする。
-  - 集計不能・重複page loadをunique userへ補正せず、menu以外のdirect accessが混ざる可能性を説明する。account別集計のみとし、platform全体の薬局比較ランキングを作らない。
-  - **Red -> Green**: atomic increment、timezone境界、unknown action、disabled analytics、cross-account、raw identifier 0件、count抑制、API field allowlistを確認する。
+状態は`PASS`、`FAIL`、`NOT_RUN`、`UNVERIFIED`、`BLOCKED`だけを使う。GitHub Issuesが無効な間、次の表を`open P0`のcanonical分母とする。1行でも`PASS`以外ならStage 2へ進まない。`open P1`はV031/V032/V033/V037/V038/V039の未完了mandatory checklistから算出する。
 
-- [ ] **V031-2 検証済みmenuの単発予約切替**
-  - scheduleはv0.30でupload/read-back済みのimmutable draftとremote richMenuId、expected current default、account timezoneの将来時刻、schedule revisionを参照する。v0.31.0はaccountあたり未来のactive schedule 1件だけに限定し、繰り返し・祝日ruleを作らない。
-  - ownerがpreview/diffと実行時刻を確認して予約する。取消・時刻変更はCASとauditを必須にし、変更は新confirmationを要求する。client-supplied remote ID、timezone、hashをauthorityにしない。
-  - **Red -> Green**: past/ambiguous DST時刻、重複schedule、stale draft/default/capability、confirmation再利用、cancel/reschedule race、cross-accountを確認する。
+| ID | Stage 2前の停止条件 | owner | 状態/evidence |
+|---|---|---|---|
+| `CB-P0-01` | source/scope/migration/schema/artifact evidenceをfreezeし、Human Gate registerをlive read-backと一致させる | release owner | `PASS`（`docs/pharmacy/evidence/v0.30.2-production-manifest.json`。stage=`pre-beta`。deployed byte equalityは`CB-P0-02`で実証する） |
+| `CB-P0-02` | protected beta branch/environment/resource、manifest-bound artifact、production非自動昇格を実証する | infra/release owner | `NOT_RUN` |
+| `CB-P0-03` | LIFFを含むrequired CI、独立reviewer、CodeQL/SAST、SBOM、provenanceのbaselineを実在させる | repository owner + independent reviewer | `BLOCKED`（独立reviewer未指定） |
+| `CB-P0-04` | MFA/session/durable lockout、PHI-free audit projection、FLE独立承認、authorization inventoryをPASSにする | security/infra owner | `NOT_RUN` |
+| `CB-P0-05` | common-generation D1/R2/FLE restore、legal hold coverage、ordered delete/retention dispositionをPASSにする | data/ops owner | `NOT_RUN` |
+| `CB-P0-06` | webhook fencing、outbound idempotency、external timeout/unknown-outcome reconciliationをPASSにする | Worker owner | `NOT_RUN` |
+| `CB-P0-07` | consent version/withdrawal、本人・家族proxy authority、wrong-binding recovery、staffing SLAをPASSにする | product/pharmacy/legal owner | `NOT_RUN` |
 
-- [ ] **V031-3 予約実行・read-back・失敗回復**
-  - dedicated schedulerがdue rowをatomic claimし、実行直前にaccount activation、current capability/layout/LIFF revision、target upload evidence、fresh expected defaultを再確認する。一致しない場合は`BLOCKED`でLINE call 0件とする。
-  - set-default成功後のfresh read-back一致でだけ`COMPLETED`とする。timeoutや結果不明は`UNVERIFIED`で停止し、blind retry・自動rollback・remote menu削除を行わない。明示再確認後だけresumeまたはv0.30 rollbackへ進める。
-  - 1 accountの失敗で他account scheduleを止めず、audit/logへcredentialやpatient identifierを含めない。
-  - **Red -> Green**: concurrent claim、early/late cron、stale expected default、timeout before/after mutation、read-back mismatch、multi-account isolation、explicit recoveryを確認する。
+#### Beta stateと共通境界
 
-- [ ] **V031-4 同一tenant内のlayout preset共有**
-  - copy対象はserver allowlistのslot action keyと順序だけに限定する。remote richMenuId、LIFF URL/ID、image/object key、hash、confirmation、credential、revision、analyticsはcopyしない。
-  - destination accountのcapabilityと固定slot ruleで再検証し、unsupported/disabled actionを明示してediting stateまで作る。destination自身のLIFF IDとimage bytesから新draftを作り、公開はv0.30 lifecycleを使う。
-  - **Red -> Green**: same-tenant owner、cross-tenant denial、disabled/unknown action、destination all-functions、source mutation後非連動、remote ID/hash非copyを確認する。
+| 状態 | 定義 | UI/運用 |
+|---|---|---|
+| `BETA_READY` | synthetic/許可tenant、実credential、実端末、失敗回復、監査まで確認済み | 段階開放可能 |
+| `INTEGRATION_READY` | adapter、状態、設定、監査はあるが外部契約・資格情報・適合確認待ち | default OFF、外部患者へ非表示 |
+| `BLOCKED` | provider、外部仕様、法令・運用判断、実環境証拠のいずれかが未確定 | API/UIとも公開しない |
 
-- [ ] **V031-L1 LIFF owner-scoped対応タイムライン**
-  - 既存の処方せん、電子handoff、緊急避妊薬、継続/服薬後follow-upを新しいdomain modelへ複製せず、owner/account-scoped read-only union projectionとして更新日時順に返す。各itemはallowlist feature、表示用status、server-owned next action、既存detail routeだけを持つ。
-  - patient/friend ID、処方内容、薬名、緊急避妊薬申告/risk、staff note、暗号化payloadをtimeline APIへ含めない。複数家族profileを扱う場合もclient queryをauthorityにせず、既存owner relationからserver-sideで許可された表示名だけを返す。
-  - cursor pagination、empty/error/retry、OFF後active drainを扱い、client clockでstatusや期限を変更しない。timeline itemから新規受付を暗黙作成しない。
-  - **Red -> Green**: owner/account scope、domain ordering/cursor、field allowlist、EC decrypt 0回、OFF drain、unknown status fallback、別owner 404、狭幅/keyboardを確認する。
+- 全query/mutationは`line_account_id`とserver-side staff/account authorizationをauthorityにし、query parameterをauthorityにしない。
+- 自動通知はPHI-free approved templateだけとし、薬剤師の確認が必要な記録・report・escalationを自動確定または自動外部送信しない。
+- 既存の処方せん、Myna handoff、継続、服薬後follow-up、緊急避妊薬domainを再利用し、timeline/queue/report用の重複domain modelを作らない。
+- local code、passing tests、release metadata、deployment evidence、production operationを別々に記録する。Human Gate registerの`NOT_RUN`をコードの存在から`PASS`へ変更しない。
+- production/LINE/D1/R2/Cloudflare Accessへのmutation、secret投入、restore、tenant activation、実患者導入はHuman Gateとする。
+- route/job/storage/migrationごとのauthorization inventoryをSoT化し、server-derived tenant/account/patient authority、role/action、cross-tenant negative test、R2 ownership、async dispatch直前の再検証を各行へ対応付ける。
+- 各`custom_NNN` migrationは対象を`custom_035`〜現行末尾まで明示し、fresh install、supported schema fingerprintからのupgrade、statement途中失敗後retry、旧code+新schema、新code+新schema、feature OFF、application rollback後のreadを各versionで継続確認する。v0.39.0を初回compatibility testにしない。
+- 1 Worker/1 D1/1 R2の論理マルチテナントをclosed betaでは維持する。shardingはv0.37.0の実測がupgrade triggerを示した場合だけv0.41.0以降で判断する。
+- cross-tenant/patient、PHI exposure、wrong-target、key/restore、support grant逸脱は前Stageへ戻すだけでなくglobal external quarantineとし、outbound、patient intake、staff mutation、support grant、activationを停止してsessionを失効する。修正版RCと関連gate再実行、人間の明示Goまで再開しない。
 
-- [ ] **V031-A1 薬局管理画面のdomain横断action queue**
-  - V030-A1のsummaryから、処方せん、電子handoff、EC、follow-upの「対応が必要」recordだけをbounded union queryで取得する。表示はdomain、非センシティブstatus、deadline/経過区分、既存detailへのlinkに限定する。
-  - queue自体はassign、status変更、一括処理、decrypt、free-text noteを持たない。各mutationは既存domain detailのauthorization/CAS/auditを通し、EC detailは研修修了薬剤師の監査後復号を維持する。
-  - account、domain、status、deadlineのserver allowlist filterとstable cursorを使い、1 domainのcorrupt rowや失敗で他domain pageを越境・重複させない。
-  - menu action opens、予約一覧、preset copyはV031-1〜4の個別UIとして同じ薬局管理shellへ追加するが、患者queueとanalyticsを一つのAPI payloadへ混ぜない。
-  - **Red -> Green**: bounded cursor/filter、same-account union、stable ordering、EC list decrypt 0回、deep-link authorization、partial domain failure、cross-account、no bulk mutationを確認する。
+#### v0.40.0の機能境界
 
-- [ ] **V031-P1 全体管理画面のfleet drift・redacted support snapshot**
-  - tenant/accountごとにseller release、LIFF/Web/Worker runtime version、canonical readiness revision、current menu evidence、active schedule statusを比較し、`CURRENT`/`STALE`/`BLOCKED`/`UNVERIFIED`でfilterできるread-only fleet viewを追加する。
-  - redacted support snapshotはserver allowlistのtenant/account ID、version identities、status/reason、revision、checked_at、直近operation result codeだけをJSONで生成する。credential、secret名/値、remote token、patient/friend/staff ID、case count、menu action opensを含めない。
-  - snapshot生成をPHI support modeやtenant mutation権限へ接続せず、download/copyをplatform auditへ記録する。snapshotから自動repair、deploy、activation、schedule変更、LINE mutationを行わない。
-  - **Red -> Green**: version identity drift、readiness/menu/schedule stale、filter、snapshot field allowlist、audit、cross-tenant navigation、PHI/credential/analytics非露出を確認する。
+| 機能 | v0.40.0目標状態 | 条件 |
+|---|---|---|
+| 処方せん画像、受付状況、再撮影、取消、来局 | `BETA_READY` | 実端末E2E、R2/D1 restore、二重送信0 |
+| 本人/家族患者管理、患者情報、問診 | `BETA_READY` | owner境界、FLE coverage/restore、consent version/withdrawal、proxy権限/期限/取消、wrong-binding復旧確認後 |
+| 個別チャット、継続、服薬後follow-up | `BETA_READY` | closed-loop、wrong-target/duplicate/PHI通知0 |
+| 薬局情報、職員管理、Platform Admin | `BETA_READY` | tenant境界、owner/admin MFA、support grant、PHI-free監査projection確認後 |
+| 電子処方箋handoff | 条件付き`BETA_READY` | endpointと患者/薬局境界を実環境確認したtenantだけ |
+| 緊急避妊薬 | 条件付き`BETA_READY` | 研修、在庫、枠、外部準備、保存期間判断を確認したtenantだけ |
+| オンライン服薬指導、決済、配送、SMS/email | `BLOCKED` | provider、契約、本人確認、返金/障害/opt-out運用が未確定 |
+| e薬Link、電子お薬手帳、レセコン/電子薬歴 | `BLOCKED` | 規格、申請、vendor契約、相互運用試験が未完了 |
+| 介護施設portal、全国薬局検索、legacy一斉配信 | `BLOCKED` | 現beta責務外またはtenant境界未実装 |
+| custom menu counter/scheduler/preset/A-B test | `BLOCKED` | beta中核ではないためv0.41.0以降へ延期 |
 
-- [ ] **V031-5 管理画面・回帰・release準備**
-  - 薬局管理画面へ期間別action opens、予約一覧/取消/再開、preset copy previewを追加する。44px target、keyboard、狭幅、timezone明示、account切替、screen-reader statusを確認する。
-  - analytics、schedule、copy、LIFF timeline、薬局action queue、platform fleet driftのfocused tests、mixed-version、tenant/account authorization、privacy field scan、scheduler concurrency、v0.30 rollback回帰をgreenにする。実LINE端末はsynthetic accountだけを使い、未来時刻の切替とread-backをHuman Gateで確認する。
-  - package `0.31.0`、詳細`CHANGELOG.md`、seller tag `pharmacy-v0.31.0`、GitHub Release本文は全gate後に揃える。schema apply、deploy、activation、schedule作成、LINE mutation、dev push/main merge/tagは個別の明示指示を受ける。
-  - seller tagはHuman Gate register全行がNOT_RUN以外になってから(V030-6でpackage/tag/CHANGELOGがgateより先行出荷された逸脱の再発防止)。
+#### version依存順
+
+| 目標日 | Version | 主成果 | 前提 |
+|---|---|---|---|
+| 2026-08-22 | Day 0 | scope/evidence freeze | versionを上げない |
+| 2026-08-23 | v0.31.0 | Release Governance & v0.30 Operational Acceptance | Day 0 |
+| 2026-08-24 | v0.32.0 | Data Protection, Backup & Recovery | v0.31.0 |
+| 2026-08-25 | v0.33.0 | Identity, Tenant Isolation & Abuse Protection | v0.32.0 |
+| 2026-08-26以降 | v0.34.0（stretch） | Patient Critical Journeyの不足分だけ | v0.33.0。既存journeyがgateを満たせばv0.41.0以降へ延期 |
+| 2026-08-26以降 | v0.35.0（stretch） | Staff Critical Journeyの不足分だけ | v0.33.0。既存journeyがgateを満たせばv0.41.0以降へ延期 |
+| 2026-08-26以降 | v0.36.0（stretch） | Closed-loop Follow-upの不足分だけ | v0.33.0。既存journeyがgateを満たせばv0.41.0以降へ延期 |
+| 2026-08-29 earliest | v0.37.0 | Operations, Observability & Performance | v0.33.0。stretch 3版は前提にしない |
+| 2026-08-30 | v0.38.0 | Beta Feature Complete & Onboarding | v0.37.0 |
+| 2026-08-31 | v0.39.0 | Release Candidate | v0.38.0、feature freeze |
+| 2026-09-01 | v0.40.0 milestone | Stage 0 synthetic internal alpha / beta candidate | v0.39.0全gate、外部患者0 |
+| 2026-09-02以降 | Stage 2 | limited patient beta | Stage 0/1 PASS後、最低24時間 |
+| 2026-09-04〜05 earliest | Stage 3 acceptance | Core Closed Beta | Stage 3を最低48〜72時間観察後に人間がGo |
+
+#### Day 0 - 2026-08-22 - scope/evidence freeze
+
+- [ ] **V040-D0-1 sourceと環境をfreeze**: `main`、`dev`、現deployment source SHA、package、migration set、schema fingerprintをPHI-free evidenceへ記録する。productionへ変更を加えない。
+- [ ] **V040-D0-2 beta境界を固定**: synthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。beta専用Workerへpharmacy modeとgeneric modeのaccountを混在させず、mixed modeを許可するまではadmission gateで拒否する。
+- [ ] **V040-D0-3 milestoneとledgerをSoT化**: v0.31.0〜v0.40.0のmilestone、上記`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`、P0 blocker、owner、evidence link、Human Gateを追跡する。GitHub Issuesを有効化するまでは本節のregisterをauthorityとし、日付では自動closeしない。
+- [ ] **V040-D0-4 beta環境設計**: `feature/* -> dev -> beta`の昇格条件、beta専用Cloudflare resource名、rollback先を確定する。betaから`main`/productionへ自動昇格しない。betaにもrequired checks、direct push禁止、admin enforcement、manifest artifact一致を適用し、独立reviewerを指定できない間は`CB-P0-03`を`BLOCKED`のままにする。branch/environment作成はHuman Gateとする。
+- [ ] **V040-D0-5 assurance/measurement baseline**: LIFF critical build/E2E、CodeQL/SAST、secret/dependency/license scan、SBOM、provenanceのworkflowをv0.31.0から作成・初回実行する。critical task inventory、workload、SLO、staffing SLAも測定前にfreezeし、v0.39.0を初回実行日にしない。
+
+#### v0.31.0 - Release Governance & v0.30 Operational Acceptance
+
+**非目標**: 患者/職員の新機能、menu分析、scheduler、preset共有。
+
+- [x] **V031-0 canonical evidenceをreconcile**: GitHub Release、deployment、workflow migration stepの既存evidenceをHuman Gate registerへ反映し、production D1 schema fingerprint、activation、LINE lifecycle、rollback、実端末を未証明のまま分離する。source SHA、package、seller tag、migration set、schema fingerprint、artifact hash、environment、stageを1つのmanifestへ固定する。
+  - 2026-08-22 read-only manifest: `docs/pharmacy/evidence/v0.30.2-production-manifest.json`。production schema fingerprintとmigration 123/123 checksum一致をPASSへ更新した。seller tag commit `387163e`とdeploy source `b26e890`は別だがruntime-bearing path差分は0。stageはroadmap authorityから`pre-beta`へ固定した。deployed byte equalityはV031-2、activation、LINE lifecycle、rollback、実端末はV031-3/4の未証明gateとして分離した。
+- [ ] **V031-1 必須checkを迂回不能にする**
+  - `Repository Verify`を全PRで必ず報告される唯一の基準checkにし、Worker/Web/LIFFのcritical test/buildを含める。path filter付きrequired checkは作らない。
+  - migration contract、beta E2E smoke、security contract、supply-chain baselineを実在させてgreenを確認した後だけrequiredへ登録する。存在しないcheck名を先にrequiredへ登録しない。
+  - `main`/`dev`/`beta`のdirect push禁止、admin enforcement、auth/tenant/DB/deploy/Platform Admin変更の独立review ownerを設定し、GitHub APIでfresh read-backする。self-approvalしかできない構成ではgateを閉じない。
+  - **ローカル実装進捗(2026-08-22)**: `feature/v031-release-governance`へ切り出し、重複していたWorker/Web CIを削除して`Repository Verify` 1本へ統合した。全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildをpath filterなしで実行する。Red -> Greenのworkflow契約、`pnpm verify:ci`（計3,250 tests、migration 82件）、3アプリbuildがgreen。GitHub fresh read-backではmain/devともrequired status checksは未設定。required check登録、独立reviewer、実workflow runのfresh read-backは未実施のため、本項は未完了のまま維持する。
+- [ ] **V031-2 beta deploymentをproductionから分離**
+  - beta branch/environmentとbeta専用Worker/D1/R2/Pages/LIFFを追加し、production reviewerとbeta reviewerを設定する。既存development/production resourceをbetaとして流用しない。
+  - source SHA、package version、seller release、release channel、environment、migration set、schema fingerprint、Worker/LIFF/Admin artifact hashとdeployment ID、workflow run、Human Go、stageをrelease manifestへ固定する。deploy時に再buildする場合はhash完全一致を必須にする。
+  - runtime version endpointから`releaseChannel=beta`とmanifest digestをfresh read-backする。release workflowはmanifest gateを通過したtagだけをGitHub `Pre-release`として作成し、main/production deployへ接続しない。
+- [ ] **V031-3 v0.30 LINE lifecycleをsynthetic accountで受入**
+  - candidate create、image upload、set-default、fresh read-back、known-good記録、explicit rollback、rollback後read-backを人間立会いで実行する。
+  - evidenceはactor、tenant/account、remote richMenuId、image/catalog hash、source SHA、時刻、API resultだけを含め、credentialとpatient identifierを含めない。
+  - timeout/結果不明は`UNVERIFIED`で停止し、blind retry、自動rollback、remote deleteを行わない。
+- [ ] **V031-4 release gate**: required checks迂回不可、beta source SHA=manifest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。未達なら`pharmacy-v0.31.0`を作らない。
+- [ ] **V031-5 assurance baseline**: browser E2E harness、CodeQL/SAST、secret/dependency/license scan、CycloneDX SBOM、provenanceをsynthetic artifactで初回実行し、検出事項をP0/P1 registerへ登録する。v0.39.0では新規構築せず、final artifactへ同じcheckを再実行する。
+
+#### v0.32.0 - Data Protection, Backup & Recovery
+
+- [ ] **V032-1 recoverability/権限preflight**: backfill、plaintext scrub、bulk deleteより先に、独立した実行者/承認者、対象tenant/account、dry-run、停止/rollback条件、approval expiry、auditを固定する。request bodyの`approvedBy`文字列だけをnamed approvalとして受理しない。
+- [ ] **V032-2 FLE expand/backfill phase**: V032-1成功後に`PHARMACY_PHI_KEY_V1`投入、additive migration、synthetic/beta backfill、field inventoryを分母にしたcoverage 100%、mixed read、envelope restore、wrong-key/tamper/partial envelope/cross-tenant・cross-record transplant fail-closedを確認する。このphaseではplaintext scrubを行わない。
+- [ ] **V032-3 FLE contract/scrub phase**: expand/backfill後のsoak、旧/new code compatibility、application rollback read、approved key recoveryを別Human GateでPASSした後だけplaintext scrubを実行する。rotation/rewrap経路を実装・実証できない場合はFLE readinessを`UNVERIFIED`に保つ。secret値、ciphertext、patient IDをevidence/logへ出さない。
+- [ ] **V032-4 retention/legal-holdをfail-closed化**: retention matrixとlegal-hold source inventoryを統合し、未知/未対応source、invalid/null起算日はhold扱いにする。DSR resolveとR2削除直前に再評価し、Rx selection-to-delete raceを線形化する。incoming imageはtrackingだけで完了扱いにせず、purge consumer/backfill/ownership不整合のdispositionを決める。EC識別子、sale/counter record、audit/DSR eventのtombstone方針未決なら対象機能を`BLOCKED`にする。
+- [ ] **V032-5 common-generation backup/restore**: D1 restore point/export hash、schema/migration、R2 object inventory/hash、FLE envelope/key version、outbox/webhook watermark、開始/完了時刻を1世代のmanifestへ固定する。別backup先からisolated環境へ復旧し、参照完全性とcritical journey read-backを含めてRPO 24時間以内、RTO 4時間以内、最低3世代、primary/backup同時破壊防止を実証する。
+- [ ] **V032-6 release gate**: FLE inventory coverage 100%、scrub前rollback read、common-generation restore/reconcile、PHI log 0、stuck webhook検知、legal hold race test、retention dispositionを全てPASSにする。production drillは別Human Gateとし、未実施ならproduction readinessを主張しない。
+
+#### v0.33.0 - Identity, Tenant Isolation & Abuse Protection
+
+- [ ] **V033-1 管理画面/API入口をMFAで保護**: betaのPlatform AdminはCloudflare Access+FIDO2/passkey必須、tenant owner/adminもMFA登録/challenge必須とする。Access issuer/audienceをWorker APIで検証し、direct `workers.dev`/別originからの到達をnegative testする。recoveryは本人確認、監査、既存session失効を伴い、emergency bypassは既定無効・期限付きHuman Gateとする。
+- [ ] **V033-2 password/session contractを強化**: authoritative security policy承認後に最小13文字、common password拒否、tenant admin idle/absolute timeout、より短いPlatform Admin timeout、sensitive operation直前の再認証をRed -> Greenで実装する。PBKDF2の変更はWorker runtime上限を実測せずに行わない。
+- [ ] **V033-3 永続abuse protection**: Cloudflare側はIP/ASN/pathのcoarse防御、D1はtenant code+login ID単位の失敗回数、progressive backoff、temporary lock、unlock auditのauthorityとする。credential変更/account disable時に既存sessionを失効する。
+- [ ] **V033-4 isolation/audit/logging contract**: authorization inventoryの全route/job/storageをtenant A/B、patient A/Bでnegative testし、CSRF、session fixation/replay、support grant expiry/session bindingをgreenにする。Platform Admin `/logs`/`/audit`からgrantなしにpatient IDが出ないPHI-free projectionを固定し、upstream response bodyをError/console/traceへ残さないsynthetic regression testを追加する。query parameter由来のaccount/patient IDをauthorityにしない。
+- [ ] **V033-5 webhook/outbound concurrency contract**: durable inboxへattempt token/fencing epochを追加し、claim/heartbeat/success/failureを同じtokenで条件化する。lease expiry concurrent reclaim、external success後D1 failure、isolate eviction、duplicate cron、LINE timeout/unknown outcomeをRed -> Greenで固定する。直接送信はstable idempotency keyまたは副作用台帳を通す。
+- [ ] **V033-6 patient admission identity/consent**: consent text/version/actor/time、withdrawal/re-consent、LINE identity binding、本人/家族proxyの対象/権限/期限/取消、wrong-owner bindingのnegative testと復旧runbook、opt-out後の通知停止/session失効を実装・監査する。
+- [ ] **V033-7 release gate**: cross-tenant/patient 0、disable直後session失効、isolate再起動後もlock継続、owner/admin/Platform AdminへMFAなし到達不可、legacy NULL grant drainまたは失効、support grant別session再利用不可、監査patient ID露出0、webhook stale-attempt上書き0、consent/proxy gate PASS。
+
+#### v0.34.0 - Patient Critical Journey
+
+**優先度**: `STRETCH`。既存patient journeyがStage 0/2の安全gateを満たす場合は実装せずv0.41.0以降へ延期する。新機能を作るためだけにv0.40.0を遅らせない。
+
+- [ ] **V034-1 owner-scoped timeline**: 既存の処方せん、電子handoff、継続、服薬後follow-up、条件付きECをowner/account-scoped read-only union projectionで返す。新しいdomain modelを作らず、allowlist status、server-owned next action、既存detail routeだけを含める。
+- [ ] **V034-2 PHI最小化**: patient/friend ID、処方内容、薬名、EC申告/risk、staff note、暗号化payloadをtimelineへ含めず、timeline表示でdecrypt/mutationを0回にする。別owner itemは404とする。
+- [ ] **V034-3 upload recovery**: 本人/家族選択、画像単位idempotency、二重tap、送信済み/薬局受付済みの分離、offline/timeout/LINE WebView再起動/back操作を既存処方せんflowで回復可能にする。PHIをlocalStorageへ保存しない。
+- [ ] **V034-4 UX gate**: critical task一覧、対象者属性、試行数、成功/失敗定義、baseline、測定artifactを事前freezeする。iOS/Android LINE WebView、低速通信、200% zoom、VoiceOver/TalkBack、focus order、error identification、status announcement、contrastを確認し、二重送信/入力消失/wrong-owner/critical safety error 0を主判定にする。90秒/90%は安全性・正確性が悪化しない場合だけ補助指標に使う。
+
+#### v0.35.0 - Staff Critical Journey
+
+**優先度**: `STRETCH`。既存staff journeyがStage 0/2の安全gateを満たす場合は実装せずv0.41.0以降へ延期する。
+
+- [ ] **V035-1 read-only action queue**: 既存domainから「対応が必要」recordだけをbounded unionで取得し、domain、非センシティブstatus、deadline区分、既存detail linkだけを返す。queueからassign/status変更/bulk mutation/decrypt/free-text保存を行わない。
+- [ ] **V035-2 detailで既存mutationを再利用**: 処方せん画像、期限、問診更新時刻、受取希望、過去eventをdetailで確認し、既存authorization/CAS/auditを通して受付結果、再撮影理由、print retryを処理する。通知失敗と業務状態を分離する。
+- [ ] **V035-3 stale/partial failureを安全化**: account切替時のstale response破棄、CAS conflict後の再取得、1 domain failureの明示、stable cursor、EC list decrypt 0、cross-account 0をtestする。
+- [ ] **V035-4 UX gate**: task/試行/成功定義/baselineを事前freezeし、実薬局スタッフ2〜3名はformative testとして迷い、戻り、所要時間、error recoveryを記録する。release gateはaccount誤認/stale保存/cross-account表示/critical safety error 0を主判定にし、90%/30%短縮/3操作は安全性・正確性が悪化しない場合だけ補助指標にする。
+
+#### v0.36.0 - Closed-loop Follow-up & Communication
+
+**優先度**: `STRETCH`。既存follow-upが安全に閉ループ化されている範囲だけ有効にし、新規拡張はv0.41.0以降へ延期できる。
+
+- [ ] **V036-1 既存follow-up domainを閉ループ化**: 既存のcontinuity/medication-followup状態とrepositoryを再利用し、question set version、送信日時rule、template preview、患者回答、担当、deadline、優先確認、escalation、電話記録、対応結果、次回確認日を補う。重複follow-up modelを作らない。
+- [ ] **V036-2 state invariant**: `concern`、`pharmacist_requested`、`escalated`は薬剤師の対応記録なしに`closed`へ進めない。電話対応をLINE対応として記録しない。
+- [ ] **V036-3 outbound safety**: approved PHI-free template、outbox/idempotency、dispatch直前のtenant/account/friend/contact mode/feature/record/outbound pause再検証を必須にする。tracing reportはdraft/structured exportまでとし、薬剤師確認前の外部送信を禁止する。
+- [ ] **V036-4 staffing/response gate**: beta service hours、status別response SLA、primary/backup assignee、overdue alert/escalation先、営業時間外/緊急時の患者表示をtenantごとにfreezeする。staffingを確保できないtenantではfollow-upを`BLOCKED`またはstaff-onlyにする。
+- [ ] **V036-5 release gate**: wrong-target/duplicate/PHI通知/PHI log/escalation未対応close/SLA超過放置を各0件とし、外部provider未確定のSMS/emailは`BLOCKED`のままにする。
+
+#### v0.37.0 - Operations, Observability & Performance
+
+- [ ] **V037-0 workload/SLOを測定前にfreeze**: tenant数、患者数、同時staff、API RPS、webhook burst、画像数/size、cron/outbox件数、tenant偏在、test継続時間と、p95/p99、error rate、D1 wait、backlog、retry/fairness上限を数値化する。「想定beta負荷の2倍」だけで分母を省略しない。
+- [ ] **V037-1 fleet drift**: tenant/accountごとにWorker/LIFF/Admin/seller version、schema、capability revision、rich-menu evidence、secret existence、readinessを`CURRENT`/`STALE`/`BLOCKED`/`UNVERIFIED`で表示するread-only viewを追加する。
+- [ ] **V037-2 redacted support snapshot**: server allowlistのversion/status/reason/revision/checked_at/result codeだけを出し、credential、secret名/値、patient/friend/staff ID、case countを含めない。生成/copyをauditし、自動repair/deploy/activation/LINE mutationへ接続しない。
+- [ ] **V037-3 observability/kill switch**: PHI-free correlation/error code、logs/traces/sampling/retention、webhook backlog、dead-letter、notification retry、LINE/D1/R2/auth/FLE failure alertを設定する。tenant outbound、rich-menu mutation、EC reminderのkill switchが外部call前に作用することを実証する。
+- [ ] **V037-4 load/failure test**: V037-0の2倍profileでD1 wait、API p50/p95/p99、webhook backlog、cron、outbox、slow query、tenant偏在を測る。LINE/D1/R2 timeout、webhook replay、cron重複、partial external successを注入し、final artifactで再実行する。外部callはoperation deadlineを持ち、timeout後を結果不明としてreconcileする。
+- [ ] **V037-5 release gate**: sustained D1 overload 0、cronは次周期前完了、retry bounded、1 tenantの異常で他tenant停止0、kill switch実証、alertからrunbookへ到達可能。継続queueing/主要UX悪化/tenant starvationが観測された場合だけpost-beta D1 shardを起票する。
+
+#### v0.38.0 - Beta Feature Complete & Onboarding
+
+- [ ] **V038-1 fresh tenant onboarding**: 新規synthetic tenantをコード変更なしで開設し、LINE credential、LIFF endpoint、feature/rich-menu/secret/FLE/backup/admin origin-cookie readinessをdoctorの一意なreason codeで診断する。
+- [ ] **V038-2 provider/feature truth**: 各機能を`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`で表示し、external provider evidenceがない機能をREADYまたはUI導線ありにしない。
+- [ ] **V038-3 docs/operations**: 患者/職員manual、privacy policy、役割/委託関係、retention説明、incident contact、release notes、beta feedback導線を実装と一致させる。
+- [ ] **V038-4 feature freeze**: 2026-08-30終了でcode/config/dependencyを凍結する。menu counter/scheduler/preset/A-B test、公式insight連携、オンライン服薬指導、決済、配送、e薬Link、レセコン、SMS/email、介護施設portal、全国薬局検索はv0.41.0以降へ送る。freeze後の変更は新RC番号と影響gateの再実行を必須にする。
+- [ ] **V038-5 release gate**: fresh onboarding成功、doctorで不足を一意特定、UNVERIFIEDをREADY表示0、docs/実装一致、P0 blocker registerの全行`PASS`、open P1 0。GitHub Issuesが無効な間は本節のcanonical registerから件数を算出し、新規feature requestをv0.39.0へ入れない。
+
+#### v0.39.0 - Release Candidate
+
+**機能追加禁止**: このversionはv0.22.0〜v0.38.0の証拠を閉じるだけで、新しい患者/職員機能、schema、provider integrationを追加しない。
+
+- [ ] **V039-1 browser/real-device E2E**: final scopeのcanonical critical-flow inventoryを分母にし、patientの登録、問診、処方せん、status、arrival、follow-up、staffのlogin/account/image/reception/ready/受け渡し完了、Platform AdminのMFA/readiness/support grant/outbound pauseをfinal artifactで検証する。queueはV035をscopeへ昇格した場合だけ含め、配送providerの`delivery`と混同しない。
+- [ ] **V039-2 negative/recovery E2E**: tenant A/B、patient A/B、offline、低速、double tap、concurrent staff、session expiry、iOS/Android LINE、accessibilityを検証する。
+- [ ] **V039-3 supply-chain/release evidence**: V031-5でbaseline済みのCodeQL/SAST、secret scan、dependency/license audit、CycloneDX SBOM、build provenanceをfinal artifactへ再実行する。signed release tagは他gate PASS後に作り、freeze後に差分が入ったら新RCとして全関連checkを再実行する。
+- [ ] **V039-4 operational drill**: migration rehearsal、D1/R2/FLE restore、rich-menu rollback、BCP tabletop、incident communication、kill switchを実行し、fresh read-backを保存する。
+- [ ] **V039-5 release gate**: open P0/P1/未承認High、cross-tenant/patient、wrong-target/duplicate、PHI log/通知を各0件、critical E2E/real-device 100%、restore/rollback/required checks/kill switchを全てPASSとする。1件でも未達なら`v0.40.0`を外部患者へ開放しない。
+
+#### v0.40.0 milestone - 2026-09-01 - Stage 0 synthetic internal alpha / beta candidate
+
+- [ ] **V040-1 release identity**: 現行update-engineがprerelease suffixを受理しないため、最小互換案はpackage `0.40.0`、seller tag `pharmacy-v0.40.0`、GitHub Release `Pre-release`、runtime `releaseChannel=beta`とする。packageとseller tagを別identityとしてmanifestへ明記し、productionへ自動昇格しない。`0.40.0-beta.1`を採用する場合はsemver/update-engine/version contract/release workflowを先にRed -> Greenで対応する。
+- [ ] **V040-2 staged activation**
+
+  | Stage | 対象 | 最低観察期間/昇格条件 |
+  |---|---|---|
+  | 0 | synthetic tenantのみ | 2026-09-01 earliest。全telemetry/alert確認、外部患者0 |
+  | 1 | 1薬局・職員のみ | 数時間、業務stateと通知state一致、外部患者0 |
+  | 2 | 同意済み5患者 | consent/proxy/withdrawal gateと全P0 PASS後、最低24時間のlimited beta |
+  | 3 | 1薬局・10〜30患者 | 最低48〜72時間のCore Closed Beta candidate。restore/alert/runbook/SLAを継続実証 |
+  | 4 | 最大3薬局 | Stage 3観察完了後にCore Closed Beta acceptanceを記録し、人間が拡大Go |
+
+- [ ] **V040-3 一件停止条件**: 通常のoperational degradationは前Stageへ戻す。cross-tenant/cross-patient、PHI exposure、処方せん画像消失、復旧不能な暗号化失敗、wrong-target/duplicate LINE送信、support grant逸脱、backup/restore不能はglobal external quarantineとし、outbound、patient intake、staff mutation、support grant、activationを停止してsessionを失効する。evidence preservation、impact assessment、修正版RC、関連gate再実行、人間の明示Goまで再開しない。LINE mutation結果不明をblind retryしない。
+- [ ] **V040-4 completion claim**: Stage 0の成功はsynthetic internal alpha、Stage 1はstaff internal acceptance、Stage 2とStage 3観察中はlimited betaとして記録する。Stage 3を最低48〜72時間観察して全gateが継続PASSした後だけCore Closed Beta acceptanceを記録する。実患者導入と各Stage昇格は人間の明示Goを必須とする。
+
+#### 日次Go/No-Go規則
+
+| 時刻 | Gate |
+|---|---|
+| 09:00 | 前候補の障害、未証明Human Gate、scope確認 |
+| 10:00 | 当日scope freeze |
+| 12:00 | feature merge cutoff |
+| 15:00 | full CI、security、migration evidence |
+| 17:00 | beta deploy候補。source SHA/manifest照合 |
+| 18:00 | synthetic/実端末確認 |
+| 20:00 | 人間のGo/No-Go |
+| 20:30 | 全gate PASS時だけtag/release note/evidence確定 |
+
+Gate未達時は同じversionを継続し、package、seller tag、`CHANGELOG.md`の完了表記、production昇格を進めない。外部状態のread-back、restore、LINE mutation、患者導入の証拠をlocal testやAI reviewで代替しない。
 
 ## Done
 

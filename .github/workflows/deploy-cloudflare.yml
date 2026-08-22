@@ -149,10 +149,11 @@ jobs:
           APP_BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
 
       - name: Inject runtime release metadata
+        id: release_artifacts
         env:
           RELEASE_VERSION: ${{ steps.build-meta.outputs.release_version }}
         run: |
-          pnpm tsx apps/worker/scripts/inject-version.ts \
+          metadata="$(pnpm tsx apps/worker/scripts/inject-version.ts \
             --version "$RELEASE_VERSION" \
             --worker-package-version "$(node -p 'require("./apps/worker/package.json").version')" \
             --web-package-version "$(node -p 'require("./apps/web/package.json").version')" \
@@ -161,7 +162,8 @@ jobs:
             --worker-assets apps/worker/dist/client \
             --admin apps/web/out \
             --liff apps/liff/dist \
-            --out apps/worker/src/_version.ts
+            --out apps/worker/src/_version.ts)"
+          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
 
       - name: Rebuild Worker with runtime release metadata
         run: pnpm --filter worker build
@@ -514,6 +516,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
           SOURCE_SHA: ${{ github.sha }}
+          ARTIFACT_METADATA: ${{ steps.release_artifacts.outputs.metadata }}
+          DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
+          PHARMACY_SELLER_RELEASE: ${{ vars.PHARMACY_SELLER_RELEASE }}
+          RELEASE_STAGE: ${{ vars.RELEASE_STAGE }}
           BEFORE_STATE: ${{ steps.before.outputs.state }}
           AFTER_STATE: ${{ steps.after.outputs.state }}
           MIGRATION_RESULT: ${{ steps.migrations.outputs.result }}
