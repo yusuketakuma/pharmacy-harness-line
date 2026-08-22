@@ -4,6 +4,16 @@
 
 > Release gate未達のため、この項目はdraftです。package versionは`0.30.2`のまま維持し、seller tag、GitHub Release、deploy、account activation、LINE mutationは実施していません。
 
+### ユーザーにとっての変更
+
+v0.31.0は新機能を増やす版ではなく、現在の薬局LINE機能を安全に更新・復旧できる状態へ近づける版です。まだ未リリースのため、利用中の患者・薬局画面には反映されていません。
+
+| 対象 | v0.31.0で変わること | 変わらないこと |
+|---|---|---|
+| 患者 | リリース前にLIFF画面を実ブラウザで確認し、起動失敗などの回帰を見つけやすくなります | 新しい画面・入力項目・操作手順は追加しません |
+| 薬局スタッフ | リッチメニュー変更後に状態を再確認し、問題時に既知の正常メニューへ戻せる手順を検証しました | 受付・チャット・患者対応の操作手順は変わりません |
+| 運用担当者 | test、security scan、SBOM、build provenanceを1つのCIで確認でき、未達の版を公開しにくくなります | `dev`へのmerge、production deploy、実患者データや本番LINEアカウントの変更はまだ行いません |
+
 ### release evidenceとv0.30運用受入
 
 - PHIを含まないcanonical release manifestへsource SHA、package version、独立したseller tag、environment、stage、D1 schema fingerprint、migration checksum、Worker・Worker assets・Admin・LIFFのartifact hash、deployment・rollback evidenceを記録
