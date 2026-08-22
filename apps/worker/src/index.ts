@@ -116,6 +116,7 @@ import { processDueMedicationFollowUps } from './custom/pharmacy/medication-foll
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
 import { purgePrescriptionFilesPastRetention } from './custom/pharmacy/prescriptions/retention-purge.js'; // custom:pharmacy-prescriptions
+import { purgeEmergencyIntakesPastRetention } from './custom/pharmacy/emergency-contraception/retention-purge.js'; // custom:pharmacy-emergency-contraception
 import { claimDueNextIntakeExpectations } from './custom/pharmacy/continuity/next-intake.js'; // custom:pharmacy-continuity
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
@@ -1289,6 +1290,22 @@ async function scheduled(
       }
     } catch (e) {
       console.error('prescription-retention-purge error:', e);
+    }
+
+    try {
+      // NEXT-2: per-account promise (pharmacy_emergency_settings.retention_days)
+      // shown to the patient at consent time. Distinct account and boundary from
+      // the uniform 3-year rule above — see RETENTION_MATRIX.md.
+      const result = await purgeEmergencyIntakesPastRetention(env.DB, { // custom:pharmacy-emergency-contraception
+        now: new Date(event.scheduledTime),
+      });
+      if (result.purged + result.failed + result.skippedFormat + result.skippedLegalHold > 0) {
+        console.log(
+          `[emergency-retention-purge] purged=${result.purged} failed=${result.failed} skipped_format=${result.skippedFormat} skipped_legal_hold=${result.skippedLegalHold}`,
+        );
+      }
+    } catch (e) {
+      console.error('emergency-retention-purge error:', e);
     }
 
     try {

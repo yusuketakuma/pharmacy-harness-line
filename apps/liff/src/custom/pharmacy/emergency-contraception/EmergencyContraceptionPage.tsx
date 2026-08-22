@@ -5,12 +5,16 @@ import {
   emergencyContraceptionApi,
   type EmergencyIntake,
   type EmergencyIntakeStatus,
+  type EmergencyMenstruationSignals,
   type EmergencySafeContactMode,
   type EmergencyServiceOverview,
 } from './api.js';
 
 export const MHLW_EMERGENCY_CONTRACEPTION_URL =
   'https://www.mhlw.go.jp/stf/kinnkyuuhininnyaku.html';
+
+// D3 is optional and tri-state (はい/いいえ/未定); 'undecided' maps to null on submit.
+export type IdDocumentAvailability = 'yes' | 'no' | 'undecided';
 
 export interface EmergencyIntakeDraft {
   intercourseAt: string;
@@ -20,10 +24,31 @@ export interface EmergencyIntakeDraft {
   recentPurchaseCount: string;
   patientWillVisit: boolean;
   acceptsInPersonDose: boolean;
+  lngAllergy: boolean;
+  liverDisease: boolean;
+  currentlyPregnant: boolean;
+  breastfeeding: boolean;
+  underMedicalTreatment: boolean;
+  drugAllergyHistory: boolean;
+  heartKidneyGiDisease: boolean;
+  stJohnsWort: boolean;
+  lastMenstruationDate: string;
+  lastMenstruationDateUnknown: boolean;
+  menstruationSignals: EmergencyMenstruationSignals;
+  idDocumentAvailable: IdDocumentAvailability;
   safeContactMode: EmergencySafeContactMode | '';
   consentAccepted: boolean;
   manufacturerCheckAcknowledged: boolean;
 }
+
+const EMPTY_MENSTRUATION_SIGNALS: EmergencyMenstruationSignals = {
+  noneApply: false,
+  unknown: false,
+  overOneMonthNoPeriod: false,
+  notRecoveredAfterBirth: false,
+  lastPeriodDifferent: false,
+  earlierConcernOver3Weeks: false,
+};
 
 export const EMPTY_EMERGENCY_DRAFT: EmergencyIntakeDraft = {
   intercourseAt: '',
@@ -33,10 +58,69 @@ export const EMPTY_EMERGENCY_DRAFT: EmergencyIntakeDraft = {
   recentPurchaseCount: '',
   patientWillVisit: false,
   acceptsInPersonDose: false,
+  lngAllergy: false,
+  liverDisease: false,
+  currentlyPregnant: false,
+  breastfeeding: false,
+  underMedicalTreatment: false,
+  drugAllergyHistory: false,
+  heartKidneyGiDisease: false,
+  stJohnsWort: false,
+  lastMenstruationDate: '',
+  lastMenstruationDateUnknown: false,
+  menstruationSignals: EMPTY_MENSTRUATION_SIGNALS,
+  idDocumentAvailable: 'undecided',
   safeContactMode: '',
   consentAccepted: false,
   manufacturerCheckAcknowledged: false,
 };
+
+// C2 exclusivity: noneApply/unknown are mutually exclusive with each other and
+// with any of the 4 signals (mirrors validMenstruationSignals in
+// apps/worker/.../policy.ts — kept local since the LIFF app cannot import
+// worker code across the package boundary).
+function validMenstruationSignalsClient(signals: EmergencyMenstruationSignals): boolean {
+  const anySignal = signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
+    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+  if (signals.noneApply && signals.unknown) return false;
+  if (signals.noneApply && anySignal) return false;
+  if (signals.unknown && anySignal) return false;
+  return true;
+}
+
+// C2 must be explicitly answered before submit: noneApply, unknown, or at
+// least one signal. Leaving it untouched is not the same as "none apply".
+function menstruationSignalsAnswered(signals: EmergencyMenstruationSignals): boolean {
+  return signals.noneApply || signals.unknown ||
+    signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
+    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+}
+
+/** Next-steps shown on the completion screen; never includes any computed judgement. */
+export function emergencyCompletionNextSteps(anyPhaseBFlagChecked: boolean, referenceCode: string): string[] {
+  const steps = [
+    '薬剤師の確認をお待ちください。結果は下の「これまでの仮受付」に表示されます。',
+    '選んだ対応枠の時間に、本人が薬局へ来局してください。',
+  ];
+  if (anyPhaseBFlagChecked) steps.push('来局時にお薬手帳をお持ちください。');
+  steps.push(`受付番号 ${referenceCode} を来局時にお伝えください。`);
+  return steps;
+}
+
+const DOSING_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+/** Client-side display only; the server remains authoritative for the 72h window. */
+export function emergencyIntakeDeadline(
+  draft: Pick<EmergencyIntakeDraft, 'intercourseAt' | 'intercourseTimeUnknown'>,
+): Date | null {
+  if (draft.intercourseTimeUnknown) {
+    if (!validDateOnly(draft.intercourseAt)) return null;
+    return new Date(new Date(`${draft.intercourseAt}T00:00:00+09:00`).getTime() + DOSING_WINDOW_MS);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(draft.intercourseAt)) return null;
+  const start = new Date(`${draft.intercourseAt}${draft.intercourseAt.length === 16 ? ':00' : ''}+09:00`);
+  return Number.isFinite(start.getTime()) ? new Date(start.getTime() + DOSING_WINDOW_MS) : null;
+}
 
 const SAFE_CONTACT_OPTIONS: Array<{
   value: Extract<EmergencySafeContactMode, 'neutral_line' | 'no_notification'>;
@@ -116,6 +200,11 @@ export function emergencyIntakeFieldErrors(draft: EmergencyIntakeDraft): Emergen
   }
   if (!draft.manufacturerCheckAcknowledged) errors.manufacturerCheckAcknowledged = 'セルフチェックの確認にチェックしてください';
   if (!draft.consentAccepted) errors.consentAccepted = '説明と利用目的への同意にチェックしてください';
+  if (!validMenstruationSignalsClient(draft.menstruationSignals)) {
+    errors.menstruationSignals = '「当てはまるものはない」「わからない」と具体的な項目は同時に選べません';
+  } else if (!menstruationSignalsAnswered(draft.menstruationSignals)) {
+    errors.menstruationSignals = '当てはまるものを選ぶか、「当てはまるものはない」または「わからない」を選んでください';
+  }
   return errors;
 }
 
@@ -200,14 +289,31 @@ export function EmergencyAlternativeLinks({
   );
 }
 
+function EmergencyCautionAlternatives({ service }: { service: EmergencyServiceOverview }) {
+  const supportCenterUrl = safeExternalUrl(service.support_center_url);
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+      <p className="font-bold">当てはまる項目があるため、以下もあわせてご検討ください</p>
+      <p className="mt-1">送信は止まりません。来局時に薬剤師が対面で確認します。</p>
+      <div className="mt-2 grid gap-2">
+        <span className="block">・産婦人科の受診</span>
+        {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900">相談窓口を確認（外部サイト）</a>}
+        <a href={MHLW_EMERGENCY_CONTRACEPTION_URL} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900">厚生労働省の販売薬局一覧を確認（外部サイト）</a>
+      </div>
+    </div>
+  );
+}
+
 function IntakeList({
   intakes,
   serverNow,
+  supportCenterUrl,
   busy,
   onCancel,
 }: {
   intakes: EmergencyIntake[];
   serverNow: string;
+  supportCenterUrl: string | null;
   busy: string | null;
   onCancel: (intake: EmergencyIntake) => Promise<void>;
 }) {
@@ -215,6 +321,7 @@ function IntakeList({
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
       <p className="mt-1 text-xs text-gray-500">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
+      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="mt-2 inline-block text-sm font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
       {intakes.length === 0
         ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
         : <ul className="mt-3 space-y-3">{intakes.map((intake) => (
@@ -241,6 +348,47 @@ function IntakeList({
   );
 }
 
+export function EmergencyConsentSection({
+  consent,
+  consentAccepted,
+  busy,
+  onToggle,
+}: {
+  consent: NonNullable<EmergencyServiceOverview['consent']>;
+  consentAccepted: boolean;
+  busy: string | null;
+  onToggle: (checked: boolean) => void;
+}) {
+  return (
+    <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
+      <h2 id="emergency-consent" className="font-bold text-gray-900">説明と明示同意</h2>
+      <p className="whitespace-pre-wrap text-sm text-gray-700">{consent.text_v2}</p>
+      <dl className="space-y-1 text-sm text-gray-700">
+        <div><dt className="font-bold">申告の保存期間 / 販売記録</dt><dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd></div>
+        <div><dt className="font-bold">問い合わせ先</dt><dd>{consent.privacy_contact}</dd></div>
+      </dl>
+      <a
+        href={safeExternalUrl(consent.privacy_policy_url) ?? undefined}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="text-sm font-bold text-green-800 underline"
+      >
+        個人情報の利用目的・問い合わせ先を確認（外部サイト）
+      </a>
+      <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <input
+          type="checkbox"
+          checked={consentAccepted}
+          onChange={(event) => onToggle(event.currentTarget.checked)}
+          disabled={busy !== null}
+          className="size-5"
+        />
+        説明と利用目的を確認し、来局前確認に同意します
+      </label>
+    </section>
+  );
+}
+
 export function EmergencyIntakeForm({
   draft,
   service,
@@ -260,6 +408,9 @@ export function EmergencyIntakeForm({
   const errors = showErrors ? emergencyIntakeFieldErrors(draft) : {};
   const invalid = (key: keyof EmergencyIntakeDraft) => (errors[key] ? true : undefined);
   const fieldClass = 'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 aria-[invalid]:border-red-500';
+  const deadline = emergencyIntakeDeadline(draft);
+  const remainingHours = deadline ? Math.max(0, Math.round((deadline.getTime() - Date.now()) / (60 * 60 * 1000))) : null;
+  const showCaution = draft.lngAllergy || draft.liverDisease || draft.currentlyPregnant;
   return (
     <form
       className="space-y-4 rounded-xl bg-white p-4 shadow-sm"
@@ -284,6 +435,7 @@ export function EmergencyIntakeForm({
           className={fieldClass}
         />
         <FieldError message={errors.intercourseAt} />
+        {deadline && <p className="text-sm text-gray-700">服用期限：{formatTokyo(deadline.toISOString())}（残り約{remainingHours}時間）</p>}
         <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
           <input
             type="checkbox"
@@ -308,9 +460,12 @@ export function EmergencyIntakeForm({
           className={fieldClass}
         >
           <option value="">対応枠を選択</option>
-          {service.slots.map((slot) => <option key={slot.id} value={slot.id}>
-            {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）
-          </option>)}
+          {service.slots.map((slot) => {
+            const pastDeadline = deadline !== null && new Date(slot.ends_at).getTime() > deadline.getTime();
+            return <option key={slot.id} value={slot.id} disabled={pastDeadline}>
+              {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）{pastDeadline ? '（期限超過）' : ''}
+            </option>;
+          })}
         </select>
         <FieldError message={errors.slotId} />
       </label>
@@ -350,8 +505,216 @@ export function EmergencyIntakeForm({
             className={fieldClass}
           />
           <FieldError message={errors.recentPurchaseCount} />
+          <p className="text-xs text-gray-500">回数によって受付をお断りするものではありません。安全のための確認です。</p>
         </label>
       </div>
+
+      <fieldset className="space-y-2">
+        <legend className="font-bold text-gray-900">あてはまる場合はチェックしてください（送信は止まりません）</legend>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.lngAllergy}
+            onChange={(event) => onDraftChange('lngAllergy', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          レボノルゲストレルを含む薬でアレルギー症状が出たことがある
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.liverDisease}
+            onChange={(event) => onDraftChange('liverDisease', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          肝臓病の診断を受けている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.currentlyPregnant}
+            onChange={(event) => onDraftChange('currentlyPregnant', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          現在、お腹に赤ちゃんがいることが分かっている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.breastfeeding}
+            onChange={(event) => onDraftChange('breastfeeding', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          授乳中
+        </label>
+        {showCaution && <EmergencyCautionAlternatives service={service} />}
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="font-bold text-gray-900">あてはまる場合はチェックしてください（お薬手帳の持参案内に使います）</legend>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.underMedicalTreatment}
+            onChange={(event) => onDraftChange('underMedicalTreatment', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          医師の治療を受けている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.drugAllergyHistory}
+            onChange={(event) => onDraftChange('drugAllergyHistory', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          薬でアレルギー症状が出たことがある
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.heartKidneyGiDisease}
+            onChange={(event) => onDraftChange('heartKidneyGiDisease', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          心臓病・腎臓病・重度の消化器疾患の診断を受けている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.stJohnsWort}
+            onChange={(event) => onDraftChange('stJohnsWort', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          セイヨウオトギリソウ（セント・ジョーンズ・ワート）を含む食品を摂っている
+        </label>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="font-bold text-gray-900">直近の月経について</legend>
+        <label className="block space-y-1 text-sm text-gray-700" htmlFor="emergency-last-period">
+          <span className="font-bold text-gray-900">直近の月経が始まった日</span>
+          <input
+            id="emergency-last-period"
+            type="date"
+            value={draft.lastMenstruationDate}
+            onChange={(event) => onDraftChange('lastMenstruationDate', event.currentTarget.value)}
+            disabled={disabled || draft.lastMenstruationDateUnknown}
+            className={fieldClass}
+          />
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.lastMenstruationDateUnknown}
+            onChange={(event) => onDraftChange('lastMenstruationDateUnknown', event.currentTarget.checked)}
+            disabled={disabled}
+            className="size-5"
+          />
+          わからない
+        </label>
+
+        <p className="font-bold text-gray-900">当てはまるものにチェック（複数可）</p>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.menstruationSignals.overOneMonthNoPeriod}
+            onChange={(event) => onDraftChange('menstruationSignals', {
+              ...draft.menstruationSignals, overOneMonthNoPeriod: event.currentTarget.checked,
+            })}
+            disabled={disabled}
+            className="size-5"
+          />
+          直近の月経開始から1か月以上、次の月経がない
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.menstruationSignals.notRecoveredAfterBirth}
+            onChange={(event) => onDraftChange('menstruationSignals', {
+              ...draft.menstruationSignals, notRecoveredAfterBirth: event.currentTarget.checked,
+            })}
+            disabled={disabled}
+            className="size-5"
+          />
+          出産などのあとで月経が戻っていない
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.menstruationSignals.lastPeriodDifferent}
+            onChange={(event) => onDraftChange('menstruationSignals', {
+              ...draft.menstruationSignals, lastPeriodDifferent: event.currentTarget.checked,
+            })}
+            disabled={disabled}
+            className="size-5"
+          />
+          直近の月経が、いつもと違った（量が少ない・期間が短いなど）
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.menstruationSignals.earlierConcernOver3Weeks}
+            onChange={(event) => onDraftChange('menstruationSignals', {
+              ...draft.menstruationSignals, earlierConcernOver3Weeks: event.currentTarget.checked,
+            })}
+            disabled={disabled}
+            className="size-5"
+          />
+          直近の月経のあとで、今回より前に心配な出来事があり、3週間以上たっている
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.menstruationSignals.noneApply}
+            onChange={(event) => onDraftChange('menstruationSignals', {
+              ...draft.menstruationSignals, noneApply: event.currentTarget.checked,
+            })}
+            disabled={disabled}
+            className="size-5"
+          />
+          当てはまるものはない
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="checkbox"
+            checked={draft.menstruationSignals.unknown}
+            onChange={(event) => onDraftChange('menstruationSignals', {
+              ...draft.menstruationSignals, unknown: event.currentTarget.checked,
+            })}
+            disabled={disabled}
+            className="size-5"
+          />
+          わからない
+        </label>
+        <FieldError message={errors.menstruationSignals} />
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="font-bold text-gray-900">本人確認書類を持参できる（任意）</legend>
+        {([
+          ['yes', 'はい'], ['no', 'いいえ'], ['undecided', '未定'],
+        ] as const).map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+          <input
+            type="radio"
+            name="emergency-id-document"
+            value={value}
+            checked={draft.idDocumentAvailable === value}
+            onChange={() => onDraftChange('idDocumentAvailable', value)}
+            disabled={disabled}
+            className="size-5"
+          />
+          {label}
+        </label>)}
+      </fieldset>
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">来局と服用方法の確認</legend>
@@ -444,6 +807,7 @@ export default function EmergencyContraceptionPage() {
   const [showErrors, setShowErrors] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [submittedCode, setSubmittedCode] = useState('');
+  const [submittedAnyPhaseBFlag, setSubmittedAnyPhaseBFlag] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (error) {
@@ -513,12 +877,28 @@ export default function EmergencyContraceptionPage() {
         recentPurchaseCount: Number(draft.recentPurchaseCount),
         patientWillVisit: draft.patientWillVisit,
         acceptsInPersonDose: draft.acceptsInPersonDose,
+        lngAllergy: draft.lngAllergy,
+        liverDisease: draft.liverDisease,
+        currentlyPregnant: draft.currentlyPregnant,
+        breastfeeding: draft.breastfeeding,
+        underMedicalTreatment: draft.underMedicalTreatment,
+        drugAllergyHistory: draft.drugAllergyHistory,
+        heartKidneyGiDisease: draft.heartKidneyGiDisease,
+        stJohnsWort: draft.stJohnsWort,
+        lastMenstruationDate: draft.lastMenstruationDateUnknown ? null : (draft.lastMenstruationDate || null),
+        menstruationSignals: draft.menstruationSignals,
+        idDocumentAvailable: draft.idDocumentAvailable === 'undecided' ? null : draft.idDocumentAvailable === 'yes',
         safeContactMode: draft.safeContactMode as EmergencySafeContactMode,
         consentVersion: service.consent.version,
+        consentContentHash: service.consent.content_hash,
         manufacturerCheckAcknowledged: draft.manufacturerCheckAcknowledged,
         idempotencyKey: crypto.randomUUID(),
       });
       setIntakes((current) => [result.intake, ...current.filter((item) => item.id !== result.intake.id)]);
+      setSubmittedAnyPhaseBFlag(
+        draft.underMedicalTreatment || draft.drugAllergyHistory ||
+        draft.heartKidneyGiDisease || draft.stJohnsWort,
+      );
       setDraft(EMPTY_EMERGENCY_DRAFT);
       setSubmittedCode(result.intake.reference_code);
       setSuccess(`仮受付番号 ${result.intake.reference_code} を受け付けました。販売は確定していません。`);
@@ -544,6 +924,7 @@ export default function EmergencyContraceptionPage() {
       );
       setIntakes((current) => current.map((item) => item.id === result.intake.id ? result.intake : item));
       setSubmittedCode('');
+      setSubmittedAnyPhaseBFlag(false);
       setSuccess('仮受付を取消しました。');
     } catch (err) {
       await load();
@@ -572,42 +953,28 @@ export default function EmergencyContraceptionPage() {
           {submittedCode && <>
             <p className="mt-2 font-bold">次にすること</p>
             <ul className="mt-1 list-disc space-y-1 pl-5">
-              <li>薬剤師の確認をお待ちください。結果は下の「これまでの仮受付」に表示されます。</li>
-              <li>選んだ対応枠の時間に、本人が薬局へ来局してください。</li>
-              <li>受付番号 {submittedCode} を来局時にお伝えください。</li>
+              {emergencyCompletionNextSteps(submittedAnyPhaseBFlag, submittedCode).map((step) => <li key={step}>{step}</li>)}
             </ul>
           </>}
+          {safeExternalUrl(service?.support_center_url ?? null) && <a
+            href={safeExternalUrl(service?.support_center_url ?? null) ?? undefined}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mt-2 inline-block font-bold text-green-900 underline"
+          >
+            相談窓口を見る（外部サイト）
+          </a>}
         </div>}
         {loading
           ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-600">受付状況を読み込み中...</p>
           : service?.ready && service.consent
             ? <>
-              <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
-                <h2 id="emergency-consent" className="font-bold text-gray-900">説明と明示同意</h2>
-                <dl className="space-y-1 text-sm text-gray-700">
-                  <div><dt className="font-bold">利用目的</dt><dd>{service.consent.purpose}</dd></div>
-                  <div><dt className="font-bold">保存期間</dt><dd>{service.consent.retention_days}日間</dd></div>
-                  <div><dt className="font-bold">問い合わせ先</dt><dd>{service.consent.privacy_contact}</dd></div>
-                </dl>
-                <a
-                  href={safeExternalUrl(service.consent.privacy_policy_url) ?? undefined}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-sm font-bold text-green-800 underline"
-                >
-                  個人情報の利用目的・問い合わせ先を確認（外部サイト）
-                </a>
-                <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={draft.consentAccepted}
-                    onChange={(event) => changeDraft('consentAccepted', event.currentTarget.checked)}
-                    disabled={busy !== null}
-                    className="size-5"
-                  />
-                  説明と利用目的を確認し、来局前確認に同意します
-                </label>
-              </section>
+              <EmergencyConsentSection
+                consent={service.consent}
+                consentAccepted={draft.consentAccepted}
+                busy={busy}
+                onToggle={(checked) => changeDraft('consentAccepted', checked)}
+              />
               {confirming
                 ? <section className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm" aria-labelledby="emergency-confirm">
                   <h2 id="emergency-confirm" className="font-bold text-gray-900">送信内容の確認</h2>
@@ -632,7 +999,7 @@ export default function EmergencyContraceptionPage() {
                   onDraftChange={changeDraft}
                   onSubmit={review}
                 />}
-              <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />
+              <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />
             </>
             : <>
               <section className="rounded-xl bg-white p-4 shadow-sm">
@@ -641,7 +1008,7 @@ export default function EmergencyContraceptionPage() {
                   {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
                 </p>
               </section>
-              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} busy={busy} onCancel={cancel} />}
+              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />}
             </>}
         <EmergencyAlternativeLinks service={service} />
       </div>

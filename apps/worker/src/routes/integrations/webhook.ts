@@ -44,6 +44,11 @@ const WEBHOOK_INBOX_LEASE_MS = 5 * 60_000;
 const WEBHOOK_INBOX_MAX_ATTEMPTS = 10;
 const WEBHOOK_INBOX_SWEEP_LIMIT = 50;
 const WEBHOOK_RECEIPT_RETENTION_DAYS = 30;
+// A row that never gets picked up (crashed sweep, orphaned lease) would
+// otherwise hold its raw LINE payload forever — see RETENTION_MATRIX.md
+// "pharmacy_webhook_event_receipts stragglers". Retire it like any other
+// stuck row instead of leaving it live and un-purgeable.
+const WEBHOOK_INBOX_STALE_AGE_MS = 24 * 60 * 60_000;
 
 interface WebhookInboxRow {
   tenant_id: string;
@@ -202,6 +207,21 @@ export async function sweepWebhookInbox(options: {
         AND retry_count >= ?`,
   ).bind(nowJst, WEBHOOK_INBOX_MAX_ATTEMPTS).run();
   summary.deadLettered = retired.meta?.changes ?? 0;
+
+  // Stale-age cap: a row that is never picked up never hits the attempt cap
+  // above (retry_count stays 0), so it would otherwise sit in pending/processing
+  // forever holding its raw payload. dead_lettered_at is set; status, retry_count,
+  // and payload are left exactly as they were.
+  const staleCutoffJst = toJstString(new Date(now.getTime() - WEBHOOK_INBOX_STALE_AGE_MS));
+  const staleRetired = await db.prepare(
+    `UPDATE pharmacy_webhook_event_receipts
+        SET dead_lettered_at = ?
+      WHERE status IN ('pending', 'processing')
+        AND dead_lettered_at IS NULL
+        AND received_at < ?
+        AND (lease_until IS NULL OR lease_until < ?)`,
+  ).bind(nowJst, staleCutoffJst, nowJst).run();
+  summary.deadLettered += staleRetired.meta?.changes ?? 0;
 
   if (!options.credentialRootSecret) return summary;
 
@@ -776,6 +796,16 @@ async function handleEvent(
       });
       if (refs) {
         finalContent = JSON.stringify(refs);
+        // The durable inbox retries this deterministic R2 key if tracking fails.
+        // OR IGNORE also makes a later retry safe if a downstream write failed.
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_incoming_image_objects
+               (r2_key, tenant_id, line_account_id, message_id, stored_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .bind(refs.r2Key, tenantId, lineAccountId, lineMessageId, new Date().toISOString())
+          .run();
       }
     }
 

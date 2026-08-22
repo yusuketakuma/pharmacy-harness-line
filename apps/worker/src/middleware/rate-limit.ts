@@ -71,6 +71,8 @@ const UNAUTHENTICATED_PATTERNS: Array<string | RegExp> = [
   // unauthenticated by design rather than incidentally inheriting the
   // higher authenticated ceiling via an unvalidated Bearer token.
   /^\/api\/liff\/pharmacy\//,
+  // Myna launch redirect (see NEXT-1): public, token-guarded, unauthenticated by design.
+  /^\/r\/myna\//,
 ];
 
 const SENSITIVE_PATHS = new Set([
@@ -167,8 +169,12 @@ export async function rateLimitMiddleware(c: Context<Env>, next: Next): Promise<
   // hide a sensitive path behind percent-encoding (e.g. /log%69n).
   const path = c.req.path;
 
-  // Skip rate limiting for docs / static assets
-  if (path === '/docs' || path === '/openapi.json' || path.startsWith('/r/')) {
+  // Skip rate limiting for docs / static assets. /r/myna/ is deliberately
+  // NOT skipped: it's an unauthenticated redirect endpoint and needs the
+  // same IP-keyed limiting as other unauthenticated paths (see
+  // UNAUTHENTICATED_PATTERNS below) to bound token-guessing attempts.
+  if (path === '/docs' || path === '/openapi.json' ||
+      (path.startsWith('/r/') && !path.startsWith('/r/myna/'))) {
     return next();
   }
 

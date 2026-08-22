@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   detail: vi.fn(),
   verify: vi.fn(),
   active: vi.fn(),
-  alias: vi.fn(),
   admin: vi.fn(),
   saveEndpoint: vi.fn(),
   setEndpointEnabled: vi.fn(),
@@ -33,7 +32,6 @@ vi.mock('./repository.js', () => ({
 }));
 vi.mock('./endpoint-repository.js', () => ({
   getActiveMynaEndpoint: mocks.active,
-  getMynaEndpointByAlias: mocks.alias,
   getAdminMynaEndpoint: mocks.admin,
   saveMynaEndpoint: mocks.saveEndpoint,
   setMynaEndpointEnabled: mocks.setEndpointEnabled,
@@ -91,8 +89,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.verifyIdentity.mockResolvedValue({ userId: 'line-user-1' });
   mocks.resolvePatient.mockResolvedValue(patient);
-  mocks.active.mockResolvedValue({ tenant_alias: 'pharmacy-a', endpoint_url: 'https://myna.example.test/pharmacy/a' });
-  mocks.alias.mockResolvedValue({ endpoint_url: 'https://myna.example.test/pharmacy/a' });
+  mocks.active.mockResolvedValue({
+    line_account_id: 'account-1', tenant_alias: 'pharmacy-a',
+    endpoint_url: 'https://myna.example.test/pharmacy/a',
+  });
   mocks.create.mockResolvedValue({ handoff, expectation: { id: 'expectation-1', receipt_status: 'EXPECTED' } });
   mocks.launch.mockResolvedValue({ ...handoff, status: 'LAUNCH_REQUESTED' });
   mocks.report.mockResolvedValue({ ...handoff, status: 'PATIENT_REPORTED_COMPLETE' });
@@ -189,8 +189,10 @@ describe('Myna routes', () => {
     }, env);
     expect(response.status).toBe(201);
     const body = await response.json() as { launchUrl: string };
-    expect(body.launchUrl).toContain('/r/myna/pharmacy-a?openExternalBrowser=1');
+    expect(body.launchUrl).toMatch(/^https:\/\/pharmacy\.example\.test\/r\/myna\/[^/?]+\?openExternalBrowser=1$/);
     expect(body.launchUrl).not.toContain('patient');
+    expect(body.launchUrl).not.toContain('pharmacy-a');
+    expect(body.launchUrl).not.toContain('account-1');
     expect(mocks.active).toHaveBeenCalledTimes(1);
     expect(mocks.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION', source: 'LIFF',
@@ -242,12 +244,61 @@ describe('Myna routes', () => {
     expect(mocks.verify).not.toHaveBeenCalled();
   });
 
-  it('redirects only through the configured external endpoint with privacy headers', async () => {
-    const response = await app().request('/r/myna/pharmacy-a?openExternalBrowser=1&patientId=secret', {}, env);
+  async function issuedLaunchPath(): Promise<string> {
+    const response = await app().request('/api/liff/pharmacy/myna-handoffs?liffId=123-abc', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer line-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'E_PRESCRIPTION', correlationId: 'corr-1234' }),
+    }, env);
+    const body = await response.json() as { launchUrl: string };
+    return new URL(body.launchUrl).pathname + new URL(body.launchUrl).search;
+  }
+
+  it('redirects only through the configured external endpoint with privacy headers, with no alias in the URL', async () => {
+    const path = await issuedLaunchPath();
+    expect(path).not.toContain('pharmacy-a');
+    const response = await app().request(`${path}&patientId=secret`, {}, env);
     expect(response.status).toBe(302);
     expect(response.headers.get('location')).toBe('https://myna.example.test/pharmacy/a');
     expect(response.headers.get('referrer-policy')).toBe('no-referrer');
     expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('returns an identical generic 404 for an unknown token', async () => {
+    const response = await app().request('/r/myna/not-a-real-token', {}, env);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('Myna受付を利用できません');
+  });
+
+  it('returns the same generic 404 for a tampered signature', async () => {
+    const path = await issuedLaunchPath();
+    const [pathname] = path.split('?');
+    const token = pathname.split('/r/myna/')[1];
+    const [payloadPart, sigPart] = token.split('.');
+    const tamperedSig = sigPart.slice(0, -1) + (sigPart.at(-1) === 'A' ? 'B' : 'A');
+    const response = await app().request(`/r/myna/${payloadPart}.${tamperedSig}`, {}, env);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('Myna受付を利用できません');
+  });
+
+  it('returns the same generic 404 for an expired token', async () => {
+    const path = await issuedLaunchPath();
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(31 * 60_000); // past the 30 min token TTL
+      const response = await app().request(path, {}, env);
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe('Myna受付を利用できません');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns 404 (not the endpoint) for a valid token whose account endpoint is disabled', async () => {
+    const path = await issuedLaunchPath();
+    mocks.active.mockResolvedValueOnce(null); // simulates a disabled/retired endpoint for this account
+    const response = await app().request(path, {}, env);
+    expect(response.status).toBe(404);
   });
 
   it('requires pharmacist-level role for sensitive verification outcomes', async () => {

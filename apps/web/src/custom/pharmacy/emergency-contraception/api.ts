@@ -14,6 +14,7 @@ export type EmergencyRiskFlag =
   | 'minor_review'
   | 'repeat_purchase_review'
   | 'notification_unavailable'
+  | 'pre_review_flagged'
 
 export interface EmergencySettings {
   line_account_id: string
@@ -92,6 +93,15 @@ export interface EmergencyIntakeSummary {
   slot_ends_at: string
 }
 
+export interface EmergencyMenstruationSignals {
+  noneApply: boolean
+  unknown: boolean
+  overOneMonthNoPeriod: boolean
+  notRecoveredAfterBirth: boolean
+  lastPeriodDifferent: boolean
+  earlierConcernOver3Weeks: boolean
+}
+
 export interface AdminEmergencyIntake extends EmergencyIntakeSummary {
   age_band: 'under_16' | '16_17' | 'adult'
   safe_contact_mode: 'neutral_line' | 'no_notification' | 'phone' | 'none'
@@ -99,10 +109,58 @@ export interface AdminEmergencyIntake extends EmergencyIntakeSummary {
   risk_flags: EmergencyRiskFlag[]
   created_at: string
   updated_at: string
+  redacted?: boolean
   self_reported: {
     intercourseAt: string
     intercourseTimeUnknown: boolean
-  }
+    lngAllergy: boolean | null
+    liverDisease: boolean | null
+    currentlyPregnant: boolean | null
+    breastfeeding: boolean | null
+    underMedicalTreatment: boolean | null
+    drugAllergyHistory: boolean | null
+    heartKidneyGiDisease: boolean | null
+    stJohnsWort: boolean | null
+    lastMenstruationDate: string | null
+    menstruationSignals: EmergencyMenstruationSignals | null
+    pregnancyTestRecommended: boolean | null
+    idDocumentAvailable: boolean | null
+    checklistVersion: string | null
+  } | null
+}
+
+export type EmergencyCounterSection = 'A' | 'B' | 'C' | 'D'
+
+export interface EmergencyCounterConfirmation {
+  section: EmergencyCounterSection
+  checklist_version: string
+  mismatch_items: string[]
+  staff_id: string
+  confirmed_at: string
+}
+
+export type EmergencyIdentityCheck = 'document' | 'verbal' | 'unverified'
+export type EmergencyInPersonDose = 'done' | 'not_done'
+export type EmergencySaleOutcome = 'sold' | 'refused'
+export type EmergencyPregnancyTestResult = 'not_done' | 'negative' | 'positive'
+export type EmergencyReferral = 'none' | 'obgyn' | 'pediatrics' | 'onestop' | 'child_guidance'
+
+export interface EmergencySaleRecord {
+  id: string
+  outcome: EmergencySaleOutcome
+  sold_at: string
+}
+
+export interface EmergencySaleInput {
+  expectedVersion: number
+  outcome: EmergencySaleOutcome
+  identityCheck: EmergencyIdentityCheck
+  inPersonDose: EmergencyInPersonDose
+  checklistSheetsReceived: number
+  pregnancyTest: EmergencyPregnancyTestResult
+  refusalReasonCode: string | null
+  referral: EmergencyReferral
+  explained: string[]
 }
 
 export interface EmergencyConfigInput {
@@ -201,5 +259,28 @@ export const emergencyContraceptionAdminApi = {
   ) => fetchApi<{ intake: EmergencyIntakeSummary }>(
     `${path}/intakes/${encodeURIComponent(intakeId)}/transitions?${accountQuery(accountId)}`,
     { method: 'POST', body: JSON.stringify({ status, expectedVersion }) },
+  ),
+  counterConfirmation: (accountId: string, intakeId: string, section: EmergencyCounterSection) => fetchApi<{
+    confirmation: EmergencyCounterConfirmation | null
+  }>(
+    `${path}/intakes/${encodeURIComponent(intakeId)}/counter-confirmations/${section}?${accountQuery(accountId)}`,
+  ),
+  confirmCounterSection: (
+    accountId: string,
+    intakeId: string,
+    section: EmergencyCounterSection,
+    body: { checklistVersion: string; mismatchItems: string[] },
+  ) => fetchApi<{ confirmation: EmergencyCounterConfirmation }>(
+    `${path}/intakes/${encodeURIComponent(intakeId)}/counter-confirmations/${section}?${accountQuery(accountId)}`,
+    { method: 'PUT', body: JSON.stringify(body) },
+  ),
+  recordSale: (accountId: string, intakeId: string, body: EmergencySaleInput) => fetchApi<{
+    sale: EmergencySaleRecord
+  }>(
+    `${path}/intakes/${encodeURIComponent(intakeId)}/sale?${accountQuery(accountId)}`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ),
+  saleRecord: (accountId: string, intakeId: string) => fetchApi<{ sale: EmergencySaleRecord }>(
+    `${path}/intakes/${encodeURIComponent(intakeId)}/sale?${accountQuery(accountId)}`,
   ),
 }

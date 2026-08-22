@@ -34,8 +34,20 @@ export interface SnapshotRow {
 }
 
 export interface ReleaseEvidence {
+  schemaVersion: 1;
   sourceSha: string;
   vendorSha: string;
+  packageVersion: string;
+  sellerTag: string | null;
+  environment: 'development' | 'beta' | 'production';
+  stage: string | null;
+  schemaFingerprint: string;
+  artifactHashes: {
+    worker: string;
+    workerAssets: string;
+    admin: string;
+    liff: string;
+  };
   migrations: Array<{ name: string; checksum: string }>;
   d1Bookmark: string | null;
   previousWorkerVersionId: string | null;

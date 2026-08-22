@@ -67,4 +67,19 @@ describe('pharmacy admin API coverage leak detector', () => {
       expect(findPharmacyAdminApiCoverage('POST', path)).toBeUndefined();
     }
   });
+
+  it('allows only the read-only LINE rich-menu state reconciliation endpoint', () => {
+    const readback = findPharmacyAdminApiCoverage('GET', '/api/rich-menu-groups/external');
+
+    expect(readback).toMatchObject({
+      accountScope: 'query:accountId',
+      mutationGate: 'read-only',
+      safeOutput: true,
+    });
+    expect(readback?.path.test('/api/rich-menu-groups/group-a')).toBe(false);
+    expect(findPharmacyAdminApiDeferred('GET', '/api/rich-menu-groups/external')).toBeUndefined();
+    expect(findPharmacyAdminApiCoverage('POST', '/api/rich-menu-groups/import')).toBeUndefined();
+    expect(findPharmacyAdminApiCoverage('DELETE', '/api/rich-menu-groups/external/richmenu-a'))
+      .toBeUndefined();
+  });
 });

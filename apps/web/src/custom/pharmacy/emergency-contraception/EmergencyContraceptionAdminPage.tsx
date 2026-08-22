@@ -8,12 +8,21 @@ import {
   type EmergencyAdminConfig,
   type EmergencyAvailableStaff,
   type EmergencyConfigInput,
+  type EmergencyCounterConfirmation,
+  type EmergencyCounterSection,
+  type EmergencyIdentityCheck,
+  type EmergencyInPersonDose,
   type EmergencyIntakeStatus,
   type EmergencyInventory,
   type EmergencyIntakeSummary,
   type EmergencyPharmacist,
+  type EmergencyPregnancyTestResult,
+  type EmergencyReferral,
   type EmergencyRiskFlag,
   type EmergencyReminderControl,
+  type EmergencySaleInput,
+  type EmergencySaleOutcome,
+  type EmergencySaleRecord,
   type EmergencySlot,
 } from './api'
 
@@ -60,6 +69,75 @@ const RISK_FLAG_LABELS: Record<EmergencyRiskFlag, string> = {
   minor_review: '未成年確認が必要',
   repeat_purchase_review: '直近購入の確認が必要',
   notification_unavailable: '通知できないため来局時確認が必要',
+  pre_review_flagged: '事前申告フラグあり（対面確認が必要）',
+}
+
+type SelfReported = NonNullable<AdminEmergencyIntake['self_reported']>
+
+const SECTION_FIELDS: Record<EmergencyCounterSection, Array<{ key: keyof SelfReported; label: string }>> = {
+  A: [
+    { key: 'lngAllergy', label: 'レボノルゲストレル含有薬のアレルギー歴' },
+    { key: 'liverDisease', label: '肝臓病の診断' },
+    { key: 'currentlyPregnant', label: '現在妊娠している' },
+    { key: 'breastfeeding', label: '授乳中' },
+  ],
+  B: [
+    { key: 'underMedicalTreatment', label: '医師の治療を受けている' },
+    { key: 'drugAllergyHistory', label: '薬のアレルギー歴' },
+    { key: 'heartKidneyGiDisease', label: '心臓病・腎臓病・重度の消化器疾患の診断' },
+    { key: 'stJohnsWort', label: 'セイヨウオトギリソウを含む食品の摂取' },
+  ],
+  C: [
+    { key: 'lastMenstruationDate', label: '直近の月経開始日' },
+  ],
+  D: [
+    { key: 'idDocumentAvailable', label: '本人確認書類の持参可否' },
+  ],
+}
+
+type MenstruationSignalKey = keyof NonNullable<SelfReported['menstruationSignals']>
+const MENSTRUATION_SIGNAL_FIELDS: Array<{ key: MenstruationSignalKey; label: string }> = [
+  { key: 'noneApply', label: '当てはまるものはない' },
+  { key: 'unknown', label: 'わからない' },
+  { key: 'overOneMonthNoPeriod', label: '約1か月を超えて月経がない' },
+  { key: 'notRecoveredAfterBirth', label: '出産等の後に月経が回復していない' },
+  { key: 'lastPeriodDifferent', label: '直近の月経がいつもと違う' },
+  { key: 'earlierConcernOver3Weeks', label: '今回より前の心配な出来事から3週間以上' },
+]
+
+const REFUSAL_REASON_OPTIONS = [
+  { value: 'age_uncertain', label: '年齢確認不能' },
+  { value: 'contraindication', label: '禁忌に該当' },
+  { value: 'checklist_incomplete', label: 'チェックシート不備' },
+  { value: 'patient_declined', label: '本人の辞退' },
+  { value: 'other', label: 'その他' },
+]
+
+const EXPLAINED_OPTIONS = [
+  { value: 'three_week_check', label: '3週間後の確認' },
+  { value: 'contraception_guidance', label: '避妊指導' },
+  { value: 'sti_guidance', label: '性感染症' },
+  { value: 'breastfeeding_24h', label: '授乳24時間' },
+]
+
+const emptySaleDraft: EmergencySaleInput = {
+  expectedVersion: 0,
+  outcome: 'sold',
+  identityCheck: 'unverified',
+  inPersonDose: 'not_done',
+  checklistSheetsReceived: 0,
+  pregnancyTest: 'not_done',
+  refusalReasonCode: null,
+  referral: 'none',
+  explained: [],
+}
+
+const emptyMismatchDrafts: Record<EmergencyCounterSection, string[]> = { A: [], B: [], C: [], D: [] }
+
+function formatSelfReportedValue(value: boolean | string | null | undefined): string {
+  if (value === null || value === undefined) return '未回答'
+  if (typeof value === 'boolean') return value ? 'あり' : 'なし'
+  return value
 }
 
 const AGE_BAND_LABELS: Record<AdminEmergencyIntake['age_band'], string> = {
@@ -206,6 +284,10 @@ export default function EmergencyContraceptionAdminPage() {
   const [reminderControl, setReminderControl] = useState<EmergencyReminderControl>(emptyReminderControl)
   const [intakes, setIntakes] = useState<EmergencyIntakeSummary[]>([])
   const [selectedDetail, setSelectedDetail] = useState<AdminEmergencyIntake | null>(null)
+  const [counterConfirmations, setCounterConfirmations] = useState<Partial<Record<EmergencyCounterSection, EmergencyCounterConfirmation>>>({})
+  const [mismatchDrafts, setMismatchDrafts] = useState<Record<EmergencyCounterSection, string[]>>({ ...emptyMismatchDrafts })
+  const [saleRecord, setSaleRecord] = useState<EmergencySaleRecord | null>(null)
+  const [saleDraft, setSaleDraft] = useState<EmergencySaleInput>({ ...emptySaleDraft })
   const [statusFilter, setStatusFilter] = useState<EmergencyIntakeStatus | ''>('')
   const [slotFilter, setSlotFilter] = useState('')
   const [deadlineFilter, setDeadlineFilter] = useState('')
@@ -293,6 +375,10 @@ export default function EmergencyContraceptionAdminPage() {
     setReminderControl(emptyReminderControl)
     setIntakes([])
     setSelectedDetail(null)
+    setCounterConfirmations({})
+    setMismatchDrafts({ ...emptyMismatchDrafts })
+    setSaleRecord(null)
+    setSaleDraft({ ...emptySaleDraft })
     setStatusFilter('')
     setSlotFilter('')
     setDeadlineFilter('')
@@ -488,9 +574,81 @@ export default function EmergencyContraceptionAdminPage() {
     setQueueError('')
     try {
       const result = await emergencyContraceptionAdminApi.intakeDetail(accountId, intakeId)
-      if (selectedAccountRef.current === accountId) setSelectedDetail(result.intake)
+      if (selectedAccountRef.current !== accountId) return
+      setSelectedDetail(result.intake)
+      const sections: EmergencyCounterSection[] = ['A', 'B', 'C', 'D']
+      const confirmations = await Promise.all(sections.map((section) => emergencyContraceptionAdminApi
+        .counterConfirmation(accountId, intakeId, section)
+        .then((response) => response.confirmation)
+        .catch(() => null)))
+      if (selectedAccountRef.current !== accountId) return
+      setCounterConfirmations(Object.fromEntries(
+        sections.map((section, index) => [section, confirmations[index]]).filter(([, value]) => value),
+      ))
+      try {
+        const sale = await emergencyContraceptionAdminApi.saleRecord(accountId, intakeId)
+        if (selectedAccountRef.current === accountId) setSaleRecord(sale.sale)
+      } catch {
+        if (selectedAccountRef.current === accountId) setSaleRecord(null)
+      }
+      setSaleDraft((current) => ({ ...current, expectedVersion: result.intake.version }))
     } catch {
       if (selectedAccountRef.current === accountId) setQueueError('申告詳細を表示できません。研修修了状態と通信状態を確認してください。')
+    } finally {
+      if (selectedAccountRef.current === accountId) setBusy('')
+    }
+  }
+
+  async function confirmSection(intake: EmergencyIntakeSummary, section: EmergencyCounterSection) {
+    if (!selectedAccountId || busy || selectedDetail?.id !== intake.id) return
+    if (!window.confirm(`セクション${section}を対面で確認した記録として登録します。よろしいですか？`)) return
+    const accountId = selectedAccountId
+    setBusy(`confirm:${section}`)
+    setError('')
+    setMessage('')
+    try {
+      const checklistVersion = selectedDetail.self_reported?.checklistVersion || 'lng-2026-08'
+      const result = await emergencyContraceptionAdminApi.confirmCounterSection(accountId, intake.id, section, {
+        checklistVersion, mismatchItems: mismatchDrafts[section],
+      })
+      if (selectedAccountRef.current !== accountId) return
+      setCounterConfirmations((current) => ({ ...current, [section]: result.confirmation }))
+      setMessage(`セクション${section}の対面確認を記録しました。`)
+    } catch {
+      if (selectedAccountRef.current === accountId) {
+        setError('対面確認を記録できませんでした。最新の状態を確認してください。')
+        await loadIntakeDetail(intake.id)
+      }
+    } finally {
+      if (selectedAccountRef.current === accountId) setBusy('')
+    }
+  }
+
+  async function submitSale(intake: EmergencyIntakeSummary) {
+    if (!selectedAccountId || busy || selectedDetail?.id !== intake.id) return
+    if (!window.confirm(saleDraft.outcome === 'sold'
+      ? '販売した記録として保存します。この操作は最終適格性を自動判定しません。よろしいですか？'
+      : '販売しなかった記録として保存します。よろしいですか？')) return
+    const accountId = selectedAccountId
+    setBusy('sale')
+    setError('')
+    setMessage('')
+    try {
+      const result = await emergencyContraceptionAdminApi.recordSale(accountId, intake.id, {
+        ...saleDraft,
+        expectedVersion: selectedDetail.version,
+        refusalReasonCode: saleDraft.outcome === 'refused' ? (saleDraft.refusalReasonCode || null) : null,
+      })
+      if (selectedAccountRef.current !== accountId) return
+      setSaleRecord(result.sale)
+      setMessage('薬剤師記入欄の内容を販売記録として保存しました。')
+      await load()
+      await loadIntakeDetail(intake.id)
+    } catch {
+      if (selectedAccountRef.current === accountId) {
+        setError('販売記録を保存できませんでした。最新の状態を確認してください。')
+        await loadIntakeDetail(intake.id)
+      }
     } finally {
       if (selectedAccountRef.current === accountId) setBusy('')
     }
@@ -643,7 +801,50 @@ export default function EmergencyContraceptionAdminPage() {
           </div>
         </div>
         {queueError && <p role="alert" className="m-5 rounded-lg bg-red-50 p-3 text-sm text-red-700">{queueError}</p>}
-         {loading && intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">受付キューを読み込み中...</p> : queueError && intakes.length === 0 ? <p className="p-8 text-center text-sm text-red-600">受付キューを表示できません。再読み込みしてください。</p> : intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">該当する受付はありません。</p> : <><ul className="divide-y divide-gray-200">{intakes.map((intake) => <li key={intake.id} className="space-y-3 p-5"><div><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{emergencyIntakeStatusLabel(intake.status)}</p>{intake.status === 'provisional' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">未確認</span>}</div><p className="mt-1 font-mono text-xs text-gray-500">受付番号: {intake.reference_code}</p><p className="mt-1 text-sm text-gray-600">対応枠: {formatSlot({ starts_at: intake.slot_starts_at, ends_at: intake.slot_ends_at })} / 期限: {formatDate(intake.expires_at)}</p></div><dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-gray-500">患者申告（未確認）</dt><dd>{selectedDetail?.id === intake.id ? (selectedDetail.self_reported.intercourseTimeUnknown ? '時刻不明' : formatDate(selectedDetail.self_reported.intercourseAt)) : <button type="button" onClick={() => void loadIntakeDetail(intake.id)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{busy === `detail:${intake.id}` ? '確認中…' : '申告詳細を確認'}</button>}</dd></div><div><dt className="text-gray-500">年齢帯</dt><dd>{selectedDetail?.id === intake.id ? AGE_BAND_LABELS[selectedDetail.age_band] : '詳細確認後に表示'}</dd></div><div><dt className="text-gray-500">連絡方法</dt><dd>{selectedDetail?.id === intake.id ? SAFE_CONTACT_LABELS[selectedDetail.safe_contact_mode] : '詳細確認後に表示'}</dd></div><div><dt className="text-gray-500">同意文書</dt><dd>{selectedDetail?.id === intake.id ? selectedDetail.consent_version : '詳細確認後に表示'}</dd></div></dl><div><p className="text-sm font-medium">リスクフラグ</p>{selectedDetail?.id !== intake.id ? <p className="mt-1 text-sm text-gray-500">詳細確認後に表示</p> : selectedDetail.risk_flags.length === 0 ? <p className="mt-1 text-sm text-gray-500">なし</p> : <ul className="mt-1 flex flex-wrap gap-2">{selectedDetail.risk_flags.map((flag) => <li key={flag} className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">{emergencyRiskFlagLabel(flag)}</li>)}</ul>}</div><div className="flex flex-wrap gap-2">{intake.status === 'provisional' && <button type="button" onClick={() => void transition(intake, 'reviewed')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">薬剤師確認済みにする</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'cancelled')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm text-red-700 disabled:opacity-50">受付を取消</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'expired')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">期限切れとして記録</button>}{intake.status === 'reviewed' && <button type="button" onClick={() => void transition(intake, 'completed')} disabled={busy !== ''} className="min-h-11 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">店頭対応完了として記録</button>}</div></li>)}</ul>{nextCursor && <div className="border-t p-4 text-center"><button type="button" onClick={() => void loadQueue(nextCursor, true)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">{busy === 'queue-more' ? '読込中…' : '次を表示'}</button></div>}</>}
+         {loading && intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">受付キューを読み込み中...</p> : queueError && intakes.length === 0 ? <p className="p-8 text-center text-sm text-red-600">受付キューを表示できません。再読み込みしてください。</p> : intakes.length === 0 ? <p className="p-8 text-center text-sm text-gray-500">該当する受付はありません。</p> : <><ul className="divide-y divide-gray-200">{intakes.map((intake) => <li key={intake.id} className="space-y-3 p-5"><div><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{emergencyIntakeStatusLabel(intake.status)}</p>{intake.status === 'provisional' && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">未確認</span>}</div><p className="mt-1 font-mono text-xs text-gray-500">受付番号: {intake.reference_code}</p><p className="mt-1 text-sm text-gray-600">対応枠: {formatSlot({ starts_at: intake.slot_starts_at, ends_at: intake.slot_ends_at })} / 期限: {formatDate(intake.expires_at)}</p></div><dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-gray-500">患者申告（未確認）</dt><dd>{selectedDetail?.id === intake.id ? (selectedDetail.self_reported ? (selectedDetail.self_reported.intercourseTimeUnknown ? '時刻不明' : formatDate(selectedDetail.self_reported.intercourseAt)) : '保存期間経過のため削除済み') : <button type="button" onClick={() => void loadIntakeDetail(intake.id)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{busy === `detail:${intake.id}` ? '確認中…' : '申告詳細を確認'}</button>}</dd></div><div><dt className="text-gray-500">年齢帯</dt><dd>{selectedDetail?.id === intake.id ? AGE_BAND_LABELS[selectedDetail.age_band] : '詳細確認後に表示'}</dd></div><div><dt className="text-gray-500">連絡方法</dt><dd>{selectedDetail?.id === intake.id ? SAFE_CONTACT_LABELS[selectedDetail.safe_contact_mode] : '詳細確認後に表示'}</dd></div><div><dt className="text-gray-500">同意文書</dt><dd>{selectedDetail?.id === intake.id ? selectedDetail.consent_version : '詳細確認後に表示'}</dd></div></dl><div><p className="text-sm font-medium">リスクフラグ</p>{selectedDetail?.id !== intake.id ? <p className="mt-1 text-sm text-gray-500">詳細確認後に表示</p> : selectedDetail.risk_flags.length === 0 ? <p className="mt-1 text-sm text-gray-500">なし</p> : <ul className="mt-1 flex flex-wrap gap-2">{selectedDetail.risk_flags.map((flag) => <li key={flag} className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">{emergencyRiskFlagLabel(flag)}</li>)}</ul>}</div>
+              {selectedDetail?.id === intake.id && selectedDetail.self_reported && <div className="space-y-3 rounded-lg border border-gray-200 p-4">
+                <p className="text-sm font-medium">申告（未確認）</p>
+                {(Object.keys(SECTION_FIELDS) as EmergencyCounterSection[]).map((section) => {
+                  const confirmation = counterConfirmations[section]
+                  const selfReported = selectedDetail.self_reported as SelfReported
+                  return <div key={section} className="rounded-lg bg-gray-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">セクション{section}</p>
+                      {confirmation ? <span className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-800">対面で確認した（{confirmation.staff_id}）</span> : <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">未確認</span>}
+                    </div>
+                    <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+                      {SECTION_FIELDS[section].map(({ key, label }) => <div key={String(key)}><dt className="text-gray-500">{label}</dt><dd>{formatSelfReportedValue(selfReported[key] as boolean | string | null)}</dd></div>)}
+                      {section === 'C' && MENSTRUATION_SIGNAL_FIELDS.map(({ key, label }) => <div key={key}><dt className="text-gray-500">{label}</dt><dd>{formatSelfReportedValue(selfReported.menstruationSignals?.[key])}</dd></div>)}
+                    </dl>
+                    {section === 'C' && <p className="mt-1 text-xs text-amber-900">薬剤師のみ表示: 妊娠検査推奨 {selfReported.pregnancyTestRecommended ? 'あり' : 'なし'}</p>}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <label className="text-xs text-gray-600">申告と相違があった項目
+                        <select multiple value={mismatchDrafts[section]} onChange={(event) => setMismatchDrafts((current) => ({ ...current, [section]: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="mt-1 min-h-16 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs">
+                          {SECTION_FIELDS[section].map(({ key, label }) => <option key={String(key)} value={String(key)}>{label}</option>)}
+                          {section === 'C' && MENSTRUATION_SIGNAL_FIELDS.map(({ key, label }) => <option key={key} value={`menstruationSignals.${key}`}>{label}</option>)}
+                        </select>
+                      </label>
+                      <button type="button" onClick={() => void confirmSection(intake, section)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">{busy === `confirm:${section}` ? '記録中…' : '対面で確認した'}</button>
+                    </div>
+                  </div>
+                })}
+              </div>}
+              {intake.status === 'reviewed' && selectedDetail?.id === intake.id && <div className="rounded-lg border border-gray-200 p-4" aria-label="薬剤師記入欄">
+                <p className="text-sm font-semibold">薬剤師記入欄</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm">本人確認<select value={saleDraft.identityCheck} onChange={(event) => setSaleDraft((current) => ({ ...current, identityCheck: event.target.value as EmergencyIdentityCheck }))} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="document">書類</option><option value="verbal">口頭</option><option value="unverified">未確認</option></select></label>
+                  <label className="text-sm">妊娠検査<select value={saleDraft.pregnancyTest} onChange={(event) => setSaleDraft((current) => ({ ...current, pregnancyTest: event.target.value as EmergencyPregnancyTestResult }))} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="not_done">未実施</option><option value="negative">陰性</option><option value="positive">陽性</option></select></label>
+                  <label className="text-sm">販売<select value={saleDraft.outcome} onChange={(event) => setSaleDraft((current) => ({ ...current, outcome: event.target.value as EmergencySaleOutcome }))} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="sold">販売した</option><option value="refused">販売しなかった</option></select></label>
+                  {saleDraft.outcome === 'refused' && <label className="text-sm">販売しなかった理由<select value={saleDraft.refusalReasonCode ?? ''} onChange={(event) => setSaleDraft((current) => ({ ...current, refusalReasonCode: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="">選択</option>{REFUSAL_REASON_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>}
+                  <label className="text-sm">面前服用<select value={saleDraft.inPersonDose} onChange={(event) => setSaleDraft((current) => ({ ...current, inPersonDose: event.target.value as EmergencyInPersonDose }))} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="done">実施</option><option value="not_done">未実施</option></select></label>
+                  <label className="text-sm">受診勧奨・紹介<select value={saleDraft.referral} onChange={(event) => setSaleDraft((current) => ({ ...current, referral: event.target.value as EmergencyReferral }))} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="none">なし</option><option value="obgyn">産婦人科</option><option value="pediatrics">小児科</option><option value="onestop">ワンストップ</option><option value="child_guidance">児相通告</option></select></label>
+                  <label className="text-sm">紙チェックシート受領枚数<input type="number" min="0" value={saleDraft.checklistSheetsReceived} onChange={(event) => setSaleDraft((current) => ({ ...current, checklistSheetsReceived: Number(event.target.value) }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+                </div>
+                <fieldset className="mt-2 flex flex-wrap gap-3 text-sm"><legend className="text-sm text-gray-600">説明済み</legend>{EXPLAINED_OPTIONS.map((option) => <label key={option.value} className="flex items-center gap-2"><input type="checkbox" checked={saleDraft.explained.includes(option.value)} onChange={(event) => setSaleDraft((current) => ({ ...current, explained: event.target.checked ? [...current.explained, option.value] : current.explained.filter((item) => item !== option.value) }))} />{option.label}</label>)}</fieldset>
+                <button type="button" onClick={() => void submitSale(intake)} disabled={busy !== ''} className="mt-3 min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === 'sale' ? '保存中…' : saleDraft.outcome === 'sold' ? '販売可として記録' : '販売しなかったとして記録'}</button>
+                {saleRecord && <p className="mt-2 text-xs text-gray-500">販売記録: {saleRecord.outcome === 'sold' ? '販売済み' : '販売しなかった'}（{formatDate(saleRecord.sold_at)}）</p>}
+              </div>}
+              <div className="flex flex-wrap gap-2">{intake.status === 'provisional' && <button type="button" onClick={() => void transition(intake, 'reviewed')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">薬剤師確認済みにする</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'cancelled')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm text-red-700 disabled:opacity-50">受付を取消</button>}{(intake.status === 'provisional' || intake.status === 'reviewed') && <button type="button" onClick={() => void transition(intake, 'expired')} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm disabled:opacity-50">期限切れとして記録</button>}{intake.status === 'reviewed' && <button type="button" onClick={() => void transition(intake, 'completed')} disabled={busy !== ''} className="min-h-11 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">店頭対応完了として記録</button>}</div></li>)}</ul>{nextCursor && <div className="border-t p-4 text-center"><button type="button" onClick={() => void loadQueue(nextCursor, true)} disabled={busy !== ''} className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm disabled:opacity-50">{busy === 'queue-more' ? '読込中…' : '次を表示'}</button></div>}</>}
       </section>
     </div>
   )

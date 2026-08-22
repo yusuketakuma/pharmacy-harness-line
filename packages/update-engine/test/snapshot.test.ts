@@ -163,8 +163,20 @@ describe('snapshot CRUD', () => {
     it('persists PHI-free deployment coordinates on the existing history row', async () => {
       const id = await createSnapshot(d1, { from: '0.5.0', to: '0.6.0' });
       await setReleaseEvidence(d1, id, {
+        schemaVersion: 1,
         sourceSha: 'a'.repeat(40),
         vendorSha: 'b'.repeat(40),
+        packageVersion: '0.6.0',
+        sellerTag: 'pharmacy-v0.6.0',
+        environment: 'beta',
+        stage: 'stage-0',
+        schemaFingerprint: 'sha256:' + 'd'.repeat(64),
+        artifactHashes: {
+          worker: 'sha256:' + '1'.repeat(64),
+          workerAssets: 'sha256:' + '2'.repeat(64),
+          admin: 'sha256:' + '3'.repeat(64),
+          liff: 'sha256:' + '4'.repeat(64),
+        },
         migrations: [{ name: '070_demo.sql', checksum: 'sha256:' + 'c'.repeat(64) }],
         d1Bookmark: 'bookmark-before',
         previousWorkerVersionId: 'worker-old',
@@ -178,7 +190,11 @@ describe('snapshot CRUD', () => {
 
       const row = await getSnapshot(d1, id);
       expect(JSON.parse(row!.release_evidence_json)).toMatchObject({
+        schemaVersion: 1,
         sourceSha: 'a'.repeat(40),
+        packageVersion: '0.6.0',
+        schemaFingerprint: 'sha256:' + 'd'.repeat(64),
+        artifactHashes: { worker: 'sha256:' + '1'.repeat(64) },
         d1Bookmark: 'bookmark-before',
         newWorkerVersionId: 'worker-new',
         smokeResults: { worker: 'passed', admin: 'passed' },

@@ -23,6 +23,8 @@ export interface FetchAndStoreOptions {
 export interface IncomingImageRefs {
   originalContentUrl: string;
   previewImageUrl: string;
+  /** R2 key the binary was stored under, for retention tracking (NEXT-4). */
+  r2Key: string;
 }
 
 /**
@@ -79,5 +81,5 @@ export async function fetchAndStoreIncomingImage(
 
   const base = opts.workerUrl.replace(/\/$/, '');
   const url = `${base}/api/images/${key}`;
-  return { originalContentUrl: url, previewImageUrl: url };
+  return { originalContentUrl: url, previewImageUrl: url, r2Key: key };
 }

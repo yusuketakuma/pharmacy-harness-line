@@ -907,6 +907,21 @@ CREATE TABLE pharmacy_emergency_admin_events (
     REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
 );
 
+CREATE TABLE pharmacy_emergency_counter_confirmations (
+  line_account_id      TEXT NOT NULL,
+  intake_id             TEXT NOT NULL,
+  section                TEXT NOT NULL CHECK (section IN ('A', 'B', 'C', 'D')),
+  checklist_version     TEXT NOT NULL,
+  mismatch_items_json  TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(mismatch_items_json)),
+  staff_id                TEXT NOT NULL,
+  confirmed_at           TEXT NOT NULL,
+  PRIMARY KEY (line_account_id, intake_id, section),
+  FOREIGN KEY (intake_id, line_account_id)
+    REFERENCES pharmacy_emergency_intakes(id, line_account_id),
+  FOREIGN KEY (line_account_id, staff_id)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
 CREATE TABLE pharmacy_emergency_intake_access_events (
   id              TEXT PRIMARY KEY,
   intake_id       TEXT NOT NULL,
@@ -1049,6 +1064,54 @@ CREATE TABLE pharmacy_emergency_reminders (
     REFERENCES pharmacy_emergency_intakes(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_emergency_retention_purge_log (
+  id                TEXT PRIMARY KEY,
+  line_account_id   TEXT NOT NULL,
+  resource_type     TEXT NOT NULL
+    CHECK (resource_type IN ('emergency_intake')),
+  resource_id       TEXT NOT NULL,
+  -- The intake's created_at, copied verbatim, so an audit can confirm the
+  -- row was actually past the account's own retention_days boundary.
+  age_reference_at  TEXT NOT NULL,
+  retention_days    INTEGER NOT NULL CHECK (retention_days BETWEEN 1 AND 365),
+  purged_at         TEXT NOT NULL,
+  UNIQUE (resource_type, resource_id)
+);
+
+CREATE TABLE pharmacy_emergency_sale_records (
+  id                            TEXT PRIMARY KEY,
+  line_account_id              TEXT NOT NULL,
+  intake_id                     TEXT NOT NULL,
+  -- Kept alongside intake_id (not resolved via join) so the legal-hold query
+  -- against pharmacy_data_subject_requests(line_account_id, owner_friend_id)
+  -- stays a plain equality lookup even if the intake row is later redacted.
+  owner_friend_id               TEXT NOT NULL,
+  product_code                  TEXT NOT NULL,
+  checklist_version             TEXT NOT NULL,
+  quantity                       INTEGER NOT NULL DEFAULT 1 CHECK (quantity = 1),
+  outcome                        TEXT NOT NULL CHECK (outcome IN ('sold', 'refused')),
+  identity_check                 TEXT NOT NULL
+    CHECK (identity_check IN ('document', 'verbal', 'unverified')),
+  in_person_dose                 TEXT NOT NULL CHECK (in_person_dose IN ('done', 'not_done')),
+  checklist_sheets_received     INTEGER NOT NULL DEFAULT 0 CHECK (checklist_sheets_received >= 0),
+  pharmacist_staff_id            TEXT NOT NULL,
+  -- Copied from pharmacy_emergency_pharmacists at sale time, same reasoning
+  -- as custom_035's intake.product_code snapshot: the statutory record must
+  -- keep pointing at the registration that was actually live at sale time.
+  training_registration_number  TEXT NOT NULL,
+  determination_encrypted        TEXT NOT NULL,
+  determination_key_version      INTEGER NOT NULL DEFAULT 1 CHECK (determination_key_version >= 1),
+  sold_at                         TEXT NOT NULL,
+  created_at                      TEXT NOT NULL,
+  UNIQUE (line_account_id, intake_id),
+  FOREIGN KEY (intake_id, line_account_id)
+    REFERENCES pharmacy_emergency_intakes(id, line_account_id),
+  FOREIGN KEY (owner_friend_id, line_account_id)
+    REFERENCES friends(id, line_account_id),
+  FOREIGN KEY (line_account_id, pharmacist_staff_id)
+    REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
 CREATE TABLE pharmacy_emergency_settings (
   line_account_id              TEXT PRIMARY KEY,
   is_enabled                   INTEGER NOT NULL DEFAULT 0 CHECK (is_enabled IN (0, 1)),
@@ -1131,6 +1194,14 @@ CREATE TABLE pharmacy_growth_events (
   metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
   created_at TEXT NOT NULL,
   UNIQUE (line_account_id, idempotency_key)
+);
+
+CREATE TABLE pharmacy_incoming_image_objects (
+  r2_key          TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  message_id      TEXT NOT NULL,
+  stored_at       TEXT NOT NULL
 );
 
 CREATE TABLE pharmacy_line_channel_identities (
@@ -2632,6 +2703,15 @@ CREATE INDEX idx_pharmacy_emergency_intakes_queue
 CREATE INDEX idx_pharmacy_emergency_reminders_due
   ON pharmacy_emergency_reminders(status, due_at, deadline_at, line_account_id, id);
 
+CREATE INDEX idx_pharmacy_emergency_retention_purge_log_account
+  ON pharmacy_emergency_retention_purge_log (line_account_id, purged_at);
+
+CREATE INDEX idx_pharmacy_emergency_retention_purge_log_purged
+  ON pharmacy_emergency_retention_purge_log (purged_at, resource_type);
+
+CREATE INDEX idx_pharmacy_emergency_sale_records_sold_at
+  ON pharmacy_emergency_sale_records (line_account_id, sold_at);
+
 CREATE INDEX idx_pharmacy_emergency_slots_available
   ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);
 
@@ -2643,6 +2723,9 @@ CREATE INDEX idx_pharmacy_fulfillment_quotes_submission
 
 CREATE INDEX idx_pharmacy_growth_events_account_time
   ON pharmacy_growth_events(line_account_id, occurred_at, event_type);
+
+CREATE INDEX idx_pharmacy_incoming_image_objects_account
+  ON pharmacy_incoming_image_objects (line_account_id, stored_at);
 
 CREATE INDEX idx_pharmacy_intake_responses_patient
   ON pharmacy_patient_intake_responses (line_account_id, patient_id, revision DESC, id DESC);
@@ -3136,6 +3219,25 @@ CREATE TRIGGER pharmacy_emergency_reminder_terminal_immutable
 BEFORE UPDATE ON pharmacy_emergency_reminders
 WHEN OLD.status IN ('sent', 'suppressed')
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_REMINDER_TERMINAL_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_sale_owner_match
+BEFORE INSERT ON pharmacy_emergency_sale_records
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM pharmacy_emergency_intakes AS intake
+   WHERE intake.id = NEW.intake_id
+     AND intake.line_account_id = NEW.line_account_id
+     AND intake.owner_friend_id = NEW.owner_friend_id
+)
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_OWNER_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_emergency_sale_records_no_delete
+BEFORE DELETE ON pharmacy_emergency_sale_records
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_emergency_sale_records_no_update
+BEFORE UPDATE ON pharmacy_emergency_sale_records
+BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
 
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
 

@@ -45,6 +45,9 @@ const EC_PHARMACIST = /^\/api\/custom\/pharmacy\/emergency-contraception\/pharma
 const EC_SLOT = /^\/api\/custom\/pharmacy\/emergency-contraception\/slots$/u;
 const EC_SLOT_CANCEL = /^\/api\/custom\/pharmacy\/emergency-contraception\/slots\/[^/]+\/cancel$/u;
 const EC_INVENTORY = /^\/api\/custom\/pharmacy\/emergency-contraception\/inventory$/u;
+const EC_COUNTER_CONFIRMATION =
+  /^\/api\/custom\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/counter-confirmations\/[^/]+$/u;
+const EC_SALE = /^\/api\/custom\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/sale$/u;
 const RICH_LAYOUT = /^\/api\/custom\/pharmacy\/rich-menus\/(?:layout|lifecycle)$/u;
 const RICH_VERSIONS = /^\/api\/custom\/pharmacy\/rich-menus\/versions$/u;
 const RICH_VERSION = /^\/api\/custom\/pharmacy\/rich-menus\/versions\/[^/]+$/u;
@@ -104,6 +107,7 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
   mutate('POST', RICH_DEFAULT, 'query:accountId', 'confirmation'),
   mutate('POST', RICH_OPERATION, 'query:accountId', 'confirmation'),
   read(/^\/api\/rich-menu-groups$/u, 'query:accountId'),
+  read(/^\/api\/rich-menu-groups\/external$/u, 'query:accountId'),
   read(/^\/api\/rich-menu-groups\/[^/]+$/u, 'query:accountId'),
 ];
 
@@ -129,6 +133,10 @@ export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = 
     path: /^\/api\/custom\/pharmacy\/emergency-contraception\/intakes\/[^/]+\/transitions$/u,
     reason: 'patient-operation',
   },
+  { method: 'GET', path: EC_COUNTER_CONFIRMATION, reason: 'patient-operation' },
+  { method: 'PUT', path: EC_COUNTER_CONFIRMATION, reason: 'patient-operation' },
+  { method: 'POST', path: EC_SALE, reason: 'patient-operation' },
+  { method: 'GET', path: EC_SALE, reason: 'patient-operation' },
   {
     method: 'GET',
     path: /^\/api\/custom\/pharmacy\/myna-handoffs(?:\/[^/]+)?$/u,
@@ -184,7 +192,6 @@ export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = 
     path: /^\/api\/rich-menu-groups\/[^/]+\/pages\/[^/]+\/image$/u,
     reason: 'binary-output',
   },
-  { method: 'GET', path: /^\/api\/rich-menu-groups\/external$/u, reason: 'external-operation' },
   { method: 'POST', path: /^\/api\/rich-menu-groups\/import$/u, reason: 'external-operation' },
   { method: 'DELETE', path: /^\/api\/rich-menu-groups\/external\/[^/]+$/u, reason: 'external-operation' },
   { method: 'POST', path: /^\/api\/rich-menu-groups$/u, reason: 'legacy-lifecycle' },

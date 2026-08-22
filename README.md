@@ -8,8 +8,6 @@ OSS の LINE CRM [LINE Harness](https://github.com/Shudesu/line-harness-oss) を
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1-f38020.svg)](apps/worker/wrangler.toml)
 [![Node 22+](https://img.shields.io/badge/node-%3E%3D22-339933.svg)](package.json)
 [![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220.svg)](package.json)
-[![Worker CI](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/worker-ci.yml/badge.svg)](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/worker-ci.yml)
-[![Web CI](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/web-ci.yml/badge.svg)](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/web-ci.yml)
 [![Repository Verify](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/repository-verify.yml/badge.svg)](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/repository-verify.yml)
 
 ![全体像](docs/assets/readme/hero.svg)

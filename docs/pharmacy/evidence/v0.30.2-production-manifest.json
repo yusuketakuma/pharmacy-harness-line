@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-22T07:51:12Z",
+  "captureMode": "read-only",
+  "sourceSha": "b26e890f424c735b11b895fb715f090851421c89",
+  "packageVersion": "0.30.2",
+  "sellerTag": "pharmacy-v0.30.2",
+  "sellerTagCommitSha": "387163e728d9915d23dc0509f5c09ac20aba5611",
+  "sellerTagMatchesSourceSha": false,
+  "sellerTagIsAncestorOfSourceSha": true,
+  "runtimePathsMatchBetweenTagAndSource": true,
+  "postTagChangedPaths": [
+    ".github/workflows/deploy-cloudflare.yml",
+    "CHANGELOG.md",
+    "scripts/dev-deployment-workflows.test.ts"
+  ],
+  "environment": "production",
+  "stage": "pre-beta",
+  "stageStatus": "PASS",
+  "stageEvidence": "PLANS.md V040-CB version dependency table",
+  "deployments": {
+    "githubRunId": "32507393605",
+    "githubDeploymentId": "6025995862",
+    "githubStatus": "success",
+    "workerDeploymentId": "54c93425-c667-4f20-a07a-0d13c74f9a56",
+    "workerVersionId": "ea4c288c-5133-4c5d-9197-c2716aed9b7e",
+    "adminPagesDeploymentId": "f5760fcc-2ada-4051-9e0a-392446b26d01",
+    "liffPagesDeploymentId": "fe47d2db-64c7-4584-9433-88b9a4fb94ac"
+  },
+  "artifactHashes": {
+    "worker": "sha256:c3b86a59f468527defd78ee23b7f25b82cc25a0deebafb1c47cb9437b7c36aa4",
+    "workerAssets": "sha256:8cd2984efebff90db0934187a57081bb24ea327f27bb6b9de576145dd3702aa7",
+    "admin": "sha256:7bef465a8005dc11774d146b3f7eb7ee484ded8698d8e9d4e74e8584ec16c40f",
+    "liff": "sha256:e882ead15dc5ad76487b0c9e1a3148a719afc751e3ddfa8246945ca10a3f7979",
+    "evidenceSource": "fresh GET /admin/version",
+    "deployedByteEquality": "UNVERIFIED"
+  },
+  "database": {
+    "bindingResolvedFromCurrentWorkerVersion": true,
+    "schemaRowCount": 410,
+    "schemaFingerprint": "sha256:ddae0c74769f973dac6828f47a53b2c1a4ab8a7dfc765c5cf7e9bfa375504e14",
+    "migrationSet": {
+      "sourceSha": "b26e890f424c735b11b895fb715f090851421c89",
+      "sourceCount": 123,
+      "databaseCount": 123,
+      "fingerprint": "sha256:58646e758d70534db265bc4c553799f92b918d8781a5e8e30ead7575581ef4f3",
+      "sourceMatchesDatabase": true,
+      "missing": [],
+      "extra": [],
+      "checksumMismatches": []
+    }
+  },
+  "humanGates": {
+    "accountActivation": "NOT_RUN",
+    "lineLifecycle": "NOT_RUN",
+    "rollback": "NOT_RUN",
+    "realDeviceAcceptance": "NOT_RUN"
+  },
+  "readinessStatus": "UNVERIFIED"
+}
