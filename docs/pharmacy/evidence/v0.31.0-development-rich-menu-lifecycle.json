@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-22T09:51:58.785Z",
+  "environment": "development",
+  "scope": "synthetic-line-account",
+  "status": "PASS",
+  "sourceSha": "61333c1a93c6b9540ef5f27cef536e9fef9c3bcc",
+  "packageVersion": "0.30.2",
+  "actor": {
+    "humanGate": "explicit-user-go",
+    "applicationRole": "tenant-owner",
+    "automation": "tenant:settings-and-staff-session"
+  },
+  "target": {
+    "tenantId": "tenant:e7acd8fe024cf8af39fd8141ca674237",
+    "lineAccountId": "e7acd8fe024cf8af39fd8141ca674237"
+  },
+  "deployment": {
+    "pullRequest": 77,
+    "mergeSha": "61333c1a93c6b9540ef5f27cef536e9fef9c3bcc",
+    "repositoryVerifyRunId": "32565724570",
+    "repositoryVerifyJobId": "97013959195",
+    "repositoryVerifyStatus": "success",
+    "cloudflareDeployRunId": "32565724568",
+    "cloudflareDeployJobId": "97013959302",
+    "cloudflareDeployStatus": "success",
+    "cloudflareDeployCompletedAt": "2026-08-22T09:46:35Z"
+  },
+  "artifacts": {
+    "catalogVersion": "v4-4",
+    "catalogVariantKey": "v4-large-prescription-send.prescription-history.medication-followup.manual-chat.pharmacy-info",
+    "imageHash": "62ef5804957863054f7b45cd114d3c73d6456702f6479e9662b8a0b969766103",
+    "manifestHash": "8e52cd7d4657ffc11836fbc433b87e1752abe50ec6c6bd6f03d96374802bca64"
+  },
+  "knownGood": {
+    "groupId": "0c6ecaf9-dafc-43c0-a868-17f2b781a60b",
+    "remoteRichMenuId": "richmenu-08ff171b08717258e439d9ea4fbf96f8"
+  },
+  "candidate": {
+    "groupId": "76286587-c7b3-4090-a11c-d03283fe8ed4",
+    "remoteRichMenuId": "richmenu-3581afe55f90735a6430ae121335eb93"
+  },
+  "sequence": [
+    {
+      "step": "initial-read-back",
+      "observedAt": "2026-08-22T09:47:16.078Z",
+      "result": "PASS",
+      "currentDefaultRemoteId": "richmenu-08ff171b08717258e439d9ea4fbf96f8"
+    },
+    {
+      "step": "create-saved-version",
+      "observedAt": "2026-08-22T09:50:17.787Z",
+      "result": "PASS",
+      "httpStatus": 201
+    },
+    {
+      "step": "line-create-and-image-upload",
+      "observedAt": "2026-08-22T09:50:34.892Z",
+      "result": "PASS",
+      "freshReadBackMatched": true
+    },
+    {
+      "step": "set-default",
+      "observedAt": "2026-08-22T09:51:01.572Z",
+      "result": "PASS",
+      "currentDefaultRemoteId": "richmenu-3581afe55f90735a6430ae121335eb93",
+      "freshReadBackMatched": true
+    },
+    {
+      "step": "explicit-rollback",
+      "observedAt": "2026-08-22T09:51:58.785Z",
+      "result": "PASS",
+      "currentDefaultRemoteId": "richmenu-08ff171b08717258e439d9ea4fbf96f8",
+      "freshReadBackMatched": true
+    }
+  ],
+  "finalState": {
+    "configurationDoctor": "READY",
+    "lifecycleState": "active",
+    "currentDefaultMatchesKnownGood": true,
+    "candidateMatchesKnownGoodImageAndManifest": true,
+    "unknownResults": 0,
+    "unresolvedOperations": 0,
+    "blindRetries": 0,
+    "remoteDeletes": 0,
+    "credentialsCaptured": false,
+    "patientIdentifiersCaptured": false
+  }
+}
