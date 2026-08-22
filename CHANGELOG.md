@@ -18,11 +18,19 @@
 - 重複していた`Worker CI`と`Web CI` workflowを削除し、path filterによってrequired checkが報告されない構成を解消
 - `main`と`dev`のrequired status checkをGitHub Actionsの`verify` 1件、`strict=true`へ統一し、PR #77で成功を確認
 
+### assurance baseline
+
+- 同じ`Repository Verify`へLIFF Chromium smoke、CodeQL、new-commit secret scan、production dependency/license baseline、CycloneDX 1.6 SBOM、synthetic artifact生成を追加
+- provenance用jobだけにOIDC権限を分離し、test/build jobへ付与せず、手動run `32567572017`でsynthetic artifactのattestation `42311202`を生成・検証
+- new-commit secret scanとCodeQLはPASS、CodeQL open alertは0件。redacted full-history scanの181候補は値を保存せずP1で個別確認する
+- production dependency auditはhigh/critical 0件、license inventoryはunknown/unlicensed 0件。LGPL 1 packageとLINE系custom license 51 packagesはP1で配布条件を確認する
+- `dev`へのmerge/deploy、production/LINE mutation、package version・seller tagの変更は行っていない
+
 ### releaseまでに残るgate
 
 - 独立reviewerを設定し、`main`/`dev`の保護設定をfresh read-back
-- synthetic LINE accountでcreate、upload、set-default、fresh read-back、rollback、rollback後read-backを実証
-- browser E2E、CodeQL/SAST、secret・dependency・license scan、SBOM、provenanceのbaselineを実行
+- 履歴secret候補とlicense配布条件のP1を判定・解消
+- main/production候補のsource SHA、deployed byte equality、runtime manifest digestをHuman Go後に実証
 - 全gateがPASSするまで`pharmacy-v0.31.0`を作成せず、productionへ昇格しない
 
 ## Pharmacy v0.30.2 (2026-08-22)

@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-22T10:34:01Z",
+  "environment": "synthetic-ci",
+  "scope": "v0.31.0-assurance-baseline",
+  "status": "PASS",
+  "releaseReadiness": "BLOCKED",
+  "releaseBlockers": [
+    "V031-1",
+    "V031-4",
+    "P1-V031-SECRET-HISTORY",
+    "P1-V031-LICENSE-REVIEW"
+  ],
+  "implementationSourceSha": "67c9f06a164d043071fd1a6d1668495eb6328806",
+  "sourceBranch": "feature/v031-assurance-baseline",
+  "pullRequest": {
+    "number": 79,
+    "baseBranch": "dev",
+    "state": "OPEN",
+    "url": "https://github.com/yusuketakuma/pharmacy-harness-line/pull/79"
+  },
+  "localValidation": {
+    "repositoryVerifyContractTests": 24,
+    "liffUnitTests": 115,
+    "workspaceTests": 3255,
+    "migrationChecks": 82,
+    "criticalApplicationBuilds": 3,
+    "chromiumSmokeTests": 1,
+    "actionlint": "PASS",
+    "diffCheck": "PASS"
+  },
+  "githubActions": {
+    "pullRequestRun": {
+      "runId": "32567343525",
+      "verifyJobId": "97017792237",
+      "status": "PASS",
+      "secretScan": "PASS",
+      "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32567343525"
+    },
+    "provenanceRun": {
+      "runId": "32567572017",
+      "verifyJobId": "97018339587",
+      "attestJobId": "97018922091",
+      "status": "PASS",
+      "event": "workflow_dispatch",
+      "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32567572017"
+    }
+  },
+  "checks": {
+    "browserE2e": {
+      "status": "PASS",
+      "browser": "chromium",
+      "tests": 1
+    },
+    "codeQl": {
+      "status": "PASS",
+      "language": "javascript-typescript",
+      "openAlertsAtCapture": 0
+    },
+    "secretScan": {
+      "newCommits": {
+        "status": "PASS",
+        "findings": 0,
+        "runId": "32567343525"
+      },
+      "fullHistory": {
+        "scanCompleted": true,
+        "scanExitCode": 1,
+        "findings": 181,
+        "affectedCommits": 13,
+        "rules": {
+          "curl-auth-header": 150,
+          "generic-api-key": 31
+        },
+        "contentCaptured": false,
+        "disposition": "P1-V031-SECRET-HISTORY"
+      }
+    },
+    "dependencyAudit": {
+      "status": "PASS",
+      "scope": "production",
+      "auditLevel": "high",
+      "knownHighOrCriticalVulnerabilities": 0
+    },
+    "licenseInventory": {
+      "status": "PASS",
+      "unknownOrUnlicensed": 0,
+      "lgpl3OrLaterPackages": 1,
+      "seeLicenseInReadmePackages": 51,
+      "disposition": "P1-V031-LICENSE-REVIEW"
+    },
+    "sbom": {
+      "status": "PASS",
+      "format": "CycloneDX",
+      "specVersion": "1.6",
+      "requiredComponents": 209,
+      "dependencyEntries": 221
+    },
+    "provenance": {
+      "status": "PASS",
+      "attestationId": "42311202",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42311202",
+      "subject": "synthetic-build.tar.gz",
+      "subjectSha256": "d677be5ebdcf1c2e66e3b0d423c69cad41cb338ebb57948686fca0245abe8263",
+      "ghAttestationVerifyExitCode": 0
+    }
+  },
+  "artifacts": {
+    "pullRequest": {
+      "id": "9474477152",
+      "name": "v031-assurance-5e543fcbc0062dfcba0b274a51761cd24c13c3d9",
+      "sizeBytes": 3516248,
+      "archiveSha256": "ad8a8e6b64234aca9a360e1f2b023036373f219d03f58a62f5056285f09c2d50",
+      "expiresAt": "2026-09-05T10:25:04Z"
+    },
+    "provenance": {
+      "id": "9474540338",
+      "name": "v031-assurance-67c9f06a164d043071fd1a6d1668495eb6328806",
+      "sizeBytes": 3515977,
+      "archiveSha256": "b0da56aeb09f4c73ee450826721f464074fc46bdf743568df4c56acd11e63763",
+      "expiresAt": "2026-09-05T10:31:02Z"
+    }
+  },
+  "openFindings": [
+    {
+      "id": "P1-V031-SECRET-HISTORY",
+      "status": "UNVERIFIED",
+      "requiredDisposition": "Review each redacted historical candidate; reclassify to P0 and rotate credentials immediately if any live secret is confirmed."
+    },
+    {
+      "id": "P1-V031-LICENSE-REVIEW",
+      "status": "UNVERIFIED",
+      "requiredDisposition": "Confirm distribution obligations for the LGPL package and the LINE packages whose license is referenced from README files."
+    }
+  ],
+  "oracleConsultation": {
+    "status": "NOT_RUN",
+    "verified": false,
+    "reason": "Oracle browser profile lock remained held by another process for 300 seconds.",
+    "adviceAccepted": false
+  },
+  "boundaries": {
+    "devMerge": "NOT_RUN",
+    "devDeploy": "NOT_RUN",
+    "productionDeploy": "NOT_RUN",
+    "productionMutation": "NOT_RUN",
+    "lineMutation": "NOT_RUN",
+    "credentialsCaptured": false,
+    "phiOrPiiCaptured": false
+  }
+}
