@@ -18,7 +18,7 @@
 
 ### releaseまでに残るgate
 
-- beta branch・専用Cloudflare environment・独立reviewerを設定し、productionから分離
+- 独立reviewerを設定し、`main`/`dev`の保護設定をfresh read-back
 - synthetic LINE accountでcreate、upload、set-default、fresh read-back、rollback、rollback後read-backを実証
 - browser E2E、CodeQL/SAST、secret・dependency・license scan、SBOM、provenanceのbaselineを実行
 - 全gateがPASSするまで`pharmacy-v0.31.0`を作成せず、productionへ昇格しない

@@ -596,6 +596,8 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 
 **結論**: 2026-09-01のmilestone名は`v0.40.0`を維持するが、この日の最大成果は外部患者を入れないStage 0 synthetic internal alpha / beta candidateとする。Stage 2の24時間とStage 3の48〜72時間を省略せず、Stage 3観察完了後だけCore Closed Betaを名乗る。全gateが連続してPASSした場合の最短目標は2026-09-04〜05である。日付はearliest targetであり、gate未達ならversion、tag、`CHANGELOG.md`の完了表記を進めない。
 
+**deploy方針**: `dev`/developmentでsynthetic検証し、全release gateと人間の明示Go後だけ`main`/productionで段階開放する。
+
 **この節が置き換える計画**: 旧V031に同居していたmenu独自分析、予約切替、preset共有、患者timeline、職員action queue、fleet driftを分割する。`V031-L1`はv0.34.0、`V031-A1`はv0.35.0、`V031-P1`はv0.37.0へ移し、custom menu action counter、custom rich-menu scheduler、preset共有はv0.41.0以降へ延期する。
 
 **Oracle evidence**: session `review-the-proposed-pharmacy-harness`と`pharmacy-v040-roadmap-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、thinking `Pro`。restore/特権Human Gateをbackfill・scrubより先に置くこと、mixed-version migrationを各versionで継続すること、9月1日をStage 0に限定すること、consent/proxy、final-artifact assurance、重大incident時のglobal quarantineを反映した。
@@ -606,7 +608,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 |---|---|---|
 | source / release identity | `HEAD=71c7a42`、package `0.30.2`、最新seller tag `pharmacy-v0.30.2` | package、seller tag、deploy、activation、production operationを別証拠として扱う |
 | GitHub branch protection | `main`/`dev`は保護済みだがrequired status checksなし、必須review 0件 | v0.31.0の最優先Human Gate |
-| deploy topology | workflowは`main`/`dev`だけをproduction/developmentへdeploy。`beta` branch/environmentなし | betaをproductionから分離するまで外部患者を入れない |
+| deploy topology | workflowは`main`/`dev`をproduction/developmentへdeploy | developmentでsynthetic検証し、全gateとHuman Go後だけproductionで段階開放する |
 | assurance workflow | `Repository Verify` 1本で全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildを実行する。Playwright/CodeQL/SBOM/provenance workflowは未確認 | v0.31.0でbaselineを構築・初回実行し、v0.39.0はfinal artifactへの再実行だけにする |
 | auth | password 12〜128文字、PBKDF2-SHA256 100,000回、opaque session/CSRFあり。TOTP/WebAuthnと永続lockoutなし | v0.33.0で認証入口とabuse protectionを強化 |
 | rate limit | isolate内`Map`のsliding window | coarse burst防御として残し、認証lockoutのauthorityにしない |
@@ -621,7 +623,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 | ID | Stage 2前の停止条件 | owner | 状態/evidence |
 |---|---|---|---|
 | `CB-P0-01` | source/scope/migration/schema/artifact evidenceをfreezeし、Human Gate registerをlive read-backと一致させる | release owner | `PASS`（`docs/pharmacy/evidence/v0.30.2-production-manifest.json`。stage=`pre-beta`。deployed byte equalityは`CB-P0-02`で実証する） |
-| `CB-P0-02` | protected beta branch/environment/resource、manifest-bound artifact、production非自動昇格を実証する | infra/release owner | `NOT_RUN` |
+| `CB-P0-02` | main/production候補のmanifest-bound artifact、source SHA一致、明示Human Go、非自動deployを実証する | infra/release owner | `NOT_RUN` |
 | `CB-P0-03` | LIFFを含むrequired CI、独立reviewer、CodeQL/SAST、SBOM、provenanceのbaselineを実在させる | repository owner + independent reviewer | `BLOCKED`（独立reviewer未指定） |
 | `CB-P0-04` | MFA/session/durable lockout、PHI-free audit projection、FLE独立承認、authorization inventoryをPASSにする | security/infra owner | `NOT_RUN` |
 | `CB-P0-05` | common-generation D1/R2/FLE restore、legal hold coverage、ordered delete/retention dispositionをPASSにする | data/ops owner | `NOT_RUN` |
@@ -682,9 +684,8 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 #### Day 0 - 2026-08-22 - scope/evidence freeze
 
 - [ ] **V040-D0-1 sourceと環境をfreeze**: `main`、`dev`、現deployment source SHA、package、migration set、schema fingerprintをPHI-free evidenceへ記録する。productionへ変更を加えない。
-- [ ] **V040-D0-2 beta境界を固定**: synthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。beta専用Workerへpharmacy modeとgeneric modeのaccountを混在させず、mixed modeを許可するまではadmission gateで拒否する。
+- [ ] **V040-D0-2 synthetic検証境界を固定**: developmentではsynthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。main/productionへのdeploy、activation、実患者導入は全gateと人間の明示Goまで行わない。
 - [ ] **V040-D0-3 milestoneとledgerをSoT化**: v0.31.0〜v0.40.0のmilestone、上記`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`、P0 blocker、owner、evidence link、Human Gateを追跡する。GitHub Issuesを有効化するまでは本節のregisterをauthorityとし、日付では自動closeしない。
-- [ ] **V040-D0-4 beta環境設計**: `feature/* -> dev -> beta`の昇格条件、beta専用Cloudflare resource名、rollback先を確定する。betaから`main`/productionへ自動昇格しない。betaにもrequired checks、direct push禁止、admin enforcement、manifest artifact一致を適用し、独立reviewerを指定できない間は`CB-P0-03`を`BLOCKED`のままにする。branch/environment作成はHuman Gateとする。
 - [ ] **V040-D0-5 assurance/measurement baseline**: LIFF critical build/E2E、CodeQL/SAST、secret/dependency/license scan、SBOM、provenanceのworkflowをv0.31.0から作成・初回実行する。critical task inventory、workload、SLO、staffing SLAも測定前にfreezeし、v0.39.0を初回実行日にしない。
 
 #### v0.31.0 - Release Governance & v0.30 Operational Acceptance
@@ -692,28 +693,24 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 **非目標**: 患者/職員の新機能、menu分析、scheduler、preset共有。
 
 - [x] **V031-0 canonical evidenceをreconcile**: GitHub Release、deployment、workflow migration stepの既存evidenceをHuman Gate registerへ反映し、production D1 schema fingerprint、activation、LINE lifecycle、rollback、実端末を未証明のまま分離する。source SHA、package、seller tag、migration set、schema fingerprint、artifact hash、environment、stageを1つのmanifestへ固定する。
-  - 2026-08-22 read-only manifest: `docs/pharmacy/evidence/v0.30.2-production-manifest.json`。production schema fingerprintとmigration 123/123 checksum一致をPASSへ更新した。seller tag commit `387163e`とdeploy source `b26e890`は別だがruntime-bearing path差分は0。stageはroadmap authorityから`pre-beta`へ固定した。deployed byte equalityはV031-2、activation、LINE lifecycle、rollback、実端末はV031-3/4の未証明gateとして分離した。
+  - 2026-08-22 read-only manifest: `docs/pharmacy/evidence/v0.30.2-production-manifest.json`。production schema fingerprintとmigration 123/123 checksum一致をPASSへ更新した。seller tag commit `387163e`とdeploy source `b26e890`は別だがruntime-bearing path差分は0。stageはroadmap authorityから`pre-beta`へ固定した。deployed byte equalityはV031-4、activation、LINE lifecycle、rollback、実端末はV031-3/4の未証明gateとして分離した。
 - [ ] **V031-1 必須checkを迂回不能にする**
   - `Repository Verify`を全PRで必ず報告される唯一の基準checkにし、Worker/Web/LIFFのcritical test/buildを含める。path filter付きrequired checkは作らない。
-  - migration contract、beta E2E smoke、security contract、supply-chain baselineを実在させてgreenを確認した後だけrequiredへ登録する。存在しないcheck名を先にrequiredへ登録しない。
-  - `main`/`dev`/`beta`のdirect push禁止、admin enforcement、auth/tenant/DB/deploy/Platform Admin変更の独立review ownerを設定し、GitHub APIでfresh read-backする。self-approvalしかできない構成ではgateを閉じない。
+  - migration contract、synthetic E2E smoke、security contract、supply-chain baselineを実在させてgreenを確認した後だけrequiredへ登録する。存在しないcheck名を先にrequiredへ登録しない。
+  - `main`/`dev`のdirect push禁止、admin enforcement、auth/tenant/DB/deploy/Platform Admin変更の独立review ownerを設定し、GitHub APIでfresh read-backする。self-approvalしかできない構成ではgateを閉じない。
   - **ローカル実装進捗(2026-08-22)**: `feature/v031-release-governance`へ切り出し、重複していたWorker/Web CIを削除して`Repository Verify` 1本へ統合した。全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildをpath filterなしで実行する。Red -> Greenのworkflow契約、`pnpm verify:ci`（計3,250 tests、migration 82件）、3アプリbuildがgreen。
-  - **GitHub実行証跡(2026-08-22)**: PR `#77`の`Repository Verify / verify`（run `32561951117`、job `97004785951`）がPASS。main/devのrequired status checksをGitHub Actions app `15368`の`verify` 1件、`strict=true`で登録し、admin enforcement、force-push禁止、branch削除禁止をfresh read-backした。必須approvalは0件、独立reviewerとbeta branchは未設定のため、本項は未完了のまま維持する。
-- [ ] **V031-2 beta deploymentをproductionから分離**
-  - beta branch/environmentとbeta専用Worker/D1/R2/Pages/LIFFを追加し、production reviewerとbeta reviewerを設定する。既存development/production resourceをbetaとして流用しない。
-  - source SHA、package version、seller release、release channel、environment、migration set、schema fingerprint、Worker/LIFF/Admin artifact hashとdeployment ID、workflow run、Human Go、stageをrelease manifestへ固定する。deploy時に再buildする場合はhash完全一致を必須にする。
-  - runtime version endpointから`releaseChannel=beta`とmanifest digestをfresh read-backする。release workflowはmanifest gateを通過したtagだけをGitHub `Pre-release`として作成し、main/production deployへ接続しない。
+  - **GitHub実行証跡(2026-08-22)**: PR `#77`の`Repository Verify / verify`（run `32561951117`、job `97004785951`）がPASS。main/devのrequired status checksをGitHub Actions app `15368`の`verify` 1件、`strict=true`で登録し、admin enforcement、force-push禁止、branch削除禁止をfresh read-backした。必須approvalは0件、独立reviewerは未設定のため、本項は未完了のまま維持する。
 - [ ] **V031-3 v0.30 LINE lifecycleをsynthetic accountで受入**
   - candidate create、image upload、set-default、fresh read-back、known-good記録、explicit rollback、rollback後read-backを人間立会いで実行する。
   - evidenceはactor、tenant/account、remote richMenuId、image/catalog hash、source SHA、時刻、API resultだけを含め、credentialとpatient identifierを含めない。
   - timeout/結果不明は`UNVERIFIED`で停止し、blind retry、自動rollback、remote deleteを行わない。
-- [ ] **V031-4 release gate**: required checks迂回不可、beta source SHA=manifest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。未達なら`pharmacy-v0.31.0`を作らない。
+- [ ] **V031-4 release gate**: required checks迂回不可、main/production候補のsource SHA=manifest、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。deployは人間の明示Goを必須とし、未達なら`pharmacy-v0.31.0`を作らない。
 - [ ] **V031-5 assurance baseline**: browser E2E harness、CodeQL/SAST、secret/dependency/license scan、CycloneDX SBOM、provenanceをsynthetic artifactで初回実行し、検出事項をP0/P1 registerへ登録する。v0.39.0では新規構築せず、final artifactへ同じcheckを再実行する。
 
 #### v0.32.0 - Data Protection, Backup & Recovery
 
 - [ ] **V032-1 recoverability/権限preflight**: backfill、plaintext scrub、bulk deleteより先に、独立した実行者/承認者、対象tenant/account、dry-run、停止/rollback条件、approval expiry、auditを固定する。request bodyの`approvedBy`文字列だけをnamed approvalとして受理しない。
-- [ ] **V032-2 FLE expand/backfill phase**: V032-1成功後に`PHARMACY_PHI_KEY_V1`投入、additive migration、synthetic/beta backfill、field inventoryを分母にしたcoverage 100%、mixed read、envelope restore、wrong-key/tamper/partial envelope/cross-tenant・cross-record transplant fail-closedを確認する。このphaseではplaintext scrubを行わない。
+- [ ] **V032-2 FLE expand/backfill phase**: V032-1成功後に`PHARMACY_PHI_KEY_V1`投入、additive migration、synthetic backfill、field inventoryを分母にしたcoverage 100%、mixed read、envelope restore、wrong-key/tamper/partial envelope/cross-tenant・cross-record transplant fail-closedを確認する。このphaseではplaintext scrubを行わない。
 - [ ] **V032-3 FLE contract/scrub phase**: expand/backfill後のsoak、旧/new code compatibility、application rollback read、approved key recoveryを別Human GateでPASSした後だけplaintext scrubを実行する。rotation/rewrap経路を実装・実証できない場合はFLE readinessを`UNVERIFIED`に保つ。secret値、ciphertext、patient IDをevidence/logへ出さない。
 - [ ] **V032-4 retention/legal-holdをfail-closed化**: retention matrixとlegal-hold source inventoryを統合し、未知/未対応source、invalid/null起算日はhold扱いにする。DSR resolveとR2削除直前に再評価し、Rx selection-to-delete raceを線形化する。incoming imageはtrackingだけで完了扱いにせず、purge consumer/backfill/ownership不整合のdispositionを決める。EC識別子、sale/counter record、audit/DSR eventのtombstone方針未決なら対象機能を`BLOCKED`にする。
 - [ ] **V032-5 common-generation backup/restore**: D1 restore point/export hash、schema/migration、R2 object inventory/hash、FLE envelope/key version、outbox/webhook watermark、開始/完了時刻を1世代のmanifestへ固定する。別backup先からisolated環境へ復旧し、参照完全性とcritical journey read-backを含めてRPO 24時間以内、RTO 4時間以内、最低3世代、primary/backup同時破壊防止を実証する。
@@ -786,7 +783,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 
 #### v0.40.0 milestone - 2026-09-01 - Stage 0 synthetic internal alpha / beta candidate
 
-- [ ] **V040-1 release identity**: 現行update-engineがprerelease suffixを受理しないため、最小互換案はpackage `0.40.0`、seller tag `pharmacy-v0.40.0`、GitHub Release `Pre-release`、runtime `releaseChannel=beta`とする。packageとseller tagを別identityとしてmanifestへ明記し、productionへ自動昇格しない。`0.40.0-beta.1`を採用する場合はsemver/update-engine/version contract/release workflowを先にRed -> Greenで対応する。
+- [ ] **V040-1 release identity**: 現行update-engineがprerelease suffixを受理しないため、最小互換案はpackage `0.40.0`、seller tag `pharmacy-v0.40.0`、GitHub Release `Pre-release`、runtime `releaseChannel=beta`とする。packageとseller tagを別identityとしてmanifestへ明記し、main/production deployへ自動接続しない。`0.40.0-beta.1`を採用する場合はsemver/update-engine/version contract/release workflowを先にRed -> Greenで対応する。
 - [ ] **V040-2 staged activation**
 
   | Stage | 対象 | 最低観察期間/昇格条件 |
@@ -808,7 +805,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 | 10:00 | 当日scope freeze |
 | 12:00 | feature merge cutoff |
 | 15:00 | full CI、security、migration evidence |
-| 17:00 | beta deploy候補。source SHA/manifest照合 |
+| 17:00 | development deploy候補。source SHA/manifest照合 |
 | 18:00 | synthetic/実端末確認 |
 | 20:00 | 人間のGo/No-Go |
 | 20:30 | 全gate PASS時だけtag/release note/evidence確定 |
