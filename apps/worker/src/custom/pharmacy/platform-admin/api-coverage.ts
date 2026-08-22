@@ -107,6 +107,7 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
   mutate('POST', RICH_DEFAULT, 'query:accountId', 'confirmation'),
   mutate('POST', RICH_OPERATION, 'query:accountId', 'confirmation'),
   read(/^\/api\/rich-menu-groups$/u, 'query:accountId'),
+  read(/^\/api\/rich-menu-groups\/external$/u, 'query:accountId'),
   read(/^\/api\/rich-menu-groups\/[^/]+$/u, 'query:accountId'),
 ];
 
@@ -191,7 +192,6 @@ export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = 
     path: /^\/api\/rich-menu-groups\/[^/]+\/pages\/[^/]+\/image$/u,
     reason: 'binary-output',
   },
-  { method: 'GET', path: /^\/api\/rich-menu-groups\/external$/u, reason: 'external-operation' },
   { method: 'POST', path: /^\/api\/rich-menu-groups\/import$/u, reason: 'external-operation' },
   { method: 'DELETE', path: /^\/api\/rich-menu-groups\/external\/[^/]+$/u, reason: 'external-operation' },
   { method: 'POST', path: /^\/api\/rich-menu-groups$/u, reason: 'legacy-lifecycle' },

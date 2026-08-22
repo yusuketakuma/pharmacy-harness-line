@@ -5,6 +5,7 @@ describe('platform tenant settings scope', () => {
   it.each([
     '/api/account-settings/link-base-url',
     '/api/line-accounts/account-a',
+    '/api/rich-menu-groups/external',
     '/api/rich-menu-groups/group-a/publish',
     '/api/custom/pharmacy/rich-menus/prepare',
     '/api/custom/pharmacy/growth/config',
@@ -59,6 +60,13 @@ describe('platform tenant settings scope', () => {
     ['DELETE', '/api/staff/staff-a'],
     ['DELETE', '/api/line-accounts/account-a'],
   ])('rejects tenant credential mutations over the Bearer path: %s %s', (method, path) => {
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
+  });
+
+  it.each([
+    ['POST', '/api/rich-menu-groups/import'],
+    ['DELETE', '/api/rich-menu-groups/external/richmenu-a'],
+  ])('keeps external rich-menu mutations blocked: %s %s', (method, path) => {
     expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
   });
 

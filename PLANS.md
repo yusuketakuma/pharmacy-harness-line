@@ -704,6 +704,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - candidate create、image upload、set-default、fresh read-back、known-good記録、explicit rollback、rollback後read-backを人間立会いで実行する。
   - evidenceはactor、tenant/account、remote richMenuId、image/catalog hash、source SHA、時刻、API resultだけを含め、credentialとpatient identifierを含めない。
   - timeout/結果不明は`UNVERIFIED`で停止し、blind retry、自動rollback、remote deleteを行わない。
+  - **preflight進捗(2026-08-22)**: developmentのconfiguration doctorは`READY`、local default groupは確認済み。remote state GETがgeneric detail ruleとdeferred ruleへ重複一致してPlatform Admin CLIを401にしていたため、account-scoped・PHI-freeなread-backだけを明示許可し、import/deleteは拒否する回帰testを追加した。dev未反映かつ既存tenantをsynthetic専用と確認できないため、LINE mutationは0件、本項は未完了のまま維持する。
 - [ ] **V031-4 release gate**: required checks迂回不可、main/production候補のsource SHA=manifest、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。deployは人間の明示Goを必須とし、未達なら`pharmacy-v0.31.0`を作らない。
 - [ ] **V031-5 assurance baseline**: browser E2E harness、CodeQL/SAST、secret/dependency/license scan、CycloneDX SBOM、provenanceをsynthetic artifactで初回実行し、検出事項をP0/P1 registerへ登録する。v0.39.0では新規構築せず、final artifactへ同じcheckを再実行する。
 
