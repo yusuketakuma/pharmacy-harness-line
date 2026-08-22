@@ -56,6 +56,11 @@ interface PurgeCandidateRow {
 }
 
 const PURGE_BATCH_LIMIT = 100;
+const ACTIVE_LEGAL_HOLD = `
+  dsr.line_account_id = intake.line_account_id
+  AND dsr.owner_friend_id = intake.owner_friend_id
+  AND dsr.legal_hold = 1
+  AND (dsr.legal_hold_release_at IS NULL OR dsr.legal_hold_release_at > ?)`;
 
 /** Calendar-correct so leap days do not shift the boundary. */
 function retentionCutoff(now: Date, days: number): string {
@@ -106,10 +111,7 @@ export async function purgeEmergencyIntakesPastRetention(
         `SELECT intake.id AS id, intake.created_at AS created_at,
                 EXISTS (
                   SELECT 1 FROM pharmacy_data_subject_requests dsr
-                   WHERE dsr.line_account_id = intake.line_account_id
-                     AND dsr.owner_friend_id = intake.owner_friend_id
-                     AND dsr.legal_hold = 1
-                     AND (dsr.legal_hold_release_at IS NULL OR dsr.legal_hold_release_at > ?)
+                   WHERE ${ACTIVE_LEGAL_HOLD}
                 ) AS on_legal_hold
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
@@ -144,10 +146,7 @@ export async function purgeEmergencyIntakesPastRetention(
               AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
               AND NOT EXISTS (
                 SELECT 1 FROM pharmacy_data_subject_requests dsr
-                 WHERE dsr.line_account_id = intake.line_account_id
-                   AND dsr.owner_friend_id = intake.owner_friend_id
-                   AND dsr.legal_hold = 1
-                   AND (dsr.legal_hold_release_at IS NULL OR dsr.legal_hold_release_at > ?)
+                 WHERE ${ACTIVE_LEGAL_HOLD}
               )`,
         ).bind(
           crypto.randomUUID(), account.retention_days, nowIso,

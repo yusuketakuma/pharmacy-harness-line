@@ -31,6 +31,12 @@ interface PurgeCandidate {
 
 const RETENTION_YEARS = 3;
 const PURGE_BATCH_LIMIT = 50;
+const ACTIVE_LEGAL_HOLD = `
+  hold.line_account_id = s.line_account_id
+  AND hold.owner_friend_id = s.friend_id
+  AND (patient.patient_id IS NULL OR hold.patient_id = patient.patient_id)
+  AND hold.legal_hold = 1
+  AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)`;
 
 /**
  * Every runtime write of `pharmacy_prescription_files.created_at` is
@@ -72,11 +78,7 @@ export async function purgePrescriptionFilesPastRetention(
   const heldClause = `
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_data_subject_requests hold
-           WHERE hold.line_account_id = s.line_account_id
-             AND hold.owner_friend_id = s.friend_id
-             AND (patient.patient_id IS NULL OR hold.patient_id = patient.patient_id)
-             AND hold.legal_hold = 1
-             AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)
+           WHERE ${ACTIVE_LEGAL_HOLD}
         )`;
   const dueQueryBase = `
        FROM pharmacy_prescription_files f
@@ -104,11 +106,7 @@ export async function purgePrescriptionFilesPastRetention(
        ${dueQueryBase}
         AND EXISTS (
           SELECT 1 FROM pharmacy_data_subject_requests hold
-           WHERE hold.line_account_id = s.line_account_id
-             AND hold.owner_friend_id = s.friend_id
-             AND (patient.patient_id IS NULL OR hold.patient_id = patient.patient_id)
-             AND hold.legal_hold = 1
-             AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)
+           WHERE ${ACTIVE_LEGAL_HOLD}
         )`,
   ).bind(UTC_TIMESTAMP_GLOB, cutoff, nowIso).first<{ n: number }>();
 
