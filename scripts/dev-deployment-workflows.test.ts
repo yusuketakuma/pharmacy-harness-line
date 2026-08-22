@@ -153,6 +153,45 @@ describe('development deployment workflow contract', () => {
     expect(build.run).toBe('pnpm --filter worker --filter web --filter liff build');
   });
 
+  test('keeps one required verify context and isolates provenance signing', () => {
+    const repositoryVerify = parse(read('.github/workflows/repository-verify.yml')) as any;
+    const jobs = Object.keys(repositoryVerify.jobs);
+    const steps = repositoryVerify.jobs.verify.steps;
+    const uses = steps
+      .filter((step: { uses?: string }) => step.uses)
+      .map((step: { uses: string }) => step.uses);
+    const namedStep = (name: string) =>
+      steps.find((step: { name?: string }) => step.name === name);
+
+    expect(jobs).toEqual(['verify', 'attest']);
+    expect(uses.every((value: string) => /@[0-9a-f]{40}$/.test(value))).toBe(true);
+    expect(repositoryVerify.jobs.verify.permissions['id-token']).toBeUndefined();
+    expect(namedStep('Initialize CodeQL')).toBeTruthy();
+    expect(namedStep('Analyze with CodeQL')).toBeTruthy();
+    expect(namedStep('Scan new commits for secrets')).toBeTruthy();
+    expect(namedStep('Run dependency and license baseline').run).toContain(
+      'pnpm audit --prod --audit-level high',
+    );
+    expect(namedStep('Run LIFF browser smoke').run).toBe('pnpm --filter liff test:e2e');
+    expect(namedStep('Generate CycloneDX SBOM').run).toContain('pnpm exec cdxgen');
+    expect(namedStep('Upload assurance artifacts')).toBeTruthy();
+
+    const attest = repositoryVerify.jobs.attest;
+    expect(attest.needs).toBe('verify');
+    expect(attest.if).toContain("github.event_name != 'pull_request'");
+    expect(attest.permissions).toMatchObject({
+      contents: 'read',
+      'id-token': 'write',
+      attestations: 'write',
+    });
+    expect(attest.steps.some(
+      (step: { name?: string }) => step.name === 'Attest synthetic artifact provenance',
+    )).toBe(true);
+    expect(attest.steps
+      .filter((step: { uses?: string }) => step.uses)
+      .every((step: { uses: string }) => /@[0-9a-f]{40}$/.test(step.uses))).toBe(true);
+  });
+
   test('development Worker uses an isolated R2 bucket', () => {
     expect(sharedDeploy).toContain('R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}');
     expect(sharedDeploy).toContain('Development R2 bucket name must end in -dev');
