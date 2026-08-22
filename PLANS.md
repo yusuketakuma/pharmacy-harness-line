@@ -710,8 +710,8 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 - [ ] **V031-4 release gate**: required checks迂回不可、main/production候補のsource SHA=manifest、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。deployは人間の明示Goを必須とし、未達なら`pharmacy-v0.31.0`を作らない。
 - [x] **V031-5 assurance baseline**: browser E2E harness、CodeQL/SAST、secret/dependency/license scan、CycloneDX SBOM、provenanceをsynthetic artifactで初回実行し、検出事項をP0/P1 registerへ登録する。v0.39.0では新規構築せず、final artifactへ同じcheckを再実行する。
   - **完了証拠(2026-08-22)**: PR `#79`の`verify` run `32567343525`が、new-commit secret scan、CodeQL、production dependency/license baseline、CycloneDX 1.6 SBOM、全workspace検証、3アプリbuild、LIFF Chromium smoke、artifact生成をPASS。手動run `32567572017`の分離`attest` jobもPASSし、attestation `42311202`を`gh attestation verify`で検証した。PHI-free evidenceは`docs/pharmacy/evidence/v0.31.0-assurance-baseline.json`。`dev` merge/deploy、production/LINE mutationは未実施。
-  - [ ] **P1-V031-SECRET-HISTORY**: redacted full-history scanは13 commitsで181候補（`curl-auth-header` 150、`generic-api-key` 31）を検出した。値を証跡へ保存せず個別に真偽を判定し、live credentialが1件でもあればP0へ昇格して失効・rotation・履歴処置を行う。
-  - [ ] **P1-V031-LICENSE-REVIEW**: unknown/unlicensedは0件。`LGPL-3.0-or-later` 1 packageと`SEE LICENSE IN README.md` 51 packagesの配布条件を確認し、許容または是正の根拠を記録する。
+  - [x] **P1-V031-SECRET-HISTORY**: redacted full-history scanの181候補を値を保存せず確認し、文書内placeholder 150、test fixture 25、rich-menu profile識別子4、環境変数名2へ分類した。live credentialとGitHub secret scanning open alertはいずれも0件のため、rotation・履歴書換えは不要と判定した。証拠は`docs/pharmacy/evidence/v0.31.0-assurance-baseline.json`。
+  - [x] **P1-V031-LICENSE-REVIEW**: unknown/unlicensedは0件。LGPL packageはWeb build時の`sharp`依存でnative package fileを配布artifactへ含めず、LINE系51 packagesは公式npm手順とLINE Developers Agreementに従うLIFF用途に限定しているため、現行artifactは是正不要と判定した。native binary追加、LINE外配布、規約・license変更時は再審査する。証拠は同JSON。
 
 #### v0.32.0 - Data Protection, Backup & Recovery
 

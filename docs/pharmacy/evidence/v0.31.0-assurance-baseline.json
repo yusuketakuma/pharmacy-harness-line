@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "capturedAt": "2026-08-22T10:34:01Z",
+  "findingsReviewedAt": "2026-08-22T10:56:00Z",
+  "findingsReviewSourceSha": "77037ddb7db871d0cfcd89974af7504d55647c58",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
   "releaseReadiness": "BLOCKED",
   "releaseBlockers": [
     "V031-1",
-    "V031-4",
-    "P1-V031-SECRET-HISTORY",
-    "P1-V031-LICENSE-REVIEW"
+    "V031-4"
   ],
   "implementationSourceSha": "67c9f06a164d043071fd1a6d1668495eb6328806",
   "sourceBranch": "feature/v031-assurance-baseline",
@@ -66,6 +66,7 @@
         "runId": "32567343525"
       },
       "fullHistory": {
+        "status": "PASS",
         "scanCompleted": true,
         "scanExitCode": 1,
         "findings": 181,
@@ -75,7 +76,17 @@
           "generic-api-key": 31
         },
         "contentCaptured": false,
-        "disposition": "P1-V031-SECRET-HISTORY"
+        "classification": {
+          "documentedCurlPlaceholders": 150,
+          "testFixtures": 25,
+          "richMenuProfileIdentifiers": 4,
+          "environmentVariableNames": 2
+        },
+        "githubSecretScanningOpenAlerts": 0,
+        "liveCredentialsConfirmed": 0,
+        "credentialRotation": "NOT_REQUIRED",
+        "historyRewrite": "NOT_REQUIRED",
+        "disposition": "FALSE_POSITIVES"
       }
     },
     "dependencyAudit": {
@@ -89,7 +100,32 @@
       "unknownOrUnlicensed": 0,
       "lgpl3OrLaterPackages": 1,
       "seeLicenseInReadmePackages": 51,
-      "disposition": "P1-V031-LICENSE-REVIEW"
+      "review": {
+        "lgplPackage": {
+          "name": "@img/sharp-libvips-darwin-arm64",
+          "version": "1.3.2",
+          "dependencyPath": "apps/web > next@16.3.1 > sharp@0.35.3",
+          "packageFilesIncludedInSyntheticArtifact": false,
+          "disposition": "BUILD_DEPENDENCY_NOT_DISTRIBUTED"
+        },
+        "linePackages": {
+          "linePackageCount": 1,
+          "liffInternalPackageCount": 50,
+          "browserBundleIncludedInSyntheticArtifact": true,
+          "terms": "LINE Developers Agreement",
+          "termsLastRevision": "2025-02-03",
+          "termsUrl": "https://terms2.line.me/LINE_Developers_Agreement",
+          "officialNpmUsageDocumented": true,
+          "officialNpmUsageUrl": "https://developers.line.biz/en/docs/liff/developing-liff-apps/#use-npm-package",
+          "disposition": "ACCEPTED_FOR_LIFF_APPLICATION_USE"
+        }
+      },
+      "reReviewTriggers": [
+        "The application is distributed for use outside the LINE platform.",
+        "A native sharp/libvips package file is added to a distributed artifact.",
+        "The LINE Developers Agreement or package license metadata changes."
+      ],
+      "disposition": "PASS"
     },
     "sbom": {
       "status": "PASS",
@@ -123,16 +159,17 @@
       "expiresAt": "2026-09-05T10:31:02Z"
     }
   },
-  "openFindings": [
+  "openFindings": [],
+  "resolvedFindings": [
     {
       "id": "P1-V031-SECRET-HISTORY",
-      "status": "UNVERIFIED",
-      "requiredDisposition": "Review each redacted historical candidate; reclassify to P0 and rotate credentials immediately if any live secret is confirmed."
+      "status": "PASS",
+      "summary": "All 181 redacted candidates were classified without capturing values; no live credential was confirmed."
     },
     {
       "id": "P1-V031-LICENSE-REVIEW",
-      "status": "UNVERIFIED",
-      "requiredDisposition": "Confirm distribution obligations for the LGPL package and the LINE packages whose license is referenced from README files."
+      "status": "PASS",
+      "summary": "The native LGPL build dependency is absent from the artifact, and the LINE packages are used only in the documented LIFF application context."
     }
   ],
   "oracleConsultation": {

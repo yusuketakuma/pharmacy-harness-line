@@ -12,7 +12,7 @@ v0.31.0は新機能を増やす版ではなく、現在の薬局LINE機能を安
 |---|---|---|
 | 患者 | リリース前にLIFF画面を実ブラウザで確認し、起動失敗などの回帰を見つけやすくなります | 新しい画面・入力項目・操作手順は追加しません |
 | 薬局スタッフ | リッチメニュー変更後に状態を再確認し、問題時に既知の正常メニューへ戻せる手順を検証しました | 受付・チャット・患者対応の操作手順は変わりません |
-| 運用担当者 | test、security scan、SBOM、build provenanceを1つのCIで確認でき、未達の版を公開しにくくなります | `dev`へのmerge、production deploy、実患者データや本番LINEアカウントの変更はまだ行いません |
+| 運用担当者 | test、security scan、license確認、SBOM、build provenanceを1つのCIで確認でき、未達の版を公開しにくくなります | `dev`へのmerge、production deploy、実患者データや本番LINEアカウントの変更はまだ行いません |
 
 ### release evidenceとv0.30運用受入
 
@@ -32,14 +32,13 @@ v0.31.0は新機能を増やす版ではなく、現在の薬局LINE機能を安
 
 - 同じ`Repository Verify`へLIFF Chromium smoke、CodeQL、new-commit secret scan、production dependency/license baseline、CycloneDX 1.6 SBOM、synthetic artifact生成を追加
 - provenance用jobだけにOIDC権限を分離し、test/build jobへ付与せず、手動run `32567572017`でsynthetic artifactのattestation `42311202`を生成・検証
-- new-commit secret scanとCodeQLはPASS、CodeQL open alertは0件。redacted full-history scanの181候補は値を保存せずP1で個別確認する
-- production dependency auditはhigh/critical 0件、license inventoryはunknown/unlicensed 0件。LGPL 1 packageとLINE系custom license 51 packagesはP1で配布条件を確認する
+- new-commit secret scanとCodeQLはPASS、CodeQL open alertは0件。redacted full-history scanの181候補は値を保存せず確認し、文書内placeholder、test fixture、識別子、環境変数名のみでlive credentialは0件と判定
+- production dependency auditはhigh/critical 0件、license inventoryはunknown/unlicensed 0件。LGPL packageのnative fileは配布artifactへ含まれず、LINE系51 packagesは公式のLIFF用途に限定しているため、現行artifactの是正は不要と判定
 - `dev`へのmerge/deploy、production/LINE mutation、package version・seller tagの変更は行っていない
 
 ### releaseまでに残るgate
 
 - 独立reviewerを設定し、`main`/`dev`の保護設定をfresh read-back
-- 履歴secret候補とlicense配布条件のP1を判定・解消
 - main/production候補のsource SHA、deployed byte equality、runtime manifest digestをHuman Go後に実証
 - 全gateがPASSするまで`pharmacy-v0.31.0`を作成せず、productionへ昇格しない
 
