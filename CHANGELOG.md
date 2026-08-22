@@ -1,5 +1,28 @@
 # Changelog
 
+## Pharmacy v0.31.0 (Unreleased)
+
+> Release gate未達のため、この項目はdraftです。package versionは`0.30.2`のまま維持し、seller tag、GitHub Release、deploy、account activation、LINE mutationは実施していません。
+
+### release evidenceとv0.30運用受入
+
+- PHIを含まないcanonical release manifestへsource SHA、package version、独立したseller tag、environment、stage、D1 schema fingerprint、migration checksum、Worker・Worker assets・Admin・LIFFのartifact hash、deployment・rollback evidenceを記録
+- production v0.30.2をread-onlyで再照合し、D1 migration 123/123とschema fingerprintを固定。seller tag commitとdeploy source SHAは別identityとして保持
+- code deployment evidenceと業務受入を分離し、deployed byte equality、account activation、LINE lifecycle、rollback、実端末受入は未証明のまま`UNVERIFIED`または`NOT_RUN`として維持
+
+### CIとbranch protectionの簡素化
+
+- CIを単一の`Repository Verify`へ統合し、全workspaceのtypecheck・test、migration contract、Worker・Web・LIFF buildを全pull requestで実行
+- 重複していた`Worker CI`と`Web CI` workflowを削除し、path filterによってrequired checkが報告されない構成を解消
+- `main`と`dev`のrequired status checkをGitHub Actionsの`verify` 1件、`strict=true`へ統一し、PR #77で成功を確認
+
+### releaseまでに残るgate
+
+- beta branch・専用Cloudflare environment・独立reviewerを設定し、productionから分離
+- synthetic LINE accountでcreate、upload、set-default、fresh read-back、rollback、rollback後read-backを実証
+- browser E2E、CodeQL/SAST、secret・dependency・license scan、SBOM、provenanceのbaselineを実行
+- 全gateがPASSするまで`pharmacy-v0.31.0`を作成せず、productionへ昇格しない
+
 ## Pharmacy v0.30.2 (2026-08-22)
 
 ### リッチメニュー画像とR2公開
