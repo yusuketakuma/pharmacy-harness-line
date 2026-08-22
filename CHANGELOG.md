@@ -8,8 +8,9 @@
 
 - PHIを含まないcanonical release manifestへsource SHA、package version、独立したseller tag、environment、stage、D1 schema fingerprint、migration checksum、Worker・Worker assets・Admin・LIFFのartifact hash、deployment・rollback evidenceを記録
 - production v0.30.2をread-onlyで再照合し、D1 migration 123/123とschema fingerprintを固定。seller tag commitとdeploy source SHAは別identityとして保持
-- code deployment evidenceと業務受入を分離し、deployed byte equality、account activation、LINE lifecycle、rollback、実端末受入は未証明のまま`UNVERIFIED`または`NOT_RUN`として維持
+- code deployment evidenceと業務受入を分離し、productionのdeployed byte equality、account activation、実端末受入は未証明のまま`UNVERIFIED`または`NOT_RUN`として維持
 - Platform Admin CLIへaccount-scoped・PHI-freeなLINE rich-menu remote state GETだけを許可し、import・remote deleteなどのexternal mutationは引き続き拒否
+- development synthetic LINE accountで同一v4-4 artifactのcreate・image upload・set-default・fresh read-back・explicit rollback・rollback後read-backを完遂。known-goodへ復帰し、結果不明・未解決operation・blind retry・remote deleteはいずれも0件
 
 ### CIとbranch protectionの簡素化
 
