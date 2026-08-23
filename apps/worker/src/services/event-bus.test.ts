@@ -122,7 +122,7 @@ vi.mock('@line-crm/db', async () => {
     addTagToFriend: vi.fn().mockResolvedValue(undefined),
     removeTagFromFriend: vi.fn().mockResolvedValue(undefined),
     enrollFriendInScenario: vi.fn().mockResolvedValue(undefined),
-    jstNow: () => '2026-05-08T00:00:00.000+09:00',
+    jstNow: vi.fn(() => '2026-05-08T00:00:00.000+09:00'),
     getFriendScore: vi.fn().mockResolvedValue(0),
     getTemplateById: vi.fn().mockResolvedValue(null),
   };
@@ -481,10 +481,15 @@ describe('fireEvent — send_message action logging', () => {
 
   it('retries a definite 4xx rejection with the same delivery id', async () => {
     const dbModule = await import('@line-crm/db');
+    vi.mocked(dbModule.jstNow)
+      .mockReturnValueOnce('2026-05-08T00:00:00.000+09:00')
+      .mockReturnValueOnce('2026-05-08T00:00:01.000+09:00')
+      .mockReturnValueOnce('2026-05-08T00:00:02.000+09:00')
+      .mockReturnValueOnce('2026-05-08T00:00:03.000+09:00');
     const webhook = {
       id: 'webhook-1', tenant_id: 'tenant-a', name: 'safe',
       url: 'https://hooks.example.com/receive', event_types: '["message_received"]',
-      secret: null, is_active: 1,
+      secret: 'test-secret', is_active: 1,
       created_at: '2026-08-23T00:00:00.000Z', updated_at: '2026-08-23T00:00:00.000Z',
     };
     vi.mocked(dbModule.getActiveOutgoingWebhooksByEvent)
@@ -503,6 +508,8 @@ describe('fireEvent — send_message action logging', () => {
       const firstHeaders = new Headers(fetchSpy.mock.calls[0]?.[1]?.headers);
       const secondHeaders = new Headers(fetchSpy.mock.calls[1]?.[1]?.headers);
       expect(secondHeaders.get('Idempotency-Key')).toBe(firstHeaders.get('Idempotency-Key'));
+      expect(secondHeaders.get('X-Webhook-Signature')).toBe(firstHeaders.get('X-Webhook-Signature'));
+      expect(fetchSpy.mock.calls[1]?.[1]?.body).toBe(fetchSpy.mock.calls[0]?.[1]?.body);
       expect(sqlite.prepare(`SELECT outcome, attempt_count FROM outgoing_webhook_deliveries`).get())
         .toEqual({ outcome: 'sent', attempt_count: 2 });
     } finally {

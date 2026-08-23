@@ -50,6 +50,11 @@ interface WebhookDeliveryContext {
   targetId: string;
 }
 
+type WebhookRequest = {
+  body: string;
+  headers: Record<string, string>;
+};
+
 async function postWebhook(
   url: string,
   body: string,
@@ -77,8 +82,7 @@ async function postWebhook(
 async function deliverWebhook(
   db: D1Database,
   url: string,
-  body: string,
-  headers: Record<string, string>,
+  request: WebhookRequest | ((timestamp: string) => Promise<WebhookRequest>),
   context?: WebhookDeliveryContext,
 ): Promise<void> {
   if (validateHttpsUrl(url)) throw new Error('Invalid webhook URL');
@@ -94,21 +98,27 @@ async function deliverWebhook(
         context.targetId,
       )
     : null;
-  const requestHeaders = { ...headers };
-  if (deliveryId) {
-    requestHeaders['Idempotency-Key'] = deliveryId;
-    requestHeaders['X-Webhook-Delivery-Id'] = deliveryId;
-  }
+  const prepareRequest = async (timestamp: string): Promise<WebhookRequest> => {
+    const prepared = typeof request === 'function' ? await request(timestamp) : request;
+    const headers = { ...prepared.headers };
+    if (deliveryId) {
+      headers['Idempotency-Key'] = deliveryId;
+      headers['X-Webhook-Delivery-Id'] = deliveryId;
+    }
+    return { body: prepared.body, headers };
+  };
 
   // Legacy events without a tenant or stable source key still get bounded,
   // validated HTTP delivery, but cannot be safely deduplicated in D1.
   if (!deliveryId || !context?.tenantId) {
-    await postWebhook(url, body, requestHeaders);
+    const prepared = await prepareRequest(jstNow());
+    await postWebhook(url, prepared.body, prepared.headers);
     return;
   }
 
   const claimToken = crypto.randomUUID();
   const now = jstNow();
+  let payloadTimestamp = now;
   const inserted = await db.prepare(
     `INSERT OR IGNORE INTO outgoing_webhook_deliveries
       (id, tenant_id, line_account_id, target_type, target_id, event_type,
@@ -129,14 +139,15 @@ async function deliverWebhook(
 
   if ((inserted.meta?.changes ?? 0) !== 1) {
     const existing = await db.prepare(
-      `SELECT outcome FROM outgoing_webhook_deliveries
+      `SELECT outcome, created_at FROM outgoing_webhook_deliveries
         WHERE id = ? AND tenant_id = ? AND line_account_id IS ?`,
     ).bind(deliveryId, context.tenantId, context.lineAccountId)
-      .first<{ outcome: 'attempted' | 'sent' | 'failed' }>();
+      .first<{ outcome: 'attempted' | 'sent' | 'failed'; created_at: string }>();
     if (existing?.outcome === 'sent') return;
     if (existing?.outcome !== 'failed') {
       throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
     }
+    payloadTimestamp = existing.created_at;
     const reclaimed = await db.prepare(
       `UPDATE outgoing_webhook_deliveries
           SET outcome = 'attempted', claim_token = ?, attempt_count = attempt_count + 1,
@@ -155,7 +166,7 @@ async function deliverWebhook(
     }
   }
 
-  const settle = async (outcome: 'sent' | 'failed', status: number): Promise<void> => {
+  const settle = async (outcome: 'sent' | 'failed', status: number | null): Promise<void> => {
     const settledAt = jstNow();
     let result: D1Result;
     try {
@@ -183,8 +194,16 @@ async function deliverWebhook(
     }
   };
 
+  let prepared: WebhookRequest;
   try {
-    await settle('sent', await postWebhook(url, body, requestHeaders));
+    prepared = await prepareRequest(payloadTimestamp);
+  } catch {
+    await settle('failed', null);
+    throw new Error('Webhook request preparation failed');
+  }
+
+  try {
+    await settle('sent', await postWebhook(url, prepared.body, prepared.headers));
   } catch (error) {
     if (error instanceof WebhookRejectedError) {
       await settle('failed', error.status);
@@ -288,32 +307,28 @@ async function fireOutgoingWebhooks(
     const webhooks = await getActiveOutgoingWebhooksByEvent(db, eventType, tenantId);
     for (const wh of webhooks) {
       try {
-        const body = JSON.stringify({
-          event: eventType,
-          timestamp: jstNow(),
-          data: payload,
-        });
+        await deliverWebhook(db, wh.url, async (timestamp) => {
+          const body = JSON.stringify({ event: eventType, timestamp, data: payload });
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          // HMAC署名（シークレットがある場合）
+          if (wh.secret) {
+            const encoder = new TextEncoder();
+            const key = await crypto.subtle.importKey(
+              'raw',
+              encoder.encode(wh.secret),
+              { name: 'HMAC', hash: 'SHA-256' },
+              false,
+              ['sign'],
+            );
+            const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+            headers['X-Webhook-Signature'] = Array.from(new Uint8Array(signature))
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('');
+          }
 
-        // HMAC署名（シークレットがある場合）
-        if (wh.secret) {
-          const encoder = new TextEncoder();
-          const key = await crypto.subtle.importKey(
-            'raw',
-            encoder.encode(wh.secret),
-            { name: 'HMAC', hash: 'SHA-256' },
-            false,
-            ['sign'],
-          );
-          const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-          const hexSignature = Array.from(new Uint8Array(signature))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('');
-          headers['X-Webhook-Signature'] = hexSignature;
-        }
-
-        await deliverWebhook(db, wh.url, body, headers, {
+          return { body, headers };
+        }, {
           tenantId,
           lineAccountId,
           eventType,
@@ -557,8 +572,10 @@ async function executeAction(
         await deliverWebhook(
           db,
           url,
-          JSON.stringify({ friendId, ...payload.eventData }),
-          { 'Content-Type': 'application/json' },
+          {
+            body: JSON.stringify({ friendId, ...payload.eventData }),
+            headers: { 'Content-Type': 'application/json' },
+          },
           deliveryContext,
         );
       }
