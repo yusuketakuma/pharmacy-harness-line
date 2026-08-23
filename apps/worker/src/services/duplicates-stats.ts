@@ -45,11 +45,22 @@ export interface DuplicatesStats {
  * entire lifetime), and always honor the TTL — no permanent caching.
  */
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CACHE_TENANTS = 8;
 const cached = new Map<string, { stats: DuplicatesStats; at: number }>();
 
 /** Test-only: clear the in-isolate cache so unit tests don't leak across each other. */
 export function _resetCacheForTest(): void {
   cached.clear();
+}
+
+export function _cacheSizeForTest(): number {
+  return cached.size;
+}
+
+function pruneCache(now: number): void {
+  for (const [tenantId, entry] of cached) {
+    if (now - entry.at >= CACHE_TTL_MS) cached.delete(tenantId);
+  }
 }
 
 const TOTALS_SQL = `
@@ -142,8 +153,12 @@ export async function computeDuplicatesStats(
   tenantId: string,
   options: { forceRefresh?: boolean } = {},
 ): Promise<DuplicatesStats> {
+  const now = Date.now();
+  pruneCache(now);
   const tenantCache = cached.get(tenantId);
-  if (!options.forceRefresh && tenantCache && Date.now() - tenantCache.at < CACHE_TTL_MS) {
+  if (!options.forceRefresh && tenantCache) {
+    cached.delete(tenantId);
+    cached.set(tenantId, tenantCache);
     return tenantCache.stats;
   }
 
@@ -231,7 +246,12 @@ export async function computeDuplicatesStats(
   // so reverting to the stale non-zero value on the next normal request
   // would be lying to them.
   if (total_following > 0) {
-    cached.set(tenantId, { stats, at: Date.now() });
+    cached.delete(tenantId);
+    cached.set(tenantId, { stats, at: now });
+    // ponytail: tenant count is bounded; page pairwise data if one snapshot nears Worker memory limits.
+    while (cached.size > MAX_CACHE_TENANTS) {
+      cached.delete(cached.keys().next().value!);
+    }
   } else {
     cached.delete(tenantId);
   }

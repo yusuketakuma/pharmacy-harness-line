@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, test } from 'vitest';
-import { _resetCacheForTest, computeDuplicatesStats } from './duplicates-stats.js';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import {
+  _cacheSizeForTest,
+  _resetCacheForTest,
+  computeDuplicatesStats,
+} from './duplicates-stats.js';
 
 type StubResult<T> = { results: T[] };
 
@@ -110,6 +114,28 @@ describe('computeDuplicatesStats', () => {
     expect(callCount).toBe(firstCallCount);
     await computeForTenant(db, { forceRefresh: true }); // bypass
     expect(callCount).toBeGreaterThan(firstCallCount);
+  });
+
+  test('期限切れtenant cacheを回収し、保持tenant数を上限内に制限する', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const statsDb = () => stubDB({
+      totals: { total_following: 1, duplicate_groups: 0, friend_dups: 0 },
+      perAccount: [],
+      pairwiseRaw: [],
+    });
+
+    try {
+      for (let i = 0; i < 9; i++) {
+        await computeDuplicatesStats(statsDb(), `tenant-${i}`);
+      }
+      expect(_cacheSizeForTest()).toBe(8);
+
+      now.mockReturnValue(5 * 60 * 1000 + 1_001);
+      await computeDuplicatesStats(statsDb(), 'tenant-fresh');
+      expect(_cacheSizeForTest()).toBe(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   test('binds every query to the tenant and never reuses another tenant cache', async () => {
