@@ -371,7 +371,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
           WORKER_URL: ${{ vars.WORKER_URL }}
         run: |
-          for attempt in {1..12}; do
+          for _ in {1..12}; do
             actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${WORKER_URL%/}/admin/version" | jq -r '.version')"
             test "$actual_version" = "$EXPECTED_VERSION" && break
@@ -418,7 +418,7 @@ jobs:
         run: |
           test -n "$LIFF_ORIGIN"
           test -n "$WORKER_URL"
-          for attempt in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             liff_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${LIFF_ORIGIN%/}/")"
             LIFF_ASSET_PATH="$(printf '%s' "$liff_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' | head -n 1 || true)"
@@ -483,7 +483,7 @@ jobs:
             "${ADMIN_ORIGIN%/}/" >/dev/null
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${ADMIN_ORIGIN%/}/prescriptions" >/dev/null
-          for attempt in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             admin_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${ADMIN_ORIGIN%/}/accounts")"
             ADMIN_ASSET_PATHS="$(printf '%s' "$admin_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' || true)"
