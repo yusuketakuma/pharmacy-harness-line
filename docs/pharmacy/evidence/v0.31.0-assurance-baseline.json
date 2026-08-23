@@ -1,17 +1,16 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-22T10:34:01Z",
-  "findingsReviewedAt": "2026-08-22T10:56:00Z",
-  "findingsReviewSourceSha": "77037ddb7db871d0cfcd89974af7504d55647c58",
+  "capturedAt": "2026-08-23T12:53:38Z",
+  "findingsReviewedAt": "2026-08-23T12:55:57Z",
+  "findingsReviewSourceSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
   "releaseReadiness": "BLOCKED",
   "releaseBlockers": [
-    "V031-1",
     "V031-4"
   ],
-  "implementationSourceSha": "67c9f06a164d043071fd1a6d1668495eb6328806",
+  "implementationSourceSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -21,38 +20,41 @@
   },
   "localValidation": {
     "repositoryVerifyContractTests": 24,
-    "liffUnitTests": 115,
-    "workspaceTests": 3255,
-    "migrationChecks": 82,
+    "liffUnitTests": 116,
+    "workspaceTests": 3321,
+    "migrationChecks": 84,
     "criticalApplicationBuilds": 3,
-    "chromiumSmokeTests": 1,
+    "chromiumSmokeTests": 2,
     "actionlint": "PASS",
     "diffCheck": "PASS"
   },
   "githubActions": {
     "pullRequestRun": {
-      "runId": "32567343525",
-      "verifyJobId": "97017792237",
+      "headSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
+      "artifactSourceSha": "a4fe7daa20ecdb93a0f1ea4f6a2f9091d280a530",
+      "runId": "32639958353",
+      "verifyJobId": "97195418451",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32567343525"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32639958353"
     },
     "provenanceRun": {
-      "runId": "32567572017",
-      "verifyJobId": "97018339587",
-      "attestJobId": "97018922091",
+      "headSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
+      "runId": "32640458927",
+      "verifyJobId": "97196646390",
+      "attestJobId": "97197214710",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32567572017"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32640458927"
     }
   },
   "checks": {
     "browserE2e": {
       "status": "PASS",
       "browser": "chromium",
-      "tests": 1
+      "tests": 2
     },
     "codeQl": {
       "status": "PASS",
@@ -63,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32567343525"
+        "runId": "32639958353"
       },
       "fullHistory": {
         "status": "PASS",
@@ -136,27 +138,29 @@
     },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42311202",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42311202",
+      "attestationId": "42420050",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42420050",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "d677be5ebdcf1c2e66e3b0d423c69cad41cb338ebb57948686fca0245abe8263",
+      "subjectSha256": "a60b52bd7d213164bd001ade5d83e8aeca382147ce51023c2d1da06d061a5cd4",
+      "sourceSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
+      "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9474477152",
-      "name": "v031-assurance-5e543fcbc0062dfcba0b274a51761cd24c13c3d9",
-      "sizeBytes": 3516248,
-      "archiveSha256": "ad8a8e6b64234aca9a360e1f2b023036373f219d03f58a62f5056285f09c2d50",
-      "expiresAt": "2026-09-05T10:25:04Z"
+      "id": "9493386336",
+      "name": "v031-assurance-a4fe7daa20ecdb93a0f1ea4f6a2f9091d280a530",
+      "sizeBytes": 3518675,
+      "archiveSha256": "db009040242a50c66bca85fcb103f466be97b4cffcc8f26509c84501fb01f763",
+      "expiresAt": "2026-09-06T12:43:10Z"
     },
     "provenance": {
-      "id": "9474540338",
-      "name": "v031-assurance-67c9f06a164d043071fd1a6d1668495eb6328806",
-      "sizeBytes": 3515977,
-      "archiveSha256": "b0da56aeb09f4c73ee450826721f464074fc46bdf743568df4c56acd11e63763",
-      "expiresAt": "2026-09-05T10:31:02Z"
+      "id": "9493510742",
+      "name": "v031-assurance-9c48e15e314368251a6d50016fd92a73193a9af6",
+      "sizeBytes": 3518014,
+      "archiveSha256": "a11fc27804f5fc49a636f655841807e2f65185b17b8767f4ef1a996a0af5e719",
+      "expiresAt": "2026-09-06T12:53:19Z"
     }
   },
   "openFindings": [],
@@ -170,6 +174,11 @@
       "id": "P1-V031-LICENSE-REVIEW",
       "status": "PASS",
       "summary": "The native LGPL build dependency is absent from the artifact, and the LINE packages are used only in the documented LIFF application context."
+    },
+    {
+      "id": "P1-V031-FINAL-HEAD-EVIDENCE",
+      "status": "PASS",
+      "summary": "Final runtime-bearing-head PR and workflow-dispatch runs refreshed source SHA, test, migration, smoke, artifact, and provenance evidence."
     }
   ],
   "oracleConsultation": {

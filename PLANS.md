@@ -624,7 +624,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 |---|---|---|---|
 | `CB-P0-01` | source/scope/migration/schema/artifact evidenceをfreezeし、Human Gate registerをlive read-backと一致させる | release owner | `PASS`（`docs/pharmacy/evidence/v0.30.2-production-manifest.json`。stage=`pre-beta`。deployed byte equalityは`CB-P0-02`で実証する） |
 | `CB-P0-02` | main/production候補のmanifest-bound artifact、source SHA一致、明示Human Go、非自動deployを実証する | infra/release owner | `NOT_RUN` |
-| `CB-P0-03` | LIFFを含むrequired CI、独立reviewer、CodeQL/SAST、SBOM、provenanceのbaselineを実在させる | repository owner + independent reviewer | `BLOCKED`（assurance baselineはPR `#79`でPASS。独立reviewer未指定） |
+| `CB-P0-03` | LIFFを含むrequired CI、CodeQL/SAST、SBOM、provenanceのbaselineを実在させる | repository owner | `PASS`（userが独立人間reviewerを不要と明示。final head `9c48e15`のPR run `32639958353`とattestation run `32640458927`がPASS） |
 | `CB-P0-04` | MFA/session/durable lockout、PHI-free audit projection、FLE独立承認、authorization inventoryをPASSにする | security/infra owner | `NOT_RUN` |
 | `CB-P0-05` | common-generation D1/R2/FLE restore、legal hold coverage、ordered delete/retention dispositionをPASSにする | data/ops owner | `NOT_RUN` |
 | `CB-P0-06` | webhook fencing、outbound idempotency、external timeout/unknown-outcome reconciliationをPASSにする | Worker owner | `NOT_RUN` |
@@ -695,12 +695,13 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 
 - [x] **V031-0 canonical evidenceをreconcile**: GitHub Release、deployment、workflow migration stepの既存evidenceをHuman Gate registerへ反映し、production D1 schema fingerprint、activation、LINE lifecycle、rollback、実端末を未証明のまま分離する。source SHA、package、seller tag、migration set、schema fingerprint、artifact hash、environment、stageを1つのmanifestへ固定する。
   - 2026-08-22 read-only manifest: `docs/pharmacy/evidence/v0.30.2-production-manifest.json`。production schema fingerprintとmigration 123/123 checksum一致をPASSへ更新した。seller tag commit `387163e`とdeploy source `b26e890`は別だがruntime-bearing path差分は0。stageはroadmap authorityから`pre-beta`へ固定した。deployed byte equalityはV031-4、activation、LINE lifecycle、rollback、実端末はV031-3/4の未証明gateとして分離した。
-- [ ] **V031-1 必須checkを迂回不能にする**
+- [x] **V031-1 必須checkを迂回不能にする**
   - `Repository Verify`を全PRで必ず報告される唯一の基準checkにし、Worker/Web/LIFFのcritical test/buildを含める。path filter付きrequired checkは作らない。
   - migration contract、synthetic E2E smoke、security contract、supply-chain baselineを実在させてgreenを確認した後だけrequiredへ登録する。存在しないcheck名を先にrequiredへ登録しない。
-  - `main`/`dev`のdirect push禁止、admin enforcement、auth/tenant/DB/deploy/Platform Admin変更の独立review ownerを設定し、GitHub APIでfresh read-backする。self-approvalしかできない構成ではgateを閉じない。
+  - `main`/`dev`のdirect push禁止、admin enforcementをGitHub APIでfresh read-backする。独立人間reviewerはuserの明示決定によりrelease blockerから除外し、required approval 0件を正とする。
   - **ローカル実装進捗(2026-08-22)**: `feature/v031-release-governance`へ切り出し、重複していたWorker/Web CIを削除して`Repository Verify` 1本へ統合した。全workspaceのtypecheck/test、migration contract、Worker/Web/LIFF buildをpath filterなしで実行する。Red -> Greenのworkflow契約、`pnpm verify:ci`（計3,250 tests、migration 82件）、3アプリbuildがgreen。
   - **GitHub実行証跡(2026-08-22)**: PR `#77`の`Repository Verify / verify`（run `32561951117`、job `97004785951`）がPASS。main/devのrequired status checksをGitHub Actions app `15368`の`verify` 1件、`strict=true`で登録し、admin enforcement、force-push禁止、branch削除禁止をfresh read-backした。必須approvalは0件、独立reviewerは未設定のため、本項は未完了のまま維持する。
+  - **完了(2026-08-23)**: userが独立人間reviewerを不要と明示したため、その条件だけをrelease blockerから除外した。final head `9c48e15e314368251a6d50016fd92a73193a9af6`でPR run `32639958353`の`verify`/CodeQLとworkflow_dispatch run `32640458927`の`verify`/`attest`がPASS。main/devはrequired `verify` 1件、`strict=true`、admin enforcement、force-push禁止、branch削除禁止、required approval 0件をfresh read-backした。
 - [x] **V031-3 v0.30 LINE lifecycleをsynthetic accountで受入**
   - candidate create、image upload、set-default、fresh read-back、known-good記録、explicit rollback、rollback後read-backを人間立会いで実行する。
   - evidenceはactor、tenant/account、remote richMenuId、image/catalog hash、source SHA、時刻、API resultだけを含め、credentialとpatient identifierを含めない。
@@ -709,9 +710,11 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - **完了(2026-08-22)**: userがdevelopment LINE accountを検証専用と確認し、PR `#77`を`dev`へmergeしたsource `61333c1a93c6b9540ef5f27cef536e9fef9c3bcc`のCI run `32565724570`とdevelopment deploy run `32565724568`がPASS。known-good `richmenu-08ff171b08717258e439d9ea4fbf96f8`をfresh read-back後、同一v4-4 image/manifestのcandidate作成・LINE create/upload・default切替・fresh read-back・明示rollback・rollback後read-backを完遂した。最終defaultはknown-goodへ一致し、結果不明・未解決operation・blind retry・remote deleteはいずれも0件。PHI-free evidenceは`docs/pharmacy/evidence/v0.31.0-development-rich-menu-lifecycle.json`。
 - [ ] **V031-4 release gate**: required checks迂回不可、main/production候補のsource SHA=manifest、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。deployは人間の明示Goを必須とし、未達なら`pharmacy-v0.31.0`を作らない。
 - [x] **V031-5 assurance baseline**: browser E2E harness、CodeQL/SAST、secret/dependency/license scan、CycloneDX SBOM、provenanceをsynthetic artifactで初回実行し、検出事項をP0/P1 registerへ登録する。v0.39.0では新規構築せず、final artifactへ同じcheckを再実行する。
-  - **完了証拠(2026-08-22)**: PR `#79`の`verify` run `32567343525`が、new-commit secret scan、CodeQL、production dependency/license baseline、CycloneDX 1.6 SBOM、全workspace検証、3アプリbuild、LIFF Chromium smoke、artifact生成をPASS。手動run `32567572017`の分離`attest` jobもPASSし、attestation `42311202`を`gh attestation verify`で検証した。PHI-free evidenceは`docs/pharmacy/evidence/v0.31.0-assurance-baseline.json`。`dev` merge/deploy、production/LINE mutationは未実施。
+  - **初回証拠(2026-08-22)**: PR `#79`の`verify` run `32567343525`が、new-commit secret scan、CodeQL、production dependency/license baseline、CycloneDX 1.6 SBOM、全workspace検証、3アプリbuild、LIFF Chromium smoke、artifact生成をPASS。手動run `32567572017`の分離`attest` jobもPASSし、attestation `42311202`を`gh attestation verify`で検証した。
+  - **final head証拠(2026-08-23)**: source `9c48e15e314368251a6d50016fd92a73193a9af6`でPR run `32639958353`がnew-commit secret scan、3,321 tests、84 migrations、3アプリbuild、LIFF Chromium smoke 2件、CodeQL、artifact生成をPASS。workflow_dispatch run `32640458927`の`verify`/`attest`もPASSし、attestation `42420050`をsource SHA・signer workflow固定の`gh attestation verify`で検証した。PHI-free evidenceは`docs/pharmacy/evidence/v0.31.0-assurance-baseline.json`。`dev` merge/deploy、production/LINE mutationは未実施。
   - [x] **P1-V031-SECRET-HISTORY**: redacted full-history scanの181候補を値を保存せず確認し、文書内placeholder 150、test fixture 25、rich-menu profile識別子4、環境変数名2へ分類した。live credentialとGitHub secret scanning open alertはいずれも0件のため、rotation・履歴書換えは不要と判定した。証拠は`docs/pharmacy/evidence/v0.31.0-assurance-baseline.json`。
   - [x] **P1-V031-LICENSE-REVIEW**: unknown/unlicensedは0件。LGPL packageはWeb build時の`sharp`依存でnative package fileを配布artifactへ含めず、LINE系51 packagesは公式npm手順とLINE Developers Agreementに従うLIFF用途に限定しているため、現行artifactは是正不要と判定した。native binary追加、LINE外配布、規約・license変更時は再審査する。証拠は同JSON。
+  - [x] **P1-V031-FINAL-HEAD-EVIDENCE**: 旧baseline後のLIFF success smokeと安全修正を含むfinal headでPR/dispatchの同一assurance workflowを再実行し、source SHA・test/migration/smoke件数・artifact・attestationをevidence JSONへ更新した。
 
 #### v0.32.0 - Data Protection, Backup & Recovery
 
