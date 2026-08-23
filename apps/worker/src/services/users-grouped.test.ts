@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import {
+  _cacheSizeForTest,
   _resetCacheForTest,
   computeUsersGrouped,
   type UsersGroupedOptions,
@@ -581,6 +582,28 @@ describe('computeUsersGrouped', () => {
 
     await computeForTenant(db, { forceRefresh: true });
     expect(identCalls).toBe(2);
+  });
+
+  test('期限切れtenant cacheを回収し、保持tenant数を上限内に制限する', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      for (let i = 0; i < 9; i++) {
+        await computeUsersGrouped(
+          stubDB({ ident: makeRow(i + 1, `key-${i}`, [{ id: `account-${i}`, name: `L${i}` }]), forms: [] }),
+          `tenant-${i}`,
+        );
+      }
+      expect(_cacheSizeForTest()).toBe(8);
+
+      now.mockReturnValue(5 * 60 * 1000 + 1_001);
+      await computeUsersGrouped(
+        stubDB({ ident: makeRow(10, 'key-fresh', [{ id: 'account-fresh', name: 'fresh' }]), forms: [] }),
+        'tenant-fresh',
+      );
+      expect(_cacheSizeForTest()).toBe(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   test('空結果はキャッシュされない（誤検知マスクを避ける）', async () => {

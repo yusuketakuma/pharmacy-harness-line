@@ -3,6 +3,7 @@ import { URL_TOKEN_SQL } from '../lib/url-token.js';
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CACHE_TENANTS = 8;
 
 const IDENT_KIND_SQL = `
   CASE
@@ -118,6 +119,16 @@ const cached = new Map<string, { rows: UnifiedUserRow[]; at: number }>();
 
 export function _resetCacheForTest(): void {
   cached.clear();
+}
+
+export function _cacheSizeForTest(): number {
+  return cached.size;
+}
+
+function pruneCache(now: number): void {
+  for (const [tenantId, entry] of cached) {
+    if (now - entry.at >= CACHE_TTL_MS) cached.delete(tenantId);
+  }
 }
 
 async function computeAllRows(db: D1Database, tenantId: string): Promise<UnifiedUserRow[]> {
@@ -256,13 +267,22 @@ export async function computeUsersGrouped(
   opts: UsersGroupedOptions = {},
 ): Promise<UsersGroupedResult> {
   let allRows: UnifiedUserRow[];
+  const now = Date.now();
+  pruneCache(now);
   const tenantCache = cached.get(tenantId);
-  if (!opts.forceRefresh && tenantCache && Date.now() - tenantCache.at < CACHE_TTL_MS) {
+  if (!opts.forceRefresh && tenantCache) {
     allRows = tenantCache.rows;
+    cached.delete(tenantId);
+    cached.set(tenantId, tenantCache);
   } else {
     allRows = await computeAllRows(db, tenantId);
     if (allRows.length > 0) {
-      cached.set(tenantId, { rows: allRows, at: Date.now() });
+      cached.delete(tenantId);
+      cached.set(tenantId, { rows: allRows, at: now });
+      // ponytail: tenant count is bounded; paginate the source if one tenant nears Worker memory limits.
+      while (cached.size > MAX_CACHE_TENANTS) {
+        cached.delete(cached.keys().next().value!);
+      }
     } else {
       cached.delete(tenantId);
     }
