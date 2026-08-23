@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-23T13:33:54Z",
-  "findingsReviewedAt": "2026-08-23T13:33:54Z",
-  "findingsReviewSourceSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
+  "capturedAt": "2026-08-23T13:49:21Z",
+  "findingsReviewedAt": "2026-08-23T13:49:21Z",
+  "findingsReviewSourceSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
@@ -10,7 +10,7 @@
   "releaseBlockers": [
     "V031-4"
   ],
-  "implementationSourceSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
+  "implementationSourceSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -30,24 +30,24 @@
   },
   "githubActions": {
     "pullRequestRun": {
-      "headSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
-      "artifactSourceSha": "846c427df2d0b3011a34472ab95bde3e31cc6726",
-      "runId": "32642142893",
-      "verifyJobId": "97200764985",
+      "headSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
+      "artifactSourceSha": "c85c653abdc476464d994b5f7fec382bdfb7a9a4",
+      "runId": "32642923492",
+      "verifyJobId": "97202722581",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32642142893"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32642923492"
     },
     "provenanceRun": {
-      "headSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
-      "runId": "32642405119",
-      "verifyJobId": "97201418091",
-      "attestJobId": "97201990881",
+      "headSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
+      "runId": "32643213188",
+      "verifyJobId": "97203404029",
+      "attestJobId": "97204086644",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32642405119"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32643213188"
     }
   },
   "checks": {
@@ -65,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32642142893"
+        "runId": "32642923492"
       },
       "fullHistory": {
         "status": "PASS",
@@ -154,31 +154,39 @@
       "workerTests": 2142,
       "onlineMedicationCounseling": "NOT_IMPLEMENTED"
     },
+    "webhookEventKeyNamespace": {
+      "status": "PASS",
+      "namespace": "serverDerivedIncomingWebhookId",
+      "sameWebhookRedelivery": "SAME_KEY",
+      "differentWebhookSameExternalKey": "DIFFERENT_KEY",
+      "focusedTests": 37,
+      "workerTests": 2142
+    },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42422555",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42422555",
+      "attestationId": "42424015",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42424015",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "d4269c5e6b2b82a9e257e0ac7d210c3e2f9c5ad3f68522046f37a7f764face83",
-      "sourceSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
+      "subjectSha256": "757d08f3c0777a360068512d153271c42ab3b4a1fc4308a9dc3a13db9ffed8fb",
+      "sourceSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
       "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9493947719",
-      "name": "v031-assurance-846c427df2d0b3011a34472ab95bde3e31cc6726",
-      "sizeBytes": 3519111,
-      "archiveSha256": "a9f9d29eaf016ab31d598ffc5b579604a486a22af175aa5ca68490ad1f58c0b1",
-      "expiresAt": "2026-09-06T13:27:16Z"
+      "id": "9494154188",
+      "name": "v031-assurance-c85c653abdc476464d994b5f7fec382bdfb7a9a4",
+      "sizeBytes": 3518376,
+      "archiveSha256": "54abf7849bf911addc1410c6d6e357f9457f6bc2ac81d3f6da3ec8e5640cc98c",
+      "expiresAt": "2026-09-06T13:43:10Z"
     },
     "provenance": {
-      "id": "9494011164",
-      "name": "v031-assurance-166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
-      "sizeBytes": 3519199,
-      "archiveSha256": "1a97650fd97aad802e7dda5d893adabb25757769de47c66351e79f25d41734d0",
-      "expiresAt": "2026-09-06T13:32:04Z"
+      "id": "9494228744",
+      "name": "v031-assurance-60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
+      "sizeBytes": 3518348,
+      "archiveSha256": "f363757459e8c2ae4a12575bf9f904b7311d7bce2cff6c247c92c1ab1f993c31",
+      "expiresAt": "2026-09-06T13:48:49Z"
     }
   },
   "openFindings": [],
@@ -202,6 +210,11 @@
       "id": "P1-V031-CALENDAR-DATA-MINIMIZATION",
       "status": "PASS",
       "summary": "Confirmed booking sync now sends only a fixed title, times, pseudonymous event ID, and optional Google Meet request; patient, consultation, note, and staff fields are excluded."
+    },
+    {
+      "id": "P2-V031-WEBHOOK-EVENT-KEY-NAMESPACE",
+      "status": "PASS",
+      "summary": "Incoming webhook UUID now namespaces a valid external idempotency key, preventing cross-webhook delivery collisions while preserving same-webhook redelivery identity."
     }
   ],
   "oracleConsultation": {
