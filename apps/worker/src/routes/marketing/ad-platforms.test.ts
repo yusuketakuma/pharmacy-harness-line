@@ -50,6 +50,7 @@ function app() {
 beforeEach(() => {
   vi.clearAllMocks();
   db.getAdPlatforms.mockResolvedValue([ROW]);
+  db.getAdPlatformById.mockResolvedValue(ROW);
   db.createAdPlatform.mockResolvedValue(ROW);
   db.updateAdPlatform.mockResolvedValue(ROW);
 });
@@ -85,5 +86,25 @@ describe('ad platform config projection', () => {
     }
     expect(JSON.stringify(config)).not.toContain('secret-value');
     expect(JSON.stringify(config)).not.toContain('tiny');
+  });
+
+  it('preserves stored credentials when a masked config is saved', async () => {
+    await app().request('/api/ad-platforms/platform-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        config: {
+          pixel_id: 'pixel-updated',
+          access_token: '********',
+          oauth_token: '********',
+        },
+      }),
+    }, { DB: {} as D1Database } as Env['Bindings']);
+
+    expect(db.updateAdPlatform).toHaveBeenCalledWith(
+      expect.anything(),
+      'platform-1',
+      { config: { ...CONFIG, pixel_id: 'pixel-updated' } },
+    );
   });
 });
