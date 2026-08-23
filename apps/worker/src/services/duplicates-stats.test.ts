@@ -7,7 +7,7 @@ function stubDB(canned: {
   totals: { total_following: number; duplicate_groups: number; friend_dups: number };
   perAccount: Array<{ account_id: string; account_name: string; friends: number; dups: number }>;
   pairwiseRaw: Array<{ ident_key: string; line_account_id: string }>;
-}) {
+}, capturedBinds: unknown[][] = []) {
   return {
     prepare(sql: string) {
       // The pairwise raw-row query is the only one that filters via `dup_keys`;
@@ -19,7 +19,8 @@ function stubDB(canned: {
         all: async (): Promise<StubResult<unknown>> => ({
           results: isPairwise ? canned.pairwiseRaw : canned.perAccount,
         }),
-        bind() {
+        bind(...values: unknown[]) {
+          capturedBinds.push(values);
           return this;
         },
       };
@@ -28,6 +29,11 @@ function stubDB(canned: {
 }
 
 describe('computeDuplicatesStats', () => {
+  const computeForTenant = (
+    db: D1Database,
+    options: { forceRefresh?: boolean } = {},
+  ) => computeDuplicatesStats(db, 'tenant-a', options);
+
   beforeEach(() => {
     _resetCacheForTest();
   });
@@ -48,7 +54,7 @@ describe('computeDuplicatesStats', () => {
       ],
     });
 
-    const stats = await computeDuplicatesStats(db);
+    const stats = await computeForTenant(db);
 
     expect(stats.total_following).toBe(100);
     expect(stats.duplicate_groups).toBe(10);
@@ -98,11 +104,35 @@ describe('computeDuplicatesStats', () => {
       },
     } as unknown as D1Database;
 
-    await computeDuplicatesStats(db);
+    await computeForTenant(db);
     const firstCallCount = callCount;
-    await computeDuplicatesStats(db); // hits cache, no new query
+    await computeForTenant(db); // hits cache, no new query
     expect(callCount).toBe(firstCallCount);
-    await computeDuplicatesStats(db, { forceRefresh: true }); // bypass
+    await computeForTenant(db, { forceRefresh: true }); // bypass
     expect(callCount).toBeGreaterThan(firstCallCount);
+  });
+
+  test('binds every query to the tenant and never reuses another tenant cache', async () => {
+    const tenantABinds: unknown[][] = [];
+    const tenantBBinds: unknown[][] = [];
+    const tenantA = stubDB({
+      totals: { total_following: 100, duplicate_groups: 0, friend_dups: 0 },
+      perAccount: [],
+      pairwiseRaw: [],
+    }, tenantABinds);
+    const tenantB = stubDB({
+      totals: { total_following: 20, duplicate_groups: 0, friend_dups: 0 },
+      perAccount: [],
+      pairwiseRaw: [],
+    }, tenantBBinds);
+
+    await computeDuplicatesStats(tenantA, 'tenant-a');
+    const result = await computeDuplicatesStats(tenantB, 'tenant-b');
+
+    expect(result.total_following).toBe(20);
+    expect(tenantABinds).toHaveLength(3);
+    expect(tenantBBinds).toHaveLength(3);
+    expect(tenantABinds.every((values) => values.includes('tenant-a'))).toBe(true);
+    expect(tenantBBinds.every((values) => values.includes('tenant-b'))).toBe(true);
   });
 });

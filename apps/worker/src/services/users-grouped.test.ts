@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from 'vitest';
-import { _resetCacheForTest, computeUsersGrouped } from './users-grouped.js';
+import {
+  _resetCacheForTest,
+  computeUsersGrouped,
+  type UsersGroupedOptions,
+} from './users-grouped.js';
 
 type StubResult<T> = { results: T[] };
 
@@ -23,7 +27,7 @@ interface FormRow {
   data: string; // JSON
 }
 
-function stubDB(canned: { ident: IdentRow[]; forms: FormRow[] }) {
+function stubDB(canned: { ident: IdentRow[]; forms: FormRow[] }, capturedBinds: unknown[][] = []) {
   return {
     prepare(sql: string) {
       const isForm = sql.includes('form_submissions');
@@ -32,7 +36,8 @@ function stubDB(canned: { ident: IdentRow[]; forms: FormRow[] }) {
           results: isForm ? canned.forms : canned.ident,
         }),
         first: async () => null,
-        bind() {
+        bind(...values: unknown[]) {
+          capturedBinds.push(values);
           return this;
         },
       };
@@ -41,6 +46,11 @@ function stubDB(canned: { ident: IdentRow[]; forms: FormRow[] }) {
 }
 
 describe('computeUsersGrouped', () => {
+  const computeForTenant = (
+    db: D1Database,
+    options: UsersGroupedOptions = {},
+  ) => computeUsersGrouped(db, 'tenant-a', options);
+
   beforeEach(() => {
     _resetCacheForTest();
   });
@@ -67,7 +77,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
 
     expect(result.total).toBe(1);
     expect(result.page).toBe(1);
@@ -130,7 +140,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
 
     expect(result.total).toBe(1);
     expect(result.rows[0].isDuplicate).toBe(true);
@@ -190,7 +200,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
 
     expect(result.total).toBe(2);
     const uidRow = result.rows.find((r) => r.identityKey === 'uid:U999');
@@ -235,7 +245,7 @@ describe('computeUsersGrouped', () => {
       ],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     const row = result.rows[0];
     expect(row.emails.sort()).toEqual(['a@example.com', 'b@example.com']);
     expect(row.phones.sort()).toEqual(['090-1111-2222', '090-3333-4444', '090-5555']);
@@ -276,7 +286,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     // head は updated_at が新しい f1 → x_username='yamada'
     expect(result.rows[0].xUsername).toBe('yamada');
   });
@@ -302,7 +312,7 @@ describe('computeUsersGrouped', () => {
       forms: [{ friend_id: 'f1', data: JSON.stringify({ x_username: '@yamada_x' }) }],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     // 先頭の @ は剥がす
     expect(result.rows[0].xUsername).toBe('yamada_x');
   });
@@ -343,7 +353,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     expect(result.rows[0].accounts).toHaveLength(1);
     expect(result.rows[0].accounts[0].friendId).toBe('f1_new'); // 最新が残る
     expect(result.rows[0].isDuplicate).toBe(false);
@@ -370,7 +380,7 @@ describe('computeUsersGrouped', () => {
       forms: [{ friend_id: 'f1', data: JSON.stringify({ x_username: 'form_handle' }) }],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     expect(result.rows[0].xUsername).toBe('meta_handle');
   });
 
@@ -395,7 +405,7 @@ describe('computeUsersGrouped', () => {
       forms: [{ friend_id: 'f1', data: '{also not json' }],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     expect(result.rows[0].xUsername).toBeNull();
     expect(result.rows[0].emails).toEqual([]);
     expect(result.rows[0].phones).toEqual([]);
@@ -434,7 +444,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db, { onlyDups: true });
+    const result = await computeForTenant(db, { onlyDups: true });
     expect(result.total).toBe(1);
     expect(result.rows[0].identityKey).toBe('k1');
   });
@@ -452,7 +462,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db, { account: 'a1' });
+    const result = await computeForTenant(db, { account: 'a1' });
     expect(result.total).toBe(2);
     const keys = result.rows.map((r) => r.identityKey).sort();
     expect(keys).toEqual(['k1', 'k3']);
@@ -475,14 +485,14 @@ describe('computeUsersGrouped', () => {
       forms: [{ friend_id: 'f1_0', data: JSON.stringify({ email: 'taro@x.com' }) }],
     });
 
-    expect((await computeUsersGrouped(db, { q: '山田' })).total).toBe(1);
-    expect((await computeUsersGrouped(db, { q: 'YAMADA' })).total).toBe(1);
+    expect((await computeForTenant(db, { q: '山田' })).total).toBe(1);
+    expect((await computeForTenant(db, { q: 'YAMADA' })).total).toBe(1);
     // 先頭の @ は剥がして xUsername と突き合わせる（`@yamada` でも当たる）
-    expect((await computeUsersGrouped(db, { q: '@yamada' })).total).toBe(1);
-    expect((await computeUsersGrouped(db, { q: 'taro@' })).total).toBe(1);
-    expect((await computeUsersGrouped(db, { q: 'special' })).total).toBe(1);
-    expect((await computeUsersGrouped(db, { q: 'kabc' })).total).toBe(1);
-    expect((await computeUsersGrouped(db, { q: 'no-hit' })).total).toBe(0);
+    expect((await computeForTenant(db, { q: '@yamada' })).total).toBe(1);
+    expect((await computeForTenant(db, { q: 'taro@' })).total).toBe(1);
+    expect((await computeForTenant(db, { q: 'special' })).total).toBe(1);
+    expect((await computeForTenant(db, { q: 'kabc' })).total).toBe(1);
+    expect((await computeForTenant(db, { q: 'no-hit' })).total).toBe(0);
   });
 
   test('ページネーション: page と pageSize で切り出される', async () => {
@@ -492,13 +502,13 @@ describe('computeUsersGrouped', () => {
     }
     const db = stubDB({ ident, forms: [] });
 
-    const p1 = await computeUsersGrouped(db, { page: 1, pageSize: 3 });
+    const p1 = await computeForTenant(db, { page: 1, pageSize: 3 });
     expect(p1.total).toBe(7);
     expect(p1.page).toBe(1);
     expect(p1.pageSize).toBe(3);
     expect(p1.rows).toHaveLength(3);
 
-    const p3 = await computeUsersGrouped(db, { page: 3, pageSize: 3 });
+    const p3 = await computeForTenant(db, { page: 3, pageSize: 3 });
     expect(p3.rows).toHaveLength(1);
   });
 
@@ -524,7 +534,7 @@ describe('computeUsersGrouped', () => {
       forms: [],
     });
 
-    const result = await computeUsersGrouped(db);
+    const result = await computeForTenant(db);
     expect(result.rows.map((r) => r.identityKey)).toEqual(['k3', 'k2', 'k1']);
   });
 
@@ -565,11 +575,11 @@ describe('computeUsersGrouped', () => {
       },
     } as unknown as D1Database;
 
-    await computeUsersGrouped(db);
-    await computeUsersGrouped(db);
+    await computeForTenant(db);
+    await computeForTenant(db);
     expect(identCalls).toBe(1);
 
-    await computeUsersGrouped(db, { forceRefresh: true });
+    await computeForTenant(db, { forceRefresh: true });
     expect(identCalls).toBe(2);
   });
 
@@ -591,9 +601,37 @@ describe('computeUsersGrouped', () => {
       },
     } as unknown as D1Database;
 
-    await computeUsersGrouped(db);
-    await computeUsersGrouped(db);
+    await computeForTenant(db);
+    await computeForTenant(db);
     // 1 呼び出しで ident クエリは 1 回。空結果はキャッシュしないので、2 呼び出し = 2 回。
     expect(identCalls).toBe(2);
+  });
+
+  test('binds both source queries to the tenant and never reuses another tenant cache', async () => {
+    const row = (tenant: string): IdentRow => ({
+      friend_id: `friend-${tenant}`,
+      line_account_id: `account-${tenant}`,
+      account_name: tenant,
+      line_user_id: `U-${tenant}`,
+      display_name: tenant,
+      picture_url: null,
+      is_following: 1,
+      metadata: null,
+      created_at: '2026-01-01T00:00:00+09:00',
+      updated_at: '2026-01-01T00:00:00+09:00',
+      ident_key: `key-${tenant}`,
+      ident_kind: 'uid',
+    });
+    const tenantABinds: unknown[][] = [];
+    const tenantBBinds: unknown[][] = [];
+    const tenantA = stubDB({ ident: [row('tenant-a')], forms: [] }, tenantABinds);
+    const tenantB = stubDB({ ident: [row('tenant-b')], forms: [] }, tenantBBinds);
+
+    await computeUsersGrouped(tenantA, 'tenant-a');
+    const result = await computeUsersGrouped(tenantB, 'tenant-b');
+
+    expect(result.rows[0]?.displayName).toBe('tenant-b');
+    expect(tenantABinds).toEqual([['tenant-a'], ['tenant-a']]);
+    expect(tenantBBinds).toEqual([['tenant-b'], ['tenant-b']]);
   });
 });

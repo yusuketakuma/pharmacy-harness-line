@@ -36,7 +36,8 @@ const IDENT_SQL = `
     (${IDENT_KIND_SQL})   AS ident_kind
   FROM friends
   JOIN line_accounts ON line_accounts.id = friends.line_account_id
-  WHERE friends.is_following = 1 AND line_accounts.is_active = 1
+  JOIN tenant_line_accounts tenant_scope ON tenant_scope.line_account_id = friends.line_account_id
+  WHERE tenant_scope.tenant_id = ? AND friends.is_following = 1 AND line_accounts.is_active = 1
 `;
 
 // ORDER BY created_at DESC — 同じ friend が複数回フォーム送信した場合、
@@ -48,7 +49,8 @@ const FORMS_SQL = `
   FROM form_submissions fs
   JOIN friends f ON f.id = fs.friend_id
   JOIN line_accounts la ON la.id = f.line_account_id
-  WHERE f.is_following = 1 AND la.is_active = 1
+  JOIN tenant_line_accounts tenant_scope ON tenant_scope.line_account_id = f.line_account_id
+  WHERE tenant_scope.tenant_id = ? AND f.is_following = 1 AND la.is_active = 1
   ORDER BY fs.created_at DESC
 `;
 
@@ -112,15 +114,15 @@ interface FormRow {
   created_at: string;
 }
 
-let cached: { rows: UnifiedUserRow[]; at: number } | null = null;
+const cached = new Map<string, { rows: UnifiedUserRow[]; at: number }>();
 
 export function _resetCacheForTest(): void {
-  cached = null;
+  cached.clear();
 }
 
-async function computeAllRows(db: D1Database): Promise<UnifiedUserRow[]> {
-  const identResult = await db.prepare(IDENT_SQL).all<IdentRow>();
-  const formsResult = await db.prepare(FORMS_SQL).all<FormRow>();
+async function computeAllRows(db: D1Database, tenantId: string): Promise<UnifiedUserRow[]> {
+  const identResult = await db.prepare(IDENT_SQL).bind(tenantId).all<IdentRow>();
+  const formsResult = await db.prepare(FORMS_SQL).bind(tenantId).all<FormRow>();
 
   const formByFriend = new Map<string, FormRow[]>();
   for (const row of formsResult.results ?? []) {
@@ -250,17 +252,19 @@ function applyFilters(rows: UnifiedUserRow[], opts: UsersGroupedOptions): Unifie
 
 export async function computeUsersGrouped(
   db: D1Database,
+  tenantId: string,
   opts: UsersGroupedOptions = {},
 ): Promise<UsersGroupedResult> {
   let allRows: UnifiedUserRow[];
-  if (!opts.forceRefresh && cached && Date.now() - cached.at < CACHE_TTL_MS) {
-    allRows = cached.rows;
+  const tenantCache = cached.get(tenantId);
+  if (!opts.forceRefresh && tenantCache && Date.now() - tenantCache.at < CACHE_TTL_MS) {
+    allRows = tenantCache.rows;
   } else {
-    allRows = await computeAllRows(db);
+    allRows = await computeAllRows(db, tenantId);
     if (allRows.length > 0) {
-      cached = { rows: allRows, at: Date.now() };
+      cached.set(tenantId, { rows: allRows, at: Date.now() });
     } else {
-      cached = null;
+      cached.delete(tenantId);
     }
   }
 
