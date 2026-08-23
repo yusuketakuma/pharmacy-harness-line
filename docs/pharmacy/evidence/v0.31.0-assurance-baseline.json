@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-23T14:21:52Z",
-  "findingsReviewedAt": "2026-08-23T14:21:52Z",
-  "findingsReviewSourceSha": "dded27915e8a60177d3129a48eee1a99754d585f",
+  "capturedAt": "2026-08-23T14:41:30Z",
+  "findingsReviewedAt": "2026-08-23T14:41:30Z",
+  "findingsReviewSourceSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
@@ -10,7 +10,7 @@
   "releaseBlockers": [
     "V031-4"
   ],
-  "implementationSourceSha": "dded27915e8a60177d3129a48eee1a99754d585f",
+  "implementationSourceSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -21,7 +21,7 @@
   "localValidation": {
     "repositoryVerifyContractTests": 24,
     "liffUnitTests": 116,
-    "workspaceTests": 3322,
+    "workspaceTests": 3323,
     "migrationChecks": 84,
     "criticalApplicationBuilds": 3,
     "chromiumSmokeTests": 2,
@@ -30,24 +30,24 @@
   },
   "githubActions": {
     "pullRequestRun": {
-      "headSha": "dded27915e8a60177d3129a48eee1a99754d585f",
-      "artifactSourceSha": "585c0a7c83f2cd1770cd6ff056a4a922410585fa",
-      "runId": "32644818378",
-      "verifyJobId": "97207358562",
+      "headSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
+      "artifactSourceSha": "94bea2f5487610731f19ce11d4c48445e8390089",
+      "runId": "32645820551",
+      "verifyJobId": "97209807959",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32644818378"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32645820551"
     },
     "provenanceRun": {
-      "headSha": "dded27915e8a60177d3129a48eee1a99754d585f",
-      "runId": "32644861559",
-      "verifyJobId": "97207462915",
-      "attestJobId": "97208143545",
+      "headSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
+      "runId": "32645841281",
+      "verifyJobId": "97209860406",
+      "attestJobId": "97210505760",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32644861559"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32645841281"
     }
   },
   "checks": {
@@ -65,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32644818378"
+        "runId": "32645820551"
       },
       "fullHistory": {
         "status": "PASS",
@@ -151,7 +151,7 @@
         "customerNote",
         "staffName"
       ],
-      "workerTests": 2142,
+      "workerTests": 2143,
       "onlineMedicationCounseling": "NOT_IMPLEMENTED"
     },
     "webhookEventKeyNamespace": {
@@ -160,7 +160,7 @@
       "sameWebhookRedelivery": "SAME_KEY",
       "differentWebhookSameExternalKey": "DIFFERENT_KEY",
       "focusedTests": 37,
-      "workerTests": 2142
+      "workerTests": 2143
     },
     "webhookRetryByteStability": {
       "status": "PASS",
@@ -170,33 +170,43 @@
       "sameHmacSignature": "SAME_SIGNATURE",
       "focusedTests": 15,
       "relatedTests": 37,
-      "workerTests": 2142
+      "workerTests": 2143
+    },
+    "adPlatformMaskedCredentialPreservation": {
+      "status": "PASS",
+      "maskedSentinel": "********",
+      "omittedCredentials": "PRESERVED",
+      "maskedCredentials": "PRESERVED",
+      "explicitNewCredential": "REPLACED",
+      "focusedTests": 4,
+      "relatedTests": 10,
+      "workerTests": 2143
     },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42426516",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42426516",
+      "attestationId": "42428030",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42428030",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "0d814051c7ef2918452a32d49110bad2449e3432dea279dd5cce1787dc47dd8c",
-      "sourceSha": "dded27915e8a60177d3129a48eee1a99754d585f",
+      "subjectSha256": "9b67d3de59408e1b309cbd5cbae7e1e493b18948a1e1c9be973da75e4fed8741",
+      "sourceSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
       "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9494638089",
-      "name": "v031-assurance-585c0a7c83f2cd1770cd6ff056a4a922410585fa",
-      "sizeBytes": 3518092,
-      "archiveSha256": "fbf019539d4555c0aa2d6d5a5cda256e932373876d55cc081e3bdac961b21fcf",
-      "expiresAt": "2026-09-06T14:19:34Z"
+      "id": "9494893408",
+      "name": "v031-assurance-94bea2f5487610731f19ce11d4c48445e8390089",
+      "sizeBytes": 3519057,
+      "archiveSha256": "286ae347b34d6cf633baf8db5310a01a401288cf81164bbe48c58657640aa927",
+      "expiresAt": "2026-09-06T14:39:11Z"
     },
     "provenance": {
-      "id": "9494651395",
-      "name": "v031-assurance-dded27915e8a60177d3129a48eee1a99754d585f",
-      "sizeBytes": 3518917,
-      "archiveSha256": "aaa5090e0987dd96c07ecda8bf70f577fbea6ede14cc862f5227b68aadbe5ae3",
-      "expiresAt": "2026-09-06T14:20:36Z"
+      "id": "9494899286",
+      "name": "v031-assurance-48ef8afa7bb084402f2b42153907cc1562fb4451",
+      "sizeBytes": 3519667,
+      "archiveSha256": "09d29cd74cdd82bd4a2f29080feada90ddb9177e3245bd4f2b9682bdc27ba8f3",
+      "expiresAt": "2026-09-06T14:39:38Z"
     }
   },
   "openFindings": [],
@@ -230,6 +240,11 @@
       "id": "P2-V031-WEBHOOK-RETRY-BYTE-STABILITY",
       "status": "PASS",
       "summary": "Configured webhook retries now reuse the delivery row creation time so the same delivery ID also preserves request bytes and the HMAC signature."
+    },
+    {
+      "id": "P1-V031-AD-PLATFORM-CREDENTIAL-PRESERVATION",
+      "status": "PASS",
+      "summary": "Ad platform updates now preserve omitted or masked stored credentials while still allowing explicit non-masked replacements."
     }
   ],
   "oracleConsultation": {
