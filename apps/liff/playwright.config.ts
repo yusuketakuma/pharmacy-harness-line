@@ -12,9 +12,16 @@ export default defineConfig({
     browserName: 'chromium',
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: 'pnpm exec vite preview --host 127.0.0.1 --port 4173',
-    port: 4173,
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: 'pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort',
+      port: 4173,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: 'pnpm exec vite --host 127.0.0.1 --port 4174 --strictPort --mode e2e',
+      port: 4174,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });
