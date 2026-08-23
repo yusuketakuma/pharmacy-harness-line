@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-23T15:49:41Z",
-  "findingsReviewedAt": "2026-08-23T15:49:41Z",
-  "findingsReviewSourceSha": "74abeb4a1251190b576945069fc0b5d5d0d9bb34",
+  "capturedAt": "2026-08-23T16:28:42Z",
+  "findingsReviewedAt": "2026-08-23T16:28:42Z",
+  "findingsReviewSourceSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
@@ -10,7 +10,7 @@
   "releaseBlockers": [
     "V031-4"
   ],
-  "implementationSourceSha": "74abeb4a1251190b576945069fc0b5d5d0d9bb34",
+  "implementationSourceSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -19,9 +19,9 @@
     "url": "https://github.com/yusuketakuma/pharmacy-harness-line/pull/79"
   },
   "localValidation": {
-    "repositoryVerifyContractTests": 25,
+    "repositoryVerifyContractTests": 26,
     "liffUnitTests": 116,
-    "workspaceTests": 3330,
+    "workspaceTests": 3331,
     "migrationChecks": 84,
     "criticalApplicationBuilds": 3,
     "chromiumSmokeTests": 2,
@@ -30,24 +30,24 @@
   },
   "githubActions": {
     "pullRequestRun": {
-      "headSha": "74abeb4a1251190b576945069fc0b5d5d0d9bb34",
-      "artifactSourceSha": "6bb6b378746456417e2a1619a97147c3b24d382b",
-      "runId": "32649189057",
-      "verifyJobId": "97218024911",
+      "headSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "artifactSourceSha": "acedac8e2d4ceab679e3fc03a061c0ff83aa5e54",
+      "runId": "32651465593",
+      "verifyJobId": "97223630609",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32649189057"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32651465593"
     },
     "provenanceRun": {
-      "headSha": "74abeb4a1251190b576945069fc0b5d5d0d9bb34",
-      "runId": "32649189692",
-      "verifyJobId": "97218028333",
-      "attestJobId": "97218718200",
+      "headSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "runId": "32651468619",
+      "verifyJobId": "97223639982",
+      "attestJobId": "97224253884",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32649189692"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32651468619"
     }
   },
   "checks": {
@@ -65,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32649189057"
+        "runId": "32651465593"
       },
       "fullHistory": {
         "status": "PASS",
@@ -230,34 +230,48 @@
       "approvalBinding": "EXACT_SOURCE_SHA",
       "approvalCheckOrder": "BEFORE_DEPENDENCY_INSTALL_AND_EXTERNAL_MUTATION",
       "githubEnvironmentProtectionRulesAtCapture": 0,
-      "focusedTests": 25,
-      "scriptTests": 168
+      "focusedTests": 26,
+      "scriptTests": 169
+    },
+    "githubActionsNode24Runtime": {
+      "status": "PASS",
+      "releaseCriticalWorkflows": 3,
+      "actions": {
+        "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "pnpm/action-setup": "0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020"
+      },
+      "runtime": "node24",
+      "githubAnnotations": 0,
+      "actionlintWarnings": 0,
+      "focusedTests": 26,
+      "scriptTests": 169
     },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42433681",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42433681",
+      "attestationId": "42437075",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42437075",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "4e99670219338d2b435c0788f4e113df9cb3c1df018f76eda33f4ea3978e0f55",
-      "sourceSha": "74abeb4a1251190b576945069fc0b5d5d0d9bb34",
+      "subjectSha256": "598e02efd92995ab8252757a8448bb7771b7c738cdee0d9c8ffd02358eb44902",
+      "sourceSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
       "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9495763276",
-      "name": "v031-assurance-6bb6b378746456417e2a1619a97147c3b24d382b",
-      "sizeBytes": 3518468,
-      "archiveSha256": "02d1ab150f25dcdffd8579addafb3e8e4e0d8f9fb96dbdc66a946612ab52e9b0",
-      "expiresAt": "2026-09-06T15:43:32Z"
+      "id": "9496365138",
+      "name": "v031-assurance-acedac8e2d4ceab679e3fc03a061c0ff83aa5e54",
+      "sizeBytes": 3517957,
+      "archiveSha256": "f1a9ef7ac0a03cdf6d94b3582bc19e6cec301787a98279c9851346cc2e2e0ca8",
+      "expiresAt": "2026-09-06T16:27:39Z"
     },
     "provenance": {
-      "id": "9495769347",
-      "name": "v031-assurance-74abeb4a1251190b576945069fc0b5d5d0d9bb34",
-      "sizeBytes": 3519592,
-      "archiveSha256": "598fc9fe9b314f78d300d10f0c4aab0af1e76d40003f2bcafa54adc2a450fc2b",
-      "expiresAt": "2026-09-06T15:43:58Z"
+      "id": "9496359716",
+      "name": "v031-assurance-cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "sizeBytes": 3519069,
+      "archiveSha256": "3ca644f71d481daecaa06533f9130ea88d300bf627be56689d5910a41faf428e",
+      "expiresAt": "2026-09-06T16:27:16Z"
     }
   },
   "openFindings": [],
@@ -321,6 +335,11 @@
       "id": "P1-V031-PRODUCTION-DEPLOY-HUMAN-GATE",
       "status": "PASS",
       "summary": "Production deployment no longer runs on a main push; a manual workflow dispatch must bind the approved source SHA to the exact GitHub Actions source before any dependency install or external mutation."
+    },
+    {
+      "id": "P2-V031-GITHUB-ACTIONS-NODE24-RUNTIME",
+      "status": "PASS",
+      "summary": "Release-critical checkout and setup actions now use reviewed Node 24 releases; exact-head runs produced zero annotations, and the deployment workflow passes actionlint with zero warnings."
     }
   ],
   "oracleConsultation": {

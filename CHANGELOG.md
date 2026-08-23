@@ -35,6 +35,7 @@ v0.31.0は新機能を増やす版ではなく、現在の薬局LINE機能を安
 - new-commit secret scanとCodeQLはPASS、CodeQL open alertは0件。redacted full-history scanの181候補は値を保存せず確認し、文書内placeholder、test fixture、識別子、環境変数名のみでlive credentialは0件と判定
 - production dependency auditはhigh/critical 0件、license inventoryはunknown/unlicensed 0件。LGPL packageのnative fileは配布artifactへ含まれず、LINE系51 packagesは公式のLIFF用途に限定しているため、現行artifactの是正は不要と判定
 - 受信Webhookで指定された`Idempotency-Key`が8〜160文字のopaque-key契約に違反する場合は400で拒否し、重複防止を黙って無効化しない
+- release-critical 3 workflowsのcheckout/setup actionをreview済みNode 24 releaseの固定SHAへ更新し、GitHubのNode 20非推奨annotationと既存`actionlint` warningを0件にした
 - `dev`へのmerge/deploy、production/LINE mutation、package version・seller tagの変更は行っていない
 
 ### releaseまでに残るgate
