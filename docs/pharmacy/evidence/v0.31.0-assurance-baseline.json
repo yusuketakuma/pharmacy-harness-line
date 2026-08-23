@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-23T12:53:38Z",
-  "findingsReviewedAt": "2026-08-23T12:55:57Z",
-  "findingsReviewSourceSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
+  "capturedAt": "2026-08-23T13:33:54Z",
+  "findingsReviewedAt": "2026-08-23T13:33:54Z",
+  "findingsReviewSourceSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
@@ -10,7 +10,7 @@
   "releaseBlockers": [
     "V031-4"
   ],
-  "implementationSourceSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
+  "implementationSourceSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -21,7 +21,7 @@
   "localValidation": {
     "repositoryVerifyContractTests": 24,
     "liffUnitTests": 116,
-    "workspaceTests": 3321,
+    "workspaceTests": 3322,
     "migrationChecks": 84,
     "criticalApplicationBuilds": 3,
     "chromiumSmokeTests": 2,
@@ -30,24 +30,24 @@
   },
   "githubActions": {
     "pullRequestRun": {
-      "headSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
-      "artifactSourceSha": "a4fe7daa20ecdb93a0f1ea4f6a2f9091d280a530",
-      "runId": "32639958353",
-      "verifyJobId": "97195418451",
+      "headSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
+      "artifactSourceSha": "846c427df2d0b3011a34472ab95bde3e31cc6726",
+      "runId": "32642142893",
+      "verifyJobId": "97200764985",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32639958353"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32642142893"
     },
     "provenanceRun": {
-      "headSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
-      "runId": "32640458927",
-      "verifyJobId": "97196646390",
-      "attestJobId": "97197214710",
+      "headSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
+      "runId": "32642405119",
+      "verifyJobId": "97201418091",
+      "attestJobId": "97201990881",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32640458927"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32642405119"
     }
   },
   "checks": {
@@ -65,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32639958353"
+        "runId": "32642142893"
       },
       "fullHistory": {
         "status": "PASS",
@@ -136,31 +136,49 @@
       "requiredComponents": 209,
       "dependencyEntries": 221
     },
+    "calendarDataMinimization": {
+      "status": "PASS",
+      "eventFields": [
+        "fixedSummary",
+        "start",
+        "end",
+        "pseudonymousEventId",
+        "optionalGoogleMeet"
+      ],
+      "excludedFields": [
+        "friendName",
+        "menuName",
+        "customerNote",
+        "staffName"
+      ],
+      "workerTests": 2142,
+      "onlineMedicationCounseling": "NOT_IMPLEMENTED"
+    },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42420050",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42420050",
+      "attestationId": "42422555",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42422555",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "a60b52bd7d213164bd001ade5d83e8aeca382147ce51023c2d1da06d061a5cd4",
-      "sourceSha": "9c48e15e314368251a6d50016fd92a73193a9af6",
+      "subjectSha256": "d4269c5e6b2b82a9e257e0ac7d210c3e2f9c5ad3f68522046f37a7f764face83",
+      "sourceSha": "166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
       "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9493386336",
-      "name": "v031-assurance-a4fe7daa20ecdb93a0f1ea4f6a2f9091d280a530",
-      "sizeBytes": 3518675,
-      "archiveSha256": "db009040242a50c66bca85fcb103f466be97b4cffcc8f26509c84501fb01f763",
-      "expiresAt": "2026-09-06T12:43:10Z"
+      "id": "9493947719",
+      "name": "v031-assurance-846c427df2d0b3011a34472ab95bde3e31cc6726",
+      "sizeBytes": 3519111,
+      "archiveSha256": "a9f9d29eaf016ab31d598ffc5b579604a486a22af175aa5ca68490ad1f58c0b1",
+      "expiresAt": "2026-09-06T13:27:16Z"
     },
     "provenance": {
-      "id": "9493510742",
-      "name": "v031-assurance-9c48e15e314368251a6d50016fd92a73193a9af6",
-      "sizeBytes": 3518014,
-      "archiveSha256": "a11fc27804f5fc49a636f655841807e2f65185b17b8767f4ef1a996a0af5e719",
-      "expiresAt": "2026-09-06T12:53:19Z"
+      "id": "9494011164",
+      "name": "v031-assurance-166cc04f9aaff371b67c0fa65e0b9470b3247ab3",
+      "sizeBytes": 3519199,
+      "archiveSha256": "1a97650fd97aad802e7dda5d893adabb25757769de47c66351e79f25d41734d0",
+      "expiresAt": "2026-09-06T13:32:04Z"
     }
   },
   "openFindings": [],
@@ -179,6 +197,11 @@
       "id": "P1-V031-FINAL-HEAD-EVIDENCE",
       "status": "PASS",
       "summary": "Final runtime-bearing-head PR and workflow-dispatch runs refreshed source SHA, test, migration, smoke, artifact, and provenance evidence."
+    },
+    {
+      "id": "P1-V031-CALENDAR-DATA-MINIMIZATION",
+      "status": "PASS",
+      "summary": "Confirmed booking sync now sends only a fixed title, times, pseudonymous event ID, and optional Google Meet request; patient, consultation, note, and staff fields are excluded."
     }
   ],
   "oracleConsultation": {
