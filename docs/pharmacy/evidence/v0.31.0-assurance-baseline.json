@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-23T14:41:30Z",
-  "findingsReviewedAt": "2026-08-23T14:41:30Z",
-  "findingsReviewSourceSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
+  "capturedAt": "2026-08-23T14:58:24Z",
+  "findingsReviewedAt": "2026-08-23T14:58:24Z",
+  "findingsReviewSourceSha": "254b8a2bf4fc7cf2970f6d9991027d0939a1406d",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
@@ -10,7 +10,7 @@
   "releaseBlockers": [
     "V031-4"
   ],
-  "implementationSourceSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
+  "implementationSourceSha": "254b8a2bf4fc7cf2970f6d9991027d0939a1406d",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -21,7 +21,7 @@
   "localValidation": {
     "repositoryVerifyContractTests": 24,
     "liffUnitTests": 116,
-    "workspaceTests": 3323,
+    "workspaceTests": 3325,
     "migrationChecks": 84,
     "criticalApplicationBuilds": 3,
     "chromiumSmokeTests": 2,
@@ -30,24 +30,24 @@
   },
   "githubActions": {
     "pullRequestRun": {
-      "headSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
-      "artifactSourceSha": "94bea2f5487610731f19ce11d4c48445e8390089",
-      "runId": "32645820551",
-      "verifyJobId": "97209807959",
+      "headSha": "254b8a2bf4fc7cf2970f6d9991027d0939a1406d",
+      "artifactSourceSha": "e1b3faa2ea1d1311e7dbae33a7a7eb376573dabc",
+      "runId": "32646721854",
+      "verifyJobId": "97211997495",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32645820551"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32646721854"
     },
     "provenanceRun": {
-      "headSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
-      "runId": "32645841281",
-      "verifyJobId": "97209860406",
-      "attestJobId": "97210505760",
+      "headSha": "254b8a2bf4fc7cf2970f6d9991027d0939a1406d",
+      "runId": "32646745454",
+      "verifyJobId": "97212060357",
+      "attestJobId": "97212731899",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32645841281"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32646745454"
     }
   },
   "checks": {
@@ -65,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32645820551"
+        "runId": "32646721854"
       },
       "fullHistory": {
         "status": "PASS",
@@ -151,7 +151,7 @@
         "customerNote",
         "staffName"
       ],
-      "workerTests": 2143,
+      "workerTests": 2145,
       "onlineMedicationCounseling": "NOT_IMPLEMENTED"
     },
     "webhookEventKeyNamespace": {
@@ -160,7 +160,7 @@
       "sameWebhookRedelivery": "SAME_KEY",
       "differentWebhookSameExternalKey": "DIFFERENT_KEY",
       "focusedTests": 37,
-      "workerTests": 2143
+      "workerTests": 2145
     },
     "webhookRetryByteStability": {
       "status": "PASS",
@@ -170,7 +170,7 @@
       "sameHmacSignature": "SAME_SIGNATURE",
       "focusedTests": 15,
       "relatedTests": 37,
-      "workerTests": 2143
+      "workerTests": 2145
     },
     "adPlatformMaskedCredentialPreservation": {
       "status": "PASS",
@@ -180,33 +180,53 @@
       "explicitNewCredential": "REPLACED",
       "focusedTests": 4,
       "relatedTests": 10,
-      "workerTests": 2143
+      "workerTests": 2145
+    },
+    "tenantWebhookAutomationScope": {
+      "status": "PASS",
+      "accountAuthority": "tenantLineAccounts",
+      "mappedAccountAutomations": "EXECUTED",
+      "otherTenantAutomations": "BLOCKED",
+      "accountlessAutomations": "BLOCKED",
+      "pharmacyAccountGenericAutomations": "BLOCKED",
+      "focusedTests": 16,
+      "relatedTests": 76,
+      "workerTests": 2145
+    },
+    "groupedUserCacheBound": {
+      "status": "PASS",
+      "ttlMinutes": 5,
+      "maxTenants": 8,
+      "eviction": "LRU",
+      "expiredEntries": "PURGED_ON_ACCESS",
+      "focusedTests": 18,
+      "workerTests": 2145
     },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42428030",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42428030",
+      "attestationId": "42429914",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42429914",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "9b67d3de59408e1b309cbd5cbae7e1e493b18948a1e1c9be973da75e4fed8741",
-      "sourceSha": "48ef8afa7bb084402f2b42153907cc1562fb4451",
+      "subjectSha256": "72ad90c2a742e060c13e5c2c585a6d8361ebf6b5df5d5953552a62dfbf63109c",
+      "sourceSha": "254b8a2bf4fc7cf2970f6d9991027d0939a1406d",
       "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9494893408",
-      "name": "v031-assurance-94bea2f5487610731f19ce11d4c48445e8390089",
-      "sizeBytes": 3519057,
-      "archiveSha256": "286ae347b34d6cf633baf8db5310a01a401288cf81164bbe48c58657640aa927",
-      "expiresAt": "2026-09-06T14:39:11Z"
+      "id": "9495124010",
+      "name": "v031-assurance-e1b3faa2ea1d1311e7dbae33a7a7eb376573dabc",
+      "sizeBytes": 3519221,
+      "archiveSha256": "30645d61e54a50d1c0130be0786d905438068b2269cde623c3f5dcb73674d7f8",
+      "expiresAt": "2026-09-06T14:56:41Z"
     },
     "provenance": {
-      "id": "9494899286",
-      "name": "v031-assurance-48ef8afa7bb084402f2b42153907cc1562fb4451",
-      "sizeBytes": 3519667,
-      "archiveSha256": "09d29cd74cdd82bd4a2f29080feada90ddb9177e3245bd4f2b9682bdc27ba8f3",
-      "expiresAt": "2026-09-06T14:39:38Z"
+      "id": "9495132291",
+      "name": "v031-assurance-254b8a2bf4fc7cf2970f6d9991027d0939a1406d",
+      "sizeBytes": 3518408,
+      "archiveSha256": "4fac369d6a71ef62dc776dd1bf68ba71ce1e10f6abc7ea84b0bb1074f7c9c6d5",
+      "expiresAt": "2026-09-06T14:57:21Z"
     }
   },
   "openFindings": [],
@@ -245,6 +265,16 @@
       "id": "P1-V031-AD-PLATFORM-CREDENTIAL-PRESERVATION",
       "status": "PASS",
       "summary": "Ad platform updates now preserve omitted or masked stored credentials while still allowing explicit non-masked replacements."
+    },
+    {
+      "id": "P1-V031-TENANT-WEBHOOK-AUTOMATION-SCOPE",
+      "status": "PASS",
+      "summary": "Tenant-only webhook events now execute only account-bound automations mapped to that tenant while keeping accountless, cross-tenant, and pharmacy generic automations blocked."
+    },
+    {
+      "id": "P2-V031-GROUPED-USER-CACHE-BOUND",
+      "status": "PASS",
+      "summary": "The PHI-bearing grouped-user cache now purges expired entries on access and retains at most eight tenants using LRU eviction."
     }
   ],
   "oracleConsultation": {
