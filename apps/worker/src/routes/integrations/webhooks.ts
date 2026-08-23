@@ -363,9 +363,10 @@ webhooks.post('/api/webhooks/incoming/:id/receive', async (c) => {
     const { fireEvent } = await import('../../services/event-bus.js');
     const eventType = `incoming_webhook.${wh.source_type}`;
     const rawEventKey = c.req.header('Idempotency-Key');
-    const eventKey = rawEventKey && OPAQUE_EVENT_KEY.test(rawEventKey)
-      ? `${wh.id}:${rawEventKey}`
-      : undefined;
+    if (rawEventKey !== undefined && !OPAQUE_EVENT_KEY.test(rawEventKey)) {
+      return c.json({ success: false, error: 'Invalid Idempotency-Key' }, 400);
+    }
+    const eventKey = rawEventKey ? `${wh.id}:${rawEventKey}` : undefined;
     await fireEvent(c.env.DB, eventType, {
       eventData: { webhookId: wh.id, source: wh.source_type, payload },
     }, undefined, null, wh.tenant_id, eventKey);
