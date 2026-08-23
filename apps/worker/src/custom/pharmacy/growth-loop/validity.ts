@@ -140,8 +140,8 @@ export async function processDuePrescriptionValidityReminders(
         vars: { genericDate: row.valid_until },
         retryKey: `prescription-validity:${row.submission_id}:${row.valid_until}`,
       });
-      // Never stamp reminder_sent_at for a paused tenant — nothing was sent.
-      if (outcome === 'paused') {
+      // Never stamp reminder_sent_at while nothing was confirmed sent.
+      if (outcome === 'paused' || outcome === 'in_progress') {
         await releaseClaim();
         result.skipped++;
         continue;

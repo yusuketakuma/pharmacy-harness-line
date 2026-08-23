@@ -198,9 +198,9 @@ export async function deliverPrescriptionNotification(
       },
       retryKey: recipient.status_event_id,
     });
-    // No 'notification_sent' event for a paused tenant — recording one would
-    // claim the patient was told, and would also suppress the real send later.
-    if (outcome === 'paused') return { status: 'skipped' };
+    // Do not claim the patient was told while this key is paused or owned by
+    // another attempt; either state must remain retryable.
+    if (outcome === 'paused' || outcome === 'in_progress') return { status: 'skipped' };
     await recordNotificationEvent(db, lineAccountId, submissionId, recipient, 'notification_sent');
     return { status: 'sent' };
   } catch {
@@ -248,28 +248,42 @@ export async function retryFailedPrescriptionNotifications(
   limit = 50,
 ): Promise<{ sent: number; failed: number; skipped: number }> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+  const staleAttemptAt = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const due = await db.prepare(
-    `SELECT s.line_account_id, failed.submission_id, failed.actor_id AS status_event_id
-       FROM pharmacy_prescription_events failed
-       INNER JOIN pharmacy_prescription_submissions s ON s.id = failed.submission_id
+    `SELECT s.line_account_id, changed.submission_id, changed.id AS status_event_id
+       FROM pharmacy_prescription_events changed
+       INNER JOIN pharmacy_prescription_submissions s ON s.id = changed.submission_id
        INNER JOIN pharmacy_account_capabilities pc
          ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
         AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'prescription_intake')
-       INNER JOIN pharmacy_prescription_events changed
-         ON changed.id = failed.actor_id
-        AND changed.submission_id = failed.submission_id
-        AND changed.to_status = s.status
-      WHERE failed.event_type = 'notification_failed'
+      WHERE changed.event_type = 'status_changed' AND changed.to_status = s.status
+        AND (
+          EXISTS (
+            SELECT 1 FROM pharmacy_prescription_events failed
+             WHERE failed.submission_id = changed.submission_id
+               AND failed.event_type = 'notification_failed'
+               AND failed.actor_id = changed.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM pharmacy_notification_events delivery
+             WHERE delivery.line_account_id = s.line_account_id
+               AND delivery.friend_id = s.friend_id
+               AND delivery.idempotency_key = changed.id
+               AND delivery.message_id = 'prescription_status_v1'
+               AND (delivery.outcome IN ('sent','failed') OR
+                    (delivery.outcome = 'attempted' AND delivery.occurred_at < ?))
+          )
+        )
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_prescription_events sent
-           WHERE sent.submission_id = failed.submission_id
+           WHERE sent.submission_id = changed.submission_id
              AND sent.event_type = 'notification_sent'
-             AND sent.actor_id = failed.actor_id
+             AND sent.actor_id = changed.id
         )
-      GROUP BY s.line_account_id, failed.submission_id, failed.actor_id
-      ORDER BY MIN(failed.created_at), failed.submission_id
+      ORDER BY changed.created_at, changed.submission_id
       LIMIT ?`,
-  ).bind(boundedLimit).all<{ line_account_id: string; submission_id: string; status_event_id: string }>();
+  ).bind(staleAttemptAt, boundedLimit)
+    .all<{ line_account_id: string; submission_id: string; status_event_id: string }>();
 
   const result = { sent: 0, failed: 0, skipped: 0 };
   for (const row of due.results ?? []) {

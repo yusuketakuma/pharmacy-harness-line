@@ -15,12 +15,16 @@ import {
 } from '../../../apps/worker/src/custom/pharmacy/prescriptions/repository.js';
 import { encryptLineCredential } from '../../../apps/worker/src/custom/pharmacy/provisioning/line-credentials.js';
 import { cleanupPrescriptionImages } from '../../../apps/worker/src/custom/pharmacy/prescriptions/cleanup.js';
-import { deliverPrescriptionNotification } from '../../../apps/worker/src/custom/pharmacy/prescriptions/notifications.js';
+import {
+  deliverPrescriptionNotification,
+  retryFailedPrescriptionNotifications,
+} from '../../../apps/worker/src/custom/pharmacy/prescriptions/notifications.js';
 import { savePrescriptionValidity } from '../../../apps/worker/src/custom/pharmacy/growth-loop/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LINE_CREDENTIAL_KEY = 'synthetic-line-credential-root-key-v1';
 const LINE_ACCESS_TOKEN = 'synthetic-account-token-with-enough-length-1234567890';
+const RECOVERY_EVENT_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
 
@@ -263,4 +267,68 @@ describe('synthetic prescription end-to-end', () => {
     })).resolves.toEqual({ claimed: 3, deleted: 3, failed: 0, skipped: 0 });
     expect(objects.size).toBe(0);
   });
+
+  it.each([
+    { outcome: 'attempted', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, requests: 1 },
+    { outcome: 'attempted', occurredAt: '2099-01-01T00:00:00.000Z', sent: 0, requests: 0 },
+    { outcome: 'failed', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, requests: 1 },
+    { outcome: 'sent', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, requests: 0 },
+  ] as const)(
+    'reconciles a $outcome side-effect row after isolate eviction without a failure audit',
+    async ({ outcome, occurredAt, sent, requests: expectedRequests }) => {
+      sqlite.prepare(
+        `INSERT INTO pharmacy_prescription_submissions
+           (id, line_account_id, friend_id, idempotency_key, status,
+            active_revision, upload_revision, readiness_notice_consent_at,
+            requested_at, created_at, updated_at)
+         VALUES ('submission-recovery', ?, ?, 'recovery', 'ready',
+                 1, 1, '2026-08-17T00:00:00.000Z',
+                 '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z',
+                 '2026-08-17T00:00:00.000Z')`,
+      ).run(patient.lineAccountId, patient.friendId);
+      sqlite.prepare(
+        `INSERT INTO pharmacy_prescription_events
+           (id, submission_id, actor_type, actor_id, event_type,
+            from_status, to_status, revision, created_at)
+         VALUES (?, 'submission-recovery', 'staff', 'staff-synthetic', 'status_changed',
+                 'accepted', 'ready', 1, '2026-08-17T00:00:00.000Z')`,
+      ).run(RECOVERY_EVENT_ID);
+      sqlite.prepare(
+        `INSERT INTO pharmacy_notification_events
+           (id, line_account_id, friend_id, message_id, category, outcome,
+            occurred_at, idempotency_key, created_at)
+         VALUES ('notification-recovery', ?, ?, 'prescription_status_v1',
+                 'transactional_care', ?, ?, ?, ?)`,
+      ).run(
+        patient.lineAccountId, patient.friendId, outcome, occurredAt,
+        RECOVERY_EVENT_ID, occurredAt,
+      );
+
+      const requests: Request[] = [];
+      await expect(retryFailedPrescriptionNotifications(db, {
+        proxyBaseUrl: 'https://worker.synthetic',
+        proxyDispatch: async (request) => {
+          requests.push(request);
+          return new Response('{}', { status: 200 });
+        },
+        lineCredentialKey: LINE_CREDENTIAL_KEY,
+      })).resolves.toEqual({ sent, failed: 0, skipped: 0 });
+
+      expect(requests).toHaveLength(expectedRequests);
+      if (requests[0]) {
+        expect(requests[0].headers.get('X-Line-Retry-Key')).toBe(RECOVERY_EVENT_ID);
+      }
+      expect(sqlite.prepare(
+        `SELECT outcome FROM pharmacy_notification_events
+          WHERE line_account_id = ? AND idempotency_key = ?`,
+      ).get(patient.lineAccountId, RECOVERY_EVENT_ID)).toEqual({
+        outcome: sent === 1 ? 'sent' : 'attempted',
+      });
+      expect(sqlite.prepare(
+        `SELECT COUNT(*) AS count FROM pharmacy_prescription_events
+          WHERE submission_id = 'submission-recovery'
+            AND event_type = 'notification_sent' AND actor_id = ?`,
+      ).get(RECOVERY_EVENT_ID)).toEqual({ count: sent });
+    },
+  );
 });

@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const push = vi.hoisted(() => vi.fn());
 const config = vi.hoisted(() => vi.fn());
-vi.mock('../../../services/line-proxy-send.js', () => ({ pushViaHarnessProxy: push }));
+vi.mock('../../../services/line-proxy-send.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../services/line-proxy-send.js')>(),
+  pushViaHarnessProxy: push,
+}));
 vi.mock('./repository.js', () => ({ getPharmacyCapabilityConfig: config }));
 
+import { LineHarnessUnknownOutcomeError } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from './sender.js';
 
-type Step = { match: string; run?: { changes: number }; first?: unknown };
+type Step = { match: string; run?: { changes: number }; first?: unknown; error?: Error };
 
 function scriptedDb(steps: Step[], seen: string[] = [], pausedAt: string | null = null): D1Database {
   return {
@@ -28,7 +32,10 @@ function scriptedDb(steps: Step[], seen: string[] = [], pausedAt: string | null 
       return {
         bind() {
           return {
-            run: async () => ({ meta: step.run ?? { changes: 0 } }),
+            run: async () => {
+              if (step.error) throw step.error;
+              return { meta: step.run ?? { changes: 0 } };
+            },
             first: async () => step.first ?? null,
           };
         },
@@ -173,6 +180,52 @@ describe('pharmacy automated sender', () => {
 
     await expect(sendPharmacyAutomatedPush({ ...base, db })).rejects.toThrow(/temporary/);
     await expect(sendPharmacyAutomatedPush({ ...base, db })).resolves.toBe('sent');
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(push.mock.calls[0][4]).toBe(push.mock.calls[1][4]);
+  });
+
+  it('does not rewrite an accepted send as failed when sent finalization fails', async () => {
+    const seen: string[] = [];
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+      { match: 'UPDATE pharmacy_notification_events', error: new Error('D1 sent finalization failed') },
+      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+    ], seen);
+
+    await expect(sendPharmacyAutomatedPush({ ...base, db }))
+      .rejects.toThrow('D1 sent finalization failed');
+
+    expect(push).toHaveBeenCalledOnce();
+    expect(seen.filter((sql) => sql.includes('UPDATE pharmacy_notification_events')))
+      .toHaveLength(1);
+  });
+
+  it('leaves an unknown LINE result attempted, then reclaims it with the same retry key', async () => {
+    const seen: string[] = [];
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+      { match: 'SELECT id, outcome', first: { id: 'event-1', outcome: 'attempted', occurred_at: '2026-08-18T00:00:00.000Z' } },
+      { match: "outcome = 'attempted' AND occurred_at < ?", run: { changes: 1 } },
+      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+    ], seen);
+    push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('LINE push result is unknown'));
+
+    await expect(sendPharmacyAutomatedPush({
+      ...base,
+      db,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+    }))
+      .rejects.toThrow('LINE push result is unknown');
+    expect(seen.filter((sql) => sql.includes('UPDATE pharmacy_notification_events')))
+      .toHaveLength(0);
+
+    await expect(sendPharmacyAutomatedPush({
+      ...base,
+      db,
+      now: new Date('2026-08-18T00:16:00.000Z'),
+    })).resolves.toBe('sent');
+
     expect(push).toHaveBeenCalledTimes(2);
     expect(push.mock.calls[0][4]).toBe(push.mock.calls[1][4]);
   });
