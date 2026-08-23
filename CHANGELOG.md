@@ -38,7 +38,7 @@ v0.31.0は新機能を増やす版ではなく、現在の薬局LINE機能を安
 
 ### releaseまでに残るgate
 
-- 独立reviewerを設定し、`main`/`dev`の保護設定をfresh read-back
+- production deployは`main` pushでは起動せず、Human Go後の手動workflowで承認source SHAを完全一致させる
 - main/production候補のsource SHA、deployed byte equality、runtime manifest digestをHuman Go後に実証
 - 全gateがPASSするまで`pharmacy-v0.31.0`を作成せず、productionへ昇格しない
 
