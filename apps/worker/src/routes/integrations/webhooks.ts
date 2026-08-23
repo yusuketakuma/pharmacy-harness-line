@@ -19,6 +19,7 @@ export { validateHttpsUrl };
 const webhooks = new Hono<Env>();
 
 const MIN_SECRET_LENGTH = 32;
+const OPAQUE_EVENT_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u;
 
 function validateSecret(secret: unknown): string | null {
   if (typeof secret !== 'string' || secret.length < MIN_SECRET_LENGTH) {
@@ -361,9 +362,11 @@ webhooks.post('/api/webhooks/incoming/:id/receive', async (c) => {
 
     const { fireEvent } = await import('../../services/event-bus.js');
     const eventType = `incoming_webhook.${wh.source_type}`;
+    const rawEventKey = c.req.header('Idempotency-Key');
+    const eventKey = rawEventKey && OPAQUE_EVENT_KEY.test(rawEventKey) ? rawEventKey : undefined;
     await fireEvent(c.env.DB, eventType, {
       eventData: { webhookId: wh.id, source: wh.source_type, payload },
-    });
+    }, undefined, null, wh.tenant_id, eventKey);
 
     return c.json({ success: true, data: { received: true, source: wh.source_type } });
   } catch (err) {

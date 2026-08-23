@@ -24,6 +24,174 @@ import { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
 import { sendAdConversions } from './ad-conversion.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { validateHttpsUrl } from '../lib/validate-https-url.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+
+const OUTGOING_WEBHOOK_TIMEOUT_MS = 10_000;
+
+class WebhookUnknownOutcomeError extends Error {
+  readonly name = 'WebhookUnknownOutcomeError';
+}
+
+class WebhookRejectedError extends Error {
+  readonly name = 'WebhookRejectedError';
+
+  constructor(readonly status: number, statusText: string) {
+    super(`Webhook delivery failed: ${status} ${statusText}`);
+  }
+}
+
+interface WebhookDeliveryContext {
+  tenantId: string | null;
+  lineAccountId: string | null;
+  eventType: string;
+  eventKey?: string;
+  targetType: 'configured' | 'automation';
+  targetId: string;
+}
+
+async function postWebhook(
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+): Promise<number> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(OUTGOING_WEBHOOK_TIMEOUT_MS),
+    });
+  } catch {
+    throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+  }
+  if (response.ok) return response.status;
+  if (response.status >= 500) {
+    throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+  }
+  throw new WebhookRejectedError(response.status, response.statusText);
+}
+
+async function deliverWebhook(
+  db: D1Database,
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+  context?: WebhookDeliveryContext,
+): Promise<void> {
+  if (validateHttpsUrl(url)) throw new Error('Invalid webhook URL');
+  const eventKey = context?.eventKey;
+  const deliveryId = eventKey && context
+    ? await createBroadcastRetryKey(
+        'outgoing-webhook',
+        context.tenantId ?? 'legacy',
+        context.lineAccountId ?? '',
+        context.eventType,
+        eventKey,
+        context.targetType,
+        context.targetId,
+      )
+    : null;
+  const requestHeaders = { ...headers };
+  if (deliveryId) {
+    requestHeaders['Idempotency-Key'] = deliveryId;
+    requestHeaders['X-Webhook-Delivery-Id'] = deliveryId;
+  }
+
+  // Legacy events without a tenant or stable source key still get bounded,
+  // validated HTTP delivery, but cannot be safely deduplicated in D1.
+  if (!deliveryId || !context?.tenantId) {
+    await postWebhook(url, body, requestHeaders);
+    return;
+  }
+
+  const claimToken = crypto.randomUUID();
+  const now = jstNow();
+  const inserted = await db.prepare(
+    `INSERT OR IGNORE INTO outgoing_webhook_deliveries
+      (id, tenant_id, line_account_id, target_type, target_id, event_type,
+       outcome, claim_token, attempt_count, attempted_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'attempted', ?, 1, ?, ?, ?)`,
+  ).bind(
+    deliveryId,
+    context.tenantId,
+    context.lineAccountId,
+    context.targetType,
+    context.targetId,
+    context.eventType,
+    claimToken,
+    now,
+    now,
+    now,
+  ).run();
+
+  if ((inserted.meta?.changes ?? 0) !== 1) {
+    const existing = await db.prepare(
+      `SELECT outcome FROM outgoing_webhook_deliveries
+        WHERE id = ? AND tenant_id = ? AND line_account_id IS ?`,
+    ).bind(deliveryId, context.tenantId, context.lineAccountId)
+      .first<{ outcome: 'attempted' | 'sent' | 'failed' }>();
+    if (existing?.outcome === 'sent') return;
+    if (existing?.outcome !== 'failed') {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+    const reclaimed = await db.prepare(
+      `UPDATE outgoing_webhook_deliveries
+          SET outcome = 'attempted', claim_token = ?, attempt_count = attempt_count + 1,
+              http_status = NULL, attempted_at = ?, settled_at = NULL, updated_at = ?
+        WHERE id = ? AND tenant_id = ? AND line_account_id IS ? AND outcome = 'failed'`,
+    ).bind(
+      claimToken,
+      now,
+      now,
+      deliveryId,
+      context.tenantId,
+      context.lineAccountId,
+    ).run();
+    if ((reclaimed.meta?.changes ?? 0) !== 1) {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+  }
+
+  const settle = async (outcome: 'sent' | 'failed', status: number): Promise<void> => {
+    const settledAt = jstNow();
+    let result: D1Result;
+    try {
+      result = await db.prepare(
+        `UPDATE outgoing_webhook_deliveries
+            SET outcome = ?, claim_token = NULL, http_status = ?,
+                settled_at = ?, updated_at = ?
+          WHERE id = ? AND tenant_id = ? AND line_account_id IS ?
+            AND outcome = 'attempted' AND claim_token = ?`,
+      ).bind(
+        outcome,
+        status,
+        settledAt,
+        settledAt,
+        deliveryId,
+        context.tenantId,
+        context.lineAccountId,
+        claimToken,
+      ).run();
+    } catch {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+    if ((result.meta?.changes ?? 0) !== 1) {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+  };
+
+  try {
+    await settle('sent', await postWebhook(url, body, requestHeaders));
+  } catch (error) {
+    if (error instanceof WebhookRejectedError) {
+      await settle('failed', error.status);
+    }
+    throw error;
+  }
+}
 
 export interface EventPayload {
   friendId?: string;
@@ -41,6 +209,8 @@ export interface EventPayload {
  *
  *   Phase 1 (concurrent): outgoing webhooks + scoring
  *   Phase 2 (concurrent): automations + notifications, with currentScore injected
+ *
+ * eventKey must identify the same immutable source event across redelivery.
  */
 export async function fireEvent(
   db: D1Database,
@@ -48,6 +218,8 @@ export async function fireEvent(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  tenantId?: string | null,
+  eventKey?: string,
 ): Promise<void> {
   let eventAccountId = lineAccountId ?? null;
   if (!eventAccountId && payload.friendId) {
@@ -58,9 +230,17 @@ export async function fireEvent(
   }
   if (await isPharmacyModeAccount(db, eventAccountId)) return;
 
+  let eventTenantId = tenantId ?? null;
+  if (!eventTenantId && eventAccountId) {
+    const mapping = await db.prepare(
+      `SELECT tenant_id FROM tenant_line_accounts WHERE line_account_id = ?`,
+    ).bind(eventAccountId).first<{ tenant_id: string }>();
+    eventTenantId = mapping?.tenant_id ?? null;
+  }
+
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
-    fireOutgoingWebhooks(db, eventType, payload),
+    fireOutgoingWebhooks(db, eventType, payload, eventTenantId, eventAccountId, eventKey),
     processScoring(db, eventType, payload),
   ];
   if (payload.friendId && payload.conversionEventName) {
@@ -81,8 +261,18 @@ export async function fireEvent(
       }
     : payload;
 
-  // Phase 2: evaluate automations.
-  await processAutomations(db, eventType, enrichedPayload, lineAccessToken, eventAccountId);
+  // Phase 2: tenant-only events have no safe account scope for legacy automations.
+  if (!eventTenantId || eventAccountId) {
+    await processAutomations(
+      db,
+      eventType,
+      enrichedPayload,
+      lineAccessToken,
+      eventAccountId,
+      eventTenantId,
+      eventKey,
+    );
+  }
 }
 
 /** 送信Webhookへの通知 */
@@ -90,9 +280,12 @@ async function fireOutgoingWebhooks(
   db: D1Database,
   eventType: string,
   payload: EventPayload,
+  tenantId: string | null,
+  lineAccountId: string | null,
+  eventKey?: string,
 ): Promise<void> {
   try {
-    const webhooks = await getActiveOutgoingWebhooksByEvent(db, eventType);
+    const webhooks = await getActiveOutgoingWebhooksByEvent(db, eventType, tenantId);
     for (const wh of webhooks) {
       try {
         const body = JSON.stringify({
@@ -120,7 +313,14 @@ async function fireOutgoingWebhooks(
           headers['X-Webhook-Signature'] = hexSignature;
         }
 
-        await fetch(wh.url, { method: 'POST', headers, body });
+        await deliverWebhook(db, wh.url, body, headers, {
+          tenantId,
+          lineAccountId,
+          eventType,
+          eventKey,
+          targetType: 'configured',
+          targetId: wh.id,
+        });
       } catch (err) {
         console.error(`送信Webhook ${wh.id} への通知失敗:`, err);
       }
@@ -151,6 +351,8 @@ async function processAutomations(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  tenantId?: string | null,
+  eventKey?: string,
 ): Promise<void> {
   try {
     const allAutomations = await getActiveAutomationsByEvent(db, eventType);
@@ -168,9 +370,16 @@ async function processAutomations(
 
       const results: Array<{ action: string; success: boolean; error?: string }> = [];
 
-      for (const action of actions) {
+      for (const [actionIndex, action] of actions.entries()) {
         try {
-          await executeAction(db, action, payload, lineAccessToken, lineAccountId);
+          await executeAction(db, action, payload, lineAccessToken, lineAccountId, {
+            tenantId: tenantId ?? null,
+            lineAccountId: lineAccountId ?? null,
+            eventType,
+            eventKey,
+            targetType: 'automation',
+            targetId: `${automation.id}:${actionIndex}`,
+          });
           results.push({ action: action.type, success: true });
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
@@ -240,6 +449,7 @@ async function executeAction(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  deliveryContext?: WebhookDeliveryContext,
 ): Promise<void> {
   const friendId = payload.friendId;
   if (!friendId && action.type !== 'send_webhook') {
@@ -344,11 +554,13 @@ async function executeAction(
     case 'send_webhook': {
       const url = action.params.url;
       if (url) {
-        await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ friendId, ...payload.eventData }),
-        });
+        await deliverWebhook(
+          db,
+          url,
+          JSON.stringify({ friendId, ...payload.eventData }),
+          { 'Content-Type': 'application/json' },
+          deliveryContext,
+        );
       }
       break;
     }

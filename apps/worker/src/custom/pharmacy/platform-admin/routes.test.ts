@@ -108,6 +108,7 @@ type WebhookReceipt = {
   retry_count: number;
   dead_lettered_at: string | null;
   lease_until: string | null;
+  claim_token: string | null;
 };
 
 type Store = {
@@ -156,16 +157,18 @@ function fakeDb(): Store {
       tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-failed',
       payload: '{"type":"message"}', status: 'failed',
       retry_count: 3, dead_lettered_at: null, lease_until: '2026-01-01T00:00:00.000Z',
+      claim_token: 'stale-token',
     },
     {
       tenant_id: 'tenant-a', line_account_id: 'account-a', webhook_event_id: 'wh-done',
       payload: '{"type":"message"}', status: 'completed',
-      retry_count: 1, dead_lettered_at: null, lease_until: null,
+      retry_count: 1, dead_lettered_at: null, lease_until: null, claim_token: null,
     },
     {
       tenant_id: 'tenant-b', line_account_id: 'account-b', webhook_event_id: 'wh-other-tenant',
       payload: '{"type":"message"}', status: 'failed',
       retry_count: 10, dead_lettered_at: '2026-01-02T00:00:00.000Z', lease_until: null,
+      claim_token: null,
     },
   ];
   const stats = {
@@ -357,6 +360,7 @@ function fakeDb(): Store {
             Object.assign(target, {
               status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
             });
+            if (sql.includes('claim_token = NULL')) target.claim_token = null;
             return { meta: { changes: 1 } };
           }
           if (sql.includes('outbound_messaging_paused_at')) {
@@ -1142,6 +1146,7 @@ describe('platform admin tenant operations', () => {
     // The row is handed to the runner reset, not deleted and not re-inserted.
     expect(store.receipts[0]).toMatchObject({
       status: 'pending', retry_count: 0, dead_lettered_at: null, lease_until: null,
+      claim_token: null,
     });
     expect(webhookRetry).toHaveBeenCalledOnce();
     expect(webhookRetry.mock.calls[0][1]).toMatchObject({

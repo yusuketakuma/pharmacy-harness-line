@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
+import type { WebhookEvent } from '@line-crm/line-sdk';
 
 const lineClientMocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
@@ -31,7 +32,12 @@ vi.mock('../../services/local-line-proxy.js', () => ({
 
 import { toJstString } from '@line-crm/db';
 
-import { purgeWebhookEventReceipts, sweepWebhookInbox, webhook } from './webhook.js';
+import {
+  purgeWebhookEventReceipts,
+  runWebhookInboxEvent,
+  sweepWebhookInbox,
+  webhook,
+} from './webhook.js';
 
 const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/db');
 const require = createRequire(import.meta.url);
@@ -50,7 +56,11 @@ const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
   new (filename: string) => Sqlite3Database;
 
 /** Adapts better-sqlite3 to the D1 surface the worker uses. */
-function d1From(sqlite: Sqlite3Database, failOn?: (sql: string) => boolean): D1Database {
+function d1From(
+  sqlite: Sqlite3Database,
+  failOn?: (sql: string) => boolean,
+  beforeRun?: (sql: string) => Promise<void>,
+): D1Database {
   const guard = (sql: string) => {
     if (failOn?.(sql)) throw new Error(`SIMULATED_D1_FAILURE: ${sql.slice(0, 40)}`);
   };
@@ -66,6 +76,7 @@ function d1From(sqlite: Sqlite3Database, failOn?: (sql: string) => boolean): D1D
     },
     run: async () => {
       guard(sql);
+      await beforeRun?.(sql);
       const info = sqlite.prepare(sql).run(...values);
       return { success: true, meta: { changes: info.changes }, results: [] };
     },
@@ -114,6 +125,17 @@ function imageEvent(suffix: 'a' | 'b', webhookEventId: string, messageId: string
     type: 'message',
     replyToken: `reply-${webhookEventId}`,
     message: { type: 'image', id: messageId },
+    timestamp: 1_755_000_000_000,
+    source: { type: 'user', userId: `U-${suffix}` },
+    webhookEventId,
+    deliveryContext: { isRedelivery: false },
+    mode: 'active',
+  };
+}
+
+function unfollowEvent(suffix: 'a' | 'b', webhookEventId: string): WebhookEvent {
+  return {
+    type: 'unfollow',
     timestamp: 1_755_000_000_000,
     source: { type: 'user', userId: `U-${suffix}` },
     webhookEventId,
@@ -247,6 +269,193 @@ describe('webhook durable inbox (H-3)', () => {
     expect(incomingMessages()).toHaveLength(1);
   });
 
+  test('an active handler heartbeats its claim so an expired-lease retry cannot reclaim it', async () => {
+    const firstNow = new Date('2026-08-19T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(firstNow);
+    const event = unfollowEvent('a', 'event-heartbeat');
+    const payload = JSON.stringify(event);
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+       VALUES ('tenant-a', 'account-a', 'event-heartbeat', ?, ?, 'pending', 0)`,
+    ).run(toJstString(firstNow), payload);
+
+    let releaseHandler!: () => void;
+    let handlerPaused!: () => void;
+    const release = new Promise<void>((resolve) => { releaseHandler = resolve; });
+    const paused = new Promise<void>((resolve) => { handlerPaused = resolve; });
+    let shouldPause = true;
+    const firstDb = d1From(sqlite, undefined, async (sql) => {
+      if (shouldPause && sql.includes('SET is_following = 0')) {
+        shouldPause = false;
+        handlerPaused();
+        await release;
+      }
+    });
+    const row = {
+      tenant_id: 'tenant-a',
+      line_account_id: 'account-a',
+      webhook_event_id: 'event-heartbeat',
+      payload,
+      event,
+    };
+    const first = runWebhookInboxEvent({
+      db: firstDb,
+      credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+      channelAccessToken: 'token-a',
+    }, row, firstNow);
+
+    await paused;
+    try {
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+      const leaseAfterHeartbeat = sqlite.prepare(
+        `SELECT lease_until FROM pharmacy_webhook_event_receipts
+          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+            AND webhook_event_id = 'event-heartbeat'`,
+      ).get() as { lease_until: string };
+      const second = await runWebhookInboxEvent({
+        db,
+        credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+        channelAccessToken: 'token-a',
+      }, row, new Date(firstNow.getTime() + 6 * 60_000));
+
+      expect(Date.parse(leaseAfterHeartbeat.lease_until))
+        .toBeGreaterThan(firstNow.getTime() + 6 * 60_000);
+      expect(second).toBe('skipped');
+      expect(receipts()[0].retry_count).toBe(1);
+    } finally {
+      releaseHandler();
+      await first;
+      vi.useRealTimers();
+    }
+
+    expect(receipts()[0]).toMatchObject({
+      status: 'completed',
+      retry_count: 1,
+      lease_until: null,
+    });
+  });
+
+  test.each([
+    ['successful', false],
+    ['failed', true],
+  ])('an expired worker with a %s handler cannot settle while a newer claim owns the row', async (_label, failFirst) => {
+    const firstNow = new Date('2026-08-19T00:00:00.000Z');
+    const event = unfollowEvent('a', 'event-fenced');
+    const payload = JSON.stringify(event);
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count)
+       VALUES ('tenant-a', 'account-a', 'event-fenced', ?, ?, 'pending', 0)`,
+    ).run(toJstString(firstNow), payload);
+
+    let releaseFirst!: () => void;
+    let firstPaused!: () => void;
+    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const paused = new Promise<void>((resolve) => { firstPaused = resolve; });
+    let shouldPause = true;
+    const firstDb = d1From(sqlite, undefined, async (sql) => {
+      if (shouldPause && sql.includes('SET is_following = 0')) {
+        shouldPause = false;
+        firstPaused();
+        await release;
+        if (failFirst) throw new Error('SIMULATED_STALE_WORKER_FAILURE');
+      }
+    });
+    let releaseSecond!: () => void;
+    let secondPaused!: () => void;
+    const secondRelease = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    const secondPausedAtHandler = new Promise<void>((resolve) => { secondPaused = resolve; });
+    let shouldPauseSecond = true;
+    const secondDb = d1From(sqlite, undefined, async (sql) => {
+      if (shouldPauseSecond && sql.includes('SET is_following = 0')) {
+        shouldPauseSecond = false;
+        secondPaused();
+        await secondRelease;
+      }
+    });
+    const row = {
+      tenant_id: 'tenant-a',
+      line_account_id: 'account-a',
+      webhook_event_id: 'event-fenced',
+      payload,
+      event,
+    };
+    const first = runWebhookInboxEvent({
+      db: firstDb,
+      credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+      channelAccessToken: 'token-a',
+    }, row, firstNow);
+
+    await paused;
+    try {
+      const firstToken = sqlite.prepare(
+        `SELECT claim_token FROM pharmacy_webhook_event_receipts
+          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+            AND webhook_event_id = 'event-fenced'`,
+      ).get() as { claim_token: string | null };
+      expect(firstToken.claim_token).toMatch(/^[0-9a-f-]{36}$/);
+
+      const second = runWebhookInboxEvent({
+        db: secondDb,
+        credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+        channelAccessToken: 'token-a',
+      }, row, new Date(firstNow.getTime() + 6 * 60_000));
+      await secondPausedAtHandler;
+
+      const secondOwner = sqlite.prepare(
+        `SELECT status, claim_token, lease_until, retry_count
+           FROM pharmacy_webhook_event_receipts
+          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+            AND webhook_event_id = 'event-fenced'`,
+      ).get() as {
+        status: string;
+        claim_token: string | null;
+        lease_until: string | null;
+        retry_count: number;
+      };
+      expect(secondOwner).toMatchObject({
+        status: 'processing',
+        lease_until: expect.any(String),
+        retry_count: 2,
+      });
+      expect(secondOwner.claim_token).toMatch(/^[0-9a-f-]{36}$/);
+      expect(secondOwner.claim_token).not.toBe(firstToken.claim_token);
+
+      releaseFirst();
+      expect(await first).toBe('skipped');
+      expect(sqlite.prepare(
+        `SELECT status, claim_token, retry_count
+           FROM pharmacy_webhook_event_receipts
+          WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+            AND webhook_event_id = 'event-fenced'`,
+      ).get()).toEqual({
+        status: 'processing',
+        claim_token: secondOwner.claim_token,
+        retry_count: 2,
+      });
+
+      releaseSecond();
+      expect(await second).toBe('completed');
+    } finally {
+      releaseFirst();
+      releaseSecond();
+    }
+
+    expect(sqlite.prepare(
+      `SELECT status, claim_token, lease_until, retry_count
+         FROM pharmacy_webhook_event_receipts
+        WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+          AND webhook_event_id = 'event-fenced'`,
+    ).get()).toEqual({
+      status: 'completed',
+      claim_token: null,
+      lease_until: null,
+      retry_count: 2,
+    });
+  });
+
   test('the same webhookEventId delivered twice produces exactly one effect', async () => {
     const first = makeCtx();
     await post(db, 'a', [textEvent('a', 'event-dup')], first.ctx);
@@ -311,6 +520,37 @@ describe('webhook durable inbox (H-3)', () => {
     expect(retiring.deadLettered).toBe(1);
     expect(retiring.claimed).toBe(0);
     expect(receipts()[0].dead_lettered_at).not.toBeNull();
+  });
+
+  test('an active attempt at the cap is fenced before dead-lettering', async () => {
+    const now = new Date('2026-08-19T10:00:00.000Z');
+    sqlite.prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
+         (tenant_id, line_account_id, webhook_event_id, received_at, payload, status,
+          retry_count, lease_until, claim_token)
+       VALUES ('tenant-a', 'account-a', 'event-active-cap', ?, '{}', 'processing', ?, ?, 'active-token')`,
+    ).run(toJstString(now), WEBHOOK_ATTEMPT_CAP, toJstString(new Date(now.getTime() + 5 * 60_000)));
+
+    expect(await sweepWebhookInbox({ db, now })).toMatchObject({ deadLettered: 0 });
+    expect(sqlite.prepare(
+      `SELECT status, claim_token, dead_lettered_at FROM pharmacy_webhook_event_receipts
+        WHERE webhook_event_id = 'event-active-cap'`,
+    ).get()).toEqual({ status: 'processing', claim_token: 'active-token', dead_lettered_at: null });
+
+    expect(await sweepWebhookInbox({
+      db,
+      now: new Date(now.getTime() + 6 * 60_000),
+    })).toMatchObject({ deadLettered: 1 });
+    expect(sqlite.prepare(
+      `SELECT status, claim_token, lease_until, dead_lettered_at
+         FROM pharmacy_webhook_event_receipts
+        WHERE webhook_event_id = 'event-active-cap'`,
+    ).get()).toMatchObject({
+      status: 'failed',
+      claim_token: null,
+      lease_until: null,
+      dead_lettered_at: expect.any(String),
+    });
   });
 
   test('a pending row stale for over 24h is dead-lettered without touching its payload', async () => {

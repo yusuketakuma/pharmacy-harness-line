@@ -41,6 +41,7 @@ const MAX_WEBHOOK_BODY_SIZE = 1024 * 1024; // 1 MiB
 // state; the cron sweep re-runs whatever the request-time attempt did not
 // finish. See packages/db/migrations/custom_023_pharmacy_webhook_durable_inbox.sql.
 const WEBHOOK_INBOX_LEASE_MS = 5 * 60_000;
+const WEBHOOK_INBOX_HEARTBEAT_MS = 60_000;
 const WEBHOOK_INBOX_MAX_ATTEMPTS = 10;
 const WEBHOOK_INBOX_SWEEP_LIMIT = 50;
 const WEBHOOK_RECEIPT_RETENTION_DAYS = 30;
@@ -114,10 +115,12 @@ export async function runWebhookInboxEvent(
 ): Promise<'completed' | 'failed' | 'skipped'> {
   const { db } = runner;
   const key = [row.tenant_id, row.line_account_id, row.webhook_event_id];
+  const claimToken = crypto.randomUUID();
 
   const claim = await db.prepare(
     `UPDATE pharmacy_webhook_event_receipts
         SET status = 'processing',
+            claim_token = ?,
             lease_until = ?,
             retry_count = retry_count + 1
       WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
@@ -125,56 +128,84 @@ export async function runWebhookInboxEvent(
         AND dead_lettered_at IS NULL
         AND (lease_until IS NULL OR lease_until <= ?)`,
   ).bind(
+    claimToken,
     toJstString(new Date(now.getTime() + WEBHOOK_INBOX_LEASE_MS)),
     ...key,
     toJstString(now),
   ).run();
-  if (claim.meta && claim.meta.changes === 0) return 'skipped';
+  if ((claim.meta?.changes ?? 0) !== 1) return 'skipped';
+
+  let heartbeatInFlight: Promise<void> | null = null;
+  const heartbeatTimer = setInterval(() => {
+    if (heartbeatInFlight) return;
+    heartbeatInFlight = db.prepare(
+      `UPDATE pharmacy_webhook_event_receipts
+          SET lease_until = ?
+        WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
+          AND status = 'processing' AND claim_token = ? AND dead_lettered_at IS NULL`,
+    ).bind(
+      toJstString(new Date(Date.now() + WEBHOOK_INBOX_LEASE_MS)),
+      ...key,
+      claimToken,
+    ).run().then(() => undefined).catch(() => undefined).finally(() => {
+      heartbeatInFlight = null;
+    });
+  }, WEBHOOK_INBOX_HEARTBEAT_MS);
 
   try {
-    const event = row.event
-      ?? (row.payload ? JSON.parse(row.payload) as WebhookEvent : null);
-    if (!event) throw new Error('WEBHOOK_INBOX_PAYLOAD_MISSING');
+    try {
+      const event = row.event
+        ?? (row.payload ? JSON.parse(row.payload) as WebhookEvent : null);
+      if (!event) throw new Error('WEBHOOK_INBOX_PAYLOAD_MISSING');
 
-    const accessToken = runner.channelAccessToken
-      ?? await readLineCredential(db, runner.credentialRootSecret, {
-        tenantId: row.tenant_id,
-        lineAccountId: row.line_account_id,
-        kind: 'channel_access_token',
-      });
-    if (!accessToken) throw new Error('WEBHOOK_INBOX_CREDENTIAL_UNAVAILABLE');
+      const accessToken = runner.channelAccessToken
+        ?? await readLineCredential(db, runner.credentialRootSecret, {
+          tenantId: row.tenant_id,
+          lineAccountId: row.line_account_id,
+          kind: 'channel_access_token',
+        });
+      if (!accessToken) throw new Error('WEBHOOK_INBOX_CREDENTIAL_UNAVAILABLE');
 
-    await handleEvent(
-      db,
-      runner.lineClient ?? new LineClient(accessToken),
-      event,
-      accessToken,
-      row.line_account_id,
-      row.tenant_id,
-      runner.credentialRootSecret,
-      runner.workerUrl,
-      runner.liffUrl,
-      runner.r2,
-      runner.proxyDispatch,
-    );
+      await handleEvent(
+        db,
+        runner.lineClient ?? new LineClient(accessToken),
+        event,
+        row.webhook_event_id,
+        accessToken,
+        row.line_account_id,
+        row.tenant_id,
+        runner.credentialRootSecret,
+        runner.workerUrl,
+        runner.liffUrl,
+        runner.r2,
+        runner.proxyDispatch,
+      );
+    } finally {
+      clearInterval(heartbeatTimer);
+      await heartbeatInFlight;
+    }
   } catch (err) {
     console.error('Error handling webhook event:', err);
     // Stay in the inbox. The sweep retries until the attempt cap, then the row
     // is dead-lettered — kept with its payload so it can be replayed by hand
     // (status back to 'pending', retry_count 0). No replay UI exists yet.
-    await db.prepare(
+    const failed = await db.prepare(
       `UPDATE pharmacy_webhook_event_receipts
-          SET status = 'failed', lease_until = NULL
-        WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
-    ).bind(...key).run();
+          SET status = 'failed', claim_token = NULL, lease_until = NULL
+        WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
+          AND status = 'processing' AND claim_token = ? AND dead_lettered_at IS NULL`,
+    ).bind(...key, claimToken).run();
+    if ((failed.meta?.changes ?? 0) !== 1) return 'skipped';
     return 'failed';
   }
 
-  await db.prepare(
+  const completed = await db.prepare(
     `UPDATE pharmacy_webhook_event_receipts
-        SET status = 'completed', lease_until = NULL
-      WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?`,
-  ).bind(...key).run();
+        SET status = 'completed', claim_token = NULL, lease_until = NULL
+      WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
+        AND status = 'processing' AND claim_token = ? AND dead_lettered_at IS NULL`,
+  ).bind(...key, claimToken).run();
+  if ((completed.meta?.changes ?? 0) !== 1) return 'skipped';
   return 'completed';
 }
 
@@ -201,11 +232,12 @@ export async function sweepWebhookInbox(options: {
   // same rule as one that failed cleanly.
   const retired = await db.prepare(
     `UPDATE pharmacy_webhook_event_receipts
-        SET status = 'failed', lease_until = NULL, dead_lettered_at = ?
+        SET status = 'failed', claim_token = NULL, lease_until = NULL, dead_lettered_at = ?
       WHERE status <> 'completed'
         AND dead_lettered_at IS NULL
-        AND retry_count >= ?`,
-  ).bind(nowJst, WEBHOOK_INBOX_MAX_ATTEMPTS).run();
+        AND retry_count >= ?
+        AND (lease_until IS NULL OR lease_until <= ?)`,
+  ).bind(nowJst, WEBHOOK_INBOX_MAX_ATTEMPTS, nowJst).run();
   summary.deadLettered = retired.meta?.changes ?? 0;
 
   // Stale-age cap: a row that is never picked up never hits the attempt cap
@@ -215,7 +247,7 @@ export async function sweepWebhookInbox(options: {
   const staleCutoffJst = toJstString(new Date(now.getTime() - WEBHOOK_INBOX_STALE_AGE_MS));
   const staleRetired = await db.prepare(
     `UPDATE pharmacy_webhook_event_receipts
-        SET dead_lettered_at = ?
+        SET claim_token = NULL, lease_until = NULL, dead_lettered_at = ?
       WHERE status IN ('pending', 'processing')
         AND dead_lettered_at IS NULL
         AND received_at < ?
@@ -467,6 +499,7 @@ async function handleEvent(
   db: D1Database,
   lineClient: LineClient,
   event: WebhookEvent,
+  webhookEventId: string,
   lineAccessToken: string,
   lineAccountId: string,
   tenantId: string,
@@ -644,7 +677,15 @@ async function handleEvent(
     }
 
     // イベントバス発火: friend_add（replyToken は Step 0 で使用済みの可能性あり）
-    await fireEvent(db, 'friend_add', { friendId: friend.id, eventData: { displayName: friend.display_name } }, lineAccessToken, lineAccountId);
+    await fireEvent(
+      db,
+      'friend_add',
+      { friendId: friend.id, eventData: { displayName: friend.display_name } },
+      lineAccessToken,
+      lineAccountId,
+      tenantId,
+      webhookEventId,
+    );
     return;
   }
 
@@ -691,7 +732,6 @@ async function handleEvent(
 
     const pharmacyAccountId = lineAccountId ?? friend.line_account_id;
     if (await isPharmacyModeAccount(db, pharmacyAccountId)) {
-      const webhookEventId = (event as WebhookEvent & { webhookEventId?: string }).webhookEventId;
       if (pharmacyAccountId && webhookEventId) {
         try {
           await handleMedicationFollowUpPostback(db, {
@@ -738,7 +778,7 @@ async function handleEvent(
       friendId: friend.id,
       eventData: { text: postbackData, matched: postbackMatched },
       replyToken: postbackReplyTokenConsumed ? undefined : event.replyToken,
-    }, lineAccessToken, lineAccountId);
+    }, lineAccessToken, lineAccountId, tenantId, webhookEventId);
 
     return;
   }
@@ -980,7 +1020,7 @@ async function handleEvent(
       friendId: friend.id,
       eventData: { text: incomingText, matched },
       replyToken: replyTokenConsumed ? undefined : event.replyToken,
-    }, lineAccessToken, lineAccountId);
+    }, lineAccessToken, lineAccountId, tenantId, webhookEventId);
 
     return;
   }

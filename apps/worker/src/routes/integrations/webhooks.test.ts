@@ -30,6 +30,7 @@ import {
   createOutgoingWebhook,
   updateOutgoingWebhook,
 } from '@line-crm/db';
+import { fireEvent } from '../../services/event-bus.js';
 import { webhooks } from './webhooks.js';
 
 const VALID_SECRET = 'a'.repeat(32);
@@ -558,7 +559,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
   test('accepts valid HMAC-SHA256 hex signature', async () => {
     vi.mocked(getIncomingWebhookById).mockResolvedValue({
       id: 'iwh-1',
-      tenant_id: null,
+      tenant_id: 'tenant-a',
       name: 'test',
       source_type: 'custom',
       secret: VALID_SECRET,
@@ -589,11 +590,21 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
         headers: {
           'Content-Type': 'application/json',
           'X-Webhook-Signature': hexSignature,
+          'Idempotency-Key': 'source-event-1',
         },
         body,
       },
       baseEnv,
     );
     expect(res.status).toBe(200);
+    expect(fireEvent).toHaveBeenCalledWith(
+      baseEnv.DB,
+      'incoming_webhook.custom',
+      { eventData: { webhookId: 'iwh-1', source: 'custom', payload: { ping: true } } },
+      undefined,
+      null,
+      'tenant-a',
+      'source-event-1',
+    );
   });
 });
