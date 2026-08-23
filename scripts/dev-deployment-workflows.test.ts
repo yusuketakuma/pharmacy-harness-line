@@ -145,6 +145,20 @@ describe('development deployment workflow contract', () => {
     expect(uses.every((value: string) => /@[0-9a-f]{40}$/.test(value))).toBe(true);
   });
 
+  test('pins reviewed Node 24 action releases in release-critical workflows', () => {
+    const workflows = [
+      sharedDeploy,
+      read('.github/workflows/repository-verify.yml'),
+      read('.github/workflows/release.yml'),
+    ];
+
+    for (const source of workflows) {
+      expect(source).toContain('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
+      expect(source).toContain('pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86');
+      expect(source).toContain('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020');
+    }
+  });
+
   test('removes independent Worker and Admin push deployers', () => {
     expect(existsSync('.github/workflows/deploy-cloudflare-worker.yml')).toBe(false);
     expect(existsSync('.github/workflows/deploy-cloudflare-admin.yml')).toBe(false);
