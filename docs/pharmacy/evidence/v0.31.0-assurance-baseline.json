@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-23T13:49:21Z",
-  "findingsReviewedAt": "2026-08-23T13:49:21Z",
-  "findingsReviewSourceSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
+  "capturedAt": "2026-08-23T14:21:52Z",
+  "findingsReviewedAt": "2026-08-23T14:21:52Z",
+  "findingsReviewSourceSha": "dded27915e8a60177d3129a48eee1a99754d585f",
   "environment": "synthetic-ci",
   "scope": "v0.31.0-assurance-baseline",
   "status": "PASS",
@@ -10,7 +10,7 @@
   "releaseBlockers": [
     "V031-4"
   ],
-  "implementationSourceSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
+  "implementationSourceSha": "dded27915e8a60177d3129a48eee1a99754d585f",
   "sourceBranch": "feature/v031-assurance-baseline",
   "pullRequest": {
     "number": 79,
@@ -30,24 +30,24 @@
   },
   "githubActions": {
     "pullRequestRun": {
-      "headSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
-      "artifactSourceSha": "c85c653abdc476464d994b5f7fec382bdfb7a9a4",
-      "runId": "32642923492",
-      "verifyJobId": "97202722581",
+      "headSha": "dded27915e8a60177d3129a48eee1a99754d585f",
+      "artifactSourceSha": "585c0a7c83f2cd1770cd6ff056a4a922410585fa",
+      "runId": "32644818378",
+      "verifyJobId": "97207358562",
       "status": "PASS",
       "secretScan": "PASS",
       "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32642923492"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32644818378"
     },
     "provenanceRun": {
-      "headSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
-      "runId": "32643213188",
-      "verifyJobId": "97203404029",
-      "attestJobId": "97204086644",
+      "headSha": "dded27915e8a60177d3129a48eee1a99754d585f",
+      "runId": "32644861559",
+      "verifyJobId": "97207462915",
+      "attestJobId": "97208143545",
       "status": "PASS",
       "event": "workflow_dispatch",
       "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32643213188"
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32644861559"
     }
   },
   "checks": {
@@ -65,7 +65,7 @@
       "newCommits": {
         "status": "PASS",
         "findings": 0,
-        "runId": "32642923492"
+        "runId": "32644818378"
       },
       "fullHistory": {
         "status": "PASS",
@@ -162,31 +162,41 @@
       "focusedTests": 37,
       "workerTests": 2142
     },
+    "webhookRetryByteStability": {
+      "status": "PASS",
+      "timestampSource": "deliveryCreatedAt",
+      "sameIdempotencyKey": "SAME_KEY",
+      "sameRequestBody": "SAME_BYTES",
+      "sameHmacSignature": "SAME_SIGNATURE",
+      "focusedTests": 15,
+      "relatedTests": 37,
+      "workerTests": 2142
+    },
     "provenance": {
       "status": "PASS",
-      "attestationId": "42424015",
-      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42424015",
+      "attestationId": "42426516",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42426516",
       "subject": "synthetic-build.tar.gz",
-      "subjectSha256": "757d08f3c0777a360068512d153271c42ab3b4a1fc4308a9dc3a13db9ffed8fb",
-      "sourceSha": "60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
+      "subjectSha256": "0d814051c7ef2918452a32d49110bad2449e3432dea279dd5cce1787dc47dd8c",
+      "sourceSha": "dded27915e8a60177d3129a48eee1a99754d585f",
       "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
       "ghAttestationVerifyExitCode": 0
     }
   },
   "artifacts": {
     "pullRequest": {
-      "id": "9494154188",
-      "name": "v031-assurance-c85c653abdc476464d994b5f7fec382bdfb7a9a4",
-      "sizeBytes": 3518376,
-      "archiveSha256": "54abf7849bf911addc1410c6d6e357f9457f6bc2ac81d3f6da3ec8e5640cc98c",
-      "expiresAt": "2026-09-06T13:43:10Z"
+      "id": "9494638089",
+      "name": "v031-assurance-585c0a7c83f2cd1770cd6ff056a4a922410585fa",
+      "sizeBytes": 3518092,
+      "archiveSha256": "fbf019539d4555c0aa2d6d5a5cda256e932373876d55cc081e3bdac961b21fcf",
+      "expiresAt": "2026-09-06T14:19:34Z"
     },
     "provenance": {
-      "id": "9494228744",
-      "name": "v031-assurance-60e678ce0c26423b9c1aae3bd0bb7703af26f63c",
-      "sizeBytes": 3518348,
-      "archiveSha256": "f363757459e8c2ae4a12575bf9f904b7311d7bce2cff6c247c92c1ab1f993c31",
-      "expiresAt": "2026-09-06T13:48:49Z"
+      "id": "9494651395",
+      "name": "v031-assurance-dded27915e8a60177d3129a48eee1a99754d585f",
+      "sizeBytes": 3518917,
+      "archiveSha256": "aaa5090e0987dd96c07ecda8bf70f577fbea6ede14cc862f5227b68aadbe5ae3",
+      "expiresAt": "2026-09-06T14:20:36Z"
     }
   },
   "openFindings": [],
@@ -215,6 +225,11 @@
       "id": "P2-V031-WEBHOOK-EVENT-KEY-NAMESPACE",
       "status": "PASS",
       "summary": "Incoming webhook UUID now namespaces a valid external idempotency key, preventing cross-webhook delivery collisions while preserving same-webhook redelivery identity."
+    },
+    {
+      "id": "P2-V031-WEBHOOK-RETRY-BYTE-STABILITY",
+      "status": "PASS",
+      "summary": "Configured webhook retries now reuse the delivery row creation time so the same delivery ID also preserves request bytes and the HMAC signature."
     }
   ],
   "oracleConsultation": {
