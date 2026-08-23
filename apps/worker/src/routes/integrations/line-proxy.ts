@@ -31,6 +31,7 @@ import {
   isPharmacyModeAccount,
 } from '../../custom/pharmacy/growth-loop/access.js';
 import { isApprovedRenderedPharmacyMessage } from '../../custom/pharmacy/growth-loop/policy.js';
+import { log } from '../../lib/log.js';
 
 /**
  * LINE Messaging API 互換プロキシ。
@@ -341,8 +342,8 @@ async function createFriendForRecipient(
     let profile: Awaited<ReturnType<LineClient['getProfile']>> | null = null;
     try {
       profile = await lineClient.getProfile(userId);
-    } catch (err) {
-      console.error('[line-proxy] getProfile failed', err);
+    } catch {
+      log('line_proxy_profile_fetch_failed', {}, 'error');
     }
 
     const friend = await upsertFriend(db, {
@@ -354,8 +355,8 @@ async function createFriendForRecipient(
     });
 
     return friend;
-  } catch (err) {
-    console.error('[line-proxy] friend creation failed', err);
+  } catch {
+    log('line_proxy_friend_creation_failed', {}, 'error');
     return null;
   }
 }
@@ -523,8 +524,8 @@ async function logProxySend(
         `[line-proxy] ${path} forwarded but not logged (recipient cannot be resolved)`,
       );
     }
-  } catch (err) {
-    console.error('[line-proxy] logProxySend failed:', err);
+  } catch {
+    log('line_proxy_send_log_failed', {}, 'error');
   }
 }
 
@@ -616,9 +617,10 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
         method,
         headers,
         body: rawBody ?? binaryBody,
+        signal: c.req.raw.signal,
       });
-    } catch (err) {
-      console.error('[line-proxy] upstream fetch failed:', err);
+    } catch {
+      log('line_proxy_upstream_fetch_failed', {}, 'error');
       return c.json({ message: 'Upstream request failed' }, 502);
     }
 
