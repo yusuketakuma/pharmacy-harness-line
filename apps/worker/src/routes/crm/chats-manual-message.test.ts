@@ -204,6 +204,28 @@ describe('manual chat message credentials', () => {
     );
   });
 
+  it('keeps a LINE loading error body out of the response and logs', async () => {
+    const { db } = makeDb();
+    credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('sensitive-upstream-detail', { status: 503 }),
+    ));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await setup(db).request('/api/chats/chat-a/loading', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loadingSeconds: 5 }),
+    }, bindings(db, ROOT_SECRET));
+
+    const body = await response.text();
+    const logged = errorSpy.mock.calls.flat().map(String).join(' ');
+    expect(response.status).toBe(500);
+    expect(body).not.toContain('sensitive-upstream-detail');
+    expect(logged).toContain('chat_loading_start_failed');
+    expect(logged).not.toContain('sensitive-upstream-detail');
+  });
+
   it('denies an unassigned account in the same tenant before sending to LINE', async () => {
     const { db, executions } = makeDb();
     dbMocks.getFriendById.mockResolvedValue({ ...FRIEND, line_account_id: 'account-b' });

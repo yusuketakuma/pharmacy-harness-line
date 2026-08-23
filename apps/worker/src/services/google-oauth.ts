@@ -30,8 +30,6 @@ interface GoogleTokenResponse {
   access_token?: string;
   refresh_token?: string;
   expires_in?: number;
-  error?: string;
-  error_description?: string;
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -132,9 +130,7 @@ async function requestToken(body: URLSearchParams): Promise<GoogleTokenResponse>
     .json<GoogleTokenResponse>()
     .catch(() => ({}));
   if (!response.ok || !data.access_token) {
-    throw new Error(
-      `google_oauth_token_failed:${response.status}:${data.error ?? 'unknown'}`,
-    );
+    throw new Error(`google_oauth_token_failed:${response.status}`);
   }
   return data;
 }

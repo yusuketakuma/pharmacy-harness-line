@@ -49,6 +49,7 @@ const dbMocks = {
   getTrafficPoolById: vi.fn().mockResolvedValue(null),
   getRandomPoolAccount: vi.fn().mockResolvedValue(null),
   getPoolAccounts: vi.fn().mockResolvedValue([]),
+  applyMileageRulesForEvent: vi.fn().mockResolvedValue([]),
   jstNow: () => '2026-07-19 00:00:00',
 };
 vi.mock('@line-crm/db', () => dbMocks);
@@ -73,11 +74,24 @@ const worker = (await import('../../index.js')).default;
 // friend_scenarios existence probe, which answers from `priorEnrollment` so
 // tests can simulate a friend with/without enrollment history.
 let priorEnrollment: { id: string } | null = null;
+let igLinkChanges = 0;
+let igLinkError: Error | null = null;
+let storedIgIgsid: string | null = null;
+let waitUntilTasks: Promise<unknown>[] = [];
 const DB = {
   prepare: (sql: string) => ({
     bind: () => ({
-      run: async () => ({ meta: { changes: 0 } }),
-      first: async () => (sql.includes('FROM friend_scenarios') ? priorEnrollment : null),
+      run: async () => {
+        if (sql.includes('UPDATE friends SET ig_igsid') && igLinkError) throw igLinkError;
+        return {
+          meta: { changes: sql.includes('UPDATE friends SET ig_igsid') ? igLinkChanges : 0 },
+        };
+      },
+      first: async () => {
+        if (sql.includes('FROM friend_scenarios')) return priorEnrollment;
+        if (sql.includes('SELECT ig_igsid FROM friends')) return { ig_igsid: storedIgIgsid };
+        return null;
+      },
       all: async () => ({ results: [] }),
     }),
     run: async () => ({ meta: { changes: 0 } }),
@@ -122,14 +136,20 @@ function installFetchMock() {
   );
 }
 
-function callback(stateValue: Record<string, string> = {}) {
+function callback(
+  stateValue: Record<string, string> = {},
+  bindings: import('../../index.js').Env['Bindings'] = env,
+) {
   const state = btoa(JSON.stringify(stateValue));
   return worker.fetch(
     new Request(
       `https://worker.example.com/auth/callback?code=abc&state=${encodeURIComponent(state)}`,
     ),
-    env,
-    { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
+    bindings,
+    {
+      waitUntil(task: Promise<unknown>) { waitUntilTasks.push(task); },
+      passThroughOnException() {},
+    } as unknown as ExecutionContext,
   );
 }
 
@@ -145,6 +165,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   installFetchMock();
   priorEnrollment = null;
+  igLinkChanges = 0;
+  igLinkError = null;
+  storedIgIgsid = null;
+  waitUntilTasks = [];
   dbMocks.createUser.mockResolvedValue({ id: 'U-uuid' });
   dbMocks.upsertFriend.mockResolvedValue({
     id: 'F-1',
@@ -256,14 +280,103 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
 describe('GET /auth/callback — redirect + logging hardening', () => {
   it('logs only status on token exchange failure, never the upstream body', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"invalid_grant","secret":"UPSTREAM-BODY"}', { status: 400 })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"UPSTREAM-BODY"}', { status: 400 })));
 
     await callback();
 
     const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
     expect(logged).not.toContain('UPSTREAM-BODY');
-    expect(logged).toContain('400');
+    expect(logged).toContain('"event":"line_oauth_token_exchange_failed"');
+    expect(logged).toContain('"status":400');
     errorSpy.mockRestore();
+  });
+
+  it('does not log raw token transport errors', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('TRANSPORT-SECRET');
+    }));
+
+    await callback();
+
+    const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+    expect(logged).not.toContain('TRANSPORT-SECRET');
+    expect(logged).toContain('"event":"line_oauth_callback_failed"');
+    errorSpy.mockRestore();
+  });
+
+  it('does not log an IG Harness response body', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const lineFetch = vi.mocked(fetch);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === 'https://ig.example.com/api/followers/link-line') {
+        return new Response('{"error":"IG-UPSTREAM-SECRET"}', { status: 502 });
+      }
+      return lineFetch(input, init);
+    }));
+    igLinkChanges = 1;
+
+    await callback({ ig: 'IGSID-1' }, {
+      ...env,
+      IG_HARNESS_URL: 'https://ig.example.com',
+      IG_HARNESS_LINK_SECRET: 'link-secret',
+    });
+    await Promise.all(waitUntilTasks);
+
+    const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+    expect(logged).not.toContain('IG-UPSTREAM-SECRET');
+    expect(logged).toContain('"event":"ig_harness_link_line_failed"');
+    expect(logged).toContain('"status":502');
+    errorSpy.mockRestore();
+  });
+
+  it('does not log a raw IG Harness transport error', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const lineFetch = vi.mocked(fetch);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === 'https://ig.example.com/api/followers/link-line') {
+        throw new Error('IG-TRANSPORT-SECRET');
+      }
+      return lineFetch(input, init);
+    }));
+    igLinkChanges = 1;
+
+    await callback({ ig: 'IGSID-1' }, {
+      ...env,
+      IG_HARNESS_URL: 'https://ig.example.com',
+      IG_HARNESS_LINK_SECRET: 'link-secret',
+    });
+    await Promise.all(waitUntilTasks);
+
+    const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+    expect(logged).not.toContain('IG-TRANSPORT-SECRET');
+    expect(logged).toContain('"event":"ig_harness_link_line_failed"');
+    errorSpy.mockRestore();
+  });
+
+  it('does not log a raw IG link storage error', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    igLinkError = new Error('IG-DB-SECRET');
+
+    await callback({ ig: 'IGSID-1' });
+
+    const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+    expect(logged).not.toContain('IG-DB-SECRET');
+    expect(logged).toContain('"event":"ig_link_store_failed"');
+    errorSpy.mockRestore();
+  });
+
+  it('does not log friend identity on an IG link conflict', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    storedIgIgsid = 'IGSID-OTHER';
+
+    await callback({ ig: 'IGSID-1' });
+
+    const logged = warnSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
+    expect(logged).not.toContain('F-1');
+    expect(logged).not.toContain('IGSID-1');
+    expect(logged).toContain('"event":"ig_link_conflict"');
+    warnSpy.mockRestore();
   });
 
   it('pharmacy mode: only allowlisted origins are honoured for ?redirect=', async () => {
