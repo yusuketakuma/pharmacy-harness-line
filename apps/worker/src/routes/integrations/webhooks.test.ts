@@ -604,7 +604,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
       undefined,
       null,
       'tenant-a',
-      'source-event-1',
+      'iwh-1:source-event-1',
     );
   });
 });
