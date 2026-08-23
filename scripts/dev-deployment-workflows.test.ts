@@ -11,8 +11,8 @@ describe('development deployment workflow contract', () => {
   const stepIndex = (name: string) =>
     deploy.steps.findIndex((step: { name?: string }) => step.name === name);
 
-  test('uses one environment-serialized deployment for main and dev', () => {
-    expect(workflow.on.push.branches).toEqual(['main', 'dev']);
+  test('uses one environment-serialized deployment for dev and manual production', () => {
+    expect(workflow.on.push.branches).toEqual(['dev']);
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     expect(workflow.concurrency.group).toContain('${{ github.repository }}');
     expect(workflow.concurrency.group).toContain('${{ github.ref_name }}');
@@ -22,6 +22,25 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).not.toContain('harness-test-pharmacy');
     expect(workflow.name).toBe('Deploy Shared Pharmacy Cloudflare');
     expect(workflow.permissions).toEqual({ contents: 'read' });
+  });
+
+  test('binds explicit production approval to the exact source SHA', () => {
+    expect(workflow.on.workflow_dispatch.inputs.production_source_sha).toMatchObject({
+      required: false,
+      type: 'string',
+    });
+    expect(deploy.if).toContain("github.event_name == 'workflow_dispatch'");
+
+    const approval = stepIndex('Verify explicit production approval');
+    expect(approval).toBeGreaterThan(-1);
+    expect(deploy.steps[approval].if).toBe("github.ref_name == 'main'");
+    expect(deploy.steps[approval].env).toEqual({
+      APPROVED_SOURCE_SHA: '${{ inputs.production_source_sha }}',
+    });
+    expect(deploy.steps[approval].run).toContain(
+      'test "$APPROVED_SOURCE_SHA" = "$GITHUB_SHA"',
+    );
+    expect(approval).toBeLessThan(stepIndex('Verify deployment target'));
   });
 
   test('builds every artifact before mutation and deploys Admin only after Worker health succeeds', () => {

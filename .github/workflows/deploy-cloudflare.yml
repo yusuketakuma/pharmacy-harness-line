@@ -2,8 +2,13 @@ name: Deploy Shared Pharmacy Cloudflare
 
 on:
   workflow_dispatch:
+    inputs:
+      production_source_sha:
+        description: Exact main commit SHA approved for production deployment
+        required: false
+        type: string
   push:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - 'apps/worker/**'
       - 'apps/liff/**'
@@ -25,7 +30,7 @@ permissions:
 
 jobs:
   deploy:
-    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true' && (github.ref_name == 'main' || github.ref_name == 'dev')
+    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true' && (github.ref_name == 'dev' || (github.ref_name == 'main' && github.event_name == 'workflow_dispatch'))
     environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'development' }}
     runs-on: ubuntu-latest
@@ -39,6 +44,12 @@ jobs:
 
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify explicit production approval
+        if: github.ref_name == 'main'
+        env:
+          APPROVED_SOURCE_SHA: ${{ inputs.production_source_sha }}
+        run: test "$APPROVED_SOURCE_SHA" = "$GITHUB_SHA"
 
       - name: Verify deployment target
         run: |
