@@ -257,6 +257,19 @@ export async function fireEvent(
     eventTenantId = mapping?.tenant_id ?? null;
   }
 
+  let tenantAutomationAccountIds: Set<string> | undefined;
+  if (eventTenantId && !eventAccountId) {
+    const mappings = await db.prepare(
+      `SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`,
+    ).bind(eventTenantId).all<{ line_account_id: string }>();
+    tenantAutomationAccountIds = new Set<string>();
+    for (const mapping of mappings.results ?? []) {
+      if (!await isPharmacyModeAccount(db, mapping.line_account_id)) {
+        tenantAutomationAccountIds.add(mapping.line_account_id);
+      }
+    }
+  }
+
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
     fireOutgoingWebhooks(db, eventType, payload, eventTenantId, eventAccountId, eventKey),
@@ -280,8 +293,7 @@ export async function fireEvent(
       }
     : payload;
 
-  // Phase 2: tenant-only events have no safe account scope for legacy automations.
-  if (!eventTenantId || eventAccountId) {
+  if (!eventTenantId || eventAccountId || tenantAutomationAccountIds?.size) {
     await processAutomations(
       db,
       eventType,
@@ -290,6 +302,7 @@ export async function fireEvent(
       eventAccountId,
       eventTenantId,
       eventKey,
+      tenantAutomationAccountIds,
     );
   }
 }
@@ -368,15 +381,24 @@ async function processAutomations(
   lineAccountId?: string | null,
   tenantId?: string | null,
   eventKey?: string,
+  tenantAccountIds?: ReadonlySet<string>,
 ): Promise<void> {
   try {
     const allAutomations = await getActiveAutomationsByEvent(db, eventType);
-    // Filter by account: match this account's automations + unassigned (backward compat)
-    const automations = allAutomations.filter(
-      (a) => !a.line_account_id || !lineAccountId || a.line_account_id === lineAccountId,
-    );
+    const automations = allAutomations.filter((automation) => {
+      if (lineAccountId) {
+        return !automation.line_account_id || automation.line_account_id === lineAccountId;
+      }
+      if (tenantAccountIds) {
+        return Boolean(
+          automation.line_account_id && tenantAccountIds.has(automation.line_account_id),
+        );
+      }
+      return true;
+    });
 
     for (const automation of automations) {
+      const automationAccountId = lineAccountId ?? automation.line_account_id;
       const conditions = JSON.parse(automation.conditions) as Record<string, unknown>;
       const actions = JSON.parse(automation.actions) as Array<{ type: string; params: Record<string, string> }>;
 
@@ -387,9 +409,9 @@ async function processAutomations(
 
       for (const [actionIndex, action] of actions.entries()) {
         try {
-          await executeAction(db, action, payload, lineAccessToken, lineAccountId, {
+          await executeAction(db, action, payload, lineAccessToken, automationAccountId, {
             tenantId: tenantId ?? null,
-            lineAccountId: lineAccountId ?? null,
+            lineAccountId: automationAccountId ?? null,
             eventType,
             eventKey,
             targetType: 'automation',

@@ -29,23 +29,38 @@ function fakeDb(opts: {
   friend?: { line_user_id: string; line_account_id?: string | null };
   capturedInserts: CapturedInsert[];
   pharmacyMode?: boolean;
+  pharmacyAccountIds?: string[];
+  tenantAccountIds?: string[];
   tenantId?: string;
 }): D1Database {
   return {
     prepare(sql: string) {
+      let bound: unknown[] = [];
       return {
         bind(...args: unknown[]) {
+          bound = args;
           if (sql.includes('INSERT INTO messages_log')) {
             opts.capturedInserts.push({ sql, binds: args });
           }
           return this;
         },
         async all<T>(): Promise<{ results: T[] }> {
+          if (sql.includes('FROM tenant_line_accounts')) {
+            return {
+              results: (opts.tenantAccountIds ?? []).map((lineAccountId) => ({
+                line_account_id: lineAccountId,
+              })) as T[],
+            };
+          }
           return { results: [] };
         },
         async first<T>(): Promise<T | null> {
           if (sql.includes('FROM pharmacy_account_capabilities')) {
-            return (opts.pharmacyMode ? { mode: 'pharmacy' } : null) as T | null;
+            return (
+              opts.pharmacyMode || opts.pharmacyAccountIds?.includes(String(bound[0]))
+                ? { mode: 'pharmacy' }
+                : null
+            ) as T | null;
           }
           if (sql.includes('FROM friends WHERE id')) {
             return (opts.friend ?? null) as T | null;
@@ -289,18 +304,85 @@ describe('fireEvent — send_message action logging', () => {
     expect(db.getActiveAutomationsByEvent).not.toHaveBeenCalled();
   });
 
-  it('scopes tenant-only events and does not run accountless automations', async () => {
+  it('runs tenant-only webhook automations only for accounts mapped to that tenant', async () => {
     const db = await import('@line-crm/db');
-    const dbFake = fakeDb({ capturedInserts: captured });
+    vi.mocked(db.getActiveAutomationsByEvent).mockResolvedValue([
+      {
+        id: 'tenant-a-automation',
+        line_account_id: 'acc-a',
+        conditions: '{}',
+        actions: JSON.stringify([{
+          type: 'send_webhook',
+          params: { url: 'https://hooks.example.com/tenant-a' },
+        }]),
+      },
+      {
+        id: 'tenant-b-automation',
+        line_account_id: 'acc-b',
+        conditions: '{}',
+        actions: JSON.stringify([{
+          type: 'send_webhook',
+          params: { url: 'https://hooks.example.com/tenant-b' },
+        }]),
+      },
+      {
+        id: 'accountless-automation',
+        line_account_id: null,
+        conditions: '{}',
+        actions: JSON.stringify([{
+          type: 'send_webhook',
+          params: { url: 'https://hooks.example.com/accountless' },
+        }]),
+      },
+    ] as never[]);
+    const dbFake = fakeDb({ capturedInserts: captured, tenantAccountIds: ['acc-a'] });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
 
-    await fireEvent(dbFake, 'incoming_webhook.custom', {}, undefined, null, 'tenant-a');
+    try {
+      await fireEvent(dbFake, 'incoming_webhook.custom', {}, undefined, null, 'tenant-a');
 
-    expect(db.getActiveOutgoingWebhooksByEvent).toHaveBeenCalledWith(
-      dbFake,
-      'incoming_webhook.custom',
-      'tenant-a',
-    );
-    expect(db.getActiveAutomationsByEvent).not.toHaveBeenCalled();
+      expect(db.getActiveOutgoingWebhooksByEvent).toHaveBeenCalledWith(
+        dbFake,
+        'incoming_webhook.custom',
+        'tenant-a',
+      );
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://hooks.example.com/tenant-a');
+      expect(db.createAutomationLog).toHaveBeenCalledWith(
+        dbFake,
+        expect.objectContaining({ automationId: 'tenant-a-automation' }),
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('does not reopen generic automations for pharmacy accounts on tenant-only events', async () => {
+    const db = await import('@line-crm/db');
+    vi.mocked(db.getActiveAutomationsByEvent).mockResolvedValue([{
+      id: 'pharmacy-automation',
+      line_account_id: 'acc-pharmacy',
+      conditions: '{}',
+      actions: JSON.stringify([{
+        type: 'send_webhook',
+        params: { url: 'https://hooks.example.com/pharmacy' },
+      }]),
+    }] as never[]);
+    const dbFake = fakeDb({
+      capturedInserts: captured,
+      tenantAccountIds: ['acc-pharmacy'],
+      pharmacyAccountIds: ['acc-pharmacy'],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+
+    try {
+      await fireEvent(dbFake, 'incoming_webhook.custom', {}, undefined, null, 'tenant-a');
+
+      expect(db.getActiveAutomationsByEvent).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('derives tenant scope from the server-resolved event account', async () => {
