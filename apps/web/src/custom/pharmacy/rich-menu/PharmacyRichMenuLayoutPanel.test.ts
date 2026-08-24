@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ApiError } from '@/lib/api';
 import {
+  canMutatePharmacyRichMenu,
   movePharmacyRichMenuAction,
   PHARMACY_RICH_MENU_LABELS,
   pharmacyRichMenuDiffLabel,
@@ -17,6 +18,13 @@ const ORDER = [
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('pharmacy rich-menu layout panel', () => {
+  it('keeps ordinary staff read-only in the management UI', () => {
+    expect(canMutatePharmacyRichMenu('owner')).toBe(true);
+    expect(canMutatePharmacyRichMenu('admin')).toBe(true);
+    expect(canMutatePharmacyRichMenu('staff')).toBe(false);
+    expect(canMutatePharmacyRichMenu(null)).toBe(false);
+  });
+
   it('uses the exact visible tile labels in the reorder controls', () => {
     expect(PHARMACY_RICH_MENU_LABELS).toEqual({
       'prescription-send': '処方せん事前送信',
@@ -107,6 +115,11 @@ describe('pharmacy rich-menu layout panel', () => {
     expect(panel).toContain('4. LINEへ登録');
     expect(panel).toContain('5. この画像に切替');
     expect(panel).toContain('「処方せん事前送信」と「受付状況」は同時にON/OFF');
+    expect(panel).toContain("localStorage.getItem('lh_staff_role')");
+    expect(panel).toContain('一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。');
+    expect(panel).toContain('disabled={lifecycleSaving || lifecycle.state === state || !canMutate}');
+    expect(panel).toContain('disabled={index === 0 || saving || !canMutate}');
+    expect(panel).toContain('disabled={dirty || creating || !versionName.trim() || !canMutate}');
     expect(panel).toContain("readiness.capabilityEnabled ? '#pharmacy-rich-menu-layout-editor' : '/pharmacy-features'");
     expect(panel).toContain('aria-label={`${label}を前へ移動`}');
     expect(panel).toContain('aria-label={`${label}を後ろへ移動`}');
