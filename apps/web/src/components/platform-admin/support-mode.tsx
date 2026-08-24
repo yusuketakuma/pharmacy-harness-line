@@ -5,6 +5,7 @@ import {
   MAX_GRANT_MINUTES,
   PHI_READ_SCOPE,
   platformAdminApi,
+  platformAdminErrorMessage,
   type PlatformSupportGrant,
 } from '@/lib/platform-admin-api'
 
@@ -30,7 +31,7 @@ export function notifySupportGrantsChanged(): void {
  * バナーに出すテナント名の控え。グラント API はテナント ID しか返さないが、
  * 名前のためだけに全ページで `GET /tenants` を叩くと監査ログ (list_tenants) が
  * ページ遷移のたびに増える。開始時点で判っている名前を控えておき、無ければ
- * ID をそのまま出す。
+ * 安全な固定ラベルを出す。
  */
 const TENANT_NAME_STORAGE_KEY = 'lh_platform_admin_tenant_names'
 
@@ -91,7 +92,7 @@ export function SupportModeStartForm({ tenantId, tenantName, onStarted }: {
       notifySupportGrantsChanged()
       onStarted?.(res.data)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'サポートモードを開始できませんでした')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setSubmitting(false)
     }
@@ -224,7 +225,7 @@ export function SupportModeBanner() {
         <div className="bg-amber-500 px-4 py-2 text-sm font-bold text-amber-950">
           {live.map(({ grant, left }) => (
             <div key={grant.id} className="flex flex-wrap items-center justify-center gap-3">
-              <span>サポートモード: {names[grant.tenant_id] ?? grant.tenant_id} — 残り {left}</span>
+              <span>サポートモード: {names[grant.tenant_id] ?? '対象テナント'} — 残り {left}</span>
               <button
                 type="button"
                 onClick={() => void end(grant.id)}

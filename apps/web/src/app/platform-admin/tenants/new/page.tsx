@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRef, useState, type FormEvent } from 'react'
 import {
   platformAdminApi,
+  platformAdminErrorMessage,
   type PlatformTenantProvisioningResult,
 } from '@/lib/platform-admin-api'
 
@@ -78,7 +79,7 @@ export default function PlatformAdminTenantNewPage() {
       setLoginChannelSecret('')
       setStep(4)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'テナントを設定できませんでした。')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setSubmitting(false)
     }

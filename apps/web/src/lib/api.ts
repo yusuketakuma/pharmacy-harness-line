@@ -1103,6 +1103,7 @@ export const api = {
     send: (id: string, data: { content: string; messageType?: string }) =>
       fetchApi<ApiResponse<unknown>>(`/api/chats/${id}/send`, {
         method: 'POST',
+        headers: { 'X-Line-Harness-Source': 'manual' },
         body: JSON.stringify(data),
       }),
   },

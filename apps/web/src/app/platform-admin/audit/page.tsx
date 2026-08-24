@@ -1,21 +1,20 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { platformAdminApi, type PlatformAccessEvent } from '@/lib/platform-admin-api'
+import {
+  platformAdminApi,
+  platformAdminErrorMessage,
+  type PlatformAccessEvent,
+} from '@/lib/platform-admin-api'
 
-/** detail_json は JSON 文字列 (null あり)。壊れていても捨てずに原文を出す。 */
+/** 監査の詳細は、ID・内部値・入力値を含む可能性があるため既定では要約だけ表示する。 */
 function detailText(raw: string | null): string {
   if (!raw) return '—'
   try {
-    const parsed: unknown = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return Object.entries(parsed as Record<string, unknown>)
-        .map(([key, value]) => `${key}: ${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}`)
-        .join(' / ')
-    }
-    return String(parsed)
+    JSON.parse(raw)
   } catch {
-    return raw
+    // 壊れた監査値も原文には戻さず、安全な固定ラベルにする。
   }
+  return '詳細あり（安全表示のため省略）'
 }
 
 const PAGE_SIZE = 50
@@ -46,7 +45,7 @@ export default function PlatformAdminAuditPage() {
     setPage(0)
     platformAdminApi.audit({ all, limit: 200 })
       .then((res) => { if (!cancelled) setEvents(res.data) })
-      .catch((caught: Error) => { if (!cancelled) setError(caught.message) })
+      .catch((caught: unknown) => { if (!cancelled) setError(platformAdminErrorMessage(caught)) })
     return () => { cancelled = true }
   }, [all])
 
@@ -58,9 +57,7 @@ export default function PlatformAdminAuditPage() {
     return events.filter((event) => [
       event.action,
       event.resource_type,
-      event.resource_id,
-      event.platform_admin_id,
-      event.tenant_id ? tenantNames[event.tenant_id] ?? event.tenant_id : '',
+      event.tenant_id ? tenantNames[event.tenant_id] ?? 'テナント（名称未取得）' : '',
       detailText(event.detail_json),
     ].some((value) => value?.toLowerCase().includes(needle)))
   }, [events, query, tenantNames])
@@ -78,7 +75,7 @@ export default function PlatformAdminAuditPage() {
       </div>
 
       <label className="block max-w-md text-sm" htmlFor="audit-search">監査履歴を検索
-        <input id="audit-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="操作、テナント、リソースで検索" />
+        <input id="audit-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="操作、テナント、対象で検索" />
       </label>
 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -92,7 +89,7 @@ export default function PlatformAdminAuditPage() {
                 {all && <th className="px-3 py-2">管理者</th>}
                 <th className="px-3 py-2">アクション</th>
                 <th className="px-3 py-2">テナント</th>
-                <th className="px-3 py-2">リソース種別/ID</th>
+                <th className="px-3 py-2">対象</th>
                 <th className="px-3 py-2">詳細</th>
               </tr>
             </thead>
@@ -100,12 +97,10 @@ export default function PlatformAdminAuditPage() {
               {visible.map((event) => (
                 <tr key={event.id} className="border-t border-gray-100">
                   <td className="px-3 py-2 whitespace-nowrap">{auditDate(event.created_at)}</td>
-                  {all && <td className="px-3 py-2 font-mono text-xs" title={event.platform_admin_id}>{event.platform_admin_id.slice(0, 8)}</td>}
+                  {all && <td className="px-3 py-2">管理者操作</td>}
                   <td className="px-3 py-2">{event.action}</td>
-                  <td className="px-3 py-2 text-xs">{event.tenant_id ? tenantNames[event.tenant_id] ?? event.tenant_id : '—'}</td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {event.resource_type ?? '—'}{event.resource_id ? ` / ${event.resource_id}` : ''}
-                  </td>
+                  <td className="px-3 py-2 text-xs">{event.tenant_id ? tenantNames[event.tenant_id] ?? 'テナント（名称未取得）' : '—'}</td>
+                  <td className="px-3 py-2">{event.resource_type ? '対象あり' : '—'}</td>
                   <td className="px-3 py-2">{detailText(event.detail_json)}</td>
                 </tr>
               ))}

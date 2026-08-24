@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import {
   PlatformAdminApiError,
   platformAdminApi,
+  platformAdminErrorMessage,
   setPlatformAdminName,
 } from '@/lib/platform-admin-api'
 
@@ -39,10 +40,9 @@ export default function PlatformAdminLoginPage() {
       router.push('/platform-admin/tenants')
     } catch (caught) {
       if (caught instanceof PlatformAdminApiError) {
-        // 500 は Cookie トポロジ設定ミス。原因が分からないと直せないので本文をそのまま出す。
         setError(caught.status === 401
           ? '管理者IDまたはパスワードが正しくありません'
-          : caught.message)
+          : platformAdminErrorMessage(caught))
         return
       }
       setError('接続に失敗しました')
@@ -70,7 +70,7 @@ export default function PlatformAdminLoginPage() {
       setConfirmPassword('')
       router.push('/platform-admin/tenants')
     } catch (caught) {
-      setError(caught instanceof PlatformAdminApiError ? caught.message : '接続に失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setLoading(false)
     }

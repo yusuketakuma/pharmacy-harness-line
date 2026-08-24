@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   platformAdminApi,
+  platformAdminErrorMessage,
   type PlatformLogType,
   type PlatformLogs,
   type PlatformTenant,
@@ -15,16 +16,23 @@ const TYPE_OPTIONS: Array<{ value: '' | PlatformLogType; label: string }> = [
 ]
 
 const LOG_COLUMN_LABELS: Record<string, string> = {
-  created_at: '日時', received_at: '受信日時', tenant_id: 'テナントID',
-  line_account_id: 'LINEアカウントID', submission_id: '受付ID', event_type: 'イベント',
+  created_at: '日時', received_at: '受信日時', tenant_id: 'テナント',
+  line_account_id: 'LINEアカウント', submission_id: '受付対象', event_type: 'イベント',
   actor_type: '実行者種別', from_status: '変更前', to_status: '変更後', id: 'ID',
-  webhook_event_id: 'WebhookイベントID', status: '状態', retry_count: '再試行回数',
-  dead_lettered_at: '隔離日時', platform_admin_id: '全体管理者ID', action: '操作',
-  resource_type: 'リソース種別', resource_id: 'リソースID', detail_json: '詳細',
+  webhook_event_id: 'Webhook対象', status: '状態', retry_count: '再試行回数',
+  dead_lettered_at: '隔離日時', platform_admin_id: '全体管理者', action: '操作',
+  resource_type: '対象種別', resource_id: '対象', detail_json: '詳細',
 }
+
+const SAFE_IDENTIFIER_COLUMNS = new Set([
+  'tenant_id', 'line_account_id', 'submission_id', 'webhook_event_id',
+  'platform_admin_id', 'resource_id', 'id',
+])
 
 const logValue = (column: string, value: unknown): string => {
   if (value === null || value === undefined) return '—'
+  if (SAFE_IDENTIFIER_COLUMNS.has(column)) return '対象あり'
+  if (column === 'detail_json') return '詳細あり（安全表示のため省略）'
   if (typeof value === 'string' && /(_at|At)$/.test(column)) {
     const date = new Date(value)
     if (!Number.isNaN(date.getTime())) {
@@ -111,7 +119,7 @@ export default function PlatformAdminLogsPage() {
       })
       setLogs(res.data)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '取得に失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setLoading(false)
     }
@@ -132,11 +140,11 @@ export default function PlatformAdminLogsPage() {
     setError('')
     try {
       const res = await platformAdminApi.retryWebhookEvent(rowTenantId, webhookEventId)
-      if (res.data.outcome !== 'completed') throw new Error(`再試行結果: ${res.data.outcome}`)
-      setRetryResult(`${webhookEventId}: ${res.data.outcome}`)
+      if (res.data.outcome !== 'completed') throw new Error('再試行を完了できませんでした。最新状態を確認してください。')
+      setRetryResult(`再試行結果: ${res.data.outcome}`)
       await load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '再試行に失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setRetrying('')
     }

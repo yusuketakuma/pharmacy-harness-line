@@ -7,6 +7,7 @@ import { useAccount } from '@/contexts/account-context'
 import type { AccountWithStats } from '@/contexts/account-context'
 import { countryFlag } from '@/lib/country-flag'
 import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
+import { api } from '@/lib/api'
 import PrescriptionSidebarBadge from '@/custom/pharmacy/prescriptions/PrescriptionSidebarBadge' // custom:pharmacy-prescriptions
 import { isPharmacyMenuPath } from '@/custom/pharmacy/growth-loop/menu' // custom:pharmacy-allowlist
 
@@ -15,55 +16,63 @@ const appCommitSha = process.env.APP_COMMIT_SHA || 'local'
 const appBuildTime = process.env.APP_BUILD_TIME || ''
 const appBuildDate = appBuildTime ? appBuildTime.replace('T', ' ').replace(/\.\d{3}Z$/, 'Z') : ''
 
+type PharmacyActiveWork = Extract<
+  Awaited<ReturnType<typeof api.pharmacyGrowth.activeWork>>,
+  { success: true }
+>['data']
+type PharmacyMenuCapability = keyof PharmacyActiveWork | 'pharmacy_rich_menu' | 'account_settings' | 'pharmacy_dashboard'
+type PharmacyCapabilityState = { capabilities: readonly string[]; activeWork: PharmacyActiveWork }
+
 // ─── メニュー定義（ユーザー目線のカテゴリ） ───
 
 const menuSections = [
   {
-    label: '本日の業務',
-    pharmacyOnly: true,
-    items: [
-{ href: '/prescriptions', label: '処方せん受付', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
-{ href: '/myna', label: '電子処方箋受付', icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
-{ href: '/emergency-contraception', label: '緊急避妊薬', icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
-{ href: '/pharmacy-notifications', label: '薬局の動き', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' }, // custom:pharmacy-activity-notifications
-    ],
-  },
-  {
-    label: '患者対応',
-    pharmacyOnly: true,
-    items: [
-{ href: '/patient-intakes', label: '患者アンケート', icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
-{ href: '/continuity', label: '継続フォロー', icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
-    ],
-  },
-  {
-    label: '設定',
-    pharmacyOnly: true,
-    items: [
-{ href: '/pharmacy-features', label: '機能設定', icon: 'M12 6V3m0 18v-3m6-6h3M3 12h3m10.243-4.243 2.121-2.121M5.636 18.364l2.121-2.121m8.486 0 2.121 2.121M5.636 5.636l2.121 2.121' }, // custom:pharmacy-feature-settings
-{ href: '/pharmacy-info', label: '患者向け薬局情報', icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
-{ href: '/pharmacy-growth', label: '薬局統計', icon: 'M4 19h16M6 16V8m6 8V4m6 12v-6' }, // custom:pharmacy-growth-loop
-    ],
-  },
-  {
-    label: 'コンプライアンス',
-    pharmacyOnly: true,
-    items: [
-{ href: '/privacy-policy', label: '個人情報の取扱い', icon: 'M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3zm-2 9l2 2 4-4' }, // custom:pharmacy-privacy-policy
-{ href: '/data-subject-requests', label: '開示・消去請求', icon: 'M9 12h6m-6 4h4m1 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l6 6v10a2 2 0 01-2 2z' }, // custom:pharmacy-data-subject-requests
-    ],
-  },
-  {
-    label: null, // セクションラベルなし（メイン）
+    label: 'ホーム',
     items: [
       { href: '/', label: 'ダッシュボード', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+    ],
+  },
+  {
+    label: '日常業務',
+    pharmacyOnly: true,
+    items: [
+{ href: '/prescriptions', label: '処方せん受付', capability: 'prescription_intake' as const, icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' }, // custom:pharmacy-prescriptions
+{ href: '/myna', label: '電子処方箋受付', capability: 'electronic_prescription' as const, icon: 'M12 3v18M5 8h14M5 16h14M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-myna
+{ href: '/emergency-contraception', label: '緊急避妊薬', capability: 'emergency_contraception' as const, icon: 'M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zm-3-11 2 2 4-4' }, // custom:pharmacy-emergency-contraception
+{ href: '/pharmacy-notifications', label: '薬局の動き', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' }, // custom:pharmacy-activity-notifications
+{ href: '/continuity', label: '継続フォロー', capability: 'continuity' as const, icon: 'M4 4v5h5M20 20v-5h-5M5.5 15a7 7 0 0011.9 2M18.5 9A7 7 0 006.6 7' }, // custom:pharmacy-continuity
+      { href: '/notifications', label: '未対応', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
+    ],
+  },
+  {
+    label: '患者・法令',
+    items: [
+{ href: '/patient-intakes', label: '患者アンケート', capability: 'patient_intake' as const, pharmacyOnly: true, icon: 'M9 5h6m-8 4h10m-10 4h10m-10 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' }, // custom:pharmacy-intake
+{ href: '/privacy-policy', label: '個人情報の取扱い', pharmacyOnly: true, icon: 'M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3zm-2 9l2 2 4-4' }, // custom:pharmacy-privacy-policy
+{ href: '/data-subject-requests', label: '開示・消去請求', pharmacyOnly: true, icon: 'M9 12h6m-6 4h4m1 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l6 6v10a2 2 0 01-2 2z' }, // custom:pharmacy-data-subject-requests
       { href: '/friends', label: '友だち管理', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
       { href: '/tags', label: 'タグ管理', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z' },
-      { href: '/chats', label: '個別チャット', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
+      { href: '/chats', label: '個別チャット', capability: 'manual_chat' as const, icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
+    ],
+  },
+  {
+    label: '設定・安全',
+    items: [
+{ href: '/pharmacy-features', label: '機能設定', pharmacyOnly: true, icon: 'M12 6V3m0 18v-3m6-6h3M3 12h3m10.243-4.243 2.121-2.121M5.636 18.364 7.757 16.243m8.486 0 2.121 2.121M5.636 5.636l2.121 2.121' }, // custom:pharmacy-feature-settings
+{ href: '/pharmacy-info', label: '患者向け薬局情報', capability: 'pharmacy_info' as const, pharmacyOnly: true, icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 10h6M9 14h6M9 18h6' }, // custom:pharmacy-public-profile
+{ href: '/pharmacy-growth', label: '薬局統計', capability: 'pharmacy_dashboard' as const, pharmacyOnly: true, icon: 'M4 19h16M6 16V8m6 8V4m6 12v-6' }, // custom:pharmacy-growth-loop
+      { href: '/rich-menus', label: 'リッチメニュー', capability: 'pharmacy_rich_menu' as const, icon: 'M4 4h6v6H4V4zm0 10h6v6H4v-6zm10-10h6v6h-6V4zm0 10h6v6h-6v-6z' },
+      { href: '/staff', label: 'スタッフ管理', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
+      { href: '/accounts', label: 'LINEアカウント', capability: 'account_settings' as const, icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011 1h2a1 1 0 011 1v5m-4 0h4' },
+      { href: '/pools', label: 'プール管理', icon: 'M3 7h18M3 12h18M3 17h18' },
+      { href: '/users', label: 'ユーザー一覧', icon: 'M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2' },
+      { href: '/health', label: 'BAN検知', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+      { href: '/emergency', label: '緊急コントロール', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z', danger: true },
     ],
   },
   {
     label: '配信',
+    generalOnly: true,
     items: [
       { href: '/friend-add-settings', label: '友だち追加時設定', icon: 'M12 6v6m0 0v6m0-6h6m-6 0H6' },
       { href: '/scenarios', label: 'シナリオ配信', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
@@ -76,6 +85,7 @@ const menuSections = [
   },
   {
     label: '分析',
+    generalOnly: true,
     items: [
       { href: '/inflow-links', label: 'リファラルリンク', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
       { href: '/affiliates', label: 'アフィリエイト', icon: 'M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 12.632a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z' },
@@ -87,6 +97,7 @@ const menuSections = [
   },
   {
     label: '自動化',
+    generalOnly: true,
     items: [
       { href: '/automations', label: 'オートメーション', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
       { href: '/auto-replies', label: '自動返信ルール', icon: 'M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6' },
@@ -96,22 +107,12 @@ const menuSections = [
   },
   {
     label: '予約',
+    generalOnly: true,
     items: [
       { href: '/booking/bookings', label: '予約管理', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
       { href: '/booking/menus', label: 'メニュー', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
       { href: '/booking/staff', label: 'スタッフ', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
       { href: '/events', label: 'イベント予約', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H7a2 2 0 00-2 2v2m5-7v3m4-3v3' },
-    ],
-  },
-  {
-    label: '設定',
-    items: [
-      { href: '/staff', label: 'スタッフ管理', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
-      { href: '/accounts', label: 'LINEアカウント', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-      { href: '/pools', label: 'プール管理', icon: 'M3 7h18M3 12h18M3 17h18' },
-      { href: '/users', label: 'ユーザー一覧', icon: 'M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2' },
-      { href: '/health', label: 'BAN検知', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-      { href: '/emergency', label: '緊急コントロール', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z', danger: true },
     ],
   },
 ]
@@ -255,6 +256,43 @@ export default function Sidebar() {
     setStaffRole(localStorage.getItem('lh_staff_role'))
   }, [])
 
+  const [capabilityState, setCapabilityState] = useState<PharmacyCapabilityState | null>(null)
+  const [capabilityError, setCapabilityError] = useState(false)
+  const [capabilityRetry, setCapabilityRetry] = useState(0)
+  const capabilityRequestRef = useRef(0)
+
+  useEffect(() => {
+    const accountId = selectedAccount?.id
+    const requestId = ++capabilityRequestRef.current
+    let cancelled = false
+    setCapabilityState(null)
+    setCapabilityError(false)
+
+    if (!accountId || !selectedAccount?.pharmacyMode) return () => { cancelled = true }
+
+    const loadCapabilityState = async () => {
+      try {
+        const [configResponse, activeWorkResponse] = await Promise.all([
+          api.pharmacyGrowth.config(accountId),
+          api.pharmacyGrowth.activeWork(accountId),
+        ])
+        if (cancelled || requestId !== capabilityRequestRef.current) return
+        if (!configResponse.success || !configResponse.data || !activeWorkResponse.success) {
+          setCapabilityError(true)
+          return
+        }
+        setCapabilityState({
+          capabilities: configResponse.data.capabilities,
+          activeWork: activeWorkResponse.data,
+        })
+      } catch {
+        if (!cancelled && requestId === capabilityRequestRef.current) setCapabilityError(true)
+      }
+    }
+    void loadCapabilityState()
+    return () => { cancelled = true }
+  }, [selectedAccount?.id, selectedAccount?.pharmacyMode, capabilityRetry])
+
   // 未対応件数 polling — メニュー項目にバッジを出す。5 分間隔。
   // (裏の countUnanswered は messages_log 全走査を含む重い集計なので間隔は詰めない。)
   // チャット画面での status 変更・手動返信直後は UNANSWERED_REFRESH_EVENT で
@@ -314,19 +352,44 @@ export default function Sidebar() {
 
       {/* ナビゲーション */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {selectedAccount?.pharmacyMode && capabilityError && (
+          <div role="alert" className="mx-1 mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <p>機能の利用可否を確認できないため、該当する導線を表示していません。</p>
+            <button type="button" onClick={() => setCapabilityRetry((current) => current + 1)} className="mt-2 min-h-11 rounded border border-amber-700 px-3 py-2 font-medium underline">
+              再取得
+            </button>
+          </div>
+        )}
         {menuSections
           .filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)
+          .filter((section) => !selectedAccount?.pharmacyMode || !('generalOnly' in section))
           .map((section) => ({
             ...section,
-            items: section.items.filter((item) => {
+            items: section.items.flatMap((item) => {
+              if ('pharmacyOnly' in item && item.pharmacyOnly && !selectedAccount?.pharmacyMode) return []
               // Pharmacy tenants get the 薬局機能 section (via section.pharmacyOnly)
               // plus only the general entries the server actually permits them.
               // Everything else 403s, so listing it is a dead end.
               if (selectedAccount?.pharmacyMode && !section.pharmacyOnly &&
-                  !isPharmacyMenuPath(item.href)) return false
-              if (item.href === '/staff' && staffRole !== 'owner') return false
-              if (item.href === '/accounts' && staffRole === 'staff') return false
-              return true
+                  !('pharmacyOnly' in item && item.pharmacyOnly) &&
+                  !isPharmacyMenuPath(item.href)) return []
+              if (item.href === '/staff' && staffRole !== 'owner') return []
+              if (item.href === '/accounts' && staffRole === 'staff') return []
+              const capability = 'capability' in item ? item.capability as PharmacyMenuCapability : null
+              if (selectedAccount?.pharmacyMode && capability) {
+                if (!capabilityState) return []
+                const enabled = capabilityState.capabilities.includes(capability)
+                const activeWorkCount = capability in capabilityState.activeWork
+                  ? capabilityState.activeWork[capability as keyof PharmacyActiveWork] ?? 0
+                  : 0
+                const reviewOnly = !enabled && activeWorkCount > 0
+                if (!enabled && !reviewOnly) return []
+                return [{
+                  ...item,
+                  label: reviewOnly ? `${item.label}（確認のみ）` : item.label,
+                }]
+              }
+              return [item]
             }),
           }))
           // A section whose entries were all filtered out would otherwise render as a

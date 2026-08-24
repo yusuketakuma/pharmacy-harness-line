@@ -140,9 +140,10 @@ interface MessageLog {
   createdAt: string
 }
 
-function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
+function DirectMessagePanel({ friendId, friend, readOnly, onBack, onSent }: {
   friendId: string
   friend: FriendItem | null
+  readOnly: boolean
   onBack: () => void
   onSent: () => void | Promise<void>
 }) {
@@ -175,7 +176,8 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
   }, [friendId])
 
   const handleSend = async () => {
-    if (!message.trim() || sending || sendLockRef.current) return
+    if (readOnly || !message.trim() || sending || sendLockRef.current) return
+    if (!window.confirm('この相手へ個別メッセージを送信します。内容とLINEへの影響を確認しましたか？')) return
     const content = message.trim()
     sendLockRef.current = true
     setSending(true)
@@ -183,6 +185,7 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
     try {
       await fetchApi(`/api/friends/${friendId}/messages`, {
         method: 'POST',
+        headers: { 'X-Line-Harness-Source': 'manual' },
         body: JSON.stringify({ content, messageType: 'text' }),
       })
       setMessages((prev) => [...prev, {
@@ -276,7 +279,9 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
       </div>
       <div className="px-4 py-3 border-t border-gray-200">
         {directError && <p role="alert" className="mb-2 text-sm text-red-600">{directError}</p>}
-        <div className="flex gap-2">
+        {readOnly ? (
+          <p role="status" className="text-sm text-amber-800">確認のみ — 個別チャット機能がOFFのため送信できません。</p>
+        ) : <div className="flex gap-2">
           <input
             type="text"
             value={message}
@@ -302,14 +307,14 @@ function DirectMessagePanel({ friendId, friend, onBack, onSent }: {
           >
             {sending ? '...' : '送信'}
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   )
 }
 
 export default function ChatsPage() {
-  const { selectedAccountId } = useAccount()
+  const { selectedAccountId, selectedAccount } = useAccount()
   const [chats, setChats] = useState<Chat[]>([])
   const [allFriends, setAllFriends] = useState<FriendItem[]>([])
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
@@ -353,6 +358,32 @@ export default function ChatsPage() {
   const isComposingRef = useRef(false)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [manualChatState, setManualChatState] = useState<'loading' | 'enabled' | 'review-only' | 'unverified'>('loading')
+  const chatMutationAllowed = manualChatState === 'enabled'
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedAccount) {
+      setManualChatState('loading')
+      return
+    }
+    if (!selectedAccount.pharmacyMode) {
+      setManualChatState('enabled')
+      return
+    }
+    setManualChatState('loading')
+    void api.pharmacyGrowth.config(selectedAccount.id).then((response) => {
+      if (cancelled) return
+      if (!response.success || !response.data) {
+        setManualChatState('unverified')
+        return
+      }
+      setManualChatState(response.data.capabilities.includes('manual_chat') ? 'enabled' : 'review-only')
+    }).catch(() => {
+      if (!cancelled) setManualChatState('unverified')
+    })
+    return () => { cancelled = true }
+  }, [selectedAccount?.id, selectedAccount?.pharmacyMode])
 
   useEffect(() => {
     try {
@@ -484,14 +515,10 @@ export default function ChatsPage() {
         setChatDetail(res.data as unknown as ChatDetail)
         setNotes((res.data as unknown as ChatDetail).notes || '')
       } else {
-        // API は 200 で success:false を返す可能性 (例: 404 lookup)。詳細を画面に出す。
-        const errMsg = (res as { error?: string }).error ?? '不明なエラー'
-        setError(`チャット詳細の読み込みに失敗しました: ${errMsg}`)
+        setError('チャット詳細を確認できませんでした。再読み込みしてください。')
       }
-    } catch (err) {
-      // ネットワーク / parse / auth fail などの例外。empty catch だと原因不明だったので詳細を出す。
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(`チャット詳細の読み込みに失敗しました: ${msg}`)
+    } catch {
+      setError('チャット詳細を確認できませんでした。再読み込みしてください。')
     } finally {
       setDetailLoading(false)
     }
@@ -598,7 +625,7 @@ export default function ChatsPage() {
   }
 
   const triggerLoadingAnimation = useCallback(async (chatId: string) => {
-    if (!showLoadingIndicator) return
+    if (!chatMutationAllowed || !showLoadingIndicator) return
 
     const now = Date.now()
     const last = lastLoadingTriggerAtRef.current[chatId] ?? 0
@@ -610,15 +637,15 @@ export default function ChatsPage() {
         method: 'POST',
         body: JSON.stringify({ loadingSeconds }),
       })
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : 'unknown'
-      setError(`ローディング表示の開始に失敗しました: ${detail}`)
+    } catch {
+      setError('ローディング表示の開始に失敗しました。再試行してください。')
     }
-  }, [showLoadingIndicator, loadingSeconds])
+  }, [chatMutationAllowed, showLoadingIndicator, loadingSeconds])
 
   const handleSendMessage = async () => {
-    if (!selectedChatId || sending || sendLockRef.current) return
+    if (!chatMutationAllowed || !selectedChatId || sending || sendLockRef.current) return
     if (!messageContent.trim() && !pendingImage) return
+    if (!window.confirm('この相手へ個別メッセージを送信します。内容とLINEへの影響を確認しましたか？')) return
     const sendingChatId = selectedChatId  // capture the chat id for this send
     sendLockRef.current = true
     setSending(true)
@@ -743,7 +770,7 @@ export default function ChatsPage() {
   }
 
   const handleStatusUpdate = async (newStatus: Chat['status']) => {
-    if (!selectedChatId) return
+    if (!chatMutationAllowed || !selectedChatId) return
     try {
       await api.chats.update(selectedChatId, { status: newStatus })
       loadChatDetail(selectedChatId)
@@ -756,7 +783,7 @@ export default function ChatsPage() {
   }
 
   const handleSaveNotes = async () => {
-    if (!selectedChatId) return
+    if (!chatMutationAllowed || !selectedChatId) return
     setSavingNotes(true)
     try {
       await api.chats.update(selectedChatId, { notes })
@@ -789,6 +816,16 @@ export default function ChatsPage() {
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {error}
+        </div>
+      )}
+
+      {selectedAccount?.pharmacyMode && manualChatState !== 'enabled' && (
+        <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {manualChatState === 'loading' && '個別チャット機能の状態を確認しています。'}
+          {manualChatState === 'unverified' && '機能状態を確認できないため、履歴の確認だけに制限しています。再読み込みしてください。'}
+          {manualChatState === 'review-only' && (
+            <>確認のみ — 個別チャット機能がOFFのため、履歴は確認できますが変更・送信はできません。<a href="/pharmacy-features" className="ml-1 font-medium underline">機能設定で有効にする</a></>
+          )}
         </div>
       )}
 
@@ -927,6 +964,7 @@ export default function ChatsPage() {
             <DirectMessagePanel
               friendId={selectedFriendId}
               friend={allFriends.find((f) => f.id === selectedFriendId) || null}
+              readOnly={!chatMutationAllowed}
               onBack={() => setSelectedFriendId(null)}
               onSent={async () => { setSelectedFriendId(null); await loadChats(); }}
             />
@@ -986,7 +1024,7 @@ export default function ChatsPage() {
                       次の未対応 →
                     </button>
                   )}
-                  {chatDetail.status !== 'unread' && (
+                  {chatMutationAllowed && chatDetail.status !== 'unread' && (
                     <button
                       onClick={() => handleStatusUpdate('unread')}
                       className="px-3 py-1 min-h-[44px] lg:min-h-0 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
@@ -994,7 +1032,7 @@ export default function ChatsPage() {
                       未読に戻す
                     </button>
                   )}
-                  {chatDetail.status !== 'in_progress' && (
+                  {chatMutationAllowed && chatDetail.status !== 'in_progress' && (
                     <button
                       onClick={() => handleStatusUpdate('in_progress')}
                       className="px-3 py-1 min-h-[44px] lg:min-h-0 text-xs font-medium text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded-md transition-colors"
@@ -1002,7 +1040,7 @@ export default function ChatsPage() {
                       対応中にする
                     </button>
                   )}
-                  {chatDetail.status !== 'resolved' && (
+                  {chatMutationAllowed && chatDetail.status !== 'resolved' && (
                     <button
                       onClick={() => handleStatusUpdate('resolved')}
                       className="px-3 py-1 min-h-[44px] lg:min-h-0 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-md transition-colors"
@@ -1099,22 +1137,26 @@ export default function ChatsPage() {
                   <input
                     type="text"
                     value={notes}
+                    disabled={!chatMutationAllowed}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="メモを入力..."
-                    className="flex-1 text-xs border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                    className="flex-1 text-xs border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"
                   />
-                  <button
+                  {chatMutationAllowed && <button
                     onClick={handleSaveNotes}
                     disabled={savingNotes}
                     className="px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50"
                   >
                     {savingNotes ? '保存中...' : 'メモ保存'}
-                  </button>
+                  </button>}
                 </div>
               </div>
 
               {/* Send Message Form */}
               <div className="px-4 py-3 border-t border-gray-200">
+                {!chatMutationAllowed ? (
+                  <p role="status" className="text-sm text-amber-800">確認のみ — 個別チャット機能がOFFまたは未確認のため送信できません。</p>
+                ) : <>
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-gray-600">
                   <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                     <input
@@ -1198,6 +1240,7 @@ export default function ChatsPage() {
                     {sending ? '送信中...' : '送信'}
                   </button>
                 </div>
+                </>}
               </div>
             </>
           ) : null}

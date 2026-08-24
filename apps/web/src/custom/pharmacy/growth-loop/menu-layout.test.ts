@@ -12,14 +12,14 @@ describe('pharmacy admin menu layout', () => {
       source.indexOf('const menuSections ='),
       source.indexOf('function AccountAvatar'),
     )
-    const generalStart = definition.indexOf('label: null')
+    const generalStart = definition.indexOf("label: '配信'")
     const groups: Record<string, string[]> = {
-      '本日の業務': ['/prescriptions', '/myna', '/emergency-contraception', '/pharmacy-notifications'],
-      '患者対応': ['/patient-intakes', '/continuity'],
-      '設定': ['/pharmacy-features', '/pharmacy-info', '/pharmacy-growth'],
-      'コンプライアンス': ['/privacy-policy', '/data-subject-requests'],
+      'ホーム': ['/'],
+      '日常業務': ['/prescriptions', '/myna', '/emergency-contraception', '/pharmacy-notifications', '/continuity'],
+      '患者・法令': ['/patient-intakes', '/chats', '/privacy-policy', '/data-subject-requests'],
+      '設定・安全': ['/pharmacy-features', '/pharmacy-info', '/pharmacy-growth'],
     }
-    const sectionStarts = Object.keys(groups).map((label) => definition.indexOf(`label: '${label}',\n    pharmacyOnly: true`))
+    const sectionStarts = Object.keys(groups).map((label) => definition.indexOf(`label: '${label}',`))
     expect(sectionStarts.every((position) => position >= 0 && position < generalStart)).toBe(true)
     expect(sectionStarts).toEqual([...sectionStarts].sort((a, b) => a - b))
     Object.entries(groups).forEach(([, paths], index) => {
@@ -34,6 +34,7 @@ describe('pharmacy admin menu layout', () => {
     expect(source).toContain(
       '.filter((section) => !section.pharmacyOnly || selectedAccount?.pharmacyMode)',
     )
+    expect(source).toContain("!selectedAccount?.pharmacyMode || !('generalOnly' in section)")
     // Pharmacy tenants are additionally filtered down to the general entries the
     // server allows them; a section left with no entries is dropped rather than
     // rendered as a bare heading.
