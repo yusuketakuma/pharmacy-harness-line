@@ -1203,6 +1203,7 @@ export default function ChatsPage() {
                     value={pendingImage}
                     onChange={setPendingImage}
                     label="画像を送る (任意)"
+                    lineAccountId={selectedAccountId ?? undefined}
                   />
                 </div>
                 <div className="flex items-end gap-2">

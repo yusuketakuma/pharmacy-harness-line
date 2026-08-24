@@ -862,6 +862,34 @@ const apiDefinitions: EntryDefinition[] = [
     queryAuthority: 'selector-only-server-validated', manualOneToOne: 'not-applicable', meetFollowUp: 'not-applicable', reachability: 'reachable',
   },
   {
+    id: 'api-capabilities',
+    kind: 'api', surface: 'pharmacy-admin', path: '/api/capabilities', source: 'apps/worker/src/routes/admin/capabilities.ts',
+    testReferences: ['apps/worker/src/routes/admin/capabilities.test.ts', 'apps/worker/src/custom/pharmacy/platform-admin/api-coverage.test.ts'],
+    roles: ['tenant-admin', 'staff'],
+    authority: 'authenticated server tenant context determines the pharmacy capability projection',
+    lineAccountIdAuthority: 'not accepted; server tenant mappings determine the product capability set',
+    displayedInfo: ['product/version metadata', 'enabled capability names', 'reachable endpoint catalog'],
+    mutation: 'read-only capability discovery',
+    confirmation: 'authenticated read with server tenant classification',
+    phiClassification: 'none',
+    audit: 'read-only non-PHI discovery; no mutation audit is applicable',
+    queryAuthority: 'server-tenant/account-bound', manualOneToOne: 'not-applicable', meetFollowUp: 'not-applicable', reachability: 'reachable',
+  },
+  {
+    id: 'api-images',
+    kind: 'api', surface: 'pharmacy-admin', path: '/api/images* /images/*', source: 'apps/worker/src/routes/admin/images.ts',
+    testReferences: ['apps/worker/src/routes/admin/images.test.ts', 'apps/worker/src/custom/pharmacy/growth-loop/generic-feature-guard.test.ts'],
+    roles: ['unauthenticated', 'tenant-admin', 'staff'],
+    authority: 'server accepts only generated public-upload keys; pharmacy upload requires authenticated staff assignment to the selected account',
+    lineAccountIdAuthority: 'pharmacy upload query is a selector validated against active server tenant/staff/account assignments',
+    displayedInfo: ['public image bytes', 'private incoming image bytes', 'uploaded image key and URL'],
+    mutation: 'upload; deletion remains generic-only and is blocked for pharmacy tenants',
+    confirmation: 'server MIME/size/key validation, pharmacy account authorization, and pharmacy delete denial',
+    phiClassification: 'operational-sensitive',
+    audit: 'pharmacy upload intent is recorded before R2 mutation; private incoming reads remain tenant/account scoped',
+    queryAuthority: 'selector-only-server-validated', manualOneToOne: 'not-applicable', meetFollowUp: 'not-applicable', reachability: 'reachable',
+  },
+  {
     id: 'api-line-accounts',
     kind: 'api', surface: 'pharmacy-admin', path: '/api/line-accounts/*', source: 'apps/worker/src/routes/admin/line-accounts.ts',
     testReferences: ['apps/worker/src/routes/admin/line-accounts.test.ts', 'apps/worker/src/middleware/tenant-boundary.test.ts'],
@@ -1187,7 +1215,7 @@ export function extractRoutePatterns(source: string, prefixes?: readonly string[
   const routes: RoutePattern[] = [];
   const add = (method: string, rawPath: string) => {
     const path = interpolatePath(rawPath, constants);
-    if (!path.startsWith('/api/')) return;
+    if (!path.startsWith('/api/') && !path.startsWith('/images/')) return;
     if (prefixes && !prefixes.some((prefix) => path.startsWith(prefix))) return;
     routes.push({ method: method.toUpperCase() as HttpMethod, path });
   };

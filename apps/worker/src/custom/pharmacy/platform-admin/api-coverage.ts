@@ -69,6 +69,7 @@ const RICH_OPERATION = /^\/api\/rich-menu-groups\/operations\/[^/]+\/(?:reconcil
 
 /** CLI-visible, non-PHI pharmacy administration API contract. */
 export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = [
+  read(/^\/api\/capabilities$/u, 'tenant'),
   read(/^\/api\/account-settings\/(?:link-base-url|tracked-link-base-url)$/u, 'tenant'),
   mutate('PUT', /^\/api\/account-settings\/(?:link-base-url|tracked-link-base-url)$/u, 'tenant'),
   read(/^\/api\/line-accounts$/u, 'tenant'),
@@ -129,6 +130,9 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
 
 /** Routes intentionally unavailable to the generic settings CLI. */
 export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = [
+  { method: 'POST', path: /^\/api\/images$/u, reason: 'binary-output' },
+  { method: 'GET', path: /^\/api\/images\/.+$/u, reason: 'binary-output' },
+  { method: 'DELETE', path: /^\/api\/images\/.+$/u, reason: 'destructive-operation' },
   {
     method: 'GET',
     path: /^\/api\/account-settings\/test-recipients$/u,

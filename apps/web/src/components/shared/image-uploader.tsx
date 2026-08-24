@@ -14,6 +14,7 @@ export interface ImageUploaderProps {
   value: ImageUploaderValue | null
   onChange: (next: ImageUploaderValue | null) => void
   label?: string
+  lineAccountId?: string
 }
 
 /**
@@ -23,7 +24,7 @@ export interface ImageUploaderProps {
  * mode='line-image' は {originalContentUrl, previewImageUrl} を返す (Broadcast / Auto-reply / Template / Chats)。
  * 初版は preview = original の同 URL。後段で本格 resize が必要になれば worker 側で対応。
  */
-export default function ImageUploader({ mode, value, onChange, label }: ImageUploaderProps) {
+export default function ImageUploader({ mode, value, onChange, label, lineAccountId }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -50,7 +51,7 @@ export default function ImageUploader({ mode, value, onChange, label }: ImageUpl
       setBusy(true)
       setError('')
       try {
-        const res = await api.uploads.image(file)
+        const res = await api.uploads.image(file, lineAccountId)
         if (!res.success) {
           setError(res.error ?? 'アップロード失敗')
           return
@@ -67,7 +68,7 @@ export default function ImageUploader({ mode, value, onChange, label }: ImageUpl
         setBusy(false)
       }
     },
-    [mode, onChange],
+    [lineAccountId, mode, onChange],
   )
 
   const handleFiles = useCallback(

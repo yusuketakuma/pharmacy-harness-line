@@ -453,6 +453,17 @@ describe('pharmacy tenant API allowlist', () => {
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200, 200]);
   });
 
+  it('allows account-scoped image upload but blocks pharmacy image deletion', async () => {
+    const { root, env } = allowlistApp(true);
+    const [upload, read, remove] = await Promise.all([
+      root.request('/api/images?line_account_id=account-a', { method: 'POST' }, env),
+      root.request('/api/images/tenants/tenant-a/accounts/account-a/incoming/message.jpg', {}, env),
+      root.request('/api/images/tenants/tenant-a/uploads/image.jpg', { method: 'DELETE' }, env),
+    ]);
+
+    expect([upload.status, read.status, remove.status]).toEqual([200, 200, 403]);
+  });
+
   it('rejects generic and nested growth features for a pharmacy tenant', async () => {
     const { root, env } = allowlistApp(true);
     const responses = await Promise.all([

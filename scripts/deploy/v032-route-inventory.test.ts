@@ -97,6 +97,18 @@ describe('V032 route inventory', () => {
     expect(routeKeys).toContain('POST /api/friends/:id/messages');
     expect(routeKeys).toContain('POST /api/meet-consultations');
     expect(routeKeys).toContain('POST /api/custom/pharmacy/prescriptions/:id/actions/:action');
+    for (const key of [
+      'GET /api/capabilities',
+      'POST /api/images',
+      'GET /images/:key{.+}',
+      'GET /api/images/:key{.+}',
+      'DELETE /api/images/:key{.+}',
+    ]) expect(routeKeys).toContain(key);
+
+    expect(inventory.apis.find((entry) => entry.id === 'api-capabilities')?.source)
+      .toBe('apps/worker/src/routes/admin/capabilities.ts');
+    expect(inventory.apis.find((entry) => entry.id === 'api-images')?.source)
+      .toBe('apps/worker/src/routes/admin/images.ts');
   });
 
   it('references only existing page, component, route, and regression-test files', () => {

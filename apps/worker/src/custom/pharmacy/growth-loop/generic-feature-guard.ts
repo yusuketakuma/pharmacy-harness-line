@@ -20,7 +20,6 @@ const PHARMACY_ALLOWED_API_PREFIXES = [
   '/api/chats',
   '/api/conversations',
   '/api/inbox',
-  '/api/images',
   '/api/meet-consultations',
   '/api/rich-menu-groups',
   '/api/rich-menu-images',
@@ -70,7 +69,9 @@ function matchesPrefix(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function isAllowedPharmacyApi(path: string): boolean {
+function isAllowedPharmacyApi(method: string, path: string): boolean {
+  if (path === '/api/images') return method === 'POST' || method === 'OPTIONS';
+  if (path.startsWith('/api/images/')) return SAFE_METHODS.has(method);
   if (PHARMACY_ALLOWED_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix))) return true;
   if (path === '/api/account-settings/test-recipients') return true;
   if (path === '/api/friends' || path === '/api/friends/count') return true;
@@ -91,7 +92,7 @@ export async function pharmacyTenantApiAllowlistGuard(
   if (c.get('platformAdmin') && findPharmacyAdminApiCoverage(c.req.method, path)) {
     return next();
   }
-  if (!isAllowedPharmacyApi(path)) {
+  if (!isAllowedPharmacyApi(c.req.method.toUpperCase(), path)) {
     return c.json({ success: false, error: 'Feature disabled for pharmacy tenant' }, 403);
   }
   return next();

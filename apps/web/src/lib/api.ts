@@ -1995,9 +1995,12 @@ export const api = {
      * 既存 /api/images エンドポイントを叩いて画像をアップロードする。
      * 10MB 超 / image/* 以外は 400 で返る。
      */
-    image: async (file: File): Promise<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>> => {
+    image: async (file: File, lineAccountId?: string): Promise<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>> => {
       const buf = await file.arrayBuffer()
-      return fetchApi<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>>('/api/images', {
+      const path = lineAccountId
+        ? `/api/images?line_account_id=${encodeURIComponent(lineAccountId)}`
+        : '/api/images'
+      return fetchApi<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>>(path, {
         method: 'POST',
         headers: { 'Content-Type': file.type || 'application/octet-stream' },
         body: buf,
