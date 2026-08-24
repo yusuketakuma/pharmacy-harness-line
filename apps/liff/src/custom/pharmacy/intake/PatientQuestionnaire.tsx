@@ -101,7 +101,7 @@ function ChoiceField<T extends string>({
 }) {
   return (
     <fieldset className="space-y-2" aria-invalid={error ? true : undefined}>
-      <legend className="text-sm">{label}{required && <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-bold text-red-800">必須</span>}</legend>
+    <legend className="text-base">{label}{required && <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-sm font-bold text-red-800">必須</span>}</legend>
       <div className="grid grid-cols-2 gap-2">
         {options.map((option) => (
           <label key={option.value} className="cursor-pointer">
@@ -113,13 +113,13 @@ function ChoiceField<T extends string>({
               onChange={() => onChange(option.value)}
               className="peer sr-only"
             />
-            <span className="flex min-h-11 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-sm peer-checked:border-green-600 peer-checked:bg-green-50 peer-checked:font-bold peer-checked:before:mr-1 peer-checked:before:content-['✓'] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-green-600">
+            <span className="pharmacy-control flex items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-base peer-checked:border-green-700 peer-checked:bg-green-50 peer-checked:font-bold peer-checked:before:mr-1 peer-checked:before:content-['✓'] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-blue-700">
               {option.label}
             </span>
           </label>
         ))}
       </div>
-      {error && <p role="alert" className="text-sm font-bold text-red-700">{error}</p>}
+      {error && <p role="alert" className="text-base font-bold text-red-700">{error}</p>}
     </fieldset>
   );
 }
@@ -191,10 +191,10 @@ export function PatientQuestionnaire({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 id="health-heading" className="font-bold">患者アンケート</h2>
-          <span className="text-xs text-gray-500">ステップ {step} / {intakeSteps.length}</span>
+          <span className="text-base text-gray-700">ステップ {step} / {intakeSteps.length}</span>
         </div>
         <ol aria-label="アンケートのステップ" className="grid grid-cols-3 gap-2">
-          {intakeSteps.map((label, index) => <li key={label} className={`rounded-lg px-2 py-2 text-center text-xs ${step === index + 1 ? 'bg-green-100 font-bold text-green-800' : 'bg-gray-100 text-gray-500'}`}>{index + 1}. {label}</li>)}
+          {intakeSteps.map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined} className={`pharmacy-control rounded-lg px-2 py-2 text-center text-sm ${step === index + 1 ? 'bg-green-100 font-bold text-green-800' : 'bg-gray-100 text-gray-700'}`}>{index + 1}. {label}</li>)}
         </ol>
       </div>
 
@@ -224,7 +224,7 @@ export function PatientQuestionnaire({
         <h3 className="font-bold">確認・送信</h3>
         <p className="text-sm text-gray-600">回答内容を確認し、薬局に伝えたいことがあれば入力してください。</p>
         <label className="block text-sm">薬局に伝えたいこと（任意）<textarea value={answers.notes ?? ''} onChange={(event) => updateAnswer('notes', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" rows={3} maxLength={2000} /></label>
-        <div className="rounded-lg border-2 border-green-600 bg-white p-3 text-sm" role="group" aria-labelledby="intake-confirm-heading">
+        <div className="rounded-lg border-2 border-green-700 bg-white p-3 text-sm" role="group" aria-labelledby="intake-confirm-heading">
           <p id="intake-confirm-heading" className="font-bold">送信内容の確認</p>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-gray-800">
             <dt className="text-gray-600">アレルギー</dt><dd>{labelOf(statusOptions, answers.allergiesStatus)}</dd>
@@ -240,17 +240,17 @@ export function PatientQuestionnaire({
               <dt className="text-gray-600">授乳中</dt><dd>{labelOf(pregnancyOptions, answers.breastfeedingStatus)}</dd>
             </>}
           </dl>
-          <p className="mt-2 text-xs text-gray-600">内容を直す場合は「戻る」で前のステップへ戻れます。</p>
+          <p className="mt-2 text-sm text-gray-700">内容を直す場合は「戻る」で前のステップへ戻れます。</p>
         </div>
         <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={representativeConsent} onChange={(event) => onRepresentativeConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>本人または代理人として、回答内容を薬局へ伝えることに同意します。</span></label>
         {/* 個人情報取扱事業者は薬局。掲示が未設定でも送信は妨げない。 */}
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs leading-5 text-gray-700 space-y-1">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm leading-5 text-gray-700 space-y-1">
           <p className="font-bold text-gray-800">この薬局による個人情報の取扱いについて</p>
           {privacyPolicy ? <>
             <p>利用目的：{privacyPolicy.purpose_text}</p>
             {privacyPolicy.entrustment_text && <p>委託について：{privacyPolicy.entrustment_text}</p>}
             <p>問い合わせ窓口：{privacyPolicy.contact_point}</p>
-            {privacyPolicy.purpose_url && <p><a href={privacyPolicy.purpose_url} target="_blank" rel="noreferrer" className="font-bold text-green-700 underline">利用目的の詳細を見る</a></p>}
+            {privacyPolicy.purpose_url && <p><a href={privacyPolicy.purpose_url} target="_blank" rel="noreferrer" className="font-bold text-green-800 underline">利用目的の詳細を見る</a></p>}
           </> : <p>利用目的の詳細は、この薬局にお問い合わせください。</p>}
         </div>
         <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={privacyConsent} onChange={(event) => onPrivacyConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>個人情報の利用目的を確認し、薬局での調剤・連絡に同意します。</span></label>

@@ -37,15 +37,15 @@ export default function PharmacyFeatureGate({
         ) ? 'allowed' : 'disabled';
 
   if (access === 'allowed') return children;
-  return <section className="p-6 text-center" aria-labelledby="pharmacy-feature-state-title">
+  return <section className="p-6 text-center pharmacy-supplemental" aria-labelledby="pharmacy-feature-state-title">
     {access === 'loading'
-      ? <p className="py-12 text-sm text-gray-600">利用状況を確認しています...</p>
+      ? <p className="py-12 text-base text-gray-700">利用状況を確認しています...</p>
       : <>
           <h2 id="pharmacy-feature-state-title" className="mt-8 text-xl font-bold text-gray-950">{access === 'error' ? '利用状況を確認できません' : 'この機能は現在利用できません'}</h2>
-          <p className="mt-3 text-sm leading-6 text-gray-600">
+          <p className="mt-3 text-base leading-6 text-gray-700">
             {access === 'error' ? '利用中の記録があるか確認できませんでした。再試行してください。' : 'この薬局では現在、この機能を受け付けていません。'}
           </p>
-          <Link className="mt-6 inline-flex min-h-11 items-center rounded-xl bg-green-700 px-5 font-bold text-white" to={pharmacyRoute('/pharmacy/menu', getLiffId())}>
+          <Link className="pharmacy-control pharmacy-focus mt-6 inline-flex min-h-11 items-center rounded-xl bg-green-700 px-5 font-bold text-white" to={pharmacyRoute('/pharmacy/menu', getLiffId())}>
             すべての機能へ戻る
           </Link>
         </>}

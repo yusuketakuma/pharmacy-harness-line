@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest';
 import ContinuityPage, { NextIntakeExpectationCard } from './ContinuityPage.js';
 
 describe('continuity patient hub', () => {
+  it('puts the current state and next action first', () => {
+    const source = readFileSync(new URL('./ContinuityPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('現在の状態');
+    expect(source).toContain('次の操作');
+  });
+
   it('renders a simple follow-up hub without clinical detail', () => {
     const html = renderToStaticMarkup(<MemoryRouter><ContinuityPage /></MemoryRouter>);
     expect(html).toContain('継続フォロー');

@@ -5,7 +5,7 @@ vi.mock('../../lib/liff-auth.js', () => ({
   getLiffId: () => 'liff-1',
 }));
 
-import { requestPharmacyJson, requestPharmacyLiff } from './request.js';
+import { pharmacyErrorMessage, requestPharmacyJson, requestPharmacyLiff } from './request.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -72,5 +72,14 @@ describe('requestPharmacyLiff', () => {
       .rejects.toMatchObject({
         message: '薬局システムに接続できませんでした。時間をおいて再度お試しください。',
       });
+  });
+
+  it('shows only mapped request errors and hides arbitrary runtime details', () => {
+    const mapped = Object.assign(new Error('内容が更新されています。画面を再読み込みしてください。'), {
+      status: 409,
+    });
+    expect(pharmacyErrorMessage(mapped, '安全な再試行案内')).toBe(mapped.message);
+    expect(pharmacyErrorMessage(new Error('SQLITE_CONSTRAINT internal detail'), '安全な再試行案内'))
+      .toBe('安全な再試行案内');
   });
 });

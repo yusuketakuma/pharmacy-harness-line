@@ -114,14 +114,14 @@ export function PharmacyShellHeader({ accountName, screenTitle, liffId }: {
   return <header className="border-b bg-white px-4 py-4">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="truncate text-xs font-bold text-green-700">{accountName || '薬局'}</p>
+        <p className="truncate text-sm font-bold text-green-800">{accountName || '薬局'}</p>
         <h1 ref={titleRef} tabIndex={-1} className="mt-1 text-xl font-bold text-gray-950 focus:outline-none">{screenTitle}</h1>
       </div>
-      <span aria-label={`アプリバージョン v${pharmacyLiffVersion}`} className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+      <span aria-label={`アプリバージョン v${pharmacyLiffVersion}`} className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-bold text-gray-700">
         v{pharmacyLiffVersion}
       </span>
     </div>
-    <Link to={pharmacyRoute('/pharmacy/menu', liffId)} className="mt-3 inline-flex min-h-11 items-center font-bold text-green-700 underline">
+    <Link to={pharmacyRoute('/pharmacy/menu', liffId)} className="pharmacy-control min-h-11 pharmacy-focus mt-3 inline-flex items-center font-bold text-green-800 underline">
       すべての機能へ戻る
     </Link>
   </header>;
@@ -137,22 +137,22 @@ export function PharmacyShell({ screenTitle, children }: {
     if (access.configError || access.existingError) alertRef.current?.focus();
   }, [access.configError, access.existingError]);
 
-  return <div className="mx-auto min-h-screen max-w-md bg-gray-50">
+  return <div className="pharmacy-shell mx-auto max-w-md">
     <PharmacyShellHeader accountName={access.accountName} screenTitle={screenTitle} />
     {access.loading
-      ? <section aria-labelledby="pharmacy-loading-title" className="p-6 text-center">
+          ? <section aria-labelledby="pharmacy-loading-title" className="p-6 text-center">
           <h2 id="pharmacy-loading-title" className="sr-only">{screenTitle}</h2>
-          <p role="status" className="py-8 text-sm text-gray-600">利用状況を確認しています...</p>
+            <p role="status" className="py-8 text-base text-gray-700">利用状況を確認しています...</p>
         </section>
       : access.configError
-        ? <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-sm text-red-800">
+        ? <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-base text-red-800">
             <p>{access.configError} 通信状態を確認して再試行してください。</p>
-            <button type="button" onClick={() => void access.retry()} className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再試行</button>
+            <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再試行</button>
           </div>
         : <>
-            {access.existingError && <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+            {access.existingError && <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
               <p>{access.existingError} 有効な機能はそのまま利用できます。</p>
-              <button type="button" onClick={() => void access.retry()} className="mt-3 min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold">再試行</button>
+              <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold">再試行</button>
             </div>}
             {children}
           </>}

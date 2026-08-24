@@ -2,6 +2,13 @@ import { getIdToken, getLiffId } from '../../lib/liff-auth.js';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
+export function pharmacyErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error &&
+    typeof (error as Error & { status?: unknown }).status === 'number'
+    ? error.message
+    : fallback;
+}
+
 export function requestPharmacyLiff(path: string, init: RequestInit = {}): Promise<Response> {
   const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
   const url = new URL(`${BASE}${path}`, origin);

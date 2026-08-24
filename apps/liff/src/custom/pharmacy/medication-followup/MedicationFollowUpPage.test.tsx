@@ -9,6 +9,12 @@ import MedicationFollowUpPage, {
 } from './MedicationFollowUpPage.js';
 
 describe('patient medication follow-up page', () => {
+  it('puts the current state and next action first', () => {
+    const source = readFileSync(new URL('./MedicationFollowUpPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('現在の状態');
+    expect(source).toContain('次の操作');
+  });
+
   it('uses clear, non-judgemental fixed responses', () => {
     expect(PATIENT_RESPONSE_OPTIONS.map((option) => option.value)).toEqual([
       'no_issue', 'concern', 'pharmacist_requested',
