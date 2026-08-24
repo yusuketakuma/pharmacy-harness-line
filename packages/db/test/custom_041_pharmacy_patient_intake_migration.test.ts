@@ -194,6 +194,34 @@ describe('pharmacy patient intake bounded migration', () => {
     });
   });
 
+  it('lets a fresh scrub approval take over a partially scrubbed stale state', async () => {
+    await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
+    const coverage = await inspectPatientIntakeCoverage(db, scope);
+    insertMigrationState(sqlite, coverage.coverageDigest, 'scrubbing');
+    sqlite.prepare(`UPDATE pharmacy_patient_intake_responses
+      SET patient_snapshot_json = '{}', answers_json = '{}'
+      WHERE id = 'response-1'`).run();
+    const takeoverApproval = {
+      ...approval,
+      approvedBy: 'security-owner-2',
+      approvalReference: 'scrub-operation-2',
+      coverageDigest: coverage.coverageDigest,
+    };
+
+    await expect(freezePatientIntakeWrites(db, scope, takeoverApproval))
+      .resolves.toMatchObject({ errorCode: null, coverageTotal: 3 });
+    expect(sqlite.prepare(`SELECT phase, approved_by, approval_reference
+      FROM pharmacy_patient_intake_migration_state`).get()).toEqual({
+      phase: 'frozen', approved_by: 'security-owner-2', approval_reference: 'scrub-operation-2',
+    });
+
+    await expect(scrubPatientIntakeLegacyFields(db, {
+      ...scope, cursor: null, limit: 50, dryRun: false, approval: takeoverApproval,
+    })).resolves.toMatchObject({ errorCode: null, nextCursor: null });
+    expect(sqlite.prepare(`SELECT phase FROM pharmacy_patient_intake_migration_state`).get())
+      .toEqual({ phase: 'scrubbed' });
+  });
+
   it('scrubs both legacy fields atomically, supports resume, rejects mixed/sentinel tamper, and restores bytes', async () => {
     await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
     const coverage = await inspectPatientIntakeCoverage(db, scope);
@@ -258,5 +286,29 @@ describe('pharmacy patient intake bounded migration', () => {
         { patient_snapshot_json: '{"name":"B"}', answers_json: '{"status":"ready"}' },
         { patient_snapshot_json: '{"name":"C"}', answers_json: '{"status":"done"}' },
       ]);
+  });
+
+  it('binds a completed scrub to a separately approved restore operation', async () => {
+    await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
+    const coverage = await inspectPatientIntakeCoverage(db, scope);
+    insertMigrationState(sqlite, coverage.coverageDigest, 'scrubbed');
+    sqlite.prepare(`UPDATE pharmacy_patient_intake_responses
+      SET patient_snapshot_json = '{}', answers_json = '{}'`).run();
+    const restoreApproval = {
+      ...approval,
+      approvedBy: 'restore-owner',
+      approvalReference: 'restore-operation-1',
+      coverageDigest: coverage.coverageDigest,
+    };
+
+    await expect(restorePatientIntakeLegacyFields(db, {
+      ...scope, cursor: null, limit: 50, dryRun: false, approval: restoreApproval,
+    })).resolves.toMatchObject({
+      counts: { scanned: 3, restored: 3 }, errorCode: null, nextCursor: null,
+    });
+    expect(sqlite.prepare(`SELECT phase, approved_by, approval_reference
+      FROM pharmacy_patient_intake_migration_state`).get()).toEqual({
+      phase: 'restored', approved_by: 'restore-owner', approval_reference: 'restore-operation-1',
+    });
   });
 });

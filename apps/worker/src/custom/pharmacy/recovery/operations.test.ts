@@ -227,6 +227,80 @@ describe('pharmacy recovery operation state machine', () => {
       WHERE operation_id = ?`).get(created.id) as { status: string }).status).toBe('released');
   });
 
+  it('releases an expired scope fence before claiming a newly approved operation', async () => {
+    const { db, sqlite } = seed();
+    const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const first = await createRecoveryApproval(db, {
+      scope, operation: 'plaintext_scrub', requestedBy: approver,
+      approvalExpiresAt, idempotencyKey: 'expired-fence-first',
+    });
+    await preflightRecoveryOperation(db, {
+      operationId: first.id, scope, operation: 'plaintext_scrub', preflight,
+    });
+    await approveRecoveryOperation(db, {
+      operationId: first.id, scope, operation: 'plaintext_scrub', principal: approver,
+    });
+    const firstClaim = await claimRecoveryOperation(db, {
+      operationId: first.id, scope, operation: 'plaintext_scrub', executor,
+    });
+    sqlite.prepare(`UPDATE pharmacy_recovery_execution_fences SET expires_at = ?
+      WHERE fence_id = ?`).run(new Date(Date.now() - 1000).toISOString(), firstClaim.fenceId);
+
+    const second = await createRecoveryApproval(db, {
+      scope, operation: 'plaintext_restore', requestedBy: approver,
+      approvalExpiresAt, idempotencyKey: 'expired-fence-second',
+    });
+    await preflightRecoveryOperation(db, {
+      operationId: second.id, scope, operation: 'plaintext_restore', preflight,
+    });
+    await approveRecoveryOperation(db, {
+      operationId: second.id, scope, operation: 'plaintext_restore', principal: approver,
+    });
+
+    await expect(claimRecoveryOperation(db, {
+      operationId: second.id, scope, operation: 'plaintext_restore', executor,
+    })).resolves.toMatchObject({ status: 'running', executorSubject: executor.subject });
+    await expect(getRecoveryOperation(db, first.id)).resolves.toMatchObject({
+      status: 'stale', errorCode: 'FENCE_EXPIRED',
+    });
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_recovery_execution_fences
+      WHERE fence_id = ?`).get(firstClaim.fenceId)).toEqual({ status: 'released' });
+  });
+
+  it('keeps a second approved operation out while the scope fence is live', async () => {
+    const { db } = seed();
+    const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const first = await createRecoveryApproval(db, {
+      scope, operation: 'plaintext_scrub', requestedBy: approver,
+      approvalExpiresAt, idempotencyKey: 'live-fence-first',
+    });
+    await preflightRecoveryOperation(db, {
+      operationId: first.id, scope, operation: 'plaintext_scrub', preflight,
+    });
+    await approveRecoveryOperation(db, {
+      operationId: first.id, scope, operation: 'plaintext_scrub', principal: approver,
+    });
+    await claimRecoveryOperation(db, {
+      operationId: first.id, scope, operation: 'plaintext_scrub', executor,
+    });
+    const second = await createRecoveryApproval(db, {
+      scope, operation: 'plaintext_restore', requestedBy: approver,
+      approvalExpiresAt, idempotencyKey: 'live-fence-second',
+    });
+    await preflightRecoveryOperation(db, {
+      operationId: second.id, scope, operation: 'plaintext_restore', preflight,
+    });
+    await approveRecoveryOperation(db, {
+      operationId: second.id, scope, operation: 'plaintext_restore', principal: approver,
+    });
+
+    await expect(claimRecoveryOperation(db, {
+      operationId: second.id, scope, operation: 'plaintext_restore', executor,
+    })).rejects.toMatchObject({ code: 'CLAIM_CONFLICT' });
+    await expect(getRecoveryOperation(db, first.id)).resolves.toMatchObject({ status: 'running' });
+    await expect(getRecoveryOperation(db, second.id)).resolves.toMatchObject({ status: 'approved' });
+  });
+
   it('exposes the same execution proof contract for retention_delete', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {

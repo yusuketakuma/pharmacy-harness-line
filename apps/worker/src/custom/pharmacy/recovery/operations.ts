@@ -623,6 +623,21 @@ export async function claimRecoveryOperation(
   const fenceToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
   const now = new Date().toISOString();
   const results = await db.batch([
+    db.prepare(`UPDATE pharmacy_recovery_operations SET
+        status = 'stale', error_code = 'FENCE_EXPIRED', updated_at = ?
+      WHERE status = 'running' AND id IN (
+        SELECT operation_id FROM pharmacy_recovery_execution_fences
+        WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
+          AND status = 'active' AND expires_at <= ?
+      )`).bind(
+      now, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment, now,
+    ),
+    db.prepare(`UPDATE pharmacy_recovery_execution_fences
+      SET status = 'released', released_at = ?
+      WHERE tenant_id = ? AND line_account_id = ? AND environment = ?
+        AND status = 'active' AND expires_at <= ?`).bind(
+      now, input.scope.tenantId, input.scope.lineAccountId, input.scope.environment, now,
+    ),
     db.prepare(`INSERT INTO pharmacy_recovery_execution_fences
       (fence_id, operation_id, tenant_id, line_account_id, environment,
        execution_id, fence_token, owner_issuer, owner_subject, status,
@@ -645,14 +660,19 @@ export async function claimRecoveryOperation(
         execution_id = ?, fence_id = ?, fence_token = ?, claimed_at = ?, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
         AND operation = ? AND status = 'approved' AND approval_expires_at > ?
-        AND approver_subject IS NOT NULL AND approver_subject <> ?`)
+        AND approver_subject IS NOT NULL AND approver_subject <> ?
+        AND EXISTS (SELECT 1 FROM pharmacy_recovery_execution_fences fence
+          WHERE fence.fence_id = ? AND fence.operation_id = pharmacy_recovery_operations.id
+            AND fence.execution_id = ? AND fence.fence_token = ?
+            AND fence.status = 'active' AND fence.expires_at > ?)`)
       .bind(
         input.executor.subject, executionId, fenceId, fenceToken, now, now,
         input.operationId, input.scope.tenantId, input.scope.lineAccountId,
         input.scope.environment, input.operation, now, input.executor.subject,
+        fenceId, executionId, fenceToken, now,
       ),
   ]);
-  if (results.length !== 2 || results[0]?.meta?.changes !== 1 || results[1]?.meta?.changes !== 1) {
+  if (results.length !== 4 || results[2]?.meta?.changes !== 1 || results[3]?.meta?.changes !== 1) {
     throw new RecoveryOperationError('CLAIM_CONFLICT');
   }
   return (await operationById(db, input.operationId))!;

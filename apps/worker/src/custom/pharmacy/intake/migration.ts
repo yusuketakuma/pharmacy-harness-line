@@ -353,6 +353,31 @@ function approvalMatches(state: MigrationState, approval: PatientIntakeMigration
     state.approval_reference === approval.approvalReference;
 }
 
+function approvalCoversState(state: MigrationState, approval: PatientIntakeMigrationApproval): boolean {
+  return state.coverage_total === approval.coverageTotal &&
+    state.coverage_digest === approval.coverageDigest;
+}
+
+async function rebindMigrationState(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+  state: MigrationState,
+  approval: PatientIntakeMigrationApproval,
+  phase: MigrationState['phase'],
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const result = await db.prepare(`UPDATE pharmacy_patient_intake_migration_state
+    SET phase = ?, approved_by = ?, approval_reference = ?, approved_at = ?, updated_at = ?
+    WHERE tenant_id = ? AND line_account_id = ? AND phase = ?
+      AND coverage_total = ? AND coverage_digest = ?
+      AND approved_by = ? AND approval_reference = ?`).bind(
+    phase, approval.approvedBy, approval.approvalReference, now, now,
+    scope.tenantId, scope.lineAccountId, state.phase,
+    state.coverage_total, state.coverage_digest, state.approved_by, state.approval_reference,
+  ).run();
+  return result.meta?.changes === 1;
+}
+
 export async function freezePatientIntakeWrites(
   db: D1Database,
   scope: PatientIntakeMigrationScope,
@@ -366,9 +391,20 @@ export async function freezePatientIntakeWrites(
   }
   const existing = await readState(db, scope);
   if (existing) {
-    return approvalMatches(existing, approval) && existing.phase === 'frozen'
-      ? coverage
-      : { ...coverage, errorCode: 'INVALID_STATE' };
+    if (!approvalCoversState(existing, approval)) {
+      return { ...coverage, errorCode: 'COVERAGE_MISMATCH' };
+    }
+    if (approvalMatches(existing, approval) && existing.phase === 'frozen') return coverage;
+    if (!['frozen', 'scrubbing', 'restored'].includes(existing.phase)) {
+      return { ...coverage, errorCode: 'INVALID_STATE' };
+    }
+    try {
+      return await rebindMigrationState(db, scope, existing, approval, 'frozen')
+        ? coverage
+        : { ...coverage, errorCode: 'INVALID_STATE' };
+    } catch {
+      return { ...coverage, errorCode: 'STORAGE_FAILED' };
+    }
   }
   const now = new Date().toISOString();
   const write = await db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
@@ -392,15 +428,32 @@ async function migrateLegacyFields(
   const inputError = migrationInputError(input);
   if (inputError) return failed(inputError);
   if (!validApproval(input.approval)) return failed('APPROVAL_REQUIRED');
-  const state = await readState(db, input);
+  let state = await readState(db, input);
   const allowed = mode === 'scrub' ? ['frozen', 'scrubbing', 'restored'] : ['scrubbed', 'restoring'];
-  if (!state || !allowed.includes(state.phase) || !approvalMatches(state, input.approval)) {
+  if (!state || !allowed.includes(state.phase)) {
     return failed('INVALID_STATE');
   }
   const coverage = await inspectPatientIntakeCoverage(db, input);
   if (coverage.errorCode) return failed(coverage.errorCode);
   if (coverage.coverageTotal !== state.coverage_total ||
-      coverage.coverageDigest !== state.coverage_digest) return failed('COVERAGE_MISMATCH');
+      coverage.coverageDigest !== state.coverage_digest ||
+      !approvalCoversState(state, input.approval)) return failed('COVERAGE_MISMATCH');
+  if (!approvalMatches(state, input.approval)) {
+    if (mode !== 'restore' || input.cursor !== null) return failed('INVALID_STATE');
+    try {
+      if (!await rebindMigrationState(db, input, state, input.approval, 'scrubbed')) {
+        return failed('INVALID_STATE');
+      }
+    } catch {
+      return failed('STORAGE_FAILED');
+    }
+    state = {
+      ...state,
+      phase: 'scrubbed',
+      approved_by: input.approval.approvedBy,
+      approval_reference: input.approval.approvalReference,
+    };
+  }
   const rows = await readRows(db, input, input.cursor, input.limit + 1);
   const batch = rows.slice(0, input.limit);
   const writes: D1PreparedStatement[] = [];
