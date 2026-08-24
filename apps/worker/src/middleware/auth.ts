@@ -475,6 +475,8 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     (method === 'POST' &&
       /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/admin-bootstrap$/.test(path)) ||
     (method === 'POST' &&
+      /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/cli-sessions(?:\/[^/]+\/revoke)?$/.test(path)) ||
+    (method === 'POST' &&
       /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/credentials\/(?:backfill|scrub|restore)$/.test(path)) ||
     (method === 'POST' &&
       /^\/api\/platform\/pharmacy\/tenants\/[^/]+\/line-accounts\/[^/]+\/intake-encryption\/(?:coverage|backfill|freeze|scrub|restore)$/.test(path)) ||

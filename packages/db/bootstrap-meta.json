@@ -127,7 +127,8 @@
     "custom_050_incoming_image_objects.sql",
     "custom_051_pharmacy_emergency_counter_and_sale.sql",
     "custom_052_pharmacy_webhook_inbox_fencing.sql",
-    "custom_053_outgoing_webhook_deliveries.sql"
+    "custom_053_outgoing_webhook_deliveries.sql",
+    "custom_054_pharmacy_cli_break_glass_sessions.sql"
   ],
-  "migrationCount": 128
+  "migrationCount": 129
 }
