@@ -111,11 +111,11 @@ import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.
 import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminDashboardRoutes } from './custom/pharmacy/platform-admin/dashboard-routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminOperationsRoutes } from './custom/pharmacy/platform-admin/operations-routes.js'; // custom:pharmacy-platform-admin
+import { platformAdminDataProtectionRoutes } from './custom/pharmacy/platform-admin/data-protection-routes.js'; // custom:pharmacy-data-protection
 import { platformAdminAuthMiddleware } from './custom/pharmacy/platform-admin/auth.js'; // custom:pharmacy-platform-admin
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
-import { purgePrescriptionFilesPastRetention } from './custom/pharmacy/prescriptions/retention-purge.js'; // custom:pharmacy-prescriptions
 import { purgeEmergencyIntakesPastRetention } from './custom/pharmacy/emergency-contraception/retention-purge.js'; // custom:pharmacy-emergency-contraception
 import { claimDueNextIntakeExpectations } from './custom/pharmacy/continuity/next-intake.js'; // custom:pharmacy-continuity
 import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifications.js'; // custom:pharmacy-continuity
@@ -130,6 +130,7 @@ import { shouldRunGenericCron } from './custom/pharmacy/cron-access.js'; // cust
 import {
   PHARMACY_DISABLED_GENERIC_API_PREFIXES,
   pharmacyGenericFeatureGuard,
+  pharmacyManualChatMutationGuard,
   pharmacyTenantApiAllowlistGuard,
 } from './custom/pharmacy/growth-loop/generic-feature-guard.js'; // custom:pharmacy-allowlist
 import { isLinkPreviewBot } from './lib/og-bot.js';
@@ -261,6 +262,10 @@ for (const prefix of PHARMACY_DISABLED_GENERIC_API_PREFIXES) {
   app.use(`${prefix}/*`, pharmacyGenericFeatureGuard);
 }
 
+app.use('/api/chats', pharmacyManualChatMutationGuard);
+app.use('/api/chats/*', pharmacyManualChatMutationGuard);
+app.use('/api/friends/*', pharmacyManualChatMutationGuard);
+
 // Mount route groups — MVP & Round 2
 app.route('/', webhook);
 app.route('/', friends);
@@ -297,6 +302,7 @@ app.route('/', tenantProvisioningRoutes); // custom:pharmacy-provisioning
 app.route('/', platformAdminRoutes); // custom:pharmacy-platform-admin
 app.route('/', platformAdminDashboardRoutes); // custom:pharmacy-platform-admin
 app.route('/', platformAdminOperationsRoutes); // custom:pharmacy-platform-admin
+app.route('/', platformAdminDataProtectionRoutes); // custom:pharmacy-data-protection
 
 // Mount route groups — Round 3
 app.route('/', webhooks);
@@ -1275,21 +1281,6 @@ async function scheduled(
       }
     } catch (e) {
       console.error('prescription-cleanup error:', e);
-    }
-
-    try {
-      // H-5: statutory 3-year backstop. Unlike the workflow cleanup above this
-      // ignores submission status — past three years the image goes either way.
-      const result = await purgePrescriptionFilesPastRetention(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions
-        now: new Date(event.scheduledTime),
-      });
-      if (result.purged + result.failed > 0) {
-        console.log(
-          `[prescription-retention-purge] purged=${result.purged} failed=${result.failed}`,
-        );
-      }
-    } catch (e) {
-      console.error('prescription-retention-purge error:', e);
     }
 
     try {

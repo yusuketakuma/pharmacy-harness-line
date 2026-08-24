@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  cancelMeetConsultation,
   calculateMeetReminderSchedule,
+  listMeetConsultations,
   processDueMeetConsultationReminders,
+  registerMeetConsultation,
   renderMeetReminderText,
 } from './meet-consultation-reminders.js';
 
@@ -40,6 +43,73 @@ describe('renderMeetReminderText', () => {
     expect(text).toContain('8月9日（日）10:00');
     expect(text).toContain('開始約1時間前');
     expect(text).toContain('https://meet.google.com/abc-defg-hij');
+  });
+});
+
+describe('meet consultation tenant and account scope', () => {
+  it('lists only consultations mapped to the authenticated tenant', async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...values: unknown[]) {
+            calls.push({ sql, values });
+            return { all: async () => ({ results: [] }) };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    await listMeetConsultations(db, 'tenant-a', 'confirmed');
+
+    expect(calls[0].sql).toContain('tenant_line_accounts');
+    expect(calls[0].sql).toContain('f.line_account_id');
+    expect(calls[0].values).toEqual(['confirmed', 'confirmed', 'tenant-a']);
+  });
+
+  it('rejects a friend outside the server-resolved LINE account before registration', async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...values: unknown[]) {
+            calls.push({ sql, values });
+            return { first: async () => null };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    await expect(registerMeetConsultation(db, {
+      externalEventId: 'event-a',
+      friendId: 'friend-a',
+      title: 'Synthetic consultation',
+      startsAt: '2026-08-10T10:00:00.000Z',
+      endsAt: '2026-08-10T11:00:00.000Z',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    }, 'account-b', new Date('2026-08-08T00:00:00.000Z'))).rejects.toThrow(/friend not found/);
+    expect(calls[0].sql).toContain('line_account_id = ?');
+    expect(calls[0].values).toEqual(['friend-a', 'account-b']);
+  });
+
+  it('cannot cancel an event owned by another LINE account', async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...values: unknown[]) {
+            calls.push({ sql, values });
+            return { first: async () => null };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    await expect(cancelMeetConsultation(
+      db, 'event-a', 'account-b', new Date('2026-08-08T00:00:00.000Z'),
+    )).resolves.toBe(false);
+    expect(calls[0].sql).toContain('line_account_id = ?');
+    expect(calls[0].values).toEqual(['event-a', 'account-b']);
   });
 });
 

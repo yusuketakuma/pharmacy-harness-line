@@ -145,6 +145,7 @@ describe('bookWebinarConsultation', () => {
         externalEventId: 'event-1', friendId: 'friend-1',
         meetUrl: 'https://meet.google.com/abc-defg-hij',
       }),
+      base.accountId,
       base.now,
     );
     expect(mocks.pushViaHarnessProxy).toHaveBeenCalledWith(

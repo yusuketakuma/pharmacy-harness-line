@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PHARMACY_DISABLED_GENERIC_API_PREFIXES,
   pharmacyGenericFeatureGuard,
+  pharmacyManualChatMutationGuard,
   pharmacyTenantApiAllowlistGuard,
 } from './generic-feature-guard.js';
 
@@ -468,5 +469,86 @@ describe('pharmacy tenant API allowlist', () => {
   it('is mounted as a server-side contract', () => {
     const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url).href), 'utf8');
     expect(indexSource).toContain('pharmacyTenantApiAllowlistGuard');
+  });
+});
+
+describe('pharmacy manual-chat mutation guard', () => {
+  function guardedApp(input: { pharmacy: boolean; enabled: boolean; resolvable?: boolean }) {
+    const database = {
+      prepare(sql: string) {
+        const statement = () => ({
+          first: async <T>() => {
+            if (sql.includes('FROM friends AS friend')) {
+              return (input.resolvable === false ? null : { line_account_id: 'account-a' }) as T | null;
+            }
+            if (sql.includes('SELECT mode, capabilities_json')) {
+              return (input.pharmacy
+                ? { mode: 'pharmacy', capabilities_json: JSON.stringify(input.enabled ? ['manual_chat'] : []) }
+                : { mode: 'generic', capabilities_json: '[]' }) as T;
+            }
+            if (sql.includes('SELECT mode FROM pharmacy_account_capabilities')) {
+              return { mode: input.pharmacy ? 'pharmacy' : 'generic' } as T;
+            }
+            return null;
+          },
+        });
+        return { bind: () => statement(), ...statement() };
+      },
+    } as unknown as D1Database;
+    const root = new Hono<any>();
+    root.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
+    root.use('*', pharmacyManualChatMutationGuard);
+    root.all('*', async (c) => c.json({ ok: true, body: await c.req.raw.clone().json().catch(() => null) }));
+    return { root, env: { DB: database } };
+  }
+
+  it('keeps reads available but denies every manual-chat mutation when the capability is off', async () => {
+    const { root, env } = guardedApp({ pharmacy: true, enabled: false });
+    const reads = await Promise.all([
+      root.request('/api/chats', {}, env),
+      root.request('/api/chats/chat-a', {}, env),
+      root.request('/api/friends/friend-a/messages', {}, env),
+    ]);
+    const mutations = await Promise.all([
+      root.request('/api/chats', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"friendId":"friend-a"}',
+      }, env),
+      root.request('/api/chats/chat-a', { method: 'PUT' }, env),
+      root.request('/api/chats/chat-a/loading', { method: 'POST' }, env),
+      root.request('/api/chats/chat-a/send', { method: 'POST' }, env),
+      root.request('/api/friends/friend-a/messages', { method: 'POST' }, env),
+    ]);
+
+    expect(reads.map(({ status }) => status)).toEqual([200, 200, 200]);
+    expect(mutations.map(({ status }) => status)).toEqual([403, 403, 403, 403, 403]);
+  });
+
+  it('allows an enabled pharmacy mutation without consuming its request body', async () => {
+    const { root, env } = guardedApp({ pharmacy: true, enabled: true });
+    const response = await root.request('/api/chats', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"friendId":"friend-a"}',
+    }, env);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, body: { friendId: 'friend-a' } });
+  });
+
+  it('preserves generic accounts and fails closed when a mutation resource cannot be resolved', async () => {
+    const generic = guardedApp({ pharmacy: false, enabled: false });
+    const unresolved = guardedApp({ pharmacy: true, enabled: true, resolvable: false });
+    expect((await generic.root.request('/api/chats/chat-a/send', { method: 'POST' }, generic.env)).status)
+      .toBe(200);
+    expect((await unresolved.root.request('/api/chats/chat-a/send', { method: 'POST' }, unresolved.env)).status)
+      .toBe(403);
+  });
+
+  it('mounts the capability guard before the generic chat routes', () => {
+    const indexSource = readFileSync(fileURLToPath(new URL('../../../index.ts', import.meta.url).href), 'utf8');
+    expect(indexSource).toContain("app.use('/api/chats', pharmacyManualChatMutationGuard)");
+    expect(indexSource).toContain("app.use('/api/friends/*', pharmacyManualChatMutationGuard)");
+    expect(indexSource.indexOf("app.use('/api/chats', pharmacyManualChatMutationGuard)"))
+      .toBeLessThan(indexSource.indexOf("app.route('/', chats)"));
   });
 });

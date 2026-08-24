@@ -104,3 +104,27 @@ If the admin is cross-site to the API but `SameSite` is not `None` (e.g. the old
 **refuses with a 500 and an actionable error** rather than silently issuing a
 cookie the browser will drop. This converts the "login breaks after deploy"
 failure mode into a clear configuration error.
+
+## Platform admin and data-protection operations (v0.32.0)
+
+Platform admin uses its separate `platform-admin` session and CSRF middleware;
+tenant staff sessions and integration Bearer keys are not authorities for
+`/api/platform-admin/*`. The default dashboard、tenant list、logs、audit are
+PHI-free. Patient list/detail still require a purpose-bound support grant with
+reason、ticket、current-password step-up、expiry、constant banner and explicit end.
+
+The recovery workflow is mounted only after `platformAdminAuthMiddleware`:
+
+| Step | Authority and stop condition |
+| --- | --- |
+| `POST /data-protection/recovery-operations` | Authenticated requester; exact tenant/account mapping; environment is fixed to the current Worker binding; spoofed identity fields are rejected |
+| `POST .../:id/preflight` | Verified backup generation、schema/field inventory、counts、coverage/row digest、stop/rollback policy must match; drift is `BLOCKED` before mutation |
+| `POST .../:id/approve` | Authenticated Platform admin principal; approval is one-time and expires |
+| `POST .../:id/execute` | A different authenticated principal claims the operation; execution ID and active fence bind every batch and same-principal resume |
+| `GET .../:id` | PHI-free state/readiness only; no payload、secret、ciphertext、patient/friend ID |
+
+Legacy integration Bearer authentication cannot authorize a write through this
+workflow. `dryRun=false`、verified preflight、named approval、separate executor、
+active fenceが揃わない mutation は拒否する。`restore_rehearsal`はproduction
+routeから実行せず、no-send isolated runnerだけで検証する。production scrub、
+delete、restore、secret投入、deployはそれぞれ別Human Gateである。

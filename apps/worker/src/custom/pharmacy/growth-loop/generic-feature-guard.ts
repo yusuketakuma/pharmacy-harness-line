@@ -1,6 +1,11 @@
 import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
-import { hasPharmacyModeAccount, isPharmacyModeAccount, isPharmacyTenant } from './access.js';
+import {
+  hasPharmacyCapability,
+  hasPharmacyModeAccount,
+  isPharmacyModeAccount,
+  isPharmacyTenant,
+} from './access.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -280,4 +285,49 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
     }
   }
   return next();
+}
+
+export async function pharmacyManualChatMutationGuard(
+  c: Context<Env>,
+  next: Next,
+): Promise<Response | void> {
+  const method = c.req.method.toUpperCase();
+  if (SAFE_METHODS.has(method)) return next();
+
+  const path = c.req.path;
+  let resourceId: string | null = null;
+  if (method === 'POST' && path === '/api/chats') {
+    const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
+    resourceId = typeof body?.friendId === 'string' ? body.friendId : null;
+  } else if (method === 'PUT') {
+    resourceId = /^\/api\/chats\/([^/]+)$/.exec(path)?.[1] ?? null;
+  } else if (method === 'POST') {
+    resourceId = /^\/api\/chats\/([^/]+)\/(?:loading|send)$/.exec(path)?.[1]
+      ?? /^\/api\/friends\/([^/]+)\/messages$/.exec(path)?.[1]
+      ?? null;
+  }
+  if (!resourceId) {
+    return path === '/api/chats' || path.startsWith('/api/chats/') || path.endsWith('/messages')
+      ? c.json({ success: false, error: 'pharmacy capability account scope required' }, 403)
+      : next();
+  }
+
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'pharmacy capability account scope required' }, 403);
+  const row = await c.env.DB.prepare(
+    `SELECT friend.line_account_id
+       FROM friends AS friend
+       INNER JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = friend.line_account_id
+       LEFT JOIN chats AS chat ON chat.friend_id = friend.id
+      WHERE mapping.tenant_id = ?
+        AND (friend.id = ? OR chat.id = ?)
+      LIMIT 1`,
+  ).bind(tenantId, resourceId, resourceId).first<{ line_account_id: string | null }>();
+  if (!row?.line_account_id) {
+    return c.json({ success: false, error: 'pharmacy capability account scope required' }, 403);
+  }
+  if (!await isPharmacyModeAccount(c.env.DB, row.line_account_id)) return next();
+  if (await hasPharmacyCapability(c.env.DB, row.line_account_id, 'manual_chat')) return next();
+  return c.json({ success: false, error: 'pharmacy capability is not enabled' }, 403);
 }

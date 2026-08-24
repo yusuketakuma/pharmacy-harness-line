@@ -385,11 +385,11 @@ export async function bookWebinarConsultation(
       startsAt: startsAt.toISOString(),
       endsAt: endsAt.toISOString(),
       meetUrl: synced.meetUrl,
-    }, input.now);
+    }, input.accountId!, input.now);
 
   } catch (error) {
     if (externalEventId) {
-      await cancelMeetConsultation(db, externalEventId, input.now).catch(() => false);
+      await cancelMeetConsultation(db, externalEventId, input.accountId!, input.now).catch(() => false);
       await removeBookingFromGoogle(db, input.credentials, bookingId).catch(() => undefined);
     }
     await db

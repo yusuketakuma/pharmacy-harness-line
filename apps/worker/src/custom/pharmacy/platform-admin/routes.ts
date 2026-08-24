@@ -61,10 +61,6 @@ const TENANT_SELECT = `
            WHERE mapping.tenant_id = tenant.id) AS line_account_count,
          (SELECT COUNT(*) FROM tenant_staff_memberships AS membership
            WHERE membership.tenant_id = tenant.id AND membership.is_active = 1) AS staff_count,
-         (SELECT COUNT(*) FROM pharmacy_patients AS patient
-            INNER JOIN tenant_line_accounts AS mapping
-                    ON mapping.line_account_id = patient.line_account_id
-           WHERE mapping.tenant_id = tenant.id) AS patient_count,
          (SELECT COUNT(*) FROM pharmacy_webhook_event_receipts AS receipt
            WHERE receipt.tenant_id = tenant.id
              AND (receipt.status = 'failed' OR receipt.dead_lettered_at IS NOT NULL))
@@ -86,7 +82,6 @@ type TenantRow = {
   outbound_messaging_paused_at: string | null;
   line_account_count: number;
   staff_count: number;
-  patient_count: number;
   webhook_failure_count: number;
   line_config_issue_count: number;
 };
@@ -100,7 +95,6 @@ function toTenant(row: TenantRow) {
     outboundMessagingPausedAt: row.outbound_messaging_paused_at,
     lineAccountCount: row.line_account_count,
     staffCount: row.staff_count,
-    patientCount: row.patient_count,
     webhookFailureCount: row.webhook_failure_count,
     lineConfigIssueCount: row.line_config_issue_count,
   };
@@ -127,6 +121,12 @@ async function lineAccountIds(db: D1Database, tenantId: string): Promise<string[
 function stringBody(value: unknown, key: string): string {
   const record = value as Record<string, unknown> | null;
   return record && typeof record[key] === 'string' ? record[key] : '';
+}
+
+function redactPatientAudit(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return rows.map((row) => row.resource_type === 'patient'
+    ? { ...row, resource_id: null, detail_json: null }
+    : row);
 }
 
 /**
@@ -647,7 +647,7 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
     listMynaHandoffs(c.env.DB, lineAccountId, undefined, patientId),
   ]);
   await recordPlatformAdminAccess(
-    c.env.DB, admin.id, tenantId, 'view_patient', 'patient', patientId,
+    c.env.DB, admin.id, tenantId, 'view_patient', 'patient', null,
   );
   return c.json({
     success: true,
@@ -711,8 +711,8 @@ platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
           AND (? IS NULL OR created_at >= ?)
         ORDER BY created_at DESC, id DESC
         LIMIT ?`,
-    ).bind(...filters).all();
-    data.platformAdminAccess = result.results ?? [];
+    ).bind(...filters).all<Record<string, unknown>>();
+    data.platformAdminAccess = redactPatientAudit(result.results ?? []);
   }
 
   await recordPlatformAdminAccess(
@@ -744,6 +744,6 @@ platformAdminRoutes.get('/api/platform-admin/audit', async (c) => {
       WHERE (? = 1 OR platform_admin_id = ?)
       ORDER BY created_at DESC, id DESC
       LIMIT ?`,
-  ).bind(all ? 1 : 0, admin.id, limit).all();
-  return c.json({ success: true, data: result.results ?? [] });
+  ).bind(all ? 1 : 0, admin.id, limit).all<Record<string, unknown>>();
+  return c.json({ success: true, data: redactPatientAudit(result.results ?? []) });
 });

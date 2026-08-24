@@ -2,6 +2,7 @@ import type { HarnessProxyDispatch } from './line-proxy-send.js';
 import { pushViaHarnessProxy } from './line-proxy-send.js';
 
 export type MeetReminderKind = 'day_before' | 'hour_before';
+export type MeetConsultationStatus = 'confirmed' | 'cancelled' | 'completed' | 'all';
 
 export interface RegisterMeetConsultationInput {
   externalEventId: string;
@@ -101,9 +102,33 @@ export function renderMeetReminderText(kind: MeetReminderKind, startsAt: string,
   return `【個別相談リマインド】\n${lead}、Google Meetで個別相談を予定しています。\n\nお時間になりましたら、こちらからご参加ください。\n${meetUrl}\n\nよろしくお願いいたします！`;
 }
 
+export async function listMeetConsultations(
+  db: D1Database,
+  tenantId: string,
+  status: MeetConsultationStatus,
+): Promise<unknown[]> {
+  const result = await db.prepare(
+    `SELECT c.id, c.external_event_id, c.friend_id, c.title, c.starts_at, c.ends_at,
+            c.meet_url, c.status, c.created_at, c.updated_at,
+            f.display_name,
+            SUM(CASE WHEN r.status='pending' THEN 1 ELSE 0 END) AS pending_reminders,
+            SUM(CASE WHEN r.status='sent' THEN 1 ELSE 0 END) AS sent_reminders,
+            SUM(CASE WHEN r.status='failed' THEN 1 ELSE 0 END) AS failed_reminders
+       FROM meet_consultations c
+       INNER JOIN friends f ON f.id = c.friend_id
+       INNER JOIN tenant_line_accounts mapping ON mapping.line_account_id = f.line_account_id
+       LEFT JOIN meet_consultation_reminders r ON r.consultation_id = c.id
+      WHERE (? = 'all' OR c.status = ?) AND mapping.tenant_id = ?
+      GROUP BY c.id
+      ORDER BY c.starts_at ASC`,
+  ).bind(status, status, tenantId).all();
+  return result.results ?? [];
+}
+
 export async function registerMeetConsultation(
   db: D1Database,
   input: RegisterMeetConsultationInput,
+  lineAccountId: string,
   now = new Date(),
 ): Promise<{ id: string; reminders: MeetReminderSchedule[] }> {
   if (!input.externalEventId.trim()) throw new Error('externalEventId is required');
@@ -117,14 +142,16 @@ export async function registerMeetConsultation(
   if (start.getTime() <= now.getTime()) throw new Error('startsAt must be in the future');
 
   const friend = await db
-    .prepare('SELECT id FROM friends WHERE id = ? AND is_following = 1')
-    .bind(input.friendId)
+    .prepare('SELECT id FROM friends WHERE id = ? AND line_account_id = ? AND is_following = 1')
+    .bind(input.friendId, lineAccountId)
     .first<{ id: string }>();
   if (!friend) throw new Error('friend not found or not following');
 
   const existing = await db
-    .prepare('SELECT * FROM meet_consultations WHERE external_event_id = ?')
-    .bind(input.externalEventId)
+    .prepare(`SELECT consultation.* FROM meet_consultations consultation
+      INNER JOIN friends friend ON friend.id = consultation.friend_id
+      WHERE consultation.external_event_id = ? AND friend.line_account_id = ?`)
+    .bind(input.externalEventId, lineAccountId)
     .first<MeetConsultationRow>();
   const consultationId = existing?.id ?? crypto.randomUUID();
   const normalizedStart = start.toISOString();
@@ -138,7 +165,7 @@ export async function registerMeetConsultation(
   );
   const nowIso = now.toISOString();
 
-  await db
+  const written = await db
     .prepare(
       `INSERT INTO meet_consultations
         (id, external_event_id, friend_id, title, starts_at, ends_at, meet_url, status, created_at, updated_at)
@@ -150,7 +177,12 @@ export async function registerMeetConsultation(
          ends_at=excluded.ends_at,
          meet_url=excluded.meet_url,
          status='confirmed',
-         updated_at=excluded.updated_at`,
+         updated_at=excluded.updated_at
+       WHERE EXISTS (
+         SELECT 1 FROM friends scoped_friend
+          WHERE scoped_friend.id = meet_consultations.friend_id
+            AND scoped_friend.line_account_id = ?
+       )`,
     )
     .bind(
       consultationId,
@@ -162,8 +194,10 @@ export async function registerMeetConsultation(
       input.meetUrl,
       nowIso,
       nowIso,
+      lineAccountId,
     )
     .run();
+  if (written.meta?.changes !== 1) throw new Error('consultation account scope conflict');
 
   const schedules = calculateMeetReminderSchedule(normalizedStart, now);
   const expectedKinds = new Set(schedules.map((item) => item.kind));
@@ -215,11 +249,14 @@ export async function registerMeetConsultation(
 export async function cancelMeetConsultation(
   db: D1Database,
   externalEventId: string,
+  lineAccountId: string,
   now = new Date(),
 ): Promise<boolean> {
   const consultation = await db
-    .prepare('SELECT id FROM meet_consultations WHERE external_event_id = ?')
-    .bind(externalEventId)
+    .prepare(`SELECT consultation.id FROM meet_consultations consultation
+      INNER JOIN friends friend ON friend.id = consultation.friend_id
+      WHERE consultation.external_event_id = ? AND friend.line_account_id = ?`)
+    .bind(externalEventId, lineAccountId)
     .first<{ id: string }>();
   if (!consultation) return false;
   const nowIso = now.toISOString();
