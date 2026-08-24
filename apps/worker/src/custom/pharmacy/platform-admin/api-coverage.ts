@@ -18,7 +18,8 @@ export type PharmacyAdminApiDeferred = {
   method: PharmacyAdminApiMethod;
   path: RegExp;
   reason: 'binary-output' | 'destructive-operation' | 'external-operation' |
-    'legacy-lifecycle' | 'patient-operation' | 'retired' | 'secret-output';
+    'legacy-lifecycle' | 'patient-operation' | 'privileged-operation' | 'retired' |
+    'secret-output';
 };
 
 const read = (path: RegExp, accountScope: PharmacyAdminApiAccountScope): PharmacyAdminApiCoverage => ({
@@ -68,8 +69,7 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
   mutate('POST', /^\/api\/line-accounts\/[^/]+\/connect$/u, 'path:before-last'),
 
   read(/^\/api\/staff(?:\/me|\/[^/]+|\/[^/]+\/accounts)?$/u, 'tenant'),
-  mutate('PATCH', /^\/api\/staff\/[^/]+$/u, 'tenant'),
-  mutate('PUT', /^\/api\/staff\/[^/]+\/accounts$/u, 'tenant'),
+  read(/^\/api\/tags$/u, 'tenant'),
 
   read(GROWTH_CONFIG, 'query:line_account_id'),
   mutate('PUT', GROWTH_CONFIG, 'query:line_account_id'),
@@ -168,6 +168,12 @@ export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = 
     reason: 'retired',
   },
   { method: 'POST', path: /^\/api\/staff$/u, reason: 'secret-output' },
+  { method: 'PATCH', path: /^\/api\/staff\/[^/]+$/u, reason: 'privileged-operation' },
+  {
+    method: 'PUT',
+    path: /^\/api\/staff\/[^/]+\/accounts$/u,
+    reason: 'privileged-operation',
+  },
   { method: 'POST', path: /^\/api\/staff\/[^/]+\/reset-password$/u, reason: 'secret-output' },
   { method: 'DELETE', path: /^\/api\/staff\/[^/]+$/u, reason: 'destructive-operation' },
   { method: 'DELETE', path: /^\/api\/line-accounts\/[^/]+$/u, reason: 'destructive-operation' },
@@ -213,8 +219,4 @@ export function findPharmacyAdminApiDeferred(
 ): PharmacyAdminApiDeferred | undefined {
   return PHARMACY_ADMIN_API_DEFERRED.find((entry) =>
     entry.method === method && entry.path.test(path));
-}
-
-export function isPharmacyAdminApiPath(path: string): boolean {
-  return PHARMACY_ADMIN_API_COVERAGE.some((entry) => entry.path.test(path));
 }

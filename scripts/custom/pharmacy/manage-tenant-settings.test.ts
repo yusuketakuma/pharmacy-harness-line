@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readCredentialFile, runTenantSettings } from './manage-tenant-settings.js';
-import { PHARMACY_ADMIN_API_COVERAGE } from '../../../apps/worker/src/custom/pharmacy/platform-admin/api-coverage.js';
+import {
+  PHARMACY_ADMIN_API_COVERAGE,
+  findPharmacyAdminApiDeferred,
+} from '../../../apps/worker/src/custom/pharmacy/platform-admin/api-coverage.js';
 
 const baseArgs = [
   '--worker-url', 'https://api.example.test',
@@ -61,7 +64,10 @@ describe('tenant settings CLI', () => {
     expect(covered('GET', '/api/rich-menu-groups')).toBe(true);
     expect(covered('GET', '/api/rich-menu-groups/group-a')).toBe(true);
     expect(covered('GET', '/api/staff/staff-a/accounts')).toBe(true);
-    expect(covered('PUT', '/api/staff/staff-a/accounts')).toBe(true);
+    expect(covered('GET', '/api/tags')).toBe(true);
+    expect(covered('PUT', '/api/staff/staff-a/accounts')).toBe(false);
+    expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')?.reason)
+      .toBe('privileged-operation');
     expect(covered('POST', '/api/line-accounts/account-a/connect')).toBe(true);
     expect(covered('PATCH', '/api/line-accounts/order')).toBe(true);
     expect(PHARMACY_ADMIN_API_COVERAGE.every((entry) => entry.safeOutput)).toBe(true);
@@ -561,6 +567,29 @@ describe('tenant settings CLI', () => {
     expect(output.join('\n')).toContain('Request failed (409)');
     expect(output.join('\n')).not.toContain('secret-detail');
     expect(output.join('\n')).not.toContain(platformSession);
+  });
+
+  it('reads the tenant-scoped tag settings added to the shared coverage', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: [{ id: 'tag-a', name: 'priority' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--path', '/api/tags'],
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(fetcher.mock.calls[1][0]).toBe('https://api.example.test/api/tags');
+    expect(output.join('\n')).toContain('priority');
   });
 
   it('sets a rich menu as default through the confirmation-token flow', async () => {

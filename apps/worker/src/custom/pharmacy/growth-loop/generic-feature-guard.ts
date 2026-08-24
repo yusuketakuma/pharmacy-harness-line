@@ -6,6 +6,7 @@ import {
   isPharmacyModeAccount,
   isPharmacyTenant,
 } from './access.js';
+import { findPharmacyAdminApiCoverage } from '../platform-admin/api-coverage.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -87,6 +88,9 @@ export async function pharmacyTenantApiAllowlistGuard(
   if (!await isPharmacyTenant(c.env.DB, tenantId)) return next();
 
   const path = new URL(c.req.url).pathname;
+  if (c.get('platformAdmin') && findPharmacyAdminApiCoverage(c.req.method, path)) {
+    return next();
+  }
   if (!isAllowedPharmacyApi(path)) {
     return c.json({ success: false, error: 'Feature disabled for pharmacy tenant' }, 403);
   }

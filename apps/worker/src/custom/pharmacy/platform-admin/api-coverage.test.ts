@@ -53,8 +53,22 @@ describe('pharmacy admin API coverage leak detector', () => {
 
     expect(new Set(reasons)).toEqual(new Set([
       'binary-output', 'destructive-operation', 'external-operation', 'legacy-lifecycle',
-      'patient-operation', 'retired', 'secret-output',
+      'patient-operation', 'privileged-operation', 'retired', 'secret-output',
     ]));
+  });
+
+  it('keeps safe tenant settings covered and staff authority changes deferred', () => {
+    expect(findPharmacyAdminApiCoverage('GET', '/api/tags')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'read-only',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('PATCH', '/api/staff/staff-a')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('PATCH', '/api/staff/staff-a')?.reason)
+      .toBe('privileged-operation');
+    expect(findPharmacyAdminApiCoverage('PUT', '/api/staff/staff-a/accounts')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')?.reason)
+      .toBe('privileged-operation');
   });
 
   it('does not expose patient operations through the CLI coverage manifest', () => {

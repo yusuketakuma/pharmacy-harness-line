@@ -1,35 +1,28 @@
 import { describe, expect, it } from 'vitest';
+import { findPharmacyAdminApiCoverage } from './api-coverage.js';
 import { isPlatformTenantSettingsPath } from './settings-scope.js';
 
 describe('platform tenant settings scope', () => {
   it.each([
-    '/api/account-settings/link-base-url',
-    '/api/line-accounts/account-a',
-    '/api/rich-menu-groups/external',
-    '/api/rich-menu-groups/group-a/publish',
-    '/api/custom/pharmacy/rich-menus/prepare',
-    '/api/custom/pharmacy/growth/config',
-    '/api/custom/pharmacy/readiness',
-    '/api/custom/pharmacy/privacy-policy',
-    '/api/custom/pharmacy/public-profile',
-    '/api/custom/pharmacy/myna-endpoint',
-    '/api/custom/pharmacy/emergency-contraception/config',
-    '/api/custom/pharmacy/emergency-contraception/reminders',
-    '/api/custom/pharmacy/emergency-contraception/inventory',
-    '/api/custom/pharmacy/emergency-contraception/slots',
-    '/api/custom/pharmacy/emergency-contraception/pharmacists/staff-a',
-    '/api/automations/automation-a',
-    '/api/auto-replies/reply-a',
-    '/api/booking/admin/menus/menu-a',
-    '/api/message-templates/template-a',
-    '/api/reminders/reminder-a/steps/step-a',
-    '/api/scenarios/scenario-a/steps/step-a',
-    '/api/staff/staff-a',
-    '/api/tags/tag-a',
-    '/api/templates/template-a',
-    '/api/webhooks/outgoing/webhook-a',
-  ])('allows a tenant configuration path: %s', (path) => {
-    expect(isPlatformTenantSettingsPath('GET', path)).toBe(true);
+    ['GET', '/api/account-settings/link-base-url'],
+    ['GET', '/api/line-accounts/account-a'],
+    ['GET', '/api/rich-menu-groups/external'],
+    ['POST', '/api/rich-menu-groups/group-a/publish'],
+    ['GET', '/api/custom/pharmacy/growth/config'],
+    ['GET', '/api/custom/pharmacy/readiness'],
+    ['GET', '/api/custom/pharmacy/privacy-policy'],
+    ['GET', '/api/custom/pharmacy/public-profile'],
+    ['GET', '/api/custom/pharmacy/myna-endpoint'],
+    ['GET', '/api/custom/pharmacy/emergency-contraception/config'],
+    ['GET', '/api/custom/pharmacy/emergency-contraception/reminders'],
+    ['PUT', '/api/custom/pharmacy/emergency-contraception/inventory'],
+    ['POST', '/api/custom/pharmacy/emergency-contraception/slots'],
+    ['PUT', '/api/custom/pharmacy/emergency-contraception/pharmacists/staff-a'],
+    ['GET', '/api/staff/staff-a'],
+    ['GET', '/api/tags'],
+  ])('allows a covered tenant configuration path: %s %s', (method, path) => {
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(true);
+    expect(findPharmacyAdminApiCoverage(method, path)).toBeDefined();
   });
 
   it.each([
@@ -50,6 +43,21 @@ describe('platform tenant settings scope', () => {
     '/api/platform-admin/tenants',
   ])('rejects PHI or operational paths: %s', (path) => {
     expect(isPlatformTenantSettingsPath('GET', path)).toBe(false);
+  });
+
+  it.each([
+    ['GET', '/api/automations/automation-a'],
+    ['GET', '/api/auto-replies/reply-a'],
+    ['GET', '/api/booking/admin/menus/menu-a'],
+    ['GET', '/api/message-templates/template-a'],
+    ['GET', '/api/reminders/reminder-a/steps/step-a'],
+    ['GET', '/api/scenarios/scenario-a/steps/step-a'],
+    ['GET', '/api/tags/tag-a'],
+    ['GET', '/api/templates/template-a'],
+    ['GET', '/api/webhooks/outgoing/webhook-a'],
+  ])('rejects settings without tenant-safe CLI coverage: %s %s', (method, path) => {
+    expect(findPharmacyAdminApiCoverage(method, path)).toBeUndefined();
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
   });
 
   it.each([
@@ -76,5 +84,16 @@ describe('platform tenant settings scope', () => {
     ['PUT', '/api/account-settings/link-base-url'],
   ])('keeps read and non-credential settings writes: %s %s', (method, path) => {
     expect(isPlatformTenantSettingsPath(method, path)).toBe(true);
+  });
+
+  it.each([
+    ['GET', '/api/tags'],
+    ['PATCH', '/api/staff/staff-a'],
+    ['PUT', '/api/staff/staff-a/accounts'],
+    ['GET', '/api/automations/automation-a'],
+  ])('uses the CLI coverage manifest as the server authority: %s %s', (method, path) => {
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(
+      Boolean(findPharmacyAdminApiCoverage(method, path)),
+    );
   });
 });

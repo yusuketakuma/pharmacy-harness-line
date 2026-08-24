@@ -420,7 +420,7 @@ describe('pharmacy generic feature guard', () => {
 });
 
 describe('pharmacy tenant API allowlist', () => {
-  function allowlistApp(pharmacyTenant: boolean) {
+  function allowlistApp(pharmacyTenant: boolean, platformAdmin = false) {
     const database = {
       prepare: () => ({
         bind: () => ({ first: async () => pharmacyTenant ? { pharmacy_install: 1 } : null }),
@@ -429,6 +429,9 @@ describe('pharmacy tenant API allowlist', () => {
     const root = new Hono<any>();
     root.use('*', async (c, next) => {
       c.set('tenantId', 'tenant-a');
+      if (platformAdmin) {
+        c.set('platformAdmin', { id: 'platform-admin-a', name: 'Platform Admin' });
+      }
       await next();
     });
     root.use('*', pharmacyTenantApiAllowlistGuard);
@@ -466,6 +469,15 @@ describe('pharmacy tenant API allowlist', () => {
     const { root, env } = allowlistApp(false);
     const response = await root.request('/api/users', {}, env);
     expect(response.status).toBe(200);
+  });
+
+  it('lets a platform admin reach only the shared CLI coverage', async () => {
+    const { root, env } = allowlistApp(true, true);
+    const [covered, unclassified] = await Promise.all([
+      root.request('/api/account-settings/link-base-url', {}, env),
+      root.request('/api/templates', {}, env),
+    ]);
+    expect([covered.status, unclassified.status]).toEqual([200, 403]);
   });
 
   it('is mounted as a server-side contract', () => {
