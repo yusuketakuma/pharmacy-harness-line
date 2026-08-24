@@ -56,7 +56,7 @@ export function pharmacyRichMenuDiffLabel(diff: SlotDiff): string {
 
 const DIFF_UNVERIFIED_LABELS: Record<string, string> = {
   CURRENT_DEFAULT_EVIDENCE_STALE: 'LINEの現在表示を24時間以内に確認できていません。状態を再確認してください。',
-  CURRENT_DEFAULT_VERSION_MISSING: '確認済みの現在表示に対応する保存versionがありません。',
+  CURRENT_DEFAULT_VERSION_MISSING: '確認済みの現在表示に対応する保存済みメニューがありません。',
   CURRENT_DEFAULT_MANIFEST_UNAVAILABLE: '確認済みの現在表示のtap領域を取得できません。',
 }
 
@@ -67,9 +67,9 @@ type Readiness = Extract<
 
 const READINESS_LABELS: Array<[keyof Omit<Readiness, 'status' | 'capabilityEnabled'>, string]> = [
   ['layoutConfigured', '並び順の保存'],
-  ['savedVersionAvailable', '保存済み画像version'],
-  ['catalogVersionCurrent', '現行画像catalogのversion'],
-  ['publishedVersionAvailable', 'LINE登録済みversion'],
+  ['savedVersionAvailable', '保存済みメニュー'],
+  ['catalogVersionCurrent', '現行画像テンプレート'],
+  ['publishedVersionAvailable', 'LINE登録済みメニュー'],
   ['currentDefaultRecorded', '初期表示の設定'],
 ]
 
@@ -167,6 +167,8 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       setLifecycle(lifecycleResponse.data)
       setOrder(response.data.preferredOrder)
       setVersions(versionsResponse.data)
+      setVersionName((current) =>
+        versionsResponse.data.length === 0 ? current || '通常営業メニュー' : current)
       setReadiness(readinessResponse.data.richMenu)
     } catch {
       if (accountRef.current === requestedAccountId) setError('薬局リッチメニュー設定を取得できませんでした。')
@@ -331,14 +333,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       if (!response.success) throw new Error(response.error)
       setVersionName('')
       await load()
-      if (accountRef.current === requestedAccountId) setMessage('現在の配置を新しい画像versionとして保存しました。LINEにはまだ反映していません。')
+      if (accountRef.current === requestedAccountId) setMessage('現在の配置を新しい保存済みメニューとして保存しました。LINEにはまだ反映していません。')
     } catch (cause) {
       if (accountRef.current !== requestedAccountId) return
       if (cause instanceof ApiError && cause.status === 409) {
         await load()
         if (accountRef.current === requestedAccountId) setError('設定が更新されました。最新状態を確認してもう一度保存してください。')
       } else {
-        setError('画像versionを保存できませんでした。catalog設定を確認してください。')
+        setError('メニューを保存できませんでした。画像テンプレート設定を確認してください。')
       }
     } finally {
       if (accountRef.current === requestedAccountId) setCreating(false)
@@ -380,10 +382,10 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
 
   async function renameVersion(version: Version) {
     if (renaming) return
-    const requestedName = window.prompt('新しいversion名を入力してください。', version.name)
+    const requestedName = window.prompt('新しいメニュー名を入力してください。', version.name)
     if (requestedName === null || requestedName.trim() === version.name) return
     if (!requestedName.trim() || requestedName.trim().length > 80) {
-      setError('version名は1〜80文字で入力してください。')
+      setError('メニュー名は1〜80文字で入力してください。')
       return
     }
     const requestedAccountId = accountId
@@ -401,14 +403,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       setVersions((current) => current.map((item) => item.groupId === version.groupId
         ? { ...item, name: response.data.name, updatedAt: response.data.updatedAt }
         : item))
-      setMessage('version名を変更しました。画像とtap actionは変更していません。')
+      setMessage('メニュー名を変更しました。画像とtap actionは変更していません。')
     } catch (cause) {
       if (accountRef.current !== requestedAccountId) return
       if (cause instanceof ApiError && cause.status === 409) {
         await load()
-        if (accountRef.current === requestedAccountId) setError('別の更新がありました。最新のversion一覧を再取得しました。')
+        if (accountRef.current === requestedAccountId) setError('別の更新がありました。最新の保存済みメニュー一覧を再取得しました。')
       } else {
-        setError('version名を変更できませんでした。')
+        setError('メニュー名を変更できませんでした。')
       }
     } finally {
       if (accountRef.current === requestedAccountId) setRenaming(null)
@@ -438,7 +440,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       if (cause instanceof ApiError && cause.status === 409) {
         await load()
         if (accountRef.current === requestedAccountId) {
-          setError('LINE登録済み・確認済み・結果確認中のversionは削除できません。')
+          setError('LINE登録済み・確認済み・結果確認中のメニューは削除できません。')
         }
       } else {
         setError('下書きを削除できませんでした。')
@@ -604,15 +606,15 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
             <button type="button" onClick={() => void save()} disabled={!dirty || saving || !canMutate} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? '保存中…' : '並び順を保存'}</button>
           </div>
           <div className="mt-6 border-t border-gray-200 pt-5">
-            <h3 className="font-semibold text-gray-900">保存済み画像version</h3>
+            <h3 className="font-semibold text-gray-900">保存済みメニュー</h3>
             <p className="mt-1 text-sm text-gray-600">画像とtap actionを一組で保存します。保存だけではLINE表示は変わりません。</p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <label className="min-w-0 flex-1 text-sm">version名
+              <label className="min-w-0 flex-1 text-sm">メニュー名
                 <input value={versionName} onChange={(event) => setVersionName(event.target.value)} maxLength={80} disabled={creating || !canMutate} className="mt-1 min-h-11 w-full rounded border border-gray-300 px-3" placeholder="例: 通常営業メニュー" />
               </label>
               <button type="button" onClick={() => void createVersion()} disabled={dirty || creating || !versionName.trim() || !canMutate} className="min-h-11 self-end rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{creating ? '保存中…' : '現在の配置を画像として保存'}</button>
             </div>
-            {versions.length === 0 ? <p className="mt-4 text-sm text-gray-500">保存済みversionはありません。</p> : (
+            {versions.length === 0 ? <p className="mt-4 text-sm text-gray-500">保存済みメニューはありません。</p> : (
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {versions.map((version) => <article key={version.groupId} className="overflow-hidden rounded-lg border border-gray-200">
                   {/* eslint-disable-next-line @next/next/no-img-element */}

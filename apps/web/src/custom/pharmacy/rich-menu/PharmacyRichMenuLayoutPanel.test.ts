@@ -117,6 +117,10 @@ describe('pharmacy rich-menu layout panel', () => {
     expect(panel).toContain('「処方せん事前送信」と「受付状況」は同時にON/OFF');
     expect(panel).toContain("localStorage.getItem('lh_staff_role')");
     expect(panel).toContain('一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。');
+    expect(panel).toContain("versionsResponse.data.length === 0 ? current || '通常営業メニュー' : current");
+    expect(panel).toContain('保存済みメニュー');
+    expect(panel).toContain('メニュー名');
+    expect(panel).not.toContain('保存済み画像version');
     expect(panel).toContain('disabled={lifecycleSaving || lifecycle.state === state || !canMutate}');
     expect(panel).toContain('disabled={index === 0 || saving || !canMutate}');
     expect(panel).toContain('disabled={dirty || creating || !versionName.trim() || !canMutate}');
