@@ -7,6 +7,28 @@ pending this decision.
 It describes local source and schema evidence plus one business decision. It
 does not claim deployment, production configuration or production operation.
 
+Status: v0.32.0のrecovery-gated retention mechanismとsynthetic testは実装済み。
+production delete、R2 lifecycle read-back、実backup、deployは`NOT_RUN`である。
+EC sale/counter/auditとDSR tombstoneの方針が未決のため、統合readinessは
+`BLOCKED`のまま、処方せん・incoming imageのretention deleteを開始しない。
+
+## v0.32.0 current fail-closed contract
+
+| Boundary | Current behavior |
+| --- | --- |
+| Authority | Platform adminのrecovery operation、別approver/executor、expiry、tenant/account/current Worker binding、active execution fenceが必須 |
+| Preflight | verified backup generation、schema、33 source inventory、row/object count、legal-hold/DSR/incoming/R2 inventoryのdigestをserver側で固定。drift時はmutation前に停止 |
+| Legal hold | patient/ownerに紐づく33 timestamp sourceを一つのinventoryで評価。null、非UTC、malformed、query失敗、未知sourceは`unknown` hold。DSR request/event自体は自己循環するためPHI clockから除外し、tombstone policy blockerとして別管理 |
+| Prescription R2 | operation単位のdeletion intent、row revision、stored SHA-256、hold epochを固定し、R2 delete直前にexecution・hold・row・object identityを再確認。結果不明は`OUTCOME_UNKNOWN`で停止 |
+| Incoming R2 | `messages_log` backfill、tracked object、R2 inventoryを照合し、`ORPHAN`/`MISSING`/`OWNERSHIP_MISMATCH`/`UNKNOWN`をdurable dispositionへ記録。blind retryしない |
+| Completion | `failed=0`、unresolved disposition=0、readiness=`READY`の場合だけoperationをcompleteする。現状はpolicy blockerにより`BLOCKED` |
+
+実装は`custom_057`（hold epoch/deletion intent）と`custom_058`（incoming
+disposition）をadditiveに追加する。通常cronは3年retention deletionを直接実行せず、
+`POST /api/platform-admin/data-protection/recovery-operations/:id/execute`だけが
+verified recovery fence経由で呼び出せる。既存のworkflow cleanupと、設定済み
+`retention_days`に基づくEC payload redactionは別contractである。
+
 ## The decision
 
 | Field | Value |
@@ -51,16 +73,16 @@ in this repository can *find* the object to delete it.
 
 | Prefix | Contents | PHI | Age reference | Enforcement |
 | --- | --- | --- | --- | --- |
-| `custom/pharmacy/prescriptions/tenants/{tenantId}/{submissionId}/{revision}/{fileId}` | 処方箋画像 | yes — highest density (patient name, drugs, prescriber, clinic) | `pharmacy_prescription_files.created_at` | **enforced** — `purgePrescriptionFilesPastRetention` (6h cron) |
-| `tenants/{tenantId}/accounts/{accountId}/incoming/{messageId}.{ext}` | 着信 LINE チャット画像 | yes — patient may send anything | `pharmacy_incoming_image_objects.stored_at` (`custom_050`, forward-only from commit e028b86) | **not enforced** — the R2 key is now tracked, but no purge job consumes it and there is no backfill for objects written before `custom_050`; see "Deferred" |
+| `custom/pharmacy/prescriptions/tenants/{tenantId}/{submissionId}/{revision}/{fileId}` | 処方箋画像 | yes — highest density (patient name, drugs, prescriber, clinic) | `pharmacy_prescription_files.created_at` | recovery-gated delete mechanism implemented; integrated readiness `BLOCKED`, production `NOT_RUN` |
+| `tenants/{tenantId}/accounts/{accountId}/incoming/{messageId}.{ext}` | 着信 LINE チャット画像 | yes — patient may send anything | `pharmacy_incoming_image_objects.stored_at` (`custom_050`) | backfill/purge/reconcile/disposition implemented; unresolved objects fail closed and integrated readiness remains `BLOCKED` |
 | `tenants/{tenantId}/uploads/{uuid}.{ext}` | 管理者アップロード画像 (broadcast/template assets) | not by design; no patient path writes here | none | **not enforced** — no DB row at all |
 | `rich-menus/{accountId}/{groupId}/{pageId}/{...}` | リッチメニュー画像 | no — regenerable configuration asset | `rich_menu_pages` row | out of PHI scope; replaced/deleted images already orphan |
 | `webinars/{prefix}/...` | HLS 動画 | no — marketing, not a pharmacy surface | n/a | written out-of-band, never reaped |
 
-The prescription prefix is the only one with a `r2_key` column
-(`pharmacy_prescription_files.r2_key`, `UNIQUE`, `CHECK (r2_key LIKE
-'custom/pharmacy/prescriptions/%')`). Every other prefix is either untracked or
-tracked only as its *current* value, which is why enforcement stops there.
+Prescription objects use `pharmacy_prescription_files.r2_key`; incoming objects
+use `pharmacy_incoming_image_objects.r2_key` plus the v0.32 disposition ledger.
+Other prefixes are outside this PHI deletion mechanism and are never inferred
+from a prefix scan alone.
 
 ## DB tables
 
@@ -68,11 +90,11 @@ tracked only as its *current* value, which is why enforcement stops there.
 column the boundary is measured against; "Format" matters because a `+09:00`
 string and a `Z` string do not compare correctly against the same cutoff.
 
-### Enforced
+### Mechanism implemented or independently enforced
 
 | Table | PHI | Age reference | Format | Enforcement |
 | --- | --- | --- | --- | --- |
-| `pharmacy_prescription_files` | R2 pointer to the 処方箋画像 | `created_at` NOT NULL | ISO `Z` | R2 object deleted, row set `state='deleted'`, logged in `pharmacy_phi_retention_purge_log` |
+| `pharmacy_prescription_files` | R2 pointer to the 処方箋画像 | `created_at` NOT NULL | ISO `Z` | recovery-gated intent/reconcile implemented; current integrated delete readiness is `BLOCKED` and production execution is `NOT_RUN` |
 | `pharmacy_webhook_event_receipts` | raw LINE webhook body — message text, `userId`, image ids | `received_at` NOT NULL | **JST `+09:00`** | purged at **30 days** for both settled and dead-lettered rows (M-7 + NEXT-6, `purgeWebhookEventReceipts`); `sweepWebhookInbox` dead-letters any `pending`/`processing` row past 24h with no live lease, so nothing can silently outlive 3 years anymore |
 | `pharmacy_emergency_intakes` | `encrypted_payload` (AES-GCM), plus cleartext `age_band`, `risk_flags_json` | `created_at` NOT NULL | ISO `Z` | **partially enforced** — account's own `pharmacy_emergency_settings.retention_days` (1–365) takes precedence over the uniform 3-year rule for the self-declaration payload only (NEXT-2); see "Emergency contraception retention" below for the residual identifying columns this does **not** clear |
 
@@ -187,29 +209,33 @@ the data they describe. Sequence them **after** the data, never before:
 | `platform_admin_access_events` (cross-tenant admin audit; `detail_json` is unbounded and is the one place PHI could leak in) | `created_at` |
 | `pharmacy_phi_retention_purge_log` (this mechanism's own log; contains no PHI and must outlive what it describes) | `purged_at` — **exempt** |
 
-## What is enforced today
+## Runtime enforcement and v0.32 boundary
 
-`apps/worker/src/custom/pharmacy/prescriptions/retention-purge.ts`, registered on
-the existing 6-hour cron tick in `apps/worker/src/index.ts` next to
-`cleanupPrescriptionImages`.
+`apps/worker/src/custom/pharmacy/prescriptions/retention-purge.ts` is no longer
+registered as an autonomous 6-hour retention cron. It is callable only through
+the approved recovery operation after server-built preflight/readiness. The
+existing `cleanupPrescriptionImages` cron remains a workflow cleanup and must
+not be used as proof of the 3-year retention boundary.
 
 Fail-closed rules, mirroring `purgeWebhookEventReceipts` (M-7):
 
-1. A file is purged only when `created_at` matches the UTC-`Z` shape the runtime
+1. A file is selected only when `created_at` matches the UTC-`Z` shape the runtime
    actually writes **and** is strictly older than the boundary. Empty, date-only,
    JST-offset, and malformed values are kept, not guessed at. A missed purge is
    recoverable; a wrong delete is not.
-2. The R2 object is deleted first, then the row is marked `state='deleted'`, then
-   the purge is logged. The log row is the completion marker, so an interrupted
-   run retries safely (R2 delete is idempotent) and never double-logs.
-3. An R2 failure leaves the row unmarked and unlogged, so the next tick retries.
-4. Each tick is bounded (50 files by default) so a large backlog cannot stall the
-   cron.
+2. Selection creates a durable intent bound to operation/execution/fence、row
+   revision、R2 key/checksum、hold epoch. A fresh hold/DSR check and a second R2
+   identity read happen immediately before delete.
+3. A successful delete is committed and finalized exactly once. Inspection or
+   delete outcome ambiguity becomes `OUTCOME_UNKNOWN`; reconciliation may
+   finalize only when a later read proves the object absent. No blind retry occurs.
+4. Each execution is bounded to 50 resources by default, and any blocker keeps
+   the recovery operation running rather than reporting success.
 
-This is a superset backstop over `cleanupPrescriptionImages`, which only reaps
-images whose *workflow* ended and by design never touches the active revision of
-a live submission. Past three years the image goes regardless of status,
-including rows the workflow cleanup marked `deleted` but failed to remove from R2.
+This remains separate from `cleanupPrescriptionImages`, which only reaps images
+whose workflow ended. No statement that an object "goes regardless of status"
+is valid until the integrated readiness blockers are resolved and an approved
+production execution proves it.
 
 ### Emergency contraception retention (NEXT-2)
 
@@ -220,9 +246,9 @@ patient-facing promise shown at consent time
 (`EmergencyContraceptionPage.tsx` "保存期間 N日間"), which is shorter than and
 takes precedence over the uniform 3-year rule for this one table.
 
-Same fail-closed rules as the prescriptions job (unparseable `created_at` is
-kept and counted separately, per-account `db.batch()`, one account's failure
-never stops another, bounded to 100 intakes per account per tick), plus a
+This independent EC redaction job keeps unparseable `created_at` values and
+counts them separately, uses per-account `db.batch()`, isolates one account's
+failure, and is bounded to 100 intakes per account per tick. It also applies a
 legal-hold check: an intake is never purged while its patient has an active
 `pharmacy_data_subject_requests` row (`custom_038`) with `legal_hold = 1` and
 no expired `legal_hold_release_at`. EC intakes carry no `patient_id` (PHI-minimal
@@ -269,10 +295,11 @@ against, `retention_years`, and `purged_at`. It holds no PHI and carries no
 foreign key to the purged row — a foreign key would either block the delete or
 cascade the evidence away with it.
 
-## Deferred to a follow-up task
+## Residual decisions and historical backlog
 
-Ordered by risk. None of these are fully enforced today (item 5 is
-partially enforced — see below and the Enforced table).
+Ordered by risk. Items 1、2、4、5、7 remain policy/data-model work. Item 3 now has
+the v0.32 backfill/reconcile/disposition mechanism described above, but production
+execution remains blocked and unrun.
 
 1. **Prescription aggregate row deletion.** The image is gone at 3 years but the
    surrounding rows remain. Deleting a submission requires an ordered delete
@@ -287,14 +314,11 @@ partially enforced — see below and the Enforced table).
    identity PHI in the schema. Blocked on (1): `pharmacy_prescription_patients`
    holds a foreign key to both, and `base_response_id` forms a self-referencing
    revision chain that must be deleted leaf-first.
-3. **Incoming LINE chat images** (`tenants/{t}/accounts/{a}/incoming/`). The R2
-   key is now tracked (`pharmacy_incoming_image_objects`, `custom_050`, commit
-   e028b86): `webhook.ts` writes a row with `stored_at` best-effort alongside
-   every incoming image, forward-only. What's still missing: no purge job reads
-   this table yet, and there is no backfill for objects stored before
-   `custom_050` — those still survive only as a URL inside `messages_log.content`
-   JSON. Do not blind-delete by prefix age for the pre-`custom_050` set; there
-   is no age reference on those objects that this repository owns.
+3. **Incoming LINE chat images** (`tenants/{t}/accounts/{a}/incoming/`). v0.32
+   now parses the owned `messages_log` pointer for bounded backfill and reconciles
+   it with `pharmacy_incoming_image_objects` and R2 inventory. Rows without an
+   unambiguous age/owner/checksum are retained as a blocked disposition; prefix
+   age is never guessed and orphan objects are not blind-deleted.
 4. **`messages_log` / `chats` / `friends`.** JST-formatted timestamps, so they
    need their own cutoff string — the UTC cutoff used above is wrong for them by
    9 hours, and mixing the two is exactly the kind of silent off-by-one that
@@ -325,7 +349,7 @@ partially enforced — see below and the Enforced table).
    `pharmacy_emergency_intake_events` joins this group (see item 5): its
    `BEFORE DELETE` trigger blocks any purge job today, deliberately.
 
-## 3-year purge: deletion order spec (not implemented)
+## 3-year aggregate purge: deletion order spec (not implemented)
 
 Derived from `packages/db/bootstrap.sql` FK declarations only (`grep -n
 "REFERENCES\|ON DELETE"` per table, 2026-08-22) — nothing here is guessed.
@@ -367,5 +391,6 @@ deletes leaf-first explicitly for auditability rather than relying on cascade.
 
 `pharmacy_emergency_intakes` itself is already **redact, not delete** (see
 "Enforced" above, NEXT-2) — it is not in this table because it has a purge
-job today. Implementing any row above is out of scope here; tracked as
-2029+ V0.3x backlog per DoD.
+job today. The v0.32 implementation deletes R2 objects only; it does not claim
+that this aggregate row-order plan is complete. Implementing any row above
+remains outside the approved production delete boundary.

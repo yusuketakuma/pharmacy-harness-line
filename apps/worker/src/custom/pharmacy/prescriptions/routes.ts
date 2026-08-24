@@ -280,6 +280,7 @@ prescriptionRoutes.put('/api/liff/pharmacy/prescriptions/:id/files/:position', a
     try {
       await c.env.IMAGES.put(file.r2_key, bytes, {
         httpMetadata: { contentType },
+        sha256: inspected.sha256,
       });
     } catch {
       return c.json({ error: 'Image storage temporarily unavailable' }, 503);

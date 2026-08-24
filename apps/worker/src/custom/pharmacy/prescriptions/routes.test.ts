@@ -640,7 +640,10 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
     expect(put).toHaveBeenCalledWith(
       'custom/pharmacy/prescriptions/submission-1/1/file-1',
       expect.any(Uint8Array),
-      { httpMetadata: { contentType: 'image/png' } },
+      {
+        httpMetadata: { contentType: 'image/png' },
+        sha256: 'a'.repeat(64),
+      },
     );
     expect(mocks.markFileReady).toHaveBeenCalledWith(
       env.DB, patient, 'submission-1', 'file-1', 'a'.repeat(64),
