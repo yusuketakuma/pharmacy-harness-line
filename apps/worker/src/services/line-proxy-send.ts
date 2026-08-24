@@ -2,6 +2,12 @@ import type { Message } from '@line-crm/line-sdk';
 
 export type HarnessProxyDispatch = (request: Request) => Promise<Response>;
 
+const LINE_PUSH_TIMEOUT_MS = 10_000;
+
+export class LineHarnessUnknownOutcomeError extends Error {
+  readonly name = 'LineHarnessUnknownOutcomeError';
+}
+
 export type HarnessProxyPushOptions = {
   pharmacyNotificationEventId?: string;
   lineAccountId?: string;
@@ -39,17 +45,33 @@ export async function pushViaHarnessProxy(
   };
   // Worker 自身の公開 URL へ fetch すると自己接続が失敗する環境がある。
   // 内部呼び出しは同じ Hono proxy handler へ直接 dispatch し、外部利用時だけ fetch。
-  const response = dispatch ? await dispatch(new Request(url, init)) : await fetch(url, init);
+  const signal = AbortSignal.timeout(LINE_PUSH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    const operation = dispatch
+      ? dispatch(new Request(url, { ...init, signal }))
+      : fetch(url, { ...init, signal });
+    response = await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+    ]);
+  } catch {
+    throw new LineHarnessUnknownOutcomeError('LINE Harness proxy outcome is unknown');
+  }
 
   // 同じ retry key がすでに LINE に受理済みなら、再送の 409 も成功扱い。
   const alreadyAccepted =
     response.status === 409 && Boolean(response.headers.get('x-line-accepted-request-id'));
   if (response.ok || alreadyAccepted) return;
+  if (response.status >= 500) {
+    throw new LineHarnessUnknownOutcomeError(
+      `LINE Harness proxy outcome is unknown: ${response.status} ${response.statusText}`,
+    );
+  }
 
-  const body = await response.text().catch(() => '');
-  throw new Error(
-    `LINE Harness proxy error: ${response.status} ${response.statusText} — ${body.slice(0, 500)}`,
-  );
+  throw new Error(`LINE Harness proxy error: ${response.status} ${response.statusText}`);
 }
 
 /**
@@ -75,8 +97,5 @@ export async function replyViaHarnessProxy(
   const response = dispatch ? await dispatch(new Request(url, init)) : await fetch(url, init);
   if (response.ok) return;
 
-  const body = await response.text().catch(() => '');
-  throw new Error(
-    `LINE Harness proxy error: ${response.status} ${response.statusText} — ${body.slice(0, 500)}`,
-  );
+  throw new Error(`LINE Harness proxy error: ${response.status} ${response.statusText}`);
 }

@@ -33,6 +33,7 @@ import { verifyCallerLineIdentity, verifyCallerLineUserId } from '../../services
 import { awardActivityMileage } from '../../services/activity-mileage.js';
 import { redirectOriginAllowlist, safeRedirectTarget } from '../../lib/safe-redirect.js';
 import { loginUnconfiguredPage } from '../../lib/login-unconfigured.js';
+import { log } from '../../lib/log.js';
 import type { Env } from '../../index.js';
 import { accountResourceOwnedByStaff } from '../../middleware/tenant-boundary.js';
 import { verifyCrossAccountToken } from '../../lib/cross-account-token.js';
@@ -113,15 +114,13 @@ async function linkIgIgsid(
         .first<{ ig_igsid: string | null }>();
       linked = row?.ig_igsid === igParam;
     }
-  } catch (err) {
-    console.error('Failed to write friends.ig_igsid:', err);
+  } catch {
+    log('ig_link_store_failed', {}, 'error');
     return false;
   }
 
   if (!linked) {
-    console.warn(
-      `Skipping IG Harness notify: friend ${friendId} is already linked to a different IGSID`,
-    );
+    log('ig_link_conflict', {}, 'warn');
     return false;
   }
 
@@ -146,14 +145,12 @@ async function linkIgIgsid(
         },
         body: JSON.stringify({ igsid: igParam, line_friend_uuid: friendId }),
       })
-        .then(async (res) => {
+        .then((res) => {
           if (!res.ok) {
-            // Upstream body may echo request fields; log only status + error code.
-            const errBody = await res.json<{ error?: string }>().catch(() => ({} as { error?: string }));
-            console.error('IG Harness link-line failed:', JSON.stringify({ status: res.status, error: errBody.error ?? null }));
+            log('ig_harness_link_line_failed', { status: res.status }, 'error');
           }
         })
-        .catch((err) => console.error('IG Harness link-line error:', err)),
+        .catch(() => log('ig_harness_link_line_failed', {}, 'error')),
     );
   }
   return true;
@@ -726,9 +723,7 @@ liffRoutes.get('/auth/callback', async (c) => {
     });
 
     if (!tokenRes.ok) {
-      // Upstream body may echo sensitive values; log only status + error code.
-      const errBody = await tokenRes.json<{ error?: string }>().catch(() => ({} as { error?: string }));
-      console.error('Token exchange failed:', JSON.stringify({ status: tokenRes.status, error: errBody.error ?? null }));
+      log('line_oauth_token_exchange_failed', { status: tokenRes.status }, 'error');
       return c.html(errorPage('Token exchange failed'));
     }
 
@@ -1132,8 +1127,8 @@ liffRoutes.get('/auth/callback', async (c) => {
 
     return c.html(completionPage(displayName, pictureUrl, ref));
 
-  } catch (err) {
-    console.error('Auth callback error:', err);
+  } catch {
+    log('line_oauth_callback_failed', {}, 'error');
     return c.html(errorPage('Internal error'));
   }
 });

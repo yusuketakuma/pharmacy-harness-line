@@ -16,6 +16,7 @@ import {
   readLineCredential,
 } from '../custom/pharmacy/provisioning/line-credential-store.js';
 import { updateEncryptedLineAccount } from '../custom/pharmacy/provisioning/line-account-store.js';
+import { log } from '../lib/log.js';
 
 const REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60_000; // 7 days
 
@@ -46,8 +47,7 @@ async function issueNewToken(
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`LINE token API ${res.status}: ${body}`);
+    throw new Error(`LINE token API ${res.status}`);
   }
 
   return res.json() as Promise<TokenResponse>;
@@ -94,9 +94,9 @@ export async function refreshLineAccessTokens(
         });
       }
 
-      console.log(`🔄 Token refreshed: ${account.name} (expires ${expiresAt})`);
-    } catch (err) {
-      console.error(`❌ Token refresh failed for ${account.name}:`, err);
+      log('line_token_refreshed', { line_account_id: account.id });
+    } catch {
+      log('line_token_refresh_failed', { line_account_id: account.id }, 'error');
     }
   }
 }

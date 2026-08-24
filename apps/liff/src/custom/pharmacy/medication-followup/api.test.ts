@@ -13,17 +13,13 @@ beforeEach(() => {
 describe('patient medication follow-up API', () => {
   it('lists the verified owner follow-ups', async () => {
     await medicationFollowUpApi.list();
-    expect(request).toHaveBeenCalledWith(
-      '/api/liff/pharmacy/medication-followups',
-      '服薬後フォローを取得できませんでした',
-    );
+    expect(request).toHaveBeenCalledWith('/api/liff/pharmacy/medication-followups');
   });
 
   it('sends only a fixed response with optimistic versioning', async () => {
     await medicationFollowUpApi.respond('followup-1', 'concern', 3, 'response-key-1');
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/medication-followups/followup-1/respond',
-      '服薬後フォローを更新できませんでした',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({

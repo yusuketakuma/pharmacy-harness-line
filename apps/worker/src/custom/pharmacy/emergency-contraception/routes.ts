@@ -11,14 +11,20 @@ import {
   getAdminEmergencyIntakeDetail,
   getEmergencyAdminConfig,
   getEmergencyServiceOverview,
+  getEmergencySaleRecord,
   listAdminEmergencyIntakes,
+  listCounterConfirmations,
   listOwnerEmergencyIntakes,
+  recordEmergencySale,
   saveEmergencySettings,
   setEmergencyInventory,
   setEmergencyPharmacist,
   transitionEmergencyIntake,
+  recordCounterConfirmation,
+  type EmergencyCounterSection,
   type EmergencySafeContactMode,
 } from './repository.js';
+import { validMenstruationSignals, type EmergencyMenstruationSignals } from './policy.js';
 import { getEmergencyReminderControl, saveEmergencyReminderControl } from './reminders.js';
 
 type EmergencyRouteEnv = {
@@ -30,6 +36,12 @@ type EmergencyRouteEnv = {
 };
 
 export const emergencyContraceptionRoutes = new Hono<EmergencyRouteEnv>();
+
+function validDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 
 emergencyContraceptionRoutes.use('/api/liff/pharmacy/emergency-contraception/*', async (c, next) => {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
@@ -57,14 +69,55 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
     return c.json({ error: '現在この受付を利用できません' }, 503);
   }
   const body = await readJsonObject(c.req);
+  const signalsBody = body?.menstruationSignals;
+  const MENSTRUATION_SIGNAL_KEYS = [
+    'noneApply', 'unknown', 'overOneMonthNoPeriod',
+    'notRecoveredAfterBirth', 'lastPeriodDifferent', 'earlierConcernOver3Weeks',
+  ] as const;
+  const signalKeys = signalsBody !== null && typeof signalsBody === 'object'
+    ? Object.keys(signalsBody)
+    : [];
+  const validSignalsShape = signalsBody === undefined || (
+    signalsBody !== null && typeof signalsBody === 'object' &&
+    signalKeys.length === MENSTRUATION_SIGNAL_KEYS.length &&
+    signalKeys.every((key) => MENSTRUATION_SIGNAL_KEYS.includes(key as typeof MENSTRUATION_SIGNAL_KEYS[number])) &&
+    MENSTRUATION_SIGNAL_KEYS.every((key) => typeof (signalsBody as Record<string, unknown>)[key] === 'boolean')
+  );
   if (!body || typeof body.slotId !== 'string' || typeof body.intercourseAt !== 'string' ||
       typeof body.intercourseTimeUnknown !== 'boolean' || typeof body.age !== 'number' ||
       typeof body.recentPurchaseCount !== 'number' || typeof body.patientWillVisit !== 'boolean' ||
       typeof body.acceptsInPersonDose !== 'boolean' || typeof body.safeContactMode !== 'string' ||
       typeof body.consentVersion !== 'string' ||
+      typeof body.consentContentHash !== 'string' ||
       typeof body.manufacturerCheckAcknowledged !== 'boolean' ||
-      typeof body.idempotencyKey !== 'string') {
+      typeof body.idempotencyKey !== 'string' ||
+      // A3/A4/A5/A' and B1-B4: optional, but if present must be boolean (default false when absent).
+      (body.lngAllergy !== undefined && typeof body.lngAllergy !== 'boolean') ||
+      (body.liverDisease !== undefined && typeof body.liverDisease !== 'boolean') ||
+      (body.currentlyPregnant !== undefined && typeof body.currentlyPregnant !== 'boolean') ||
+      (body.breastfeeding !== undefined && typeof body.breastfeeding !== 'boolean') ||
+      (body.underMedicalTreatment !== undefined && typeof body.underMedicalTreatment !== 'boolean') ||
+      (body.drugAllergyHistory !== undefined && typeof body.drugAllergyHistory !== 'boolean') ||
+      (body.heartKidneyGiDisease !== undefined && typeof body.heartKidneyGiDisease !== 'boolean') ||
+      (body.stJohnsWort !== undefined && typeof body.stJohnsWort !== 'boolean') ||
+      // C1: optional, string (YYYY-MM-DD) or null (defaults to null = 不明).
+      (body.lastMenstruationDate !== undefined && body.lastMenstruationDate !== null &&
+       (typeof body.lastMenstruationDate !== 'string' || !validDateOnly(body.lastMenstruationDate))) ||
+      // C2: optional, all 6 signal keys must be boolean when present.
+      !validSignalsShape ||
+      // D3: optional, boolean or null (未定).
+      (body.idDocumentAvailable !== undefined && body.idDocumentAvailable !== null &&
+       typeof body.idDocumentAvailable !== 'boolean')) {
     return c.json({ error: '入力内容を確認してください' }, 400);
+  }
+  const menstruationSignals: EmergencyMenstruationSignals = signalsBody
+    ? signalsBody as EmergencyMenstruationSignals
+    : {
+      noneApply: false, unknown: false, overOneMonthNoPeriod: false,
+      notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+    };
+  if (!validMenstruationSignals(menstruationSignals)) {
+    return c.json({ error: '当てはまるものはない・わからない・具体的な項目のいずれかのみ選んでください' }, 400);
   }
   const owner = c.get('emergencyPatient');
   try {
@@ -81,15 +134,32 @@ emergencyContraceptionRoutes.post('/api/liff/pharmacy/emergency-contraception/in
       acceptsInPersonDose: body.acceptsInPersonDose,
       safeContactMode: body.safeContactMode as EmergencySafeContactMode,
       consentVersion: body.consentVersion,
+      consentContentHash: body.consentContentHash,
       manufacturerCheckAcknowledged: body.manufacturerCheckAcknowledged,
       idempotencyKey: body.idempotencyKey,
       encryptionSecret: c.env.PHARMACY_PHI_KEY_V1,
+      // A3/A4/A5/A' and B1-B4: optional booleans, default false so existing LIFF
+      // clients that predate this form revision keep working unchanged.
+      lngAllergy: body.lngAllergy === true,
+      liverDisease: body.liverDisease === true,
+      currentlyPregnant: body.currentlyPregnant === true,
+      breastfeeding: body.breastfeeding === true,
+      underMedicalTreatment: body.underMedicalTreatment === true,
+      drugAllergyHistory: body.drugAllergyHistory === true,
+      heartKidneyGiDisease: body.heartKidneyGiDisease === true,
+      stJohnsWort: body.stJohnsWort === true,
+      lastMenstruationDate: (body.lastMenstruationDate as string | null | undefined) ?? null,
+      menstruationSignals,
+      idDocumentAvailable: (body.idDocumentAvailable as boolean | null | undefined) ?? null,
     });
     return c.json({ intake }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message === 'FEATURE_DISABLED') {
       return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
+    }
+    if (message === 'EMERGENCY_CONSENT_VERSION_MISMATCH' || message === 'EMERGENCY_CONSENT_HASH_MISMATCH') {
+      return c.json({ error: '同意内容が更新されています。最新の内容をご確認のうえ再度送信してください', code: message }, 409);
     }
     if (/stock|slot|conflict/i.test(message)) {
       return c.json({ error: '選択した枠を確保できませんでした。最新の空きを確認してください' }, 409);
@@ -201,7 +271,13 @@ emergencyContraceptionRoutes.put('/api/custom/pharmacy/emergency-contraception/c
       supportCenterUrl: String(body.supportCenterUrl ?? ''),
     });
     return c.body(null, 204);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'EMERGENCY_CONSENT_VERSION_STALE') {
+      return c.json({ error: '同意文言または保存期間を変更する場合は、同意バージョンを更新してください', code: 'EMERGENCY_CONSENT_VERSION_STALE' }, 409);
+    }
+    if (error instanceof Error && error.message === 'EMERGENCY_RETENTION_INCREASE_BLOCKED') {
+      return c.json({ error: '未削除の受付がある間は保存期間を延長できません', code: 'EMERGENCY_RETENTION_INCREASE_BLOCKED' }, 409);
+    }
     return c.json({ error: '設定内容を確認してください' }, 400);
   }
 });
@@ -353,5 +429,116 @@ emergencyContraceptionRoutes.post('/api/custom/pharmacy/emergency-contraception/
   } catch (error) {
     const status = /trained pharmacist/.test(String(error)) ? 403 : /not found/.test(String(error)) ? 404 : 409;
     return c.json({ error: status === 403 ? 'Forbidden' : '状態が更新されました。再読み込みしてください' }, status);
+  }
+});
+
+const COUNTER_SECTIONS = new Set(['A', 'B', 'C', 'D']);
+
+emergencyContraceptionRoutes.get(
+  '/api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section',
+  async (c) => {
+    const scope = staffScope(c);
+    if (scope instanceof Response) return scope;
+    const section = c.req.param('section');
+    if (!COUNTER_SECTIONS.has(section)) return c.json({ error: 'Invalid section' }, 400);
+    try {
+      const confirmations = await listCounterConfirmations(
+        c.env.DB, scope.lineAccountId, c.req.param('id'), scope.staff.id,
+      );
+      const confirmation = confirmations.find((item) => item.section === section) ?? null;
+      return c.json({ confirmation });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (/trained pharmacist/.test(message)) return c.json({ error: 'Forbidden' }, 403);
+      return c.json({ error: 'Service unavailable' }, 503);
+    }
+  },
+);
+
+emergencyContraceptionRoutes.put(
+  '/api/custom/pharmacy/emergency-contraception/intakes/:id/counter-confirmations/:section',
+  async (c) => {
+    const scope = staffScope(c);
+    if (scope instanceof Response) return scope;
+    const section = c.req.param('section');
+    const body = await readJsonObject(c.req);
+    if (!COUNTER_SECTIONS.has(section) || !body || typeof body.checklistVersion !== 'string' ||
+        !Array.isArray(body.mismatchItems) || body.mismatchItems.some((item: unknown) => typeof item !== 'string')) {
+      return c.json({ error: '入力内容を確認してください' }, 400);
+    }
+    try {
+      const confirmation = await recordCounterConfirmation(c.env.DB, {
+        lineAccountId: scope.lineAccountId,
+        intakeId: c.req.param('id'),
+        section: section as EmergencyCounterSection,
+        checklistVersion: body.checklistVersion,
+        mismatchItems: body.mismatchItems as string[],
+        staffId: scope.staff.id,
+      });
+      return c.json({ confirmation });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (/trained pharmacist/.test(message)) return c.json({ error: 'Forbidden' }, 403);
+      if (/not found/.test(message)) return c.json({ error: 'Not found' }, 404);
+      return c.json({ error: '対面確認を記録できませんでした' }, 409);
+    }
+  },
+);
+
+emergencyContraceptionRoutes.post('/api/custom/pharmacy/emergency-contraception/intakes/:id/sale', async (c) => {
+  const scope = staffScope(c);
+  if (scope instanceof Response) return scope;
+  if (!c.env.PHARMACY_PHI_KEY_V1) return c.json({ error: 'Service unavailable' }, 503);
+  const body = await readJsonObject(c.req);
+  if (!body || typeof body.expectedVersion !== 'number' ||
+      (body.outcome !== 'sold' && body.outcome !== 'refused') ||
+      typeof body.identityCheck !== 'string' || typeof body.inPersonDose !== 'string' ||
+      typeof body.checklistSheetsReceived !== 'number' || typeof body.pregnancyTest !== 'string' ||
+      (body.refusalReasonCode !== null && body.refusalReasonCode !== undefined &&
+       typeof body.refusalReasonCode !== 'string') ||
+      typeof body.referral !== 'string' || !Array.isArray(body.explained) ||
+      body.explained.some((item: unknown) => typeof item !== 'string')) {
+    return c.json({ error: '入力内容を確認してください' }, 400);
+  }
+  try {
+    const sale = await recordEmergencySale(c.env.DB, {
+      lineAccountId: scope.lineAccountId,
+      intakeId: c.req.param('id'),
+      staffId: scope.staff.id,
+      expectedVersion: body.expectedVersion,
+      outcome: body.outcome,
+      identityCheck: body.identityCheck as never,
+      inPersonDose: body.inPersonDose as never,
+      checklistSheetsReceived: body.checklistSheetsReceived,
+      pregnancyTest: body.pregnancyTest as never,
+      refusalReasonCode: (body.refusalReasonCode as string | null | undefined) ?? null,
+      referral: body.referral as never,
+      explained: body.explained as string[],
+      encryptionSecret: c.env.PHARMACY_PHI_KEY_V1,
+    });
+    return c.json({ sale }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (/trained pharmacist/.test(message)) return c.json({ error: 'Forbidden' }, 403);
+    if (/not found/.test(message)) return c.json({ error: 'Not found' }, 404);
+    if (/invalid sale record/.test(message)) return c.json({ error: '入力内容を確認してください' }, 400);
+    return c.json({ error: '販売記録を保存できませんでした。状態を確認してください' }, 409);
+  }
+});
+
+emergencyContraceptionRoutes.get('/api/custom/pharmacy/emergency-contraception/intakes/:id/sale', async (c) => {
+  const scope = staffScope(c);
+  if (scope instanceof Response) return scope;
+  if (!c.env.PHARMACY_PHI_KEY_V1) return c.json({ error: 'Service unavailable' }, 503);
+  try {
+    const sale = await getEmergencySaleRecord(
+      c.env.DB, scope.lineAccountId, c.req.param('id'), scope.staff.id, c.env.PHARMACY_PHI_KEY_V1,
+    );
+    return c.json({ sale });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (/trained pharmacist/.test(message)) return c.json({ error: 'Forbidden' }, 403);
+    if (/not found/.test(message)) return c.json({ error: 'Not found' }, 404);
+    return c.json({ error: 'Service unavailable' }, 503);
   }
 });

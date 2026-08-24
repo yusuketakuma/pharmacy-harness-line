@@ -13,6 +13,12 @@ import {
   type RefTracking,
 } from '@line-crm/db';
 
+class AdConversionHttpError extends Error {}
+
+function requireOk(response: Response, provider: string): void {
+  if (!response.ok) throw new AdConversionHttpError(`${provider} error: ${response.status}`);
+}
+
 export async function sendAdConversions(
   db: D1Database,
   friendId: string,
@@ -23,11 +29,13 @@ export async function sendAdConversions(
   if (!ref) return;
 
   const platforms = await getActiveAdPlatforms(db);
+  const clickIds: Record<string, string | null | undefined> = {
+    meta: ref.fbclid, x: ref.twclid, google: ref.gclid, tiktok: ref.ttclid,
+  };
 
   for (const platform of platforms) {
-    const config: AdPlatformConfig = JSON.parse(platform.config);
-
     try {
+      const config: AdPlatformConfig = JSON.parse(platform.config);
       switch (platform.name) {
         case 'meta':
           if (ref.fbclid) {
@@ -71,10 +79,12 @@ export async function sendAdConversions(
         platformId: platform.id,
         friendId,
         eventName,
-        clickId: ref.fbclid || ref.twclid || ref.gclid || ref.ttclid || '',
+        clickId: clickIds[platform.name] ?? '',
         clickIdType: platform.name,
         status: 'failed',
-        errorMessage: String(error),
+        errorMessage: error instanceof AdConversionHttpError
+          ? error.message
+          : 'Ad conversion failed',
       });
     }
   }
@@ -118,10 +128,7 @@ async function sendMetaConversion(
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Meta CAPI error: ${response.status} ${errorBody}`);
-  }
+  requireOk(response, 'Meta CAPI');
 }
 
 async function sendXConversion(
@@ -152,10 +159,7 @@ async function sendXConversion(
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`X Conversion API error: ${response.status} ${errorBody}`);
-  }
+  requireOk(response, 'X Conversion API');
 }
 
 async function sendGoogleConversion(
@@ -186,10 +190,7 @@ async function sendGoogleConversion(
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Google Ads API error: ${response.status} ${errorBody}`);
-  }
+  requireOk(response, 'Google Ads API');
 }
 
 async function sendTikTokConversion(
@@ -224,8 +225,5 @@ async function sendTikTokConversion(
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`TikTok Events API error: ${response.status} ${errorBody}`);
-  }
+  requireOk(response, 'TikTok Events API');
 }

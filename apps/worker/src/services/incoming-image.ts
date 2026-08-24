@@ -1,4 +1,6 @@
 const LINE_CONTENT_API_BASE = 'https://api-data.line.me/v2/bot/message';
+const MAX_INCOMING_IMAGE_BYTES = 10 * 1024 * 1024;
+const INCOMING_IMAGE_FETCH_TIMEOUT_MS = 10_000;
 
 const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -23,6 +25,8 @@ export interface FetchAndStoreOptions {
 export interface IncomingImageRefs {
   originalContentUrl: string;
   previewImageUrl: string;
+  /** R2 key the binary was stored under, for retention tracking (NEXT-4). */
+  r2Key: string;
 }
 
 /**
@@ -38,9 +42,10 @@ export async function fetchAndStoreIncomingImage(
   try {
     res = await fetcher(`${LINE_CONTENT_API_BASE}/${opts.messageId}/content`, {
       headers: { Authorization: `Bearer ${opts.channelAccessToken}` },
+      signal: AbortSignal.timeout(INCOMING_IMAGE_FETCH_TIMEOUT_MS),
     });
-  } catch (err) {
-    console.error('incoming-image: fetch failed', err);
+  } catch {
+    console.error('incoming-image: fetch failed');
     return null;
   }
 
@@ -62,22 +67,53 @@ export async function fetchAndStoreIncomingImage(
   const safeMessageId = opts.messageId.replace(/[^a-zA-Z0-9-]/g, '_');
   const key = `tenants/${safeTenantId}/accounts/${safeAccountId}/incoming/${safeMessageId}.${ext}`;
 
-  let data: ArrayBuffer;
-  try {
-    data = await res.arrayBuffer();
-  } catch (err) {
-    console.error('incoming-image: arrayBuffer failed', err);
+  const declaredLength = Number.parseInt(res.headers.get('Content-Length') ?? '', 10);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_INCOMING_IMAGE_BYTES) {
+    await res.body?.cancel().catch(() => undefined);
+    console.error('incoming-image: body rejected', { reason: 'too-large' });
     return null;
   }
 
+  const reader = res.body?.getReader();
+  if (!reader) {
+    console.error('incoming-image: body rejected', { reason: 'missing' });
+    return null;
+  }
+
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
   try {
-    await opts.r2.put(key, data, { httpMetadata: { contentType } });
-  } catch (err) {
-    console.error('incoming-image: R2 put failed', err);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_INCOMING_IMAGE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        console.error('incoming-image: body rejected', { reason: 'too-large' });
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    console.error('incoming-image: body read failed');
+    return null;
+  }
+
+  const data = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    await opts.r2.put(key, data.buffer, { httpMetadata: { contentType } });
+  } catch {
+    console.error('incoming-image: R2 put failed');
     return null;
   }
 
   const base = opts.workerUrl.replace(/\/$/, '');
   const url = `${base}/api/images/${key}`;
-  return { originalContentUrl: url, previewImageUrl: url };
+  return { originalContentUrl: url, previewImageUrl: url, r2Key: key };
 }

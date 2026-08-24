@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { afterEach, describe, test, expect, vi } from 'vitest';
 import { fetchAndStoreIncomingImage } from './incoming-image.js';
 
 function makeR2Stub() {
@@ -13,8 +13,14 @@ function makeR2Stub() {
 }
 
 describe('fetchAndStoreIncomingImage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test('Content API 成功時に R2 PUT して URL を返す', async () => {
     const r2 = makeR2Stub();
+    const signal = new AbortController().signal;
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
     const fetchMock = vi.fn(async () =>
       new Response(new ArrayBuffer(100), {
         status: 200,
@@ -36,8 +42,10 @@ describe('fetchAndStoreIncomingImage', () => {
       'https://api-data.line.me/v2/bot/message/msg-xyz/content',
       expect.objectContaining({
         headers: { Authorization: 'Bearer token-abc' },
+        signal,
       }),
     );
+    expect(timeout).toHaveBeenCalledWith(10_000);
     expect(r2.put).toHaveBeenCalled();
     const [key, , opts] = r2.put.mock.calls[0];
     expect(key).toBe('tenants/tenant-a/accounts/acc-1/incoming/msg-xyz.jpg');
@@ -87,6 +95,50 @@ describe('fetchAndStoreIncomingImage', () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  test('Content-Length がなくても 10 MiB を超える画像は保存しない', async () => {
+    const r2 = makeR2Stub();
+    const fetchMock = vi.fn(async () =>
+      new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+        status: 200,
+        headers: { 'Content-Type': 'image/jpeg' },
+      }),
+    );
+
+    const result = await fetchAndStoreIncomingImage({
+      r2: r2 as unknown as R2Bucket,
+      fetch: fetchMock,
+      workerUrl: 'https://worker.example.com',
+      channelAccessToken: 'token-abc',
+      tenantId: 'tenant-a',
+      accountId: 'acc-1',
+      messageId: 'msg-large',
+    });
+
+    expect(result).toBeNull();
+    expect(r2.put).not.toHaveBeenCalled();
+  });
+
+  test('upstream error detail をログへ出さない', async () => {
+    const r2 = makeR2Stub();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetchMock = vi.fn(async () => {
+      throw new Error('sensitive-upstream-detail');
+    });
+
+    const result = await fetchAndStoreIncomingImage({
+      r2: r2 as unknown as R2Bucket,
+      fetch: fetchMock,
+      workerUrl: 'https://worker.example.com',
+      channelAccessToken: 'token-abc',
+      tenantId: 'tenant-a',
+      accountId: 'acc-1',
+      messageId: 'msg-error',
+    });
+
+    expect(result).toBeNull();
+    expect(error.mock.calls.flat().map(String).join(' ')).not.toContain('sensitive-upstream-detail');
   });
 
   test('Content-Type から拡張子を判定 (png)', async () => {

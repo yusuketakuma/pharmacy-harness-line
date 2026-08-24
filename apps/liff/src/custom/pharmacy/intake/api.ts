@@ -68,7 +68,7 @@ export interface PatientIntakeAnswers {
 }
 
 function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  return requestPharmacyJson<T>(path, 'Patient intake API', init);
+  return requestPharmacyJson<T>(path, init);
 }
 
 function json<T>(path: string, body: unknown): Promise<T> {

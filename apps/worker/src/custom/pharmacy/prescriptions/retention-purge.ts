@@ -31,6 +31,12 @@ interface PurgeCandidate {
 
 const RETENTION_YEARS = 3;
 const PURGE_BATCH_LIMIT = 50;
+const ACTIVE_LEGAL_HOLD = `
+  hold.line_account_id = s.line_account_id
+  AND hold.owner_friend_id = s.friend_id
+  AND (patient.patient_id IS NULL OR hold.patient_id = patient.patient_id)
+  AND hold.legal_hold = 1
+  AND (hold.legal_hold_release_at IS NULL OR hold.legal_hold_release_at > ?)`;
 
 /**
  * Every runtime write of `pharmacy_prescription_files.created_at` is
@@ -41,7 +47,9 @@ const PURGE_BATCH_LIMIT = 50;
  * cutoff and be deleted. Those are kept instead — a missed purge is
  * recoverable, a wrong delete is not.
  */
-const UTC_TIMESTAMP_GLOB =
+// Exported so other retention purges (e.g. emergency-contraception/retention-purge.ts)
+// use the exact same fail-closed shape instead of re-deriving it.
+export const UTC_TIMESTAMP_GLOB =
   '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
 
 /** Calendar-correct so leap days do not shift the boundary. */
@@ -64,24 +72,45 @@ export async function purgePrescriptionFilesPastRetention(
 
   // The purge-log row is the completion marker, so a run interrupted between
   // the R2 delete and the log write simply retries (R2 delete is idempotent).
-  const due = await db.prepare(
-    `SELECT f.id AS file_id, f.r2_key, f.created_at,
-            mapping.tenant_id AS tenant_id, s.line_account_id
+  // A file's patient is only known once intake review links a
+  // pharmacy_prescription_patients row. Before that, fail closed on any active
+  // hold for the submission owner; once linked, require the exact patient.
+  const heldClause = `
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_data_subject_requests hold
+           WHERE ${ACTIVE_LEGAL_HOLD}
+        )`;
+  const dueQueryBase = `
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
        LEFT JOIN tenant_line_accounts mapping ON mapping.line_account_id = s.line_account_id
+       LEFT JOIN pharmacy_prescription_patients patient ON patient.submission_id = f.submission_id
       WHERE f.created_at GLOB ?
         AND f.created_at < ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_phi_retention_purge_log purged
            WHERE purged.resource_type = 'prescription_file'
              AND purged.resource_id = f.id
-        )
+        )`;
+
+  const due = await db.prepare(
+    `SELECT f.id AS file_id, f.r2_key, f.created_at,
+            mapping.tenant_id AS tenant_id, s.line_account_id
+       ${dueQueryBase}${heldClause}
       ORDER BY f.created_at, f.id
       LIMIT ?`,
-  ).bind(UTC_TIMESTAMP_GLOB, cutoff, limit).all<PurgeCandidate>();
+  ).bind(UTC_TIMESTAMP_GLOB, cutoff, nowIso, limit).all<PurgeCandidate>();
 
-  const result = { purged: 0, failed: 0, skipped: 0 };
+  const heldCount = await db.prepare(
+    `SELECT COUNT(*) AS n
+       ${dueQueryBase}
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_data_subject_requests hold
+           WHERE ${ACTIVE_LEGAL_HOLD}
+        )`,
+  ).bind(UTC_TIMESTAMP_GLOB, cutoff, nowIso).first<{ n: number }>();
+
+  const result = { purged: 0, failed: 0, skipped: heldCount?.n ?? 0 };
   for (const file of due.results ?? []) {
     try {
       await images.delete(file.r2_key);

@@ -428,7 +428,7 @@ describe('POST /webhook — postback events', () => {
 
     const stmt = {
       bind: vi.fn(),
-      run: vi.fn().mockResolvedValue({}),
+      run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       all: vi.fn().mockResolvedValue({ results: [] }), // no auto_reply match
     };
     stmt.bind.mockReturnValue(stmt);
@@ -488,6 +488,8 @@ describe('POST /webhook — postback events', () => {
       },
       'env-default-token',
       'account-env',
+      'tenant-env',
+      'event-postback-1',
     );
     expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
   });
@@ -512,7 +514,7 @@ describe('POST /webhook — postback events', () => {
 
     const stmt = {
       bind: vi.fn(),
-      run: vi.fn().mockResolvedValue({}),
+      run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       all: vi.fn().mockResolvedValue({
         results: [
           {
@@ -584,6 +586,8 @@ describe('POST /webhook — postback events', () => {
       },
       'env-default-token',
       'account-env',
+      'tenant-env',
+      'event-postback-2',
     );
   });
 });
@@ -626,7 +630,7 @@ describe('POST /webhook — first-contact existing friends', () => {
 
     const stmt = {
       bind: vi.fn(),
-      run: vi.fn().mockResolvedValue({}),
+      run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
       all: vi.fn().mockResolvedValue({ results: [] }),
     };
     stmt.bind.mockReturnValue(stmt);
@@ -690,6 +694,8 @@ describe('POST /webhook — first-contact existing friends', () => {
       expect.objectContaining({ friendId: 'friend-1' }),
       'env-default-token',
       'account-env',
+      'tenant-env',
+      'event-1',
     );
     expect(applyMileageRulesForEvent).toHaveBeenCalledWith(
       db,
@@ -741,7 +747,7 @@ describe('POST /webhook — cross-account credentials', () => {
                 }] }
               : { results: [] },
           ),
-          run: vi.fn().mockResolvedValue({}),
+          run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
         };
         statement.bind.mockReturnValue(statement);
         statements.set(sql, statement);

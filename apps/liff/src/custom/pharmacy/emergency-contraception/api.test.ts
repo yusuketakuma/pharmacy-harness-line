@@ -15,7 +15,6 @@ describe('emergency contraception patient API', () => {
     await emergencyContraceptionApi.list();
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/emergency-contraception',
-      'Emergency contraception API',
       undefined,
     );
   });
@@ -29,15 +28,29 @@ describe('emergency contraception patient API', () => {
       recentPurchaseCount: 0,
       patientWillVisit: true,
       acceptsInPersonDose: true,
+      lngAllergy: false,
+      liverDisease: false,
+      currentlyPregnant: false,
+      breastfeeding: false,
+      underMedicalTreatment: false,
+      drugAllergyHistory: false,
+      heartKidneyGiDisease: false,
+      stJohnsWort: false,
+      lastMenstruationDate: null,
+      menstruationSignals: {
+        noneApply: false, unknown: false, overOneMonthNoPeriod: false,
+        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+      },
+      idDocumentAvailable: null,
       safeContactMode: 'neutral_line' as const,
       consentVersion: '2026-08-19',
+      consentContentHash: 'hash-a',
       manufacturerCheckAcknowledged: true,
       idempotencyKey: 'create-key-1',
     };
     await emergencyContraceptionApi.create(body);
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/emergency-contraception/intakes',
-      'Emergency contraception API',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -50,7 +63,6 @@ describe('emergency contraception patient API', () => {
     await emergencyContraceptionApi.cancel('intake/1', 3, 'cancel-key-1');
     expect(request).toHaveBeenCalledWith(
       '/api/liff/pharmacy/emergency-contraception/intakes/intake%2F1/cancel',
-      'Emergency contraception API',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ expectedVersion: 3, idempotencyKey: 'cancel-key-1' }),

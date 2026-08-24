@@ -1,10 +1,6 @@
 import {
-  openPatientIntakeField,
-  sealPatientIntakeField,
-} from './encryption.js';
-import {
   decryptPatientIntakeEnvelopeFields,
-  patientIntakeEncryptionContext,
+  preparePatientIntakeEnvelopeStatements,
   type PatientIntakeEncryptedRow,
   type StoredPatientIntakeEnvelope,
 } from './envelopes.js';
@@ -153,34 +149,6 @@ async function decryptStored(
   }
 }
 
-async function prepareEnvelopeInserts(
-  db: D1Database,
-  row: PatientIntakeEncryptedRow,
-  scope: PatientIntakeMigrationScope,
-): Promise<D1PreparedStatement[]> {
-  const now = new Date().toISOString();
-  const fields = [
-    ['patient_snapshot_json', row.patient_snapshot_json],
-    ['answers_json', row.answers_json],
-  ] as const;
-  return Promise.all(fields.map(async ([fieldName, plaintext]) => {
-    const fieldContext = patientIntakeEncryptionContext(row, scope, fieldName);
-    const envelope = await sealPatientIntakeField(plaintext, scope.rootSecret, fieldContext);
-    if (await openPatientIntakeField(envelope, scope.rootSecret, fieldContext) !== plaintext) {
-      throw new Error('byte mismatch');
-    }
-    return db.prepare(`INSERT INTO pharmacy_patient_intake_envelopes
-      (response_id, tenant_id, line_account_id, owner_friend_id, patient_id, field_name,
-       schema_version, source_revision, envelope_version, key_version, nonce, ciphertext, encrypted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(
-        row.id, scope.tenantId, row.line_account_id, row.owner_friend_id, row.patient_id,
-        fieldName, row.schema_version, row.revision, envelope.envelopeVersion,
-        envelope.keyVersion, envelope.nonce, envelope.ciphertext, now,
-      );
-  }));
-}
-
 export async function backfillPatientIntakeEnvelopes(
   db: D1Database,
   input: MigrationInput,
@@ -199,7 +167,13 @@ export async function backfillPatientIntakeEnvelopes(
           row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL) return failed('MISMATCH', resultCounts, input.cursor);
       let statements: D1PreparedStatement[];
       try {
-        statements = await prepareEnvelopeInserts(db, row, input);
+        statements = await preparePatientIntakeEnvelopeStatements(
+          db,
+          row,
+          input,
+          new Date().toISOString(),
+          true,
+        );
       } catch {
         return failed('CORRUPT_ENVELOPE', resultCounts, input.cursor);
       }

@@ -144,4 +144,30 @@ describe('refreshLineAccessTokens', () => {
       expect.objectContaining({ token_expires_at: '2026-08-18T13:00:00.000Z' }),
     );
   });
+
+  it('does not log the upstream response body or account name when token issue fails', async () => {
+    db.getActiveTenantLineAccounts.mockResolvedValue([{
+      id: 'account-a',
+      tenant_id: 'tenant-a',
+      pharmacy_mode: 0,
+      name: 'Sensitive Pharmacy Name',
+      channel_id: 'channel-a',
+      channel_secret: 'secret-a',
+      is_active: 1,
+      token_expires_at: null,
+    }]);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('sensitive-upstream-detail', { status: 401 }),
+    ));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await refreshLineAccessTokens({} as D1Database);
+
+    const logged = errorSpy.mock.calls.flat().map(String).join(' ');
+    expect(logged).toContain('line_token_refresh_failed');
+    expect(logged).toContain('account-a');
+    expect(logged).not.toContain('Sensitive Pharmacy Name');
+    expect(logged).not.toContain('sensitive-upstream-detail');
+    expect(db.updateLineAccount).not.toHaveBeenCalled();
+  });
 });

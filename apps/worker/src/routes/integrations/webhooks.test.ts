@@ -30,10 +30,26 @@ import {
   createOutgoingWebhook,
   updateOutgoingWebhook,
 } from '@line-crm/db';
+import { fireEvent } from '../../services/event-bus.js';
 import { webhooks } from './webhooks.js';
 
 const VALID_SECRET = 'a'.repeat(32);
 const SHORT_SECRET = 'a'.repeat(31);
+
+async function signWebhookBody(body: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(VALID_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 function setupApp() {
   const app = new Hono();
@@ -558,7 +574,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
   test('accepts valid HMAC-SHA256 hex signature', async () => {
     vi.mocked(getIncomingWebhookById).mockResolvedValue({
       id: 'iwh-1',
-      tenant_id: null,
+      tenant_id: 'tenant-a',
       name: 'test',
       source_type: 'custom',
       secret: VALID_SECRET,
@@ -568,18 +584,7 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
     });
 
     const body = JSON.stringify({ ping: true });
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(VALID_SECRET),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-    const hexSignature = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+    const hexSignature = await signWebhookBody(body);
 
     const app = setupApp();
     const res = await app.request(
@@ -589,11 +594,56 @@ describe('POST /api/webhooks/incoming/:id/receive — signature', () => {
         headers: {
           'Content-Type': 'application/json',
           'X-Webhook-Signature': hexSignature,
+          'Idempotency-Key': 'source-event-1',
         },
         body,
       },
       baseEnv,
     );
     expect(res.status).toBe(200);
+    expect(fireEvent).toHaveBeenCalledWith(
+      baseEnv.DB,
+      'incoming_webhook.custom',
+      { eventData: { webhookId: 'iwh-1', source: 'custom', payload: { ping: true } } },
+      undefined,
+      null,
+      'tenant-a',
+      'iwh-1:source-event-1',
+    );
+  });
+
+  test.each([
+    ['short', 'k1'],
+    ['unsupported characters', 'source event 1'],
+    ['too long', `a${'b'.repeat(160)}`],
+  ])('rejects %s Idempotency-Key with 400', async (_label, idempotencyKey) => {
+    vi.mocked(getIncomingWebhookById).mockResolvedValue({
+      id: 'iwh-1',
+      tenant_id: 'tenant-a',
+      name: 'test',
+      source_type: 'custom',
+      secret: VALID_SECRET,
+      is_active: 1,
+      created_at: '2026-05-08T00:00:00.000+09:00',
+      updated_at: '2026-05-08T00:00:00.000+09:00',
+    });
+
+    const body = JSON.stringify({ ping: true });
+    const res = await setupApp().request(
+      '/api/webhooks/incoming/iwh-1/receive',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Signature': await signWebhookBody(body),
+          'Idempotency-Key': idempotencyKey,
+        },
+        body,
+      },
+      baseEnv,
+    );
+
+    expect(res.status).toBe(400);
+    expect(fireEvent).not.toHaveBeenCalled();
   });
 });

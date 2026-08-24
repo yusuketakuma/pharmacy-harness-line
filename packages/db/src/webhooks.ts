@@ -135,10 +135,15 @@ export async function deleteOutgoingWebhook(db: D1Database, id: string, tenantId
   return (result.meta?.changes ?? 0) > 0;
 }
 
-/** 指定イベントタイプに一致するアクティブな送信Webhookを取得 */
-export async function getActiveOutgoingWebhooksByEvent(db: D1Database, eventType: string): Promise<OutgoingWebhookRow[]> {
+/** 指定イベントタイプとテナントに一致するアクティブな送信Webhookを取得 */
+export async function getActiveOutgoingWebhooksByEvent(
+  db: D1Database,
+  eventType: string,
+  tenantId: string | null = null,
+): Promise<OutgoingWebhookRow[]> {
   const all = await db
-    .prepare(`SELECT * FROM outgoing_webhooks WHERE is_active = 1`)
+    .prepare(`SELECT * FROM outgoing_webhooks WHERE is_active = 1 AND tenant_id IS ?`)
+    .bind(tenantId)
     .all<OutgoingWebhookRow>();
   return all.results.filter((w) => {
     const types: string[] = JSON.parse(w.event_types);

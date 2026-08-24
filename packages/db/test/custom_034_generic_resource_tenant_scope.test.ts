@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { createTag, getTags, updateTagMileageSettings } from '../src/tags.js';
 import {
   createIncomingWebhook,
+  createOutgoingWebhook,
+  getActiveOutgoingWebhooksByEvent,
   getIncomingWebhookById,
   getIncomingWebhooks,
   updateIncomingWebhook,
@@ -72,5 +74,22 @@ describe('tenant-scoped generic resources', () => {
     expect(await getIncomingWebhookById(db, own.id, 'tenant-b')).toBeNull();
     // Public delivery lookup remains ID-based; its HMAC is the authority.
     expect((await getIncomingWebhookById(db, own.id))?.name).toBe('own');
+  });
+
+  it('selects outgoing event subscribers only inside the event tenant', async () => {
+    await createOutgoingWebhook(db, {
+      name: 'own', url: 'https://a.example/hook', eventTypes: ['event'], tenantId: 'tenant-a',
+    });
+    await createOutgoingWebhook(db, {
+      name: 'other', url: 'https://b.example/hook', eventTypes: ['event'], tenantId: 'tenant-b',
+    });
+    await createOutgoingWebhook(db, {
+      name: 'legacy-global', url: 'https://global.example/hook', eventTypes: ['event'],
+    });
+
+    expect((await getActiveOutgoingWebhooksByEvent(db, 'event', 'tenant-a')).map((row) => row.name))
+      .toEqual(['own']);
+    expect((await getActiveOutgoingWebhooksByEvent(db, 'event')).map((row) => row.name))
+      .toEqual(['legacy-global']);
   });
 });

@@ -79,4 +79,25 @@ describe('Google OAuth', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('https://oauth2.googleapis.com/revoke');
     expect(String(fetchMock.mock.calls[1][1]?.body)).toBe('token=refresh-secret');
   });
+
+  test('token endpoint response body を Error へ含めない', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      error: 'sensitive-upstream-detail',
+      error_description: 'private diagnostic',
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })));
+
+    const error = await refreshGoogleOAuthAccessToken({
+      refreshToken: 'refresh-secret',
+      clientId: 'client-1',
+      clientSecret: 'client-secret',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('400');
+    expect((error as Error).message).not.toContain('sensitive-upstream-detail');
+    expect((error as Error).message).not.toContain('private diagnostic');
+  });
 });

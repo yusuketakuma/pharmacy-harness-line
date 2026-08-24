@@ -1,5 +1,110 @@
 # Changelog
 
+## Pharmacy v0.31.0 (2026-08-24)
+
+> package version `0.31.0`とseller tag `pharmacy-v0.31.0`は別identityです。この項目はsource変更を記録し、production deploy、account activation、LINE mutationはそれぞれの実行証拠で確認します。
+
+### ユーザーにとっての変更
+
+v0.31.0はセキュリティ・プライバシー・信頼性の底上げに集中した版で、緊急避妊薬フォームの新フェーズを除き画面上の新機能はほぼありません。本版を適用した環境に反映されます。
+
+| 対象 | v0.31.0で変わること | 変わらないこと |
+|---|---|---|
+| 患者 | 緊急避妊薬の事前情報フォームがv2になり、アレルギー・肝疾患・妊娠/授乳・月経状況などを追加で確認し、該当時は産婦人科等の代替導線を表示。同意文言も改定 | 既存の受付・チャット・処方箋送信の操作手順は変わりません |
+| 薬局スタッフ | 緊急避妊薬の対面確認・薬剤師記入欄・販売記録（法定3年保存）が管理画面に追加。リッチメニュー変更後の再確認・復旧、LINEアカウント切替時の画面状態リークの解消も含む | 受付・チャット・患者対応の基本操作手順は変わりません |
+| 運用担当者 | Webhook配信・通知送信・キャッシュ・外部連携の障害時挙動が全面的に堅牢化され、test・security scan・license確認・SBOM・build provenanceを1つのCIで確認可能に | production deploy、実患者データや本番LINEアカウントの変更は別のHuman Goで管理します |
+
+### 緊急避妊薬 事前情報収集フォーム v2
+
+Phase A（schema変更なし）:
+
+- アレルギー・肝疾患・現在妊娠中・授乳中の4項目（A3/A4/A5/A'）を追加。送信は止めず、該当時は同画面に産婦人科・ワンストップ支援センター・他薬局一覧の代替導線を表示
+- 服用期限（性交後72時間）を入力直後に残り時間つきで表示し、期限超過した選択肢を無効化
+- 同意文言を改定（対面での申告再確認、最終判断は店頭、保存期間の明示、薬剤師の販売記録は法令により3年保存、3週間後の妊娠検査案内）し、`consent_version`未更新での作成・content hash不一致時は409で拒否
+- 新規payloadフィールドはすべて暗号化領域に格納し、平文で保持するのは`pre_review_flagged`フラグ1個のみ。患者向けprojectionから`risk_flags`・`age_band`を除外
+
+Phase B（対面確認・販売記録、`custom_051`追加）:
+
+- `pharmacy_emergency_counter_confirmations`（薬局側のセクション単位対面確認、insert-onlyで更新不可）と`pharmacy_emergency_sale_records`（no_update/no_deleteトリガー付きの法定販売記録、`UNIQUE(line_account_id,intake_id)`）を追加
+- 服薬指導前の追加確認（B1〜B4）、月経状況（C1/C2、複数選択＋「わからない」排他）、妊娠検査の要否をサーバー側算出（患者には非表示）
+- 管理画面にA〜Dセクション表示・相違個別マーク・薬剤師記入欄（本人確認／妊娠検査／販売可否＋理由／面前服用／説明済み／受診勧奨／紹介／紙受領枚数）を追加。Aセクション未完了のまま`completed`遷移すると楽観ロック(CAS)で409
+- 販売不可の記録は`cancelled`＋`outcome='refused'`として保存し、専用enumは追加しない
+- 入力バリデーションを強化：`lastMenstruationDate`の日付形式検証、月経signalsの余剰キー拒否、未削除の受付が残っている間は保存期間(`retention_days`)の延長をブロック（`EMERGENCY_RETENTION_INCREASE_BLOCKED`、409）
+
+### Myna起動URLの署名化とretention整備
+
+- `/r/myna/:tenantAlias`の公開URLを廃止し、認証済みhandlerだけが発行する短命HMAC署名トークン（`/r/myna/:token`）へ置き換え。alias総当たりによるテナント側endpoint URLの列挙を遮断し、rate limit除外対象からも本pathを除外
+- 緊急避妊薬の`retention_days`超過intakeを削除する新しいpurgeジョブを追加（account単位・leaf→root順・legal hold中はskip、1バッチ100件上限、6時間cronへ登録）。既存の処方箋purgeにも同じlegal hold除外を後付け
+- 受信LINE画像のR2 keyを`pharmacy_incoming_image_objects`で追跡開始（forward-only、既存行は対象外）。挿入は`INSERT OR IGNORE`にしてdurable inboxの再試行でも安全に
+- Webhook inbox内で24時間を超えて`pending`/`processing`のまま滞留するreceiptをdead-letter化する滞留検知を追加（本文は削除しない）
+- retentionの残存課題を明文化：`retention_days`削除後もowner_friend_id・age_band・safe_contact_mode・監査ログは残るため`RETENTION_MATRIX.md`を「部分的に強制」へ更新。redactedなintakeの詳細取得は復号を試みず`{redacted: true}`を返すよう修正（従来は復号失敗で503になっていた）
+- 3年境界purgeの削除順序（leaf→rootの約11 table、FK依存、JST/UTCカットオフ書式）を仕様化（実装は初回データが到達する2029年まで不要のため見送り）
+
+### テナント分離とキャッシュ境界
+
+- users-grouped集計とduplicate-statistics集計の共有サービスに認証済みtenant scopeを必須化し、単一キャッシュをtenant別キャッシュへ分離（別tenantのPHIが混入するリスクを解消）
+- 両キャッシュに5分TTL・アクセス時パージ・最大8 tenantのLRU retentionを追加し、無制限増加を防止
+- SQLite実データによるtenant A/B分離の統合テストを追加（アカウント間で共有される識別子を含むケースも網羅）
+
+### Webhook配信の冪等性とfencing
+
+- outgoing webhookの宛先選択をtenant単位に限定。受信webhookの処理では、サーバー側webhookレコードから解決したtenantを以降の自動化選択へ伝播し、tenant-onlyイベントは同tenantのaccount-mapped自動化だけを実行（accountなし・別tenant・薬局genericの自動化は実行しない）
+- durable inbox（LINE/Stripe/受信webhook）の行所有権をUUIDベースのclaim tokenで単一行ロック化。成功/失敗の確定にはtenant/account/event key・処理状態・token一致・非dead-letter行の完全一致を要求し、所有権を失っていれば`skipped`を返す
+- 処理中は1分ごとのheartbeatで5分leaseを同じtoken条件下で延長し、タイマーは終了処理前に必ず停止・完了を待つ。lease超過後は別workerが安全に再クレーム可能
+- リトライ上限に達した行は、アクティブにリースされている間は退役させず、期限切れ後にのみtokenを失効
+- 追加の汎用webhook配信metadata（`custom_053`）を新設し、tenant/account scopedな配信先UUID・イベント種別・結果・claim token・HTTP statusのみ記録（request bodyや生のsource event keyは保存しない）。設定済みoutgoing webhookとautomationの`send_webhook`を1つの配信境界へ統合し、HTTPS必須・redirect禁止・10秒deadline・upstream応答bodyの非取得を共通化
+- 受信webhookの`Idempotency-Key`はサーバー側webhook IDで名前空間化し、別webhook間でのkey衝突を防止。8〜160文字のopaque-key契約に違反する値は400で拒否（未指定時は従来どおりbest-effort）
+- 設定済みwebhookの再送はdelivery行の不変な作成時刻から本文とHMACを再生成し、同一`Idempotency-Key`で本文・署名が変化する不具合を解消
+
+### LINE通知経路の堅牢化
+
+- 共有push helperに`AbortSignal.timeout`ベースの10秒deadlineを追加し、Harnessプロキシ経由でabort signalをLINE upstreamまで伝播
+- timeout・transport失敗・proxy 5xxを`LineHarnessUnknownOutcomeError`として区別し、upstream応答bodyを含めずに例外化。この場合は通知台帳を`attempted`のまま保持し、15分後の再クレームで同じstable retry keyを再利用
+- LINE dispatch自体の失敗とD1側の`sent`確定失敗を分離：LINE送信は成功したがD1確定だけ失敗した場合は`failed`へ誤って上書きせず`attempted`のまま維持
+- 処方箋ステータス・有効性チェックの通知呼び出し元は`in_progress`を未確定・再試行可能として扱うよう統一（他の送信元は既に対応済みだった）
+- 既存の処方箋再送sweepを拡張し、`pharmacy_notification_events`台帳から現在ステータス通知を復旧できるようにした（isolate evictionでdomain監査が欠落したケースを救済）
+- LINE受信画像のダウンロードに10秒abort signalと10MiBストリーミング上限を追加（`Content-Length`欠落時も有効）。上限超過はR2保存前にキャンセル
+
+### 外部連携のエラー詳細漏洩対策
+
+各種upstream連携の失敗ログ・エラーオブジェクトから、応答body・raw error・個人識別子を排除し、operation名とHTTP statusのみを構造化ロガーで記録するよう統一：
+
+- LINE Harness Proxy（profile lookup、friend作成、post-send log、upstream fetch）
+- Google Calendar・service-account token・OAuth token（失敗時はHTTP statusのみ保持、応答bodyは読まない）
+- 共有予約Google Calendar同期を、固定タイトル「LINE Harness予約」＋開始/終了時刻＋疑似匿名event ID＋任意のGoogle Meet生成のみへデータ最小化。患者名・相談メニュー・患者備考・担当者名の送信を廃止（オンライン服薬指導機能ではなく個別のMeet予約であり、規制対象機能はv0.41.0以降まで凍結を維持）
+- LINEトークンリフレッシュ（アカウント名・raw errorのログ出力を廃止）
+- スタッフチャットのローディングアニメーションroute
+- Meta・X・Google Ads・TikTokのconversion送信（失敗時は自社providerのclick IDのみ保存し、1プラットフォームの設定不備が他プラットフォームの実行を止めないよう修正）
+- ad-platform設定のGET/POST/PUTを1つのfail-closed projectionへ統合し、`pixel_id`等のscalar値のみ返却。credentialの部分マスクや完全開示を排除
+- 更新時に伏せ字(`********`)や省略されたcredentialを保存済みの値のまま保持し、明示された新credentialだけを置換（従来は伏せ字での上書きが保存済みcredentialを破壊していた）
+- レガシーLIFF OAuthコールバックとIG cross-link連携（friend ID・IGSIDを含む生エラーの非露出）
+
+### assurance baseline（CI・供給網・provenance）
+
+- CIを単一の`Repository Verify`へ統合（重複していた`Worker CI`/`Web CI`を削除）し、全workspaceのtypecheck・test、migration contract、Worker/Web/LIFF buildをpath filterなしで全PRに適用。`main`/`dev`のrequired status checkを`verify` 1件・`strict=true`・admin enforcement・force-push/削除禁止へ統一
+- 同じworkflowへLIFF Chromium smoke、CodeQL、new-commit secret scan、production dependency/license baseline、CycloneDX 1.6 SBOM、provenance用OIDC job（test/build jobには権限を付与しない）を追加し、synthetic artifactのattestationを`gh attestation verify`で検証
+- redacted full-history secret scanの181候補（curl認証ヘッダー・APIキーのpattern一致）を値を保存せず分類し、文書内placeholder・test fixture・rich-menu識別子・環境変数名と判定。live credentialとGitHub secret scanning open alertは0件
+- production dependency auditはhigh/critical脆弱性0件、license inventoryはunknown/unlicensed 0件。LGPL native packageは配布artifactに含まれず、LINE系51 packagesは公式LIFF用途に限定
+- LIFF起動の成功経路smokeを追加（従来は`liffId`欠落によるエラー経路しか検証していなかった）。SDKをbrowser側でmockする専用E2E serverを追加し、production buildは実SDKのまま
+- Mynaの署名tamper検証テストを決定的な形に修正（Base64URLの最終文字を書き換えるとHMAC対象外のpadding bitしか変わらず偽陰性になっていた）
+- release-critical 3 workflowsの`actions/checkout`・`pnpm/action-setup`・`actions/setup-node`をreview済みNode 24リリースの固定SHAへ更新し、`actionlint` warningを0件に
+- PR #79と#80を`dev`へmergeし、package versionを`0.31.0`へ統一。exact `dev` headのCI・development deploy・provenanceを確認
+
+### 本番デプロイの人間ゲート
+
+- productionへの自動デプロイ（`main` push起動）を廃止し、`workflow_dispatch`かつ入力した承認source SHAが`GITHUB_SHA`と完全一致した場合のみ、dependency installや外部mutationより前のgateを通過するよう変更
+- canonical release manifestへsource SHA・package version・独立seller tag・environment・stage・D1 schema fingerprint・migration checksum・各artifact hash・deployment/rollback evidenceを記録。PHIは含めない
+- production v0.30.2をread-onlyで再照合し、D1 migration 123/123とschema fingerprintを固定
+- Platform Admin CLIへaccount-scoped・PHI-freeなLINE rich-menuのremote state GETだけを許可し、import・remote deleteは引き続き拒否
+- development synthetic LINE accountでrich-menu candidate作成・image upload・set-default・fresh read-back・explicit rollback・rollback後read-backを人間立会いで完遂し、known-goodへ復帰（結果不明・未解決operation・blind retry・remote deleteはいずれも0件）
+
+### release実行gate
+
+- `dev`→`main`はrequired check成功後にmergeし、exact main source SHAを固定
+- production deployはmain pushでは起動せず、Human Go後の手動workflowで承認source SHAを完全一致させる
+- production workflowでruntime version、artifact digest、migration、Worker・LIFF・Admin health、customer configuration保持をread-back
+- 上記がPASSしたexact main commitだけへ`pharmacy-v0.31.0` tagとGitHub Releaseを作成
+
 ## Pharmacy v0.30.2 (2026-08-22)
 
 ### リッチメニュー画像とR2公開

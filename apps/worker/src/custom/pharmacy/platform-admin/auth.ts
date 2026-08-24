@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../../../index.js';
-import { buildCookie } from '../../../middleware/auth.js';
+import { buildCookie } from '../../../middleware/cookie.js';
 import { deny } from '../../../middleware/deny.js';
 import type { AdminSameSite } from '../../../middleware/admin-auth-config.js';
 import {

@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-23T16:28:42Z",
+  "findingsReviewedAt": "2026-08-23T16:28:42Z",
+  "findingsReviewSourceSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+  "environment": "synthetic-ci",
+  "scope": "v0.31.0-assurance-baseline",
+  "status": "PASS",
+  "releaseReadiness": "BLOCKED",
+  "releaseBlockers": [
+    "V031-4"
+  ],
+  "implementationSourceSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+  "sourceBranch": "feature/v031-assurance-baseline",
+  "pullRequest": {
+    "number": 79,
+    "baseBranch": "dev",
+    "state": "OPEN",
+    "url": "https://github.com/yusuketakuma/pharmacy-harness-line/pull/79"
+  },
+  "localValidation": {
+    "repositoryVerifyContractTests": 26,
+    "liffUnitTests": 116,
+    "workspaceTests": 3331,
+    "migrationChecks": 84,
+    "criticalApplicationBuilds": 3,
+    "chromiumSmokeTests": 2,
+    "actionlint": "PASS",
+    "diffCheck": "PASS"
+  },
+  "githubActions": {
+    "pullRequestRun": {
+      "headSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "artifactSourceSha": "acedac8e2d4ceab679e3fc03a061c0ff83aa5e54",
+      "runId": "32651465593",
+      "verifyJobId": "97223630609",
+      "status": "PASS",
+      "secretScan": "PASS",
+      "attestation": "SKIPPED_BY_DESIGN_ON_PULL_REQUEST",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32651465593"
+    },
+    "provenanceRun": {
+      "headSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "runId": "32651468619",
+      "verifyJobId": "97223639982",
+      "attestJobId": "97224253884",
+      "status": "PASS",
+      "event": "workflow_dispatch",
+      "secretScan": "SKIPPED_BY_DESIGN_ON_WORKFLOW_DISPATCH",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/actions/runs/32651468619"
+    }
+  },
+  "checks": {
+    "browserE2e": {
+      "status": "PASS",
+      "browser": "chromium",
+      "tests": 2
+    },
+    "codeQl": {
+      "status": "PASS",
+      "language": "javascript-typescript",
+      "openAlertsAtCapture": 0
+    },
+    "secretScan": {
+      "newCommits": {
+        "status": "PASS",
+        "findings": 0,
+        "runId": "32651465593"
+      },
+      "fullHistory": {
+        "status": "PASS",
+        "scanCompleted": true,
+        "scanExitCode": 1,
+        "findings": 181,
+        "affectedCommits": 13,
+        "rules": {
+          "curl-auth-header": 150,
+          "generic-api-key": 31
+        },
+        "contentCaptured": false,
+        "classification": {
+          "documentedCurlPlaceholders": 150,
+          "testFixtures": 25,
+          "richMenuProfileIdentifiers": 4,
+          "environmentVariableNames": 2
+        },
+        "githubSecretScanningOpenAlerts": 0,
+        "liveCredentialsConfirmed": 0,
+        "credentialRotation": "NOT_REQUIRED",
+        "historyRewrite": "NOT_REQUIRED",
+        "disposition": "FALSE_POSITIVES"
+      }
+    },
+    "dependencyAudit": {
+      "status": "PASS",
+      "scope": "production",
+      "auditLevel": "high",
+      "knownHighOrCriticalVulnerabilities": 0
+    },
+    "licenseInventory": {
+      "status": "PASS",
+      "unknownOrUnlicensed": 0,
+      "lgpl3OrLaterPackages": 1,
+      "seeLicenseInReadmePackages": 51,
+      "review": {
+        "lgplPackage": {
+          "name": "@img/sharp-libvips-darwin-arm64",
+          "version": "1.3.2",
+          "dependencyPath": "apps/web > next@16.3.1 > sharp@0.35.3",
+          "packageFilesIncludedInSyntheticArtifact": false,
+          "disposition": "BUILD_DEPENDENCY_NOT_DISTRIBUTED"
+        },
+        "linePackages": {
+          "linePackageCount": 1,
+          "liffInternalPackageCount": 50,
+          "browserBundleIncludedInSyntheticArtifact": true,
+          "terms": "LINE Developers Agreement",
+          "termsLastRevision": "2025-02-03",
+          "termsUrl": "https://terms2.line.me/LINE_Developers_Agreement",
+          "officialNpmUsageDocumented": true,
+          "officialNpmUsageUrl": "https://developers.line.biz/en/docs/liff/developing-liff-apps/#use-npm-package",
+          "disposition": "ACCEPTED_FOR_LIFF_APPLICATION_USE"
+        }
+      },
+      "reReviewTriggers": [
+        "The application is distributed for use outside the LINE platform.",
+        "A native sharp/libvips package file is added to a distributed artifact.",
+        "The LINE Developers Agreement or package license metadata changes."
+      ],
+      "disposition": "PASS"
+    },
+    "sbom": {
+      "status": "PASS",
+      "format": "CycloneDX",
+      "specVersion": "1.6",
+      "requiredComponents": 209,
+      "dependencyEntries": 221
+    },
+    "calendarDataMinimization": {
+      "status": "PASS",
+      "eventFields": [
+        "fixedSummary",
+        "start",
+        "end",
+        "pseudonymousEventId",
+        "optionalGoogleMeet"
+      ],
+      "excludedFields": [
+        "friendName",
+        "menuName",
+        "customerNote",
+        "staffName"
+      ],
+      "workerTests": 2149,
+      "onlineMedicationCounseling": "NOT_IMPLEMENTED"
+    },
+    "webhookEventKeyNamespace": {
+      "status": "PASS",
+      "namespace": "serverDerivedIncomingWebhookId",
+      "sameWebhookRedelivery": "SAME_KEY",
+      "differentWebhookSameExternalKey": "DIFFERENT_KEY",
+      "focusedTests": 37,
+      "workerTests": 2149
+    },
+    "incomingWebhookIdempotencyKeyValidation": {
+      "status": "PASS",
+      "missingHeader": "BEST_EFFORT_ALLOWED",
+      "validHeader": "SERVER_WEBHOOK_ID_NAMESPACED",
+      "invalidHeader": "REJECTED_400",
+      "acceptedLength": "8_TO_160",
+      "invalidCases": 3,
+      "focusedTests": 25,
+      "relatedTests": 41,
+      "workerTests": 2149
+    },
+    "webhookRetryByteStability": {
+      "status": "PASS",
+      "timestampSource": "deliveryCreatedAt",
+      "sameIdempotencyKey": "SAME_KEY",
+      "sameRequestBody": "SAME_BYTES",
+      "sameHmacSignature": "SAME_SIGNATURE",
+      "focusedTests": 15,
+      "relatedTests": 37,
+      "workerTests": 2149
+    },
+    "adPlatformMaskedCredentialPreservation": {
+      "status": "PASS",
+      "maskedSentinel": "********",
+      "omittedCredentials": "PRESERVED",
+      "maskedCredentials": "PRESERVED",
+      "explicitNewCredential": "REPLACED",
+      "focusedTests": 4,
+      "relatedTests": 10,
+      "workerTests": 2149
+    },
+    "tenantWebhookAutomationScope": {
+      "status": "PASS",
+      "accountAuthority": "tenantLineAccounts",
+      "mappedAccountAutomations": "EXECUTED",
+      "otherTenantAutomations": "BLOCKED",
+      "accountlessAutomations": "BLOCKED",
+      "pharmacyAccountGenericAutomations": "BLOCKED",
+      "focusedTests": 16,
+      "relatedTests": 76,
+      "workerTests": 2149
+    },
+    "groupedUserCacheBound": {
+      "status": "PASS",
+      "ttlMinutes": 5,
+      "maxTenants": 8,
+      "eviction": "LRU",
+      "expiredEntries": "PURGED_ON_ACCESS",
+      "focusedTests": 18,
+      "workerTests": 2149
+    },
+    "duplicateStatsCacheBound": {
+      "status": "PASS",
+      "ttlMinutes": 5,
+      "maxTenants": 8,
+      "eviction": "LRU",
+      "expiredEntries": "PURGED_ON_ACCESS",
+      "focusedTests": 4,
+      "relatedCacheTests": 22,
+      "workerTests": 2149
+    },
+    "productionDeployHumanGate": {
+      "status": "PASS",
+      "automaticMainPushDeploy": "DISABLED",
+      "productionTrigger": "WORKFLOW_DISPATCH_ONLY",
+      "approvalBinding": "EXACT_SOURCE_SHA",
+      "approvalCheckOrder": "BEFORE_DEPENDENCY_INSTALL_AND_EXTERNAL_MUTATION",
+      "githubEnvironmentProtectionRulesAtCapture": 0,
+      "focusedTests": 26,
+      "scriptTests": 169
+    },
+    "githubActionsNode24Runtime": {
+      "status": "PASS",
+      "releaseCriticalWorkflows": 3,
+      "actions": {
+        "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "pnpm/action-setup": "0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+        "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020"
+      },
+      "runtime": "node24",
+      "githubAnnotations": 0,
+      "actionlintWarnings": 0,
+      "focusedTests": 26,
+      "scriptTests": 169
+    },
+    "provenance": {
+      "status": "PASS",
+      "attestationId": "42437075",
+      "url": "https://github.com/yusuketakuma/pharmacy-harness-line/attestations/42437075",
+      "subject": "synthetic-build.tar.gz",
+      "subjectSha256": "598e02efd92995ab8252757a8448bb7771b7c738cdee0d9c8ffd02358eb44902",
+      "sourceSha": "cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "signerWorkflow": "yusuketakuma/pharmacy-harness-line/.github/workflows/repository-verify.yml",
+      "ghAttestationVerifyExitCode": 0
+    }
+  },
+  "artifacts": {
+    "pullRequest": {
+      "id": "9496365138",
+      "name": "v031-assurance-acedac8e2d4ceab679e3fc03a061c0ff83aa5e54",
+      "sizeBytes": 3517957,
+      "archiveSha256": "f1a9ef7ac0a03cdf6d94b3582bc19e6cec301787a98279c9851346cc2e2e0ca8",
+      "expiresAt": "2026-09-06T16:27:39Z"
+    },
+    "provenance": {
+      "id": "9496359716",
+      "name": "v031-assurance-cd467148ebbbeb4d4da98627ead8448fe2446265",
+      "sizeBytes": 3519069,
+      "archiveSha256": "3ca644f71d481daecaa06533f9130ea88d300bf627be56689d5910a41faf428e",
+      "expiresAt": "2026-09-06T16:27:16Z"
+    }
+  },
+  "openFindings": [],
+  "resolvedFindings": [
+    {
+      "id": "P1-V031-SECRET-HISTORY",
+      "status": "PASS",
+      "summary": "All 181 redacted candidates were classified without capturing values; no live credential was confirmed."
+    },
+    {
+      "id": "P1-V031-LICENSE-REVIEW",
+      "status": "PASS",
+      "summary": "The native LGPL build dependency is absent from the artifact, and the LINE packages are used only in the documented LIFF application context."
+    },
+    {
+      "id": "P1-V031-FINAL-HEAD-EVIDENCE",
+      "status": "PASS",
+      "summary": "Final runtime-bearing-head PR and workflow-dispatch runs refreshed source SHA, test, migration, smoke, artifact, and provenance evidence."
+    },
+    {
+      "id": "P1-V031-CALENDAR-DATA-MINIMIZATION",
+      "status": "PASS",
+      "summary": "Confirmed booking sync now sends only a fixed title, times, pseudonymous event ID, and optional Google Meet request; patient, consultation, note, and staff fields are excluded."
+    },
+    {
+      "id": "P2-V031-WEBHOOK-EVENT-KEY-NAMESPACE",
+      "status": "PASS",
+      "summary": "Incoming webhook UUID now namespaces a valid external idempotency key, preventing cross-webhook delivery collisions while preserving same-webhook redelivery identity."
+    },
+    {
+      "id": "P2-V031-INCOMING-WEBHOOK-IDEMPOTENCY-KEY-VALIDATION",
+      "status": "PASS",
+      "summary": "An invalid provided incoming-webhook idempotency key is rejected with HTTP 400 instead of silently downgrading duplicate prevention; an omitted key remains best-effort."
+    },
+    {
+      "id": "P2-V031-WEBHOOK-RETRY-BYTE-STABILITY",
+      "status": "PASS",
+      "summary": "Configured webhook retries now reuse the delivery row creation time so the same delivery ID also preserves request bytes and the HMAC signature."
+    },
+    {
+      "id": "P1-V031-AD-PLATFORM-CREDENTIAL-PRESERVATION",
+      "status": "PASS",
+      "summary": "Ad platform updates now preserve omitted or masked stored credentials while still allowing explicit non-masked replacements."
+    },
+    {
+      "id": "P1-V031-TENANT-WEBHOOK-AUTOMATION-SCOPE",
+      "status": "PASS",
+      "summary": "Tenant-only webhook events now execute only account-bound automations mapped to that tenant while keeping accountless, cross-tenant, and pharmacy generic automations blocked."
+    },
+    {
+      "id": "P2-V031-GROUPED-USER-CACHE-BOUND",
+      "status": "PASS",
+      "summary": "The PHI-bearing grouped-user cache now purges expired entries on access and retains at most eight tenants using LRU eviction."
+    },
+    {
+      "id": "P2-V031-DUPLICATE-STATS-CACHE-BOUND",
+      "status": "PASS",
+      "summary": "The tenant-scoped duplicate-statistics cache now purges expired entries on access and retains at most eight tenants using LRU eviction."
+    },
+    {
+      "id": "P1-V031-PRODUCTION-DEPLOY-HUMAN-GATE",
+      "status": "PASS",
+      "summary": "Production deployment no longer runs on a main push; a manual workflow dispatch must bind the approved source SHA to the exact GitHub Actions source before any dependency install or external mutation."
+    },
+    {
+      "id": "P2-V031-GITHUB-ACTIONS-NODE24-RUNTIME",
+      "status": "PASS",
+      "summary": "Release-critical checkout and setup actions now use reviewed Node 24 releases; exact-head runs produced zero annotations, and the deployment workflow passes actionlint with zero warnings."
+    }
+  ],
+  "oracleConsultation": {
+    "status": "NOT_RUN",
+    "verified": false,
+    "reason": "Oracle browser profile lock remained held by another process for 300 seconds.",
+    "adviceAccepted": false
+  },
+  "boundaries": {
+    "devMerge": "NOT_RUN",
+    "devDeploy": "NOT_RUN",
+    "productionDeploy": "NOT_RUN",
+    "productionMutation": "NOT_RUN",
+    "lineMutation": "NOT_RUN",
+    "credentialsCaptured": false,
+    "phiOrPiiCaptured": false
+  }
+}

@@ -96,9 +96,52 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     sqlite.exec(readFileSync(
       join(DB_ROOT, 'migrations/custom_037_pharmacy_phi_retention_purge_log.sql'), 'utf8',
     ));
+    sqlite.exec(readFileSync(
+      join(DB_ROOT, 'migrations/custom_038_pharmacy_data_subject_requests.sql'), 'utf8',
+    ));
     seed();
     db = d1From(sqlite);
   });
+
+  /** Attaches an identified patient to a submission's file, as intake review does. */
+  function attachPatient(fileId: string, patientId: string): void {
+    const now = '2026-08-19T00:00:00.000Z';
+    sqlite.prepare(`INSERT OR IGNORE INTO pharmacy_patients
+      (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date,
+       created_at, updated_at)
+      VALUES (?, 'account-a', 'friend-a', 'self', 'Patient', 'ﾊﾟｼｴﾝﾄ', '1990-01-01', ?, ?)`)
+      .run(patientId, now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_patient_intake_responses
+      (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
+       patient_snapshot_json, answers_json, idempotency_key, representative_consent_at,
+       privacy_consent_at, created_at)
+      VALUES (?, 'account-a', 'friend-a', ?, 1, 1, '{}', '{"a":1}', 'idem-key-12345', ?, ?, ?)`)
+      .run(`intake-${fileId}`, patientId, now, now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_prescription_patients
+      (submission_id, line_account_id, owner_friend_id, patient_id, intake_response_id, created_at)
+      VALUES (?, 'account-a', 'friend-a', ?, ?, ?)`)
+      .run(`submission-${fileId}`, patientId, `intake-${fileId}`, now);
+  }
+
+  /** Seeds a legal-hold data subject request for `patientId`. */
+  function seedLegalHold(patientId: string, releaseAt: string | null): void {
+    const now = '2026-08-19T00:00:00.000Z';
+    sqlite.prepare(`INSERT OR IGNORE INTO staff_members
+      (id, name, role, api_key) VALUES ('staff-a', 'Staff', 'staff', 'api-key-a')`).run();
+    sqlite.prepare(`INSERT OR IGNORE INTO tenant_staff_memberships
+      (tenant_id, staff_id, role, created_at, updated_at)
+      VALUES ('tenant-a', 'staff-a', 'staff', ?, ?)`).run(now, now);
+    sqlite.prepare(`INSERT OR IGNORE INTO pharmacy_staff_accounts
+      (line_account_id, staff_id, created_at, updated_at)
+      VALUES ('account-a', 'staff-a', ?, ?)`).run(now, now);
+    sqlite.prepare(`INSERT INTO pharmacy_data_subject_requests
+      (id, tenant_id, line_account_id, owner_friend_id, patient_id, request_type, status,
+       reason, legal_hold, legal_hold_basis, legal_hold_release_at, identity_verified_at,
+       legal_hold_assessed_at, submitted_at, created_by, created_at, updated_at)
+      VALUES (?, 'tenant-a', 'account-a', 'friend-a', ?, 'erasure', 'legal_hold_assessed',
+        'requested erasure', 1, 'pharmacist_law_enforcement_regulation_3y', ?, ?, ?, ?, 'staff-a', ?, ?)`)
+      .run(`dsr-${patientId}`, patientId, releaseAt, now, now, now, now, now);
+  }
 
   test('purges only files unambiguously past the three-year boundary', async () => {
     insertFile('file-kept', KEPT_AT);
@@ -184,6 +227,47 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     // cleanupPrescriptionImages marks state='deleted' before calling R2 and gives
     // up on failure. Without this the object could survive past retention.
     insertFile('file-soft-deleted', PURGED_AT, 'deleted');
+    const images = { delete: vi.fn().mockResolvedValue(undefined) } as unknown as R2Bucket;
+
+    const result = await purgePrescriptionFilesPastRetention(db, images, { now: NOW });
+
+    expect(result).toEqual({ purged: 1, failed: 0, skipped: 0 });
+    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(purgeLog()).toHaveLength(1);
+  });
+
+  test('skips a file whose patient has an active legal hold (custom_038)', async () => {
+    insertFile('file-held', PURGED_AT);
+    attachPatient('file-held', 'patient-held');
+    seedLegalHold('patient-held', null);
+    const images = { delete: vi.fn().mockResolvedValue(undefined) } as unknown as R2Bucket;
+
+    const result = await purgePrescriptionFilesPastRetention(db, images, { now: NOW });
+
+    expect(result).toEqual({ purged: 0, failed: 0, skipped: 1 });
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(purgeLog()).toEqual([]);
+    expect(remainingFiles()).toEqual([{ id: 'file-held', state: 'ready' }]);
+  });
+
+  test('fails closed for an unlinked submission when its owner has an active legal hold', async () => {
+    insertFile('file-unlinked', PURGED_AT);
+    insertFile('file-linked', PURGED_AT);
+    attachPatient('file-linked', 'patient-held');
+    seedLegalHold('patient-held', null);
+    const images = { delete: vi.fn().mockResolvedValue(undefined) } as unknown as R2Bucket;
+
+    const result = await purgePrescriptionFilesPastRetention(db, images, { now: NOW });
+
+    expect(result).toEqual({ purged: 0, failed: 0, skipped: 2 });
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(purgeLog()).toEqual([]);
+  });
+
+  test('purges a file whose legal hold was already released', async () => {
+    insertFile('file-released', PURGED_AT);
+    attachPatient('file-released', 'patient-released');
+    seedLegalHold('patient-released', '2024-01-01T00:00:00.000Z'); // released before NOW
     const images = { delete: vi.fn().mockResolvedValue(undefined) } as unknown as R2Bucket;
 
     const result = await purgePrescriptionFilesPastRetention(db, images, { now: NOW });

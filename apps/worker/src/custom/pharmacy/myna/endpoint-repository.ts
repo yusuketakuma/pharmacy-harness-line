@@ -113,20 +113,6 @@ export async function getActiveMynaEndpoint(
   return row ? decodeRuntime(row, encryptionSecret) : null;
 }
 
-export async function getMynaEndpointByAlias(
-  db: D1Database,
-  tenantAlias: string,
-  encryptionSecret: string,
-): Promise<MynaEndpointRuntimeConfig | null> {
-  if (!ALIAS_PATTERN.test(tenantAlias)) return null;
-  const row = await db.prepare(
-    `${endpointSelect}
-      WHERE tenant_alias = ? AND enabled = 1 AND retired_at IS NULL
-      LIMIT 1`,
-  ).bind(tenantAlias).first<EndpointRow>();
-  return row ? decodeRuntime(row, encryptionSecret) : null;
-}
-
 export async function getAdminMynaEndpoint(
   db: D1Database,
   lineAccountId: string,

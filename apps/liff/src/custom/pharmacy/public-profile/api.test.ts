@@ -10,9 +10,6 @@ describe('pharmacy public profile LIFF API', () => {
   it('uses the shared authenticated pharmacy request boundary', async () => {
     request.mockResolvedValue({ profile: { display_name: 'みどり薬局' } });
     await pharmacyPublicProfileApi.get();
-    expect(request).toHaveBeenCalledWith(
-      '/api/liff/pharmacy/public-profile',
-      '薬局情報を取得できませんでした',
-    );
+    expect(request).toHaveBeenCalledWith('/api/liff/pharmacy/public-profile');
   });
 });

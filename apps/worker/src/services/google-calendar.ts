@@ -48,8 +48,7 @@ export class GoogleCalendarClient {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Google FreeBusy API error ${res.status}: ${text}`);
+      throw new Error(`Google FreeBusy API error ${res.status}`);
     }
 
     const data = (await res.json()) as {
@@ -103,8 +102,7 @@ export class GoogleCalendarClient {
       return this.getCreatedEvent(event.externalId, Boolean(event.addGoogleMeet));
     }
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Google Calendar createEvent error ${res.status}: ${text}`);
+      throw new Error(`Google Calendar createEvent error ${res.status}`);
     }
 
     const data = (await res.json()) as {
@@ -151,8 +149,7 @@ export class GoogleCalendarClient {
       headers: { Authorization: `Bearer ${this.config.accessToken}` },
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Google Calendar getEvent error ${res.status}: ${text}`);
+      throw new Error(`Google Calendar getEvent error ${res.status}`);
     }
     return this.parseCreatedEvent(await res.json(), requireMeet);
   }
@@ -172,8 +169,7 @@ export class GoogleCalendarClient {
 
     // 204 = success, 410 = already deleted — both are acceptable
     if (!res.ok && res.status !== 410) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Google Calendar deleteEvent error ${res.status}: ${text}`);
+      throw new Error(`Google Calendar deleteEvent error ${res.status}`);
     }
   }
 }

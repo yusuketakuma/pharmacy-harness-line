@@ -52,6 +52,14 @@ describe('pharmacy mode UI boundary', () => {
     expect(context).toContain('{error && <div role="alert"')
   })
 
+  it('remounts tenant page state when the selected LINE account changes', () => {
+    const shell = read('components/app-shell.tsx')
+
+    expect(shell).toContain('const { selectedAccountId } = useAccount()')
+    expect(shell).toContain("key={selectedAccountId ?? 'no-account'}")
+    expect(shell).toContain('<AccountScopedLayout>{children}</AccountScopedLayout>')
+  })
+
   it('does not expose server internals on tenant login and clears account state on logout', () => {
     const login = read('app/login/page.tsx')
     const sidebar = read('components/layout/sidebar.tsx')

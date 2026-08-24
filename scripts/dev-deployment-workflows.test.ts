@@ -11,8 +11,8 @@ describe('development deployment workflow contract', () => {
   const stepIndex = (name: string) =>
     deploy.steps.findIndex((step: { name?: string }) => step.name === name);
 
-  test('uses one environment-serialized deployment for main and dev', () => {
-    expect(workflow.on.push.branches).toEqual(['main', 'dev']);
+  test('uses one environment-serialized deployment for dev and manual production', () => {
+    expect(workflow.on.push.branches).toEqual(['dev']);
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     expect(workflow.concurrency.group).toContain('${{ github.repository }}');
     expect(workflow.concurrency.group).toContain('${{ github.ref_name }}');
@@ -22,6 +22,25 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).not.toContain('harness-test-pharmacy');
     expect(workflow.name).toBe('Deploy Shared Pharmacy Cloudflare');
     expect(workflow.permissions).toEqual({ contents: 'read' });
+  });
+
+  test('binds explicit production approval to the exact source SHA', () => {
+    expect(workflow.on.workflow_dispatch.inputs.production_source_sha).toMatchObject({
+      required: false,
+      type: 'string',
+    });
+    expect(deploy.if).toContain("github.event_name == 'workflow_dispatch'");
+
+    const approval = stepIndex('Verify explicit production approval');
+    expect(approval).toBeGreaterThan(-1);
+    expect(deploy.steps[approval].if).toBe("github.ref_name == 'main'");
+    expect(deploy.steps[approval].env).toEqual({
+      APPROVED_SOURCE_SHA: '${{ inputs.production_source_sha }}',
+    });
+    expect(deploy.steps[approval].run).toContain(
+      'test "$APPROVED_SOURCE_SHA" = "$GITHUB_SHA"',
+    );
+    expect(approval).toBeLessThan(stepIndex('Verify deployment target'));
   });
 
   test('builds every artifact before mutation and deploys Admin only after Worker health succeeds', () => {
@@ -76,7 +95,7 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('--worker-assets apps/worker/dist/client');
     expect(sharedDeploy).toContain('--admin apps/web/out');
     expect(sharedDeploy).toContain('--liff apps/liff/dist');
-    expect(sharedDeploy).toContain('for attempt in {1..12}');
+    expect(sharedDeploy).toContain('for _ in {1..12}');
     expect(sharedDeploy).toContain('sleep 5');
     expect(sharedDeploy).toContain('test "$actual_version" = "$EXPECTED_VERSION"');
   });
@@ -126,6 +145,20 @@ describe('development deployment workflow contract', () => {
     expect(uses.every((value: string) => /@[0-9a-f]{40}$/.test(value))).toBe(true);
   });
 
+  test('pins reviewed Node 24 action releases in release-critical workflows', () => {
+    const workflows = [
+      sharedDeploy,
+      read('.github/workflows/repository-verify.yml'),
+      read('.github/workflows/release.yml'),
+    ];
+
+    for (const source of workflows) {
+      expect(source).toContain('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
+      expect(source).toContain('pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86');
+      expect(source).toContain('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020');
+    }
+  });
+
   test('removes independent Worker and Admin push deployers', () => {
     expect(existsSync('.github/workflows/deploy-cloudflare-worker.yml')).toBe(false);
     expect(existsSync('.github/workflows/deploy-cloudflare-admin.yml')).toBe(false);
@@ -137,11 +170,59 @@ describe('development deployment workflow contract', () => {
     expect(workflow).toContain('--base dev');
   });
 
-  test('Worker CI runs for integration and production pushes', () => {
-    const workflow = read('.github/workflows/worker-ci.yml');
-    expect(workflow).toContain('branches: [main, dev]');
-    expect(workflow).not.toContain('VITE_LIFF_ID');
-    expect(workflow).not.toContain('VITE_BOT_BASIC_ID');
+  test('reports one required CI context for every pull request', () => {
+    const repositoryVerify = parse(read('.github/workflows/repository-verify.yml')) as any;
+
+    expect(repositoryVerify.on.pull_request).toBeNull();
+    expect(repositoryVerify.on.push.branches).toEqual(['main', 'dev']);
+    expect(existsSync('.github/workflows/worker-ci.yml')).toBe(false);
+    expect(existsSync('.github/workflows/web-ci.yml')).toBe(false);
+
+    const steps = repositoryVerify.jobs.verify.steps;
+    expect(steps.some((step: { run?: string }) => step.run === 'pnpm verify:ci')).toBe(true);
+    const build = steps.find(
+      (step: { name?: string }) => step.name === 'Build critical applications',
+    );
+    expect(build.run).toBe('pnpm --filter worker --filter web --filter liff build');
+  });
+
+  test('keeps one required verify context and isolates provenance signing', () => {
+    const repositoryVerify = parse(read('.github/workflows/repository-verify.yml')) as any;
+    const jobs = Object.keys(repositoryVerify.jobs);
+    const steps = repositoryVerify.jobs.verify.steps;
+    const uses = steps
+      .filter((step: { uses?: string }) => step.uses)
+      .map((step: { uses: string }) => step.uses);
+    const namedStep = (name: string) =>
+      steps.find((step: { name?: string }) => step.name === name);
+
+    expect(jobs).toEqual(['verify', 'attest']);
+    expect(uses.every((value: string) => /@[0-9a-f]{40}$/.test(value))).toBe(true);
+    expect(repositoryVerify.jobs.verify.permissions['id-token']).toBeUndefined();
+    expect(namedStep('Initialize CodeQL')).toBeTruthy();
+    expect(namedStep('Analyze with CodeQL')).toBeTruthy();
+    expect(namedStep('Scan new commits for secrets')).toBeTruthy();
+    expect(namedStep('Run dependency and license baseline').run).toContain(
+      'pnpm audit --prod --audit-level high',
+    );
+    expect(namedStep('Run LIFF browser smoke').run).toBe('pnpm --filter liff test:e2e');
+    expect(namedStep('Generate CycloneDX SBOM').run).toContain('pnpm exec cdxgen');
+    expect(namedStep('Upload assurance artifacts')).toBeTruthy();
+
+    const attest = repositoryVerify.jobs.attest;
+    expect(attest.needs).toBe('verify');
+    expect(attest.if).toContain("github.event_name != 'pull_request'");
+    expect(attest.permissions).toMatchObject({
+      contents: 'read',
+      'id-token': 'write',
+      attestations: 'write',
+    });
+    expect(attest.steps.some(
+      (step: { name?: string }) => step.name === 'Attest synthetic artifact provenance',
+    )).toBe(true);
+    expect(attest.steps
+      .filter((step: { uses?: string }) => step.uses)
+      .every((step: { uses: string }) => /@[0-9a-f]{40}$/.test(step.uses))).toBe(true);
   });
 
   test('development Worker uses an isolated R2 bucket', () => {
@@ -186,7 +267,7 @@ describe('development deployment workflow contract', () => {
   test('checks the deployed LIFF asset instead of accepting only an HTTP 200 shell', () => {
     const health = stepIndex('Verify Pharmacy LIFF health');
     expect(health).toBeGreaterThan(stepIndex('Deploy Pharmacy LIFF Pages'));
-    expect(deploy.steps[health].run).toContain('for attempt in 1 2 3 4 5');
+    expect(deploy.steps[health].run).toContain('for _ in 1 2 3 4 5');
     expect(deploy.steps[health].run).toContain('sleep 5');
     expect(sharedDeploy).toContain('LIFF_ASSET_PATH=');
     expect(sharedDeploy).toContain('pharmacy-liff-multitenant-v1');
@@ -196,7 +277,7 @@ describe('development deployment workflow contract', () => {
 
   test('checks the deployed Admin account bundle for the dedicated LIFF origin', () => {
     const health = stepIndex('Verify Admin health');
-    expect(deploy.steps[health].run).toContain('for attempt in 1 2 3 4 5');
+    expect(deploy.steps[health].run).toContain('for _ in 1 2 3 4 5');
     expect(deploy.steps[health].run).toContain('sleep 5');
     expect(sharedDeploy).toContain('ADMIN_ASSET_PATHS=');
     expect(sharedDeploy).toContain('LIFF_ORIGIN%/');
@@ -263,24 +344,28 @@ describe('development deployment workflow contract', () => {
   });
 
   test('records a pre-migration D1 bookmark and post-smoke deployment evidence', () => {
+    const inject = deploy.steps[stepIndex('Inject runtime release metadata')];
+    const record = deploy.steps[stepIndex('Record release evidence')];
+
     expect(sharedDeploy).toContain('scripts/deploy/release-state.ts --with-bookmark');
     expect(sharedDeploy).toContain('scripts/deploy/record-release-evidence.ts');
     expect(sharedDeploy).toContain('BEFORE_STATE: ${{ steps.before.outputs.state }}');
     expect(sharedDeploy).toContain('MIGRATION_RESULT: ${{ steps.migrations.outputs.result }}');
     expect(sharedDeploy).toContain('SOURCE_SHA: ${{ github.sha }}');
+    expect(inject.id).toBe('release_artifacts');
+    expect(inject.run).toContain('metadata="$(pnpm tsx apps/worker/scripts/inject-version.ts');
+    expect(inject.run).toContain('echo "metadata=$metadata" >> "$GITHUB_OUTPUT"');
+    expect(record.env).toMatchObject({
+      ARTIFACT_METADATA: '${{ steps.release_artifacts.outputs.metadata }}',
+      DEPLOY_TARGET: '${{ env.DEPLOY_TARGET }}',
+      PHARMACY_SELLER_RELEASE: '${{ vars.PHARMACY_SELLER_RELEASE }}',
+      RELEASE_STAGE: '${{ vars.RELEASE_STAGE }}',
+    });
   });
 
   test('publishes and verifies the Admin route on the configured Pages branch', () => {
     expect(sharedDeploy).toContain('--branch="$GITHUB_REF_NAME"');
     expect(sharedDeploy).toContain('${ADMIN_ORIGIN%/}/prescriptions');
-  });
-
-  test('Web CI gates Admin changes before deployment', () => {
-    const workflow = read('.github/workflows/web-ci.yml');
-    expect(workflow).toContain('pull_request:');
-    expect(workflow).toContain('branches: [main, dev]');
-    expect(workflow).toContain('pnpm --filter web test');
-    expect(workflow).toContain('pnpm --filter web build');
   });
 
   test('builds the update engine before release workspace tests import it', () => {

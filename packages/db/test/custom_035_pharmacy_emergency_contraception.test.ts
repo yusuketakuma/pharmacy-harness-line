@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  cancelOwnerEmergencyIntake,
   createEmergencyIntake,
+  emergencyConsentContentHash,
   expireEmergencyIntakes,
   getAdminEmergencyIntakeDetail,
   getEmergencyAdminConfig,
@@ -13,6 +15,7 @@ import {
   listOwnerEmergencyIntakes,
   setEmergencyInventory,
   transitionEmergencyIntake,
+  recordCounterConfirmation,
 } from '../../../apps/worker/src/custom/pharmacy/emergency-contraception/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,6 +28,10 @@ const REOPENED_NOW = Date.now();
 const REOPENED_INTERCOURSE_AT = new Date(REOPENED_NOW - 24 * 60 * 60 * 1000).toISOString();
 const REOPENED_SLOT_STARTS_AT = new Date(REOPENED_NOW + 60 * 60 * 1000).toISOString();
 const REOPENED_SLOT_ENDS_AT = new Date(REOPENED_NOW + 90 * 60 * 1000).toISOString();
+// seedReadyService always sets retention_days=30, consent_version='2026-08-19'.
+const CONSENT_CONTENT_HASH = await emergencyConsentContentHash({
+  retentionDays: 30, consentVersion: '2026-08-19',
+});
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
 function d1From(sqlite: Database.Database): D1Database {
@@ -180,8 +187,33 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
           version: '2026-08-19',
           purpose: '来局前確認と仮受付のため',
           retention_days: 30,
+          text_v2: expect.stringContaining('30日間'),
+          content_hash: CONSENT_CONTENT_HASH,
         },
       });
+  });
+
+  it('rejects create with an outdated consent_version or a content_hash that no longer matches', async () => {
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    const base = {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line' as const, manufacturerCheckAcknowledged: true,
+      encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
+    };
+    await expect(createEmergencyIntake(d1, {
+      ...base, consentVersion: '2020-01-01', consentContentHash: CONSENT_CONTENT_HASH,
+      idempotencyKey: 'request-key-stale-version',
+    })).rejects.toThrow('EMERGENCY_CONSENT_VERSION_MISMATCH');
+    await expect(createEmergencyIntake(d1, {
+      ...base, consentVersion: '2026-08-19', consentContentHash: 'not-the-real-hash',
+      idempotencyKey: 'request-key-stale-hash',
+    })).rejects.toThrow('EMERGENCY_CONSENT_HASH_MISMATCH');
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_emergency_intakes`).get())
+      .toEqual({ count: 0 });
   });
 
   it('does not offer or admit a slot assigned to an inactive pharmacy staff account', async () => {
@@ -271,7 +303,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'none', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-4',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-4',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
     expect(db.prepare(`SELECT product_code FROM pharmacy_emergency_intakes WHERE id = ?`)
@@ -284,6 +316,12 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       lineAccountId: 'account-a', intakeId: created.id, expectedVersion: 1,
       toStatus: 'reviewed', staffId: 'staff-a', now: new Date(REOPENED_NOW),
     })).resolves.toMatchObject({ status: 'reviewed' });
+    // completed requires the in-person 'A' section counter confirmation (ECF-7).
+    await recordCounterConfirmation(d1, {
+      lineAccountId: 'account-a', intakeId: created.id, section: 'A',
+      checklistVersion: 'lng-2026-08', mismatchItems: [], staffId: 'staff-a',
+      now: new Date(REOPENED_NOW),
+    });
     await expect(transitionEmergencyIntake(d1, {
       lineAccountId: 'account-a', intakeId: created.id, expectedVersion: 2,
       toStatus: 'completed', staffId: 'staff-a', now: new Date(REOPENED_NOW),
@@ -313,6 +351,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       acceptsInPersonDose: true,
       safeContactMode: 'neutral_line' as const,
       consentVersion: '2026-08-19',
+      consentContentHash: CONSENT_CONTENT_HASH,
       manufacturerCheckAcknowledged: true,
       idempotencyKey: 'request-key-1',
       encryptionSecret: 'test-secret',
@@ -332,6 +371,43 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       .get(created.id)).not.toEqual(expect.objectContaining({ encrypted_payload: expect.stringContaining(input.intercourseAt) }));
   });
 
+  it('excludes clinical fields from every patient-facing intake response (create/cancel/list)', async () => {
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    const created = await createEmergencyIntake(d1, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      // age 15 + recentPurchaseCount 1 would populate risk_flags with under_16 and
+      // repeat_purchase_review under the old admin projection — proves the split holds.
+      intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
+      age: 15, recentPurchaseCount: 1, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-owner-projection',
+      encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
+    });
+    for (const field of ['risk_flags', 'age_band', 'safe_contact_mode', 'consent_version']) {
+      expect(created).not.toHaveProperty(field);
+    }
+    expect(created).toMatchObject({ id: expect.any(String), status: 'provisional' });
+
+    const owned = await listOwnerEmergencyIntakes(d1, 'account-a', 'friend-a', new Date(REOPENED_NOW));
+    expect(owned).toHaveLength(1);
+    for (const field of ['risk_flags', 'age_band', 'safe_contact_mode', 'consent_version']) {
+      expect(owned[0]).not.toHaveProperty(field);
+    }
+    expect(owned[0]).toMatchObject({ id: expect.any(String), status: 'provisional' });
+
+    const cancelled = await cancelOwnerEmergencyIntake(d1, {
+      lineAccountId: 'account-a', friendId: 'friend-a', intakeId: created.id,
+      expectedVersion: created.version, idempotencyKey: 'request-key-owner-projection-cancel',
+      now: new Date(REOPENED_NOW),
+    });
+    for (const field of ['risk_flags', 'age_band', 'safe_contact_mode', 'consent_version']) {
+      expect(cancelled).not.toHaveProperty(field);
+    }
+    expect(cancelled).toMatchObject({ id: created.id, status: 'cancelled' });
+  });
+
   it('rejects new intake admission after the account capability is disabled', async () => {
     db.prepare(`UPDATE pharmacy_emergency_slots
       SET starts_at = ?, ends_at = ? WHERE id = 'slot-a'`)
@@ -347,7 +423,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'neutral_line', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-disabled',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-disabled',
       encryptionSecret: 'test-secret', now: new Date(NOW),
     })).rejects.toThrow('FEATURE_DISABLED');
     expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_emergency_intakes`).get())
@@ -363,7 +439,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'no_notification', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-2',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-2',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
 
@@ -395,6 +471,42 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       .rejects.toThrow('trained pharmacist access required');
   });
 
+  it('returns a redacted detail instead of failing decryption once retention-purge has cleared the payload', async () => {
+    // NEXT-2's retention-purge.ts redacts encrypted_payload to '' in place
+    // rather than deleting the row (see RETENTION_MATRIX.md). Simulate that here
+    // directly, since exercising the cron job itself is covered by its own tests.
+    db.prepare(`UPDATE pharmacy_emergency_slots
+      SET starts_at = ?, ends_at = ?
+      WHERE id = 'slot-a'`).run(REOPENED_SLOT_STARTS_AT, REOPENED_SLOT_ENDS_AT);
+    const created = await createEmergencyIntake(d1, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', friendId: 'friend-a', slotId: 'slot-a',
+      intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
+      age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+      safeContactMode: 'no_notification', consentVersion: '2026-08-19',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-redacted',
+      encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
+    });
+    db.prepare(`UPDATE pharmacy_emergency_intakes
+        SET encrypted_payload = '', risk_flags_json = '[]'
+      WHERE id = ?`).run(created.id);
+
+    await expect(getAdminEmergencyIntakeDetail(
+      d1, 'account-a', created.id, 'staff-a', 'test-secret', new Date(REOPENED_NOW),
+    )).resolves.toEqual(expect.objectContaining({
+      id: created.id, redacted: true, self_reported: null,
+    }));
+    // The access audit still records the read; only the decrypt attempt is skipped.
+    expect(db.prepare(`SELECT intake_id, staff_id
+      FROM pharmacy_emergency_intake_access_events`).all()).toEqual([{
+      intake_id: created.id, staff_id: 'staff-a',
+    }]);
+
+    const page = await listAdminEmergencyIntakes(
+      d1, 'account-a', { limit: 20 }, new Date(REOPENED_NOW),
+    );
+    expect(page.intakes).toEqual([expect.objectContaining({ id: created.id })]);
+  });
+
   it('uses CAS transitions and appends an immutable event', async () => {
     db.prepare(`UPDATE pharmacy_emergency_slots
       SET starts_at = ?, ends_at = ?
@@ -404,7 +516,7 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
       intercourseAt: REOPENED_INTERCOURSE_AT, intercourseTimeUnknown: false,
       age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
       safeContactMode: 'none', consentVersion: '2026-08-19',
-      manufacturerCheckAcknowledged: true, idempotencyKey: 'request-key-3',
+      manufacturerCheckAcknowledged: true, consentContentHash: CONSENT_CONTENT_HASH, idempotencyKey: 'request-key-3',
       encryptionSecret: 'test-secret', now: new Date(REOPENED_NOW),
     });
     await expect(transitionEmergencyIntake(d1, {

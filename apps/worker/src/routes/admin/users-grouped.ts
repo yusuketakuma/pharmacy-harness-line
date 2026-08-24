@@ -22,7 +22,7 @@ usersGrouped.get('/api/users-grouped', async (c) => {
       forceRefresh,
     };
 
-    const result = await computeUsersGrouped(c.env.DB, opts);
+    const result = await computeUsersGrouped(c.env.DB, c.get('tenantId'), opts);
     return c.json({ success: true, data: result });
   } catch (err) {
     console.error('GET /api/users-grouped error:', err);
