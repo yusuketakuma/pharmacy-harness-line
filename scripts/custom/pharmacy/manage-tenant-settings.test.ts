@@ -619,6 +619,48 @@ describe('tenant settings CLI', () => {
     expect(output.join('\n')).not.toContain('Tmp-secret-value');
   });
 
+  it.each([
+    ['POST', '/api/staff', '{"name":"New Staff","loginId":"new-staff","role":"staff"}'],
+    ['POST', '/api/staff/staff-a/reset-password', '{}'],
+  ])('preserves an explicit unknown-outcome marker after credential response loss: %s %s', async (
+    method,
+    path,
+    input,
+  ) => {
+    const directory = mkdtempSync(join(tmpdir(), 'tenant-settings-secret-'));
+    temporaryDirectories.push(directory);
+    const secretPath = join(directory, 'temporary-password.json');
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockRejectedValueOnce(new TypeError('network response lost'))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [
+        ...baseArgs, '--method', method, '--path', path, '--input', 'staff.json',
+        '--secret-output', secretPath, '--apply',
+      ],
+      environment,
+      fetcher,
+      async () => Buffer.from(input),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(readFileSync(secretPath, 'utf8'))).toMatchObject({
+      status: 'UNKNOWN_OUTCOME',
+      tenantId: 'tenant-a',
+      method,
+      path,
+      recovery: 'verify_staff_then_reset_password',
+    });
+    expect(statSync(secretPath).mode & 0o777).toBe(0o600);
+    expect(output.join('\n')).toContain('Do not retry blindly');
+    expect(output.join('\n')).not.toContain('network response lost');
+    expect(output.join('\n')).not.toContain(environment.PHARMACY_PLATFORM_ADMIN_PASSWORD);
+  });
+
   it('requires a secret output file before staff credential mutation', async () => {
     const fetcher = vi.fn<typeof fetch>();
     const output: string[] = [];

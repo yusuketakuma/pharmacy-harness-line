@@ -45,6 +45,8 @@ Mutation (dry-run by default):
 
 Staff creation and password reset responses contain a one-time password. Save them to a new
 owner-only file with --secret-output FILE; the secret is never printed to stdout.
+If the response is lost, the file records UNKNOWN_OUTCOME and the command exits 2. Do not retry
+blindly; verify the staff record and issue an explicit password reset when recovery is needed.
 
 Set the published rich menu used by default:
   pnpm tenant:settings -- ... \\
@@ -483,26 +485,49 @@ export async function runTenantSettings(
         }
       }
       return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
-        const response = await fetcher(url.toString(), {
-          method,
-          redirect: 'error',
-          signal: AbortSignal.timeout(60_000),
-          headers: {
-            Authorization: `Bearer ${session.token}`,
-            'X-Tenant-Id': tenantId,
-            ...(body ? { 'Content-Type': contentType } : {}),
-          },
-          body,
-        });
+        const writeUnknownCredentialOutcome = async (reason: string): Promise<number> => {
+          await secretFile!.writeFile(`${JSON.stringify({
+            status: 'UNKNOWN_OUTCOME',
+            reason,
+            tenantId,
+            method,
+            path: url.pathname,
+            recovery: 'verify_staff_then_reset_password',
+            recordedAt: new Date().toISOString(),
+          }, null, 2)}\n`, { encoding: 'utf8' });
+          await secretFile!.sync();
+          keepSecretFile = true;
+          write(`Credential mutation outcome is unknown. Marker written to ${secretOutputPath}. Do not retry blindly; verify staff state and issue an explicit password reset if needed.`);
+          return 2;
+        };
+        let response: Response;
+        try {
+          response = await fetcher(url.toString(), {
+            method,
+            redirect: 'error',
+            signal: AbortSignal.timeout(60_000),
+            headers: {
+              Authorization: `Bearer ${session.token}`,
+              'X-Tenant-Id': tenantId,
+              ...(body ? { 'Content-Type': contentType } : {}),
+            },
+            body,
+          });
+        } catch {
+          if (coverage.secretOutput) return writeUnknownCredentialOutcome('response_lost');
+          throw new Error('Tenant settings request failed');
+        }
         if (!response.ok) {
           write(`Request failed (${response.status}).`);
           return 1;
         }
         if (coverage.secretOutput) {
-          keepSecretFile = true;
-          const responseText = await response.text();
-          await secretFile!.writeFile(`${responseText}\n`, { encoding: 'utf8' });
-          await secretFile!.sync();
+          let responseText: string;
+          try {
+            responseText = await response.text();
+          } catch {
+            return writeUnknownCredentialOutcome('response_body_lost');
+          }
           const payload = (() => {
             try {
               return JSON.parse(responseText) as { success?: unknown; data?: { temporaryPassword?: unknown } };
@@ -512,9 +537,11 @@ export async function runTenantSettings(
           })();
           if (payload?.success !== true || typeof payload.data?.temporaryPassword !== 'string' ||
               !payload.data.temporaryPassword) {
-            write('Credential response was written but did not have the expected format.');
-            return 1;
+            return writeUnknownCredentialOutcome('unexpected_response');
           }
+          await secretFile!.writeFile(`${responseText}\n`, { encoding: 'utf8' });
+          await secretFile!.sync();
+          keepSecretFile = true;
           write(`${method} completed for tenant ${tenantId}. Secret response written to ${secretOutputPath}.`);
           return 0;
         }
