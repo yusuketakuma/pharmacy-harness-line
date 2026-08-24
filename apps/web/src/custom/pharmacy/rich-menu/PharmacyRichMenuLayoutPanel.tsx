@@ -6,12 +6,16 @@ import { ApplyToTagModal } from '@/components/rich-menus/apply-to-tag-modal'
 import { richMenuAreaStyle } from './preview-geometry'
 import { readinessStatusLabel } from '../growth-loop/FeatureSettingsPage'
 
-const LABELS: Record<string, string> = {
-  'prescription-send': '処方せん送信',
-  'prescription-history': '処方せん履歴',
-  'medication-followup': '服薬フォロー',
-  'manual-chat': '個別チャット',
+export const PHARMACY_RICH_MENU_LABELS: Record<string, string> = {
+  'prescription-send': '処方せん事前送信',
+  'prescription-history': '受付状況',
+  'medication-followup': '服薬後フォロー',
+  'manual-chat': '薬局へ相談',
   'pharmacy-info': '薬局情報',
+}
+
+export function canMutatePharmacyRichMenu(role: string | null | undefined): boolean {
+  return role === 'owner' || role === 'admin'
 }
 
 type Layout = Extract<
@@ -52,7 +56,7 @@ export function pharmacyRichMenuDiffLabel(diff: SlotDiff): string {
 
 const DIFF_UNVERIFIED_LABELS: Record<string, string> = {
   CURRENT_DEFAULT_EVIDENCE_STALE: 'LINEの現在表示を24時間以内に確認できていません。状態を再確認してください。',
-  CURRENT_DEFAULT_VERSION_MISSING: '確認済みの現在表示に対応する保存versionがありません。',
+  CURRENT_DEFAULT_VERSION_MISSING: '確認済みの現在表示に対応する保存済みメニューがありません。',
   CURRENT_DEFAULT_MANIFEST_UNAVAILABLE: '確認済みの現在表示のtap領域を取得できません。',
 }
 
@@ -63,9 +67,9 @@ type Readiness = Extract<
 
 const READINESS_LABELS: Array<[keyof Omit<Readiness, 'status' | 'capabilityEnabled'>, string]> = [
   ['layoutConfigured', '並び順の保存'],
-  ['savedVersionAvailable', '保存済み画像version'],
-  ['catalogVersionCurrent', '現行画像catalogのversion'],
-  ['publishedVersionAvailable', 'LINE登録済みversion'],
+  ['savedVersionAvailable', '保存済みメニュー'],
+  ['catalogVersionCurrent', '現行画像テンプレート'],
+  ['publishedVersionAvailable', 'LINE登録済みメニュー'],
   ['currentDefaultRecorded', '初期表示の設定'],
 ]
 
@@ -101,6 +105,7 @@ export function movePharmacyRichMenuAction(
 }
 
 export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }) {
+  const [staffRole, setStaffRole] = useState<string | null>()
   const [layout, setLayout] = useState<Layout | null>(null)
   const [lifecycle, setLifecycle] = useState<Lifecycle | null>(null)
   const [order, setOrder] = useState<string[]>([])
@@ -130,6 +135,16 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
   accountRef.current = accountId
 
   useEffect(() => {
+    try {
+      setStaffRole(localStorage.getItem('lh_staff_role'))
+    } catch {
+      setStaffRole(null)
+    }
+  }, [])
+
+  const canMutate = canMutatePharmacyRichMenu(staffRole)
+
+  useEffect(() => {
     if (preview) previewCloseRef.current?.focus()
   }, [preview])
 
@@ -152,6 +167,8 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       setLifecycle(lifecycleResponse.data)
       setOrder(response.data.preferredOrder)
       setVersions(versionsResponse.data)
+      setVersionName((current) =>
+        versionsResponse.data.length === 0 ? current || '通常営業メニュー' : current)
       setReadiness(readinessResponse.data.richMenu)
     } catch {
       if (accountRef.current === requestedAccountId) setError('薬局リッチメニュー設定を取得できませんでした。')
@@ -316,14 +333,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       if (!response.success) throw new Error(response.error)
       setVersionName('')
       await load()
-      if (accountRef.current === requestedAccountId) setMessage('現在の配置を新しい画像versionとして保存しました。LINEにはまだ反映していません。')
+      if (accountRef.current === requestedAccountId) setMessage('現在の配置を新しい保存済みメニューとして保存しました。LINEにはまだ反映していません。')
     } catch (cause) {
       if (accountRef.current !== requestedAccountId) return
       if (cause instanceof ApiError && cause.status === 409) {
         await load()
         if (accountRef.current === requestedAccountId) setError('設定が更新されました。最新状態を確認してもう一度保存してください。')
       } else {
-        setError('画像versionを保存できませんでした。catalog設定を確認してください。')
+        setError('メニューを保存できませんでした。画像テンプレート設定を確認してください。')
       }
     } finally {
       if (accountRef.current === requestedAccountId) setCreating(false)
@@ -365,10 +382,10 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
 
   async function renameVersion(version: Version) {
     if (renaming) return
-    const requestedName = window.prompt('新しいversion名を入力してください。', version.name)
+    const requestedName = window.prompt('新しいメニュー名を入力してください。', version.name)
     if (requestedName === null || requestedName.trim() === version.name) return
     if (!requestedName.trim() || requestedName.trim().length > 80) {
-      setError('version名は1〜80文字で入力してください。')
+      setError('メニュー名は1〜80文字で入力してください。')
       return
     }
     const requestedAccountId = accountId
@@ -386,14 +403,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       setVersions((current) => current.map((item) => item.groupId === version.groupId
         ? { ...item, name: response.data.name, updatedAt: response.data.updatedAt }
         : item))
-      setMessage('version名を変更しました。画像とtap actionは変更していません。')
+      setMessage('メニュー名を変更しました。画像とtap actionは変更していません。')
     } catch (cause) {
       if (accountRef.current !== requestedAccountId) return
       if (cause instanceof ApiError && cause.status === 409) {
         await load()
-        if (accountRef.current === requestedAccountId) setError('別の更新がありました。最新のversion一覧を再取得しました。')
+        if (accountRef.current === requestedAccountId) setError('別の更新がありました。最新の保存済みメニュー一覧を再取得しました。')
       } else {
-        setError('version名を変更できませんでした。')
+        setError('メニュー名を変更できませんでした。')
       }
     } finally {
       if (accountRef.current === requestedAccountId) setRenaming(null)
@@ -423,7 +440,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
       if (cause instanceof ApiError && cause.status === 409) {
         await load()
         if (accountRef.current === requestedAccountId) {
-          setError('LINE登録済み・確認済み・結果確認中のversionは削除できません。')
+          setError('LINE登録済み・確認済み・結果確認中のメニューは削除できません。')
         }
       } else {
         setError('下書きを削除できませんでした。')
@@ -515,6 +532,15 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     <section className="mb-6 rounded-lg border border-gray-200 bg-white p-5" aria-labelledby="pharmacy-rich-menu-layout-title">
       <h2 id="pharmacy-rich-menu-layout-title" className="font-semibold text-gray-900">薬局リッチメニューの並び順</h2>
       <p className="mt-1 text-sm text-gray-600">前へ・後ろへボタンで並び替えます。OFFの機能は画像とリンクの両方から除外されます。</p>
+      <ol aria-label="リッチメニュー初期設定の手順" className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
+        <li>1. 患者向け機能をON/OFF</li>
+        <li>2. 並び順を保存</li>
+        <li>3. 現在の配置を画像として保存</li>
+        <li>4. LINEへ登録</li>
+        <li>5. この画像に切替</li>
+      </ol>
+      <p className="mt-2 text-xs text-gray-500">「処方せん事前送信」と「受付状況」は同時にON/OFFされます。</p>
+      {staffRole === 'staff' && <p role="status" className="mt-3 rounded bg-blue-50 p-3 text-sm text-blue-900">一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。</p>}
       {readiness && <div role="status" className="mt-3 rounded bg-gray-50 p-3 text-sm text-gray-800">
         <p>初期設定状態: <span className="font-semibold">{readinessStatusLabel(readiness.status)}</span></p>
         <a
@@ -540,7 +566,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
             key={state}
             type="button"
             aria-pressed={lifecycle.state === state}
-            disabled={lifecycleSaving || lifecycle.state === state}
+            disabled={lifecycleSaving || lifecycle.state === state || !canMutate}
             onClick={() => void saveLifecycle(state)}
             className="min-h-11 rounded border border-gray-300 px-4 text-sm font-medium aria-pressed:border-green-700 aria-pressed:bg-green-50 aria-pressed:text-green-800 disabled:opacity-60"
           >{label}</button>)}
@@ -563,32 +589,32 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
         <>
           <ol id="pharmacy-rich-menu-layout-editor" className="mt-4 scroll-mt-4 divide-y divide-gray-200 border-y border-gray-200">
             {order.map((key, index) => {
-              const label = LABELS[key] ?? key
+              const label = PHARMACY_RICH_MENU_LABELS[key] ?? key
               const enabled = layout.effectiveOrder.includes(key)
               return <li key={key} className="flex min-h-14 items-center gap-3 py-2">
                 <span className="w-6 text-sm text-gray-500">{index + 1}</span>
                 <span className="min-w-0 flex-1 font-medium text-gray-900">{label}</span>
                 <span className={`text-xs ${enabled ? 'text-green-700' : 'text-gray-500'}`}>{enabled ? 'ON' : 'OFF'}</span>
-                <button type="button" aria-label={`${label}を前へ移動`} disabled={index === 0 || saving} onClick={() => setOrder((current) => movePharmacyRichMenuAction(current, key, -1))} className="min-h-11 min-w-11 rounded border border-gray-300 px-3 disabled:opacity-40">↑</button>
-                <button type="button" aria-label={`${label}を後ろへ移動`} disabled={index === order.length - 1 || saving} onClick={() => setOrder((current) => movePharmacyRichMenuAction(current, key, 1))} className="min-h-11 min-w-11 rounded border border-gray-300 px-3 disabled:opacity-40">↓</button>
+                <button type="button" aria-label={`${label}を前へ移動`} disabled={index === 0 || saving || !canMutate} onClick={() => setOrder((current) => movePharmacyRichMenuAction(current, key, -1))} className="min-h-11 min-w-11 rounded border border-gray-300 px-3 disabled:opacity-40">↑</button>
+                <button type="button" aria-label={`${label}を後ろへ移動`} disabled={index === order.length - 1 || saving || !canMutate} onClick={() => setOrder((current) => movePharmacyRichMenuAction(current, key, 1))} className="min-h-11 min-w-11 rounded border border-gray-300 px-3 disabled:opacity-40">↓</button>
               </li>
             })}
           </ol>
           <div className="mt-3 rounded bg-gray-50 p-3 text-sm text-gray-700">最後の枠: すべての機能（有効項目数に応じてCompact/Largeを自動選択）</div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-amber-700">{dirty ? '未保存の変更があります。' : '保存済みです。'}</p>
-            <button type="button" onClick={() => void save()} disabled={!dirty || saving} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? '保存中…' : '並び順を保存'}</button>
+            <button type="button" onClick={() => void save()} disabled={!dirty || saving || !canMutate} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? '保存中…' : '並び順を保存'}</button>
           </div>
           <div className="mt-6 border-t border-gray-200 pt-5">
-            <h3 className="font-semibold text-gray-900">保存済み画像version</h3>
+            <h3 className="font-semibold text-gray-900">保存済みメニュー</h3>
             <p className="mt-1 text-sm text-gray-600">画像とtap actionを一組で保存します。保存だけではLINE表示は変わりません。</p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <label className="min-w-0 flex-1 text-sm">version名
-                <input value={versionName} onChange={(event) => setVersionName(event.target.value)} maxLength={80} disabled={creating} className="mt-1 min-h-11 w-full rounded border border-gray-300 px-3" placeholder="例: 通常営業メニュー" />
+              <label className="min-w-0 flex-1 text-sm">メニュー名
+                <input value={versionName} onChange={(event) => setVersionName(event.target.value)} maxLength={80} disabled={creating || !canMutate} className="mt-1 min-h-11 w-full rounded border border-gray-300 px-3" placeholder="例: 通常営業メニュー" />
               </label>
-              <button type="button" onClick={() => void createVersion()} disabled={dirty || creating || !versionName.trim()} className="min-h-11 self-end rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{creating ? '保存中…' : '現在の配置を画像として保存'}</button>
+              <button type="button" onClick={() => void createVersion()} disabled={dirty || creating || !versionName.trim() || !canMutate} className="min-h-11 self-end rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{creating ? '保存中…' : '現在の配置を画像として保存'}</button>
             </div>
-            {versions.length === 0 ? <p className="mt-4 text-sm text-gray-500">保存済みversionはありません。</p> : (
+            {versions.length === 0 ? <p className="mt-4 text-sm text-gray-500">保存済みメニューはありません。</p> : (
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {versions.map((version) => <article key={version.groupId} className="overflow-hidden rounded-lg border border-gray-200">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -600,7 +626,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
                     {version.unverified && <p className="mt-2 text-xs font-medium text-amber-700">結果確認が必要</p>}
                     <button type="button" onClick={() => void openPreview(version)} disabled={previewLoading !== null} className="mt-3 min-h-11 rounded border border-blue-500 px-3 text-sm font-medium text-blue-800 disabled:opacity-50">{previewLoading === version.groupId ? '確認中…' : '画像とtap領域を確認'}</button>
                     <button type="button" aria-expanded={diff?.groupId === version.groupId} onClick={() => void loadDiff(version)} disabled={diffLoading !== null} className="ml-2 mt-3 min-h-11 rounded border border-violet-500 px-3 text-sm font-medium text-violet-800 disabled:opacity-50">{diffLoading === version.groupId ? '比較中…' : '公開中との差分'}</button>
-                    <button type="button" onClick={() => void renameVersion(version)} disabled={renaming !== null} className="ml-2 mt-3 min-h-11 rounded border border-gray-400 px-3 text-sm font-medium text-gray-700 disabled:opacity-50">{renaming === version.groupId ? '変更中…' : '名前を変更'}</button>
+                    <button type="button" onClick={() => void renameVersion(version)} disabled={renaming !== null || !canMutate} className="ml-2 mt-3 min-h-11 rounded border border-gray-400 px-3 text-sm font-medium text-gray-700 disabled:opacity-50">{renaming === version.groupId ? '変更中…' : '名前を変更'}</button>
                     {diff?.groupId === version.groupId && <div aria-live="polite" className="mt-3 rounded bg-violet-50 p-3 text-sm text-violet-950">
                       {diff.data.status === 'UNVERIFIED'
                         ? <p><span className="font-medium">UNVERIFIED:</span> {DIFF_UNVERIFIED_LABELS[diff.data.reasonCode] ?? '現在表示を確認できません。'}</p>
@@ -611,13 +637,13 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
                       : version.unverified
                         ? <div className="mt-3">
                             <p className="text-sm text-amber-700">再実行せず、LINEの現在表示を確認してください。</p>
-                            {version.unresolvedOperationId && <button type="button" onClick={() => void reconcileVersion(version)} disabled={reconciling !== null} className="mt-2 min-h-11 rounded border border-amber-600 px-3 text-sm font-medium text-amber-800 disabled:opacity-50">{reconciling === version.groupId ? '確認中…' : '状態を再確認'}</button>}
-                            {resumable === version.groupId && version.unresolvedOperationId && <button type="button" onClick={() => void resumeVersion(version)} disabled={resuming !== null} className="ml-2 mt-2 min-h-11 rounded bg-amber-700 px-3 text-sm font-medium text-white disabled:opacity-50">{resuming === version.groupId ? '再開中…' : '登録を再開'}</button>}
+                            {version.unresolvedOperationId && <button type="button" onClick={() => void reconcileVersion(version)} disabled={reconciling !== null || !canMutate} className="mt-2 min-h-11 rounded border border-amber-600 px-3 text-sm font-medium text-amber-800 disabled:opacity-50">{reconciling === version.groupId ? '確認中…' : '状態を再確認'}</button>}
+                            {resumable === version.groupId && version.unresolvedOperationId && <button type="button" onClick={() => void resumeVersion(version)} disabled={resuming !== null || !canMutate} className="ml-2 mt-2 min-h-11 rounded bg-amber-700 px-3 text-sm font-medium text-white disabled:opacity-50">{resuming === version.groupId ? '再開中…' : '登録を再開'}</button>}
                           </div>
                         : version.status === 'published'
-                          ? <button type="button" onClick={() => { setSwitchIntent(version.knownGood ? 'rollback' : 'switch'); setSwitchTarget(version) }} className="mt-3 min-h-11 rounded border border-green-600 px-3 text-sm font-medium text-green-700">{version.knownGood ? 'この画像へ戻す' : 'この画像に切替'}</button>
-                          : <button type="button" onClick={() => void publishVersion(version)} disabled={publishing !== null} className="mt-3 min-h-11 rounded border border-blue-700 px-3 text-sm font-medium text-blue-700 disabled:opacity-50">{publishing === version.groupId ? '確認中…' : 'LINEへ登録'}</button>}
-                    {version.status === 'draft' && !version.lineRichMenuId && !version.currentDefault && !version.knownGood && !version.unverified && <button type="button" onClick={() => void deleteVersion(version)} disabled={deleting !== null} className="ml-2 mt-3 min-h-11 rounded border border-red-500 px-3 text-sm font-medium text-red-700 disabled:opacity-50">{deleting === version.groupId ? '削除中…' : '下書きを削除'}</button>}
+                          ? <button type="button" onClick={() => { setSwitchIntent(version.knownGood ? 'rollback' : 'switch'); setSwitchTarget(version) }} disabled={!canMutate} className="mt-3 min-h-11 rounded border border-green-600 px-3 text-sm font-medium text-green-700 disabled:opacity-50">{version.knownGood ? 'この画像へ戻す' : 'この画像に切替'}</button>
+                          : <button type="button" onClick={() => void publishVersion(version)} disabled={publishing !== null || !canMutate} className="mt-3 min-h-11 rounded border border-blue-700 px-3 text-sm font-medium text-blue-700 disabled:opacity-50">{publishing === version.groupId ? '確認中…' : 'LINEへ登録'}</button>}
+                    {version.status === 'draft' && !version.lineRichMenuId && !version.currentDefault && !version.knownGood && !version.unverified && <button type="button" onClick={() => void deleteVersion(version)} disabled={deleting !== null || !canMutate} className="ml-2 mt-3 min-h-11 rounded border border-red-500 px-3 text-sm font-medium text-red-700 disabled:opacity-50">{deleting === version.groupId ? '削除中…' : '下書きを削除'}</button>}
                   </div>
                 </article>)}
               </div>

@@ -7,7 +7,7 @@ import {
 } from './layout.js';
 import { sha256Hex } from './hash.js';
 
-export const PHARMACY_RICH_MENU_CATALOG_VERSION = 'v4-4';
+export const PHARMACY_RICH_MENU_CATALOG_VERSION = 'v4-5';
 const CATALOG_PREFIX = `rich-menu-catalog/${PHARMACY_RICH_MENU_CATALOG_VERSION}`;
 export const PHARMACY_RICH_MENU_CATALOG_MANIFEST_KEY = `${CATALOG_PREFIX}/manifest.json`;
 

@@ -26,10 +26,10 @@ describe('pharmacy rich-menu profile', () => {
   it('builds the deterministic six-area initial menu with safe LIFF links', () => {
     const group = buildPharmacyInitialRichMenu('account-a', '1234567890-AbCd');
     const page = group.pages[0];
-    expect(group.generatorKey).toBe('initial-large-3x2-v4');
-    expect(PHARMACY_INITIAL_PROFILE_KEY).toBe('initial-large-3x2-v4');
-    expect(group.generatorVersion).toBe('4');
-    expect(PHARMACY_RICH_MENU_GENERATOR_VERSION).toBe('4');
+    expect(group.generatorKey).toBe('initial-large-3x2-v5');
+    expect(PHARMACY_INITIAL_PROFILE_KEY).toBe('initial-large-3x2-v5');
+    expect(group.generatorVersion).toBe('5');
+    expect(PHARMACY_RICH_MENU_GENERATOR_VERSION).toBe('5');
     expect(group.size).toBe('large');
     expect(page.areas).toHaveLength(6);
     expect(page.areas.map((area) => [area.boundsX, area.boundsY, area.boundsWidth, area.boundsHeight])).toEqual([
@@ -135,6 +135,14 @@ describe('pharmacy rich-menu profile', () => {
   });
 
   it('projects server-owned candidate labels and tap bounds without raw action data', () => {
+    expect(getPharmacyRichMenuCatalogPreview(
+      '1234567890-AbCd', [
+        'prescription-send', 'prescription-history', 'medication-followup',
+        'manual-chat', 'pharmacy-info',
+      ],
+    )[0]).toMatchObject({
+      actionKey: 'prescription-send', label: '処方せん事前送信', actionType: 'uri',
+    });
     expect(getPharmacyRichMenuCatalogPreview(
       '1234567890-AbCd', ['pharmacy-info'],
     )).toEqual([

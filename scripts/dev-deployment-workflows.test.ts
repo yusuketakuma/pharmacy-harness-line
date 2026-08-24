@@ -117,7 +117,7 @@ describe('development deployment workflow contract', () => {
       "steps.rich-menu-catalog.outputs.changed == 'true'",
     );
     expect(sharedDeploy).toContain('git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA"');
-    expect(sharedDeploy).toContain('initial-large-3x2-v4.jpg');
+    expect(sharedDeploy).toContain('initial-large-3x2-v5.jpg');
     expect(sharedDeploy).toContain('generate-rich-menu-catalog.ts');
     expect(sharedDeploy).toContain('pnpm rich-menu:catalog');
     expect(sharedDeploy).toContain('r2 object get');

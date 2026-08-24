@@ -128,7 +128,7 @@ jobs:
           git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null || \
             git fetch --no-tags --depth=1 origin "$BEFORE_SHA"
           if git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- \
-              apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v4.jpg \
+              apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg \
               apps/worker/src/custom/pharmacy/rich-menu/catalog.ts \
               apps/worker/src/custom/pharmacy/rich-menu/layout.ts \
               apps/worker/src/lib/image-validator.ts \

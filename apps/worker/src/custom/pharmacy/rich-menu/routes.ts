@@ -59,11 +59,16 @@ function serializeLayout(
   };
 }
 
-async function canManagePharmacyRichMenu(c: Context<Env>, accountId: string): Promise<boolean> {
+async function canAccessPharmacyRichMenu(c: Context<Env>, accountId: string): Promise<boolean> {
   const staff = c.get('staff');
   return Boolean(staff) &&
     await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID) &&
     await hasPharmacyCapability(c.env.DB, accountId, 'pharmacy_rich_menu');
+}
+
+function canMutatePharmacyRichMenu(c: Context<Env>): boolean {
+  const role = c.get('staff')?.role;
+  return role === 'owner' || role === 'admin';
 }
 
 function groupManifestAreas(group: RichMenuGroupWithPages): RichMenuAreaInput[] | null {
@@ -141,7 +146,7 @@ pharmacyRichMenuRoutes.get('/api/custom/pharmacy/rich-menus/layout', async (c) =
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   const [layout, capabilities] = await Promise.all([
@@ -157,7 +162,7 @@ pharmacyRichMenuRoutes.put('/api/custom/pharmacy/rich-menus/layout', async (c) =
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!canMutatePharmacyRichMenu(c) || !await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
 
@@ -199,7 +204,7 @@ pharmacyRichMenuRoutes.get('/api/custom/pharmacy/rich-menus/candidate', async (c
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   const account = await getLineAccountByIdForTenant(c.env.DB, c.get('tenantId'), accountId);
@@ -258,7 +263,7 @@ pharmacyRichMenuRoutes.get('/api/custom/pharmacy/rich-menus/candidate/image', as
     return c.json({ success: false, error: 'candidate evidence is required' }, 400);
   }
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   try {
@@ -285,7 +290,7 @@ pharmacyRichMenuRoutes.get('/api/custom/pharmacy/rich-menus/lifecycle', async (c
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   return c.json({
@@ -299,7 +304,7 @@ pharmacyRichMenuRoutes.put('/api/custom/pharmacy/rich-menus/lifecycle', async (c
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!canMutatePharmacyRichMenu(c) || !await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   let body: { state?: unknown; expectedRevision?: unknown };
@@ -335,7 +340,7 @@ pharmacyRichMenuRoutes.get('/api/custom/pharmacy/rich-menus/versions', async (c)
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   return c.json({
@@ -349,7 +354,7 @@ pharmacyRichMenuRoutes.get('/api/custom/pharmacy/rich-menus/versions/:groupId/di
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
 
@@ -450,7 +455,7 @@ pharmacyRichMenuRoutes.patch('/api/custom/pharmacy/rich-menus/versions/:groupId'
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!canMutatePharmacyRichMenu(c) || !await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   let body: { name?: unknown; expectedUpdatedAt?: unknown };
@@ -492,7 +497,7 @@ pharmacyRichMenuRoutes.delete('/api/custom/pharmacy/rich-menus/versions/:groupId
     }, 400);
   }
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!canMutatePharmacyRichMenu(c) || !await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   try {
@@ -518,7 +523,7 @@ pharmacyRichMenuRoutes.post('/api/custom/pharmacy/rich-menus/versions', async (c
   const accountId = c.req.query('accountId');
   if (!accountId) return c.json({ success: false, error: 'accountId query param required' }, 400);
   if (!c.get('staff')) return c.json({ success: false, error: 'Unauthorized' }, 401);
-  if (!await canManagePharmacyRichMenu(c, accountId)) {
+  if (!canMutatePharmacyRichMenu(c) || !await canAccessPharmacyRichMenu(c, accountId)) {
     return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   let body: {

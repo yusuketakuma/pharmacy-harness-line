@@ -132,13 +132,14 @@ function setupApp(opts: {
   db?: D1Database;
   credentialKey?: string | null;
   lifecycleState?: 'inactive' | 'active' | 'frozen';
+  role?: 'owner' | 'admin' | 'staff';
 } = {}) {
   const db = opts.db ?? makeMinimalDbStub();
   const bound = Boolean((db as D1Database & { __boundPharmacyVersion?: boolean }).__boundPharmacyVersion);
   Object.assign(db, { __lifecycleState: opts.lifecycleState ?? (bound ? 'active' : 'inactive') });
   const app = new Hono<TestEnv>();
   app.use('*', async (c, next) => {
-    c.set('staff', { id: 'staff-1', role: 'owner' });
+    c.set('staff', { id: 'staff-1', role: opts.role ?? 'owner' });
     c.set('tenantId', 'tenant-a');
     c.env = {
       DB: db,
@@ -1696,6 +1697,29 @@ describe('POST /api/rich-menu-groups/:groupId/unpublish', () => {
 });
 
 describe('POST /api/rich-menu-groups/:groupId/apply-to-tag', () => {
+  test('rejects a saved pharmacy-version switch by ordinary staff', async () => {
+    dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
+      id: 'g1', account_id: 'acc-1', name: 'Menu', chat_bar_text: 'Menu', size: 'compact',
+      default_page_id: 'p1', is_default_for_all: 0, selected: 1, status: 'published',
+      publishing_at: null, generator_key: null, generator_version: null,
+      created_at: '', updated_at: '2026-08-21T00:00:00Z', pages: [{
+        id: 'p1', group_id: 'g1', order_index: 0, name: 'Main', alias_id: 'alias',
+        line_richmenu_id: 'line-menu-1', image_r2_key: 'image.jpg', image_content_type: 'image/jpeg',
+        created_at: '', updated_at: '', areas: [],
+      }],
+    });
+
+    const response = await setupApp({ db: makeBoundVersionDb(), role: 'staff' }).request(
+      '/api/rich-menu-groups/g1/apply-to-tag?accountId=acc-1', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'set-default', enabled: true, dryRun: true }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(pharmacyPublishGate.readiness).not.toHaveBeenCalled();
+  });
+
   test('rejects per-user bulk and default-clear bypasses for immutable versions', async () => {
     dbMocks.getRichMenuGroupWithPages.mockResolvedValue({
       id: 'g1', account_id: 'acc-1', name: 'Menu', chat_bar_text: 'Menu', size: 'compact',
