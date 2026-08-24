@@ -1,18 +1,18 @@
 # Changelog
 
-## Pharmacy v0.31.0 (Unreleased)
+## Pharmacy v0.31.0 (2026-08-24)
 
-> Release gate未達のため、この項目はdraftです。package versionはdevelopment candidateとして`0.31.0`へ更新しました。seller tag、GitHub Release、production deploy、account activation、LINE mutationは実施していません。基準は`pharmacy-v0.30.2`（2026-08-22 tag）からの差分（91 commits、142 files changed、+10,772/-851）です。
+> package version `0.31.0`とseller tag `pharmacy-v0.31.0`は別identityです。この項目はsource変更を記録し、production deploy、account activation、LINE mutationはそれぞれの実行証拠で確認します。
 
 ### ユーザーにとっての変更
 
-v0.31.0はセキュリティ・プライバシー・信頼性の底上げに集中した版で、緊急避妊薬フォームの新フェーズを除き画面上の新機能はほぼありません。まだ未リリースのため、利用中の患者・薬局画面には反映されていません。
+v0.31.0はセキュリティ・プライバシー・信頼性の底上げに集中した版で、緊急避妊薬フォームの新フェーズを除き画面上の新機能はほぼありません。本版を適用した環境に反映されます。
 
 | 対象 | v0.31.0で変わること | 変わらないこと |
 |---|---|---|
 | 患者 | 緊急避妊薬の事前情報フォームがv2になり、アレルギー・肝疾患・妊娠/授乳・月経状況などを追加で確認し、該当時は産婦人科等の代替導線を表示。同意文言も改定 | 既存の受付・チャット・処方箋送信の操作手順は変わりません |
 | 薬局スタッフ | 緊急避妊薬の対面確認・薬剤師記入欄・販売記録（法定3年保存）が管理画面に追加。リッチメニュー変更後の再確認・復旧、LINEアカウント切替時の画面状態リークの解消も含む | 受付・チャット・患者対応の基本操作手順は変わりません |
-| 運用担当者 | Webhook配信・通知送信・キャッシュ・外部連携の障害時挙動が全面的に堅牢化され、test・security scan・license確認・SBOM・build provenanceを1つのCIで確認可能に | production deploy、実患者データや本番LINEアカウントの変更はまだ行いません |
+| 運用担当者 | Webhook配信・通知送信・キャッシュ・外部連携の障害時挙動が全面的に堅牢化され、test・security scan・license確認・SBOM・build provenanceを1つのCIで確認可能に | production deploy、実患者データや本番LINEアカウントの変更は別のHuman Goで管理します |
 
 ### 緊急避妊薬 事前情報収集フォーム v2
 
@@ -88,7 +88,7 @@ Phase B（対面確認・販売記録、`custom_051`追加）:
 - LIFF起動の成功経路smokeを追加（従来は`liffId`欠落によるエラー経路しか検証していなかった）。SDKをbrowser側でmockする専用E2E serverを追加し、production buildは実SDKのまま
 - Mynaの署名tamper検証テストを決定的な形に修正（Base64URLの最終文字を書き換えるとHMAC対象外のpadding bitしか変わらず偽陰性になっていた）
 - release-critical 3 workflowsの`actions/checkout`・`pnpm/action-setup`・`actions/setup-node`をreview済みNode 24リリースの固定SHAへ更新し、`actionlint` warningを0件に
-- PR #79を`dev`へmergeし、development candidateのpackage versionを`0.31.0`へ統一。production/LINE mutationとseller tagの変更は行っていない
+- PR #79と#80を`dev`へmergeし、package versionを`0.31.0`へ統一。exact `dev` headのCI・development deploy・provenanceを確認
 
 ### 本番デプロイの人間ゲート
 
@@ -98,12 +98,12 @@ Phase B（対面確認・販売記録、`custom_051`追加）:
 - Platform Admin CLIへaccount-scoped・PHI-freeなLINE rich-menuのremote state GETだけを許可し、import・remote deleteは引き続き拒否
 - development synthetic LINE accountでrich-menu candidate作成・image upload・set-default・fresh read-back・explicit rollback・rollback後read-backを人間立会いで完遂し、known-goodへ復帰（結果不明・未解決operation・blind retry・remote deleteはいずれも0件）
 
-### releaseまでに残るgate
+### release実行gate
 
-- PR #79（`feature/v031-assurance-baseline` → `dev`）はmerge済み。`dev`→`main`昇格とproductionへの手動`workflow_dispatch`は未実施
-- production deployは`main` pushでは起動せず、Human Go後の手動workflowで承認source SHAを完全一致させる
-- main/production候補のsource SHA一致、deployed byte equality、runtime manifest digest、LINE結果不明0件、rollback read-back一致、production tenant mutation 0件をHuman Go後に実証
-- 全gateがPASSするまで`pharmacy-v0.31.0`を作成せず、productionへ昇格しない
+- `dev`→`main`はrequired check成功後にmergeし、exact main source SHAを固定
+- production deployはmain pushでは起動せず、Human Go後の手動workflowで承認source SHAを完全一致させる
+- production workflowでruntime version、artifact digest、migration、Worker・LIFF・Admin health、customer configuration保持をread-back
+- 上記がPASSしたexact main commitだけへ`pharmacy-v0.31.0` tagとGitHub Releaseを作成
 
 ## Pharmacy v0.30.2 (2026-08-22)
 
