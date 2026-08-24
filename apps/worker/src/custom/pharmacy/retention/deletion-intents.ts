@@ -2,6 +2,7 @@ import {
   assertRetentionDeleteExecution,
   RetentionDeleteExecution,
 } from './execution.js';
+import { ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL } from '../data-subject-requests/legal-hold.js';
 
 export type DeletionIntentStatus =
   | 'CLAIMED'
@@ -270,6 +271,16 @@ export async function commitPrescriptionDeletionIntent(
              AND blocked.patient_key IN (intent.patient_key, '*')
              AND blocked.status IN ('held', 'unknown')
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_data_subject_requests AS request
+           WHERE request.tenant_id = intent.tenant_id
+             AND request.line_account_id = intent.line_account_id
+             AND request.owner_friend_id = intent.owner_friend_id
+             AND (intent.patient_key = '*' OR request.patient_id = intent.patient_key)
+             AND request.request_type IN ('erasure', 'suspension')
+             AND request.status IN ('received', 'identity_verified', 'legal_hold_assessed')
+             AND ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL}
+        )
         AND EXISTS (
           SELECT 1
             FROM pharmacy_prescription_files AS file
@@ -303,7 +314,7 @@ export async function commitPrescriptionDeletionIntent(
       input.now, intent.id, expectedFence.epoch,
       execution.operationId, execution.executionId, execution.fenceToken,
       execution.executorSubject, execution.environment,
-      execution.tenantId, execution.lineAccountId,
+      execution.tenantId, execution.lineAccountId, input.now,
     ),
   ]);
   return (results[0]?.meta?.changes ?? 0) === 1 &&

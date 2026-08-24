@@ -252,6 +252,50 @@ describe('incoming image retention ledger', () => {
       WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'CANCELLED_HELD' });
   });
 
+  test('does not commit an incoming delete when a DSR appears after fence refresh', async () => {
+    seedMessage();
+    await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
+    sqlite.prepare(`INSERT INTO staff_members (id, name, role, api_key)
+      VALUES ('staff-a', 'Staff', 'staff', 'api-key-a')`).run();
+    sqlite.prepare(`INSERT INTO tenant_staff_memberships
+      (tenant_id, staff_id, role, created_at, updated_at)
+      VALUES ('tenant-a', 'staff-a', 'staff', ?, ?)`).run(NOW.toISOString(), NOW.toISOString());
+    sqlite.prepare(`INSERT INTO pharmacy_staff_accounts
+      (line_account_id, staff_id, created_at, updated_at)
+      VALUES ('account-a', 'staff-a', ?, ?)`).run(NOW.toISOString(), NOW.toISOString());
+    let batches = 0;
+    const racingDb = {
+      ...db,
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        batches++;
+        if (batches === 3) {
+          sqlite.prepare(`INSERT INTO pharmacy_data_subject_requests
+            (id, tenant_id, line_account_id, owner_friend_id, patient_id, request_type,
+             status, reason, submitted_at, created_by, created_at, updated_at)
+            VALUES ('dsr-after-incoming-fence', 'tenant-a', 'account-a', 'friend-a',
+             'patient-a', 'erasure', 'received', 'request', ?, 'staff-a', ?, ?)`).run(
+            NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+          );
+        }
+        return db.batch<T>(statements);
+      },
+    } as D1Database;
+    const images = {
+      head: vi.fn().mockResolvedValue({ key: KEY }),
+      get: vi.fn().mockResolvedValue({
+        arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
+      }),
+      delete: vi.fn(),
+    } as unknown as R2Bucket;
+
+    await expect(purgeTrackedIncomingImages(racingDb, images, {
+      execution: EXECUTION, now: NOW,
+    })).resolves.toEqual({ purged: 0, failed: 0, skipped: 1 });
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
+      WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'CANCELLED_UNKNOWN' });
+  });
+
   test('reconsiders a cancelled image after the unknown hold is resolved', async () => {
     seedMessage();
     await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
@@ -380,6 +424,33 @@ describe('incoming image retention ledger', () => {
     expect(sqlite.prepare(
       `SELECT status FROM pharmacy_incoming_image_dispositions WHERE r2_key = ?`,
     ).get(orphan)).toEqual({ status: 'ORPHAN' });
+  });
+
+  test('inventory mismatch does not write a disposition in another tenant scope', async () => {
+    const at = NOW.toISOString();
+    sqlite.prepare(`INSERT INTO line_accounts
+      (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
+      VALUES ('account-b', 'channel-b', 'b', 'token-b', 'secret-b', ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO tenants
+      (id, tenant_code, display_name, status, created_at, updated_at)
+      VALUES ('tenant-b', 'pharmacy-b', 'Tenant B', 'active', ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO tenant_line_accounts
+      (tenant_id, line_account_id, created_at, updated_at)
+      VALUES ('tenant-b', 'account-b', ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO pharmacy_incoming_image_objects
+      (r2_key, tenant_id, line_account_id, message_id, stored_at)
+      VALUES (?, 'tenant-b', 'account-b', 'foreign-message', ?)`).run(KEY, at);
+    const images = {
+      list: vi.fn().mockResolvedValue({ objects: [{ key: KEY }], truncated: false }),
+      head: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as R2Bucket;
+
+    await expect(reconcileIncomingImageInventory(db, images, {
+      execution: EXECUTION, now: NOW,
+    })).resolves.toMatchObject({ mismatch: 1 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_incoming_image_dispositions`).get()).toEqual({ count: 0 });
   });
 
   test('readiness is explicitly blocked while cross-domain dependencies are unresolved', async () => {

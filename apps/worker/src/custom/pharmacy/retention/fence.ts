@@ -3,7 +3,11 @@ import {
   RetentionAssessment,
 } from '../data-subject-requests/legal-hold.js';
 import { readRetentionFence, RetentionFence } from './deletion-intents.js';
-import { assertRetentionDeleteExecution, RetentionDeleteExecution } from './execution.js';
+import {
+  assertRetentionDeleteExecution,
+  executionMatchesScope,
+  RetentionDeleteExecution,
+} from './execution.js';
 
 export interface RetentionFenceScope {
   tenantId: string;
@@ -162,20 +166,23 @@ function upsertFenceStatement(
   scope: RetentionFenceScope,
   patientKey: string,
   assessment: RetentionAssessment,
+  expectedEpoch: number,
   now: string,
 ) {
   return db.prepare(
     `INSERT INTO pharmacy_retention_hold_epochs
       (tenant_id, line_account_id, owner_friend_id, patient_key, epoch,
        status, release_at, reason_code, updated_at)
-     VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (tenant_id, line_account_id, owner_friend_id, patient_key)
-     DO UPDATE SET epoch = pharmacy_retention_hold_epochs.epoch + 1,
+     DO UPDATE SET epoch = excluded.epoch,
        status = excluded.status, release_at = excluded.release_at,
-       reason_code = excluded.reason_code, updated_at = excluded.updated_at`,
+       reason_code = excluded.reason_code, updated_at = excluded.updated_at
+     WHERE pharmacy_retention_hold_epochs.epoch = ?`,
   ).bind(
     scope.tenantId, scope.lineAccountId, scope.ownerFriendId, patientKey,
-    assessment.status, assessment.releaseAt, reasonCode(assessment.status), now,
+    expectedEpoch + 1, assessment.status, assessment.releaseAt,
+    reasonCode(assessment.status), now, expectedEpoch,
   );
 }
 
@@ -192,13 +199,34 @@ export async function prepareRetentionFence(
 ): Promise<RetentionFence> {
   if (!Number.isFinite(now.getTime())) return { status: 'unknown', epoch: 0 };
   await assertRetentionDeleteExecution(db, execution);
+  if (!executionMatchesScope(execution, scope.tenantId, scope.lineAccountId)) {
+    return { status: 'unknown', epoch: 0 };
+  }
+  let epochs: Map<string, number>;
+  try {
+    const rows = await db.prepare(
+      `SELECT patient_key, epoch FROM pharmacy_retention_hold_epochs
+        WHERE tenant_id = ? AND line_account_id = ? AND owner_friend_id = ?
+          AND patient_key IN (?, '*')`,
+    ).bind(
+      scope.tenantId, scope.lineAccountId, scope.ownerFriendId, scope.patientId ?? '*',
+    ).all<{ patient_key: string; epoch: number }>();
+    if ((rows.results ?? []).some((row) => !Number.isInteger(row.epoch) || row.epoch < 1)) {
+      return { status: 'unknown', epoch: 0 };
+    }
+    epochs = new Map((rows.results ?? []).map((row) => [row.patient_key, row.epoch]));
+  } catch {
+    return { status: 'unknown', epoch: 0 };
+  }
   const inventory = await sourceInventory(db, scope, now);
   const nowIso = now.toISOString();
   const statements = [
-    upsertFenceStatement(db, scope, '*', inventory.owner, nowIso),
+    upsertFenceStatement(db, scope, '*', inventory.owner, epochs.get('*') ?? 0, nowIso),
   ];
   if (scope.patientId && inventory.exact) {
-    statements.unshift(upsertFenceStatement(db, scope, scope.patientId, inventory.exact, nowIso));
+    statements.unshift(upsertFenceStatement(
+      db, scope, scope.patientId, inventory.exact, epochs.get(scope.patientId) ?? 0, nowIso,
+    ));
   }
   await assertRetentionDeleteExecution(db, execution);
   try {

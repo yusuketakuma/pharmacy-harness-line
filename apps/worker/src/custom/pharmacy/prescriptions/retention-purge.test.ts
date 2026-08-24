@@ -541,6 +541,78 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
       WHERE resource_id = ?`).get(fileId)).toEqual({ status: 'CLAIMED' });
   });
 
+  test('does not commit when an authoritative DSR appears without a materialized epoch', async () => {
+    const fileId = 'file-dsr-after-claim';
+    const patientId = `patient-${fileId}`;
+    insertReleasedFile(fileId, PURGED_AT);
+    seedLegalHold(patientId, '2024-01-01T00:00:00.000Z');
+    sqlite.prepare(`DELETE FROM pharmacy_data_subject_requests WHERE patient_id = ?`).run(patientId);
+    const r2Key = `custom/pharmacy/prescriptions/tenants/tenant-a/submission-${fileId}/1/${fileId}`;
+    const fence = await prepareRetentionFence(db, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a', patientId,
+    }, NOW, EXECUTION);
+    const intent = await createDeletionIntent(db, {
+      execution: EXECUTION, tenantId: 'tenant-a', lineAccountId: 'account-a',
+      ownerFriendId: 'friend-a', patientKey: patientId,
+      resourceType: 'prescription_file', resourceId: fileId, r2Key,
+      storedSha256: 'a'.repeat(64), ageReferenceAt: PURGED_AT, rowState: 'ready',
+      rowRevision: 1, holdEpoch: fence.epoch, now: NOW.toISOString(),
+    });
+    sqlite.prepare(`INSERT INTO pharmacy_data_subject_requests
+      (id, tenant_id, line_account_id, owner_friend_id, patient_id, request_type, status,
+       reason, submitted_at, created_by, created_at, updated_at)
+      VALUES ('dsr-after-claim', 'tenant-a', 'account-a', 'friend-a', ?, 'erasure',
+       'received', 'request', ?, 'staff-a', ?, ?)`).run(
+      patientId, NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+    );
+
+    await expect(commitPrescriptionDeletionIntent(db, {
+      intent: intent!, expectedFence: fence, previousHoldEpoch: intent!.hold_epoch,
+      execution: EXECUTION, now: NOW.toISOString(),
+    })).resolves.toBe(false);
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
+      WHERE resource_id = ?`).get(fileId)).toEqual({ status: 'CLAIMED' });
+  });
+
+  test('does not overwrite a DSR hold created after source inventory was read', async () => {
+    const fileId = 'file-dsr-during-fence';
+    const patientId = `patient-${fileId}`;
+    insertReleasedFile(fileId, PURGED_AT);
+    seedLegalHold(patientId, '2024-01-01T00:00:00.000Z');
+    sqlite.prepare(`DELETE FROM pharmacy_data_subject_requests WHERE patient_id = ?`).run(patientId);
+    let injected = false;
+    const racingDb = {
+      ...db,
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        if (!injected) {
+          injected = true;
+          sqlite.prepare(`INSERT INTO pharmacy_data_subject_requests
+            (id, tenant_id, line_account_id, owner_friend_id, patient_id, request_type,
+             status, reason, submitted_at, created_by, created_at, updated_at)
+            VALUES ('dsr-during-fence', 'tenant-a', 'account-a', 'friend-a', ?,
+             'erasure', 'received', 'request', ?, 'staff-a', ?, ?)`).run(
+            patientId, NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+          );
+          sqlite.prepare(`UPDATE pharmacy_retention_hold_epochs
+            SET epoch = epoch + 1, status = 'unknown', release_at = NULL,
+                reason_code = 'dsr_unassessed', updated_at = ?
+            WHERE tenant_id = 'tenant-a' AND line_account_id = 'account-a'
+              AND owner_friend_id = 'friend-a' AND patient_key IN (?, '*')`).run(
+            NOW.toISOString(), patientId,
+          );
+        }
+        return db.batch<T>(statements);
+      },
+    } as D1Database;
+
+    await expect(prepareRetentionFence(racingDb, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a', patientId,
+    }, NOW, EXECUTION)).resolves.toMatchObject({ status: 'unknown' });
+    expect(sqlite.prepare(`SELECT DISTINCT status FROM pharmacy_retention_hold_epochs
+      WHERE owner_friend_id = 'friend-a' AND patient_key IN (?, '*')`).all(patientId))
+      .toEqual([{ status: 'unknown' }]);
+  });
+
   test('does not commit a stale prescription key or revision', async () => {
     const fileId = 'file-stale-generation';
     insertReleasedFile(fileId, PURGED_AT);
@@ -591,6 +663,43 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
 
     expect(result.purged).toBe(2);
     expect(purgeLog()).toHaveLength(2);
+  });
+
+  test('a tenant execution neither selects nor fences another tenant candidate', async () => {
+    insertReleasedFile('owned-file', PURGED_AT);
+    const at = '2018-01-01T00:00:00.000Z';
+    sqlite.prepare(`INSERT INTO line_accounts
+      (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
+      VALUES ('account-b', 'channel-b', 'b', 'token-b', 'secret-b', ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO tenants
+      (id, tenant_code, display_name, status, created_at, updated_at)
+      VALUES ('tenant-b', 'pharmacy-b', 'Tenant B', 'active', ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO tenant_line_accounts
+      (tenant_id, line_account_id, created_at, updated_at)
+      VALUES ('tenant-b', 'account-b', ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO friends
+      (id, line_user_id, line_account_id, is_following, created_at, updated_at)
+      VALUES ('friend-b', 'U-b', 'account-b', 1, ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO pharmacy_prescription_submissions
+      (id, line_account_id, friend_id, idempotency_key, status, active_revision,
+       upload_revision, created_at, updated_at)
+      VALUES ('submission-foreign', 'account-b', 'friend-b', 'key-foreign', 'closed',
+       1, 1, ?, ?)`).run(at, at);
+    sqlite.prepare(`INSERT INTO pharmacy_prescription_files
+      (id, submission_id, revision, position, r2_key, content_type, byte_size, sha256,
+       state, created_at, updated_at)
+      VALUES ('foreign-file', 'submission-foreign', 1, 1,
+       'custom/pharmacy/prescriptions/tenants/tenant-b/submission-foreign/1/foreign-file',
+       'image/jpeg', 1024, ?, 'ready', ?, ?)`).run('b'.repeat(64), at, at);
+    const images = mockImages();
+
+    await expect(purgePrescriptionFilesPastRetention(
+      db, images, purgeOptions({ now: NOW, limit: 1 }),
+    )).resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
+    expect(sqlite.prepare(`SELECT state FROM pharmacy_prescription_files
+      WHERE id = 'foreign-file'`).get()).toEqual({ state: 'ready' });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_retention_hold_epochs
+      WHERE tenant_id = 'tenant-b'`).get()).toEqual({ count: 0 });
   });
 
   test('rechecks the shared recovery fence before a subsequent object', async () => {

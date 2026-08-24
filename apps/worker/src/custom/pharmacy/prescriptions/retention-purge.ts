@@ -388,8 +388,9 @@ export async function purgePrescriptionFilesPastRetention(
                 AND pp_count.line_account_id = s.line_account_id) AS patient_mapping_count
        FROM pharmacy_prescription_files AS f
        INNER JOIN pharmacy_prescription_submissions AS s ON s.id = f.submission_id
-       LEFT JOIN tenant_line_accounts AS mapping ON mapping.line_account_id = s.line_account_id
-      WHERE f.created_at GLOB ? AND f.created_at < ?
+       INNER JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = s.line_account_id AND mapping.tenant_id = ?
+      WHERE s.line_account_id = ? AND f.created_at GLOB ? AND f.created_at < ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_retention_deletion_intents AS finalized
            WHERE finalized.resource_type = 'prescription_file'
@@ -404,7 +405,10 @@ export async function purgePrescriptionFilesPastRetention(
         )
       ORDER BY f.created_at, f.id
       LIMIT ?`,
-  ).bind(UTC_TIMESTAMP_GLOB, cutoff, execution.operationId, limit).all<PurgeCandidate>();
+  ).bind(
+    execution.tenantId, execution.lineAccountId, UTC_TIMESTAMP_GLOB, cutoff,
+    execution.operationId, limit,
+  ).all<PurgeCandidate>();
 
   const result: RetentionPurgeResult = { purged: 0, failed: 0, skipped: 0 };
   for (const candidate of due.results ?? []) {

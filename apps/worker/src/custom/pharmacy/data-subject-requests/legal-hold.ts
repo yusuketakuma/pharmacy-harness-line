@@ -6,6 +6,21 @@
 export const PHI_RETENTION_YEARS = 3;
 export const LEGAL_HOLD_BASIS = 'pharmacist_law_enforcement_regulation_3y';
 
+/** SQL callers must alias pharmacy_data_subject_requests as `request` and bind now last. */
+export const ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL = `NOT (
+  request.status = 'legal_hold_assessed'
+  AND COALESCE((
+    request.legal_hold = 0
+    OR (
+      request.legal_hold = 1
+      AND length(request.legal_hold_release_at) = 24
+      AND request.legal_hold_release_at GLOB
+        '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+      AND request.legal_hold_release_at <= ?
+    )
+  ), 0)
+)`;
+
 export type RetentionStatus = 'held' | 'released' | 'unknown';
 
 export interface RetentionAssessment {

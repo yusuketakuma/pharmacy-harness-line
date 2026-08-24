@@ -1,8 +1,10 @@
 import {
   assertRetentionDeleteExecution,
+  executionMatchesScope,
   RetentionDeleteExecution,
 } from './execution.js';
 import { prepareRetentionFence } from './fence.js';
+import { ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL } from '../data-subject-requests/legal-hold.js';
 
 type IncomingDispositionStatus =
   | 'TRACKED'
@@ -131,6 +133,7 @@ async function upsertDisposition(
   },
 ): Promise<void> {
   await assertRetentionDeleteExecution(db, input.execution);
+  if (!executionMatchesScope(input.execution, input.tenantId, input.lineAccountId)) return;
   await db.prepare(
     `INSERT INTO pharmacy_incoming_image_dispositions
       (r2_key, tenant_id, line_account_id, message_id, stored_at, status, source,
@@ -323,8 +326,24 @@ async function commitIncomingDisposition(
                     AND json_extract(message_count.content, '$.r2Key') = disposition.r2_key) = 1
              AND hold.patient_key = '*'
              AND hold.status = 'released' AND hold.epoch = disposition.hold_epoch
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_data_subject_requests AS request
+           WHERE request.tenant_id = disposition.tenant_id
+             AND request.line_account_id = disposition.line_account_id
+             AND request.owner_friend_id = (
+               SELECT MIN(message.friend_id) FROM messages_log AS message
+                WHERE message.line_account_id = disposition.line_account_id
+                  AND message.direction = 'incoming' AND json_valid(message.content)
+                  AND json_extract(message.content, '$.r2Key') = disposition.r2_key
+             )
+             AND request.request_type IN ('erasure', 'suspension')
+             AND request.status IN ('received', 'identity_verified', 'legal_hold_assessed')
+             AND ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL}
         )`,
-    ).bind(input.now, input.r2Key, input.tenantId, input.lineAccountId, input.holdEpoch),
+    ).bind(
+      input.now, input.r2Key, input.tenantId, input.lineAccountId, input.holdEpoch, input.now,
+    ),
   ]);
   return (results[0]?.meta?.changes ?? 0) === 1 &&
     (results[1]?.meta?.changes ?? 0) === 1;
