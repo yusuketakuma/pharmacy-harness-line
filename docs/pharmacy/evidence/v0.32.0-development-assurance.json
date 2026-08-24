@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-24T15:10:01Z",
+  "environment": "local-synthetic",
+  "scope": "v0.32.0-development-assurance",
+  "status": "PASS",
+  "releaseReadiness": "BLOCKED",
+  "sourceCandidate": {
+    "branch": "dev",
+    "baseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "identity": "LOCAL_COMMIT",
+    "packageVersion": "0.32.0",
+    "sellerRelease": "NOT_CREATED",
+    "exactCandidateRepositoryVerify": "NOT_RUN"
+  },
+  "liveBaseline": {
+    "dev": {
+      "sourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+      "repositoryVerifyRunId": "32723221333",
+      "repositoryVerifyStatus": "PASS"
+    },
+    "main": {
+      "sourceSha": "ae2ff229e4eafd30c6f2614e2bd9be574d618aef",
+      "repositoryVerifyRunId": "32716737333",
+      "repositoryVerifyStatus": "PASS",
+      "productionDeployRunId": "32717346762",
+      "productionDeployStatus": "PASS_BASELINE_ONLY_NOT_V032"
+    },
+    "sellerRelease": {
+      "name": "pharmacy-v0.31.1",
+      "tagSourceSha": "61f9b4c798f8572325d7f66d67a6a8aeb943e5ca",
+      "publishedAt": "2026-08-24T07:50:29Z"
+    },
+    "richMenuCatalogV5": {
+      "developmentDeployRunId": "32696403629",
+      "sourceSha": "742027f0e8cf294aaa529dec62fcb25d32018e3a",
+      "catalogObjectsUploaded": 228,
+      "catalogUploadStatus": "PASS_BASELINE_ONLY",
+      "accountActivation": "UNVERIFIED"
+    }
+  },
+  "routeInventory": {
+    "snapshotBaseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "pages": 37,
+    "apiSourceGroups": 39,
+    "uniqueMethodPathPatterns": 222,
+    "patientLiffPages": 8,
+    "patientLiffApiSourceGroups": 9,
+    "focusedTests": 10,
+    "status": "PASS"
+  },
+  "localValidation": {
+    "workspaceTestFiles": 409,
+    "workspaceTests": 3262,
+    "workerTests": 2216,
+    "webTests": 211,
+    "liffTests": 127,
+    "scriptTestFiles": 18,
+    "scriptTests": 208,
+    "migrationChecks": 89,
+    "typecheck": "PASS",
+    "workerBuild": "PASS",
+    "webBuildWithSyntheticPublicApiUrl": "PASS",
+    "liffBuild": "PASS",
+    "liffChromiumTests": 4,
+    "gitleaksNewCommitRange": "PASS_ZERO_FINDINGS",
+    "productionDependencyAuditHigh": 0,
+    "unknownOrUnlicensedLicenseGroups": 0,
+    "cycloneDx": {
+      "status": "PASS",
+      "specVersion": "1.6",
+      "components": 209
+    },
+    "sharedPackageBuild": "PASS",
+    "syntheticAssuranceArtifact": "PASS_LOCAL_UNATTESTED_548_ENTRIES",
+    "codeql": "NOT_RUN_GITHUB_ONLY",
+    "provenanceAttestation": "NOT_RUN_GITHUB_ONLY",
+    "diffCheck": "PASS"
+  },
+  "developmentResults": {
+    "emergencyContraceptionDefault": {
+      "status": "PASS",
+      "newPharmacyAccounts": "CAPABILITY_DEFAULT_ON",
+      "existingExplicitOff": "PRESERVED",
+      "operationalReadiness": "REQUIRED"
+    },
+    "adminAndPatientExperience": {
+      "status": "PASS",
+      "pharmacyNavigationGroups": 4,
+      "patientMenuGroups": 3,
+      "platformAdminDefaultProjection": "PHI_FREE",
+      "patientDraftPersistence": "MEMORY_ONLY",
+      "manualChatDisabledMode": "READ_ONLY_SERVER_GUARDED",
+      "patientErrorProjection": "SAFE_MAPPED_ONLY"
+    },
+    "recoveryOperation": {
+      "status": "PASS_SYNTHETIC",
+      "fixedScope": [
+        "tenant",
+        "lineAccount",
+        "environment"
+      ],
+      "approval": "NAMED_PRINCIPAL_SEPARATE_FROM_EXECUTOR",
+      "execution": "PREFLIGHT_DIGEST_CAS_IDEMPOTENT"
+    },
+    "fieldLevelEncryption": {
+      "expandBackfill": "PASS_SYNTHETIC",
+      "mixedRead": "PASS_SYNTHETIC",
+      "coverage": "100_PERCENT_SYNTHETIC_FIELD_INVENTORY",
+      "scrubContract": "PASS_SYNTHETIC_NO_PRODUCTION_SCRUB",
+      "rotationRewrap": "UNVERIFIED"
+    },
+    "retentionAndLegalHold": {
+      "status": "PASS_FAIL_CLOSED",
+      "sourceInventory": 33,
+      "prescriptionDeletionIntent": "PASS_SYNTHETIC",
+      "incomingImageBackfillPurgeReconcile": "PASS_SYNTHETIC",
+      "integratedReadiness": "BLOCKED",
+      "blockers": [
+        "ec_sale_counter_audit_dependency_unresolved",
+        "dsr_tombstone_dependency_unresolved"
+      ]
+    },
+    "commonGenerationRestore": {
+      "status": "PASS_SYNTHETIC",
+      "syntheticTests": 29,
+      "manifestSignature": "ED25519_PINNED",
+      "watermarkReadback": "RESTORED_D1_CANONICAL_OUTBOX_WEBHOOK",
+      "fleKeyFingerprint": "ROOT_SECRET_BOUND",
+      "failureDomains": 3,
+      "rpoHoursMaximum": 24,
+      "rtoHoursMaximum": 4,
+      "restoreTarget": "ISOLATED_IN_MEMORY",
+      "productionAdapters": 0,
+      "lineSend": "DISABLED"
+    }
+  },
+  "oracleConsultation": {
+    "status": "PASS",
+    "engine": "browser",
+    "model": "gpt-5.6-sol",
+    "thinking": "Pro",
+    "verified": true,
+    "adviceApplied": [
+      "fixed operation scope and principal-bound approval",
+      "same-executor resumability with CAS and expiry",
+      "keyed preflight digest and mutation fence",
+      "deletion intent plus object identity and hold-epoch recheck",
+      "pinned Ed25519 manifest and no-send isolated restore"
+    ]
+  },
+  "releaseBlockers": [
+    "The local commit candidate has no exact-candidate Repository Verify run.",
+    "No v0.32.0 development deploy or account activation has been performed.",
+    "FLE rotation and rewrap remain UNVERIFIED.",
+    "Retention execution remains BLOCKED by unresolved EC and DSR policy dependencies.",
+    "Production secret injection, backfill, scrub, delete, restore, deploy, LINE mutation, and real-device acceptance require separate Human Gates."
+  ],
+  "boundaries": {
+    "commit": "PASS_LOCAL_ONLY",
+    "pullRequest": "NOT_RUN",
+    "devDeploy": "NOT_RUN",
+    "accountActivation": "NOT_RUN",
+    "productionDeploy": "NOT_RUN",
+    "productionSecretInjection": "NOT_RUN",
+    "productionBackfill": "NOT_RUN",
+    "productionScrub": "NOT_RUN",
+    "productionDelete": "NOT_RUN",
+    "productionRestore": "NOT_RUN",
+    "lineMutation": "NOT_RUN",
+    "realPatientData": "NOT_USED",
+    "realDeviceAcceptance": "NOT_RUN",
+    "credentialsCaptured": false,
+    "phiOrPiiCaptured": false
+  }
+}

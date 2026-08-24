@@ -1,5 +1,42 @@
 # Changelog
 
+## Pharmacy v0.32.0 (2026-08-24)
+
+> package version `0.32.0`とseller release `pharmacy-v0.32.0`は別identityです。この項目はローカルsource candidateを記録するもので、seller release作成、deploy、secret投入、account activation、実データ操作、LINE mutationを示しません。
+
+### 利用者にとって何が変わり、どんなメリットがあるか
+
+以下は、このsource candidateがdeployされ、各アカウントの権限・設定・operational readinessを通過した環境での変更です。この`CHANGELOG`だけでは本番反映を意味しません。
+
+| 利用する人 | 変わったこと | メリット |
+| --- | --- | --- |
+| 患者 | LINE内の薬局メニューを3つの目的別に整理し、各手続きに現在の状態・次の操作・押しやすいボタン・入力途中の注意を表示 | 目的の機能を見つけやすくなり、処方せん送信や問診で「次に何をすればよいか」を判断しやすい。入力途中の情報を端末へ永続保存しないため、共用端末でも情報が残りにくい |
+| 患者（緊急避妊薬） | 新規薬局アカウントでは機能設定を既定ONに変更。ただし薬剤師・在庫・受付枠・同意などが未準備なら利用開始させない | 薬局側の準備が整った時点で案内を開始しやすく、未準備のまま患者を受付へ進ませる事故を防げる |
+| 薬局職員 | 管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」に整理し、今日の対応、準備不足、権限不足、既存案件の確認専用状態を区別 | 探す時間を減らし、対応が必要な案件と設定作業を混同しにくい。変更できない理由と次の確認先が分かる |
+| 薬局owner/admin | アカウントごとの機能、readiness、設定反映状態を分けて表示し、既存アカウントの明示OFFは維持 | 新機能を段階的に有効化でき、既存運用を意図せずONへ変えることを避けられる |
+| Platform admin・運用担当 | 薬局全体の状態を6領域で確認でき、通常表示から患者件数・内部ID・raw errorを除外。問題はreadiness理由として表示 | 患者情報を広く見せずに、どの薬局が準備不足・未検証・対応待ちかを切り分けやすい |
+| データ保護担当 | 復旧、暗号化移行、保存期限、legal hold、削除を承認・対象範囲・事前確認・再開条件つきのoperationとして管理 | 対象違い、二重実行、結果不明の削除、hold中の削除を止めやすく、復旧可能性を先に確認できる |
+
+### 管理画面と患者LIFF
+
+- 薬局管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」へ整理し、role・account capability・既存案件の`確認のみ`を区別
+- Platform Adminをfleet運用の6領域へ整理し、患者件数・内部ID・raw errorを既定表示から除外。期限付きsupport grantとPHI-free auditを維持
+- 患者LIFFを3群の機能一覧、共通visual token、状態と次操作、44px tap target、safe-area、in-memory draftへ統一
+- 新規薬局アカウントでは緊急避妊薬capabilityを既定ONにし、既存アカウントの明示OFFと薬剤師・在庫・枠・同意のoperational readinessは維持
+
+### データ保護と回復
+
+- named approver/executor、tenant/account/environment、expiry、dry-run、preflight digest、execution fenceを持つ回復operationを追加
+- 患者アンケートFLEの再開可能backfill、coverage、mixed read、write freeze、scrub/restoreのHuman Gate境界を追加。rotation/rewrap未実証のreadinessは`UNVERIFIED`を維持
+- legal hold再評価、処方せん削除intent、incoming image backfill/purge/reconcileをfail-closed化。未知sourceと緊急避妊薬tombstone未決項目は削除しない
+- D1/R2/FLE/outbox/webhookを同一fenceへ束ねたEd25519署名manifestと、production/LINE送信を持たないisolated restore rehearsal contractを追加
+
+### release境界
+
+- additive migrationは`custom_055`から`custom_058`
+- focused/local synthetic validationと実環境のbackup/restore、production scrub/delete、deploy、実LINE/実端末受入を別証拠として扱う
+- production Human Gate未実施のためproduction readinessは主張しない
+
 ## Pharmacy v0.31.1 (2026-08-24)
 
 > package version `0.31.1`とseller tag `pharmacy-v0.31.1`は別identityです。この項目はsource変更を記録し、production deploy、account activation、実アカウントのLINE mutationはそれぞれの実行証拠で確認します。
