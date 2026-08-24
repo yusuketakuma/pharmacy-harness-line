@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "capturedAt": "2026-08-24T15:10:01Z",
-  "reviewedAt": "2026-08-24T18:46:06Z",
+  "reviewedAt": "2026-08-24T18:50:56Z",
   "environment": "local-synthetic",
   "scope": "v0.32.0-development-assurance",
   "status": "PASS",
@@ -40,6 +40,27 @@
       "catalogUploadStatus": "PASS_BASELINE_ONLY",
       "accountActivation": "UNVERIFIED"
     }
+  },
+  "externalReadback": {
+    "checkedAt": "2026-08-24T18:50:56Z",
+    "remoteDevSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "devBranchProtection": {
+      "requiredContext": "verify",
+      "strict": true,
+      "enforceAdmins": true
+    },
+    "latestDevRepositoryVerify": {
+      "runId": "32723221333",
+      "sourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+      "status": "PASS_BASELINE_ONLY_NOT_V032"
+    },
+    "latestDevelopmentDeploy": {
+      "runId": "32713513836",
+      "sourceSha": "f1573dbc7f15e28eb5ea7117ae6bb654633a8543",
+      "status": "PASS_BASELINE_ONLY_NOT_V032"
+    },
+    "exactCandidateRepositoryVerify": "NOT_RUN",
+    "exactCandidateDevelopmentDeploy": "NOT_RUN"
   },
   "routeInventory": {
     "snapshotBaseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
@@ -89,6 +110,7 @@
     "scriptTests": 210,
     "meetFocusedTests": 45,
     "routeInventoryTests": 10,
+    "liffChromiumTests": 4,
     "migrationChecks": 89,
     "diffCheck": "PASS",
     "typecheck": "NOT_RERUN_AFTER_REVIEW_FIXES",

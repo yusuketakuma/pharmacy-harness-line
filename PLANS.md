@@ -838,6 +838,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - implementation完了はaffected testをgateとし、release candidateは既存`Repository Verify`、development synthetic journey、LIFF browser smoke、evidence manifestをPASSにする。production drill、deploy、secret投入、scrub、LINE/実患者操作、実端末受入は別Human Gateとし、未実施ならproduction readinessを主張しない。
   - 2026-08-25 local gate: workspace 3,262 tests、scripts 208 tests、89 migrations、3 builds、LIFF Chromium 4 testsがPASS。`docs/pharmacy/evidence/v0.32.0-development-assurance.json`へ記録し、local candidate commitを作成した。exact-candidate `Repository Verify`、development deploy/journey、account activationは`NOT_RUN`であり、本項目とrelease readinessは`BLOCKED`のまま。
   - 2026-08-25 post-review local gate: tested implementation `d8fcf4f6fd7475495226e91457f746b2f7720af4`でworkspace 3,294 tests、Worker 2,246 tests、scripts 210 tests、89 migrations、`git diff --check`がPASS。Meet登録APIの薬局allowlistとPHI-free reminder deliveryもaffected 45 testsで確認した。review修正後のtypecheck/build、exact-candidate `Repository Verify`、development deploy/journey、account activationは`NOT_RUN`であり、本項目とrelease readinessは引き続き`BLOCKED`。
+  - 2026-08-25 final read-back: post-review treeでLIFF Chromium 4 testsを再実行してPASS。GitHubのremote `dev`は`eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7`、最新`Repository Verify`成功も同SHA、最新development deploy成功は`f1573dbc7f15e28eb5ea7117ae6bb654633a8543`であり、いずれもv0.32.0 local candidateの証拠ではない。`dev`保護はrequired `verify`、strict、admin enforcement有効をread-backした。
 
 **PR順序**(Data/Recovery laneは`CB-P0-05`/`CB-P0-04`の直接分母のため先行させる。UI lane(apps/web・apps/liff)とData/Recovery lane(worker/db)は触るコードがほぼ独立のため並行可):
 
