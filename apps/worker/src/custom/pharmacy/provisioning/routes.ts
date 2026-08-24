@@ -3,6 +3,8 @@ import { Hono, type Context } from 'hono';
 import type { Env } from '../../../index.js';
 import { DEFAULT_PHARMACY_CAPABILITIES } from '../growth-loop/access.js';
 import {
+  generateTenantAdminSessionToken,
+  hashTenantAdminSessionToken,
   hashTenantPassword,
   isValidAdminPassword,
 } from './credentials.js';
@@ -65,6 +67,12 @@ type ProvisioningReceipt = {
 };
 
 type AdminBootstrapInput = ProvisioningInput['admin'];
+
+type CliBreakGlassInput = {
+  platformAdminLoginId: string;
+  reason: string;
+  ticketReference: string | null;
+};
 
 type TenantAdminBootstrap = {
   id: string;
@@ -171,6 +179,22 @@ function parseAdminBootstrapInput(value: unknown): AdminBootstrapInput | null {
       !isValidAdminPassword(input.temporaryPassword) ||
       (input.email !== null &&
         (input.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(input.email)))) {
+    return null;
+  }
+  return input;
+}
+
+function parseCliBreakGlassInput(value: unknown): CliBreakGlassInput | null {
+  const body = asRecord(value);
+  if (!body) return null;
+  const input = {
+    platformAdminLoginId: stringField(body, 'platformAdminLoginId'),
+    reason: stringField(body, 'reason'),
+    ticketReference: optionalStringField(body, 'ticketReference'),
+  };
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(input.platformAdminLoginId) ||
+      !input.reason || input.reason.length > 500 ||
+      (input.ticketReference !== null && input.ticketReference.length > 120)) {
     return null;
   }
   return input;
@@ -323,13 +347,19 @@ function responseData(
 
 export const tenantProvisioningRoutes = new Hono<Env>();
 
-async function rejectUnauthorizedPlatformRequest(c: Context<Env>): Promise<Response | null> {
+async function rejectUnauthorizedPlatformRequest(
+  c: Context<Env>,
+  requireCredentialRoot = true,
+): Promise<Response | null> {
   if (!c.env.PLATFORM_ADMIN_KEY) {
     return c.json({ success: false, error: 'Platform provisioning is not configured' }, 503);
   }
   const credentialRootSecret = c.env.LINE_CREDENTIAL_KEY_V1;
-  if (!credentialRootSecret || encoder.encode(credentialRootSecret).length < 32 ||
-      credentialRootSecret.length > 4096) {
+  if (requireCredentialRoot && (
+    !credentialRootSecret ||
+    encoder.encode(credentialRootSecret).length < 32 ||
+    credentialRootSecret.length > 4096
+  )) {
     return c.json({ success: false, error: 'LINE credential encryption is not configured' }, 503);
   }
   if (c.req.header('origin')) {
@@ -741,6 +771,178 @@ tenantProvisioningRoutes.post(
       success: true,
       data: adminBootstrapResponse(tenant, staffId, input.loginId, false),
     }, 201);
+  },
+);
+
+tenantProvisioningRoutes.post(
+  '/api/platform/pharmacy/tenants/:tenantId/cli-sessions',
+  async (c) => {
+    c.header('Cache-Control', 'no-store, private');
+    const rejected = await rejectUnauthorizedPlatformRequest(c, false);
+    if (rejected) return rejected;
+
+    const tenantId = c.req.param('tenantId');
+    const input = parseCliBreakGlassInput(await c.req.json().catch(() => null));
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(tenantId) || !input) {
+      return c.json({ success: false, error: 'Invalid CLI session request' }, 400);
+    }
+
+    const platformAdmin = await c.env.DB.prepare(
+      `SELECT credential.staff_id, staff.name
+         FROM platform_admin_credentials AS credential
+         INNER JOIN platform_admins AS admin
+                 ON admin.staff_id = credential.staff_id AND admin.is_active = 1
+         INNER JOIN staff_members AS staff
+                 ON staff.id = credential.staff_id AND staff.is_active = 1
+        WHERE credential.login_id = ? COLLATE NOCASE
+        LIMIT 1`,
+    ).bind(input.platformAdminLoginId).first<{ staff_id: string; name: string }>();
+    if (!platformAdmin) return c.json({ success: false, error: 'Platform admin not found' }, 404);
+
+    const owner = await c.env.DB.prepare(
+      `SELECT credential.staff_id, credential.credential_version
+         FROM tenant_admin_credentials AS credential
+         INNER JOIN tenants AS tenant
+                 ON tenant.id = credential.tenant_id AND tenant.status = 'active'
+         INNER JOIN staff_members AS staff
+                 ON staff.id = credential.staff_id AND staff.is_active = 1
+         INNER JOIN tenant_staff_memberships AS membership
+                 ON membership.tenant_id = credential.tenant_id
+                AND membership.staff_id = credential.staff_id
+                AND membership.role = 'owner' AND membership.is_active = 1
+        WHERE credential.tenant_id = ?
+          AND credential.must_change_password = 0
+          AND NOT EXISTS (
+            SELECT 1
+              FROM tenant_line_accounts AS mapping
+              LEFT JOIN pharmacy_staff_accounts AS assignment
+                     ON assignment.line_account_id = mapping.line_account_id
+                    AND assignment.staff_id = credential.staff_id
+                    AND assignment.is_active = 1
+             WHERE mapping.tenant_id = credential.tenant_id
+               AND assignment.staff_id IS NULL
+          )
+        ORDER BY credential.created_at
+        LIMIT 1`,
+    ).bind(tenantId).first<{ staff_id: string; credential_version: number }>();
+    if (!owner) return c.json({ success: false, error: 'Active tenant owner not found' }, 404);
+
+    const sessionToken = generateTenantAdminSessionToken();
+    const tokenHash = await hashTenantAdminSessionToken(sessionToken);
+    const csrfToken = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const issuedAt = new Date();
+    const expiresAt = new Date(issuedAt.getTime() + 120 * 60_000).toISOString();
+    const now = issuedAt.toISOString();
+    try {
+      const results = await c.env.DB.batch([
+        c.env.DB.prepare(
+          `INSERT INTO tenant_admin_sessions
+            (token_hash, tenant_id, staff_id, credential_version, session_kind,
+             expires_at, revoked_at, created_at)
+           VALUES (?, ?, ?, ?, 'standard', ?, NULL, ?)`,
+        ).bind(tokenHash, tenantId, owner.staff_id, owner.credential_version, expiresAt, now),
+        c.env.DB.prepare(
+          `INSERT INTO pharmacy_cli_break_glass_sessions
+            (id, token_hash, platform_admin_id, tenant_id, staff_id, operation_scope,
+             reason, ticket_reference, issued_at, expires_at, revoked_at, revoked_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        ).bind(
+          sessionId, tokenHash, platformAdmin.staff_id, tenantId, owner.staff_id,
+          'all', input.reason, input.ticketReference, now, expiresAt,
+        ),
+        platformAdminAccessStatement(
+          c.env.DB,
+          platformAdmin.staff_id,
+          tenantId,
+          'cli_break_glass_started',
+          'cli_session',
+          sessionId,
+          {
+            authentication: 'platform_admin_key',
+            operationScope: 'all',
+            reason: input.reason,
+            ticketReference: input.ticketReference,
+            expiresAt,
+          },
+        ),
+      ]);
+      if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+        return c.json({ success: false, error: 'CLI session creation conflicted' }, 409);
+      }
+    } catch {
+      return c.json({ success: false, error: 'CLI session creation failed' }, 409);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        sessionId,
+        sessionToken,
+        csrfToken,
+        tenantId,
+        expiresAt,
+        operationScope: 'all',
+      },
+    }, 201);
+  },
+);
+
+tenantProvisioningRoutes.post(
+  '/api/platform/pharmacy/tenants/:tenantId/cli-sessions/:sessionId/revoke',
+  async (c) => {
+    c.header('Cache-Control', 'no-store, private');
+    const rejected = await rejectUnauthorizedPlatformRequest(c, false);
+    if (rejected) return rejected;
+
+    const tenantId = c.req.param('tenantId');
+    const sessionId = c.req.param('sessionId');
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(tenantId) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(sessionId)) {
+      return c.json({ success: false, error: 'Invalid CLI session' }, 400);
+    }
+
+    const session = await c.env.DB.prepare(
+      `SELECT cli.token_hash, cli.platform_admin_id
+         FROM pharmacy_cli_break_glass_sessions AS cli
+         INNER JOIN platform_admins AS admin
+                 ON admin.staff_id = cli.platform_admin_id AND admin.is_active = 1
+        WHERE cli.id = ? AND cli.tenant_id = ? AND cli.revoked_at IS NULL
+        LIMIT 1`,
+    ).bind(sessionId, tenantId).first<{
+      token_hash: string;
+      platform_admin_id: string;
+    }>();
+    if (!session) return c.json({ success: false, error: 'Active CLI session not found' }, 404);
+
+    const now = new Date().toISOString();
+    try {
+      const results = await c.env.DB.batch([
+        c.env.DB.prepare(
+          `UPDATE tenant_admin_sessions SET revoked_at = ?
+            WHERE token_hash = ? AND revoked_at IS NULL`,
+        ).bind(now, session.token_hash),
+        c.env.DB.prepare(
+          `UPDATE pharmacy_cli_break_glass_sessions
+              SET revoked_at = ?, revoked_by = ?
+            WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL`,
+        ).bind(now, session.platform_admin_id, sessionId, tenantId),
+        platformAdminAccessStatement(
+          c.env.DB,
+          session.platform_admin_id,
+          tenantId,
+          'cli_break_glass_ended',
+          'cli_session',
+          sessionId,
+        ),
+      ]);
+      if (results[1].meta.changes !== 1) {
+        return c.json({ success: false, error: 'CLI session revocation conflicted' }, 409);
+      }
+    } catch {
+      return c.json({ success: false, error: 'CLI session revocation failed' }, 409);
+    }
+    return c.json({ success: true, data: { sessionId, revokedAt: now } });
   },
 );
 
