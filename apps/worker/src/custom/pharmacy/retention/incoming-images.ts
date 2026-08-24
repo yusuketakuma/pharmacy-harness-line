@@ -5,6 +5,10 @@ import {
 } from './execution.js';
 import { prepareRetentionFence } from './fence.js';
 import { ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL } from '../data-subject-requests/legal-hold.js';
+import {
+  isR2RetentionTombstone,
+  putR2RetentionTombstone,
+} from '../../../services/immutable-r2.js';
 
 type IncomingDispositionStatus =
   | 'TRACKED'
@@ -49,6 +53,7 @@ export interface IncomingImageReadiness {
 const SAFE_IMAGE_KEY = /^[A-Za-z0-9_-]+\.(?:jpg|png|gif|webp)$/u;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_BATCH = 100;
+const MAX_INVENTORY_OBJECTS = 10_000;
 
 async function readR2Sha256(images: R2Bucket, key: string): Promise<string | null> {
   try {
@@ -194,9 +199,16 @@ export async function backfillIncomingImageTracking(
        FROM messages_log
       WHERE line_account_id = ? AND direction = 'incoming' AND message_type = 'image'
         AND json_valid(content)
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_incoming_image_dispositions AS disposition
+           WHERE disposition.r2_key = json_extract(messages_log.content, '$.r2Key')
+             AND disposition.tenant_id = ? AND disposition.line_account_id = ?
+        )
       ORDER BY id
       LIMIT ?`,
-  ).bind(execution.lineAccountId, limit).all<{
+  ).bind(
+    execution.lineAccountId, execution.tenantId, execution.lineAccountId, limit,
+  ).all<{
     id: string;
     line_account_id: string;
     content: string;
@@ -294,19 +306,9 @@ async function commitIncomingDisposition(
   },
 ): Promise<boolean> {
   await assertRetentionDeleteExecution(db, input.execution);
-  const results = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_incoming_image_dispositions
-          SET hold_epoch = ?, stored_sha256 = ?, updated_at = ?
-        WHERE r2_key = ? AND tenant_id = ? AND line_account_id = ?
-          AND status = 'CLAIMED' AND hold_epoch = ?`,
-    ).bind(
-      input.holdEpoch, input.storedSha256, input.now, input.r2Key, input.tenantId,
-      input.lineAccountId, input.previousHoldEpoch,
-    ),
-    db.prepare(
+  const result = await db.prepare(
       `UPDATE pharmacy_incoming_image_dispositions AS disposition
-          SET status = 'DELETE_COMMITTED', updated_at = ?
+          SET hold_epoch = ?, stored_sha256 = ?, status = 'DELETE_COMMITTED', updated_at = ?
         WHERE r2_key = ? AND tenant_id = ? AND line_account_id = ?
           AND status = 'CLAIMED' AND hold_epoch = ?
           AND EXISTS (
@@ -325,7 +327,7 @@ async function commitIncomingDisposition(
                     AND json_valid(message_count.content)
                     AND json_extract(message_count.content, '$.r2Key') = disposition.r2_key) = 1
              AND hold.patient_key = '*'
-             AND hold.status = 'released' AND hold.epoch = disposition.hold_epoch
+             AND hold.status = 'released' AND hold.epoch = ?
         )
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_data_subject_requests AS request
@@ -342,11 +344,11 @@ async function commitIncomingDisposition(
              AND ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL}
         )`,
     ).bind(
-      input.now, input.r2Key, input.tenantId, input.lineAccountId, input.holdEpoch, input.now,
-    ),
-  ]);
-  return (results[0]?.meta?.changes ?? 0) === 1 &&
-    (results[1]?.meta?.changes ?? 0) === 1;
+      input.holdEpoch, input.storedSha256, input.now, input.r2Key,
+      input.tenantId, input.lineAccountId, input.previousHoldEpoch,
+      input.holdEpoch, input.now,
+    ).run();
+  return (result.meta?.changes ?? 0) === 1;
 }
 
 async function setIncomingStatus(
@@ -364,8 +366,11 @@ async function setIncomingStatus(
   const result = await db.prepare(
     `UPDATE pharmacy_incoming_image_dispositions
         SET status = ?, reason_code = ?, updated_at = ?
-      WHERE r2_key = ? AND status = ?`,
-  ).bind(input.status, input.reason, input.now, input.r2Key, input.from ?? 'CLAIMED').run();
+      WHERE r2_key = ? AND tenant_id = ? AND line_account_id = ? AND status = ?`,
+  ).bind(
+    input.status, input.reason, input.now, input.r2Key,
+    input.execution.tenantId, input.execution.lineAccountId, input.from ?? 'CLAIMED',
+  ).run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
@@ -390,11 +395,14 @@ export async function purgeTrackedIncomingImages(
        LEFT JOIN pharmacy_incoming_image_dispositions AS disposition
               ON disposition.r2_key = object.r2_key
       WHERE object.tenant_id = ? AND object.line_account_id = ?
+        AND object.stored_at < ?
         AND (disposition.status IS NULL OR disposition.status IN
           ('TRACKED', 'CANCELLED_HELD', 'CANCELLED_UNKNOWN', 'CANCELLED_STALE'))
-      ORDER BY object.stored_at, object.r2_key
+      ORDER BY CASE WHEN disposition.status IS NULL OR disposition.status = 'TRACKED'
+                    THEN 0 ELSE 1 END,
+               object.stored_at, object.r2_key
       LIMIT ?`,
-  ).bind(execution.tenantId, execution.lineAccountId, limit).all<{
+  ).bind(execution.tenantId, execution.lineAccountId, cutoff.toISOString(), limit).all<{
     r2_key: string;
     tenant_id: string;
     line_account_id: string;
@@ -475,7 +483,7 @@ export async function purgeTrackedIncomingImages(
       result.failed++;
       continue;
     }
-    if (!head) {
+    if (!head || isR2RetentionTombstone(head)) {
       await setIncomingStatus(db, {
         r2Key: row.r2_key, status: 'MISSING', reason: 'r2_object_missing', now: nowIso,
         execution,
@@ -535,11 +543,18 @@ export async function purgeTrackedIncomingImages(
     }
     try {
       await assertRetentionDeleteExecution(db, execution);
-      await images.delete(row.r2_key);
+      if (!head.etag || !await putR2RetentionTombstone(images, row.r2_key, head.etag)) {
+        await setIncomingStatus(db, {
+          r2Key: row.r2_key, status: 'OUTCOME_UNKNOWN', reason: 'r2_identity_changed', now: nowIso,
+          from: 'DELETE_COMMITTED', execution,
+        });
+        result.failed++;
+        continue;
+      }
     } catch {
       await setIncomingStatus(db, {
-        r2Key: row.r2_key, status: 'OUTCOME_UNKNOWN', reason: 'r2_delete_outcome_unknown', now: nowIso,
-        execution,
+        r2Key: row.r2_key, status: 'OUTCOME_UNKNOWN', reason: 'r2_disposition_outcome_unknown',
+        now: nowIso, from: 'DELETE_COMMITTED', execution,
       });
       result.failed++;
       continue;
@@ -562,6 +577,56 @@ export async function purgeTrackedIncomingImages(
 
 export const purgeIncomingImages = purgeTrackedIncomingImages;
 
+/** Resolve durable external outcomes without retrying a present object blindly. */
+export async function reconcileIncomingImageDeletionOutcomes(
+  db: D1Database,
+  images: R2Bucket,
+  options: IncomingOptions = {},
+): Promise<IncomingImagePurgeResult> {
+  const execution = await verifiedExecution(db, options.execution);
+  if (!execution) return { purged: 0, failed: 0, skipped: 0 };
+  const now = options.now ?? new Date();
+  if (!Number.isFinite(now.getTime())) return { purged: 0, failed: 0, skipped: 0 };
+  const nowIso = now.toISOString();
+  const limit = Math.min(MAX_BATCH, Math.max(1, Math.floor(options.limit ?? MAX_BATCH)));
+  const rows = await db.prepare(
+    `SELECT r2_key, status FROM pharmacy_incoming_image_dispositions
+      WHERE tenant_id = ? AND line_account_id = ?
+        AND status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
+      ORDER BY updated_at, r2_key LIMIT ?`,
+  ).bind(execution.tenantId, execution.lineAccountId, limit).all<{
+    r2_key: string;
+    status: 'DELETE_COMMITTED' | 'OUTCOME_UNKNOWN';
+  }>();
+  const result: IncomingImagePurgeResult = { purged: 0, failed: 0, skipped: 0 };
+  for (const row of rows.results ?? []) {
+    try {
+      await assertRetentionDeleteExecution(db, execution);
+      const object = await images.head(row.r2_key);
+      if (!object || isR2RetentionTombstone(object)) {
+        if (await setIncomingStatus(db, {
+          r2Key: row.r2_key, status: 'FINALIZED_DELETED', reason: 'r2_disposition_confirmed',
+          now: nowIso, from: row.status, execution,
+        })) result.purged++;
+        else result.failed++;
+        continue;
+      }
+      await setIncomingStatus(db, {
+        r2Key: row.r2_key, status: 'OUTCOME_UNKNOWN', reason: 'r2_object_present',
+        now: nowIso, from: row.status, execution,
+      });
+      result.skipped++;
+    } catch {
+      await setIncomingStatus(db, {
+        r2Key: row.r2_key, status: 'OUTCOME_UNKNOWN', reason: 'r2_inspection_unknown',
+        now: nowIso, from: row.status, execution,
+      }).catch(() => false);
+      result.failed++;
+    }
+  }
+  return result;
+}
+
 /** Inventory reconciliation marks, but never deletes, unowned R2 objects. */
 export async function reconcileIncomingImageInventory(
   db: D1Database,
@@ -575,15 +640,27 @@ export async function reconcileIncomingImageInventory(
   const nowIso = now.toISOString();
   const limit = Math.min(MAX_BATCH, Math.max(1, Math.floor(options.limit ?? MAX_BATCH)));
   const prefix = `tenants/${safeTenantPart(execution.tenantId)}/accounts/${safeAccountPart(execution.lineAccountId)}/incoming/`;
-  let listed: R2Objects;
+  const listedObjects: R2Object[] = [];
+  let cursor: string | undefined;
   try {
-    listed = await images.list({ prefix, limit });
+    while (true) {
+      const listed = await images.list({ prefix, limit, ...(cursor ? { cursor } : {}) });
+      listedObjects.push(...(listed.objects ?? []));
+      if (listedObjects.length > MAX_INVENTORY_OBJECTS) {
+        return { orphan: 0, missing: 0, mismatch: 0, unknown: 1 };
+      }
+      if (!listed.truncated) break;
+      if (!listed.cursor || listed.cursor === cursor) {
+        return { orphan: 0, missing: 0, mismatch: 0, unknown: 1 };
+      }
+      cursor = listed.cursor;
+    }
   } catch {
     return { orphan: 0, missing: 0, mismatch: 0, unknown: 1 };
   }
   const result = { orphan: 0, missing: 0, mismatch: 0, unknown: 0 };
   const listedKeys = new Set<string>();
-  for (const object of listed.objects ?? []) {
+  for (const object of listedObjects) {
     listedKeys.add(object.key);
     if (!validR2Key(object.key, execution.tenantId, execution.lineAccountId)) {
       result.unknown++;
@@ -627,15 +704,29 @@ export async function reconcileIncomingImageInventory(
     }
   }
 
-  const tracked = await db.prepare(
-    `SELECT r2_key, tenant_id, line_account_id, message_id, stored_at
-       FROM pharmacy_incoming_image_objects
-      WHERE tenant_id = ? AND line_account_id = ?
-      ORDER BY r2_key LIMIT ?`,
-  ).bind(execution.tenantId, execution.lineAccountId, limit).all<{
+  const trackedRows: Array<{
     r2_key: string; tenant_id: string; line_account_id: string; message_id: string; stored_at: string;
-  }>();
-  for (const row of tracked.results ?? []) {
+  }> = [];
+  let afterKey = '';
+  while (true) {
+    const page = await db.prepare(
+      `SELECT r2_key, tenant_id, line_account_id, message_id, stored_at
+         FROM pharmacy_incoming_image_objects
+        WHERE tenant_id = ? AND line_account_id = ? AND r2_key > ?
+        ORDER BY r2_key LIMIT ?`,
+    ).bind(execution.tenantId, execution.lineAccountId, afterKey, limit).all<{
+      r2_key: string; tenant_id: string; line_account_id: string; message_id: string; stored_at: string;
+    }>();
+    const rows = page.results ?? [];
+    trackedRows.push(...rows);
+    if (trackedRows.length > MAX_INVENTORY_OBJECTS) {
+      result.unknown++;
+      return result;
+    }
+    if (rows.length < limit) break;
+    afterKey = rows.at(-1)!.r2_key;
+  }
+  for (const row of trackedRows) {
     if (listedKeys.has(row.r2_key)) continue;
     if (!validStoredAt(row.stored_at)) {
       await upsertDisposition(db, {

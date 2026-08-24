@@ -18,6 +18,11 @@ import {
   RetentionFence,
 } from '../retention/deletion-intents.js';
 import { prepareRetentionFence } from '../retention/fence.js';
+import {
+  isR2RetentionTombstone,
+  putR2RetentionTombstone,
+  r2ChecksumHex,
+} from '../../../services/immutable-r2.js';
 
 export interface PrescriptionRetentionPurgeOptions {
   /** Required for a mutating run; omitted scheduler calls are fail-closed no-ops. */
@@ -55,36 +60,19 @@ function intentMatchesExecution(
     intent.line_account_id === execution.lineAccountId;
 }
 
-type R2HeadWithChecksum = R2Object & {
-  checksums?: { sha256?: unknown };
-};
-
-function checksumHex(value: unknown): string | null {
-  if (typeof value === 'string') {
-    return /^[0-9a-f]{64}$/iu.test(value) ? value.toLowerCase() : null;
-  }
-  if (value instanceof ArrayBuffer) {
-    return Array.from(new Uint8Array(value), (part) => part.toString(16).padStart(2, '0')).join('');
-  }
-  if (ArrayBuffer.isView(value)) {
-    return Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
-      (part) => part.toString(16).padStart(2, '0')).join('');
-  }
-  return null;
-}
-
 async function verifyR2Identity(
   images: R2Bucket,
   intent: DeletionIntent,
-): Promise<boolean> {
-  let head: R2HeadWithChecksum | null;
+): Promise<R2Object | null> {
+  let head: R2Object | null;
   try {
-    head = await images.head(intent.r2_key) as R2HeadWithChecksum | null;
+    head = await images.head(intent.r2_key);
   } catch {
-    return false;
+    return null;
   }
-  if (!head) return false;
-  return checksumHex(head.checksums?.sha256) === intent.stored_sha256.toLowerCase();
+  if (!head || !head.etag || isR2RetentionTombstone(head)) return null;
+  return r2ChecksumHex(head.checksums?.sha256) === intent.stored_sha256.toLowerCase()
+    ? head : null;
 }
 
 export interface RetentionPurgeResult {
@@ -193,9 +181,14 @@ async function finalizePrescriptionDeletion(
       db.prepare(
         `UPDATE pharmacy_prescription_files
             SET state = 'deleted', updated_at = ?
-          WHERE id = ? AND r2_key = ? AND sha256 = ? AND revision = ? AND state = ?`,
+          WHERE id = ? AND r2_key = ? AND sha256 = ? AND revision = ? AND state = ?
+            AND EXISTS (
+              SELECT 1 FROM pharmacy_retention_deletion_intents AS intent
+               WHERE intent.id = ?
+                 AND intent.status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
+            )`,
       ).bind(now, intent.resource_id, intent.r2_key, intent.stored_sha256,
-        intent.row_revision, intent.row_state),
+        intent.row_revision, intent.row_state, intent.id),
       db.prepare(
         `INSERT OR IGNORE INTO pharmacy_phi_retention_purge_log
            (id, tenant_id, line_account_id, resource_type, resource_id, r2_key,
@@ -204,11 +197,17 @@ async function finalizePrescriptionDeletion(
            FROM pharmacy_prescription_files AS file
           WHERE file.id = ? AND file.r2_key = ? AND file.sha256 = ?
             AND file.revision = ? AND file.state = 'deleted'
-            AND file.updated_at = ?`,
+            AND file.updated_at = ?
+            AND EXISTS (
+              SELECT 1 FROM pharmacy_retention_deletion_intents AS intent
+               WHERE intent.id = ?
+                 AND intent.status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
+            )`,
       ).bind(
         crypto.randomUUID(), intent.tenant_id, intent.line_account_id, intent.resource_id,
         intent.r2_key, intent.age_reference_at, retentionYears, now,
         intent.resource_id, intent.r2_key, intent.stored_sha256, intent.row_revision, now,
+        intent.id,
       ),
       db.prepare(
         `UPDATE pharmacy_retention_deletion_intents
@@ -318,7 +317,8 @@ async function purgeCandidate(
   } catch {
     return 'failed';
   }
-  if (!await verifyR2Identity(images, intent)) {
+  const selectedObject = await verifyR2Identity(images, intent);
+  if (!selectedObject) {
     await markDeletionOutcomeUnknown(db, {
       id: intent.id,
       reasonCode: 'r2_object_identity_unknown',
@@ -329,25 +329,19 @@ async function purgeCandidate(
   }
   try {
     await assertRetentionDeleteExecution(db, execution);
-  } catch {
-    return 'failed';
-  }
-  if (!await verifyR2Identity(images, intent)) {
-    await markDeletionOutcomeUnknown(db, {
-      id: intent.id,
-      reasonCode: 'r2_object_identity_changed',
-      now,
-      execution,
-    });
-    return 'failed';
-  }
-  try {
-    // R2 has no conditional generation delete here; DB CAS plus checksum head is the available fence.
-    await images.delete(intent.r2_key);
+    if (!await putR2RetentionTombstone(images, intent.r2_key, selectedObject.etag)) {
+      await markDeletionOutcomeUnknown(db, {
+        id: intent.id,
+        reasonCode: 'r2_object_identity_changed',
+        now,
+        execution,
+      });
+      return 'failed';
+    }
   } catch {
     await markDeletionOutcomeUnknown(db, {
       id: intent.id,
-      reasonCode: 'r2_delete_outcome_unknown',
+      reasonCode: 'r2_disposition_outcome_unknown',
       now,
       execution,
     });
@@ -458,12 +452,19 @@ export async function reconcilePrescriptionDeletionIntents(
             tenant_id, line_account_id, owner_friend_id, patient_key, resource_type,
             resource_id, r2_key, stored_sha256, age_reference_at, row_state, row_revision, hold_epoch,
             status, last_error_code, created_at, updated_at
-       FROM pharmacy_retention_deletion_intents
+      FROM pharmacy_retention_deletion_intents
       WHERE resource_type = 'prescription_file'
         AND status IN ('DELETE_COMMITTED', 'OUTCOME_UNKNOWN')
+        AND tenant_id = ? AND line_account_id = ? AND operation_id = ?
+        AND execution_id = ? AND fence_token = ? AND executor_subject = ?
+        AND environment = ?
       ORDER BY updated_at, id
       LIMIT ?`,
-  ).bind(limit).all<DeletionIntent>();
+  ).bind(
+    execution.tenantId, execution.lineAccountId, execution.operationId,
+    execution.executionId, execution.fenceToken, execution.executorSubject,
+    execution.environment, limit,
+  ).all<DeletionIntent>();
 
   const result: RetentionPurgeResult = { purged: 0, failed: 0, skipped: 0 };
   for (const intent of rows.results ?? []) {
@@ -491,7 +492,7 @@ export async function reconcilePrescriptionDeletionIntents(
       result.failed++;
       continue;
     }
-    if (!head) {
+    if (!head || isR2RetentionTombstone(head)) {
       if (await finalizePrescriptionDeletion(db, intent, execution, nowIso, RETENTION_YEARS)) result.purged++;
       else result.failed++;
       continue;

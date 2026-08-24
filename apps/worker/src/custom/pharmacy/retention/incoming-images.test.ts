@@ -8,6 +8,7 @@ import {
   backfillIncomingImageTracking,
   incomingImageRetentionReadiness,
   purgeTrackedIncomingImages,
+  reconcileIncomingImageDeletionOutcomes,
   reconcileIncomingImageInventory,
 } from './incoming-images.js';
 
@@ -163,37 +164,54 @@ describe('incoming image retention ledger', () => {
     expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
       WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'TRACKED' });
     const images = {
-      head: vi.fn().mockResolvedValue({ key: KEY }),
+      head: vi.fn().mockResolvedValue({ key: KEY, etag: 'selected-etag' }),
       get: vi.fn().mockResolvedValue({
         arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
       }),
+      put: vi.fn().mockResolvedValue({ key: KEY, etag: 'tombstone-etag' }),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as R2Bucket;
     await expect(purgeTrackedIncomingImages(db, images, { execution: EXECUTION, now: NOW }))
       .resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
   });
 
+  test('backfill limit is consumed by the next unprocessed image, not an existing disposition', async () => {
+    seedMessage(KEY, '2023-01-01T00:00:00.000Z', 'a-log');
+    await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW, limit: 1 });
+    const nextKey = 'tenants/tenant-a/accounts/account-a/incoming/next.jpg';
+    seedMessage(nextKey, '2023-01-02T00:00:00.000Z', 'b-log');
+
+    await expect(backfillIncomingImageTracking(db, {
+      execution: EXECUTION, now: NOW, limit: 1,
+    })).resolves.toEqual({ tracked: 1, skipped: 0, blocked: 0 });
+    expect(sqlite.prepare(`SELECT r2_key FROM pharmacy_incoming_image_objects
+      WHERE r2_key = ?`).get(nextKey)).toEqual({ r2_key: nextKey });
+  });
+
   test('purges a tracked image once and ignores its terminal disposition later', async () => {
     seedMessage();
     await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
     const images = {
-      head: vi.fn().mockResolvedValue({ key: KEY }),
+      head: vi.fn().mockResolvedValue({ key: KEY, etag: 'selected-etag' }),
       get: vi.fn().mockResolvedValue({
         arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
       }),
+      put: vi.fn().mockResolvedValue({ key: KEY, etag: 'tombstone-etag' }),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as R2Bucket;
 
     await expect(purgeTrackedIncomingImages(db, images, { execution: EXECUTION, now: NOW }))
       .resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledWith(KEY);
+    expect(images.put).toHaveBeenCalledWith(
+      KEY, null, expect.objectContaining({ onlyIf: { etagMatches: 'selected-etag' } }),
+    );
     expect(sqlite.prepare(
       `SELECT status FROM pharmacy_incoming_image_dispositions WHERE r2_key = ?`,
     ).get(KEY)).toEqual({ status: 'FINALIZED_DELETED' });
 
     const second = await purgeTrackedIncomingImages(db, images, { execution: EXECUTION, now: NOW });
     expect(second).toEqual({ purged: 0, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledTimes(1);
   });
 
   test('does not delete when the R2 object changes after selection', async () => {
@@ -212,6 +230,60 @@ describe('incoming image retention ledger', () => {
     expect(images.delete).not.toHaveBeenCalled();
     expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
       WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'OUTCOME_UNKNOWN' });
+  });
+
+  test('does not erase an incoming replacement that wins the conditional disposition', async () => {
+    seedMessage();
+    await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
+    const body = { arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer };
+    const images = {
+      head: vi.fn().mockResolvedValue({ key: KEY, etag: 'selected-etag' }),
+      get: vi.fn().mockResolvedValue({ ...body, etag: 'selected-etag' }),
+      put: vi.fn().mockResolvedValue(null),
+      delete: vi.fn(),
+    } as unknown as R2Bucket;
+
+    await expect(purgeTrackedIncomingImages(db, images, {
+      execution: EXECUTION, now: NOW,
+    })).resolves.toEqual({ purged: 0, failed: 1, skipped: 0 });
+    expect(images.put).toHaveBeenCalledWith(
+      KEY,
+      null,
+      expect.objectContaining({ onlyIf: { etagMatches: 'selected-etag' } }),
+    );
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
+      WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'OUTCOME_UNKNOWN' });
+  });
+
+  test('reconciles an incoming tombstone exactly once after an unknown outcome', async () => {
+    seedMessage();
+    await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
+    const images = {
+      head: vi.fn().mockResolvedValue({ key: KEY, etag: 'selected-etag' }),
+      get: vi.fn().mockResolvedValue({
+        arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
+      }),
+      put: vi.fn().mockRejectedValue(new Error('outcome unknown')),
+    } as unknown as R2Bucket;
+    await expect(purgeTrackedIncomingImages(db, images, {
+      execution: EXECUTION, now: NOW,
+    })).resolves.toEqual({ purged: 0, failed: 1, skipped: 0 });
+
+    const tombstone = {
+      head: vi.fn().mockResolvedValue({
+        key: KEY,
+        customMetadata: { retentionDisposition: 'pharmacy-retention-v1' },
+      }),
+    } as unknown as R2Bucket;
+    await expect(reconcileIncomingImageDeletionOutcomes(db, tombstone, {
+      execution: EXECUTION, now: NOW,
+    })).resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
+    await expect(reconcileIncomingImageDeletionOutcomes(db, tombstone, {
+      execution: EXECUTION, now: NOW,
+    })).resolves.toEqual({ purged: 0, failed: 0, skipped: 0 });
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
+      WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'FINALIZED_DELETED' });
   });
 
   test('rechecks legal hold after R2 selection and before delete commit', async () => {
@@ -268,7 +340,8 @@ describe('incoming image retention ledger', () => {
       ...db,
       batch: async <T>(statements: D1PreparedStatement[]) => {
         batches++;
-        if (batches === 3) {
+        const results = await db.batch<T>(statements);
+        if (batches === 2) {
           sqlite.prepare(`INSERT INTO pharmacy_data_subject_requests
             (id, tenant_id, line_account_id, owner_friend_id, patient_id, request_type,
              status, reason, submitted_at, created_by, created_at, updated_at)
@@ -277,7 +350,7 @@ describe('incoming image retention ledger', () => {
             NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
           );
         }
-        return db.batch<T>(statements);
+        return results;
       },
     } as D1Database;
     const images = {
@@ -292,8 +365,10 @@ describe('incoming image retention ledger', () => {
       execution: EXECUTION, now: NOW,
     })).resolves.toEqual({ purged: 0, failed: 0, skipped: 1 });
     expect(images.delete).not.toHaveBeenCalled();
-    expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
-      WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'CANCELLED_UNKNOWN' });
+    expect(sqlite.prepare(`SELECT status, stored_sha256 FROM pharmacy_incoming_image_dispositions
+      WHERE r2_key = ?`).get(KEY)).toEqual({
+      status: 'CANCELLED_UNKNOWN', stored_sha256: null,
+    });
   });
 
   test('reconsiders a cancelled image after the unknown hold is resolved', async () => {
@@ -315,10 +390,11 @@ describe('incoming image retention ledger', () => {
       NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
     );
     const images = {
-      head: vi.fn().mockResolvedValue({ key: KEY }),
+      head: vi.fn().mockResolvedValue({ key: KEY, etag: 'selected-etag' }),
       get: vi.fn().mockResolvedValue({
         arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
       }),
+      put: vi.fn().mockResolvedValue({ key: KEY, etag: 'tombstone-etag' }),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as R2Bucket;
 
@@ -330,7 +406,7 @@ describe('incoming image retention ledger', () => {
       WHERE id = 'dsr-a'`).run(NOW.toISOString());
     await expect(purgeTrackedIncomingImages(db, images, { execution: EXECUTION, now: NOW }))
       .resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledOnce();
+    expect(images.put).toHaveBeenCalledOnce();
   });
 
   test('keeps a valid image tracked until it reaches the retention boundary', async () => {
@@ -339,7 +415,7 @@ describe('incoming image retention ledger', () => {
     const images = { head: vi.fn(), delete: vi.fn() } as unknown as R2Bucket;
 
     await expect(purgeTrackedIncomingImages(db, images, { execution: EXECUTION, now: NOW }))
-      .resolves.toEqual({ purged: 0, failed: 0, skipped: 1 });
+      .resolves.toEqual({ purged: 0, failed: 0, skipped: 0 });
     expect(images.head).not.toHaveBeenCalled();
     expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
       WHERE r2_key = ?`).get(KEY)).toEqual({ status: 'TRACKED' });
@@ -361,17 +437,44 @@ describe('incoming image retention ledger', () => {
     seedMessage();
     await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
     const images = {
-      head: vi.fn().mockResolvedValue({ key: KEY }),
+      head: vi.fn().mockResolvedValue({ key: KEY, etag: 'selected-etag' }),
       get: vi.fn().mockResolvedValue({
         arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
       }),
+      put: vi.fn().mockResolvedValue({ key: KEY, etag: 'tombstone-etag' }),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as R2Bucket;
 
     await expect(purgeTrackedIncomingImages(
       db, images, { execution: EXECUTION, now: NOW, limit: 1 },
     )).resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledWith(KEY);
+    expect(images.put).toHaveBeenCalledWith(
+      KEY, null, expect.objectContaining({ onlyIf: { etagMatches: 'selected-etag' } }),
+    );
+  });
+
+  test('processes a fresh tracked image before retrying a cancelled disposition', async () => {
+    const cancelledKey = 'tenants/tenant-a/accounts/account-a/incoming/a-cancelled.jpg';
+    const freshKey = 'tenants/tenant-a/accounts/account-a/incoming/z-fresh.jpg';
+    seedMessage(cancelledKey, '2020-01-01T00:00:00.000Z', 'a-cancelled');
+    seedMessage(freshKey, '2020-01-02T00:00:00.000Z', 'z-fresh');
+    await backfillIncomingImageTracking(db, { execution: EXECUTION, now: NOW });
+    sqlite.prepare(`UPDATE pharmacy_incoming_image_dispositions
+      SET status = 'CANCELLED_UNKNOWN' WHERE r2_key = ?`).run(cancelledKey);
+    const images = {
+      head: vi.fn().mockImplementation(async (key: string) => ({ key, etag: `${key}-etag` })),
+      get: vi.fn().mockResolvedValue({
+        arrayBuffer: async () => new TextEncoder().encode('stored-image').buffer,
+      }),
+      put: vi.fn().mockImplementation(async (key: string) => ({ key, etag: 'tombstone-etag' })),
+    } as unknown as R2Bucket;
+
+    await expect(purgeTrackedIncomingImages(db, images, {
+      execution: EXECUTION, now: NOW, limit: 1,
+    })).resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
+    expect(images.put).toHaveBeenCalledWith(
+      freshKey, null, expect.objectContaining({ onlyIf: { etagMatches: `${freshKey}-etag` } }),
+    );
   });
 
   test('marks missing objects without attempting deletion', async () => {
@@ -424,6 +527,46 @@ describe('incoming image retention ledger', () => {
     expect(sqlite.prepare(
       `SELECT status FROM pharmacy_incoming_image_dispositions WHERE r2_key = ?`,
     ).get(orphan)).toEqual({ status: 'ORPHAN' });
+  });
+
+  test('inventory reconciliation follows every R2 list page', async () => {
+    const first = 'tenants/tenant-a/accounts/account-a/incoming/page-a.jpg';
+    const second = 'tenants/tenant-a/accounts/account-a/incoming/page-b.jpg';
+    const images = {
+      list: vi.fn()
+        .mockResolvedValueOnce({ objects: [{ key: first }], truncated: true, cursor: 'page-2' })
+        .mockResolvedValueOnce({ objects: [{ key: second }], truncated: false }),
+      head: vi.fn(),
+    } as unknown as R2Bucket;
+
+    await expect(reconcileIncomingImageInventory(db, images, {
+      execution: EXECUTION, now: NOW, limit: 1,
+    })).resolves.toMatchObject({ orphan: 2 });
+    expect(images.list).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: 'page-2' }));
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_incoming_image_dispositions
+      WHERE r2_key = ?`).get(second)).toEqual({ status: 'ORPHAN' });
+  });
+
+  test('inventory reconciliation pages every tracked D1 object', async () => {
+    const first = 'tenants/tenant-a/accounts/account-a/incoming/tracked-a.jpg';
+    const second = 'tenants/tenant-a/accounts/account-a/incoming/tracked-b.jpg';
+    sqlite.prepare(`INSERT INTO pharmacy_incoming_image_objects
+      (r2_key, tenant_id, line_account_id, message_id, stored_at)
+      VALUES (?, 'tenant-a', 'account-a', 'tracked-a', ?),
+             (?, 'tenant-a', 'account-a', 'tracked-b', ?)`).run(
+      first, '2020-01-01T00:00:00.000Z', second, '2020-01-02T00:00:00.000Z',
+    );
+    const images = {
+      list: vi.fn().mockResolvedValue({ objects: [], truncated: false }),
+      head: vi.fn().mockResolvedValue(null),
+    } as unknown as R2Bucket;
+
+    await expect(reconcileIncomingImageInventory(db, images, {
+      execution: EXECUTION, now: NOW, limit: 1,
+    })).resolves.toMatchObject({ missing: 2 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_incoming_image_dispositions WHERE status = 'MISSING'`).get())
+      .toEqual({ count: 2 });
   });
 
   test('inventory mismatch does not write a disposition in another tenant scope', async () => {

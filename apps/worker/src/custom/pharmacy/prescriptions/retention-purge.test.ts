@@ -9,8 +9,10 @@ import {
   reconcilePrescriptionDeletionIntents,
 } from './retention-purge.js';
 import {
+  cancelDeletionIntent,
   commitPrescriptionDeletionIntent,
   createDeletionIntent,
+  markDeletionOutcomeUnknown,
   readRetentionFence,
 } from '../retention/deletion-intents.js';
 import { prepareRetentionFence } from '../retention/fence.js';
@@ -183,11 +185,14 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
   }
 
   function mockImages(
-    deleteImplementation = vi.fn().mockResolvedValue(undefined),
+    putImplementation = vi.fn().mockResolvedValue({ key: 'tombstone', etag: 'tombstone-etag' }),
   ): R2Bucket {
     return {
-      head: vi.fn().mockResolvedValue({ checksums: { sha256: 'a'.repeat(64) } }),
-      delete: deleteImplementation,
+      head: vi.fn().mockResolvedValue({
+        etag: 'selected-etag', checksums: { sha256: 'a'.repeat(64) },
+      }),
+      put: putImplementation,
+      delete: vi.fn(),
     } as unknown as R2Bucket;
   }
 
@@ -239,7 +244,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
 
     await expect(purgePrescriptionFilesPastRetention(db, images, { now: NOW }))
       .resolves.toEqual({ purged: 0, failed: 0, skipped: 0 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
     expect(remainingFiles()).toEqual([{ id: 'file-without-proof', state: 'ready' }]);
   });
 
@@ -251,9 +256,11 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const result = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(result).toEqual({ purged: 1, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledTimes(1);
-    expect(images.delete).toHaveBeenCalledWith(
+    expect(images.put).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledWith(
       'custom/pharmacy/prescriptions/tenants/tenant-a/submission-file-purged/1/file-purged',
+      null,
+      expect.objectContaining({ onlyIf: { etagMatches: 'selected-etag' } }),
     );
     expect(remainingFiles()).toEqual([
       { id: 'file-kept', state: 'ready' },
@@ -294,7 +301,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const result = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(result).toEqual({ purged: 0, failed: 0, skipped: 1 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
     expect(purgeLog()).toEqual([]);
     expect(remainingFiles().every((row) => row.state === 'ready')).toBe(true);
   });
@@ -330,7 +337,10 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
   test('does not delete when R2 identity checksum is unavailable or mismatched', async () => {
     insertReleasedFile('file-checksum-mismatch', PURGED_AT);
     const images = {
-      head: vi.fn().mockResolvedValue({ checksums: { sha256: 'b'.repeat(64) } }),
+      head: vi.fn().mockResolvedValue({
+        etag: 'selected-etag', checksums: { sha256: 'b'.repeat(64) },
+      }),
+      put: vi.fn(),
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as R2Bucket;
 
@@ -348,9 +358,10 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
   test('does not delete when the R2 checksum changes after selection', async () => {
     insertReleasedFile('file-checksum-race', PURGED_AT);
     const images = {
-      head: vi.fn()
-        .mockResolvedValueOnce({ checksums: { sha256: 'a'.repeat(64) } })
-        .mockResolvedValueOnce({ checksums: { sha256: 'b'.repeat(64) } }),
+      head: vi.fn().mockResolvedValue({
+        etag: 'selected-etag', checksums: { sha256: 'a'.repeat(64) },
+      }),
+      put: vi.fn().mockResolvedValue(null),
       delete: vi.fn(),
     } as unknown as R2Bucket;
 
@@ -360,6 +371,29 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     expect(images.delete).not.toHaveBeenCalled();
     expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
       WHERE resource_id = 'file-checksum-race'`).get()).toEqual({ status: 'OUTCOME_UNKNOWN' });
+  });
+
+  test('does not erase a replacement that wins the conditional R2 disposition', async () => {
+    insertReleasedFile('file-etag-race', PURGED_AT);
+    const images = {
+      head: vi.fn().mockResolvedValue({
+        etag: 'selected-etag', checksums: { sha256: 'a'.repeat(64) },
+      }),
+      put: vi.fn().mockResolvedValue(null),
+      delete: vi.fn(),
+    } as unknown as R2Bucket;
+
+    await expect(purgePrescriptionFilesPastRetention(
+      db, images, purgeOptions({ now: NOW }),
+    )).resolves.toEqual({ purged: 0, failed: 1, skipped: 0 });
+    expect(images.put).toHaveBeenCalledWith(
+      expect.stringContaining('file-etag-race'),
+      null,
+      expect.objectContaining({ onlyIf: { etagMatches: 'selected-etag' } }),
+    );
+    expect(images.delete).not.toHaveBeenCalled();
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
+      WHERE resource_id = 'file-etag-race'`).get()).toEqual({ status: 'OUTCOME_UNKNOWN' });
   });
 
   test('reconciles a missing object exactly once and finalizes the DB batch', async () => {
@@ -384,6 +418,54 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
       WHERE resource_id = 'file-reconcile-once'`).get()).toEqual({ status: 'FINALIZED_DELETED' });
   });
 
+  test('reconciles a confirmed R2 tombstone after an unknown outcome', async () => {
+    insertReleasedFile('file-reconcile-tombstone', PURGED_AT);
+    await purgePrescriptionFilesPastRetention(
+      db,
+      mockImages(vi.fn().mockRejectedValue(new Error('outcome unknown'))),
+      purgeOptions({ now: NOW }),
+    );
+    const tombstone = {
+      head: vi.fn().mockResolvedValue({
+        customMetadata: { retentionDisposition: 'pharmacy-retention-v1' },
+      }),
+    } as unknown as R2Bucket;
+
+    await expect(reconcilePrescriptionDeletionIntents(
+      db, tombstone, purgeOptions({ now: NOW }),
+    )).resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
+      WHERE resource_id = 'file-reconcile-tombstone'`).get())
+      .toEqual({ status: 'FINALIZED_DELETED' });
+  });
+
+  test('reconcile limit is scoped to the active execution', async () => {
+    insertReleasedFile('file-reconcile-scoped', PURGED_AT);
+    await purgePrescriptionFilesPastRetention(
+      db,
+      mockImages(vi.fn().mockRejectedValue(new Error('outcome unknown'))),
+      purgeOptions({ now: NOW }),
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_retention_deletion_intents
+      (id, operation_id, execution_id, fence_token, executor_subject, environment,
+       tenant_id, line_account_id, owner_friend_id, patient_key, resource_type,
+       resource_id, r2_key, stored_sha256, age_reference_at, row_state, row_revision,
+       hold_epoch, status, created_at, updated_at)
+      VALUES ('foreign-intent', 'other-operation', 'other-execution', ?, 'other-worker',
+       'test', 'tenant-a', 'account-a', 'friend-a', '*', 'prescription_file',
+       'foreign-resource', 'foreign-key', ?, ?, 'ready', 1, 1, 'OUTCOME_UNKNOWN', ?, ?)`).run(
+      'x'.repeat(32), 'b'.repeat(64), PURGED_AT,
+      '2019-01-01T00:00:00.000Z', '2019-01-01T00:00:00.000Z',
+    );
+    const missing = { head: vi.fn().mockResolvedValue(null) } as unknown as R2Bucket;
+
+    await expect(reconcilePrescriptionDeletionIntents(
+      db, missing, purgeOptions({ now: NOW, limit: 1 }),
+    )).resolves.toEqual({ purged: 1, failed: 0, skipped: 0 });
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
+      WHERE id = 'foreign-intent'`).get()).toEqual({ status: 'OUTCOME_UNKNOWN' });
+  });
+
   test('lets only one worker delete the same object generation', async () => {
     insertReleasedFile('file-two-workers', PURGED_AT);
     const images = mockImages();
@@ -394,7 +476,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     ]);
 
     expect(results.reduce((total, result) => total + result.purged, 0)).toBe(1);
-    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledTimes(1);
     expect(purgeLog()).toHaveLength(1);
   });
 
@@ -406,7 +488,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const second = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(second).toEqual({ purged: 0, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledTimes(1);
     expect(purgeLog()).toHaveLength(1);
   });
 
@@ -419,7 +501,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const result = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(result).toEqual({ purged: 1, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledTimes(1);
     expect(purgeLog()).toHaveLength(1);
   });
 
@@ -432,7 +514,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const result = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(result).toEqual({ purged: 0, failed: 0, skipped: 1 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
     expect(purgeLog()).toEqual([]);
     expect(remainingFiles()).toEqual([{ id: 'file-held', state: 'ready' }]);
   });
@@ -447,7 +529,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const result = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(result).toEqual({ purged: 0, failed: 0, skipped: 2 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
     expect(purgeLog()).toEqual([]);
   });
 
@@ -460,7 +542,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     const result = await purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW }));
 
     expect(result).toEqual({ purged: 1, failed: 0, skipped: 0 });
-    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledTimes(1);
     expect(purgeLog()).toHaveLength(1);
   });
 
@@ -474,7 +556,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
 
     await expect(purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW })))
       .resolves.toEqual({ purged: 0, failed: 0, skipped: 1 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
   });
 
   test('fails closed when an owner LINE message has a non-UTC retention timestamp', async () => {
@@ -487,7 +569,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
 
     await expect(purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW })))
       .resolves.toEqual({ purged: 0, failed: 0, skipped: 1 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
   });
 
   test('blocks deletion while a DSR is received or identity is not yet assessed', async () => {
@@ -505,7 +587,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     );
 
     expect(result).toEqual({ purged: 0, failed: 0, skipped: 1 });
-    expect(images.delete).not.toHaveBeenCalled();
+    expect(images.put).not.toHaveBeenCalled();
     expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_hold_epochs
       WHERE patient_key = ?`).get(patientId)).toEqual({ status: 'unknown' });
   });
@@ -541,6 +623,39 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
       WHERE resource_id = ?`).get(fileId)).toEqual({ status: 'CLAIMED' });
   });
 
+  test('does not cancel or mark an intent owned by another execution', async () => {
+    const fileId = 'file-foreign-execution-intent';
+    insertReleasedFile(fileId, PURGED_AT);
+    const r2Key = `custom/pharmacy/prescriptions/tenants/tenant-a/submission-${fileId}/1/${fileId}`;
+    const fence = await prepareRetentionFence(db, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a',
+      patientId: `patient-${fileId}`,
+    }, NOW, EXECUTION);
+    const intent = await createDeletionIntent(db, {
+      execution: EXECUTION, tenantId: 'tenant-a', lineAccountId: 'account-a',
+      ownerFriendId: 'friend-a', patientKey: `patient-${fileId}`,
+      resourceType: 'prescription_file', resourceId: fileId, r2Key,
+      storedSha256: 'a'.repeat(64), ageReferenceAt: PURGED_AT, rowState: 'ready',
+      rowRevision: 1, holdEpoch: fence.epoch, now: NOW.toISOString(),
+    });
+    sqlite.prepare(`UPDATE pharmacy_retention_deletion_intents
+      SET operation_id = 'foreign-operation', execution_id = 'foreign-execution',
+          fence_token = ?, executor_subject = 'foreign-worker'
+      WHERE id = ?`).run('x'.repeat(32), intent!.id);
+
+    await expect(cancelDeletionIntent(db, {
+      id: intent!.id, status: 'CANCELLED_STALE', reasonCode: 'foreign',
+      now: NOW.toISOString(), execution: EXECUTION,
+    })).resolves.toBe(false);
+    sqlite.prepare(`UPDATE pharmacy_retention_deletion_intents
+      SET status = 'DELETE_COMMITTED' WHERE id = ?`).run(intent!.id);
+    await expect(markDeletionOutcomeUnknown(db, {
+      id: intent!.id, reasonCode: 'foreign', now: NOW.toISOString(), execution: EXECUTION,
+    })).resolves.toBe(false);
+    expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
+      WHERE id = ?`).get(intent!.id)).toEqual({ status: 'DELETE_COMMITTED' });
+  });
+
   test('does not commit when an authoritative DSR appears without a materialized epoch', async () => {
     const fileId = 'file-dsr-after-claim';
     const patientId = `patient-${fileId}`;
@@ -565,13 +680,46 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
        'received', 'request', ?, 'staff-a', ?, ?)`).run(
       patientId, NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
     );
+    sqlite.prepare(`UPDATE pharmacy_retention_hold_epochs
+      SET epoch = epoch + 1, status = 'released'
+      WHERE owner_friend_id = 'friend-a' AND patient_key IN (?, '*')`).run(patientId);
+    const latestFence = await readRetentionFence(db, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a',
+      patientKey: patientId,
+    });
 
     await expect(commitPrescriptionDeletionIntent(db, {
-      intent: intent!, expectedFence: fence, previousHoldEpoch: intent!.hold_epoch,
+      intent: intent!, expectedFence: latestFence, previousHoldEpoch: intent!.hold_epoch,
       execution: EXECUTION, now: NOW.toISOString(),
     })).resolves.toBe(false);
-    expect(sqlite.prepare(`SELECT status FROM pharmacy_retention_deletion_intents
-      WHERE resource_id = ?`).get(fileId)).toEqual({ status: 'CLAIMED' });
+    expect(sqlite.prepare(`SELECT status, hold_epoch FROM pharmacy_retention_deletion_intents
+      WHERE resource_id = ?`).get(fileId)).toEqual({
+      status: 'CLAIMED', hold_epoch: intent!.hold_epoch,
+    });
+  });
+
+  test('does not leave file state or purge evidence when the final intent row is gone', async () => {
+    insertReleasedFile('file-finalize-cas', PURGED_AT);
+    let intercepted = false;
+    const racingDb = {
+      ...db,
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        if (!intercepted && statements.length === 3) {
+          intercepted = true;
+          sqlite.prepare(`DELETE FROM pharmacy_retention_deletion_intents
+            WHERE resource_id = 'file-finalize-cas'`).run();
+        }
+        return db.batch<T>(statements);
+      },
+    } as D1Database;
+
+    await expect(purgePrescriptionFilesPastRetention(
+      racingDb, mockImages(), purgeOptions({ now: NOW }),
+    )).resolves.toEqual({ purged: 0, failed: 1, skipped: 0 });
+    expect(sqlite.prepare(`SELECT state FROM pharmacy_prescription_files
+      WHERE id = 'file-finalize-cas'`).get()).toEqual({ state: 'ready' });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_phi_retention_purge_log
+      WHERE resource_id = 'file-finalize-cas'`).get()).toEqual({ count: 0 });
   });
 
   test('does not overwrite a DSR hold created after source inventory was read', async () => {
@@ -719,7 +867,7 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     );
 
     expect(result.failed).toBeGreaterThanOrEqual(1);
-    expect(images.delete).toHaveBeenCalledTimes(1);
+    expect(images.put).toHaveBeenCalledTimes(1);
     expect(sqlite.prepare(`SELECT state FROM pharmacy_prescription_files
       WHERE id = 'file-approval-expiry-b'`).get()).toEqual({ state: 'ready' });
   });

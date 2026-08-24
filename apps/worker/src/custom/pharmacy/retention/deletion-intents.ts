@@ -200,8 +200,16 @@ export async function cancelDeletionIntent(
   const result = await db.prepare(
     `UPDATE pharmacy_retention_deletion_intents
         SET status = ?, last_error_code = ?, updated_at = ?
-      WHERE id = ? AND status = ?`,
-  ).bind(input.status, input.reasonCode, input.now, input.id, input.expectedStatus ?? 'CLAIMED').run();
+      WHERE id = ? AND status = ?
+        AND operation_id = ? AND execution_id = ? AND fence_token = ?
+        AND executor_subject = ? AND environment = ?
+        AND tenant_id = ? AND line_account_id = ?`,
+  ).bind(
+    input.status, input.reasonCode, input.now, input.id, input.expectedStatus ?? 'CLAIMED',
+    input.execution.operationId, input.execution.executionId, input.execution.fenceToken,
+    input.execution.executorSubject, input.execution.environment,
+    input.execution.tenantId, input.execution.lineAccountId,
+  ).run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
@@ -231,23 +239,9 @@ export async function commitPrescriptionDeletionIntent(
   const previousHoldEpoch = input.previousHoldEpoch ?? intent.hold_epoch;
   if (expectedFence.status !== 'released' || expectedFence.epoch < 1 ||
       previousHoldEpoch !== intent.hold_epoch) return false;
-  const results = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_retention_deletion_intents
-          SET hold_epoch = ?, updated_at = ?
-        WHERE id = ? AND status = 'CLAIMED' AND hold_epoch = ?
-          AND operation_id = ? AND execution_id = ? AND fence_token = ?
-          AND executor_subject = ? AND environment = ?
-          AND tenant_id = ? AND line_account_id = ?`,
-    ).bind(
-      expectedFence.epoch, input.now, intent.id, previousHoldEpoch,
-      execution.operationId, execution.executionId, execution.fenceToken,
-      execution.executorSubject, execution.environment,
-      execution.tenantId, execution.lineAccountId,
-    ),
-    db.prepare(
+  const result = await db.prepare(
       `UPDATE pharmacy_retention_deletion_intents AS intent
-          SET status = 'DELETE_COMMITTED', updated_at = ?
+          SET hold_epoch = ?, status = 'DELETE_COMMITTED', updated_at = ?
         WHERE intent.id = ? AND intent.status = 'CLAIMED'
           AND intent.hold_epoch = ?
           AND intent.operation_id = ? AND intent.execution_id = ?
@@ -261,7 +255,7 @@ export async function commitPrescriptionDeletionIntent(
              AND hold.owner_friend_id = intent.owner_friend_id
              AND hold.patient_key IN (intent.patient_key, '*')
              AND hold.status = 'released'
-             AND hold.epoch = intent.hold_epoch
+             AND hold.epoch = ?
         )
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_retention_hold_epochs AS blocked
@@ -311,14 +305,12 @@ export async function commitPrescriptionDeletionIntent(
             )
         )`,
     ).bind(
-      input.now, intent.id, expectedFence.epoch,
+      expectedFence.epoch, input.now, intent.id, previousHoldEpoch,
       execution.operationId, execution.executionId, execution.fenceToken,
       execution.executorSubject, execution.environment,
-      execution.tenantId, execution.lineAccountId, input.now,
-    ),
-  ]);
-  return (results[0]?.meta?.changes ?? 0) === 1 &&
-    (results[1]?.meta?.changes ?? 0) === 1;
+      execution.tenantId, execution.lineAccountId, expectedFence.epoch, input.now,
+    ).run();
+  return (result.meta?.changes ?? 0) === 1;
 }
 
 export async function markDeletionOutcomeUnknown(
@@ -335,7 +327,15 @@ export async function markDeletionOutcomeUnknown(
   const result = await db.prepare(
     `UPDATE pharmacy_retention_deletion_intents
         SET status = 'OUTCOME_UNKNOWN', last_error_code = ?, updated_at = ?
-      WHERE id = ? AND status = ?`,
-  ).bind(input.reasonCode, input.now, input.id, input.expectedStatus ?? 'DELETE_COMMITTED').run();
+      WHERE id = ? AND status = ?
+        AND operation_id = ? AND execution_id = ? AND fence_token = ?
+        AND executor_subject = ? AND environment = ?
+        AND tenant_id = ? AND line_account_id = ?`,
+  ).bind(
+    input.reasonCode, input.now, input.id, input.expectedStatus ?? 'DELETE_COMMITTED',
+    input.execution.operationId, input.execution.executionId, input.execution.fenceToken,
+    input.execution.executorSubject, input.execution.environment,
+    input.execution.tenantId, input.execution.lineAccountId,
+  ).run();
   return (result.meta?.changes ?? 0) === 1;
 }
