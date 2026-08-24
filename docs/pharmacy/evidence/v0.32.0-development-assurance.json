@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "capturedAt": "2026-08-24T15:10:01Z",
-  "reviewedAt": "2026-08-24T18:40:26Z",
+  "reviewedAt": "2026-08-24T18:46:06Z",
   "environment": "local-synthetic",
   "scope": "v0.32.0-development-assurance",
   "status": "PASS",
@@ -9,7 +9,7 @@
   "sourceCandidate": {
     "branch": "dev",
     "baseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
-    "testedImplementationSha": "00ef41babf3e5704be711e89e23b17c31296d059",
+    "testedImplementationSha": "d8fcf4f6fd7475495226e91457f746b2f7720af4",
     "identity": "LOCAL_COMMIT",
     "packageVersion": "0.32.0",
     "sellerRelease": "NOT_CREATED",
@@ -80,13 +80,15 @@
     "diffCheck": "PASS"
   },
   "postReviewValidation": {
-    "testedImplementationSha": "00ef41babf3e5704be711e89e23b17c31296d059",
+    "testedImplementationSha": "d8fcf4f6fd7475495226e91457f746b2f7720af4",
     "workspaceTestFiles": 410,
     "workspaceTests": 3294,
     "workerTestFiles": 225,
     "workerTests": 2246,
     "scriptTestFiles": 18,
     "scriptTests": 210,
+    "meetFocusedTests": 45,
+    "routeInventoryTests": 10,
     "migrationChecks": 89,
     "diffCheck": "PASS",
     "typecheck": "NOT_RERUN_AFTER_REVIEW_FIXES",
