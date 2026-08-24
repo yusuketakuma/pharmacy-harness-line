@@ -295,6 +295,33 @@ describe('pharmacy patient repository', () => {
       call.sql.includes('INSERT INTO pharmacy_patient_intake_envelopes'))).toHaveLength(2);
   });
 
+  it('includes the account/environment recovery fence in the normal write guard', async () => {
+    const patient = {
+      id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+      relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
+      sex: null, contact_phone: null, archived_at: null,
+    };
+    const { db, calls } = fakeDb([patient, null, null]);
+    await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
+      idempotencyKey: 'intake-fence',
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
+      representativeConsent: true,
+      privacyConsent: true,
+    }, cryptoScope)).resolves.toMatchObject({ id: expect.any(String) });
+
+    const responseWrite = calls.find((call) => call.operation === 'batch' &&
+      call.sql.includes('INSERT INTO pharmacy_patient_intake_responses'));
+    expect(responseWrite?.sql).toContain('pharmacy_recovery_execution_fences');
+    expect(responseWrite?.sql).toContain("fence.status = 'active'");
+    expect(responseWrite?.values).toEqual(expect.arrayContaining([
+      'tenant-1', 'account-1', 'current-worker-binding',
+    ]));
+  });
+
   it('fails closed when D1 reports an incomplete encrypted write', async () => {
     const patient = {
       id: 'patient-1', line_account_id: 'account-1', owner_friend_id: 'friend-1',

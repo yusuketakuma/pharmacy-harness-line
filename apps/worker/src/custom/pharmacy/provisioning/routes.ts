@@ -20,11 +20,9 @@ import {
 } from './line-credential-backfill.js';
 import {
   backfillPatientIntakeEnvelopes,
-  freezePatientIntakeWrites,
   inspectPatientIntakeCoverage,
   restorePatientIntakeLegacyFields,
   scrubPatientIntakeLegacyFields,
-  type PatientIntakeMigrationApproval,
 } from '../intake/migration.js';
 import {
   platformAdminSessionTokenFromCookie,
@@ -100,6 +98,18 @@ function stringField(record: Record<string, unknown>, key: string): string {
 function optionalStringField(record: Record<string, unknown>, key: string): string | null {
   const value = stringField(record, key);
   return value || null;
+}
+
+const LEGACY_RECOVERY_IDENTITY_FIELDS = new Set([
+  'approvedBy', 'approved_by', 'approver', 'approverSubject', 'approver_subject',
+  'executor', 'executorBy', 'executorSubject', 'executor_subject',
+]);
+
+function containsLegacyRecoveryIdentity(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsLegacyRecoveryIdentity);
+  if (value === null || typeof value !== 'object') return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, nested]) =>
+    LEGACY_RECOVERY_IDENTITY_FIELDS.has(key) || containsLegacyRecoveryIdentity(nested));
 }
 
 function parseInput(value: unknown): ProvisioningInput | null {
@@ -1122,6 +1132,9 @@ for (const phase of ['coverage', 'backfill', 'freeze', 'scrub', 'restore'] as co
     async (c) => {
       const rejected = await rejectUnauthorizedPlatformRequest(c);
       if (rejected) return rejected;
+      if (phase === 'freeze') {
+        return c.json({ success: false, error: 'Legacy intake freeze route is disabled' }, 409);
+      }
       const rootSecret = c.env.PHARMACY_PHI_KEY_V1;
       if (!rootSecret || encoder.encode(rootSecret).length < 32 || rootSecret.length > 4096) {
         return c.json({ success: false, error: 'Patient intake encryption is not configured' }, 503);
@@ -1131,19 +1144,11 @@ for (const phase of ['coverage', 'backfill', 'freeze', 'scrub', 'restore'] as co
         lineAccountId: c.req.param('lineAccountId'),
         rootSecret,
       };
-      const body = phase === 'coverage'
-        ? {}
-        : asRecord(await c.req.json().catch(() => null));
+      const rawBody = await c.req.json().catch(() => null);
+      const body = phase === 'coverage' && rawBody === null ? {} : asRecord(rawBody);
       if (!body) return c.json({ success: false, error: 'Invalid migration input' }, 400);
-      const approvalRecord = asRecord(body.approval);
-      const approval: PatientIntakeMigrationApproval | undefined = approvalRecord ? {
-        approvedBy: stringField(approvalRecord, 'approvedBy'),
-        approvalReference: stringField(approvalRecord, 'approvalReference'),
-        coverageTotal: approvalRecord.coverageTotal as number,
-        coverageDigest: stringField(approvalRecord, 'coverageDigest'),
-      } : undefined;
-      if ((phase === 'freeze' || phase === 'scrub' || phase === 'restore') && !approval) {
-        return c.json({ success: false, error: 'Named approval is required' }, 400);
+      if (containsLegacyRecoveryIdentity(body)) {
+        return c.json({ success: false, error: 'Legacy recovery identity fields are not accepted' }, 400);
       }
       const cursor = body.cursor === null || body.cursor === undefined
         ? null
@@ -1152,19 +1157,17 @@ for (const phase of ['coverage', 'backfill', 'freeze', 'scrub', 'restore'] as co
       if (cursor === undefined || !Number.isSafeInteger(limit)) {
         return c.json({ success: false, error: 'Invalid migration input' }, 400);
       }
-      const dryRun = body.dryRun !== false;
+      const dryRun = true;
       const result = phase === 'coverage'
         ? await inspectPatientIntakeCoverage(c.env.DB, scope)
-        : phase === 'freeze'
-          ? await freezePatientIntakeWrites(c.env.DB, scope, approval!)
-          : phase === 'backfill'
+        : phase === 'backfill'
             ? await backfillPatientIntakeEnvelopes(c.env.DB, { ...scope, cursor, limit: limit as number, dryRun })
             : phase === 'scrub'
               ? await scrubPatientIntakeLegacyFields(c.env.DB, {
-                ...scope, cursor, limit: limit as number, dryRun, approval,
+                ...scope, cursor, limit: limit as number, dryRun,
               })
               : await restorePatientIntakeLegacyFields(c.env.DB, {
-                ...scope, cursor, limit: limit as number, dryRun, approval,
+                ...scope, cursor, limit: limit as number, dryRun,
               });
       return result.errorCode
         ? c.json({ success: false, error: result.errorCode, data: result }, 409)

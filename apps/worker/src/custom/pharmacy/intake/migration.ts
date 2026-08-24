@@ -4,6 +4,7 @@ import {
   type PatientIntakeEncryptedRow,
   type StoredPatientIntakeEnvelope,
 } from './envelopes.js';
+import { PATIENT_INTAKE_KEY_VERSION } from './encryption.js';
 
 export const PATIENT_INTAKE_LEGACY_SENTINEL = '{}';
 
@@ -51,6 +52,12 @@ export interface PatientIntakeCoverageReport {
   errorCode: ErrorCode | null;
   coverageTotal: number;
   coverageDigest: string;
+}
+
+export interface PatientIntakeRecoveryMetadata {
+  schemaDigest: string;
+  fieldInventoryDigest: string;
+  keyVersions: string[];
 }
 
 interface MigrationState {
@@ -212,6 +219,82 @@ async function digest(value: string): Promise<string> {
   return [...bytes].map((item) => item.toString(16).padStart(2, '0')).join('');
 }
 
+async function keyedDigest(scope: PatientIntakeMigrationScope, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(scope.rootSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const bytes = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
+  return [...bytes].map((item) => item.toString(16).padStart(2, '0')).join('');
+}
+
+const RECOVERY_SCHEMA_DESCRIPTOR = JSON.stringify({
+  responseTable: 'pharmacy_patient_intake_responses',
+  responseSchemaVersion: 2,
+  envelopeTable: 'pharmacy_patient_intake_envelopes',
+  envelopeVersion: 1,
+});
+const RECOVERY_FIELD_DESCRIPTOR = JSON.stringify([
+  { fieldName: 'patient_snapshot_json', envelopeVersion: 1, keyVersion: PATIENT_INTAKE_KEY_VERSION },
+  { fieldName: 'answers_json', envelopeVersion: 1, keyVersion: PATIENT_INTAKE_KEY_VERSION },
+]);
+
+export async function patientIntakeRecoveryMetadata(): Promise<PatientIntakeRecoveryMetadata> {
+  const [schemaDigest, fieldInventoryDigest] = await Promise.all([
+    digest(RECOVERY_SCHEMA_DESCRIPTOR),
+    digest(RECOVERY_FIELD_DESCRIPTOR),
+  ]);
+  return {
+    schemaDigest,
+    fieldInventoryDigest,
+    keyVersions: [String(PATIENT_INTAKE_KEY_VERSION)],
+  };
+}
+
+export async function inspectPatientIntakeBackfillCoverage(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+): Promise<PatientIntakeCoverageReport> {
+  const report: PatientIntakeCoverageReport = {
+    counts: { scanned: 0, covered: 0 }, errorCode: null, coverageTotal: 0, coverageDigest: '',
+  };
+  if (!validScope(scope) || !await hasActiveScope(db, scope)) {
+    return { ...report, errorCode: 'SCOPE_NOT_FOUND' };
+  }
+  let cursor: string | null = null;
+  const digestParts: string[] = [];
+  while (true) {
+    const rows = await readRows(db, scope, cursor, 50);
+    for (const row of rows) {
+      const envelopes = await readEnvelopes(db, row.id);
+      if (envelopes.length === 1) return { ...report, errorCode: 'PARTIAL_ENVELOPE' };
+      if (envelopes.length === 2) {
+        const decrypted = await decryptStored(row, scope, envelopes);
+        if (typeof decrypted === 'string') return { ...report, errorCode: decrypted };
+        const snapshotSentinel = row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL;
+        const answersSentinel = row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL;
+        if (snapshotSentinel !== answersSentinel || (!snapshotSentinel && (
+          decrypted.patient_snapshot_json !== row.patient_snapshot_json ||
+          decrypted.answers_json !== row.answers_json))) {
+          return { ...report, errorCode: 'MISMATCH' };
+        }
+      } else if (row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL ||
+          row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL) {
+        return { ...report, errorCode: 'MISMATCH' };
+      }
+      report.counts.scanned += 1;
+      report.counts.covered += 1;
+      digestParts.push(await keyedDigest(scope, JSON.stringify([
+        row.id, row.revision, row.schema_version, row.patient_snapshot_json, row.answers_json,
+      ])));
+    }
+    if (rows.length < 50) break;
+    cursor = rows.at(-1)!.id;
+  }
+  report.coverageTotal = report.counts.scanned;
+  report.coverageDigest = await digest(digestParts.join('\n'));
+  return report;
+}
+
 export async function inspectPatientIntakeCoverage(
   db: D1Database,
   scope: PatientIntakeMigrationScope,
@@ -237,9 +320,17 @@ export async function inspectPatientIntakeCoverage(
       if (!snapshotSentinel && (decrypted.patient_snapshot_json !== row.patient_snapshot_json ||
           decrypted.answers_json !== row.answers_json)) return { ...report, errorCode: 'MISMATCH' };
       report.counts.covered += 1;
-      digestParts.push(await digest(JSON.stringify([
-        row.id, row.revision, row.schema_version,
-        decrypted.patient_snapshot_json, decrypted.answers_json,
+      digestParts.push(await keyedDigest(scope, JSON.stringify([
+        row.id,
+        row.revision,
+        row.schema_version,
+        ...envelopes.map((envelope) => ({
+          fieldName: envelope.field_name,
+          envelopeVersion: envelope.envelope_version,
+          keyVersion: envelope.key_version,
+          nonce: envelope.nonce,
+          ciphertext: envelope.ciphertext,
+        })),
       ])));
     }
     if (rows.length < 50) break;

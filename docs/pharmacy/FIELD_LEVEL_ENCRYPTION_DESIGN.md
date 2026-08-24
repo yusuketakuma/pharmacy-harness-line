@@ -1,6 +1,24 @@
 # Pharmacy field-level encryption design
 
-Status: design approved for implementation planning; no production migration or key creation is claimed.
+Status: v0.32.0 の development 実装と synthetic test は完了。production の secret
+投入、backfill、scrub、restore、rotation、deploy は `NOT_RUN` であり、production
+readiness は主張しない。
+
+## v0.32.0 implementation status
+
+| Boundary | Development state | Production state |
+| --- | --- | --- |
+| AES-256-GCM envelope、AAD、nonce重複拒否 | `PASS` (`intake/encryption*.test.ts`) | `NOT_RUN` |
+| encrypted-write-first、mixed read、malformed envelope fail-closed | `PASS` (`intake/repository*.test.ts`) | `NOT_RUN` |
+| bounded backfill、coverage digest、resume | `PASS` (`intake/migration*.test.ts`) | `NOT_RUN` |
+| write freeze、CAS scrub、verified restore | `PASS` (synthetic D1) | Human Gate未実施 |
+| named approval、別executor、expiry、scope/fence | `PASS` (`recovery/operations*.test.ts`, `data-protection-routes*.test.ts`) | `NOT_RUN` |
+| key rotation / rewrap | `UNVERIFIED` | `NOT_RUN` |
+
+既存のadditive table `custom_040`/`custom_041`を再利用し、v0.32.0では
+`custom_056`のrecovery operation・execution fence・verified backup generationを
+Human Gateのauthorityとして追加した。request bodyの`approvedBy`等は拒否し、
+認証済みPlatform admin principalだけをapprover/executorとして記録する。
 
 ## Scope and non-goals
 
@@ -23,10 +41,10 @@ The implementation reuses the validation, Web Crypto and versioned-key pattern i
 Create a companion table keyed by `(response_id, line_account_id, owner_friend_id, patient_id)` with a composite foreign key to the intake response. This keeps the applied intake migration immutable and permits a safe phased rollout.
 
 1. Deploy dual-read code: encrypted payload first; legacy plaintext only when no encrypted row exists. Any malformed encrypted row fails closed and must never fall back to plaintext.
-2. Backfill in bounded, resumable batches. Encrypt, decrypt and byte-compare canonical JSON before recording the row as verified.
+2. Backfill in bounded, resumable batches. Encrypt, decrypt and byte-compare canonical JSON before recording the row as verified. Cursor、limit、coverage digestを固定し、同じbatchの再開は冪等に扱う。
 3. Measure coverage by account and stop on any mismatch. Never log payloads, ciphertext or patient identifiers.
 4. Deploy encrypted-write-first code and require the encrypted insert to succeed in the same D1 batch as the response insert.
-5. After 100% verified coverage and a human approval, replace legacy `answers_json` and `patient_snapshot_json` with valid empty JSON sentinels. Do not drop columns in an additive migration.
+5. After 100% verified coverage、verified backup、key recovery acknowledgement、write freeze、別principalのapproval/executionを再確認した場合だけ、legacy `answers_json` and `patient_snapshot_json` with valid empty JSON sentinelsへCAS更新する。Do not drop columns in an additive migration.
 6. Remove plaintext fallback only after the sentinel scrub is verified.
 
 Rollback after step 5 requires an explicit restore that decrypts verified envelopes back into the legacy columns before an old Worker is deployed. A silent fallback is forbidden.
@@ -44,7 +62,11 @@ Writes use optimistic revision checks. A key or decrypt failure returns a generi
 - Key removal is blocked until no row references that version and a restore drill has passed.
 - Metrics contain counts by tenant/account and error code only. No payload, nonce or patient identifier enters logs.
 - Required tests: round trip, AAD swap rejection, wrong-tenant rejection, tamper rejection, duplicate nonce guard, concurrent revision conflict, backfill resume, scrub rollback and no-plaintext-log assertions.
+- 現行key versionは`1`だけである。rotation/rewrap経路を実装・実証するまでは、APIのFLE readinessを`UNVERIFIED`から上げない。
 
 ## Release gate
 
-Local code and tests are not production proof. Production enablement requires secret provisioning, migration evidence, coverage report, restore drill, security review and a named human approval.
+Local code and tests are not production proof. Production enablement requires secret provisioning, exact
+deploy source、verified backup generation、coverage 100%、approved key recovery、restore drill、
+security review、別principalのnamed approval/execution、全batchのread-back evidenceが必要。
+plaintext scrubはrollback readを含む別Human Gateであり、backfill成功から推論しない。
