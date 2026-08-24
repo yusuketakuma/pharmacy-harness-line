@@ -167,7 +167,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const output = argument(process.argv.slice(2), 'output');
   if (!output) throw new Error('--output is required');
   const source = argument(process.argv.slice(2), 'source') ??
-    'apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v4.jpg';
+    'apps/worker/public/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg';
   generatePharmacyRichMenuCatalog({
     source,
     output,

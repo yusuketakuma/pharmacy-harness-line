@@ -261,7 +261,7 @@ export default function FeatureSettingsPage() {
             {candidate.slots.map((slot, index) => <span key={slot.actionKey} role="img" tabIndex={0} aria-label={`候補枠${index + 1}: ${slot.label}, ${slot.actionType}`} className="absolute flex items-center justify-center border-2 border-violet-700 bg-violet-200/25 text-xs font-bold text-violet-950 outline-offset-2 focus:outline focus:outline-4 focus:outline-violet-700" style={richMenuAreaStyle(slot, candidate.menuSize)}>{index + 1}</span>)}
           </div>
           <ol className="mt-3 grid gap-2 text-sm sm:grid-cols-2">{candidate.slots.map((slot, index) => <li key={slot.actionKey} className="rounded bg-white p-2">{index + 1}. {slot.label} ({slot.actionType})</li>)}</ol>
-          <Link href="/rich-menus?candidate=1" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white">新しい配置を作成</Link>
+          <Link href="/rich-menus#pharmacy-rich-menu-layout-editor" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white">新しい配置を作成</Link>
         </div>}
       </section>}
       {readiness && <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="configuration-doctor-title">

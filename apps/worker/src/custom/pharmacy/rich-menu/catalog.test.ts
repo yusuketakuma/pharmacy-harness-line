@@ -10,7 +10,7 @@ import {
 import { getPharmacyRichMenuPresentation, listPharmacyRichMenuVariantOrders } from './layout.js';
 
 const image = new Uint8Array(readFileSync(resolve(
-  process.cwd(), 'public/custom/pharmacy/rich-menu/initial-large-3x2-v4.jpg',
+  process.cwd(), 'public/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg',
 )));
 const imageHash = createHash('sha256').update(image).digest('hex');
 const compactImage = new Uint8Array(readFileSync(resolve(
@@ -56,8 +56,8 @@ function bucket(value = manifest(), bytes = image) {
 
 describe('pharmacy rich-menu static catalog', () => {
   it('uses an immutable prefix for the aligned catalog', () => {
-    expect(PHARMACY_RICH_MENU_CATALOG_VERSION).toBe('v4-4');
-    expect(PHARMACY_RICH_MENU_CATALOG_MANIFEST_KEY).toBe('rich-menu-catalog/v4-4/manifest.json');
+    expect(PHARMACY_RICH_MENU_CATALOG_VERSION).toBe('v4-5');
+    expect(PHARMACY_RICH_MENU_CATALOG_MANIFEST_KEY).toBe('rich-menu-catalog/v4-5/manifest.json');
   });
 
   it('loads only the exact server-derived variant and verifies its bytes', async () => {

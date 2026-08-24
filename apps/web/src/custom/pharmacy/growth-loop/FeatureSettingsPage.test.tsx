@@ -52,6 +52,8 @@ describe('pharmacy patient feature settings', () => {
     expect(page).toContain('max={100}')
     expect(page).toContain('リッチメニュー候補画像を確認')
     expect(page).toContain('新しい配置を作成')
+    expect(page).toContain('href="/rich-menus#pharmacy-rich-menu-layout-editor"')
+    expect(page).not.toContain('/rich-menus?candidate=1')
     expect(page).toContain('電子処方箋・緊急避妊薬などは「すべての機能」から開けます。')
     expect(page).toContain('aria-live="polite"')
     expect(page).toContain('pharmacyCandidateImageUrl')

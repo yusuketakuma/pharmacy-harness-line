@@ -7,15 +7,15 @@ import {
 import { PHARMACY_RICH_MENU_CATALOG_VERSION } from './catalog.js';
 import { sha256Hex } from './hash.js';
 
-export const PHARMACY_INITIAL_PROFILE_KEY = 'initial-large-3x2-v4';
+export const PHARMACY_INITIAL_PROFILE_KEY = 'initial-large-3x2-v5';
 export const PHARMACY_PREVIOUS_INITIAL_PROFILE_KEY = 'initial-large-3x2-v3';
 export const PHARMACY_LEGACY_INITIAL_PROFILE_KEY = 'initial-compact-3x1';
 export const PHARMACY_SINGLE_ACTION_PROFILE_KEY = 'intake-single-action-v1';
-export const PHARMACY_RICH_MENU_GENERATOR_VERSION = '4';
+export const PHARMACY_RICH_MENU_GENERATOR_VERSION = '5';
 export const PHARMACY_PREVIOUS_RICH_MENU_GENERATOR_VERSION = '3';
 export const PHARMACY_LEGACY_RICH_MENU_GENERATOR_VERSION = '1';
 export const PHARMACY_INITIAL_RICH_MENU_IMAGE_PATH =
-  '/custom/pharmacy/rich-menu/initial-large-3x2-v4.jpg';
+  '/custom/pharmacy/rich-menu/initial-large-3x2-v5.jpg';
 export const PHARMACY_PREVIOUS_INITIAL_RICH_MENU_IMAGE_PATH =
   '/custom/pharmacy/rich-menu/initial-large-3x2-v3.jpg';
 export const PHARMACY_LEGACY_INITIAL_RICH_MENU_IMAGE_PATH =
@@ -62,7 +62,7 @@ function buildArea(liffId: string, cell: MenuCell, index: number) {
 }
 
 const CATALOG_CELLS: Record<PharmacyRichMenuActionKey, MenuCell> = {
-  'prescription-send': { page: 'pharmacy-prescription-send', label: '処方せん送信' },
+  'prescription-send': { page: 'pharmacy-prescription-send', label: '処方せん事前送信' },
   'prescription-history': { page: 'pharmacy-prescription-history', label: '受付状況' },
   'medication-followup': { page: 'pharmacy-followup', label: '服薬後フォロー' },
   'manual-chat': { page: null, label: '薬局へ相談' },
@@ -251,7 +251,7 @@ export function buildPharmacyInitialRichMenu(
   return buildLargeInitialRichMenu(
     accountId,
     liffId,
-    { page: 'pharmacy-prescription-send', label: '処方せん送信' },
+    { page: 'pharmacy-prescription-send', label: '処方せん事前送信' },
     PHARMACY_INITIAL_PROFILE_KEY,
     PHARMACY_RICH_MENU_GENERATOR_VERSION,
   );

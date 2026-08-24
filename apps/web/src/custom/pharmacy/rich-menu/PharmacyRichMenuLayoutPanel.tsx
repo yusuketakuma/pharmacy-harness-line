@@ -6,11 +6,11 @@ import { ApplyToTagModal } from '@/components/rich-menus/apply-to-tag-modal'
 import { richMenuAreaStyle } from './preview-geometry'
 import { readinessStatusLabel } from '../growth-loop/FeatureSettingsPage'
 
-const LABELS: Record<string, string> = {
-  'prescription-send': '処方せん送信',
-  'prescription-history': '処方せん履歴',
-  'medication-followup': '服薬フォロー',
-  'manual-chat': '個別チャット',
+export const PHARMACY_RICH_MENU_LABELS: Record<string, string> = {
+  'prescription-send': '処方せん事前送信',
+  'prescription-history': '受付状況',
+  'medication-followup': '服薬後フォロー',
+  'manual-chat': '薬局へ相談',
   'pharmacy-info': '薬局情報',
 }
 
@@ -515,6 +515,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     <section className="mb-6 rounded-lg border border-gray-200 bg-white p-5" aria-labelledby="pharmacy-rich-menu-layout-title">
       <h2 id="pharmacy-rich-menu-layout-title" className="font-semibold text-gray-900">薬局リッチメニューの並び順</h2>
       <p className="mt-1 text-sm text-gray-600">前へ・後ろへボタンで並び替えます。OFFの機能は画像とリンクの両方から除外されます。</p>
+      <ol aria-label="リッチメニュー初期設定の手順" className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
+        <li>1. 患者向け機能をON/OFF</li>
+        <li>2. 並び順を保存</li>
+        <li>3. 現在の配置を画像として保存</li>
+        <li>4. LINEへ登録</li>
+        <li>5. この画像に切替</li>
+      </ol>
+      <p className="mt-2 text-xs text-gray-500">「処方せん事前送信」と「受付状況」は同時にON/OFFされます。</p>
       {readiness && <div role="status" className="mt-3 rounded bg-gray-50 p-3 text-sm text-gray-800">
         <p>初期設定状態: <span className="font-semibold">{readinessStatusLabel(readiness.status)}</span></p>
         <a
@@ -563,7 +571,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
         <>
           <ol id="pharmacy-rich-menu-layout-editor" className="mt-4 scroll-mt-4 divide-y divide-gray-200 border-y border-gray-200">
             {order.map((key, index) => {
-              const label = LABELS[key] ?? key
+              const label = PHARMACY_RICH_MENU_LABELS[key] ?? key
               const enabled = layout.effectiveOrder.includes(key)
               return <li key={key} className="flex min-h-14 items-center gap-3 py-2">
                 <span className="w-6 text-sm text-gray-500">{index + 1}</span>
