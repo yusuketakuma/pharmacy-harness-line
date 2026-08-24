@@ -70,11 +70,15 @@ const JPEG_2500x843 = new Uint8Array(readFileSync(resolve(
   process.cwd(), 'public/custom/pharmacy/rich-menu/initial-compact-3x1.jpg',
 )));
 
-function app(opts: { images?: R2Bucket; platformAdmin?: boolean } = {}) {
+function app(opts: {
+  images?: R2Bucket;
+  platformAdmin?: boolean;
+  role?: 'owner' | 'admin' | 'staff';
+} = {}) {
   const worker = new Hono<any>();
   worker.use('*', async (c, next) => {
     if (opts.platformAdmin) c.set('platformAdmin', { id: 'platform-admin-1' });
-    else c.set('staff', { id: 'staff-1', name: 'Staff', role: 'staff' });
+    else c.set('staff', { id: 'staff-1', name: 'Staff', role: opts.role ?? 'admin' });
     c.set('tenantId', 'tenant-a');
     c.env = {
       DB: {} as D1Database,
@@ -84,7 +88,6 @@ function app(opts: { images?: R2Bucket; platformAdmin?: boolean } = {}) {
       )) } as unknown as Fetcher,
       LINE_CHANNEL_ID: 'channel-1',
     };
-    if (!opts.platformAdmin) c.set('staff', { id: 'staff-1', name: 'Staff', role: 'admin' });
     await next();
   });
   worker.route('/', pharmacyRichMenuRoutes);
@@ -222,6 +225,25 @@ describe('pharmacy rich-menu layout', () => {
     expect(layoutRepository.save).toHaveBeenCalledWith(expect.anything(), 'account-a', preferredOrder, 1);
     expect(dbMocks.createRichMenuGroup).not.toHaveBeenCalled();
     expect(dbMocks.setRichMenuPageImage).not.toHaveBeenCalled();
+  });
+
+  test('allows assigned staff to read but not mutate the pharmacy rich-menu layout', async () => {
+    const staff = app({ role: 'staff' });
+    const read = await staff.request('/api/custom/pharmacy/rich-menus/layout?accountId=account-a');
+    const write = await staff.request('/api/custom/pharmacy/rich-menus/layout?accountId=account-a', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        preferredOrder: [
+          'prescription-send', 'prescription-history', 'medication-followup', 'manual-chat', 'pharmacy-info',
+        ],
+        expectedRevision: 1,
+      }),
+    });
+
+    expect(read.status).toBe(200);
+    expect(write.status).toBe(403);
+    expect(layoutRepository.save).not.toHaveBeenCalled();
   });
 
   test('rejects invalid or stale layout writes without touching another account', async () => {

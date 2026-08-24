@@ -59,6 +59,11 @@ import {
 
 export const richMenuGroups = new Hono<Env>();
 
+function canMutatePharmacyRichMenu(c: Context<Env>): boolean {
+  const role = c.get('staff')?.role;
+  return Boolean(c.get('platformAdmin')) || role === 'owner' || role === 'admin';
+}
+
 function getScopedLineAccount(c: Context<Env>, lineAccountId: string) {
   return getLineAccountByIdForTenant(c.env.DB, c.get('tenantId'), lineAccountId);
 }
@@ -1107,6 +1112,9 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
   if (!group) return c.json({ success: false, error: 'not found' }, 404);
   if (!await groupMatchesAccountScope(c, group)) return c.json({ success: false, error: 'not found' }, 404);
   const immutablePharmacyVersion = await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId);
+  if (immutablePharmacyVersion && !canMutatePharmacyRichMenu(c)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
   const lifecycle = await getPharmacyRichMenuLifecycleControl(c.env.DB, group.account_id);
   if ((immutablePharmacyVersion && lifecycle.state !== 'active') ||
       (!immutablePharmacyVersion && lifecycle.state !== 'inactive')) {
@@ -1314,6 +1322,9 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/reconcile', a
   const group = await getRichMenuGroupWithPages(c.env.DB, operation.groupId);
   if (!group || group.account_id !== accountId || !await groupMatchesAccountScope(c, group)) {
     return c.json({ success: false, error: 'not found' }, 404);
+  }
+  if (!canMutatePharmacyRichMenu(c)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   if (operation.status === 'succeeded' || operation.status === 'failed') {
     return c.json({ success: true, data: { status: operation.status } });
@@ -1577,6 +1588,9 @@ richMenuGroups.post('/api/rich-menu-groups/operations/:operationId/resume', asyn
   const group = await getRichMenuGroupWithPages(c.env.DB, operation.groupId);
   if (!group || group.account_id !== accountId || !await groupMatchesAccountScope(c, group)) {
     return c.json({ success: false, error: 'not found' }, 404);
+  }
+  if (!canMutatePharmacyRichMenu(c)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
   }
   if ((await getPharmacyRichMenuLifecycleControl(c.env.DB, accountId)).state !== 'active') {
     return c.json({ success: false, error: 'pharmacy rich-menu lifecycle mutation disabled' }, 409);
@@ -1982,6 +1996,9 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/apply-to-tag', async (c) => 
     );
   }
   const boundPharmacyVersion = await isImmutablePharmacyRichMenuVersion(c.env.DB, groupId);
+  if (boundPharmacyVersion && !canMutatePharmacyRichMenu(c)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
   const lifecycle = await getPharmacyRichMenuLifecycleControl(c.env.DB, group.account_id);
   if ((boundPharmacyVersion && (lifecycle.state !== 'active' || mode !== 'set-default' || !enabled)) ||
       (!boundPharmacyVersion && lifecycle.state !== 'inactive')) {

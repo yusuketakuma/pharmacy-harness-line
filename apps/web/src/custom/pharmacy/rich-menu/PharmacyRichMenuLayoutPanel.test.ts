@@ -4,7 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ApiError } from '@/lib/api';
 import {
+  canMutatePharmacyRichMenu,
   movePharmacyRichMenuAction,
+  PHARMACY_RICH_MENU_LABELS,
   pharmacyRichMenuDiffLabel,
   pharmacyRichMenuReadinessMessage,
 } from './PharmacyRichMenuLayoutPanel';
@@ -16,6 +18,23 @@ const ORDER = [
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('pharmacy rich-menu layout panel', () => {
+  it('keeps ordinary staff read-only in the management UI', () => {
+    expect(canMutatePharmacyRichMenu('owner')).toBe(true);
+    expect(canMutatePharmacyRichMenu('admin')).toBe(true);
+    expect(canMutatePharmacyRichMenu('staff')).toBe(false);
+    expect(canMutatePharmacyRichMenu(null)).toBe(false);
+  });
+
+  it('uses the exact visible tile labels in the reorder controls', () => {
+    expect(PHARMACY_RICH_MENU_LABELS).toEqual({
+      'prescription-send': '処方せん事前送信',
+      'prescription-history': '受付状況',
+      'medication-followup': '服薬後フォロー',
+      'manual-chat': '薬局へ相談',
+      'pharmacy-info': '薬局情報',
+    });
+  });
+
   it('moves one tile without dropping or duplicating another tile', () => {
     expect(movePharmacyRichMenuAction(ORDER, 'medication-followup', -1)).toEqual([
       'prescription-send', 'medication-followup', 'prescription-history', 'manual-chat', 'pharmacy-info',
@@ -89,6 +108,22 @@ describe('pharmacy rich-menu layout panel', () => {
     expect(panel).toContain('初期設定を開始');
     expect(panel).toContain('初期設定を再開');
     expect(panel).toContain('初期設定を確認');
+    expect(panel).toContain('aria-label="リッチメニュー初期設定の手順"');
+    expect(panel).toContain('1. 患者向け機能をON/OFF');
+    expect(panel).toContain('2. 並び順を保存');
+    expect(panel).toContain('3. 現在の配置を画像として保存');
+    expect(panel).toContain('4. LINEへ登録');
+    expect(panel).toContain('5. この画像に切替');
+    expect(panel).toContain('「処方せん事前送信」と「受付状況」は同時にON/OFF');
+    expect(panel).toContain("localStorage.getItem('lh_staff_role')");
+    expect(panel).toContain('一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。');
+    expect(panel).toContain("versionsResponse.data.length === 0 ? current || '通常営業メニュー' : current");
+    expect(panel).toContain('保存済みメニュー');
+    expect(panel).toContain('メニュー名');
+    expect(panel).not.toContain('保存済み画像version');
+    expect(panel).toContain('disabled={lifecycleSaving || lifecycle.state === state || !canMutate}');
+    expect(panel).toContain('disabled={index === 0 || saving || !canMutate}');
+    expect(panel).toContain('disabled={dirty || creating || !versionName.trim() || !canMutate}');
     expect(panel).toContain("readiness.capabilityEnabled ? '#pharmacy-rich-menu-layout-editor' : '/pharmacy-features'");
     expect(panel).toContain('aria-label={`${label}を前へ移動`}');
     expect(panel).toContain('aria-label={`${label}を後ろへ移動`}');

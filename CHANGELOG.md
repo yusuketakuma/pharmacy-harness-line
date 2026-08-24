@@ -1,5 +1,27 @@
 # Changelog
 
+## Pharmacy v0.31.1 (Unreleased)
+
+> package versionはdevelopment candidateとして`0.31.1`へ更新しました。seller tag `pharmacy-v0.31.1`、GitHub Release、production deploy、account activation、実アカウントのLINE mutationは実施していません。
+
+### リッチメニューの初期設定と並び替え
+
+- 左上を「処方せん事前送信」へ統一し、管理画面の並び替え表示も実画像の「受付状況」「服薬後フォロー」「薬局へ相談」「薬局情報」と一致
+- 機能設定から既存の並び替え位置へ直接移動し、画面内に「機能ON/OFF → 並び順保存 → 画像保存 → LINE登録 → 初期表示切替」の5手順を表示
+- 初回だけ保存名へ「通常営業メニュー」を自動入力し、利用者向けの`version`・`catalog`表記を「保存済みメニュー」・「画像テンプレート」へ変更
+- 「処方せん事前送信」と「受付状況」は同じ処方せん受付設定で同時にON/OFFされることを明示
+
+### 権限制御
+
+- 一般スタッフは保存状態・画像・公開中との差分を閲覧できますが、並び順、運用状態、保存済みメニュー、LINE登録・切替・復旧は変更不可
+- owner/adminだけが変更できる境界を管理画面とWorker APIの両方で検証し、LINE readiness確認や外部mutationより前に403で拒否
+- すべての薬局向けquery・mutationは既存どおり`line_account_id`、tenant、スタッフ割り当て、機能許可で限定
+
+### development gate
+
+- database migrationと新規dependencyはありません
+- `dev`向けPRのrequired checkとdevelopment deployは未確認です。成功証拠が得られるまでrelease完了とは扱いません
+
 ## Pharmacy v0.31.0 (2026-08-24)
 
 > package version `0.31.0`とseller tag `pharmacy-v0.31.0`は別identityです。この項目はsource変更を記録し、production deploy、account activation、LINE mutationはそれぞれの実行証拠で確認します。
