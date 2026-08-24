@@ -444,8 +444,10 @@ describe('pharmacy tenant API allowlist', () => {
       root.request('/api/chats', {}, env),
       root.request('/api/rich-menu-groups?accountId=account-a', {}, env),
       root.request('/api/account-settings/test-recipients?accountId=account-a', {}, env),
+      root.request('/api/meet-consultations', { method: 'POST' }, env),
+      root.request('/api/meet-consultations/event-a', { method: 'DELETE' }, env),
     ]);
-    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200, 200]);
   });
 
   it('rejects generic and nested growth features for a pharmacy tenant', async () => {

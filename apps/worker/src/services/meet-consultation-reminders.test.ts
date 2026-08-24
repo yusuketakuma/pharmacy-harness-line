@@ -238,7 +238,7 @@ describe('meet consultation tenant and account scope', () => {
 });
 
 describe('processDueMeetConsultationReminders', () => {
-  it('sends through the Harness proxy and marks the reminder sent', async () => {
+  it('sends pharmacy-account reminders through the Harness proxy with a PHI-free template', async () => {
     const updates: unknown[][] = [];
     const queries: string[] = [];
     const db = {
@@ -281,6 +281,7 @@ describe('processDueMeetConsultationReminders', () => {
       const body = await request.json() as { to: string; messages: Array<{ text: string }> };
       expect(body.to).toBe('U00000000000000000000000000000000');
       expect(body.messages[0].text).toContain('Google Meet');
+      expect(body.messages[0].text).not.toContain('AI導入');
       return new Response('{}', { status: 200 });
     });
 
@@ -292,9 +293,8 @@ describe('processDueMeetConsultationReminders', () => {
 
     expect(result).toEqual({ sent: 1, failed: 0 });
     expect(dispatch).toHaveBeenCalledOnce();
-    expect(queries.find((sql) => sql.includes('FROM meet_consultation_reminders'))).toContain(
-      'pharmacy_account_capabilities',
-    );
+    expect(queries.find((sql) => sql.includes('FROM meet_consultation_reminders')))
+      .not.toContain('pharmacy_account_capabilities');
     expect(updates).toContainEqual([
       '2026-08-09T00:00:00.000Z',
       '2026-08-09T00:00:00.000Z',

@@ -20,6 +20,7 @@ const PHARMACY_ALLOWED_API_PREFIXES = [
   '/api/conversations',
   '/api/inbox',
   '/api/images',
+  '/api/meet-consultations',
   '/api/rich-menu-groups',
   '/api/rich-menu-images',
   '/api/tags',
