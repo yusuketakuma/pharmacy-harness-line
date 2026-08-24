@@ -118,7 +118,7 @@ route/page/test実在性とmount順は回帰テスト実行時に再確認しま
 | `routes/crm/chats.ts` | `GET /api/chats`, `GET /api/chats/:id`, `POST /api/chats`, `PUT /api/chats/:id`, `POST /api/chats/:id/loading`, `POST /api/chats/:id/send`, `GET/POST/PUT/DELETE /api/operators`（`GET/POST /api/operators`, `PUT/DELETE /api/operators/:id`） | staff、chat/friend tenant pair | assignment/loading/manual send。CSRF、single-flight、confirm、manual header | PHI / chats list/manual/pair tests |
 | `routes/crm/conversations.ts` | `GET /api/conversations`, `GET /api/conversations/:friendId` | staff、friend/account ownership | read-only | PHI / `conversations-tenant-scope.test.ts` |
 | `routes/messaging/rich-menu-groups.ts` | `GET /api/rich-menu-groups`, `GET /api/rich-menu-groups/:groupId`, `POST /api/rich-menu-groups`, `PATCH /api/rich-menu-groups/:groupId`, `DELETE /api/rich-menu-groups/:groupId`, `POST /api/rich-menu-groups/import`, `POST /api/rich-menu-groups/:groupId/pages/:pageId/image`, `POST /api/rich-menu-groups/:groupId/publish`, `POST /api/rich-menu-groups/:groupId/unpublish`, `POST /api/rich-menu-groups/:groupId/apply-to-tag`, `GET /api/rich-menu-groups/external`, `DELETE /api/rich-menu-groups/external/:richMenuId`, `GET /api/rich-menu-groups/external/:richMenuId/image`, `GET /api/rich-menu-images/:key{.+}`, `POST /api/rich-menu-groups/operations/:operationId/reconcile`, `POST /api/rich-menu-groups/operations/:operationId/resume` | staff、group/account ownership | upload/publish/external apply、CSRF、CAS/operation reconcile、explicit external confirmation | operational-sensitive / rich-menu route tests |
-| `routes/booking/meet-consultations.ts` | `GET /api/meet-consultations`, `POST /api/meet-consultations`, `DELETE /api/meet-consultations/:externalEventId` | authenticated tenant と `tenant_line_accounts` から server-side scope。friend/event id は selector のみ | Calendar event 登録、cancel、reminder follow-up。human confirmation必須 | operational-sensitive / account-scope negative tests |
+| `routes/booking/meet-consultations.ts` | `GET /api/meet-consultations`, `POST /api/meet-consultations`, `DELETE /api/meet-consultations/:externalEventId` | authenticated tenant、staff account assignment、`tenant_line_accounts` から server-side scope。friend/event id は selector のみ | Calendar event 登録、cancel、reminder follow-up。human confirmation必須 | operational-sensitive / route account-scope negative tests |
 
 ### Custom pharmacy APIs
 
@@ -167,7 +167,7 @@ route/page/test実在性とmount順は回帰テスト実行時に再確認しま
 
 ### Meet consultation follow-up
 
-`/api/meet-consultations` は `GET/POST/DELETE` を inventory しました。list は authenticated tenant の mapping に限定し、登録と取消は friend/event selector を server-side で所有 LINE account に解決した後、shared service でも exact `line_account_id` を再確認します。Google Calendar event ID、LINE friend ID、日時、Meet URL の登録後に、前日・1時間前リマインドをセットし、cancel 時は `DELETE /api/meet-consultations/:externalEventId` が必要です。実際の Google Calendar/LINE/Meet 操作はこの inventory の検証範囲外です。
+`/api/meet-consultations` は `GET/POST/DELETE` を inventory しました。list は authenticated tenant とstaffのaccount assignmentに限定し、登録と取消は friend/event selector をserver-sideで所有 LINE accountへ解決した後、shared serviceでもexact `line_account_id`を再確認します。相談本体と前日・1時間前リマインドは同じD1 batchで登録します。Google Calendar event ID、LINE friend ID、日時、Meet URL の登録後に、前日・1時間前リマインドをセットし、cancel 時は `DELETE /api/meet-consultations/:externalEventId` が必要です。実際の Google Calendar/LINE/Meet 操作はこの inventory の検証範囲外です。
 
 ### Mounted recovery route
 

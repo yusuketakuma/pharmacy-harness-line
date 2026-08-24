@@ -194,6 +194,8 @@ describe('V032 route inventory', () => {
       meetFollowUp: 'required-calendar-and-reminders',
       queryAuthority: 'server-tenant/account-bound',
     });
+    expect(meet?.authority).toMatch(/staff account assignment/iu);
+    expect(meet?.testReferences).toContain('apps/worker/src/routes/booking/meet-consultations.test.ts');
     expect(meet?.confirmation).toMatch(/calendar|reminders/iu);
     expect(recovery).toMatchObject({ reachability: 'reachable' });
     expect(recovery?.routePaths).toContainEqual({

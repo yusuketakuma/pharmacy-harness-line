@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import {
   cancelMeetConsultation,
@@ -7,6 +8,54 @@ import {
   registerMeetConsultation,
   renderMeetReminderText,
 } from './meet-consultation-reminders.js';
+
+function consultationDb() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec(`PRAGMA foreign_keys = ON;
+    CREATE TABLE friends (
+      id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, is_following INTEGER NOT NULL
+    );
+    CREATE TABLE meet_consultations (
+      id TEXT PRIMARY KEY, external_event_id TEXT NOT NULL UNIQUE,
+      friend_id TEXT NOT NULL REFERENCES friends(id), title TEXT NOT NULL,
+      starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, meet_url TEXT NOT NULL,
+      status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE meet_consultation_reminders (
+      id TEXT PRIMARY KEY, consultation_id TEXT NOT NULL REFERENCES meet_consultations(id),
+      kind TEXT NOT NULL, scheduled_at TEXT NOT NULL, status TEXT NOT NULL,
+      retry_count INTEGER NOT NULL, sent_at TEXT, last_error TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE (consultation_id, kind)
+    );
+    INSERT INTO friends VALUES ('friend-a', 'account-a', 1);`);
+  const statement = (sql: string, values: unknown[] = []) => ({
+    __sql: sql,
+    __values: values,
+    bind: (...next: unknown[]) => statement(sql, next),
+    first: async <T>() => sqlite.prepare(sql).get(...values) as T | undefined ?? null,
+    runSync: () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...values).changes) } }),
+    run: async () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...values).changes) } }),
+  });
+  const db = {
+    prepare: (sql: string) => statement(sql),
+    batch: async (statements: D1PreparedStatement[]) => {
+      const results: Array<{ meta: { changes: number } }> = [];
+      sqlite.exec('BEGIN');
+      try {
+        for (const item of statements as unknown as Array<ReturnType<typeof statement>>) {
+          results.push(item.runSync());
+        }
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (error) {
+        sqlite.exec('ROLLBACK');
+        throw error;
+      }
+    },
+  } as unknown as D1Database;
+  return { db, sqlite };
+}
 
 describe('calculateMeetReminderSchedule', () => {
   it('schedules the previous day and one hour before', () => {
@@ -60,11 +109,11 @@ describe('meet consultation tenant and account scope', () => {
       },
     } as unknown as D1Database;
 
-    await listMeetConsultations(db, 'tenant-a', 'confirmed');
+    await listMeetConsultations(db, 'tenant-a', 'account-a', 'confirmed');
 
     expect(calls[0].sql).toContain('tenant_line_accounts');
     expect(calls[0].sql).toContain('f.line_account_id');
-    expect(calls[0].values).toEqual(['confirmed', 'confirmed', 'tenant-a']);
+    expect(calls[0].values).toEqual(['confirmed', 'confirmed', 'tenant-a', 'account-a']);
   });
 
   it('rejects a friend outside the server-resolved LINE account before registration', async () => {
@@ -110,6 +159,81 @@ describe('meet consultation tenant and account scope', () => {
     )).resolves.toBe(false);
     expect(calls[0].sql).toContain('line_account_id = ?');
     expect(calls[0].values).toEqual(['event-a', 'account-b']);
+  });
+
+  it('writes the consultation and both required reminders in one D1 batch', async () => {
+    const { db, sqlite } = consultationDb();
+
+    await registerMeetConsultation(db, {
+      externalEventId: 'event-a',
+      friendId: 'friend-a',
+      title: 'Synthetic consultation',
+      startsAt: '2026-08-10T10:00:00.000Z',
+      endsAt: '2026-08-10T11:00:00.000Z',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    }, 'account-a', new Date('2026-08-08T00:00:00.000Z'));
+
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM meet_consultations').get())
+      .toEqual({ count: 1 });
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM meet_consultation_reminders').get())
+      .toEqual({ count: 2 });
+    sqlite.close();
+  });
+
+  it('rolls back the consultation when either required reminder cannot be stored', async () => {
+    const { db, sqlite } = consultationDb();
+    sqlite.exec(`CREATE TRIGGER reject_hour_before
+      BEFORE INSERT ON meet_consultation_reminders
+      WHEN NEW.kind = 'hour_before'
+      BEGIN SELECT RAISE(ABORT, 'synthetic reminder failure'); END;`);
+
+    await expect(registerMeetConsultation(db, {
+      externalEventId: 'event-a',
+      friendId: 'friend-a',
+      title: 'Synthetic consultation',
+      startsAt: '2026-08-10T10:00:00.000Z',
+      endsAt: '2026-08-10T11:00:00.000Z',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    }, 'account-a', new Date('2026-08-08T00:00:00.000Z'))).rejects.toThrow(/reminder failure/);
+
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM meet_consultations').get())
+      .toEqual({ count: 0 });
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM meet_consultation_reminders').get())
+      .toEqual({ count: 0 });
+    sqlite.close();
+  });
+
+  it('converges on the event owner when another registration wins the insert race', async () => {
+    const { db, sqlite } = consultationDb();
+    const racingDb = {
+      ...db,
+      batch: async (statements: D1PreparedStatement[]) => {
+        sqlite.prepare(`INSERT INTO meet_consultations
+          (id, external_event_id, friend_id, title, starts_at, ends_at, meet_url,
+           status, created_at, updated_at)
+          VALUES ('winner', 'event-race', 'friend-a', 'Concurrent', ?, ?, ?,
+           'confirmed', ?, ?)`).run(
+          '2026-08-10T10:00:00.000Z', '2026-08-10T11:00:00.000Z',
+          'https://meet.google.com/abc-defg-hij',
+          '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z',
+        );
+        return db.batch(statements);
+      },
+    } as D1Database;
+
+    const result = await registerMeetConsultation(racingDb, {
+      externalEventId: 'event-race',
+      friendId: 'friend-a',
+      title: 'Synthetic consultation',
+      startsAt: '2026-08-10T10:00:00.000Z',
+      endsAt: '2026-08-10T11:00:00.000Z',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    }, 'account-a', new Date('2026-08-08T00:00:00.000Z'));
+
+    expect(result.id).toBe('winner');
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM meet_consultation_reminders
+      WHERE consultation_id = 'winner'`).get()).toEqual({ count: 2 });
+    sqlite.close();
   });
 });
 

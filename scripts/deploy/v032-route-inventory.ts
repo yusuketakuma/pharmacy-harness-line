@@ -976,10 +976,10 @@ const apiDefinitions: EntryDefinition[] = [
   {
     id: 'api-meet-consultations',
     kind: 'api', surface: 'pharmacy-admin', path: '/api/meet-consultations*', source: 'apps/worker/src/routes/booking/meet-consultations.ts',
-    testReferences: ['apps/worker/src/services/meet-consultation-reminders.test.ts', 'apps/worker/src/services/webinar-consultation-booking.test.ts'],
+    testReferences: ['apps/worker/src/routes/booking/meet-consultations.test.ts', 'apps/worker/src/services/meet-consultation-reminders.test.ts', 'apps/worker/src/services/webinar-consultation-booking.test.ts'],
     roles: ['tenant-admin', 'staff'],
-    authority: 'authenticated tenant is server context; list uses tenant mapping and mutations resolve friend/event to an owned LINE account',
-    lineAccountIdAuthority: 'server resolves friendId/externalEventId selectors through tenant_line_accounts and rechecks exact line_account_id in the shared service',
+    authority: 'authenticated tenant and staff account assignment are server context; mutations resolve friend/event to an owned LINE account',
+    lineAccountIdAuthority: 'server checks staff assignment, resolves friendId/externalEventId through tenant_line_accounts, and rechecks exact line_account_id in the shared service',
     displayedInfo: ['Google Calendar event id', 'LINE friend id', 'date/time and Meet URL'],
     mutation: 'register/update consultation follow-up and cancel external event/reminders',
     confirmation: 'required human confirmation plus calendar registration and day-before/hour-before reminders',
