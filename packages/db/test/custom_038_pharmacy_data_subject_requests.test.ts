@@ -13,6 +13,7 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATION = join(ROOT, 'migrations/custom_038_pharmacy_data_subject_requests.sql');
+const RETENTION_MIGRATION = join(ROOT, 'migrations/custom_057_pharmacy_retention_deletion_intents.sql');
 const NOW = new Date('2026-08-20T00:00:00.000Z');
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
@@ -58,7 +59,7 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
     VALUES (?, ?, ?, ?)`).run(`tenant-${suffix}`, `account-${suffix}`, TS, TS);
   db.prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
-    VALUES (?, ?, ?, 1, ?, ?)`).run(`friend-${suffix}`, `U-${suffix}`, `account-${suffix}`, TS, TS);
+    VALUES (?, ?, ?, 1, ?, ?)`).run(`friend-${suffix}`, `U-${suffix}`, `account-${suffix}`, OLD, OLD);
   db.prepare(`INSERT INTO pharmacy_patients
     (id, line_account_id, owner_friend_id, relationship, name, name_kana,
      birth_date, created_at, updated_at)
@@ -123,6 +124,7 @@ describe('custom_038 pharmacy data subject requests', () => {
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
     db.exec(readFileSync(MIGRATION, 'utf8'));
+    db.exec(readFileSync(RETENTION_MIGRATION, 'utf8'));
     d1 = d1From(db);
     seedAccount(db, 'a');
     seedAccount(db, 'b');
@@ -211,6 +213,17 @@ describe('custom_038 pharmacy data subject requests', () => {
     await expect(listDataSubjectRequests(d1, 'account-a')).resolves.toHaveLength(1);
   });
 
+  it('does not resolve an erasure request before a retention assessment', async () => {
+    const created = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'erasure', reason: '先に消去確定しない', staffId: 'staff-a', now: NOW,
+    });
+    await expect(resolveDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', requestId: created.id, expectedVersion: created.version,
+      decision: 'resolved', outcomeNote: '未評価', staffId: 'staff-a', now: NOW,
+    })).rejects.toThrow(/retention assessment required/i);
+  });
+
   it('holds an erasure request whose newest PHI is still inside the 3-year period', async () => {
     seedPhi(db, 'a', '2024-08-20T00:00:00.000Z');
     const created = await createDataSubjectRequest(d1, {
@@ -242,6 +255,34 @@ describe('custom_038 pharmacy data subject requests', () => {
       staffId: 'staff-a', now: NOW,
     });
     expect(rejected).toMatchObject({ status: 'rejected' });
+  });
+
+  it('re-evaluates all sources immediately before resolving an erasure', async () => {
+    seedPhi(db, 'a', '2020-01-01T00:00:00.000Z');
+    const created = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'erasure', reason: '再評価', staffId: 'staff-a', now: NOW,
+    });
+    const verified = await markDataSubjectIdentityVerified(d1, {
+      lineAccountId: 'account-a', requestId: created.id,
+      expectedVersion: created.version, staffId: 'staff-a', now: NOW,
+    });
+    const assessed = await assessDataSubjectLegalHold(d1, {
+      lineAccountId: 'account-a', requestId: created.id,
+      expectedVersion: verified.version, staffId: 'staff-a', now: NOW,
+    });
+    db.prepare(`INSERT INTO pharmacy_patient_intake_responses
+      (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
+       patient_snapshot_json, answers_json, idempotency_key,
+       representative_consent_at, privacy_consent_at, created_at)
+      VALUES ('intake-a-new', 'account-a', 'friend-a', 'patient-a', 2, 1, '{}', '{}',
+              'intake-key-a-new', ?, ?, ?)`).run(
+      NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+    );
+    await expect(resolveDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', requestId: created.id, expectedVersion: assessed.version,
+      decision: 'resolved', outcomeNote: '再評価後に消去', staffId: 'staff-a', now: NOW,
+    })).rejects.toThrow(/legal hold/i);
   });
 
   it('never blocks an access request, even while the legal hold applies', async () => {
