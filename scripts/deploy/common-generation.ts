@@ -1090,10 +1090,19 @@ function scalarCount(db: DatabaseSync, sql: string, ...values: Array<string | nu
   return count;
 }
 
+function d1SchemaFingerprint(db: DatabaseSync): Sha256 {
+  const rows = db.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_schema
+    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name`).all();
+  return hash(canonicalizeCommonGeneration(rows));
+}
+
 function validateD1Readback(db: DatabaseSync, manifest: CommonGenerationManifest): void {
   const integrity = db.prepare('PRAGMA integrity_check').get() as { integrity_check?: string } | undefined;
   if (integrity?.integrity_check !== 'ok') fail('D1 integrity check failed');
   if (db.prepare('PRAGMA foreign_key_check').all().length !== 0) fail('D1 referential integrity check failed');
+  if (d1SchemaFingerprint(db) !== manifest.d1.schema.fingerprint) {
+    fail('D1 schema fingerprint mismatch after restore');
+  }
 
   for (const [table, expectedCount] of Object.entries(manifest.d1.logicalInventory.tableCounts)) {
     if (!tableExists(db, table)) fail('D1 logical inventory table is missing after restore');
@@ -1235,6 +1244,16 @@ async function validateFleReadback(
        AND response.revision = envelope.source_revision
      ORDER BY envelope.response_id, envelope.field_name
   `).all() as unknown as FleReadbackRow[];
+  const responseCount = scalarCount(
+    db,
+    'SELECT COUNT(*) AS count FROM pharmacy_patient_intake_responses WHERE line_account_id = ?',
+    manifest.scope.lineAccountId,
+  );
+  for (const field of COMMON_GENERATION_FLE_FIELDS) {
+    if (manifest.fle.referenceCounts[field] !== responseCount) {
+      fail('FLE signed coverage does not include every restored intake row');
+    }
+  }
   const counts = new Map<string, number>();
   const nonceKeys = new Set<string>();
   for (const row of rows) {

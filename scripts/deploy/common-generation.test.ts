@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import {
   canonicalizeCommonGeneration,
@@ -167,6 +168,18 @@ function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+function schemaFingerprint(sql: string): `sha256:${string}` {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec(sql);
+    const rows = db.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_schema
+      WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name`).all();
+    return sha256CommonGeneration(canonicalizeCommonGeneration(rows));
+  } finally {
+    db.close();
+  }
+}
+
 async function syntheticRestoreFixture(now = Date.now(), includeWatermarkTables = true) {
   const generation = 'g-restore-1';
   const lineAccountId = 'line-account-1';
@@ -320,7 +333,7 @@ async function syntheticRestoreFixture(now = Date.now(), includeWatermarkTables 
       embeddedFenceId: fence.id,
       embeddedFenceEpoch: fence.epoch,
       embeddedCutId: fence.cutId,
-      schema: { version: 1, fingerprint: digest('c') },
+      schema: { version: 1, fingerprint: schemaFingerprint(sql) },
       orderedMigrations: [{ order: 58, name: 'custom_058.sql', checksum: digest('d') }],
       logicalInventory: {
         rootSha256: sha256CommonGeneration(canonicalizeCommonGeneration(tableCounts)),
@@ -711,6 +724,76 @@ describe('isolated restore rehearsal', () => {
       fleRootSecret: SYNTHETIC_FLE_SECRET,
       retainedGenerations: fixture.retainedGenerations,
     })).rejects.toThrow(/fingerprint|FLE/i);
+  });
+
+  it('rejects a signed inventory that omits envelopes for restored intake rows', async () => {
+    const fixture = await syntheticRestoreFixture();
+    const artifacts = clone(fixture.artifacts);
+    const sql = `${new TextDecoder().decode(artifacts.d1.bytes)}\nDELETE FROM pharmacy_patient_intake_envelopes;`;
+    artifacts.d1.bytes = new TextEncoder().encode(sql);
+    artifacts.d1.schema.fingerprint = schemaFingerprint(sql);
+    artifacts.d1.logicalInventory.tableCounts.pharmacy_patient_intake_envelopes = 0;
+    artifacts.d1.logicalInventory.rootSha256 = sha256CommonGeneration(
+      canonicalizeCommonGeneration(artifacts.d1.logicalInventory.tableCounts),
+    );
+    artifacts.fle.fieldInventory = artifacts.fle.fieldInventory.map((field) => ({
+      ...field, referenceCount: 0,
+    }));
+    artifacts.fle.referenceCounts = Object.fromEntries(
+      Object.keys(artifacts.fle.referenceCounts).map((field) => [field, 0]),
+    );
+    const manifest = await captureCommonGeneration({
+      manifestId: 'manifest-missing-fle-coverage',
+      generation: fixture.manifest.generation,
+      scope: fixture.manifest.scope,
+      source: fixture.manifest.source,
+      fence: fixture.fence,
+      readers: {
+        readFence: () => fixture.fence,
+        readD1: () => artifacts.d1,
+        readR2: () => artifacts.r2,
+        readFle: () => artifacts.fle,
+        readWatermarks: () => artifacts.watermarks,
+      },
+    });
+
+    await expect(runIsolatedRestoreRehearsal({
+      signedManifest: fixture.signer.sign(manifest),
+      pinnedTrustStore: fixture.pinnedTrustStore,
+      target: createNoSendIsolatedRestoreTarget(),
+      artifacts,
+      fleRootSecret: SYNTHETIC_FLE_SECRET,
+      retainedGenerations: fixture.retainedGenerations,
+    })).rejects.toThrow(/FLE.*coverage|coverage.*FLE/i);
+  });
+
+  it('rejects a signed schema fingerprint that does not match restored D1', async () => {
+    const fixture = await syntheticRestoreFixture();
+    const artifacts = clone(fixture.artifacts);
+    artifacts.d1.schema.fingerprint = digest('9');
+    const manifest = await captureCommonGeneration({
+      manifestId: 'manifest-schema-mismatch',
+      generation: fixture.manifest.generation,
+      scope: fixture.manifest.scope,
+      source: fixture.manifest.source,
+      fence: fixture.fence,
+      readers: {
+        readFence: () => fixture.fence,
+        readD1: () => artifacts.d1,
+        readR2: () => artifacts.r2,
+        readFle: () => artifacts.fle,
+        readWatermarks: () => artifacts.watermarks,
+      },
+    });
+
+    await expect(runIsolatedRestoreRehearsal({
+      signedManifest: fixture.signer.sign(manifest),
+      pinnedTrustStore: fixture.pinnedTrustStore,
+      target: createNoSendIsolatedRestoreTarget(),
+      artifacts,
+      fleRootSecret: SYNTHETIC_FLE_SECRET,
+      retainedGenerations: fixture.retainedGenerations,
+    })).rejects.toThrow(/schema fingerprint/i);
   });
 
   it('derives RPO from signed completion time instead of accepting a caller number', async () => {
