@@ -79,11 +79,15 @@ describe('retention recovery preflight', () => {
   });
 
   it('derives a scope-bound, drift-sensitive preflight from the verified backup and live inventory', async () => {
+    sqlite.prepare(`INSERT INTO pharmacy_incoming_image_objects
+      (r2_key, tenant_id, line_account_id, message_id, stored_at)
+      VALUES ('tenants/tenant-a/accounts/account-a/incoming/recent.jpg',
+       'tenant-a', 'account-a', 'message-recent', '2026-08-23T00:00:00.000Z')`).run();
     const first = await buildRetentionPreflight(db, {
       scope, backupGenerationId: 'backup-a', operationCreatedAt: createdAt,
     });
     expect(first).toMatchObject({
-      backupGenerationId: 'backup-a', expectedRowCount: 100, expectedObjectCount: 3,
+      backupGenerationId: 'backup-a', expectedRowCount: 1, expectedObjectCount: 1,
       keyVersions: ['none'], coverageTotal: 2, coverageVerified: true,
       keyRecoveryAcknowledged: true, stopPolicy: 'stop-on-drift',
       rollbackPolicy: 'reconcile-only-no-blind-retry',
@@ -91,6 +95,7 @@ describe('retention recovery preflight', () => {
     for (const digest of [
       first.schemaDigest, first.fieldInventoryDigest, first.evidenceDigest, first.rowDigest,
     ]) expect(digest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(first.evidenceDigest).toBe('a'.repeat(64));
 
     sqlite.prepare(`UPDATE pharmacy_prescription_files SET revision = 2 WHERE id = 'file-a'`).run();
     const drifted = await buildRetentionPreflight(db, {

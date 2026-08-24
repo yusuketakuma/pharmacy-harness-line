@@ -388,11 +388,14 @@ async function backupMatches(
     expected_row_count: number;
     expected_object_count: number;
   }>();
-  return Boolean(row && row.expected_row_count === preflight.expectedRowCount &&
+  if (!row) return false;
+  // Retention target counts come from its server-built live inventory.
+  if (operation === 'retention_delete') {
+    return row.manifest_digest === preflight.evidenceDigest;
+  }
+  return row.expected_row_count === preflight.expectedRowCount &&
     row.expected_object_count === preflight.expectedObjectCount &&
-    // Retention uses a server-built composite evidence digest which already
-    // includes this manifest digest and is rebuilt immediately before mutation.
-    (operation === 'retention_delete' || row.manifest_digest === preflight.evidenceDigest));
+    row.manifest_digest === preflight.evidenceDigest;
 }
 
 function preflightEqual(a: RecoveryPreflight, b: RecoveryPreflight): boolean {

@@ -103,9 +103,12 @@ export async function buildRetentionPreflight(
        LEFT JOIN pharmacy_incoming_image_dispositions AS disposition
               ON disposition.r2_key = object.r2_key
       WHERE object.tenant_id = ? AND object.line_account_id = ?
+        AND object.stored_at < ?
+        AND (disposition.status IS NULL OR disposition.status IN
+          ('TRACKED', 'CANCELLED_HELD', 'CANCELLED_UNKNOWN', 'CANCELLED_STALE'))
       ORDER BY object.stored_at, object.r2_key LIMIT ?`,
   ).bind(
-    input.scope.tenantId, input.scope.lineAccountId, MAX_INVENTORY_ROWS + 1,
+    input.scope.tenantId, input.scope.lineAccountId, cutoff, MAX_INVENTORY_ROWS + 1,
   ).all<Record<string, unknown>>();
   const holds = await db.prepare(
     `SELECT owner_friend_id, patient_key, epoch, status, release_at, updated_at
@@ -136,20 +139,20 @@ export async function buildRetentionPreflight(
     fieldInventoryDigest: await sha256(RETENTION_SOURCE_INVENTORY),
     keyVersions: ['none'],
     backupGenerationId: input.backupGenerationId,
-    expectedRowCount: backup.expected_row_count,
-    expectedObjectCount: backup.expected_object_count,
+    expectedRowCount: prescriptionRows.length,
+    expectedObjectCount: incomingRows.length,
     stopPolicy: 'stop-on-drift',
     rollbackPolicy: 'reconcile-only-no-blind-retry',
-    evidenceDigest: await sha256({
+    evidenceDigest: backup.manifest_digest,
+    rowDigest: await sha256({
       scope: input.scope,
       asOf: input.operationCreatedAt,
       cutoff,
-      backupManifestDigest: backup.manifest_digest,
+      prescriptionRows,
       incomingRows,
       holdRows,
       requestRows,
     }),
-    rowDigest: await sha256(prescriptionRows),
     coverageTotal: prescriptionRows.length + incomingRows.length,
     coverageVerified: true,
     keyRecoveryAcknowledged: true,

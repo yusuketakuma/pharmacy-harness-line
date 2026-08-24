@@ -45,6 +45,7 @@ const retentionMocks = vi.hoisted(() => ({
   incomingImageRetentionReadiness: vi.fn(),
   purgePrescriptionFilesPastRetention: vi.fn(),
   purgeTrackedIncomingImages: vi.fn(),
+  reconcileIncomingImageDeletionOutcomes: vi.fn(),
   reconcileIncomingImageInventory: vi.fn(),
   reconcilePrescriptionDeletionIntents: vi.fn(),
 }));
@@ -58,6 +59,7 @@ vi.mock('../retention/incoming-images.js', () => ({
   backfillIncomingImageTracking: retentionMocks.backfillIncomingImageTracking,
   incomingImageRetentionReadiness: retentionMocks.incomingImageRetentionReadiness,
   purgeTrackedIncomingImages: retentionMocks.purgeTrackedIncomingImages,
+  reconcileIncomingImageDeletionOutcomes: retentionMocks.reconcileIncomingImageDeletionOutcomes,
   reconcileIncomingImageInventory: retentionMocks.reconcileIncomingImageInventory,
 }));
 vi.mock('../prescriptions/retention-purge.js', () => ({
@@ -91,6 +93,7 @@ const preflight = {
 const retentionPreflight = {
   ...preflight,
   keyVersions: ['none'],
+  expectedObjectCount: 1,
   stopPolicy: 'stop-on-drift',
   rollbackPolicy: 'reconcile-only-no-blind-retry',
   coverageTotal: 2,
@@ -178,12 +181,15 @@ beforeEach(() => {
     keyVersions: preflight.keyVersions,
   });
   retentionMocks.buildRetentionPreflight.mockResolvedValue(retentionPreflight);
-  retentionMocks.backfillIncomingImageTracking.mockResolvedValue({ tracked: 1, skipped: 0, blocked: 0 });
+  retentionMocks.backfillIncomingImageTracking.mockResolvedValue({ tracked: 0, skipped: 0, blocked: 0 });
   retentionMocks.reconcileIncomingImageInventory.mockResolvedValue({
     orphan: 0, missing: 0, mismatch: 0, unknown: 0,
   });
   retentionMocks.purgePrescriptionFilesPastRetention.mockResolvedValue({ purged: 1, failed: 0, skipped: 0 });
   retentionMocks.purgeTrackedIncomingImages.mockResolvedValue({ purged: 1, failed: 0, skipped: 0 });
+  retentionMocks.reconcileIncomingImageDeletionOutcomes.mockResolvedValue({
+    purged: 0, failed: 0, skipped: 0,
+  });
   retentionMocks.reconcilePrescriptionDeletionIntents.mockResolvedValue({ purged: 0, failed: 0, skipped: 0 });
   retentionMocks.incomingImageRetentionReadiness.mockResolvedValue({
     status: 'BLOCKED', blockedReasons: ['ec_sale_counter_audit_dependency_unresolved'],
@@ -404,6 +410,9 @@ describe('platform-admin data protection recovery routes', () => {
       cursor: 'cursor-a',
     };
     recoveryMocks.getRecoveryOperation.mockResolvedValue(running);
+    recoveryMocks.markRecoveryProgress.mockResolvedValue({
+      ...running, processedRowCount: 1, processedObjectCount: 0,
+    });
     recoveryMocks.preflightRecoveryOperation.mockResolvedValue(running);
     recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
     recoveryMocks.markRecoveryProgress.mockResolvedValue(running);
@@ -475,6 +484,40 @@ describe('platform-admin data protection recovery routes', () => {
     expect(retentionMocks.purgePrescriptionFilesPastRetention).toHaveBeenCalledOnce();
     expect(retentionMocks.purgeTrackedIncomingImages).toHaveBeenCalledOnce();
     expect(retentionMocks.reconcilePrescriptionDeletionIntents).toHaveBeenCalledOnce();
+    expect(retentionMocks.reconcileIncomingImageDeletionOutcomes).toHaveBeenCalledOnce();
+    expect(recoveryMocks.markRecoveryProgress).toHaveBeenCalledOnce();
     expect(recoveryMocks.completeRecoveryOperation).toHaveBeenCalledOnce();
+    expect(retentionMocks.buildRetentionPreflight).toHaveBeenCalledOnce();
+  });
+
+  it('stales retention before deletion when backfill changes the approved inventory', async () => {
+    const approved = { ...operation, operation: 'retention_delete' as const, preflight: retentionPreflight };
+    const running = {
+      ...approved,
+      status: 'running' as const,
+      executorSubject: 'admin-executor',
+      executionId: 'execution-a',
+      fenceId: 'fence-a',
+      fenceToken: 'f'.repeat(32),
+    };
+    recoveryMocks.getRecoveryOperation.mockResolvedValue(approved);
+    recoveryMocks.claimRecoveryOperation.mockResolvedValue(running);
+    recoveryMocks.preflightRecoveryOperation.mockResolvedValue(running);
+    recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
+    retentionMocks.backfillIncomingImageTracking.mockResolvedValue({ tracked: 1, skipped: 0, blocked: 0 });
+    retentionMocks.incomingImageRetentionReadiness.mockResolvedValue({
+      status: 'READY', blockedReasons: [], tracked: 1, dispositions: 1,
+    });
+
+    const response = await app().request(`${endpoint}/operation-a/execute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRun: false, limit: 10 }),
+    }, env());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: 'STALE' });
+    expect(retentionMocks.purgePrescriptionFilesPastRetention).not.toHaveBeenCalled();
+    expect(retentionMocks.purgeTrackedIncomingImages).not.toHaveBeenCalled();
   });
 });

@@ -37,6 +37,7 @@ import {
   backfillIncomingImageTracking,
   incomingImageRetentionReadiness,
   purgeTrackedIncomingImages,
+  reconcileIncomingImageDeletionOutcomes,
   reconcileIncomingImageInventory,
 } from '../retention/incoming-images.js';
 import { buildRetentionPreflight } from '../retention/preflight.js';
@@ -257,6 +258,11 @@ async function executeRetentionOperation(
   const options = { execution, limit };
   const backfill = await backfillIncomingImageTracking(c.env.DB, options);
   const inventory = await reconcileIncomingImageInventory(c.env.DB, c.env.IMAGES, options);
+  if (backfill.tracked > 0) throw new RecoveryOperationError('STALE');
+  if (backfill.blocked > 0 || inventory.orphan > 0 || inventory.missing > 0 ||
+      inventory.mismatch > 0 || inventory.unknown > 0) {
+    throw new RecoveryOperationError('PREFLIGHT_BLOCKED');
+  }
   const readiness = await incomingImageRetentionReadiness(c.env.DB, { execution });
   if (readiness.status === 'BLOCKED') {
     const blocked = { purged: 0, failed: 0, skipped: 0 };
@@ -265,16 +271,23 @@ async function executeRetentionOperation(
       inventory,
       prescriptions: blocked,
       incoming: blocked,
+      incomingReconcile: blocked,
       prescriptionReconcile: blocked,
       readiness,
     };
   }
   const prescriptions = await purgePrescriptionFilesPastRetention(c.env.DB, c.env.IMAGES, options);
   const incoming = await purgeTrackedIncomingImages(c.env.DB, c.env.IMAGES, options);
+  const incomingReconcile = await reconcileIncomingImageDeletionOutcomes(
+    c.env.DB, c.env.IMAGES, options,
+  );
   const prescriptionReconcile = await reconcilePrescriptionDeletionIntents(
     c.env.DB, c.env.IMAGES, options,
   );
-  return { backfill, inventory, prescriptions, incoming, prescriptionReconcile, readiness };
+  return {
+    backfill, inventory, prescriptions, incoming, incomingReconcile,
+    prescriptionReconcile, readiness,
+  };
 }
 
 platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}`, async (c) => {
@@ -383,7 +396,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
     return c.json({ success: false, error: 'Execute requires dryRun=false' }, 400);
   }
   let preflight = isIntakeOperation ? parsePreflight(body.preflight) : current.preflight;
-  if (current.operation === 'retention_delete' && current.preflight) {
+  if (current.operation === 'retention_delete' && current.preflight && current.status !== 'running') {
     try {
       preflight = await buildRetentionPreflight(c.env.DB, {
         scope: current.scope,
@@ -435,13 +448,37 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
       }
       const result = await executeRetentionOperation(c, execution, limit);
       const failed = result.prescriptions.failed + result.incoming.failed +
-        result.prescriptionReconcile.failed + result.inventory.unknown;
+        result.incomingReconcile.failed + result.prescriptionReconcile.failed +
+        result.inventory.unknown;
       const blocked = result.backfill.blocked + result.inventory.orphan +
         result.inventory.missing + result.inventory.mismatch +
+        result.prescriptions.skipped + result.incoming.skipped +
+        result.incomingReconcile.skipped + result.prescriptionReconcile.skipped +
         (result.readiness.status === 'BLOCKED' ? 1 : 0);
-      const final = failed === 0 && blocked === 0
-        ? await completeRecoveryOperation(c.env.DB, execution)
+      const rowBatch = result.prescriptions.purged + result.prescriptions.failed +
+        result.prescriptions.skipped;
+      const objectBatch = result.incoming.purged + result.incoming.failed + result.incoming.skipped;
+      const processedRowCount = Math.min(
+        verified.preflight!.expectedRowCount, verified.processedRowCount + rowBatch,
+      );
+      const processedObjectCount = Math.min(
+        verified.preflight!.expectedObjectCount, verified.processedObjectCount + objectBatch,
+      );
+      const progressed = result.readiness.status === 'READY'
+        ? await markRecoveryProgress(c.env.DB, {
+          ...execution,
+          batchId: stringValue(body.batchId) ??
+            `${verified.id}:${verified.processedRowCount}:${verified.processedObjectCount}`,
+          cursor: null,
+          processedRowCount,
+          processedObjectCount,
+        })
         : verified;
+      const final = failed === 0 && blocked === 0 &&
+        processedRowCount === verified.preflight!.expectedRowCount &&
+        processedObjectCount === verified.preflight!.expectedObjectCount
+        ? await completeRecoveryOperation(c.env.DB, execution)
+        : progressed;
       await audit(c.env.DB, admin.id, final,
         failed === 0 && blocked === 0
           ? 'recovery_operation_completed' : 'recovery_operation_progressed', {

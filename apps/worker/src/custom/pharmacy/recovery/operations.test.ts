@@ -323,4 +323,39 @@ describe('pharmacy recovery operation state machine', () => {
       executorSubject: executor.subject, ...scope,
     })).resolves.toMatchObject({ operation: { operation: 'retention_delete' }, fence: { status: 'active' } });
   });
+
+  it('accepts retention target counts that differ from the verified backup inventory', async () => {
+    const { db } = seed();
+    const created = await createRecoveryApproval(db, {
+      scope, operation: 'retention_delete', requestedBy: approver,
+      approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      idempotencyKey: 'retention-target-counts',
+    });
+
+    await expect(preflightRecoveryOperation(db, {
+      operationId: created.id,
+      scope,
+      operation: 'retention_delete',
+      preflight: { ...preflight, expectedRowCount: 0, expectedObjectCount: 1 },
+    })).resolves.toMatchObject({ status: 'preflighted' });
+  });
+
+  it('blocks retention when its verified backup manifest changes', async () => {
+    const { db, sqlite } = seed();
+    const created = await createRecoveryApproval(db, {
+      scope, operation: 'retention_delete', requestedBy: approver,
+      approvalExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      idempotencyKey: 'retention-backup-drift',
+    });
+    await preflightRecoveryOperation(db, {
+      operationId: created.id, scope, operation: 'retention_delete', preflight,
+    });
+    sqlite.prepare(`UPDATE pharmacy_recovery_backup_generations
+      SET manifest_digest = ? WHERE generation_id = 'backup-a' AND environment = 'test'`)
+      .run('f'.repeat(64));
+
+    await expect(preflightRecoveryOperation(db, {
+      operationId: created.id, scope, operation: 'retention_delete', preflight,
+    })).rejects.toMatchObject({ code: 'PREFLIGHT_BLOCKED' });
+  });
 });
