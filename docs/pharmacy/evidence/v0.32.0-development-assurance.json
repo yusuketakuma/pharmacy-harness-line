@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "capturedAt": "2026-08-24T15:10:01Z",
+  "reviewedAt": "2026-08-24T18:40:26Z",
   "environment": "local-synthetic",
   "scope": "v0.32.0-development-assurance",
   "status": "PASS",
@@ -8,6 +9,7 @@
   "sourceCandidate": {
     "branch": "dev",
     "baseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "testedImplementationSha": "00ef41babf3e5704be711e89e23b17c31296d059",
     "identity": "LOCAL_COMMIT",
     "packageVersion": "0.32.0",
     "sellerRelease": "NOT_CREATED",
@@ -77,6 +79,22 @@
     "provenanceAttestation": "NOT_RUN_GITHUB_ONLY",
     "diffCheck": "PASS"
   },
+  "postReviewValidation": {
+    "testedImplementationSha": "00ef41babf3e5704be711e89e23b17c31296d059",
+    "workspaceTestFiles": 410,
+    "workspaceTests": 3294,
+    "workerTestFiles": 225,
+    "workerTests": 2246,
+    "scriptTestFiles": 18,
+    "scriptTests": 210,
+    "migrationChecks": 89,
+    "diffCheck": "PASS",
+    "typecheck": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "workerBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "webBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "liffBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "exactCandidateRepositoryVerify": "NOT_RUN"
+  },
   "developmentResults": {
     "emergencyContraceptionDefault": {
       "status": "PASS",
@@ -123,7 +141,7 @@
     },
     "commonGenerationRestore": {
       "status": "PASS_SYNTHETIC",
-      "syntheticTests": 29,
+      "syntheticTests": 31,
       "manifestSignature": "ED25519_PINNED",
       "watermarkReadback": "RESTORED_D1_CANONICAL_OUTBOX_WEBHOOK",
       "fleKeyFingerprint": "ROOT_SECRET_BOUND",

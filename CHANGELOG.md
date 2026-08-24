@@ -13,6 +13,7 @@
 | 患者 | LINE内の薬局メニューを3つの目的別に整理し、各手続きに現在の状態・次の操作・押しやすいボタン・入力途中の注意を表示 | 目的の機能を見つけやすくなり、処方せん送信や問診で「次に何をすればよいか」を判断しやすい。入力途中の情報を端末へ永続保存しないため、共用端末でも情報が残りにくい |
 | 患者（緊急避妊薬） | 新規薬局アカウントでは機能設定を既定ONに変更。ただし薬剤師・在庫・受付枠・同意などが未準備なら利用開始させない | 薬局側の準備が整った時点で案内を開始しやすく、未準備のまま患者を受付へ進ませる事故を防げる |
 | 薬局職員 | 管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」に整理し、今日の対応、準備不足、権限不足、既存案件の確認専用状態を区別 | 探す時間を減らし、対応が必要な案件と設定作業を混同しにくい。変更できない理由と次の確認先が分かる |
+| 薬局職員（個別相談） | Google Calendarの個別相談を登録・変更すると、担当アカウントに相談記録と前日・1時間前のLINEリマインドをまとめて登録。取消も同じ担当範囲で反映 | 別アカウントの相談を誤操作しにくくなり、予定変更時のリマインド登録漏れを防ぎやすい |
 | 薬局owner/admin | アカウントごとの機能、readiness、設定反映状態を分けて表示し、既存アカウントの明示OFFは維持 | 新機能を段階的に有効化でき、既存運用を意図せずONへ変えることを避けられる |
 | Platform admin・運用担当 | 薬局全体の状態を6領域で確認でき、通常表示から患者件数・内部ID・raw errorを除外。問題はreadiness理由として表示 | 患者情報を広く見せずに、どの薬局が準備不足・未検証・対応待ちかを切り分けやすい |
 | データ保護担当 | 復旧、暗号化移行、保存期限、legal hold、削除を承認・対象範囲・事前確認・再開条件つきのoperationとして管理 | 対象違い、二重実行、結果不明の削除、hold中の削除を止めやすく、復旧可能性を先に確認できる |
@@ -29,7 +30,9 @@
 - named approver/executor、tenant/account/environment、expiry、dry-run、preflight digest、execution fenceを持つ回復operationを追加
 - 患者アンケートFLEの再開可能backfill、coverage、mixed read、write freeze、scrub/restoreのHuman Gate境界を追加。rotation/rewrap未実証のreadinessは`UNVERIFIED`を維持
 - legal hold再評価、処方せん削除intent、incoming image backfill/purge/reconcileをfail-closed化。未知sourceと緊急避妊薬tombstone未決項目は削除しない
+- R2画像を上書き不可で保存し、削除結果が不明な場合は完了扱いせず照合待ちとして記録。途中停止したretention処理は保存済み進捗から安全に再開
 - D1/R2/FLE/outbox/webhookを同一fenceへ束ねたEd25519署名manifestと、production/LINE送信を持たないisolated restore rehearsal contractを追加
+- 復元後のD1 schemaとFLE参照件数を実データから再計算し、不足や不一致を復旧成功として扱わない
 
 ### release境界
 

@@ -829,7 +829,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - D1 restore point/export hash、schema/migration、R2 object inventory/hash、FLE envelope/key version、outbox/webhook watermark、開始/完了時刻を1世代のsigned manifestへ固定する。
   - 別backup先からisolated環境へ復旧し、tenant/account/patient参照完全性、R2所有権、FLE復号、処方せん/患者アンケート/服薬後follow-upのcritical read-back、outbox/webhook reconcileを確認する。
   - RPO 24時間以内、RTO 4時間以内、最低3世代、primary/backup同時破壊防止を実証し、restore rehearsal自体がproduction/LINEへ送信しないことをtestする。
-  - 2026-08-25: D1/R2/FLE/outbox/webhookを同一fenceへ束ねたpinned Ed25519 manifest、実SQL/R2 byteのisolated in-memory read-back、復元D1からのoutbox/webhook watermark照合、FLE root key fingerprint照合、3 failure domains、RPO/RTO、no-sendを29 synthetic testsでPASS。実cloud restoreは`NOT_RUN`。
+  - 2026-08-25: D1/R2/FLE/outbox/webhookを同一fenceへ束ねたpinned Ed25519 manifest、実SQL/R2 byteのisolated in-memory read-back、復元D1のschema fingerprintとoutbox/webhook watermark照合、FLE root key fingerprint・参照件数照合、3 failure domains、RPO/RTO、no-sendを31 synthetic testsでPASS。実cloud restoreは`NOT_RUN`。
 
 - [ ] **V032-6 integrated release gate**
   - 管理画面のroute/API/role inventory 100%、403行き止まり0、raw error/secret/不要PHI表示0、患者LIFF全routeのvisual/interaction contract、cross-tenant negative testをPASSにする。
@@ -837,6 +837,7 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - V032-A1/L2のnavigation再編で変わった画面構成・導線について、`docs/pharmacy/manual-staff.md`/`manual-patient.md`の該当記述を同一version内で更新する(ECF-4の前例に従い、manual更新をv0.38.0まで放置しない)。
   - implementation完了はaffected testをgateとし、release candidateは既存`Repository Verify`、development synthetic journey、LIFF browser smoke、evidence manifestをPASSにする。production drill、deploy、secret投入、scrub、LINE/実患者操作、実端末受入は別Human Gateとし、未実施ならproduction readinessを主張しない。
   - 2026-08-25 local gate: workspace 3,262 tests、scripts 208 tests、89 migrations、3 builds、LIFF Chromium 4 testsがPASS。`docs/pharmacy/evidence/v0.32.0-development-assurance.json`へ記録し、local candidate commitを作成した。exact-candidate `Repository Verify`、development deploy/journey、account activationは`NOT_RUN`であり、本項目とrelease readinessは`BLOCKED`のまま。
+  - 2026-08-25 post-review local gate: tested implementation `00ef41babf3e5704be711e89e23b17c31296d059`でworkspace 3,294 tests、Worker 2,246 tests、scripts 210 tests、89 migrations、`git diff --check`がPASS。review修正後のtypecheck/build、exact-candidate `Repository Verify`、development deploy/journey、account activationは`NOT_RUN`であり、本項目とrelease readinessは引き続き`BLOCKED`。
 
 **PR順序**(Data/Recovery laneは`CB-P0-05`/`CB-P0-04`の直接分母のため先行させる。UI lane(apps/web・apps/liff)とData/Recovery lane(worker/db)は触るコードがほぼ独立のため並行可):
 
