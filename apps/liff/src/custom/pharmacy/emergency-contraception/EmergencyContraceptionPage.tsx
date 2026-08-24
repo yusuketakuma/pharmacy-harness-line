@@ -282,7 +282,7 @@ export function EmergencyAlternativeLinks({
       </div>
       <Link
         to={pharmacyRoute('/prescriptions')}
-        className="mt-3 block text-center text-sm font-bold text-blue-900 underline"
+        className="pharmacy-control mt-3 flex min-h-11 items-center justify-center text-center text-sm font-bold text-blue-900 underline"
       >
         通常の受付へ戻る
       </Link>
