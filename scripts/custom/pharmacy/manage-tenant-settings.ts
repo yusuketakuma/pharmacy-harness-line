@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { open, readFile, unlink } from 'node:fs/promises';
 import { readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
@@ -16,6 +16,7 @@ type CredentialReader = (service: string) => string | undefined;
 
 const VALUE_FLAGS = new Set([
   'worker-url', 'tenant-id', 'account-id', 'method', 'path', 'input', 'content-type',
+  'secret-output',
   'rich-menu-default', 'rich-menu-publish', 'rich-menu-rollback',
 ]);
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -42,6 +43,9 @@ Mutation (dry-run by default):
     --input settings.json \\
     --apply
 
+Staff creation and password reset responses contain a one-time password. Save them to a new
+owner-only file with --secret-output FILE; the secret is never printed to stdout.
+
 Set the published rich menu used by default:
   pnpm tenant:settings -- ... \\
     --account-id LINE_ACCOUNT_ID \\
@@ -64,6 +68,7 @@ Options:
   --method GET|POST|PUT|PATCH|DELETE (default: GET)
   --input FILE
   --content-type TYPE (default: application/json)
+  --secret-output FILE (required with --apply when the response contains a one-time password)
   --preflight --account-id LINE_ACCOUNT_ID (read-only activation check)
   --doctor --account-id LINE_ACCOUNT_ID (read-only config check; exits 0/2/3)
   --apply (required to send a mutation)
@@ -276,7 +281,8 @@ export async function runTenantSettings(
       const command = parsed.doctor ? '--doctor' : '--preflight';
       if (parsed.apply) throw new Error(`${command} cannot be combined with --apply`);
       if (parsed.values.method || parsed.values.path || parsed.values.input ||
-          parsed.values['content-type'] || parsed.values['rich-menu-default'] ||
+          parsed.values['content-type'] || parsed.values['secret-output'] ||
+          parsed.values['rich-menu-default'] ||
           parsed.values['rich-menu-publish'] || parsed.values['rich-menu-rollback']) {
         throw new Error(`${command} cannot be combined with request or mutation options`);
       }
@@ -348,7 +354,8 @@ export async function runTenantSettings(
       if (!/^[A-Za-z0-9_-]{1,128}$/u.test(richMenuGroupId)) {
         throw new Error(`${option} is invalid`);
       }
-      if (parsed.values.method || parsed.values.path || parsed.values.input || parsed.values['content-type']) {
+      if (parsed.values.method || parsed.values.path || parsed.values.input ||
+          parsed.values['content-type'] || parsed.values['secret-output']) {
         throw new Error(`${option} cannot be combined with request options`);
       }
       const accountId = required(parsed.values, 'account-id');
@@ -418,7 +425,7 @@ export async function runTenantSettings(
     if (method !== 'GET' && !MUTATING_METHODS.has(method)) throw new Error('--method is invalid');
     const url = endpoint(workerUrl, required(parsed.values, 'path'));
     const coverage = findPharmacyAdminApiCoverage(method, url.pathname);
-    if (!coverage || !coverage.safeOutput) {
+    if (!coverage || (!coverage.safeOutput && !coverage.secretOutput)) {
       throw new Error('--path is not in pharmacy admin API coverage');
     }
     if (coverage.mutationGate === 'confirmation') {
@@ -426,8 +433,15 @@ export async function runTenantSettings(
     }
     const accountId = accountPin(coverage, url, parsed.values);
     const inputPath = parsed.values.input;
+    const secretOutputPath = parsed.values['secret-output']?.trim();
     if (method === 'GET' && inputPath) throw new Error('--input cannot be used with GET');
     if (method === 'GET' && parsed.apply) throw new Error('--apply cannot be used with GET');
+    if (secretOutputPath && !coverage.secretOutput) {
+      throw new Error('--secret-output is only supported for one-time credential responses');
+    }
+    if (coverage.secretOutput && parsed.apply && !secretOutputPath) {
+      throw new Error('--secret-output is required for this credential mutation');
+    }
 
     let body: Buffer | undefined;
     const contentType = parsed.values['content-type'] ?? 'application/json';
@@ -455,37 +469,76 @@ export async function runTenantSettings(
       return 0;
     }
 
-    return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
-      const response = await fetcher(url.toString(), {
-        method,
-        redirect: 'error',
-        signal: AbortSignal.timeout(60_000),
-        headers: {
-          Authorization: `Bearer ${session.token}`,
-          'X-Tenant-Id': tenantId,
-          ...(body ? { 'Content-Type': contentType } : {}),
-        },
-        body,
-      });
-      if (!response.ok) {
-        write(`Request failed (${response.status}).`);
-        return 1;
+    let secretFile: Awaited<ReturnType<typeof open>> | undefined;
+    let keepSecretFile = false;
+    try {
+      if (secretOutputPath) {
+        try {
+          secretFile = await open(secretOutputPath, 'wx', 0o600);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw new Error('--secret-output already exists');
+          }
+          throw new Error('--secret-output could not be created');
+        }
       }
-      if (method !== 'GET') {
-        write(`${method} completed for tenant ${tenantId}.`);
-        return 0;
-      }
+      return await withPlatformSession(workerUrl, loginId, password, fetcher, async (session) => {
+        const response = await fetcher(url.toString(), {
+          method,
+          redirect: 'error',
+          signal: AbortSignal.timeout(60_000),
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+            'X-Tenant-Id': tenantId,
+            ...(body ? { 'Content-Type': contentType } : {}),
+          },
+          body,
+        });
+        if (!response.ok) {
+          write(`Request failed (${response.status}).`);
+          return 1;
+        }
+        if (coverage.secretOutput) {
+          keepSecretFile = true;
+          const responseText = await response.text();
+          await secretFile!.writeFile(`${responseText}\n`, { encoding: 'utf8' });
+          await secretFile!.sync();
+          const payload = (() => {
+            try {
+              return JSON.parse(responseText) as { success?: unknown; data?: { temporaryPassword?: unknown } };
+            } catch {
+              return null;
+            }
+          })();
+          if (payload?.success !== true || typeof payload.data?.temporaryPassword !== 'string' ||
+              !payload.data.temporaryPassword) {
+            write('Credential response was written but did not have the expected format.');
+            return 1;
+          }
+          write(`${method} completed for tenant ${tenantId}. Secret response written to ${secretOutputPath}.`);
+          return 0;
+        }
+        if (method !== 'GET') {
+          write(`${method} completed for tenant ${tenantId}.`);
+          return 0;
+        }
 
-      const text = await response.text();
-      if (!text) return 0;
-      try {
-        write(JSON.stringify(JSON.parse(text), null, 2));
-      } catch {
-        write('Response was not safe JSON.');
-        return 1;
+        const text = await response.text();
+        if (!text) return 0;
+        try {
+          write(JSON.stringify(JSON.parse(text), null, 2));
+        } catch {
+          write('Response was not safe JSON.');
+          return 1;
+        }
+        return 0;
+      });
+    } finally {
+      if (secretFile) {
+        await secretFile.close().catch(() => undefined);
+        if (!keepSecretFile && secretOutputPath) await unlink(secretOutputPath).catch(() => undefined);
       }
-      return 0;
-    });
+    }
   } catch (error) {
     write(error instanceof Error ? error.message : 'Tenant settings request failed');
     return doctorRequested ? 3 : 1;

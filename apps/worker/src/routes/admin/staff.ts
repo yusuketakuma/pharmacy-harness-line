@@ -22,6 +22,10 @@ type TenantStaffAccount = {
   active_staff_count: number;
 };
 
+function isSoleActiveAccountAssignee(account: TenantStaffAccount): boolean {
+  return account.target_active === 1 && account.active_staff_count <= 1;
+}
+
 async function getTenantStaffMembers(db: D1Database, tenantId: string): Promise<TenantStaffMember[]> {
   const result = await db.prepare(
     `SELECT member.id, member.name, member.email,
@@ -224,7 +228,7 @@ staff.put('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
   }
   const selected = new Set(accountIds);
   if (accounts.some((account) => !selected.has(account.id) &&
-      account.target_active === 1 && account.active_staff_count <= 1)) {
+      isSoleActiveAccountAssignee(account))) {
     return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
   }
   const now = new Date().toISOString();
@@ -373,6 +377,12 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
         }
       }
     }
+    if (body.isActive === false) {
+      const accounts = await getTenantStaffAccounts(c.env.DB, tenantId, id);
+      if (accounts.some(isSoleActiveAccountAssignee)) {
+        return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
+      }
+    }
 
     if (body.name !== undefined || body.email !== undefined) {
       const updatedProfile = await updateStaffMember(
@@ -386,8 +396,9 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
       }
     }
     if (body.role !== undefined || body.isActive !== undefined) {
+      const now = new Date().toISOString();
       const sets = ['updated_at = ?'];
-      const values: Array<string | number> = [new Date().toISOString()];
+      const values: Array<string | number> = [now];
       if (body.role !== undefined) {
         sets.push('role = ?');
         values.push(body.role);
@@ -402,6 +413,11 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
               SET ${sets.join(', ')}
             WHERE tenant_id = ? AND staff_id = ?`,
         ).bind(...values, tenantId, id),
+        ...(body.isActive === false ? [c.env.DB.prepare(
+          `UPDATE tenant_admin_sessions
+              SET revoked_at = ?
+            WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
+        ).bind(now, tenantId, id)] : []),
         tenantAuditStatement(c.env.DB, {
           tenantId, actorStaffId: c.get('staff').id, action: 'staff.role_changed',
           resourceType: 'staff', resourceId: id,
@@ -445,6 +461,10 @@ staff.delete('/api/staff/:id', requireRole('owner'), async (c) => {
       if (ownerCount <= 1) {
         return c.json({ success: false, error: 'オーナーは最低1人必要です' }, 400);
       }
+    }
+    const accounts = await getTenantStaffAccounts(c.env.DB, tenantId, id);
+    if (accounts.some(isSoleActiveAccountAssignee)) {
+      return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
     }
 
     const now = new Date().toISOString();

@@ -53,22 +53,48 @@ describe('pharmacy admin API coverage leak detector', () => {
 
     expect(new Set(reasons)).toEqual(new Set([
       'binary-output', 'destructive-operation', 'external-operation', 'legacy-lifecycle',
-      'patient-operation', 'privileged-operation', 'retired', 'secret-output',
+      'patient-operation', 'retired',
     ]));
   });
 
-  it('keeps safe tenant settings covered and staff authority changes deferred', () => {
+  it('covers tenant-scoped staff lifecycle changes behind explicit output and apply gates', () => {
     expect(findPharmacyAdminApiCoverage('GET', '/api/tags')).toMatchObject({
       accountScope: 'tenant',
       mutationGate: 'read-only',
       safeOutput: true,
     });
-    expect(findPharmacyAdminApiCoverage('PATCH', '/api/staff/staff-a')).toBeUndefined();
-    expect(findPharmacyAdminApiDeferred('PATCH', '/api/staff/staff-a')?.reason)
-      .toBe('privileged-operation');
-    expect(findPharmacyAdminApiCoverage('PUT', '/api/staff/staff-a/accounts')).toBeUndefined();
-    expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')?.reason)
-      .toBe('privileged-operation');
+    expect(findPharmacyAdminApiCoverage('PATCH', '/api/staff/staff-a')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('PUT', '/api/staff/staff-a/accounts')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('POST', '/api/staff')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: false,
+      secretOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('POST', '/api/staff/staff-a/reset-password')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: false,
+      secretOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('DELETE', '/api/staff/staff-a')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiDeferred('PATCH', '/api/staff/staff-a')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff/staff-a/reset-password')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('DELETE', '/api/staff/staff-a')).toBeUndefined();
   });
 
   it('does not expose patient operations through the CLI coverage manifest', () => {

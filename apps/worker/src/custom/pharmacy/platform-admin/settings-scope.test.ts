@@ -19,6 +19,11 @@ describe('platform tenant settings scope', () => {
     ['POST', '/api/custom/pharmacy/emergency-contraception/slots'],
     ['PUT', '/api/custom/pharmacy/emergency-contraception/pharmacists/staff-a'],
     ['GET', '/api/staff/staff-a'],
+    ['POST', '/api/staff'],
+    ['PATCH', '/api/staff/staff-a'],
+    ['PUT', '/api/staff/staff-a/accounts'],
+    ['POST', '/api/staff/staff-a/reset-password'],
+    ['DELETE', '/api/staff/staff-a'],
     ['GET', '/api/tags'],
   ])('allows a covered tenant configuration path: %s %s', (method, path) => {
     expect(isPlatformTenantSettingsPath(method, path)).toBe(true);
@@ -61,13 +66,8 @@ describe('platform tenant settings scope', () => {
   });
 
   it.each([
-    ['POST', '/api/staff'],
-    ['PATCH', '/api/staff/staff-a'],
-    ['PUT', '/api/staff/staff-a/accounts'],
-    ['POST', '/api/staff/staff-a/reset-password'],
-    ['DELETE', '/api/staff/staff-a'],
     ['DELETE', '/api/line-accounts/account-a'],
-  ])('rejects tenant credential mutations over the Bearer path: %s %s', (method, path) => {
+  ])('rejects destructive operations outside the staff lifecycle: %s %s', (method, path) => {
     expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
   });
 

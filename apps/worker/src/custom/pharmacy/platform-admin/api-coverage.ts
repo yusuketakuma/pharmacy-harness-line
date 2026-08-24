@@ -10,7 +10,8 @@ export type PharmacyAdminApiCoverage = {
   method: PharmacyAdminApiMethod;
   path: RegExp;
   accountScope: PharmacyAdminApiAccountScope;
-  safeOutput: true;
+  safeOutput: boolean;
+  secretOutput?: true;
   mutationGate: 'read-only' | 'apply' | 'confirmation';
 };
 
@@ -18,8 +19,7 @@ export type PharmacyAdminApiDeferred = {
   method: PharmacyAdminApiMethod;
   path: RegExp;
   reason: 'binary-output' | 'destructive-operation' | 'external-operation' |
-    'legacy-lifecycle' | 'patient-operation' | 'privileged-operation' | 'retired' |
-    'secret-output';
+    'legacy-lifecycle' | 'patient-operation' | 'retired';
 };
 
 const read = (path: RegExp, accountScope: PharmacyAdminApiAccountScope): PharmacyAdminApiCoverage => ({
@@ -30,9 +30,20 @@ const mutate = (
   path: RegExp,
   accountScope: PharmacyAdminApiAccountScope,
   mutationGate: 'apply' | 'confirmation' = 'apply',
-): PharmacyAdminApiCoverage => ({ method, path, accountScope, safeOutput: true, mutationGate });
+  secretOutput = false,
+): PharmacyAdminApiCoverage => ({
+  method,
+  path,
+  accountScope,
+  safeOutput: !secretOutput,
+  mutationGate,
+  ...(secretOutput ? { secretOutput: true as const } : {}),
+});
 
 const LINE_ACCOUNT = /^\/api\/line-accounts\/(?!order$)[^/]+$/u;
+const STAFF = /^\/api\/staff\/[^/]+$/u;
+const STAFF_ACCOUNTS = /^\/api\/staff\/[^/]+\/accounts$/u;
+const STAFF_RESET_PASSWORD = /^\/api\/staff\/[^/]+\/reset-password$/u;
 const GROWTH_CONFIG = /^\/api\/custom\/pharmacy\/growth\/config$/u;
 const GROWTH_DASHBOARD = /^\/api\/custom\/pharmacy\/growth\/dashboard$/u;
 const GROWTH_SOURCES = /^\/api\/custom\/pharmacy\/growth\/sources$/u;
@@ -69,6 +80,11 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
   mutate('POST', /^\/api\/line-accounts\/[^/]+\/connect$/u, 'path:before-last'),
 
   read(/^\/api\/staff(?:\/me|\/[^/]+|\/[^/]+\/accounts)?$/u, 'tenant'),
+  mutate('POST', /^\/api\/staff$/u, 'tenant', 'apply', true),
+  mutate('PATCH', STAFF, 'tenant'),
+  mutate('PUT', STAFF_ACCOUNTS, 'tenant'),
+  mutate('POST', STAFF_RESET_PASSWORD, 'tenant', 'apply', true),
+  mutate('DELETE', STAFF, 'tenant'),
   read(/^\/api\/tags$/u, 'tenant'),
 
   read(GROWTH_CONFIG, 'query:line_account_id'),
@@ -167,15 +183,6 @@ export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = 
     path: /^\/api\/custom\/pharmacy\/rich-menus\/prepare$/u,
     reason: 'retired',
   },
-  { method: 'POST', path: /^\/api\/staff$/u, reason: 'secret-output' },
-  { method: 'PATCH', path: /^\/api\/staff\/[^/]+$/u, reason: 'privileged-operation' },
-  {
-    method: 'PUT',
-    path: /^\/api\/staff\/[^/]+\/accounts$/u,
-    reason: 'privileged-operation',
-  },
-  { method: 'POST', path: /^\/api\/staff\/[^/]+\/reset-password$/u, reason: 'secret-output' },
-  { method: 'DELETE', path: /^\/api\/staff\/[^/]+$/u, reason: 'destructive-operation' },
   { method: 'DELETE', path: /^\/api\/line-accounts\/[^/]+$/u, reason: 'destructive-operation' },
   {
     method: 'GET',
