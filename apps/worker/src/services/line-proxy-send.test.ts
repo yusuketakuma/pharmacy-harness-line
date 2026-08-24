@@ -1,5 +1,52 @@
 import { describe, expect, test, vi } from 'vitest';
-import { replyViaHarnessProxy } from './line-proxy-send.js';
+import {
+  LineHarnessUnknownOutcomeError,
+  pushViaHarnessProxy,
+  replyViaHarnessProxy,
+} from './line-proxy-send.js';
+
+describe('pushViaHarnessProxy', () => {
+  test('bounds a hung push and reports the result as unknown', async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    const dispatch = vi.fn(() => new Promise<Response>(() => undefined));
+
+    try {
+      const pending = pushViaHarnessProxy(
+        'https://worker.example.com',
+        'channel-token',
+        'U00000000000000000000000000000000',
+        [{ type: 'text', text: 'test' }],
+        'retry-key',
+        dispatch,
+      );
+      const rejection = expect(pending).rejects.toBeInstanceOf(LineHarnessUnknownOutcomeError);
+
+      controller.abort();
+
+      await rejection;
+      expect(timeout).toHaveBeenCalledWith(10_000);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  test('treats a proxy 5xx as unknown without exposing its response body', async () => {
+    const failure = await pushViaHarnessProxy(
+      'https://worker.example.com',
+      'channel-token',
+      'U00000000000000000000000000000000',
+      [{ type: 'text', text: 'test' }],
+      'retry-key',
+      vi.fn().mockResolvedValue(
+        new Response('private upstream detail', { status: 502, statusText: 'Bad Gateway' }),
+      ),
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(LineHarnessUnknownOutcomeError);
+    expect(String(failure)).not.toContain('private upstream detail');
+  });
+});
 
 describe('replyViaHarnessProxy', () => {
   test('sends reply messages through the Harness proxy endpoint', async () => {
@@ -32,15 +79,16 @@ describe('replyViaHarnessProxy', () => {
       new Response('{"message":"invalid reply token"}', { status: 400, statusText: 'Bad Request' }),
     );
 
-    await expect(
-      replyViaHarnessProxy(
-        'https://worker.example.com',
-        'channel-token',
-        'used-token',
-        [{ type: 'text', text: 'test' }],
-        dispatch,
-      ),
-    ).rejects.toThrow('LINE Harness proxy error: 400 Bad Request');
+    const failure = await replyViaHarnessProxy(
+      'https://worker.example.com',
+      'channel-token',
+      'used-token',
+      [{ type: 'text', text: 'test' }],
+      dispatch,
+    ).catch((error: unknown) => error);
+
+    expect(String(failure)).toContain('LINE Harness proxy error: 400 Bad Request');
+    expect(String(failure)).not.toContain('invalid reply token');
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 });

@@ -21,7 +21,6 @@ export interface PatientMedicationFollowUp {
 export const medicationFollowUpApi = {
   list: () => requestPharmacyJson<{ followUps: PatientMedicationFollowUp[] }>(
     '/api/liff/pharmacy/medication-followups',
-    '服薬後フォローを取得できませんでした',
   ),
   respond: (
     followUpId: string,
@@ -30,7 +29,6 @@ export const medicationFollowUpApi = {
     idempotencyKey: string,
   ) => requestPharmacyJson<{ followUp: PatientMedicationFollowUp }>(
     `/api/liff/pharmacy/medication-followups/${encodeURIComponent(followUpId)}/respond`,
-    '服薬後フォローを更新できませんでした',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

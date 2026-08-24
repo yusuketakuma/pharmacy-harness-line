@@ -1,5 +1,8 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
-import { pushViaHarnessProxy } from '../../../services/line-proxy-send.js';
+import {
+  LineHarnessUnknownOutcomeError,
+  pushViaHarnessProxy,
+} from '../../../services/line-proxy-send.js';
 import { getPharmacyCapabilityConfig } from './repository.js';
 import {
   buildApprovedPharmacyMessage,
@@ -202,10 +205,14 @@ export async function sendPharmacyAutomatedPush(
         lineAccountId: input.lineAccountId,
       },
     );
-    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString());
-    return 'sent';
   } catch (error) {
+    if (error instanceof LineHarnessUnknownOutcomeError) throw error;
     await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', new Date().toISOString());
     throw error;
   }
+
+  // LINE accepted the stable retry key. If this D1 finalization fails, leave
+  // the row attempted so the stale retry reconciles with that same key.
+  await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString());
+  return 'sent';
 }

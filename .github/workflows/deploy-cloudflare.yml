@@ -2,8 +2,13 @@ name: Deploy Shared Pharmacy Cloudflare
 
 on:
   workflow_dispatch:
+    inputs:
+      production_source_sha:
+        description: Exact main commit SHA approved for production deployment
+        required: false
+        type: string
   push:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - 'apps/worker/**'
       - 'apps/liff/**'
@@ -25,20 +30,26 @@ permissions:
 
 jobs:
   deploy:
-    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true' && (github.ref_name == 'main' || github.ref_name == 'dev')
+    if: github.repository != 'Shudesu/line-harness-oss' && vars.LINE_HARNESS_CLOUDFLARE_DEPLOY == 'true' && (github.ref_name == 'dev' || (github.ref_name == 'main' && github.event_name == 'workflow_dispatch'))
     environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'development' }}
     runs-on: ubuntu-latest
     env:
       DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify explicit production approval
+        if: github.ref_name == 'main'
+        env:
+          APPROVED_SOURCE_SHA: ${{ inputs.production_source_sha }}
+        run: test "$APPROVED_SOURCE_SHA" = "$GITHUB_SHA"
 
       - name: Verify deployment target
         run: |
@@ -75,9 +86,9 @@ jobs:
           fi
           test -n "$LIFF_ORIGIN"
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: pnpm
@@ -360,7 +371,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.build-meta.outputs.release_version }}
           WORKER_URL: ${{ vars.WORKER_URL }}
         run: |
-          for attempt in {1..12}; do
+          for _ in {1..12}; do
             actual_version="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${WORKER_URL%/}/admin/version" | jq -r '.version')"
             test "$actual_version" = "$EXPECTED_VERSION" && break
@@ -407,7 +418,7 @@ jobs:
         run: |
           test -n "$LIFF_ORIGIN"
           test -n "$WORKER_URL"
-          for attempt in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             liff_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${LIFF_ORIGIN%/}/")"
             LIFF_ASSET_PATH="$(printf '%s' "$liff_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' | head -n 1 || true)"
@@ -472,7 +483,7 @@ jobs:
             "${ADMIN_ORIGIN%/}/" >/dev/null
           curl --fail --silent --show-error --retry 5 --retry-all-errors \
             "${ADMIN_ORIGIN%/}/prescriptions" >/dev/null
-          for attempt in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             admin_html="$(curl --fail --silent --show-error --retry 5 --retry-all-errors \
               "${ADMIN_ORIGIN%/}/accounts")"
             ADMIN_ASSET_PATHS="$(printf '%s' "$admin_html" | grep -oE 'src="[^"]+\.js[^"]*"' | sed -E 's/^src="|"$//g' || true)"

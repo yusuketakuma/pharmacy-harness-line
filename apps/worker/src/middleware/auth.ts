@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono';
 import { getStaffByApiKey } from '@line-crm/db';
 import type { Env } from '../index.js';
 import type { AdminSameSite } from './admin-auth-config.js';
+import { buildCookie } from './cookie.js';
 import {
   hashTenantAdminSessionToken,
   isPlatformAdminSessionToken,
@@ -66,19 +67,7 @@ export function csrfTokenFromCookie(c: Context<Env>): string | null {
   return parseCookieHeader(c.req.header('Cookie'))[CSRF_COOKIE] || null;
 }
 
-export function buildCookie(
-  name: string,
-  value: string,
-  sameSite: AdminSameSite,
-  maxAge: number,
-  httpOnly: boolean,
-  path = '/',
-): string {
-  const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${path}`];
-  if (httpOnly) parts.push('HttpOnly');
-  parts.push('Secure', `SameSite=${sameSite}`, `Max-Age=${maxAge}`);
-  return parts.join('; ');
-}
+export { buildCookie } from './cookie.js';
 
 /** HttpOnly cookie carrying only an opaque password session. */
 export function adminSessionCookie(token: string, sameSite: AdminSameSite): string {

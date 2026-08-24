@@ -43,7 +43,7 @@ export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
     .filter((value): value is string => typeof value === 'string');
   try {
     const projection = await requestPharmacyJson<{ data: { existingFeatures: unknown } }>(
-      '/api/liff/pharmacy/feature-access', '機能利用状況の取得',
+      '/api/liff/pharmacy/feature-access',
     );
     if (!Array.isArray(projection.data.existingFeatures)) throw new Error('invalid feature access');
     return {

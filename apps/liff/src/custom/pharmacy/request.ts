@@ -17,7 +17,6 @@ export function requestPharmacyLiff(path: string, init: RequestInit = {}): Promi
 
 export async function requestPharmacyJson<T>(
   path: string,
-  _errorLabel: string,
   init: RequestInit = {},
 ): Promise<T> {
   const response = await requestPharmacyLiff(path, init);

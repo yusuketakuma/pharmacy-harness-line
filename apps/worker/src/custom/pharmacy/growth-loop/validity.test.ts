@@ -117,6 +117,21 @@ describe('prescription validity reminders', () => {
     expect(calls.some((sql) => sql.includes('SET reminder_claimed_at = NULL'))).toBe(true);
   });
 
+  it('releases the claim without marking sent while the delivery key is in progress', async () => {
+    const { db, calls } = fakeDb();
+    mocks.send.mockResolvedValue('in_progress');
+
+    const result = await processDuePrescriptionValidityReminders(db, {
+      proxyBaseUrl: 'https://worker.example',
+      lineCredentialKey: CREDENTIAL_KEY,
+      now: new Date('2026-08-20T00:00:00.000Z'),
+    });
+
+    expect(result).toEqual(expect.objectContaining({ sent: 0, failed: 0, skipped: 1 }));
+    expect(calls.some((sql) => sql.includes('SET reminder_sent_at = ?'))).toBe(false);
+    expect(calls.some((sql) => sql.includes('SET reminder_claimed_at = NULL'))).toBe(true);
+  });
+
   it('moves expired open submissions to staff review and never sends a late reminder', async () => {
     const calls: Array<{ sql: string; values: unknown[]; operation: string }> = [];
     const db = {

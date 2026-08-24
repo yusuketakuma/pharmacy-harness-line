@@ -24,6 +24,193 @@ import { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
 import { sendAdConversions } from './ad-conversion.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { validateHttpsUrl } from '../lib/validate-https-url.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+
+const OUTGOING_WEBHOOK_TIMEOUT_MS = 10_000;
+
+class WebhookUnknownOutcomeError extends Error {
+  readonly name = 'WebhookUnknownOutcomeError';
+}
+
+class WebhookRejectedError extends Error {
+  readonly name = 'WebhookRejectedError';
+
+  constructor(readonly status: number, statusText: string) {
+    super(`Webhook delivery failed: ${status} ${statusText}`);
+  }
+}
+
+interface WebhookDeliveryContext {
+  tenantId: string | null;
+  lineAccountId: string | null;
+  eventType: string;
+  eventKey?: string;
+  targetType: 'configured' | 'automation';
+  targetId: string;
+}
+
+type WebhookRequest = {
+  body: string;
+  headers: Record<string, string>;
+};
+
+async function postWebhook(
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+): Promise<number> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(OUTGOING_WEBHOOK_TIMEOUT_MS),
+    });
+  } catch {
+    throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+  }
+  if (response.ok) return response.status;
+  if (response.status >= 500) {
+    throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+  }
+  throw new WebhookRejectedError(response.status, response.statusText);
+}
+
+async function deliverWebhook(
+  db: D1Database,
+  url: string,
+  request: WebhookRequest | ((timestamp: string) => Promise<WebhookRequest>),
+  context?: WebhookDeliveryContext,
+): Promise<void> {
+  if (validateHttpsUrl(url)) throw new Error('Invalid webhook URL');
+  const eventKey = context?.eventKey;
+  const deliveryId = eventKey && context
+    ? await createBroadcastRetryKey(
+        'outgoing-webhook',
+        context.tenantId ?? 'legacy',
+        context.lineAccountId ?? '',
+        context.eventType,
+        eventKey,
+        context.targetType,
+        context.targetId,
+      )
+    : null;
+  const prepareRequest = async (timestamp: string): Promise<WebhookRequest> => {
+    const prepared = typeof request === 'function' ? await request(timestamp) : request;
+    const headers = { ...prepared.headers };
+    if (deliveryId) {
+      headers['Idempotency-Key'] = deliveryId;
+      headers['X-Webhook-Delivery-Id'] = deliveryId;
+    }
+    return { body: prepared.body, headers };
+  };
+
+  // Legacy events without a tenant or stable source key still get bounded,
+  // validated HTTP delivery, but cannot be safely deduplicated in D1.
+  if (!deliveryId || !context?.tenantId) {
+    const prepared = await prepareRequest(jstNow());
+    await postWebhook(url, prepared.body, prepared.headers);
+    return;
+  }
+
+  const claimToken = crypto.randomUUID();
+  const now = jstNow();
+  let payloadTimestamp = now;
+  const inserted = await db.prepare(
+    `INSERT OR IGNORE INTO outgoing_webhook_deliveries
+      (id, tenant_id, line_account_id, target_type, target_id, event_type,
+       outcome, claim_token, attempt_count, attempted_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'attempted', ?, 1, ?, ?, ?)`,
+  ).bind(
+    deliveryId,
+    context.tenantId,
+    context.lineAccountId,
+    context.targetType,
+    context.targetId,
+    context.eventType,
+    claimToken,
+    now,
+    now,
+    now,
+  ).run();
+
+  if ((inserted.meta?.changes ?? 0) !== 1) {
+    const existing = await db.prepare(
+      `SELECT outcome, created_at FROM outgoing_webhook_deliveries
+        WHERE id = ? AND tenant_id = ? AND line_account_id IS ?`,
+    ).bind(deliveryId, context.tenantId, context.lineAccountId)
+      .first<{ outcome: 'attempted' | 'sent' | 'failed'; created_at: string }>();
+    if (existing?.outcome === 'sent') return;
+    if (existing?.outcome !== 'failed') {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+    payloadTimestamp = existing.created_at;
+    const reclaimed = await db.prepare(
+      `UPDATE outgoing_webhook_deliveries
+          SET outcome = 'attempted', claim_token = ?, attempt_count = attempt_count + 1,
+              http_status = NULL, attempted_at = ?, settled_at = NULL, updated_at = ?
+        WHERE id = ? AND tenant_id = ? AND line_account_id IS ? AND outcome = 'failed'`,
+    ).bind(
+      claimToken,
+      now,
+      now,
+      deliveryId,
+      context.tenantId,
+      context.lineAccountId,
+    ).run();
+    if ((reclaimed.meta?.changes ?? 0) !== 1) {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+  }
+
+  const settle = async (outcome: 'sent' | 'failed', status: number | null): Promise<void> => {
+    const settledAt = jstNow();
+    let result: D1Result;
+    try {
+      result = await db.prepare(
+        `UPDATE outgoing_webhook_deliveries
+            SET outcome = ?, claim_token = NULL, http_status = ?,
+                settled_at = ?, updated_at = ?
+          WHERE id = ? AND tenant_id = ? AND line_account_id IS ?
+            AND outcome = 'attempted' AND claim_token = ?`,
+      ).bind(
+        outcome,
+        status,
+        settledAt,
+        settledAt,
+        deliveryId,
+        context.tenantId,
+        context.lineAccountId,
+        claimToken,
+      ).run();
+    } catch {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+    if ((result.meta?.changes ?? 0) !== 1) {
+      throw new WebhookUnknownOutcomeError('Webhook delivery outcome is unknown');
+    }
+  };
+
+  let prepared: WebhookRequest;
+  try {
+    prepared = await prepareRequest(payloadTimestamp);
+  } catch {
+    await settle('failed', null);
+    throw new Error('Webhook request preparation failed');
+  }
+
+  try {
+    await settle('sent', await postWebhook(url, prepared.body, prepared.headers));
+  } catch (error) {
+    if (error instanceof WebhookRejectedError) {
+      await settle('failed', error.status);
+    }
+    throw error;
+  }
+}
 
 export interface EventPayload {
   friendId?: string;
@@ -41,6 +228,8 @@ export interface EventPayload {
  *
  *   Phase 1 (concurrent): outgoing webhooks + scoring
  *   Phase 2 (concurrent): automations + notifications, with currentScore injected
+ *
+ * eventKey must identify the same immutable source event across redelivery.
  */
 export async function fireEvent(
   db: D1Database,
@@ -48,6 +237,8 @@ export async function fireEvent(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  tenantId?: string | null,
+  eventKey?: string,
 ): Promise<void> {
   let eventAccountId = lineAccountId ?? null;
   if (!eventAccountId && payload.friendId) {
@@ -58,9 +249,30 @@ export async function fireEvent(
   }
   if (await isPharmacyModeAccount(db, eventAccountId)) return;
 
+  let eventTenantId = tenantId ?? null;
+  if (!eventTenantId && eventAccountId) {
+    const mapping = await db.prepare(
+      `SELECT tenant_id FROM tenant_line_accounts WHERE line_account_id = ?`,
+    ).bind(eventAccountId).first<{ tenant_id: string }>();
+    eventTenantId = mapping?.tenant_id ?? null;
+  }
+
+  let tenantAutomationAccountIds: Set<string> | undefined;
+  if (eventTenantId && !eventAccountId) {
+    const mappings = await db.prepare(
+      `SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?`,
+    ).bind(eventTenantId).all<{ line_account_id: string }>();
+    tenantAutomationAccountIds = new Set<string>();
+    for (const mapping of mappings.results ?? []) {
+      if (!await isPharmacyModeAccount(db, mapping.line_account_id)) {
+        tenantAutomationAccountIds.add(mapping.line_account_id);
+      }
+    }
+  }
+
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
-    fireOutgoingWebhooks(db, eventType, payload),
+    fireOutgoingWebhooks(db, eventType, payload, eventTenantId, eventAccountId, eventKey),
     processScoring(db, eventType, payload),
   ];
   if (payload.friendId && payload.conversionEventName) {
@@ -81,8 +293,18 @@ export async function fireEvent(
       }
     : payload;
 
-  // Phase 2: evaluate automations.
-  await processAutomations(db, eventType, enrichedPayload, lineAccessToken, eventAccountId);
+  if (!eventTenantId || eventAccountId || tenantAutomationAccountIds?.size) {
+    await processAutomations(
+      db,
+      eventType,
+      enrichedPayload,
+      lineAccessToken,
+      eventAccountId,
+      eventTenantId,
+      eventKey,
+      tenantAutomationAccountIds,
+    );
+  }
 }
 
 /** 送信Webhookへの通知 */
@@ -90,37 +312,43 @@ async function fireOutgoingWebhooks(
   db: D1Database,
   eventType: string,
   payload: EventPayload,
+  tenantId: string | null,
+  lineAccountId: string | null,
+  eventKey?: string,
 ): Promise<void> {
   try {
-    const webhooks = await getActiveOutgoingWebhooksByEvent(db, eventType);
+    const webhooks = await getActiveOutgoingWebhooksByEvent(db, eventType, tenantId);
     for (const wh of webhooks) {
       try {
-        const body = JSON.stringify({
-          event: eventType,
-          timestamp: jstNow(),
-          data: payload,
+        await deliverWebhook(db, wh.url, async (timestamp) => {
+          const body = JSON.stringify({ event: eventType, timestamp, data: payload });
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+          // HMAC署名（シークレットがある場合）
+          if (wh.secret) {
+            const encoder = new TextEncoder();
+            const key = await crypto.subtle.importKey(
+              'raw',
+              encoder.encode(wh.secret),
+              { name: 'HMAC', hash: 'SHA-256' },
+              false,
+              ['sign'],
+            );
+            const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+            headers['X-Webhook-Signature'] = Array.from(new Uint8Array(signature))
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('');
+          }
+
+          return { body, headers };
+        }, {
+          tenantId,
+          lineAccountId,
+          eventType,
+          eventKey,
+          targetType: 'configured',
+          targetId: wh.id,
         });
-
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-        // HMAC署名（シークレットがある場合）
-        if (wh.secret) {
-          const encoder = new TextEncoder();
-          const key = await crypto.subtle.importKey(
-            'raw',
-            encoder.encode(wh.secret),
-            { name: 'HMAC', hash: 'SHA-256' },
-            false,
-            ['sign'],
-          );
-          const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-          const hexSignature = Array.from(new Uint8Array(signature))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('');
-          headers['X-Webhook-Signature'] = hexSignature;
-        }
-
-        await fetch(wh.url, { method: 'POST', headers, body });
       } catch (err) {
         console.error(`送信Webhook ${wh.id} への通知失敗:`, err);
       }
@@ -151,15 +379,26 @@ async function processAutomations(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  tenantId?: string | null,
+  eventKey?: string,
+  tenantAccountIds?: ReadonlySet<string>,
 ): Promise<void> {
   try {
     const allAutomations = await getActiveAutomationsByEvent(db, eventType);
-    // Filter by account: match this account's automations + unassigned (backward compat)
-    const automations = allAutomations.filter(
-      (a) => !a.line_account_id || !lineAccountId || a.line_account_id === lineAccountId,
-    );
+    const automations = allAutomations.filter((automation) => {
+      if (lineAccountId) {
+        return !automation.line_account_id || automation.line_account_id === lineAccountId;
+      }
+      if (tenantAccountIds) {
+        return Boolean(
+          automation.line_account_id && tenantAccountIds.has(automation.line_account_id),
+        );
+      }
+      return true;
+    });
 
     for (const automation of automations) {
+      const automationAccountId = lineAccountId ?? automation.line_account_id;
       const conditions = JSON.parse(automation.conditions) as Record<string, unknown>;
       const actions = JSON.parse(automation.actions) as Array<{ type: string; params: Record<string, string> }>;
 
@@ -168,9 +407,16 @@ async function processAutomations(
 
       const results: Array<{ action: string; success: boolean; error?: string }> = [];
 
-      for (const action of actions) {
+      for (const [actionIndex, action] of actions.entries()) {
         try {
-          await executeAction(db, action, payload, lineAccessToken, lineAccountId);
+          await executeAction(db, action, payload, lineAccessToken, automationAccountId, {
+            tenantId: tenantId ?? null,
+            lineAccountId: automationAccountId ?? null,
+            eventType,
+            eventKey,
+            targetType: 'automation',
+            targetId: `${automation.id}:${actionIndex}`,
+          });
           results.push({ action: action.type, success: true });
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
@@ -240,6 +486,7 @@ async function executeAction(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  deliveryContext?: WebhookDeliveryContext,
 ): Promise<void> {
   const friendId = payload.friendId;
   if (!friendId && action.type !== 'send_webhook') {
@@ -344,11 +591,15 @@ async function executeAction(
     case 'send_webhook': {
       const url = action.params.url;
       if (url) {
-        await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ friendId, ...payload.eventData }),
-        });
+        await deliverWebhook(
+          db,
+          url,
+          {
+            body: JSON.stringify({ friendId, ...payload.eventData }),
+            headers: { 'Content-Type': 'application/json' },
+          },
+          deliveryContext,
+        );
       }
       break;
     }

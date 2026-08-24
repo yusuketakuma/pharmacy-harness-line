@@ -16,6 +16,17 @@ function decodeJwtPart(part: string): Record<string, unknown> {
   return JSON.parse(atob(padded));
 }
 
+async function makeCredentials() {
+  const keys = await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify'],
+  ) as CryptoKeyPair;
+  const exported = await crypto.subtle.exportKey('pkcs8', keys.privateKey) as ArrayBuffer;
+  const privateKey = `-----BEGIN PRIVATE KEY-----\n${base64(new Uint8Array(exported))}\n-----END PRIVATE KEY-----`;
+  return { email: 'calendar@example.iam.gserviceaccount.com', privateKey };
+}
+
 afterEach(() => {
   resetGoogleServiceAccountTokenCacheForTest();
   vi.unstubAllGlobals();
@@ -23,14 +34,7 @@ afterEach(() => {
 
 describe('getGoogleServiceAccountToken', () => {
   test('PKCS#8秘密鍵でJWTを署名し、Calendar scopeのOAuth tokenを取得する', async () => {
-    const keys = await crypto.subtle.generateKey(
-      { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
-      true,
-      ['sign', 'verify'],
-    ) as CryptoKeyPair;
-    const exported = await crypto.subtle.exportKey('pkcs8', keys.privateKey) as ArrayBuffer;
-    const pkcs8 = new Uint8Array(exported);
-    const privateKey = `-----BEGIN PRIVATE KEY-----\n${base64(pkcs8)}\n-----END PRIVATE KEY-----`;
+    const credentials = await makeCredentials();
 
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const params = new URLSearchParams(String(init?.body));
@@ -50,10 +54,7 @@ describe('getGoogleServiceAccountToken', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const token = await getGoogleServiceAccountToken({
-      email: 'calendar@example.iam.gserviceaccount.com',
-      privateKey,
-    });
+    const token = await getGoogleServiceAccountToken(credentials);
     expect(token).toBe('access-123');
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -63,5 +64,18 @@ describe('getGoogleServiceAccountToken', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(getGoogleServiceAccountToken({})).rejects.toThrow('google_service_account_not_configured');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('token endpoint response body を Error へ含めない', async () => {
+    const credentials = await makeCredentials();
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response('sensitive-upstream-detail', { status: 401 }),
+    ));
+
+    const error = await getGoogleServiceAccountToken(credentials).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('401');
+    expect((error as Error).message).not.toContain('sensitive-upstream-detail');
   });
 });

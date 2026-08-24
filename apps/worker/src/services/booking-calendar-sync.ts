@@ -83,15 +83,10 @@ export async function syncConfirmedBookingToGoogle(
 ): Promise<{ synced: boolean; eventId?: string; calendarId?: string; meetUrl?: string }> {
   const row = await db
     .prepare(
-      `SELECT b.id, b.starts_at, b.ends_at, b.customer_note, b.external_event_id,
-              f.display_name AS friend_name, m.name AS menu_name,
-              s.display_name AS staff_name,
+      `SELECT b.id, b.starts_at, b.ends_at, b.external_event_id,
               gc.id AS connection_id, gc.calendar_id, gc.auth_type,
               gc.access_token, gc.refresh_token
          FROM bookings b
-         INNER JOIN friends f ON f.id = b.friend_id
-         INNER JOIN menus m ON m.id = b.menu_id
-         INNER JOIN staff s ON s.id = b.staff_id
          LEFT JOIN google_calendar_connections gc
            ON gc.line_account_id = b.line_account_id
           AND gc.staff_id = b.staff_id
@@ -103,11 +98,7 @@ export async function syncConfirmedBookingToGoogle(
       id: string;
       starts_at: string;
       ends_at: string;
-      customer_note: string | null;
       external_event_id: string | null;
-      friend_name: string | null;
-      menu_name: string;
-      staff_name: string;
       connection_id: string | null;
       calendar_id: string | null;
       auth_type: string | null;
@@ -129,14 +120,9 @@ export async function syncConfirmedBookingToGoogle(
   const created = await client.createEvent({
     // Google event IDはbase32hexのみ。UUIDのハイフンを除けば0-9/a-fだけとなり有効。
     externalId: row.id.replace(/-/g, '').toLowerCase(),
-    summary: `${row.friend_name ?? 'お客様'}｜${row.menu_name}`,
+    summary: 'LINE Harness予約',
     start: row.starts_at,
     end: row.ends_at,
-    description: [
-      `LINE Harness予約（担当: ${row.staff_name}）`,
-      `予約ID: ${row.id}`,
-      row.customer_note ? `メモ: ${row.customer_note}` : '',
-    ].filter(Boolean).join('\n'),
     addGoogleMeet: options.addGoogleMeet,
   });
   await db

@@ -33,3 +33,6 @@ wrangler.local.toml
 .harness-mem/
 .harness-worktrees/
 /out/
+/assurance/
+playwright-report/
+test-results/

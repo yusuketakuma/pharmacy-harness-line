@@ -70,7 +70,7 @@ export const duplicates = new Hono<Env>();
 duplicates.get('/api/duplicates/stats', async (c) => {
   try {
     const forceRefresh = c.req.query('refresh') === '1';
-    const stats = await computeDuplicatesStats(c.env.DB, { forceRefresh });
+    const stats = await computeDuplicatesStats(c.env.DB, c.get('tenantId'), { forceRefresh });
     return c.json({ success: true, data: serializeDuplicatesStats(stats) });
   } catch (err) {
     console.error('GET /api/duplicates/stats error:', err);

@@ -739,6 +739,31 @@ CREATE TABLE operators (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
+CREATE TABLE outgoing_webhook_deliveries (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  line_account_id TEXT,
+  target_type     TEXT NOT NULL CHECK (target_type IN ('configured', 'automation')),
+  target_id       TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  outcome         TEXT NOT NULL CHECK (outcome IN ('attempted', 'sent', 'failed')),
+  claim_token     TEXT,
+  attempt_count   INTEGER NOT NULL CHECK (attempt_count >= 1),
+  http_status     INTEGER CHECK (http_status BETWEEN 100 AND 599),
+  attempted_at    TEXT NOT NULL,
+  settled_at      TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  CHECK (
+    (outcome = 'attempted' AND claim_token IS NOT NULL AND settled_at IS NULL)
+    OR
+    (outcome IN ('sent', 'failed') AND claim_token IS NULL AND settled_at IS NOT NULL)
+  ),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id) ON DELETE RESTRICT
+);
+
 CREATE TABLE outgoing_webhooks (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
@@ -1917,7 +1942,7 @@ CREATE TABLE pharmacy_webhook_event_receipts (
   line_account_id  TEXT NOT NULL,
   webhook_event_id TEXT NOT NULL,
   received_at      TEXT NOT NULL, payload TEXT, status TEXT NOT NULL DEFAULT 'completed'
-    CHECK (status IN ('pending', 'processing', 'completed', 'failed')), lease_until TEXT, retry_count INTEGER NOT NULL DEFAULT 0, dead_lettered_at TEXT,
+    CHECK (status IN ('pending', 'processing', 'completed', 'failed')), lease_until TEXT, retry_count INTEGER NOT NULL DEFAULT 0, dead_lettered_at TEXT, claim_token TEXT,
   PRIMARY KEY (tenant_id, line_account_id, webhook_event_id),
   FOREIGN KEY (tenant_id, line_account_id)
     REFERENCES tenant_line_accounts(tenant_id, line_account_id) ON DELETE CASCADE
@@ -2651,6 +2676,9 @@ CREATE INDEX idx_mileage_rules_match
 CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
+
+CREATE INDEX idx_outgoing_webhook_deliveries_reconcile
+  ON outgoing_webhook_deliveries(tenant_id, line_account_id, outcome, updated_at);
 
 CREATE INDEX idx_outgoing_webhooks_tenant_created
   ON outgoing_webhooks(tenant_id, created_at DESC);

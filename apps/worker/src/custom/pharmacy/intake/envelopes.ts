@@ -55,17 +55,26 @@ export async function preparePatientIntakeEnvelopeStatements(
   row: PatientIntakeEncryptedRow,
   scope: PatientIntakeCryptoScope,
   encryptedAt: string,
+  verifyRoundTrip = false,
 ): Promise<D1PreparedStatement[]> {
   const fields = [
     ['patient_snapshot_json', row.patient_snapshot_json],
     ['answers_json', row.answers_json],
   ] as const;
   return Promise.all(fields.map(async ([fieldName, plaintext]) => {
+    const context = patientIntakeEncryptionContext(row, scope, fieldName);
     const envelope = await sealPatientIntakeField(
       plaintext,
       scope.rootSecret,
-      patientIntakeEncryptionContext(row, scope, fieldName),
+      context,
     );
+    if (verifyRoundTrip && await openPatientIntakeField(
+      envelope,
+      scope.rootSecret,
+      context,
+    ) !== plaintext) {
+      throw new Error('byte mismatch');
+    }
     return db.prepare(`INSERT INTO pharmacy_patient_intake_envelopes
       (response_id, tenant_id, line_account_id, owner_friend_id, patient_id, field_name,
        schema_version, source_revision, envelope_version, key_version, nonce,

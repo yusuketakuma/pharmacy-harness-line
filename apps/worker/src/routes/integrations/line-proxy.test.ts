@@ -253,6 +253,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -612,7 +613,9 @@ describe('push', () => {
 
   test('forwards to api.line.me and logs source=external', async () => {
     const { db, executed } = fakeDb();
-    const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
+    const controller = new AbortController();
+    const request = new Request(pushRequest('acc-token'), { signal: controller.signal });
+    const res = await setupApp().request(request, {}, env(db));
 
     expect(res.status).toBe(200);
     expect(res.headers.get('x-line-request-id')).toBe('req-1');
@@ -621,8 +624,13 @@ describe('push', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ Authorization: 'Bearer acc-token' }),
+        signal: expect.any(AbortSignal),
       }),
     );
+    const upstreamSignal = fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal;
+    expect(upstreamSignal.aborted).toBe(false);
+    controller.abort();
+    expect(upstreamSignal.aborted).toBe(true);
 
     const rows = loggedRows(executed);
     expect(rows).toHaveLength(1);
@@ -757,11 +765,24 @@ describe('push', () => {
     expect(loggedRows(executed)).toHaveLength(0);
   });
 
+  test('upstream fetch failure does not expose error detail in logs', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    fetchMock.mockRejectedValueOnce(new Error('sensitive-upstream-detail'));
+    const { db } = fakeDb();
+
+    const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
+
+    expect(res.status).toBe(502);
+    expect(error.mock.calls.flat().map(String).join(' ')).not.toContain('sensitive-upstream-detail');
+  });
+
   test('logging failure does not break the 200 response', async () => {
-    vi.mocked(getFriendByLineUserIdForAccount).mockRejectedValue(new Error('db down'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(getFriendByLineUserIdForAccount).mockRejectedValue(new Error('sensitive-log-detail'));
     const { db } = fakeDb();
     const res = await setupApp().request(pushRequest('acc-token'), {}, env(db));
     expect(res.status).toBe(200);
+    expect(error.mock.calls.flat().map(String).join(' ')).not.toContain('sensitive-log-detail');
   });
 });
 

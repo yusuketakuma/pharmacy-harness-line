@@ -85,7 +85,7 @@ export interface CreateEmergencyIntakeInput {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  return requestPharmacyJson<T>(path, 'Emergency contraception API', init);
+  return requestPharmacyJson<T>(path, init);
 }
 
 function post<T>(path: string, body: unknown): Promise<T> {

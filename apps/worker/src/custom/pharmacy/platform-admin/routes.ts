@@ -507,7 +507,7 @@ platformAdminRoutes.post(
       c.env.DB.prepare(
         `UPDATE pharmacy_webhook_event_receipts
             SET status = 'pending', retry_count = 0,
-                dead_lettered_at = NULL, lease_until = NULL
+                dead_lettered_at = NULL, claim_token = NULL, lease_until = NULL
           WHERE tenant_id = ? AND line_account_id = ? AND webhook_event_id = ?
             AND (status = 'failed' OR dead_lettered_at IS NOT NULL)`,
       ).bind(receipt.tenant_id, receipt.line_account_id, receipt.webhook_event_id),

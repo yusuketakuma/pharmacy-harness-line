@@ -19,6 +19,7 @@ function fakeDb(options: {
   due?: unknown[];
   sent?: boolean;
   notificationAuditError?: boolean;
+  notificationInProgress?: boolean;
 } = {}) {
   const calls: Array<{ sql: string; values: unknown[]; operation: string }> = [];
   const recipient = options.sent ? null : options.recipient === undefined ? {
@@ -39,6 +40,9 @@ function fakeDb(options: {
       bind: (...values: unknown[]) => ({
         first: async () => {
           calls.push({ sql, values, operation: 'first' });
+          if (options.notificationInProgress && sql.includes('SELECT id, outcome')) {
+            return { id: 'notification-1', outcome: 'attempted', occurred_at: new Date().toISOString() };
+          }
           if (sql.includes('pharmacy_account_capabilities')) {
             return { line_account_id: 'account-a', mode: 'pharmacy', capabilities_json: '["prescription_intake"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' };
           }
@@ -54,6 +58,10 @@ function fakeDb(options: {
         },
         run: async () => {
           calls.push({ sql, values, operation: 'run' });
+          if (options.notificationInProgress &&
+              sql.includes('INSERT OR IGNORE INTO pharmacy_notification_events')) {
+            return { success: true, meta: { changes: 0 } };
+          }
           if (options.notificationAuditError && sql.includes('pharmacy_prescription_events')) {
             throw new Error('audit unavailable');
           }
@@ -225,6 +233,20 @@ describe('prescription status notifications', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it('does not record sent while the same delivery key is still in progress', async () => {
+    const { db, calls } = fakeDb({ notificationInProgress: true });
+    const dispatch = vi.fn();
+
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+      lineCredentialKey: CREDENTIAL_KEY,
+    })).resolves.toEqual({ status: 'skipped' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(calls.some((call) => call.values.includes('notification_sent'))).toBe(false);
+  });
+
   it('retries unresolved failures in a bounded batch', async () => {
     const { db, calls } = fakeDb({
       due: [{ line_account_id: 'account-1', submission_id: 'submission-1', status_event_id: STATUS_EVENT_ID }],
@@ -238,8 +260,11 @@ describe('prescription status notifications', () => {
     }, 10)).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
 
     expect(calls[0].sql).toContain("failed.event_type = 'notification_failed'");
+    expect(calls[0].sql).toContain('FROM pharmacy_notification_events delivery');
+    expect(calls[0].sql).toContain('delivery.line_account_id = s.line_account_id');
+    expect(calls[0].sql).toContain("delivery.outcome = 'attempted'");
     expect(calls[0].sql).toContain('LIMIT ?');
-    expect(calls[0].values).toEqual([10]);
+    expect(calls[0].values).toEqual([expect.any(String), 10]);
   });
 
   it('does not send when the tenant-scoped credential is missing or corrupt', async () => {

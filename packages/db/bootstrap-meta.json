@@ -125,7 +125,9 @@
     "custom_048_tenant_admin_audit_events.sql",
     "custom_049_pharmacy_emergency_retention_purge_log.sql",
     "custom_050_incoming_image_objects.sql",
-    "custom_051_pharmacy_emergency_counter_and_sale.sql"
+    "custom_051_pharmacy_emergency_counter_and_sale.sql",
+    "custom_052_pharmacy_webhook_inbox_fencing.sql",
+    "custom_053_outgoing_webhook_deliveries.sql"
   ],
-  "migrationCount": 126
+  "migrationCount": 128
 }

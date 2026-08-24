@@ -81,6 +81,23 @@ describe('GoogleCalendarClient.createEvent', () => {
     })).rejects.toThrow('response missing Google Meet URL');
   });
 
+  test('upstream response body を Error へ含めない', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('sensitive-upstream-detail', { status: 503 }),
+    );
+    const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
+
+    const error = await client.createEvent({
+      summary: '個別相談',
+      start: '2026-08-20T02:00:00.000Z',
+      end: '2026-08-20T02:15:00.000Z',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('503');
+    expect((error as Error).message).not.toContain('sensitive-upstream-detail');
+  });
+
   test('通常イベントは従来どおりconferenceDataを付けない', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'event-2' }), {

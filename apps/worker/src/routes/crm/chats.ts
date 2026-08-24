@@ -17,6 +17,7 @@ import { readLineCredential } from '../../custom/pharmacy/provisioning/line-cred
 import type { Env } from '../../index.js';
 import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../../custom/pharmacy/growth-loop/access.js';
 import { accountResourceOwnedByStaff } from '../../middleware/tenant-boundary.js';
+import { log } from '../../lib/log.js';
 
 const chats = new Hono<Env>();
 
@@ -40,12 +41,7 @@ async function startLoadingAnimation(
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(
-      detail
-        ? `LINE API error: ${response.status} - ${detail}`
-        : `LINE API error: ${response.status}`,
-    );
+    throw new Error(`LINE API error: ${response.status}`);
   }
 }
 
@@ -631,10 +627,9 @@ chats.post('/api/chats/:id/loading', async (c) => {
     );
 
     return c.json({ success: true, data: { started: true, loadingSeconds } });
-  } catch (err) {
-    console.error('POST /api/chats/:id/loading error:', err);
-    const message = err instanceof Error ? err.message : 'Internal server error';
-    return c.json({ success: false, error: message }, 500);
+  } catch {
+    log('chat_loading_start_failed', {}, 'error');
+    return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
 

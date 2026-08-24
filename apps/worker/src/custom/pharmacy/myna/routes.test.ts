@@ -275,7 +275,7 @@ describe('Myna routes', () => {
     const [pathname] = path.split('?');
     const token = pathname.split('/r/myna/')[1];
     const [payloadPart, sigPart] = token.split('.');
-    const tamperedSig = sigPart.slice(0, -1) + (sigPart.at(-1) === 'A' ? 'B' : 'A');
+    const tamperedSig = (sigPart[0] === 'A' ? 'B' : 'A') + sigPart.slice(1);
     const response = await app().request(`/r/myna/${payloadPart}.${tamperedSig}`, {}, env);
     expect(response.status).toBe(404);
     expect(await response.text()).toBe('Myna受付を利用できません');

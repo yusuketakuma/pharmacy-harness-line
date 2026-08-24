@@ -83,8 +83,7 @@ export async function getGoogleServiceAccountToken(
     }),
   });
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`google_service_account_token_failed:${response.status}:${detail.slice(0, 300)}`);
+    throw new Error(`google_service_account_token_failed:${response.status}`);
   }
   const data = await response.json<{ access_token?: string; expires_in?: number }>();
   if (!data.access_token) throw new Error('google_service_account_token_missing');
