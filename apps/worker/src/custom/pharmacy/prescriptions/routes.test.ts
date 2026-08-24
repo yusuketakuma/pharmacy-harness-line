@@ -593,6 +593,7 @@ describe('POST /api/liff/pharmacy/prescriptions', () => {
 describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
   const patient = { lineAccountId: 'account-1', friendId: 'friend-1' };
   const put = vi.fn();
+  const head = vi.fn();
   const upload = (headers: Record<string, string> = {}) => prescriptionRoutes.request(
     '/api/liff/pharmacy/prescriptions/submission-1/files/1?liffId=liff-1',
     {
@@ -604,7 +605,7 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
       },
       body: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     },
-    { DB: env.DB, IMAGES: { put } as unknown as R2Bucket },
+    { DB: env.DB, IMAGES: { put, head } as unknown as R2Bucket },
   );
 
   beforeEach(() => {
@@ -621,7 +622,8 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
       revision: 1,
       position: 1,
     });
-    put.mockResolvedValue(undefined);
+    put.mockResolvedValue({ key: 'stored', etag: 'stored-etag' });
+    head.mockReset();
   });
 
   it('rejects an oversized declared body before reading it', async () => {
@@ -641,6 +643,7 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
       'custom/pharmacy/prescriptions/submission-1/1/file-1',
       expect.any(Uint8Array),
       {
+        onlyIf: { etagDoesNotMatch: '*' },
         httpMetadata: { contentType: 'image/png' },
         sha256: 'a'.repeat(64),
       },
@@ -669,6 +672,19 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
   it('leaves the D1 row pending when R2 fails', async () => {
     put.mockRejectedValueOnce(new Error('r2 unavailable'));
     expect((await upload()).status).toBe(503);
+    expect(mocks.markFileReady).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a different object already stored at the reserved key', async () => {
+    put.mockResolvedValueOnce(null);
+    head.mockResolvedValueOnce({
+      checksums: { sha256: new Uint8Array(32).fill(0xbb).buffer },
+    });
+
+    const response = await upload();
+
+    expect(response.status).toBe(409);
+    expect(head).toHaveBeenCalledWith('custom/pharmacy/prescriptions/submission-1/1/file-1');
     expect(mocks.markFileReady).not.toHaveBeenCalled();
   });
 });

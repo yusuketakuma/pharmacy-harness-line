@@ -31,6 +31,7 @@ import {
   reportPrescriptionArrival,
   submitPrescription,
 } from './repository.js';
+import { putR2ObjectOnce } from '../../../services/immutable-r2.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { recordTenantAudit } from '../../../lib/tenant-audit.js';
@@ -278,10 +279,11 @@ prescriptionRoutes.put('/api/liff/pharmacy/prescriptions/:id/files/:position', a
 
   if (file.state !== 'ready') {
     try {
-      await c.env.IMAGES.put(file.r2_key, bytes, {
+      const stored = await putR2ObjectOnce(c.env.IMAGES, file.r2_key, bytes, {
         httpMetadata: { contentType },
         sha256: inspected.sha256,
-      });
+      }, inspected.sha256);
+      if (!stored) return c.json({ error: 'Prescription image key conflict' }, 409);
     } catch {
       return c.json({ error: 'Image storage temporarily unavailable' }, 503);
     }

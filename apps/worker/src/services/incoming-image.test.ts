@@ -6,8 +6,9 @@ function makeR2Stub() {
   return {
     put: vi.fn(async (key: string, data: ArrayBuffer, opts: { httpMetadata?: { contentType?: string } }) => {
       store.set(key, { data, contentType: opts.httpMetadata?.contentType ?? '' });
-      return null;
+      return { key, etag: 'stored-etag' };
     }),
+    head: vi.fn(),
     _store: store,
   };
 }
@@ -50,6 +51,8 @@ describe('fetchAndStoreIncomingImage', () => {
     const [key, , opts] = r2.put.mock.calls[0];
     expect(key).toBe('tenants/tenant-a/accounts/acc-1/incoming/msg-xyz.jpg');
     expect(opts.httpMetadata?.contentType).toBe('image/jpeg');
+    expect(opts.onlyIf).toEqual({ etagDoesNotMatch: '*' });
+    expect(opts.sha256).toBeInstanceOf(ArrayBuffer);
     expect(result?.originalContentUrl).toBe(
       'https://worker.example.com/api/images/tenants/tenant-a/accounts/acc-1/incoming/msg-xyz.jpg',
     );
@@ -95,6 +98,29 @@ describe('fetchAndStoreIncomingImage', () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  test('同じkeyに別内容が存在する場合は上書きしない', async () => {
+    const r2 = makeR2Stub();
+    r2.put.mockResolvedValueOnce(null);
+    r2.head.mockResolvedValueOnce({ checksums: { sha256: new Uint8Array(32).fill(1).buffer } });
+    const fetchMock = vi.fn(async () =>
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    );
+
+    await expect(fetchAndStoreIncomingImage({
+      r2: r2 as unknown as R2Bucket,
+      fetch: fetchMock,
+      workerUrl: 'https://worker.example.com',
+      channelAccessToken: 'token-abc',
+      tenantId: 'tenant-a',
+      accountId: 'acc-1',
+      messageId: 'msg-existing',
+    })).resolves.toBeNull();
+    expect(r2._store.size).toBe(0);
   });
 
   test('Content-Length がなくても 10 MiB を超える画像は保存しない', async () => {
