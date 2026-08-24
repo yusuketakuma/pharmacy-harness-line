@@ -2,43 +2,78 @@
 
 ## Pharmacy v0.32.0 (2026-08-24)
 
-> package version `0.32.0`とseller release `pharmacy-v0.32.0`は別identityです。この項目はローカルsource candidateを記録するもので、seller release作成、deploy、secret投入、account activation、実データ操作、LINE mutationを示しません。
+> 公開状況: v0.32.0はローカル実装候補です。package version `0.32.0`とseller release `pharmacy-v0.32.0`は別物であり、seller release作成、deploy、薬局アカウントへの反映、本番データ操作はまだ行っていません。
 
-### 利用者にとって何が変わり、どんなメリットがあるか
+### このバージョンで目指したこと
 
-以下は、このsource candidateがdeployされ、各アカウントの権限・設定・operational readinessを通過した環境での変更です。この`CHANGELOG`だけでは本番反映を意味しません。
+患者には「次に何をすればよいか」が分かるLINE画面を、薬局職員には「今日どこを確認すべきか」が分かる管理画面を提供します。同時に、患者情報の暗号化、保存期限、削除、バックアップからの復旧を、誤った対象や不明な結果のまま進めない仕組みにしました。
 
-| 利用する人 | 変わったこと | メリット |
+### 利用者ごとの変更とメリット
+
+| 利用する人 | v0.32.0で変わること | メリット |
 | --- | --- | --- |
-| 患者 | LINE内の薬局メニューを3つの目的別に整理し、各手続きに現在の状態・次の操作・押しやすいボタン・入力途中の注意を表示 | 目的の機能を見つけやすくなり、処方せん送信や問診で「次に何をすればよいか」を判断しやすい。入力途中の情報を端末へ永続保存しないため、共用端末でも情報が残りにくい |
-| 患者（緊急避妊薬） | 新規薬局アカウントでは機能設定を既定ONに変更。ただし薬剤師・在庫・受付枠・同意などが未準備なら利用開始させない | 薬局側の準備が整った時点で案内を開始しやすく、未準備のまま患者を受付へ進ませる事故を防げる |
-| 薬局職員 | 管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」に整理し、今日の対応、準備不足、権限不足、既存案件の確認専用状態を区別 | 探す時間を減らし、対応が必要な案件と設定作業を混同しにくい。変更できない理由と次の確認先が分かる |
-| 薬局職員（個別相談） | Google Calendarの個別相談を登録・変更すると、担当アカウントに相談記録と前日・1時間前のLINEリマインドをまとめて登録し、相談名を含めない固定文面で送信。取消も同じ担当範囲で反映 | 別アカウントの相談を誤操作しにくくなり、予定変更時のリマインド登録漏れと患者情報の通知混入を防ぎやすい |
-| 薬局owner/admin | アカウントごとの機能、readiness、設定反映状態を分けて表示し、既存アカウントの明示OFFは維持 | 新機能を段階的に有効化でき、既存運用を意図せずONへ変えることを避けられる |
-| Platform admin・運用担当 | 薬局全体の状態を6領域で確認でき、通常表示から患者件数・内部ID・raw errorを除外。問題はreadiness理由として表示 | 患者情報を広く見せずに、どの薬局が準備不足・未検証・対応待ちかを切り分けやすい |
-| データ保護担当 | 復旧、暗号化移行、保存期限、legal hold、削除を承認・対象範囲・事前確認・再開条件つきのoperationとして管理 | 対象違い、二重実行、結果不明の削除、hold中の削除を止めやすく、復旧可能性を先に確認できる |
+| 患者 | LINE内の機能を「今すぐ行う」「送信後の確認・フォロー」「薬局情報・相談」の3つに整理。各画面に現在の状態、次の操作、入力途中で戻る場合の注意を表示 | 目的の手続きを見つけやすくなり、処方せん送信や問診の途中で迷いにくくなる |
+| 緊急避妊薬を希望する患者 | 新しく作成する薬局アカウントでは緊急避妊薬機能を既定ONに変更。ただし、薬剤師、在庫、受付枠、同意などの準備が不足している場合は受付を開始しない | 準備が整った薬局は案内を始めやすく、未準備の薬局で患者を誤って受付へ進ませることを防げる |
+| 薬局職員 | 管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」に整理。対応待ち、準備不足、権限不足、確認のみの状態を分けて表示 | 必要な業務を探す時間を減らし、対応すべき案件と設定作業を混同しにくくなる |
+| 個別相談を担当する薬局職員 | Google Calendarの個別相談を登録・変更すると、同じ担当アカウントへ前日・1時間前のLINEリマインドも一括登録。取消時は未送信リマインドも取消 | 別アカウントの予定を誤操作しにくくなり、予定変更時のリマインド登録漏れを防げる |
+| 薬局owner/admin | アカウントごとに利用機能、準備状況、患者画面やLINEへの反映状況を確認可能。既存アカウントで明示的にOFFにした機能は維持 | 新機能を段階的に有効化でき、既存の薬局運用を意図せず変更する事故を避けられる |
+| Platform admin・運用担当 | 薬局全体を「全体状況」「初期設定」「運用」「セキュリティ・監査」「データ保護」など6領域で確認。通常画面には患者件数、内部ID、生のエラーを表示しない | 患者情報を広く閲覧せずに、準備不足・未検証・対応待ちの薬局を切り分けやすくなる |
+| データ保護・復旧担当 | 暗号化移行、保存期限、legal hold、削除、復旧を、承認者・実行者・対象範囲・事前確認・再開条件つきで管理 | 対象間違い、二重実行、hold中の削除、結果不明な削除を止め、安全に再確認しやすくなる |
 
-### 管理画面と患者LIFF
+### 患者向けLINE画面
 
-- 薬局管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」へ整理し、role・account capability・既存案件の`確認のみ`を区別
-- Platform Adminをfleet運用の6領域へ整理し、患者件数・内部ID・raw errorを既定表示から除外。期限付きsupport grantとPHI-free auditを維持
-- 患者LIFFを3群の機能一覧、共通visual token、状態と次操作、44px tap target、safe-area、in-memory draftへ統一
-- 新規薬局アカウントでは緊急避妊薬capabilityを既定ONにし、既存アカウントの明示OFFと薬剤師・在庫・枠・同意のoperational readinessは維持
+- 薬局名、画面名、戻る先、全機能一覧への導線を全画面で統一
+- 処方せん、患者アンケート、緊急避妊薬、服薬後フォロー、継続支援に、現在の状態と「次にすること」を表示
+- 本文の読みやすさ、色だけに頼らない状態表示、44px以上の操作領域、LINE内ブラウザのsafe-areaへ対応
+- 処方せん画像やアンケート回答の入力途中データは、`localStorage`などへ永続保存せずメモリ内だけで保持
+- 通信失敗や権限不足では内部エラーを表示せず、再試行または薬局への確認方法を案内
 
-### データ保護と回復
+### 薬局職員・管理者向け画面
 
-- named approver/executor、tenant/account/environment、expiry、dry-run、preflight digest、execution fenceを持つ回復operationを追加
-- 患者アンケートFLEの再開可能backfill、coverage、mixed read、write freeze、scrub/restoreのHuman Gate境界を追加。rotation/rewrap未実証のreadinessは`UNVERIFIED`を維持
-- legal hold再評価、処方せん削除intent、incoming image backfill/purge/reconcileをfail-closed化。未知sourceと緊急避妊薬tombstone未決項目は削除しない
-- R2画像を上書き不可で保存し、削除結果が不明な場合は完了扱いせず照合待ちとして記録。途中停止したretention処理は保存済み進捗から安全に再開
-- D1/R2/FLE/outbox/webhookを同一fenceへ束ねたEd25519署名manifestと、production/LINE送信を持たないisolated restore rehearsal contractを追加
-- 復元後のD1 schemaとFLE参照件数を実データから再計算し、不足や不一致を復旧成功として扱わない
+- ホームに、本日の対応、期限、未対応、送信停止、設定不足と、その次に確認する画面へのリンクを表示
+- 機能がOFFでも対応中の案件がある場合は消さず、`確認のみ`として表示
+- 一般staff、admin、ownerの閲覧・変更範囲を画面とAPIの両方で統一
+- Platform adminの患者情報アクセスは、理由、ticket、再認証、期限つきsupport grant、監査記録が揃った場合だけ許可
+- 一部の状態を取得できない場合は正常や未設定と表示せず、該当部分を`UNVERIFIED`として区別
 
-### release境界
+### Google Meet個別相談
 
-- additive migrationは`custom_055`から`custom_058`
-- focused/local synthetic validationと実環境のbackup/restore、production scrub/delete、deploy、実LINE/実端末受入を別証拠として扱う
-- production Human Gate未実施のためproduction readinessは主張しない
+- `POST /api/meet-consultations`は、認証済みstaffが割り当てられたtenant・LINEアカウントの相談だけを登録・変更
+- 相談記録と前日・1時間前のリマインドを同じDB処理で保存し、どちらか一方だけが残る状態を防止
+- `DELETE /api/meet-consultations/:externalEventId`で、相談と未送信リマインドを同じ担当範囲内で取消
+- 自動LINE通知は相談名などの患者情報を含めない固定文面を使用
+
+### データ保護と復旧
+
+- 患者アンケートの暗号化移行を途中から再開でき、暗号化対象の不足、異なる鍵、改ざん、別tenant・別accountのデータ混入を拒否
+- 保存期限による削除は、tenant・LINEアカウント・承認済みoperation・legal holdを削除直前まで再確認
+- 処方せん画像・受信画像は既存のR2 keyを上書きせず、削除結果が不明な場合は完了扱いにせず照合待ちとして記録
+- 途中停止したretention処理は、保存済み件数とcursorから再開
+- D1、R2、暗号化データ、通知台帳、webhookを同じ世代として署名し、外部送信機能を持たない隔離環境で復旧内容を照合
+- 復旧後はDB schema、行数、R2所有権、暗号化参照件数、未処理通知を実データから再計算し、不一致を復旧成功として扱わない
+
+### 変わらない安全条件
+
+- 緊急避妊薬の受付可否や販売可否を自動判断しない。最終判断は薬剤師が行う
+- 既存薬局アカウントで明示的にOFFにした緊急避妊薬機能を自動でONへ変更しない
+- rotation/rewrap未実証、retention方針未決、削除結果不明などの状態は`READY`にせず、`UNVERIFIED`または`BLOCKED`を維持
+- productionのsecret投入、暗号化移行、plaintext削除、retention削除、復旧、deploy、実LINE送信は別のHuman Gateなしに実行しない
+
+### ローカル確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| workspace test | 410 files / 3,294 tests PASS |
+| Worker test | 225 files / 2,246 tests PASS |
+| deploy・運用script test | 18 files / 210 tests PASS |
+| migration contract | 89 migrations PASS |
+| LIFF Chromium smoke | 4 tests PASS |
+| review修正後のtypecheck・build | `NOT_RERUN` |
+| exact-candidate Repository Verify | `NOT_RUN` |
+| development deploy・account activation | `NOT_RUN` |
+| production Human Gate | `NOT_RUN` |
+
+additive migrationは`custom_055`から`custom_058`です。機械可読の詳細証拠は`docs/pharmacy/evidence/v0.32.0-development-assurance.json`に記録しています。
 
 ## Pharmacy v0.31.1 (2026-08-24)
 
