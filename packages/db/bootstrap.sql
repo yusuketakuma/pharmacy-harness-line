@@ -3691,6 +3691,38 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'RICH_MENU_RESUME_CONFIRMATION_EVIDENCE_MISMATCH'); END;
 
+CREATE TRIGGER pharmacy_staff_accounts_keep_active_assignee
+BEFORE UPDATE OF line_account_id, staff_id, is_active ON pharmacy_staff_accounts
+WHEN OLD.is_active = 1
+ AND (
+   NEW.line_account_id != OLD.line_account_id OR
+   NEW.staff_id != OLD.staff_id OR
+   NEW.is_active != 1
+ )
+ AND EXISTS (
+   SELECT 1
+     FROM tenant_line_accounts AS mapping
+     INNER JOIN tenant_staff_memberships AS membership
+             ON membership.tenant_id = mapping.tenant_id
+            AND membership.staff_id = OLD.staff_id
+    WHERE mapping.line_account_id = OLD.line_account_id
+      AND membership.is_active = 1
+ )
+ AND NOT EXISTS (
+   SELECT 1
+     FROM pharmacy_staff_accounts AS other
+     INNER JOIN tenant_line_accounts AS mapping
+             ON mapping.line_account_id = other.line_account_id
+     INNER JOIN tenant_staff_memberships AS membership
+             ON membership.tenant_id = mapping.tenant_id
+            AND membership.staff_id = other.staff_id
+    WHERE other.line_account_id = OLD.line_account_id
+      AND other.staff_id != OLD.staff_id
+      AND other.is_active = 1
+      AND membership.is_active = 1
+ )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE'); END;
+
 CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_staff_accounts_tenant_update BEFORE UPDATE OF line_account_id, staff_id ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
@@ -3702,6 +3734,56 @@ BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
 CREATE TRIGGER tenant_admin_audit_events_immutable_update
 BEFORE UPDATE ON tenant_admin_audit_events
 BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER tenant_staff_memberships_keep_account_assignee
+BEFORE UPDATE OF tenant_id, staff_id, is_active ON tenant_staff_memberships
+WHEN OLD.is_active = 1
+ AND (
+   NEW.tenant_id != OLD.tenant_id OR
+   NEW.staff_id != OLD.staff_id OR
+   NEW.is_active != 1
+ )
+ AND EXISTS (
+   SELECT 1
+     FROM pharmacy_staff_accounts AS target
+     INNER JOIN tenant_line_accounts AS target_mapping
+             ON target_mapping.line_account_id = target.line_account_id
+    WHERE target.staff_id = OLD.staff_id
+      AND target.is_active = 1
+      AND target_mapping.tenant_id = OLD.tenant_id
+      AND NOT EXISTS (
+        SELECT 1
+          FROM pharmacy_staff_accounts AS other
+          INNER JOIN tenant_staff_memberships AS membership
+                  ON membership.tenant_id = OLD.tenant_id
+                 AND membership.staff_id = other.staff_id
+         WHERE other.line_account_id = target.line_account_id
+           AND other.staff_id != OLD.staff_id
+           AND other.is_active = 1
+           AND membership.is_active = 1
+      )
+ )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE'); END;
+
+CREATE TRIGGER tenant_staff_memberships_keep_active_owner
+BEFORE UPDATE OF tenant_id, staff_id, role, is_active ON tenant_staff_memberships
+WHEN OLD.role = 'owner'
+ AND OLD.is_active = 1
+ AND (
+   NEW.tenant_id != OLD.tenant_id OR
+   NEW.staff_id != OLD.staff_id OR
+   NEW.role != 'owner' OR
+   NEW.is_active != 1
+ )
+ AND NOT EXISTS (
+   SELECT 1
+     FROM tenant_staff_memberships AS other
+    WHERE other.tenant_id = OLD.tenant_id
+      AND other.staff_id != OLD.staff_id
+      AND other.role = 'owner'
+      AND other.is_active = 1
+ )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_OWNER'); END;
 
 INSERT INTO auto_replies (id, keyword, match_type, response_type, response_content, template_id, line_account_id, is_active, created_at)
 VALUES ('builtin-mileage-wallet-keyword', 'マイル', 'exact', 'flex', '{"type":"bubble","size":"kilo","body":{"type":"box","layout":"vertical","paddingAll":"20px","contents":[{"type":"text","text":"あなたのHarnessマイル","weight":"bold","size":"lg","color":"#1e293b"},{"type":"text","text":"現在のマイル、獲得履歴、登録済みアカウント、次にマイルを獲得できる行動を確認できます。","wrap":true,"size":"sm","color":"#64748b","margin":"md"}]},"footer":{"type":"box","layout":"vertical","paddingAll":"16px","contents":[{"type":"button","style":"primary","color":"#06C755","height":"sm","action":{"type":"uri","label":"マイルを確認する","uri":"https://liff.line.me/{{liff_id}}/?page=affiliate&liffId={{liff_id}}"}}]}}', NULL, NULL, 1, '2026-08-11T00:00:00.000+09:00');

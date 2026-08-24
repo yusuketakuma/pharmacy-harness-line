@@ -26,6 +26,17 @@ function isSoleActiveAccountAssignee(account: TenantStaffAccount): boolean {
   return account.target_active === 1 && account.active_staff_count <= 1;
 }
 
+function staffInvariantMessage(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('PHARMACY_LAST_ACTIVE_OWNER')) {
+    return 'オーナーは最低1人必要です';
+  }
+  if (message.includes('PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE')) {
+    return 'この薬局の担当者を0人にはできません';
+  }
+  return null;
+}
+
 async function getTenantStaffMembers(db: D1Database, tenantId: string): Promise<TenantStaffMember[]> {
   const result = await db.prepare(
     `SELECT member.id, member.name, member.email,
@@ -232,26 +243,35 @@ staff.put('/api/staff/:id/accounts', requireRole('owner'), async (c) => {
     return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
   }
   const now = new Date().toISOString();
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `UPDATE pharmacy_staff_accounts
-          SET is_active = 0, updated_at = ?
-        WHERE staff_id = ? AND line_account_id IN (
-          SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?
-        )`,
-    ).bind(now, staffId, tenantId),
-    ...accountIds.map((accountId) => c.env.DB.prepare(
-      `INSERT INTO pharmacy_staff_accounts
-        (line_account_id, staff_id, is_active, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?)
-       ON CONFLICT(line_account_id, staff_id) DO UPDATE SET
-         is_active = 1, updated_at = excluded.updated_at`,
-    ).bind(accountId, staffId, now, now)),
-    tenantAuditStatement(c.env.DB, {
-      tenantId, actorStaffId: c.get('staff').id, action: 'staff.accounts_updated',
-      resourceType: 'staff', resourceId: staffId, detail: { count: accountIds.length },
-    }),
-  ]);
+  try {
+    await c.env.DB.batch([
+      ...accounts
+        .filter((account) => account.assigned === 1 && !selected.has(account.id))
+        .map((account) => c.env.DB.prepare(
+          `UPDATE pharmacy_staff_accounts
+              SET is_active = 0, updated_at = ?
+            WHERE line_account_id = ? AND staff_id = ?
+              AND line_account_id IN (
+                SELECT line_account_id FROM tenant_line_accounts WHERE tenant_id = ?
+              )`,
+        ).bind(now, account.id, staffId, tenantId)),
+      ...accountIds.map((accountId) => c.env.DB.prepare(
+        `INSERT INTO pharmacy_staff_accounts
+          (line_account_id, staff_id, is_active, created_at, updated_at)
+         VALUES (?, ?, 1, ?, ?)
+         ON CONFLICT(line_account_id, staff_id) DO UPDATE SET
+           is_active = 1, updated_at = excluded.updated_at`,
+      ).bind(accountId, staffId, now, now)),
+      tenantAuditStatement(c.env.DB, {
+        tenantId, actorStaffId: c.get('staff').id, action: 'staff.accounts_updated',
+        resourceType: 'staff', resourceId: staffId, detail: { count: accountIds.length },
+      }),
+    ]);
+  } catch (error) {
+    const message = staffInvariantMessage(error);
+    if (message) return c.json({ success: false, error: message }, 409);
+    throw error;
+  }
   return c.json({
     success: true,
     data: accounts.map(({ id, name }) => ({ id, name, assigned: selected.has(id) })),
@@ -349,17 +369,46 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
     const id = c.req.param('id')!;
-    const body = await c.req.json<{
-      name?: string;
-      email?: string | null;
-      role?: string;
-      isActive?: boolean;
-    }>();
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    if (!body || Array.isArray(body)) {
+      return c.json({ success: false, error: 'Invalid JSON body' }, 400);
+    }
+    if (!['name', 'email', 'role', 'isActive'].some((key) => body[key] !== undefined)) {
+      return c.json({ success: false, error: 'At least one staff field is required' }, 400);
+    }
+
+    let name: string | undefined;
+    if (body.name !== undefined) {
+      if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 120) {
+        return c.json({ success: false, error: 'name is invalid' }, 400);
+      }
+      name = body.name.trim();
+    }
+
+    let email: string | null | undefined;
+    if (body.email !== undefined) {
+      if (body.email !== null && typeof body.email !== 'string') {
+        return c.json({ success: false, error: 'email is invalid' }, 400);
+      }
+      email = body.email === null ? null : body.email.trim() || null;
+      if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email))) {
+        return c.json({ success: false, error: 'email is invalid' }, 400);
+      }
+    }
 
     const validRoles = ['owner', 'admin', 'staff'] as const;
-    if (body.role !== undefined && !validRoles.includes(body.role as (typeof validRoles)[number])) {
-      return c.json({ success: false, error: 'role must be owner, admin, or staff' }, 400);
+    let role: (typeof validRoles)[number] | undefined;
+    if (body.role !== undefined) {
+      if (typeof body.role !== 'string' ||
+          !validRoles.includes(body.role as (typeof validRoles)[number])) {
+        return c.json({ success: false, error: 'role must be owner, admin, or staff' }, 400);
+      }
+      role = body.role as (typeof validRoles)[number];
     }
+    if (body.isActive !== undefined && typeof body.isActive !== 'boolean') {
+      return c.json({ success: false, error: 'isActive must be boolean' }, 400);
+    }
+    const isActive = body.isActive as boolean | undefined;
 
     // Prevent removing the last active owner
     const target = await getTenantStaffById(c.env.DB, tenantId, id);
@@ -368,8 +417,8 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
     }
     if (target.role === 'owner' && target.is_active === 1) {
       const willLoseOwner =
-        (body.role !== undefined && body.role !== 'owner') ||
-        body.isActive === false;
+        (role !== undefined && role !== 'owner') ||
+        isActive === false;
       if (willLoseOwner) {
         const ownerCount = await countActiveTenantOwners(c.env.DB, tenantId);
         if (ownerCount <= 1) {
@@ -377,35 +426,35 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
         }
       }
     }
-    if (body.isActive === false) {
+    if (isActive === false) {
       const accounts = await getTenantStaffAccounts(c.env.DB, tenantId, id);
       if (accounts.some(isSoleActiveAccountAssignee)) {
         return c.json({ success: false, error: 'この薬局の担当者を0人にはできません' }, 409);
       }
     }
 
-    if (body.name !== undefined || body.email !== undefined) {
+    if (name !== undefined || email !== undefined) {
       const updatedProfile = await updateStaffMember(
         c.env.DB,
         id,
-        { name: body.name, email: body.email },
+        { name, email },
         tenantId,
       );
       if (!updatedProfile) {
         return c.json({ success: false, error: 'Staff profile is shared across tenants' }, 409);
       }
     }
-    if (body.role !== undefined || body.isActive !== undefined) {
+    if (role !== undefined || isActive !== undefined) {
       const now = new Date().toISOString();
       const sets = ['updated_at = ?'];
       const values: Array<string | number> = [now];
-      if (body.role !== undefined) {
+      if (role !== undefined) {
         sets.push('role = ?');
-        values.push(body.role);
+        values.push(role);
       }
-      if (body.isActive !== undefined) {
+      if (isActive !== undefined) {
         sets.push('is_active = ?');
-        values.push(body.isActive ? 1 : 0);
+        values.push(isActive ? 1 : 0);
       }
       await c.env.DB.batch([
         c.env.DB.prepare(
@@ -413,7 +462,7 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
               SET ${sets.join(', ')}
             WHERE tenant_id = ? AND staff_id = ?`,
         ).bind(...values, tenantId, id),
-        ...(body.isActive === false ? [c.env.DB.prepare(
+        ...(isActive === false ? [c.env.DB.prepare(
           `UPDATE tenant_admin_sessions
               SET revoked_at = ?
             WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL`,
@@ -421,7 +470,7 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
         tenantAuditStatement(c.env.DB, {
           tenantId, actorStaffId: c.get('staff').id, action: 'staff.role_changed',
           resourceType: 'staff', resourceId: id,
-          detail: { role: body.role ?? null, isActive: body.isActive ?? null },
+          detail: { role: role ?? null, isActive: isActive ?? null },
         }),
       ]);
     }
@@ -434,6 +483,8 @@ staff.patch('/api/staff/:id', requireRole('owner'), async (c) => {
 
     return c.json({ success: true, data: serializeStaff(updated) });
   } catch (err) {
+    const message = staffInvariantMessage(err);
+    if (message) return c.json({ success: false, error: message }, 409);
     console.error('PATCH /api/staff/:id error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
@@ -486,6 +537,8 @@ staff.delete('/api/staff/:id', requireRole('owner'), async (c) => {
     ]);
     return c.json({ success: true, data: null });
   } catch (err) {
+    const message = staffInvariantMessage(err);
+    if (message) return c.json({ success: false, error: message }, 409);
     console.error('DELETE /api/staff/:id error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
