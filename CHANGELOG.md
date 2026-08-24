@@ -1,8 +1,8 @@
 # Changelog
 
-## Pharmacy v0.31.1 (Unreleased)
+## Pharmacy v0.31.1 (2026-08-24)
 
-> package versionはdevelopment candidateとして`0.31.1`へ更新しました。seller tag `pharmacy-v0.31.1`、GitHub Release、production deploy、account activation、実アカウントのLINE mutationは実施していません。
+> package version `0.31.1`とseller tag `pharmacy-v0.31.1`は別identityです。この項目はsource変更を記録し、production deploy、account activation、実アカウントのLINE mutationはそれぞれの実行証拠で確認します。
 
 ### リッチメニューの初期設定と並び替え
 
@@ -17,10 +17,12 @@
 - owner/adminだけが変更できる境界を管理画面とWorker APIの両方で検証し、LINE readiness確認や外部mutationより前に403で拒否
 - すべての薬局向けquery・mutationは既存どおり`line_account_id`、tenant、スタッフ割り当て、機能許可で限定
 
-### development gate
+### release gate
 
 - database migrationと新規dependencyはありません
-- `dev`向けPRのrequired checkとdevelopment deployは未確認です。成功証拠が得られるまでrelease完了とは扱いません
+- PR #83を`dev`へmergeし、exact `dev` head `742027f0e8cf294aaa529dec62fcb25d32018e3a`のrequired checkとdevelopment deployが成功
+- PR #84を`main`へmergeし、exact `main` head `56d5aec5d42865afd13c4c1694dc1c554ad27545`のRepository Verifyが成功
+- production deploy、account activation、実アカウントのLINE mutationはこのsource releaseに含めない
 
 ## Pharmacy v0.31.0 (2026-08-24)
 
