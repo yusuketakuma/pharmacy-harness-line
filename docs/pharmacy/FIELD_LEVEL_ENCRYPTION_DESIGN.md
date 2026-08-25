@@ -13,7 +13,7 @@ readiness は主張しない。
 | bounded backfill、coverage digest、resume | `PASS` (`intake/migration*.test.ts`) | `NOT_RUN` |
 | write freeze、CAS scrub、verified restore | `PASS` (synthetic D1) | Human Gate未実施 |
 | named approval、別executor、expiry、scope/fence | `PASS` (`recovery/operations*.test.ts`, `data-protection-routes*.test.ts`) | `NOT_RUN` |
-| key rotation / rewrap | `UNVERIFIED` | `NOT_RUN` |
+| key rotation / rewrap | `PASS` (separate v2 root、bounded rewrap、2-field CAS race test) | `NOT_RUN` |
 
 既存のadditive table `custom_040`/`custom_041`を再利用し、v0.32.0では
 `custom_056`のrecovery operation・execution fence・verified backup generationを
@@ -29,7 +29,7 @@ The bounded fulfillment `reason_codes_json` and `requirements_json` remain plain
 ## Envelope
 
 - Algorithm: AES-256-GCM through Web Crypto.
-- Root secret: a new `PHARMACY_PHI_KEY_V1`; do not reuse `LINE_CREDENTIAL_KEY_V1` or an authentication HMAC key.
+- Root secrets: `PHARMACY_PHI_KEY_V1` and a separately generated `PHARMACY_PHI_KEY_V2`; do not reuse `LINE_CREDENTIAL_KEY_V1`, either other version, or an authentication HMAC key.
 - Per-record nonce: 96 random bits, never reused with the same key.
 - AAD: `tenant_id`, `line_account_id`, `owner_friend_id`, `patient_id`, response `id`, `schema_version`, field name and envelope version.
 - Stored metadata: `nonce`, `ciphertext`, `key_version`, `envelope_version`, `encrypted_at` and the source revision. No deterministic lookup digest is created because answer content must not be searchable.
@@ -62,7 +62,19 @@ Writes use optimistic revision checks. A key or decrypt failure returns a generi
 - Key removal is blocked until no row references that version and a restore drill has passed.
 - Metrics contain counts by tenant/account and error code only. No payload, nonce or patient identifier enters logs.
 - Required tests: round trip, AAD swap rejection, wrong-tenant rejection, tamper rejection, duplicate nonce guard, concurrent revision conflict, backfill resume, scrub rollback and no-plaintext-log assertions.
-- 現行key versionは`1`だけである。rotation/rewrap経路を実装・実証するまでは、APIのFLE readinessを`UNVERIFIED`から上げない。
+- v2は、先に`PHARMACY_PHI_KEY_V2`を投入し、その後
+  `PHARMACY_PHI_ACTIVE_KEY_VERSION=2`を明示した場合だけ新規writeへ使用する。
+  v2 secretだけを置いてもactive versionは1のままであり、不正・短すぎるsecretや
+  未知versionは全問診read/writeをfail-closedにする。
+- 既存のapproved `fle_backfill` operationを再利用し、v1の2 fieldを新しいnonceで
+  v2へ再暗号化する。1 responseの2 fieldは、tenant/accountを含む1本のSQL CASで
+  2件同時に更新する。片方が競合した場合は2件ともv1のまま停止し、blind retryしない。
+- coverageは保存済み`key_version`別のenvelope件数を返す。v1参照0、v2 coverage
+  100%、isolated restore、別principalのapproval/executionが揃うまでv1を除去しない。
+  このsourceはWorker secretを自動削除せず、read keyのretirementは別Human Gateとする。
+- `PHARMACY_PHI_KEY_V1`は緊急避妊薬payloadにも使用中のため、問診v1参照が0でも
+  secret削除の根拠にはならない。緊急避妊薬側の別rotation/inventoryが完了するまで
+  旧secretのretirementは`BLOCKED`とする。
 
 ## Release gate
 

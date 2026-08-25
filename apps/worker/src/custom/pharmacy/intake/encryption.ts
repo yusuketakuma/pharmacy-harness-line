@@ -4,12 +4,14 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 export const INVALID_PATIENT_INTAKE_ENVELOPE_ERROR = 'Invalid patient intake envelope';
 export const PATIENT_INTAKE_ENVELOPE_VERSION = 1 as const;
 export const PATIENT_INTAKE_KEY_VERSION = 1 as const;
+export const PATIENT_INTAKE_KEY_VERSIONS = [1, 2] as const;
 export const PATIENT_INTAKE_ENCRYPTED_FIELDS = [
   'patient_snapshot_json',
   'answers_json',
 ] as const;
 
 export type PatientIntakeEncryptedField = typeof PATIENT_INTAKE_ENCRYPTED_FIELDS[number];
+export type PatientIntakeKeyVersion = typeof PATIENT_INTAKE_KEY_VERSIONS[number];
 
 export interface PatientIntakeEncryptionContext {
   tenantId: string;
@@ -84,7 +86,7 @@ function validateContext(context: PatientIntakeEncryptionContext): void {
   if (!Number.isSafeInteger(context.schemaVersion) || context.schemaVersion < 1 ||
       !Number.isSafeInteger(context.sourceRevision) || context.sourceRevision < 1 ||
       context.envelopeVersion !== PATIENT_INTAKE_ENVELOPE_VERSION ||
-      context.keyVersion !== PATIENT_INTAKE_KEY_VERSION ||
+      !(PATIENT_INTAKE_KEY_VERSIONS as readonly number[]).includes(context.keyVersion) ||
       !(PATIENT_INTAKE_ENCRYPTED_FIELDS as readonly string[]).includes(context.fieldName)) invalid();
 }
 

@@ -337,6 +337,45 @@ describe('platform-admin data protection recovery routes', () => {
     expect(recoveryMocks.preflightRecoveryOperation).not.toHaveBeenCalled();
   });
 
+  it('pins both the observed v1 and explicitly active v2 keys for a rewrap preflight', async () => {
+    const rotationPreflight = { ...preflight, keyVersions: ['1', '2'] };
+    recoveryMocks.getRecoveryOperation.mockResolvedValue({
+      ...operation,
+      operation: 'fle_backfill',
+      status: 'created',
+      approverSubject: null,
+    });
+    migrationMocks.inspectPatientIntakeBackfillCoverage.mockResolvedValue({
+      counts: { scanned: 1, covered: 1 },
+      errorCode: null,
+      coverageTotal: 1,
+      coverageDigest: preflight.rowDigest,
+      keyVersions: ['1'],
+      keyVersionCounts: { '1': 2 },
+    });
+    migrationMocks.patientIntakeRecoveryMetadata.mockResolvedValue({
+      schemaDigest: preflight.schemaDigest,
+      fieldInventoryDigest: preflight.fieldInventoryDigest,
+      keyVersions: ['1', '2'],
+    });
+    recoveryMocks.preflightRecoveryOperation.mockResolvedValue(operation);
+
+    const response = await app().request(`${endpoint}/operation-a/preflight`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ preflight: rotationPreflight }),
+    }, {
+      ...env(),
+      PHARMACY_PHI_KEY_V2: 'q'.repeat(32),
+      PHARMACY_PHI_ACTIVE_KEY_VERSION: '2',
+    });
+
+    expect(response.status).toBe(200);
+    expect(migrationMocks.patientIntakeRecoveryMetadata).toHaveBeenCalledWith(['1', '2']);
+    expect(recoveryMocks.preflightRecoveryOperation).toHaveBeenCalledWith(expect.anything(),
+      expect.objectContaining({ preflight: rotationPreflight }));
+  });
+
   it('does not treat arbitrary schema or field strings as an authoritative preflight', async () => {
     recoveryMocks.getRecoveryOperation.mockResolvedValue({
       ...operation,

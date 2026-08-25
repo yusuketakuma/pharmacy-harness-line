@@ -15,6 +15,7 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NOW = '2026-08-20T00:00:00.000Z';
 const SECRET = 'synthetic-pharmacy-phi-root-secret-v1';
+const SECRET_V2 = 'synthetic-pharmacy-phi-root-secret-v2';
 const scope = { tenantId: 'tenant-a', lineAccountId: 'account-a', rootSecret: SECRET };
 const approval: PatientIntakeMigrationApproval = {
   approvedBy: 'security-owner',
@@ -124,7 +125,7 @@ describe('pharmacy patient intake bounded migration', () => {
   it('defaults to dry-run, bounds at 50, and resumes with a PHI-free cursor report', async () => {
     const first = await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 2 });
     expect(first).toEqual({
-      counts: { scanned: 2, verified: 2, inserted: 0, skipped: 0, scrubbed: 0, restored: 0, conflicts: 0 },
+      counts: { scanned: 2, verified: 2, inserted: 0, rewrapped: 0, skipped: 0, scrubbed: 0, restored: 0, conflicts: 0 },
       errorCode: null,
       nextCursor: 'response-2',
     });
@@ -140,6 +141,88 @@ describe('pharmacy patient intake bounded migration', () => {
     expect(first).toMatchObject({ counts: { scanned: 3, verified: 3, inserted: 3 }, errorCode: null, nextCursor: null });
     const second = await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
     expect(second).toMatchObject({ counts: { scanned: 3, verified: 3, inserted: 0, skipped: 3 }, errorCode: null });
+  });
+
+  it('rewraps scrubbed v1 envelopes to a separately rooted v2 key in bounded batches', async () => {
+    await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
+    sqlite.prepare(`UPDATE pharmacy_patient_intake_responses
+      SET patient_snapshot_json = '{}', answers_json = '{}'`).run();
+    const rotatedScope = {
+      ...scope,
+      rootSecretV2: SECRET_V2,
+      activeKeyVersion: 2 as const,
+    };
+
+    const result = await backfillPatientIntakeEnvelopes(db, {
+      ...rotatedScope, cursor: null, limit: 50, dryRun: false,
+    });
+
+    expect(result).toMatchObject({
+      counts: { scanned: 3, verified: 3, inserted: 0, rewrapped: 3, conflicts: 0 },
+      errorCode: null,
+      nextCursor: null,
+    });
+    expect(sqlite.prepare(`SELECT key_version, COUNT(*) AS count
+      FROM pharmacy_patient_intake_envelopes GROUP BY key_version`).all())
+      .toEqual([{ key_version: 2, count: 6 }]);
+    await expect(inspectPatientIntakeCoverage(db, rotatedScope)).resolves.toMatchObject({
+      counts: { scanned: 3, covered: 3 }, errorCode: null,
+      keyVersions: ['2'], keyVersionCounts: { '2': 6 },
+    });
+    await expect(inspectPatientIntakeCoverage(db, {
+      ...rotatedScope, rootSecretV2: 'wrong-synthetic-pharmacy-phi-root-v2',
+    })).resolves.toMatchObject({ errorCode: 'CORRUPT_ENVELOPE' });
+  });
+
+  it('leaves both fields on v1 when either envelope changes before the rewrap CAS', async () => {
+    await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
+    let raced = false;
+    const racingDb = {
+      ...db,
+      prepare(sql: string) {
+        const prepared = db.prepare(sql);
+        if (!sql.includes('UPDATE pharmacy_patient_intake_envelopes\n    SET envelope_version')) {
+          return prepared;
+        }
+        return {
+          bind(...values: unknown[]) {
+            const bound = prepared.bind(...values);
+            return {
+              ...bound,
+              async run() {
+                if (!raced) {
+                  raced = true;
+                  sqlite.prepare(`UPDATE pharmacy_patient_intake_envelopes
+                    SET ciphertext = ?
+                    WHERE response_id = 'response-1' AND field_name = 'patient_snapshot_json'`)
+                    .run('B'.repeat(22));
+                }
+                return bound.run();
+              },
+            };
+          },
+        } as D1PreparedStatement;
+      },
+    } as D1Database;
+
+    const result = await backfillPatientIntakeEnvelopes(racingDb, {
+      ...scope,
+      rootSecretV2: SECRET_V2,
+      activeKeyVersion: 2,
+      cursor: null,
+      limit: 1,
+      dryRun: false,
+    });
+
+    expect(result).toMatchObject({
+      counts: { rewrapped: 0, conflicts: 1 }, errorCode: 'CAS_CONFLICT',
+    });
+    expect(sqlite.prepare(`SELECT field_name, key_version
+      FROM pharmacy_patient_intake_envelopes WHERE response_id = 'response-1'
+      ORDER BY field_name`).all()).toEqual([
+      { field_name: 'answers_json', key_version: 1 },
+      { field_name: 'patient_snapshot_json', key_version: 1 },
+    ]);
   });
 
   it('fails closed for partial, corrupt, mismatch, and CAS conflict without leaking row data', async () => {

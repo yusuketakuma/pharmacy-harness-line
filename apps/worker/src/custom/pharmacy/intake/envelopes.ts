@@ -5,11 +5,20 @@ import {
   PATIENT_INTAKE_KEY_VERSION,
   sealPatientIntakeField,
   type PatientIntakeEncryptedField,
+  type PatientIntakeKeyVersion,
 } from './encryption.js';
 
 export interface PatientIntakeCryptoScope {
   tenantId: string;
   rootSecret: string;
+  rootSecretV2?: string;
+  activeKeyVersion?: PatientIntakeKeyVersion;
+}
+
+export interface PatientIntakeCryptoBindings {
+  PHARMACY_PHI_KEY_V1?: string;
+  PHARMACY_PHI_KEY_V2?: string;
+  PHARMACY_PHI_ACTIVE_KEY_VERSION?: string;
 }
 
 export interface PatientIntakeEncryptedRow {
@@ -31,10 +40,54 @@ export interface StoredPatientIntakeEnvelope {
   ciphertext: string;
 }
 
+const encoder = new TextEncoder();
+
+function validRootSecret(value: unknown): value is string {
+  return typeof value === 'string' && encoder.encode(value).length >= 32 && value.length <= 4096;
+}
+
+export function resolvePatientIntakeCryptoScope(
+  bindings: PatientIntakeCryptoBindings,
+  tenantId: string | undefined,
+): PatientIntakeCryptoScope | null {
+  const active = bindings.PHARMACY_PHI_ACTIVE_KEY_VERSION ?? '1';
+  if (!tenantId || !validRootSecret(bindings.PHARMACY_PHI_KEY_V1) ||
+      (bindings.PHARMACY_PHI_KEY_V2 !== undefined && !validRootSecret(bindings.PHARMACY_PHI_KEY_V2)) ||
+      bindings.PHARMACY_PHI_KEY_V2 === bindings.PHARMACY_PHI_KEY_V1 ||
+      (active !== '1' && active !== '2') ||
+      (active === '2' && !validRootSecret(bindings.PHARMACY_PHI_KEY_V2))) return null;
+  return {
+    tenantId,
+    rootSecret: bindings.PHARMACY_PHI_KEY_V1,
+    ...(bindings.PHARMACY_PHI_KEY_V2 ? { rootSecretV2: bindings.PHARMACY_PHI_KEY_V2 } : {}),
+    ...(active === '2' ? { activeKeyVersion: 2 as const } : {}),
+  };
+}
+
+export function activePatientIntakeKeyVersion(
+  scope: PatientIntakeCryptoScope,
+): PatientIntakeKeyVersion {
+  return scope.activeKeyVersion ?? PATIENT_INTAKE_KEY_VERSION;
+}
+
+export function patientIntakeRootSecret(
+  scope: PatientIntakeCryptoScope,
+  keyVersion: number,
+): string {
+  const value = keyVersion === 1 ? scope.rootSecret : keyVersion === 2 ? scope.rootSecretV2 : undefined;
+  if (!validRootSecret(value)) throw new Error(INVALID_PATIENT_INTAKE_ENVELOPE_ERROR);
+  return value;
+}
+
+export function patientIntakeKeyVersions(scope: PatientIntakeCryptoScope): PatientIntakeKeyVersion[] {
+  return scope.rootSecretV2 ? [1, 2] : [1];
+}
+
 export function patientIntakeEncryptionContext(
   row: PatientIntakeEncryptedRow,
   scope: PatientIntakeCryptoScope,
   fieldName: PatientIntakeEncryptedField,
+  keyVersion = activePatientIntakeKeyVersion(scope),
 ) {
   return {
     tenantId: scope.tenantId,
@@ -46,7 +99,7 @@ export function patientIntakeEncryptionContext(
     sourceRevision: row.revision,
     fieldName,
     envelopeVersion: PATIENT_INTAKE_ENVELOPE_VERSION,
-    keyVersion: PATIENT_INTAKE_KEY_VERSION,
+    keyVersion,
   };
 }
 
@@ -65,12 +118,12 @@ export async function preparePatientIntakeEnvelopeStatements(
     const context = patientIntakeEncryptionContext(row, scope, fieldName);
     const envelope = await sealPatientIntakeField(
       plaintext,
-      scope.rootSecret,
+      patientIntakeRootSecret(scope, context.keyVersion),
       context,
     );
     if (verifyRoundTrip && await openPatientIntakeField(
       envelope,
-      scope.rootSecret,
+      patientIntakeRootSecret(scope, context.keyVersion),
       context,
     ) !== plaintext) {
       throw new Error('byte mismatch');
@@ -119,19 +172,23 @@ export async function decryptPatientIntakeEnvelopeFields(
   const byField = new Map(envelopes.map((item) => [item.field_name, item]));
   const snapshot = byField.get('patient_snapshot_json');
   const answers = byField.get('answers_json');
-  if (!snapshot || !answers) throw new Error(INVALID_PATIENT_INTAKE_ENVELOPE_ERROR);
+  if (!snapshot || !answers || snapshot.key_version !== answers.key_version) {
+    throw new Error(INVALID_PATIENT_INTAKE_ENVELOPE_ERROR);
+  }
   return {
     patient_snapshot_json: await openPatientIntakeField({
       envelopeVersion: snapshot.envelope_version,
       keyVersion: snapshot.key_version,
       nonce: snapshot.nonce,
       ciphertext: snapshot.ciphertext,
-    }, scope.rootSecret, patientIntakeEncryptionContext(row, scope, 'patient_snapshot_json')),
+    }, patientIntakeRootSecret(scope, snapshot.key_version),
+    patientIntakeEncryptionContext(row, scope, 'patient_snapshot_json', snapshot.key_version)),
     answers_json: await openPatientIntakeField({
       envelopeVersion: answers.envelope_version,
       keyVersion: answers.key_version,
       nonce: answers.nonce,
       ciphertext: answers.ciphertext,
-    }, scope.rootSecret, patientIntakeEncryptionContext(row, scope, 'answers_json')),
+    }, patientIntakeRootSecret(scope, answers.key_version),
+    patientIntakeEncryptionContext(row, scope, 'answers_json', answers.key_version)),
   };
 }

@@ -30,6 +30,11 @@ import {
   type PatientIntakeMigrationApproval,
 } from '../intake/migration.js';
 import {
+  activePatientIntakeKeyVersion,
+  resolvePatientIntakeCryptoScope,
+  type PatientIntakeCryptoScope,
+} from '../intake/envelopes.js';
+import {
   purgePrescriptionFilesPastRetention,
   reconcilePrescriptionDeletionIntents,
 } from '../prescriptions/retention-purge.js';
@@ -47,7 +52,6 @@ export const platformAdminDataProtectionRoutes = new Hono<Env>();
 
 const RECOVERY_PATH = '/api/platform-admin/data-protection/recovery-operations';
 const MAX_BATCH = 50;
-const encoder = new TextEncoder();
 
 type Body = Record<string, unknown>;
 type RecoveryContext = Context<Env>;
@@ -166,25 +170,28 @@ function migrationApproval(operation: Awaited<ReturnType<typeof getRecoveryOpera
   };
 }
 
-function requirePhiKey(c: RecoveryContext): string | null {
-  const value = c.env.PHARMACY_PHI_KEY_V1;
-  if (!value || encoder.encode(value).length < 32 || value.length > 4096) {
-    return null;
-  }
-  return value;
+function requirePhiKeys(c: RecoveryContext, tenantId: string): PatientIntakeCryptoScope | null {
+  return resolvePatientIntakeCryptoScope(c.env, tenantId);
 }
 
 async function verifyIntakeCoverage(
   db: D1Database,
   operation: RecoveryOperation,
   scope: RecoveryScope,
-  rootSecret: string,
+  cryptoScope: PatientIntakeCryptoScope,
   preflight: RecoveryPreflight,
 ): Promise<void> {
+  const migrationScope = { ...cryptoScope, lineAccountId: scope.lineAccountId };
   const coverage = operation === 'fle_backfill'
-    ? await inspectPatientIntakeBackfillCoverage(db, { ...scope, rootSecret })
-    : await inspectPatientIntakeCoverage(db, { ...scope, rootSecret });
-  const metadata = await patientIntakeRecoveryMetadata();
+    ? await inspectPatientIntakeBackfillCoverage(db, migrationScope)
+    : await inspectPatientIntakeCoverage(db, migrationScope);
+  const activeVersion = String(activePatientIntakeKeyVersion(cryptoScope));
+  const keyVersions = coverage.keyVersions?.length ? [...coverage.keyVersions] : [activeVersion];
+  if (operation === 'fle_backfill' && !keyVersions.includes(activeVersion)) {
+    keyVersions.push(activeVersion);
+    keyVersions.sort((left, right) => Number(left) - Number(right));
+  }
+  const metadata = await patientIntakeRecoveryMetadata(keyVersions);
   if (coverage.errorCode || coverage.coverageTotal !== preflight.coverageTotal ||
       coverage.coverageTotal !== preflight.expectedRowCount ||
       coverage.coverageDigest !== preflight.rowDigest ||
@@ -208,7 +215,7 @@ type IntakeExecutionResult = {
 async function executeIntakeOperation(
   db: D1Database,
   operation: NonNullable<Awaited<ReturnType<typeof getRecoveryOperation>>>,
-  rootSecret: string,
+  cryptoScope: PatientIntakeCryptoScope,
   body: Body,
 ): Promise<IntakeExecutionResult> {
   if (!operation.preflight) throw new RecoveryOperationError('PREFLIGHT_REQUIRED');
@@ -219,9 +226,8 @@ async function executeIntakeOperation(
   if (cursor === undefined || typeof limit !== 'number' || !Number.isSafeInteger(limit) ||
       limit < 1 || limit > MAX_BATCH) throw new RecoveryOperationError('INVALID_INPUT');
   const scope = {
-    tenantId: operation.scope.tenantId,
+    ...cryptoScope,
     lineAccountId: operation.scope.lineAccountId,
-    rootSecret,
   };
   if (operation.operation === 'fle_backfill') {
     return backfillPatientIntakeEnvelopes(db, {
@@ -341,12 +347,14 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/preflight`
   if (!preflight) return c.json({ success: false, error: 'Invalid recovery request' }, 400);
   const isIntakeOperation = current.operation === 'fle_backfill' ||
     current.operation === 'plaintext_scrub' || current.operation === 'plaintext_restore';
-  const rootSecret = isIntakeOperation ? requirePhiKey(c) : null;
-  if (isIntakeOperation && !rootSecret) {
+  const cryptoScope = isIntakeOperation ? requirePhiKeys(c, current.scope.tenantId) : null;
+  if (isIntakeOperation && !cryptoScope) {
     return c.json({ success: false, error: 'Patient intake encryption is not configured' }, 503);
   }
   try {
-    if (rootSecret) await verifyIntakeCoverage(c.env.DB, current.operation, current.scope, rootSecret, preflight);
+    if (cryptoScope) {
+      await verifyIntakeCoverage(c.env.DB, current.operation, current.scope, cryptoScope, preflight);
+    }
     const record = await preflightRecoveryOperation(c.env.DB, {
       operationId,
       scope: current.scope,
@@ -408,8 +416,8 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
     }
   }
   if (!preflight) return errorResponse(c, new RecoveryOperationError('PREFLIGHT_REQUIRED'));
-  const rootSecret = isIntakeOperation ? requirePhiKey(c) : null;
-  if (isIntakeOperation && !rootSecret) {
+  const cryptoScope = isIntakeOperation ? requirePhiKeys(c, current.scope.tenantId) : null;
+  if (isIntakeOperation && !cryptoScope) {
     return c.json({ success: false, error: 'Patient intake encryption is not configured' }, 503);
   }
   try {
@@ -427,8 +435,8 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
       operationId, scope: claimed.scope, operation: claimed.operation, preflight,
       executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
     });
-    if (isIntakeOperation && rootSecret) {
-      await verifyIntakeCoverage(c.env.DB, verified.operation, verified.scope, rootSecret, preflight);
+    if (isIntakeOperation && cryptoScope) {
+      await verifyIntakeCoverage(c.env.DB, verified.operation, verified.scope, cryptoScope, preflight);
     }
     const execution = {
       operationId: verified.id,
@@ -491,7 +499,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
         });
       return c.json({ success: true, data: { operation: final, result } });
     }
-    const result = await executeIntakeOperation(c.env.DB, verified, rootSecret!, body);
+    const result = await executeIntakeOperation(c.env.DB, verified, cryptoScope!, body);
     if (result.errorCode) {
       throw new RecoveryOperationError(
         ['COVERAGE_MISMATCH', 'MISMATCH', 'MIXED_SENTINEL', 'CORRUPT_ENVELOPE',
@@ -514,6 +522,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
       ? 'recovery_operation_completed' : 'recovery_operation_progressed', {
       scanned: result.counts.scanned ?? 0,
       verified: result.counts.verified ?? 0,
+      rewrapped: result.counts.rewrapped ?? 0,
     });
     return c.json({ success: true, data: { operation: final, result } });
   } catch (error) {

@@ -24,6 +24,7 @@ import {
   restorePatientIntakeLegacyFields,
   scrubPatientIntakeLegacyFields,
 } from '../intake/migration.js';
+import { resolvePatientIntakeCryptoScope } from '../intake/envelopes.js';
 import {
   platformAdminSessionTokenFromCookie,
   resolvePlatformAdminSession,
@@ -388,6 +389,7 @@ async function rejectUnauthorizedPlatformRequest(
     c.env.CROSS_ACCOUNT_TOKEN_KEY,
     c.env.LINE_CREDENTIAL_KEY_V1,
     c.env.PHARMACY_PHI_KEY_V1,
+    c.env.PHARMACY_PHI_KEY_V2,
   ]) {
     if (tenantSecret && await sameSecret(c.env.PLATFORM_ADMIN_KEY, tenantSecret)) {
       return c.json({ success: false, error: 'Platform provisioning key is not isolated' }, 503);
@@ -1135,14 +1137,13 @@ for (const phase of ['coverage', 'backfill', 'freeze', 'scrub', 'restore'] as co
       if (phase === 'freeze') {
         return c.json({ success: false, error: 'Legacy intake freeze route is disabled' }, 409);
       }
-      const rootSecret = c.env.PHARMACY_PHI_KEY_V1;
-      if (!rootSecret || encoder.encode(rootSecret).length < 32 || rootSecret.length > 4096) {
+      const cryptoScope = resolvePatientIntakeCryptoScope(c.env, c.req.param('tenantId'));
+      if (!cryptoScope) {
         return c.json({ success: false, error: 'Patient intake encryption is not configured' }, 503);
       }
       const scope = {
-        tenantId: c.req.param('tenantId'),
+        ...cryptoScope,
         lineAccountId: c.req.param('lineAccountId'),
-        rootSecret,
       };
       const rawBody = await c.req.json().catch(() => null);
       const body = phase === 'coverage' && rawBody === null ? {} : asRecord(rawBody);

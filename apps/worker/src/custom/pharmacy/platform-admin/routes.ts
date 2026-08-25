@@ -14,6 +14,7 @@ import {
   getAdminPharmacyPatientHistory,
   listAdminPharmacyPatients,
 } from '../intake/repository.js';
+import { resolvePatientIntakeCryptoScope } from '../intake/envelopes.js';
 import { listMynaHandoffs } from '../myna/repository.js';
 import { runWebhookInboxEvent } from '../../../routes/integrations/webhook.js';
 import { platformAdminAccessStatement, recordPlatformAdminAccess } from './audit.js';
@@ -618,17 +619,15 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients/:patientId', a
     if (error instanceof AccessGrantError) return c.json({ success: false, error: error.message }, error.status);
     throw error;
   }
-  if (!c.env.PHARMACY_PHI_KEY_V1) {
+  const cryptoScope = resolvePatientIntakeCryptoScope(c.env, tenantId);
+  if (!cryptoScope) {
     return c.json({ success: false, error: 'Service unavailable' }, 503);
   }
 
   let lineAccountId: string | null = null;
   let history: Awaited<ReturnType<typeof getAdminPharmacyPatientHistory>> = null;
   for (const candidate of await lineAccountIds(c.env.DB, tenantId)) {
-    history = await getAdminPharmacyPatientHistory(c.env.DB, candidate, patientId, {
-      tenantId,
-      rootSecret: c.env.PHARMACY_PHI_KEY_V1,
-    });
+    history = await getAdminPharmacyPatientHistory(c.env.DB, candidate, patientId, cryptoScope);
     if (history) {
       lineAccountId = candidate;
       break;

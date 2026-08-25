@@ -186,6 +186,8 @@ export type Env = {
     MYNA_ENDPOINT_ENCRYPTION_KEY?: string;
     MYNA_ALLOWED_HOSTS?: string;
     PHARMACY_PHI_KEY_V1?: string;
+    PHARMACY_PHI_KEY_V2?: string;
+    PHARMACY_PHI_ACTIVE_KEY_VERSION?: string;
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
