@@ -100,6 +100,22 @@ describe('platform admin UI contract', () => {
     expect(api).toContain("'Idempotency-Key': idempotencyKey")
     expect(tenantNew).not.toContain('contexts/account-context')
   });
+
+  it('keeps V032 fleet, tenant-list, audit, and safe-error projections PHI-free', () => {
+    const dashboard = read('app', 'platform-admin', 'page.tsx')
+    const tenants = read('app', 'platform-admin', 'tenants', 'page.tsx')
+    const audit = read('app', 'platform-admin', 'audit', 'page.tsx')
+    expect(api).toContain('PlatformAdminReasonCode')
+    expect(api).toContain('platformAdminErrorMessage')
+    expect(api).not.toContain('patientCount')
+    expect(tenants).not.toContain('patientCount')
+    expect(audit).not.toContain('event.resource_id ?')
+    expect(audit).not.toContain('event.platform_admin_id.slice')
+    expect(dashboard).toContain('Platform fleet 6領域')
+    for (const label of ['全体状況', '要対応テナント・アカウント', '初期設定', '運用', 'セキュリティ・監査', 'データ保護']) {
+      expect(dashboard).toContain(label)
+    }
+  });
 });
 
 /**

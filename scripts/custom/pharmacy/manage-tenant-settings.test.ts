@@ -1,9 +1,12 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readCredentialFile, runTenantSettings } from './manage-tenant-settings.js';
-import { PHARMACY_ADMIN_API_COVERAGE } from '../../../apps/worker/src/custom/pharmacy/platform-admin/api-coverage.js';
+import {
+  PHARMACY_ADMIN_API_COVERAGE,
+  findPharmacyAdminApiDeferred,
+} from '../../../apps/worker/src/custom/pharmacy/platform-admin/api-coverage.js';
 
 const baseArgs = [
   '--worker-url', 'https://api.example.test',
@@ -61,10 +64,20 @@ describe('tenant settings CLI', () => {
     expect(covered('GET', '/api/rich-menu-groups')).toBe(true);
     expect(covered('GET', '/api/rich-menu-groups/group-a')).toBe(true);
     expect(covered('GET', '/api/staff/staff-a/accounts')).toBe(true);
+    expect(covered('GET', '/api/tags')).toBe(true);
+    expect(covered('PATCH', '/api/staff/staff-a')).toBe(true);
     expect(covered('PUT', '/api/staff/staff-a/accounts')).toBe(true);
+    expect(covered('POST', '/api/staff')).toBe(true);
+    expect(covered('POST', '/api/staff/staff-a/reset-password')).toBe(true);
+    expect(covered('DELETE', '/api/staff/staff-a')).toBe(true);
+    expect(findPharmacyAdminApiDeferred('PATCH', '/api/staff/staff-a')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff/staff-a/reset-password')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('DELETE', '/api/staff/staff-a')).toBeUndefined();
     expect(covered('POST', '/api/line-accounts/account-a/connect')).toBe(true);
     expect(covered('PATCH', '/api/line-accounts/order')).toBe(true);
-    expect(PHARMACY_ADMIN_API_COVERAGE.every((entry) => entry.safeOutput)).toBe(true);
+    expect(PHARMACY_ADMIN_API_COVERAGE.every((entry) => entry.safeOutput || entry.secretOutput)).toBe(true);
     expect(PHARMACY_ADMIN_API_COVERAGE.find((entry) =>
       entry.path.test('/api/rich-menu-groups/group-a/publish'))?.mutationGate,
     ).toBe('confirmation');
@@ -537,6 +550,182 @@ describe('tenant settings CLI', () => {
     expect(output.join('\n')).not.toContain(environment.PHARMACY_PLATFORM_ADMIN_PASSWORD);
   });
 
+  it.each([
+    ['PATCH', '/api/staff/staff-a', '{"role":"admin","isActive":true}'],
+    ['PUT', '/api/staff/staff-a/accounts', '{"accountIds":["account-a"]}'],
+  ])('applies a tenant-scoped staff authority change: %s %s', async (method, path, input) => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--method', method, '--path', path, '--input', 'staff.json', '--apply'],
+      environment,
+      fetcher,
+      async () => Buffer.from(input),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(fetcher.mock.calls[1][0]).toBe(`https://api.example.test${path}`);
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ method, body: Buffer.from(input) });
+    expect(output.join('\n')).toContain(`${method} completed for tenant tenant-a.`);
+    expect(output.join('\n')).not.toContain(input);
+  });
+
+  it.each([
+    ['POST', '/api/staff', '{"name":"New Staff","loginId":"new-staff","role":"staff"}'],
+    ['POST', '/api/staff/staff-a/reset-password', '{}'],
+  ])('writes a one-time staff credential only to a new owner-only file: %s %s', async (
+    method,
+    path,
+    input,
+  ) => {
+    const directory = mkdtempSync(join(tmpdir(), 'tenant-settings-secret-'));
+    temporaryDirectories.push(directory);
+    const secretPath = join(directory, 'temporary-password.json');
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { id: 'staff-a', temporaryPassword: 'Tmp-secret-value' },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [
+        ...baseArgs, '--method', method, '--path', path, '--input', 'staff.json',
+        '--secret-output', secretPath, '--apply',
+      ],
+      environment,
+      fetcher,
+      async () => Buffer.from(input),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(secretPath, 'utf8'))).toMatchObject({
+      success: true,
+      data: { temporaryPassword: 'Tmp-secret-value' },
+    });
+    expect(statSync(secretPath).mode & 0o777).toBe(0o600);
+    expect(output.join('\n')).toContain('Secret response written');
+    expect(output.join('\n')).not.toContain('Tmp-secret-value');
+  });
+
+  it.each([
+    ['POST', '/api/staff', '{"name":"New Staff","loginId":"new-staff","role":"staff"}'],
+    ['POST', '/api/staff/staff-a/reset-password', '{}'],
+  ])('preserves an explicit unknown-outcome marker after credential response loss: %s %s', async (
+    method,
+    path,
+    input,
+  ) => {
+    const directory = mkdtempSync(join(tmpdir(), 'tenant-settings-secret-'));
+    temporaryDirectories.push(directory);
+    const secretPath = join(directory, 'temporary-password.json');
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockRejectedValueOnce(new TypeError('network response lost'))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [
+        ...baseArgs, '--method', method, '--path', path, '--input', 'staff.json',
+        '--secret-output', secretPath, '--apply',
+      ],
+      environment,
+      fetcher,
+      async () => Buffer.from(input),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(readFileSync(secretPath, 'utf8'))).toMatchObject({
+      status: 'UNKNOWN_OUTCOME',
+      tenantId: 'tenant-a',
+      method,
+      path,
+      recovery: 'verify_staff_then_reset_password',
+    });
+    expect(statSync(secretPath).mode & 0o777).toBe(0o600);
+    expect(output.join('\n')).toContain('Do not retry blindly');
+    expect(output.join('\n')).not.toContain('network response lost');
+    expect(output.join('\n')).not.toContain(environment.PHARMACY_PLATFORM_ADMIN_PASSWORD);
+  });
+
+  it('requires a secret output file before staff credential mutation', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const output: string[] = [];
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--method', 'POST', '--path', '/api/staff', '--input', 'staff.json', '--apply'],
+      environment,
+      fetcher,
+      async () => Buffer.from('{"name":"New Staff","loginId":"new-staff","role":"staff"}'),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(output.join('\n')).toContain('--secret-output is required');
+  });
+
+  it('does not overwrite an existing secret output file', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'tenant-settings-secret-'));
+    temporaryDirectories.push(directory);
+    const secretPath = join(directory, 'temporary-password.json');
+    writeFileSync(secretPath, 'keep-me', { mode: 0o600 });
+    const fetcher = vi.fn<typeof fetch>();
+    const output: string[] = [];
+
+    const exitCode = await runTenantSettings(
+      [
+        ...baseArgs, '--method', 'POST', '--path', '/api/staff', '--input', 'staff.json',
+        '--secret-output', secretPath, '--apply',
+      ],
+      environment,
+      fetcher,
+      async () => Buffer.from('{"name":"New Staff","loginId":"new-staff","role":"staff"}'),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(readFileSync(secretPath, 'utf8')).toBe('keep-me');
+    expect(output.join('\n')).toContain('already exists');
+  });
+
+  it('applies a tenant-scoped staff deletion', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: null }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--method', 'DELETE', '--path', '/api/staff/staff-a', '--apply'],
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(fetcher.mock.calls[1][0]).toBe('https://api.example.test/api/staff/staff-a');
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
+  });
+
   it('reports a stale revision without printing the response body or credentials', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>()
@@ -561,6 +750,29 @@ describe('tenant settings CLI', () => {
     expect(output.join('\n')).toContain('Request failed (409)');
     expect(output.join('\n')).not.toContain('secret-detail');
     expect(output.join('\n')).not.toContain(platformSession);
+  });
+
+  it('reads the tenant-scoped tag settings added to the shared coverage', async () => {
+    const output: string[] = [];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(loginResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: [{ id: 'tag-a', name: 'priority' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(logoutResponse());
+
+    const exitCode = await runTenantSettings(
+      [...baseArgs, '--path', '/api/tags'],
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(fetcher.mock.calls[1][0]).toBe('https://api.example.test/api/tags');
+    expect(output.join('\n')).toContain('priority');
   });
 
   it('sets a rich menu as default through the confirmation-token flow', async () => {

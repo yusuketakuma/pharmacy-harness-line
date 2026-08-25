@@ -1,16 +1,25 @@
 import {
+  activePatientIntakeKeyVersion,
   decryptPatientIntakeEnvelopeFields,
+  patientIntakeEncryptionContext,
+  patientIntakeKeyVersions,
+  patientIntakeRootSecret,
   preparePatientIntakeEnvelopeStatements,
+  type PatientIntakeCryptoScope,
   type PatientIntakeEncryptedRow,
   type StoredPatientIntakeEnvelope,
 } from './envelopes.js';
+import {
+  openPatientIntakeField,
+  PATIENT_INTAKE_ENVELOPE_VERSION,
+  PATIENT_INTAKE_KEY_VERSION,
+  sealPatientIntakeField,
+} from './encryption.js';
 
 export const PATIENT_INTAKE_LEGACY_SENTINEL = '{}';
 
-export interface PatientIntakeMigrationScope {
-  tenantId: string;
+export interface PatientIntakeMigrationScope extends PatientIntakeCryptoScope {
   lineAccountId: string;
-  rootSecret: string;
 }
 
 export interface PatientIntakeMigrationApproval {
@@ -37,6 +46,7 @@ export interface PatientIntakeMigrationReport {
     scanned: number;
     verified: number;
     inserted: number;
+    rewrapped: number;
     skipped: number;
     scrubbed: number;
     restored: number;
@@ -51,6 +61,14 @@ export interface PatientIntakeCoverageReport {
   errorCode: ErrorCode | null;
   coverageTotal: number;
   coverageDigest: string;
+  keyVersions: string[];
+  keyVersionCounts: Record<string, number>;
+}
+
+export interface PatientIntakeRecoveryMetadata {
+  schemaDigest: string;
+  fieldInventoryDigest: string;
+  keyVersions: string[];
 }
 
 interface MigrationState {
@@ -64,11 +82,28 @@ interface MigrationState {
 const encoder = new TextEncoder();
 
 function counts(): PatientIntakeMigrationReport['counts'] {
-  return { scanned: 0, verified: 0, inserted: 0, skipped: 0, scrubbed: 0, restored: 0, conflicts: 0 };
+  return {
+    scanned: 0, verified: 0, inserted: 0, rewrapped: 0, skipped: 0,
+    scrubbed: 0, restored: 0, conflicts: 0,
+  };
 }
 
 function failed(errorCode: ErrorCode, operationCounts = counts(), cursor: string | null = null): PatientIntakeMigrationReport {
   return { counts: operationCounts, errorCode, nextCursor: cursor };
+}
+
+function recordKeyVersions(
+  report: PatientIntakeCoverageReport,
+  envelopes: StoredPatientIntakeEnvelope[],
+): void {
+  for (const envelope of envelopes) {
+    const version = String(envelope.key_version);
+    report.keyVersionCounts[version] = (report.keyVersionCounts[version] ?? 0) + 1;
+    if (!report.keyVersions.includes(version)) {
+      report.keyVersions.push(version);
+      report.keyVersions.sort((left, right) => Number(left) - Number(right));
+    }
+  }
 }
 
 function validIdentifier(value: unknown): value is string {
@@ -77,9 +112,14 @@ function validIdentifier(value: unknown): value is string {
 }
 
 function validScope(scope: PatientIntakeMigrationScope): boolean {
-  const secretLength = typeof scope.rootSecret === 'string' ? encoder.encode(scope.rootSecret).length : 0;
-  return validIdentifier(scope.tenantId) && validIdentifier(scope.lineAccountId) &&
-    secretLength >= 32 && secretLength <= 4096;
+  if (!validIdentifier(scope.tenantId) || !validIdentifier(scope.lineAccountId)) return false;
+  try {
+    for (const version of patientIntakeKeyVersions(scope)) patientIntakeRootSecret(scope, version);
+    patientIntakeRootSecret(scope, activePatientIntakeKeyVersion(scope));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function migrationInputError(input: MigrationInput): ErrorCode | null {
@@ -149,6 +189,64 @@ async function decryptStored(
   }
 }
 
+async function prepareRewrapStatement(
+  db: D1Database,
+  row: PatientIntakeEncryptedRow,
+  scope: PatientIntakeMigrationScope,
+  envelopes: StoredPatientIntakeEnvelope[],
+  plaintext: { patient_snapshot_json: string; answers_json: string },
+): Promise<D1PreparedStatement> {
+  const current = new Map(envelopes.map((item) => [item.field_name, item]));
+  const snapshotCurrent = current.get('patient_snapshot_json');
+  const answersCurrent = current.get('answers_json');
+  if (!snapshotCurrent || !answersCurrent) throw new Error('invalid envelope set');
+  const targetVersion = activePatientIntakeKeyVersion(scope);
+  const targetSecret = patientIntakeRootSecret(scope, targetVersion);
+  const [snapshot, answers] = await Promise.all(([
+    ['patient_snapshot_json', plaintext.patient_snapshot_json],
+    ['answers_json', plaintext.answers_json],
+  ] as const).map(async ([fieldName, value]) => {
+    const context = patientIntakeEncryptionContext(row, scope, fieldName, targetVersion);
+    const sealed = await sealPatientIntakeField(value, targetSecret, context);
+    if (await openPatientIntakeField(sealed, targetSecret, context) !== value) {
+      throw new Error('byte mismatch');
+    }
+    return sealed;
+  }));
+  return db.prepare(`UPDATE pharmacy_patient_intake_envelopes
+    SET envelope_version = ?, key_version = ?,
+        nonce = CASE field_name
+          WHEN 'patient_snapshot_json' THEN ? WHEN 'answers_json' THEN ? END,
+        ciphertext = CASE field_name
+          WHEN 'patient_snapshot_json' THEN ? WHEN 'answers_json' THEN ? END,
+        encrypted_at = ?
+    WHERE response_id = ? AND tenant_id = ? AND line_account_id = ?
+      AND ((field_name = 'patient_snapshot_json' AND envelope_version = ? AND key_version = ?
+            AND nonce = ? AND ciphertext = ?)
+        OR (field_name = 'answers_json' AND envelope_version = ? AND key_version = ?
+            AND nonce = ? AND ciphertext = ?))
+      AND 2 = (SELECT COUNT(*) FROM pharmacy_patient_intake_envelopes current
+        WHERE current.response_id = ? AND current.tenant_id = ? AND current.line_account_id = ?
+          AND ((current.field_name = 'patient_snapshot_json' AND current.envelope_version = ?
+                AND current.key_version = ? AND current.nonce = ? AND current.ciphertext = ?)
+            OR (current.field_name = 'answers_json' AND current.envelope_version = ?
+                AND current.key_version = ? AND current.nonce = ? AND current.ciphertext = ?)))`)
+    .bind(
+      PATIENT_INTAKE_ENVELOPE_VERSION, targetVersion,
+      snapshot.nonce, answers.nonce, snapshot.ciphertext, answers.ciphertext,
+      new Date().toISOString(), row.id, scope.tenantId, scope.lineAccountId,
+      snapshotCurrent.envelope_version, snapshotCurrent.key_version,
+      snapshotCurrent.nonce, snapshotCurrent.ciphertext,
+      answersCurrent.envelope_version, answersCurrent.key_version,
+      answersCurrent.nonce, answersCurrent.ciphertext,
+      row.id, scope.tenantId, scope.lineAccountId,
+      snapshotCurrent.envelope_version, snapshotCurrent.key_version,
+      snapshotCurrent.nonce, snapshotCurrent.ciphertext,
+      answersCurrent.envelope_version, answersCurrent.key_version,
+      answersCurrent.nonce, answersCurrent.ciphertext,
+    );
+}
+
 export async function backfillPatientIntakeEnvelopes(
   db: D1Database,
   input: MigrationInput,
@@ -195,10 +293,38 @@ export async function backfillPatientIntakeEnvelopes(
     }
     const decrypted = await decryptStored(row, input, envelopes);
     if (typeof decrypted === 'string') return failed(decrypted, resultCounts, input.cursor);
-    if (decrypted.patient_snapshot_json !== row.patient_snapshot_json ||
-        decrypted.answers_json !== row.answers_json) return failed('MISMATCH', resultCounts, input.cursor);
+    const snapshotSentinel = row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL;
+    const answersSentinel = row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL;
+    if (snapshotSentinel !== answersSentinel) return failed('MIXED_SENTINEL', resultCounts, input.cursor);
+    if (!snapshotSentinel && (decrypted.patient_snapshot_json !== row.patient_snapshot_json ||
+        decrypted.answers_json !== row.answers_json)) return failed('MISMATCH', resultCounts, input.cursor);
     resultCounts.verified += 1;
-    resultCounts.skipped += 1;
+    const activeVersion = activePatientIntakeKeyVersion(input);
+    if (envelopes.every((envelope) => envelope.key_version === activeVersion)) {
+      resultCounts.skipped += 1;
+      continue;
+    }
+    if (activeVersion !== 2 || envelopes.some((envelope) => envelope.key_version !== 1)) {
+      return failed('INVALID_STATE', resultCounts, input.cursor);
+    }
+    if (input.dryRun !== false) continue;
+    let write: D1PreparedStatement;
+    try {
+      write = await prepareRewrapStatement(db, row, input, envelopes, decrypted);
+    } catch {
+      return failed('CORRUPT_ENVELOPE', resultCounts, input.cursor);
+    }
+    try {
+      const result = await write.run();
+      if (result.meta?.changes !== 2) {
+        resultCounts.conflicts += 1;
+        return failed('CAS_CONFLICT', resultCounts, input.cursor);
+      }
+      resultCounts.rewrapped += 1;
+    } catch {
+      resultCounts.conflicts += 1;
+      return failed('CAS_CONFLICT', resultCounts, input.cursor);
+    }
   }
   return {
     counts: resultCounts,
@@ -212,12 +338,93 @@ async function digest(value: string): Promise<string> {
   return [...bytes].map((item) => item.toString(16).padStart(2, '0')).join('');
 }
 
+async function keyedDigest(scope: PatientIntakeMigrationScope, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(patientIntakeRootSecret(scope, activePatientIntakeKeyVersion(scope))),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const bytes = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
+  return [...bytes].map((item) => item.toString(16).padStart(2, '0')).join('');
+}
+
+const RECOVERY_SCHEMA_DESCRIPTOR = JSON.stringify({
+  responseTable: 'pharmacy_patient_intake_responses',
+  responseSchemaVersion: 2,
+  envelopeTable: 'pharmacy_patient_intake_envelopes',
+  envelopeVersion: 1,
+});
+export async function patientIntakeRecoveryMetadata(
+  keyVersions = [String(PATIENT_INTAKE_KEY_VERSION)],
+): Promise<PatientIntakeRecoveryMetadata> {
+  const fieldDescriptor = JSON.stringify([
+    { fieldName: 'patient_snapshot_json', envelopeVersion: 1, keyVersions },
+    { fieldName: 'answers_json', envelopeVersion: 1, keyVersions },
+  ]);
+  const [schemaDigest, fieldInventoryDigest] = await Promise.all([
+    digest(RECOVERY_SCHEMA_DESCRIPTOR),
+    digest(fieldDescriptor),
+  ]);
+  return {
+    schemaDigest,
+    fieldInventoryDigest,
+    keyVersions,
+  };
+}
+
+export async function inspectPatientIntakeBackfillCoverage(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+): Promise<PatientIntakeCoverageReport> {
+  const report: PatientIntakeCoverageReport = {
+    counts: { scanned: 0, covered: 0 }, errorCode: null, coverageTotal: 0,
+    coverageDigest: '', keyVersions: [], keyVersionCounts: {},
+  };
+  if (!validScope(scope) || !await hasActiveScope(db, scope)) {
+    return { ...report, errorCode: 'SCOPE_NOT_FOUND' };
+  }
+  let cursor: string | null = null;
+  const digestParts: string[] = [];
+  while (true) {
+    const rows = await readRows(db, scope, cursor, 50);
+    for (const row of rows) {
+      const envelopes = await readEnvelopes(db, row.id);
+      recordKeyVersions(report, envelopes);
+      if (envelopes.length === 1) return { ...report, errorCode: 'PARTIAL_ENVELOPE' };
+      if (envelopes.length === 2) {
+        const decrypted = await decryptStored(row, scope, envelopes);
+        if (typeof decrypted === 'string') return { ...report, errorCode: decrypted };
+        const snapshotSentinel = row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL;
+        const answersSentinel = row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL;
+        if (snapshotSentinel !== answersSentinel || (!snapshotSentinel && (
+          decrypted.patient_snapshot_json !== row.patient_snapshot_json ||
+          decrypted.answers_json !== row.answers_json))) {
+          return { ...report, errorCode: 'MISMATCH' };
+        }
+      } else if (row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL ||
+          row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL) {
+        return { ...report, errorCode: 'MISMATCH' };
+      }
+      report.counts.scanned += 1;
+      report.counts.covered += 1;
+      digestParts.push(await keyedDigest(scope, JSON.stringify([
+        row.id, row.revision, row.schema_version, row.patient_snapshot_json, row.answers_json,
+      ])));
+    }
+    if (rows.length < 50) break;
+    cursor = rows.at(-1)!.id;
+  }
+  report.coverageTotal = report.counts.scanned;
+  report.coverageDigest = await digest(digestParts.join('\n'));
+  return report;
+}
+
 export async function inspectPatientIntakeCoverage(
   db: D1Database,
   scope: PatientIntakeMigrationScope,
 ): Promise<PatientIntakeCoverageReport> {
   const report: PatientIntakeCoverageReport = {
-    counts: { scanned: 0, covered: 0 }, errorCode: null, coverageTotal: 0, coverageDigest: '',
+    counts: { scanned: 0, covered: 0 }, errorCode: null, coverageTotal: 0,
+    coverageDigest: '', keyVersions: [], keyVersionCounts: {},
   };
   if (!validScope(scope) || !await hasActiveScope(db, scope)) {
     return { ...report, errorCode: 'SCOPE_NOT_FOUND' };
@@ -229,6 +436,7 @@ export async function inspectPatientIntakeCoverage(
     for (const row of rows) {
       report.counts.scanned += 1;
       const envelopes = await readEnvelopes(db, row.id);
+      recordKeyVersions(report, envelopes);
       const decrypted = await decryptStored(row, scope, envelopes);
       if (typeof decrypted === 'string') return { ...report, errorCode: decrypted };
       const snapshotSentinel = row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL;
@@ -237,9 +445,17 @@ export async function inspectPatientIntakeCoverage(
       if (!snapshotSentinel && (decrypted.patient_snapshot_json !== row.patient_snapshot_json ||
           decrypted.answers_json !== row.answers_json)) return { ...report, errorCode: 'MISMATCH' };
       report.counts.covered += 1;
-      digestParts.push(await digest(JSON.stringify([
-        row.id, row.revision, row.schema_version,
-        decrypted.patient_snapshot_json, decrypted.answers_json,
+      digestParts.push(await keyedDigest(scope, JSON.stringify([
+        row.id,
+        row.revision,
+        row.schema_version,
+        ...envelopes.map((envelope) => ({
+          fieldName: envelope.field_name,
+          envelopeVersion: envelope.envelope_version,
+          keyVersion: envelope.key_version,
+          nonce: envelope.nonce,
+          ciphertext: envelope.ciphertext,
+        })),
       ])));
     }
     if (rows.length < 50) break;
@@ -262,6 +478,31 @@ function approvalMatches(state: MigrationState, approval: PatientIntakeMigration
     state.approval_reference === approval.approvalReference;
 }
 
+function approvalCoversState(state: MigrationState, approval: PatientIntakeMigrationApproval): boolean {
+  return state.coverage_total === approval.coverageTotal &&
+    state.coverage_digest === approval.coverageDigest;
+}
+
+async function rebindMigrationState(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+  state: MigrationState,
+  approval: PatientIntakeMigrationApproval,
+  phase: MigrationState['phase'],
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const result = await db.prepare(`UPDATE pharmacy_patient_intake_migration_state
+    SET phase = ?, approved_by = ?, approval_reference = ?, approved_at = ?, updated_at = ?
+    WHERE tenant_id = ? AND line_account_id = ? AND phase = ?
+      AND coverage_total = ? AND coverage_digest = ?
+      AND approved_by = ? AND approval_reference = ?`).bind(
+    phase, approval.approvedBy, approval.approvalReference, now, now,
+    scope.tenantId, scope.lineAccountId, state.phase,
+    state.coverage_total, state.coverage_digest, state.approved_by, state.approval_reference,
+  ).run();
+  return result.meta?.changes === 1;
+}
+
 export async function freezePatientIntakeWrites(
   db: D1Database,
   scope: PatientIntakeMigrationScope,
@@ -275,9 +516,20 @@ export async function freezePatientIntakeWrites(
   }
   const existing = await readState(db, scope);
   if (existing) {
-    return approvalMatches(existing, approval) && existing.phase === 'frozen'
-      ? coverage
-      : { ...coverage, errorCode: 'INVALID_STATE' };
+    if (!approvalCoversState(existing, approval)) {
+      return { ...coverage, errorCode: 'COVERAGE_MISMATCH' };
+    }
+    if (approvalMatches(existing, approval) && existing.phase === 'frozen') return coverage;
+    if (!['frozen', 'scrubbing', 'restored'].includes(existing.phase)) {
+      return { ...coverage, errorCode: 'INVALID_STATE' };
+    }
+    try {
+      return await rebindMigrationState(db, scope, existing, approval, 'frozen')
+        ? coverage
+        : { ...coverage, errorCode: 'INVALID_STATE' };
+    } catch {
+      return { ...coverage, errorCode: 'STORAGE_FAILED' };
+    }
   }
   const now = new Date().toISOString();
   const write = await db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
@@ -301,15 +553,32 @@ async function migrateLegacyFields(
   const inputError = migrationInputError(input);
   if (inputError) return failed(inputError);
   if (!validApproval(input.approval)) return failed('APPROVAL_REQUIRED');
-  const state = await readState(db, input);
+  let state = await readState(db, input);
   const allowed = mode === 'scrub' ? ['frozen', 'scrubbing', 'restored'] : ['scrubbed', 'restoring'];
-  if (!state || !allowed.includes(state.phase) || !approvalMatches(state, input.approval)) {
+  if (!state || !allowed.includes(state.phase)) {
     return failed('INVALID_STATE');
   }
   const coverage = await inspectPatientIntakeCoverage(db, input);
   if (coverage.errorCode) return failed(coverage.errorCode);
   if (coverage.coverageTotal !== state.coverage_total ||
-      coverage.coverageDigest !== state.coverage_digest) return failed('COVERAGE_MISMATCH');
+      coverage.coverageDigest !== state.coverage_digest ||
+      !approvalCoversState(state, input.approval)) return failed('COVERAGE_MISMATCH');
+  if (!approvalMatches(state, input.approval)) {
+    if (mode !== 'restore' || input.cursor !== null) return failed('INVALID_STATE');
+    try {
+      if (!await rebindMigrationState(db, input, state, input.approval, 'scrubbed')) {
+        return failed('INVALID_STATE');
+      }
+    } catch {
+      return failed('STORAGE_FAILED');
+    }
+    state = {
+      ...state,
+      phase: 'scrubbed',
+      approved_by: input.approval.approvedBy,
+      approval_reference: input.approval.approvalReference,
+    };
+  }
   const rows = await readRows(db, input, input.cursor, input.limit + 1);
   const batch = rows.slice(0, input.limit);
   const writes: D1PreparedStatement[] = [];

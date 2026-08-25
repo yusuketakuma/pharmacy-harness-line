@@ -1,13 +1,21 @@
 import { Hono, type Context } from 'hono';
 import type { Env } from '../../index.js';
-import { resolveAccessiblePharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
+import {
+  isPharmacyTenant,
+  resolveAccessiblePharmacyTenant,
+} from '../../custom/pharmacy/growth-loop/access.js';
+import { recordTenantAudit } from '../../lib/tenant-audit.js';
 
 const images = new Hono<Env>();
-const PUBLIC_IMAGE_KEY = /^(?:tenants\/[a-zA-Z0-9:_-]+\/uploads\/)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:png|jpe?g|gif|webp)$/i;
+const PUBLIC_IMAGE_KEY = /^(?:tenants\/[a-zA-Z0-9:_-]+\/(?:accounts\/[a-zA-Z0-9:_-]+\/)?uploads\/)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:png|jpe?g|gif|webp)$/i;
 const INCOMING_IMAGE_KEY = /^tenants\/[^/]+\/accounts\/([^/]+)\/incoming\/[^/]+\.(?:png|jpe?g|gif|webp)$/i;
 
+function safePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9:-]/g, '_');
+}
+
 function tenantPrefix(tenantId: string): string {
-  return `tenants/${tenantId.replace(/[^a-zA-Z0-9:-]/g, '_')}/`;
+  return `tenants/${safePathSegment(tenantId)}/`;
 }
 
 async function serveImage(
@@ -36,6 +44,18 @@ async function canReadIncomingImage(c: Context<Env>, key: string): Promise<boole
 // POST /api/images — upload image (base64 or binary)
 images.post('/api/images', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
+    const pharmacyTenant = await isPharmacyTenant(c.env.DB, tenantId);
+    const lineAccountId = c.req.query('line_account_id');
+    if (pharmacyTenant) {
+      if (!lineAccountId) {
+        return c.json({ success: false, error: 'line_account_id is required' }, 400);
+      }
+      if (await resolveAccessiblePharmacyTenant(c.env.DB, c.get('staff'), lineAccountId) !== tenantId) {
+        return c.json({ success: false, error: 'Forbidden' }, 403);
+      }
+    }
+
     const contentType = c.req.header('Content-Type') || '';
 
     let data: ArrayBuffer;
@@ -80,7 +100,21 @@ images.post('/api/images', async (c) => {
 
     const ext = mimeType.split('/')[1] === 'jpeg' ? 'jpg' : mimeType.split('/')[1];
     const id = crypto.randomUUID();
-    const key = `${tenantPrefix(c.get('tenantId'))}uploads/${id}.${ext}`;
+    const key = pharmacyTenant
+      ? `${tenantPrefix(tenantId)}accounts/${safePathSegment(lineAccountId!)}/uploads/${id}.${ext}`
+      : `${tenantPrefix(tenantId)}uploads/${id}.${ext}`;
+
+    if (pharmacyTenant) {
+      await recordTenantAudit(c.env.DB, {
+        tenantId,
+        lineAccountId,
+        actorStaffId: c.get('staff').id,
+        action: 'image.upload_requested',
+        resourceType: 'image',
+        resourceId: id,
+        detail: { mimeType, size: data.byteLength },
+      });
+    }
 
     await c.env.IMAGES.put(key, data, {
       httpMetadata: { contentType: mimeType },

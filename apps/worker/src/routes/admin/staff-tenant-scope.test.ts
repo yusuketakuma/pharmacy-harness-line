@@ -115,6 +115,11 @@ describe('staff tenant scope', () => {
     }, env);
 
     expect(response.status).toBe(200);
+    const assignmentRemoval = writes.find((write) =>
+      write.sql.includes('UPDATE pharmacy_staff_accounts'),
+    );
+    expect(assignmentRemoval?.sql).toContain('line_account_id = ?');
+    expect(assignmentRemoval?.params).toEqual(expect.arrayContaining(['account-a', 'staff-a']));
     expect(writes.some(({ sql, params }) =>
       sql.includes('tenant_line_accounts') && params.includes('tenant-a') && params.includes('staff-a'))).toBe(true);
     expect(writes.filter((write) => write.sql.includes('INSERT INTO tenant_admin_audit_events'))
@@ -250,6 +255,37 @@ describe('staff tenant scope', () => {
     expect(responses.map((response) => response.status)).toEqual([400, 400]);
   });
 
+  it('rejects malformed or invalid staff profile updates before database access', async () => {
+    const db = {
+      prepare() { throw new Error('database must not be touched'); },
+      batch() { throw new Error('database must not be touched'); },
+    } as unknown as D1Database;
+    const { app, env } = mount(db);
+
+    const responses = await Promise.all([
+      app.request('/api/staff/staff-a', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{',
+      }, env),
+      app.request('/api/staff/staff-a', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: ' ' }),
+      }, env),
+      app.request('/api/staff/staff-a', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'not-an-email' }),
+      }, env),
+      app.request('/api/staff/staff-a', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: 'false' }),
+      }, env),
+      app.request('/api/staff/staff-a', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }, env),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400, 400]);
+  });
+
   it('rejects mutations for staff identities outside the authenticated tenant', async () => {
     const db = {
       prepare(sql: string) {
@@ -333,6 +369,7 @@ describe('staff tenant scope', () => {
           params: [] as unknown[],
           bind(...params: unknown[]) { statement.params = params; return statement; },
           async first() { return target; },
+          async all() { return { results: [] }; },
           async run() {
             writes.push({ sql, params: statement.params });
             return { meta: { changes: 1 } };
@@ -358,6 +395,7 @@ describe('staff tenant scope', () => {
     expect(writes.some((write) =>
       write.sql.includes('UPDATE staff_members') && /role|is_active/.test(write.sql),
     )).toBe(false);
+    expect(writes.some((write) => write.sql.includes('UPDATE tenant_admin_sessions'))).toBe(true);
     expect(writes.filter((write) => write.sql.includes('INSERT INTO tenant_admin_audit_events'))
       .map((write) => write.params.slice(1, 7)))
       .toEqual([['tenant-a', null, 'staff-a', 'staff.role_changed', 'staff', 'staff-a']]);
@@ -372,6 +410,7 @@ describe('staff tenant scope', () => {
           params: [] as unknown[],
           bind(...params: unknown[]) { statement.params = params; return statement; },
           async first() { return target; },
+          async all() { return { results: [] }; },
           async run() {
             writes.push({ sql, params: statement.params });
             return { meta: { changes: 1 } };
@@ -401,5 +440,36 @@ describe('staff tenant scope', () => {
     expect(writes.filter((write) => write.sql.includes('INSERT INTO tenant_admin_audit_events'))
       .map((write) => write.params.slice(1, 7)))
       .toEqual([['tenant-a', null, 'staff-a', 'staff.deleted', 'staff', 'staff-b']]);
+  });
+
+  it('rejects deactivating or deleting the last active assignee for an account', async () => {
+    const target = { ...owned, id: 'staff-b', role: 'staff' as const };
+    const db = {
+      prepare() {
+        const statement = {
+          bind() { return statement; },
+          async first() { return target; },
+          async all() {
+            return { results: [
+              { id: 'account-a', name: 'A', assigned: 1, target_active: 1, active_staff_count: 1 },
+            ] };
+          },
+        };
+        return statement;
+      },
+      async batch() { throw new Error('must not write'); },
+    } as unknown as D1Database;
+    const { app, env } = mount(db);
+
+    const [deactivate, remove] = await Promise.all([
+      app.request('/api/staff/staff-b', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: false }),
+      }, env),
+      app.request('/api/staff/staff-b', { method: 'DELETE' }, env),
+    ]);
+
+    expect(deactivate.status).toBe(409);
+    expect(remove.status).toBe(409);
   });
 });

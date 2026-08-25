@@ -106,6 +106,10 @@ function app() {
   a.get('/api/custom/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/staff', (c) => c.json({ success: true }));
   a.post('/api/staff', (c) => c.json({ success: true }));
+  a.patch('/api/staff/:id', (c) => c.json({ success: true }));
+  a.put('/api/staff/:id/accounts', (c) => c.json({ success: true }));
+  a.post('/api/staff/:id/reset-password', (c) => c.json({ success: true }));
+  a.delete('/api/staff/:id', (c) => c.json({ success: true }));
   a.get('/api/forms/:id', (c) => c.json({ success: true, staff: c.get('staff') ?? null }));
   a.put('/api/forms/:id', (c) => c.json({ success: true }));
   a.delete('/api/forms/:id', (c) => c.json({ success: true }));
@@ -255,7 +259,7 @@ describe('protected API access', () => {
     expect(res.status).toBe(200);
   });
 
-  test('blocks tenant staff credential issuance over a platform-admin session bearer', async () => {
+  test('allows the tenant-scoped staff lifecycle over a platform-admin session bearer', async () => {
     const headers = {
       Authorization: `Bearer ${platformSession}`,
       'X-Tenant-Id': TENANT_ID,
@@ -269,7 +273,23 @@ describe('protected API access', () => {
       headers,
       body: JSON.stringify({ name: 'x', loginId: 'new-staff', role: 'owner' }),
     }, env());
-    expect(create.status).toBe(401);
+    const role = await app().request('/api/staff/staff-a', {
+      method: 'PATCH', headers, body: JSON.stringify({ role: 'admin' }),
+    }, env());
+    const accounts = await app().request('/api/staff/staff-a/accounts', {
+      method: 'PUT', headers, body: JSON.stringify({ accountIds: ['account-a'] }),
+    }, env());
+    const resetPassword = await app().request('/api/staff/staff-a/reset-password', {
+      method: 'POST', headers, body: '{}',
+    }, env());
+    const remove = await app().request('/api/staff/staff-a', {
+      method: 'DELETE', headers,
+    }, env());
+    expect(create.status).toBe(200);
+    expect(role.status).toBe(200);
+    expect(accounts.status).toBe(200);
+    expect(resetPassword.status).toBe(200);
+    expect(remove.status).toBe(200);
   });
 
   test('requires an explicit tenant for a platform-admin CLI session', async () => {

@@ -6,6 +6,55 @@ body {
     "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
 }
 
+:root {
+  --pharmacy-bg: #f3f4f6;
+  --pharmacy-surface: #ffffff;
+  --pharmacy-text: #111827;
+  --pharmacy-muted: #374151;
+  --pharmacy-border: #d1d5db;
+  --pharmacy-primary: #166534;
+  --pharmacy-info: #1d4ed8;
+  --pharmacy-warning: #92400e;
+  --pharmacy-danger: #b91c1c;
+  --pharmacy-radius: 1rem;
+}
+
+.pharmacy-shell,
+.pharmacy-main {
+  color: var(--pharmacy-text);
+  background: var(--pharmacy-bg);
+}
+
+.pharmacy-shell {
+  min-height: 100vh;
+}
+
+.pharmacy-main {
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.pharmacy-card {
+  border: 1px solid var(--pharmacy-border);
+  border-radius: var(--pharmacy-radius);
+  background: var(--pharmacy-surface);
+  box-shadow: 0 1px 2px rgb(17 24 39 / 0.06);
+}
+
+.pharmacy-supplemental {
+  color: var(--pharmacy-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.pharmacy-control {
+  min-height: 2.75rem;
+}
+
+.pharmacy-focus:focus-visible {
+  outline: 3px solid var(--pharmacy-info);
+  outline-offset: 2px;
+}
+
 /* ─── アフィリエイト デザイントークン (worker client の af-* をミラー) ─────
  * apps/worker/src/client/affiliate/styles.css と同一の見た目。salon-booking の
  * デザイン言語（LINE 緑・角丸・カード影・バッジ）を LIFF アプリ側でも共有する。

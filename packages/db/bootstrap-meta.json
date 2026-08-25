@@ -128,7 +128,12 @@
     "custom_051_pharmacy_emergency_counter_and_sale.sql",
     "custom_052_pharmacy_webhook_inbox_fencing.sql",
     "custom_053_outgoing_webhook_deliveries.sql",
-    "custom_054_pharmacy_cli_break_glass_sessions.sql"
+    "custom_054_pharmacy_cli_break_glass_sessions.sql",
+    "custom_055_pharmacy_v032_emergency_default.sql",
+    "custom_056_pharmacy_recovery_operations.sql",
+    "custom_057_pharmacy_retention_deletion_intents.sql",
+    "custom_058_pharmacy_incoming_image_disposition.sql",
+    "custom_059_pharmacy_staff_invariants.sql"
   ],
-  "migrationCount": 129
+  "migrationCount": 134
 }

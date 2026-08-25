@@ -43,7 +43,7 @@ describe('pharmacy LIFF main menu', () => {
     expect(html).toContain('機能一覧を読み込み中')
     for (const item of pharmacyMainMenuItems()) expect(html).not.toContain(item.label);
     expect(html).not.toContain('薬局へ相談');
-    expect(pharmacyAppVersion).toBe('0.31.1');
+    expect(pharmacyAppVersion).toBe('0.32.0');
   });
 
   it('renders an explicit read-only badge for disabled features with owned history', () => {
@@ -57,6 +57,14 @@ describe('pharmacy LIFF main menu', () => {
   it('explains an empty menu instead of showing a blank grid', () => {
     const source = readFileSync(new URL('./MainMenuPage.tsx', import.meta.url), 'utf8');
     expect(source).toContain('利用できる機能はありません');
+  });
+
+  it('organizes the feature list into the three patient-facing groups', () => {
+    const source = readFileSync(new URL('./MainMenuPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('今すぐ行う');
+    expect(source).toContain('送信後の確認・フォロー');
+    expect(source).toContain('薬局情報・相談');
+    expect(source).toContain('利用可否');
   });
 
   it('sends only the fixed consultation message after confirmation', async () => {

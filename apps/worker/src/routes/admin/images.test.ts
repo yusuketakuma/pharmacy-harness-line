@@ -22,13 +22,19 @@ function app() {
   return testApp;
 }
 
-function db(): D1Database {
+type AuditWrite = { sql: string; values: unknown[] };
+
+function db(pharmacy = false, auditWrites: AuditWrite[] = [], events: string[] = []): D1Database {
   return {
     prepare(sql: string) {
       const statement = {
         values: [] as unknown[],
         bind(...values: unknown[]) { statement.values = values; return statement; },
         async first() {
+          if (sql.includes('FROM tenant_line_accounts AS mapping') &&
+              sql.includes('pharmacy_account_capabilities AS capability')) {
+            return pharmacy ? { pharmacy_install: 1 } : null;
+          }
           if (sql.includes('tenant_staff_memberships') && sql.includes('pharmacy_staff_accounts')) {
             return statement.values[0] === 'staff-a' && statement.values[1] === 'account-a'
               ? { tenant_id: 'tenant-a' }
@@ -47,6 +53,11 @@ function db(): D1Database {
               : null;
           }
           return null;
+        },
+        async run() {
+          auditWrites.push({ sql, values: statement.values });
+          events.push('audit');
+          return { success: true };
         },
       };
       return statement;
@@ -155,6 +166,58 @@ describe('tenant-scoped image storage', () => {
       IMAGES: r2 as unknown as R2Bucket,
       DB: db(),
     });
+    expect(publicResponse.status).toBe(200);
+    expect(r2.get).toHaveBeenCalledWith(body.data.key);
+  });
+
+  it('requires an assigned account and audits pharmacy uploads before R2 mutation', async () => {
+    const auditWrites: AuditWrite[] = [];
+    const events: string[] = [];
+    r2.put.mockImplementation(async () => { events.push('put'); });
+    const env = {
+      IMAGES: r2 as unknown as R2Bucket,
+      DB: db(true, auditWrites, events),
+      WORKER_URL: 'https://worker.example.com',
+    };
+
+    const missing = await app().request('/api/images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: new Uint8Array([1]),
+    }, env);
+    expect(missing.status).toBe(400);
+
+    const unassigned = await app().request('/api/images?line_account_id=account-b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: new Uint8Array([1]),
+    }, env);
+    expect(unassigned.status).toBe(403);
+    expect(r2.put).not.toHaveBeenCalled();
+
+    const uploaded = await app().request('/api/images?line_account_id=account-a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: new Uint8Array([1, 2, 3]),
+    }, env);
+    expect(uploaded.status).toBe(201);
+    const body = await uploaded.json() as { data: { key: string; url: string } };
+    expect(body.data.key).toMatch(
+      /^tenants\/tenant-a\/accounts\/account-a\/uploads\/[0-9a-f-]+\.png$/,
+    );
+    expect(events).toEqual(['audit', 'put']);
+    expect(auditWrites).toHaveLength(1);
+    expect(auditWrites[0].sql).toContain('INSERT INTO tenant_admin_audit_events');
+    expect(auditWrites[0].values).toEqual(expect.arrayContaining([
+      'tenant-a', 'account-a', 'staff-a', 'image.upload_requested',
+    ]));
+
+    r2.get.mockResolvedValue({
+      body: new Uint8Array([1]),
+      etag: 'etag-account-upload',
+      httpMetadata: { contentType: 'image/png' },
+    });
+    const publicResponse = await app().request(new URL(body.data.url).pathname, undefined, env);
     expect(publicResponse.status).toBe(200);
     expect(r2.get).toHaveBeenCalledWith(body.data.key);
   });

@@ -687,23 +687,25 @@ describe('platform admin authentication', () => {
 });
 
 describe('platform admin cross-tenant access', () => {
-  it('lists every tenant with its counts', async () => {
+  it('lists fleet health without projecting patient counts', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const { cookie } = await standardSession(testEnv);
 
     const response = await app().request('/api/platform-admin/tenants', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const body = await response.json() as { data: Array<Record<string, unknown>> };
+    expect(body).toMatchObject({
       success: true,
       data: [
         {
-          id: 'tenant-a', tenantCode: 'pharmacy-a', status: 'active', patientCount: 3,
+          id: 'tenant-a', tenantCode: 'pharmacy-a', status: 'active',
           staffCount: 2, lineAccountCount: 1, webhookFailureCount: 1, lineConfigIssueCount: 0,
         },
         { id: 'tenant-b', status: 'suspended' },
       ],
     });
+    expect(body.data[0]).not.toHaveProperty('patientCount');
     expect(store.auditEvents.at(-1)).toMatchObject({ action: 'list_tenants', tenant_id: null });
   });
 
@@ -806,7 +808,7 @@ describe('platform admin cross-tenant access', () => {
       action: 'view_patient',
       tenant_id: 'tenant-a',
       resource_type: 'patient',
-      resource_id: 'patient-1',
+      resource_id: null,
     });
 
     const missing = await app().request(
@@ -861,6 +863,32 @@ describe('platform admin cross-tenant access', () => {
     const response = await app().request('/api/platform-admin/audit', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
     expect(store.auditEvents).toHaveLength(before);
+  });
+
+  it('redacts historical patient identifiers from audit and log projections', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const { cookie } = await standardSession(testEnv);
+    store.auditEvents.push({
+      id: 'historical-patient-audit',
+      platform_admin_id: admin.staff_id,
+      tenant_id: 'tenant-a',
+      action: 'view_patient',
+      resource_type: 'patient',
+      resource_id: 'patient-sensitive-id',
+      detail_json: JSON.stringify({ patientId: 'patient-sensitive-id' }),
+      created_at: '2026-08-24T00:00:00.000Z',
+    });
+
+    const audit = await (await app().request(
+      '/api/platform-admin/audit', { headers: { cookie } }, testEnv,
+    )).json() as { data: Array<Record<string, unknown>> };
+    const logs = await (await app().request(
+      '/api/platform-admin/logs?type=platform_admin_access', { headers: { cookie } }, testEnv,
+    )).json() as { data: { platformAdminAccess: Array<Record<string, unknown>> } };
+    for (const event of [audit.data[0], logs.data.platformAdminAccess[0]]) {
+      expect(event).toMatchObject({ resource_type: 'patient', resource_id: null, detail_json: null });
+    }
   });
 });
 

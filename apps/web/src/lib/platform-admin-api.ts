@@ -15,16 +15,61 @@ export const PLATFORM_ADMIN_CSRF_HEADER = 'x-platform-admin-csrf-token'
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-/** Non-2xx response. `message` is the API's own `error` text so topology and
- *  validation failures can be surfaced verbatim; `status` lets callers branch. */
+export type PlatformAdminReasonCode =
+  | 'UNAUTHENTICATED'
+  | 'FORBIDDEN'
+  | 'NOT_FOUND'
+  | 'INVALID_REQUEST'
+  | 'CONFLICT'
+  | 'RATE_LIMITED'
+  | 'UNAVAILABLE'
+  | 'REQUEST_FAILED'
+
+const PLATFORM_ADMIN_REASON_LABELS: Record<PlatformAdminReasonCode, string> = {
+  UNAUTHENTICATED: 'ログイン状態を確認してください。',
+  FORBIDDEN: 'この操作を行う権限がありません。',
+  NOT_FOUND: '対象を確認できませんでした。',
+  INVALID_REQUEST: '入力内容を確認してください。',
+  CONFLICT: '別の更新があるため、最新状態を確認してから再試行してください。',
+  RATE_LIMITED: '操作が集中しています。時間を置いて再試行してください。',
+  UNAVAILABLE: 'サービスを確認できません。時間を置いて再試行してください。',
+  REQUEST_FAILED: '操作を完了できませんでした。再試行または運用担当へ確認してください。',
+}
+
+function reasonCodeForStatus(status: number, apiReason?: string): PlatformAdminReasonCode {
+  const normalizedReason = apiReason?.trim().toUpperCase() as PlatformAdminReasonCode | undefined
+  if (normalizedReason && Object.prototype.hasOwnProperty.call(PLATFORM_ADMIN_REASON_LABELS, normalizedReason)) {
+    return normalizedReason
+  }
+  if (status === 401) return 'UNAUTHENTICATED'
+  if (status === 403) return 'FORBIDDEN'
+  if (status === 404) return 'NOT_FOUND'
+  if (status === 409) return 'CONFLICT'
+  if (status === 429) return 'RATE_LIMITED'
+  if (status >= 400 && status < 500) return 'INVALID_REQUEST'
+  if (status >= 500) return 'UNAVAILABLE'
+  return 'REQUEST_FAILED'
+}
+
+/** Non-2xx response. Only a safe reason code is exposed to the UI. */
 export class PlatformAdminApiError extends Error {
   readonly status: number
+  readonly reasonCode: PlatformAdminReasonCode
 
-  constructor(status: number, message: string) {
-    super(message)
+  constructor(status: number, _apiReason?: string) {
+    const reasonCode = reasonCodeForStatus(status, _apiReason)
+    super(PLATFORM_ADMIN_REASON_LABELS[reasonCode])
     this.name = 'PlatformAdminApiError'
     this.status = status
+    this.reasonCode = reasonCode
   }
+}
+
+/** Convert an unknown client error to a PHI/topology-free message. */
+export function platformAdminErrorMessage(error: unknown): string {
+  return error instanceof PlatformAdminApiError
+    ? PLATFORM_ADMIN_REASON_LABELS[error.reasonCode]
+    : PLATFORM_ADMIN_REASON_LABELS.REQUEST_FAILED
 }
 
 export function setPlatformAdminCsrfToken(token: unknown): void {
@@ -62,9 +107,9 @@ export async function platformAdminFetch<T>(path: string, options?: RequestInit)
     },
   })
   const body = (await res.json().catch(() => null)) as
-    | { success?: boolean; error?: string; csrfToken?: string }
+    | { success?: boolean; error?: string; reasonCode?: string; csrfToken?: string }
     | null
-  if (!res.ok) throw new PlatformAdminApiError(res.status, body?.error || `API error: ${res.status}`)
+  if (!res.ok) throw new PlatformAdminApiError(res.status, body?.reasonCode)
   // /login, /session and /change-password all reissue the token; keep the
   // stored copy fresh so the next mutating request double-submits the right one.
   setPlatformAdminCsrfToken(body?.csrfToken)
@@ -81,7 +126,6 @@ export type PlatformTenant = {
   outboundMessagingPausedAt: string | null
   lineAccountCount: number
   staffCount: number
-  patientCount: number
   webhookFailureCount: number
   lineConfigIssueCount: number
 }
@@ -372,7 +416,6 @@ export type PlatformIntegrityCheck = {
   name: string
   status: 'ok' | 'warn' | 'critical'
   affectedCount: number
-  sampleIds: string[]
 }
 
 export type PlatformStaffMember = {

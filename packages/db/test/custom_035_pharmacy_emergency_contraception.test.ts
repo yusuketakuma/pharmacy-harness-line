@@ -217,6 +217,15 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
   });
 
   it('does not offer or admit a slot assigned to an inactive pharmacy staff account', async () => {
+    db.prepare(`INSERT INTO staff_members
+      (id, name, role, api_key, is_active, created_at, updated_at)
+      VALUES ('staff-a-backup', 'Backup', 'staff', 'key-a-backup', 1, ?, ?)`).run(NOW, NOW);
+    db.prepare(`INSERT INTO tenant_staff_memberships
+      (tenant_id, staff_id, role, is_active, created_at, updated_at)
+      VALUES ('tenant-a', 'staff-a-backup', 'staff', 1, ?, ?)`).run(NOW, NOW);
+    db.prepare(`INSERT INTO pharmacy_staff_accounts
+      (line_account_id, staff_id, is_active, created_at, updated_at)
+      VALUES ('account-a', 'staff-a-backup', 1, ?, ?)`).run(NOW, NOW);
     db.prepare(`UPDATE pharmacy_staff_accounts SET is_active = 0
       WHERE line_account_id = 'account-a' AND staff_id = 'staff-a'`).run();
 

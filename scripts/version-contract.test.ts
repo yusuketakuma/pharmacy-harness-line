@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 
-const unifiedVersion = '0.31.1';
+const unifiedVersion = '0.32.0';
 const runtimePackages = [
   'package.json',
   'apps/worker/package.json',

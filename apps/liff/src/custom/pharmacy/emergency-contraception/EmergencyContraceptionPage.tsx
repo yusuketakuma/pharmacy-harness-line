@@ -9,6 +9,7 @@ import {
   type EmergencySafeContactMode,
   type EmergencyServiceOverview,
 } from './api.js';
+import { pharmacyErrorMessage } from '../request.js';
 
 export const MHLW_EMERGENCY_CONTRACEPTION_URL =
   'https://www.mhlw.go.jp/stf/kinnkyuuhininnyaku.html';
@@ -281,7 +282,7 @@ export function EmergencyAlternativeLinks({
       </div>
       <Link
         to={pharmacyRoute('/prescriptions')}
-        className="mt-3 block text-center text-sm font-bold text-blue-900 underline"
+        className="pharmacy-control mt-3 flex min-h-11 items-center justify-center text-center text-sm font-bold text-blue-900 underline"
       >
         通常の受付へ戻る
       </Link>
@@ -320,7 +321,7 @@ function IntakeList({
   return (
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
-      <p className="mt-1 text-xs text-gray-500">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
+      <p className="mt-1 text-sm text-gray-600">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
       {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="mt-2 inline-block text-sm font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
       {intakes.length === 0
         ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
@@ -328,12 +329,12 @@ function IntakeList({
           <li key={intake.id} className="rounded-lg border border-gray-200 p-3">
             <p className="font-bold text-gray-900">受付番号：{intake.reference_code}</p>
             <p className="mt-1 text-sm text-gray-700">{STATUS_LABELS[intake.status]}</p>
-            <p className="mt-1 text-xs text-gray-600">
+            <p className="mt-1 text-sm text-gray-700">
               対応枠：{formatTokyo(intake.slot_starts_at)}〜{formatTokyo(intake.slot_ends_at)}
             </p>
-            <p className="mt-1 text-xs text-gray-600">有効期限：{formatTokyo(intake.expires_at)}</p>
+            <p className="mt-1 text-sm text-gray-700">有効期限：{formatTokyo(intake.expires_at)}</p>
             <p className="mt-2 rounded-lg bg-green-50 p-2 text-sm text-green-900">次にすること：{emergencyNextAction(intake.status)}</p>
-            {intake.status === 'provisional' && <p className="mt-2 text-xs text-amber-800">患者申告は薬剤師確認前です。</p>}
+            {intake.status === 'provisional' && <p className="mt-2 text-sm text-amber-900">患者申告は薬剤師確認前です。</p>}
             {canCancel(intake.status) && <button
               type="button"
               onClick={() => void onCancel(intake)}
@@ -505,7 +506,7 @@ export function EmergencyIntakeForm({
             className={fieldClass}
           />
           <FieldError message={errors.recentPurchaseCount} />
-          <p className="text-xs text-gray-500">回数によって受付をお断りするものではありません。安全のための確認です。</p>
+          <p className="text-sm text-gray-700">回数によって受付をお断りするものではありません。安全のための確認です。</p>
         </label>
       </div>
 
@@ -768,7 +769,7 @@ export function EmergencyIntakeForm({
         >
           メーカー公式セルフチェック（外部サイト）
         </a>
-        <p className="mt-2 text-xs text-gray-700">画像はLINEへ送らず、来局時に本人の端末で提示してください。</p>
+        <p className="mt-2 text-sm text-gray-700">画像はLINEへ送らず、来局時に本人の端末で提示してください。</p>
         <label className="mt-2 flex min-h-11 items-center gap-2 text-sm text-gray-800">
           <input
             type="checkbox"
@@ -790,7 +791,7 @@ export function EmergencyIntakeForm({
       >
         {busy === 'submit' ? '送信中...' : '送信内容を確認する'}
       </button>
-      <p className="text-xs text-gray-600">送信後も販売は確定しません。来局時に薬剤師が確認します。</p>
+      <p className="text-sm text-gray-700">送信後も販売は確定しません。来局時に薬剤師が確認します。</p>
     </form>
   );
 }
@@ -826,9 +827,9 @@ export default function EmergencyContraceptionPage() {
       setServerNow(result.server_now);
     } catch (err) {
       setService(null);
-      setError(err instanceof Error
-        ? err.message
-        : '受付情報を読み込めませんでした。再読み込みしてください。');
+      setError(pharmacyErrorMessage(
+        err, '受付情報を読み込めませんでした。再読み込みしてください。',
+      ));
     } finally {
       setLoading(false);
     }
@@ -904,9 +905,9 @@ export default function EmergencyContraceptionPage() {
       setSuccess(`仮受付番号 ${result.intake.reference_code} を受け付けました。販売は確定していません。`);
       window.scrollTo(0, 0);
     } catch (err) {
-      setError(err instanceof Error
-        ? err.message
-        : '仮受付を送信できませんでした。最新の空き状況を確認してください。');
+      setError(pharmacyErrorMessage(
+        err, '仮受付を送信できませんでした。最新の空き状況を確認してください。',
+      ));
       if (err && typeof err === 'object' && 'status' in err && err.status === 409) await load();
     } finally {
       setBusy(null);
@@ -928,27 +929,33 @@ export default function EmergencyContraceptionPage() {
       setSuccess('仮受付を取消しました。');
     } catch (err) {
       await load();
-      setError(err instanceof Error
-        ? err.message
-        : '仮受付を取消できませんでした。最新の状態を確認してください。');
+      setError(pharmacyErrorMessage(
+        err, '仮受付を取消できませんでした。最新の状態を確認してください。',
+      ));
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
+    <main className="pharmacy-main mx-auto max-w-md">
       <div className="space-y-4 p-4">
-        <p className="text-sm leading-6 text-gray-700">緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。</p>
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+        <section className="pharmacy-card p-4" aria-labelledby="emergency-summary">
+          <h2 id="emergency-summary" className="font-bold">現在の状態</h2>
+          <p className="mt-1 text-base text-gray-800">{loading ? '受付状況を確認中です。' : service?.ready ? '対応枠を確認して仮受付できます。' : '現在、この画面から受付できません。'}</p>
+          <h2 className="mt-3 font-bold">次の操作</h2>
+          <p className="mt-1 text-base text-gray-800">{loading ? '読み込みが終わるまでお待ちください。' : service?.ready ? '説明と同意を確認し、対応枠を選んでください。' : intakes.length > 0 ? '下の受付状況を確認してください。' : '薬局または相談窓口へお問い合わせください。'}</p>
+        </section>
+        <p className="pharmacy-supplemental">緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。</p>
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-base text-amber-950">
           <p className="font-bold">仮受付であり、販売・服用・在庫を保証しません</p>
           <p className="mt-1">最終的な販売可否は、来局時に研修を修了した薬剤師が確認します。</p>
         </section>
         {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 focus:outline-none">
           <p>{error}</p>
-          <button type="button" onClick={() => void load()} className="mt-2 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
+          <button type="button" onClick={() => void load()} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
         </div>}
-        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-base text-green-800">
           <p className="font-bold">{success}</p>
           {submittedCode && <>
             <p className="mt-2 font-bold">次にすること</p>
@@ -964,6 +971,7 @@ export default function EmergencyContraceptionPage() {
           >
             相談窓口を見る（外部サイト）
           </a>}
+          <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
         </div>}
         {loading
           ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-600">受付状況を読み込み中...</p>

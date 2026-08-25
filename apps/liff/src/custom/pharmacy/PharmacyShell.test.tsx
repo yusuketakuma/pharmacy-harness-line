@@ -30,6 +30,14 @@ describe('pharmacy LIFF common shell', () => {
     expect(html).toContain('すべての機能へ戻る');
   });
 
+  it('uses pharmacy tokens and safe-area-aware shared controls', () => {
+    const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+    const source = readFileSync(new URL('./PharmacyShell.tsx', import.meta.url), 'utf8');
+    expect(css).toContain('--pharmacy-');
+    expect(css).toContain('safe-area-inset-bottom');
+    expect(source).toContain('pharmacy-shell');
+  });
+
   it('keeps enabled features usable when the authenticated history projection fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
