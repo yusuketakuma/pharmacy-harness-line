@@ -261,6 +261,15 @@ export interface IsolatedRestoreInput {
   retainedGenerations: RetainedGeneration[];
 }
 
+export interface IsolatedRestoreFilesInput {
+  signedManifestPath: string;
+  pinnedTrustStore: Record<string, string>;
+  d1ExportPath: string;
+  r2ObjectPaths: Record<string, string>;
+  fleRootSecret: string;
+  retainedGenerations: RetainedGeneration[];
+}
+
 export interface IsolatedRehearsalReport {
   schemaVersion: 1;
   manifestHash: Sha256;
@@ -697,6 +706,77 @@ function publicKeyBytes(key: KeyObject): string {
 
 export function readArtifactFile(filePath: string): Uint8Array {
   return new Uint8Array(readFileSync(filePath));
+}
+
+export async function runIsolatedRestoreRehearsalFromFiles(
+  input: IsolatedRestoreFilesInput,
+): Promise<IsolatedRehearsalReport> {
+  // ponytail: local files are loaded in memory; move to a disposable isolated target when exports outgrow operator memory.
+  assertRecord(input, 'restore files input');
+  assertExactKeys(input, [
+    'signedManifestPath', 'pinnedTrustStore', 'd1ExportPath', 'r2ObjectPaths',
+    'fleRootSecret', 'retainedGenerations',
+  ], 'restore files input');
+  assertString(input.signedManifestPath, 'restore files input.signedManifestPath');
+  assertString(input.d1ExportPath, 'restore files input.d1ExportPath');
+  assertRecord(input.r2ObjectPaths, 'restore files input.r2ObjectPaths');
+  for (const [key, filePath] of Object.entries(input.r2ObjectPaths)) {
+    assertString(key, 'restore files input.r2ObjectPaths key');
+    assertString(filePath, `restore files input.r2ObjectPaths.${key}`);
+  }
+  const signedManifest = readFileSync(input.signedManifestPath, 'utf8');
+  const verification = verifyCommonGenerationManifest(signedManifest, input.pinnedTrustStore);
+  if (!verification.valid || !verification.payload) {
+    fail(`manifest verification failed: ${verification.reason ?? 'invalid manifest'}`);
+  }
+  const manifest = verification.payload;
+  const expectedObjectKeys = manifest.r2.inventory.objects.map((object) => object.key).sort();
+  const suppliedObjectKeys = Object.keys(input.r2ObjectPaths).sort();
+  if (canonicalizeCommonGeneration(expectedObjectKeys) !== canonicalizeCommonGeneration(suppliedObjectKeys)) {
+    fail('R2 artifact file mapping does not match the signed inventory');
+  }
+  const artifactPaths = [input.d1ExportPath, ...Object.values(input.r2ObjectPaths)];
+  if (new Set(artifactPaths).size !== artifactPaths.length) {
+    fail('D1 and R2 artifact files must be distinct');
+  }
+  const artifacts: CapturedArtifactsForValidation = {
+    d1: {
+      bytes: readArtifactFile(input.d1ExportPath),
+      embeddedGeneration: manifest.d1.export.embeddedGeneration,
+      embeddedFenceId: manifest.d1.export.embeddedFenceId,
+      embeddedFenceEpoch: manifest.d1.export.embeddedFenceEpoch,
+      embeddedCutId: manifest.d1.export.embeddedCutId,
+      schema: manifest.d1.schema,
+      orderedMigrations: manifest.d1.orderedMigrations,
+      logicalInventory: manifest.d1.logicalInventory,
+    },
+    r2: {
+      namespace: manifest.r2.namespace,
+      prefix: manifest.r2.prefix,
+      embeddedGeneration: manifest.r2.inventory.embeddedGeneration,
+      embeddedFenceId: manifest.r2.inventory.embeddedFenceId,
+      embeddedFenceEpoch: manifest.r2.inventory.embeddedFenceEpoch,
+      embeddedCutId: manifest.r2.inventory.embeddedCutId,
+      objects: manifest.r2.inventory.objects.map((object) => ({
+        key: object.key,
+        bytes: readArtifactFile(input.r2ObjectPaths[object.key]),
+        embeddedGeneration: object.embeddedGeneration,
+        embeddedFenceId: object.embeddedFenceId,
+        embeddedFenceEpoch: object.embeddedFenceEpoch,
+        embeddedCutId: object.embeddedCutId,
+      })),
+    },
+    fle: manifest.fle,
+    watermarks: manifest.watermarks,
+  };
+  return runIsolatedRestoreRehearsal({
+    signedManifest,
+    pinnedTrustStore: input.pinnedTrustStore,
+    target: createNoSendIsolatedRestoreTarget(),
+    artifacts,
+    fleRootSecret: input.fleRootSecret,
+    retainedGenerations: input.retainedGenerations,
+  });
 }
 
 export function validateCommonGenerationManifest(value: unknown): asserts value is CommonGenerationManifest {

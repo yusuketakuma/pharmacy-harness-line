@@ -1,4 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -6,6 +9,7 @@ import {
   captureCommonGeneration,
   createCommonGenerationSigner,
   createNoSendIsolatedRestoreTarget,
+  runIsolatedRestoreRehearsalFromFiles,
   runIsolatedRestoreRehearsal,
   sha256CommonGeneration,
   validateCapturedArtifacts,
@@ -163,6 +167,7 @@ async function captureFixture() {
 }
 
 const SYNTHETIC_FLE_SECRET = `synthetic-only-${'x'.repeat(32)}`;
+const SYNTHETIC_FLE_SECRET_V2 = `synthetic-v2-${'y'.repeat(32)}`;
 
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
@@ -180,7 +185,12 @@ function schemaFingerprint(sql: string): `sha256:${string}` {
   }
 }
 
-async function syntheticRestoreFixture(now = Date.now(), includeWatermarkTables = true) {
+async function syntheticRestoreFixture(
+  now = Date.now(),
+  includeWatermarkTables = true,
+  keyVersion: 1 | 2 = 1,
+  fleRootSecret = SYNTHETIC_FLE_SECRET,
+) {
   const generation = 'g-restore-1';
   const lineAccountId = 'line-account-1';
   const tenantId = 'tenant-1';
@@ -201,16 +211,16 @@ async function syntheticRestoreFixture(now = Date.now(), includeWatermarkTables 
     schemaVersion: 1,
     sourceRevision: 1,
     envelopeVersion: 1 as const,
-    keyVersion: 1 as const,
+    keyVersion,
   };
   const snapshot = '{"name":"synthetic patient"}';
   const answers = '{"allergiesStatus":"none"}';
   const [snapshotEnvelope, answersEnvelope] = await Promise.all([
-    sealPatientIntakeField(snapshot, SYNTHETIC_FLE_SECRET, {
+    sealPatientIntakeField(snapshot, fleRootSecret, {
       ...baseContext,
       fieldName: 'patient_snapshot_json',
     }),
-    sealPatientIntakeField(answers, SYNTHETIC_FLE_SECRET, {
+    sealPatientIntakeField(answers, fleRootSecret, {
       ...baseContext,
       fieldName: 'answers_json',
     }),
@@ -304,12 +314,12 @@ async function syntheticRestoreFixture(now = Date.now(), includeWatermarkTables 
     );
     INSERT INTO pharmacy_patient_intake_envelopes VALUES (
       'intake-1', ${sqlString(tenantId)}, ${sqlString(lineAccountId)}, 'friend-1', 'patient-1',
-      'patient_snapshot_json', 1, 1, 1, 1,
+      'patient_snapshot_json', 1, 1, 1, ${keyVersion},
       ${sqlString(snapshotEnvelope.nonce)}, ${sqlString(snapshotEnvelope.ciphertext)}
     );
     INSERT INTO pharmacy_patient_intake_envelopes VALUES (
       'intake-1', ${sqlString(tenantId)}, ${sqlString(lineAccountId)}, 'friend-1', 'patient-1',
-      'answers_json', 1, 1, 1, 1,
+      'answers_json', 1, 1, 1, ${keyVersion},
       ${sqlString(answersEnvelope.nonce)}, ${sqlString(answersEnvelope.ciphertext)}
     );
     INSERT INTO pharmacy_medication_followups VALUES ('followup-1', ${sqlString(lineAccountId)}, 'rx-1');
@@ -358,12 +368,12 @@ async function syntheticRestoreFixture(now = Date.now(), includeWatermarkTables 
     },
     fle: {
       fieldInventory: [
-        { field: 'pharmacy_patient_intake_responses.patient_snapshot_json', encrypted: true, envelopeVersion: 1, keyVersion: 1, referenceCount: 1 },
-        { field: 'pharmacy_patient_intake_responses.answers_json', encrypted: true, envelopeVersion: 1, keyVersion: 1, referenceCount: 1 },
+        { field: 'pharmacy_patient_intake_responses.patient_snapshot_json', encrypted: true, envelopeVersion: 1, keyVersion, referenceCount: 1 },
+        { field: 'pharmacy_patient_intake_responses.answers_json', encrypted: true, envelopeVersion: 1, keyVersion, referenceCount: 1 },
       ],
       envelopeVersions: [1],
-      keyVersions: [1],
-      pinnedKeyFingerprint: sha256CommonGeneration(SYNTHETIC_FLE_SECRET),
+      keyVersions: [keyVersion],
+      pinnedKeyFingerprint: sha256CommonGeneration(fleRootSecret),
       referenceCounts: {
         'pharmacy_patient_intake_responses.patient_snapshot_json': 1,
         'pharmacy_patient_intake_responses.answers_json': 1,
@@ -601,6 +611,76 @@ describe('common-generation artifact producer and validator', () => {
 });
 
 describe('isolated restore rehearsal', () => {
+  it('validates signed D1 and R2 files through the no-send restore path', async () => {
+    const fixture = await syntheticRestoreFixture();
+    const directory = mkdtempSync(join(tmpdir(), 'common-generation-'));
+    try {
+      const manifestPath = join(directory, 'manifest.json');
+      const d1Path = join(directory, 'generation.sql');
+      const objectPath = join(directory, 'prescription.bin');
+      writeFileSync(manifestPath, canonicalizeCommonGeneration(fixture.signedManifest));
+      writeFileSync(d1Path, fixture.artifacts.d1.bytes);
+      writeFileSync(objectPath, fixture.artifacts.r2.objects[0].bytes);
+
+      await expect(runIsolatedRestoreRehearsalFromFiles({
+        signedManifestPath: manifestPath,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        d1ExportPath: d1Path,
+        r2ObjectPaths: {},
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      })).rejects.toThrow(/mapping|inventory/i);
+
+      await expect(runIsolatedRestoreRehearsalFromFiles({
+        signedManifestPath: manifestPath,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        d1ExportPath: d1Path,
+        r2ObjectPaths: { [fixture.artifacts.r2.objects[0].key]: objectPath },
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      })).resolves.toMatchObject({
+        readbackResult: 'passed',
+        outboundAttemptCount: 0,
+        productionBindingCount: 0,
+      });
+
+      writeFileSync(objectPath, 'tampered artifact');
+      await expect(runIsolatedRestoreRehearsalFromFiles({
+        signedManifestPath: manifestPath,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        d1ExportPath: d1Path,
+        r2ObjectPaths: { [fixture.artifacts.r2.objects[0].key]: objectPath },
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      })).rejects.toThrow(/R2|SHA|inventory/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('restores a fully rewrapped v2 generation with only the v2 root supplied', async () => {
+    const fixture = await syntheticRestoreFixture(
+      Date.now(), true, 2, SYNTHETIC_FLE_SECRET_V2,
+    );
+
+    expect(fixture.manifest.fle.keyVersions).toEqual([2]);
+    await expect(runIsolatedRestoreRehearsal({
+      signedManifest: fixture.signedManifest,
+      pinnedTrustStore: fixture.pinnedTrustStore,
+      target: createNoSendIsolatedRestoreTarget(),
+      artifacts: fixture.artifacts,
+      fleRootSecret: SYNTHETIC_FLE_SECRET,
+      retainedGenerations: fixture.retainedGenerations,
+    })).rejects.toThrow(/fingerprint|FLE/i);
+    await expect(runIsolatedRestoreRehearsal({
+      signedManifest: fixture.signedManifest,
+      pinnedTrustStore: fixture.pinnedTrustStore,
+      target: createNoSendIsolatedRestoreTarget(),
+      artifacts: fixture.artifacts,
+      fleRootSecret: SYNTHETIC_FLE_SECRET_V2,
+      retainedGenerations: fixture.retainedGenerations,
+    })).resolves.toMatchObject({ fleReadback: true, outboundAttemptCount: 0 });
+  });
   it('fails closed when the restored D1 has no canonical outbox or webhook state to reconcile', async () => {
     const fixture = await syntheticRestoreFixture(Date.now(), false);
 
