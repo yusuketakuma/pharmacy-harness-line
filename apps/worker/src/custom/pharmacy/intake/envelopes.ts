@@ -87,7 +87,7 @@ export function patientIntakeEncryptionContext(
   row: PatientIntakeEncryptedRow,
   scope: PatientIntakeCryptoScope,
   fieldName: PatientIntakeEncryptedField,
-  keyVersion = activePatientIntakeKeyVersion(scope),
+  keyVersion: number = activePatientIntakeKeyVersion(scope),
 ) {
   return {
     tenantId: scope.tenantId,

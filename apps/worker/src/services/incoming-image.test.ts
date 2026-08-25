@@ -2,10 +2,10 @@ import { afterEach, describe, test, expect, vi } from 'vitest';
 import { fetchAndStoreIncomingImage } from './incoming-image.js';
 
 function makeR2Stub() {
-  const store = new Map<string, { data: ArrayBuffer; contentType: string }>();
+  const store = new Map<string, ArrayBuffer>();
   return {
-    put: vi.fn(async (key: string, data: ArrayBuffer, opts: { httpMetadata?: { contentType?: string } }) => {
-      store.set(key, { data, contentType: opts.httpMetadata?.contentType ?? '' });
+    put: vi.fn(async (key: string, data: ArrayBuffer, opts: R2PutOptions): Promise<{ key: string; etag: string } | null> => {
+      store.set(key, data);
       return { key, etag: 'stored-etag' };
     }),
     head: vi.fn(),
@@ -50,7 +50,7 @@ describe('fetchAndStoreIncomingImage', () => {
     expect(r2.put).toHaveBeenCalled();
     const [key, , opts] = r2.put.mock.calls[0];
     expect(key).toBe('tenants/tenant-a/accounts/acc-1/incoming/msg-xyz.jpg');
-    expect(opts.httpMetadata?.contentType).toBe('image/jpeg');
+    expect(opts.httpMetadata).toMatchObject({ contentType: 'image/jpeg' });
     expect(opts.onlyIf).toEqual({ etagDoesNotMatch: '*' });
     expect(opts.sha256).toBeInstanceOf(ArrayBuffer);
     expect(result?.originalContentUrl).toBe(

@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import {
   cancelMeetConsultation,
@@ -29,10 +29,10 @@ function consultationDb() {
       UNIQUE (consultation_id, kind)
     );
     INSERT INTO friends VALUES ('friend-a', 'account-a', 1);`);
-  const statement = (sql: string, values: unknown[] = []) => ({
+  const statement = (sql: string, values: SQLInputValue[] = []) => ({
     __sql: sql,
     __values: values,
-    bind: (...next: unknown[]) => statement(sql, next),
+    bind: (...next: SQLInputValue[]) => statement(sql, next),
     first: async <T>() => sqlite.prepare(sql).get(...values) as T | undefined ?? null,
     runSync: () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...values).changes) } }),
     run: async () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...values).changes) } }),
