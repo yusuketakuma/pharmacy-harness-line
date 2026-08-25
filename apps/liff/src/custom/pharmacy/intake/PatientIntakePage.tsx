@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   patientIntakeApi,
@@ -23,31 +23,11 @@ import {
   type IntakeAnswersDraft,
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
+import { pharmacyErrorMessage } from '../request.js';
 
 const relationshipLabels: Record<PatientRelationship, string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
 };
-
-const intakeDraftKey = (patientId: string) => `pharmacy_intake_draft:${patientId}`;
-
-function readIntakeDraft(patientId: string): {
-  answers: IntakeAnswersDraft
-  intakeStep: number
-} | null {
-  try {
-    const parsed = JSON.parse(sessionStorage.getItem(intakeDraftKey(patientId)) ?? 'null') as {
-      answers?: unknown
-      intakeStep?: unknown
-    } | null;
-    return parsed && typeof parsed.answers === 'object' && parsed.answers !== null &&
-      Number.isInteger(parsed.intakeStep) && Number(parsed.intakeStep) >= 1 &&
-      Number(parsed.intakeStep) <= INTAKE_STEP_COUNT
-      ? { answers: { ...INITIAL_INTAKE_ANSWERS, ...(parsed.answers as Partial<IntakeAnswersDraft>) }, intakeStep: Number(parsed.intakeStep) }
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 export function canSubmitIntake(
   answers: IntakeAnswersDraft,
@@ -73,7 +53,7 @@ export default function PatientIntakePage() {
   const [showStepErrors, setShowStepErrors] = useState(false);
   const [profileErrors, setProfileErrors] = useState<PatientProfileErrors>({});
   const [saved, setSaved] = useState(false);
-  const [draftPatientId, setDraftPatientId] = useState('');
+  const [draftDirty, setDraftDirty] = useState(false);
   const [representativeConsent, setRepresentativeConsent] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
   const [privacyPolicy, setPrivacyPolicy] = useState<TenantPrivacyPolicy | null>(null);
@@ -95,6 +75,28 @@ export default function PatientIntakePage() {
     }
   }, [error]);
 
+  useEffect(() => {
+    if (!draftDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const handleLinkClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest('a') : null;
+      if (!target || target.target === '_blank' || target.hasAttribute('download')) return;
+      if (!window.confirm('未送信の入力があります。画面を離れますか？')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('click', handleLinkClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('click', handleLinkClick, true);
+    };
+  }, [draftDirty]);
+
   const selectedPatient = useMemo(
     () => patients.find((patient) => patient.id === selectedId) ?? null,
     [patients, selectedId],
@@ -114,7 +116,7 @@ export default function PatientIntakePage() {
         setShowNewPatient(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '患者情報を読み込めませんでした。');
+      setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
     } finally {
       setLoading(false);
     }
@@ -134,17 +136,16 @@ export default function PatientIntakePage() {
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
-    setDraftPatientId('');
+    setDraftDirty(false);
     setIntakeStep(1);
     setLatestRevision(null);
     setLatestAnswers(null);
     void patientIntakeApi.latest(selectedId).then((result) => {
       if (!active) return;
       const intake = result.intake;
-      const draft = readIntakeDraft(selectedId);
       if (!intake) {
-        setAnswers(draft?.answers ?? INITIAL_INTAKE_ANSWERS);
-        setIntakeStep(draft?.intakeStep ?? 1);
+        setAnswers(INITIAL_INTAKE_ANSWERS);
+        setIntakeStep(1);
         return;
       }
       setLatestRevision(intake.revision);
@@ -154,29 +155,17 @@ export default function PatientIntakePage() {
           ...(JSON.parse(intake.answers_json) as PatientIntakeAnswers),
         };
         setLatestAnswers(savedAnswers);
-        setAnswers(draft?.answers ?? savedAnswers);
-        setIntakeStep(draft?.intakeStep ?? 1);
+        setAnswers(savedAnswers);
+        setIntakeStep(1);
       } catch {
         setError('回答を読み込めませんでした。');
       }
     }).catch((err: unknown) => {
       if (!active) return;
-      const draft = readIntakeDraft(selectedId);
-      if (draft) {
-        setAnswers(draft.answers);
-        setIntakeStep(draft.intakeStep);
-      }
-      setError(err instanceof Error ? err.message : '回答を読み込めませんでした。');
-    }).finally(() => {
-      if (active) setDraftPatientId(selectedId);
+      setError(pharmacyErrorMessage(err, '回答を読み込めませんでした。'));
     });
     return () => { active = false; };
   }, [selectedId]);
-
-  useEffect(() => {
-    if (!selectedId || draftPatientId !== selectedId) return;
-    sessionStorage.setItem(intakeDraftKey(selectedId), JSON.stringify({ answers, intakeStep }));
-  }, [answers, draftPatientId, intakeStep, selectedId]);
 
   async function createPatient() {
     const {
@@ -232,8 +221,9 @@ export default function PatientIntakePage() {
       setPatientDraft(emptyPatientProfileDraft(relationship));
       setShowAddress(false);
       setProfileErrors({});
+      setDraftDirty(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '患者情報を登録できませんでした。');
+      setError(pharmacyErrorMessage(err, '患者情報を登録できませんでした。'));
     } finally {
       setBusy(false);
     }
@@ -258,7 +248,7 @@ export default function PatientIntakePage() {
       setLatestRevision(result.intake.revision);
       setLatestAnswers(nextAnswers);
       setAnswers(nextAnswers);
-      sessionStorage.removeItem(intakeDraftKey(selectedId));
+      setDraftDirty(false);
       setSuccess('アンケートを保存しました。');
       setSaved(true);
       setRepresentativeConsent(false);
@@ -266,7 +256,7 @@ export default function PatientIntakePage() {
       setShowStepErrors(false);
       window.scrollTo(0, 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'アンケートを送信できませんでした。');
+      setError(pharmacyErrorMessage(err, 'アンケートを送信できませんでした。'));
     } finally {
       setBusy(false);
     }
@@ -286,8 +276,15 @@ export default function PatientIntakePage() {
     }
     setShowStepErrors(false);
     setError(null);
+    setDraftDirty(true);
     setIntakeStep((step) => Math.min(INTAKE_STEP_COUNT, step + 1));
   }
+
+  const updateAnswers = useCallback((update: SetStateAction<IntakeAnswersDraft>) => {
+    setAnswers(update);
+    setDraftDirty(true);
+    setSaved(false);
+  }, []);
 
   async function confirmUnchanged() {
     if (!latestAnswers || busy || !window.confirm(
@@ -301,6 +298,8 @@ export default function PatientIntakePage() {
     value: PatientProfileDraft[K],
   ) {
     setPatientDraft((current) => ({ ...current, [key]: value }));
+    setDraftDirty(true);
+    setSaved(false);
   }
 
   function resetPatientForm(relationshipValue: PatientRelationship) {
@@ -311,12 +310,18 @@ export default function PatientIntakePage() {
     setShowNewPatient(true);
   }
 
+  function confirmIntakeNavigation(): boolean {
+    if (draftDirty && !window.confirm('未送信の入力があります。画面を離れますか？')) return false;
+    setDraftDirty(false);
+    return true;
+  }
+
   return (
-    <main className="max-w-md mx-auto min-h-screen bg-gray-50 pb-10">
+    <main className="pharmacy-main max-w-md mx-auto">
       <div className="p-4 space-y-4">
         <p className="text-sm leading-6 text-gray-600">本人・ご家族の情報を薬局に伝えます。入力目安：約1分、選択式中心で詳細は任意です。</p>
         {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 focus:outline-none">{error}</div>}
-        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-base text-green-800">
           <p className="font-bold">{success}</p>
           {saved && <>
             <p className="mt-2 font-bold">次にすること</p>
@@ -324,6 +329,7 @@ export default function PatientIntakePage() {
               <li>続けて処方せんを送る場合は、下の「処方せん事前送信へ」を押してください。</li>
               <li>体調やお薬に変化があったときは、この画面から回答を更新できます。</li>
             </ul>
+            <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/pharmacy/menu')); }} className="pharmacy-control min-h-11 mt-3 w-full rounded-xl border border-green-700 bg-white px-4 py-2 font-bold text-green-800">すべての機能へ戻る</button>
           </>}
         </div>}
 
@@ -331,13 +337,13 @@ export default function PatientIntakePage() {
           <div className="flex items-center justify-between gap-3">
             <h2 id="patient-heading" className="font-bold">回答する患者</h2>
             <div className="flex gap-3">
-              <button type="button" className="text-sm font-bold text-green-700" onClick={() => {
+              <button type="button" className="pharmacy-control min-h-11 text-base font-bold text-green-800" onClick={() => {
                 if (showNewPatient) setShowNewPatient(false);
                 else resetPatientForm(patients.length === 0 ? 'self' : 'child');
               }}>
                 {showNewPatient ? '一覧に戻る' : patients.length === 0 ? '本人を登録' : '家族を追加'}
               </button>
-              {selectedPatient && !showNewPatient && <button type="button" className="text-sm font-bold text-green-700" onClick={() => {
+              {selectedPatient && !showNewPatient && <button type="button" className="pharmacy-control min-h-11 text-base font-bold text-green-800" onClick={() => {
                 setEditing(true);
                 setShowNewPatient(true);
                 setPatientDraft(patientProfileDraft(selectedPatient));
@@ -359,7 +365,7 @@ export default function PatientIntakePage() {
           ) : loading ? <p className="text-sm text-gray-500">読み込み中...</p> : patients.length === 0 ? <p className="text-sm text-gray-600">まず患者情報を登録してください。</p> : (
             <label className="block text-sm">患者を選択<select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="mt-1 block w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
           )}
-          {selectedPatient && <p className="text-xs text-gray-600">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
+          {selectedPatient && <p className="text-sm text-gray-700">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
         </section>
 
         {!showNewPatient && selectedPatient && <>
@@ -368,7 +374,7 @@ export default function PatientIntakePage() {
               type="button"
               onClick={() => void confirmUnchanged()}
               disabled={busy}
-              className="w-full rounded-xl border border-green-600 bg-white px-4 py-3 font-bold text-green-700 disabled:opacity-50"
+              className="w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50"
             >
               {busy ? '更新中…' : '前回から変更なしで更新'}
             </button>
@@ -382,9 +388,9 @@ export default function PatientIntakePage() {
             privacyConsent={privacyConsent}
             privacyPolicy={privacyPolicy}
             showErrors={showStepErrors}
-            onAnswersChange={setAnswers}
-            onRepresentativeConsentChange={setRepresentativeConsent}
-            onPrivacyConsentChange={setPrivacyConsent}
+            onAnswersChange={updateAnswers}
+            onRepresentativeConsentChange={(value) => { setRepresentativeConsent(value); setDraftDirty(true); setSaved(false); }}
+            onPrivacyConsentChange={(value) => { setPrivacyConsent(value); setDraftDirty(true); setSaved(false); }}
           />
           {intakeStep === INTAKE_STEP_COUNT && !canSubmitIntake(answers, representativeConsent, privacyConsent, false) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <p className="font-bold">送信するには、次を確認してください</p>
@@ -396,10 +402,10 @@ export default function PatientIntakePage() {
           </div>}
           <div className="flex gap-3">
             <button type="button" onClick={() => setIntakeStep((step) => Math.max(1, step - 1))} disabled={intakeStep === 1 || busy} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-40">戻る</button>
-            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy} className="min-h-11 flex-1 rounded-xl bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!canSubmitIntake(answers, representativeConsent, privacyConsent, busy)} className="min-h-11 flex-1 rounded-xl bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
+            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!canSubmitIntake(answers, representativeConsent, privacyConsent, busy)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
           </div>
-          <button type="button" onClick={() => navigate(pharmacyRoute('/prescriptions'))} className="w-full rounded-xl border border-green-600 bg-white px-4 py-3 font-bold text-green-700">処方せん事前送信へ</button>
-          <p className="text-xs leading-5 text-gray-600">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>
+          <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/prescriptions')); }} className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800">処方せん事前送信へ</button>
+          <p className="text-sm leading-5 text-gray-700">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>
         </>}
       </div>
     </main>

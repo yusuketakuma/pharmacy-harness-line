@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_PHARMACY_CAPABILITIES,
   MANAGEMENT_PHARMACY_CAPABILITIES,
   PATIENT_PHARMACY_CAPABILITIES,
   canAccessPharmacyAccount,
@@ -172,6 +173,11 @@ describe('pharmacy account mode', () => {
 });
 
 describe('pharmacy capability compatibility', () => {
+  it('enables emergency contraception by default without enabling electronic prescriptions', () => {
+    expect(DEFAULT_PHARMACY_CAPABILITIES).toContain('emergency_contraception');
+    expect(DEFAULT_PHARMACY_CAPABILITIES).not.toContain('electronic_prescription');
+  });
+
   it('recognizes v0.29 patient capabilities without mixing management capabilities', () => {
     expect(PATIENT_PHARMACY_CAPABILITIES).toEqual(expect.arrayContaining([
       'electronic_prescription', 'emergency_contraception', 'pharmacy_info',

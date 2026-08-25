@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-25T00:26:23Z",
+  "reviewedAt": "2026-08-25T00:26:23Z",
+  "environment": "local-synthetic",
+  "scope": "v0.32.0-development-assurance",
+  "status": "PASS",
+  "releaseReadiness": "BLOCKED",
+  "sourceCandidate": {
+    "branch": "dev",
+    "baseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "testedImplementationSha": "582e7635e144daf8e598d9b3b452449bacbcb24a",
+    "identity": "LOCAL_COMMIT",
+    "packageVersion": "0.32.0",
+    "sellerRelease": "NOT_CREATED",
+    "exactCandidateRepositoryVerify": "NOT_RUN"
+  },
+  "liveBaseline": {
+    "dev": {
+      "sourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+      "repositoryVerifyRunId": "32723221333",
+      "repositoryVerifyStatus": "PASS"
+    },
+    "main": {
+      "sourceSha": "ae2ff229e4eafd30c6f2614e2bd9be574d618aef",
+      "repositoryVerifyRunId": "32716737333",
+      "repositoryVerifyStatus": "PASS",
+      "productionDeployRunId": "32717346762",
+      "productionDeployStatus": "PASS_BASELINE_ONLY_NOT_V032"
+    },
+    "sellerRelease": {
+      "name": "pharmacy-v0.31.1",
+      "tagSourceSha": "61f9b4c798f8572325d7f66d67a6a8aeb943e5ca",
+      "publishedAt": "2026-08-24T07:50:29Z"
+    },
+    "richMenuCatalogV5": {
+      "developmentDeployRunId": "32696403629",
+      "sourceSha": "742027f0e8cf294aaa529dec62fcb25d32018e3a",
+      "catalogObjectsUploaded": 228,
+      "catalogUploadStatus": "PASS_BASELINE_ONLY",
+      "accountActivation": "UNVERIFIED"
+    }
+  },
+  "externalReadback": {
+    "checkedAt": "2026-08-24T18:50:56Z",
+    "remoteDevSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "devBranchProtection": {
+      "requiredContext": "verify",
+      "strict": true,
+      "enforceAdmins": true
+    },
+    "latestDevRepositoryVerify": {
+      "runId": "32723221333",
+      "sourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+      "status": "PASS_BASELINE_ONLY_NOT_V032"
+    },
+    "latestDevelopmentDeploy": {
+      "runId": "32713513836",
+      "sourceSha": "f1573dbc7f15e28eb5ea7117ae6bb654633a8543",
+      "status": "PASS_BASELINE_ONLY_NOT_V032"
+    },
+    "exactCandidateRepositoryVerify": "NOT_RUN",
+    "exactCandidateDevelopmentDeploy": "NOT_RUN"
+  },
+  "routeInventory": {
+    "snapshotBaseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
+    "pages": 37,
+    "apiSourceGroups": 41,
+    "uniqueMethodPathPatterns": 227,
+    "patientLiffPages": 8,
+    "patientLiffApiSourceGroups": 9,
+    "focusedTests": 10,
+    "status": "PASS"
+  },
+  "localValidation": {
+    "workspaceTestFiles": 409,
+    "workspaceTests": 3262,
+    "workerTests": 2216,
+    "webTests": 211,
+    "liffTests": 127,
+    "scriptTestFiles": 18,
+    "scriptTests": 208,
+    "migrationChecks": 89,
+    "typecheck": "PASS",
+    "workerBuild": "PASS",
+    "webBuildWithSyntheticPublicApiUrl": "PASS",
+    "liffBuild": "PASS",
+    "liffChromiumTests": 4,
+    "gitleaksNewCommitRange": "PASS_ZERO_FINDINGS",
+    "productionDependencyAuditHigh": 0,
+    "unknownOrUnlicensedLicenseGroups": 0,
+    "cycloneDx": {
+      "status": "PASS",
+      "specVersion": "1.6",
+      "components": 209
+    },
+    "sharedPackageBuild": "PASS",
+    "syntheticAssuranceArtifact": "PASS_LOCAL_UNATTESTED_548_ENTRIES",
+    "codeql": "NOT_RUN_GITHUB_ONLY",
+    "provenanceAttestation": "NOT_RUN_GITHUB_ONLY",
+    "diffCheck": "PASS"
+  },
+  "postReviewValidation": {
+    "testedImplementationSha": "582e7635e144daf8e598d9b3b452449bacbcb24a",
+    "workspaceTestFiles": 412,
+    "workspaceTests": 3314,
+    "workerTestFiles": 225,
+    "workerTests": 2260,
+    "scriptTestFiles": 18,
+    "scriptTests": 222,
+    "meetFocusedTests": 45,
+    "routeInventoryTests": 10,
+    "liffChromiumTests": 12,
+    "migrationChecks": 90,
+    "diffCheck": "PASS",
+    "typecheck": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "workerBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "webBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "liffBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
+    "exactCandidateRepositoryVerify": "NOT_RUN"
+  },
+  "developmentResults": {
+    "emergencyContraceptionDefault": {
+      "status": "PASS",
+      "newPharmacyAccounts": "CAPABILITY_DEFAULT_ON",
+      "existingExplicitOff": "PRESERVED",
+      "operationalReadiness": "REQUIRED"
+    },
+    "adminAndPatientExperience": {
+      "status": "PASS",
+      "pharmacyNavigationGroups": 4,
+      "patientMenuGroups": 3,
+      "platformAdminDefaultProjection": "PHI_FREE",
+      "patientDraftPersistence": "MEMORY_ONLY",
+      "manualChatDisabledMode": "READ_ONLY_SERVER_GUARDED",
+      "patientErrorProjection": "SAFE_MAPPED_ONLY"
+    },
+    "recoveryOperation": {
+      "status": "PASS_SYNTHETIC",
+      "fixedScope": [
+        "tenant",
+        "lineAccount",
+        "environment"
+      ],
+      "approval": "NAMED_PRINCIPAL_SEPARATE_FROM_EXECUTOR",
+      "execution": "PREFLIGHT_DIGEST_CAS_IDEMPOTENT"
+    },
+    "fieldLevelEncryption": {
+      "expandBackfill": "PASS_SYNTHETIC",
+      "mixedRead": "PASS_SYNTHETIC",
+      "coverage": "100_PERCENT_SYNTHETIC_FIELD_INVENTORY",
+      "scrubContract": "PASS_SYNTHETIC_NO_PRODUCTION_SCRUB",
+      "rotationRewrap": "PASS_SYNTHETIC",
+      "activeWriteKey": "EXPLICIT_V2_ONLY",
+      "rewrapAtomicity": "TWO_FIELD_TENANT_ACCOUNT_SCOPED_CAS",
+      "keyVersionCounts": "PASS_SYNTHETIC",
+      "v1SecretRetirement": "BLOCKED_EC_V1_AND_PRODUCTION_HUMAN_GATE"
+    },
+    "retentionAndLegalHold": {
+      "status": "PASS_FAIL_CLOSED",
+      "sourceInventory": 33,
+      "prescriptionDeletionIntent": "PASS_SYNTHETIC",
+      "incomingImageBackfillPurgeReconcile": "PASS_SYNTHETIC",
+      "integratedReadiness": "BLOCKED",
+      "blockers": [
+        "ec_sale_counter_audit_dependency_unresolved",
+        "dsr_tombstone_dependency_unresolved"
+      ]
+    },
+    "commonGenerationRestore": {
+      "status": "PASS_SYNTHETIC_LOCAL_ARTIFACT_FILES",
+      "syntheticTests": 33,
+      "manifestSignature": "ED25519_PINNED",
+      "watermarkReadback": "RESTORED_D1_CANONICAL_OUTBOX_WEBHOOK",
+      "fleKeyFingerprint": "ROOT_SECRET_BOUND",
+      "failureDomains": 3,
+      "rpoHoursMaximum": 24,
+      "rtoHoursMaximum": 4,
+      "restoreTarget": "ISOLATED_IN_MEMORY_FROM_FILES",
+      "artifactFileAdapter": "PASS_LOCAL_NO_SEND",
+      "mixedKeyGenerationRestore": "NOT_RUN_SINGLE_ROOT_MANIFEST_V1",
+      "productionAdapters": 0,
+      "lineSend": "DISABLED"
+    }
+  },
+  "oracleConsultation": {
+    "status": "PASS",
+    "engine": "browser",
+    "model": "gpt-5.6-sol",
+    "thinking": "Pro",
+    "verified": true,
+    "adviceApplied": [
+      "fixed operation scope and principal-bound approval",
+      "same-executor resumability with CAS and expiry",
+      "keyed preflight digest and mutation fence",
+      "deletion intent plus object identity and hold-epoch recheck",
+      "pinned Ed25519 manifest and no-send isolated restore"
+    ]
+  },
+  "latestDataProtectionOracleConsultation": {
+    "status": "NOT_RUN_NO_ASSISTANT_OUTPUT",
+    "session": "v032-data-gaps-20260825",
+    "engine": "browser",
+    "requestedModel": "gpt-5.6-sol",
+    "thinking": "Pro",
+    "harvestState": "completed",
+    "assistantTurns": 0,
+    "verified": false,
+    "adviceApplied": []
+  },
+  "releaseBlockers": [
+    "The local commit candidate has no exact-candidate Repository Verify run.",
+    "No v0.32.0 development deploy or account activation has been performed.",
+    "Production FLE rotation, EC v1 rotation, old-key retirement, and mixed-key generation restore remain NOT_RUN.",
+    "Retention execution remains BLOCKED by unresolved EC and DSR policy dependencies.",
+    "The latest data-protection Oracle browser session produced no assistant output; independent review remains NOT_RUN.",
+    "Production secret injection, backfill, scrub, delete, restore, deploy, LINE mutation, and real-device acceptance require separate Human Gates."
+  ],
+  "boundaries": {
+    "commit": "PASS_LOCAL_ONLY",
+    "pullRequest": "NOT_RUN",
+    "devDeploy": "NOT_RUN",
+    "accountActivation": "NOT_RUN",
+    "productionDeploy": "NOT_RUN",
+    "productionSecretInjection": "NOT_RUN",
+    "productionBackfill": "NOT_RUN",
+    "productionScrub": "NOT_RUN",
+    "productionDelete": "NOT_RUN",
+    "productionRestore": "NOT_RUN",
+    "lineMutation": "NOT_RUN",
+    "realPatientData": "NOT_USED",
+    "realDeviceAcceptance": "NOT_RUN",
+    "credentialsCaptured": false,
+    "phiOrPiiCaptured": false
+  }
+}

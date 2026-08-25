@@ -82,7 +82,7 @@ export function patientProfileErrors(draft: PatientProfileDraft): PatientProfile
   return errors;
 }
 
-const REQUIRED_BADGE = <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-bold text-red-800">必須</span>;
+const REQUIRED_BADGE = <span className="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-sm font-bold text-red-800">必須</span>;
 
 function FieldError({ message }: { message?: string }) {
   return message ? <span role="alert" className="mt-1 block text-sm font-bold text-red-700">{message}</span> : null;
@@ -154,7 +154,7 @@ export function PatientProfileForm({
         電話番号（任意）
         <input type="tel" inputMode="tel" autoComplete="tel" value={draft.contactPhone} onChange={(event) => onChange('contactPhone', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" placeholder="薬局からの連絡用" maxLength={40} />
       </label>
-      <button type="button" className="text-left text-sm font-bold text-green-700" onClick={onToggleAddress}>
+      <button type="button" className="pharmacy-control min-h-11 text-left text-base font-bold text-green-800" onClick={onToggleAddress}>
         {showAddress ? '住所を閉じる' : '住所を登録する（配送・訪問時に使用）'}
       </button>
       {showAddress && <div className="space-y-3 rounded-lg bg-gray-50 p-3">
@@ -186,7 +186,7 @@ export function PatientProfileForm({
           <input autoComplete="address-line2" value={draft.addressLine2} onChange={(event) => onChange('addressLine2', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" maxLength={240} />
         </label>
       </div>}
-      <button type="button" onClick={onSubmit} disabled={busy} className="min-h-11 w-full rounded-lg bg-green-600 px-4 py-3 font-bold text-white disabled:bg-gray-300">
+      <button type="button" onClick={onSubmit} disabled={busy} className="min-h-11 w-full rounded-lg bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">
         {editing ? '患者情報を更新する' : '患者を登録する'}
       </button>
     </div>

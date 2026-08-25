@@ -12,7 +12,7 @@ export async function recordPlatformAdminAccess(
   tenantId: string | null,
   action: string,
   resourceType?: string,
-  resourceId?: string,
+  resourceId?: string | null,
   detail?: Record<string, unknown>,
 ): Promise<void> {
   await db.prepare(
@@ -38,7 +38,7 @@ export function platformAdminAccessStatement(
   tenantId: string | null,
   action: string,
   resourceType?: string,
-  resourceId?: string,
+  resourceId?: string | null,
   detail?: Record<string, unknown>,
 ): D1PreparedStatement {
   return db.prepare(

@@ -22,12 +22,12 @@ it('keeps the Worker integration to one marked import and route mount', () => {
   expect(source).toContain(
     'await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions',
   );
-  expect(source).toContain(
-    "import { purgePrescriptionFilesPastRetention } from './custom/pharmacy/prescriptions/retention-purge.js'; // custom:pharmacy-prescriptions",
-  );
-  expect(source).toContain(
-    'await purgePrescriptionFilesPastRetention(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions',
-  );
+  expect(source).not.toContain('purgePrescriptionFilesPastRetention');
+  const dataProtection = readFileSync(join(
+    process.cwd(), 'src', 'custom', 'pharmacy', 'platform-admin', 'data-protection-routes.ts',
+  ), 'utf8');
+  expect(dataProtection).toContain('purgePrescriptionFilesPastRetention');
+  expect(dataProtection).toContain('assertRecoveryExecution');
   expect(source).toContain(
     "import { purgeEmergencyIntakesPastRetention } from './custom/pharmacy/emergency-contraception/retention-purge.js'; // custom:pharmacy-emergency-contraception",
   );

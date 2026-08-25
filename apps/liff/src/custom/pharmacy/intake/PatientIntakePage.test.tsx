@@ -103,11 +103,10 @@ describe('patient intake UI contract', () => {
     expect(html).toContain('peer-checked:before:content-');
   });
 
-  it('restores an unfinished answer draft without persisting consent', () => {
-    expect(source).toContain('sessionStorage.getItem(intakeDraftKey(patientId))');
-    expect(source).toContain('sessionStorage.setItem(intakeDraftKey(selectedId)');
-    expect(source).toContain('sessionStorage.removeItem(intakeDraftKey(selectedId))');
-    expect(source).not.toMatch(/JSON\.stringify\(\{[^}]*Consent/s);
+  it('keeps unfinished answers in memory only and warns before losing them', () => {
+    expect(source).not.toContain('sessionStorage');
+    expect(source).toContain('未送信の入力があります');
+    expect(source).toContain('beforeunload');
   });
 
   it('shows the pharmacy-authored purpose of use in the consent section', () => {

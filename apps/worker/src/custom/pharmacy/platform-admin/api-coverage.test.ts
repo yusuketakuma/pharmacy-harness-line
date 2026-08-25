@@ -9,6 +9,8 @@ import { staff } from '../../../routes/admin/staff.js';
 import { lineAccounts } from '../../../routes/admin/line-accounts.js';
 import { richMenuGroups } from '../../../routes/messaging/rich-menu-groups.js';
 import { accountSettings } from '../../../routes/admin/account-settings.js';
+import { capabilities } from '../../../routes/admin/capabilities.js';
+import { images } from '../../../routes/admin/images.js';
 import {
   findPharmacyAdminApiCoverage,
   findPharmacyAdminApiDeferred,
@@ -25,13 +27,17 @@ const routeCandidates = [
   ...lineAccounts.routes,
   ...richMenuGroups.routes,
   ...accountSettings.routes,
+  ...capabilities.routes,
+  ...images.routes,
 ].filter(({ method, path }) => method !== 'ALL' && (
   path.startsWith('/api/custom/pharmacy/') ||
   path.startsWith('/api/staff') ||
   path.startsWith('/api/line-accounts') ||
   path.startsWith('/api/rich-menu-groups') ||
   path.startsWith('/api/rich-menu-images') ||
-  path.startsWith('/api/account-settings')
+  path.startsWith('/api/account-settings') ||
+  path.startsWith('/api/capabilities') ||
+  path.startsWith('/api/images')
 ));
 const routes = [...new Map(routeCandidates.map((route) => [
   `${route.method} ${route.path}`, route,
@@ -53,8 +59,48 @@ describe('pharmacy admin API coverage leak detector', () => {
 
     expect(new Set(reasons)).toEqual(new Set([
       'binary-output', 'destructive-operation', 'external-operation', 'legacy-lifecycle',
-      'patient-operation', 'retired', 'secret-output',
+      'patient-operation', 'retired',
     ]));
+  });
+
+  it('covers tenant-scoped staff lifecycle changes behind explicit output and apply gates', () => {
+    expect(findPharmacyAdminApiCoverage('GET', '/api/tags')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'read-only',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('PATCH', '/api/staff/staff-a')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('PUT', '/api/staff/staff-a/accounts')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('POST', '/api/staff')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: false,
+      secretOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('POST', '/api/staff/staff-a/reset-password')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: false,
+      secretOutput: true,
+    });
+    expect(findPharmacyAdminApiCoverage('DELETE', '/api/staff/staff-a')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'apply',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiDeferred('PATCH', '/api/staff/staff-a')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff/staff-a/reset-password')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('DELETE', '/api/staff/staff-a')).toBeUndefined();
   });
 
   it('does not expose patient operations through the CLI coverage manifest', () => {
@@ -66,6 +112,23 @@ describe('pharmacy admin API coverage leak detector', () => {
       expect(findPharmacyAdminApiCoverage('GET', path)).toBeUndefined();
       expect(findPharmacyAdminApiCoverage('POST', path)).toBeUndefined();
     }
+  });
+
+  it('classifies capability discovery and image transfer routes', () => {
+    expect(findPharmacyAdminApiCoverage('GET', '/api/capabilities')).toMatchObject({
+      accountScope: 'tenant',
+      mutationGate: 'read-only',
+      safeOutput: true,
+    });
+    expect(findPharmacyAdminApiDeferred('POST', '/api/images')).toMatchObject({
+      reason: 'binary-output',
+    });
+    expect(findPharmacyAdminApiDeferred('GET', '/api/images/tenant-object')).toMatchObject({
+      reason: 'binary-output',
+    });
+    expect(findPharmacyAdminApiDeferred('DELETE', '/api/images/tenant-object')).toMatchObject({
+      reason: 'destructive-operation',
+    });
   });
 
   it('allows only the read-only LINE rich-menu state reconciliation endpoint', () => {

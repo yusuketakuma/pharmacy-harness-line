@@ -4,6 +4,7 @@ import {
   preparePatientIntakeEnvelopeStatements,
   type PatientIntakeCryptoScope,
 } from './envelopes.js';
+import { RECOVERY_ENVIRONMENT } from '../recovery/operations.js';
 
 export type PharmacyPatientOwner = PrescriptionPatient;
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
@@ -495,6 +496,12 @@ export async function createPatientIntakeResponse(
            WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
              AND idempotency_key = ?
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_recovery_execution_fences fence
+           WHERE fence.tenant_id = ? AND fence.line_account_id = ?
+             AND fence.environment = ? AND fence.status = 'active'
+             AND fence.expires_at > ?
+        )
         AND EXISTS (
           SELECT 1 FROM pharmacy_account_capabilities AS capability
            WHERE capability.line_account_id = p.line_account_id
@@ -509,6 +516,7 @@ export async function createPatientIntakeResponse(
     response.representative_consent_at, response.privacy_consent_at, response.created_at,
     patientId, owner.lineAccountId, owner.friendId,
     owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
+    cryptoScope.tenantId, owner.lineAccountId, RECOVERY_ENVIRONMENT, now,
   );
   const envelopeStatements = await preparePatientIntakeEnvelopeStatements(
     db, response, cryptoScope, now,

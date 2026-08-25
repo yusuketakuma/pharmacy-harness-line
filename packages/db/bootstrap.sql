@@ -1248,6 +1248,28 @@ CREATE TABLE pharmacy_growth_events (
   UNIQUE (line_account_id, idempotency_key)
 );
 
+CREATE TABLE pharmacy_incoming_image_dispositions (
+  r2_key          TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  message_id      TEXT NOT NULL,
+  stored_at       TEXT,
+  stored_sha256   TEXT CHECK (stored_sha256 IS NULL OR length(stored_sha256) = 64),
+  status          TEXT NOT NULL CHECK (status IN (
+    'TRACKED', 'CLAIMED', 'CANCELLED_HELD', 'CANCELLED_UNKNOWN', 'CANCELLED_STALE',
+    'DELETE_COMMITTED', 'FINALIZED_DELETED', 'OUTCOME_UNKNOWN',
+    'ORPHAN', 'MISSING', 'OWNERSHIP_MISMATCH', 'UNKNOWN', 'BLOCKED'
+  )),
+  source          TEXT NOT NULL CHECK (source IN ('tracked_row', 'messages_log', 'r2_inventory', 'reconcile')),
+  reason_code     TEXT NOT NULL CHECK (length(trim(reason_code)) BETWEEN 1 AND 120),
+  hold_epoch      INTEGER NOT NULL DEFAULT 0 CHECK (hold_epoch >= 0),
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts (tenant_id, line_account_id),
+  UNIQUE (tenant_id, line_account_id, message_id, r2_key)
+);
+
 CREATE TABLE pharmacy_incoming_image_objects (
   r2_key          TEXT PRIMARY KEY,
   tenant_id       TEXT NOT NULL,
@@ -1800,6 +1822,167 @@ CREATE TABLE pharmacy_public_profiles (
   FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
   FOREIGN KEY (line_account_id, updated_by)
     REFERENCES pharmacy_staff_accounts(line_account_id, staff_id)
+);
+
+CREATE TABLE pharmacy_recovery_backup_generations (
+  generation_id          TEXT NOT NULL,
+  tenant_id              TEXT NOT NULL,
+  line_account_id        TEXT NOT NULL,
+  environment            TEXT NOT NULL CHECK (
+    length(environment) BETWEEN 1 AND 64
+    AND environment NOT GLOB '*[^A-Za-z0-9._-]*'
+  ),
+  status                 TEXT NOT NULL CHECK (status IN ('verified', 'invalidated')),
+  manifest_digest        TEXT NOT NULL CHECK (
+    length(manifest_digest) = 64 AND manifest_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  expected_row_count     INTEGER NOT NULL CHECK (expected_row_count >= 0),
+  expected_object_count  INTEGER NOT NULL CHECK (expected_object_count >= 0),
+  verified_at            TEXT NOT NULL CHECK (length(verified_at) >= 20),
+  created_at             TEXT NOT NULL CHECK (length(created_at) >= 20),
+  PRIMARY KEY (generation_id, environment),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id)
+);
+
+CREATE TABLE pharmacy_recovery_execution_fences (
+  fence_id             TEXT PRIMARY KEY,
+  operation_id         TEXT NOT NULL UNIQUE
+                       REFERENCES pharmacy_recovery_operations(id) ON DELETE CASCADE,
+  tenant_id            TEXT NOT NULL,
+  line_account_id      TEXT NOT NULL,
+  environment          TEXT NOT NULL CHECK (
+    length(environment) BETWEEN 1 AND 64
+    AND environment NOT GLOB '*[^A-Za-z0-9._-]*'
+  ),
+  execution_id         TEXT NOT NULL UNIQUE,
+  fence_token          TEXT NOT NULL UNIQUE CHECK (length(fence_token) BETWEEN 32 AND 240),
+  owner_issuer         TEXT NOT NULL CHECK (owner_issuer = 'platform-admin'),
+  owner_subject        TEXT NOT NULL CHECK (length(owner_subject) BETWEEN 1 AND 160),
+  status               TEXT NOT NULL CHECK (status IN ('active', 'released')),
+  expires_at           TEXT NOT NULL CHECK (length(expires_at) >= 20),
+  created_at           TEXT NOT NULL CHECK (length(created_at) >= 20),
+  released_at          TEXT,
+  FOREIGN KEY (operation_id, tenant_id, line_account_id, environment)
+    REFERENCES pharmacy_recovery_operations(id, tenant_id, line_account_id, environment)
+    ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id)
+);
+
+CREATE TABLE pharmacy_recovery_operations (
+  id                        TEXT PRIMARY KEY,
+  tenant_id                 TEXT NOT NULL,
+  line_account_id           TEXT NOT NULL,
+  environment               TEXT NOT NULL CHECK (
+    length(environment) BETWEEN 1 AND 64
+    AND environment NOT GLOB '*[^A-Za-z0-9._-]*'
+  ),
+  operation                 TEXT NOT NULL CHECK (
+    operation IN (
+      'fle_backfill', 'plaintext_scrub', 'plaintext_restore',
+      'retention_delete', 'restore_rehearsal'
+    )
+  ),
+  status                    TEXT NOT NULL CHECK (
+    status IN ('created', 'preflighted', 'approved', 'running',
+               'completed', 'stale', 'failed')
+  ),
+  requested_by_issuer       TEXT NOT NULL CHECK (requested_by_issuer = 'platform-admin'),
+  requested_by_subject      TEXT NOT NULL CHECK (length(requested_by_subject) BETWEEN 1 AND 160),
+  approver_issuer           TEXT CHECK (approver_issuer IS NULL OR approver_issuer = 'platform-admin'),
+  approver_subject          TEXT CHECK (approver_subject IS NULL OR length(approver_subject) BETWEEN 1 AND 160),
+  executor_issuer            TEXT CHECK (executor_issuer IS NULL OR executor_issuer = 'platform-admin'),
+  executor_subject          TEXT CHECK (executor_subject IS NULL OR length(executor_subject) BETWEEN 1 AND 160),
+  approval_expires_at       TEXT NOT NULL CHECK (length(approval_expires_at) >= 20),
+  job_id                    TEXT NOT NULL CHECK (length(job_id) BETWEEN 1 AND 160),
+  idempotency_key           TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 1 AND 240),
+  schema_digest             TEXT,
+  field_inventory_digest    TEXT,
+  key_versions_json         TEXT,
+  backup_generation_id      TEXT,
+  expected_row_count        INTEGER CHECK (expected_row_count IS NULL OR expected_row_count >= 0),
+  expected_object_count     INTEGER CHECK (expected_object_count IS NULL OR expected_object_count >= 0),
+  stop_policy               TEXT,
+  rollback_policy           TEXT,
+  evidence_digest           TEXT,
+  row_digest                TEXT,
+  coverage_total            INTEGER CHECK (coverage_total IS NULL OR coverage_total >= 0),
+  coverage_verified         INTEGER CHECK (coverage_verified IS NULL OR coverage_verified IN (0, 1)),
+  key_recovery_acknowledged INTEGER CHECK (
+    key_recovery_acknowledged IS NULL OR key_recovery_acknowledged IN (0, 1)
+  ),
+  execution_id              TEXT UNIQUE,
+  fence_id                  TEXT UNIQUE,
+  fence_token               TEXT UNIQUE,
+  cursor                    TEXT,
+  processed_row_count       INTEGER NOT NULL DEFAULT 0 CHECK (processed_row_count >= 0),
+  processed_object_count    INTEGER NOT NULL DEFAULT 0 CHECK (processed_object_count >= 0),
+  last_batch_id             TEXT,
+  error_code                TEXT,
+  created_at                TEXT NOT NULL CHECK (length(created_at) >= 20),
+  approved_at               TEXT,
+  claimed_at                TEXT,
+  completed_at              TEXT,
+  updated_at                TEXT NOT NULL CHECK (length(updated_at) >= 20),
+  CHECK (
+    executor_subject IS NULL OR approver_subject IS NULL OR executor_subject <> approver_subject
+  ),
+  UNIQUE (id, tenant_id, line_account_id, environment),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id),
+  FOREIGN KEY (backup_generation_id, environment)
+    REFERENCES pharmacy_recovery_backup_generations(generation_id, environment)
+);
+
+CREATE TABLE pharmacy_retention_deletion_intents (
+  id              TEXT PRIMARY KEY,
+  operation_id    TEXT NOT NULL CHECK (length(trim(operation_id)) BETWEEN 1 AND 200),
+  execution_id    TEXT NOT NULL CHECK (length(trim(execution_id)) BETWEEN 1 AND 200),
+  fence_token     TEXT NOT NULL CHECK (length(trim(fence_token)) BETWEEN 1 AND 500),
+  executor_subject TEXT NOT NULL CHECK (length(trim(executor_subject)) BETWEEN 1 AND 200),
+  environment     TEXT NOT NULL CHECK (length(trim(environment)) BETWEEN 1 AND 80),
+  tenant_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  owner_friend_id TEXT NOT NULL,
+  patient_key     TEXT NOT NULL CHECK (patient_key = '*' OR length(patient_key) > 0),
+  resource_type   TEXT NOT NULL CHECK (resource_type IN ('prescription_file', 'incoming_image')),
+  resource_id     TEXT NOT NULL CHECK (length(trim(resource_id)) BETWEEN 1 AND 300),
+  r2_key          TEXT NOT NULL CHECK (length(trim(r2_key)) BETWEEN 1 AND 1000),
+  stored_sha256   TEXT NOT NULL CHECK (length(stored_sha256) = 64),
+  age_reference_at TEXT NOT NULL,
+  row_state       TEXT NOT NULL CHECK (row_state IN ('pending', 'ready', 'deleted')),
+  row_revision    INTEGER NOT NULL CHECK (row_revision >= 1),
+  hold_epoch      INTEGER NOT NULL CHECK (hold_epoch >= 0),
+  status          TEXT NOT NULL CHECK (status IN (
+    'CLAIMED', 'CANCELLED_HELD', 'CANCELLED_UNKNOWN', 'CANCELLED_STALE',
+    'DELETE_COMMITTED', 'FINALIZED_DELETED', 'OUTCOME_UNKNOWN'
+  )),
+  last_error_code TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  UNIQUE (operation_id, resource_type, resource_id, r2_key, stored_sha256),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts (tenant_id, line_account_id),
+  FOREIGN KEY (owner_friend_id, line_account_id)
+    REFERENCES friends (id, line_account_id)
+);
+
+CREATE TABLE pharmacy_retention_hold_epochs (
+  tenant_id       TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  owner_friend_id TEXT NOT NULL,
+  patient_key     TEXT NOT NULL CHECK (patient_key = '*' OR length(patient_key) > 0),
+  epoch           INTEGER NOT NULL DEFAULT 0 CHECK (epoch >= 0),
+  status          TEXT NOT NULL CHECK (status IN ('held', 'released', 'unknown')),
+  release_at      TEXT,
+  reason_code     TEXT,
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, line_account_id, owner_friend_id, patient_key),
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts (tenant_id, line_account_id),
+  FOREIGN KEY (owner_friend_id, line_account_id)
+    REFERENCES friends (id, line_account_id)
 );
 
 CREATE TABLE pharmacy_rich_menu_draft_bindings (
@@ -2782,6 +2965,12 @@ CREATE INDEX idx_pharmacy_fulfillment_quotes_submission
 CREATE INDEX idx_pharmacy_growth_events_account_time
   ON pharmacy_growth_events(line_account_id, occurred_at, event_type);
 
+CREATE INDEX idx_pharmacy_incoming_image_dispositions_queue
+  ON pharmacy_incoming_image_dispositions (status, updated_at, r2_key);
+
+CREATE INDEX idx_pharmacy_incoming_image_dispositions_scope
+  ON pharmacy_incoming_image_dispositions (tenant_id, line_account_id, status, stored_at);
+
 CREATE INDEX idx_pharmacy_incoming_image_objects_account
   ON pharmacy_incoming_image_objects (line_account_id, stored_at);
 
@@ -2898,6 +3087,37 @@ CREATE INDEX idx_pharmacy_prescriptions_friend_history
 
 CREATE INDEX idx_pharmacy_print_tasks_open
   ON pharmacy_print_tasks (line_account_id, status, created_at, id);
+
+CREATE INDEX idx_pharmacy_recovery_backup_generations_scope
+  ON pharmacy_recovery_backup_generations
+    (tenant_id, line_account_id, environment, status, verified_at);
+
+CREATE UNIQUE INDEX idx_pharmacy_recovery_execution_fences_active_scope
+  ON pharmacy_recovery_execution_fences (tenant_id, line_account_id, environment)
+  WHERE status = 'active';
+
+CREATE INDEX idx_pharmacy_recovery_execution_fences_scope_status
+  ON pharmacy_recovery_execution_fences
+    (tenant_id, line_account_id, environment, status, expires_at);
+
+CREATE UNIQUE INDEX idx_pharmacy_recovery_operations_idempotency
+  ON pharmacy_recovery_operations
+    (tenant_id, line_account_id, environment, operation, idempotency_key);
+
+CREATE INDEX idx_pharmacy_recovery_operations_scope_status
+  ON pharmacy_recovery_operations
+    (tenant_id, line_account_id, environment, status, updated_at);
+
+CREATE INDEX idx_pharmacy_retention_deletion_intents_queue
+  ON pharmacy_retention_deletion_intents (status, updated_at, id);
+
+CREATE INDEX idx_pharmacy_retention_deletion_intents_scope
+  ON pharmacy_retention_deletion_intents
+     (tenant_id, line_account_id, resource_type, resource_id, status);
+
+CREATE INDEX idx_pharmacy_retention_hold_epochs_scope
+  ON pharmacy_retention_hold_epochs
+     (tenant_id, line_account_id, owner_friend_id, patient_key, epoch);
 
 CREATE INDEX idx_pharmacy_rich_menu_draft_account
   ON pharmacy_rich_menu_draft_bindings(line_account_id, created_at, group_id);
@@ -3086,7 +3306,7 @@ BEGIN
      unfollow_alert_state, created_at, updated_at)
   VALUES (
     NEW.id, 'pharmacy',
-    '["prescription_intake","patient_intake","fulfillment_quote","continuity","medication_followup","manual_chat","pharmacy_info","pharmacy_rich_menu","account_settings","pharmacy_dashboard"]',
+    '["prescription_intake","patient_intake","fulfillment_quote","continuity","medication_followup","emergency_contraception","manual_chat","pharmacy_info","pharmacy_rich_menu","account_settings","pharmacy_dashboard"]',
     1, 'alert_only',
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -3471,6 +3691,38 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'RICH_MENU_RESUME_CONFIRMATION_EVIDENCE_MISMATCH'); END;
 
+CREATE TRIGGER pharmacy_staff_accounts_keep_active_assignee
+BEFORE UPDATE OF line_account_id, staff_id, is_active ON pharmacy_staff_accounts
+WHEN OLD.is_active = 1
+ AND (
+   NEW.line_account_id != OLD.line_account_id OR
+   NEW.staff_id != OLD.staff_id OR
+   NEW.is_active != 1
+ )
+ AND EXISTS (
+   SELECT 1
+     FROM tenant_line_accounts AS mapping
+     INNER JOIN tenant_staff_memberships AS membership
+             ON membership.tenant_id = mapping.tenant_id
+            AND membership.staff_id = OLD.staff_id
+    WHERE mapping.line_account_id = OLD.line_account_id
+      AND membership.is_active = 1
+ )
+ AND NOT EXISTS (
+   SELECT 1
+     FROM pharmacy_staff_accounts AS other
+     INNER JOIN tenant_line_accounts AS mapping
+             ON mapping.line_account_id = other.line_account_id
+     INNER JOIN tenant_staff_memberships AS membership
+             ON membership.tenant_id = mapping.tenant_id
+            AND membership.staff_id = other.staff_id
+    WHERE other.line_account_id = OLD.line_account_id
+      AND other.staff_id != OLD.staff_id
+      AND other.is_active = 1
+      AND membership.is_active = 1
+ )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE'); END;
+
 CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_staff_accounts_tenant_update BEFORE UPDATE OF line_account_id, staff_id ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
@@ -3482,6 +3734,56 @@ BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
 CREATE TRIGGER tenant_admin_audit_events_immutable_update
 BEFORE UPDATE ON tenant_admin_audit_events
 BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER tenant_staff_memberships_keep_account_assignee
+BEFORE UPDATE OF tenant_id, staff_id, is_active ON tenant_staff_memberships
+WHEN OLD.is_active = 1
+ AND (
+   NEW.tenant_id != OLD.tenant_id OR
+   NEW.staff_id != OLD.staff_id OR
+   NEW.is_active != 1
+ )
+ AND EXISTS (
+   SELECT 1
+     FROM pharmacy_staff_accounts AS target
+     INNER JOIN tenant_line_accounts AS target_mapping
+             ON target_mapping.line_account_id = target.line_account_id
+    WHERE target.staff_id = OLD.staff_id
+      AND target.is_active = 1
+      AND target_mapping.tenant_id = OLD.tenant_id
+      AND NOT EXISTS (
+        SELECT 1
+          FROM pharmacy_staff_accounts AS other
+          INNER JOIN tenant_staff_memberships AS membership
+                  ON membership.tenant_id = OLD.tenant_id
+                 AND membership.staff_id = other.staff_id
+         WHERE other.line_account_id = target.line_account_id
+           AND other.staff_id != OLD.staff_id
+           AND other.is_active = 1
+           AND membership.is_active = 1
+      )
+ )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE'); END;
+
+CREATE TRIGGER tenant_staff_memberships_keep_active_owner
+BEFORE UPDATE OF tenant_id, staff_id, role, is_active ON tenant_staff_memberships
+WHEN OLD.role = 'owner'
+ AND OLD.is_active = 1
+ AND (
+   NEW.tenant_id != OLD.tenant_id OR
+   NEW.staff_id != OLD.staff_id OR
+   NEW.role != 'owner' OR
+   NEW.is_active != 1
+ )
+ AND NOT EXISTS (
+   SELECT 1
+     FROM tenant_staff_memberships AS other
+    WHERE other.tenant_id = OLD.tenant_id
+      AND other.staff_id != OLD.staff_id
+      AND other.role = 'owner'
+      AND other.is_active = 1
+ )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_OWNER'); END;
 
 INSERT INTO auto_replies (id, keyword, match_type, response_type, response_content, template_id, line_account_id, is_active, created_at)
 VALUES ('builtin-mileage-wallet-keyword', 'マイル', 'exact', 'flex', '{"type":"bubble","size":"kilo","body":{"type":"box","layout":"vertical","paddingAll":"20px","contents":[{"type":"text","text":"あなたのHarnessマイル","weight":"bold","size":"lg","color":"#1e293b"},{"type":"text","text":"現在のマイル、獲得履歴、登録済みアカウント、次にマイルを獲得できる行動を確認できます。","wrap":true,"size":"sm","color":"#64748b","margin":"md"}]},"footer":{"type":"box","layout":"vertical","paddingAll":"16px","contents":[{"type":"button","style":"primary","color":"#06C755","height":"sm","action":{"type":"uri","label":"マイルを確認する","uri":"https://liff.line.me/{{liff_id}}/?page=affiliate&liffId={{liff_id}}"}}]}}', NULL, NULL, 1, '2026-08-11T00:00:00.000+09:00');

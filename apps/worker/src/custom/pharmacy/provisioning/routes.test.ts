@@ -327,6 +327,13 @@ describe('platform tenant provisioning', () => {
       expect.stringContaining('INSERT INTO pharmacy_tenant_admin_bootstraps'),
       expect.stringContaining('INSERT INTO pharmacy_tenant_provisioning_requests'),
     ]));
+    const capabilityInsert = fake.batches[0].find(({ sql }) =>
+      sql.includes('INSERT OR IGNORE INTO pharmacy_account_capabilities'));
+    expect(capabilityInsert).toBeDefined();
+    const storedCapabilities = capabilityInsert?.values.find((value) =>
+      typeof value === 'string' && value.includes('emergency_contraception'));
+    expect(storedCapabilities).toEqual(expect.stringContaining('emergency_contraception'));
+    expect(storedCapabilities).not.toContain('electronic_prescription');
     const storedValues = fake.batches[0].flatMap(({ values }) => values);
     expect(storedValues).not.toContain(requestBody.admin.temporaryPassword);
     expect(storedValues).not.toContain(requestBody.line.channelAccessToken);
@@ -576,7 +583,7 @@ describe('explicit patient intake encryption migration', () => {
     const response = await app().request(`${endpoint}/backfill`, {
       method: 'POST',
       headers: { authorization: 'Bearer platform-key', 'content-type': 'application/json' },
-      body: JSON.stringify({ cursor: null, limit: 25 }),
+      body: JSON.stringify({ cursor: null, limit: 25, dryRun: false }),
     }, bindings(fake.db));
 
     expect(response.status).toBe(200);
@@ -587,44 +594,36 @@ describe('explicit patient intake encryption migration', () => {
     expect(await response.json()).toEqual({ success: true, data: report });
   });
 
-  it('requires the PHI key and named approval for freeze', async () => {
+  it('requires the PHI key and rejects legacy freeze mutation', async () => {
     const fake = fakeDb();
     const missingKey = await app().request(`${endpoint}/coverage`, {
       method: 'POST', headers: { authorization: 'Bearer platform-key' },
     }, bindings(fake.db, { PHARMACY_PHI_KEY_V1: undefined }));
     expect(missingKey.status).toBe(503);
 
-    const noApproval = await app().request(`${endpoint}/freeze`, {
+    const freeze = await app().request(`${endpoint}/freeze`, {
       method: 'POST',
       headers: { authorization: 'Bearer platform-key', 'content-type': 'application/json' },
       body: '{}',
     }, bindings(fake.db));
-    expect(noApproval.status).toBe(400);
+    expect(freeze.status).toBe(409);
     expect(migrationMocks.freezePatientIntakeWrites).not.toHaveBeenCalled();
   });
 
-  it('passes named approval to the write-freeze gate without exposing the key', async () => {
-    const coverage = {
-      counts: { scanned: 3, covered: 3 }, errorCode: null,
-      coverageTotal: 3, coverageDigest: 'a'.repeat(64),
-    };
-    migrationMocks.freezePatientIntakeWrites.mockResolvedValue(coverage);
+  it('rejects legacy body identity instead of accepting named approval', async () => {
     const fake = fakeDb();
     const approval = {
       approvedBy: 'security-owner', approvalReference: 'TICKET-123',
       coverageTotal: 3, coverageDigest: 'a'.repeat(64),
     };
-    const response = await app().request(`${endpoint}/freeze`, {
+    const response = await app().request(`${endpoint}/scrub`, {
       method: 'POST',
       headers: { authorization: 'Bearer platform-key', 'content-type': 'application/json' },
       body: JSON.stringify({ approval }),
     }, bindings(fake.db));
 
-    expect(response.status).toBe(200);
-    expect(migrationMocks.freezePatientIntakeWrites).toHaveBeenCalledWith(fake.db, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      rootSecret: 'pharmacy-phi-root-key-for-tests-v1',
-    }, approval);
-    expect(await response.text()).not.toContain('pharmacy-phi-root-key-for-tests-v1');
+    expect(response.status).toBe(400);
+    expect(migrationMocks.scrubPatientIntakeLegacyFields).not.toHaveBeenCalled();
+    expect(await response.text()).not.toContain('security-owner');
   });
 });

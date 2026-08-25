@@ -146,7 +146,7 @@ function unfollowEvent(suffix: 'a' | 'b', webhookEventId: string): WebhookEvent 
 
 function makeR2Stub(): R2Bucket {
   return {
-    put: vi.fn(async () => null),
+    put: vi.fn(async (key: string) => ({ key })),
   } as unknown as R2Bucket;
 }
 

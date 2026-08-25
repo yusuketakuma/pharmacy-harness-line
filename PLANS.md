@@ -669,8 +669,9 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 |---|---|---|---|
 | 2026-08-22 | Day 0 | scope/evidence freeze | versionを上げない |
 | 2026-08-23 | v0.31.0 | Release Governance & v0.30 Operational Acceptance | Day 0 |
-| 2026-08-24 | v0.32.0 | Data Protection, Backup & Recovery | v0.31.0 |
-| 2026-08-25 | v0.33.0 | Identity, Tenant Isolation & Abuse Protection | v0.32.0 |
+| 2026-08-24 | v0.31.1 | Rich menu初期設定UX・権限制御(source release済み。production受入はV031-4R) | v0.31.0 |
+| 2026-08-26 earliest | v0.32.0 | Administration & Patient Experience, Data Protection, Backup & Recovery(UX再編追加により2026-08-24から再見積) | v0.31.0 |
+| 2026-08-27 earliest | v0.33.0 | Identity, Tenant Isolation & Abuse Protection | v0.32.0 |
 | 2026-08-26以降 | v0.34.0（stretch） | Patient Critical Journeyの不足分だけ | v0.33.0。既存journeyがgateを満たせばv0.41.0以降へ延期 |
 | 2026-08-26以降 | v0.35.0（stretch） | Staff Critical Journeyの不足分だけ | v0.33.0。既存journeyがgateを満たせばv0.41.0以降へ延期 |
 | 2026-08-26以降 | v0.36.0（stretch） | Closed-loop Follow-upの不足分だけ | v0.33.0。既存journeyがgateを満たせばv0.41.0以降へ延期 |
@@ -708,8 +709,10 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - timeout/結果不明は`UNVERIFIED`で停止し、blind retry、自動rollback、remote deleteを行わない。
   - **preflight進捗(2026-08-22)**: developmentのconfiguration doctorは`READY`、local default groupは確認済み。remote state GETがgeneric detail ruleとdeferred ruleへ重複一致してPlatform Admin CLIを401にしていたため、account-scoped・PHI-freeなread-backだけを明示許可し、import/deleteは拒否する回帰testを追加した。その時点ではdev未反映かつ既存tenantをsynthetic専用と確認できなかったため、LINE mutationは0件、本項を未完了のまま維持した。
   - **完了(2026-08-22)**: userがdevelopment LINE accountを検証専用と確認し、PR `#77`を`dev`へmergeしたsource `61333c1a93c6b9540ef5f27cef536e9fef9c3bcc`のCI run `32565724570`とdevelopment deploy run `32565724568`がPASS。known-good `richmenu-08ff171b08717258e439d9ea4fbf96f8`をfresh read-back後、同一v4-4 image/manifestのcandidate作成・LINE create/upload・default切替・fresh read-back・明示rollback・rollback後read-backを完遂した。最終defaultはknown-goodへ一致し、結果不明・未解決operation・blind retry・remote deleteはいずれも0件。PHI-free evidenceは`docs/pharmacy/evidence/v0.31.0-development-rich-menu-lifecycle.json`。
-- [ ] **V031-4 release gate**: required checks迂回不可、main/production候補のsource SHA=manifest、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。deployは人間の明示Goを必須とし、未達なら`pharmacy-v0.31.0`を作らない。
+- [x] **V031-4 release gate(source release分)**: required checks迂回不可、main/production候補のsource SHA=manifest、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、LINE結果不明0、rollback read-back一致、production tenant mutation 0を満たす。deployは人間の明示Goを必須とし、未達なら`pharmacy-v0.31.0`を作らない。
   - **preflight進捗(2026-08-24)**: live production environmentにapproval protectionがなく、deploy feature flagが有効な状態でmain pushがproduction deployを自動起動する契約を確認した。commit `53275d44247aed8135efa2b1c20412a5bfc15270`でpush triggerをdevだけへ限定し、productionはworkflow_dispatchかつ入力した承認source SHAが`GITHUB_SHA`と完全一致する場合だけ、dependency installや外部mutationより前のgateを通過するよう修正した。Redではmain pushと入力欠落の2件を再現し、Node 24 action更新とworkflow lint修正を含むruntime-bearing head `cd467148ebbbeb4d4da98627ead8448fe2446265`でfocused 26 tests、scripts全169 tests、workspace全3,331 tests、84 migrations、PR run `32651465593`、dispatch run `32651468619`、attestation `42437075`がPASS。実際のmain merge、Human Go、production deploy、deployed byte equality、runtime evidenceは`NOT_RUN`のため本項は未完了。
+  - **方針からの逸脱を記録する(2026-08-24)**: package `0.31.0`/`0.31.1`、seller tag `pharmacy-v0.31.0`/`pharmacy-v0.31.1`、`CHANGELOG.md`該当項目は、production deploy/Human Goの完了前にsource releaseとして先行した(V030-6のv0.30逸脱記録と同じ扱い)。これらはsource変更の完了証拠としてのみ有効で、production受入の証拠へ代用しない。本項はsource release分を完了とし、外部受入の残gateは`V031-4R`へ分離して`NOT_RUN`のままHuman Gate registerへ計上する。
+- [ ] **V031-4R v0.31 production受入gate(V031-4から分離)**: 人間の明示Go、production deploy、deployed byte equality、runtime manifest digest、current/known-good remote ID確定、production tenant mutation 0を実行証拠でPASSさせる。未達の間、v0.31系のproduction readinessを主張しない。
 - [x] **V031-5 assurance baseline**: browser E2E harness、CodeQL/SAST、secret/dependency/license scan、CycloneDX SBOM、provenanceをsynthetic artifactで初回実行し、検出事項をP0/P1 registerへ登録する。v0.39.0では新規構築せず、final artifactへ同じcheckを再実行する。
   - **初回証拠(2026-08-22)**: PR `#79`の`verify` run `32567343525`が、new-commit secret scan、CodeQL、production dependency/license baseline、CycloneDX 1.6 SBOM、全workspace検証、3アプリbuild、LIFF Chromium smoke、artifact生成をPASS。手動run `32567572017`の分離`attest` jobもPASSし、attestation `42311202`を`gh attestation verify`で検証した。
   - **runtime-bearing head証拠(2026-08-24)**: source `cd467148ebbbeb4d4da98627ead8448fe2446265`でPR run `32651465593`がnew-commit secret scan、3,331 tests、84 migrations、3アプリbuild、LIFF Chromium smoke 2件、CodeQL、artifact生成をPASS。workflow_dispatch run `32651468619`の`verify`/`attest`もPASSし、attestation `42437075`をsource SHA・source ref・signer workflow固定の`gh attestation verify`で検証した。release-critical 3 workflowsのcheckout/setup actionはreview済みNode 24 releaseの固定SHAへ更新し、GitHub annotationと`actionlint` warningはいずれも0件。PHI-free evidenceは`docs/pharmacy/evidence/v0.31.0-assurance-baseline.json`。`dev` merge/deploy、production/LINE mutationは未実施。
@@ -727,14 +730,131 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - [x] **P1-V031-PRODUCTION-DEPLOY-HUMAN-GATE**: live production environmentにapproval protectionがない状態でもmain pushだけでproduction deployを開始できた問題を、productionの手動workflow_dispatchと承認source SHA完全一致へ限定して解消した。approval checkはdependency installと外部mutationより前に実行する。Red -> Green、focused 26 tests、scripts全169 tests、workspace全3,331 tests、84 migrationsがPASS。
   - [x] **P2-V031-GITHUB-ACTIONS-NODE24-RUNTIME**: release-critical 3 workflowsの`actions/checkout`、`pnpm/action-setup`、`actions/setup-node`をreview済みNode 24 releaseのcommit SHAへ固定した。Redでは旧Node 20 action 9件を検出し、Greenではfocused 26 tests、scripts全169 tests、workspace全3,331 tests、84 migrations、PR/dispatch両run、attestation検証がPASS。exact-headのGitHub annotationと`actionlint` warningは0件。
 
-#### v0.32.0 - Data Protection, Backup & Recovery
+#### v0.32.0 - Administration & Patient Experience, Data Protection, Backup & Recovery
 
-- [ ] **V032-1 recoverability/権限preflight**: backfill、plaintext scrub、bulk deleteより先に、独立した実行者/承認者、対象tenant/account、dry-run、停止/rollback条件、approval expiry、auditを固定する。request bodyの`approvedBy`文字列だけをnamed approvalとして受理しない。
-- [ ] **V032-2 FLE expand/backfill phase**: V032-1成功後に`PHARMACY_PHI_KEY_V1`投入、additive migration、synthetic backfill、field inventoryを分母にしたcoverage 100%、mixed read、envelope restore、wrong-key/tamper/partial envelope/cross-tenant・cross-record transplant fail-closedを確認する。このphaseではplaintext scrubを行わない。
-- [ ] **V032-3 FLE contract/scrub phase**: expand/backfill後のsoak、旧/new code compatibility、application rollback read、approved key recoveryを別Human GateでPASSした後だけplaintext scrubを実行する。rotation/rewrap経路を実装・実証できない場合はFLE readinessを`UNVERIFIED`に保つ。secret値、ciphertext、patient IDをevidence/logへ出さない。
-- [ ] **V032-4 retention/legal-holdをfail-closed化**: retention matrixとlegal-hold source inventoryを統合し、未知/未対応source、invalid/null起算日はhold扱いにする。DSR resolveとR2削除直前に再評価し、Rx selection-to-delete raceを線形化する。incoming imageはtrackingだけで完了扱いにせず、purge consumer/backfill/ownership不整合のdispositionを決める。EC識別子、sale/counter record、audit/DSR eventのtombstone方針未決なら対象機能を`BLOCKED`にする。
-- [ ] **V032-5 common-generation backup/restore**: D1 restore point/export hash、schema/migration、R2 object inventory/hash、FLE envelope/key version、outbox/webhook watermark、開始/完了時刻を1世代のmanifestへ固定する。別backup先からisolated環境へ復旧し、参照完全性とcritical journey read-backを含めてRPO 24時間以内、RTO 4時間以内、最低3世代、primary/backup同時破壊防止を実証する。
-- [ ] **V032-6 release gate**: FLE inventory coverage 100%、scrub前rollback read、common-generation restore/reconcile、PHI log 0、stuck webhook検知、legal hold race test、retention dispositionを全てPASSにする。production drillは別Human Gateとし、未実施ならproduction readinessを主張しない。
+**目標**: 薬局管理画面、全体管理画面、患者向け薬局LIFFを、既存機能の所在・状態・次の操作が外部マニュアルなしで分かる構成へ整理する。同時に、既存のv0.32.0必須範囲であるFLE、retention/legal hold、D1/R2/FLEの共通世代backup/restoreを完了する。UI整理を理由にtenant/account認可、PHI最小化、Human Gate、rollback/read-backを弱めない。
+
+**実装境界**:
+
+| Surface | v0.32.0で扱う範囲 | authority / privacy |
+|---|---|---|
+| 薬局管理画面 | ホーム、本日の対応、処方せん、Myna、緊急避妊薬、服薬後follow-up、継続、チャット、患者情報、DSR、薬局情報、職員、機能、通知、rich menu、統計 | server-derived tenant/account/staff role。query parameterをauthorityにしない。患者情報は業務上必要な画面だけに限定する |
+| 全体管理画面 | fleet概要、tenant/account初期設定、canonical readiness、LINE接続、runtime/release evidence、staff/session、送信停止、webhook/log/audit、support grant、data protection | 既定表示はPHI-free。患者情報は理由・ticket・step-up・期限付きsupport grant・常時banner・監査が揃った時だけ表示する |
+| 患者向け薬局LIFF | `apps/liff/src/custom/pharmacy`の共通shell、全機能一覧、処方せん、患者アンケート、継続、服薬後follow-up、緊急避妊薬、薬局情報 | LINE ID token、server-side friend/account binding、`liffId`保持、機能ON/OFF、既存案件のread-only継続を維持する |
+| Data/Recovery | FLE expand/backfill/scrub、retention/legal hold、incoming image disposition、D1/R2/FLE共通世代restore | secret、ciphertext、patient/friend IDをevidenceへ出さず、production mutationは別Human Gateとする |
+
+**共通UX contract**:
+
+- 各画面は`loading`、空、成功、部分失敗、権限不足、機能OFF、`BLOCKED`、`UNVERIFIED`、通信再試行を区別する。「未設定」と「確認不能」を同じ表示にしない。
+- 画面上部に「ここで分かること」、主状態、次にすることを短文で示す。無効なbuttonには理由と修正先deep linkを出し、行き止まりを作らない。
+- 主操作は画面またはstepごとに1つを強調する。外部送信、状態確定、default切替、削除、scrub、restoreは対象・影響・rollback可否を確認し、single-flight、CAS/idempotency、audit、unknown outcome停止を維持する。
+- 状態は色だけで伝えず、label、icon、文言を併用する。keyboard、screen reader、200% zoom、390/768/1440px、safe-area、44px以上のtap target、focus移動を受入対象にする。
+- 日時はJST表記、version/release/deploy/activationは別field、内部ID・raw URL・raw error・credential・secret名/値・不要なpatient/friend識別子は既定画面へ表示しない。
+- 新しいdesign-system dependencyや患者domain modelを追加せず、既存Tailwind、`PharmacyShell`、canonical readiness、today summary、support grant、audit、rich-menu lifecycleを再利用する。
+
+- [x] **V032-0 live evidenceと既存項目のreconcile**
+  - `main`/`dev`、package、seller release、deploy source、schema/migration、v5 rich-menu activationをlive read-backし、v0.31.1で完了済みの項目を再実装しない。
+  - 薬局管理、全体管理、患者LIFFの全route/APIを`surface -> 情報 -> 操作 -> role -> tenant/account authority -> PHI -> confirmation -> audit -> test`で棚卸しし、未到達機能、重複導線、403行き止まり、古い文言を0件にする。
+  - `PLANS.md`の古い`NOT_RUN`/`UNVERIFIED`は証拠がある項目だけ更新し、code/deploy/activation/実端末受入を相互に推論しない。
+  - 2026-08-24: `dev`/`main`/seller release/verify/deployをlive read-backし、v5 catalog uploadとaccount activationを分離した。37 pages、39 API source groups、222 route patterns（患者LIFF 8 pages/9 API groups）を`V032_ROUTE_API_ROLE_INVENTORY.md`と10 testsで固定。activationは`UNVERIFIED`を維持する。
+
+- [x] **V032-A1 薬局管理画面の情報設計を再編**
+  - navigationを「ホーム」「日常業務」「患者・法令」「設定・安全」に整理する。roleとaccount capabilityで利用できる項目だけを表示し、既存案件確認のため残す導線は`確認のみ`と明示する。
+  - ホームは既存`TodayOperationsSummary`とcanonical readinessを再利用し、緊急度、期限、未対応、部分失敗、送信停止、rich-menu `CURRENT/STALE/BLOCKED/UNVERIFIED`をaccount別に表示する。ホームから患者statusやLINE設定を直接変更しない。
+  - 全ページにaccount context、最終確認時刻、状態説明、次の操作、関連設定へのdeep linkを揃える。件数だけでなく「何を確認すべきか」が分かる文言にする。
+  - owner/admin/staffのread/mutation差を画面とserver testで一致させる。権限がない操作を隠すだけでなくread-only理由を表示し、直接API呼出しも403にする。
+  - 2026-08-24: 4群navigation、capability/role/existing-only表示、Today summary/readiness、read-only理由と修正先を既存componentへ統合。capability OFFでもserver-derived active workを表示し、個別chat mutationは共通guardで403にする。Web 211 testsとWorker 2,216 testsがPASS。
+
+- [x] **V032-A2 薬局業務フローをマニュアル不要にする**
+  - 処方せん、Myna、緊急避妊薬、服薬後follow-up、継続、チャットの一覧/detail/actionを、`受付状態 -> 必要な確認 -> 実行可能な操作 -> 完了後の状態`の順で統一する。
+  - loading/empty/error/partial failure、stale CAS、二重click、外部送信timeout、結果不明を各domainで再現し、blind retryや成功表示をしない。
+  - feature設定、rich menu、通知、薬局情報、職員管理は初回設定stepと日常変更を分離し、保存後に患者画面・LINEへ何が反映済み/未反映かを表示する。
+  - destructive/external actionのconfirm文は対象account、操作、患者/LINEへの影響、取り消し可否を具体的に示す。raw errorは安全なreason codeと再試行/問い合わせ導線へ変換する。
+  - 2026-08-24: 6業務flowのaccount scope、error、disabled、confirmation、CAS/single-flight/reload契約を共通回帰testで固定し、個別chatのmanual headerを維持。患者LIFFとchatの任意runtime errorは安全な案内へ変換する。manual-staffも同versionで更新した。
+
+- [x] **V032-P1 全体管理画面をfleet運用の入口へ再編** — spec: `docs/pharmacy/ADMIN-AUTH.md`
+  - dashboardを「全体状況」「要対応tenant/account」「初期設定」「運用」「セキュリティ・監査」「データ保護」に整理し、canonical readinessと既存runtime/release evidenceを再利用する。
+  - tenant一覧で`READY/BLOCKED/UNVERIFIED`、送信停止、LINE identity、LIFF、rich menu、webhook、schema/runtime versionの状態と最終確認時刻を表示し、修正先へdeep linkする。患者件数・患者名・patient/friend IDは集約へ出さない。
+  - tenant detailは初期設定wizard、staff/session、LINE接続、送信停止、webhook再試行、data integrityを一つの順序で表示する。部分取得失敗を正常扱いせず、取得不能なsectionだけ`UNVERIFIED`にする。
+  - support grantなしの患者routeは403の行き止まりにせず、その場で理由・ticket・現在passwordによるstep-upを開始できるようにする。grant中は残時間、対象tenant、終了buttonを常時表示し、期限切れ/tenant切替/logoutで即失効する。
+  - 全体管理者のread/mutation、grant開始/終了、audit全体閲覧、retry、送信停止、staff/session操作をPHI-free auditへ残す。secret存在はbooleanだけ表示し、値・ciphertext・upstream bodyを出さない。
+  - 2026-08-24: 6領域dashboard、tenant/account readiness、部分失敗`UNVERIFIED`、support grant導線、PHI-free auditを実装。患者件数、内部ID、raw endpoint/errorを既定projectionから除外し、Platform Admin UI/API testsをPASSした。
+
+- [x] **V032-L1 患者LIFFの視認性と色調を統一**
+  - 薬局LIFF専用の最小tokenを既存Tailwind上で固定する。背景はneutral gray、cardはwhite、主操作は薬局green、情報はblue、注意はamber、エラー/取消だけredとし、green/redだけで状態を区別しない。
+  - 本文は原則16px相当・十分なline-height、補足は14px未満へ縮めすぎず、見出し、本文、補足、field label、error、buttonのhierarchyを全routeで統一する。長い説明は要点を先にし、法的/安全上必要な文言は折りたたみで隠さない。
+  - card角丸、border、shadow、spacing、入力欄、必須表示、status badge、primary/secondary/danger buttonを既存component/patternへ寄せる。絵文字や一文字iconだけを意味のauthorityにしない。
+  - WCAG AA相当のcontrast、OS文字拡大、dark overlayを含むLINE内browser、屋外の低contrast環境を想定し、色tokenと文字contrastをtestまたは静的contractで固定する。
+  - 2026-08-24: 既存CSSへneutral/green/blue/amber/red token、16px本文、14px補足、44px target、safe-areaを最小追加し、route-wide contrast/typography contractで固定した。
+
+- [x] **V032-L2 患者LIFFの操作体系と導線を再編**
+  - `PharmacyShell`を共通authorityにし、薬局名、画面名、戻る先、`すべての機能`を全薬局routeで一貫表示する。内部遷移は必ずtenant固有`liffId`を保持し、generic LIFF routeへ変更を漏らさない。
+  - 全機能一覧を「今すぐ行う」「送信後の確認・フォロー」「薬局情報・相談」に整理し、機能名、1行説明、現在利用可否、`確認のみ`を表示する。rich menuから入った患者が目的の操作へ戻れる導線を各完了画面にも置く。
+  - 処方せんは`画像選択 -> 内容確認 -> 送信 -> 受付状況`、患者アンケートは`患者情報 -> 回答 -> 確認 -> 完了`の現在stepと残りを表示する。緊急避妊薬、服薬後follow-up、継続は現在状態と「次にすること」を最初に表示する。
+  - 主操作をviewport下部で見失わない配置にしつつ、LINE/browser UIと重なる固定bottom navigationは実機計測なしに追加しない。戻る操作で入力・選択・uploadを失う場合は事前警告または安全なdraft保持を実装する。draft保持はin-memoryのみとし、処方せん画像・アンケート回答を含むPHIをlocalStorage/sessionStorage/IndexedDBへ永続化しない(V034-3の契約と同一境界)。
+  - 外部サイト、LINEトーク送信、取消、個人情報送信は移動先/影響を明示する。完了画面は成功だけでなく受付番号、次の確認先、薬局からの連絡方法を表示し、医療的確約はしない。
+  - 2026-08-24: `PharmacyShell`、tenant保持route、3群menu、step/status/next action、離脱警告、in-memory-only draftへ統一。患者manualを同versionで更新した。
+
+- [x] **V032-L3 患者LIFFの全route受入**
+  - `PharmacyShell`、全機能一覧、処方せん送信/履歴/電子処方箋、患者アンケート、継続、服薬後follow-up、緊急避妊薬、薬局情報で共通visual/interaction contractを確認する。
+  - keyboard、screen reader name/role/state、focus order、error focus、44px tap target、390px、768px、1440px、200% zoom、long Japanese text、safe-areaをsynthetic dataで確認する。
+  - feature ON/OFF、existing-only、認証失敗、設定取得部分失敗、API timeout、再試行、二重送信、back/forward、reload、`liffId`保持をRed -> Greenで固定する。
+  - 実装完了はfocused LIFF testsをgateとし、development deploy、実LINE内browser、実端末の視認性/導線確認は別evidenceとして扱う。
+  - 2026-08-24: LIFF 127 unit tests、4 Chromium tests、production buildがPASS。feature OFF/existing-only、部分失敗/retry、back/forward/reload、`liffId`保持をsyntheticで確認。development deployと実端末受入は`NOT_RUN`。
+
+- [x] **V032-1 recoverability/権限preflight** `[tdd:required]`
+  - backfill、plaintext scrub、bulk delete、restoreより先に、独立した実行者/承認者、対象tenant/account/environment、dry-run、停止/rollback条件、approval expiry、auditを固定する。request bodyの`approvedBy`文字列だけをnamed approvalとして受理しない。
+  - preflightは対象schema、field/source inventory、current key version、backup generation、active job/lock、expected row/object countをPHI-freeに固定し、差分があればmutation前に`BLOCKED`で停止する。
+  - 2026-08-24: server固定tenant/account/environment、principal-bound approver/executor分離、expiry、dry-run、HMAC coverage digest、preflight drift、CAS/idempotency、same-executor resumeをRed -> Greenで実装。legacy Bearerはdry-runだけに限定した。
+
+- [x] **V032-2 FLE expand/backfill phase** `[tdd:required]` — spec: `docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md`
+  - V032-1成功後に`PHARMACY_PHI_KEY_V1`投入、additive migration、synthetic backfill、field inventoryを分母にしたcoverage 100%、mixed read、envelope restoreを確認する。このphaseではplaintext scrubを行わない。
+  - wrong-key、tamper、partial envelope、nonce再利用、cross-tenant/cross-account/cross-patient/cross-record transplantをfail-closedにし、失敗時にplaintext fallbackやPHI logを出さない。
+  - cursor、limit、retry、idempotency、coverage digestを固定し、途中停止後の再開で重複envelopeや取りこぼしを作らない。
+  - 2026-08-24: additive recovery schemaとsynthetic keyでbackfill/mixed-read/100% field-inventory coverage、wrong-key/tamper/transplant拒否、cursor resumeを確認。production secret投入・backfillは`NOT_RUN`。
+
+- [x] **V032-3 FLE contract/scrub phase** `[tdd:required]` — spec: `docs/pharmacy/FIELD_LEVEL_ENCRYPTION_DESIGN.md`
+  - expand/backfill後のsoak、旧code+新schema、新code+新schema、application rollback read、approved key recoveryを別Human GateでPASSした後だけplaintext scrubを実行する。
+  - scrub直前にcoverage 100%、backup generation、key recovery、write freeze、対象row digestを再確認し、選択と更新をCAS/lockで線形化する。partial scrubは`UNVERIFIED`で停止し、blind retryしない。
+  - rotation/rewrap経路を実装・実証できない場合はFLE readinessを`UNVERIFIED`に保つ。secret値、ciphertext、patient IDをevidence/logへ出さない。
+  - 2026-08-24: approved operation、backup/key recovery/write-freeze/coverage再確認、CAS scrub、partial failure停止、synthetic restore contractを実装。production scrubは`NOT_RUN`、rotation/rewrapは`UNVERIFIED`を維持する。
+
+- [x] **V032-4 retention/legal-holdをfail-closed化** `[tdd:required]` — spec: `docs/pharmacy/RETENTION_MATRIX.md`
+  - retention matrixとlegal-hold source inventoryを統合し、未知/未対応source、invalid/null起算日はhold扱いにする。DSR resolveとR2削除直前に再評価し、Rx selection-to-delete raceを線形化する。
+  - incoming imageはtrackingだけで完了扱いにせず、purge consumer、既存object backfill、D1/R2 ownership不整合、orphan、missing objectのdispositionとauditを実装する。
+  - EC識別子、sale/counter record、audit/DSR eventのtombstone方針が未決なら対象機能を`BLOCKED`にし、推測した保存期間で削除しない。
+  - 2026-08-24: 33-source hold inventory、hold epoch、operation-scoped deletion intent、R2 identity再確認、incoming image backfill/purge/reconcile/dispositionを実装。EC/DSR方針未決のため統合readinessは意図どおり`BLOCKED`、production deleteは`NOT_RUN`。
+
+- [x] **V032-5 common-generation backup/restore** `[tdd:required]`
+  - D1 restore point/export hash、schema/migration、R2 object inventory/hash、FLE envelope/key version、outbox/webhook watermark、開始/完了時刻を1世代のsigned manifestへ固定する。
+  - 別backup先からisolated環境へ復旧し、tenant/account/patient参照完全性、R2所有権、FLE復号、処方せん/患者アンケート/服薬後follow-upのcritical read-back、outbox/webhook reconcileを確認する。
+  - RPO 24時間以内、RTO 4時間以内、最低3世代、primary/backup同時破壊防止を実証し、restore rehearsal自体がproduction/LINEへ送信しないことをtestする。
+  - 2026-08-25: D1/R2/FLE/outbox/webhookを同一fenceへ束ねたpinned Ed25519 manifest、実SQL/R2 byteのisolated in-memory read-back、復元D1のschema fingerprintとoutbox/webhook watermark照合、FLE root key fingerprint・参照件数照合、3 failure domains、RPO/RTO、no-sendを31 synthetic testsでPASS。実cloud restoreは`NOT_RUN`。
+
+- [ ] **V032-6 integrated release gate**
+  - 管理画面のroute/API/role inventory 100%、403行き止まり0、raw error/secret/不要PHI表示0、患者LIFF全routeのvisual/interaction contract、cross-tenant negative testをPASSにする。
+  - FLE inventory coverage 100%、scrub前rollback read、common-generation restore/reconcile、PHI log 0、stuck webhook検知、legal hold race test、retention dispositionを全てPASSにする。
+  - V032-A1/L2のnavigation再編で変わった画面構成・導線について、`docs/pharmacy/manual-staff.md`/`manual-patient.md`の該当記述を同一version内で更新する(ECF-4の前例に従い、manual更新をv0.38.0まで放置しない)。
+  - implementation完了はaffected testをgateとし、release candidateは既存`Repository Verify`、development synthetic journey、LIFF browser smoke、evidence manifestをPASSにする。production drill、deploy、secret投入、scrub、LINE/実患者操作、実端末受入は別Human Gateとし、未実施ならproduction readinessを主張しない。
+  - 2026-08-25 local gate: workspace 3,262 tests、scripts 208 tests、89 migrations、3 builds、LIFF Chromium 4 testsがPASS。`docs/pharmacy/evidence/v0.32.0-development-assurance.json`へ記録し、local candidate commitを作成した。exact-candidate `Repository Verify`、development deploy/journey、account activationは`NOT_RUN`であり、本項目とrelease readinessは`BLOCKED`のまま。
+  - 2026-08-25 post-review local gate: tested implementation `d8fcf4f6fd7475495226e91457f746b2f7720af4`でworkspace 3,294 tests、Worker 2,246 tests、scripts 210 tests、89 migrations、`git diff --check`がPASS。Meet登録APIの薬局allowlistとPHI-free reminder deliveryもaffected 45 testsで確認した。review修正後のtypecheck/build、exact-candidate `Repository Verify`、development deploy/journey、account activationは`NOT_RUN`であり、本項目とrelease readinessは引き続き`BLOCKED`。
+  - 2026-08-25 final read-back: post-review treeでLIFF Chromium 4 testsを再実行してPASS。GitHubのremote `dev`は`eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7`、最新`Repository Verify`成功も同SHA、最新development deploy成功は`f1573dbc7f15e28eb5ea7117ae6bb654633a8543`であり、いずれもv0.32.0 local candidateの証拠ではない。`dev`保護はrequired `verify`、strict、admin enforcement有効をread-backした。
+
+**PR順序**(Data/Recovery laneは`CB-P0-05`/`CB-P0-04`の直接分母のため先行させる。UI lane(apps/web・apps/liff)とData/Recovery lane(worker/db)は触るコードがほぼ独立のため並行可):
+
+1. live evidence reconcileとroute/API/role inventory(V032-0。両laneの共通前提)。
+2. Lane D-1: V032-1〜3のrecoverability/FLE expand/backfill/scrub境界。
+3. Lane D-2: V032-4〜5のretention/legal hold/common-generation restore。
+4. Lane U-1: 薬局管理navigation/homeと共通state。
+5. Lane U-2: 薬局業務flow、設定、rich menuのinline guidance。
+6. Lane U-3: 全体管理dashboard/tenant detail/support grant UX。
+7. Lane U-4: 患者LIFF共通visual tokenと`PharmacyShell`/全機能一覧。
+8. Lane U-5: 患者LIFF各critical journeyの操作体系とaccessibility。
+9. V032-6のdevelopment受入、evidence、release candidate(両lane合流後)。
+
+Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。Lane UだけがgreenでもV032-6へ進まない。
+
+**非目標**: AI/OCR、薬剤自動判定、新しい患者domain model、custom rich-menu分析/scheduler/preset/A-B test、true MFA、Platform Admin別origin、管理者role細分化、異常通知、full fleet driftは追加しない。MFA/session/lockout/isolation強化はv0.33.0、observability/alert/fleet driftはv0.37.0のauthorityを維持する。
 
 #### v0.33.0 - Identity, Tenant Isolation & Abuse Protection
 
@@ -816,6 +936,35 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 
 - [ ] **V040-3 一件停止条件**: 通常のoperational degradationは前Stageへ戻す。cross-tenant/cross-patient、PHI exposure、処方せん画像消失、復旧不能な暗号化失敗、wrong-target/duplicate LINE送信、support grant逸脱、backup/restore不能はglobal external quarantineとし、outbound、patient intake、staff mutation、support grant、activationを停止してsessionを失効する。evidence preservation、impact assessment、修正版RC、関連gate再実行、人間の明示Goまで再開しない。LINE mutation結果不明をblind retryしない。
 - [ ] **V040-4 completion claim**: Stage 0の成功はsynthetic internal alpha、Stage 1はstaff internal acceptance、Stage 2とStage 3観察中はlimited betaとして記録する。Stage 3を最低48〜72時間観察して全gateが継続PASSした後だけCore Closed Beta acceptanceを記録する。実患者導入と各Stage昇格は人間の明示Goを必須とする。
+
+#### v0.41.0以降 backlog提案 - 2026-08-24 plan review時に起票
+
+**位置づけ**: beta中核(v0.32〜v0.40)を遅らせないための延期先。すべて既存境界内(AI/OCR禁止、PHI-free approved templateのみの自動通知、新patient domain model禁止、`BLOCKED` providerのUI導線も作らない)で、着手時は個別にplan reviewを通す。優先順位はbeta実績とtenant feedbackで決め、この並びを実装順のauthorityにしない。
+
+**患者LIFFフロントエンド**:
+
+- [ ] **B41-L1 通知受信設定画面**: 受け取り準備完了・呼び出し通知の患者側受信設定(ON/OFF・時間帯)。PHI-free approved templateと既存notification基盤を再利用し、新しい通知channelを追加しない。
+- [ ] **B41-L2 owner-scoped timelineの昇格**: V034-1(STRETCH)が延期された場合の昇格先。既存read-only union projection案のまま、Meet相談予約状態も既存`meet-consultations` APIの再利用で同projectionへ表示する。
+- [ ] **B41-L3 表示言語切替**: やさしい日本語/英語の切替。V032-L1のtoken・hierarchy固定後に文言resourceの差し替えだけで実現し、翻訳品質は薬事・法的文言のreview gateを通す。
+- ※EC 3週間後通知はECF裁定(本ファイル冒頭)で対象外のため起票しない。
+
+**薬局管理画面**:
+
+- [ ] **B41-A1 action queueの昇格**: V035-1〜3(STRETCH)が延期された場合の昇格先。read-only bounded union、mutationは既存detail経由の契約を維持する。
+- [ ] **B41-A2 チャット定型文**: PHI-freeテンプレのowner承認制定型文。自動送信はせず、送信は既存チャットのstaff操作・audit経由のみ。
+- [ ] **B41-A3 統計のKPI整合**: 統計画面を`docs/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md`のKPI定義へ揃えるread-only強化。新しい集計store・patient識別子の集約表示は追加しない。
+
+**全体管理画面**:
+
+- [ ] **B41-P1 backup/restore dashboard**: V032-5のsigned manifestを分母にしたbackup世代・restore rehearsal結果のread-only表示。v0.37のfleet drift viewへ相乗りし、restore実行buttonは置かない(restoreはHuman Gateのまま)。
+- [ ] **B41-P2 support grant利用レポート**: PHI-free audit projectionの集計のみ。grant理由・対象tenant・時間の傾向を表示し、patient/friend IDを出さない。
+- [ ] **B41-P3 tenant onboarding進捗表示**: V038-1 doctorの一意なreason codeを分母にしたonboarding進捗%と不足項目のdeep link表示。
+
+**患者向け新機能**:
+
+- [ ] **B41-F1 follow-upリマインド頻度設定**: 服薬後follow-upの回答リマインド頻度を患者が選べる設定。V036の閉ループ契約内、PHI-free approved templateのみ。
+- [ ] **B41-F2 家族proxy確認画面**: 家族proxyの対象・権限・期限を患者本人が確認できるread-only画面。V033-6(consent/proxy)完了が前提。
+- ※e薬Link・決済・配送・オンライン服薬指導は`BLOCKED`維持。provider契約・適合確認が動くまでUI導線も作らない(現計画どおり)。
 
 #### 日次Go/No-Go規則
 

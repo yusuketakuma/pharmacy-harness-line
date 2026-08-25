@@ -1,6 +1,12 @@
 import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
-import { hasPharmacyModeAccount, isPharmacyModeAccount, isPharmacyTenant } from './access.js';
+import {
+  hasPharmacyCapability,
+  hasPharmacyModeAccount,
+  isPharmacyModeAccount,
+  isPharmacyTenant,
+} from './access.js';
+import { findPharmacyAdminApiCoverage } from '../platform-admin/api-coverage.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -14,7 +20,7 @@ const PHARMACY_ALLOWED_API_PREFIXES = [
   '/api/chats',
   '/api/conversations',
   '/api/inbox',
-  '/api/images',
+  '/api/meet-consultations',
   '/api/rich-menu-groups',
   '/api/rich-menu-images',
   '/api/tags',
@@ -63,7 +69,9 @@ function matchesPrefix(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
-function isAllowedPharmacyApi(path: string): boolean {
+function isAllowedPharmacyApi(method: string, path: string): boolean {
+  if (path === '/api/images') return method === 'POST' || method === 'OPTIONS';
+  if (path.startsWith('/api/images/')) return SAFE_METHODS.has(method);
   if (PHARMACY_ALLOWED_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix))) return true;
   if (path === '/api/account-settings/test-recipients') return true;
   if (path === '/api/friends' || path === '/api/friends/count') return true;
@@ -81,7 +89,10 @@ export async function pharmacyTenantApiAllowlistGuard(
   if (!await isPharmacyTenant(c.env.DB, tenantId)) return next();
 
   const path = new URL(c.req.url).pathname;
-  if (!isAllowedPharmacyApi(path)) {
+  if (c.get('platformAdmin') && findPharmacyAdminApiCoverage(c.req.method, path)) {
+    return next();
+  }
+  if (!isAllowedPharmacyApi(c.req.method.toUpperCase(), path)) {
     return c.json({ success: false, error: 'Feature disabled for pharmacy tenant' }, 403);
   }
   return next();
@@ -280,4 +291,49 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
     }
   }
   return next();
+}
+
+export async function pharmacyManualChatMutationGuard(
+  c: Context<Env>,
+  next: Next,
+): Promise<Response | void> {
+  const method = c.req.method.toUpperCase();
+  if (SAFE_METHODS.has(method)) return next();
+
+  const path = c.req.path;
+  let resourceId: string | null = null;
+  if (method === 'POST' && path === '/api/chats') {
+    const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
+    resourceId = typeof body?.friendId === 'string' ? body.friendId : null;
+  } else if (method === 'PUT') {
+    resourceId = /^\/api\/chats\/([^/]+)$/.exec(path)?.[1] ?? null;
+  } else if (method === 'POST') {
+    resourceId = /^\/api\/chats\/([^/]+)\/(?:loading|send)$/.exec(path)?.[1]
+      ?? /^\/api\/friends\/([^/]+)\/messages$/.exec(path)?.[1]
+      ?? null;
+  }
+  if (!resourceId) {
+    return path === '/api/chats' || path.startsWith('/api/chats/') || path.endsWith('/messages')
+      ? c.json({ success: false, error: 'pharmacy capability account scope required' }, 403)
+      : next();
+  }
+
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'pharmacy capability account scope required' }, 403);
+  const row = await c.env.DB.prepare(
+    `SELECT friend.line_account_id
+       FROM friends AS friend
+       INNER JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = friend.line_account_id
+       LEFT JOIN chats AS chat ON chat.friend_id = friend.id
+      WHERE mapping.tenant_id = ?
+        AND (friend.id = ? OR chat.id = ?)
+      LIMIT 1`,
+  ).bind(tenantId, resourceId, resourceId).first<{ line_account_id: string | null }>();
+  if (!row?.line_account_id) {
+    return c.json({ success: false, error: 'pharmacy capability account scope required' }, 403);
+  }
+  if (!await isPharmacyModeAccount(c.env.DB, row.line_account_id)) return next();
+  if (await hasPharmacyCapability(c.env.DB, row.line_account_id, 'manual_chat')) return next();
+  return c.json({ success: false, error: 'pharmacy capability is not enabled' }, 403);
 }

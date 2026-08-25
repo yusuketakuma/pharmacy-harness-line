@@ -52,6 +52,12 @@ const completeDraft: EmergencyIntakeDraft = {
 };
 
 describe('emergency contraception patient page', () => {
+  it('puts the current state and next action first', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('現在の状態');
+    expect(source).toContain('次の操作');
+  });
+
   it('keeps explicit consent and patient-presence confirmations false initially', () => {
     expect(EMPTY_EMERGENCY_DRAFT.consentAccepted).toBe(false);
     expect(EMPTY_EMERGENCY_DRAFT.manufacturerCheckAcknowledged).toBe(false);

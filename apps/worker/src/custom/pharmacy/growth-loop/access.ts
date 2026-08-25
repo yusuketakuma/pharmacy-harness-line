@@ -24,7 +24,7 @@ export const PHARMACY_CAPABILITIES = [
 ] as const;
 
 export const DEFAULT_PHARMACY_CAPABILITIES = PHARMACY_CAPABILITIES.filter(
-  (capability) => capability !== 'electronic_prescription' && capability !== 'emergency_contraception',
+  (capability) => capability !== 'electronic_prescription',
 );
 
 export type PharmacyCapability = (typeof PHARMACY_CAPABILITIES)[number];

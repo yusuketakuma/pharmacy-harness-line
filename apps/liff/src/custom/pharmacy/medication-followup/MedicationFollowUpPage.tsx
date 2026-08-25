@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   medicationFollowUpApi,
   type PatientMedicationFollowUp,
   type PatientMedicationFollowUpResponse,
   type PatientMedicationFollowUpStatus,
 } from './api.js';
+import { pharmacyRoute } from '../navigation.js';
 
 export const PATIENT_RESPONSE_OPTIONS: Array<{
   value: PatientMedicationFollowUpResponse;
@@ -51,6 +52,13 @@ export function patientMedicationFollowUpTimingLabel(item: Pick<
     return `完了日時 ${formatTokyo(item.closed_at ?? item.responded_at ?? item.due_at)}`;
   }
   return `回答日時 ${formatTokyo(item.responded_at ?? item.delivered_at ?? item.due_at)}`;
+}
+
+function nextMedicationFollowUpAction(status: PatientMedicationFollowUpStatus): string {
+  if (status === 'delivered') return '回答を1つ選んで薬局へ送信してください。';
+  if (status === 'closed' || status === 'cancelled') return 'このフォローは完了しています。';
+  if (status === 'assigned' || status === 'escalated') return '薬剤師の確認をお待ちください。';
+  return '表示された確認予定を待ってください。';
 }
 
 export default function MedicationFollowUpPage() {
@@ -108,21 +116,31 @@ export default function MedicationFollowUpPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-md bg-gray-50 pb-10">
+    <main className="pharmacy-main mx-auto max-w-md">
       <div className="space-y-4 p-4">
-        <p className="text-sm leading-6 text-gray-600">服薬後フォローでは、お薬を使ってからの状況を薬局へ伝えられます。飲み忘れがあっても責めることはありません。</p>
-        <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <p className="pharmacy-supplemental">服薬後フォローでは、お薬を使ってからの状況を薬局へ伝えられます。飲み忘れがあっても責めることはありません。</p>
+        <section className="pharmacy-card p-4" aria-labelledby="follow-up-summary">
+          <h2 id="follow-up-summary" className="font-bold">現在の状態</h2>
+          <p className="mt-1 text-base text-gray-800">{loading ? '確認中です。' : ordered.length > 0 ? `${ordered.length}件の服薬後フォローがあります。` : '現在、確認が必要な服薬後フォローはありません。'}</p>
+          <h2 className="mt-3 font-bold">次の操作</h2>
+          <p className="mt-1 text-base text-gray-800">{loading ? '読み込みが終わるまでお待ちください。' : '一覧から状態を確認し、表示された回答を選んでください。'}</p>
+        </section>
+        <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-base text-red-800">
           強い息苦しさ、意識がもうろうとするなど緊急性が高い場合、この画面の回答を待たず、緊急時は119へ連絡してください。
         </section>
-        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700"><p>{error}</p><button type="button" onClick={() => void load()} className="mt-2 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button></div>}
-        {loading ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">読み込み中...</p>
-          : ordered.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">現在、確認が必要な服薬後フォローはありません。</p>
+        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-800"><p>{error}</p><button type="button" onClick={() => void load()} className="pharmacy-control mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button></div>}
+        {loading ? <p className="pharmacy-card p-6 text-center text-base">読み込み中...</p>
+          : ordered.length === 0 ? <p className="pharmacy-card p-6 text-center pharmacy-supplemental">現在、確認が必要な服薬後フォローはありません。</p>
             : <ul className="space-y-3">{ordered.map((item) => (
-              <li key={item.id} aria-current={item.id === requestedId ? 'true' : undefined} className={`rounded-xl bg-white p-4 shadow-sm ${item.id === requestedId ? 'ring-2 ring-green-500' : ''}`}>
-                <p className="font-bold text-gray-900">{item.patient_name}</p>
-                <p className="mt-1 text-sm text-gray-700">{STATUS_LABELS[item.status]}</p>
-                <p className="mt-1 text-xs text-gray-500">{patientMedicationFollowUpTimingLabel(item)}</p>
-                {success?.id === item.id && <p role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-800">{success.text}</p>}
+              <li key={item.id} aria-current={item.id === requestedId ? 'true' : undefined} className={`pharmacy-card p-4 ${item.id === requestedId ? 'ring-2 ring-blue-700' : ''}`}>
+                <section aria-label="服薬後フォローの現在の状態と次の操作">
+                  <p className="font-bold">現在の状態</p>
+                  <p className="mt-1 text-base text-gray-900">{item.patient_name}：{STATUS_LABELS[item.status]}</p>
+                  <p className="mt-3 font-bold">次の操作</p>
+                  <p className="mt-1 text-base text-gray-800">{nextMedicationFollowUpAction(item.status)}</p>
+                </section>
+                <p className="mt-2 text-sm text-gray-700">{patientMedicationFollowUpTimingLabel(item)}</p>
+                {success?.id === item.id && <p role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-base text-green-800">{success.text}<Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control mt-2 inline-flex items-center font-bold underline">すべての機能へ戻る</Link></p>}
                 {needsPatientMedicationFollowUpResponse(item.status) && (
                   <div className="mt-4 grid gap-2">
                     {PATIENT_RESPONSE_OPTIONS.map((option) => (
@@ -131,10 +149,10 @@ export default function MedicationFollowUpPage() {
                         type="button"
                         disabled={busyId === item.id}
                         onClick={() => void respond(item, option.value)}
-                        className="min-h-11 rounded-xl border border-green-200 bg-white px-4 py-3 text-left disabled:opacity-50"
+                        className="pharmacy-control min-h-11 rounded-xl border border-green-200 bg-white px-4 py-3 text-left disabled:opacity-50"
                       >
                         <span className="block font-bold text-green-800">{option.label}</span>
-                        <span className="mt-1 block text-xs text-gray-600">{option.description}</span>
+                        <span className="mt-1 block text-base text-gray-700">{option.description}</span>
                       </button>
                     ))}
                   </div>

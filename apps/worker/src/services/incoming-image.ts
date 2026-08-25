@@ -1,3 +1,5 @@
+import { putR2ObjectOnce, r2ChecksumHex } from './immutable-r2.js';
+
 const LINE_CONTENT_API_BASE = 'https://api-data.line.me/v2/bot/message';
 const MAX_INCOMING_IMAGE_BYTES = 10 * 1024 * 1024;
 const INCOMING_IMAGE_FETCH_TIMEOUT_MS = 10_000;
@@ -107,7 +109,18 @@ export async function fetchAndStoreIncomingImage(
   }
 
   try {
-    await opts.r2.put(key, data.buffer, { httpMetadata: { contentType } });
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const stored = await putR2ObjectOnce(
+      opts.r2,
+      key,
+      data.buffer,
+      { httpMetadata: { contentType }, sha256: digest },
+      r2ChecksumHex(digest)!,
+    );
+    if (!stored) {
+      console.error('incoming-image: R2 key conflict');
+      return null;
+    }
   } catch {
     console.error('incoming-image: R2 put failed');
     return null;

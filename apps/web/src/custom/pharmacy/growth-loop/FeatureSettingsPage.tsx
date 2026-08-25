@@ -82,6 +82,7 @@ export function pharmacyCandidateChangeLabel(change: CandidateChange): string {
 
 export default function FeatureSettingsPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
+  const [staffRole, setStaffRole] = useState<string | null>(null)
   const [config, setConfig] = useState<Config | null>(null)
   const [draft, setDraft] = useState<string[]>([])
   const [monthlyLimit, setMonthlyLimit] = useState(0)
@@ -95,6 +96,11 @@ export default function FeatureSettingsPage() {
   const [message, setMessage] = useState('')
   const accountRef = useRef(selectedAccountId)
   accountRef.current = selectedAccountId
+  const canMutate = staffRole === 'owner' || staffRole === 'admin'
+
+  useEffect(() => {
+    setStaffRole(localStorage.getItem('lh_staff_role'))
+  }, [])
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -151,6 +157,10 @@ export default function FeatureSettingsPage() {
   }, [dirty])
 
   async function save() {
+    if (!canMutate) {
+      setError('一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。')
+      return
+    }
     if (!selectedAccountId || !config || saving || !dirty || !monthlyLimitValid) return
     const disabled = savedPatientFeatures.filter((key) => !enabledPatientFeatures.includes(key))
     if (disabled.length > 0 && !window.confirm(
@@ -228,17 +238,18 @@ export default function FeatureSettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-6">
       <div><h1 className="text-2xl font-bold text-gray-900">機能設定</h1><p className="mt-1 text-sm text-gray-600">患者向けLIFFに表示する機能を薬局ごとに設定します。</p></div>
+      {staffRole === 'staff' && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。</p>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}
       <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="patient-features-title">
         <h2 id="patient-features-title" className="font-semibold">患者向け機能</h2>
         <p className="mt-1 text-sm text-gray-600">全機能をOFFにもできます。OFF後も既存データは削除されず、対応中案件の完了・取消は継続できます。</p>
-        {loading || !config ? <p className="py-8 text-center text-sm text-gray-500">設定を読み込み中...</p> : <><div className="mt-4 divide-y divide-gray-200">{PATIENT_FEATURES.map(({ key, label }) => <label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3"><span><span className="block font-medium">{label}</span><span className="block text-xs text-gray-500">対応中 {activeWork?.[key] ?? 0}件</span></span><input type="checkbox" checked={draft.includes(key)} onChange={(event) => setDraft((current) => setPatientCapability(current, key, event.target.checked))} disabled={saving} className="h-5 w-5" /></label>)}</div><label className="mt-4 block max-w-xs text-sm font-medium">月間自動通知上限
-          <input type="number" min={0} max={100} step={1} value={monthlyLimit} onChange={(event) => setMonthlyLimit(Number(event.target.value))} disabled={saving} aria-describedby="monthly-limit-help" className="mt-1 min-h-11 w-full rounded border border-gray-300 px-3" />
+        {loading || !config ? <p className="py-8 text-center text-sm text-gray-500">設定を読み込み中...</p> : <><div className="mt-4 divide-y divide-gray-200">{PATIENT_FEATURES.map(({ key, label }) => <label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3"><span><span className="block font-medium">{label}</span><span className="block text-xs text-gray-500">対応中 {activeWork?.[key] ?? 0}件</span></span><input type="checkbox" checked={draft.includes(key)} onChange={(event) => setDraft((current) => setPatientCapability(current, key, event.target.checked))} disabled={saving || !canMutate} className="h-5 w-5" /></label>)}</div><label className="mt-4 block max-w-xs text-sm font-medium">月間自動通知上限
+          <input type="number" min={0} max={100} step={1} value={monthlyLimit} onChange={(event) => setMonthlyLimit(Number(event.target.value))} disabled={saving || !canMutate} aria-describedby="monthly-limit-help" className="mt-1 min-h-11 w-full rounded border border-gray-300 px-3" />
           <span id="monthly-limit-help" className="mt-1 block text-xs font-normal text-gray-500">薬局から自動送信する中立通知の月間上限です。0で自動通知を停止します。</span>
         </label></>}
         {!monthlyLimitValid && <p role="alert" className="mt-2 text-sm text-red-700">月間自動通知上限は0〜100の整数で入力してください。</p>}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-amber-700">{dirty ? '未保存の変更があります。' : '保存済みです。'}</p><button type="button" onClick={() => void save()} disabled={!dirty || !monthlyLimitValid || saving || loading} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? '保存中…' : '設定を保存'}</button></div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-amber-700">{dirty ? '未保存の変更があります。' : '保存済みです。'}</p><button type="button" onClick={() => void save()} disabled={!canMutate || !dirty || !monthlyLimitValid || saving || loading} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? '保存中…' : '設定を保存'}</button></div>
       </section>
       {shouldOfferRichMenuCandidate(config?.capabilities ?? []) && <section className="rounded-xl border border-violet-200 bg-white p-5" aria-labelledby="rich-menu-candidate-title">
         <h2 id="rich-menu-candidate-title" className="font-semibold">リッチメニュー候補</h2>

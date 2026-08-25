@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   platformAdminApi,
+  platformAdminErrorMessage,
   type PlatformLineProbe,
   type PlatformLineStatus,
   type PlatformStaffMember,
@@ -45,12 +46,12 @@ function HealthPanel({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     platformAdminApi.tenantHealth(tenantId)
       .then((res) => setHealth(res.data))
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
   }, [tenantId])
 
   return (
     <Panel title="ヘルス">
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600"><strong>UNVERIFIED</strong> — {error}</p>}
       {!health && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
       {health && (
         <div className="space-y-4">
@@ -78,7 +79,7 @@ function HealthPanel({ tenantId }: { tenantId: string }) {
               <tbody>
                 {health.lineAccounts.map((account) => (
                   <tr key={account.id} className="border-t border-gray-100">
-                    <td className="px-3 py-2">{account.name}<span className="ml-2 font-mono text-xs text-gray-500">{account.id}</span></td>
+                    <td className="px-3 py-2">{account.name}</td>
                     <td className="px-3 py-2">{account.isActive ? '有効' : '無効'}</td>
                     <td className="px-3 py-2">{account.hasChannelIdentity ? 'あり' : 'なし'}</td>
                     <td className="px-3 py-2">{ymd(account.lastWebhookAt)}</td>
@@ -105,7 +106,7 @@ function LinePanel({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     platformAdminApi.lineStatus(tenantId)
       .then((res) => setAccounts(res.data))
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
   }, [tenantId])
 
   const test = async (lineAccountId: string) => {
@@ -117,14 +118,14 @@ function LinePanel({ tenantId }: { tenantId: string }) {
     } catch (caught) {
       setProbes((current) => ({
         ...current,
-        [lineAccountId]: { ok: false, error: caught instanceof Error ? caught.message : '失敗' },
+        [lineAccountId]: { ok: false, error: platformAdminErrorMessage(caught) },
       }))
     }
   }
 
   return (
     <Panel title="LINE連携">
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600"><strong>UNVERIFIED</strong> — {error}</p>}
       {!accounts && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
       {accounts && (
         <div className="overflow-x-auto">
@@ -155,9 +156,9 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                       <span className="mt-1 block text-xs text-gray-500">
                         LIFF {account.liffIdConfigured ? '設定済み' : '未設定'} / LINEログイン {account.loginChannelConfigured ? '設定済み' : '未設定'}
                       </span>
-                      {account.expectedLiffEndpoint && <span className="block break-all font-mono text-[11px] text-gray-500">{account.expectedLiffEndpoint}</span>}
+                      {account.expectedLiffEndpoint && <span className="block text-[11px] text-gray-500">LIFF endpoint設定あり</span>}
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs">{account.channelId}</td>
+                    <td className="px-3 py-2">{account.channelId ? '設定済み' : '未設定'}</td>
                     <td className="px-3 py-2">{account.isActive ? '有効' : '無効'}</td>
                     <td className="px-3 py-2">{account.hasBotIdentity ? 'あり' : 'なし'}</td>
                     <td className="px-3 py-2">
@@ -202,7 +203,7 @@ function LinePanel({ tenantId }: { tenantId: string }) {
                       </button>
                       {probe && probe !== 'testing' && (
                         <span className={`ml-2 text-xs ${probe.ok ? 'text-green-700' : 'text-red-600'}`}>
-                          {probe.ok ? `OK ${probe.displayName ?? probe.botUserId}` : probe.error}
+                          {probe.ok ? '接続確認済み' : '接続を確認できませんでした。ログを確認してください。'}
                         </span>
                       )}
                     </td>
@@ -230,7 +231,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
   const load = useCallback(() => {
     platformAdminApi.staff(tenantId)
       .then((res) => setStaff(res.data))
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
   }, [tenantId])
 
   useEffect(load, [load])
@@ -247,7 +248,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
       setNotice(`${member.name} を無効化しました（セッション ${res.data.sessionsRevoked} 件失効）`)
       load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '無効化に失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setWorking('')
     }
@@ -264,7 +265,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
       setNotice(`${res.data.revoked} 件のセッションを失効させました`)
       load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '失効に失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setWorking('')
     }
@@ -272,7 +273,7 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
 
   return (
     <Panel title="スタッフ・セッション">
-      {error && <p role="alert" className="mb-2 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mb-2 text-sm text-red-600"><strong>UNVERIFIED</strong> — {error}</p>}
       {notice && <p className="mb-2 text-sm text-green-700">{notice}</p>}
       {!staff && !error && <p className="text-sm text-gray-500">読み込み中...</p>}
       {staff && (
@@ -354,7 +355,7 @@ function OutboundPanel({ tenantId, outboundMessagingPausedAt: initialPausedAt }:
       setOutboundMessagingPausedAt(res.data.outboundMessagingPausedAt)
       setResult(`送信を${action}しました`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '切り替えに失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setChanging(false)
     }
@@ -410,7 +411,7 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
         setDisplayName(res.data.displayName)
         setStatus(res.data.status)
       })
-      .catch((caught: Error) => setError(caught.message))
+      .catch((caught: unknown) => setError(platformAdminErrorMessage(caught)))
   }, [tenantId])
 
   useEffect(load, [load])
@@ -438,7 +439,7 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
       setNotice('保存しました')
       load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '保存に失敗しました')
+      setError(platformAdminErrorMessage(caught))
     } finally {
       setSaving(false)
     }
@@ -465,7 +466,6 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
           <div><dt className="text-gray-500">ステータス</dt><dd>{tenantStatusLabel(tenant.status)}</dd></div>
           <div><dt className="text-gray-500">LINEアカウント数</dt><dd>{tenant.lineAccountCount}</dd></div>
           <div><dt className="text-gray-500">スタッフ数</dt><dd>{tenant.staffCount}</dd></div>
-          <div><dt className="text-gray-500">登録患者数</dt><dd>{tenant.patientCount}</dd></div>
         </dl>
       </section>
 

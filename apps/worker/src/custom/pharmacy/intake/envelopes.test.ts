@@ -11,9 +11,33 @@ vi.mock('./encryption.js', async (importOriginal) => ({
   sealPatientIntakeField: cryptoMocks.seal,
 }));
 
-import { preparePatientIntakeEnvelopeStatements } from './envelopes.js';
+import {
+  preparePatientIntakeEnvelopeStatements,
+  resolvePatientIntakeCryptoScope,
+} from './envelopes.js';
 
 describe('patient intake envelope statements', () => {
+  it('activates v2 only when both the separate key and explicit version are valid', () => {
+    const bindings = {
+      PHARMACY_PHI_KEY_V1: 'v1'.repeat(16),
+      PHARMACY_PHI_KEY_V2: 'v2'.repeat(16),
+      PHARMACY_PHI_ACTIVE_KEY_VERSION: '2',
+    };
+    expect(resolvePatientIntakeCryptoScope(bindings, 'tenant-a')).toEqual({
+      tenantId: 'tenant-a',
+      rootSecret: bindings.PHARMACY_PHI_KEY_V1,
+      rootSecretV2: bindings.PHARMACY_PHI_KEY_V2,
+      activeKeyVersion: 2,
+    });
+    expect(resolvePatientIntakeCryptoScope({ ...bindings, PHARMACY_PHI_KEY_V2: 'short' }, 'tenant-a'))
+      .toBeNull();
+    expect(resolvePatientIntakeCryptoScope({
+      ...bindings, PHARMACY_PHI_KEY_V2: bindings.PHARMACY_PHI_KEY_V1,
+    }, 'tenant-a')).toBeNull();
+    expect(resolvePatientIntakeCryptoScope({ ...bindings, PHARMACY_PHI_ACTIVE_KEY_VERSION: '3' }, 'tenant-a'))
+      .toBeNull();
+  });
+
   it('optionally verifies every sealed field before preparing the inserts', async () => {
     cryptoMocks.seal.mockImplementation(async (plaintext: string) => ({
       envelopeVersion: 1,
