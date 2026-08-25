@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-24T15:10:01Z",
-  "reviewedAt": "2026-08-24T18:50:56Z",
+  "capturedAt": "2026-08-25T00:26:23Z",
+  "reviewedAt": "2026-08-25T00:26:23Z",
   "environment": "local-synthetic",
   "scope": "v0.32.0-development-assurance",
   "status": "PASS",
@@ -9,7 +9,7 @@
   "sourceCandidate": {
     "branch": "dev",
     "baseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
-    "testedImplementationSha": "d8fcf4f6fd7475495226e91457f746b2f7720af4",
+    "testedImplementationSha": "582e7635e144daf8e598d9b3b452449bacbcb24a",
     "identity": "LOCAL_COMMIT",
     "packageVersion": "0.32.0",
     "sellerRelease": "NOT_CREATED",
@@ -65,8 +65,8 @@
   "routeInventory": {
     "snapshotBaseSourceSha": "eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7",
     "pages": 37,
-    "apiSourceGroups": 39,
-    "uniqueMethodPathPatterns": 222,
+    "apiSourceGroups": 41,
+    "uniqueMethodPathPatterns": 227,
     "patientLiffPages": 8,
     "patientLiffApiSourceGroups": 9,
     "focusedTests": 10,
@@ -101,17 +101,17 @@
     "diffCheck": "PASS"
   },
   "postReviewValidation": {
-    "testedImplementationSha": "d8fcf4f6fd7475495226e91457f746b2f7720af4",
-    "workspaceTestFiles": 410,
-    "workspaceTests": 3294,
+    "testedImplementationSha": "582e7635e144daf8e598d9b3b452449bacbcb24a",
+    "workspaceTestFiles": 412,
+    "workspaceTests": 3314,
     "workerTestFiles": 225,
-    "workerTests": 2246,
+    "workerTests": 2260,
     "scriptTestFiles": 18,
-    "scriptTests": 210,
+    "scriptTests": 222,
     "meetFocusedTests": 45,
     "routeInventoryTests": 10,
-    "liffChromiumTests": 4,
-    "migrationChecks": 89,
+    "liffChromiumTests": 12,
+    "migrationChecks": 90,
     "diffCheck": "PASS",
     "typecheck": "NOT_RERUN_AFTER_REVIEW_FIXES",
     "workerBuild": "NOT_RERUN_AFTER_REVIEW_FIXES",
@@ -150,7 +150,11 @@
       "mixedRead": "PASS_SYNTHETIC",
       "coverage": "100_PERCENT_SYNTHETIC_FIELD_INVENTORY",
       "scrubContract": "PASS_SYNTHETIC_NO_PRODUCTION_SCRUB",
-      "rotationRewrap": "UNVERIFIED"
+      "rotationRewrap": "PASS_SYNTHETIC",
+      "activeWriteKey": "EXPLICIT_V2_ONLY",
+      "rewrapAtomicity": "TWO_FIELD_TENANT_ACCOUNT_SCOPED_CAS",
+      "keyVersionCounts": "PASS_SYNTHETIC",
+      "v1SecretRetirement": "BLOCKED_EC_V1_AND_PRODUCTION_HUMAN_GATE"
     },
     "retentionAndLegalHold": {
       "status": "PASS_FAIL_CLOSED",
@@ -164,15 +168,17 @@
       ]
     },
     "commonGenerationRestore": {
-      "status": "PASS_SYNTHETIC",
-      "syntheticTests": 31,
+      "status": "PASS_SYNTHETIC_LOCAL_ARTIFACT_FILES",
+      "syntheticTests": 33,
       "manifestSignature": "ED25519_PINNED",
       "watermarkReadback": "RESTORED_D1_CANONICAL_OUTBOX_WEBHOOK",
       "fleKeyFingerprint": "ROOT_SECRET_BOUND",
       "failureDomains": 3,
       "rpoHoursMaximum": 24,
       "rtoHoursMaximum": 4,
-      "restoreTarget": "ISOLATED_IN_MEMORY",
+      "restoreTarget": "ISOLATED_IN_MEMORY_FROM_FILES",
+      "artifactFileAdapter": "PASS_LOCAL_NO_SEND",
+      "mixedKeyGenerationRestore": "NOT_RUN_SINGLE_ROOT_MANIFEST_V1",
       "productionAdapters": 0,
       "lineSend": "DISABLED"
     }
@@ -191,11 +197,23 @@
       "pinned Ed25519 manifest and no-send isolated restore"
     ]
   },
+  "latestDataProtectionOracleConsultation": {
+    "status": "NOT_RUN_NO_ASSISTANT_OUTPUT",
+    "session": "v032-data-gaps-20260825",
+    "engine": "browser",
+    "requestedModel": "gpt-5.6-sol",
+    "thinking": "Pro",
+    "harvestState": "completed",
+    "assistantTurns": 0,
+    "verified": false,
+    "adviceApplied": []
+  },
   "releaseBlockers": [
     "The local commit candidate has no exact-candidate Repository Verify run.",
     "No v0.32.0 development deploy or account activation has been performed.",
-    "FLE rotation and rewrap remain UNVERIFIED.",
+    "Production FLE rotation, EC v1 rotation, old-key retirement, and mixed-key generation restore remain NOT_RUN.",
     "Retention execution remains BLOCKED by unresolved EC and DSR policy dependencies.",
+    "The latest data-protection Oracle browser session produced no assistant output; independent review remains NOT_RUN.",
     "Production secret injection, backfill, scrub, delete, restore, deploy, LINE mutation, and real-device acceptance require separate Human Gates."
   ],
   "boundaries": {

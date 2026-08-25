@@ -7,7 +7,7 @@ V032-0 の実装対象は、新しい画面や API を追加することでは�
 - 基準 snapshot: `eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7`
 - 機械可読 SSOT: [`scripts/deploy/v032-route-inventory.ts`](../../scripts/deploy/v032-route-inventory.ts)
 - 回帰テスト: [`scripts/deploy/v032-route-inventory.test.ts`](../../scripts/deploy/v032-route-inventory.test.ts)
-- 現行検出値: 37 pages、39 API source groups、222 unique `METHOD path-pattern`
+- 現行検出値: 37 pages、41 API source groups、227 unique `METHOD path-pattern`
 - この inventory はローカル source の静的検査だけを行い、Production、LINE、Google Calendar、実データを変更しない
 
 このsnapshotは実装開始時点のlive baselineであり、現行worktreeの
@@ -110,6 +110,8 @@ route/page/test実在性とmount順は回帰テスト実行時に再確認しま
 | --- | --- | --- | --- | --- |
 | `routes/admin/admin-auth.ts` | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/session`, `POST /api/auth/change-password` | unauthenticated/tenant staff。server session | credential、CSRF、timing-safe failure | none / middleware auth・provisioning admin-auth |
 | `routes/admin/account-settings.ts` | `GET/PUT /api/account-settings/test-recipients`, `GET/PUT /api/account-settings/link-base-url`, `GET/PUT /api/account-settings/tracked-link-base-url` | tenant-admin、server account selector validation | CSRF、tenant-admin、server settings validation | operational-sensitive / `account-settings-tenant-scope.test.ts` |
+| `routes/admin/capabilities.ts` | `GET /api/capabilities` | authenticated tenant staff。server tenant contextから薬局機能を分類 | read-only capability/version/endpoint discovery | none / capabilities・Platform admin API coverage tests |
+| `routes/admin/images.ts` | `POST /api/images`; `GET/DELETE /api/images/:key{.+}`; `GET /images/:key{.+}` | 薬局uploadは認証済みstaffのserver assignmentでaccountを検証。公開keyとprivate incoming keyを分離 | MIME/size/key検証、R2前audit。薬局tenantのDELETEは拒否 | operational-sensitive / images・generic feature guard tests |
 | `routes/admin/line-accounts.ts` | `GET /api/line-accounts`, `GET /api/line-accounts/:id`, `GET /api/line-accounts/:id/follower-insight`, `GET /api/line-accounts/:id/follower-import`, `POST /api/line-accounts`, `POST /api/line-accounts/:id/connect`, `POST /api/line-accounts/:id/follower-import/detect`, `POST /api/line-accounts/:id/follower-import/start`, `POST /api/line-accounts/:id/follower-import/step`, `PATCH /api/line-accounts/order`, `PATCH /api/line-accounts/:id`, `PUT /api/line-accounts/:id`, `DELETE /api/line-accounts/:id` | staff/admin、server `tenant_line_accounts` ownership | connect/import/update、CSRF、confirmation、progress/idempotency、secret redaction | credentials / `line-accounts.test.ts`, tenant-boundary |
 | `routes/admin/staff.ts` | `GET /api/staff/me`, `GET /api/staff`, `GET /api/staff/:id`, `GET /api/staff/:id/accounts`, `POST /api/staff`, `PATCH /api/staff/:id`, `DELETE /api/staff/:id`, `POST /api/staff/:id/reset-password`, `PUT /api/staff/:id/accounts` | tenant-admin/staff、server tenant/account assignment | staff administration、CSRF、role/destructive confirmation | operational-sensitive / staff tenant/profile tests |
 | `routes/crm/friends.ts` | `GET /api/friends`, `GET /api/friends/count`, `GET /api/friends/ref-stats`, `GET /api/friends/:id`, `GET /api/friends/:id/mileage`, `GET /api/friends/:id/messages`, `POST /api/friends/:id/tags`, `DELETE /api/friends/:id/tags/:tagId`, `PUT /api/friends/:id/metadata`, `POST /api/friends/:id/messages` | staff、friend/account ownership。query ids are selectors | tags/metadata/manual 1:1 send。CSRF、confirmation、`X-Line-Harness-Source: manual` | PHI / friend tenant/manual-message tests |
@@ -186,4 +188,4 @@ pnpm exec vitest run --config vitest.config.mts scripts/deploy/v032-route-invent
 3. Platform admin page、patient LIFF page/API、pharmacy menu/sidebar path の欠落
 4. page/component/route/test reference の実在
 5. role、scope、`line_account_id` authority、表示情報、mutation、confirmation、PHI、audit、reachability の必須フィールド
-6. query selector 境界、manual one-to-one header、Meet follow-up、support-grant PHI、未mount recovery route
+6. query selector 境界、manual one-to-one header、Meet follow-up、support-grant PHI、mounted recovery route

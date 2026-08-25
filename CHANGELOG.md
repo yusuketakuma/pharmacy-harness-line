@@ -17,6 +17,7 @@
 | 薬局職員 | 管理画面を「ホーム」「日常業務」「患者・法令」「設定・安全」に整理。対応待ち、準備不足、権限不足、確認のみの状態を分けて表示 | 必要な業務を探す時間を減らし、対応すべき案件と設定作業を混同しにくくなる |
 | 個別相談を担当する薬局職員 | Google Calendarの個別相談を登録・変更すると、同じ担当アカウントへ前日・1時間前のLINEリマインドも一括登録。取消時は未送信リマインドも取消 | 別アカウントの予定を誤操作しにくくなり、予定変更時のリマインド登録漏れを防げる |
 | 薬局owner/admin | アカウントごとに利用機能、準備状況、患者画面やLINEへの反映状況を確認可能。既存アカウントで明示的にOFFにした機能は維持 | 新機能を段階的に有効化でき、既存の薬局運用を意図せず変更する事故を避けられる |
+| Platform admin・CLI運用担当 | tenant staffの作成、role・担当LINEアカウント変更、password再発行、削除をCLIから実行可能。最後のownerや最後の担当者を失う変更はDBでも拒否 | 管理画面へ入れない障害時もstaffを復旧でき、同時操作で薬局の管理者・担当者が0人になる事故を防げる |
 | Platform admin・運用担当 | 薬局全体を「全体状況」「初期設定」「運用」「セキュリティ・監査」「データ保護」など6領域で確認。通常画面には患者件数、内部ID、生のエラーを表示しない | 患者情報を広く閲覧せずに、準備不足・未検証・対応待ちの薬局を切り分けやすくなる |
 | データ保護・復旧担当 | 暗号化移行、保存期限、legal hold、削除、復旧を、承認者・実行者・対象範囲・事前確認・再開条件つきで管理 | 対象間違い、二重実行、hold中の削除、結果不明な削除を止め、安全に再確認しやすくなる |
 
@@ -27,6 +28,7 @@
 - 本文の読みやすさ、色だけに頼らない状態表示、44px以上の操作領域、LINE内ブラウザのsafe-areaへ対応
 - 処方せん画像やアンケート回答の入力途中データは、`localStorage`などへ永続保存せずメモリ内だけで保持
 - 通信失敗や権限不足では内部エラーを表示せず、再試行または薬局への確認方法を案内
+- 患者向け8 routeすべてをChromiumで描画し、keyboard focus、390px幅、200%文字拡大、横はみ出しなし、44px操作領域を確認
 
 ### 薬局職員・管理者向け画面
 
@@ -35,6 +37,8 @@
 - 一般staff、admin、ownerの閲覧・変更範囲を画面とAPIの両方で統一
 - Platform adminの患者情報アクセスは、理由、ticket、再認証、期限つきsupport grant、監査記録が揃った場合だけ許可
 - 一部の状態を取得できない場合は正常や未設定と表示せず、該当部分を`UNVERIFIED`として区別
+- Platform admin CLIのstaff作成・role/担当変更・password再発行・削除はserver側tenant/account authorityを再確認。one-time passwordの応答が失われた場合は成功とも失敗とも決めつけず、0600の`UNKNOWN_OUTCOME` markerを残して自動再試行を止める
+- 薬局の画像uploadは認証済みstaffの担当LINEアカウントへ固定し、R2 mutation前にaudit intentを保存。薬局tenantからの汎用DELETEは拒否
 
 ### Google Meet個別相談
 
@@ -46,34 +50,37 @@
 ### データ保護と復旧
 
 - 患者アンケートの暗号化移行を途中から再開でき、暗号化対象の不足、異なる鍵、改ざん、別tenant・別accountのデータ混入を拒否
+- 問診のv1/v2 keyを別root secretとして扱い、明示的にv2をactiveにした後、1患者回答の2 fieldを1本のtenant/account scoped CASで同時に再暗号化。競合時は片方だけ更新せず停止
 - 保存期限による削除は、tenant・LINEアカウント・承認済みoperation・legal holdを削除直前まで再確認
 - 処方せん画像・受信画像は既存のR2 keyを上書きせず、削除結果が不明な場合は完了扱いにせず照合待ちとして記録
 - 途中停止したretention処理は、保存済み件数とcursorから再開
 - D1、R2、暗号化データ、通知台帳、webhookを同じ世代として署名し、外部送信機能を持たない隔離環境で復旧内容を照合
 - 復旧後はDB schema、行数、R2所有権、暗号化参照件数、未処理通知を実データから再計算し、不一致を復旧成功として扱わない
+- 署名済みmanifestに対応するD1・R2 artifact fileをno-sendメモリ環境へ読み込むadapterを追加。ローカルsynthetic fileで欠落object、改ざん、wrong keyを拒否し、v2だけの復旧read-backを確認
 
 ### 変わらない安全条件
 
 - 緊急避妊薬の受付可否や販売可否を自動判断しない。最終判断は薬剤師が行う
 - 既存薬局アカウントで明示的にOFFにした緊急避妊薬機能を自動でONへ変更しない
-- rotation/rewrap未実証、retention方針未決、削除結果不明などの状態は`READY`にせず、`UNVERIFIED`または`BLOCKED`を維持
+- Platform admin CLIのtenant/account設定変更機能と、初期リッチメニューv5固定を維持。v3/v1のrollback assetも削除しない
+- rotation/rewrapはローカルsynthetic testのみ`PASS`。retention方針未決、削除結果不明、実cloud復旧未実施などは`READY`にせず、`UNVERIFIED`、`BLOCKED`、`NOT_RUN`を維持
 - productionのsecret投入、暗号化移行、plaintext削除、retention削除、復旧、deploy、実LINE送信は別のHuman Gateなしに実行しない
 
 ### ローカル確認状況
 
 | 確認項目 | 結果 |
 | --- | --- |
-| workspace test | 410 files / 3,294 tests PASS |
-| Worker test | 225 files / 2,246 tests PASS |
-| deploy・運用script test | 18 files / 210 tests PASS |
-| migration contract | 89 migrations PASS |
-| LIFF Chromium smoke | 4 tests PASS |
+| workspace test | 412 files / 3,314 tests PASS |
+| Worker test | 225 files / 2,260 tests PASS |
+| deploy・運用script test | 18 files / 222 tests PASS |
+| migration contract | 90 migrations PASS |
+| LIFF Chromium smoke | 12 tests PASS |
 | review修正後のtypecheck・build | `NOT_RERUN` |
 | exact-candidate Repository Verify | `NOT_RUN` |
 | development deploy・account activation | `NOT_RUN` |
 | production Human Gate | `NOT_RUN` |
 
-additive migrationは`custom_055`から`custom_058`です。機械可読の詳細証拠は`docs/pharmacy/evidence/v0.32.0-development-assurance.json`に記録しています。
+additive migrationは`custom_055`から`custom_059`です。機械可読の詳細証拠は`docs/pharmacy/evidence/v0.32.0-development-assurance.json`に記録しています。
 
 ## Pharmacy v0.31.1 (2026-08-24)
 
