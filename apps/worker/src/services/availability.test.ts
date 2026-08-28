@@ -228,6 +228,7 @@ describe('getAvailability', () => {
       minLeadTimeMinutes: 60,
     });
     expect(result.by_staff[0].slots).toEqual([]);
+    expect(result.by_staff[0].has_working_hours).toBe(true);
   });
 
   test('既存予約があるとその時間帯は除外', async () => {
@@ -276,6 +277,7 @@ describe('getAvailability', () => {
       minLeadTimeMinutes: 60,
     });
     expect(result.by_staff[0].slots).toEqual([]);
+    expect(result.by_staff[0].has_working_hours).toBe(false);
   });
 
   test('曜日ルールは有限シフトなしでも将来の日付に適用される', async () => {

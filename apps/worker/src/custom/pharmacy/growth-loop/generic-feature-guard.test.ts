@@ -472,8 +472,9 @@ describe('pharmacy tenant API allowlist', () => {
       root.request('/api/friends/friend-a/mileage', {}, env),
       root.request('/api/account-settings/link-base-url', {}, env),
       root.request('/api/rich-menus', {}, env),
+      root.request('/api/entry-routes', {}, env),
     ]);
-    expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
+    expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403, 403]);
   });
 
   it('keeps generic tenant APIs backward compatible', async () => {

@@ -133,7 +133,10 @@ function googleBusyForJstDate(
 export async function getAvailability(
   db: D1Database,
   params: GetAvailabilityParams,
-): Promise<{ by_staff: AvailabilityByStaff[] }> {
+): Promise<{
+  by_staff: AvailabilityByStaff[];
+  calendar_sync: CalendarSyncState[];
+}> {
   const menu = await db
     .prepare(
       `SELECT m.duration_minutes, m.buffer_after_minutes,
@@ -151,7 +154,7 @@ export async function getAvailability(
       override_duration: number | null;
     }>();
   if (!menu) {
-    return { by_staff: [] };
+    return { by_staff: [], calendar_sync: [] };
   }
 
   // SQL とパラメータ数を一致させる。staffId 未指定時の no-WHERE バリアントは
@@ -180,7 +183,7 @@ export async function getAvailability(
     display_name: string;
     is_designation_optional: number;
   }>();
-  if (!staffRows.results.length) return { by_staff: [] };
+  if (!staffRows.results.length) return { by_staff: [], calendar_sync: [] };
 
   const staffIds = staffRows.results.map((s) => s.id);
   const dates = eachDate(params.from, params.to);
@@ -253,9 +256,17 @@ export async function getAvailability(
   const by_staff: AvailabilityByStaff[] = [];
   for (const s of staffRows.results) {
     const slots: AvailabilityByStaff['slots'] = [];
+    const hasWorkingHours =
+      shifts.results.some((row) => row.staff_id === s.id) ||
+      rules.results.some((row) => row.staff_id === s.id);
     const syncState = calendarSync.find((state) => state.staff_id === s.id);
     if (syncState?.configured && !syncState.ok) {
-      by_staff.push({ staff_id: s.id, display_name: s.display_name, slots });
+      by_staff.push({
+        staff_id: s.id,
+        display_name: s.display_name,
+        slots,
+        has_working_hours: hasWorkingHours,
+      });
       continue;
     }
     for (const date of dates) {
@@ -286,10 +297,12 @@ export async function getAvailability(
         slots.push({ date, start: slot.start, end: slot.end });
       }
     }
-    by_staff.push({ staff_id: s.id, display_name: s.display_name, slots });
+    by_staff.push({
+      staff_id: s.id,
+      display_name: s.display_name,
+      slots,
+      has_working_hours: hasWorkingHours,
+    });
   }
-  return { by_staff, calendar_sync: calendarSync } as {
-    by_staff: AvailabilityByStaff[];
-    calendar_sync: CalendarSyncState[];
-  };
+  return { by_staff, calendar_sync: calendarSync };
 }

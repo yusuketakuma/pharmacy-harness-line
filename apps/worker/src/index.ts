@@ -970,6 +970,7 @@ export async function notFoundHandler(
   const url = new URL(c.req.url);
   const path = url.pathname;
   if (path.startsWith('/api/') || path === '/webhook' || path === '/docs' || path === '/openapi.json') {
+    c.header('X-Line-Harness-Error', 'route_not_found');
     return c.json({ success: false, error: 'Not found' }, 404);
   }
 

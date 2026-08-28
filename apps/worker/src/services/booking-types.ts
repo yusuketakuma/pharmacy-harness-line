@@ -91,6 +91,7 @@ export interface AvailabilityByStaff {
   staff_id: string;
   display_name: string;
   slots: AvailabilitySlot[];
+  has_working_hours: boolean;
 }
 
 export interface AccountSettings {

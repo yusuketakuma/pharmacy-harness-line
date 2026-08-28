@@ -13,6 +13,13 @@ export interface BusyInterval {
   end: string;
 }
 
+interface CalendarEvent {
+  status?: string;
+  eventType?: string;
+  start?: { date?: string };
+  end?: { date?: string };
+}
+
 export interface CreateEventInput {
   summary: string;
   start: string;   // ISO datetime string
@@ -56,7 +63,60 @@ export class GoogleCalendarClient {
     };
 
     const calendarData = data.calendars?.[this.config.calendarId];
-    return calendarData?.busy ?? [];
+    const allDayBusy = await this.getAllDayBusy(timeMin, timeMax);
+    return mergeBusyIntervals([...(calendarData?.busy ?? []), ...allDayBusy]);
+  }
+
+  private async getAllDayBusy(
+    timeMin: string,
+    timeMax: string,
+  ): Promise<BusyInterval[]> {
+    const intervals: BusyInterval[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const url = new URL(
+        `${GCAL_BASE}/calendars/${encodeURIComponent(this.config.calendarId)}/events`,
+      );
+      url.searchParams.set('timeMin', timeMin);
+      url.searchParams.set('timeMax', timeMax);
+      url.searchParams.set('timeZone', TIMEZONE);
+      url.searchParams.set('singleEvents', 'true');
+      url.searchParams.set('showDeleted', 'false');
+      url.searchParams.set('maxResults', '2500');
+      url.searchParams.set('fields', 'items(status,eventType,start,end),nextPageToken');
+      if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+      });
+      if (!res.ok) {
+        throw new Error(`Google Calendar events.list error ${res.status}`);
+      }
+
+      const data = (await res.json()) as {
+        items?: CalendarEvent[];
+        nextPageToken?: string;
+      };
+      for (const event of data.items ?? []) {
+        if (
+          event.status === 'cancelled' ||
+          event.eventType === 'birthday' ||
+          event.eventType === 'workingLocation' ||
+          !event.start?.date ||
+          !event.end?.date
+        ) {
+          continue;
+        }
+        intervals.push({
+          start: new Date(`${event.start.date}T00:00:00+09:00`).toISOString(),
+          end: new Date(`${event.end.date}T00:00:00+09:00`).toISOString(),
+        });
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return intervals;
   }
 
   /**
@@ -172,4 +232,26 @@ export class GoogleCalendarClient {
       throw new Error(`Google Calendar deleteEvent error ${res.status}`);
     }
   }
+}
+
+function mergeBusyIntervals(intervals: BusyInterval[]): BusyInterval[] {
+  const sorted = intervals
+    .filter(({ start, end }) => {
+      const startMs = Date.parse(start);
+      const endMs = Date.parse(end);
+      return Number.isFinite(startMs) && Number.isFinite(endMs) && startMs < endMs;
+    })
+    .sort((left, right) => Date.parse(left.start) - Date.parse(right.start));
+  const merged: BusyInterval[] = [];
+
+  for (const interval of sorted) {
+    const previous = merged.at(-1);
+    if (!previous || Date.parse(interval.start) > Date.parse(previous.end)) {
+      merged.push({ ...interval });
+    } else if (Date.parse(interval.end) > Date.parse(previous.end)) {
+      previous.end = interval.end;
+    }
+  }
+
+  return merged;
 }

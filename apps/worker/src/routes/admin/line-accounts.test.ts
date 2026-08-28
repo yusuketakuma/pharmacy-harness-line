@@ -52,7 +52,7 @@ const boundaryMocks = {
 vi.mock('../../middleware/tenant-boundary.js', () => boundaryMocks);
 
 // Re-import after mock so the module picks up mocked deps.
-const { lineAccounts } = await import('./line-accounts.js');
+const { lineAccounts, monthStartJst } = await import('./line-accounts.js');
 
 type TestEnv = {
   Variables: {
@@ -320,6 +320,12 @@ describe('POST /api/line-accounts/:id/connect', () => {
 });
 
 describe('GET /api/line-accounts', () => {
+  test('counts the current month from JST midnight at the UTC month boundary', () => {
+    expect(monthStartJst(new Date('2026-08-31T15:30:00.000Z'))).toBe(
+      '2026-09-01T00:00:00.000',
+    );
+  });
+
   test('exposes pharmacy mode without exposing account secrets', async () => {
     dbMocks.getLineAccountsForTenant.mockResolvedValue([fakeAccount]);
     const db = {
