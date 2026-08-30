@@ -34,6 +34,11 @@ import {
 
 const lineAccounts = new Hono<Env>();
 
+export function monthStartJst(now = new Date()): string {
+  const jst = new Date(now.getTime() + 9 * 60 * 60_000);
+  return `${jst.toISOString().slice(0, 7)}-01T00:00:00.000`;
+}
+
 async function requireAccountAccess(
   c: Context<Env>,
   lineAccountId: string,
@@ -154,10 +159,11 @@ lineAccounts.get('/api/line-accounts', async (c) => {
             // 揃える設計: push 系のみ + 当月 1 日 00:00 以降。reply API 経由 (1-on-1 chat) は LINE quota 外なので
             // delivery_type='push' で除外。以前は date('now', '-30 days') の rolling window で月初に bias 残って
             // 公式 dashboard と数桁ズレてた (例: 公式 10 通 vs UI 10,609 通) → start of month に揃えた。
+            // SQLite date('now')はUTCなので、JST月初をbindして1日00:00〜08:59の月ずれを防ぐ。
             `SELECT COUNT(*) as count FROM messages_log ml
              INNER JOIN friends f ON f.id = ml.friend_id
-             WHERE ml.direction = 'outgoing' AND (ml.delivery_type IS NULL OR ml.delivery_type = 'push') AND ml.created_at >= date('now', 'start of month') AND f.line_account_id = ?`,
-          ).bind(item.id).first<{ count: number }>(),
+             WHERE ml.direction = 'outgoing' AND (ml.delivery_type IS NULL OR ml.delivery_type = 'push') AND ml.created_at >= ? AND f.line_account_id = ?`,
+          ).bind(monthStartJst(), item.id).first<{ count: number }>(),
           isPharmacyModeAccount(db, item.id),
         ]);
         const profile = accessToken ? await fetchBotProfile(accessToken) : {};

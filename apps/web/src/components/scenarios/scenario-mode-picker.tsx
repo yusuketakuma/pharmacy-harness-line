@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import type { DeliveryMode, ScenarioTriggerType, Tag } from '@line-crm/shared'
 import { api } from '@/lib/api'
 
@@ -46,16 +47,23 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
   const [tags, setTags] = useState<Tag[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [tagsState, setTagsState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
   // tags 一覧を取得 (tag_added 選択時のドロップダウン用)
   useEffect(() => {
     if (!open) return
+    setTagsState('loading')
     api.tags
       .list()
       .then((res) => {
-        if (res.success) setTags(res.data)
+        if (res.success) {
+          setTags(res.data)
+          setTagsState('ready')
+        } else {
+          setTagsState('failed')
+        }
       })
-      .catch(() => {})
+      .catch(() => setTagsState('failed'))
   }, [open])
 
   if (!open) return null
@@ -222,26 +230,12 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
               </div>
 
               {triggerType === 'tag_added' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    トリガータグ <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                    value={triggerTagId}
-                    onChange={(e) => setTriggerTagId(e.target.value)}
-                  >
-                    <option value="">-- 選択してください --</option>
-                    {tags.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    このタグが友だちに付与されたら、自動でこのシナリオを開始します
-                  </p>
-                </div>
+                <TriggerTagField
+                  tagsState={tagsState}
+                  tags={tags}
+                  value={triggerTagId}
+                  onChange={setTriggerTagId}
+                />
               )}
             </div>
 
@@ -267,6 +261,62 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+export function TriggerTagField({
+  tagsState,
+  tags,
+  value,
+  onChange,
+}: {
+  tagsState: 'loading' | 'ready' | 'failed'
+  tags: Tag[]
+  value: string
+  onChange: (tagId: string) => void
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">
+        トリガータグ <span className="text-red-500">*</span>
+      </label>
+      <select
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={tagsState !== 'ready' || tags.length === 0}
+      >
+        <option value="">
+          {tagsState === 'loading'
+            ? '読み込み中…'
+            : tagsState === 'failed'
+              ? 'タグを取得できませんでした'
+              : tags.length === 0
+                ? 'タグがまだありません'
+                : '-- 選択してください --'}
+        </option>
+        {tags.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
+      {tagsState === 'ready' && tags.length === 0 ? (
+        <p className="text-xs text-amber-600 mt-1">
+          タグがまだ1つもありません。先に
+          <Link href="/tags" className="underline font-medium mx-1">タグ管理</Link>
+          でタグを作ってください。
+        </p>
+      ) : tagsState === 'failed' ? (
+        <p className="text-xs text-red-600 mt-1">
+          タグ一覧を取得できませんでした。ページを再読み込みしてください。
+        </p>
+      ) : (
+        <p className="text-xs text-gray-400 mt-0.5">
+          このタグが友だちに付与されたら、自動でこのシナリオを開始します
+        </p>
+      )}
     </div>
   )
 }

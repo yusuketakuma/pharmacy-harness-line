@@ -5,6 +5,59 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('GoogleCalendarClient.getFreeBusy', () => {
+  test('終日予定を予約不可時間として補完する', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (String(input).endsWith('/freeBusy')) {
+        return new Response(JSON.stringify({ calendars: { primary: { busy: [] } } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({
+        items: [{
+          status: 'confirmed',
+          transparency: 'transparent',
+          start: { date: '2026-08-28' },
+          end: { date: '2026-08-29' },
+        }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
+
+    await expect(client.getFreeBusy(
+      '2026-08-27T15:00:00.000Z',
+      '2026-08-28T15:00:00.000Z',
+    )).resolves.toEqual([
+      { start: '2026-08-27T15:00:00.000Z', end: '2026-08-28T15:00:00.000Z' },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('events.list は必要な field だけ要求する', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (String(input).endsWith('/freeBusy')) {
+        return new Response(JSON.stringify({ calendars: { primary: { busy: [] } } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
+
+    await client.getFreeBusy('2026-08-27T15:00:00.000Z', '2026-08-28T15:00:00.000Z');
+
+    const eventsUrl = new URL(String(fetchMock.mock.calls[1][0]));
+    expect(eventsUrl.searchParams.get('fields')).toBe(
+      'items(status,eventType,start,end),nextPageToken',
+    );
+  });
+});
+
 describe('GoogleCalendarClient.createEvent', () => {
   test('Google Meetを要求し、返されたMeet URLを返す', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
