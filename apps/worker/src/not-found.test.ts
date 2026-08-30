@@ -66,6 +66,7 @@ describe('notFoundHandler — root / request', () => {
     const fetchApp = makeApp({ DB: {} as D1Database, ASSETS: assets });
     const res = await fetchApp('/api/does-not-exist');
     expect(res.status).toBe(404);
+    expect(res.headers.get('X-Line-Harness-Error')).toBe('route_not_found');
     expect(assets.fetch).not.toHaveBeenCalled();
   });
 

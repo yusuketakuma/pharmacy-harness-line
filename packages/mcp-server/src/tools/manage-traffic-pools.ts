@@ -1,16 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getHarnessApiConfig, getHarnessApiHeaders } from "../client.js";
-
-async function apiCall(path: string, method = "GET", body?: unknown) {
-  const { apiUrl } = getHarnessApiConfig();
-  const res = await fetch(`${apiUrl}${path}`, {
-    method,
-    headers: getHarnessApiHeaders(),
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  return res.json();
-}
+import { apiCall, toToolResult } from "../api-call.js";
 
 export function registerManageTrafficPools(server: McpServer): void {
   server.tool(
@@ -29,16 +19,14 @@ export function registerManageTrafficPools(server: McpServer): void {
     async ({ action, poolId, slug, name, activeAccountId, isActive, lineAccountId, poolAccountId }) => {
       try {
         if (action === "list") {
-          const data = await apiCall("/api/traffic-pools");
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall("/api/traffic-pools"));
         }
 
         if (action === "create") {
           if (!slug || !name || !activeAccountId) {
             throw new Error("slug, name, and activeAccountId are required for create");
           }
-          const data = await apiCall("/api/traffic-pools", "POST", { slug, name, activeAccountId });
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall("/api/traffic-pools", "POST", { slug, name, activeAccountId }));
         }
 
         if (action === "update") {
@@ -47,38 +35,32 @@ export function registerManageTrafficPools(server: McpServer): void {
           if (name !== undefined) body.name = name;
           if (activeAccountId !== undefined) body.activeAccountId = activeAccountId;
           if (isActive !== undefined) body.isActive = isActive;
-          const data = await apiCall(`/api/traffic-pools/${poolId}`, "PUT", body);
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall(`/api/traffic-pools/${encodeURIComponent(poolId)}`, "PUT", body));
         }
 
         if (action === "delete") {
           if (!poolId) throw new Error("poolId is required for delete");
-          const data = await apiCall(`/api/traffic-pools/${poolId}`, "DELETE");
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall(`/api/traffic-pools/${encodeURIComponent(poolId)}`, "DELETE"));
         }
 
         if (action === "list_accounts") {
           if (!poolId) throw new Error("poolId is required for list_accounts");
-          const data = await apiCall(`/api/traffic-pools/${poolId}/accounts`);
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall(`/api/traffic-pools/${encodeURIComponent(poolId)}/accounts`));
         }
 
         if (action === "add_account") {
           if (!poolId || !lineAccountId) throw new Error("poolId and lineAccountId are required for add_account");
-          const data = await apiCall(`/api/traffic-pools/${poolId}/accounts`, "POST", { lineAccountId });
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall(`/api/traffic-pools/${encodeURIComponent(poolId)}/accounts`, "POST", { lineAccountId }));
         }
 
         if (action === "remove_account") {
           if (!poolId || !poolAccountId) throw new Error("poolId and poolAccountId are required for remove_account");
-          const data = await apiCall(`/api/traffic-pools/${poolId}/accounts/${poolAccountId}`, "DELETE");
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall(`/api/traffic-pools/${encodeURIComponent(poolId)}/accounts/${encodeURIComponent(poolAccountId)}`, "DELETE"));
         }
 
         if (action === "toggle_account") {
           if (!poolId || !poolAccountId || isActive === undefined) throw new Error("poolId, poolAccountId, and isActive are required for toggle_account");
-          const data = await apiCall(`/api/traffic-pools/${poolId}/accounts/${poolAccountId}`, "PUT", { isActive });
-          return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+          return toToolResult(await apiCall(`/api/traffic-pools/${encodeURIComponent(poolId)}/accounts/${encodeURIComponent(poolAccountId)}`, "PUT", { isActive }));
         }
 
         throw new Error(`Unknown action: ${action}`);
