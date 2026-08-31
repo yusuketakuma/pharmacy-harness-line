@@ -5,7 +5,7 @@ import {
   type PatientIntakeCryptoScope,
 } from './envelopes.js';
 import { RECOVERY_ENVIRONMENT } from '../recovery/operations.js';
-import { getTenantPrivacyPolicy } from '../privacy-policy/repository.js';
+import { getEffectiveTenantPrivacyPolicy } from '../privacy-policy/repository.js';
 
 export type PharmacyPatientOwner = PrescriptionPatient;
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
@@ -419,7 +419,7 @@ export async function createPatientIntakeResponse(
     owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
   ).first<PharmacyPatientIntakeResponse>();
   if (existing) return openPatientIntakeFields(db, existing, cryptoScope);
-  const policy = await getTenantPrivacyPolicy(db, owner.lineAccountId);
+  const policy = await getEffectiveTenantPrivacyPolicy(db, owner.lineAccountId);
   if (!policy) throw new Error('privacy policy required');
   if (policy.policy_version !== input.privacyPolicyVersion ||
       policy.content_hash !== input.privacyPolicyHash) {
@@ -490,15 +490,15 @@ export async function createPatientIntakeResponse(
                WHERE migration.line_account_id = p.line_account_id
                  AND migration.phase = 'scrubbed'
             ) THEN '{}' ELSE ? END,
-            ?, ?, ?, ?, ?,
-            policy.policy_version, policy.content_hash
+            ?, ?, ?, ?, ?, ?, ?
        FROM pharmacy_patients p
-      INNER JOIN pharmacy_tenant_privacy_policy policy
+       LEFT JOIN pharmacy_tenant_privacy_policy policy
               ON policy.line_account_id = p.line_account_id
-             AND policy.policy_version = ?
-             AND policy.content_hash = ?
       WHERE p.id = ? AND p.line_account_id = ? AND p.owner_friend_id = ?
         AND p.archived_at IS NULL
+        AND ((? = 'tenant'
+              AND policy.policy_version = ? AND policy.content_hash = ?)
+          OR (? = 'platform_default' AND policy.line_account_id IS NULL))
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_patient_intake_migration_state migration
            WHERE migration.line_account_id = p.line_account_id
@@ -529,6 +529,7 @@ export async function createPatientIntakeResponse(
     response.representative_consent_at, response.privacy_consent_at, response.created_at,
     input.privacyPolicyVersion, input.privacyPolicyHash,
     patientId, owner.lineAccountId, owner.friendId,
+    policy.source, input.privacyPolicyVersion, input.privacyPolicyHash, policy.source,
     owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
     cryptoScope.tenantId, owner.lineAccountId, RECOVERY_ENVIRONMENT, now,
   );
@@ -550,7 +551,7 @@ export async function createPatientIntakeResponse(
     ).first<PharmacyPatientIntakeResponse>();
     if (winner) return openPatientIntakeFields(db, winner, cryptoScope);
     if (error instanceof Error && /constraint|unique|patient intake storage failed/i.test(error.message)) {
-      const currentPolicy = await getTenantPrivacyPolicy(db, owner.lineAccountId);
+      const currentPolicy = await getEffectiveTenantPrivacyPolicy(db, owner.lineAccountId);
       if (!currentPolicy) throw new Error('privacy policy required');
       if (currentPolicy.policy_version !== input.privacyPolicyVersion ||
           currentPolicy.content_hash !== input.privacyPolicyHash) {

@@ -5,7 +5,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPatientIntakeResponse } from '../../../apps/worker/src/custom/pharmacy/intake/repository.js';
 import {
+  getEffectiveTenantPrivacyPolicy,
   getTenantPrivacyPolicy,
+  PLATFORM_DEFAULT_POLICY_FIELDS,
+  PLATFORM_DEFAULT_POLICY_HASH,
+  PLATFORM_DEFAULT_POLICY_VERSION,
+  policyContentHash,
   saveTenantPrivacyPolicy,
 } from '../../../apps/worker/src/custom/pharmacy/privacy-policy/repository.js';
 
@@ -117,9 +122,38 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
       purpose_url: POLICY.purposeUrl,
       contact_point: POLICY.contactPoint,
       entrustment_text: POLICY.entrustmentText,
-      policy_version: 1,
+      policy_version: 2,
     });
     await expect(getTenantPrivacyPolicy(d1, 'account-b')).resolves.toBeNull();
+  });
+
+  it('returns one immutable platform default only for an existing active account', async () => {
+    const first = await getEffectiveTenantPrivacyPolicy(d1, 'account-b');
+    const second = await getEffectiveTenantPrivacyPolicy(d1, 'account-b');
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      line_account_id: 'account-b',
+      purpose_text: PLATFORM_DEFAULT_POLICY_FIELDS.purposeText,
+      purpose_url: PLATFORM_DEFAULT_POLICY_FIELDS.purposeUrl,
+      contact_point: PLATFORM_DEFAULT_POLICY_FIELDS.contactPoint,
+      entrustment_text: PLATFORM_DEFAULT_POLICY_FIELDS.entrustmentText,
+      policy_version: PLATFORM_DEFAULT_POLICY_VERSION,
+      content_hash: PLATFORM_DEFAULT_POLICY_HASH,
+      source: 'platform_default',
+    });
+    await expect(policyContentHash(PLATFORM_DEFAULT_POLICY_FIELDS))
+      .resolves.toBe(PLATFORM_DEFAULT_POLICY_HASH);
+    await expect(getEffectiveTenantPrivacyPolicy(d1, 'missing-account')).resolves.toBeNull();
+  });
+
+  it('persists an exact adoption of the platform default without changing its version', async () => {
+    await saveTenantPrivacyPolicy(d1, {
+      lineAccountId: 'account-a', staffId: 'staff-a', ...PLATFORM_DEFAULT_POLICY_FIELDS,
+    });
+    await expect(getTenantPrivacyPolicy(d1, 'account-a')).resolves.toMatchObject({
+      policy_version: PLATFORM_DEFAULT_POLICY_VERSION,
+      content_hash: PLATFORM_DEFAULT_POLICY_HASH,
+    });
   });
 
   it('bumps the version only when the policy text actually changes', async () => {
@@ -127,13 +161,13 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
     const first = await getTenantPrivacyPolicy(d1, 'account-a');
     await saveTenantPrivacyPolicy(d1, { lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY });
     const unchanged = await getTenantPrivacyPolicy(d1, 'account-a');
-    expect(unchanged).toMatchObject({ policy_version: 1, content_hash: first?.content_hash });
+    expect(unchanged).toMatchObject({ policy_version: 2, content_hash: first?.content_hash });
 
     await saveTenantPrivacyPolicy(d1, {
       lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY, purposeText: '利用目的を改定しました。',
     });
     const changed = await getTenantPrivacyPolicy(d1, 'account-a');
-    expect(changed?.policy_version).toBe(2);
+    expect(changed?.policy_version).toBe(3);
     expect(changed?.content_hash).not.toBe(first?.content_hash);
   });
 
@@ -164,21 +198,22 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
     });
   });
 
-  it('rejects intake consent when the tenant has published no notice', async () => {
+  it('accepts intake consent against the stable platform default', async () => {
+    const policy = await getEffectiveTenantPrivacyPolicy(d1, 'account-b');
     await expect(createPatientIntakeResponse(
       d1, { lineAccountId: 'account-b', friendId: 'friend-b' }, 'patient-b', {
         idempotencyKey: 'idem-key-0002',
         answers: ANSWERS,
         representativeConsent: true,
         privacyConsent: true,
-        privacyPolicyVersion: 1,
-        privacyPolicyHash: 'a'.repeat(64),
+        privacyPolicyVersion: policy!.policy_version,
+        privacyPolicyHash: policy!.content_hash,
       }, { tenantId: 'tenant-b', rootSecret: 's'.repeat(32) },
-    )).rejects.toThrow('privacy policy required');
+    )).resolves.toBeTruthy();
 
     expect(db.prepare(`SELECT COUNT(*) AS count
       FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-b'`).get()).toEqual({
-      count: 0,
+      count: 1,
     });
   });
 
@@ -198,7 +233,7 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
         privacyPolicyVersion: displayed!.policy_version,
         privacyPolicyHash: displayed!.content_hash,
       }, { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
-    )).rejects.toThrow('privacy policy required');
+    )).rejects.toThrow('privacy policy changed');
 
     expect(db.prepare(`SELECT COUNT(*) AS count
       FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`).get()).toEqual({
