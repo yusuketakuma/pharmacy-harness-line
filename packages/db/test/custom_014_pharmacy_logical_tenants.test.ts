@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -12,9 +12,7 @@ import {
 import { upsertFriend } from '../src/friends.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATIONS = join(ROOT, 'migrations');
 const MIGRATION_NAME = 'custom_014_pharmacy_logical_tenants.sql';
-const FRIEND_IDENTITY_MIGRATION = 'custom_016_pharmacy_friend_identity.sql';
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
 
@@ -43,19 +41,7 @@ function d1From(sqlite: Database.Database): D1Database {
 }
 
 function applyBeforeTenantMigration(db: Database.Database): void {
-  db.exec(readFileSync(join(ROOT, 'schema.sql'), 'utf8'));
-  for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith('.sql')).sort()) {
-    if (file === MIGRATION_NAME) break;
-    const sql = readFileSync(join(MIGRATIONS, file), 'utf8');
-    for (const statement of sql.split(/;\s*(?:\r?\n|$)/).map((item) => item.trim()).filter(Boolean)) {
-      try {
-        db.exec(statement);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/duplicate column name|already exists/i.test(message)) throw error;
-      }
-    }
-  }
+  db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
 }
 
 function insertAccount(db: Database.Database, id: string): void {
@@ -63,17 +49,19 @@ function insertAccount(db: Database.Database, id: string): void {
     (id, channel_id, name, channel_access_token, channel_secret)
     VALUES (?, ?, ?, ?, ?)`)
     .run(id, `channel-${id}`, `Pharmacy ${id}`, `token-${id}`, `secret-${id}`);
+  db.prepare(`INSERT INTO tenants (id, tenant_code, display_name)
+    VALUES (?, ?, ?)`).run(`tenant:${id}`, id, `Pharmacy ${id}`);
+  db.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id)
+    VALUES (?, ?)`).run(`tenant:${id}`, id);
 }
 
 describe(MIGRATION_NAME, () => {
-  it('backfills each existing LINE account into an isolated tenant without guessing account groups', () => {
+  it('keeps each LINE account in an isolated tenant by default', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     applyBeforeTenantMigration(db);
     insertAccount(db, 'account-a');
     insertAccount(db, 'account-b');
-
-    db.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
 
     expect(db.prepare(`SELECT tenant_code FROM tenants ORDER BY tenant_code`).all())
       .toEqual([{ tenant_code: 'account-a' }, { tenant_code: 'account-b' }]);
@@ -100,7 +88,6 @@ describe(MIGRATION_NAME, () => {
     applyBeforeTenantMigration(db);
     insertAccount(db, 'account-a');
     insertAccount(db, 'account-b');
-    db.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
     db.prepare(`INSERT INTO tenants
       (id, tenant_code, display_name, status, created_at, updated_at)
       VALUES ('tenant-shared', 'shared', 'Shared pharmacy', 'active', '2026-08-18', '2026-08-18')`).run();
@@ -121,7 +108,6 @@ describe(MIGRATION_NAME, () => {
     db.pragma('foreign_keys = ON');
     applyBeforeTenantMigration(db);
     insertAccount(db, 'account-a');
-    db.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
 
     expect(() => db.prepare(`INSERT INTO tenants
       (id, tenant_code, display_name, status, created_at, updated_at)
@@ -135,7 +121,6 @@ describe(MIGRATION_NAME, () => {
     applyBeforeTenantMigration(sqlite);
     insertAccount(sqlite, 'account-a');
     insertAccount(sqlite, 'account-b');
-    sqlite.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
     const db = d1From(sqlite);
 
     await expect(getLineAccountsForTenant(db, 'tenant:account-a'))
@@ -167,7 +152,6 @@ describe(MIGRATION_NAME, () => {
     sqlite.pragma('foreign_keys = ON');
     applyBeforeTenantMigration(sqlite);
     insertAccount(sqlite, 'account-a');
-    sqlite.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
     const db = d1From(sqlite);
 
     const list = await getLineAccountsForTenant(db, 'tenant:account-a');
@@ -189,11 +173,9 @@ describe(MIGRATION_NAME, () => {
     applyBeforeTenantMigration(sqlite);
     insertAccount(sqlite, 'account-a');
     insertAccount(sqlite, 'account-b');
-    sqlite.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
     sqlite.prepare(`INSERT INTO friends
       (id, line_user_id, display_name, is_following, line_account_id, created_at, updated_at)
       VALUES ('friend-a', 'U-shared', 'Account A patient', 1, 'account-a', '2026-08-18', '2026-08-18')`).run();
-    sqlite.exec(readFileSync(join(MIGRATIONS, FRIEND_IDENTITY_MIGRATION), 'utf8'));
     const db = d1From(sqlite);
 
     const accountBFriend = await upsertFriend(db, {
@@ -219,37 +201,5 @@ describe(MIGRATION_NAME, () => {
       WHERE provider_line_user_id = 'U-shared'`).get()).toEqual({ count: 2 });
   });
 
-  it('backfills staff access through tenants and rejects cross-tenant membership references', () => {
-    const db = new Database(':memory:');
-    db.pragma('foreign_keys = ON');
-    applyBeforeTenantMigration(db);
-    insertAccount(db, 'account-a');
-    db.prepare(`INSERT INTO staff_members
-      (id, name, role, api_key) VALUES ('staff-a', 'Staff A', 'staff', 'key-a')`).run();
-    db.prepare(`INSERT INTO pharmacy_staff_accounts
-      (line_account_id, staff_id, created_at, updated_at)
-      VALUES ('account-a', 'staff-a', '2026-08-18', '2026-08-18')`).run();
 
-    db.exec(readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8'));
-
-    expect(db.prepare(`SELECT tenant_id, staff_id FROM tenant_staff_memberships`).all())
-      .toEqual([{ tenant_id: 'tenant:account-a', staff_id: 'staff-a' }]);
-    expect(() => db.prepare(`INSERT INTO tenant_staff_memberships
-      (tenant_id, staff_id, role, is_active, created_at, updated_at)
-      VALUES ('missing-tenant', 'staff-a', 'staff', 1, '2026-08-18', '2026-08-18')`).run())
-      .toThrow(/FOREIGN KEY constraint failed/i);
-  });
-
-  it('is idempotent for migration retry', () => {
-    const db = new Database(':memory:');
-    db.pragma('foreign_keys = ON');
-    applyBeforeTenantMigration(db);
-    insertAccount(db, 'account-a');
-    const migration = readFileSync(join(MIGRATIONS, MIGRATION_NAME), 'utf8');
-
-    expect(() => db.exec(migration)).not.toThrow();
-    expect(() => db.exec(migration)).not.toThrow();
-    expect(db.prepare('SELECT COUNT(*) AS count FROM tenant_line_accounts').get())
-      .toEqual({ count: 1 });
-  });
 });

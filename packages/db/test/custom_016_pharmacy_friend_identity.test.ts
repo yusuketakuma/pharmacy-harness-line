@@ -5,42 +5,28 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations', 'custom_016_pharmacy_friend_identity.sql');
-
-function legacyDatabase(): Database.Database {
+function database(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
+  db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
   db.exec(`
-    CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
-    CREATE TABLE friends (
-      id TEXT PRIMARY KEY,
-      line_user_id TEXT UNIQUE NOT NULL,
-      display_name TEXT,
-      is_following INTEGER NOT NULL DEFAULT 1,
-      line_account_id TEXT REFERENCES line_accounts(id),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE UNIQUE INDEX idx_friends_id_line_account ON friends(id, line_account_id);
-    CREATE TABLE chats (
-      id TEXT PRIMARY KEY,
-      friend_id TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE
-    );
-    INSERT INTO line_accounts VALUES ('account-a'), ('account-b');
+    INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret) VALUES
+      ('account-a', 'channel-a', 'A', 'token-a', 'secret-a'),
+      ('account-b', 'channel-b', 'B', 'token-b', 'secret-b');
     INSERT INTO friends
       (id, line_user_id, display_name, line_account_id, created_at, updated_at)
     VALUES
       ('friend-a', 'U-a', 'Patient A', 'account-a', '2026-08-18', '2026-08-18'),
       ('friend-legacy', 'U-legacy', 'Legacy', NULL, '2026-08-18', '2026-08-18');
-    INSERT INTO chats VALUES ('chat-a', 'friend-a'), ('chat-legacy', 'friend-legacy');
+    INSERT INTO chats (id, friend_id)
+    VALUES ('chat-a', 'friend-a'), ('chat-legacy', 'friend-legacy');
   `);
   return db;
 }
 
 describe('custom_016_pharmacy_friend_identity.sql', () => {
-  it('backfills provider IDs without changing friend or child identities', () => {
-    const db = legacyDatabase();
-    db.exec(readFileSync(MIGRATION, 'utf8'));
+  it('stores provider IDs without changing friend or child identities', () => {
+    const db = database();
 
     expect(db.prepare(`SELECT id, provider_line_user_id FROM friends ORDER BY id`).all())
       .toEqual([
@@ -55,8 +41,7 @@ describe('custom_016_pharmacy_friend_identity.sql', () => {
   });
 
   it('allows the same provider user in different accounts but not twice in one account', () => {
-    const db = legacyDatabase();
-    db.exec(readFileSync(MIGRATION, 'utf8'));
+    const db = database();
     const insert = db.prepare(`INSERT INTO friends
       (id, line_user_id, provider_line_user_id, line_account_id, created_at, updated_at)
       VALUES (?, ?, 'U-shared', ?, '2026-08-18', '2026-08-18')`);
@@ -68,8 +53,7 @@ describe('custom_016_pharmacy_friend_identity.sql', () => {
   });
 
   it('keeps old writers compatible and rejects identity erasure or account reassignment', () => {
-    const db = legacyDatabase();
-    db.exec(readFileSync(MIGRATION, 'utf8'));
+    const db = database();
     db.prepare(`INSERT INTO friends
       (id, line_user_id, line_account_id, created_at, updated_at)
       VALUES ('friend-old-writer', 'U-old-writer', 'account-a', '2026-08-18', '2026-08-18')`).run();

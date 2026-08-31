@@ -34,10 +34,11 @@ const source = readFileSync(
 
 describe('patient intake UI contract', () => {
   it('requires both consents and a complete status answer', () => {
-    expect(canSubmitIntake(answers, false, true, false)).toBe(false);
-    expect(canSubmitIntake(answers, true, false, false)).toBe(false);
-    expect(canSubmitIntake(answers, true, true, true)).toBe(false);
-    expect(canSubmitIntake(answers, true, true, false)).toBe(true);
+    expect(canSubmitIntake(answers, false, true, false, true)).toBe(false);
+    expect(canSubmitIntake(answers, true, false, false, true)).toBe(false);
+    expect(canSubmitIntake(answers, true, true, true, true)).toBe(false);
+    expect(canSubmitIntake(answers, true, true, false, true)).toBe(true);
+    expect(canSubmitIntake(answers, true, true, false)).toBe(false);
   });
 
   it('renders family registration and pharmacy-safe questionnaire labels', () => {
@@ -123,6 +124,7 @@ describe('patient intake UI contract', () => {
         contact_point: '〇〇薬局 個人情報相談窓口 03-0000-0000',
         entrustment_text: 'システム運営を外部事業者に委託しています。',
         policy_version: 2,
+        content_hash: 'a'.repeat(64),
       }}
       onAnswersChange={() => undefined}
       onRepresentativeConsentChange={() => undefined}
@@ -136,7 +138,7 @@ describe('patient intake UI contract', () => {
     expect(html).toContain('この薬局');
   });
 
-  it('falls back to neutral wording and never blocks submission without a notice', () => {
+  it('does not allow submission without a pharmacy privacy policy', () => {
     const html = renderToStaticMarkup(<PatientQuestionnaire
       answers={INITIAL_INTAKE_ANSWERS}
       step={3}
@@ -151,13 +153,22 @@ describe('patient intake UI contract', () => {
     />);
 
     expect(html).toContain('薬局にお問い合わせください');
-    expect(canSubmitIntake(answers, true, true, false)).toBe(true);
+    expect(html).toContain('disabled=""');
+    expect(canSubmitIntake(answers, true, true, false, false)).toBe(false);
     expect(source).toContain('patientIntakeApi.privacyPolicy()');
+  });
+
+  it('binds submission to the displayed policy and reloads it after a conflict', () => {
+    expect(source).toContain('privacyPolicyVersion: privacyPolicy.policy_version');
+    expect(source).toContain('privacyPolicyHash: privacyPolicy.content_hash');
+    expect(source).toContain('status === 409');
+    expect(source).toContain('await loadPrivacyPolicy()');
+    expect(source).toContain('setPrivacyConsent(false);\n      setPrivacyPolicy(result.policy);');
   });
 
   it('offers a confirmed one-tap update from the last saved answers', () => {
     expect(source).toContain('前回から変更なしで更新');
-    expect(source).toContain('if (!latestAnswers || busy || !window.confirm(');
+    expect(source).toContain('if (!latestAnswers || busy || !privacyPolicy || !window.confirm(');
     expect(source).toContain('本人または代理人として');
     expect(source).toContain('個人情報の利用目的');
     expect(source).toContain('saveIntake(latestAnswers, true, true)');
@@ -170,7 +181,7 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(INITIAL_INTAKE_ANSWERS.adverseReactionStatus).toBe('');
     expect(INITIAL_INTAKE_ANSWERS.medicationStatus).toBe('');
     expect(INITIAL_INTAKE_ANSWERS.medicalHistoryStatus).toBe('');
-    expect(canSubmitIntake(INITIAL_INTAKE_ANSWERS, true, true, false)).toBe(false);
+    expect(canSubmitIntake(INITIAL_INTAKE_ANSWERS, true, true, false, true)).toBe(false);
     expect(safetyUnansweredKeys(INITIAL_INTAKE_ANSWERS, 1)).toEqual([
       'allergiesStatus', 'adverseReactionStatus', 'medicationStatus',
     ]);

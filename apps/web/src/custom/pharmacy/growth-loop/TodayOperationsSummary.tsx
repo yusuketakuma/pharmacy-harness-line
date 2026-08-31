@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAccount } from '@/contexts/account-context'
-import { api, type PharmacyOperationsSummary } from '@/lib/api'
 import { PRESCRIPTION_STATUS_LABELS } from '@/custom/pharmacy/prescriptions/PrescriptionQueueOverview'
+import { pharmacyGrowthApi, type PharmacyOperationsSummary } from './api'
 
 export type OperationsSummary = PharmacyOperationsSummary
 type DomainKey = keyof OperationsSummary['domains']
@@ -116,7 +116,7 @@ export default function TodayOperationsSummary() {
     setLoading(true)
     setError('')
     try {
-      const response = await api.pharmacyGrowth.operationsSummary(accountId)
+      const response = await pharmacyGrowthApi.operationsSummary(accountId)
       if (!requestGate.isCurrent(request)) return
       if (!response.success || !response.data || response.data.accountId !== accountId) {
         throw new Error('invalid account summary')

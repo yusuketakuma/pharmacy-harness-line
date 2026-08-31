@@ -141,7 +141,7 @@ export async function processDuePrescriptionValidityReminders(
         retryKey: `prescription-validity:${row.submission_id}:${row.valid_until}`,
       });
       // Never stamp reminder_sent_at while nothing was confirmed sent.
-      if (outcome === 'paused' || outcome === 'in_progress') {
+      if (outcome !== 'sent' && outcome !== 'already_sent') {
         await releaseClaim();
         result.skipped++;
         continue;

@@ -1,11 +1,13 @@
 import type { LineClient, Message } from '@line-crm/line-sdk';
 import { getLineAccountById, getTemplateById } from '@line-crm/db';
 import type { AutoReply, Friend } from '@line-crm/db';
-import { logOutgoingMessage } from './event-bus.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { deliverTrackedLineReply } from './outbound-line-delivery.js';
 import { renderBroadcastMessageContent } from './render-message.js';
 import {
   buildMessage,
   expandVariables,
+  isDeterministicInvalidReplyToken,
   messageToLogPayload,
   resolveMetadata,
 } from './step-delivery.js';
@@ -48,27 +50,12 @@ export interface MatchAndReplyResult {
 
 export type AutoReplySender = (replyToken: string, messages: Message[]) => Promise<void>;
 
-function liffIdFromUrl(liffUrl?: string): string | null {
-  if (!liffUrl) return null;
-  try {
-    const url = new URL(liffUrl);
-    if (url.hostname !== 'liff.line.me') return null;
-    return url.pathname.split('/').filter(Boolean)[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 async function resolveAutoReplyLiffId(
   db: D1Database,
-  lineAccountId: string | null,
-  fallbackLiffUrl?: string,
+  lineAccountId: string,
 ): Promise<string | null> {
-  if (lineAccountId) {
-    const account = await getLineAccountById(db, lineAccountId);
-    return account?.is_active && account.liff_id ? account.liff_id : null;
-  }
-  return liffIdFromUrl(fallbackLiffUrl);
+  const account = await getLineAccountById(db, lineAccountId);
+  return account?.is_active && account.liff_id ? account.liff_id : null;
 }
 
 /**
@@ -78,8 +65,8 @@ async function resolveAutoReplyLiffId(
  *
  * - silent タイプ: 返信せず matched=true だけ返す。テキスト経路では unread /
  *   push の抑止、postback 経路では「返信なしでタグだけ付ける」構成に使う。
- * - reply 失敗時も matched=true のまま (replyTokenConsumed=false)。呼び出し側は
- *   replyTokenConsumed=false のとき replyToken をイベントバスへ引き継げる。
+ * - durable reply の台帳準備失敗は throw し、webhook inbox の再試行へ戻す。
+ *   LINE 試行後の不明結果では token を使用済みとして別送信へ引き継がない。
  *
  * NOTE: auto-reply は replyMessage (無料・push 枠を消費しない) を使う。
  * replyToken の有効期限はイベントから約1分。
@@ -91,6 +78,8 @@ export async function matchAndReply(
   incomingText: string,
   replyToken: string,
   opts: {
+    tenantId?: string;
+    eventKey?: string;
     lineAccountId?: string | null;
     workerUrl?: string;
     liffUrl?: string;
@@ -98,7 +87,14 @@ export async function matchAndReply(
     replyMessage?: AutoReplySender;
   } = {},
 ): Promise<MatchAndReplyResult> {
-  const { lineAccountId = null, workerUrl, liffUrl, logContext, replyMessage } = opts;
+  const {
+    tenantId,
+    eventKey,
+    lineAccountId = null,
+    workerUrl,
+    logContext,
+    replyMessage,
+  } = opts;
 
   // グローバルルール (line_account_id IS NULL) + このアカウントのルール。
   // lineAccountId が null のときは `= NULL` が偽になるのでグローバルのみ残る。
@@ -115,8 +111,12 @@ export async function matchAndReply(
   const rule = autoReplies.results.find((r) => keywordMatches(r, incomingText));
   if (!rule) return { matched: false, replyTokenConsumed: false };
   if (rule.response_type === 'silent') return { matched: true, replyTokenConsumed: false };
+  if (!tenantId || !eventKey || !lineAccountId) {
+    throw new Error('AUTO_REPLY_DELIVERY_SCOPE_REQUIRED');
+  }
 
   let replyTokenConsumed = false;
+  let durableReplyPending = false;
   try {
     const resolvedMeta = await resolveMetadata(db, friend);
     const resolved = await resolveAutoReplyContent(db, rule);
@@ -127,7 +127,7 @@ export async function matchAndReply(
       resolved.messageType,
     );
     if (/\{\{\s*liff_id\s*\}\}/.test(expandedContent)) {
-      const liffId = await resolveAutoReplyLiffId(db, lineAccountId, liffUrl);
+      const liffId = await resolveAutoReplyLiffId(db, lineAccountId);
       if (!liffId) {
         throw new Error('LIFF ID is not configured for the matched LINE account');
       }
@@ -138,26 +138,42 @@ export async function matchAndReply(
       );
     }
     const replyMsg = buildMessage(resolved.messageType, expandedContent);
-    if (replyMessage) {
-      await replyMessage(replyToken, [replyMsg]);
-    } else {
-      await lineClient.replyMessage(replyToken, [replyMsg]);
-    }
-    replyTokenConsumed = true;
-
-    // 送信ログ（replyMessage = 無料）— derive content from the built reply
-    // message so any cleanEmptyNodes / parse-failure fallback is reflected
-    // in the dashboard.
     const replyPayload = messageToLogPayload(replyMsg);
-    await logOutgoingMessage(db, {
+    durableReplyPending = true;
+    const operationId = await createBroadcastRetryKey(
+      'auto-reply',
+      tenantId,
+      lineAccountId,
+      eventKey,
+      rule.id,
+    );
+    const delivery = await deliverTrackedLineReply({
+      db,
+      operationId,
+      tenantId,
+      lineAccountId,
       friendId: friend.id,
       messageType: replyPayload.messageType,
       content: replyPayload.content,
-      deliveryType: 'reply',
       source: 'auto_reply',
-      lineAccountId,
+      isDeterministicRejection: isDeterministicInvalidReplyToken,
+      send: async () => {
+        // A reply token has no provider retry key. Once LINE is attempted,
+        // never fall back to push if the external result becomes unknown.
+        replyTokenConsumed = true;
+        if (replyMessage) await replyMessage(replyToken, [replyMsg]);
+        else await lineClient.replyMessage(replyToken, [replyMsg]);
+      },
     });
+    if (delivery === 'not_sent') {
+      return { matched: true, replyTokenConsumed: true };
+    }
+    if (delivery === 'already_sent') replyTokenConsumed = true;
+    if (delivery !== 'sent' && delivery !== 'already_sent') {
+      throw new Error('AUTO_REPLY_REQUIRES_RECONCILIATION');
+    }
   } catch (err) {
+    if (durableReplyPending && !replyTokenConsumed) throw err;
     console.error(`Failed to send auto-reply${logContext ? ` (${logContext})` : ''}`, err);
   }
 

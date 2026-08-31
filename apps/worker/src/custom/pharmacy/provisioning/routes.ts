@@ -873,8 +873,6 @@ tenantProvisioningRoutes.post(
           {
             authentication: 'platform_admin_key',
             operationScope: 'all',
-            reason: input.reason,
-            ticketReference: input.ticketReference,
             expiresAt,
           },
         ),

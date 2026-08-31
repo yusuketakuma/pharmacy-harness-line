@@ -10,6 +10,7 @@ import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
 import { api } from '@/lib/api'
 import PrescriptionSidebarBadge from '@/custom/pharmacy/prescriptions/PrescriptionSidebarBadge' // custom:pharmacy-prescriptions
 import { isPharmacyMenuPath } from '@/custom/pharmacy/growth-loop/menu' // custom:pharmacy-allowlist
+import { pharmacyGrowthApi } from '@/custom/pharmacy/growth-loop/api'
 
 const appVersion = process.env.APP_VERSION || '0.0.0'
 const appCommitSha = process.env.APP_COMMIT_SHA || 'local'
@@ -17,7 +18,7 @@ const appBuildTime = process.env.APP_BUILD_TIME || ''
 const appBuildDate = appBuildTime ? appBuildTime.replace('T', ' ').replace(/\.\d{3}Z$/, 'Z') : ''
 
 type PharmacyActiveWork = Extract<
-  Awaited<ReturnType<typeof api.pharmacyGrowth.activeWork>>,
+  Awaited<ReturnType<typeof pharmacyGrowthApi.activeWork>>,
   { success: true }
 >['data']
 type PharmacyMenuCapability = keyof PharmacyActiveWork | 'pharmacy_rich_menu' | 'account_settings' | 'pharmacy_dashboard'
@@ -66,6 +67,7 @@ const menuSections = [
       { href: '/accounts', label: 'LINEアカウント', capability: 'account_settings' as const, icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011 1h2a1 1 0 011 1v5m-4 0h4' },
       { href: '/pools', label: 'プール管理', icon: 'M3 7h18M3 12h18M3 17h18' },
       { href: '/users', label: 'ユーザー一覧', icon: 'M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2' },
+      { href: '/security', label: 'セッション管理', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
       { href: '/health', label: 'BAN検知', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
       { href: '/emergency', label: '緊急コントロール', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z', danger: true },
     ],
@@ -273,8 +275,8 @@ export default function Sidebar() {
     const loadCapabilityState = async () => {
       try {
         const [configResponse, activeWorkResponse] = await Promise.all([
-          api.pharmacyGrowth.config(accountId),
-          api.pharmacyGrowth.activeWork(accountId),
+          pharmacyGrowthApi.config(accountId),
+          pharmacyGrowthApi.activeWork(accountId),
         ])
         if (cancelled || requestId !== capabilityRequestRef.current) return
         if (!configResponse.success || !configResponse.data || !activeWorkResponse.success) {

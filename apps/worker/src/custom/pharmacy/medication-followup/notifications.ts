@@ -66,9 +66,8 @@ export async function processDueMedicationFollowUps(
         retryKey: `medication-followup:${current.id}`,
         now,
       });
-      // 'paused' must not transition the follow-up to 'delivered' — nothing
-      // was delivered; it stays due until the tenant resumes sending.
-      if (outcome === 'in_progress' || outcome === 'paused') {
+      // Only confirmed LINE delivery may advance the clinical workflow.
+      if (outcome !== 'sent' && outcome !== 'already_sent') {
         result.skipped++;
         continue;
       }

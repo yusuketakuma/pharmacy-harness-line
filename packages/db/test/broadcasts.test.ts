@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createBroadcast } from '../src/broadcasts.js';
+import { createBroadcast, recoverStalledBroadcasts } from '../src/broadcasts.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +12,10 @@ function asD1(sqlite: Database.Database): D1Database {
     prepare(query: string) {
       const stmt = sqlite.prepare(query);
       return {
+        async run() {
+          const info = stmt.run();
+          return { results: [], success: true, meta: { changes: info.changes } };
+        },
         bind(...params: unknown[]) {
           return {
             async run() {
@@ -35,10 +39,6 @@ describe('createBroadcast', () => {
   beforeEach(() => {
     sqlite = new Database(':memory:');
     sqlite.exec(readFileSync(join(__dirname, '../schema.sql'), 'utf8'));
-    // schema.sql is the historical base schema; these production migrations
-    // add the columns createBroadcast writes atomically today.
-    sqlite.exec('ALTER TABLE broadcasts ADD COLUMN line_account_id TEXT');
-    sqlite.exec('ALTER TABLE broadcasts ADD COLUMN alt_text TEXT');
     db = asD1(sqlite);
   });
 
@@ -73,5 +73,38 @@ describe('createBroadcast', () => {
     await createBroadcast(db, input);
     await expect(createBroadcast(db, input)).rejects.toThrow(/UNIQUE constraint failed/);
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM broadcasts').get()).toEqual({ count: 1 });
+  });
+
+  test('recovers a stale tracked standard broadcast after partial progress', async () => {
+    sqlite.prepare(`INSERT INTO broadcasts
+      (id, title, message_type, message_content, target_type, status,
+       total_count, success_count, line_account_id, batch_offset,
+       segment_conditions, batch_lock_at, track_links)
+      VALUES (?, 'A', 'text', 'same message', 'tag', 'sending',
+              20, 10, 'account-a', -1, '{}', '2000-01-01T00:00:00.000', 0)`)
+      .run('broadcast-stalled');
+
+    await recoverStalledBroadcasts(db);
+
+    expect(sqlite.prepare(
+      'SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?',
+    ).get('broadcast-stalled')).toEqual({ batch_offset: 0, batch_lock_at: null });
+  });
+
+  test('recovers a stale provider-wide all broadcast', async () => {
+    sqlite.prepare(`INSERT INTO broadcasts
+      (id, title, message_type, message_content, target_type, status,
+       sent_at, total_count, success_count, line_account_id, batch_offset,
+       segment_conditions, account_ids, batch_lock_at, track_links)
+      VALUES (?, 'A', 'text', 'same message', 'all', 'sending',
+              NULL, 0, 0, 'account-a', -1,
+              NULL, NULL, '2000-01-01T00:00:00.000', 0)`)
+      .run('broadcast-provider-wide-stalled');
+
+    await recoverStalledBroadcasts(db);
+
+    expect(sqlite.prepare(
+      'SELECT batch_offset, batch_lock_at FROM broadcasts WHERE id = ?',
+    ).get('broadcast-provider-wide-stalled')).toEqual({ batch_offset: 0, batch_lock_at: null });
   });
 });

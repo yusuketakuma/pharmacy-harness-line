@@ -21,9 +21,7 @@ pharmacyPrivacyPolicyRoutes.use('/api/liff/pharmacy/privacy-policy', async (c, n
   return next();
 });
 
-// The patient-facing view of the pharmacy's own APPI notice. A tenant that has not
-// published one yields null; the LIFF consent screen falls back to neutral wording
-// rather than blocking intake.
+// A tenant without a published notice yields null and the LIFF blocks intake.
 pharmacyPrivacyPolicyRoutes.get('/api/liff/pharmacy/privacy-policy', async (c) => {
   const policy = await getTenantPrivacyPolicy(c.env.DB, c.get('privacyPolicyLineAccountId'));
   return c.json({
@@ -33,6 +31,7 @@ pharmacyPrivacyPolicyRoutes.get('/api/liff/pharmacy/privacy-policy', async (c) =
       contact_point: policy.contact_point,
       entrustment_text: policy.entrustment_text,
       policy_version: policy.policy_version,
+      content_hash: policy.content_hash,
     },
   });
 });

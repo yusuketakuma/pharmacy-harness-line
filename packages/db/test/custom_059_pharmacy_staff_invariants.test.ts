@@ -5,7 +5,6 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = 'custom_059_pharmacy_staff_invariants.sql';
 
 function database(): Database.Database {
   const db = new Database(':memory:');
@@ -33,7 +32,6 @@ function database(): Database.Database {
     VALUES ('account-a', 'staff-a', 1, '2026-08-25', '2026-08-25'),
            ('account-a', 'staff-b', 1, '2026-08-25', '2026-08-25');
   `);
-  db.exec(readFileSync(join(ROOT, 'migrations', MIGRATION), 'utf8'));
   return db;
 }
 

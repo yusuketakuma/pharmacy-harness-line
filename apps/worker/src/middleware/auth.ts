@@ -155,7 +155,6 @@ export async function resolveAuthenticatedTenant(
   db: D1Database,
   staff: AuthenticatedStaff,
   selector: string | null | undefined,
-  allowEnvOwnerBypass = false,
 ): Promise<TenantBoundIdentity | null> {
   const normalized = selector?.trim();
   if (!normalized) return null;
@@ -177,14 +176,6 @@ export async function resolveAuthenticatedTenant(
       pharmacy_mode: number;
     }>();
     if (!tenant) return null;
-
-    if (staff.id === 'env-owner' && allowEnvOwnerBypass && tenant.pharmacy_mode !== 1) {
-      console.log('[auth] accept_via=LEGACY_ENV_OWNER_BYPASS tenant=' + tenant.id);
-      return {
-        staff,
-        tenant: { id: tenant.id, code: tenant.tenant_code, name: tenant.display_name },
-      };
-    }
 
     const membership = await db.prepare(
       `SELECT role
@@ -311,7 +302,6 @@ async function authenticateRequest(
     c.env.DB,
     staff,
     c.req.header(TENANT_HEADER),
-    c.env.LEGACY_ENV_OWNER_BYPASS === 'true',
   );
   return identity ? {
     ...identity,
@@ -484,7 +474,6 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path === '/setup' ||
     path === '/api/integrations/stripe/webhook' ||
     path.match(/^\/api\/webhooks\/incoming\/[^/]+\/receive$/) ||
-    path === '/api/meet-callback' || // Meet Harness completion callback
     // Google OAuth redirects without admin headers. Route verifies a signed, expiring state.
     (path === '/api/booking/google-calendar/oauth/callback' && method === 'GET') ||
     path === '/api/qr' || // Public QR proxy — used by desktop landing pages

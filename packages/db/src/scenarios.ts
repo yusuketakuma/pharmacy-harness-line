@@ -49,6 +49,8 @@ export interface FriendScenario {
   status: FriendScenarioStatus;
   started_at: string;
   next_delivery_at: string | null;
+  delivery_first_attempted_at: string | null;
+  delivery_claim_token: string | null;
   updated_at: string;
 }
 
@@ -526,22 +528,39 @@ export async function getFriendScenariosDueForDelivery(
 /**
  * Optimistic lock: claim a friend_scenario for delivery.
  * Only succeeds if status='active' and current_step_order matches.
- * Returns true if claimed, false if another worker already processed it.
+ * Returns an ownership token if claimed, otherwise null.
  */
 export async function claimFriendScenarioForDelivery(
   db: D1Database,
   id: string,
   expectedStepOrder: number,
-): Promise<boolean> {
+): Promise<string | null> {
   const now = jstNow();
+  const claimToken = crypto.randomUUID();
+  const retryHorizon = new Date(Date.now() + 9 * 60 * 60_000 - 24 * 60 * 60_000)
+    .toISOString().slice(0, -1) + '+09:00';
   const result = await db
     .prepare(
       `UPDATE friend_scenarios
-       SET status = 'delivering', updated_at = ?
-       WHERE id = ? AND status = 'active' AND current_step_order = ?`,
+       SET status = 'delivering', delivery_claim_token = ?, updated_at = ?
+       WHERE id = ? AND status = 'active' AND current_step_order = ?
+         AND (delivery_first_attempted_at IS NULL OR delivery_first_attempted_at > ?)`,
     )
-    .bind(now, id, expectedStepOrder)
+    .bind(claimToken, now, id, expectedStepOrder, retryHorizon)
     .run();
+  return (result.meta.changes ?? 0) > 0 ? claimToken : null;
+}
+
+export async function markFriendScenarioDeliveryAttempt(
+  db: D1Database,
+  id: string,
+  claimToken: string,
+): Promise<boolean> {
+  const result = await db.prepare(
+    `UPDATE friend_scenarios
+        SET delivery_first_attempted_at = COALESCE(delivery_first_attempted_at, ?)
+      WHERE id = ? AND status = 'delivering' AND delivery_claim_token = ?`,
+  ).bind(jstNow(), id, claimToken).run();
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -549,14 +568,25 @@ export async function claimFriendScenarioForDelivery(
  * Crash recovery: reset friend_scenarios stuck in 'delivering' for over 5 minutes back to 'active'.
  */
 export async function recoverStuckDeliveries(db: D1Database): Promise<number> {
+  const now = jstNow();
+  const retryHorizon = new Date(Date.now() + 9 * 60 * 60_000 - 24 * 60 * 60_000)
+    .toISOString().slice(0, -1) + '+09:00';
+  await db.prepare(
+    `UPDATE friend_scenarios
+        SET status = 'paused', delivery_claim_token = NULL, updated_at = ?
+      WHERE status IN ('active','delivering')
+        AND delivery_first_attempted_at <= ?`,
+  ).bind(now, retryHorizon).run();
   const fiveMinAgo = new Date(Date.now() + 9 * 60 * 60_000 - 5 * 60_000);
   const threshold = fiveMinAgo.toISOString().slice(0, -1) + '+09:00';
   const result = await db
     .prepare(
-      `UPDATE friend_scenarios SET status = 'active', updated_at = ?
-       WHERE status = 'delivering' AND updated_at < ?`,
+      `UPDATE friend_scenarios
+          SET status = 'active', delivery_claim_token = NULL, updated_at = ?
+       WHERE status = 'delivering' AND updated_at < ?
+         AND (delivery_first_attempted_at IS NULL OR delivery_first_attempted_at > ?)`,
     )
-    .bind(jstNow(), threshold)
+    .bind(now, threshold, retryHorizon)
     .run();
   return result.meta.changes ?? 0;
 }
@@ -569,49 +599,77 @@ export async function recoverStuckDeliveries(db: D1Database): Promise<number> {
 export async function pauseFriendScenarioDelivery(
   db: D1Database,
   id: string,
-): Promise<void> {
-  await db
+  claimToken: string,
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `UPDATE friend_scenarios SET status = 'paused', updated_at = ?
-       WHERE id = ? AND status = 'delivering'`,
+       WHERE id = ? AND status = 'delivering' AND delivery_claim_token = ?`,
     )
-    .bind(jstNow(), id)
+    .bind(jstNow(), id, claimToken)
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function advanceFriendScenario(
   db: D1Database,
   id: string,
   nextStepOrder: number,
-  nextDeliveryAt?: string | null,
-): Promise<void> {
+  nextDeliveryAt: string | null | undefined,
+  claim: { token: string; expectedStepOrder: number },
+): Promise<boolean> {
   const now = jstNow();
-  await db
+  const result = await db
     .prepare(
       `UPDATE friend_scenarios
        SET current_step_order = ?,
            next_delivery_at = ?,
            status = 'active',
+           delivery_first_attempted_at = NULL,
+           delivery_claim_token = NULL,
            updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ?
+         AND status IN ('delivering', 'paused')
+         AND delivery_claim_token = ?
+         AND current_step_order = ?`,
     )
-    .bind(nextStepOrder, nextDeliveryAt ?? null, now, id)
+    .bind(
+      nextStepOrder,
+      nextDeliveryAt ?? null,
+      now,
+      id,
+      claim.token,
+      claim.expectedStepOrder,
+    )
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function completeFriendScenario(
   db: D1Database,
   id: string,
-): Promise<void> {
+  claim: { token: string; expectedStepOrder: number },
+): Promise<boolean> {
   const now = jstNow();
-  await db
+  const result = await db
     .prepare(
       `UPDATE friend_scenarios
        SET status = 'completed',
            next_delivery_at = NULL,
+           delivery_first_attempted_at = NULL,
+           delivery_claim_token = NULL,
            updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ?
+         AND status IN ('delivering', 'paused')
+         AND delivery_claim_token = ?
+         AND current_step_order = ?`,
     )
-    .bind(now, id)
+    .bind(
+      now,
+      id,
+      claim.token,
+      claim.expectedStepOrder,
+    )
     .run();
+  return (result.meta?.changes ?? 0) > 0;
 }

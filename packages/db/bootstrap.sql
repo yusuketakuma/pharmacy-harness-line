@@ -158,9 +158,11 @@ CREATE TABLE booking_reminders (
   kind          TEXT NOT NULL CHECK (kind IN ('day_before','hours_before')),
   scheduled_at  TEXT NOT NULL,                                -- UTC ISO8601
   sent_at       TEXT,                                         -- UTC ISO8601
-  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','failed_permanent','cancelled')),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','sent','failed','failed_permanent','cancelled')),
   retry_count   INTEGER NOT NULL DEFAULT 0,
   last_error    TEXT,
+  claimed_at    TEXT,
+  first_attempted_at TEXT,
   FOREIGN KEY (booking_id) REFERENCES bookings(id)
 );
 
@@ -298,6 +300,7 @@ CREATE TABLE engagement_events (
 
 CREATE TABLE entry_routes (
   id          TEXT PRIMARY KEY,
+  tenant_id   TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
   ref_code    TEXT UNIQUE NOT NULL,
   name        TEXT NOT NULL,
   tag_id      TEXT REFERENCES tags (id) ON DELETE SET NULL,
@@ -324,9 +327,11 @@ CREATE TABLE event_booking_reminders (
   kind          TEXT NOT NULL CHECK (kind IN ('day_before','hours_before')),
   scheduled_at  TEXT NOT NULL,
   sent_at       TEXT,
-  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','failed_permanent','cancelled')),
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','sent','failed','failed_permanent','cancelled')),
   retry_count   INTEGER NOT NULL DEFAULT 0,
   last_error    TEXT,
+  claimed_at    TEXT,
+  first_attempted_at TEXT,
   FOREIGN KEY (booking_id) REFERENCES event_bookings(id)
 );
 
@@ -411,6 +416,7 @@ CREATE TABLE form_submissions (
 
 CREATE TABLE forms (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
   name TEXT NOT NULL,
   description TEXT,
   fields TEXT NOT NULL DEFAULT '[]',
@@ -449,8 +455,9 @@ CREATE TABLE "friend_scenarios" (
   status             TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'delivering')) DEFAULT 'active',
   started_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   next_delivery_at   TEXT,
+  delivery_first_attempted_at TEXT,
   updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, delivery_claim_token TEXT);
 
 CREATE TABLE friend_scores (
   id              TEXT PRIMARY KEY,
@@ -491,6 +498,7 @@ CREATE TABLE friends (
 
 CREATE TABLE google_calendar_connections (
   id            TEXT PRIMARY KEY,
+  tenant_id     TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
   calendar_id   TEXT NOT NULL,
   line_account_id TEXT,
   staff_id      TEXT,
@@ -577,7 +585,7 @@ CREATE TABLE meet_consultation_reminders (
   kind             TEXT NOT NULL CHECK (kind IN ('day_before', 'hour_before')),
   scheduled_at     TEXT NOT NULL,
   status           TEXT NOT NULL DEFAULT 'pending'
-                   CHECK (status IN ('pending', 'failed', 'sent', 'cancelled')),
+                   CHECK (status IN ('pending', 'processing', 'failed', 'sent', 'cancelled')),
   retry_count      INTEGER NOT NULL DEFAULT 0,
   sent_at          TEXT,
   last_error       TEXT,
@@ -621,6 +629,7 @@ CREATE TABLE menus (
 
 CREATE TABLE message_templates (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
   name TEXT NOT NULL,
   message_type TEXT NOT NULL CHECK (message_type IN ('text', 'flex')),
   message_content TEXT NOT NULL,
@@ -641,7 +650,7 @@ CREATE TABLE messages_log (
   source           TEXT,
   line_account_id  TEXT,
   created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, outbound_operation_id TEXT REFERENCES outbound_line_deliveries(id) ON DELETE SET NULL);
 
 CREATE TABLE mileage_event_queue (
   engagement_event_id   TEXT PRIMARY KEY REFERENCES engagement_events(id) ON DELETE CASCADE,
@@ -737,6 +746,67 @@ CREATE TABLE operators (
   is_active  INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+
+CREATE TABLE outbound_line_deliveries (
+  id                 TEXT PRIMARY KEY,
+  tenant_id          TEXT NOT NULL,
+  line_account_id    TEXT NOT NULL,
+  source             TEXT NOT NULL CHECK (length(source) BETWEEN 1 AND 64),
+  delivery_type      TEXT NOT NULL CHECK (delivery_type IN ('push', 'reply', 'broadcast')),
+  outcome            TEXT NOT NULL CHECK (outcome IN ('open', 'accepted', 'retired')),
+  retry_key          TEXT UNIQUE,
+  request_json       TEXT CHECK (request_json IS NULL OR json_valid(request_json)),
+  prepare_token      TEXT NOT NULL,
+  attempt_count      INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  retry_until        TEXT NOT NULL,
+  first_attempted_at TEXT,
+  attempted_at       TEXT,
+  settled_at         TEXT,
+  stop_reason        TEXT CHECK (stop_reason IS NULL OR stop_reason IN (
+                       'retry_window_expired', 'reply_outcome_unknown', 'payload_unavailable',
+                       'local_precondition_failed', 'reply_rejected'
+                     )),
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  CHECK (
+    (delivery_type IN ('push', 'broadcast') AND retry_key IS NOT NULL)
+    OR (delivery_type = 'reply' AND retry_key IS NULL)
+  ),
+  CHECK (
+    (delivery_type = 'broadcast' AND request_json IS NOT NULL)
+    OR (delivery_type IN ('push', 'reply') AND request_json IS NULL)
+  ),
+  CHECK (
+    (outcome = 'open' AND settled_at IS NULL AND stop_reason IS NULL)
+    OR (outcome = 'accepted' AND settled_at IS NOT NULL AND stop_reason IS NULL)
+    OR (outcome = 'retired' AND settled_at IS NOT NULL AND stop_reason IS NOT NULL)
+  ),
+  UNIQUE (id, tenant_id, line_account_id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
+  FOREIGN KEY (tenant_id, line_account_id)
+    REFERENCES tenant_line_accounts(tenant_id, line_account_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE outbound_line_delivery_payloads (
+  operation_id   TEXT PRIMARY KEY,
+  tenant_id      TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  friend_id      TEXT NOT NULL,
+  message_type  TEXT NOT NULL,
+  log_content   TEXT NOT NULL,
+  log_delivery_type TEXT NOT NULL CHECK (log_delivery_type IN ('push', 'reply', 'test')),
+  request_json  TEXT CHECK (request_json IS NULL OR json_valid(request_json)),
+  broadcast_id  TEXT REFERENCES broadcasts(id) ON DELETE SET NULL,
+  scenario_enrollment_id TEXT REFERENCES friend_scenarios(id) ON DELETE SET NULL,
+  scenario_step_id       TEXT REFERENCES scenario_steps(id) ON DELETE SET NULL,
+  scenario_claim_token   TEXT,
+  template_id_at_send    TEXT,
+  created_at    TEXT NOT NULL,
+  FOREIGN KEY (operation_id, tenant_id, line_account_id)
+    REFERENCES outbound_line_deliveries(id, tenant_id, line_account_id) ON DELETE CASCADE,
+  FOREIGN KEY (friend_id, line_account_id)
+    REFERENCES friends(id, line_account_id) ON DELETE CASCADE
 );
 
 CREATE TABLE outgoing_webhook_deliveries (
@@ -2181,7 +2251,7 @@ CREATE TABLE platform_admin_access_grants (
   expires_at         TEXT NOT NULL,
   revoked_at         TEXT,
   revoked_by         TEXT
-, session_token_hash TEXT);
+, session_token_hash TEXT NOT NULL);
 
 CREATE TABLE platform_admin_credentials (
   staff_id             TEXT PRIMARY KEY
@@ -2200,6 +2270,10 @@ CREATE TABLE platform_admin_sessions (
   token_hash         TEXT PRIMARY KEY
                       CHECK (length(token_hash) = 64
                              AND token_hash NOT GLOB '*[^0-9a-f]*'),
+  session_family_hash TEXT
+                      CHECK (session_family_hash IS NULL OR
+                             (length(session_family_hash) = 64
+                              AND session_family_hash NOT GLOB '*[^0-9a-f]*')),
   staff_id           TEXT NOT NULL
                       REFERENCES platform_admins(staff_id) ON DELETE CASCADE,
   credential_version INTEGER NOT NULL CHECK (credential_version >= 1),
@@ -2421,6 +2495,7 @@ CREATE TABLE tags (
 
 CREATE TABLE templates (
   id              TEXT PRIMARY KEY,
+  tenant_id       TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
   name            TEXT NOT NULL,
   category        TEXT NOT NULL DEFAULT 'general',
   message_type    TEXT NOT NULL CHECK (message_type IN ('text', 'image', 'flex', 'carousel')),
@@ -2463,6 +2538,10 @@ CREATE TABLE tenant_admin_sessions (
   token_hash         TEXT PRIMARY KEY
                      CHECK (length(token_hash) = 64
                             AND token_hash NOT GLOB '*[^0-9a-f]*'),
+  session_family_hash TEXT
+                     CHECK (session_family_hash IS NULL OR
+                            (length(session_family_hash) = 64
+                             AND session_family_hash NOT GLOB '*[^0-9a-f]*')),
   tenant_id          TEXT NOT NULL,
   staff_id           TEXT NOT NULL,
   credential_version INTEGER NOT NULL CHECK (credential_version >= 1),
@@ -2520,6 +2599,7 @@ CREATE TABLE tracked_links (
 
 CREATE TABLE traffic_pools (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
   slug TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   active_account_id TEXT NOT NULL REFERENCES line_accounts(id),
@@ -2759,6 +2839,9 @@ CREATE INDEX idx_entry_routes_pool ON entry_routes (pool_id);
 
 CREATE INDEX idx_entry_routes_ref ON entry_routes (ref_code);
 
+CREATE INDEX idx_entry_routes_tenant_created
+  ON entry_routes(tenant_id, created_at DESC);
+
 CREATE INDEX idx_event_booking_idempotency_expires ON event_booking_idempotency_keys (expires_at);
 
 CREATE INDEX idx_event_booking_reminders_status_scheduled ON event_booking_reminders (status, scheduled_at);
@@ -2781,6 +2864,9 @@ CREATE INDEX idx_form_opens_form ON form_opens (form_id, opened_at);
 CREATE INDEX idx_form_submissions_form ON form_submissions (form_id);
 
 CREATE INDEX idx_form_submissions_friend ON form_submissions (friend_id);
+
+CREATE INDEX idx_forms_tenant_created
+  ON forms(tenant_id, created_at DESC);
 
 CREATE INDEX idx_friend_reminders_friend ON friend_reminders (friend_id);
 
@@ -2813,6 +2899,9 @@ CREATE INDEX idx_friends_user_id ON friends (user_id);
 
 CREATE INDEX idx_google_calendar_connections_staff
   ON google_calendar_connections (line_account_id, staff_id, is_active);
+
+CREATE INDEX idx_google_calendar_connections_tenant_created
+  ON google_calendar_connections(tenant_id, created_at DESC);
 
 CREATE INDEX idx_health_logs_account ON account_health_logs (line_account_id);
 
@@ -2851,6 +2940,19 @@ CREATE INDEX idx_meet_consultations_start ON meet_consultations (status, starts_
 
 CREATE INDEX idx_menus_account_sort ON menus (line_account_id, sort_order);
 
+CREATE INDEX idx_message_templates_tenant_name
+  ON message_templates(tenant_id, name);
+
+CREATE INDEX idx_messages_log_account_created_at
+  ON messages_log(
+    line_account_id,
+    julianday(CASE
+      WHEN created_at GLOB '*Z' OR substr(created_at, -6, 1) IN ('+', '-')
+        THEN created_at
+      ELSE created_at || '+09:00'
+    END)
+  );
+
 CREATE INDEX idx_messages_log_broadcast_id ON messages_log(broadcast_id);
 
 CREATE INDEX idx_messages_log_created_at ON messages_log (created_at);
@@ -2860,6 +2962,10 @@ CREATE INDEX idx_messages_log_friend_direction_created ON messages_log (friend_i
 CREATE INDEX idx_messages_log_friend_id ON messages_log (friend_id);
 
 CREATE INDEX idx_messages_log_friend_source ON messages_log (friend_id, source);
+
+CREATE UNIQUE INDEX idx_messages_log_outbound_operation
+  ON messages_log(outbound_operation_id)
+  WHERE outbound_operation_id IS NOT NULL;
 
 CREATE INDEX idx_mileage_event_queue_due
   ON mileage_event_queue(status, available_at, created_at);
@@ -2886,6 +2992,9 @@ CREATE INDEX idx_mileage_rules_match
 CREATE INDEX idx_notifications_created ON notifications (created_at);
 
 CREATE INDEX idx_notifications_status ON notifications (status);
+
+CREATE INDEX idx_outbound_line_deliveries_reconcile
+  ON outbound_line_deliveries(tenant_id, line_account_id, outcome, updated_at);
 
 CREATE INDEX idx_outgoing_webhook_deliveries_reconcile
   ON outgoing_webhook_deliveries(tenant_id, line_account_id, outcome, updated_at);
@@ -3209,6 +3318,9 @@ CREATE INDEX idx_tags_tenant_name
 
 CREATE INDEX idx_templates_category ON templates (category);
 
+CREATE INDEX idx_templates_tenant_category_created
+  ON templates(tenant_id, category, created_at DESC);
+
 CREATE INDEX idx_tenant_admin_audit_events_account
   ON tenant_admin_audit_events (line_account_id, created_at);
 
@@ -3232,6 +3344,9 @@ CREATE UNIQUE INDEX idx_tracked_links_dedup_key
 
 CREATE UNIQUE INDEX idx_tracked_links_short_code
   ON tracked_links (short_code) WHERE short_code IS NOT NULL;
+
+CREATE INDEX idx_traffic_pools_tenant_created
+  ON traffic_pools(tenant_id, created_at DESC);
 
 CREATE INDEX idx_update_history_started ON update_history(started_at DESC);
 
@@ -3292,11 +3407,161 @@ CREATE UNIQUE INDEX uq_rich_menu_groups_account_generator
   ON rich_menu_groups (account_id, generator_key)
   WHERE generator_key IS NOT NULL;
 
+CREATE TRIGGER auto_replies_template_scope_insert
+BEFORE INSERT ON auto_replies
+WHEN NEW.template_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM templates AS template
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = NEW.line_account_id
+   WHERE template.id = NEW.template_id
+     AND template.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'AUTO_REPLY_TEMPLATE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER auto_replies_template_scope_update
+BEFORE UPDATE OF template_id, line_account_id ON auto_replies
+WHEN NEW.template_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM templates AS template
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = NEW.line_account_id
+   WHERE template.id = NEW.template_id
+     AND template.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'AUTO_REPLY_TEMPLATE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER calendar_bookings_account_scope_insert
+BEFORE INSERT ON calendar_bookings
+WHEN NEW.friend_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM google_calendar_connections AS connection
+    INNER JOIN friends AS friend ON friend.id = NEW.friend_id
+   WHERE connection.id = NEW.connection_id
+     AND connection.line_account_id IS friend.line_account_id
+)
+BEGIN SELECT RAISE(ABORT, 'CALENDAR_BOOKING_ACCOUNT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER calendar_bookings_account_scope_update
+BEFORE UPDATE OF connection_id, friend_id ON calendar_bookings
+WHEN NEW.friend_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM google_calendar_connections AS connection
+    INNER JOIN friends AS friend ON friend.id = NEW.friend_id
+   WHERE connection.id = NEW.connection_id
+     AND connection.line_account_id IS friend.line_account_id
+)
+BEGIN SELECT RAISE(ABORT, 'CALENDAR_BOOKING_ACCOUNT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER entry_routes_resource_scope_insert
+BEFORE INSERT ON entry_routes
+WHEN (NEW.tag_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tags WHERE id = NEW.tag_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.scenario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM scenarios WHERE id = NEW.scenario_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.pool_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM traffic_pools WHERE id = NEW.pool_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.intro_template_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM message_templates
+         WHERE id = NEW.intro_template_id AND tenant_id IS NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'ENTRY_ROUTE_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER entry_routes_resource_scope_update
+BEFORE UPDATE OF tenant_id, tag_id, scenario_id, pool_id, intro_template_id ON entry_routes
+WHEN (NEW.tag_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tags WHERE id = NEW.tag_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.scenario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM scenarios WHERE id = NEW.scenario_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.pool_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM traffic_pools WHERE id = NEW.pool_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.intro_template_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM message_templates
+         WHERE id = NEW.intro_template_id AND tenant_id IS NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'ENTRY_ROUTE_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER form_submissions_tenant_scope_insert
+BEFORE INSERT ON form_submissions
+WHEN NEW.friend_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM forms AS form
+    INNER JOIN friends AS friend ON friend.id = NEW.friend_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE form.id = NEW.form_id
+     AND form.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'FORM_SUBMISSION_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER form_submissions_tenant_scope_update
+BEFORE UPDATE OF form_id, friend_id ON form_submissions
+WHEN NEW.friend_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM forms AS form
+    INNER JOIN friends AS friend ON friend.id = NEW.friend_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE form.id = NEW.form_id
+     AND form.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'FORM_SUBMISSION_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER forms_resource_scope_insert
+BEFORE INSERT ON forms
+WHEN (NEW.on_submit_tag_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tags WHERE id = NEW.on_submit_tag_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.on_submit_scenario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM scenarios
+         WHERE id = NEW.on_submit_scenario_id AND tenant_id IS NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'FORM_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER forms_resource_scope_update
+BEFORE UPDATE OF tenant_id, on_submit_tag_id, on_submit_scenario_id ON forms
+WHEN (NEW.on_submit_tag_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tags WHERE id = NEW.on_submit_tag_id AND tenant_id IS NEW.tenant_id
+      ))
+  OR (NEW.on_submit_scenario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM scenarios
+         WHERE id = NEW.on_submit_scenario_id AND tenant_id IS NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'FORM_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
 CREATE TRIGGER friends_account_immutable BEFORE UPDATE OF line_account_id ON friends WHEN OLD.line_account_id IS NOT NULL AND NEW.line_account_id IS NOT OLD.line_account_id BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;
 
 CREATE TRIGGER friends_provider_id_compat_insert AFTER INSERT ON friends WHEN NEW.provider_line_user_id IS NULL BEGIN UPDATE friends SET provider_line_user_id = NEW.line_user_id WHERE id = NEW.id; END;
 
 CREATE TRIGGER friends_provider_id_required_update BEFORE UPDATE OF provider_line_user_id ON friends WHEN NEW.provider_line_user_id IS NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_PROVIDER_LINE_USER_ID_REQUIRED'); END;
+
+CREATE TRIGGER google_calendar_connections_account_scope_insert
+BEFORE INSERT ON google_calendar_connections
+WHEN (NEW.tenant_id IS NULL AND NEW.line_account_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM tenant_line_accounts WHERE line_account_id = NEW.line_account_id
+      ))
+  OR (NEW.tenant_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tenant_line_accounts
+         WHERE line_account_id = NEW.line_account_id AND tenant_id = NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'CALENDAR_CONNECTION_ACCOUNT_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER google_calendar_connections_account_scope_update
+BEFORE UPDATE OF tenant_id, line_account_id ON google_calendar_connections
+WHEN (NEW.tenant_id IS NULL AND NEW.line_account_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM tenant_line_accounts WHERE line_account_id = NEW.line_account_id
+      ))
+  OR (NEW.tenant_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tenant_line_accounts
+         WHERE line_account_id = NEW.line_account_id AND tenant_id = NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'CALENDAR_CONNECTION_ACCOUNT_TENANT_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER line_accounts_default_pharmacy_capability
 AFTER INSERT ON line_accounts
@@ -3727,6 +3992,176 @@ CREATE TRIGGER pharmacy_staff_accounts_tenant_insert BEFORE INSERT ON pharmacy_s
 
 CREATE TRIGGER pharmacy_staff_accounts_tenant_update BEFORE UPDATE OF line_account_id, staff_id ON pharmacy_staff_accounts WHEN NOT EXISTS (SELECT 1 FROM tenant_line_accounts AS mapping INNER JOIN tenant_staff_memberships AS membership ON membership.tenant_id = mapping.tenant_id WHERE mapping.line_account_id = NEW.line_account_id AND membership.staff_id = NEW.staff_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_STAFF_TENANT_MISMATCH'); END;
 
+CREATE TRIGGER platform_admin_access_grant_authority_guard
+BEFORE INSERT ON platform_admin_access_grants
+WHEN NEW.revoked_at IS NULL AND NOT EXISTS (
+  SELECT 1
+    FROM platform_admin_sessions AS session
+    INNER JOIN platform_admins AS admin
+            ON admin.staff_id = session.staff_id
+    INNER JOIN staff_members AS staff
+            ON staff.id = admin.staff_id
+    INNER JOIN platform_admin_credentials AS credential
+            ON credential.staff_id = admin.staff_id
+           AND credential.credential_version = session.credential_version
+   WHERE session.token_hash = NEW.session_token_hash
+     AND session.staff_id = NEW.platform_admin_id
+     AND session.revoked_at IS NULL
+     AND session.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     AND admin.is_active = 1
+     AND staff.is_active = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'active/current platform admin session authority required'); END;
+
+CREATE TRIGGER platform_admin_access_grant_reactivation_required
+BEFORE UPDATE OF revoked_at ON platform_admin_access_grants
+WHEN NEW.session_token_hash IS NULL AND NEW.revoked_at IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'access grant session binding required'); END;
+
+CREATE TRIGGER platform_admin_access_grant_session_immutable
+BEFORE UPDATE OF session_token_hash ON platform_admin_access_grants
+WHEN NEW.session_token_hash IS NOT OLD.session_token_hash
+BEGIN
+  SELECT RAISE(ABORT, 'access grant session binding immutable'); END;
+
+CREATE TRIGGER platform_admin_access_grant_session_required
+BEFORE INSERT ON platform_admin_access_grants
+WHEN NEW.session_token_hash IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'access grant session binding required'); END;
+
+CREATE TRIGGER platform_admin_revoke_grants
+AFTER UPDATE OF is_active ON platform_admins
+WHEN OLD.is_active = 1 AND NEW.is_active = 0
+BEGIN
+  UPDATE platform_admin_access_grants
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+         revoked_by = 'system:platform_admin_disabled'
+   WHERE platform_admin_id = NEW.staff_id AND revoked_at IS NULL; END;
+
+CREATE TRIGGER platform_admin_revoke_sessions
+AFTER UPDATE OF is_active ON platform_admins
+WHEN OLD.is_active = 1 AND NEW.is_active = 0
+BEGIN
+  UPDATE platform_admin_sessions
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE staff_id = NEW.staff_id AND revoked_at IS NULL; END;
+
+CREATE TRIGGER platform_admin_session_authority_guard
+BEFORE INSERT ON platform_admin_sessions
+WHEN NEW.revoked_at IS NULL AND NOT EXISTS (
+  SELECT 1
+    FROM platform_admins AS admin
+    INNER JOIN staff_members AS staff ON staff.id = admin.staff_id
+    INNER JOIN platform_admin_credentials AS credential
+            ON credential.staff_id = admin.staff_id
+   WHERE admin.staff_id = NEW.staff_id
+     AND admin.is_active = 1
+     AND staff.is_active = 1
+     AND credential.credential_version = NEW.credential_version
+)
+BEGIN
+  SELECT RAISE(ABORT, 'inactive platform admin authority'); END;
+
+CREATE TRIGGER pool_accounts_tenant_scope_insert
+BEFORE INSERT ON pool_accounts
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM traffic_pools AS pool
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = NEW.line_account_id
+   WHERE pool.id = NEW.pool_id
+     AND pool.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'TRAFFIC_POOL_ACCOUNT_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pool_accounts_tenant_scope_update
+BEFORE UPDATE OF pool_id, line_account_id ON pool_accounts
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM traffic_pools AS pool
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = NEW.line_account_id
+   WHERE pool.id = NEW.pool_id
+     AND pool.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'TRAFFIC_POOL_ACCOUNT_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER ref_tracking_entry_route_tenant_scope_insert
+BEFORE INSERT ON ref_tracking
+WHEN NEW.entry_route_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM entry_routes AS route
+    LEFT JOIN friends AS friend ON friend.id = NEW.friend_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE route.id = NEW.entry_route_id
+     AND route.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'REF_TRACKING_ENTRY_ROUTE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER ref_tracking_entry_route_tenant_scope_update
+BEFORE UPDATE OF entry_route_id, friend_id ON ref_tracking
+WHEN NEW.entry_route_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM entry_routes AS route
+    LEFT JOIN friends AS friend ON friend.id = NEW.friend_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE route.id = NEW.entry_route_id
+     AND route.tenant_id IS mapping.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'REF_TRACKING_ENTRY_ROUTE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER scenario_steps_template_scope_insert
+BEFORE INSERT ON scenario_steps
+WHEN NEW.template_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM templates AS template
+    INNER JOIN scenarios AS scenario ON scenario.id = NEW.scenario_id
+   WHERE template.id = NEW.template_id
+     AND template.tenant_id IS scenario.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'SCENARIO_TEMPLATE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER scenario_steps_template_scope_update
+BEFORE UPDATE OF scenario_id, template_id ON scenario_steps
+WHEN NEW.template_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM templates AS template
+    INNER JOIN scenarios AS scenario ON scenario.id = NEW.scenario_id
+   WHERE template.id = NEW.template_id
+     AND template.tenant_id IS scenario.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'SCENARIO_TEMPLATE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER staff_member_revoke_platform_grants
+AFTER UPDATE OF is_active ON staff_members
+WHEN OLD.is_active = 1 AND NEW.is_active = 0
+BEGIN
+  UPDATE platform_admin_access_grants
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+         revoked_by = 'system:staff_disabled'
+   WHERE platform_admin_id = NEW.id AND revoked_at IS NULL; END;
+
+CREATE TRIGGER staff_member_revoke_platform_sessions
+AFTER UPDATE OF is_active ON staff_members
+WHEN OLD.is_active = 1 AND NEW.is_active = 0
+BEGIN
+  UPDATE platform_admin_sessions
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE staff_id = NEW.id AND revoked_at IS NULL; END;
+
+CREATE TRIGGER staff_member_revoke_tenant_sessions
+AFTER UPDATE OF is_active ON staff_members
+WHEN OLD.is_active = 1 AND NEW.is_active = 0
+BEGIN
+  UPDATE tenant_admin_sessions
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE staff_id = NEW.id AND revoked_at IS NULL; END;
+
 CREATE TRIGGER tenant_admin_audit_events_immutable_delete
 BEFORE DELETE ON tenant_admin_audit_events
 BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
@@ -3734,6 +4169,36 @@ BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
 CREATE TRIGGER tenant_admin_audit_events_immutable_update
 BEFORE UPDATE ON tenant_admin_audit_events
 BEGIN SELECT RAISE(ABORT, 'TENANT_ADMIN_AUDIT_EVENT_IMMUTABLE'); END;
+
+CREATE TRIGGER tenant_admin_session_authority_guard
+BEFORE INSERT ON tenant_admin_sessions
+WHEN NEW.revoked_at IS NULL AND NOT EXISTS (
+  SELECT 1
+    FROM tenants AS tenant
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = tenant.id
+           AND membership.staff_id = NEW.staff_id
+    INNER JOIN staff_members AS staff ON staff.id = membership.staff_id
+    INNER JOIN tenant_admin_credentials AS credential
+            ON credential.tenant_id = membership.tenant_id
+           AND credential.staff_id = membership.staff_id
+   WHERE tenant.id = NEW.tenant_id
+     AND tenant.status = 'active'
+     AND membership.is_active = 1
+     AND staff.is_active = 1
+     AND credential.credential_version = NEW.credential_version
+)
+BEGIN
+  SELECT RAISE(ABORT, 'inactive tenant admin authority'); END;
+
+CREATE TRIGGER tenant_membership_revoke_admin_sessions
+AFTER UPDATE OF is_active ON tenant_staff_memberships
+WHEN OLD.is_active = 1 AND NEW.is_active = 0
+BEGIN
+  UPDATE tenant_admin_sessions
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE tenant_id = NEW.tenant_id AND staff_id = NEW.staff_id
+     AND revoked_at IS NULL; END;
 
 CREATE TRIGGER tenant_staff_memberships_keep_account_assignee
 BEFORE UPDATE OF tenant_id, staff_id, is_active ON tenant_staff_memberships
@@ -3785,5 +4250,163 @@ WHEN OLD.role = 'owner'
  )
 BEGIN SELECT RAISE(ABORT, 'PHARMACY_LAST_ACTIVE_OWNER'); END;
 
+CREATE TRIGGER tenant_status_revoke_admin_sessions
+AFTER UPDATE OF status ON tenants
+WHEN OLD.status = 'active' AND NEW.status = 'suspended'
+BEGIN
+  UPDATE tenant_admin_sessions
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE tenant_id = NEW.id AND revoked_at IS NULL; END;
+
+CREATE TRIGGER tracked_links_resource_scope_insert
+BEFORE INSERT ON tracked_links
+WHEN (NEW.tag_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tags AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.tag_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+  OR (NEW.scenario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM scenarios AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.scenario_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+  OR (NEW.intro_template_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM message_templates AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.intro_template_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+  OR (NEW.reward_template_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM message_templates AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.reward_template_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'TRACKED_LINK_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER tracked_links_resource_scope_update
+BEFORE UPDATE OF line_account_id, tag_id, scenario_id, intro_template_id, reward_template_id
+ON tracked_links
+WHEN (NEW.tag_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tags AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.tag_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+  OR (NEW.scenario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM scenarios AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.scenario_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+  OR (NEW.intro_template_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM message_templates AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.intro_template_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+  OR (NEW.reward_template_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM message_templates AS resource
+        LEFT JOIN tenant_line_accounts AS mapping
+          ON mapping.line_account_id = NEW.line_account_id
+        WHERE resource.id = NEW.reward_template_id AND resource.tenant_id IS mapping.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'TRACKED_LINK_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER traffic_pools_account_scope_insert
+BEFORE INSERT ON traffic_pools
+WHEN (NEW.tenant_id IS NULL AND EXISTS (
+        SELECT 1 FROM tenant_line_accounts
+         WHERE line_account_id = NEW.active_account_id
+      ))
+  OR (NEW.tenant_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tenant_line_accounts
+         WHERE line_account_id = NEW.active_account_id AND tenant_id = NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'TRAFFIC_POOL_ACCOUNT_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER traffic_pools_account_scope_update
+BEFORE UPDATE OF tenant_id, active_account_id ON traffic_pools
+WHEN (NEW.tenant_id IS NULL AND EXISTS (
+        SELECT 1 FROM tenant_line_accounts
+         WHERE line_account_id = NEW.active_account_id
+      ))
+  OR (NEW.tenant_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tenant_line_accounts
+         WHERE line_account_id = NEW.active_account_id AND tenant_id = NEW.tenant_id
+      ))
+BEGIN SELECT RAISE(ABORT, 'TRAFFIC_POOL_ACCOUNT_TENANT_SCOPE_MISMATCH'); END;
+
 INSERT INTO auto_replies (id, keyword, match_type, response_type, response_content, template_id, line_account_id, is_active, created_at)
 VALUES ('builtin-mileage-wallet-keyword', 'マイル', 'exact', 'flex', '{"type":"bubble","size":"kilo","body":{"type":"box","layout":"vertical","paddingAll":"20px","contents":[{"type":"text","text":"あなたのHarnessマイル","weight":"bold","size":"lg","color":"#1e293b"},{"type":"text","text":"現在のマイル、獲得履歴、登録済みアカウント、次にマイルを獲得できる行動を確認できます。","wrap":true,"size":"sm","color":"#64748b","margin":"md"}]},"footer":{"type":"box","layout":"vertical","paddingAll":"16px","contents":[{"type":"button","style":"primary","color":"#06C755","height":"sm","action":{"type":"uri","label":"マイルを確認する","uri":"https://liff.line.me/{{liff_id}}/?page=affiliate&liffId={{liff_id}}"}}]}}', NULL, NULL, 1, '2026-08-11T00:00:00.000+09:00');
+
+INSERT INTO mileage_programs (id, code, name, status, created_at, updated_at)
+VALUES ('default', 'default', 'Harnessマイル', 'active', '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-booking-created', 'default', '予約', 'booking_created', NULL, 20, 'available', NULL, 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-following-180d', 'default', '継続フォロー180日', 'friend_following_180d', 'line_relationship', 100, 'available', '{"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-following-30d', 'default', '継続フォロー30日', 'friend_following_30d', 'line_relationship', 20, 'available', '{"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-following-365d', 'default', '継続フォロー1年', 'friend_following_365d', 'line_relationship', 200, 'available', '{"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-following-7d', 'default', '継続フォロー7日', 'friend_following_7d', 'line_relationship', 10, 'available', '{"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-following-90d', 'default', '継続フォロー90日', 'friend_following_90d', 'line_relationship', 50, 'available', '{"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-form-submitted', 'default', 'フォーム送信', 'form_submitted', 'form', 10, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-friend-registered', 'default', '友だち登録', 'friend_registered', 'line_relationship', 5, 'available', '{"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-instagram-comment-created', 'default', 'Instagramコメント', 'instagram_comment_created', 'instagram', 3, 'available', '{"dailyCapActions":5}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-instagram-dm-received', 'default', 'Instagram DM', 'instagram_dm_received', 'instagram', 2, 'available', '{"dailyCapActions":5}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-instagram-line-returned', 'default', 'InstagramからLINEへ帰還', 'instagram_line_returned', 'instagram', 15, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-instagram-story-mentioned', 'default', 'Instagramストーリーズメンション', 'instagram_story_mentioned', 'instagram', 5, 'available', '{"dailyCapActions":3}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-link-clicked', 'default', 'リンククリック', 'link_clicked', 'tracked_link', 2, 'available', '{"dailyCapActions":5,"uniquePerSubjectPerDay":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-message-received', 'default', 'メッセージ送信', 'message_received', 'line', 1, 'available', '{"dailyCapActions":5}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-purchase-completed', 'default', '購入完了', 'purchase_completed', 'stripe', 50, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-referral-booking-created', 'default', '紹介者：予約到達', 'booking_created', NULL, 50, 'available', '{"beneficiary":"referrer","uniquePerReferredFriend":true,"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-referral-purchase-completed', 'default', '紹介者：購入到達', 'purchase_completed', 'stripe', 100, 'available', '{"beneficiary":"referrer","uniquePerReferredFriend":true,"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-referral-webinar-completed', 'default', '紹介者：ウェビナー視聴完了', 'webinar_completed', 'webinar', 30, 'available', '{"beneficiary":"referrer","uniquePerReferredFriendPerSubject":true,"ignoreMultiplier":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-webinar-completed', 'default', 'ウェビナー90%視聴完了', 'webinar_completed', 'webinar', 30, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-webinar-cta-clicked', 'default', 'ウェビナーCTAクリック', 'webinar_cta_clicked', 'webinar', 10, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-webinar-watch-15m', 'default', 'ウェビナー15分視聴', 'webinar_watch_15m', 'webinar', 10, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+
+INSERT INTO mileage_rules (id, program_id, name, event_type, source, amount, initial_status, conditions, is_active, valid_from, valid_until, created_at, updated_at)
+VALUES ('builtin-webinar-watch-5m', 'default', 'ウェビナー5分視聴', 'webinar_watch_5m', 'webinar', 5, 'available', '{"uniquePerSubject":true}', 1, NULL, NULL, '2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');

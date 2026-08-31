@@ -5,34 +5,36 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION_NAME = 'custom_053_outgoing_webhook_deliveries.sql';
-
 describe('custom_053 outgoing webhook deliveries', () => {
   it('is listed in the generated bootstrap', () => {
     const meta = JSON.parse(readFileSync(join(ROOT, 'bootstrap-meta.json'), 'utf8')) as {
       includedMigrations: string[];
     };
-    expect(meta.includedMigrations).toContain(MIGRATION_NAME);
+    expect(meta.includedMigrations).toEqual([
+      '001_v033_baseline.sql',
+      '002_custom_060_messages_log_account_date.sql',
+      '003_outbound_line_deliveries.sql',
+      '004_custom_061_generic_resource_tenant_scope.sql',
+      '005_custom_062_ref_tracking_tenant_scope.sql',
+      '006_custom_063_auth_disable_revocation.sql',
+      '007_custom_064_legacy_access_grant_drain.sql',
+      '008_custom_065_session_rotation_family.sql',
+    ]);
   });
 
   it('keeps delivery attempts tenant-scoped and outcome-constrained', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
+    db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
     db.exec(`
-      CREATE TABLE tenants (id TEXT PRIMARY KEY);
-      CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
-      CREATE TABLE tenant_line_accounts (
-        tenant_id TEXT NOT NULL,
-        line_account_id TEXT NOT NULL UNIQUE,
-        PRIMARY KEY (tenant_id, line_account_id),
-        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-        FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
-      );
-      INSERT INTO tenants VALUES ('tenant-a'), ('tenant-b');
-      INSERT INTO line_accounts VALUES ('account-a'), ('account-b');
-      INSERT INTO tenant_line_accounts VALUES ('tenant-a', 'account-a'), ('tenant-b', 'account-b');
+      INSERT INTO tenants (id, tenant_code, display_name) VALUES
+        ('tenant-a', 'a', 'A'), ('tenant-b', 'b', 'B');
+      INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret) VALUES
+        ('account-a', 'channel-a', 'A', 'token-a', 'secret-a'),
+        ('account-b', 'channel-b', 'B', 'token-b', 'secret-b');
+      INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES
+        ('tenant-a', 'account-a'), ('tenant-b', 'account-b');
     `);
-    db.exec(readFileSync(join(ROOT, 'migrations', MIGRATION_NAME), 'utf8'));
 
     const insert = db.prepare(`INSERT INTO outgoing_webhook_deliveries
       (id, tenant_id, line_account_id, target_type, target_id, event_type,

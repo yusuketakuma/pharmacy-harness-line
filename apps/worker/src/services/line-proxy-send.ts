@@ -23,15 +23,16 @@ export async function pushViaHarnessProxy(
   accessToken: string,
   to: string,
   messages: Message[],
-  retryKey?: string,
+  retryKey: string,
   dispatch?: HarnessProxyDispatch,
   options?: HarnessProxyPushOptions,
 ): Promise<void> {
+  if (!retryKey) throw new Error('LINE retry key required');
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
+    'X-Line-Retry-Key': retryKey,
   };
-  if (retryKey) headers['X-Line-Retry-Key'] = retryKey;
   if (options?.pharmacyNotificationEventId) {
     headers['X-Pharmacy-Notification-Event-Id'] = options.pharmacyNotificationEventId;
   }
@@ -97,5 +98,12 @@ export async function replyViaHarnessProxy(
   const response = dispatch ? await dispatch(new Request(url, init)) : await fetch(url, init);
   if (response.ok) return;
 
-  throw new Error(`LINE Harness proxy error: ${response.status} ${response.statusText}`);
+  const body = (await response.json().catch(() => null)) as
+    { message?: unknown; error?: unknown } | null;
+  const detail = body && typeof (body.message ?? body.error) === 'string'
+    ? String(body.message ?? body.error).slice(0, 200)
+    : '';
+  throw new Error(
+    `LINE API error: ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`,
+  );
 }

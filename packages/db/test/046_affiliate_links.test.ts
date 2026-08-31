@@ -31,15 +31,6 @@ function execSafe(db: Database.Database, sql: string): void {
 function setupDbWithMigrations(): Database.Database {
   const db = new Database(':memory:');
   execSafe(db, readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8'));
-
-  const migrationFiles = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-
-  for (const file of migrationFiles) {
-    execSafe(db, readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-  }
-
   return db;
 }
 

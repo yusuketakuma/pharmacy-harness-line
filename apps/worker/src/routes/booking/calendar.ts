@@ -21,7 +21,7 @@ const calendar = new Hono<Env>();
 
 calendar.get('/api/integrations/google-calendar', async (c) => {
   try {
-    const items = await getCalendarConnections(c.env.DB);
+    const items = await getCalendarConnections(c.env.DB, c.get('tenantId') ?? null);
     return c.json({
       success: true,
       data: items.map((conn) => ({
@@ -41,9 +41,24 @@ calendar.get('/api/integrations/google-calendar', async (c) => {
 
 calendar.post('/api/integrations/google-calendar/connect', async (c) => {
   try {
-    const body = await c.req.json<{ calendarId: string; authType: string; accessToken?: string; refreshToken?: string; apiKey?: string }>();
+    const body = await c.req.json<{
+      calendarId: string;
+      authType: string;
+      lineAccountId?: string;
+      accessToken?: string;
+      refreshToken?: string;
+      apiKey?: string;
+    }>();
     if (!body.calendarId) return c.json({ success: false, error: 'calendarId is required' }, 400);
-    const conn = await createCalendarConnection(c.env.DB, body);
+    const tenantId = c.get('tenantId') ?? null;
+    if (tenantId && !body.lineAccountId) {
+      return c.json({ success: false, error: 'lineAccountId is required' }, 400);
+    }
+    const conn = await createCalendarConnection(c.env.DB, {
+      ...body,
+      tenantId,
+      staffId: c.get('staff')?.id,
+    });
     return c.json({
       success: true,
       data: { id: conn.id, calendarId: conn.calendar_id, authType: conn.auth_type, isActive: Boolean(conn.is_active), createdAt: conn.created_at },
@@ -56,7 +71,13 @@ calendar.post('/api/integrations/google-calendar/connect', async (c) => {
 
 calendar.delete('/api/integrations/google-calendar/:id', async (c) => {
   try {
-    await deleteCalendarConnection(c.env.DB, c.req.param('id'));
+    if (!await deleteCalendarConnection(
+      c.env.DB,
+      c.req.param('id'),
+      c.get('tenantId') ?? null,
+    )) {
+      return c.json({ success: false, error: 'Calendar connection not found' }, 404);
+    }
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/integrations/google-calendar/:id error:', err);
@@ -78,7 +99,8 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
       return c.json({ success: false, error: 'connectionId and date are required' }, 400);
     }
 
-    const conn = await getCalendarConnectionById(c.env.DB, connectionId);
+    const tenantId = c.get('tenantId') ?? null;
+    const conn = await getCalendarConnectionById(c.env.DB, connectionId, tenantId);
     if (!conn) {
       return c.json({ success: false, error: 'Calendar connection not found' }, 404);
     }
@@ -87,7 +109,13 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
     const dayEnd = `${date}T${String(endHour).padStart(2, '0')}:00:00`;
 
     // 既存D1予約を取得
-    const bookings = await getBookingsInRange(c.env.DB, connectionId, dayStart, dayEnd);
+    const bookings = await getBookingsInRange(
+      c.env.DB,
+      connectionId,
+      dayStart,
+      dayEnd,
+      tenantId,
+    );
 
     // Google FreeBusy API から busy 区間を取得（access_token がある場合のみ）
     let googleBusyIntervals: { start: string; end: string }[] = [];
@@ -150,7 +178,11 @@ calendar.get('/api/integrations/google-calendar/bookings', async (c) => {
   try {
     const connectionId = c.req.query('connectionId');
     const friendId = c.req.query('friendId');
-    const items = await getCalendarBookings(c.env.DB, { connectionId: connectionId ?? undefined, friendId: friendId ?? undefined });
+    const items = await getCalendarBookings(c.env.DB, {
+      connectionId: connectionId ?? undefined,
+      friendId: friendId ?? undefined,
+      tenantId: c.get('tenantId') ?? null,
+    });
     return c.json({
       success: true,
       data: items.map((b) => ({
@@ -179,14 +211,20 @@ calendar.post('/api/integrations/google-calendar/book', async (c) => {
       return c.json({ success: false, error: 'connectionId, title, startAt, endAt are required' }, 400);
     }
 
+    const tenantId = c.get('tenantId') ?? null;
+    const conn = await getCalendarConnectionById(c.env.DB, body.connectionId, tenantId);
+    if (!conn) {
+      return c.json({ success: false, error: 'Calendar connection not found' }, 404);
+    }
+
     // D1 に予約レコードを作成
     const booking = await createCalendarBooking(c.env.DB, {
       ...body,
       metadata: body.metadata ? JSON.stringify(body.metadata) : undefined,
+      tenantId,
     });
 
     // Google Calendar にイベントを作成（access_token がある場合のみ、ベストエフォート）
-    const conn = await getCalendarConnectionById(c.env.DB, body.connectionId);
     if (conn?.access_token) {
       try {
         const gcal = new GoogleCalendarClient({
@@ -200,7 +238,7 @@ calendar.post('/api/integrations/google-calendar/book', async (c) => {
           description: body.description,
         });
         // event_id を D1 予約レコードに保存
-        await updateCalendarBookingEventId(c.env.DB, booking.id, eventId);
+        await updateCalendarBookingEventId(c.env.DB, booking.id, eventId, tenantId);
         booking.event_id = eventId;
       } catch (err) {
         // Google API 失敗はベストエフォート — D1 予約は維持する
@@ -232,12 +270,13 @@ calendar.put('/api/integrations/google-calendar/bookings/:id/status', async (c) 
   try {
     const id = c.req.param('id');
     const { status } = await c.req.json<{ status: string }>();
+    const tenantId = c.get('tenantId') ?? null;
 
     // キャンセル時は Google Calendar のイベントも削除する（ベストエフォート）
     if (status === 'cancelled') {
-      const booking = await getCalendarBookingById(c.env.DB, id);
+      const booking = await getCalendarBookingById(c.env.DB, id, tenantId);
       if (booking?.event_id && booking.connection_id) {
-        const conn = await getCalendarConnectionById(c.env.DB, booking.connection_id);
+        const conn = await getCalendarConnectionById(c.env.DB, booking.connection_id, tenantId);
         if (conn?.access_token) {
           try {
             const gcal = new GoogleCalendarClient({
@@ -252,7 +291,9 @@ calendar.put('/api/integrations/google-calendar/bookings/:id/status', async (c) 
       }
     }
 
-    await updateCalendarBookingStatus(c.env.DB, id, status);
+    if (!await updateCalendarBookingStatus(c.env.DB, id, status, tenantId)) {
+      return c.json({ success: false, error: 'Calendar booking not found' }, 404);
+    }
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('PUT /api/integrations/google-calendar/bookings/:id/status error:', err);

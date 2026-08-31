@@ -4,6 +4,7 @@ import { assertD1Success, executeD1Query } from './cf-api/d1.js';
 import { createTriggerName, isBenignSchemaErrorText, normalizeTriggerSql } from './materialize.js';
 
 export const MIGRATION_STATE_TABLE = '_line_harness_migrations';
+const LEGACY_BASELINE_MARKER = '__line_harness_legacy_baseline_in_progress__';
 
 type D1Executor = typeof executeD1Query;
 
@@ -194,12 +195,20 @@ export async function applyD1Migrations(
 
   const ledger = await execute({
     ...base,
-    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
-    params: [MIGRATION_STATE_TABLE],
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?)",
+    params: [MIGRATION_STATE_TABLE, LEGACY_BASELINE_MARKER],
   });
-  const legacyBaseline = firstResultValue(ledger, 'name') !== MIGRATION_STATE_TABLE;
+  const ledgerTables = new Set<string>(
+    (ledger.result?.[0]?.results ?? []).map((row: any) => row.name),
+  );
+  const ledgerMissing = !ledgerTables.has(MIGRATION_STATE_TABLE);
+  const legacyMarkerPresent = ledgerTables.has(LEGACY_BASELINE_MARKER);
+  const legacyBaseline = ledgerMissing || legacyMarkerPresent;
+  if (legacyMarkerPresent && opts.requireChecksumLedger) {
+    throw new Error('legacy migration baseline is incomplete; resume trusted setup first');
+  }
   const recordedNames = new Set<string>();
-  if (legacyBaseline) {
+  if (ledgerMissing) {
     if (opts.requireChecksumLedger) {
       throw new Error(
         'migration checksum ledger missing; run trusted setup/baseline initialization before deployment',
@@ -215,13 +224,59 @@ export async function applyD1Migrations(
       ...base,
       sql:
         `CREATE TABLE ${MIGRATION_STATE_TABLE} (` +
-        'name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)',
+        'name TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);' +
+        `CREATE TABLE ${LEGACY_BASELINE_MARKER} (` +
+        'id INTEGER PRIMARY KEY CHECK (id = 1));',
     });
   } else {
     // Complete every checksum read and pending SQL safety check before the
     // first migration write. Historical bytes are trusted only by exact
     // ledger checksum and are never reinterpreted under newer SQL policy.
+    const v033Epoch = !legacyBaseline &&
+      opts.requireChecksumLedger && opts.names[0] === '001_v033_baseline.sql';
+    if (v033Epoch) {
+      const stored = await execute({
+        ...base,
+        sql: `SELECT name, checksum FROM ${MIGRATION_STATE_TABLE}`,
+      });
+      const rows = stored.result?.[0]?.results;
+      const recorded = new Map<string, string>(
+        (Array.isArray(rows) ? rows : []).map((row: any) => [row.name, row.checksum]),
+      );
+      for (const name of recorded.keys()) {
+        if (!checksums.has(name)) {
+          throw new Error(`wrong migration epoch: unknown ledger entry ${name}`);
+        }
+      }
+      let missing = false;
+      for (const name of opts.names) {
+        const priorChecksum = recorded.get(name);
+        if (priorChecksum === undefined) {
+          missing = true;
+          continue;
+        }
+        if (missing) {
+          throw new Error(`migration ledger is not an exact manifest prefix at ${name}`);
+        }
+        const checksum = checksums.get(name) as string;
+        if (priorChecksum !== checksum) {
+          throw new Error(
+            `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
+          );
+        }
+        recordedNames.add(name);
+      }
+    }
     for (const name of opts.names) {
+      if (v033Epoch) {
+        if (!recordedNames.has(name)) {
+          parsedStatements.set(
+            name,
+            splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
+          );
+        }
+        continue;
+      }
       const recorded = await execute({
         ...base,
         sql: `SELECT checksum FROM ${MIGRATION_STATE_TABLE} WHERE name = ?`,
@@ -242,6 +297,31 @@ export async function applyD1Migrations(
           splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
         );
       }
+    }
+  }
+
+  const atomicStatementsByMigration = new Map<string, string[]>();
+  if (!legacyBaseline) {
+    for (const name of opts.names) {
+      if (recordedNames.has(name)) continue;
+      const atomicStatements: string[] = [];
+      const droppedTriggers = new Set<string>();
+      for (const statement of parsedStatements.get(name) as string[]) {
+        const bare = stripSqlComments(statement).trim();
+        const droppedTrigger = dropTriggerName(bare);
+        if (droppedTrigger) droppedTriggers.add(droppedTrigger.toLowerCase());
+        const createdTrigger = createTriggerName(bare);
+        const isReplacement = createdTrigger
+          ? droppedTriggers.delete(createdTrigger.toLowerCase())
+          : false;
+        if (createdTrigger && !isReplacement && await triggerAlreadyMatches(execute, base, name, statement)) {
+          throw new Error(
+            `migration ${name}: preexisting trigger without ledger entry`,
+          );
+        }
+        atomicStatements.push(strictCreateTrigger(statement));
+      }
+      atomicStatementsByMigration.set(name, atomicStatements);
     }
   }
 
@@ -300,7 +380,9 @@ export async function applyD1Migrations(
         `INSERT INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) ` +
         `VALUES (${sqlLiteral(name)}, ${sqlLiteral(checksum)}, ` +
         "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
-    const atomicSql = [...statements, ledgerInsert]
+    const atomicStatements = atomicStatementsByMigration.get(name) as string[];
+    const skippedStatements = 0;
+    const atomicSql = [...atomicStatements, ledgerInsert]
       .map((statement) => `${statement.replace(/;\s*$/, '')};`)
       .join('\n');
     try {
@@ -325,18 +407,24 @@ export async function applyD1Migrations(
     const result: MigrationApplyResult = {
       name,
       alreadyApplied: false,
-      executedStatements: statements.length,
-      skippedStatements: 0,
+      executedStatements: atomicStatements.length,
+      skippedStatements,
     };
     results.push(result);
     await opts.onMigrationDone?.(result);
+  }
+  if (legacyBaseline) {
+    await execute({
+      ...base,
+      sql: `DROP TABLE ${LEGACY_BASELINE_MARKER}`,
+    });
   }
   return results;
 }
 
 /**
- * Decide whether a legacy-baseline statement is a CREATE TRIGGER whose live
- * definition already matches, i.e. genuinely applied.
+ * Decide whether a pending statement is a CREATE TRIGGER whose live definition
+ * already matches, i.e. genuinely applied by a prior interrupted attempt.
  *
  * `CREATE TRIGGER IF NOT EXISTS` is silent when a trigger of that name exists
  * with a DIFFERENT body — no error to classify as benign — so the tenant
@@ -360,7 +448,7 @@ async function triggerAlreadyMatches(
 
   const live = await execute({
     ...base,
-    sql: "SELECT sql FROM sqlite_master WHERE type='trigger' AND name = ?",
+    sql: "SELECT sql FROM sqlite_master WHERE type='trigger' AND name = ? COLLATE NOCASE",
     params: [trigger],
   });
   const liveSql = firstResultValue(live, 'sql');
@@ -374,6 +462,15 @@ async function triggerAlreadyMatches(
   );
 }
 
+function strictCreateTrigger(statement: string): string {
+  const bare = stripSqlComments(statement).trim();
+  if (!createTriggerName(bare)) return statement;
+  return bare.replace(
+    /^(CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER)\s+IF\s+NOT\s+EXISTS\s+/i,
+    '$1 ',
+  );
+}
+
 function sqlLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -384,7 +481,74 @@ function pushSqlStatement(statements: string[], candidate: string): void {
 }
 
 function stripSqlComments(sql: string): string {
-  return sql.replace(/--[^\r\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  let stripped = '';
+  let quote: "'" | '"' | '`' | ']' | null = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (lineComment) {
+      if (ch === '\n' || ch === '\r') {
+        lineComment = false;
+        stripped += ch;
+      }
+      continue;
+    }
+    if (blockComment) {
+      if (ch === '*' && next === '/') {
+        blockComment = false;
+        i += 1;
+      } else if (ch === '\n' || ch === '\r') {
+        stripped += ch;
+      }
+      continue;
+    }
+    if (quote) {
+      stripped += ch;
+      if (ch === quote) {
+        if (next === quote && quote !== ']') {
+          stripped += next;
+          i += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      stripped += ' ';
+      lineComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      stripped += ' ';
+      blockComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+    } else if (ch === '[') {
+      quote = ']';
+    }
+    stripped += ch;
+  }
+
+  return stripped;
+}
+
+const DROP_TRIGGER_HEAD =
+  /^\s*DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))/i;
+
+function dropTriggerName(statement: string): string | null {
+  const match = DROP_TRIGGER_HEAD.exec(statement);
+  if (!match) return null;
+  return match[1] ?? match[2] ?? match[3] ?? match[4] ?? null;
 }
 
 function firstResultValue(

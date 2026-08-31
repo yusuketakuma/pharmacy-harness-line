@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('custom_021 pharmacy webhook event receipts', () => {
-  it('enforces tenant/account-scoped idempotency and supports replay', () => {
+  it('enforces tenant/account-scoped idempotency', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
@@ -19,13 +19,6 @@ describe('custom_021 pharmacy webhook event receipts', () => {
       INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
       VALUES ('tenant-a', 'account-a', '2026-08-19', '2026-08-19');
     `);
-    const migration = readFileSync(
-      join(ROOT, 'migrations', 'custom_021_pharmacy_webhook_event_receipts.sql'),
-      'utf8',
-    );
-    db.exec(migration);
-    db.exec(migration);
-
     const insert = db.prepare(`
       INSERT OR IGNORE INTO pharmacy_webhook_event_receipts
         (tenant_id, line_account_id, webhook_event_id, received_at)

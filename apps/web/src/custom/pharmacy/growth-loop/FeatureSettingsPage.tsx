@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAccount } from '@/contexts/account-context'
-import { ApiError, api, type PharmacyRichMenuCandidate } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { richMenuAreaStyle } from '@/custom/pharmacy/rich-menu/preview-geometry'
+import { pharmacyRichMenuApi, type PharmacyRichMenuCandidate } from '@/custom/pharmacy/rich-menu/api'
+import { pharmacyGrowthApi } from './api'
 
 const PATIENT_FEATURES = [
   { key: 'prescription_intake', label: '処方せん事前送信' },
@@ -18,9 +20,9 @@ const PATIENT_FEATURES = [
 ] as const
 
 type PatientCapability = (typeof PATIENT_FEATURES)[number]['key']
-type Config = NonNullable<Extract<Awaited<ReturnType<typeof api.pharmacyGrowth.config>>, { success: true }>['data']>
-type Readiness = Extract<Awaited<ReturnType<typeof api.pharmacyGrowth.readiness>>, { success: true }>['data']
-type ActiveWork = Extract<Awaited<ReturnType<typeof api.pharmacyGrowth.activeWork>>, { success: true }>['data']
+type Config = NonNullable<Extract<Awaited<ReturnType<typeof pharmacyGrowthApi.config>>, { success: true }>['data']>
+type Readiness = Extract<Awaited<ReturnType<typeof pharmacyGrowthApi.readiness>>, { success: true }>['data']
+type ActiveWork = Extract<Awaited<ReturnType<typeof pharmacyGrowthApi.activeWork>>, { success: true }>['data']
 
 export function setPatientCapability(
   capabilities: readonly string[], key: PatientCapability, enabled: boolean,
@@ -109,8 +111,8 @@ export default function FeatureSettingsPage() {
     setError('')
     try {
       const [response, readinessResponse, activeWorkResponse] = await Promise.all([
-        api.pharmacyGrowth.config(accountId), api.pharmacyGrowth.readiness(accountId),
-        api.pharmacyGrowth.activeWork(accountId),
+        pharmacyGrowthApi.config(accountId), pharmacyGrowthApi.readiness(accountId),
+        pharmacyGrowthApi.activeWork(accountId),
       ])
       if (accountRef.current !== accountId) return
       if (!response.success || !response.data || !readinessResponse.success || !activeWorkResponse.success) {
@@ -171,7 +173,7 @@ export default function FeatureSettingsPage() {
     setError('')
     setMessage('')
     try {
-      const response = await api.pharmacyGrowth.saveConfig(accountId, {
+      const response = await pharmacyGrowthApi.saveConfig(accountId, {
         capabilities: enabledPatientFeatures,
         expectedRevision: config.revision,
         proactiveMonthlyLimit: monthlyLimit,
@@ -187,7 +189,7 @@ export default function FeatureSettingsPage() {
         : '機能設定を保存しました。')
       try {
         const [nextReadiness, nextActiveWork] = await Promise.all([
-          api.pharmacyGrowth.readiness(accountId), api.pharmacyGrowth.activeWork(accountId),
+          pharmacyGrowthApi.readiness(accountId), pharmacyGrowthApi.activeWork(accountId),
         ])
         if (!nextReadiness.success || !nextActiveWork.success) throw new Error('missing pharmacy feature state')
         if (accountRef.current !== accountId) return
@@ -217,7 +219,7 @@ export default function FeatureSettingsPage() {
     setCandidateLoading(true)
     setError('')
     try {
-      const response = await api.richMenuGroups.pharmacyCandidate(accountId)
+      const response = await pharmacyRichMenuApi.pharmacyCandidate(accountId)
       if (accountRef.current !== accountId) return
       if (!response.success || response.data.accountId !== accountId) {
         throw new Error('candidate scope mismatch')
@@ -268,7 +270,7 @@ export default function FeatureSettingsPage() {
               : <ul className="mt-2 space-y-1 text-sm text-violet-950">{candidate.changes.filter((change) => change.kind !== 'same').map((change, index) => <li key={`${change.kind}-${change.currentIndex}-${change.draftIndex}-${index}`}>{pharmacyCandidateChangeLabel(change)}</li>)}</ul>}
           <div className="relative mt-4 overflow-hidden rounded border border-violet-300 bg-gray-100" style={{ aspectRatio: candidate.menuSize === 'large' ? '2500 / 1686' : '2500 / 843' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={api.richMenuGroups.pharmacyCandidateImageUrl(candidate.accountId, candidate)} alt="機能設定から導出したリッチメニュー候補画像" className="absolute inset-0 h-full w-full object-cover" />
+            <img src={pharmacyRichMenuApi.pharmacyCandidateImageUrl(candidate.accountId, candidate)} alt="機能設定から導出したリッチメニュー候補画像" className="absolute inset-0 h-full w-full object-cover" />
             {candidate.slots.map((slot, index) => <span key={slot.actionKey} role="img" tabIndex={0} aria-label={`候補枠${index + 1}: ${slot.label}, ${slot.actionType}`} className="absolute flex items-center justify-center border-2 border-violet-700 bg-violet-200/25 text-xs font-bold text-violet-950 outline-offset-2 focus:outline focus:outline-4 focus:outline-violet-700" style={richMenuAreaStyle(slot, candidate.menuSize)}>{index + 1}</span>)}
           </div>
           <ol className="mt-3 grid gap-2 text-sm sm:grid-cols-2">{candidate.slots.map((slot, index) => <li key={slot.actionKey} className="rounded bg-white p-2">{index + 1}. {slot.label} ({slot.actionType})</li>)}</ol>

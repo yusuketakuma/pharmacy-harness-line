@@ -36,13 +36,6 @@ function database(): Database.Database {
   return db;
 }
 
-function applyMigration(db: Database.Database): void {
-  db.exec(readFileSync(
-    join(ROOT, 'migrations', 'custom_022_pharmacy_tenant_integrity.sql'),
-    'utf8',
-  ));
-}
-
 function seedPharmacyRows(db: Database.Database): void {
   db.exec(`
     INSERT INTO friends
@@ -93,7 +86,6 @@ function seedPharmacyRows(db: Database.Database): void {
 describe('custom_022_pharmacy_tenant_integrity.sql', () => {
   it('rejects account assignments that cross tenant staff membership', () => {
     const db = database();
-    applyMigration(db);
 
     expect(() => db.prepare(`INSERT INTO pharmacy_staff_accounts
       (line_account_id, staff_id, is_active, created_at, updated_at)
@@ -109,7 +101,6 @@ describe('custom_022_pharmacy_tenant_integrity.sql', () => {
   it('rejects cross-tenant legacy pharmacy references', () => {
     const db = database();
     seedPharmacyRows(db);
-    applyMigration(db);
 
     expect(() => db.prepare(`INSERT INTO pharmacy_patient_intake_responses
       (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
@@ -133,14 +124,4 @@ describe('custom_022_pharmacy_tenant_integrity.sql', () => {
       .toThrow(/PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH/);
   });
 
-  it('is safe to apply repeatedly after the initial tenant schema', () => {
-    const db = database();
-    const migration = readFileSync(
-      join(ROOT, 'migrations', 'custom_022_pharmacy_tenant_integrity.sql'),
-      'utf8',
-    );
-
-    expect(() => db.exec(migration)).not.toThrow();
-    expect(() => db.exec(migration)).not.toThrow();
-  });
 });

@@ -25,7 +25,15 @@ export async function runEventBookingExpirer(
       `SELECT b.id
          FROM event_bookings b
         INNER JOIN events e
-                ON e.id = b.event_id AND e.line_account_id = b.line_account_id
+                ON e.id = b.event_id
+               AND (
+                 (e.target_type = 'single' AND e.line_account_id = b.line_account_id)
+                 OR (e.target_type = 'multi-account-dedup'
+                     AND EXISTS (
+                       SELECT 1 FROM json_each(e.account_ids)
+                        WHERE value = b.line_account_id
+                     ))
+               )
         INNER JOIN event_slots s
                 ON s.id = b.slot_id AND s.event_id = b.event_id
         INNER JOIN line_accounts la
@@ -63,7 +71,7 @@ export async function runEventBookingExpirer(
       .prepare(
         `UPDATE event_booking_reminders
             SET status = 'cancelled'
-          WHERE booking_id = ? AND status IN ('pending','failed')`,
+          WHERE booking_id = ? AND status IN ('pending','failed','processing')`,
       )
       .bind(row.id)
       .run();

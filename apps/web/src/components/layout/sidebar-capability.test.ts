@@ -10,8 +10,8 @@ const sidebarSource = () => readFileSync(
 describe('pharmacy capability-aware sidebar', () => {
   it('loads account-scoped capability and active-work projections with stale-response guards', () => {
     const source = sidebarSource()
-    expect(source).toContain('api.pharmacyGrowth.config(accountId)')
-    expect(source).toContain('api.pharmacyGrowth.activeWork(accountId)')
+    expect(source).toContain('pharmacyGrowthApi.config(accountId)')
+    expect(source).toContain('pharmacyGrowthApi.activeWork(accountId)')
     expect(source).toContain('capabilityRequestRef')
     expect(source).toContain('requestId === capabilityRequestRef.current')
   })

@@ -17,7 +17,11 @@ import {
 import type { EntryRoute, Friend } from '@line-crm/db';
 import { fireEvent } from '../../services/event-bus.js';
 import { matchAndReply } from '../../services/auto-reply.js';
-import { buildMessage } from '../../services/step-delivery.js';
+import {
+  buildMessage,
+  isDeterministicInvalidReplyToken,
+  messageToLogPayload,
+} from '../../services/step-delivery.js';
 import { pushImmediateFirstStep } from '../../services/immediate-first-step.js';
 import type { Env } from '../../index.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
@@ -28,6 +32,11 @@ import { recordPharmacyFollow, recordPharmacyUnfollowMetrics } from '../../custo
 import { isPharmacyModeAccount } from '../../custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
 import { handleMedicationFollowUpPostback } from '../../custom/pharmacy/medication-followup/webhook.js'; // custom:pharmacy-medication-followup
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js'; // custom:pharmacy-credentials
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import {
+  deliverTrackedLinePush,
+  deliverTrackedLineReply,
+} from '../../services/outbound-line-delivery.js';
 
 const webhook = new Hono<Env>();
 
@@ -613,15 +622,21 @@ async function handleEvent(
           // - relative + delay_minutes=0 → 即時
           // - elapsed + offset_days=0 + offset_minutes=0 → 即時
           // - absolute_time で過去時刻 → computeNextDeliveryAt が now に clamp するので即時
-          // reply 失敗時 (2つ目のシナリオで token 消費済み等) は claim が解放され
-          // cron が push で配信する。
+          // deterministic な invalid reply token は claim を解放するが、reply の
+          // 結果不明時は outbound ledger と pause で cron の push fallback を防ぐ。
           // skipCooldown: 60秒以内の再フォロー (前の enrollment が completed 済み)
           // でも必ず welcome を返す — 旧 webhook 実装のセマンティクスを維持。
           const sent = await pushImmediateFirstStep(
             db,
             friend.id,
             scenario.id,
-            { defaultAccessToken: lineAccessToken, workerUrl },
+            {
+              defaultAccessToken: lineAccessToken,
+              workerUrl,
+              tenantId,
+              lineAccountId,
+              eventKey: webhookEventId,
+            },
             {
               enrollment: friendScenario,
               reply: { client: lineClient, replyToken: event.replyToken },
@@ -643,7 +658,31 @@ async function handleEvent(
           const template = await getMessageTemplateById(db, referralRoute.intro_template_id);
           if (template) {
             const message = buildMessage(template.message_type, template.message_content);
-            await lineClient.pushMessage(userId, [message]);
+            const logPayload = messageToLogPayload(message);
+            const retryKey = await createBroadcastRetryKey(
+              'webhook-referral-intro',
+              tenantId,
+              lineAccountId,
+              webhookEventId,
+              referralRoute.id,
+            );
+            const delivery = await deliverTrackedLinePush({
+              db,
+              operationId: retryKey,
+              tenantId,
+              lineAccountId,
+              friendId: friend.id,
+              messageType: logPayload.messageType,
+              content: logPayload.content,
+              source: 'automation',
+              request: { to: userId, messages: [message] },
+              send: async (request, providerRetryKey) => {
+                await lineClient.pushMessage(request.to, request.messages, providerRetryKey);
+              },
+            });
+            if (delivery === 'reconciliation_required') {
+              throw new Error('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+            }
             console.log(`[follow] referral intro push sent route=${referralRoute.id}`);
           }
         } catch (err) {
@@ -718,17 +757,16 @@ async function handleEvent(
     // 利用者が "コスト比較" などのアクションを起こした事実を chat 履歴で可視化する。
     // delivery_type='push' は厳密には push ではないが、incoming/non-test として
     // 既存 chat list / 詳細 SQL のフィルタを通すための妥当な値 (auto_reply text 同様)。
-    try {
-      await db
-        .prepare(
-          `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
-           VALUES (?, ?, 'incoming', 'text', ?, NULL, NULL, 'postback', ?, ?)`,
-        )
-        .bind(crypto.randomUUID(), friend.id, postbackData, lineAccountId ?? null, jstNow())
-        .run();
-    } catch (err) {
-      console.error('Failed to log incoming postback', err);
-    }
+    const postbackLogId = await createBroadcastRetryKey(
+      'webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId,
+    );
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
+         VALUES (?, ?, 'incoming', 'text', ?, NULL, NULL, 'postback', ?, ?)`,
+      )
+      .bind(postbackLogId, friend.id, postbackData, lineAccountId, jstNow())
+      .run();
 
     const pharmacyAccountId = lineAccountId ?? friend.line_account_id;
     if (await isPharmacyModeAccount(db, pharmacyAccountId)) {
@@ -751,6 +789,8 @@ async function handleEvent(
     // silent + automation で「返信なしでタグだけ付ける」構成もここで成立する。
     const { matched: postbackMatched, replyTokenConsumed: postbackReplyTokenConsumed } =
       await matchAndReply(db, lineClient, friend, postbackData, event.replyToken, {
+        tenantId,
+        eventKey: webhookEventId,
         lineAccountId,
         workerUrl,
         liffUrl,
@@ -849,10 +889,12 @@ async function handleEvent(
       }
     }
 
-    const logId = crypto.randomUUID();
+    const logId = await createBroadcastRetryKey(
+      'webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId,
+    );
     await db
       .prepare(
-        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
+        `INSERT OR IGNORE INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
          VALUES (?, ?, 'incoming', ?, ?, NULL, NULL, 'user', ?, ?)`,
       )
       .bind(logId, friend.id, msg.type, finalContent, lineAccountId, jstNow())
@@ -885,12 +927,14 @@ async function handleEvent(
 
     const incomingText = textMessage.text;
     const now = jstNow();
-    const logId = crypto.randomUUID();
+    const logId = await createBroadcastRetryKey(
+      'webhook-incoming-log-v1', tenantId, lineAccountId, webhookEventId,
+    );
 
     // 受信メッセージをログに記録
     await db
       .prepare(
-        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
+        `INSERT OR IGNORE INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
          VALUES (?, ?, 'incoming', 'text', ?, NULL, NULL, 'user', ?, ?)`,
       )
       .bind(logId, friend.id, incomingText, lineAccountId, now)
@@ -912,12 +956,14 @@ async function handleEvent(
 
     // Cross-account trigger: send message from another account via UUID
     if (incomingText === '体験を完了する' && lineAccountId) {
+      let confirmationReplyPending = false;
+      let confirmationReplyAttempted = false;
       try {
         const friendRecord = await db.prepare('SELECT user_id FROM friends WHERE id = ?').bind(friend.id).first<{ user_id: string | null }>();
         if (friendRecord?.user_id) {
           // Find the same user on other accounts
           const otherFriends = await db.prepare(
-            `SELECT f.provider_line_user_id AS line_user_id,
+            `SELECT f.id AS friend_id, f.provider_line_user_id AS line_user_id,
                     f.line_account_id, mapping.tenant_id
                FROM friends AS f
                INNER JOIN line_accounts AS account
@@ -931,7 +977,12 @@ async function handleEvent(
                 AND f.is_following = 1
                 AND mapping.tenant_id = ?`,
           ).bind(friendRecord.user_id, lineAccountId, tenantId)
-            .all<{ line_user_id: string; line_account_id: string; tenant_id: string }>();
+            .all<{
+              friend_id: string;
+              line_user_id: string;
+              line_account_id: string;
+              tenant_id: string;
+            }>();
 
           let notifiedAccount = false;
           for (const other of otherFriends.results) {
@@ -941,9 +992,18 @@ async function handleEvent(
               lineAccountId: other.line_account_id,
               kind: 'channel_access_token',
             });
-            if (!otherAccessToken) continue;
+            if (!otherAccessToken) {
+              throw new Error('CROSS_ACCOUNT_TARGET_CREDENTIAL_UNAVAILABLE');
+            }
             const otherClient = new LineClient(otherAccessToken);
-            await otherClient.pushMessage(other.line_user_id, [buildMessage('flex', JSON.stringify({
+            const retryKey = await createBroadcastRetryKey(
+              'webhook-cross-account',
+              tenantId,
+              lineAccountId,
+              other.line_account_id,
+              webhookEventId,
+            );
+            const crossAccountContent = JSON.stringify({
               type: 'bubble', size: 'giga',
               header: { type: 'box', layout: 'vertical', paddingAll: '20px', backgroundColor: '#fffbeb',
                 contents: [{ type: 'text', text: `${friend.display_name || ''}さんへ`, size: 'lg', weight: 'bold', color: '#1e293b' }],
@@ -962,14 +1022,32 @@ async function handleEvent(
                   ...(liffUrl ? [{ type: 'button', action: { type: 'uri', label: 'フィードバックを送る', uri: `${liffUrl}?page=form` }, style: 'secondary', margin: 'sm' }] : []),
                 ],
               },
-            }))]);
+            });
+            const crossAccountMessage = buildMessage('flex', crossAccountContent);
+            const delivery = await deliverTrackedLinePush({
+              db,
+              operationId: retryKey,
+              tenantId,
+              lineAccountId: other.line_account_id,
+              friendId: other.friend_id,
+              messageType: 'flex',
+              content: crossAccountContent,
+              source: 'automation',
+              request: { to: other.line_user_id, messages: [crossAccountMessage] },
+              send: async (request, key) => {
+                await otherClient.pushMessage(request.to, request.messages, key);
+              },
+            });
+            if (delivery !== 'sent' && delivery !== 'already_sent') {
+              throw new Error('CROSS_ACCOUNT_TARGET_REQUIRES_RECONCILIATION');
+            }
             notifiedAccount = true;
           }
 
           if (!notifiedAccount) return;
 
           // Reply on Account ② confirming
-          await lineClient.replyMessage(event.replyToken, [buildMessage('flex', JSON.stringify({
+          const confirmationContent = JSON.stringify({
             type: 'bubble',
             body: { type: 'box', layout: 'vertical', paddingAll: '20px',
               contents: [
@@ -977,11 +1055,41 @@ async function handleEvent(
                 { type: 'text', text: 'Account ① のトーク画面を確認してください', size: 'xs', color: '#64748b', align: 'center', margin: 'md' },
               ],
             },
-          }))]);
+          });
+          const confirmationMessage = buildMessage('flex', confirmationContent);
+          confirmationReplyPending = true;
+          const confirmationDelivery = await deliverTrackedLineReply({
+            db,
+            operationId: await createBroadcastRetryKey(
+              'webhook-cross-account-confirmation',
+              tenantId,
+              lineAccountId,
+              webhookEventId,
+            ),
+            tenantId,
+            lineAccountId,
+            friendId: friend.id,
+            messageType: 'flex',
+            content: confirmationContent,
+            source: 'automation',
+            isDeterministicRejection: isDeterministicInvalidReplyToken,
+            send: async () => {
+              confirmationReplyAttempted = true;
+              await lineClient.replyMessage(event.replyToken, [confirmationMessage]);
+            },
+          });
+          if (confirmationDelivery === 'not_sent') return;
+          if (confirmationDelivery !== 'sent' && confirmationDelivery !== 'already_sent') {
+            throw new Error('CROSS_ACCOUNT_CONFIRMATION_REQUIRES_RECONCILIATION');
+          }
           return;
         }
       } catch (err) {
-        console.error('Cross-account trigger error:', err);
+        if (confirmationReplyPending && confirmationReplyAttempted) {
+          console.error('Cross-account confirmation outcome requires reconciliation:', err);
+          return;
+        }
+        throw err;
       }
     }
 
@@ -994,6 +1102,8 @@ async function handleEvent(
       incomingText,
       event.replyToken,
       {
+        tenantId,
+        eventKey: webhookEventId,
         lineAccountId,
         workerUrl,
         liffUrl,

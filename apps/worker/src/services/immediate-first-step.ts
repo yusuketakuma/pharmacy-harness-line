@@ -6,6 +6,8 @@ import {
   advanceFriendScenario,
   completeFriendScenario,
   claimFriendScenarioForDelivery,
+  markFriendScenarioDeliveryAttempt,
+  pauseFriendScenarioDelivery,
   enrollFriendInScenario,
   getLineAccountByChannelId,
   getLineAccountById,
@@ -20,12 +22,16 @@ import {
   resolveMetadata,
   messageToLogPayload,
   evaluateCondition,
+  getActiveMappedAccountTenantId,
+  isDeterministicInvalidReplyToken,
 } from './step-delivery.js';
 import { decorateForFriendPush } from './auto-track.js';
 import {
   hasPharmacyModeAccount,
   isPharmacyModeAccount,
 } from '../custom/pharmacy/growth-loop/access.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { deliverTrackedLinePush, deliverTrackedLineReply } from './outbound-line-delivery.js';
 
 export interface ImmediatePushContext {
   defaultAccessToken: string;
@@ -34,6 +40,10 @@ export interface ImmediatePushContext {
    *  unexpanded (matching expandVariables' own fallback). */
   workerUrl?: string;
   accountChannelId?: string | null;
+  /** Trusted server-resolved scope for a reply-token delivery. */
+  tenantId?: string;
+  lineAccountId?: string | null;
+  eventKey?: string;
 }
 
 export interface EnrollmentRef {
@@ -65,9 +75,10 @@ export interface ImmediatePushOptions {
   targetLineUserId?: string;
   /**
    * Send through the follow event's reply token (free, no push quota)
-   * instead of resolving an access token and pushing. On failure the claim
-   * is released so the cron delivers by push on schedule. messages_log
-   * rows are stamped delivery_type='reply' automatically.
+   * instead of resolving an access token and pushing. The trusted context
+   * scope is required so the outbound ledger can fence this one-time reply.
+   * A deterministic invalid-token response releases the claim; an unknown
+   * result pauses it so the cron cannot convert it to a push.
    */
   reply?: { client: Pick<LineClient, 'replyMessage'>; replyToken: string };
   /**
@@ -108,11 +119,11 @@ export interface ImmediatePushOptions {
  *   attaches the reach tag — the racer delivered the step) so the fresh row
  *   is never re-delivered by the cron, in 'every-click' mode it simply skips
  * - unresolvable push target releases the claim so the cron can retry on
- *   schedule
+ *   schedule; an ambiguous reply outcome pauses the enrollment instead
  * - an unexpected throw after a successful send still advances the
- *   enrollment (best effort) so the cron cannot re-send; a throw before the
- *   send releases the claim instead of stranding the row in 'delivering'
- *   until the stuck-delivery sweep
+ *   enrollment (best effort) so the cron cannot re-send; a deterministic
+ *   invalid reply token releases the claim, while an unknown reply result
+ *   pauses it instead of stranding it for a cron push
  *
  * Returns true when a message was actually sent.
  */
@@ -123,11 +134,35 @@ export async function pushImmediateFirstStep(
   ctx: ImmediatePushContext,
   options?: ImmediatePushOptions,
 ): Promise<boolean> {
+  type DeliveryClaim = { enrollmentId: string; token: string; expectedStepOrder: number };
   const mode = options?.mode ?? 'once';
   // Function-scope so the outer catch can settle a half-finished delivery.
-  let claimedEnrollmentId: string | null = null;
+  let claimedDelivery: DeliveryClaim | null = null;
   let sent = false;
   let settleAfterSend: (() => Promise<void>) | null = null;
+  let replyOutcomeUnknown = false;
+  let replyProvenNotSent = false;
+  let pausedDelivery: DeliveryClaim | null = null;
+  const pauseClaim = async (): Promise<boolean> => {
+    if (pausedDelivery) return true;
+    if (!claimedDelivery) return false;
+    const delivery = claimedDelivery;
+    if (!(await pauseFriendScenarioDelivery(db, delivery.enrollmentId, delivery.token))) return false;
+    pausedDelivery = delivery;
+    claimedDelivery = null;
+    return true;
+  };
+  const resumePausedClaim = async () => {
+    if (!pausedDelivery) return;
+    const delivery = pausedDelivery;
+    const result = await db.prepare(
+      `UPDATE friend_scenarios
+          SET status = 'active', delivery_first_attempted_at = NULL,
+              delivery_claim_token = NULL, updated_at = ?
+        WHERE id = ? AND status = 'paused' AND delivery_claim_token = ?`,
+    ).bind(jstNow(), delivery.enrollmentId, delivery.token).run();
+    if ((result.meta?.changes ?? 0) === 1) pausedDelivery = null;
+  };
   try {
     const scenarioRow = await getScenarioById(db, scenarioId);
     if (!scenarioRow) return false;
@@ -184,7 +219,8 @@ export async function pushImmediateFirstStep(
         .prepare(
           `SELECT 1 FROM messages_log
            WHERE friend_id = ? AND scenario_step_id = ?
-             AND direction = 'outgoing' AND created_at > ?
+             AND direction = 'outgoing'
+             AND julianday(created_at) > julianday(?)
            LIMIT 1`,
         )
         .bind(friendId, firstStep.id, cutoff)
@@ -202,7 +238,7 @@ export async function pushImmediateFirstStep(
         .bind(friendId, scenarioId)
         .first<EnrollmentRef>();
 
-    const advancePastFirstStep = async (enrollmentId: string) => {
+    const advancePastFirstStep = async (delivery: DeliveryClaim): Promise<boolean> => {
       // The step AFTER the delivered one — firstStep may not be steps[0] when
       // condition evaluation skipped ahead.
       const nextStep = steps[steps.indexOf(firstStep) + 1];
@@ -216,15 +252,18 @@ export async function pushImmediateFirstStep(
         // Date.now()+9h), so serialize by relabeling — NOT toJstString(),
         // which would add the offset a second time and schedule step 2
         // nine hours late. Matches enrollFriendInScenario / the cron.
-        await advanceFriendScenario(
+        return advanceFriendScenario(
           db,
-          enrollmentId,
+          delivery.enrollmentId,
           firstStep.step_order,
           next.toISOString().slice(0, -1) + '+09:00',
+          { token: delivery.token, expectedStepOrder: delivery.expectedStepOrder },
         );
-      } else {
-        await completeFriendScenario(db, enrollmentId);
       }
+      return completeFriendScenario(db, delivery.enrollmentId, {
+        token: delivery.token,
+        expectedStepOrder: delivery.expectedStepOrder,
+      });
     };
 
     const attachReachTag = async () => {
@@ -238,7 +277,7 @@ export async function pushImmediateFirstStep(
 
     // Which row to advance after a successful send (null = pure re-click
     // re-delivery: the row is already past step 1, leave it alone).
-    let advanceTargetId: string | null = null;
+    let advanceTarget: DeliveryClaim | null = null;
 
     if (mode === 'once') {
       const enrollmentRow = options?.enrollment ?? (await lookupEnrollment());
@@ -247,22 +286,25 @@ export async function pushImmediateFirstStep(
       // Optimistic lock shared with the cron worker: whoever claims first
       // delivers step 1; the loser backs off. Closes the double-send window
       // between the enrollment INSERT and the post-push advance.
-      const claimed = await claimFriendScenarioForDelivery(
+      const claimToken = await claimFriendScenarioForDelivery(
         db,
         enrollmentRow.id,
         enrollmentRow.current_step_order,
       );
-      if (!claimed) return false;
-      claimedEnrollmentId = enrollmentRow.id;
-      advanceTargetId = enrollmentRow.id;
+      if (!claimToken) return false;
+      claimedDelivery = {
+        enrollmentId: enrollmentRow.id,
+        token: claimToken,
+        expectedStepOrder: enrollmentRow.current_step_order,
+      };
+      advanceTarget = claimedDelivery;
 
       // Advance without pushing on a cooldown hit so the row is neither
       // stranded at step -1 nor re-delivered by the cron. The racer
       // delivered step 1, so the reach tag still applies.
       if (!options?.skipCooldown && (await isRecentDuplicate())) {
-        await advancePastFirstStep(enrollmentRow.id);
-        claimedEnrollmentId = null; // the advance released the claim
-        await attachReachTag();
+        if (await advancePastFirstStep(claimedDelivery)) await attachReachTag();
+        claimedDelivery = null;
         return false;
       }
     } else {
@@ -284,10 +326,14 @@ export async function pushImmediateFirstStep(
         // the follow-webhook path can't send it concurrently. A failed claim
         // means another sender is mid-delivery (or the row is paused): skip
         // rather than double-send.
-        const claimed = await claimFriendScenarioForDelivery(db, row.id, row.current_step_order);
-        if (!claimed) return false;
-        claimedEnrollmentId = row.id;
-        advanceTargetId = row.id;
+        const claimToken = await claimFriendScenarioForDelivery(db, row.id, row.current_step_order);
+        if (!claimToken) return false;
+        claimedDelivery = {
+          enrollmentId: row.id,
+          token: claimToken,
+          expectedStepOrder: row.current_step_order,
+        };
+        advanceTarget = claimedDelivery;
       } else {
         // Pure re-click re-delivery. Re-probe the cooldown: the first probe
         // ran before the enroll round-trip, and a racing sender may have
@@ -297,9 +343,9 @@ export async function pushImmediateFirstStep(
     }
 
     const releaseClaim = async () => {
-      if (!claimedEnrollmentId) return;
-      await releaseClaimById(db, claimedEnrollmentId);
-      claimedEnrollmentId = null;
+      if (!claimedDelivery) return;
+      await releaseClaimById(db, claimedDelivery.enrollmentId, claimedDelivery.token);
+      claimedDelivery = null;
     };
 
     // Re-read the friend after caller writes (linkFriendToUser / ref_code
@@ -328,7 +374,25 @@ export async function pushImmediateFirstStep(
       await releaseClaim();
       return false;
     }
-    const lineAccountId = ctxAccount?.id ?? friend.line_account_id ?? null;
+    if (
+      ctx.lineAccountId
+      && ctxAccount?.id
+      && ctx.lineAccountId !== ctxAccount.id
+    ) {
+      await releaseClaim();
+      return false;
+    }
+    if (
+      ctx.lineAccountId
+      && friend.line_account_id
+      && ctx.lineAccountId !== friend.line_account_id
+    ) {
+      await releaseClaim();
+      return false;
+    }
+    const lineAccountId = ctx.lineAccountId !== undefined
+      ? ctx.lineAccountId
+      : ctxAccount?.id ?? friend.line_account_id ?? null;
     if (lineAccountId
       ? await isPharmacyModeAccount(db, lineAccountId)
       : await hasPharmacyModeAccount(db)) {
@@ -354,15 +418,79 @@ export async function pushImmediateFirstStep(
       { lineAccountId, friendId },
     );
     const sentMessage = buildMessage(decorated.messageType, decorated.content);
+    const logPayload = messageToLogPayload(sentMessage);
+    let replyAttempted = false;
+    let replyAccepted = false;
 
     try {
       if (options?.reply) {
-        await options.reply.client.replyMessage(options.reply.replyToken, [sentMessage]);
+        if (!ctx.tenantId || !ctx.eventKey || !ctx.lineAccountId || !lineAccountId) {
+          await releaseClaim();
+          return false;
+        }
+        const replyDelivery = claimedDelivery;
+        if (!replyDelivery) return false;
+        if (!(await markFriendScenarioDeliveryAttempt(
+          db,
+          replyDelivery.enrollmentId,
+          replyDelivery.token,
+        ))) {
+          await releaseClaim();
+          return false;
+        }
+        const operationId = await createBroadcastRetryKey(
+          'scenario-reply',
+          ctx.tenantId,
+          lineAccountId,
+          ctx.eventKey,
+          friendId,
+          scenarioId,
+          firstStep.id,
+        );
+        const replyResult = await deliverTrackedLineReply({
+          db,
+          operationId,
+          tenantId: ctx.tenantId,
+          lineAccountId,
+          friendId,
+          messageType: logPayload.messageType,
+          content: logPayload.content,
+          source: 'scenario',
+          scenarioEnrollmentId: replyDelivery.enrollmentId,
+          scenarioStepId: firstStep.id,
+          scenarioClaimToken: replyDelivery.token,
+          templateIdAtSend: resolved.templateIdAtSend,
+          beforeSend: pauseClaim,
+          isDeterministicRejection: isDeterministicInvalidReplyToken,
+          send: async () => {
+            replyAttempted = true;
+            await options.reply!.client.replyMessage(options.reply!.replyToken, [sentMessage]);
+          },
+        });
+        if (replyResult === 'not_sent') {
+          replyProvenNotSent = true;
+          await resumePausedClaim();
+          await releaseClaim();
+          return false;
+        }
+        if (replyResult !== 'sent' && replyResult !== 'already_sent') {
+          replyOutcomeUnknown = true;
+          await pauseClaim();
+          return false;
+        }
+        replyAccepted = true;
       } else {
         const pushTarget = options?.targetLineUserId ?? friend.line_user_id;
         if (!pushTarget) {
           // Can't push from here — hand the claim back so the cron retries.
           await releaseClaim();
+          return false;
+        }
+        const deliveryTenantId = lineAccountId
+          ? ctx.tenantId ?? await getActiveMappedAccountTenantId(db, lineAccountId)
+          : null;
+        if (!claimedDelivery || !lineAccountId || !deliveryTenantId) {
+          if (claimedDelivery) await pauseClaim();
           return false;
         }
         // Token: caller-supplied account channel → friend's own account → env default.
@@ -374,44 +502,74 @@ export async function pushImmediateFirstStep(
           if (acct?.channel_access_token) accessToken = acct.channel_access_token;
         }
         const lineClient = new LineClient(accessToken);
-        await lineClient.pushMessage(pushTarget, [sentMessage]);
+        const retryKey = await createBroadcastRetryKey(
+          'scenario',
+          claimedDelivery.enrollmentId,
+          firstStep.id,
+          String(firstStep.step_order),
+        );
+        if (!(await markFriendScenarioDeliveryAttempt(
+          db,
+          claimedDelivery.enrollmentId,
+          claimedDelivery.token,
+        ))) {
+          await releaseClaim();
+          return false;
+        }
+        const delivery = await deliverTrackedLinePush({
+          db,
+          operationId: retryKey,
+          tenantId: deliveryTenantId,
+          lineAccountId,
+          friendId,
+          messageType: logPayload.messageType,
+          content: logPayload.content,
+          source: 'scenario',
+          scenarioEnrollmentId: claimedDelivery.enrollmentId,
+          scenarioStepId: firstStep.id,
+          scenarioClaimToken: claimedDelivery.token,
+          templateIdAtSend: resolved.templateIdAtSend,
+          request: { to: pushTarget, messages: [sentMessage] },
+          send: async (request, key) => {
+            await lineClient.pushMessage(request.to, request.messages, key);
+          },
+        });
+        if (delivery !== 'sent' && delivery !== 'already_sent') {
+          await pauseClaim();
+          return false;
+        }
       }
     } catch (err) {
-      // The message never left LINE's API — release so the cron retries on
-      // schedule.
-      console.error('[immediate-first-step] send failed, releasing claim:', err);
-      await releaseClaim();
+      if (replyProvenNotSent) {
+        await resumePausedClaim();
+        await releaseClaim();
+      } else if (options?.reply && replyAttempted && !replyAccepted) {
+        if (isDeterministicInvalidReplyToken(err)) {
+          console.error('[immediate-first-step] reply token rejected, releasing claim:', err);
+          await resumePausedClaim();
+        } else {
+          replyOutcomeUnknown = true;
+          console.error('[immediate-first-step] reply outcome unknown, pausing claim:', err);
+          await pauseClaim();
+        }
+      } else if (replyAccepted) {
+        throw err;
+      } else {
+        // The message never left LINE's API — release so the cron retries on
+        // schedule.
+        console.error('[immediate-first-step] send failed, releasing claim:', err);
+        await releaseClaim();
+      }
       return false;
     }
     sent = true;
     settleAfterSend = async () => {
-      if (advanceTargetId) {
-        await advancePastFirstStep(advanceTargetId);
-        claimedEnrollmentId = null; // the advance released the claim
+      if (advanceTarget && await advancePastFirstStep(advanceTarget)) {
+        claimedDelivery = null;
+        pausedDelivery = null;
         await attachReachTag();
       }
     };
-
-    // Log what was actually delivered (post buildMessage normalization) so
-    // the cooldown above sees it on subsequent calls and the dashboard chat
-    // view mirrors LINE 1:1. delivery_type mirrors the send channel.
-    const logPayload = messageToLogPayload(sentMessage);
-    await db
-      .prepare(
-        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, template_id_at_send, created_at)
-         VALUES (?, ?, 'outgoing', ?, ?, NULL, ?, ?, 'scenario', ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        friendId,
-        logPayload.messageType,
-        logPayload.content,
-        firstStep.id,
-        options?.reply ? 'reply' : null,
-        resolved.templateIdAtSend,
-        jstNow(),
-      )
-      .run();
 
     await settleAfterSend();
     settleAfterSend = null;
@@ -423,10 +581,27 @@ export async function pushImmediateFirstStep(
         // The message went out but logging/advancing threw — advance anyway
         // (best effort) so the cron cannot re-deliver step 1.
         await settleAfterSend();
-      } else if (claimedEnrollmentId) {
+      } else if (replyProvenNotSent) {
+        await resumePausedClaim();
+        if (claimedDelivery) {
+          await releaseClaimById(
+            db,
+            claimedDelivery.enrollmentId,
+            claimedDelivery.token,
+          );
+          claimedDelivery = null;
+        }
+      } else if (replyOutcomeUnknown) {
+        // A reply request may already have been accepted by LINE. Never make
+        // the claim active again or let cron turn this unknown result into a
+        // second push; retain delivering if pausing itself is unavailable.
+        await pauseClaim();
+      } else if (pausedDelivery) {
+        await resumePausedClaim();
+      } else if (claimedDelivery) {
         // Nothing was sent — hand the claim back now instead of leaving the
         // row in 'delivering' until the stuck-delivery sweep frees it.
-        await releaseClaimById(db, claimedEnrollmentId);
+        await releaseClaimById(db, claimedDelivery.enrollmentId, claimedDelivery.token);
       }
     } catch (settleErr) {
       console.error('[immediate-first-step] post-failure settle failed:', settleErr);
@@ -435,12 +610,17 @@ export async function pushImmediateFirstStep(
   }
 }
 
-async function releaseClaimById(db: D1Database, enrollmentId: string): Promise<void> {
+async function releaseClaimById(
+  db: D1Database,
+  enrollmentId: string,
+  claimToken: string,
+): Promise<void> {
   await db
     .prepare(
-      `UPDATE friend_scenarios SET status = 'active', updated_at = ?
-       WHERE id = ? AND status = 'delivering'`,
+      `UPDATE friend_scenarios
+          SET status = 'active', delivery_claim_token = NULL, updated_at = ?
+        WHERE id = ? AND status = 'delivering' AND delivery_claim_token = ?`,
     )
-    .bind(jstNow(), enrollmentId)
+    .bind(jstNow(), enrollmentId, claimToken)
     .run();
 }

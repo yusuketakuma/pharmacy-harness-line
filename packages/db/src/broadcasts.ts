@@ -420,19 +420,17 @@ export async function recoverStalledBroadcasts(db: D1Database): Promise<void> {
     )
     .run();
 
-  // 3) Personalized standard broadcasts are also safely resumable. They use
-  // one stable LINE retry key per broadcast+friend+rendered content and check
-  // messages_log before each push. Restarting from offset 0 is intentional:
-  // logged recipients are skipped, while a push accepted just before a crash
-  // is acknowledged by LINE as retry-key 409 and then logged once.
+  // 3) Tracked standard broadcasts are also safely resumable. They use one
+  // stable LINE retry key per broadcast+friend and check messages_log before
+  // each push. Restarting from offset 0 is intentional: logged recipients are
+  // skipped, while an accepted push is retried with the same provider key.
   await db
     .prepare(
       `UPDATE broadcasts SET batch_offset = 0, batch_lock_at = NULL
        WHERE status = 'sending' AND batch_offset = -1
        AND sent_at IS NULL
        AND target_type != 'multi-account-dedup'
-       AND segment_conditions IS NOT NULL
-       AND instr(replace(message_content, ' ', ''), '{{name}}') > 0
+       AND (segment_conditions IS NOT NULL OR target_type = 'all')
        AND batch_lock_at IS NOT NULL
        AND julianday('now', '+9 hours') - julianday(batch_lock_at) > ${STALL_LOCK_REVOKE_DAYS_RESUMABLE}`,
     )

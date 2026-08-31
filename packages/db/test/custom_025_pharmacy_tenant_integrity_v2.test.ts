@@ -27,13 +27,6 @@ function database(): Database.Database {
   return db;
 }
 
-function applyMigration(db: Database.Database): void {
-  db.exec(readFileSync(
-    join(ROOT, 'migrations', 'custom_025_pharmacy_tenant_integrity_v2.sql'),
-    'utf8',
-  ));
-}
-
 function insertSubmission(
   db: Database.Database,
   id: string,
@@ -51,7 +44,6 @@ function insertSubmission(
 describe('custom_025_pharmacy_tenant_integrity_v2.sql', () => {
   it('rejects a submission whose source_handoff_id points at a different account handoff', () => {
     const db = database();
-    applyMigration(db);
 
     expect(() => insertSubmission(db, 'submission-a', 'account-a', 'friend-a', 'handoff-b'))
       .toThrow(/PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH/);
@@ -60,7 +52,6 @@ describe('custom_025_pharmacy_tenant_integrity_v2.sql', () => {
 
   it('allows a submission whose source_handoff_id points at its own account handoff', () => {
     const db = database();
-    applyMigration(db);
 
     expect(() => insertSubmission(db, 'submission-a', 'account-a', 'friend-a', 'handoff-a'))
       .not.toThrow();
@@ -72,7 +63,6 @@ describe('custom_025_pharmacy_tenant_integrity_v2.sql', () => {
 
   it('rejects re-pointing an existing submission at another account handoff via UPDATE', () => {
     const db = database();
-    applyMigration(db);
     insertSubmission(db, 'submission-a', 'account-a', 'friend-a', 'handoff-a');
 
     expect(() => db.prepare(`UPDATE pharmacy_prescription_submissions
@@ -80,20 +70,8 @@ describe('custom_025_pharmacy_tenant_integrity_v2.sql', () => {
       .toThrow(/PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH/);
   });
 
-  it('is safe to apply repeatedly', () => {
-    const db = database();
-    const migration = readFileSync(
-      join(ROOT, 'migrations', 'custom_025_pharmacy_tenant_integrity_v2.sql'),
-      'utf8',
-    );
-
-    expect(() => db.exec(migration)).not.toThrow();
-    expect(() => db.exec(migration)).not.toThrow();
-  });
-
   it('L-3: pharmacy_prescription_files/events already reject a submission_id that does not exist', () => {
     const db = database();
-    applyMigration(db);
     insertSubmission(db, 'submission-a', 'account-a', 'friend-a', null);
 
     expect(() => db.prepare(`INSERT INTO pharmacy_prescription_files

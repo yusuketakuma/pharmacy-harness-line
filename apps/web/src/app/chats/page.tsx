@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { parseStickerMessageContent, stickerFallback } from '@line-crm/shared'
 import { api, fetchApi } from '@/lib/api'
+import { pharmacyGrowthApi } from '@/custom/pharmacy/growth-loop/api'
 import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
 import { useAccount } from '@/contexts/account-context'
 import Header from '@/components/layout/header'
@@ -154,6 +155,7 @@ function DirectMessagePanel({ friendId, friend, readOnly, onBack, onSent }: {
   const [loadingMessages, setLoadingMessages] = useState(true)
   const isComposingRef = useRef(false)
   const sendLockRef = useRef(false)
+  const pendingDirectSendRef = useRef<{ content: string; idempotencyKey: string } | null>(null)
 
   useEffect(() => {
     const loadMessages = async () => {
@@ -179,13 +181,20 @@ function DirectMessagePanel({ friendId, friend, readOnly, onBack, onSent }: {
     if (readOnly || !message.trim() || sending || sendLockRef.current) return
     if (!window.confirm('この相手へ個別メッセージを送信します。内容とLINEへの影響を確認しましたか？')) return
     const content = message.trim()
+    const idempotencyKey = pendingDirectSendRef.current?.content === content
+      ? pendingDirectSendRef.current.idempotencyKey
+      : crypto.randomUUID()
+    pendingDirectSendRef.current = { content, idempotencyKey }
     sendLockRef.current = true
     setSending(true)
     setDirectError('')
     try {
       await fetchApi(`/api/friends/${friendId}/messages`, {
         method: 'POST',
-        headers: { 'X-Line-Harness-Source': 'manual' },
+        headers: {
+          'X-Line-Harness-Source': 'manual',
+          'Idempotency-Key': idempotencyKey,
+        },
         body: JSON.stringify({ content, messageType: 'text' }),
       })
       setMessages((prev) => [...prev, {
@@ -197,6 +206,7 @@ function DirectMessagePanel({ friendId, friend, readOnly, onBack, onSent }: {
       }])
       setMessage('')
       await onSent()
+      pendingDirectSendRef.current = null
     } catch {
       setDirectError('個別メッセージを送信できませんでした。入力内容は残っています。通信状態を確認して再度お試しください。')
     } finally {
@@ -349,6 +359,7 @@ export default function ChatsPage() {
   const [pendingImage, setPendingImage] = useState<ImageUploaderValue | null>(null)
   const [sending, setSending] = useState(false)
   const sendLockRef = useRef(false)
+  const pendingChatSendKeysRef = useRef(new Map<string, string>())
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false)
@@ -372,7 +383,7 @@ export default function ChatsPage() {
       return
     }
     setManualChatState('loading')
-    void api.pharmacyGrowth.config(selectedAccount.id).then((response) => {
+    void pharmacyGrowthApi.config(selectedAccount.id).then((response) => {
       if (cancelled) return
       if (!response.success || !response.data) {
         setManualChatState('unverified')
@@ -647,6 +658,13 @@ export default function ChatsPage() {
     if (!messageContent.trim() && !pendingImage) return
     if (!window.confirm('この相手へ個別メッセージを送信します。内容とLINEへの影響を確認しましたか？')) return
     const sendingChatId = selectedChatId  // capture the chat id for this send
+    const sendManualMessage = async (data: { content: string; messageType?: string }) => {
+      const signature = JSON.stringify([sendingChatId, data.messageType ?? 'text', data.content])
+      const idempotencyKey = pendingChatSendKeysRef.current.get(signature) ?? crypto.randomUUID()
+      pendingChatSendKeysRef.current.set(signature, idempotencyKey)
+      await api.chats.send(sendingChatId, data, { idempotencyKey })
+      pendingChatSendKeysRef.current.delete(signature)
+    }
     sendLockRef.current = true
     setSending(true)
     try {
@@ -657,7 +675,7 @@ export default function ChatsPage() {
           originalContentUrl: pendingImage.originalContentUrl,
           previewImageUrl: pendingImage.previewImageUrl,
         })
-        await api.chats.send(sendingChatId, { messageType: 'image', content: imgPayload })
+        await sendManualMessage({ messageType: 'image', content: imgPayload })
         setPendingImage(null)
         // Optimistic update for image
         setChatDetail((prev) => (prev && prev.id === sendingChatId) ? {
@@ -707,7 +725,7 @@ export default function ChatsPage() {
       // --- Text send path (runs independently — both paths execute when both image and text are present) ---
       if (messageContent.trim()) {
         const content = messageContent.trim()
-        await api.chats.send(sendingChatId, { content })
+        await sendManualMessage({ content })
         setMessageContent('')
         // Optimistic update: append message locally instead of refetching (prevents scroll jump / full reload feel)
         // Only mutate chatDetail if it still corresponds to the chat we just sent to

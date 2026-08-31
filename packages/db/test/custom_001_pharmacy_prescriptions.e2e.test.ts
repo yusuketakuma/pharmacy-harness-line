@@ -269,13 +269,14 @@ describe('synthetic prescription end-to-end', () => {
   });
 
   it.each([
-    { outcome: 'attempted', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, requests: 1 },
-    { outcome: 'attempted', occurredAt: '2099-01-01T00:00:00.000Z', sent: 0, requests: 0 },
-    { outcome: 'failed', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, requests: 1 },
-    { outcome: 'sent', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, requests: 0 },
+    { outcome: 'attempted', occurredAt: new Date(Date.now() - 16 * 60_000).toISOString(), sent: 1, skipped: 0, requests: 1 },
+    { outcome: 'attempted', occurredAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(), sent: 0, skipped: 1, requests: 0 },
+    { outcome: 'attempted', occurredAt: '2099-01-01T00:00:00.000Z', sent: 0, skipped: 0, requests: 0 },
+    { outcome: 'failed', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, skipped: 0, requests: 1 },
+    { outcome: 'sent', occurredAt: '2020-01-01T00:00:00.000Z', sent: 1, skipped: 0, requests: 0 },
   ] as const)(
     'reconciles a $outcome side-effect row after isolate eviction without a failure audit',
-    async ({ outcome, occurredAt, sent, requests: expectedRequests }) => {
+    async ({ outcome, occurredAt, sent, skipped, requests: expectedRequests }) => {
       sqlite.prepare(
         `INSERT INTO pharmacy_prescription_submissions
            (id, line_account_id, friend_id, idempotency_key, status,
@@ -312,7 +313,7 @@ describe('synthetic prescription end-to-end', () => {
           return new Response('{}', { status: 200 });
         },
         lineCredentialKey: LINE_CREDENTIAL_KEY,
-      })).resolves.toEqual({ sent, failed: 0, skipped: 0 });
+      })).resolves.toEqual({ sent, failed: 0, skipped });
 
       expect(requests).toHaveLength(expectedRequests);
       if (requests[0]) {

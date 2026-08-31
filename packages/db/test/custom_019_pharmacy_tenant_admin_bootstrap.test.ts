@@ -6,33 +6,23 @@ import { fileURLToPath } from 'node:url';
 import { deleteStaffMember } from '../src/staff.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations', 'custom_019_pharmacy_tenant_admin_bootstrap.sql');
-
 function database(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
+  db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
   db.exec(`
-    CREATE TABLE tenants (id TEXT PRIMARY KEY);
-    CREATE TABLE staff_members (id TEXT PRIMARY KEY);
-    CREATE TABLE tenant_staff_memberships (
-      tenant_id TEXT NOT NULL,
-      staff_id TEXT NOT NULL,
-      PRIMARY KEY (tenant_id, staff_id),
-      FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-      FOREIGN KEY (staff_id) REFERENCES staff_members(id) ON DELETE CASCADE
-    );
-    CREATE TABLE tenant_admin_credentials (
-      tenant_id TEXT NOT NULL,
-      staff_id TEXT NOT NULL,
-      PRIMARY KEY (tenant_id, staff_id),
-      FOREIGN KEY (tenant_id, staff_id)
-        REFERENCES tenant_staff_memberships(tenant_id, staff_id) ON DELETE CASCADE
-    );
-    INSERT INTO tenants VALUES ('tenant-a'), ('tenant-b');
-    INSERT INTO staff_members VALUES ('staff-a'), ('staff-b');
-    INSERT INTO tenant_staff_memberships VALUES
-      ('tenant-a', 'staff-a'), ('tenant-b', 'staff-b');
-    INSERT INTO tenant_admin_credentials VALUES ('tenant-a', 'staff-a');
+    INSERT INTO tenants (id, tenant_code, display_name) VALUES
+      ('tenant-a', 'a', 'A'), ('tenant-b', 'b', 'B');
+    INSERT INTO staff_members (id, name, role, api_key) VALUES
+      ('staff-a', 'A', 'owner', 'key-a'), ('staff-b', 'B', 'owner', 'key-b');
+    INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role) VALUES
+      ('tenant-a', 'staff-a', 'owner'), ('tenant-b', 'staff-b', 'owner');
+    INSERT INTO tenant_admin_credentials
+      (tenant_id, staff_id, login_id, password_hash, must_change_password,
+       credential_version, created_at, updated_at)
+    VALUES ('tenant-a', 'staff-a', 'admin-a', 'hash', 1, 1, '2026-08-18', '2026-08-18');
+    INSERT INTO pharmacy_tenant_admin_bootstraps (tenant_id, staff_id, created_at)
+    VALUES ('tenant-a', 'staff-a', '2026-08-18');
   `);
   return db;
 }
@@ -48,10 +38,8 @@ function d1From(sqlite: Database.Database): D1Database {
 }
 
 describe('custom_019_pharmacy_tenant_admin_bootstrap.sql', () => {
-  it('backfills existing credentials and permits only one bootstrap owner per tenant', () => {
+  it('permits only one bootstrap owner per tenant', () => {
     const db = database();
-    const migration = readFileSync(MIGRATION, 'utf8');
-    db.exec(migration);
 
     expect(db.prepare(
       'SELECT tenant_id, staff_id FROM pharmacy_tenant_admin_bootstraps ORDER BY tenant_id',
@@ -65,12 +53,10 @@ describe('custom_019_pharmacy_tenant_admin_bootstrap.sql', () => {
        VALUES ('tenant-b', 'staff-b', '2026-08-18T00:00:00.000Z')`,
     ).run()).not.toThrow();
 
-    expect(() => db.exec(migration)).not.toThrow();
   });
 
   it('fails closed instead of physically deleting a staff lifecycle record', async () => {
     const db = database();
-    db.exec(readFileSync(MIGRATION, 'utf8'));
 
     await expect(deleteStaffMember(d1From(db), 'staff-a')).rejects.toThrow(
       'Physical staff deletion is disabled; deactivate the tenant membership instead',

@@ -104,6 +104,12 @@ function parseJsonError(error: unknown): { error: string; status: 400 | 404 | 40
     return { error: 'Both representative and privacy consent are required', status: 400 };
   }
   if (message === 'patient not found') return { error: 'Patient not found', status: 404 };
+  if (message === 'privacy policy required') {
+    return { error: 'Privacy policy is not configured', status: 409 };
+  }
+  if (message === 'privacy policy changed') {
+    return { error: 'Privacy policy changed; retry', status: 409 };
+  }
   if (message === 'FEATURE_DISABLED') {
     return { error: 'Patient intake is not enabled', status: 409 };
   }

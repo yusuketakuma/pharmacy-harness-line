@@ -19,8 +19,6 @@ import {
 } from '../../../apps/worker/src/custom/pharmacy/emergency-contraception/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_035_pharmacy_emergency_contraception.sql');
-const CAPABILITY_MIGRATION = join(ROOT, 'migrations/custom_044_pharmacy_v029_capabilities.sql');
 const NOW = '2026-08-19T00:00:00.000Z';
 // The readiness trigger checks `slot.starts_at` against SQLite's own real-clock `strftime('now')`,
 // which vitest's fake timers cannot mock. Keep the whole reopened-slot scenario on that clock.
@@ -137,8 +135,6 @@ describe('custom_035 pharmacy emergency contraception MVP', () => {
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    db.exec(readFileSync(MIGRATION, 'utf8'));
-    db.exec(readFileSync(CAPABILITY_MIGRATION, 'utf8'));
     seedAccount(db, 'a');
     seedAccount(db, 'b');
     seedReadyService(db);

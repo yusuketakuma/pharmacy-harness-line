@@ -164,12 +164,17 @@ export default function RemindersPage() {
       setFormError('リマインダー名を入力してください')
       return
     }
+    if (!selectedAccountId) {
+      setFormError('LINEアカウントを選択してください')
+      return
+    }
     setSaving(true)
     setFormError('')
     try {
       const res = await api.reminders.create({
         name: form.name,
         description: form.description || undefined,
+        lineAccountId: selectedAccountId,
       })
       if (res.success) {
         setShowCreate(false)

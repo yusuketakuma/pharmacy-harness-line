@@ -1,7 +1,13 @@
 import { Hono } from 'hono';
 import type { Env } from '../../index.js';
-import { getFriendByLineUserId } from '@line-crm/db';
+import {
+  getFriendByLineUserIdForAccount,
+  getLineAccountById,
+  getLineAccountByIdForTenant,
+} from '@line-crm/db';
 import { LineClient } from '@line-crm/line-sdk';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 
 const app = new Hono<Env>();
 
@@ -11,6 +17,7 @@ app.post('/api/meet-callback', async (c) => {
     session_id: string;
     scenario_id: string;
     line_user_id: string;
+    line_account_id: string;
     status: string;
     context?: Record<string, unknown>;
     transcripts: Array<{
@@ -19,25 +26,56 @@ app.post('/api/meet-callback', async (c) => {
     }>;
     requirements_doc?: string;
     completed_at: string;
-  }>();
+  }>().catch(() => null);
 
-  if (!body.line_user_id) {
-    return c.json({ success: false, error: 'line_user_id required' }, 400);
+  if (!body) return c.json({ success: false, error: 'Invalid JSON body' }, 400);
+
+  const requiredStrings: unknown[] = [
+    body.line_user_id,
+    body.line_account_id,
+    body.session_id,
+    body.status,
+    body.completed_at,
+  ];
+  if (requiredStrings.some((value) => typeof value !== 'string' || value.trim() === '')) {
+    return c.json({
+      success: false,
+      error: 'Required fields must be non-empty strings',
+    }, 400);
+  }
+  if (!Array.isArray(body.transcripts) || body.transcripts.some((item) => (
+    !item
+    || typeof item !== 'object'
+    || typeof item.transcript !== 'string'
+    || (item.question_text !== undefined && typeof item.question_text !== 'string')
+  ))) {
+    return c.json({ success: false, error: 'transcripts must be an array' }, 400);
   }
 
-  const friend = await getFriendByLineUserId(c.env.DB, body.line_user_id);
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const ownedAccount = await getLineAccountByIdForTenant(
+    c.env.DB,
+    tenantId,
+    body.line_account_id,
+  );
+  if (!ownedAccount) return c.json({ success: false, error: 'friend not found' }, 404);
+
+  const friend = await getFriendByLineUserIdForAccount(
+    c.env.DB,
+    body.line_user_id,
+    body.line_account_id,
+  );
   if (!friend) {
     return c.json({ success: false, error: 'friend not found' }, 404);
   }
 
-  // Resolve LINE access token (multi-account support)
-  let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if ((friend as unknown as Record<string, unknown>).line_account_id) {
-    const { getLineAccountById } = await import('@line-crm/db');
-    const account = await getLineAccountById(c.env.DB, (friend as unknown as Record<string, unknown>).line_account_id as string);
-    if (account) accessToken = account.channel_access_token;
+  // Resolve the credential only after proving tenant ownership.
+  const account = await getLineAccountById(c.env.DB, body.line_account_id);
+  if (!account?.channel_access_token || account.channel_access_token.startsWith('encrypted:')) {
+    return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
   }
-  const lineClient = new LineClient(accessToken);
+  const lineClient = new LineClient(account.channel_access_token);
 
   // Build Flex message with requirements doc
   const transcriptRows = body.transcripts.map((t) => ({
@@ -72,15 +110,38 @@ app.post('/api/meet-callback', async (c) => {
     },
   };
 
+  let deliveryFailure: 409 | 503 | null = null;
   try {
-    await lineClient.pushMessage(friend.line_user_id, [
-      { type: 'flex', altText: 'ヒアリング結果', contents: resultFlex },
-    ]);
+    const retryKey = await createBroadcastRetryKey(
+      'meet-callback', friend.id, body.session_id,
+    );
+    const result = await deliverTrackedLinePush({
+      db: c.env.DB,
+      operationId: retryKey,
+      tenantId,
+      lineAccountId: body.line_account_id,
+      friendId: friend.id,
+      messageType: 'flex',
+      content: JSON.stringify(resultFlex),
+      source: 'meet-callback',
+      request: {
+        to: friend.line_user_id,
+        messages: [{ type: 'flex', altText: 'ヒアリング結果', contents: resultFlex }],
+      },
+      send: async (request, providerRetryKey) => {
+        await lineClient.pushMessage(request.to, request.messages, providerRetryKey);
+      },
+    });
+    if (result !== 'sent' && result !== 'already_sent') {
+      deliveryFailure = 409;
+    }
   } catch (e) {
     console.error('Failed to send meet callback message:', e);
+    deliveryFailure = 503;
   }
 
   // Save to friend metadata
+  let metadataFailure = false;
   try {
     const existing = JSON.parse(friend.metadata || '{}') as Record<string, unknown>;
     const updated = {
@@ -94,11 +155,28 @@ app.post('/api/meet-callback', async (c) => {
         completed_at: body.completed_at,
       },
     };
-    await c.env.DB.prepare('UPDATE friends SET metadata = ?, updated_at = datetime(\'now\') WHERE id = ?')
-      .bind(JSON.stringify(updated), friend.id)
+    const result = await c.env.DB.prepare(
+      'UPDATE friends SET metadata = ?, updated_at = datetime(\'now\') WHERE id = ? AND line_account_id = ?',
+    )
+      .bind(JSON.stringify(updated), friend.id, body.line_account_id)
       .run();
+    if ((result.meta?.changes ?? 0) !== 1) throw new Error('FRIEND_METADATA_UPDATE_FENCED');
   } catch (e) {
     console.error('Failed to save meet hearing to metadata:', e);
+    metadataFailure = true;
+  }
+
+  if (metadataFailure) {
+    return c.json({ success: false, error: 'Failed to save meet hearing' }, 500);
+  }
+
+  if (deliveryFailure) {
+    return c.json({
+      success: false,
+      error: deliveryFailure === 409
+        ? 'Message delivery requires reconciliation'
+        : 'Message delivery failed',
+    }, deliveryFailure);
   }
 
   return c.json({ success: true });

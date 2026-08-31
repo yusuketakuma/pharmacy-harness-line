@@ -80,7 +80,8 @@ describe('pharmacy rich-menu layout panel', () => {
 
   it('uses the pharmacy layout API and exposes keyboard-operable move controls', () => {
     const panel = readFileSync(join(HERE, 'PharmacyRichMenuLayoutPanel.tsx'), 'utf8');
-    const api = readFileSync(join(HERE, '../../../lib/api.ts'), 'utf8');
+    const api = readFileSync(join(HERE, 'api.ts'), 'utf8');
+    const genericApi = readFileSync(join(HERE, '../../../lib/api.ts'), 'utf8');
     const page = readFileSync(join(HERE, '../../../app/rich-menus/page.tsx'), 'utf8');
     const accounts = readFileSync(join(HERE, '../../../app/accounts/page.tsx'), 'utf8');
     const featureSettings = readFileSync(join(HERE, '../growth-loop/FeatureSettingsPage.tsx'), 'utf8');
@@ -91,15 +92,15 @@ describe('pharmacy rich-menu layout panel', () => {
     expect(api).toContain('/api/custom/pharmacy/rich-menus/lifecycle?accountId=');
     expect(api).toContain('/api/custom/pharmacy/rich-menus/versions?accountId=');
     expect(api).toContain('/diff?accountId=${encodeURIComponent(accountId)}');
-    expect(api).toContain('getForAccount: (groupId: string, accountId: string)');
+    expect(genericApi).toContain('getForAccount: (groupId: string, accountId: string)');
     expect(api).toContain('renamePharmacyVersion:');
     expect(api).toContain('deletePharmacyVersion:');
     expect(api).toContain('reconcilePharmacyOperation:');
     expect(api).toContain('resumePharmacyOperation:');
     expect(api).toContain('/publish?accountId=${encodeURIComponent(accountId)}');
-    expect(panel).toContain('api.pharmacyGrowth.readiness');
-    expect(panel).toContain('api.richMenuGroups.pharmacyLifecycle');
-    expect(panel).toContain('api.richMenuGroups.savePharmacyLifecycle');
+    expect(panel).toContain('pharmacyGrowthApi.readiness');
+    expect(panel).toContain('pharmacyRichMenuApi.pharmacyLifecycle');
+    expect(panel).toContain('pharmacyRichMenuApi.savePharmacyLifecycle');
     expect(panel).toContain('リッチメニュー運用状態');
     expect(panel).toContain('停止中');
     expect(panel).toContain('稼働中');
@@ -160,7 +161,7 @@ describe('pharmacy rich-menu layout panel', () => {
     expect(page).toContain('この画像に切替');
     expect(accounts).not.toContain('preparePharmacy');
     expect(accounts).toContain('href="/rich-menus"');
-    expect(accounts).toContain('api.pharmacyGrowth.readiness');
+    expect(accounts).toContain('pharmacyGrowthApi.readiness');
     expect(accounts).toContain('初期設定を開始');
     expect(accounts).toContain('初期設定を再開');
     expect(accounts).toContain('初期設定を確認');

@@ -19,6 +19,10 @@ const boundaryMocks = vi.hoisted(() => ({
   accountResourceOwnedByStaff: vi.fn(),
 }));
 
+const deliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(),
+}));
+
 vi.mock('@line-crm/db', () => ({
   ...dbMocks,
   getFriends: vi.fn(),
@@ -34,6 +38,7 @@ vi.mock('@line-crm/db', () => ({
 
 vi.mock('../../custom/pharmacy/provisioning/line-credential-store.js', () => credentialMocks);
 vi.mock('../../middleware/tenant-boundary.js', () => boundaryMocks);
+vi.mock('../../services/outbound-line-delivery.js', () => deliveryMocks);
 
 vi.mock('@line-crm/line-sdk', () => ({
   LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
@@ -112,12 +117,13 @@ function setup(db: D1Database, tenantId = 'tenant-a') {
   return app;
 }
 
-function request(app: Hono<Env>, env: Env['Bindings']) {
+function request(app: Hono<Env>, env: Env['Bindings'], idempotencyKey = crypto.randomUUID()) {
   return app.request('/api/friends/friend-a/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Line-Harness-Source': 'manual',
+      'Idempotency-Key': idempotencyKey,
     },
     body: JSON.stringify({ content: 'hello from staff', trackLinks: false }),
   }, env);
@@ -127,6 +133,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   dbMocks.getFriendById.mockResolvedValue(FRIEND);
   lineClientMocks.pushMessage.mockResolvedValue(undefined);
+  deliveryMocks.deliverTrackedLinePush.mockImplementation(async (params) => {
+    await params.send(params.request, 'provider-retry-key');
+    return 'sent';
+  });
   boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
 });
 
@@ -147,8 +157,21 @@ describe('manual friend message credentials', () => {
     expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
       FRIEND.line_user_id,
       [{ type: 'text', text: 'hello from staff' }],
+      'provider-retry-key',
     );
-    expect(executions.some(({ sql }) => sql.includes("'manual'"))).toBe(true);
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      friendId: 'friend-a',
+      messageType: 'text',
+      content: 'hello from staff',
+      source: 'manual',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      request: {
+        to: FRIEND.line_user_id,
+        messages: [{ type: 'text', text: 'hello from staff' }],
+      },
+    }));
   });
 
   it.each([
@@ -163,6 +186,7 @@ describe('manual friend message credentials', () => {
     expect(response.status).toBe(403);
     expect(credentialMocks.readLineCredential).toHaveBeenCalledTimes(shouldReadStore ? 1 : 0);
     expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(executions.some(({ sql }) => sql.includes('INSERT INTO messages_log'))).toBe(false);
   });
 
@@ -179,6 +203,7 @@ describe('manual friend message credentials', () => {
       kind: 'channel_access_token',
     });
     expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(executions.some(({ sql }) => sql.includes('INSERT INTO messages_log'))).toBe(false);
   });
 
@@ -198,6 +223,36 @@ describe('manual friend message credentials', () => {
     );
     expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
     expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(executions.some(({ sql }) => sql.includes('INSERT INTO messages_log'))).toBe(false);
+  });
+
+  it.each(['', 'not-a-uuid'])('rejects an invalid Idempotency-Key before sending', async (key) => {
+    const { db } = makeDb();
+    credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
+
+    const response = await request(setup(db), bindings(db, ROOT_SECRET), key);
+
+    expect(response.status).toBe(400);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+  });
+
+  it('requires the manual source marker before sending', async () => {
+    const { db } = makeDb();
+    credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
+
+    const response = await setup(db).request('/api/friends/friend-a/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({ content: 'hello from staff', trackLinks: false }),
+    }, bindings(db, ROOT_SECRET));
+
+    expect(response.status).toBe(400);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
   });
 });

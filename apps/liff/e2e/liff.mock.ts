@@ -8,6 +8,8 @@ function record(call: string): void {
 export default {
   async init({ liffId }: { liffId: string }) {
     record(`init:${liffId}`);
+    const delay = Number(new URL(globalThis.location.href).searchParams.get('liffInitDelay'));
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   },
   isLoggedIn() {
     record('isLoggedIn');

@@ -34,11 +34,12 @@ export function canSubmitIntake(
   representativeConsent: boolean,
   privacyConsent: boolean,
   busy: boolean,
+  privacyPolicyAvailable = false,
 ): boolean {
   return Boolean(
     answers.allergiesStatus && answers.adverseReactionStatus &&
     answers.medicationStatus && answers.medicalHistoryStatus && answers.medicationNotebook &&
-    representativeConsent && privacyConsent && !busy,
+    representativeConsent && privacyConsent && privacyPolicyAvailable && !busy,
   );
 }
 
@@ -57,6 +58,8 @@ export default function PatientIntakePage() {
   const [representativeConsent, setRepresentativeConsent] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
   const [privacyPolicy, setPrivacyPolicy] = useState<TenantPrivacyPolicy | null>(null);
+  const [privacyPolicyLoading, setPrivacyPolicyLoading] = useState(true);
+  const [privacyPolicyError, setPrivacyPolicyError] = useState<string | null>(null);
   const [patientDraft, setPatientDraft] = useState<PatientProfileDraft>(
     () => emptyPatientProfileDraft('self'),
   );
@@ -69,11 +72,11 @@ export default function PatientIntakePage() {
   const [success, setSuccess] = useState<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (error) {
+    if (error || privacyPolicyError) {
       errorRef.current?.focus();
       errorRef.current?.scrollIntoView({ block: 'center' });
     }
-  }, [error]);
+  }, [error, privacyPolicyError]);
 
   useEffect(() => {
     if (!draftDirty) return;
@@ -124,14 +127,33 @@ export default function PatientIntakePage() {
 
   useEffect(() => { void loadPatients(); }, [loadPatients]);
 
-  // 薬局が掲示する利用目的。未設定でも同意欄は中立文言で表示し、送信は妨げない。
+  const loadPrivacyPolicy = useCallback(async (isActive: () => boolean = () => true) => {
+    setPrivacyPolicyLoading(true);
+    setPrivacyPolicy(null);
+    setPrivacyPolicyError(null);
+    try {
+      const result = await patientIntakeApi.privacyPolicy();
+      if (!isActive()) return;
+      if (!result.policy) {
+        setPrivacyPolicyError('この薬局では個人情報の利用目的が設定されていないため、アンケートを送信できません。薬局へお問い合わせください。');
+        return;
+      }
+      setPrivacyConsent(false);
+      setPrivacyPolicy(result.policy);
+    } catch (err) {
+      if (isActive()) {
+        setPrivacyPolicyError(pharmacyErrorMessage(err, '個人情報の利用目的を確認できませんでした。再読み込みしてください。'));
+      }
+    } finally {
+      if (isActive()) setPrivacyPolicyLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
-    patientIntakeApi.privacyPolicy()
-      .then((result) => { if (active) setPrivacyPolicy(result.policy); })
-      .catch(() => undefined);
+    void loadPrivacyPolicy(() => active);
     return () => { active = false; };
-  }, []);
+  }, [loadPrivacyPolicy]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -235,6 +257,10 @@ export default function PatientIntakePage() {
     nextPrivacyConsent: boolean,
   ) {
     if (!selectedId || busy) return;
+    if (!privacyPolicy) {
+      setPrivacyPolicyError('個人情報の利用目的を確認できないため、アンケートを送信できません。薬局へお問い合わせください。');
+      return;
+    }
     setBusy(true);
     setError(null);
     setSuccess(null);
@@ -244,6 +270,8 @@ export default function PatientIntakePage() {
         answers: nextAnswers,
         representativeConsent: nextRepresentativeConsent,
         privacyConsent: nextPrivacyConsent,
+        privacyPolicyVersion: privacyPolicy.policy_version,
+        privacyPolicyHash: privacyPolicy.content_hash,
       });
       setLatestRevision(result.intake.revision);
       setLatestAnswers(nextAnswers);
@@ -256,6 +284,11 @@ export default function PatientIntakePage() {
       setShowStepErrors(false);
       window.scrollTo(0, 0);
     } catch (err) {
+      if (err instanceof Error &&
+          (err as Error & { status?: unknown }).status === 409) {
+        setPrivacyConsent(false);
+        await loadPrivacyPolicy();
+      }
       setError(pharmacyErrorMessage(err, 'アンケートを送信できませんでした。'));
     } finally {
       setBusy(false);
@@ -263,7 +296,7 @@ export default function PatientIntakePage() {
   }
 
   async function submit() {
-    if (!canSubmitIntake(answers, representativeConsent, privacyConsent, busy)) return;
+    if (!canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)) return;
     // canSubmitIntake guarantees the four safety answers are no longer ''.
     await saveIntake(answers as PatientIntakeAnswers, representativeConsent, privacyConsent);
   }
@@ -287,7 +320,7 @@ export default function PatientIntakePage() {
   }, []);
 
   async function confirmUnchanged() {
-    if (!latestAnswers || busy || !window.confirm(
+    if (!latestAnswers || busy || !privacyPolicy || !window.confirm(
       '前回の回答から変更がないことを確認します。本人または代理人として回答内容を薬局へ伝え、個人情報の利用目的を確認したうえで調剤・連絡に利用することに同意しますか？',
     )) return;
     await saveIntake(latestAnswers, true, true);
@@ -321,6 +354,11 @@ export default function PatientIntakePage() {
       <div className="p-4 space-y-4">
         <p className="text-sm leading-6 text-gray-600">本人・ご家族の情報を薬局に伝えます。入力目安：約1分、選択式中心で詳細は任意です。</p>
         {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 focus:outline-none">{error}</div>}
+        {privacyPolicyLoading && <p role="status" className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">個人情報の利用目的を確認しています...</p>}
+        {privacyPolicyError && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 focus:outline-none">
+          <p>{privacyPolicyError}</p>
+          <button type="button" onClick={() => void loadPrivacyPolicy()} disabled={privacyPolicyLoading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
+        </div>}
         {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-base text-green-800">
           <p className="font-bold">{success}</p>
           {saved && <>
@@ -392,17 +430,18 @@ export default function PatientIntakePage() {
             onRepresentativeConsentChange={(value) => { setRepresentativeConsent(value); setDraftDirty(true); setSaved(false); }}
             onPrivacyConsentChange={(value) => { setPrivacyConsent(value); setDraftDirty(true); setSaved(false); }}
           />
-          {intakeStep === INTAKE_STEP_COUNT && !canSubmitIntake(answers, representativeConsent, privacyConsent, false) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {intakeStep === INTAKE_STEP_COUNT && !canSubmitIntake(answers, representativeConsent, privacyConsent, false, privacyPolicy !== null) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <p className="font-bold">送信するには、次を確認してください</p>
             <ul className="mt-1 list-disc space-y-1 pl-5">
               {(['allergiesStatus', 'adverseReactionStatus', 'medicationStatus', 'medicalHistoryStatus'] as const).some((key) => !answers[key]) && <li>安全確認の質問（ステップ1・2）に未回答があります。「戻る」で回答してください。</li>}
               {!representativeConsent && <li>回答内容を薬局へ伝えることへの同意にチェックしてください。</li>}
               {!privacyConsent && <li>個人情報の利用目的への同意にチェックしてください。</li>}
+              {!privacyPolicy && <li>個人情報の利用目的を確認できるまで送信できません。薬局へお問い合わせください。</li>}
             </ul>
           </div>}
           <div className="flex gap-3">
             <button type="button" onClick={() => setIntakeStep((step) => Math.max(1, step - 1))} disabled={intakeStep === 1 || busy} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-40">戻る</button>
-            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!canSubmitIntake(answers, representativeConsent, privacyConsent, busy)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
+            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
           </div>
           <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/prescriptions')); }} className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800">処方せん事前送信へ</button>
           <p className="text-sm leading-5 text-gray-700">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>

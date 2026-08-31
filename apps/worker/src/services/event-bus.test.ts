@@ -15,6 +15,7 @@ type SqliteStatement = {
 type SqliteDatabase = {
   exec(sql: string): void;
   prepare(sql: string): SqliteStatement;
+  transaction<T>(fn: () => T): () => T;
   close(): void;
 };
 const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
@@ -24,6 +25,11 @@ interface CapturedInsert {
   sql: string;
   binds: unknown[];
 }
+
+const lineClientMocks = vi.hoisted(() => ({
+  replyMessage: vi.fn().mockResolvedValue(undefined),
+  pushMessage: vi.fn().mockResolvedValue(undefined),
+}));
 
 function fakeDb(opts: {
   friend?: { line_user_id: string; line_account_id?: string | null };
@@ -80,34 +86,29 @@ function fakeDb(opts: {
 
 function deliveryDb(failSentSettlement = false): { db: D1Database; sqlite: SqliteDatabase } {
   const sqlite = new Sqlite(':memory:');
-  sqlite.exec(`
-    PRAGMA foreign_keys = ON;
-    CREATE TABLE tenants (id TEXT PRIMARY KEY);
-    CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
-    CREATE TABLE pharmacy_account_capabilities (
-      line_account_id TEXT PRIMARY KEY,
-      mode TEXT NOT NULL
-    );
-    CREATE TABLE tenant_line_accounts (
-      tenant_id TEXT NOT NULL,
-      line_account_id TEXT NOT NULL UNIQUE,
-      PRIMARY KEY (tenant_id, line_account_id),
-      FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-      FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
-    );
-    INSERT INTO tenants VALUES ('tenant-a');
-    INSERT INTO line_accounts VALUES ('account-a');
-    INSERT INTO tenant_line_accounts VALUES ('tenant-a', 'account-a');
-    INSERT INTO pharmacy_account_capabilities VALUES ('account-a', 'generic');
-  `);
   sqlite.exec(readFileSync(
-    join(DB_ROOT, 'migrations/custom_053_outgoing_webhook_deliveries.sql'),
+    join(DB_ROOT, 'bootstrap.sql'),
     'utf8',
   ));
+  sqlite.exec(`
+    PRAGMA foreign_keys = ON;
+    INSERT INTO tenants (id, tenant_code, display_name, status)
+      VALUES ('tenant-a', 'tenant-a', 'Tenant A', 'active');
+    INSERT INTO line_accounts
+      (id, channel_id, name, channel_access_token, channel_secret, is_active)
+      VALUES ('account-a', 'channel-a', 'Account A', 'legacy-token', 'legacy-secret', 1);
+    INSERT INTO tenant_line_accounts (tenant_id, line_account_id)
+      VALUES ('tenant-a', 'account-a');
+    INSERT INTO friends
+      (id, line_user_id, provider_line_user_id, line_account_id, is_following)
+      VALUES ('friend-1', 'legacy-test', 'U_test', 'account-a', 1);
+  `);
   let rejectSent = failSentSettlement;
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...next: unknown[]) => statement(sql, next),
-    first: async () => sqlite.prepare(sql).get(...values) ?? null,
+    first: async () => sql.includes('FROM pharmacy_account_capabilities')
+      ? { mode: 'generic' }
+      : sqlite.prepare(sql).get(...values) ?? null,
     all: async () => ({ success: true, results: sqlite.prepare(sql).all(...values), meta: {} }),
     run: async () => {
       if (rejectSent && sql.includes('UPDATE outgoing_webhook_deliveries') && values[0] === 'sent') {
@@ -117,9 +118,17 @@ function deliveryDb(failSentSettlement = false): { db: D1Database; sqlite: Sqlit
       const result = sqlite.prepare(sql).run(...values);
       return { success: true, meta: { changes: result.changes } };
     },
+    __run: () => {
+      const result = sqlite.prepare(sql).run(...values);
+      return { success: true, meta: { changes: result.changes } };
+    },
   });
   return {
-    db: { prepare: (sql: string) => statement(sql) } as unknown as D1Database,
+    db: {
+      prepare: (sql: string) => statement(sql),
+      batch: async (statements: Array<{ __run: () => D1Result }>) =>
+        sqlite.transaction(() => statements.map((item) => item.__run()))(),
+    } as unknown as D1Database,
     sqlite,
   };
 }
@@ -146,10 +155,7 @@ vi.mock('@line-crm/db', async () => {
 vi.mock('@line-crm/line-sdk', () => {
   return {
     LineClient: vi.fn().mockImplementation(function () {
-      return {
-        replyMessage: vi.fn().mockResolvedValue(undefined),
-        pushMessage: vi.fn().mockResolvedValue(undefined),
-      };
+      return lineClientMocks;
     }),
   };
 });
@@ -167,7 +173,7 @@ describe('fireEvent — send_message action logging', () => {
     (db.getActiveAutomationsByEvent as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue([
       {
         id: 'auto-1',
-        line_account_id: 'acc-1',
+        line_account_id: null,
         conditions: JSON.stringify({ keyword: 'コスト比較' }),
         actions: JSON.stringify([
           {
@@ -187,7 +193,7 @@ describe('fireEvent — send_message action logging', () => {
     vi.clearAllMocks();
   });
 
-  it('logs flex outgoing message to messages_log when send_message fires via reply', async () => {
+  it('fails closed when send_message has no durable scope, even with a reply token', async () => {
     const db = fakeDb({
       friend: { line_user_id: 'U_test' },
       capturedInserts: captured,
@@ -204,18 +210,12 @@ describe('fireEvent — send_message action logging', () => {
       'acc-1',
     );
 
-    expect(captured).toHaveLength(1);
-    const insert = captured[0];
-    expect(insert.sql).toContain('INSERT INTO messages_log');
-    // bind order: id, friendId, messageType, content, deliveryType, source, lineAccountId, createdAt
-    expect(insert.binds[1]).toBe('friend-1');
-    expect(insert.binds[2]).toBe('flex');
-    expect(insert.binds[4]).toBe('reply');
-    expect(insert.binds[5]).toBe('automation');
-    expect(insert.binds[6]).toBe('acc-1');
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
   });
 
-  it('logs delivery_type=push when no replyToken provided', async () => {
+  it('fails closed when send_message has no durable scope or reply token', async () => {
     const db = fakeDb({
       friend: { line_user_id: 'U_test' },
       capturedInserts: captured,
@@ -231,8 +231,152 @@ describe('fireEvent — send_message action logging', () => {
       'acc-1',
     );
 
-    expect(captured).toHaveLength(1);
-    expect(captured[0].binds[4]).toBe('push');
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it('does not call a legacy reply provider without durable scope', async () => {
+    lineClientMocks.replyMessage.mockRejectedValueOnce(
+      new Error('LINE API error: 400 Invalid reply token'),
+    );
+    const db = fakeDb({
+      friend: { line_user_id: 'U_test' },
+      capturedInserts: captured,
+    });
+
+    await fireEvent(
+      db,
+      'message_received',
+      {
+        friendId: 'friend-1',
+        eventData: { text: 'コスト比較', matched: true },
+        replyToken: 'reply-token-xyz',
+      },
+      'channel-token',
+      'acc-1',
+    );
+
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it('does not run later legacy message actions without durable scope', async () => {
+    const dbModule = await import('@line-crm/db');
+    (dbModule.getActiveAutomationsByEvent as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue([{
+      id: 'auto-multi',
+      line_account_id: null,
+      conditions: JSON.stringify({}),
+      actions: JSON.stringify(['first', 'second', 'third'].map((content) => ({
+        type: 'send_message',
+        params: { messageType: 'text', content },
+      }))),
+    }]);
+    lineClientMocks.replyMessage.mockRejectedValueOnce(new Error('provider timeout'));
+    const db = fakeDb({
+      friend: { line_user_id: 'U_test' },
+      capturedInserts: captured,
+    });
+
+    await fireEvent(db, 'message_received', {
+      friendId: 'friend-1',
+      eventData: {},
+      replyToken: 'reply-token-xyz',
+    }, 'channel-token', 'acc-1');
+
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it('does not turn legacy message actions into unkeyed pushes', async () => {
+    const dbModule = await import('@line-crm/db');
+    (dbModule.getActiveAutomationsByEvent as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue([{
+      id: 'auto-multi-success',
+      line_account_id: null,
+      conditions: JSON.stringify({}),
+      actions: JSON.stringify(['first', 'second'].map((content) => ({
+        type: 'send_message',
+        params: { messageType: 'text', content },
+      }))),
+    }]);
+    const db = fakeDb({
+      friend: { line_user_id: 'U_test' },
+      capturedInserts: captured,
+    });
+
+    await fireEvent(db, 'message_received', {
+      friendId: 'friend-1',
+      eventData: {},
+      replyToken: 'reply-token-xyz',
+    }, 'channel-token', 'acc-1');
+
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it('deduplicates the same durable event before a second LINE call', async () => {
+    const { db, sqlite } = deliveryDb();
+
+    try {
+      await fireEvent(db, 'message_received', {
+        friendId: 'friend-1',
+        eventData: { text: 'コスト比較', matched: true },
+      }, 'channel-token', 'account-a', 'tenant-a', 'event-1');
+      await fireEvent(db, 'message_received', {
+        friendId: 'friend-1',
+        eventData: { text: 'コスト比較', matched: true },
+      }, 'channel-token', 'account-a', 'tenant-a', 'event-1');
+
+      expect(lineClientMocks.pushMessage).toHaveBeenCalledTimes(1);
+      expect(lineClientMocks.pushMessage.mock.calls[0]?.[2]).toMatch(/^[0-9a-f-]{36}$/u);
+      expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM messages_log`).get())
+        .toEqual({ count: 1 });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('does not report success when a durable send_message provider outcome is unknown', async () => {
+    const { db, sqlite } = deliveryDb();
+    lineClientMocks.pushMessage.mockRejectedValueOnce(new Error('provider outcome unknown'));
+
+    try {
+      await expect(fireEvent(db, 'message_received', {
+        friendId: 'friend-1',
+        eventData: { text: 'コスト比較', matched: true },
+      }, 'channel-token', 'account-a', 'tenant-a', 'event-provider-unknown'))
+        .rejects.toThrow();
+      expect(sqlite.prepare(`SELECT outcome, attempt_count FROM outbound_line_deliveries`).get())
+        .toEqual({ outcome: 'open', attempt_count: 1 });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('uses keyed push instead of an ambiguous reply for a durable event', async () => {
+    const { db, sqlite } = deliveryDb();
+
+    try {
+      await fireEvent(db, 'message_received', {
+        friendId: 'friend-1',
+        eventData: { text: 'コスト比較', matched: true },
+        replyToken: 'reply-token-xyz',
+      }, 'channel-token', 'account-a', 'tenant-a', 'event-1');
+
+      expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+      expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
+        'U_test',
+        expect.any(Array),
+        expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      );
+      expect(sqlite.prepare(`SELECT delivery_type FROM messages_log`).get())
+        .toEqual({ delivery_type: 'push' });
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('logs even when text message (not flex) is sent', async () => {
@@ -251,22 +395,28 @@ describe('fireEvent — send_message action logging', () => {
       },
     ]);
 
-    const dbFake = fakeDb({
-      friend: { line_user_id: 'U_test' },
-      capturedInserts: captured,
-    });
-    await fireEvent(
-      dbFake,
-      'tag_added',
-      { friendId: 'friend-1', eventData: {} },
-      'channel-token',
-      null,
-    );
+    const { db: deliveryDatabase, sqlite } = deliveryDb();
+    try {
+      await fireEvent(
+        deliveryDatabase,
+        'tag_added',
+        { friendId: 'friend-1', eventData: {} },
+        'channel-token',
+        'account-a',
+        'tenant-a',
+        'event-text',
+      );
 
-    expect(captured).toHaveLength(1);
-    expect(captured[0].binds[2]).toBe('text');
-    expect(captured[0].binds[3]).toBe('hello');
-    expect(captured[0].binds[6]).toBe(null);
+      expect(sqlite.prepare(
+        `SELECT message_type, content, line_account_id FROM messages_log`,
+      ).get()).toEqual({
+        message_type: 'text',
+        content: 'hello',
+        line_account_id: 'account-a',
+      });
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('does not run generic scoring or automations for a pharmacy account', async () => {
@@ -665,21 +815,26 @@ describe('fireEvent — send_message action logging', () => {
       updated_at: '2026-05-08T00:00:00.000+09:00',
     });
 
-    const dbFake = fakeDb({
-      friend: { line_user_id: 'U_test' },
-      capturedInserts: captured,
-    });
-    await fireEvent(
-      dbFake,
-      'manual_test',
-      { friendId: 'friend-1', eventData: {} },
-      'channel-token',
-      null,
-    );
+    const { db: deliveryDatabase, sqlite } = deliveryDb();
+    try {
+      await fireEvent(
+        deliveryDatabase,
+        'manual_test',
+        { friendId: 'friend-1', eventData: {} },
+        'channel-token',
+        'account-a',
+        'tenant-a',
+        'event-template',
+      );
 
-    expect(captured).toHaveLength(1);
-    // log には template から取得した messageType / content が記録される
-    expect(captured[0].binds[2]).toBe('flex');
-    expect(String(captured[0].binds[3])).toContain('from-template');
+      const log = sqlite.prepare(`SELECT message_type, content FROM messages_log`).get() as {
+        message_type: string;
+        content: string;
+      };
+      expect(log.message_type).toBe('flex');
+      expect(log.content).toContain('from-template');
+    } finally {
+      sqlite.close();
+    }
   });
 });

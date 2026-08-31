@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { authMiddleware } from '../../../middleware/auth.js';
 import { adminAuth } from '../../../routes/admin/admin-auth.js';
-import { hashTenantPassword } from './credentials.js';
+import {
+  generateTenantAdminSessionToken,
+  hashTenantAdminSessionToken,
+  hashTenantPassword,
+} from './credentials.js';
 
 vi.mock('@line-crm/db', () => ({
   getStaffByApiKey: vi.fn(async () => null),
@@ -34,15 +38,22 @@ beforeEach(async () => {
 
 const auditEvents: Array<{ action: string; detail: string | null }> = [];
 
-function tenantDb(): D1Database {
-  const sessions = new Map<string, {
-    tenantId: string;
-    staffId: string;
-    credentialVersion: number;
-    kind: 'bootstrap' | 'standard';
-    expiresAt: string;
-    revokedAt: string | null;
-  }>();
+type TestSession = {
+  tenantId: string;
+  staffId: string;
+  credentialVersion: number;
+  kind: 'bootstrap' | 'standard';
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
+function tenantDb(
+  seedSessions: Array<[string, TestSession]> = [],
+  rejectLogout = false,
+): D1Database {
+  const sessions = new Map(seedSessions);
+  let lastChanges = 0;
   const db = {
     prepare(sql: string) {
       let values: unknown[] = [];
@@ -52,6 +63,14 @@ function tenantDb(): D1Database {
           return statement;
         },
         async first() {
+          if (sql.includes('SELECT 1 AS present FROM tenant_admin_sessions')) {
+            const session = sessions.get(String(values[0]));
+            return session && session.tenantId === values[1] && session.staffId === values[2] &&
+              session.credentialVersion === Number(values[3]) && !session.revokedAt &&
+              session.expiresAt > String(values[4])
+              ? { present: 1 }
+              : null;
+          }
           if (sql.includes('FROM tenant_admin_sessions AS session')) {
             const session = sessions.get(String(values[0]));
             if (!session || session.revokedAt || session.expiresAt <= String(values[1]) ||
@@ -59,7 +78,7 @@ function tenantDb(): D1Database {
                 session.credentialVersion !== credential.credential_version) return null;
             return { ...tenant, ...credential, session_kind: session.kind };
           }
-          if (sql.includes('FROM tenant_admin_credentials AS credential')) {
+          if (sql.includes('FROM tenant_admin_credentials')) {
             const isLogin = sql.includes('credential.login_id');
             if (isLogin) {
               return values[0] === tenant.tenant_code && values[1] === credential.login_id
@@ -73,9 +92,38 @@ function tenantDb(): D1Database {
           }
           return null;
         },
+        async all() {
+          if (sql.includes('FROM tenant_admin_sessions')) {
+            return {
+              results: [...sessions.entries()]
+                .filter(([, session]) =>
+                  session.tenantId === values[1] &&
+                  session.staffId === values[2] &&
+                  !session.revokedAt &&
+                  session.expiresAt > String(values[3]) &&
+                  (!sql.includes('credential_version = ?') ||
+                    session.credentialVersion === Number(values[4])))
+                .map(([tokenHash, session]) => ({
+                  session_kind: session.kind,
+                  expires_at: session.expiresAt,
+                  created_at: session.createdAt,
+                  is_current: tokenHash === values[0] ? 1 : 0,
+                })),
+            };
+          }
+          return { results: [] };
+        },
         async run() {
           if (sql.includes('INSERT INTO tenant_admin_audit_events')) {
-            auditEvents.push({ action: String(values[4]), detail: values[7] as string | null });
+            if (sql.includes('changes() > 0') && lastChanges === 0) {
+              return { meta: { changes: 0 } };
+            }
+            auditEvents.push(sql.includes("'staff.password_changed'")
+              ? { action: 'staff.password_changed', detail: null }
+              : sql.includes("'staff.other_sessions_revoked'")
+                ? { action: 'staff.other_sessions_revoked', detail: null }
+                : { action: String(values[4]), detail: values[7] as string | null });
+            lastChanges = 1;
             return { meta: { changes: 1 } };
           }
           if (sql.includes('INSERT INTO tenant_admin_sessions')) {
@@ -88,12 +136,28 @@ function tenantDb(): D1Database {
               kind,
               expiresAt,
               revokedAt: null,
+              createdAt: sql.includes("'standard'") ? String(values[5]) : String(values[6]),
             });
+            lastChanges = 1;
             return { meta: { changes: 1 } };
           }
           if (sql.includes('UPDATE tenant_admin_sessions')) {
+            if (rejectLogout && sql.includes('WHERE token_hash')) {
+              throw new Error('session revoke failed');
+            }
             let changes = 0;
-            if (sql.includes('WHERE token_hash')) {
+            if (sql.includes('token_hash != ?')) {
+              for (const [tokenHash, session] of sessions) {
+                if (session.tenantId === values[1] && session.staffId === values[2] &&
+                    tokenHash !== values[3] && !session.revokedAt &&
+                    session.expiresAt > String(values[4]) &&
+                    (!sql.includes('credential_version <= ?') ||
+                      session.credentialVersion <= Number(values[5]))) {
+                  session.revokedAt = String(values[0]);
+                  changes += 1;
+                }
+              }
+            } else if (sql.includes('WHERE token_hash')) {
               const session = sessions.get(String(values[1]));
               if (session && !session.revokedAt) {
                 session.revokedAt = String(values[0]);
@@ -108,6 +172,7 @@ function tenantDb(): D1Database {
                 }
               }
             }
+            lastChanges = changes;
             return { meta: { changes } };
           }
           if (sql.includes('UPDATE tenant_admin_credentials')) {
@@ -119,15 +184,19 @@ function tenantDb(): D1Database {
             credential.password_hash = String(passwordHash);
             credential.must_change_password = 0;
             credential.credential_version += 1;
+            lastChanges = 1;
             return { meta: { changes: 1 }, now };
           }
+          lastChanges = 0;
           return { meta: { changes: 0 } };
         },
       };
       return statement;
     },
     async batch(statements: Array<{ run(): Promise<unknown> }>) {
-      return Promise.all(statements.map((statement) => statement.run()));
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      return results;
     },
   };
   return db as unknown as D1Database;
@@ -310,6 +379,7 @@ describe('tenant admin password authentication', () => {
         password: 'Temporary pass 42',
       }),
     }, testEnv);
+    expect(login.headers.get('cache-control')).toBe('no-store, private');
     const cookie = cookieHeader(login);
     const csrf = (await login.clone().json() as { csrfToken: string }).csrfToken;
 
@@ -335,6 +405,7 @@ describe('tenant admin password authentication', () => {
       headers: { cookie },
     }, testEnv);
     expect(restored.status).toBe(200);
+    expect(restored.headers.get('cache-control')).toBe('no-store, private');
     await expect(restored.json()).resolves.toMatchObject({
       data: { id: credential.staff_id, tenantId: tenant.id },
       csrfToken: csrf,
@@ -454,5 +525,154 @@ describe('tenant admin password authentication', () => {
 
     expect(response.status).toBe(400);
     expect(credential.must_change_password).toBe(1);
+  });
+
+  it('clears cookies but does not report success when logout revocation fails', async () => {
+    credential.must_change_password = 0;
+    const testEnv = env(tenantDb([], true));
+    const login = await app().request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        pharmacyCode: tenant.tenant_code,
+        loginId: credential.login_id,
+        password: 'Temporary pass 42',
+      }),
+    }, testEnv);
+
+    const logout = await app().request('/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: cookieHeader(login) },
+    }, testEnv);
+
+    expect(logout.status).toBe(503);
+    expect(cookies(logout).some((value) => value.startsWith('lh_admin_session=;'))).toBe(true);
+  });
+
+  it('lists active sessions and re-authenticates before revoking every other session', async () => {
+    credential.must_change_password = 0;
+    const testEnv = env();
+    const login = () => app().request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        pharmacyCode: tenant.tenant_code,
+        loginId: credential.login_id,
+        password: 'Temporary pass 42',
+      }),
+    }, testEnv);
+    const first = await login();
+    const second = await login();
+    const currentCookie = cookieHeader(second);
+    const csrf = (await second.clone().json() as { csrfToken: string }).csrfToken;
+
+    const listed = await app().request('/api/auth/sessions', {
+      headers: { cookie: currentCookie },
+    }, testEnv);
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toMatchObject({
+      success: true,
+      data: {
+        sessions: expect.arrayContaining([
+          expect.objectContaining({ current: true, sessionKind: 'standard' }),
+          expect.objectContaining({ current: false, sessionKind: 'standard' }),
+        ]),
+      },
+    });
+
+    const denied = await app().request('/api/auth/sessions/revoke-others', {
+      method: 'POST',
+      headers: {
+        cookie: currentCookie,
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+      },
+      body: JSON.stringify({ currentPassword: 'Wrong password 42' }),
+    }, testEnv);
+    expect(denied.status).toBe(403);
+
+    const revoked = await app().request('/api/auth/sessions/revoke-others', {
+      method: 'POST',
+      headers: {
+        cookie: currentCookie,
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+      },
+      body: JSON.stringify({ currentPassword: 'Temporary pass 42' }),
+    }, testEnv);
+    expect(revoked.status).toBe(200);
+    await expect(revoked.json()).resolves.toEqual({
+      success: true,
+      data: { revoked: 1 },
+    });
+    expect(auditEvents).toEqual([{ action: 'staff.other_sessions_revoked', detail: null }]);
+    const repeated = await app().request('/api/auth/sessions/revoke-others', {
+      method: 'POST',
+      headers: {
+        cookie: currentCookie,
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+      },
+      body: JSON.stringify({ currentPassword: 'Temporary pass 42' }),
+    }, testEnv);
+    expect(repeated.status).toBe(200);
+    await expect(repeated.json()).resolves.toEqual({ success: true, data: { revoked: 0 } });
+    expect(auditEvents).toEqual([{ action: 'staff.other_sessions_revoked', detail: null }]);
+    expect((await app().request('/api/protected', {
+      headers: { cookie: cookieHeader(first) },
+    }, testEnv)).status).toBe(401);
+    expect((await app().request('/api/protected', {
+      headers: { cookie: currentCookie },
+    }, testEnv)).status).toBe(200);
+  });
+
+  it('lists only the current credential version and never revokes a later version', async () => {
+    credential.must_change_password = 0;
+    credential.credential_version = 2;
+    const currentToken = generateTenantAdminSessionToken();
+    const staleToken = generateTenantAdminSessionToken();
+    const laterToken = generateTenantAdminSessionToken();
+    const future = '2099-01-01T00:00:00.000Z';
+    const session = (credentialVersion: number, createdAt: string): TestSession => ({
+      tenantId: tenant.id,
+      staffId: credential.staff_id,
+      credentialVersion,
+      kind: 'standard',
+      expiresAt: future,
+      revokedAt: null,
+      createdAt,
+    });
+    const testEnv = env(tenantDb([
+      [await hashTenantAdminSessionToken(staleToken), session(1, '2026-08-30T00:00:00.000Z')],
+      [await hashTenantAdminSessionToken(currentToken), session(2, '2026-08-30T00:01:00.000Z')],
+      [await hashTenantAdminSessionToken(laterToken), session(3, '2026-08-30T00:02:00.000Z')],
+    ]));
+    const csrf = 'version-csrf';
+    const cookie = (token: string) =>
+      `lh_admin_session=${token}; lh_tenant=${tenant.id}; lh_csrf=${csrf}`;
+
+    const listed = await app().request('/api/auth/sessions', {
+      headers: { cookie: cookie(currentToken) },
+    }, testEnv);
+    expect(listed.status).toBe(200);
+    expect((await listed.json() as { data: { sessions: unknown[] } }).data.sessions).toEqual([
+      expect.objectContaining({ current: true }),
+    ]);
+
+    const revoked = await app().request('/api/auth/sessions/revoke-others', {
+      method: 'POST',
+      headers: {
+        cookie: cookie(currentToken),
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+      },
+      body: JSON.stringify({ currentPassword: 'Temporary pass 42' }),
+    }, testEnv);
+    await expect(revoked.json()).resolves.toEqual({ success: true, data: { revoked: 1 } });
+
+    credential.credential_version = 3;
+    expect((await app().request('/api/protected', {
+      headers: { cookie: cookie(laterToken) },
+    }, testEnv)).status).toBe(200);
   });
 });

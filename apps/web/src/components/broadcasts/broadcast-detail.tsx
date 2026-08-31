@@ -99,6 +99,7 @@ export default function BroadcastDetail({ broadcastId }: BroadcastDetailProps) {
           status: res.data!.status as ApiBroadcast['status'],
           totalCount: res.data!.totalCount,
           successCount: res.data!.successCount,
+          failedAccountIds: res.data!.failedAccountIds,
         } : prev)
         if (res.data.status === 'sent') {
           clearInterval(interval)
@@ -203,6 +204,12 @@ export default function BroadcastDetail({ broadcastId }: BroadcastDetailProps) {
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+      )}
+
+      {broadcast.status === 'sending' && (broadcast.failedAccountIds?.length ?? 0) > 0 && (
+        <div role="alert" className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+          配信結果の確認が必要です。重複送信を避けるため再送せず、配信履歴を確認してください。
+        </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
@@ -320,7 +327,7 @@ export default function BroadcastDetail({ broadcastId }: BroadcastDetailProps) {
       {/* Test Send */}
       {broadcast.status === 'draft' && accountId && (
         <div className="mb-4">
-          <TestSendSection broadcastId={id} accountId={accountId} disabled={false} />
+          <TestSendSection key={`${id}:${accountId}`} broadcastId={id} accountId={accountId} disabled={false} />
         </div>
       )}
 

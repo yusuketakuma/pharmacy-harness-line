@@ -31,6 +31,12 @@ import { pushImmediateFirstStep } from '../../services/immediate-first-step.js';
 import { notifyAffiliateFriendAdd } from '../../services/affiliate-notifier.js';
 import { verifyCallerLineIdentity, verifyCallerLineUserId } from '../../services/liff-auth.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
+import { createFormLinkRetryKey } from '../../services/broadcast-retry-key.js';
+import {
+  getActiveMappedAccountTenantId,
+  messageToLogPayload,
+} from '../../services/step-delivery.js';
+import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 import { redirectOriginAllowlist, safeRedirectTarget } from '../../lib/safe-redirect.js';
 import { loginUnconfiguredPage } from '../../lib/login-unconfigured.js';
 import { log } from '../../lib/log.js';
@@ -256,7 +262,13 @@ async function applyRefAttribution(
               const linkOffer = await getAffiliateOfferById(db, affiliateLink.offer_id);
               offerName = linkOffer?.name ?? null;
             }
-            await notifyAffiliateFriendAdd(db, c.env, affiliate.id, offerName);
+            await notifyAffiliateFriendAdd(
+              db,
+              c.env,
+              affiliate.id,
+              offerName,
+              `${affiliateLink.id}:${friend.id}`,
+            );
           }
         } catch (err) {
           console.error('Affiliate friend-add notify failed (non-blocking):', err);
@@ -899,7 +911,7 @@ liffRoutes.get('/auth/callback', async (c) => {
             .prepare('UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?')
             .bind(JSON.stringify(meta), jstNow(), friend.id)
             .run();
-          console.log(`X Harness: linked x account to friend ${friend.id}`);
+          console.log('X Harness: linked x account');
         }
         // Apply gate actions (tag + scenario) from X Harness
         if (xhResult) {
@@ -996,26 +1008,28 @@ liffRoutes.get('/auth/callback', async (c) => {
     // not in pharmacy mode. A channel in OAuth state selects the send token,
     // so it must agree with an already-account-scoped friend.
     let formAccount: Awaited<ReturnType<typeof getLineAccountById>> = null;
-    let canSendGenericForm = Boolean(formId && friend?.line_user_id);
+    const friendAccountIdForForm = friend?.line_account_id ?? null;
+    let canSendGenericForm = Boolean(formId && friend?.line_user_id && friendAccountIdForForm);
     if (canSendGenericForm) {
       try {
         if (accountParam) {
           formAccount = await getLineAccountByChannelId(db, accountParam);
           if (
             !formAccount
-            || (friend.line_account_id && friend.line_account_id !== formAccount.id)
+            || friendAccountIdForForm !== formAccount.id
           ) {
             canSendGenericForm = false;
           }
-        } else if (friend.line_account_id) {
-          formAccount = await getLineAccountById(db, friend.line_account_id);
+        } else if (friendAccountIdForForm) {
+          formAccount = await getLineAccountById(db, friendAccountIdForForm);
         }
 
-        const formAccountId = formAccount?.id ?? friend.line_account_id ?? null;
+        if (!formAccount) canSendGenericForm = false;
+        const formAccountId = formAccount?.id ?? friendAccountIdForForm;
         const pharmacyBlocked = (formAccountId
           ? await isPharmacyModeAccount(db, formAccountId)
           : false)
-          || (!friend.line_account_id && await hasPharmacyModeAccount(db));
+          || (!friendAccountIdForForm && await hasPharmacyModeAccount(db));
         if (
           canSendGenericForm
           && pharmacyBlocked
@@ -1028,7 +1042,13 @@ liffRoutes.get('/auth/callback', async (c) => {
       }
     }
 
-    if (canSendGenericForm && formId && friend?.line_user_id) {
+    if (
+      canSendGenericForm
+      && formId
+      && friend?.line_user_id
+      && friendAccountIdForForm
+      && formAccount
+    ) {
       try {
         // Build form LIFF URL using the friend's account liff_id (multi-account aware)
         // Append gate/xh so the form can verify against the correct campaign gate
@@ -1046,11 +1066,9 @@ liffRoutes.get('/auth/callback', async (c) => {
         if (xhParam) formQuery.set('xh', xhParam);
         let formLiffUrl = `${new URL(c.req.url).origin}?${formQuery.toString()}`;
         const { LineClient } = await import('@line-crm/line-sdk');
-        let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-        if (formAccount?.channel_access_token) {
-          accessToken = formAccount.channel_access_token;
-        }
-        if (formAccount?.liff_id) {
+        const accessToken = formAccount.channel_access_token;
+        if (!accessToken) throw new Error('FORM_LINK_ACCOUNT_CREDENTIAL_UNAVAILABLE');
+        if (formAccount.liff_id) {
           formLiffUrl = `https://liff.line.me/${formAccount.liff_id}?${formQuery.toString()}`;
         }
         if (formLiffUrl.startsWith(`${new URL(c.req.url).origin}`)) {
@@ -1084,7 +1102,33 @@ liffRoutes.get('/auth/callback', async (c) => {
         const introMessage = buildIntroMessage(introTemplate, formLiffUrl);
 
         const lineClient = new LineClient(accessToken);
-        await lineClient.pushMessage(friend.line_user_id, [introMessage as any]);
+        const retryKey = await createFormLinkRetryKey({
+          friendId: friend.id,
+          formId,
+          ref: externalRefForForm,
+          gate: gateParam,
+          xh: xhParam,
+        });
+        const tenantId = await getActiveMappedAccountTenantId(db, friendAccountIdForForm);
+        if (!tenantId) throw new Error('FORM_LINK_ACCOUNT_UNMAPPED');
+        const logPayload = messageToLogPayload(introMessage as any);
+        const delivery = await deliverTrackedLinePush({
+          db,
+          operationId: retryKey,
+          tenantId,
+          lineAccountId: friendAccountIdForForm,
+          friendId: friend.id,
+          messageType: logPayload.messageType,
+          content: logPayload.content,
+          source: 'form',
+          request: { to: friend.line_user_id, messages: [introMessage as any] },
+          send: async (request, providerRetryKey) => {
+            await lineClient.pushMessage(request.to, request.messages, providerRetryKey);
+          },
+        });
+        if (delivery !== 'sent' && delivery !== 'already_sent') {
+          throw new Error('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+        }
       } catch (err) {
         console.error('Form link push error (non-blocking):', err);
       }
@@ -1375,7 +1419,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
               .prepare('UPDATE friends SET metadata = ? WHERE id = ?')
               .bind(JSON.stringify(meta), friend.id)
               .run();
-            console.log(`X Harness: linked x account to friend ${friend.id}`);
+            console.log('X Harness: linked x account');
           }
           if (xhResult) {
             await applyXHarnessActions(db, friend.id, xhResult);
@@ -1445,7 +1489,7 @@ liffRoutes.post('/api/liff/link', async (c) => {
             .prepare('UPDATE friends SET metadata = ? WHERE id = ?')
             .bind(JSON.stringify(meta), friend.id)
             .run();
-          console.log(`X Harness: linked x account to friend ${friend.id}`);
+          console.log('X Harness: linked x account');
         }
         if (xhResult) {
           await applyXHarnessActions(db, friend.id, xhResult);
@@ -1819,7 +1863,7 @@ async function applyXHarnessActions(
       if (tagRow) {
         const { addTagToFriend } = await import('@line-crm/db');
         await addTagToFriend(db, friendId, tagRow.id);
-        console.log(`X Harness: added tag "${result.tag}" to friend ${friendId}`);
+        console.log('X Harness: added tag');
       }
     } catch (err) {
       console.error(`X Harness: failed to add tag "${result.tag}":`, err);
@@ -1831,7 +1875,7 @@ async function applyXHarnessActions(
     try {
       const { enrollFriendInScenario } = await import('@line-crm/db');
       await enrollFriendInScenario(db, friendId, result.scenarioId);
-      console.log(`X Harness: enrolled friend ${friendId} in scenario ${result.scenarioId}`);
+      console.log('X Harness: enrolled friend in scenario');
     } catch (err) {
       console.error(`X Harness: failed to enroll in scenario:`, err);
     }
@@ -1903,6 +1947,7 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
     }
 
     // Verify idToken — ensures caller is the actual user
+    let verifiedAccountId: string | null = null;
     {
       const loginChannelIds = [c.env.LINE_LOGIN_CHANNEL_ID];
       const dbAccounts = await getLineAccounts(c.env.DB);
@@ -1921,6 +1966,9 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
           if (data.sub !== lineUserId) {
             return c.json({ success: false, error: 'Token mismatch' }, 403);
           }
+          verifiedAccountId = dbAccounts.find(
+            (account) => account.login_channel_id === channelId,
+          )?.id ?? null;
           verified = true;
           break;
         }
@@ -1929,11 +1977,26 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
         return c.json({ success: false, error: 'Invalid idToken' }, 401);
       }
     }
+    if (!verifiedAccountId) {
+      return c.json({ success: false, error: 'Account binding required' }, 409);
+    }
 
     const db = c.env.DB;
-    const friend = await getFriendByLineUserId(db, lineUserId);
+    const friend = await getFriendByLineUserIdForAccount(db, lineUserId, verifiedAccountId);
     if (!friend) {
       return c.json({ success: false, error: 'Friend not found' }, 404);
+    }
+    const friendAccountId = (friend as { line_account_id?: string | null }).line_account_id ?? null;
+    if (friendAccountId !== verifiedAccountId) {
+      return c.json({ success: false, error: 'Account binding required' }, 409);
+    }
+    const tenantId = await getActiveMappedAccountTenantId(db, friendAccountId);
+    if (!tenantId) {
+      return c.json({ success: false, error: 'Account mapping unavailable' }, 409);
+    }
+    const account = await getLineAccountById(db, friendAccountId);
+    if (!account?.channel_access_token) {
+      return c.json({ success: false, error: 'Account credential unavailable' }, 503);
     }
 
     // IG cross-link for LIFF flows that hit this endpoint (existing friends
@@ -1956,13 +2019,8 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
     if (xh) formQuery.set('xh', xh);
     let formLiffUrl = `${new URL(c.req.url).origin}?${formQuery.toString()}`;
     const { LineClient } = await import('@line-crm/line-sdk');
-    let accessToken = c.env.LINE_CHANNEL_ACCESS_TOKEN;
-    if ((friend as any).line_account_id) {
-      const account = await getLineAccountById(db, (friend as any).line_account_id);
-      if (account?.channel_access_token) accessToken = account.channel_access_token;
-      if (account?.liff_id) {
-        formLiffUrl = `https://liff.line.me/${account.liff_id}?${formQuery.toString()}`;
-      }
+    if (account.liff_id) {
+      formLiffUrl = `https://liff.line.me/${account.liff_id}?${formQuery.toString()}`;
     }
     if (formLiffUrl.startsWith(`${new URL(c.req.url).origin}`)) {
       // Fallback: use env LIFF_URL if no account-specific liff_id
@@ -1991,8 +2049,32 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
     }
     const introMessage = buildIntroMessage(introTemplate, formLiffUrl);
 
-    const lineClient = new LineClient(accessToken);
-    await lineClient.pushMessage(lineUserId, [introMessage as any]);
+    const lineClient = new LineClient(account.channel_access_token);
+    const retryKey = await createFormLinkRetryKey({
+      friendId: friend.id,
+      formId,
+      ref: externalRefForForm,
+      gate: gate ?? '',
+      xh: xh ?? '',
+    });
+    const logPayload = messageToLogPayload(introMessage as any);
+    const delivery = await deliverTrackedLinePush({
+      db,
+      operationId: retryKey,
+      tenantId,
+      lineAccountId: friendAccountId,
+      friendId: friend.id,
+      messageType: logPayload.messageType,
+      content: logPayload.content,
+      source: 'form',
+      request: { to: lineUserId, messages: [introMessage as any] },
+      send: async (request, providerRetryKey) => {
+        await lineClient.pushMessage(request.to, request.messages, providerRetryKey);
+      },
+    });
+    if (delivery !== 'sent' && delivery !== 'already_sent') {
+      return c.json({ success: false, error: 'Delivery reconciliation required' }, 409);
+    }
 
     return c.json({ success: true });
   } catch (err) {

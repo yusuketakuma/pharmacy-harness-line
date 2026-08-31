@@ -5,6 +5,7 @@ import {
   advanceFriendScenario,
   completeFriendScenario,
   claimFriendScenarioForDelivery,
+  markFriendScenarioDeliveryAttempt,
   recoverStuckDeliveries,
   pauseFriendScenarioDelivery,
   getFriendById,
@@ -20,6 +21,9 @@ import type { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
 import { jitterDeliveryTime, addJitter, sleep } from './stealth.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { deliverTrackedLinePush } from './outbound-line-delivery.js';
+import { log } from '../lib/log.js';
 
 /**
  * Replace template variables in message content.
@@ -105,13 +109,13 @@ export async function resolveMetadata(
 const MAX_SENDS_PER_CRON = 40; // CF Free plan: 50 subrequests limit (margin for other jobs)
 const MAX_ATTEMPTS_PER_CRON = 40; // condition skips/errors also consume CPU and D1 work
 
-async function isActiveMappedAccount(
+export async function getActiveMappedAccountTenantId(
   db: D1Database,
   accountId: string | null | undefined,
-): Promise<boolean> {
-  if (!accountId) return false;
+): Promise<string | null> {
+  if (!accountId) return null;
   const row = await db.prepare(
-    `SELECT 1 AS ok
+    `SELECT mapping.tenant_id
        FROM tenant_line_accounts AS mapping
        INNER JOIN line_accounts AS account
                ON account.id = mapping.line_account_id
@@ -119,14 +123,20 @@ async function isActiveMappedAccount(
                ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
       WHERE mapping.line_account_id = ? AND account.is_active = 1
       LIMIT 1`,
-  ).bind(accountId).first<{ ok: number }>();
-  return Boolean(row);
+  ).bind(accountId).first<{ tenant_id: string }>();
+  return row?.tenant_id ?? null;
 }
 
 export function getLineApiErrorStatus(err: unknown): number | null {
   if (!(err instanceof Error)) return null;
   const match = err.message.match(/^LINE API error:\s+(\d{3})\b/);
   return match ? Number(match[1]) : null;
+}
+
+export function isDeterministicInvalidReplyToken(error: unknown): boolean {
+  return error instanceof Error
+    && getLineApiErrorStatus(error) === 400
+    && /\bInvalid reply token\b/iu.test(error.message);
 }
 
 export function isPermanentLineDeliveryError(err: unknown): boolean {
@@ -166,16 +176,7 @@ export async function processStepDeliveries(
       const sent = await processSingleDelivery(db, lineClient, fs, workerUrl);
       if (sent) sendCount++;
     } catch (err) {
-      console.error(`Error processing friend_scenario ${fs.id}:`, err);
-      // A permanent LINE 4xx (invalid/unreachable recipient, invalid payload,
-      // unauthorized channel, etc.) must not be recovered and retried forever.
-      // 408/409/429 are transient and retain the existing 5-minute recovery.
-      if (isPermanentLineDeliveryError(err)) {
-        await pauseFriendScenarioDelivery(db, fs.id);
-        console.warn(
-          `[step-delivery] paused enrollment=${fs.id} after permanent LINE ${getLineApiErrorStatus(err)}`,
-        );
-      }
+      console.error('Error processing friend_scenario:', err);
       // Continue with next one.
     }
   }
@@ -230,12 +231,13 @@ async function processSingleDelivery(
   workerUrl?: string,
 ): Promise<boolean> {
   // Optimistic lock: claim this delivery (prevents duplicate sends from parallel workers)
-  const claimed = await claimFriendScenarioForDelivery(db, fs.id, fs.current_step_order);
-  if (!claimed) return false;
+  const claimToken = await claimFriendScenarioForDelivery(db, fs.id, fs.current_step_order);
+  if (!claimToken) return false;
+  const claim = { token: claimToken, expectedStepOrder: fs.current_step_order };
 
   const enrolledFriend = await getFriendById(db, fs.friend_id);
   if (!enrolledFriend) {
-    await completeFriendScenario(db, fs.id);
+    await completeFriendScenario(db, fs.id, claim);
     return false;
   }
 
@@ -246,7 +248,7 @@ async function processSingleDelivery(
     .bind(fs.scenario_id)
     .first<{ delivery_mode: DeliveryMode; line_account_id: string | null }>();
   if (!scenarioRow) {
-    await completeFriendScenario(db, fs.id);
+    await completeFriendScenario(db, fs.id, claim);
     return false;
   }
 
@@ -256,33 +258,39 @@ async function processSingleDelivery(
     scenarioRow.line_account_id,
   );
   if (!friend) {
-    await pauseFriendScenarioDelivery(db, fs.id);
+    await pauseFriendScenarioDelivery(db, fs.id, claimToken);
     console.warn(
       `[step-delivery] paused enrollment=${fs.id}: no following friend for scenario account=${scenarioRow.line_account_id}`,
     );
     return false;
   }
   const deliveryAccountId = scenarioRow.line_account_id ?? friend.line_account_id;
-  if (deliveryAccountId && !(await isActiveMappedAccount(db, deliveryAccountId))) {
-    await pauseFriendScenarioDelivery(db, fs.id);
+  if (!deliveryAccountId) {
+    await pauseFriendScenarioDelivery(db, fs.id, claimToken);
+    console.warn('[step-delivery] paused unscoped scenario delivery');
+    return false;
+  }
+  const deliveryTenantId = await getActiveMappedAccountTenantId(db, deliveryAccountId);
+  if (!deliveryTenantId) {
+    await pauseFriendScenarioDelivery(db, fs.id, claimToken);
     console.warn(
       `[step-delivery] paused enrollment=${fs.id}: inactive or unmapped account=${deliveryAccountId}`,
     );
     return false;
   }
   if (await isPharmacyModeAccount(db, deliveryAccountId)) {
-    await pauseFriendScenarioDelivery(db, fs.id);
+    await pauseFriendScenarioDelivery(db, fs.id, claimToken);
     return false;
   }
   if (!friend.is_following) {
-    await completeFriendScenario(db, fs.id);
+    await completeFriendScenario(db, fs.id, claim);
     return false;
   }
 
   // Get all steps for this scenario
   const steps = await getScenarioSteps(db, fs.scenario_id);
   if (steps.length === 0) {
-    await completeFriendScenario(db, fs.id);
+    await completeFriendScenario(db, fs.id, claim);
     return false;
   }
 
@@ -304,7 +312,7 @@ async function processSingleDelivery(
   const currentStep = steps.find((s) => s.step_order > fs.current_step_order);
 
   if (!currentStep) {
-    await completeFriendScenario(db, fs.id);
+    await completeFriendScenario(db, fs.id, claim);
     return false;
   }
 
@@ -320,7 +328,13 @@ async function processSingleDelivery(
           // `find(step_order > current_step_order)` selects jumpStep itself.
           // Passing currentStep.step_order here (pre-fix) delivered the
           // sequentially-next step and silently ignored next_step_on_false.
-          await advanceFriendScenario(db, fs.id, jumpStep.step_order - 1, jitteredDate.toISOString().slice(0, -1) + '+09:00');
+          await advanceFriendScenario(
+            db,
+            fs.id,
+            jumpStep.step_order - 1,
+            jitteredDate.toISOString().slice(0, -1) + '+09:00',
+            claim,
+          );
           return false;
         }
       }
@@ -328,9 +342,15 @@ async function processSingleDelivery(
       if (nextIndex < steps.length) {
         const nextStep = steps[nextIndex];
         const jitteredDate = jitterDeliveryTime(nextDeliveryFor(nextStep));
-        await advanceFriendScenario(db, fs.id, currentStep.step_order, jitteredDate.toISOString().slice(0, -1) + '+09:00');
+        await advanceFriendScenario(
+          db,
+          fs.id,
+          currentStep.step_order,
+          jitteredDate.toISOString().slice(0, -1) + '+09:00',
+          claim,
+        );
       } else {
-        await completeFriendScenario(db, fs.id);
+        await completeFriendScenario(db, fs.id, claim);
       }
       return false;
     }
@@ -352,35 +372,55 @@ async function processSingleDelivery(
     friendId: friend.id,
   });
   const message = buildMessage(tracked.messageType, tracked.content);
-  // Resolve the correct LINE client for this friend's account
-  let deliveryClient = lineClient;
-  if (deliveryAccountId) {
-    const { getLineAccountById } = await import('@line-crm/db');
-    const account = await getLineAccountById(db, deliveryAccountId);
-    if (!account) {
-      await pauseFriendScenarioDelivery(db, fs.id);
+  const { getLineAccountById } = await import('@line-crm/db');
+  const account = await getLineAccountById(db, deliveryAccountId);
+  if (!account) {
+    await pauseFriendScenarioDelivery(db, fs.id, claimToken);
+    console.warn(
+      `[step-delivery] paused enrollment=${fs.id}: missing LINE account=${deliveryAccountId}`,
+    );
+    return false;
+  }
+  const { LineClient: LC } = await import('@line-crm/line-sdk');
+  const deliveryClient = new LC(account.channel_access_token);
+  const retryKey = await createBroadcastRetryKey(
+    'scenario', fs.id, currentStep.id, String(currentStep.step_order),
+  );
+  if (!(await markFriendScenarioDeliveryAttempt(db, fs.id, claimToken))) return false;
+  const logPayload = messageToLogPayload(message);
+  try {
+    const result = await deliverTrackedLinePush({
+      db,
+      operationId: retryKey,
+      tenantId: deliveryTenantId,
+      lineAccountId: deliveryAccountId,
+      friendId: friend.id,
+      messageType: logPayload.messageType,
+      content: logPayload.content,
+      source: 'scenario',
+      scenarioEnrollmentId: fs.id,
+      scenarioStepId: currentStep.id,
+      scenarioClaimToken: claimToken,
+      templateIdAtSend: resolved.templateIdAtSend,
+      request: { to: friend.line_user_id, messages: [message] },
+      send: async (request, key) => {
+        await deliveryClient.pushMessage(request.to, request.messages, key);
+      },
+    });
+    if (result === 'reconciliation_required') {
+      await pauseFriendScenarioDelivery(db, fs.id, claimToken);
+      return false;
+    }
+  } catch (err) {
+    if (isPermanentLineDeliveryError(err)) {
+      await pauseFriendScenarioDelivery(db, fs.id, claimToken);
       console.warn(
-        `[step-delivery] paused enrollment=${fs.id}: missing LINE account=${deliveryAccountId}`,
+        `[step-delivery] paused enrollment=${fs.id} after permanent LINE ${getLineApiErrorStatus(err)}`,
       );
       return false;
     }
-    const { LineClient: LC } = await import('@line-crm/line-sdk');
-    deliveryClient = new LC(account.channel_access_token);
+    throw err;
   }
-  await deliveryClient.pushMessage(friend.line_user_id, [message]);
-
-  // Log what we actually pushed: variables expanded, URLs auto-tracked, AND
-  // any cleanEmptyNodes() mutation or parse-failure text fallback applied by
-  // buildMessage(). Use scenario_step_id to recover the original template.
-  const logId = crypto.randomUUID();
-  const logPayload = messageToLogPayload(message);
-  await db
-    .prepare(
-      `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, template_id_at_send, line_account_id, created_at)
-       VALUES (?, ?, 'outgoing', ?, ?, NULL, ?, 'scenario', ?, ?, ?)`,
-    )
-    .bind(logId, friend.id, logPayload.messageType, logPayload.content, currentStep.id, resolved.templateIdAtSend, deliveryAccountId, jstNow())
-    .run();
 
   // Determine next step (find the step after currentStep in the sorted list)
   const currentIndex = steps.indexOf(currentStep);
@@ -388,10 +428,16 @@ async function processSingleDelivery(
 
   if (nextStep) {
     const jitteredDate = jitterDeliveryTime(nextDeliveryFor(nextStep));
-    await advanceFriendScenario(db, fs.id, currentStep.step_order, jitteredDate.toISOString().slice(0, -1) + '+09:00');
+    if (!(await advanceFriendScenario(
+      db,
+      fs.id,
+      currentStep.step_order,
+      jitteredDate.toISOString().slice(0, -1) + '+09:00',
+      claim,
+    ))) return false;
   } else {
     // This was the last step
-    await completeFriendScenario(db, fs.id);
+    if (!(await completeFriendScenario(db, fs.id, claim))) return false;
   }
 
   // 到達タグ付与 (advance / complete の後 = 再送が起きてもタグ付与は影響しない順序)
@@ -440,17 +486,12 @@ export async function evaluateCondition(
   if (!step.condition_type) return true;
 
   if (!isSupportedConditionType(step.condition_type)) {
-    console.error(
-      `[scenario] unknown condition_type "${step.condition_type}" for friend=${friendId} — skipping step. ` +
-        `Supported types: ${SUPPORTED_CONDITION_TYPES.join(', ')}`,
-    );
+    log('scenario_condition_skipped', { reason: 'unsupported_condition_type' }, 'error');
     return false;
   }
 
   if (!step.condition_value) {
-    console.error(
-      `[scenario] condition_type=${step.condition_type} is set but condition_value is empty for friend=${friendId} — skipping step`,
-    );
+    log('scenario_condition_skipped', { reason: 'missing_condition_value' }, 'error');
     return false;
   }
 
@@ -497,9 +538,7 @@ export async function evaluateCondition(
       try {
         raw = JSON.parse(step.condition_value);
       } catch {
-        console.error(
-          `[scenario] malformed condition_value JSON for friend=${friendId} type=${step.condition_type} — skipping step`,
-        );
+        log('scenario_condition_skipped', { reason: 'malformed_condition_value' }, 'error');
         return false;
       }
       if (
@@ -512,9 +551,7 @@ export async function evaluateCondition(
         // 既存行や直接 INSERT された行で {"key":"x"} のように value が欠落しているケースは
         // friend.metadata[x] === undefined と比較されて「key 不在の全友だち」に一致する
         // (= 同じ OSS issue #120 の over-delivery を再現する) ので明示的にスキップする。
-        console.error(
-          `[scenario] condition_value missing key/value for friend=${friendId} type=${step.condition_type} — skipping step`,
-        );
+        log('scenario_condition_skipped', { reason: 'invalid_condition_value' }, 'error');
         return false;
       }
       const parsed = raw as { key: string; value: unknown };

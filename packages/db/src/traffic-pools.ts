@@ -5,6 +5,7 @@ import { jstNow } from './utils.js';
 
 export interface TrafficPool {
   id: string;
+  tenant_id: string | null;
   slug: string;
   name: string;
   active_account_id: string;
@@ -24,14 +25,19 @@ export interface TrafficPoolWithAccount extends TrafficPool {
 
 // ── Queries ─────────────────────────────────────────────────────────────────
 
-export async function getTrafficPools(db: D1Database): Promise<TrafficPoolWithAccount[]> {
+export async function getTrafficPools(
+  db: D1Database,
+  tenantId: string | null = null,
+): Promise<TrafficPoolWithAccount[]> {
   const result = await db
     .prepare(
       `SELECT tp.*, la.name as account_name, la.liff_id, la.login_channel_id, la.login_channel_secret, la.channel_access_token, la.channel_id
        FROM traffic_pools tp
        JOIN line_accounts la ON la.id = tp.active_account_id
+       WHERE tp.tenant_id IS ?
        ORDER BY tp.created_at DESC`,
     )
+    .bind(tenantId)
     .all<TrafficPoolWithAccount>();
   return result.results;
 }
@@ -39,15 +45,17 @@ export async function getTrafficPools(db: D1Database): Promise<TrafficPoolWithAc
 export async function getTrafficPoolById(
   db: D1Database,
   id: string,
+  tenantId?: string | null,
 ): Promise<TrafficPoolWithAccount | null> {
+  const scoped = tenantId !== undefined;
   return db
     .prepare(
       `SELECT tp.*, la.name as account_name, la.liff_id, la.login_channel_id, la.login_channel_secret, la.channel_access_token, la.channel_id
        FROM traffic_pools tp
        JOIN line_accounts la ON la.id = tp.active_account_id
-       WHERE tp.id = ?`,
+       WHERE tp.id = ?${scoped ? ' AND tp.tenant_id IS ?' : ''}`,
     )
-    .bind(id)
+    .bind(...(scoped ? [id, tenantId] : [id]))
     .first<TrafficPoolWithAccount>();
 }
 
@@ -72,6 +80,7 @@ export interface CreateTrafficPoolInput {
   slug: string;
   name: string;
   activeAccountId: string;
+  tenantId?: string | null;
 }
 
 export async function createTrafficPool(
@@ -83,10 +92,11 @@ export async function createTrafficPool(
 
   await db
     .prepare(
-      `INSERT INTO traffic_pools (id, slug, name, active_account_id, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO traffic_pools
+         (id, tenant_id, slug, name, active_account_id, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
     )
-    .bind(id, input.slug, input.name, input.activeAccountId, now, now)
+    .bind(id, input.tenantId ?? null, input.slug, input.name, input.activeAccountId, now, now)
     .run();
 
   // Mirror the chosen active account into pool_accounts so the new pool isn't
@@ -101,7 +111,7 @@ export async function createTrafficPool(
     .bind(crypto.randomUUID(), id, input.activeAccountId, now)
     .run();
 
-  return (await getTrafficPoolById(db, id))!;
+  return (await getTrafficPoolById(db, id, input.tenantId ?? null))!;
 }
 
 export interface UpdateTrafficPoolInput {
@@ -114,6 +124,7 @@ export async function updateTrafficPool(
   db: D1Database,
   id: string,
   updates: UpdateTrafficPoolInput,
+  tenantId: string | null = null,
 ): Promise<TrafficPoolWithAccount | null> {
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -131,22 +142,30 @@ export async function updateTrafficPool(
     values.push(updates.isActive ? 1 : 0);
   }
 
-  if (fields.length === 0) return getTrafficPoolById(db, id);
+  if (fields.length === 0) return getTrafficPoolById(db, id, tenantId);
 
   fields.push('updated_at = ?');
   values.push(jstNow());
-  values.push(id);
+  values.push(id, tenantId);
 
   await db
-    .prepare(`UPDATE traffic_pools SET ${fields.join(', ')} WHERE id = ?`)
+    .prepare(`UPDATE traffic_pools SET ${fields.join(', ')} WHERE id = ? AND tenant_id IS ?`)
     .bind(...values)
     .run();
 
-  return getTrafficPoolById(db, id);
+  return getTrafficPoolById(db, id, tenantId);
 }
 
-export async function deleteTrafficPool(db: D1Database, id: string): Promise<void> {
-  await db.prepare(`DELETE FROM traffic_pools WHERE id = ?`).bind(id).run();
+export async function deleteTrafficPool(
+  db: D1Database,
+  id: string,
+  tenantId: string | null = null,
+): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM traffic_pools WHERE id = ? AND tenant_id IS ?`)
+    .bind(id, tenantId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 // =============================================================================
@@ -175,10 +194,20 @@ const POOL_ACCOUNT_JOIN = `
   FROM pool_accounts pa
   JOIN line_accounts la ON la.id = pa.line_account_id`;
 
-export async function getPoolAccounts(db: D1Database, poolId: string): Promise<PoolAccountWithDetails[]> {
+export async function getPoolAccounts(
+  db: D1Database,
+  poolId: string,
+  tenantId?: string | null,
+): Promise<PoolAccountWithDetails[]> {
+  const scoped = tenantId !== undefined;
   const result = await db
-    .prepare(`${POOL_ACCOUNT_JOIN} WHERE pa.pool_id = ? ORDER BY pa.created_at ASC`)
-    .bind(poolId)
+    .prepare(
+      `${POOL_ACCOUNT_JOIN}
+       JOIN traffic_pools tp ON tp.id = pa.pool_id
+       WHERE pa.pool_id = ?${scoped ? ' AND tp.tenant_id IS ?' : ''}
+       ORDER BY pa.created_at ASC`,
+    )
+    .bind(...(scoped ? [poolId, tenantId] : [poolId]))
     .all<PoolAccountWithDetails>();
   return result.results;
 }
@@ -190,24 +219,53 @@ export async function getRandomPoolAccount(db: D1Database, poolId: string): Prom
     .first<PoolAccountWithDetails>();
 }
 
-export async function addPoolAccount(db: D1Database, poolId: string, lineAccountId: string): Promise<PoolAccount> {
+export async function addPoolAccount(
+  db: D1Database,
+  poolId: string,
+  lineAccountId: string,
+  tenantId: string | null = null,
+): Promise<PoolAccount | null> {
   const id = crypto.randomUUID();
   const now = jstNow();
   const result = await db
-    .prepare('INSERT INTO pool_accounts (id, pool_id, line_account_id, is_active, created_at) VALUES (?, ?, ?, 1, ?) RETURNING *')
-    .bind(id, poolId, lineAccountId, now)
+    .prepare(
+      `INSERT INTO pool_accounts (id, pool_id, line_account_id, is_active, created_at)
+       SELECT ?, id, ?, 1, ? FROM traffic_pools WHERE id = ? AND tenant_id IS ?
+       RETURNING *`,
+    )
+    .bind(id, lineAccountId, now, poolId, tenantId)
     .first<PoolAccount>();
   return result!;
 }
 
-export async function removePoolAccount(db: D1Database, id: string): Promise<boolean> {
-  const result = await db.prepare('DELETE FROM pool_accounts WHERE id = ?').bind(id).run();
+export async function removePoolAccount(
+  db: D1Database,
+  poolId: string,
+  id: string,
+  tenantId: string | null = null,
+): Promise<boolean> {
+  const result = await db.prepare(
+    `DELETE FROM pool_accounts
+      WHERE id = ? AND pool_id = ?
+        AND pool_id IN (SELECT id FROM traffic_pools WHERE tenant_id IS ?)`,
+  ).bind(id, poolId, tenantId).run();
   return result.meta.changes > 0;
 }
 
-export async function togglePoolAccount(db: D1Database, id: string, isActive: boolean): Promise<PoolAccount | null> {
+export async function togglePoolAccount(
+  db: D1Database,
+  poolId: string,
+  id: string,
+  isActive: boolean,
+  tenantId: string | null = null,
+): Promise<PoolAccount | null> {
   return db
-    .prepare('UPDATE pool_accounts SET is_active = ? WHERE id = ? RETURNING *')
-    .bind(isActive ? 1 : 0, id)
+    .prepare(
+      `UPDATE pool_accounts SET is_active = ?
+        WHERE id = ? AND pool_id = ?
+          AND pool_id IN (SELECT id FROM traffic_pools WHERE tenant_id IS ?)
+        RETURNING *`,
+    )
+    .bind(isActive ? 1 : 0, id, poolId, tenantId)
     .first<PoolAccount>();
 }

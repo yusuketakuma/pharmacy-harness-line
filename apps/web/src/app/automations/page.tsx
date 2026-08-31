@@ -161,6 +161,10 @@ export default function AutomationsPage() {
       setFormError('ルール名を入力してください')
       return
     }
+    if (!selectedAccountId) {
+      setFormError('LINEアカウントを選択してください')
+      return
+    }
 
     let parsedActions: AutomationAction[]
     let parsedConditions: Record<string, unknown>
@@ -187,6 +191,7 @@ export default function AutomationsPage() {
         actions: parsedActions,
         conditions: parsedConditions,
         priority: form.priority,
+        lineAccountId: selectedAccountId,
       })
       if (res.success) {
         setShowCreate(false)

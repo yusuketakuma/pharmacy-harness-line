@@ -78,6 +78,15 @@ test('keeps startup failures technical-detail-free', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText('liffId not provided');
 });
 
+test('shows an accessible status while LIFF initializes', async ({ page }) => {
+  await page.goto(
+    'http://127.0.0.1:4303/pharmacy/menu?liffId=e2e-liff&liffInitDelay=1000',
+    { waitUntil: 'domcontentloaded' },
+  );
+
+  await expect(page.getByRole('status')).toHaveText('アプリを起動しています…', { timeout: 300 });
+});
+
 test('initializes LIFF and renders the pharmacy menu', async ({ page }) => {
   await page.route('**/api/liff/config?**', (route) => route.fulfill({
     contentType: 'application/json',
@@ -101,7 +110,7 @@ test('initializes LIFF and renders the pharmacy menu', async ({ page }) => {
     });
   });
 
-  await page.goto('http://127.0.0.1:4174/pharmacy/menu?liffId=e2e-liff');
+  await page.goto('http://127.0.0.1:4303/pharmacy/menu?liffId=e2e-liff');
 
   await expect(page.getByRole('heading', { name: 'すべての機能', level: 1 })).toBeVisible();
   await expect(page.getByText('とても長い名称でも安全に表示できるE2E薬局')).toBeVisible();
@@ -110,7 +119,7 @@ test('initializes LIFF and renders the pharmacy menu', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '送信後の確認・フォロー', level: 2 })).toBeVisible();
   await expect(page.getByRole('heading', { name: '薬局情報・相談', level: 2 })).toBeVisible();
   const menuLinks = await page.locator('main a').evaluateAll((elements) => elements.map((element) => element.getAttribute('href')));
-  expect(menuLinks.every((href) => href && new URL(href, 'http://127.0.0.1:4174').searchParams.get('liffId') === 'e2e-liff')).toBe(true);
+  expect(menuLinks.every((href) => href && new URL(href, 'http://127.0.0.1:4303').searchParams.get('liffId') === 'e2e-liff')).toBe(true);
   const sendLink = page.getByRole('link', { name: /処方せん事前送信/ });
   await sendLink.focus();
   await expect(sendLink).toBeFocused();
@@ -163,7 +172,7 @@ test('keeps existing-only state and tenant navigation across browser history and
     }),
   }));
 
-  await page.goto('http://127.0.0.1:4174/pharmacy/menu?liffId=e2e-liff');
+  await page.goto('http://127.0.0.1:4303/pharmacy/menu?liffId=e2e-liff');
   await expect(page.getByRole('link', { name: /処方せん事前送信/ })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /受付状況。利用可否：確認のみ/ })).toBeVisible();
   await page.getByRole('link', { name: /薬局情報。利用可否：利用できます/ }).click();
@@ -210,7 +219,7 @@ test('keeps enabled features usable when existing-work lookup fails and retries 
     }),
   }));
 
-  await page.goto('http://127.0.0.1:4174/pharmacy/info?liffId=e2e-liff');
+  await page.goto('http://127.0.0.1:4303/pharmacy/info?liffId=e2e-liff');
   await expect(page.getByRole('alert')).toContainText('利用中の機能を確認できませんでした');
   await expect(page.getByRole('heading', { name: '営業時間', level: 2 })).toBeVisible();
   await page.getByRole('button', { name: '再試行' }).click();
@@ -223,7 +232,7 @@ for (const route of renderedPharmacyRoutes) {
     await mockAllPharmacyRoutes(page);
     await page.setViewportSize({ width: 390, height: 844 });
     const separator = route.path.includes('?') ? '&' : '?';
-    await page.goto(`http://127.0.0.1:4174${route.path}${separator}liffId=e2e-liff`);
+    await page.goto(`http://127.0.0.1:4303${route.path}${separator}liffId=e2e-liff`);
 
     const title = page.getByRole('heading', { name: route.title, level: 1 });
     await expect(title).toBeVisible();

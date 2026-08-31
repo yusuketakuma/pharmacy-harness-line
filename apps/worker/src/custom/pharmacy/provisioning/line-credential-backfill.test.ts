@@ -21,9 +21,9 @@ const LOGIN_CHANNEL_SECRET = 'l'.repeat(32);
 const LEGACY_SENTINEL = 'encrypted:v1';
 
 const require = createRequire(import.meta.url);
-const MIGRATION = join(
+const BASELINE = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../packages/db/migrations/custom_018_pharmacy_line_credentials.sql',
+  '../../../../../../packages/db/migrations/001_v033_baseline.sql',
 );
 const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
   new (filename: string) => SqliteDatabase;
@@ -107,51 +107,35 @@ function d1From(sqlite: SqliteDatabase, options: DatabaseOptions = {}) {
 function database(options: DatabaseOptions = {}) {
   const sqlite = new Sqlite(':memory:');
   sqlite.pragma('foreign_keys = ON');
+  sqlite.exec(readFileSync(BASELINE, 'utf8'));
   sqlite.exec(`
-    CREATE TABLE tenants (
-      id TEXT PRIMARY KEY,
-      status TEXT NOT NULL
-    );
-    CREATE TABLE line_accounts (
-      id TEXT PRIMARY KEY,
-      is_active INTEGER NOT NULL,
-      channel_access_token TEXT,
-      channel_secret TEXT,
-      login_channel_secret TEXT
-    );
-    CREATE TABLE tenant_line_accounts (
-      tenant_id TEXT NOT NULL,
-      line_account_id TEXT NOT NULL,
-      PRIMARY KEY (tenant_id, line_account_id),
-      FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-      FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
-    );
-    INSERT INTO tenants VALUES
-      ('tenant-a', 'active'), ('tenant-b', 'active'), ('tenant-suspended', 'suspended');
+    INSERT INTO tenants (id, tenant_code, display_name, status) VALUES
+      ('tenant-a', 'tenant-a', 'Tenant A', 'active'),
+      ('tenant-b', 'tenant-b', 'Tenant B', 'active'),
+      ('tenant-suspended', 'tenant-suspended', 'Tenant Suspended', 'suspended');
   `);
   sqlite.prepare(`INSERT INTO line_accounts
-    (id, is_active, channel_access_token, channel_secret, login_channel_secret)
-    VALUES (?, ?, ?, ?, ?)`).run(
-      'account-a', 1, ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET,
+    (id, channel_id, name, is_active, channel_access_token, channel_secret, login_channel_secret)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      'account-a', 'channel-a', 'Account A', 1, ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET,
     );
   sqlite.prepare(`INSERT INTO line_accounts
-    (id, is_active, channel_access_token, channel_secret, login_channel_secret)
-    VALUES (?, ?, ?, ?, ?)`).run(
-      'account-b', 1, OTHER_ACCESS_TOKEN, CHANNEL_SECRET, null,
+    (id, channel_id, name, is_active, channel_access_token, channel_secret, login_channel_secret)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      'account-b', 'channel-b', 'Account B', 1, OTHER_ACCESS_TOKEN, CHANNEL_SECRET, null,
     );
   sqlite.prepare(`INSERT INTO line_accounts
-    (id, is_active, channel_access_token, channel_secret, login_channel_secret)
-    VALUES (?, ?, ?, ?, ?)`).run(
-      'account-inactive', 0, ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET,
+    (id, channel_id, name, is_active, channel_access_token, channel_secret, login_channel_secret)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      'account-inactive', 'channel-inactive', 'Account Inactive', 0,
+      ACCESS_TOKEN, CHANNEL_SECRET, LOGIN_CHANNEL_SECRET,
     );
   sqlite.exec(`
-    INSERT INTO tenant_line_accounts VALUES
+    INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES
       ('tenant-a', 'account-a'),
       ('tenant-b', 'account-b'),
       ('tenant-suspended', 'account-inactive');
   `);
-  sqlite.exec(readFileSync(MIGRATION, 'utf8'));
-
   const fake = d1From(sqlite, options);
   return {
     ...fake,
@@ -235,16 +219,11 @@ describe('explicit tenant LINE credential migration', () => {
     }
   });
 
-  it('rejects duplicate active mappings before writing', async () => {
+  it('rejects duplicate active mappings at the database boundary', () => {
     const fake = database();
     try {
-      addMapping(fake.sqlite, 'tenant-b', 'account-a');
-      const before = legacyValues(fake.sqlite);
-      await expect(backfillLineCredentials(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-      })).rejects.toThrow();
+      expect(() => addMapping(fake.sqlite, 'tenant-b', 'account-a')).toThrow();
       expect(credentialRows(fake.sqlite)).toEqual([]);
-      expect(legacyValues(fake.sqlite)).toEqual(before);
     } finally {
       fake.close();
     }

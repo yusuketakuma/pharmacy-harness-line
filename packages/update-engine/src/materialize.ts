@@ -131,17 +131,42 @@ export function createTriggerName(statement: string): string | null {
  * Normalize a CREATE TRIGGER statement so a migration's own text can be
  * compared with what SQLite stored in `sqlite_master.sql`. SQLite keeps the
  * original text but drops `IF NOT EXISTS` and the trailing semicolon, and
- * whitespace/keyword case never change a trigger's meaning.
- *
- * ponytail: string normalization, not a SQL parser — a body that differs only
- * by string-literal case compares equal. Parse when that case appears.
+ * whitespace/keyword case never change a trigger's meaning. Quoted content is
+ * copied byte-for-byte because case and whitespace inside literals do matter.
  */
 export function normalizeTriggerSql(sql: string): string {
-  return sql
-    .replace(/\s+/g, ' ')
+  let normalized = '';
+  let quote: "'" | '"' | '`' | ']' | null = null;
+  let pendingSpace = false;
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    if (quote) {
+      normalized += ch;
+      if (ch === quote) {
+        if (sql[i + 1] === quote) normalized += sql[++i];
+        else quote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`' || ch === '[') {
+      if (pendingSpace && normalized) normalized += ' ';
+      pendingSpace = false;
+      quote = ch === '[' ? ']' : ch;
+      normalized += ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace && normalized) normalized += ' ';
+    pendingSpace = false;
+    normalized += ch.toLowerCase();
+  }
+  return normalized
     .trim()
     .replace(/;$/, '')
-    .toLowerCase()
+    .trim()
     .replace(/^create (temp(?:orary)? )?trigger if not exists /, 'create $1trigger ')
     .trim();
 }

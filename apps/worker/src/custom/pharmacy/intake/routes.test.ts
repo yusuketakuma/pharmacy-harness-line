@@ -157,6 +157,7 @@ describe('LIFF pharmacy patient and intake routes', () => {
         smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
       },
       representativeConsent: true, privacyConsent: true,
+      privacyPolicyVersion: 1, privacyPolicyHash: 'a'.repeat(64),
     };
     const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', body);
     expect(response.status).toBe(201);
@@ -164,6 +165,30 @@ describe('LIFF pharmacy patient and intake routes', () => {
       env.DB, owner, 'patient-1', body,
       { tenantId: 'tenant-1', rootSecret: env.PHARMACY_PHI_KEY_V1 },
     );
+  });
+
+  it('maps a missing privacy policy to a state conflict', async () => {
+    mocks.createIntake.mockRejectedValue(new Error('privacy policy required'));
+    const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', {
+      idempotencyKey: 'intake-123',
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
+      representativeConsent: true, privacyConsent: true,
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Privacy policy is not configured' });
+  });
+
+  it('maps a changed privacy policy to a state conflict', async () => {
+    mocks.createIntake.mockRejectedValue(new Error('privacy policy changed'));
+    const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', {});
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Privacy policy changed; retry' });
   });
 
   it('fails before intake storage when the PHI key is unavailable', async () => {

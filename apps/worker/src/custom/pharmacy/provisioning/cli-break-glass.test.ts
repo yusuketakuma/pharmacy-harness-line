@@ -122,6 +122,12 @@ describe('CLI break-glass sessions', () => {
     const storedValues = fake.batches[0].flatMap(({ values }) => values);
     expect(storedValues).not.toContain(body.data.sessionToken);
     expect(storedValues).toContain('all');
+
+    const auditStatement = fake.batches[0].find(({ sql }) =>
+      sql.includes('INSERT INTO platform_admin_access_events'));
+    const serializedAuditValues = JSON.stringify(auditStatement?.values);
+    expect(serializedAuditValues).not.toContain(issueBody.reason);
+    expect(serializedAuditValues).not.toContain(issueBody.ticketReference);
   });
 
   it('fails closed for a browser origin, wrong key, or incomplete audit reason', async () => {

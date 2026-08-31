@@ -8,6 +8,10 @@ const dbMocks = vi.hoisted(() => ({
 }));
 
 const logOutgoingMessage = vi.hoisted(() => vi.fn());
+const deliverTrackedLineReply = vi.hoisted(() => vi.fn(async (params: { send: () => Promise<void> }) => {
+  await params.send();
+  return 'sent';
+}));
 
 vi.mock('@line-crm/db', () => ({
   getLineAccountById: dbMocks.getLineAccountById,
@@ -15,10 +19,14 @@ vi.mock('@line-crm/db', () => ({
 }));
 
 vi.mock('./event-bus.js', () => ({ logOutgoingMessage }));
+vi.mock('./outbound-line-delivery.js', () => ({ deliverTrackedLineReply }));
 
 vi.mock('./step-delivery.js', () => ({
   resolveMetadata: vi.fn().mockResolvedValue({}),
   expandVariables: vi.fn((content: string) => content),
+  isDeterministicInvalidReplyToken: vi.fn((error: unknown) => error instanceof Error
+    && error.message.includes('400')
+    && error.message.includes('Invalid reply token')),
   buildMessage: vi.fn((messageType: string, content: string) => {
     if (messageType === 'flex') {
       return { type: 'flex', altText: 'あなたのHarnessマイル', contents: JSON.parse(content) };
@@ -94,6 +102,112 @@ beforeEach(() => {
 });
 
 describe('mileage keyword auto reply', () => {
+  test('fences a durable reply before calling LINE', async () => {
+    const proxyReply = vi.fn().mockResolvedValue(undefined);
+    const db = fakeDb();
+
+    const result = await matchAndReply(
+      db,
+      { replyMessage: vi.fn() } as unknown as LineClient,
+      friend,
+      'マイル',
+      'reply-token',
+      {
+        tenantId: 'tenant-1',
+        eventKey: 'event-1',
+        lineAccountId: 'account-1',
+        liffUrl: 'https://liff.line.me/default-id',
+        replyMessage: proxyReply,
+      },
+    );
+
+    expect(result).toEqual({ matched: true, replyTokenConsumed: true });
+    expect(deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
+      db,
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+      source: 'auto_reply',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    }));
+    expect(proxyReply).toHaveBeenCalledOnce();
+    expect(logOutgoingMessage).not.toHaveBeenCalled();
+  });
+
+  test('returns a pre-LINE ledger failure to the durable inbox', async () => {
+    deliverTrackedLineReply.mockRejectedValueOnce(new Error('synthetic D1 prepare failure'));
+    const proxyReply = vi.fn();
+
+    await expect(matchAndReply(
+      fakeDb(),
+      { replyMessage: vi.fn() } as unknown as LineClient,
+      friend,
+      'マイル',
+      'reply-token',
+      {
+        tenantId: 'tenant-1',
+        eventKey: 'event-1',
+        lineAccountId: 'account-1',
+        liffUrl: 'https://liff.line.me/default-id',
+        replyMessage: proxyReply,
+      },
+    )).rejects.toThrow('synthetic D1 prepare failure');
+
+    expect(proxyReply).not.toHaveBeenCalled();
+  });
+
+  test('treats a deterministically rejected reply token as terminal', async () => {
+    deliverTrackedLineReply.mockResolvedValueOnce('not_sent');
+    const proxyReply = vi.fn();
+
+    await expect(matchAndReply(
+      fakeDb(),
+      { replyMessage: vi.fn() } as unknown as LineClient,
+      friend,
+      'マイル',
+      'reply-token',
+      {
+        tenantId: 'tenant-1',
+        eventKey: 'event-1',
+        lineAccountId: 'account-1',
+        liffUrl: 'https://liff.line.me/default-id',
+        replyMessage: proxyReply,
+      },
+    )).resolves.toEqual({ matched: true, replyTokenConsumed: true });
+
+    expect(proxyReply).not.toHaveBeenCalled();
+    const options = deliverTrackedLineReply.mock.calls[0]?.[0] as {
+      isDeterministicRejection?: (error: unknown) => boolean;
+    };
+    expect(options.isDeterministicRejection?.(
+      new Error('LINE API error: 400 Bad Request — Invalid reply token'),
+    )).toBe(true);
+    expect(options.isDeterministicRejection?.(
+      new Error('LINE API error: 500 Internal Server Error'),
+    )).toBe(false);
+  });
+
+  test('fails closed when durable tenant/account/event scope is missing', async () => {
+    const proxyReply = vi.fn();
+
+    await expect(matchAndReply(
+      fakeDb(),
+      { replyMessage: vi.fn() } as unknown as LineClient,
+      friend,
+      'マイル',
+      'reply-token',
+      {
+        lineAccountId: 'account-1',
+        liffUrl: 'https://liff.line.me/default-id',
+        replyMessage: proxyReply,
+      },
+    )).rejects.toThrow('AUTO_REPLY_DELIVERY_SCOPE_REQUIRED');
+
+    expect(proxyReply).not.toHaveBeenCalled();
+    expect(deliverTrackedLineReply).not.toHaveBeenCalled();
+    expect(logOutgoingMessage).not.toHaveBeenCalled();
+  });
+
   test.each([
     ['account-1', '111111-AccountOne'],
     ['account-2', '222222-AccountTwo'],
@@ -116,6 +230,8 @@ describe('mileage keyword auto reply', () => {
       'マイル',
       'reply-token',
       {
+        tenantId: 'tenant-1',
+        eventKey: `event-${accountId}`,
         lineAccountId: accountId,
         workerUrl: 'https://worker.example.com',
         liffUrl: 'https://liff.line.me/default-id',
@@ -137,18 +253,13 @@ describe('mileage keyword auto reply', () => {
       `https://liff.line.me/${liffId}/?page=affiliate&liffId=${liffId}`,
     );
     expect(JSON.stringify(sent)).not.toContain('{{liff_id}}');
-    expect(logOutgoingMessage).toHaveBeenCalledWith(db, expect.objectContaining({
-      friendId: 'friend-1',
-      deliveryType: 'reply',
-      source: 'auto_reply',
-      lineAccountId: accountId,
-    }));
+    expect(logOutgoingMessage).not.toHaveBeenCalled();
   });
 
-  test('falls back to the default LIFF URL when the env account is not DB-registered', async () => {
+  test('does not use the env fallback without an account scope', async () => {
     const proxyReply = vi.fn().mockResolvedValue(undefined);
 
-    const result = await matchAndReply(
+    await expect(matchAndReply(
       fakeDb(),
       { replyMessage: vi.fn() } as unknown as LineClient,
       { ...friend, line_account_id: null },
@@ -159,14 +270,10 @@ describe('mileage keyword auto reply', () => {
         liffUrl: 'https://liff.line.me/999999-Default/?existing=1',
         replyMessage: proxyReply,
       },
-    );
+    )).rejects.toThrow('AUTO_REPLY_DELIVERY_SCOPE_REQUIRED');
 
-    expect(result.replyTokenConsumed).toBe(true);
     expect(dbMocks.getLineAccountById).not.toHaveBeenCalled();
-    const sent = proxyReply.mock.calls[0][1][0] as Extract<Message, { type: 'flex' }>;
-    expect(JSON.stringify(sent)).toContain(
-      'https://liff.line.me/999999-Default/?page=affiliate&liffId=999999-Default',
-    );
+    expect(proxyReply).not.toHaveBeenCalled();
   });
 
   test('does not send another account URL when the receiving account has no LIFF ID', async () => {
@@ -184,6 +291,8 @@ describe('mileage keyword auto reply', () => {
       'マイル',
       'reply-token',
       {
+        tenantId: 'tenant-1',
+        eventKey: 'event-without-liff',
         lineAccountId: 'account-without-liff',
         liffUrl: 'https://liff.line.me/main-account-id',
         replyMessage: proxyReply,

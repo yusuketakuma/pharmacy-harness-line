@@ -11,6 +11,21 @@ const credentialStoreMocks = vi.hoisted(() => ({
   readLineCredential: vi.fn(),
 }));
 
+const outboundDeliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(async (input: {
+    operationId: string;
+    request: { to: string; messages: unknown[] };
+    send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+  }) => {
+    await input.send(input.request, input.operationId);
+    return 'sent';
+  }),
+  deliverTrackedLineReply: vi.fn(async (input: { send: () => Promise<void> }) => {
+    await input.send();
+    return 'sent';
+  }),
+}));
+
 // Stub the DB graph — these tests focus on webhook guard behavior and the
 // first-contact friend registration path without touching real D1/LINE.
 vi.mock('@line-crm/db', () => ({
@@ -33,6 +48,7 @@ vi.mock('@line-crm/db', () => ({
   resolveStepContent: vi.fn(),
   addTagToFriend: vi.fn(),
   getEntryRouteByRefCode: vi.fn(),
+  getFriendById: vi.fn(),
   getMessageTemplateById: vi.fn(),
   getTemplateById: vi.fn(),
 }));
@@ -63,11 +79,16 @@ vi.mock('../../custom/pharmacy/growth-loop/access.js', () => ({
   isPharmacyModeAccount: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock('../../services/outbound-line-delivery.js', () => outboundDeliveryMocks);
+
 vi.mock('../../services/step-delivery.js', () => ({
   buildMessage: vi.fn(),
   expandVariables: vi.fn(),
   resolveMetadata: vi.fn(),
   messageToLogPayload: vi.fn(),
+  isDeterministicInvalidReplyToken: vi.fn((error: unknown) => error instanceof Error
+    && error.message.includes('400')
+    && error.message.includes('Invalid reply token')),
 }));
 
 import { LineClient, verifySignature } from '@line-crm/line-sdk';
@@ -79,6 +100,7 @@ import {
   computeNextDeliveryAt,
   enrollFriendInScenario,
   getEntryRouteByRefCode,
+  getFriendById,
   getFriendByLineUserIdForAccount,
   getActiveTenantLineAccounts,
   getMessageTemplateById,
@@ -92,6 +114,12 @@ import {
 } from '@line-crm/db';
 import { fireEvent } from '../../services/event-bus.js';
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js';
+import {
+  deliverTrackedLinePush,
+  deliverTrackedLineReply,
+} from '../../services/outbound-line-delivery.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { buildMessage, expandVariables, messageToLogPayload } from '../../services/step-delivery.js';
 import { webhook } from './webhook.js';
 
 function setupApp() {
@@ -590,6 +618,81 @@ describe('POST /webhook — postback events', () => {
       'event-postback-2',
     );
   });
+
+  test('keeps the inbox retryable when the reply ledger fails before LINE', async () => {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    vi.mocked(jstNow).mockReturnValue('2026-07-19T12:00:00.000+09:00');
+    vi.mocked(getFriendByLineUserIdForAccount).mockResolvedValue({
+      id: 'friend-1',
+      line_user_id: 'U-existing',
+      display_name: 'Existing Friend',
+      picture_url: null,
+      status_message: null,
+      is_following: 1,
+      user_id: null,
+      line_account_id: 'account-env',
+      metadata: '{}',
+      first_tracked_link_id: null,
+      created_at: '2026-07-19T12:00:00.000+09:00',
+      updated_at: '2026-07-19T12:00:00.000+09:00',
+    });
+    vi.mocked(expandVariables).mockReturnValueOnce('reply');
+    vi.mocked(buildMessage).mockReturnValueOnce({ type: 'text', text: 'reply' });
+    vi.mocked(messageToLogPayload).mockReturnValueOnce({ messageType: 'text', content: 'reply' });
+    vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(
+      new Error('synthetic D1 prepare failure'),
+    );
+
+    const prepare = vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn(),
+        run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
+        all: vi.fn().mockResolvedValue({
+          results: sql.includes('FROM auto_replies') ? [{
+            id: 'rule-1',
+            keyword: 'tag:premium',
+            match_type: 'exact',
+            response_type: 'text',
+            response_content: 'reply',
+            template_id: null,
+          }] : [],
+        }),
+      };
+      statement.bind.mockReturnValue(statement);
+      return statement;
+    });
+    const db = withWebhookIdentity({ prepare } as unknown as D1Database);
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+
+    const response = await setupApp().request('/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Signature': `${'A'.repeat(43)}=`,
+      },
+      body: JSON.stringify({
+        destination: 'bot',
+        events: [{
+          type: 'postback',
+          replyToken: 'reply-token-postback',
+          postback: { data: 'tag:premium' },
+          source: { type: 'user', userId: 'U-existing' },
+          webhookEventId: 'event-postback-retry',
+        }],
+      }),
+    }, { ...baseEnv, DB: db }, executionCtx);
+    await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
+
+    expect(response.status).toBe(200);
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect(prepare.mock.calls.some(([sql]) =>
+      String(sql).includes("SET status = 'failed'"))).toBe(true);
+  });
 });
 
 describe('POST /webhook — first-contact existing friends', () => {
@@ -717,12 +820,111 @@ describe('POST /webhook — first-contact existing friends', () => {
   });
 });
 
+describe('POST /webhook — referral intro delivery', () => {
+  test('uses tracked push delivery with the scoped request and provider retry key', async () => {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    const introMessage = { type: 'text', text: 'Referral intro' } as const;
+    vi.mocked(buildMessage).mockReturnValue(introMessage);
+    vi.mocked(messageToLogPayload).mockReturnValue({
+      messageType: 'text',
+      content: 'Referral intro',
+    });
+    vi.mocked(upsertFriend).mockResolvedValue({
+      id: 'friend-referral',
+      line_user_id: 'U-referral',
+      display_name: null,
+      picture_url: null,
+      status_message: null,
+      is_following: 1,
+      user_id: null,
+      line_account_id: 'account-referral',
+      metadata: '{}',
+      first_tracked_link_id: null,
+      first_followed_at: '2026-08-30T12:00:00.000+09:00',
+      created_at: '2026-08-30T12:00:00.000+09:00',
+      updated_at: '2026-08-30T12:00:00.000+09:00',
+    } as never);
+    vi.mocked(getFriendById).mockResolvedValue({ ref_code: 'ref-route' } as never);
+    vi.mocked(getEntryRouteByRefCode).mockResolvedValue({
+      id: 'route-referral',
+      intro_template_id: 'template-referral',
+      run_account_friend_add_scenarios: 0,
+    } as never);
+    vi.mocked(getMessageTemplateById).mockResolvedValue({
+      message_type: 'text',
+      message_content: 'Referral intro',
+    } as never);
+
+    const statement = {
+      bind: vi.fn(),
+      first: vi.fn().mockResolvedValue(null),
+      all: vi.fn().mockResolvedValue({ results: [] }),
+      run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }),
+    };
+    statement.bind.mockReturnValue(statement);
+    const db = withWebhookIdentity(
+      { prepare: vi.fn().mockReturnValue(statement) } as unknown as D1Database,
+      {
+        botUserId: 'bot',
+        accountId: 'account-referral',
+        tenantId: 'tenant-referral',
+        channelSecret: 'referral-secret',
+        channelAccessToken: 'referral-token',
+      },
+    );
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+
+    const response = await setupApp().request('/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Line-Signature': `${'A'.repeat(43)}=`,
+      },
+      body: JSON.stringify({ destination: 'bot', events: [{
+        type: 'follow',
+        replyToken: 'reply-referral',
+        source: { type: 'user', userId: 'U-referral' },
+        webhookEventId: 'event-referral-intro-1',
+      }] }),
+    }, { ...baseEnv, DB: db }, executionCtx);
+    await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
+
+    const operationId = await createBroadcastRetryKey(
+      'webhook-referral-intro',
+      'tenant-referral',
+      'account-referral',
+      'event-referral-intro-1',
+      'route-referral',
+    );
+    expect(response.status).toBe(200);
+    expect(messageToLogPayload).toHaveBeenCalledWith(introMessage);
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
+      operationId,
+      tenantId: 'tenant-referral',
+      lineAccountId: 'account-referral',
+      friendId: 'friend-referral',
+      messageType: 'text',
+      content: 'Referral intro',
+      source: 'automation',
+      request: { to: 'U-referral', messages: [introMessage] },
+    }));
+    expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
+      'U-referral', [introMessage], operationId,
+    );
+  });
+});
+
 describe('POST /webhook — cross-account credentials', () => {
   function crossAccountDb(target: {
     tenantId: string;
     lineAccountId: string;
     lineUserId: string;
     legacyToken?: string;
+    failUserLookup?: boolean;
   }) {
     const statements = new Map<string, {
       bind: ReturnType<typeof vi.fn>;
@@ -734,12 +936,16 @@ describe('POST /webhook — cross-account credentials', () => {
       prepare(sql: string) {
         const statement = {
           bind: vi.fn(),
-          first: vi.fn().mockResolvedValue(
-            sql.includes('SELECT user_id FROM friends') ? { user_id: 'user-1' } : null,
-          ),
+          first: vi.fn(async () => {
+            if (sql.includes('SELECT user_id FROM friends') && target.failUserLookup) {
+              throw new Error('synthetic cross-account lookup failure');
+            }
+            return sql.includes('SELECT user_id FROM friends') ? { user_id: 'user-1' } : null;
+          }),
           all: vi.fn().mockResolvedValue(
-            sql.includes('SELECT f.provider_line_user_id')
+            sql.includes('provider_line_user_id AS line_user_id')
               ? { results: [{
+                  friend_id: 'target-friend',
                   line_user_id: target.lineUserId,
                   line_account_id: target.lineAccountId,
                   tenant_id: target.tenantId,
@@ -793,6 +999,7 @@ describe('POST /webhook — cross-account credentials', () => {
         replyToken: 'reply-token',
         message: { type: 'text', id: 'message-1', text: '体験を完了する' },
         source: { type: 'user', userId: 'U-source' },
+        webhookEventId: 'event-cross-account-1',
       }] }),
     }, { ...baseEnv, DB: db }, executionCtx);
     await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
@@ -811,14 +1018,169 @@ describe('POST /webhook — cross-account credentials', () => {
     await deliverCrossAccount(db);
 
     const targetQuery = [...statements.entries()].find(([sql]) =>
-      sql.includes('SELECT f.provider_line_user_id'))?.[0] ?? '';
+      sql.includes('provider_line_user_id AS line_user_id'))?.[0] ?? '';
     expect(targetQuery).toContain('tenant_line_accounts');
     expect(targetQuery).not.toContain('channel_access_token');
     expect(readLineCredential).toHaveBeenCalledWith(db, 'root-key-for-webhook-tests-v1', {
       tenantId: 'tenant-a', lineAccountId: 'target-account', kind: 'channel_access_token',
     });
     expect(LineClient).toHaveBeenNthCalledWith(2, 'stored-target-token');
-    expect(lineClientMocks.pushMessage).toHaveBeenCalledWith('U-target', expect.any(Array));
+    expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
+      'U-target',
+      expect.any(Array),
+      expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    );
+    expect(deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: await createBroadcastRetryKey(
+        'webhook-cross-account',
+        'tenant-a',
+        'account-a',
+        'target-account',
+        'event-cross-account-1',
+      ),
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      friendId: 'target-friend',
+    }));
+    expect(deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: await createBroadcastRetryKey(
+        'webhook-cross-account-confirmation',
+        'tenant-a',
+        'account-a',
+        'event-cross-account-1',
+      ),
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      friendId: 'friend-1',
+    }));
+  });
+
+  test('does not reuse the confirmation token after LINE was attempted', async () => {
+    vi.mocked(deliverTrackedLineReply).mockImplementationOnce(async (input) => {
+      await input.send();
+      throw new Error('synthetic D1 settlement failure');
+    });
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+    const { db, statements } = crossAccountDb({
+      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(lineClientMocks.replyMessage).toHaveBeenCalledOnce();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'completed'")))
+      .toBe(true);
+  });
+
+  test('returns a pre-LINE confirmation failure to the durable inbox', async () => {
+    vi.mocked(deliverTrackedLineReply).mockRejectedValueOnce(
+      new Error('synthetic D1 prepare failure'),
+    );
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+    const { db } = crossAccountDb({
+      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+  });
+
+  test('returns a target push settlement failure to the durable inbox', async () => {
+    vi.mocked(deliverTrackedLinePush).mockRejectedValueOnce(
+      new Error('OUTBOUND_LINE_SETTLEMENT_FAILED'),
+    );
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+    const { db, statements } = crossAccountDb({
+      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(deliverTrackedLineReply).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
+      .toBe(true);
+  });
+
+  test('returns a cross-account lookup failure to the durable inbox', async () => {
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+    const { db, statements } = crossAccountDb({
+      tenantId: 'tenant-a',
+      lineAccountId: 'target-account',
+      lineUserId: 'U-target',
+      failUserLookup: true,
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(deliverTrackedLineReply).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
+      .toBe(true);
+  });
+
+  test('returns a target push reconciliation result to the durable inbox', async () => {
+    vi.mocked(deliverTrackedLinePush).mockResolvedValueOnce('reconciliation_required');
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+    const { db, statements } = crossAccountDb({
+      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(deliverTrackedLineReply).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
+      .toBe(true);
+  });
+
+  test('returns a missing same-tenant target credential to the durable inbox', async () => {
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) => {
+      if (input.kind === 'channel_secret') return 'stored-source-secret';
+      return input.lineAccountId === 'target-account' ? null : 'stored-source-token';
+    });
+    const { db, statements } = crossAccountDb({
+      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(deliverTrackedLineReply).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'failed'")))
+      .toBe(true);
+  });
+
+  test('completes the event after a deterministic confirmation-token rejection', async () => {
+    vi.mocked(deliverTrackedLineReply).mockResolvedValueOnce('not_sent');
+    vi.mocked(readLineCredential).mockImplementation(async (_db, _rootSecret, input) =>
+      input.kind === 'channel_secret' ? 'stored-source-secret' : 'stored-token');
+    const { db, statements } = crossAccountDb({
+      tenantId: 'tenant-a', lineAccountId: 'target-account', lineUserId: 'U-target',
+    });
+
+    await deliverCrossAccount(db);
+
+    expect(lineClientMocks.replyMessage).not.toHaveBeenCalled();
+    expect(fireEvent).not.toHaveBeenCalled();
+    expect([...statements.keys()].some((sql) => sql.includes("SET status = 'completed'")))
+      .toBe(true);
+    const options = vi.mocked(deliverTrackedLineReply).mock.calls[0]?.[0] as {
+      isDeterministicRejection?: (error: unknown) => boolean;
+    };
+    expect(options.isDeterministicRejection?.(
+      new Error('LINE API error: 400 Bad Request — Invalid reply token'),
+    )).toBe(true);
   });
 
   test('does not notify a target mapped to another tenant', async () => {

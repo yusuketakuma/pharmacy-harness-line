@@ -41,9 +41,9 @@ async function checkSingleAccount(
   const sentMessages = await db
     .prepare(
       `SELECT COUNT(*) as count FROM messages_log
-       WHERE direction = 'outgoing' AND created_at >= ?`,
+       WHERE line_account_id = ? AND direction = 'outgoing' AND created_at >= ?`,
     )
-    .bind(oneHourAgo)
+    .bind(account.id, oneHourAgo)
     .first<{ count: number }>();
 
   const totalSent = sentMessages?.count ?? 0;

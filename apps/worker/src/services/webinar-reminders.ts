@@ -16,6 +16,7 @@ import { addJitter, sleep } from './stealth.js';
 import { pushViaHarnessProxy } from './line-proxy-send.js';
 import type { HarnessProxyDispatch } from './line-proxy-send.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 
 const LEAD_SECONDS = 300;
 
@@ -150,13 +151,15 @@ export async function sendWebinarRegistrationConfirmation(
   sessionStartAt: number,
   options: WebinarProxyDeliveryOptions,
 ): Promise<void> {
+  const accountId = webinar.account_id;
+  if (!accountId) return;
   try {
-    if (options.canProcessAccount && !(await options.canProcessAccount(webinar.account_id))) return;
-    if (await isPharmacyModeAccount(db, webinar.account_id)) return;
-    if (!(await isActiveMappedAccount(db, webinar.account_id, friendId))) return;
+    if (options.canProcessAccount && !(await options.canProcessAccount(accountId))) return;
+    if (await isPharmacyModeAccount(db, accountId)) return;
+    if (!(await isActiveMappedAccount(db, accountId, friendId))) return;
     const friend = await getFriendById(db, friendId);
     if (!friend || !friend.is_following) return;
-    const { accessToken, liffId } = await resolveDeliveryConfig(db, webinar.account_id, options);
+    const { accessToken, liffId } = await resolveDeliveryConfig(db, accountId, options);
     if (!liffId) return;
     const admissionUrl = buildWebinarUrl(liffId, webinar.slug, sessionStartAt);
     await pushViaHarnessProxy(options.proxyBaseUrl, accessToken, friend.line_user_id, [
@@ -169,7 +172,13 @@ export async function sendWebinarRegistrationConfirmation(
           `開始5分前にも同じリンクをお送りします。` +
           `閉じた後も何度でも開けます。`,
       },
-    ], crypto.randomUUID(), options.proxyDispatch);
+    ], await createBroadcastRetryKey(
+      'webinar-registration-confirmation',
+      accountId,
+      webinar.slug,
+      friendId,
+      String(sessionStartAt),
+    ), options.proxyDispatch);
   } catch (err) {
     console.error('webinar registration confirmation error:', err);
   }

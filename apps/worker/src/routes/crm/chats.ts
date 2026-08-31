@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import type { Message } from '@line-crm/line-sdk';
 import { extractFlexAltText } from '../../utils/flex-alt-text.js';
 import {
   getOperators,
@@ -18,8 +19,11 @@ import type { Env } from '../../index.js';
 import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../../custom/pharmacy/growth-loop/access.js';
 import { accountResourceOwnedByStaff } from '../../middleware/tenant-boundary.js';
 import { log } from '../../lib/log.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 
 const chats = new Hono<Env>();
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function clampLoadingSeconds(value: number | undefined): number {
   const n = Number.isFinite(value) ? Math.floor(value as number) : 5;
@@ -638,6 +642,13 @@ chats.post('/api/chats/:id/send', async (c) => {
   try {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (c.req.header('X-Line-Harness-Source') !== 'manual') {
+      return c.json({ success: false, error: 'X-Line-Harness-Source must be manual' }, 400);
+    }
+    const idempotencyKey = c.req.header('Idempotency-Key')?.trim() ?? '';
+    if (!UUID_PATTERN.test(idempotencyKey)) {
+      return c.json({ success: false, error: 'Idempotency-Key must be a UUID' }, 400);
+    }
     const chatId = c.req.param('id');
     const authorized = await resolveAuthorizedChat(c, chatId);
     if (authorized instanceof Response) return authorized;
@@ -653,7 +664,8 @@ chats.post('/api/chats/:id/send', async (c) => {
       c.env.LINE_CREDENTIAL_KEY_V1,
     );
     if (!friend) return c.json({ success: false, error: 'Friend not found' }, 404);
-    if (!accessToken) {
+    const lineAccountId = friend.line_account_id;
+    if (!accessToken || !lineAccountId) {
       return c.json({ success: false, error: 'LINE account credential unavailable' }, 403);
     }
 
@@ -661,35 +673,54 @@ chats.post('/api/chats/:id/send', async (c) => {
     const { LineClient } = await import('@line-crm/line-sdk');
     const lineClient = new LineClient(accessToken);
     const messageType = body.messageType ?? 'text';
+    let message: Message;
 
     if (messageType === 'text') {
-      await lineClient.pushTextMessage(friend.line_user_id, body.content);
+      message = { type: 'text', text: body.content };
     } else if (messageType === 'flex') {
       const contents = JSON.parse(body.content);
-      await lineClient.pushFlexMessage(friend.line_user_id, extractFlexAltText(contents), contents);
+      message = { type: 'flex', altText: extractFlexAltText(contents), contents };
     } else if (messageType === 'image') {
       const parsed = JSON.parse(body.content) as {
         originalContentUrl: string;
         previewImageUrl: string;
       };
-      await lineClient.pushImageMessage(
-        friend.line_user_id,
-        parsed.originalContentUrl,
-        parsed.previewImageUrl,
-      );
+      message = {
+        type: 'image',
+        originalContentUrl: parsed.originalContentUrl,
+        previewImageUrl: parsed.previewImageUrl,
+      };
+    } else {
+      return c.json({ success: false, error: 'Unsupported messageType' }, 400);
     }
 
-    // メッセージログに記録
-    const logId = crypto.randomUUID();
-    await c.env.DB
-      .prepare(`INSERT INTO messages_log (id, friend_id, direction, message_type, content, source, created_at) VALUES (?, ?, 'outgoing', ?, ?, 'manual', ?)`)
-      .bind(logId, friend.id, messageType, body.content, jstNow())
-      .run();
+    const operationId = await createBroadcastRetryKey(
+      'manual', tenantId, lineAccountId, friend.id, idempotencyKey,
+    );
+    const delivery = await deliverTrackedLinePush({
+      db: c.env.DB,
+      operationId,
+      tenantId,
+      lineAccountId,
+      friendId: friend.id,
+      messageType,
+      content: body.content,
+      source: 'manual',
+      request: { to: friend.line_user_id, messages: [message] },
+      send: (request, retryKey) => lineClient.pushMessage(
+        request.to,
+        request.messages,
+        retryKey,
+      ).then(() => undefined),
+    });
+    if (delivery === 'reconciliation_required' || delivery === 'in_flight') {
+      return c.json({ success: false, error: 'Message delivery requires reconciliation' }, 409);
+    }
 
     // チャットの最終メッセージ日時を更新（chat.id を直接使う — friend_id で呼ばれても resolveOrCreateChat 済み）
     await updateChat(c.env.DB, chat.id, { status: 'in_progress', lastMessageAt: jstNow() });
 
-    return c.json({ success: true, data: { sent: true, messageId: logId } });
+    return c.json({ success: true, data: { sent: true, messageId: operationId } });
   } catch (err) {
     console.error('POST /api/chats/:id/send error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);

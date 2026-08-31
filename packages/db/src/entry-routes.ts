@@ -1,6 +1,7 @@
 import { jstNow } from './utils.js';
 export interface EntryRoute {
   id: string;
+  tenant_id: string | null;
   ref_code: string;
   name: string;
   tag_id: string | null;
@@ -42,6 +43,7 @@ export interface CreateEntryRouteInput {
   introTemplateId?: string | null;
   runAccountFriendAddScenarios?: boolean;
   isActive?: boolean;
+  tenantId?: string | null;
 }
 
 export interface EntryRouteFunnel {
@@ -51,9 +53,13 @@ export interface EntryRouteFunnel {
   cv_count: number;
 }
 
-export async function getEntryRoutes(db: D1Database): Promise<EntryRoute[]> {
+export async function getEntryRoutes(
+  db: D1Database,
+  tenantId: string | null = null,
+): Promise<EntryRoute[]> {
   const result = await db
-    .prepare(`SELECT * FROM entry_routes ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM entry_routes WHERE tenant_id IS ? ORDER BY created_at DESC`)
+    .bind(tenantId)
     .all<EntryRoute>();
   return result.results;
 }
@@ -81,13 +87,14 @@ export async function createEntryRoute(
   await db
     .prepare(
       `INSERT INTO entry_routes
-         (id, ref_code, name, tag_id, scenario_id, redirect_url,
+         (id, tenant_id, ref_code, name, tag_id, scenario_id, redirect_url,
           pool_id, intro_template_id, run_account_friend_add_scenarios,
           is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
+      input.tenantId ?? null,
       input.refCode,
       input.name,
       input.tagId ?? null,
@@ -114,14 +121,23 @@ export async function createEntryRoute(
     .prepare(
       `UPDATE ref_tracking
        SET entry_route_id = ?
-       WHERE ref_code = ? AND entry_route_id IS NULL`,
+       WHERE ref_code = ? AND entry_route_id IS NULL
+         AND EXISTS (
+           SELECT 1
+             FROM entry_routes AS route
+             LEFT JOIN friends AS friend ON friend.id = ref_tracking.friend_id
+             LEFT JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = friend.line_account_id
+            WHERE route.id = ?
+              AND route.tenant_id IS mapping.tenant_id
+         )`,
     )
-    .bind(id, input.refCode)
+    .bind(id, input.refCode, id)
     .run();
 
   return (await db
-    .prepare(`SELECT * FROM entry_routes WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM entry_routes WHERE id = ? AND tenant_id IS ?`)
+    .bind(id, input.tenantId ?? null)
     .first<EntryRoute>())!;
 }
 
@@ -129,6 +145,7 @@ export async function updateEntryRoute(
   db: D1Database,
   id: string,
   input: Partial<CreateEntryRouteInput>,
+  tenantId: string | null = null,
 ): Promise<EntryRoute | null> {
   const now = jstNow();
   const fields: string[] = ['updated_at = ?'];
@@ -147,30 +164,39 @@ export async function updateEntryRoute(
   }
   if (input.isActive !== undefined) { fields.push('is_active = ?'); values.push(input.isActive ? 1 : 0); }
 
-  values.push(id);
+  values.push(id, tenantId);
 
   await db
-    .prepare(`UPDATE entry_routes SET ${fields.join(', ')} WHERE id = ?`)
+    .prepare(`UPDATE entry_routes SET ${fields.join(', ')} WHERE id = ? AND tenant_id IS ?`)
     .bind(...values)
     .run();
 
   return db
-    .prepare(`SELECT * FROM entry_routes WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM entry_routes WHERE id = ? AND tenant_id IS ?`)
+    .bind(id, tenantId)
     .first<EntryRoute>();
 }
 
-export async function deleteEntryRoute(db: D1Database, id: string): Promise<void> {
-  await db.prepare(`DELETE FROM entry_routes WHERE id = ?`).bind(id).run();
+export async function deleteEntryRoute(
+  db: D1Database,
+  id: string,
+  tenantId: string | null = null,
+): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM entry_routes WHERE id = ? AND tenant_id IS ?`)
+    .bind(id, tenantId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 export async function getEntryRouteById(
   db: D1Database,
   id: string,
+  tenantId: string | null = null,
 ): Promise<EntryRoute | null> {
   return db
-    .prepare(`SELECT * FROM entry_routes WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM entry_routes WHERE id = ? AND tenant_id IS ?`)
+    .bind(id, tenantId)
     .first<EntryRoute>();
 }
 
@@ -196,14 +222,26 @@ export async function getEntryRouteFunnel(
 ): Promise<EntryRouteFunnel> {
   const row = await db
     .prepare(
-      `WITH first_touch AS (
+      `WITH route_scope AS (
+         SELECT id, ref_code, tenant_id FROM entry_routes WHERE id = ?
+       ), scoped_tracking AS (
+         SELECT tracking.id
+           FROM ref_tracking AS tracking
+           INNER JOIN route_scope AS route ON route.id = tracking.entry_route_id
+           LEFT JOIN friends AS friend ON friend.id = tracking.friend_id
+           LEFT JOIN tenant_line_accounts AS mapping
+             ON mapping.line_account_id = friend.line_account_id
+          WHERE route.tenant_id IS mapping.tenant_id
+       ), first_touch AS (
          SELECT f.id AS friend_id
-         FROM friends f
-         INNER JOIN entry_routes er ON er.ref_code = f.ref_code
-         WHERE er.id = ?1
+           FROM friends AS f
+           INNER JOIN route_scope AS route ON route.ref_code = f.ref_code
+           LEFT JOIN tenant_line_accounts AS mapping
+             ON mapping.line_account_id = f.line_account_id
+          WHERE route.tenant_id IS mapping.tenant_id
        )
        SELECT
-         (SELECT COUNT(*) FROM ref_tracking WHERE entry_route_id = ?1) AS click_count,
+         (SELECT COUNT(*) FROM scoped_tracking) AS click_count,
          (SELECT COUNT(*) FROM first_touch) AS friend_add_count,
          (SELECT COUNT(*) FROM form_submissions
             WHERE friend_id IN (SELECT friend_id FROM first_touch)) AS form_submission_count,

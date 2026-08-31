@@ -17,6 +17,12 @@ import {
 import { processStepDeliveries } from './services/step-delivery.js';
 import { processScheduledBroadcasts, processQueuedBroadcasts } from './services/broadcast.js';
 import { processReminderDeliveries } from './services/reminder-delivery.js';
+import {
+  reconcileAttemptedBroadcastTestPushes,
+  reconcileAcceptedScenarioReplies,
+  reconcileUnsentScenarioReplies,
+  retireExpiredOutboundLineDeliveries,
+} from './services/outbound-line-delivery.js';
 import { checkAccountHealth } from './services/ban-monitor.js';
 import { refreshLineAccessTokens } from './services/token-refresh.js';
 import { processInsightFetch } from './services/insight-fetcher.js';
@@ -33,6 +39,7 @@ import {
   tenantAccountSelectorGuard,
   tenantFriendResourceGuard,
   tenantRichMenuResourceGuard,
+  tenantScenarioResourceGuard,
 } from './middleware/tenant-boundary.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
 import { webhook, sweepWebhookInbox, purgeWebhookEventReceipts } from './routes/integrations/webhook.js';
@@ -108,6 +115,7 @@ import { dataSubjectRequestRoutes } from './custom/pharmacy/data-subject-request
 import { pharmacyPrivacyPolicyRoutes } from './custom/pharmacy/privacy-policy/routes.js'; // custom:pharmacy-privacy-policy
 import { pharmacyPublicProfileRoutes } from './custom/pharmacy/public-profile/routes.js'; // custom:pharmacy-public-profile
 import { tenantProvisioningRoutes } from './custom/pharmacy/provisioning/routes.js'; // custom:pharmacy-provisioning
+import { readLineCredential } from './custom/pharmacy/provisioning/line-credential-store.js'; // custom:pharmacy-provisioning
 import { platformAdminRoutes } from './custom/pharmacy/platform-admin/routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminDashboardRoutes } from './custom/pharmacy/platform-admin/dashboard-routes.js'; // custom:pharmacy-platform-admin
 import { platformAdminOperationsRoutes } from './custom/pharmacy/platform-admin/operations-routes.js'; // custom:pharmacy-platform-admin
@@ -150,7 +158,6 @@ export type Env = {
     LINE_CHANNEL_ACCESS_TOKEN: string;
     API_KEY: string;
     LEGACY_API_KEY?: string;
-    LEGACY_ENV_OWNER_BYPASS?: string;
     PLATFORM_ADMIN_KEY?: string;
     CROSS_ACCOUNT_TOKEN_KEY: string;
     LINE_CREDENTIAL_KEY_V1?: string;
@@ -250,6 +257,7 @@ app.use('/api/*', pharmacyTenantApiAllowlistGuard);
 // authority. Reject cross-tenant LINE account ids before any route can use them.
 app.use('/api/*', tenantAccountSelectorGuard);
 app.use('/api/*', tenantFriendResourceGuard);
+app.use('/api/*', tenantScenarioResourceGuard);
 app.use('/api/*', tenantRichMenuResourceGuard);
 
 // Query parameters select a pharmacy account; this guard proves the signed-in
@@ -946,12 +954,19 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
 
   // form: クエリ `?page=form&id=`
   if (pageFromQuery === 'form' && idFromQuery && !pharmacyMode) {
+    const account = await lookupAccountByLiff(liffIdFromQuery);
     const form = await db
-      .prepare(`SELECT * FROM forms WHERE id = ?`)
-      .bind(idFromQuery)
+      .prepare(
+        `SELECT form.*
+           FROM forms AS form
+           LEFT JOIN tenant_line_accounts AS mapping
+             ON mapping.line_account_id = ?
+          WHERE form.id = ?
+            AND form.tenant_id IS mapping.tenant_id`,
+      )
+      .bind(account?.id ?? null, idFromQuery)
       .first<any>();
     if (form) {
-      const account = await lookupAccountByLiff(liffIdFromQuery);
       const og = resolveOgForForm(form, account, absoluteUrl);
       return buildOgHtml(og);
     }
@@ -1168,6 +1183,50 @@ async function scheduled(
   }
 
   if (event.cron === '* * * * *') {
+    jobs.push(reconcileAttemptedBroadcastTestPushes({
+      db: env.DB,
+      now: new Date(event.scheduledTime),
+      resolveSender: async ({ tenantId, lineAccountId }) => {
+        if (!env.LINE_CREDENTIAL_KEY_V1) return null;
+        const token = await readLineCredential(env.DB, env.LINE_CREDENTIAL_KEY_V1, {
+          tenantId,
+          lineAccountId,
+          kind: 'channel_access_token',
+        });
+        if (!token) return null;
+        const client = new LineClient(token);
+        return async (request, retryKey) => {
+          await client.pushMessage(request.to, request.messages, retryKey);
+        };
+      },
+    }).then((result) => {
+      if (result.accepted + result.pending + result.retired > 0) {
+        console.log(
+          `[outbound-line] test_accepted=${result.accepted} test_pending=${result.pending} test_retired=${result.retired}`,
+        );
+      }
+    }).catch(() => {
+      console.error('outbound-line test reconciliation error');
+    }));
+    jobs.push(reconcileAcceptedScenarioReplies(env.DB).then((reconciled) => {
+      if (reconciled > 0) console.log(`[outbound-line] scenario_reconciled=${reconciled}`);
+    }).catch((e) => {
+      console.error('outbound-line scenario reconciliation error:', e);
+    }));
+    jobs.push(reconcileUnsentScenarioReplies(env.DB).then((reconciled) => {
+      if (reconciled > 0) console.log(`[outbound-line] scenario_unsent_reconciled=${reconciled}`);
+    }).catch((e) => {
+      console.error('outbound-line unsent scenario reconciliation error:', e);
+    }));
+    jobs.push(retireExpiredOutboundLineDeliveries(
+      env.DB,
+      new Date(event.scheduledTime),
+    ).then((retired) => {
+      if (retired > 0) console.log(`[outbound-line] reconciliation_required=${retired}`);
+    }).catch((e) => {
+      console.error('outbound-line reconciliation sweep error:', e);
+    }));
+
     // H-3 recovery: webhook events durably stored but never finished (isolate
     // evicted, CPU limit, transient failure). Runs for every tenant including
     // pharmacy accounts — it only replays each account's own inbound events.

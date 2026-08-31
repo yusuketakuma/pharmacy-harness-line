@@ -134,6 +134,10 @@ function app() {
   a.delete('/api/liff/pharmacy/public-profile', (c) => c.json({ success: true }));
   a.get('/api/booking/google-calendar/oauth/callback', (c) => c.text('oauth-callback'));
   a.post('/api/booking/google-calendar/oauth/callback', (c) => c.text('wrong-method'));
+  a.post('/api/meet-callback', (c) => c.json({
+    success: true,
+    tenantId: c.get('tenantId') ?? null,
+  }));
   return a;
 }
 
@@ -364,11 +368,10 @@ describe('protected API access', () => {
 
     const legacy = await app().request('/api/protected', {
       headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
-    }, env({
+    }, Object.assign(env({
       ADMIN_ORIGIN: PAGES,
       ADMIN_ALLOW_CROSS_SITE: 'true',
-      LEGACY_ENV_OWNER_BYPASS: 'true',
-    }));
+    }), { LEGACY_ENV_OWNER_BYPASS: 'true' }));
     expect(legacy.status).toBe(401);
   });
 
@@ -393,19 +396,18 @@ describe('protected API access', () => {
   });
 });
 
-describe('LEGACY_ENV_OWNER_BYPASS logging', () => {
-  test('logs accept_via=LEGACY_ENV_OWNER_BYPASS when the bypass path is actually taken', async () => {
+describe('retired LEGACY_ENV_OWNER_BYPASS', () => {
+  test('cannot bypass tenant membership even when the stale flag remains configured', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const res = await app().request('/api/protected', {
       headers: { Authorization: 'Bearer env-key', 'X-Tenant-Id': TENANT_ID },
-    }, env({
+    }, Object.assign(env({
       DB: tenantDb(0), // non-pharmacy-mode tenant: the only case the bypass fires for
       ADMIN_ORIGIN: PAGES,
       ADMIN_ALLOW_CROSS_SITE: 'true',
-      LEGACY_ENV_OWNER_BYPASS: 'true',
-    }));
-    expect(res.status).toBe(200);
-    expect(log).toHaveBeenCalledWith(`[auth] accept_via=LEGACY_ENV_OWNER_BYPASS tenant=${TENANT_ID}`);
+    }), { LEGACY_ENV_OWNER_BYPASS: 'true' }));
+    expect(res.status).toBe(401);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('LEGACY_ENV_OWNER_BYPASS'));
     log.mockRestore();
   });
 });
@@ -509,6 +511,22 @@ describe('Google OAuth callback boundary', () => {
       method: 'POST',
     }, crossSiteEnv());
     expect(post.status).toBe(401);
+  });
+});
+
+describe('Meet callback boundary', () => {
+  test('requires authenticated tenant authority', async () => {
+    const unauthenticated = await app().request('/api/meet-callback', {
+      method: 'POST',
+    }, crossSiteEnv());
+    expect(unauthenticated.status).toBe(401);
+
+    const authenticated = await app().request('/api/meet-callback', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer staff-key', 'X-Tenant-Id': TENANT_ID },
+    }, crossSiteEnv());
+    expect(authenticated.status).toBe(200);
+    await expect(authenticated.json()).resolves.toMatchObject({ tenantId: TENANT_ID });
   });
 });
 
@@ -653,6 +671,32 @@ describe('CORS allowed / blocked origins', () => {
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+  });
+
+  test('direct Worker same-origin login preflight remains allowed', async () => {
+    const res = await app().request(`${WORKERS}/api/auth/login`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: WORKERS,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
+    }, crossSiteEnv());
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(WORKERS);
+  });
+
+  test('LIFF origin cannot preflight an admin login route', async () => {
+    const res = await app().request('/api/auth/login', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: LIFF,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
+    }, env({ LIFF_ORIGIN: LIFF }));
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
   test('unknown origin gets no Access-Control-Allow-Origin header', async () => {

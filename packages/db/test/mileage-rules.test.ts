@@ -32,9 +32,6 @@ function execSafe(db: Database.Database, sql: string) {
 function setupSqlite() {
   const db = new Database(':memory:');
   execSafe(db, readFileSync(join(PACKAGE_ROOT, 'schema.sql'), 'utf8'));
-  for (const file of readdirSync(join(PACKAGE_ROOT, 'migrations')).filter((name) => name.endsWith('.sql')).sort()) {
-    execSafe(db, readFileSync(join(PACKAGE_ROOT, 'migrations', file), 'utf8'));
-  }
   db.prepare(`INSERT INTO users (id, display_name) VALUES ('user-1', '横断ユーザー')`).run();
   db.prepare(`INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret)
               VALUES ('account-1', 'channel-1', '公式A', 'token', 'secret'),

@@ -11,7 +11,6 @@
 // scheduled_at / decided_at / expires_at) are written from the Worker.
 
 import { Hono, type Context } from 'hono';
-import { getLineAccounts } from '@line-crm/db';
 import type { Env } from '../../index.js';
 import { resolveCorsOrigin } from '../../middleware/admin-auth-config.js';
 import { canTransition, nextStatus, type BookingAction } from '../../services/booking-state.js';
@@ -26,6 +25,7 @@ import {
   saveIdempotencyResponse,
 } from '../../services/booking-idempotency.js';
 import { sendBookingNotification } from '../../services/booking-notifier.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 import { insertConfirmationReminders } from '../../services/booking-confirm.js';
 import { attachTagAndFireSideEffects } from '../../services/friend-tag-attach.js';
 import {
@@ -34,6 +34,7 @@ import {
   type BookingStatus,
 } from '../../services/booking-types.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
+import { verifyCallerLineIdentity } from '../../services/liff-auth.js';
 import { GoogleCalendarClient } from '../../services/google-calendar.js';
 import {
   buildGoogleOAuthAuthorizationUrl,
@@ -109,76 +110,13 @@ async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null>
 }
 
 // LIFF が送る id_token を LINE Login API で verify し、認証済み LINE userId を返す。
-// 失敗時は null（呼び出し側で 401）。
-//
-// 候補チャンネル ID:
-//   1. LINE_LOGIN_CHANNEL_ID env (デフォルトアカウント)
-//   2. DB 内 line_accounts.login_channel_id (LINE Login channel)
-//   3. DB 内 line_accounts.channel_id (Messaging channel) — LIFF を Login channel
-//      ではなく Messaging channel に紐付けてる構成への保険
-//   4. id_token の aud claim を base64 デコードして直接抽出 — どの DB 値とも
-//      一致しない場合の最後の手段（LIFF が独自に発行する場合）
-async function verifyCallerLineUserId(c: Context<Env>): Promise<string | null> {
-  const auth = c.req.header('Authorization');
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  const idToken = auth.slice('Bearer '.length).trim();
-  if (!idToken) return null;
-
-  const candidates: string[] = [];
-  const push = (v: string | null | undefined) => {
-    if (v && !candidates.includes(v)) candidates.push(v);
-  };
-
-  push(c.env.LINE_LOGIN_CHANNEL_ID);
-  const dbAccounts = await getLineAccounts(c.env.DB);
-  for (const a of dbAccounts) {
-    const acc = a as unknown as {
-      login_channel_id?: string | null;
-      channel_id?: string | null;
-      liff_id?: string | null;
-    };
-    push(acc.login_channel_id);
-    push(acc.channel_id);
-    // liff_id は "<channel_id>-<random>" 形式
-    const liffPrefix = acc.liff_id?.split('-')[0];
-    push(liffPrefix);
-  }
-
-  // id_token (JWT) の payload を base64url decode して aud を抽出
-  // Cloudflare Workers の atob は base64 を扱う。base64url の文字置換が必要。
-  try {
-    const parts = idToken.split('.');
-    if (parts.length === 3) {
-      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
-      const json = JSON.parse(atob(padded));
-      if (typeof json.aud === 'string') push(json.aud);
-      else if (Array.isArray(json.aud)) for (const a of json.aud) push(String(a));
-    }
-  } catch {
-    /* decode 失敗は無視: 候補 URL のみで verify を試す */
-  }
-
-  console.log('[verifyCallerLineUserId] candidates:', candidates.length, candidates.join(','));
-
-  for (const channelId of candidates) {
-    const res = await fetch('https://api.line.me/oauth2/v2.1/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ id_token: idToken, client_id: channelId }),
-    });
-    if (res.ok) {
-      const verified = await res.json<{ sub?: string }>();
-      if (verified.sub) return verified.sub;
-    } else {
-      const errBody = await res.json<{ error?: string }>().catch(() => ({} as { error?: string }));
-      console.log(
-        `[verifyCallerLineUserId] verify fail channel=${channelId}`,
-        JSON.stringify({ status: res.status, error: errBody.error ?? null }),
-      );
-    }
-  }
-  return null;
+// token の audience が対象 active account/tenant と一致しない場合も null（呼び出し側で 401）。
+export async function verifyCallerLineUserId(
+  c: Context<Env>,
+  lineAccountId: string,
+): Promise<string | null> {
+  const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
+  return identity?.lineAccountId === lineAccountId ? identity.lineUserId : null;
 }
 
 async function resolveAccountIdAdmin(c: Context<Env>): Promise<string | null> {
@@ -190,10 +128,20 @@ async function assertStaffInAccount(
   db: D1Database,
   staffId: string,
   accountId: string,
+  tenantId?: string,
 ): Promise<boolean> {
   const row = await db
-    .prepare(`SELECT 1 AS ok FROM staff WHERE id = ? AND line_account_id = ? AND deleted_at IS NULL`)
-    .bind(staffId, accountId)
+    .prepare(
+      tenantId
+        ? `SELECT 1 AS ok
+             FROM staff
+             INNER JOIN tenant_line_accounts AS mapping
+                     ON mapping.line_account_id = staff.line_account_id
+                    AND mapping.tenant_id = ?
+            WHERE staff.id = ? AND staff.line_account_id = ? AND staff.deleted_at IS NULL`
+        : `SELECT 1 AS ok FROM staff WHERE id = ? AND line_account_id = ? AND deleted_at IS NULL`,
+    )
+    .bind(...(tenantId ? [tenantId, staffId, accountId] : [staffId, accountId]))
     .first<{ ok: number }>();
   return Boolean(row?.ok);
 }
@@ -225,20 +173,34 @@ async function notifyForBooking(
   const row = await db
     .prepare(
       `SELECT b.starts_at,
+              b.line_account_id,
+              b.friend_id,
+              mapping.tenant_id,
               m.name AS menu_name,
               s.display_name AS staff_name,
               la.channel_access_token,
               f.provider_line_user_id AS line_user_id
          FROM bookings b
-         INNER JOIN menus m ON m.id = b.menu_id
-         INNER JOIN staff s ON s.id = b.staff_id
-         INNER JOIN line_accounts la ON la.id = b.line_account_id
-         INNER JOIN friends f ON f.id = b.friend_id
+         INNER JOIN menus m
+                 ON m.id = b.menu_id AND m.line_account_id = b.line_account_id
+         INNER JOIN staff s
+                 ON s.id = b.staff_id AND s.line_account_id = b.line_account_id
+         INNER JOIN line_accounts la
+                 ON la.id = b.line_account_id AND la.is_active = 1
+         INNER JOIN tenant_line_accounts mapping
+                 ON mapping.line_account_id = la.id
+         INNER JOIN tenants tenant
+                 ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+         INNER JOIN friends f
+                 ON f.id = b.friend_id AND f.line_account_id = b.line_account_id
         WHERE b.id = ?`,
     )
     .bind(bookingId)
     .first<{
       starts_at: string;
+      line_account_id: string;
+      friend_id: string;
+      tenant_id: string;
       menu_name: string;
       staff_name: string;
       channel_access_token: string;
@@ -246,8 +208,15 @@ async function notifyForBooking(
     }>();
   if (!row) return;
   await sendBookingNotification({
+    db,
+    tenantId: row.tenant_id,
+    lineAccountId: row.line_account_id,
+    friendId: row.friend_id,
     channelAccessToken: row.channel_access_token,
     toLineUserId: row.line_user_id,
+    retryKey: await createBroadcastRetryKey(
+      'booking-notification', bookingId, kind,
+    ),
     kind,
     ctx: {
       menuName: row.menu_name,
@@ -335,7 +304,7 @@ booking.post('/api/liff/booking/requests', async (c) => {
   if (!idemKey) return c.json({ error: 'missing_idempotency_key' }, 400);
 
   // 認証済み caller の LINE userId を Authorization: Bearer <id_token> から取得。
-  const callerLineUserId = await verifyCallerLineUserId(c);
+  const callerLineUserId = await verifyCallerLineUserId(c, accountId);
   if (!callerLineUserId) return c.json({ error: 'unauthorized' }, 401);
 
   const body = await c.req.json<{
@@ -523,7 +492,7 @@ booking.get('/api/liff/booking/me', async (c) => {
   const accountId = await resolveAccountIdFromLiff(c);
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   // 履歴も idToken 検証必須。query の lineUserId に頼ると他人の履歴を覗けてしまう。
-  const callerLineUserId = await verifyCallerLineUserId(c);
+  const callerLineUserId = await verifyCallerLineUserId(c, accountId);
   if (!callerLineUserId) return c.json({ error: 'unauthorized' }, 401);
   const friendId = await resolveFriendId(c, callerLineUserId, accountId);
   if (!friendId) return c.json({ upcoming: [], past: [] });
@@ -1165,10 +1134,11 @@ booking.put('/api/booking/admin/staff/:id/availability-rules', async (c) => {
 // OAuth start is admin-authenticated and CSRF protected. Only the signed, short-lived
 // state crosses Google's authorization page; API_KEY and client secret never leave Worker.
 booking.post('/api/booking/admin/staff/:id/google-calendar/oauth/start', async (c) => {
+  const tenantId = c.get('tenantId');
   const accountId = await resolveAccountIdAdmin(c);
-  if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
+  if (!tenantId || !accountId) return c.json({ error: 'missing_account_id' }, 400);
   const staffId = c.req.param('id');
-  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId))) {
+  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId, tenantId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
   const credentials = googleCredentials(c.env);
@@ -1211,7 +1181,15 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
     if (!code || !googleOAuthConfigured(credentials)) {
       throw new Error('google_oauth_callback_invalid');
     }
-    if (!(await assertStaffInAccount(c.env.DB, payload.staffId, payload.accountId))) {
+    const mappedTenant = await c.env.DB
+      .prepare(
+        `SELECT tenant_id FROM tenant_line_accounts
+          WHERE line_account_id = ? LIMIT 1`,
+      )
+      .bind(payload.accountId)
+      .first<{ tenant_id: string }>();
+    const tenantId = c.get('tenantId') ?? mappedTenant?.tenant_id;
+    if (!tenantId || !(await assertStaffInAccount(c.env.DB, payload.staffId, payload.accountId, tenantId))) {
       throw new Error('google_oauth_staff_invalid');
     }
     const token = await exchangeGoogleOAuthCode({
@@ -1229,9 +1207,9 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
     const existing = await c.env.DB
       .prepare(
         `SELECT id FROM google_calendar_connections
-          WHERE line_account_id = ? AND staff_id = ? LIMIT 1`,
+          WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? LIMIT 1`,
       )
-      .bind(payload.accountId, payload.staffId)
+      .bind(tenantId, payload.accountId, payload.staffId)
       .first<{ id: string }>();
     const connectionId = existing?.id ?? crypto.randomUUID();
     const nowIso = now.toISOString();
@@ -1239,9 +1217,9 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
       await c.env.DB
         .prepare(
           `UPDATE google_calendar_connections
-              SET calendar_id='primary', auth_type='oauth', access_token=?, refresh_token=?,
+            SET calendar_id='primary', auth_type='oauth', access_token=?, refresh_token=?,
                   api_key=NULL, is_active=1, last_verified_at=?, last_error=NULL, updated_at=?
-            WHERE id=? AND line_account_id=? AND staff_id=?`,
+            WHERE id=? AND tenant_id=? AND line_account_id=? AND staff_id=?`,
         )
         .bind(
           token.accessToken,
@@ -1249,6 +1227,7 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
           nowIso,
           nowIso,
           connectionId,
+          tenantId,
           payload.accountId,
           payload.staffId,
         )
@@ -1257,12 +1236,13 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
       await c.env.DB
         .prepare(
           `INSERT INTO google_calendar_connections
-            (id, calendar_id, line_account_id, staff_id, access_token, refresh_token,
+            (id, tenant_id, calendar_id, line_account_id, staff_id, access_token, refresh_token,
              auth_type, is_active, last_verified_at, created_at, updated_at)
-           VALUES (?, 'primary', ?, ?, ?, ?, 'oauth', 1, ?, ?, ?)`,
+           VALUES (?, ?, 'primary', ?, ?, ?, ?, 'oauth', 1, ?, ?, ?)`,
         )
         .bind(
           connectionId,
+          tenantId,
           payload.accountId,
           payload.staffId,
           token.accessToken,
@@ -1281,20 +1261,21 @@ booking.get(GOOGLE_OAUTH_CALLBACK_PATH, async (c) => {
 });
 
 booking.get('/api/booking/admin/staff/:id/google-calendar', async (c) => {
+  const tenantId = c.get('tenantId');
   const accountId = await resolveAccountIdAdmin(c);
-  if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
+  if (!tenantId || !accountId) return c.json({ error: 'missing_account_id' }, 400);
   const staffId = c.req.param('id');
-  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId))) {
+  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId, tenantId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
   const connection = await c.env.DB
     .prepare(
       `SELECT id, calendar_id, auth_type, is_active, last_verified_at, last_error
          FROM google_calendar_connections
-        WHERE line_account_id = ? AND staff_id = ? AND is_active = 1
+        WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? AND is_active = 1
         LIMIT 1`,
     )
-    .bind(accountId, staffId)
+    .bind(tenantId, accountId, staffId)
     .first();
   return c.json({
     connection,
@@ -1311,10 +1292,11 @@ booking.get('/api/booking/admin/staff/:id/google-calendar', async (c) => {
 });
 
 booking.put('/api/booking/admin/staff/:id/google-calendar', async (c) => {
+  const tenantId = c.get('tenantId');
   const accountId = await resolveAccountIdAdmin(c);
-  if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
+  if (!tenantId || !accountId) return c.json({ error: 'missing_account_id' }, 400);
   const staffId = c.req.param('id');
-  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId))) {
+  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId, tenantId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
   const body = await c.req.json<{ calendar_id?: string }>();
@@ -1325,9 +1307,9 @@ booking.put('/api/booking/admin/staff/:id/google-calendar', async (c) => {
   const existing = await c.env.DB
     .prepare(
       `SELECT id FROM google_calendar_connections
-        WHERE line_account_id = ? AND staff_id = ? LIMIT 1`,
+        WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? LIMIT 1`,
     )
-    .bind(accountId, staffId)
+    .bind(tenantId, accountId, staffId)
     .first<{ id: string }>();
   const connectionId = existing?.id ?? crypto.randomUUID();
   try {
@@ -1352,39 +1334,40 @@ booking.put('/api/booking/admin/staff/:id/google-calendar', async (c) => {
             SET calendar_id = ?, auth_type = 'service_account',
                 access_token = NULL, refresh_token = NULL, is_active = 1,
                 last_verified_at = ?, last_error = NULL, updated_at = ?
-          WHERE id = ? AND line_account_id = ? AND staff_id = ?`,
+          WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND staff_id = ?`,
       )
-      .bind(calendarId, now, now, connectionId, accountId, staffId)
+      .bind(calendarId, now, now, connectionId, tenantId, accountId, staffId)
       .run();
   } else {
     await c.env.DB
       .prepare(
         `INSERT INTO google_calendar_connections
-          (id, calendar_id, line_account_id, staff_id, auth_type, is_active,
+          (id, tenant_id, calendar_id, line_account_id, staff_id, auth_type, is_active,
            last_verified_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'service_account', 1, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'service_account', 1, ?, ?, ?)`,
       )
-      .bind(connectionId, calendarId, accountId, staffId, now, now, now)
+      .bind(connectionId, tenantId, calendarId, accountId, staffId, now, now, now)
       .run();
   }
   return c.json({ ok: true, calendar_id: calendarId, last_verified_at: now });
 });
 
 booking.delete('/api/booking/admin/staff/:id/google-calendar', async (c) => {
+  const tenantId = c.get('tenantId');
   const accountId = await resolveAccountIdAdmin(c);
-  if (!accountId) return c.json({ error: 'missing_account_id' }, 400);
+  if (!tenantId || !accountId) return c.json({ error: 'missing_account_id' }, 400);
   const staffId = c.req.param('id');
-  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId))) {
+  if (!(await assertStaffInAccount(c.env.DB, staffId, accountId, tenantId))) {
     return c.json({ error: 'staff_not_found_in_account' }, 404);
   }
   const connection = await c.env.DB
     .prepare(
       `SELECT auth_type, access_token, refresh_token
          FROM google_calendar_connections
-        WHERE line_account_id = ? AND staff_id = ? AND is_active = 1
+        WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? AND is_active = 1
         LIMIT 1`,
     )
-    .bind(accountId, staffId)
+    .bind(tenantId, accountId, staffId)
     .first<{
       auth_type: string;
       access_token: string | null;
@@ -1402,9 +1385,9 @@ booking.delete('/api/booking/admin/staff/:id/google-calendar', async (c) => {
       `UPDATE google_calendar_connections
           SET is_active = 0, access_token = NULL, refresh_token = NULL,
               updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')
-        WHERE line_account_id = ? AND staff_id = ? AND is_active = 1`,
+        WHERE tenant_id = ? AND line_account_id = ? AND staff_id = ? AND is_active = 1`,
     )
-    .bind(accountId, staffId)
+    .bind(tenantId, accountId, staffId)
     .run();
   return c.json({ ok: true });
 });
@@ -1604,7 +1587,7 @@ booking.patch('/api/booking/admin/requests/:id', async (c) => {
   } else if (next === 'cancelled' || next === 'expired') {
     await c.env.DB
       .prepare(
-        `UPDATE booking_reminders SET status='cancelled' WHERE booking_id = ? AND status = 'pending'`,
+        `UPDATE booking_reminders SET status='cancelled' WHERE booking_id = ? AND status IN ('pending','failed','processing')`,
       )
       .bind(id)
       .run();

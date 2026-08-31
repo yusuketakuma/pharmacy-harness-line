@@ -14,7 +14,6 @@ describe('custom_057 pharmacy retention deletion intents', () => {
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    db.exec(readFileSync(join(ROOT, 'migrations/custom_057_pharmacy_retention_deletion_intents.sql'), 'utf8'));
     db.prepare(`INSERT INTO line_accounts
       (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
       VALUES ('account-a', 'channel-a', 'A', 'token-a', 'secret-a', ?, ?)`).run(NOW, NOW);

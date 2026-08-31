@@ -164,3 +164,65 @@ describe('GET /api/scenarios?lineAccountId=X', () => {
     expect(body.data).toEqual([]);
   });
 });
+
+describe('scenario step template tenant boundary', () => {
+  test('rejects a template outside the server tenant on create and update', async () => {
+    const db = {
+      prepare(sql: string) {
+        let values: unknown[] = [];
+        const statement = {
+          bind(...next: unknown[]) {
+            values = next;
+            return statement;
+          },
+          async first() {
+            if (sql.includes('FROM scenarios')) return { delivery_mode: 'relative' };
+            if (sql.includes('FROM templates')) {
+              return sql.includes('tenant_id IS ?') && values[1] === 'tenant-a'
+                ? null
+                : { id: 'template-b', message_type: 'text', message_content: 'foreign' };
+            }
+            return null;
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    dbMocks.createScenarioStep.mockResolvedValue({
+      id: 'step-a', scenario_id: 'scenario-a', step_order: 1, delay_minutes: 0,
+      message_type: 'text', message_content: 'foreign', condition_type: null,
+      condition_value: null, next_step_on_false: null, offset_days: null,
+      offset_minutes: null, delivery_time: null, template_id: 'template-b',
+      on_reach_tag_id: null, created_at: '2026-08-31T00:00:00.000',
+    });
+    dbMocks.updateScenarioStep.mockResolvedValue({
+      id: 'step-a', scenario_id: 'scenario-a', step_order: 1, delay_minutes: 0,
+      message_type: 'text', message_content: 'foreign', condition_type: null,
+      condition_value: null, next_step_on_false: null, offset_days: null,
+      offset_minutes: null, delivery_time: null, template_id: 'template-b',
+      on_reach_tag_id: null, created_at: '2026-08-31T00:00:00.000',
+    });
+    const app = setupApp(db, 'tenant-a');
+
+    const create = await app.request('/api/scenarios/scenario-a/steps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stepOrder: 1,
+        delayMinutes: 0,
+        messageType: 'text',
+        messageContent: 'fallback',
+        templateId: 'template-b',
+      }),
+    });
+    const update = await app.request('/api/scenarios/scenario-a/steps/step-a', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ templateId: 'template-b' }),
+    });
+
+    expect([create.status, update.status]).toEqual([400, 400]);
+    expect(dbMocks.createScenarioStep).not.toHaveBeenCalled();
+    expect(dbMocks.updateScenarioStep).not.toHaveBeenCalled();
+  });
+});

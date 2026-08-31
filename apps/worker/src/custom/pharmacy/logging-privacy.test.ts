@@ -10,11 +10,15 @@ const sources = readdirSync(SRC_ROOT, { recursive: true, encoding: 'utf8' })
   .map((file) => ({ file, text: readFileSync(join(SRC_ROOT, file), 'utf8') }));
 
 // A console call whose argument list carries a sensitive identifier or value.
-const SENSITIVE_IDENT = 'userId|lineUserId|password|token|secret|answers|line_user_id';
+const SENSITIVE_IDENT =
+  'userId|lineUserId|friendId|patientId|password|token|secret|answers|line_user_id|friend_id|patient_id';
 const PATTERNS = [
   new RegExp(`console\\.(?:log|error|warn|info|debug)\\([^\\n]*,\\s*(?:${SENSITIVE_IDENT})\\b`),
   new RegExp(`console\\.(?:log|error|warn|info|debug)\\([^\\n]*\\$\\{(?:${SENSITIVE_IDENT})\\}`),
-  /console\.(?:log|error|warn|info|debug)\([^\n]*\.(?:line_user_id|password|answers)\b/,
+  /console\.(?:log|error|warn|info|debug)\([^\n]*\.(?:line_user_id|friend_id|patient_id|password|answers)\b/,
+  /console\.(?:log|error|warn|info|debug)\([^\n]*\$\{friend\.id\}/,
+  /console\.(?:log|error|warn|info|debug)\([^\n]*\$\{(?:fr|fs|row)\.id\}/,
+  /console\.(?:log|error|warn|info|debug)\([^\n]*parsed\.to\b/,
   /console\.(?:log|error|warn|info|debug)\([^\n]*JSON\.stringify\((?:data|answers|body)\)/,
 ];
 

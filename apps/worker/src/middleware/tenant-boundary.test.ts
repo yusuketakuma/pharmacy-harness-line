@@ -6,6 +6,7 @@ import {
   tenantAccountSelectorGuard,
   tenantFriendResourceGuard,
   tenantRichMenuResourceGuard,
+  tenantScenarioResourceGuard,
 } from './tenant-boundary.js';
 
 function app(ownedAccountIds: string[]) {
@@ -222,6 +223,57 @@ describe('tenant friend resource guard', () => {
       root.request('/api/friends/count', {}, env),
     ]);
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+  });
+
+  it('authorizes the friend id in a manual scenario enrollment path', async () => {
+    const { root, env } = resourceApp(['friend-a']);
+    const responses = await Promise.all([
+      root.request('/api/scenarios/scenario-a/enroll/friend-a', { method: 'POST' }, env),
+      root.request('/api/scenarios/scenario-a/enroll/friend-b', { method: 'POST' }, env),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 403]);
+  });
+});
+
+describe('tenant scenario resource guard', () => {
+  it('rejects foreign, missing, and unassigned account-bound scenarios on every child route', async () => {
+    const root = new Hono<Env>();
+    root.use('*', async (c, next) => {
+      c.set('tenantId', 'tenant-a');
+      await next();
+    });
+    root.use('*', tenantScenarioResourceGuard);
+    root.all('*', (c) => c.json({ ok: true }));
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: string[]) => ({
+          first: async () => {
+            if (sql.includes('FROM scenarios AS scenario')) {
+              const [scenarioId, tenantId] = values;
+              if (tenantId !== 'tenant-a') return null;
+              if (scenarioId === 'scenario-global') return { line_account_id: null };
+              if (scenarioId === 'scenario-owned') return { line_account_id: 'account-a' };
+              if (scenarioId === 'scenario-unassigned') return { line_account_id: 'account-b' };
+              return null;
+            }
+            if (sql.includes('pharmacy_account_capabilities')) return null;
+            if (sql.includes('sqlite_master')) return null;
+            return values.at(-1) === 'account-a' ? { ok: 1 } : null;
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+    const env = { DB: db } as Env['Bindings'];
+
+    const responses = await Promise.all([
+      root.request('/api/scenarios/scenario-global', {}, env),
+      root.request('/api/scenarios/scenario-owned/steps/step-a', { method: 'PUT' }, env),
+      root.request('/api/scenarios/scenario-foreign/stats', {}, env),
+      root.request('/api/scenarios/scenario-unassigned/preview', {}, env),
+      root.request('/api/scenarios', {}, env),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 403, 403, 200]);
   });
 });
 

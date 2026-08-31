@@ -30,36 +30,7 @@ function execSafe(db: Database.Database, sql: string): void {
 function setupDbWithMigrations(): Database.Database {
   const db = new Database(':memory:');
   execSafe(db, readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8'));
-
-  const migrationFiles = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-
-  for (const file of migrationFiles) {
-    execSafe(db, readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-  }
-
   return db;
-}
-
-/**
- * Build a DB with schema + every migration STRICTLY BEFORE 047, so a test can
- * seed pre-047 rows and then apply 047 itself to exercise its backfill.
- */
-function setupDbBefore047(): Database.Database {
-  const db = new Database(':memory:');
-  execSafe(db, readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8'));
-  const migrationFiles = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql') && f < '047')
-    .sort();
-  for (const file of migrationFiles) {
-    execSafe(db, readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-  }
-  return db;
-}
-
-function apply047(db: Database.Database): void {
-  execSafe(db, readFileSync(join(MIGRATIONS_DIR, '047_affiliate_offers.sql'), 'utf8'));
 }
 
 describe('047_affiliate_offers', () => {
@@ -167,50 +138,4 @@ describe('047_affiliate_offers', () => {
     expect(row.offer_id).toBe('off-2');
   });
 
-  test('backfill: existing attributed CVs with NULL approval_status become pending', () => {
-    // Seed an attributed CV that predates 047 (no approval_status column yet), plus
-    // a non-attributed CV. Then apply 047 and assert only the attributed one is
-    // backfilled to 'pending'; the organic CV stays NULL.
-    const db = setupDbBefore047();
-    db.exec(
-      `INSERT INTO friends (id, line_user_id, display_name, created_at, updated_at)
-       VALUES ('f-b', 'U0000000000000000000000000000009', 'B', '2024-01-01T00:00:00.000', '2024-01-01T00:00:00.000')`,
-    );
-    db.exec(
-      `INSERT INTO affiliates (id, name, code, is_active, created_at)
-       VALUES ('aff-b', 'B', 'CODEB', 1, '2024-01-01T00:00:00.000')`,
-    );
-    db.exec(
-      `INSERT INTO conversion_points (id, name, event_type, created_at)
-       VALUES ('cp-b', 'CP', 'custom', '2024-01-01T00:00:00.000')`,
-    );
-    // attributed CV (affiliate_id set) — should be backfilled.
-    db.exec(
-      `INSERT INTO conversion_events (id, conversion_point_id, friend_id, affiliate_id, created_at)
-       VALUES ('ce-attr', 'cp-b', 'f-b', 'aff-b', '2024-01-02T00:00:00.000')`,
-    );
-    // organic CV (affiliate_id NULL) — should stay NULL.
-    db.exec(
-      `INSERT INTO conversion_events (id, conversion_point_id, friend_id, created_at)
-       VALUES ('ce-org', 'cp-b', 'f-b', '2024-01-02T00:00:00.000')`,
-    );
-
-    apply047(db);
-
-    const attr = db
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-attr'`)
-      .get() as { approval_status: string | null };
-    const org = db
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-org'`)
-      .get() as { approval_status: string | null };
-    expect(attr.approval_status).toBe('pending');
-    expect(org.approval_status).toBeNull();
-
-    // Idempotent: applying 047 again changes nothing.
-    apply047(db);
-    const again = db
-      .prepare(`SELECT approval_status FROM conversion_events WHERE id = 'ce-attr'`)
-      .get() as { approval_status: string | null };
-    expect(again.approval_status).toBe('pending');
-  });
 });

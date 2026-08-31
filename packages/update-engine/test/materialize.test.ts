@@ -145,4 +145,10 @@ describe('normalizeTriggerSql', () => {
       normalizeTriggerSql('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 2; END'),
     );
   });
+
+  it('does not normalize case or whitespace inside string literals', () => {
+    expect(normalizeTriggerSql("CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 'ACTIVE USER'; END")).not.toBe(
+      normalizeTriggerSql("create trigger t after insert on a begin select 'active user'; end"),
+    );
+  });
 });

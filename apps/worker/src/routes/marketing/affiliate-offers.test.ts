@@ -29,6 +29,7 @@ const tenantDb = {
         if (sql.includes('FROM tenants')) {
           return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
         }
+        if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
         if (sql.includes('FROM friends AS friend') ||
             (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities'))) {
           return { ok: 1 };
@@ -46,7 +47,6 @@ const env = {
   DB: tenantDb,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
-  LEGACY_ENV_OWNER_BYPASS: 'true',
   WORKER_URL: 'https://worker.example.com',
 } as unknown as import('../../index.js').Env['Bindings'];
 
@@ -80,6 +80,7 @@ const OFFER_ROW = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  dbMocks.getStaffByApiKey.mockResolvedValue({ id: 'staff-1', name: 'Owner', role: 'owner' });
   dbMocks.getLineAccounts.mockResolvedValue([]);
 });
 

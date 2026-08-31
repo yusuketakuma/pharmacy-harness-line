@@ -32,7 +32,7 @@ function serialize(row: EntryRoute) {
 // GET /api/entry-routes — list all
 entryRoutes.get('/api/entry-routes', async (c) => {
   try {
-    const rows = await getEntryRoutes(c.env.DB);
+    const rows = await getEntryRoutes(c.env.DB, c.get('tenantId') ?? null);
     return c.json({ success: true, data: rows.map(serialize) });
   } catch (err) {
     console.error('GET /api/entry-routes error:', err);
@@ -44,7 +44,7 @@ entryRoutes.get('/api/entry-routes', async (c) => {
 entryRoutes.get('/api/entry-routes/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const row = await getEntryRouteById(c.env.DB, id);
+    const row = await getEntryRouteById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!row) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: serialize(row) });
   } catch (err) {
@@ -70,7 +70,10 @@ entryRoutes.post('/api/entry-routes', async (c) => {
     if (!body.refCode || !body.name) {
       return c.json({ success: false, error: 'refCode and name are required' }, 400);
     }
-    const row = await createEntryRoute(c.env.DB, body);
+    const row = await createEntryRoute(c.env.DB, {
+      ...body,
+      tenantId: c.get('tenantId') ?? null,
+    });
     return c.json({ success: true, data: serialize(row) }, 201);
   } catch (err) {
     console.error('POST /api/entry-routes error:', err);
@@ -95,7 +98,7 @@ entryRoutes.patch('/api/entry-routes/:id', async (c) => {
         isActive: boolean;
       }>
     >();
-    const row = await updateEntryRoute(c.env.DB, id, body);
+    const row = await updateEntryRoute(c.env.DB, id, body, c.get('tenantId') ?? null);
     if (!row) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: serialize(row) });
   } catch (err) {
@@ -108,7 +111,9 @@ entryRoutes.patch('/api/entry-routes/:id', async (c) => {
 entryRoutes.delete('/api/entry-routes/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    await deleteEntryRoute(c.env.DB, id);
+    if (!await deleteEntryRoute(c.env.DB, id, c.get('tenantId') ?? null)) {
+      return c.json({ success: false, error: 'Not found' }, 404);
+    }
     return c.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/entry-routes/:id error:', err);
@@ -120,7 +125,7 @@ entryRoutes.delete('/api/entry-routes/:id', async (c) => {
 entryRoutes.get('/api/entry-routes/:id/funnel', async (c) => {
   try {
     const id = c.req.param('id');
-    const route = await getEntryRouteById(c.env.DB, id);
+    const route = await getEntryRouteById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!route) return c.json({ success: false, error: 'Not found' }, 404);
     const funnel = await getEntryRouteFunnel(c.env.DB, id);
     return c.json({ success: true, data: funnel });

@@ -496,7 +496,7 @@ export async function processWebinarFollowups(
         `UPDATE webinar_followups
          SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`,
       ).bind(message.slice(0, 500), jstNow(), followup.id).run();
-      console.error('webinar followup error:', candidate.webinar_id, candidate.friend_id, kind, err);
+      console.error('webinar followup error:', kind, err);
       failed++;
     }
   }
