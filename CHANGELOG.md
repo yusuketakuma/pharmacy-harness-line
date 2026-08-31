@@ -1,50 +1,89 @@
 # Changelog
 
+## Pharmacy v0.33.1 (2026-08-31)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.33.1`を`dev`向けに公開します。ソースコードのタグ`v0.33.1`と販売者向けリリース`pharmacy-v0.33.1`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの適用、DB操作、実患者データの操作、実際のLINE送信は含みません。
+
+### CHANGELOGの修正
+
+- v0.33.0で実際に変更された内容を、過去版と同じ「目的、利用者別、機能別、安全条件、確認状況」の構成で日本語化
+- コミット履歴に含まれていたGoogle Calendarの終日予定・空き枠判定、MCP APIの安全化、シナリオタグの取得状態を追記
+- ソースコードのタグ、販売者向けリリース、開発環境への配備、本番運用を、それぞれ別の実績として明記
+
+### 変更しないもの
+
+- アプリケーションの動作、API、データベース構造、migration、dependencyは変更しない
+- 既存の`v0.33.0`タグとGitHub Releaseは変更しない
+- v0.33.0の本番未実施項目とHuman Gateを維持
+
 ## Pharmacy v0.33.0 (2026-08-31)
 
-> 公開範囲: package/source version `0.33.0`を`dev`向けsource releaseとして公開します。source tag `v0.33.0`とseller release `pharmacy-v0.33.0`は別identityです。main/production deploy、薬局アカウントのactivation、実患者データ操作、実LINE送信は本releaseに含めません。
+> 公開状況: パッケージ／ソースのバージョン`0.33.0`はPR #97で`dev`へ取り込まれ、ソースコードのタグ`v0.33.0`を作成しました。販売者向けリリース`pharmacy-v0.33.0`とは別物です。`main`への反映、本番環境への配備、薬局アカウントへの適用、実患者データの操作、実際のLINE送信は含みません。
 
-### 重要な破壊的変更
+### このバージョンで目指したこと
 
-- 正式リリース前のmigration履歴を`001_v033_baseline.sql`へ再構成し、v0.33固有の変更を`002`〜`008`へ整理しました。新規環境はこの8 migrationから構築します。
-- 旧migration ledgerを持つ既存DBへのin-place適用は行いません。update engineはepoch不一致を`wrong migration epoch`でfail closedにします。development DBを更新する場合も、別途承認したbackup・reset・recreate・read-backが必要です。
-- production DBのreset、migration適用、backfillは実施していません。
+薬局ごとのLINE運用量を患者情報なしで確認できるようにし、LINE送信の重複や結果不明時の再送事故を防ぎやすくしました。同時に、ログインセッション、テナント分離、患者向けLIFFの初期表示、予約の空き時間判定、コード配置、データベース移行の土台を整理しました。
 
-### 利用者ごとの変更
+### 利用者ごとの変更とメリット
 
 | 利用する人 | v0.33.0で変わること | メリット |
 | --- | --- | --- |
-| 患者 | LIFFのHTML shellを先に表示し、JavaScript読込中も状態を案内 | 初回起動時の白画面を減らし、読込中であることが分かる |
-| 薬局職員 | Growth DashboardにJST月単位の送受信数、手動/自動、push/reply、通知結果をcount-onlyで表示 | メッセージ本文や患者IDを開かず、担当LINEアカウントの運用量を確認できる |
-| owner/admin | password変更・staff無効化時のsession失効、session rotation family、期限付きsupport grantを強化 | 失効済みsessionや別sessionへのgrant再利用を防ぎやすくなる |
-| 運用担当 | LINE送信をaccount-scoped outbound ledgerとstable retry keyで追跡し、結果不明・stale worker・重複cronをfail closedで処理 | timeout後のblind retryや二重送信を減らし、再照合すべき送信を区別できる |
-| 開発者 | migration baseline、tenant/account scope、薬局専用API配置、dependency seamを整理 | 新規環境の再現性を上げ、共通コードへの薬局固有責務の混入を減らせる |
+| 患者 | LIFFの画面枠と「読み込み中」の案内をJavaScriptより先に表示 | 初回起動時の白い画面を減らし、処理中であることが分かる |
+| 薬局職員 | Growth Dashboardに、JSTの月ごとの送受信数、手動・自動、push・reply、通知結果を件数だけで表示 | メッセージ本文や患者IDを開かず、担当LINEアカウントの運用量を確認できる |
+| 予約担当者 | Google Calendarの終日予定も予約済みとして扱い、空き枠を表示できない理由を画面に表示 | 終日予定との二重予約を防ぎ、候補日時が出ない原因を確認しやすくなる |
+| owner/admin | パスワード変更・スタッフ無効化時の既存セッション失効、セッションの世代管理、期限付きサポート権限を強化 | 無効になったセッションや、別セッションへの権限使い回しを防ぎやすくなる |
+| 運用担当 | LINE送信を担当アカウント別の送信台帳と安定した再試行キーで追跡 | 通信切断後の安易な再送や、古い処理・重複した定期処理による二重送信を減らせる |
+| 開発者 | データベース移行の基準、テナント／LINEアカウントの境界、薬局専用APIの配置、MCP APIの呼び出し処理を整理 | 新規環境を再現しやすくし、薬局固有処理や外部APIエラーを安全に管理しやすくなる |
 
-### セキュリティ・テナント分離
+### メッセージ配信と運用統計
 
-- auto reply、automation、reminder、scenario、template、form、booking、webhook、LINE proxyなどのquery/mutationをserver-resolved tenant・`line_account_id`へ固定
-- BAN health集計のaccount条件漏れと、指定accountのLINE clientがない場合に別accountへfallbackする問題を修正
-- Platform admin grantをsessionへ束縛し、staff無効化・credential変更時の既存session revokeを追加
-- update engineのWorker URL正規化から、多数のslashで多項式時間になり得る正規表現を削除
-- patient ID、friend ID、本文、secret、upstream response bodyを新しい統計・監査・運用logへ出さないcontractを維持
-- 担当者の1対1手動送信は`X-Line-Harness-Source: manual`を維持し、自動通知には付与しない
+- `messages_log.line_account_id`とアカウント・日時の索引を使い、送信・受信、手動・自動、push・reply、テスト送信、旧形式で担当不明の記録を分けて集計
+- 統計APIは、認証済みスタッフが担当するLINEアカウントだけを対象とし、最大32日、`from < to`、ISO形式の日時を検証
+- テスト送信、通常の一斉送信、シナリオ、予約・リマインド、薬局通知を既存の送信台帳へ接続
+- LINE側で送信に成功した後のDB記録失敗、長時間止まった処理、結果不明の送信は、再送前に照合が必要な状態として保存
+- 同じ業務操作には同じ再試行キーを使い、古い処理や重複した定期処理から同じメッセージが送られることを抑止
 
-### メッセージ配信と統計
+### ログイン・権限・テナント分離
 
-- `messages_log.line_account_id`とaccount/date indexを利用し、送信・受信・手動・自動・push・reply・test・legacy/unscopedを分離集計
-- 統計APIは認証済みstaffの担当accountだけを対象にし、最大32日、`from < to`、ISO日時を検証
-- broadcast test send、通常broadcast、scenario、booking/reminder、薬局通知を既存のoutbound ledgerへ接続
-- provider成功後のD1確定失敗、stale claim、unknown outcomeを再送前に照合し、同じlogical operationの二重送信を抑止
+- 自動応答、自動処理、リマインド、シナリオ、テンプレート、フォーム、予約、webhook、LINE Harness Proxyの検索・更新を、サーバーが確定したテナントと`line_account_id`へ限定
+- スタッフ無効化や認証情報変更時に既存のログインセッションを失効し、Platform adminの一時権限を発行元セッションへ結び付け
+- 旧形式のセッション未紐付け権限を段階的に無効化し、更新後のセッションを同じ世代として追跡
+- BANの稼働状況集計で担当アカウントの条件が欠ける問題と、指定アカウント用のLINEクライアントがない場合に別アカウントへ切り替わる問題を修正
+- 患者ID、LINE friend ID、メッセージ本文、秘密情報、接続先の応答本文を、新しい統計・監査・運用ログへ出さない契約を維持
 
-### 動作速度・コード整理
+### 予約、Google Calendar、MCP
 
-- 1秒遅延fixtureでLIFFの最初の可視表示を中央値約1,045msから約10msへ短縮。これは白画面解消の測定であり、LIFF ready時間やbundle全体の高速化は主張しません。
-- 20万行synthetic fixtureでaccount/date集計をcovering index化し、結果drift 0を確認
-- 共通Web API clientから薬局専用Growth/Rich Menu API 421行を既存`custom/pharmacy` seamへ移動
-- LINE retry-key判定を既存shared serviceへ集約し、重複実装を削除
-- 11 workspace packageの内部dependency cycle 0を確認
+- Google Calendarの終日予定を空き時間から除外し、`end.date`を予定に含まないGoogle Calendarの仕様、JST変換、複数ページ取得、重なった時間帯の結合に対応
+- Google Calendarの取得に失敗した場合は、空いているとみなさず予約受付を安全側に停止
+- 患者向けLIFFとサロン予約画面で、候補日時を表示できない理由を案内
+- シナリオのタグ選択で「タグが0件」と「取得失敗」を区別し、再確認方法を表示
+- MCPサーバーのAPI呼び出しを共通化し、パスのすり抜けを拒否。接続先が返したエラー本文は利用者へ表示せず、APIの未登録とデータの未存在を区別
 
-### ローカル検証と公開境界
+### 動作速度とコード整理
+
+- 1秒の読み込み遅延を入れた検証で、LIFFの最初の表示を中央値約1,045msから約10msへ短縮。これは白い画面を減らす改善であり、LIFF全体の読み込み完了時間やバンドル全体の高速化を示すものではありません
+- 20万行の模擬データで、担当アカウント・日時別の集計に索引が使われ、集計結果が変わらないことを確認
+- 共通Web APIクライアントに含まれていた薬局専用のGrowth/Rich Menu API 421行を、既存の`custom/pharmacy`配下へ移動
+- LINEの再試行キー判定を既存の共通サービスへ集約し、重複実装を削除
+- update engineのWorker URL正規化から、`/`が非常に多い入力で処理時間が急増する正規表現を削除
+- 11個のワークスペース内パッケージ間に、内部依存の循環がないことを確認
+
+### データベース移行に関する重要事項
+
+- 正式公開前の移行履歴を`001_v033_baseline.sql`へまとめ、v0.33.0固有の変更を`002`〜`008`へ整理。新規環境はこの8ファイルから構築
+- 古い移行履歴を記録した既存DBへ、そのまま上書き適用しない。update engineは履歴の世代が異なる場合に`wrong migration epoch`で停止
+- 開発用DBを更新する場合も、バックアップ、初期化、再作成、読み戻しを別途承認してから実施
+- 本番DBの初期化、移行適用、既存データの補完は未実施
+
+### 変わらない安全条件
+
+- 担当者による1対1の手動送信は`X-Line-Harness-Source: manual`を付け、自動通知には付けない
+- 自動通知は患者情報を含まない承認済み文面だけを使用
+- AI/OCR、薬剤の自動判断、新しい患者・処方せんドメインモデルは追加していない
+- ソースコードのタグ、販売者向けリリース、開発環境への配備、本番配備、薬局アカウントへの適用を別々の実績として扱う
+- 本番環境への配備、DB操作、実患者データ操作、実LINE送信は、別途人による承認なしに実行しない
+
+### 確認状況
 
 | 確認項目 | 結果 |
 | --- | --- |
@@ -53,10 +92,10 @@
 | update engine | 22 files / 219 tests PASS |
 | Web | 52 files / 233 tests、typecheck、68-route static build PASS |
 | LIFF | 20 files / 128 tests、typecheck、build、Chromium 13 tests PASS |
-| deploy・運用script | 19 files / 225 tests PASS |
-| production deploy・migration・LINE mutation | `NOT_RUN` |
+| 配備・運用スクリプト | 19 files / 225 tests PASS |
+| 本番環境への配備・DB移行・LINE操作 | `NOT_RUN` |
 
-詳細なlocal/synthetic証拠と未実施gateは`docs/pharmacy/evidence/v0.33.0-engineering-foundation.json`に記録しています。source releaseはproduction readinessの証拠へ代用しません。
+ローカル環境と模擬データによる詳細な証拠、未実施の確認項目は`docs/pharmacy/evidence/v0.33.0-engineering-foundation.json`に記録しています。ソースコードを公開した事実だけで、本番運用の準備完了とは判断しません。
 
 ## Pharmacy v0.32.0 (2026-08-24)
 
