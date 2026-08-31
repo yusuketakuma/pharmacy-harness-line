@@ -25,6 +25,7 @@
 - auto reply、automation、reminder、scenario、template、form、booking、webhook、LINE proxyなどのquery/mutationをserver-resolved tenant・`line_account_id`へ固定
 - BAN health集計のaccount条件漏れと、指定accountのLINE clientがない場合に別accountへfallbackする問題を修正
 - Platform admin grantをsessionへ束縛し、staff無効化・credential変更時の既存session revokeを追加
+- update engineのWorker URL正規化から、多数のslashで多項式時間になり得る正規表現を削除
 - patient ID、friend ID、本文、secret、upstream response bodyを新しい統計・監査・運用logへ出さないcontractを維持
 - 担当者の1対1手動送信は`X-Line-Harness-Source: manual`を維持し、自動通知には付与しない
 
@@ -49,7 +50,7 @@
 | --- | --- |
 | Worker | 236 files / 2,536 tests、typecheck PASS |
 | database | 82 files / 394 tests、typecheck PASS |
-| update engine | 22 files / 218 tests PASS |
+| update engine | 22 files / 219 tests PASS |
 | Web | 52 files / 233 tests、typecheck、68-route static build PASS |
 | LIFF | 20 files / 128 tests、typecheck、build、Chromium 13 tests PASS |
 | deploy・運用script | 19 files / 225 tests PASS |

@@ -51,7 +51,9 @@ export function materializeAdminFiles(
   files: Map<string, Buffer>,
   workerUrl: string,
 ): Map<string, Buffer> {
-  const origin = workerUrl.replace(/\/+$/, '');
+  let end = workerUrl.length;
+  while (end > 0 && workerUrl[end - 1] === '/') end -= 1;
+  const origin = workerUrl.slice(0, end);
   const out = new Map<string, Buffer>();
   for (const [path, buf] of files) {
     if (!isTextAssetPath(path)) {

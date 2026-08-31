@@ -50,6 +50,15 @@ describe('materializeAdminFiles', () => {
     expect(out.get('a.js')!.toString('utf8')).toBe(`"${WORKER_URL}/api"`);
   });
 
+  it('normalizes attacker-controlled slash runs in linear time', () => {
+    const workerUrl = `${WORKER_URL}/${'/'.repeat(40_000)}x`;
+    const startedAt = performance.now();
+
+    materializeAdminFiles(new Map(), workerUrl);
+
+    expect(performance.now() - startedAt).toBeLessThan(250);
+  });
+
   it('passes binary files through byte-for-byte even if bytes match the placeholder', () => {
     const png = Buffer.from(`\x89PNG${ADMIN_URL_PLACEHOLDER}`, 'latin1');
     const files = new Map([['logo.png', png]]);
