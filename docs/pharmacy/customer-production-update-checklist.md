@@ -13,12 +13,16 @@
 - [ ] tenant数、active tenant数、LINE account mapping数、staff membership数を記録した。
 - [ ] orphan LINE accountと重複tenant mappingが0件である。
 - [ ] additive migrationであり、既存の`custom_NNN`を編集していない。
+- [ ] production storageの削除・reset・再作成、schema/API field/routeの削除・rename・非互換な意味変更を含まない。
+- [ ] 変更した永続化/API contractごとに、直前releaseとの後方互換テストがGreenである。
+- [ ] 旧Admin/LIFF→新Workerと、新Admin/LIFF→旧Workerまたは安全なfallbackの混在期間を検証した。
 - [ ] cross-tenant、cross-account、cross-friendの否定テストがGreenである。
 
 ## 更新中
 
 - [ ] migrationを単一writerで適用した。
 - [ ] Workerを先に更新し、Admin/LIFFとの互換範囲を維持した。
+- [ ] expand/dual-read/dual-write/default/fallbackだけで移行し、全componentの同時切替を要求していない。
 - [ ] 失敗時に再実行してもmigrationと通知が重複しない。
 - [ ] 顧客別GitHub workflow、顧客別Cloudflare deploy、管理画面self-updateを実行していない。
 
@@ -40,3 +44,5 @@
 - scrub後に旧Workerへ戻す場合、暗号化対応Worker上で`restore --confirm-restore`を完了していない
 - R2画像の公開化または別tenant参照
 - migration checksum不一致、再適用失敗、通知重複
+- 直前releaseのclient/API/data contractが新releaseで動作しない
+- 破壊的変更またはWorker/Admin/LIFFの同時切替依存を検出

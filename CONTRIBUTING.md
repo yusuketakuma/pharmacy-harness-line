@@ -112,6 +112,26 @@ Maintainers may close or request a rebuild when a PR:
 If your PR is closed for scope, please do not take it personally. A smaller PR
 against current `main` is much more likely to land.
 
+## Backward-Compatible Update Policy
+
+All updates are additive, non-destructive, and compatible with the previous
+released contract. This is a release requirement, not a preference.
+
+- Never delete, reset, or recreate production storage as part of an upgrade.
+- Never drop or rename an existing table, column, index contract, API route, or
+  response/request field, and never change an existing field's meaning or type
+  incompatibly.
+- Do not require Worker, Admin, and LIFF to switch versions at the same instant.
+  A new Worker must continue serving the previous Admin/LIFF, and a new client
+  must fail safely or use a fallback while an older Worker may still be active.
+- Introduce changes with additive schema and expand-first behavior. Use
+  dual-read, dual-write, defaults, or explicit fallbacks when old and new data
+  formats coexist. Keep the legacy path available; do not add a destructive
+  contract-removal phase.
+- Every changed persisted or HTTP contract requires a focused compatibility
+  regression test. SQL migrations must also pass `scripts/check-migrations.ts`.
+  A compatibility failure blocks merge, release, and deployment.
+
 ## High-Risk Areas
 
 Changes touching these areas require extra care and may be reimplemented through
