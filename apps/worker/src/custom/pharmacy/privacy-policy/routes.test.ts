@@ -5,12 +5,14 @@ const mocks = vi.hoisted(() => ({
   verify: vi.fn(),
   resolve: vi.fn(),
   get: vi.fn(),
+  getEffective: vi.fn(),
   save: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
 vi.mock('./repository.js', () => ({
+  getEffectiveTenantPrivacyPolicy: mocks.getEffective,
   getTenantPrivacyPolicy: mocks.get,
   saveTenantPrivacyPolicy: mocks.save,
 }));
@@ -55,6 +57,7 @@ beforeEach(() => {
   });
   mocks.resolve.mockResolvedValue({ lineAccountId: 'account-a', friendId: 'friend-a' });
   mocks.get.mockResolvedValue(POLICY);
+  mocks.getEffective.mockResolvedValue({ ...POLICY, source: 'tenant' });
   mocks.save.mockResolvedValue(undefined);
 });
 
@@ -108,12 +111,14 @@ describe('pharmacy tenant privacy policy routes', () => {
         contact_point: POLICY.contact_point,
         entrustment_text: POLICY.entrustment_text,
         policy_version: POLICY.policy_version,
+        content_hash: POLICY.content_hash,
       },
     });
+    expect(mocks.getEffective).toHaveBeenCalledWith(env.DB, 'account-a');
   });
 
-  it('returns a null notice rather than an error when the tenant published none', async () => {
-    mocks.get.mockResolvedValue(null);
+  it('returns null rather than leaking a notice when the effective account is missing', async () => {
+    mocks.getEffective.mockResolvedValue(null);
     const res = await app().request('/api/liff/pharmacy/privacy-policy?liffId=liff-a', {}, env);
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ policy: null });

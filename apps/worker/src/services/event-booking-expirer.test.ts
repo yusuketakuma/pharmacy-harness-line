@@ -94,9 +94,16 @@ describe('runEventBookingExpirer', () => {
     expect(staleQuery).toContain('la.is_active = 1');
     expect(staleQuery).toContain('tenant_line_accounts');
     expect(staleQuery).toContain("tenant.status = 'active'");
-    expect(staleQuery).toContain('e.line_account_id = b.line_account_id');
+    expect(staleQuery).toContain("e.target_type = 'single'");
+    expect(staleQuery).toContain("e.target_type = 'multi-account-dedup'");
+    expect(staleQuery).toMatch(
+      /EXISTS\s*\(\s*SELECT 1 FROM json_each\(e\.account_ids\)\s+WHERE value = b\.line_account_id\s*\)/,
+    );
     expect(staleQuery).toContain('s.event_id = b.event_id');
     expect(staleQuery).toContain('f.line_account_id = b.line_account_id');
+    expect(staleQuery).toContain('mapping.tenant_id');
+    expect(staleQuery).toContain('b.line_account_id');
+    expect(staleQuery).toContain('b.friend_id');
   });
 
   test('expires requested bookings older than 24h', async () => {

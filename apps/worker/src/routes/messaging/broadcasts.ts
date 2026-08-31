@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   getBroadcasts,
   getBroadcastById,
@@ -10,7 +10,6 @@ import type { Broadcast as DbBroadcast, BroadcastMessageType, BroadcastTargetTyp
 import { LineClient } from '@line-crm/line-sdk';
 import { processBroadcastSend, buildMessage, processQueuedBroadcasts } from '../../services/broadcast.js';
 import { computeDedupBroadcastPreview } from '../../services/dedup-broadcast.js';
-import { processSegmentSend } from '../../services/segment-send.js';
 import type { SegmentCondition } from '../../services/segment-query.js';
 import { getLineAccountById } from '@line-crm/db';
 import type { Env } from '../../index.js';
@@ -21,10 +20,13 @@ import {
   hasRecipientVariables,
   renderBroadcastMessageContent,
 } from '../../services/render-message.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 
 const broadcasts = new Hono<Env>();
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SEGMENT_TARGET_ERROR = 'targetType "segment" is not supported; use /send-segment';
 
 function unsupportedVariablesError(content: string): string | null {
   const unsupported = getUnsupportedBroadcastVariables(content);
@@ -42,11 +44,15 @@ function unsupportedVariablesError(content: string): string | null {
  */
 function parseJsonArray(s: unknown): string[] | null {
   if (!s) return null;
-  if (Array.isArray(s)) return s as string[];
+  if (Array.isArray(s)) {
+    return s.every((item) => typeof item === 'string') ? s as string[] : null;
+  }
   if (typeof s !== 'string') return null;
   try {
     const parsed = JSON.parse(s);
-    return Array.isArray(parsed) ? (parsed as string[]) : null;
+    return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')
+      ? parsed as string[]
+      : null;
   } catch {
     return null;
   }
@@ -56,7 +62,7 @@ type CreateBroadcastBody = {
   title: string;
   messageType: BroadcastMessageType;
   messageContent: string;
-  targetType: BroadcastTargetType;
+  targetType: BroadcastTargetType | 'segment';
   targetTagId?: string | null;
   scheduledAt?: string | null;
   lineAccountId?: string | null;
@@ -108,12 +114,46 @@ function serializeBroadcast(row: DbBroadcast) {
   };
 }
 
+async function broadcastOwnedByStaff(c: Context<Env>, broadcast: DbBroadcast): Promise<boolean> {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return false;
+  const raw = broadcast as unknown as Record<string, unknown>;
+  const rawLineAccountId = raw.line_account_id;
+  if (rawLineAccountId !== null && rawLineAccountId !== undefined && typeof rawLineAccountId !== 'string') {
+    return false;
+  }
+  const multiAccountIds = broadcast.target_type === 'multi-account-dedup'
+    ? parseJsonArray(raw.account_ids)
+    : null;
+  if (broadcast.target_type === 'multi-account-dedup' && !multiAccountIds?.length) return false;
+  const accountIds = broadcast.target_type === 'multi-account-dedup'
+    ? [
+        ...(multiAccountIds ?? []),
+        ...(typeof rawLineAccountId === 'string' ? [rawLineAccountId] : []),
+      ]
+    : typeof rawLineAccountId === 'string' ? [rawLineAccountId] : [];
+  if (accountIds.length === 0) return false;
+  for (const accountId of new Set(accountIds)) {
+    if (!await accountResourceOwnedByStaff(c, tenantId, accountId)) return false;
+  }
+  return true;
+}
+
 // GET /api/broadcasts - list all
 broadcasts.get('/api/broadcasts', async (c) => {
   try {
-    const lineAccountId = c.req.query('lineAccountId');
+    const lineAccountId = c.req.query('lineAccountId')?.trim() || undefined;
+    const tenantId = c.get('tenantId');
+    if (tenantId && lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
     const items = await getBroadcasts(c.env.DB, lineAccountId || undefined);
-    return c.json({ success: true, data: items.map(serializeBroadcast) });
+    const visibleItems: DbBroadcast[] = [];
+    // Keep the route-local check until the DB helper can enforce all multi-account ownership in one query.
+    for (const item of items) {
+      if (!tenantId || await broadcastOwnedByStaff(c, item)) visibleItems.push(item);
+    }
+    return c.json({ success: true, data: visibleItems.map(serializeBroadcast) });
   } catch (err) {
     console.error('GET /api/broadcasts error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -134,9 +174,7 @@ broadcasts.get('/api/broadcasts/:id', async (c) => {
     // generic-CRM table, out of scope for a full tenant-scoping migration
     // here). When a tenant context is present, confirm the broadcast's
     // account is actually owned by that tenant before returning it.
-    const tenantId = c.get('tenantId');
-    const lineAccountId = (broadcast as unknown as Record<string, unknown>).line_account_id as string | null;
-    if (tenantId && lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, broadcast)) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -156,6 +194,9 @@ broadcasts.get('/api/broadcasts/:id/preview-count', async (c) => {
     const id = c.req.param('id');
     const broadcast = await getBroadcastById(c.env.DB, id);
     if (!broadcast) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, broadcast)) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -250,21 +291,20 @@ broadcasts.get('/api/broadcasts/:id/per-account-stats', async (c) => {
       accountIds = single ? [single] : [];
     }
 
-    if (accountIds.length === 0) {
-      return c.json({ success: true, data: [] });
+    if (!await broadcastOwnedByStaff(c, broadcast)) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
     // sent 数: messages_log の line_account_id (送信時固定) で GROUP BY する。
-    // 旧データ (032 migration 前) は ml.line_account_id=NULL なので、その場合だけ
-    // friends.line_account_id にフォールバックする (best-effort、現在のアカウント帰属で集計)。
+    // 旧データの NULL は現在の friend 所属へ再帰属せず、ここでは集計しない。
     const placeholders = accountIds.map(() => '?').join(',');
     const sentRes = await c.env.DB.prepare(
-      `SELECT COALESCE(ml.line_account_id, f.line_account_id) AS account_id, COUNT(*) AS sent
+      `SELECT ml.line_account_id AS account_id, COUNT(*) AS sent
        FROM messages_log ml
-       INNER JOIN friends f ON f.id = ml.friend_id
        WHERE ml.broadcast_id = ? AND ml.direction = 'outgoing'
-         AND COALESCE(ml.line_account_id, f.line_account_id) IN (${placeholders})
-       GROUP BY COALESCE(ml.line_account_id, f.line_account_id)`,
+         AND COALESCE(ml.delivery_type, '') != 'test'
+         AND ml.line_account_id IN (${placeholders})
+       GROUP BY ml.line_account_id`,
     ).bind(id, ...accountIds).all<{ account_id: string; sent: number }>();
     const sentMap = new Map<string, number>();
     for (const r of sentRes.results ?? []) sentMap.set(r.account_id, r.sent);
@@ -335,6 +375,10 @@ broadcasts.post('/api/broadcasts', async (c) => {
       );
     }
 
+    if (body.targetType === 'segment') {
+      return c.json({ success: false, error: SEGMENT_TARGET_ERROR }, 400);
+    }
+
     const variableError = unsupportedVariablesError(body.messageContent);
     if (variableError) {
       return c.json({ success: false, error: variableError }, 400);
@@ -357,6 +401,27 @@ broadcasts.post('/api/broadcasts', async (c) => {
       // Defense in depth: drop priority entries not in accountIds before persisting.
       body.dedupPriority = body.dedupPriority.filter((id: unknown) =>
         typeof id === 'string' && body.accountIds!.includes(id));
+    }
+
+    const tenantId = c.get('tenantId');
+    if (tenantId) {
+      const accountIds = body.targetType === 'multi-account-dedup'
+        ? [
+            ...(body.accountIds ?? []),
+            ...(body.lineAccountId == null ? [] : [body.lineAccountId]),
+          ]
+        : body.lineAccountId ? [body.lineAccountId] : [];
+      if (
+        accountIds.length === 0
+        || accountIds.some((accountId) => typeof accountId !== 'string' || !accountId.trim())
+      ) {
+        return c.json({ success: false, error: 'Broadcast account scope required' }, 403);
+      }
+      for (const accountId of new Set(accountIds)) {
+        if (!await accountResourceOwnedByStaff(c, tenantId, accountId)) {
+          return c.json({ success: false, error: 'Forbidden' }, 403);
+        }
+      }
     }
 
     if (idempotencyKey) {
@@ -416,6 +481,9 @@ broadcasts.put('/api/broadcasts/:id', async (c) => {
     if (!existing) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
+    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, existing)) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
 
     if (existing.status !== 'draft' && existing.status !== 'scheduled') {
       return c.json({ success: false, error: 'Only draft or scheduled broadcasts can be updated' }, 400);
@@ -425,11 +493,15 @@ broadcasts.put('/api/broadcasts/:id', async (c) => {
       title?: string;
       messageType?: BroadcastMessageType;
       messageContent?: string;
-      targetType?: BroadcastTargetType;
+      targetType?: BroadcastTargetType | 'segment';
       targetTagId?: string | null;
       scheduledAt?: string | null;
       trackLinks?: boolean;
     }>();
+
+    if (body.targetType === 'segment') {
+      return c.json({ success: false, error: SEGMENT_TARGET_ERROR }, 400);
+    }
 
     if (body.messageContent !== undefined) {
       const variableError = unsupportedVariablesError(body.messageContent);
@@ -496,6 +568,13 @@ broadcasts.put('/api/broadcasts/:id', async (c) => {
 broadcasts.delete('/api/broadcasts/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    const tenantId = c.get('tenantId');
+    if (tenantId) {
+      const existing = await getBroadcastById(c.env.DB, id);
+      if (!existing || !await broadcastOwnedByStaff(c, existing)) {
+        return c.json({ success: false, error: 'Broadcast not found' }, 404);
+      }
+    }
     await deleteBroadcast(c.env.DB, id);
     return c.json({ success: true, data: null });
   } catch (err) {
@@ -518,6 +597,12 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
 
     if (!existing) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+    if (!await broadcastOwnedByStaff(c, existing)) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+    if ((existing as unknown as { target_type: string }).target_type === 'segment') {
+      return c.json({ success: false, error: SEGMENT_TARGET_ERROR }, 400);
     }
 
     const variableError = unsupportedVariablesError(existing.message_content);
@@ -731,7 +816,24 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
     // 冒頭 (updateBroadcastStatus / getBroadcastById / autoTrackContent / buildMessage) で
     // 失敗した場合は内部 catch の対象外。lock を外側で必ず rollback する。
     try {
-      await processBroadcastSend(c.env.DB, lineClient, id, c.env.WORKER_URL);
+      const processed = await processBroadcastSend(c.env.DB, lineClient, id, c.env.WORKER_URL);
+      if (processed.status === 'sending') {
+        try {
+          c.executionCtx.waitUntil(
+            processQueuedBroadcasts(c.env.DB, lineClient, c.env.WORKER_URL).catch((err) => {
+              console.error('[broadcast] background queue processing failed:', err);
+            }),
+          );
+        } catch (kickErr) {
+          console.warn('[broadcast] waitUntil unavailable, falling back to cron:', kickErr);
+        }
+        return c.json({
+          success: true,
+          data: serializeBroadcast(processed),
+          queued: true,
+          message: 'Broadcast queued for immediate background processing',
+        }, 202);
+      }
     } catch (err) {
       await c.env.DB.prepare(
         `UPDATE broadcasts SET status = ? WHERE id = ? AND status = 'sending'`
@@ -754,6 +856,9 @@ broadcasts.post('/api/broadcasts/:id/send-segment', async (c) => {
     const existing = await getBroadcastById(c.env.DB, id);
 
     if (!existing) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+    if (!await broadcastOwnedByStaff(c, existing)) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -798,7 +903,7 @@ broadcasts.post('/api/broadcasts/:id/send-segment', async (c) => {
 
     // Atomic lock: status='draft'|'scheduled' のときだけ status='sending' に遷移
     const lockResult = await c.env.DB.prepare(
-      `UPDATE broadcasts SET status = 'sending', batch_offset = 0, segment_conditions = ? WHERE id = ? AND status IN ('draft','scheduled')`
+      `UPDATE broadcasts SET status = 'sending', target_type = 'segment', batch_offset = 0, segment_conditions = ? WHERE id = ? AND status IN ('draft','scheduled')`
     ).bind(JSON.stringify(body.conditions), id).run();
     if (!lockResult.meta.changes) {
       return c.json({ success: false, error: 'Broadcast is already sent or sending' }, 409);
@@ -816,6 +921,13 @@ broadcasts.post('/api/broadcasts/:id/send-segment', async (c) => {
 broadcasts.get('/api/broadcasts/:id/insight', async (c) => {
   try {
     const id = c.req.param('id');
+    const tenantId = c.get('tenantId');
+    if (tenantId) {
+      const broadcast = await getBroadcastById(c.env.DB, id);
+      if (!broadcast || !await broadcastOwnedByStaff(c, broadcast)) {
+        return c.json({ success: false, error: 'Broadcast not found' }, 404);
+      }
+    }
     const insight = await c.env.DB.prepare(
       'SELECT * FROM broadcast_insights WHERE broadcast_id = ? ORDER BY created_at DESC LIMIT 1'
     ).bind(id).first<Record<string, unknown>>();
@@ -850,6 +962,9 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
     const id = c.req.param('id');
     const broadcast = await getBroadcastById(c.env.DB, id);
     if (!broadcast) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, broadcast)) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
     if (broadcast.status !== 'sent') {
@@ -1013,15 +1128,24 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
 broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
   const id = c.req.param('id');
   try {
+    const idempotencyKey = c.req.header('Idempotency-Key')?.trim();
+    if (!idempotencyKey || !UUID_PATTERN.test(idempotencyKey)) {
+      return c.json({ success: false, error: 'Idempotency-Key must be a UUID' }, 400);
+    }
     const broadcast = await getBroadcastById(c.env.DB, id);
     if (!broadcast) return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    if (!await broadcastOwnedByStaff(c, broadcast)) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
+    const raw = broadcast as unknown as Record<string, unknown>;
+    const accountId = raw.line_account_id as string | null;
+    const tenantId = c.get('tenantId');
+    if (!tenantId || !accountId) {
+      return c.json({ success: false, error: 'Broadcast not found' }, 404);
+    }
     if (broadcast.status !== 'draft') {
       return c.json({ success: false, error: 'Only draft broadcasts can be test-sent' }, 400);
     }
-
-    const raw = broadcast as unknown as Record<string, unknown>;
-    const accountId = raw.line_account_id as string | null;
-    if (!accountId) return c.json({ success: false, error: 'Broadcast has no line_account_id' }, 400);
 
     // Get test recipients
     const setting = await c.env.DB.prepare(
@@ -1063,7 +1187,6 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
 
     let sent = 0;
     let failed = 0;
-    const now = new Date(Date.now() + 9 * 60 * 60_000).toISOString().replace('Z', '+09:00');
 
     for (const friend of friends.results) {
       try {
@@ -1075,14 +1198,34 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
         const altText = raw.alt_text as string
           || (tracked.messageType === 'flex' ? extractFlexAltText(renderedContent) : undefined);
         const message = buildMessage(tracked.messageType, renderedContent, altText);
-        await lineClient.pushMessage(friend.line_user_id, [message]);
-        sent++;
-        await c.env.DB.prepare(
-          `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, delivery_type, source, created_at)
-           VALUES (?, ?, 'outgoing', ?, ?, NULL, 'test', 'broadcast', ?)`
-        ).bind(crypto.randomUUID(), friend.id, tracked.messageType, renderedContent, now).run();
+        const operationId = await createBroadcastRetryKey(
+          'broadcast-test-send-v1',
+          tenantId,
+          accountId,
+          id,
+          friend.id,
+          idempotencyKey,
+        );
+        const delivery = await deliverTrackedLinePush({
+          db: c.env.DB,
+          operationId,
+          tenantId,
+          lineAccountId: accountId,
+          friendId: friend.id,
+          broadcastId: id,
+          messageType: tracked.messageType,
+          content: renderedContent,
+          source: 'broadcast',
+          logDeliveryType: 'test',
+          request: { to: friend.line_user_id, messages: [message] },
+          send: async (request, retryKey) => {
+            await lineClient.pushMessage(request.to, request.messages, retryKey);
+          },
+        });
+        if (delivery === 'sent' || delivery === 'already_sent') sent++;
+        else failed++;
       } catch (err) {
-        console.error(`Test send to ${friend.id} failed:`, err);
+        console.error('Test send failed:', err);
         failed++;
       }
     }
@@ -1099,6 +1242,9 @@ broadcasts.get('/api/broadcasts/:id/progress', async (c) => {
   const id = c.req.param('id');
   const broadcast = await getBroadcastById(c.env.DB, id);
   if (!broadcast) return c.json({ success: false, error: 'Not found' }, 404);
+  if (!await broadcastOwnedByStaff(c, broadcast)) {
+    return c.json({ success: false, error: 'Not found' }, 404);
+  }
 
   const raw = broadcast as unknown as Record<string, unknown>;
   return c.json({
@@ -1108,6 +1254,7 @@ broadcasts.get('/api/broadcasts/:id/progress', async (c) => {
       totalCount: broadcast.total_count,
       successCount: broadcast.success_count,
       batchOffset: raw.batch_offset as number,
+      failedAccountIds: parseJsonArray(raw.failed_account_ids),
     },
   });
 });

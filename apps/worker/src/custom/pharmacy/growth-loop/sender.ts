@@ -1,4 +1,5 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
+import { createLineRetryKey } from '../../../services/broadcast-retry-key.js';
 import {
   LineHarnessUnknownOutcomeError,
   pushViaHarnessProxy,
@@ -12,7 +13,7 @@ import {
 } from './policy.js';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LINE_RETRY_KEY_HORIZON_MS = 24 * 60 * 60 * 1000;
 
 type AutomatedPushInput = {
   db: D1Database;
@@ -29,7 +30,12 @@ type AutomatedPushInput = {
   now?: Date;
 };
 
-export type PharmacyPushResult = 'sent' | 'already_sent' | 'in_progress' | 'paused';
+export type PharmacyPushResult =
+  | 'sent'
+  | 'already_sent'
+  | 'in_progress'
+  | 'reconciliation_required'
+  | 'paused';
 
 function jstMonthBounds(now: Date): { from: string; to: string } {
   const local = new Date(now.getTime() + JST_OFFSET_MS);
@@ -39,15 +45,6 @@ function jstMonthBounds(now: Date): { from: string; to: string } {
     from: new Date(Date.UTC(year, month, 1) - JST_OFFSET_MS).toISOString(),
     to: new Date(Date.UTC(year, month + 1, 1) - JST_OFFSET_MS).toISOString(),
   };
-}
-
-async function lineRetryKey(value: string): Promise<string> {
-  if (UUID_RE.test(value)) return value.toLowerCase();
-  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes.slice(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function markOutcome(
@@ -120,6 +117,7 @@ export async function sendPharmacyAutomatedPush(
   const now = input.now ?? new Date();
   const occurredAt = now.toISOString();
   const staleAttemptAt = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
+  const retryHorizonStart = new Date(now.getTime() - LINE_RETRY_KEY_HORIZON_MS).toISOString();
   const month = jstMonthBounds(now);
   const notificationEventId = crypto.randomUUID();
   let dispatchEventId = notificationEventId;
@@ -144,14 +142,19 @@ export async function sendPharmacyAutomatedPush(
 
   if ((claim.meta?.changes ?? 0) !== 1) {
     const existing = await input.db.prepare(
-      `SELECT id, outcome, occurred_at FROM pharmacy_notification_events
+      `SELECT id, outcome, occurred_at, created_at FROM pharmacy_notification_events
         WHERE line_account_id = ? AND idempotency_key = ?`,
-    ).bind(input.lineAccountId, input.retryKey).first<{ id: string; outcome: string; occurred_at: string }>();
+    ).bind(input.lineAccountId, input.retryKey).first<{
+      id: string; outcome: string; occurred_at: string; created_at?: string;
+    }>();
     if (existing?.outcome === 'sent') return 'already_sent';
     if (existing?.outcome === 'blocked') {
       throw new Error('pharmacy proactive frequency cap reached');
     }
     if (existing?.outcome === 'attempted') {
+      if ((existing.created_at ?? existing.occurred_at) <= retryHorizonStart) {
+        return 'reconciliation_required';
+      }
       if (existing.occurred_at >= staleAttemptAt) return 'in_progress';
       const reclaimed = await input.db.prepare(
         `UPDATE pharmacy_notification_events
@@ -198,7 +201,7 @@ export async function sendPharmacyAutomatedPush(
       input.accessToken,
       input.to,
       [message],
-      await lineRetryKey(input.retryKey),
+      await createLineRetryKey(input.retryKey),
       input.proxyDispatch,
       {
         pharmacyNotificationEventId: dispatchEventId,

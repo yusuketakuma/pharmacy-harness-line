@@ -556,7 +556,10 @@ export async function getGrowthDashboard(
     Date.parse(observedThrough),
     Date.parse(to) + 90 * 86400000,
   )).toISOString();
-  const [entryEvents, sourceRows, promiseRows, readyCount, validity, notifications, unfollows, config] = await Promise.all([
+  const notificationRetryHorizon = new Date(
+    Date.parse(observedThrough) - 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const [entryEvents, sourceRows, promiseRows, readyCount, validity, notifications, unfollows, config, messaging, outboundLine] = await Promise.all([
     db.prepare(`SELECT event_type, subject_key, occurred_at
       FROM pharmacy_growth_events
       WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
@@ -624,9 +627,11 @@ export async function getGrowthDashboard(
       WHERE v.line_account_id = ? AND v.created_at >= ? AND v.created_at < ?
         AND COALESCE(attr.is_synthetic, 0) = 0`)
       .bind(lineAccountId, ...bounds).first<Record<string, number | null>>(),
-    db.prepare(`SELECT category, outcome, COUNT(*) AS count
+    db.prepare(`SELECT category, outcome, COUNT(*) AS count,
+      SUM(CASE WHEN outcome = 'attempted' AND created_at <= ? THEN 1 ELSE 0 END) AS stale_count
       FROM pharmacy_notification_events WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
-      GROUP BY category, outcome`).bind(lineAccountId, ...bounds).all<{ category: string; outcome: string; count: number }>(),
+      GROUP BY category, outcome`).bind(notificationRetryHorizon, lineAccountId, ...bounds)
+      .all<{ category: string; outcome: string; count: number; stale_count: number | null }>(),
     db.prepare(`SELECT
       COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND n.friend_id IS NOT NULL THEN n.friend_id END) AS exposed_friends,
       COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND julianday(u.occurred_at) < julianday(n.occurred_at, '+24 hours') THEN u.subject_key END) AS unfollow_24h,
@@ -643,6 +648,52 @@ export async function getGrowthDashboard(
     db.prepare(`SELECT unfollow_alert_state FROM pharmacy_account_capabilities
       WHERE line_account_id = ? AND mode = 'pharmacy'`)
       .bind(lineAccountId).first<{ unfollow_alert_state: 'alert_only' | 'auto_pause' }>(),
+    db.prepare(`SELECT
+      COUNT(CASE WHEN direction = 'outgoing'
+                  AND (delivery_type IS NULL OR delivery_type <> 'test') THEN 1 END) AS sent,
+      COUNT(CASE WHEN direction = 'incoming' THEN 1 END) AS received,
+      COUNT(CASE WHEN direction = 'outgoing' AND source = 'manual'
+                  AND (delivery_type IS NULL OR delivery_type <> 'test') THEN 1 END) AS manual,
+      COUNT(CASE WHEN direction = 'outgoing' AND source IS NOT NULL AND source <> 'manual'
+                  AND (delivery_type IS NULL OR delivery_type <> 'test') THEN 1 END) AS automated,
+      COUNT(CASE WHEN direction = 'outgoing' AND source IS NULL
+                  AND (delivery_type IS NULL OR delivery_type <> 'test') THEN 1 END) AS source_unverified,
+      COUNT(CASE WHEN direction = 'outgoing' AND delivery_type = 'push' THEN 1 END) AS push,
+      COUNT(CASE WHEN direction = 'outgoing' AND delivery_type = 'reply' THEN 1 END) AS reply,
+      COUNT(CASE WHEN direction = 'outgoing' AND delivery_type IS NULL THEN 1 END) AS delivery_unverified,
+      COUNT(DISTINCT CASE WHEN direction = 'incoming'
+                            OR (direction = 'outgoing' AND (delivery_type IS NULL OR delivery_type <> 'test'))
+                          THEN friend_id END) AS unique_correspondents
+      FROM messages_log
+      WHERE line_account_id = ?
+        AND julianday(CASE
+              WHEN created_at GLOB '*Z' OR substr(created_at, -6, 1) IN ('+', '-')
+                THEN created_at
+              ELSE created_at || '+09:00'
+            END) >= julianday(?)
+        AND julianday(CASE
+              WHEN created_at GLOB '*Z' OR substr(created_at, -6, 1) IN ('+', '-')
+                THEN created_at
+              ELSE created_at || '+09:00'
+            END) < julianday(?)`)
+      .bind(lineAccountId, ...bounds).first<{
+        sent: number; received: number; manual: number; automated: number;
+        source_unverified: number; push: number; reply: number;
+        delivery_unverified: number; unique_correspondents: number;
+      }>(),
+    db.prepare(`SELECT
+      COUNT(CASE WHEN outcome = 'open' THEN 1 END) AS attempted,
+      COUNT(CASE WHEN outcome = 'retired'
+                  AND (stop_reason IN ('retry_window_expired', 'reply_outcome_unknown', 'payload_unavailable')
+                       OR (stop_reason = 'local_precondition_failed' AND attempt_count > 0))
+                 THEN 1 END) AS reconciliation_required
+      FROM outbound_line_deliveries
+      WHERE line_account_id = ?
+        AND COALESCE(first_attempted_at, settled_at) >= ?
+        AND COALESCE(first_attempted_at, settled_at) < ?`)
+      .bind(lineAccountId, ...bounds).first<{
+        attempted: number; reconciliation_required: number;
+      }>(),
   ]);
   const events = entryEvents.results ?? [];
   const cohort = summarizeCohorts(events, from, to, observedThrough);
@@ -690,7 +741,23 @@ export async function getGrowthDashboard(
       proactiveAttempts: Object.entries(notificationCounts)
         .filter(([key]) => key.startsWith('proactive_noncare:'))
         .reduce((sum, [, count]) => sum + count, 0),
+      reconciliationRequired: (notifications.results ?? [])
+        .reduce((sum, row) => sum + (row.stale_count ?? 0), 0),
       alertState: config?.unfollow_alert_state ?? 'alert_only',
+    },
+    messaging: {
+      sent: messaging?.sent ?? 0,
+      received: messaging?.received ?? 0,
+      manual: messaging?.manual ?? 0,
+      automated: messaging?.automated ?? 0,
+      sourceUnverified: messaging?.source_unverified ?? 0,
+      push: messaging?.push ?? 0,
+      reply: messaging?.reply ?? 0,
+      deliveryUnverified: messaging?.delivery_unverified ?? 0,
+      uniqueCorrespondents: messaging?.unique_correspondents ?? 0,
+      attempted: outboundLine?.attempted ?? 0,
+      reconciliationRequired: outboundLine?.reconciliation_required ?? 0,
+      legacyUnscoped: { count: null, status: 'UNVERIFIED' },
     },
     unfollow: {
       exposedFriends: unfollows?.exposed_friends ?? 0,

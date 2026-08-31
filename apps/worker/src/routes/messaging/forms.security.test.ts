@@ -4,9 +4,11 @@ import type { Env } from '../../index.js';
 
 const mocks = vi.hoisted(() => ({
   getFormById: vi.fn(),
+  getFormByIdForLineAccount: vi.fn(),
   getFriendByLineUserId: vi.fn(),
   createFormSubmission: vi.fn(),
   verifyCallerLineUserId: vi.fn(),
+  getFriendById: vi.fn(),
   getLineAccountById: vi.fn(),
   dispatchLineProxyLocally: vi.fn(),
 }));
@@ -15,13 +17,14 @@ vi.mock('@line-crm/db', () => ({
   getForms: vi.fn(),
   getFormsWithStats: vi.fn(),
   getFormById: mocks.getFormById,
+  getFormByIdForLineAccount: mocks.getFormByIdForLineAccount,
   createForm: vi.fn(),
   updateForm: vi.fn(),
   deleteForm: vi.fn(),
   getFormSubmissions: vi.fn(),
   createFormSubmission: mocks.createFormSubmission,
   getFriendByLineUserId: mocks.getFriendByLineUserId,
-  getFriendById: vi.fn(),
+  getFriendById: mocks.getFriendById,
   getTrackedLinkById: vi.fn(),
   getMessageTemplateById: vi.fn(),
   getLineAccountById: mocks.getLineAccountById,
@@ -43,6 +46,7 @@ vi.mock('../../services/local-line-proxy.js', () => ({
 }));
 
 import { forms } from './forms.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 
 const baseForm = {
   id: 'form-1',
@@ -99,8 +103,12 @@ function app(asAdmin = false) {
 
 beforeEach(() => {
   mocks.getFormById.mockResolvedValue({ ...baseForm });
+  mocks.getFormByIdForLineAccount.mockImplementation(
+    async (db: D1Database, id: string) => mocks.getFormById(db, id),
+  );
   mocks.verifyCallerLineUserId.mockResolvedValue(null);
   mocks.getFriendByLineUserId.mockResolvedValue(null);
+  mocks.getFriendById.mockResolvedValue(null);
   mocks.createFormSubmission.mockImplementation(async (_db, input) => ({
     id: 'submission-1',
     form_id: input.formId,
@@ -160,6 +168,36 @@ describe('public form representation', () => {
 });
 
 describe('LIFF identity enforcement', () => {
+  test('rejects a form bound to another tenant account', async () => {
+    mocks.verifyCallerLineUserId.mockResolvedValue('line-real');
+    mocks.getFriendByLineUserId.mockResolvedValue({
+      id: 'friend-real',
+      line_account_id: 'account-a',
+      line_user_id: null,
+      display_name: 'Real User',
+      metadata: '{}',
+    });
+    mocks.getFormByIdForLineAccount.mockResolvedValue(null);
+    const { bindings } = env();
+
+    const res = await app().request('/api/forms/form-b/submit', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-line-id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ data: { x_username: 'alice' } }),
+    }, bindings);
+
+    expect(res.status).toBe(404);
+    expect(mocks.getFormByIdForLineAccount).toHaveBeenCalledWith(
+      bindings.DB,
+      'form-b',
+      'account-a',
+    );
+    expect(mocks.createFormSubmission).not.toHaveBeenCalled();
+  });
+
   test('rejects generic form submissions for a pharmacy-mode friend', async () => {
     mocks.verifyCallerLineUserId.mockResolvedValue('line-pharmacy');
     mocks.getFriendByLineUserId.mockResolvedValue({
@@ -385,11 +423,60 @@ describe('LIFF identity enforcement', () => {
     const proxyRequest = mocks.dispatchLineProxyLocally.mock.calls[0][0] as Request;
     expect(proxyRequest.url).toBe('http://localhost/line-api/v2/bot/message/push');
     expect(proxyRequest.headers.get('Authorization')).toBe('Bearer line-token');
+    expect(proxyRequest.headers.get('X-Line-Retry-Key')).toBe(
+      await createBroadcastRetryKey('form-submission', 'submission-1', 'webhook-rejected'),
+    );
     expect(await proxyRequest.json()).toEqual({
       to: 'U-real',
       messages: [{ type: 'text', text: '条件を満たしていません' }],
     });
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('api.line.me'))).toBe(false);
+  });
+
+  test('submission notifications use separate stable retry keys', async () => {
+    mocks.getFormById.mockResolvedValue({
+      ...baseForm,
+      on_submit_tag_id: null,
+      on_submit_scenario_id: null,
+      save_to_metadata: 0,
+    });
+    mocks.verifyCallerLineUserId.mockResolvedValue('line-real');
+    const friend = {
+      id: 'friend-real',
+      line_account_id: null,
+      line_user_id: 'U-real',
+      display_name: 'Real User',
+      metadata: '{}',
+    };
+    mocks.getFriendByLineUserId.mockResolvedValue(friend);
+    mocks.getFriendById.mockResolvedValue(friend);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      eligible: true,
+      join_url: 'https://meet.example.test/join',
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })));
+    const { bindings } = env();
+
+    const res = await app().request('/api/forms/form-1/submit', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-line-id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ data: { x_username: 'alice' } }),
+    }, bindings);
+
+    expect(res.status).toBe(201);
+    expect(mocks.dispatchLineProxyLocally).toHaveBeenCalledTimes(2);
+    const retryKeys = mocks.dispatchLineProxyLocally.mock.calls.map(
+      ([request]) => (request as Request).headers.get('X-Line-Retry-Key'),
+    );
+    expect(new Set(retryKeys)).toEqual(new Set([
+      await createBroadcastRetryKey('form-submission', 'submission-1', 'meet-link'),
+      await createBroadcastRetryKey('form-submission', 'submission-1', 'confirmation'),
+    ]));
   });
 });
 

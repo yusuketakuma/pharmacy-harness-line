@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
 import { ApiError, api } from '../../../lib/api'
+import { pharmacyGrowthApi } from '../growth-loop/api'
 import {
   prescriptionAdminApi,
   type PrescriptionDetail,
@@ -148,7 +149,7 @@ export default function PrescriptionQueuePage() {
       const [nextDetail, nextQuote, sourceResponse] = await Promise.all([
         prescriptionAdminApi.detail(selectedAccountId, id),
         prescriptionAdminApi.fulfillmentQuote(selectedAccountId, id),
-        api.pharmacyGrowth.sources(selectedAccountId),
+        pharmacyGrowthApi.sources(selectedAccountId),
       ])
       setDetail(nextDetail)
       setQuote(nextQuote.quote)
@@ -323,11 +324,11 @@ export default function PrescriptionQueuePage() {
         validity={detail.validity}
         medicalSources={medicalSources}
         onSaveSource={async (accountId, submissionId, body) => {
-          const response = await api.pharmacyGrowth.classifySource(accountId, submissionId, body)
+          const response = await pharmacyGrowthApi.classifySource(accountId, submissionId, body)
           if (!response.success) throw new Error(response.error)
         }}
         onSaveValidity={async (accountId, submissionId, body) => {
-          const response = await api.pharmacyGrowth.saveValidity(accountId, submissionId, body)
+          const response = await pharmacyGrowthApi.saveValidity(accountId, submissionId, body)
           if (!response.success) throw new Error(response.error)
         }}
         onSaved={() => void openDetail(detail.submission.id)}

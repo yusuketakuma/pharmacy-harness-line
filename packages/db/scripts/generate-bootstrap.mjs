@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,13 +10,27 @@ const SCHEMA_PATH = join(PKG_ROOT, "schema.sql");
 const MIGRATIONS_DIR = join(PKG_ROOT, "migrations");
 const BOOTSTRAP_PATH = join(PKG_ROOT, "bootstrap.sql");
 const BOOTSTRAP_META_PATH = join(PKG_ROOT, "bootstrap-meta.json");
+const BASELINE_MIGRATION = "001_v033_baseline.sql";
+const BASELINE_PATH = join(MIGRATIONS_DIR, BASELINE_MIGRATION);
+const BASELINE_STATUS = "mutable-prerelease";
 
 const BENIGN_SQLITE_ERROR = /duplicate column name|already exists/i;
 
-function listMigrationFiles() {
-  return readdirSync(MIGRATIONS_DIR)
+function listPostBaselineMigrations() {
+  mkdirSync(MIGRATIONS_DIR, { recursive: true });
+  const files = readdirSync(MIGRATIONS_DIR)
     .filter((file) => file.endsWith(".sql"))
+    .filter((file) => file !== BASELINE_MIGRATION)
     .sort();
+  const invalid = files.filter(
+    (file) => !/^\d{3}_(?:custom_\d{3}_)?[a-z0-9_]+\.sql$/.test(file) || file < "002_",
+  );
+  if (invalid.length > 0) {
+    throw new Error(
+      `post-baseline migrations require one global ordinal: ${invalid.join(", ")}`,
+    );
+  }
+  return files;
 }
 
 function isBenignSqliteError(error) {
@@ -49,38 +63,36 @@ function sqlLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-/**
- * bootstrap.sql は sqlite_master だけでは seed data を保持できない。
- * 新規インストールでも migration と同じ組み込み自動返信を利用できるよう、
- * builtin ID の auto_replies だけを決定的な順序で書き出す。
- */
-function buildBuiltinAutoReplySeeds(db) {
-  const rows = db
-    .prepare(
-      `SELECT id, keyword, match_type, response_type, response_content,
-              template_id, line_account_id, is_active, created_at
-         FROM auto_replies
-        WHERE id LIKE 'builtin-%'
-        ORDER BY id`,
-    )
-    .all();
-  if (rows.length === 0) return "";
-
-  const columns = [
-    "id",
-    "keyword",
-    "match_type",
-    "response_type",
-    "response_content",
-    "template_id",
-    "line_account_id",
-    "is_active",
-    "created_at",
+function buildBuiltinSeeds(db) {
+  const seeds = [
+    ["auto_replies", "id LIKE 'builtin-%'"],
+    ["mileage_programs", "id = 'default'"],
+    ["mileage_rules", "id LIKE 'builtin-%'"],
   ];
-  return rows
-    .map((row) => {
-      const values = columns.map((column) => sqlLiteral(row[column])).join(", ");
-      return `INSERT INTO auto_replies (${columns.join(", ")})\nVALUES (${values});`;
+
+  return seeds
+    .flatMap(([table, where]) => {
+      const columns = db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((column) => column.name);
+      return db
+        .prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY id`)
+        .all()
+        .map((row) => {
+          const values = columns
+            .map((column) => {
+              if (
+                table.startsWith("mileage_") &&
+                (column === "created_at" || column === "updated_at")
+              ) {
+                return sqlLiteral("2026-08-30T00:00:00.000Z");
+              }
+              return sqlLiteral(row[column]);
+            })
+            .join(", ");
+          return `INSERT INTO ${table} (${columns.join(", ")})\nVALUES (${values});`;
+        });
     })
     .join("\n\n");
 }
@@ -91,12 +103,13 @@ function buildBootstrapSql() {
     `line-harness-bootstrap-${process.pid}-${Date.now()}.sqlite`,
   );
   const db = new Database(sqlitePath);
-  const migrationFiles = listMigrationFiles();
+  const postBaselineMigrations = listPostBaselineMigrations();
+  const migrationFiles = [BASELINE_MIGRATION, ...postBaselineMigrations];
 
   try {
     db.exec(readFileSync(SCHEMA_PATH, "utf8"));
 
-    for (const file of migrationFiles) {
+    for (const file of postBaselineMigrations) {
       applyMigrationFile(db, file);
     }
 
@@ -129,11 +142,15 @@ function buildBootstrapSql() {
     const body = rows
       .map((row) => `${String(row.sql).trim()};`)
       .join("\n\n");
-    const builtinSeeds = buildBuiltinAutoReplySeeds(db);
+    const builtinSeeds = buildBuiltinSeeds(db);
 
     return {
       sql: `${header}${body}${builtinSeeds ? `\n\n${builtinSeeds}` : ""}\n`,
       meta: {
+        schemaEpoch: "v0.33",
+        schemaMode: "pharmacy-multitenant",
+        baselineMigration: BASELINE_MIGRATION,
+        baselineStatus: BASELINE_STATUS,
         includedMigrations: migrationFiles,
         migrationCount: migrationFiles.length,
       },
@@ -147,6 +164,7 @@ function buildBootstrapSql() {
 }
 
 const generated = buildBootstrapSql();
+const baselineSql = readFileSync(SCHEMA_PATH, "utf8");
 const wantsStdout = process.argv.includes("--stdout");
 const wantsCheck = process.argv.includes("--check");
 
@@ -162,15 +180,30 @@ if (wantsCheck) {
   const currentMeta = existsSync(BOOTSTRAP_META_PATH)
     ? readFileSync(BOOTSTRAP_META_PATH, "utf8")
     : "";
+  const currentBaseline = existsSync(BASELINE_PATH)
+    ? readFileSync(BASELINE_PATH, "utf8")
+    : "";
   const nextMeta = `${JSON.stringify(generated.meta, null, 2)}\n`;
-  if (current !== generated.sql || currentMeta !== nextMeta) {
+  if (
+    current !== generated.sql ||
+    currentMeta !== nextMeta ||
+    currentBaseline !== baselineSql
+  ) {
     console.error(
-      "bootstrap.sql or bootstrap-meta.json is out of date. Run `pnpm --dir packages/db generate:bootstrap`.",
+      "v0.33 baseline, bootstrap.sql, or bootstrap-meta.json is out of date. Run `pnpm --dir packages/db generate:bootstrap`.",
     );
     process.exit(1);
   }
   process.exit(0);
 }
 
+if (
+  BASELINE_STATUS === "frozen" &&
+  existsSync(BASELINE_PATH) &&
+  readFileSync(BASELINE_PATH, "utf8") !== baselineSql
+) {
+  throw new Error("frozen v0.33 baseline differs from schema.sql");
+}
+writeFileSync(BASELINE_PATH, baselineSql);
 writeFileSync(BOOTSTRAP_PATH, generated.sql);
 writeFileSync(BOOTSTRAP_META_PATH, `${JSON.stringify(generated.meta, null, 2)}\n`);

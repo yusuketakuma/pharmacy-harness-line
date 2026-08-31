@@ -50,6 +50,15 @@ describe('materializeAdminFiles', () => {
     expect(out.get('a.js')!.toString('utf8')).toBe(`"${WORKER_URL}/api"`);
   });
 
+  it('normalizes attacker-controlled slash runs in linear time', () => {
+    const workerUrl = `${WORKER_URL}/${'/'.repeat(40_000)}x`;
+    const startedAt = performance.now();
+
+    materializeAdminFiles(new Map(), workerUrl);
+
+    expect(performance.now() - startedAt).toBeLessThan(250);
+  });
+
   it('passes binary files through byte-for-byte even if bytes match the placeholder', () => {
     const png = Buffer.from(`\x89PNG${ADMIN_URL_PLACEHOLDER}`, 'latin1');
     const files = new Map([['logo.png', png]]);
@@ -143,6 +152,12 @@ describe('normalizeTriggerSql', () => {
   it('keeps a different trigger body distinguishable', () => {
     expect(normalizeTriggerSql('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 1; END')).not.toBe(
       normalizeTriggerSql('CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 2; END'),
+    );
+  });
+
+  it('does not normalize case or whitespace inside string literals', () => {
+    expect(normalizeTriggerSql("CREATE TRIGGER t AFTER INSERT ON a BEGIN SELECT 'ACTIVE USER'; END")).not.toBe(
+      normalizeTriggerSql("create trigger t after insert on a begin select 'active user'; end"),
     );
   });
 });

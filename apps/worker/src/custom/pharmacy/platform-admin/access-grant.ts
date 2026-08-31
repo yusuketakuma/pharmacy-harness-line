@@ -1,5 +1,4 @@
 import { verifyTenantPassword } from '../provisioning/credentials.js';
-import { platformAdminAccessStatement } from './audit.js';
 
 export const MAX_GRANT_MINUTES = 60;
 export const DEFAULT_GRANT_MINUTES = 15;
@@ -33,10 +32,8 @@ export class AccessGrantError extends Error {
  * Starts support mode for one tenant. Requires the platform admin's CURRENT
  * password again (step-up) even though they already hold a valid session —
  * a session alone must not be enough to open PHI access. There is no MFA
- * infrastructure in this deployment yet (no TOTP/WebAuthn enrollment, no
- * Cloudflare Access in front of this origin); password re-entry is the
- * practical stand-in until one of those is wired up. This is weaker than
- * true MFA and should be treated as an interim measure, not a substitute.
+ * infrastructure in this deployment (no TOTP/WebAuthn enrollment and no
+ * Cloudflare Access MFA). Password re-entry is the approved step-up control.
  *
  * The grant is bound to `sessionTokenHash`, the session that opened it, so
  * another live session for the same admin cannot use it.
@@ -65,12 +62,15 @@ export async function createAccessGrant(
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_GRANT_MINUTES) {
     throw new AccessGrantError(400, `durationMinutes must be an integer from 1 to ${MAX_GRANT_MINUTES}`);
   }
+  if (!input.sessionTokenHash) {
+    throw new AccessGrantError(401, 'Platform admin session is invalid');
+  }
 
   const credential = await db.prepare(
     `SELECT password_hash FROM platform_admin_credentials WHERE staff_id = ? LIMIT 1`,
   ).bind(platformAdminId).first<{ password_hash: string }>();
   if (!credential || !(await verifyTenantPassword(input.currentPassword, credential.password_hash))) {
-    throw new AccessGrantError(401, 'Current password is incorrect');
+    throw new AccessGrantError(403, 'Current password is incorrect');
   }
 
   const tenant = await db.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
@@ -91,35 +91,68 @@ export async function createAccessGrant(
     expires_at: expiresAt,
     revoked_at: null,
   };
-  await db.batch([
+  const results = await db.batch([
     db.prepare(
       `INSERT INTO platform_admin_access_grants
         (id, platform_admin_id, tenant_id, scopes, reason, ticket_reference,
          reauth_verified_at, issued_at, expires_at, revoked_at, revoked_by,
          session_token_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?
+         FROM platform_admin_sessions AS current_session
+         INNER JOIN platform_admin_credentials AS current_credential
+                 ON current_credential.staff_id = current_session.staff_id
+                AND current_credential.credential_version = current_session.credential_version
+         INNER JOIN platform_admins AS current_admin
+                 ON current_admin.staff_id = current_session.staff_id
+                AND current_admin.is_active = 1
+         INNER JOIN staff_members AS current_staff
+                 ON current_staff.id = current_session.staff_id
+                AND current_staff.is_active = 1
+        WHERE current_session.token_hash = ?
+          AND current_session.staff_id = ?
+          AND current_session.revoked_at IS NULL
+          AND current_session.expires_at > ?`,
     ).bind(
       grant.id, platformAdminId, tenantId, grant.scopes, reason, grant.ticket_reference,
       nowIso, nowIso, expiresAt, input.sessionTokenHash,
+      input.sessionTokenHash, platformAdminId, nowIso,
     ),
-    platformAdminAccessStatement(
-      db, platformAdminId, tenantId, 'support_mode_started', 'access_grant', grant.id,
-      { reason, ticketReference: grant.ticket_reference, scopes: input.scopes, expiresAt },
+    db.prepare(
+      `INSERT INTO platform_admin_access_events
+         (id, platform_admin_id, tenant_id, action, resource_type, resource_id,
+          detail_json, created_at)
+       SELECT ?, platform_admin_id, tenant_id, 'support_mode_started',
+              'access_grant', id, ?, ?
+         FROM platform_admin_access_grants
+        WHERE id = ? AND platform_admin_id = ? AND tenant_id = ?
+          AND session_token_hash = ? AND revoked_at IS NULL`,
+    ).bind(
+      crypto.randomUUID(), JSON.stringify({ scopes: input.scopes, expiresAt }), nowIso,
+      grant.id, platformAdminId, tenantId, input.sessionTokenHash,
     ),
   ]);
+  if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+    throw new AccessGrantError(403, 'Platform admin session is no longer active');
+  }
   return grant;
 }
 
-/** The caller's currently active (unexpired, unrevoked) grants, for the UI's countdown banner. */
-export async function listActiveGrants(db: D1Database, platformAdminId: string): Promise<AccessGrant[]> {
+/** The caller session's active grants, for the UI's countdown banner. */
+export async function listActiveGrants(
+  db: D1Database,
+  platformAdminId: string,
+  sessionTokenHash: string | null,
+): Promise<AccessGrant[]> {
+  if (!sessionTokenHash) return [];
   const now = new Date().toISOString();
   const result = await db.prepare(
     `SELECT id, platform_admin_id, tenant_id, scopes, reason, ticket_reference,
             issued_at, expires_at, revoked_at
        FROM platform_admin_access_grants
-      WHERE platform_admin_id = ? AND revoked_at IS NULL AND expires_at > ?
+      WHERE platform_admin_id = ? AND session_token_hash = ?
+        AND revoked_at IS NULL AND expires_at > ?
       ORDER BY expires_at ASC`,
-  ).bind(platformAdminId, now).all<AccessGrant>();
+  ).bind(platformAdminId, sessionTokenHash, now).all<AccessGrant>();
   return result.results ?? [];
 }
 
@@ -133,11 +166,7 @@ export async function listActiveGrants(db: D1Database, platformAdminId: string):
  * `sessionTokenHash` is the CALLER's session. A grant bound to a different
  * session does not count, so a second live session for the same admin (a
  * stolen cookie) cannot ride along on break-glass access it never
- * re-authenticated for. Grants issued before custom_031 have no binding and
- * still count; passing null matches only those, which is the safe direction.
- * The IS NULL branch can be dropped once every deployment has been on
- * custom_031 for longer than MAX_GRANT_MINUTES — no unbound grant can exist
- * after that.
+ * re-authenticated for.
  */
 export async function requireActiveGrant(
   db: D1Database,
@@ -146,17 +175,34 @@ export async function requireActiveGrant(
   scope: string,
   sessionTokenHash: string | null,
 ): Promise<AccessGrant> {
+  if (!sessionTokenHash) {
+    throw new AccessGrantError(403, 'No active support-mode grant for this session.');
+  }
   const now = new Date().toISOString();
   const grant = await db.prepare(
-    `SELECT id, platform_admin_id, tenant_id, scopes, reason, ticket_reference,
-            issued_at, expires_at, revoked_at
-       FROM platform_admin_access_grants
-      WHERE platform_admin_id = ? AND tenant_id = ?
-        AND revoked_at IS NULL AND expires_at > ?
-        AND (session_token_hash IS NULL OR session_token_hash = ?)
-      ORDER BY expires_at DESC
+    `SELECT access_grant.id, access_grant.platform_admin_id, access_grant.tenant_id,
+            access_grant.scopes, access_grant.reason, access_grant.ticket_reference,
+            access_grant.issued_at, access_grant.expires_at, access_grant.revoked_at
+       FROM platform_admin_access_grants AS access_grant
+       INNER JOIN platform_admin_sessions AS session
+               ON session.token_hash = access_grant.session_token_hash
+              AND session.staff_id = access_grant.platform_admin_id
+       INNER JOIN platform_admins AS admin
+               ON admin.staff_id = access_grant.platform_admin_id
+              AND admin.is_active = 1
+       INNER JOIN staff_members AS staff
+               ON staff.id = admin.staff_id
+              AND staff.is_active = 1
+       INNER JOIN platform_admin_credentials AS credential
+               ON credential.staff_id = admin.staff_id
+              AND credential.credential_version = session.credential_version
+      WHERE access_grant.platform_admin_id = ? AND access_grant.tenant_id = ?
+        AND access_grant.revoked_at IS NULL AND access_grant.expires_at > ?
+        AND access_grant.session_token_hash = ?
+        AND session.revoked_at IS NULL AND session.expires_at > ?
+      ORDER BY access_grant.expires_at DESC
       LIMIT 1`,
-  ).bind(platformAdminId, tenantId, now, sessionTokenHash).first<AccessGrant>();
+  ).bind(platformAdminId, tenantId, now, sessionTokenHash, now).first<AccessGrant>();
   if (!grant || !(JSON.parse(grant.scopes) as string[]).includes(scope)) {
     throw new AccessGrantError(
       403,
@@ -170,26 +216,25 @@ export async function endAccessGrant(
   db: D1Database,
   platformAdminId: string,
   grantId: string,
+  sessionTokenHash: string | null,
 ): Promise<boolean> {
+  if (!sessionTokenHash) return false;
   const now = new Date().toISOString();
   const results = await db.batch([
     db.prepare(
+      `INSERT INTO platform_admin_access_events
+         (id, platform_admin_id, tenant_id, action, resource_type, resource_id, detail_json, created_at)
+       SELECT ?, platform_admin_id, tenant_id, 'support_mode_ended', 'access_grant', id, NULL, ?
+         FROM platform_admin_access_grants
+        WHERE id = ? AND platform_admin_id = ? AND session_token_hash = ?
+          AND revoked_at IS NULL`,
+    ).bind(crypto.randomUUID(), now, grantId, platformAdminId, sessionTokenHash),
+    db.prepare(
       `UPDATE platform_admin_access_grants
           SET revoked_at = ?, revoked_by = ?
-        WHERE id = ? AND platform_admin_id = ? AND revoked_at IS NULL`,
-    ).bind(now, platformAdminId, grantId, platformAdminId),
-    platformAdminAccessStatement(
-      db, platformAdminId, null, 'support_mode_ended', 'access_grant', grantId,
-    ),
+        WHERE id = ? AND platform_admin_id = ? AND session_token_hash = ?
+          AND revoked_at IS NULL`,
+    ).bind(now, platformAdminId, grantId, platformAdminId, sessionTokenHash),
   ]);
-  return (results[0] as { meta: { changes: number } }).meta.changes === 1;
-}
-
-/** Called when a platform admin's password changes: an old, possibly-compromised session must not keep an open grant either. */
-export function revokeAllGrantsForAdminStatement(db: D1Database, platformAdminId: string): D1PreparedStatement {
-  return db.prepare(
-    `UPDATE platform_admin_access_grants
-        SET revoked_at = ?, revoked_by = ?
-      WHERE platform_admin_id = ? AND revoked_at IS NULL`,
-  ).bind(new Date().toISOString(), platformAdminId, platformAdminId);
+  return results[0].meta.changes === 1 && results[1].meta.changes === 1;
 }

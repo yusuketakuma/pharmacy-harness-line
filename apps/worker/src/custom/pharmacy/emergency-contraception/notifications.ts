@@ -213,7 +213,7 @@ export async function processEmergencyAppointmentReminders(
         retryKey: reminder.occurrence_hash,
         now,
       });
-      if (outcome === 'paused' || outcome === 'in_progress') {
+      if (outcome !== 'sent' && outcome !== 'already_sent') {
         await releaseClaim(db, reminder, timestamp);
         result.skipped += 1;
         continue;

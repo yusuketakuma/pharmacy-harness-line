@@ -198,9 +198,8 @@ export async function deliverPrescriptionNotification(
       },
       retryKey: recipient.status_event_id,
     });
-    // Do not claim the patient was told while this key is paused or owned by
-    // another attempt; either state must remain retryable.
-    if (outcome === 'paused' || outcome === 'in_progress') return { status: 'skipped' };
+    // Do not claim the patient was told without a confirmed LINE delivery.
+    if (outcome !== 'sent' && outcome !== 'already_sent') return { status: 'skipped' };
     await recordNotificationEvent(db, lineAccountId, submissionId, recipient, 'notification_sent');
     return { status: 'sent' };
   } catch {

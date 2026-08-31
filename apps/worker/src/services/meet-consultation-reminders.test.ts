@@ -238,6 +238,39 @@ describe('meet consultation tenant and account scope', () => {
 });
 
 describe('processDueMeetConsultationReminders', () => {
+  it('does not dispatch when another cron worker wins the reminder claim', async () => {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return {
+              all: async () => ({ results: [{
+                id: '6db37bc2-f0c4-4fa8-baa6-5ec7069e1165',
+                consultation_id: 'consultation-1',
+                kind: 'hour_before',
+                retry_count: 0,
+                title: 'Synthetic consultation',
+                starts_at: '2026-08-09T01:00:00.000Z',
+                meet_url: 'https://meet.google.com/abc-defg-hij',
+                line_user_id: 'U00000000000000000000000000000000',
+                channel_access_token: 'channel-token',
+              }] }),
+              run: async () => ({ meta: { changes: 0 } }),
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const dispatch = vi.fn();
+
+    await expect(processDueMeetConsultationReminders(db, {
+      now: new Date('2026-08-09T00:00:00.000Z'),
+      proxyBaseUrl: 'https://proxy.example.com',
+      proxyDispatch: dispatch,
+    })).resolves.toEqual({ sent: 0, failed: 0 });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('sends pharmacy-account reminders through the Harness proxy with a PHI-free template', async () => {
     const updates: unknown[][] = [];
     const queries: string[] = [];
@@ -265,7 +298,7 @@ describe('processDueMeetConsultationReminders', () => {
               },
               async run() {
                 updates.push(args);
-                return { success: true };
+                return { meta: { changes: 1 } };
               },
             };
           },
@@ -299,6 +332,7 @@ describe('processDueMeetConsultationReminders', () => {
       '2026-08-09T00:00:00.000Z',
       '2026-08-09T00:00:00.000Z',
       '6db37bc2-f0c4-4fa8-baa6-5ec7069e1165',
+      1,
     ]);
   });
 });

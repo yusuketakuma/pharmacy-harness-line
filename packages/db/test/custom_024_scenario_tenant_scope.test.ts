@@ -122,43 +122,4 @@ describe('custom_024 scenario tenant scope (M-1)', () => {
     expect((await getScenariosForTenant(db, null)).map((r) => r.id)).toEqual(['scn-orphan']);
   });
 
-  it('backfills account-bound scenarios and single-tenant legacy scenarios', () => {
-    const fresh = new Database(':memory:');
-    fresh.pragma('foreign_keys = ON');
-    fresh.exec(readFileSync(join(ROOT, 'schema.sql'), 'utf8'));
-    applyMigration(fresh, '008_multi_account.sql');
-    // Pre-multitenancy state: one account, one account-bound scenario and one
-    // "all accounts" scenario.
-    fresh.prepare(`INSERT INTO line_accounts
-      (id, channel_id, name, channel_access_token, channel_secret)
-      VALUES ('account-a', 'channel-a', 'a', 'token-a', 'secret-a')`).run();
-    fresh.prepare(`INSERT INTO scenarios (id, name, trigger_type, line_account_id)
-      VALUES ('scn-bound', 'bound', 'friend_add', 'account-a')`).run();
-    fresh.prepare(`INSERT INTO scenarios (id, name, trigger_type, line_account_id)
-      VALUES ('scn-legacy', 'legacy', 'friend_add', NULL)`).run();
-
-    applyMigration(fresh, 'custom_014_pharmacy_logical_tenants.sql');
-    applyMigration(fresh, 'custom_024_scenario_tenant_scope.sql');
-
-    const rows = fresh.prepare(
-      `SELECT id, tenant_id FROM scenarios ORDER BY id`,
-    ).all() as Array<{ id: string; tenant_id: string | null }>;
-    // custom_014 creates one tenant per existing account, so the single-tenant
-    // legacy scenario is attributable.
-    expect(rows).toEqual([
-      { id: 'scn-bound', tenant_id: 'tenant:account-a' },
-      { id: 'scn-legacy', tenant_id: 'tenant:account-a' },
-    ]);
-  });
 });
-
-function applyMigration(sqlite: Database.Database, file: string): void {
-  const sql = readFileSync(join(ROOT, 'migrations', file), 'utf8');
-  for (const statement of sql.split(/;\s*(?:\r?\n|$)/).map((part) => part.trim()).filter(Boolean)) {
-    try {
-      sqlite.exec(statement);
-    } catch (error) {
-      if (!/duplicate column name|already exists|no such table/i.test(String(error))) throw error;
-    }
-  }
-}

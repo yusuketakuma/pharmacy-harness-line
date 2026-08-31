@@ -99,15 +99,18 @@ describe('emergency appointment reminder delivery', () => {
     expect(writes.join('\n')).toContain(reasonCode);
   });
 
-  it('does not burn the occurrence while outbound sending is paused', async () => {
-    mocks.send.mockResolvedValue('paused');
-    const { db, writes } = fakeDb(context);
-    await expect(processEmergencyAppointmentReminders(db, {
-      proxyBaseUrl: 'https://worker.example', lineCredentialKey: 'synthetic-root', now,
-    })).resolves.toMatchObject({ sent: 0, skipped: 1 });
-    expect(writes.join('\n')).toContain("status = 'pending'");
-    expect(writes.join('\n')).not.toContain("status = 'sent'");
-  });
+  it.each(['paused', 'reconciliation_required'] as const)(
+    'does not burn the occurrence when delivery is %s',
+    async (outcome) => {
+      mocks.send.mockResolvedValue(outcome);
+      const { db, writes } = fakeDb(context);
+      await expect(processEmergencyAppointmentReminders(db, {
+        proxyBaseUrl: 'https://worker.example', lineCredentialKey: 'synthetic-root', now,
+      })).resolves.toMatchObject({ sent: 0, skipped: 1 });
+      expect(writes.join('\n')).toContain("status = 'pending'");
+      expect(writes.join('\n')).not.toContain("status = 'sent'");
+    },
+  );
 
   it('keeps a claimed occurrence retryable when the final safety recheck is unavailable', async () => {
     const { db, writes } = fakeDb(new Error('D1 unavailable'));

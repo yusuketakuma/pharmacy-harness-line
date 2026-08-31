@@ -73,4 +73,25 @@ describe('FriendsResource', () => {
     await resource.removeTag('friend-1', 'tag-1')
     expect(http.delete).toHaveBeenCalledWith('/api/friends/friend-1/tags/tag-1')
   })
+
+  it('sendMessage() marks a manual send and forwards its idempotency key', async () => {
+    const http = mockHttp({
+      post: vi.fn().mockResolvedValue({ success: true, data: { messageId: 'message-1' } }),
+    })
+    const resource = new FriendsResource(http)
+
+    await resource.sendMessage('friend-1', 'hello', 'text', undefined, {
+      trackLinks: false,
+      idempotencyKey: '11111111-1111-5111-8111-111111111111',
+    })
+
+    expect(http.post).toHaveBeenCalledWith('/api/friends/friend-1/messages', {
+      messageType: 'text',
+      content: 'hello',
+      trackLinks: false,
+    }, {
+      'X-Line-Harness-Source': 'manual',
+      'Idempotency-Key': '11111111-1111-5111-8111-111111111111',
+    })
+  })
 })

@@ -58,7 +58,7 @@ trafficPools.get('/pool/:slug', async (c) => {
 // GET /api/traffic-pools — list all
 trafficPools.get('/api/traffic-pools', async (c) => {
   try {
-    const pools = await getTrafficPools(c.env.DB);
+    const pools = await getTrafficPools(c.env.DB, c.get('tenantId') ?? null);
     return c.json({ success: true, data: pools.map(serialize) });
   } catch (err) {
     console.error('GET /api/traffic-pools error:', err);
@@ -83,6 +83,7 @@ trafficPools.post('/api/traffic-pools', async (c) => {
       slug: body.slug,
       name: body.name,
       activeAccountId: body.activeAccountId,
+      tenantId: c.get('tenantId') ?? null,
     });
     return c.json({ success: true, data: serialize(pool) }, 201);
   } catch (err) {
@@ -105,7 +106,7 @@ trafficPools.put('/api/traffic-pools/:id', async (c) => {
       name: body.name,
       activeAccountId: body.activeAccountId,
       isActive: body.isActive,
-    });
+    }, c.get('tenantId') ?? null);
 
     if (!updated) {
       return c.json({ success: false, error: 'Traffic pool not found' }, 404);
@@ -121,7 +122,7 @@ trafficPools.put('/api/traffic-pools/:id', async (c) => {
 trafficPools.delete('/api/traffic-pools/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const existing = await getTrafficPoolById(c.env.DB, id);
+    const existing = await getTrafficPoolById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!existing) {
       return c.json({ success: false, error: 'Traffic pool not found' }, 404);
     }
@@ -131,7 +132,7 @@ trafficPools.delete('/api/traffic-pools/:id', async (c) => {
     if (existing.slug === 'main') {
       return c.json({ success: false, error: 'main pool cannot be deleted' }, 400);
     }
-    await deleteTrafficPool(c.env.DB, id);
+    await deleteTrafficPool(c.env.DB, id, c.get('tenantId') ?? null);
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/traffic-pools/:id error:', err);
@@ -154,7 +155,11 @@ function serializePoolAccount(pa: PoolAccountWithDetails) {
 // GET /api/traffic-pools/:id/accounts — list pool accounts
 trafficPools.get('/api/traffic-pools/:id/accounts', async (c) => {
   try {
-    const accounts = await getPoolAccounts(c.env.DB, c.req.param('id'));
+    const accounts = await getPoolAccounts(
+      c.env.DB,
+      c.req.param('id'),
+      c.get('tenantId') ?? null,
+    );
     return c.json({ success: true, data: accounts.map(serializePoolAccount) });
   } catch (err) {
     console.error('GET /api/traffic-pools/:id/accounts error:', err);
@@ -169,7 +174,13 @@ trafficPools.post('/api/traffic-pools/:id/accounts', async (c) => {
     if (!body.lineAccountId) {
       return c.json({ success: false, error: 'lineAccountId is required' }, 400);
     }
-    const account = await addPoolAccount(c.env.DB, c.req.param('id'), body.lineAccountId);
+    const account = await addPoolAccount(
+      c.env.DB,
+      c.req.param('id'),
+      body.lineAccountId,
+      c.get('tenantId') ?? null,
+    );
+    if (!account) return c.json({ success: false, error: 'Traffic pool not found' }, 404);
     return c.json({ success: true, data: account }, 201);
   } catch (err: any) {
     if (err?.message?.includes('UNIQUE constraint')) {
@@ -184,7 +195,13 @@ trafficPools.post('/api/traffic-pools/:id/accounts', async (c) => {
 trafficPools.put('/api/traffic-pools/:id/accounts/:accountId', async (c) => {
   try {
     const body = await c.req.json<{ isActive: boolean }>();
-    const result = await togglePoolAccount(c.env.DB, c.req.param('accountId'), body.isActive);
+    const result = await togglePoolAccount(
+      c.env.DB,
+      c.req.param('id'),
+      c.req.param('accountId'),
+      body.isActive,
+      c.get('tenantId') ?? null,
+    );
     if (!result) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: result });
   } catch (err) {
@@ -196,7 +213,12 @@ trafficPools.put('/api/traffic-pools/:id/accounts/:accountId', async (c) => {
 // DELETE /api/traffic-pools/:id/accounts/:accountId — remove account from pool
 trafficPools.delete('/api/traffic-pools/:id/accounts/:accountId', async (c) => {
   try {
-    const deleted = await removePoolAccount(c.env.DB, c.req.param('accountId'));
+    const deleted = await removePoolAccount(
+      c.env.DB,
+      c.req.param('id'),
+      c.req.param('accountId'),
+      c.get('tenantId') ?? null,
+    );
     if (!deleted) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true });
   } catch (err) {

@@ -26,7 +26,6 @@ import {
   listActiveGrants,
   PHI_READ_SCOPE,
   requireActiveGrant,
-  revokeAllGrantsForAdminStatement,
 } from './access-grant.js';
 import {
   PLATFORM_ADMIN_AUTH_COOKIE,
@@ -221,21 +220,45 @@ platformAdminRoutes.post('/api/platform-admin/logout', async (c) => {
   const token = platformAdminSessionTokenFromCookie(c);
   if (token && isPlatformAdminSessionToken(token)) {
     const tokenHash = await hashTenantAdminSessionToken(token);
+    const now = new Date().toISOString();
     await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE platform_admin_sessions SET revoked_at = ?
-          WHERE token_hash = ? AND revoked_at IS NULL`,
-      ).bind(new Date().toISOString(), tokenHash),
+          WHERE token_hash IN (
+            SELECT family_session.token_hash
+              FROM platform_admin_sessions AS current_session
+              INNER JOIN platform_admin_sessions AS family_session
+                      ON family_session.staff_id = current_session.staff_id
+                     AND COALESCE(family_session.session_family_hash, family_session.token_hash) =
+                         COALESCE(current_session.session_family_hash, current_session.token_hash)
+             WHERE current_session.token_hash = ?
+          )
+            AND revoked_at IS NULL`,
+      ).bind(now, tokenHash),
       // Logging out must not leave break-glass PHI access open behind you —
       // an open grant otherwise survives the session by up to MAX_GRANT_MINUTES.
-      revokeAllGrantsForAdminStatement(c.env.DB, admin.id),
+      c.env.DB.prepare(
+        `UPDATE platform_admin_access_grants
+            SET revoked_at = ?, revoked_by = ?
+          WHERE platform_admin_id = ?
+            AND session_token_hash IN (
+              SELECT family_session.token_hash
+                FROM platform_admin_sessions AS current_session
+                INNER JOIN platform_admin_sessions AS family_session
+                        ON family_session.staff_id = current_session.staff_id
+                       AND COALESCE(family_session.session_family_hash, family_session.token_hash) =
+                           COALESCE(current_session.session_family_hash, current_session.token_hash)
+               WHERE current_session.token_hash = ?
+            )
+            AND revoked_at IS NULL`,
+      ).bind(now, admin.id, admin.id, tokenHash),
+      platformAdminAccessStatement(c.env.DB, admin.id, null, 'logout'),
     ]);
     // Deliberately NOT best-effort any more: swallowing a failure here would
     // clear the cookies and answer "logged out" while the session and its
     // open PHI grant both stayed live. A 500 the operator can retry is the
     // safer answer.
   }
-  await recordPlatformAdminAccess(c.env.DB, admin.id, null, 'logout');
   c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_AUTH_COOKIE, sameSite), { append: true });
   c.header('Set-Cookie', expiredPlatformAdminCookie(PLATFORM_ADMIN_CSRF_COOKIE, sameSite), { append: true });
   return c.json({ success: true, data: null });
@@ -265,6 +288,10 @@ platformAdminRoutes.get('/api/platform-admin/session', async (c) => {
 
 platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   const admin = c.get('platformAdmin');
+  const sessionTokenHash = await platformAdminSessionHash(c);
+  if (!sessionTokenHash) {
+    return c.json({ success: false, error: 'Password session required' }, 403);
+  }
   const body = await c.req.json().catch(() => null);
   const currentPassword = stringBody(body, 'currentPassword');
   const newPassword = stringBody(body, 'newPassword');
@@ -286,24 +313,110 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
     return c.json({ success: false, error: 'Current password is incorrect' }, 401);
   }
 
-  const now = new Date().toISOString();
   const passwordHash = await hashTenantPassword(newPassword);
+  const nextCredentialVersion = credential.credential_version + 1;
+  const session = await newSession('standard');
+  const now = new Date().toISOString();
   const results = await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE platform_admin_credentials
           SET password_hash = ?, must_change_password = 0,
               credential_version = credential_version + 1, updated_at = ?
-        WHERE staff_id = ? AND credential_version = ?`,
-    ).bind(passwordHash, now, admin.id, credential.credential_version),
+        WHERE staff_id = ? AND credential_version = ?
+          AND EXISTS (
+            SELECT 1
+              FROM platform_admins AS platform_admin
+              INNER JOIN staff_members AS staff
+                      ON staff.id = platform_admin.staff_id
+             WHERE platform_admin.staff_id = ?
+               AND platform_admin.is_active = 1
+               AND staff.is_active = 1
+          )
+          AND EXISTS (
+            SELECT 1 FROM platform_admin_sessions AS current_session
+             WHERE current_session.token_hash = ?
+               AND current_session.staff_id = ?
+               AND current_session.credential_version = ?
+               AND current_session.revoked_at IS NULL
+               AND current_session.expires_at > ?
+          )`,
+    ).bind(
+      passwordHash, now, admin.id, credential.credential_version, admin.id,
+      sessionTokenHash, admin.id, credential.credential_version, now,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO platform_admin_sessions
+         (token_hash, session_family_hash, staff_id, credential_version, session_kind,
+          expires_at, revoked_at, created_at)
+       SELECT ?, COALESCE(current_session.session_family_hash, current_session.token_hash),
+              ?, ?, 'standard', ?, NULL, ?
+         FROM platform_admin_sessions AS current_session
+        WHERE current_session.token_hash = ?
+          AND current_session.staff_id = ?
+          AND current_session.credential_version = ?
+          AND current_session.revoked_at IS NULL
+          AND current_session.expires_at > ?
+          AND EXISTS (
+          SELECT 1 FROM platform_admin_credentials AS current_credential
+           WHERE current_credential.staff_id = ?
+             AND current_credential.credential_version = ?
+             AND current_credential.password_hash = ?
+             AND current_credential.updated_at = ?
+          )`,
+    ).bind(
+      session.tokenHash, admin.id, nextCredentialVersion,
+      session.expiresAt, now,
+      sessionTokenHash, admin.id, credential.credential_version, now,
+      admin.id, nextCredentialVersion, passwordHash, now,
+    ),
     // Every session issued against the old credential version dies with it.
     c.env.DB.prepare(
       `UPDATE platform_admin_sessions
           SET revoked_at = ?
-        WHERE staff_id = ? AND revoked_at IS NULL AND credential_version <= ?`,
-    ).bind(now, admin.id, credential.credential_version),
+        WHERE staff_id = ? AND revoked_at IS NULL AND credential_version <= ?
+          AND EXISTS (
+            SELECT 1 FROM platform_admin_credentials AS current_credential
+             WHERE current_credential.staff_id = ?
+               AND current_credential.credential_version = ?
+               AND current_credential.password_hash = ?
+               AND current_credential.updated_at = ?
+          )`,
+    ).bind(
+      now, admin.id, credential.credential_version,
+      admin.id, nextCredentialVersion, passwordHash, now,
+    ),
     // A stale session must not keep an open support-mode grant alive either.
-    revokeAllGrantsForAdminStatement(c.env.DB, admin.id),
-    platformAdminAccessStatement(c.env.DB, admin.id, null, 'change_password'),
+    c.env.DB.prepare(
+      `UPDATE platform_admin_access_grants
+          SET revoked_at = ?, revoked_by = ?
+        WHERE platform_admin_id = ? AND revoked_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM platform_admin_credentials AS current_credential
+             WHERE current_credential.staff_id = ?
+               AND current_credential.credential_version = ?
+               AND current_credential.password_hash = ?
+               AND current_credential.updated_at = ?
+          )`,
+    ).bind(
+      now, admin.id, admin.id,
+      admin.id, nextCredentialVersion, passwordHash, now,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO platform_admin_access_events
+         (id, platform_admin_id, tenant_id, action, resource_type, resource_id,
+          detail_json, created_at)
+       SELECT ?, ?, NULL, 'change_password', NULL, NULL, NULL, ?
+        WHERE EXISTS (
+          SELECT 1 FROM platform_admin_credentials AS current_credential
+           WHERE current_credential.staff_id = ?
+             AND current_credential.credential_version = ?
+             AND current_credential.password_hash = ?
+             AND current_credential.updated_at = ?
+        )`,
+    ).bind(
+      crypto.randomUUID(), admin.id, now,
+      admin.id, nextCredentialVersion, passwordHash, now,
+    ),
   ]);
   if (results[0].meta.changes !== 1) {
     return c.json({ success: false, error: 'Credential changed concurrently' }, 409);
@@ -312,16 +425,6 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();
-  const session = await newSession('standard');
-  await c.env.DB.prepare(
-    `INSERT INTO platform_admin_sessions
-      (token_hash, staff_id, credential_version, session_kind,
-       expires_at, revoked_at, created_at)
-     VALUES (?, ?, ?, 'standard', ?, NULL, ?)`,
-  ).bind(
-    session.tokenHash, admin.id, credential.credential_version + 1,
-    session.expiresAt, now,
-  ).run();
   c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
   c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
   return c.json({ success: true, data: { mustChangePassword: false }, csrfToken });
@@ -570,15 +673,20 @@ platformAdminRoutes.post('/api/platform-admin/tenants/:id/support-grants', async
 
 platformAdminRoutes.post('/api/platform-admin/support-grants/:grantId/end', async (c) => {
   const admin = c.get('platformAdmin');
-  const ended = await endAccessGrant(c.env.DB, admin.id, c.req.param('grantId'));
+  const ended = await endAccessGrant(
+    c.env.DB, admin.id, c.req.param('grantId'), await platformAdminSessionHash(c),
+  );
   if (!ended) return c.json({ success: false, error: 'Grant not found or already ended' }, 404);
   return c.json({ success: true, data: null });
 });
 
-/** The caller's own currently-active grants — drives the UI's countdown banner. No audit event: this is a self-check, like /session. */
+/** The caller session's active grants — drives the UI countdown banner. */
 platformAdminRoutes.get('/api/platform-admin/support-grants/active', async (c) => {
   const admin = c.get('platformAdmin');
-  return c.json({ success: true, data: await listActiveGrants(c.env.DB, admin.id) });
+  return c.json({
+    success: true,
+    data: await listActiveGrants(c.env.DB, admin.id, await platformAdminSessionHash(c)),
+  });
 });
 
 platformAdminRoutes.get('/api/platform-admin/tenants/:id/patients', async (c) => {

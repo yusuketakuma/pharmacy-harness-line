@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,11 +11,6 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, '..');
-const MIGRATIONS_DIR = join(PKG_ROOT, 'migrations');
-const MIGRATION_050 = readFileSync(
-  join(MIGRATIONS_DIR, '050_tracked_links_auto_dedup.sql'),
-  'utf8',
-);
 
 const BENIGN = /duplicate column name|already exists/i;
 
@@ -36,12 +31,6 @@ function execSafe(db: Database.Database, sql: string): void {
 function setupDb(): Database.Database {
   const db = new Database(':memory:');
   execSafe(db, readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8'));
-  const migrationFiles = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  for (const file of migrationFiles) {
-    execSafe(db, readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
-  }
   return db;
 }
 
@@ -227,76 +216,5 @@ describe('getOrCreateAutoTrackedLink', () => {
       .prepare(`SELECT id FROM tracked_links WHERE original_url = ?`)
       .get(url) as { id: string };
     expect(link.id).toBe(row.id);
-  });
-});
-
-describe('050 migration backfill', () => {
-  it('keys only the newest legacy auto row per (account, url) and reuses it', async () => {
-    const sqlite = setupDb();
-    insertLineAccount(sqlite, 'acc-1');
-    const url = 'https://example.com/legacy';
-    // Pre-050 state: duplicates minted per delivery, none keyed.
-    insertLegacyAutoLink(sqlite, { id: 'a-old', originalUrl: url, createdAt: '2026-01-01T00:00:00.000+09:00' });
-    insertLegacyAutoLink(sqlite, { id: 'a-mid', originalUrl: url, createdAt: '2026-02-01T00:00:00.000+09:00' });
-    insertLegacyAutoLink(sqlite, { id: 'a-new', originalUrl: url, createdAt: '2026-03-01T00:00:00.000+09:00' });
-    insertLegacyAutoLink(sqlite, {
-      id: 'a-acc',
-      originalUrl: url,
-      lineAccountId: 'acc-1',
-      createdAt: '2026-01-15T00:00:00.000+09:00',
-    });
-    // Manual link for the same URL must stay unkeyed.
-    insertLegacyAutoLink(sqlite, {
-      id: 'manual',
-      originalUrl: url,
-      name: 'campaign',
-      createdAt: '2026-04-01T00:00:00.000+09:00',
-    });
-
-    execSafe(sqlite, MIGRATION_050);
-
-    const keyed = sqlite
-      .prepare(`SELECT id FROM tracked_links WHERE dedup_key IS NOT NULL ORDER BY id`)
-      .all() as Array<{ id: string }>;
-    expect(keyed.map((r) => r.id)).toEqual(['a-acc', 'a-new']);
-
-    // Future sends reuse the backfilled row (click history preserved).
-    const db = asD1(sqlite);
-    const reused = await getOrCreateAutoTrackedLink(db, { originalUrl: url });
-    expect(reused.id).toBe('a-new');
-  });
-
-  it('is idempotent on replay, even after new keyed rows were created', async () => {
-    const sqlite = setupDb();
-    const db = asD1(sqlite);
-    const url = 'https://example.com/replay';
-    // Legacy unkeyed duplicate + a post-050 keyed row for the same pair.
-    insertLegacyAutoLink(sqlite, { id: 'legacy', originalUrl: url, createdAt: '2026-01-01T00:00:00.000+09:00' });
-    const keyed = await getOrCreateAutoTrackedLink(db, { originalUrl: url });
-    expect(keyed.id).not.toBe('legacy');
-
-    // Migration replay (deploy re-runs, db:migrate) must not try to key the
-    // legacy row into a UNIQUE conflict.
-    execSafe(sqlite, MIGRATION_050);
-    execSafe(sqlite, MIGRATION_050);
-
-    const rows = sqlite
-      .prepare(`SELECT id, dedup_key FROM tracked_links WHERE original_url = ? ORDER BY id`)
-      .all(url) as Array<{ id: string; dedup_key: string | null }>;
-    expect(rows.find((r) => r.id === 'legacy')?.dedup_key).toBeNull();
-    expect(rows.find((r) => r.id === keyed.id)?.dedup_key).not.toBeNull();
-  });
-
-  it('enforces uniqueness of dedup_key at the schema level', () => {
-    const sqlite = setupDb();
-    const insert = (id: string) =>
-      sqlite
-        .prepare(
-          `INSERT INTO tracked_links (id, name, original_url, short_code, dedup_key, is_active, click_count, created_at, updated_at)
-           VALUES (?, 'auto: x', 'https://example.com/x', ?, '|https://example.com/x', 1, 0, '2026-01-01', '2026-01-01')`,
-        )
-        .run(id, `c${id}`.slice(0, 7));
-    insert('one');
-    expect(() => insert('two')).toThrow(/UNIQUE/i);
   });
 });

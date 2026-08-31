@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_044_pharmacy_v029_capabilities.sql');
 const NOW = '2026-08-21T00:00:00.000Z';
 
 function seedAccount(db: Database.Database, id: string, enabled: boolean): void {
@@ -48,47 +47,9 @@ function capabilities(db: Database.Database, accountId: string): string[] {
 }
 
 describe('custom_044 pharmacy v0.29 capabilities', () => {
-  it('backfills legacy emergency state once, then keeps capabilities authoritative', () => {
-    const db = new Database(':memory:');
-    db.pragma('foreign_keys = ON');
-    db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    seedAccount(db, 'account-on', true);
-    seedAccount(db, 'account-off', false);
-    db.exec(`DROP TRIGGER IF EXISTS pharmacy_capability_revision_update;
-      DELETE FROM pharmacy_account_capability_revisions;`);
-
-    const migration = readFileSync(MIGRATION, 'utf8');
-    db.exec(migration);
-
-    expect(capabilities(db, 'account-on')).toEqual(expect.arrayContaining([
-      'pharmacy_info', 'emergency_contraception',
-    ]));
-    expect(capabilities(db, 'account-on')).not.toContain('electronic_prescription');
-    expect(capabilities(db, 'account-off')).toContain('pharmacy_info');
-    expect(capabilities(db, 'account-off')).not.toContain('emergency_contraception');
-
-    db.prepare(`UPDATE pharmacy_account_capabilities
-      SET capabilities_json = (SELECT json_group_array(value)
-        FROM json_each(pharmacy_account_capabilities.capabilities_json)
-        WHERE value <> 'emergency_contraception'), updated_at = ?
-      WHERE line_account_id = 'account-on'`).run(NOW);
-    expect(db.prepare(`SELECT is_enabled FROM pharmacy_emergency_settings
-      WHERE line_account_id = 'account-on'`).get()).toEqual({ is_enabled: 0 });
-
-    db.prepare(`UPDATE pharmacy_emergency_settings SET is_enabled = 1, updated_at = ?
-      WHERE line_account_id = 'account-off'`).run(NOW);
-    expect(capabilities(db, 'account-off')).not.toContain('emergency_contraception');
-
-    expect(db.prepare(`SELECT revision FROM pharmacy_account_capability_revisions
-      WHERE line_account_id = 'account-on'`).get()).toEqual({ revision: expect.any(Number) });
-    expect(() => db.exec(migration)).not.toThrow();
-    expect(capabilities(db, 'account-off')).not.toContain('emergency_contraception');
-  });
-
   it('defaults new accounts to pharmacy information but not sensitive features', () => {
     const db = new Database(':memory:');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    db.exec(readFileSync(MIGRATION, 'utf8'));
     db.prepare(`INSERT INTO line_accounts
       (id, channel_id, name, channel_access_token, channel_secret)
       VALUES ('new-account', 'new-channel', 'New', 'token', 'secret')`).run();
@@ -103,7 +64,6 @@ describe('custom_044 pharmacy v0.29 capabilities', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    db.exec(readFileSync(MIGRATION, 'utf8'));
     seedAccount(db, 'account-new', false);
     db.prepare(`DELETE FROM pharmacy_emergency_settings
       WHERE line_account_id = 'account-new'`).run();

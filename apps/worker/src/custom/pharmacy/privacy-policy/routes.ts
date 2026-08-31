@@ -3,7 +3,11 @@ import type { Env } from '../../../index.js';
 import { readJsonObject } from '../json.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { resolvePrescriptionPatient } from '../prescriptions/patient.js';
-import { getTenantPrivacyPolicy, saveTenantPrivacyPolicy } from './repository.js';
+import {
+  getEffectiveTenantPrivacyPolicy,
+  getTenantPrivacyPolicy,
+  saveTenantPrivacyPolicy,
+} from './repository.js';
 
 type PrivacyPolicyEnv = {
   Bindings: Env['Bindings'];
@@ -21,11 +25,12 @@ pharmacyPrivacyPolicyRoutes.use('/api/liff/pharmacy/privacy-policy', async (c, n
   return next();
 });
 
-// The patient-facing view of the pharmacy's own APPI notice. A tenant that has not
-// published one yields null; the LIFF consent screen falls back to neutral wording
-// rather than blocking intake.
+// Patient intake receives either the tenant-authored notice or the immutable baseline.
 pharmacyPrivacyPolicyRoutes.get('/api/liff/pharmacy/privacy-policy', async (c) => {
-  const policy = await getTenantPrivacyPolicy(c.env.DB, c.get('privacyPolicyLineAccountId'));
+  const policy = await getEffectiveTenantPrivacyPolicy(
+    c.env.DB,
+    c.get('privacyPolicyLineAccountId'),
+  );
   return c.json({
     policy: policy && {
       purpose_text: policy.purpose_text,
@@ -33,6 +38,7 @@ pharmacyPrivacyPolicyRoutes.get('/api/liff/pharmacy/privacy-policy', async (c) =
       contact_point: policy.contact_point,
       entrustment_text: policy.entrustment_text,
       policy_version: policy.policy_version,
+      content_hash: policy.content_hash,
     },
   });
 });

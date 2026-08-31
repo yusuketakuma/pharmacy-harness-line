@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import { pharmacyGrowthApi } from '@/custom/pharmacy/growth-loop/api'
 import Header from '@/components/layout/header'
 import CcPromptButton from '@/components/cc-prompt-button'
 import TestRecipientsSetting from '@/components/accounts/test-recipients-setting'
@@ -148,7 +149,7 @@ export default function AccountsPage() {
             lineConnected = false
           }
           try {
-            const readiness = await api.pharmacyGrowth.readiness(accountId)
+            const readiness = await pharmacyGrowthApi.readiness(accountId)
             if (readiness.success) {
               richMenuStatus = readiness.data.richMenu.status
               setupChecks = readiness.data.configurationDoctor.checks

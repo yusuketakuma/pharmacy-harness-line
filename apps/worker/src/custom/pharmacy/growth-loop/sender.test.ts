@@ -230,6 +230,25 @@ describe('pharmacy automated sender', () => {
     expect(push.mock.calls[0][4]).toBe(push.mock.calls[1][4]);
   });
 
+  it('never retries an unknown outcome after the LINE retry-key horizon', async () => {
+    const seen: string[] = [];
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+      { match: 'SELECT id, outcome', first: {
+        id: 'event-1', outcome: 'attempted',
+        occurred_at: '2026-08-16T23:00:00.000Z', created_at: '2026-08-16T23:00:00.000Z',
+      } },
+    ], seen);
+
+    await expect(sendPharmacyAutomatedPush({
+      ...base,
+      db,
+      now: new Date('2026-08-18T00:05:00.000Z'),
+    })).resolves.toBe('reconciliation_required');
+    expect(push).not.toHaveBeenCalled();
+    expect(seen.some((sql) => sql.includes("SET occurred_at ="))).toBe(false);
+  });
+
   it('does not send while the tenant has outbound messaging paused', async () => {
     // No notification-event steps at all: the pause is checked before the
     // idempotency claim, so a paused send burns neither the retry key nor the

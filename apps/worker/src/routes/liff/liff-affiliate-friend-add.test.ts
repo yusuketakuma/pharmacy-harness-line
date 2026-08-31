@@ -146,6 +146,7 @@ describe('GET /auth/callback — affiliate friend-add notification', () => {
       expect.anything(),
       'AFF-1',
       '案件A',
+      'AL-1:F-new',
     );
     expect(await response.text()).toContain('<title>登録完了</title>');
   });
@@ -167,6 +168,7 @@ describe('GET /auth/callback — affiliate friend-add notification', () => {
       expect.anything(),
       'AFF-1',
       null,
+      'AL-2:F-new',
     );
   });
 

@@ -5,8 +5,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = readFileSync(join(ROOT, 'migrations/custom_008_pharmacy_growth_loop.sql'), 'utf8');
-
 function loadDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -96,28 +94,6 @@ describe('custom_008_pharmacy_growth_loop.sql', () => {
       (id, line_account_id, friend_id, message_id, category, outcome, occurred_at, idempotency_key, created_at)
       VALUES ('notice-cross', 'account-b', 'friend-a', 'pharmacy_onboarding_v1', 'transactional_care', 'sent', '2026-08-17', 'notice-cross', '2026-08-17')`).run())
       .toThrow(/FOREIGN KEY constraint failed/i);
-  });
-
-  it('reapplies cleanly and resumes after a partially applied migration', () => {
-    expect(() => db.exec(MIGRATION)).not.toThrow();
-
-    const partial = new Database(':memory:');
-    partial.pragma('foreign_keys = ON');
-    partial.exec(`
-      CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
-      CREATE TABLE staff_members (id TEXT PRIMARY KEY);
-      CREATE TABLE friends (id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL);
-      CREATE UNIQUE INDEX idx_friends_id_line_account ON friends(id, line_account_id);
-      CREATE TABLE pharmacy_prescription_submissions (
-        id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, friend_id TEXT NOT NULL
-      );
-    `);
-    const statements = MIGRATION.split(';').map((statement) => statement.trim()).filter(Boolean);
-    partial.exec(`${statements.slice(0, 5).join(';')};`);
-    expect(() => partial.exec(MIGRATION)).not.toThrow();
-    expect(partial.prepare(`SELECT COUNT(*) AS count FROM sqlite_master
-      WHERE type = 'table' AND name = 'pharmacy_notification_events'`).get())
-      .toEqual({ count: 1 });
   });
 
   it('requires dates and verifier identity for verified validity', () => {

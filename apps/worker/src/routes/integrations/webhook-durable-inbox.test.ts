@@ -269,6 +269,40 @@ describe('webhook durable inbox (H-3)', () => {
     expect(incomingMessages()).toHaveLength(1);
   });
 
+  test('reuses the incoming log and mileage identity after a downstream retry', async () => {
+    sqlite.pragma('ignore_check_constraints = ON');
+    sqlite.prepare(`UPDATE pharmacy_account_capabilities SET mode = 'generic'
+      WHERE line_account_id = 'account-a'`).run();
+    sqlite.pragma('ignore_check_constraints = OFF');
+    const failing = d1From(sqlite, (sql) => sql.includes('FROM auto_replies'));
+    const { ctx, settle } = makeCtx();
+
+    const response = await post(failing, 'a', [textEvent('a', 'event-retry-projection')], ctx);
+    await settle();
+
+    expect(response.status).toBe(200);
+    expect(receipts()[0]).toMatchObject({ status: 'failed', retry_count: 1 });
+    expect(incomingMessages()).toHaveLength(1);
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get())
+      .toEqual({ count: 1 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_event_queue`).get())
+      .toEqual({ count: 1 });
+
+    const swept = await sweepWebhookInbox({
+      db,
+      credentialRootSecret: ENV.LINE_CREDENTIAL_KEY_V1,
+      workerUrl: ENV.WORKER_URL,
+    });
+
+    expect(swept).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+    expect(receipts()[0]).toMatchObject({ status: 'completed', retry_count: 2 });
+    expect(incomingMessages()).toHaveLength(1);
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM engagement_events`).get())
+      .toEqual({ count: 1 });
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM mileage_event_queue`).get())
+      .toEqual({ count: 1 });
+  });
+
   test('an active handler heartbeats its claim so an expired-lease retry cannot reclaim it', async () => {
     const firstNow = new Date('2026-08-19T00:00:00.000Z');
     vi.useFakeTimers();

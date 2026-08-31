@@ -1,4 +1,5 @@
 import { LineClient } from '@line-crm/line-sdk';
+import { deliverTrackedLinePush } from './outbound-line-delivery.js';
 
 export type NotificationKind =
   | 'requested'
@@ -37,16 +38,38 @@ export function renderNotificationText(
 }
 
 export interface SendNotificationParams {
+  db: D1Database;
+  tenantId: string;
+  lineAccountId: string;
+  friendId: string;
   channelAccessToken: string;
   toLineUserId: string;
+  retryKey: string;
   kind: NotificationKind;
   ctx: NotificationContext;
 }
 
 export async function sendBookingNotification(params: SendNotificationParams): Promise<void> {
+  if (!params.retryKey) throw new Error('LINE retry key required');
   const text = renderNotificationText(params.kind, params.ctx);
   const client = new LineClient(params.channelAccessToken);
-  await client.pushMessage(params.toLineUserId, [{ type: 'text', text }]);
+  const delivery = await deliverTrackedLinePush({
+    db: params.db,
+    operationId: params.retryKey,
+    tenantId: params.tenantId,
+    lineAccountId: params.lineAccountId,
+    friendId: params.friendId,
+    messageType: 'text',
+    content: text,
+    source: 'automation',
+    request: { to: params.toLineUserId, messages: [{ type: 'text', text }] },
+    send: async (request, retryKey) => {
+      await client.pushMessage(request.to, request.messages, retryKey);
+    },
+  });
+  if (delivery !== 'sent' && delivery !== 'already_sent') {
+    throw new Error('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+  }
 }
 
 export type BookingNotificationSender = (params: SendNotificationParams) => Promise<void>;

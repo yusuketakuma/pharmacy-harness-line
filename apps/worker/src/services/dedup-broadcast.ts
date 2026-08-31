@@ -200,6 +200,11 @@ import {
 } from './render-message.js';
 import { buildMessage } from './broadcast.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { deliverTrackedLinePush } from './outbound-line-delivery.js';
+import {
+  getActiveMappedAccountTenantId,
+  isPermanentLineDeliveryError,
+} from './step-delivery.js';
 
 const MULTICAST_BATCH_SIZE = 500;
 const PERSONALIZED_PUSH_BATCH_SIZE = 10;
@@ -208,9 +213,9 @@ export interface ProcessMultiAccountDedupResult {
   totalCount: number;
   successCount: number;
   failedAccountIds: string[];
-  // false = この実行は時間バジェットに達して途中で yield した (まだ未送の人が残る)。
+  // false = 時間バジェット超過または再試行可能な失敗で未送が残る。
   // caller は status='sent' にせず batch_offset=0 に戻して次の cron tick に継続させる。
-  // true = 全 account を送り切った (= 完了)。caller が status='sent' にする。
+  // true = 再試行可能な未送がない。terminal failure は failedAccountIds に残る。
   complete: boolean;
 }
 
@@ -239,32 +244,54 @@ const MAX_RUN_MS = 10_000;
  * the caller (processBroadcastSend) — see broadcast.ts §7.3.
  */
 /**
- * dedup broadcast の resume 用進捗。broadcasts.dedup_progress JSON カラムに保存。
- *
- * sentIdentKeys: dedup の正規化 ID (URL_TOKEN / uid:user_id / solo:friend_id) のうち
- *                既に multicast 済のもの全体集合。**アカウント横断で共有**する。
- *
- * 設計理由:
- *   - per-account の lineUserId 集合だと、resume 時に dedup 勝者が別アカウントに
- *     遷移したケース (account A が unfollow / tag 喪失 → 同じ logical person が
- *     account B で勝者になる) で新しい lineUserId が「未送信扱い」となり、結果
- *     同じ人物に二重配信される。
- *   - identKey は dedup の意味論上ユニークな key なので、横断 set で持てば論理
- *     重複を完全に防げる。
- *
- * 容量見積り: 2000 人 × ~40 文字 (url_token または uid:UUID) = ~80KB。
- * D1 row 1MB 上限内。
- *
- * **スケール限界**: ~25,000 人を超える broadcast では JSON サイズが 1MB を超え、
- * UPDATE が失敗してその時点で resume 機能が止まる (multicast 自体は LINE 側に
- * 届くが、進捗は記録されない → 完了時に重複扱いになる)。それ以上の規模が
- * 必要になったら別テーブル `broadcast_dedup_progress(broadcast_id, ident_key)` に
- * row 単位で持つ設計へ移行すること (現状は対応せず、コメントで明示)。
- *
- * 安全マージン: 2000-5000 人なら問題なし。10000 人で要監視 (~400KB)。
+ * dedup broadcast の再開状態。plan は provider I/O 前に winner・宛先・表示名・
+ * account 別本文を固定し、sentIdentKeys は配信済みの意味論的 ID を横断保持する。
+ * 完了時の最大 JSON サイズを先に検証するため、途中で D1 row 上限を踏まない。
  */
+interface FrozenDedupRecipient {
+  accountId: string;
+  friendId: string;
+  lineUserId: string;
+  identKey: string;
+  displayName: string | null;
+}
+
+interface FrozenDedupPlan {
+  recipients: FrozenDedupRecipient[];
+  accountContent: Record<string, string>;
+}
+
 interface DedupProgress {
   sentIdentKeys: string[];
+  plan?: FrozenDedupPlan;
+}
+
+const MAX_DEDUP_PROGRESS_BYTES = 900_000;
+
+function parseFrozenPlan(value: unknown): FrozenDedupPlan | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const candidate = value as { recipients?: unknown; accountContent?: unknown };
+  if (!Array.isArray(candidate.recipients)
+    || !candidate.accountContent
+    || typeof candidate.accountContent !== 'object'
+    || Array.isArray(candidate.accountContent)) return undefined;
+  const recipients = candidate.recipients.filter((recipient): recipient is FrozenDedupRecipient => {
+    if (!recipient || typeof recipient !== 'object') return false;
+    const row = recipient as Record<string, unknown>;
+    return typeof row.accountId === 'string'
+      && typeof row.friendId === 'string'
+      && typeof row.lineUserId === 'string'
+      && typeof row.identKey === 'string'
+      && (row.displayName === null || typeof row.displayName === 'string');
+  });
+  if (recipients.length !== candidate.recipients.length) return undefined;
+  const accountContent = Object.fromEntries(
+    Object.entries(candidate.accountContent as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
+  if (Object.keys(accountContent).length
+    !== Object.keys(candidate.accountContent as Record<string, unknown>).length) return undefined;
+  return { recipients, accountContent };
 }
 
 function parseProgress(raw: string | null | undefined): DedupProgress {
@@ -274,12 +301,13 @@ function parseProgress(raw: string | null | undefined): DedupProgress {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { sentIdentKeys?: unknown }).sentIdentKeys)) {
       return {
-        sentIdentKeys: (parsed as { sentIdentKeys: unknown[] }).sentIdentKeys
-          .filter((s): s is string => typeof s === 'string'),
+        sentIdentKeys: [...new Set((parsed as { sentIdentKeys: unknown[] }).sentIdentKeys
+          .filter((s): s is string => typeof s === 'string'))],
+        plan: parseFrozenPlan((parsed as { plan?: unknown }).plan),
       };
     }
   } catch {
-    // ignore — corrupt JSON は最初からやり直す
+    // caller が保存済みの破損 progress を fail-closed にする
   }
   return empty;
 }
@@ -314,26 +342,89 @@ export async function processMultiAccountDedupBroadcast(
   const accountIds = (broadcast.account_ids ? JSON.parse(broadcast.account_ids) : []) as string[];
   const dedupPriority = (broadcast.dedup_priority ? JSON.parse(broadcast.dedup_priority) : []) as string[];
 
-  const preview = await computeDedupBroadcastPreview(
-    db,
-    accountIds,
-    dedupPriority,
-    broadcast.target_tag_id ?? null,
-  );
-
-  // resume 用の進捗を読み込む。crash した前回の途中状態が入っていれば、
-  // identKey ベースで既送ぶんを除外して残差だけ送る。
   const progress = parseProgress(broadcast.dedup_progress);
-  const sentSet = new Set(progress.sentIdentKeys);
+  const failPlan = async (totalCount: number): Promise<ProcessMultiAccountDedupResult> => {
+    const failedAccountIds = [...new Set(accountIds)];
+    await db.prepare(
+      `UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`,
+    ).bind(failedAccountIds.length > 0 ? JSON.stringify(failedAccountIds) : null, broadcast.id).run();
+    return {
+      totalCount,
+      successCount: progress.sentIdentKeys.length,
+      failedAccountIds,
+      complete: true,
+    };
+  };
+  if (broadcast.dedup_progress != null && !progress.plan) {
+    return failPlan(progress.sentIdentKeys.length);
+  }
 
-  // totalCount は「この broadcast の意図した audience 全体」= 既送 identKey ∪
-  // active アカウントの preview 当選者 identKey。母集団変動 (unfollow / tag 喪失) で
-  // current preview から消えた既送ユーザーも intended audience に含めるための union。
-  // これがないと resume 時に success_count > total_count になる事故が起きる。
-  // inactive account は実送信されないので集計から除外する (active union のみ)。
-  const allIdentKeys = new Set<string>(progress.sentIdentKeys);
+  const needsPlanPersistence = !progress.plan;
+  if (!progress.plan) {
+    const preview = await computeDedupBroadcastPreview(
+      db,
+      accountIds,
+      dedupPriority,
+      broadcast.target_tag_id ?? null,
+    );
+    const recipients: FrozenDedupRecipient[] = [];
+    const accountContent: Record<string, string> = {};
+    for (const accountResult of preview.perAccount) {
+      const account = await getLineAccountById(db, accountResult.accountId);
+      if (!account || !account.is_active) continue;
+      accountContent[account.id] = renderBroadcastMessageContent(
+        broadcast.message_type,
+        broadcast.message_content,
+        { liffId: (account as unknown as { liff_id?: string | null }).liff_id ?? null },
+      );
+      recipients.push(...accountResult.recipients.map((recipient) => ({
+        accountId: account.id,
+        ...recipient,
+      })));
+    }
+    progress.plan = { recipients, accountContent };
+  }
+
+  const plan = progress.plan;
+  const completedProgress = JSON.stringify({
+    ...progress,
+    sentIdentKeys: [...new Set([
+      ...progress.sentIdentKeys,
+      ...plan.recipients.map((recipient) => recipient.identKey),
+    ])],
+  });
+  // ponytail: JSON plan keeps this migration-free; use a row-per-recipient table above 900KB.
+  if (new TextEncoder().encode(completedProgress).length > MAX_DEDUP_PROGRESS_BYTES) {
+    return failPlan(new Set([
+      ...progress.sentIdentKeys,
+      ...plan.recipients.map((recipient) => recipient.identKey),
+    ]).size);
+  }
+  if (needsPlanPersistence) {
+    await db.prepare(
+      `UPDATE broadcasts SET dedup_progress = ? WHERE id = ?`,
+    ).bind(JSON.stringify(progress), broadcast.id).run();
+  }
+
+  // Network I/O 前に固定した plan だけを再生する。ライブの名前・画像・
+  // winner ・batch 境界は再試行 key を変えない。
+  const sentSet = new Set(progress.sentIdentKeys);
+  const allIdentKeys = new Set<string>([
+    ...progress.sentIdentKeys,
+    ...plan.recipients.map((recipient) => recipient.identKey),
+  ]);
+  const recipientsByAccount = new Map<string, FrozenDedupRecipient[]>();
+  for (const recipient of plan.recipients) {
+    const recipients = recipientsByAccount.get(recipient.accountId) ?? [];
+    recipients.push(recipient);
+    recipientsByAccount.set(recipient.accountId, recipients);
+  }
 
   const failedAccountIds: string[] = [];
+  let hasRetryableFailure = false;
+  const recordFailedAccount = (accountId: string) => {
+    if (!failedAccountIds.includes(accountId)) failedAccountIds.push(accountId);
+  };
 
   // 単一 broadcast-wide unit を全アカウント multicast で共有する。各 LINE
   // チャネルは独立した unit namespace を持つので「同じ名前で別カウント」が
@@ -348,35 +439,36 @@ export async function processMultiAccountDedupBroadcast(
   const fallbackUnit = `bcast_${broadcast.id.slice(0, 8).replace(/[^a-zA-Z0-9_]/g, '_')}`;
   const unit = broadcast.aggregation_unit ?? fallbackUnit;
 
-  for (const accountResult of preview.perAccount) {
+  for (const [accountId, recipients] of recipientsByAccount) {
     if (timeExceeded) break; // 時間バジェット超過 — 残アカウントは次の cron tick で処理
-    const account = await getLineAccountById(db, accountResult.accountId);
+    const account = await getLineAccountById(db, accountId);
     if (!account || !account.is_active) {
-      console.log(`[multi-account-dedup] skipping inactive/missing account ${accountResult.accountId}`);
+      recordFailedAccount(accountId);
       continue;
     }
 
-    const recipients = accountResult.recipients;
-    // active account の identKey を totalCount union に登録する (inactive は除外済み)。
-    for (const r of recipients) allIdentKeys.add(r.identKey);
     if (recipients.length === 0) continue;
 
     // 既に送信済の identKey を持つ recipient を除外して残差だけ送る。
     // identKey は dedup の意味論的 ID なので、母集団変動や cross-account 遷移が
     // あっても論理重複を完全に防げる。
-    const remaining = recipients.filter((r) => !sentSet.has(r.identKey));
-    if (remaining.length === 0) continue; // このアカに残作業なし
+    if (!recipients.some((recipient) => !sentSet.has(recipient.identKey))) continue;
 
     const client = lineClientFactory(account.channel_access_token);
-    const accountContent = renderBroadcastMessageContent(
-      broadcast.message_type,
-      broadcast.message_content,
-      { liffId: (account as unknown as { liff_id?: string | null }).liff_id ?? null },
-    );
+    const accountContent = plan.accountContent[accountId];
+    if (accountContent == null) {
+      recordFailedAccount(accountId);
+      continue;
+    }
     const personalized = hasRecipientVariables(accountContent);
     if (!personalized) assertNoUnresolvedBroadcastVariables(accountContent);
+    const tenantId = await getActiveMappedAccountTenantId(db, account.id);
+    if (!tenantId) {
+      recordFailedAccount(account.id);
+      continue;
+    }
     const deliveryBatchSize = personalized ? PERSONALIZED_PUSH_BATCH_SIZE : MULTICAST_BATCH_SIZE;
-    const totalBatches = Math.ceil(remaining.length / deliveryBatchSize);
+    const totalBatches = Math.ceil(recipients.length / deliveryBatchSize);
 
     // Per-account の liff_id でテンプレ変数 ({{liff_id}}) を置換してから
     // buildMessage する。これで 1 broadcast から複数アカへ配信する際、
@@ -386,9 +478,12 @@ export async function processMultiAccountDedupBroadcast(
       : buildMessage(broadcast.message_type, accountContent, broadcast.alt_text ?? undefined);
 
     try {
-      for (let i = 0; i < remaining.length; i += deliveryBatchSize) {
+      for (let i = 0; i < recipients.length; i += deliveryBatchSize) {
         const batchIdx = Math.floor(i / deliveryBatchSize);
-        const batch = remaining.slice(i, i + deliveryBatchSize);
+        const batch = recipients
+          .slice(i, i + deliveryBatchSize)
+          .filter((recipient) => !sentSet.has(recipient.identKey));
+        if (batch.length === 0) continue;
 
         // 時間バジェットを超えたら、残りは次の cron tick に回して yield する。
         // ただし最低 1 batch は必ず送る (sentAnyBatch ガード) ことで毎 tick 前進を保証。
@@ -398,7 +493,7 @@ export async function processMultiAccountDedupBroadcast(
         }
 
         if (batchIdx > 0) {
-          await sleep(calculateStaggerDelay(remaining.length, batchIdx));
+          await sleep(calculateStaggerDelay(recipients.length, batchIdx));
         }
 
         const delivered = [] as Array<{
@@ -422,11 +517,31 @@ export async function processMultiAccountDedupBroadcast(
               const retryKey = await createBroadcastRetryKey(
                 broadcast.id,
                 'dedup-personalized-push',
-                recipient.friendId,
-                broadcast.message_type,
-                content,
+                recipient.identKey,
               );
-              await client.pushMessage(recipient.lineUserId, [recipientMessage], retryKey, [unit]);
+              const result = await deliverTrackedLinePush({
+                db,
+                operationId: retryKey,
+                tenantId: tenantId!,
+                lineAccountId: account.id,
+                friendId: recipient.friendId,
+                messageType: broadcast.message_type,
+                content,
+                source: 'broadcast',
+                broadcastId: broadcast.id,
+                request: { to: recipient.lineUserId, messages: [recipientMessage] },
+                send: async (request, providerRetryKey) => {
+                  await client.pushMessage(
+                    request.to,
+                    request.messages,
+                    providerRetryKey,
+                    [unit],
+                  );
+                },
+              });
+              if (result !== 'sent' && result !== 'already_sent') {
+                throw new Error('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+              }
               delivered.push({ recipient, messageType: broadcast.message_type, content });
             } catch (err) {
               batchDeliveryError = err;
@@ -462,18 +577,17 @@ export async function processMultiAccountDedupBroadcast(
         }
 
         const now = jstNow();
-        // messages_log INSERT と progress UPDATE を 1 batch にまとめてアトミックに
-        // 永続化する。Worker が multicast 後・batch 完了前に死ぬと「LINE 配信済 +
-        // DB 進捗未更新」になって resume 時に同 batch を再送 → 重複配信事故が起きる。
-        // db.batch は D1 で transaction として扱われ、まとめて成否が決まる。
+        // multicast は log と progress を同じ batch で確定する。personalized push は
+        // recipient ごとの outbound ledger が先に log を確定するため、ここでは progress
+        // だけを書く。crash 後の再入でも ledger が already_sent を返して progress を直せる。
         const stmts = [
-          ...delivered.map(({ recipient: r, messageType, content }) =>
+          ...(personalized ? [] : delivered.map(({ recipient: r, messageType, content }) =>
             db.prepare(
               `INSERT INTO messages_log
-                (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, line_account_id, created_at)
-               VALUES (?, ?, 'outgoing', ?, ?, ?, NULL, 'broadcast', ?, ?)`,
+                (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, line_account_id, created_at)
+               VALUES (?, ?, 'outgoing', ?, ?, ?, NULL, 'push', 'broadcast', ?, ?)`,
             ).bind(crypto.randomUUID(), r.friendId, messageType, content, broadcast.id, account.id, now),
-          ),
+          )),
           // success_count は absolute (`= ?`) で書いて double-counting を防ぐ。
           db.prepare(
             `UPDATE broadcasts SET dedup_progress = ?, success_count = ? WHERE id = ?`,
@@ -485,7 +599,12 @@ export async function processMultiAccountDedupBroadcast(
       }
     } catch (err) {
       console.error(`[multi-account-dedup] account ${account.id} failed:`, err);
-      failedAccountIds.push(account.id);
+      recordFailedAccount(account.id);
+      const message = err instanceof Error ? err.message : String(err);
+      const terminal = isPermanentLineDeliveryError(err)
+        || message === 'OUTBOUND_LINE_RECONCILIATION_REQUIRED'
+        || message === 'OUTBOUND_LINE_DELIVERY_SCOPE_MISMATCH';
+      if (!terminal) hasRetryableFailure = true;
     }
   }
 
@@ -512,7 +631,12 @@ export async function processMultiAccountDedupBroadcast(
   // が残ったままで status='sending', batch_offset=-1 になり、recoverStalledBroadcasts が
   // 再投入して resume → 完走済みアカは batchOffset >= recipients.length で skip → 重複なし。
   //
-  // complete=false (timeExceeded) のときは caller が status='sent' にせず batch_offset=0 に
-  // 戻し、次の cron tick が getQueuedBroadcasts で拾って残りを送る (= 分割送信)。
-  return { totalCount, successCount, failedAccountIds, complete: !timeExceeded };
+  // complete=false (時間超過または再試行可能な失敗) のときは caller が
+  // status='sent' にせず batch_offset=0 に戻し、次の cron tick で再開する。
+  return {
+    totalCount,
+    successCount,
+    failedAccountIds,
+    complete: !timeExceeded && !hasRetryableFailure,
+  };
 }

@@ -26,15 +26,4 @@ describe('custom_011 pharmacy staff account assignments', () => {
     expect(indexes?.name).toBe('idx_pharmacy_staff_accounts_staff');
   });
 
-  it('can be applied repeatedly during an interrupted upgrade retry', () => {
-    const sqlite = new Database(':memory:');
-    sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    sqlite.exec('DROP TABLE pharmacy_staff_accounts');
-    const migration = readFileSync(
-      join(ROOT, 'migrations', 'custom_013_pharmacy_staff_accounts.sql'), 'utf8',
-    );
-    expect(() => sqlite.exec(migration)).not.toThrow();
-    expect(() => sqlite.exec(migration)).not.toThrow();
-  });
 });

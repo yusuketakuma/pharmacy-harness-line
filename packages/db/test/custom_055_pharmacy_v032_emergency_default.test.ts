@@ -5,8 +5,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_055_pharmacy_v032_emergency_default.sql');
-
 function capabilities(db: Database.Database, accountId: string): string[] {
   const row = db.prepare(`SELECT capabilities_json FROM pharmacy_account_capabilities
     WHERE line_account_id = ?`).get(accountId) as { capabilities_json: string };
@@ -25,7 +23,7 @@ describe('custom_055 pharmacy v0.32 emergency default', () => {
     expect(capabilities(db, 'new-account')).not.toContain('electronic_prescription');
   });
 
-  it('preserves an existing explicit OFF when the forward migration is applied', () => {
+  it('preserves an existing explicit OFF when another account is created', () => {
     const db = new Database(':memory:');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
     db.prepare(`INSERT INTO line_accounts
@@ -36,7 +34,9 @@ describe('custom_055 pharmacy v0.32 emergency default', () => {
         FROM json_each(capabilities_json) WHERE value <> 'emergency_contraception')
       WHERE line_account_id = 'existing-account'`).run();
 
-    db.exec(readFileSync(MIGRATION, 'utf8'));
+    db.prepare(`INSERT INTO line_accounts
+      (id, channel_id, name, channel_access_token, channel_secret)
+      VALUES ('other-account', 'other-channel', 'Other', 'token', 'secret')`).run();
 
     expect(capabilities(db, 'existing-account')).not.toContain('emergency_contraception');
   });

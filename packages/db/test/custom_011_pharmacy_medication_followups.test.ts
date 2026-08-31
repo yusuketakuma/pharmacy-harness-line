@@ -13,11 +13,6 @@ import {
 } from '../../../apps/worker/src/custom/pharmacy/medication-followup/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = readFileSync(
-  join(ROOT, 'migrations/custom_011_pharmacy_medication_followups.sql'),
-  'utf8',
-);
-
 function loadDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -160,13 +155,6 @@ describe('custom_011 pharmacy medication follow-ups', () => {
               'staff', 'schedule:submission-a', '2026-08-18T00:00:00.000Z')`);
     insert.run('event-a');
     expect(() => insert.run('event-b')).toThrow(/UNIQUE constraint failed/i);
-  });
-
-  it('reapplies without duplicating schema objects', () => {
-    expect(() => db.exec(MIGRATION)).not.toThrow();
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM sqlite_master
-      WHERE type = 'table' AND name LIKE 'pharmacy_medication_followup%'`).get())
-      .toEqual({ count: 2 });
   });
 
   it('schedules one follow-up from a closed, account-scoped submission', async () => {

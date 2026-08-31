@@ -134,6 +134,7 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
     resourceId = /^\/api\/friends\/([^/]+)/.exec(path)?.[1] ?? null;
   }
   resourceId ??= /^\/api\/conversations\/([^/]+)/.exec(path)?.[1] ?? null;
+  resourceId ??= /^\/api\/scenarios\/[^/]+\/enroll\/([^/]+)/.exec(path)?.[1] ?? null;
   const chatMatch = /^\/api\/chats\/([^/]+)/.exec(path);
   if (chatMatch) {
     resourceId = chatMatch[1];
@@ -160,6 +161,30 @@ export const tenantFriendResourceGuard: MiddlewareHandler<Env> = async (c, next)
     if (!await isOwned(friendId)) return deny(c, 403, 'Forbidden');
   }
   if (resourceId && !await isOwned(resourceId, acceptsChatId)) {
+    return deny(c, 403, 'Forbidden');
+  }
+
+  return next();
+};
+
+export const tenantScenarioResourceGuard: MiddlewareHandler<Env> = async (c, next) => {
+  const tenantId = c.get('tenantId');
+  if (!tenantId) return next();
+
+  const scenarioId = /^\/api\/scenarios\/([^/]+)/.exec(c.req.path)?.[1];
+  if (!scenarioId) return next();
+
+  const scenario = await c.env.DB.prepare(
+    `SELECT scenario.line_account_id
+       FROM scenarios AS scenario
+      WHERE scenario.id = ? AND scenario.tenant_id = ?
+      LIMIT 1`,
+  ).bind(scenarioId, tenantId).first<{ line_account_id: string | null }>();
+  if (!scenario) return deny(c, 403, 'Forbidden');
+  if (
+    scenario.line_account_id &&
+    !await accountResourceOwnedByStaff(c, tenantId, scenario.line_account_id)
+  ) {
     return deny(c, 403, 'Forbidden');
   }
 

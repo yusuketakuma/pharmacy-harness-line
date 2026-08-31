@@ -3,6 +3,7 @@ import {
   getForms,
   getFormsWithStats,
   getFormById,
+  getFormByIdForLineAccount,
   createForm,
   updateForm,
   deleteForm,
@@ -28,6 +29,7 @@ import type { Env } from '../../index.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
 import { isPharmacyModeAccount } from '../../custom/pharmacy/growth-loop/access.js';
 import { validateHttpsUrl } from '../../lib/validate-https-url.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 
 const WEBHOOK_HEADER_ALLOWED = (name: string) =>
   /^(authorization|content-type|x-[a-z0-9-]+)$/i.test(name);
@@ -193,7 +195,7 @@ function serializeSubmission(row: DbFormSubmission & { friend_name?: string | nu
 // GET /api/forms — list all forms (with submission stats + delivering accounts)
 forms.get('/api/forms', async (c) => {
   try {
-    const items = await getFormsWithStats(c.env.DB);
+    const items = await getFormsWithStats(c.env.DB, c.get('tenantId') ?? null);
     return c.json({
       success: true,
       data: items.map((row) =>
@@ -213,7 +215,9 @@ forms.get('/api/forms', async (c) => {
 forms.get('/api/forms/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const form = await getFormById(c.env.DB, id);
+    const form = c.get('staff')
+      ? await getFormById(c.env.DB, id, c.get('tenantId') ?? null)
+      : await getFormById(c.env.DB, id);
     if (!form) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
@@ -273,6 +277,7 @@ forms.post('/api/forms', async (c) => {
       ogTitle: body.ogTitle ?? null,
       ogDescription: body.ogDescription ?? null,
       ogImageUrl: body.ogImageUrl ?? null,
+      tenantId: c.get('tenantId') ?? null,
     });
 
     return c.json({ success: true, data: serializeForm(form) }, 201);
@@ -327,7 +332,7 @@ forms.put('/api/forms/:id', async (c) => {
     if (body.ogDescription !== undefined) updates.ogDescription = body.ogDescription;
     if (body.ogImageUrl !== undefined) updates.ogImageUrl = body.ogImageUrl;
 
-    const updated = await updateForm(c.env.DB, id, updates as any);
+    const updated = await updateForm(c.env.DB, id, updates as any, c.get('tenantId') ?? null);
 
     if (!updated) {
       return c.json({ success: false, error: 'Form not found' }, 404);
@@ -344,11 +349,11 @@ forms.put('/api/forms/:id', async (c) => {
 forms.delete('/api/forms/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const form = await getFormById(c.env.DB, id);
+    const form = await getFormById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!form) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
-    await deleteForm(c.env.DB, id);
+    await deleteForm(c.env.DB, id, c.get('tenantId') ?? null);
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/forms/:id error:', err);
@@ -360,11 +365,11 @@ forms.delete('/api/forms/:id', async (c) => {
 forms.get('/api/forms/:id/submissions', async (c) => {
   try {
     const id = c.req.param('id');
-    const form = await getFormById(c.env.DB, id);
+    const form = await getFormById(c.env.DB, id, c.get('tenantId') ?? null);
     if (!form) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
-    const submissions = await getFormSubmissions(c.env.DB, id);
+    const submissions = await getFormSubmissions(c.env.DB, id, c.get('tenantId') ?? null);
     return c.json({ success: true, data: submissions.map(serializeSubmission) });
   } catch (err) {
     console.error('GET /api/forms/:id/submissions error:', err);
@@ -383,6 +388,13 @@ forms.post('/api/forms/:id/opened', async (c) => {
     const friend = lineUserId
       ? await getFriendByLineUserId(c.env.DB, lineUserId)
       : null;
+    if (friend && !await getFormByIdForLineAccount(
+      c.env.DB,
+      formId,
+      friend.line_account_id ?? null,
+    )) {
+      return c.json({ success: false, error: 'Form not found' }, 404);
+    }
 
     const now = jstNow();
     await c.env.DB.prepare(
@@ -419,6 +431,9 @@ forms.post('/api/forms/:id/partial', async (c) => {
     if (await isPharmacyModeAccount(c.env.DB, friend.line_account_id)) {
       return c.json({ success: false, error: 'generic forms are disabled for pharmacy accounts' }, 403);
     }
+    if (!await getFormByIdForLineAccount(c.env.DB, c.req.param('id'), friend.line_account_id ?? null)) {
+      return c.json({ success: false, error: 'Form not found' }, 404);
+    }
 
     // Save survey data to friend metadata (merge with existing)
     const existingMeta = friend.metadata ? JSON.parse(friend.metadata) : {};
@@ -438,7 +453,7 @@ forms.post('/api/forms/:id/partial', async (c) => {
 forms.post('/api/forms/:id/submit', async (c) => {
   try {
     const formId = c.req.param('id');
-    const form = await getFormById(c.env.DB, formId);
+    let form = await getFormById(c.env.DB, formId);
     if (!form) {
       return c.json({ success: false, error: 'Form not found' }, 404);
     }
@@ -464,6 +479,15 @@ forms.post('/api/forms/:id/submit', async (c) => {
     if (await isPharmacyModeAccount(c.env.DB, friend.line_account_id)) {
       return c.json({ success: false, error: 'generic forms are disabled for pharmacy accounts' }, 403);
     }
+    const accessibleForm = await getFormByIdForLineAccount(
+      c.env.DB,
+      formId,
+      friend.line_account_id ?? null,
+    );
+    if (!accessibleForm) {
+      return c.json({ success: false, error: 'Form not found' }, 404);
+    }
+    form = accessibleForm;
     const friendId = friend.id;
 
     // Validate required fields
@@ -495,6 +519,12 @@ forms.post('/api/forms/:id/submit', async (c) => {
       const webhookResult = await callFormWebhook(form, submissionData);
       webhookData = webhookResult.data as Record<string, unknown> | null;
       if (!webhookResult.passed) {
+        // Save first so retries of the related notification share this logical operation ID.
+        const submission = await createFormSubmission(c.env.DB, {
+          formId,
+          friendId,
+          data: JSON.stringify({ ...submissionData, _webhookResult: webhookResult.data }),
+        });
         // Webhook rejected — send fail message and stop
         if (form.on_submit_webhook_fail_message) {
           if (friend.line_user_id) {
@@ -509,7 +539,11 @@ forms.post('/api/forms/:id/submit', async (c) => {
                 accessToken,
                 friend.line_user_id,
                 [{ type: 'text', text: form.on_submit_webhook_fail_message }],
-                crypto.randomUUID(),
+                await createBroadcastRetryKey(
+                  'form-submission',
+                  submission.id,
+                  'webhook-rejected',
+                ),
                 (request) => dispatchLineProxyLocally(request, c.env, optionalExecutionCtx(c)),
               );
             } catch (e) {
@@ -517,12 +551,6 @@ forms.post('/api/forms/:id/submit', async (c) => {
             }
           }
         }
-        // Still save the submission for records
-        const submission = await createFormSubmission(c.env.DB, {
-          formId,
-          friendId,
-          data: JSON.stringify({ ...submissionData, _webhookResult: webhookResult.data }),
-        });
         return c.json({ success: true, data: { ...serializeSubmission(submission), webhookPassed: false, webhookData: webhookResult.data } }, 201);
       }
     }
@@ -654,7 +682,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
               accessToken,
               friend.line_user_id,
               [{ type: 'flex', altText: 'ヒアリングの準備ができました', contents: meetFlex }],
-              crypto.randomUUID(),
+              await createBroadcastRetryKey('form-submission', submission.id, 'meet-link'),
               (request) => dispatchLineProxyLocally(request, c.env, optionalExecutionCtx(c)),
             );
           })(),
@@ -664,10 +692,8 @@ forms.post('/api/forms/:id/submit', async (c) => {
       // Send confirmation message with submitted data back to user
       sideEffects.push(
         (async () => {
-          console.log('Form reply: starting for friendId', friendId);
           const friend = await getFriendById(db, friendId!);
-          if (!friend?.line_user_id) { console.log('Form reply: no line_user_id'); return; }
-          console.log('Form reply: sending');
+          if (!friend?.line_user_id) return;
           const accessToken = await resolveFriendAccessToken(
             db,
             friend,
@@ -747,7 +773,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
             accessToken,
             friend.line_user_id,
             messages,
-            crypto.randomUUID(),
+            await createBroadcastRetryKey('form-submission', submission.id, 'confirmation'),
             (request) => dispatchLineProxyLocally(request, c.env, optionalExecutionCtx(c)),
           );
         })(),

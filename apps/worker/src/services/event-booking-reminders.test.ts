@@ -177,6 +177,9 @@ interface DueRow {
   booking_id: string;
   kind: string;
   retry_count: number;
+  tenant_id: string;
+  line_account_id: string;
+  friend_id: string;
   event_name: string;
   venue_name: string | null;
   venue_url: string | null;
@@ -188,6 +191,8 @@ interface DueRow {
   scheduled_at: string;
   sent_at: string | null;
   last_error: string | null;
+  claimed_at: string | null;
+  first_attempted_at: string | null;
 }
 
 function dueDB(state: { rows: DueRow[] }): D1Database {
@@ -199,38 +204,66 @@ function dueDB(state: { rows: DueRow[] }): D1Database {
         async first<T>() { return null as T | null; },
         async all<T>() {
           if (sql.includes('FROM event_booking_reminders r')) {
-            const [nowIso] = bound as [string];
+            const [nowIso, , staleClaimAt] = bound as [string, string, string];
             const items = state.rows.filter(
               (r) =>
-                (r.status === 'pending' || r.status === 'failed') &&
+                (r.status === 'pending' || r.status === 'failed' ||
+                 (r.status === 'processing' && r.claimed_at != null && r.claimed_at <= staleClaimAt)) &&
                 r.scheduled_at <= nowIso &&
                 r.starts_at > nowIso,
             );
-            return { results: items as unknown as T[] };
+            return { results: items.map((row) => ({ ...row })) as unknown as T[] };
           }
           return { results: [] };
         },
         async run() {
+          if (sql.includes('LINE_RETRY_HORIZON_EXPIRED')) {
+            const [horizon] = bound as [string];
+            let changes = 0;
+            for (const row of state.rows) {
+              if ((row.status === 'processing' || row.status === 'failed') &&
+                  row.first_attempted_at != null && row.first_attempted_at <= horizon) {
+                row.status = 'failed_permanent';
+                row.last_error = 'LINE_RETRY_HORIZON_EXPIRED';
+                changes += 1;
+              }
+            }
+            return { success: true, meta: { changes } };
+          }
           // CAS claim: bump retry_count if status pending/failed and current retry_count matches
           if (sql.includes('SET retry_count = retry_count + 1')) {
-            const [id, expected] = bound as [string, number];
+            const [claimedAt, firstAttemptedAt, id, expected, staleClaimAt] = bound as [
+              string, string, string, number, string,
+            ];
             const r = state.rows.find((x) => x.id === id);
             if (!r) return { success: true, meta: { changes: 0 } };
             if (r.retry_count !== expected) return { success: true, meta: { changes: 0 } };
-            if (r.status !== 'pending' && r.status !== 'failed') return { success: true, meta: { changes: 0 } };
+            if (r.status !== 'pending' && r.status !== 'failed' &&
+                !(r.status === 'processing' && r.claimed_at != null && r.claimed_at <= staleClaimAt)) {
+              return { success: true, meta: { changes: 0 } };
+            }
             r.retry_count = expected + 1;
+            r.status = 'processing';
+            r.claimed_at = claimedAt;
+            r.first_attempted_at ??= firstAttemptedAt;
             return { success: true, meta: { changes: 1 } };
           }
-          if (sql.startsWith("UPDATE event_booking_reminders SET status='sent'")) {
-            const [sent_at, id] = bound as [string, string];
+          if (sql.includes("SET status='sent'")) {
+            const [sent_at, id, expected] = bound as [string, string, number];
             const r = state.rows.find((x) => x.id === id);
-            if (r) { r.status = 'sent'; r.sent_at = sent_at; }
+            if (!r || r.status !== 'processing' || r.retry_count !== expected) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            r.status = 'sent'; r.sent_at = sent_at; r.claimed_at = null;
             return { success: true, meta: { changes: 1 } };
           }
-          if (sql.startsWith('UPDATE event_booking_reminders SET status = ?, last_error = ?')) {
-            const [status, last_error, id] = bound as [string, string, string];
+          if (sql.includes('SET status = ?, last_error = ?')) {
+            const [status, last_error, id, expected] = bound as [string, string, string, number];
             const r = state.rows.find((x) => x.id === id);
-            if (r) { r.status = status; r.last_error = last_error; }
+            if (!r || r.status !== 'processing' || r.retry_count !== expected) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            r.status = status; r.last_error = last_error; r.claimed_at = null;
             return { success: true, meta: { changes: 1 } };
           }
           return { success: true, meta: {} };
@@ -244,6 +277,7 @@ function dueDB(state: { rows: DueRow[] }): D1Database {
 function dueRow(over: Partial<DueRow> = {}): DueRow {
   return {
     id: 'r1', booking_id: 'b1', kind: 'day_before', retry_count: 0,
+    tenant_id: 'tenant-1', line_account_id: 'account-1', friend_id: 'friend-1',
     event_name: 'X', venue_name: null, venue_url: null,
     starts_at: '2099-06-01T10:00:00Z',
     channel_access_token: 'tok',
@@ -253,29 +287,82 @@ function dueRow(over: Partial<DueRow> = {}): DueRow {
     scheduled_at: '2026-05-09T00:00:00Z',
     sent_at: null,
     last_error: null,
+    claimed_at: null,
+    first_attempted_at: null,
     ...over,
   };
 }
 
 describe('processDueEventReminders', () => {
+  test('does not dispatch the same reminder from an overlapping cron sweep', async () => {
+    const state = { rows: [dueRow()] };
+    const db = dueDB(state);
+    const sender = vi.fn(async () => {
+      if (sender.mock.calls.length === 1) {
+        await processDueEventReminders(db, {
+          now: new Date('2026-05-09T01:00:00Z'),
+          sender,
+        });
+      }
+    });
+
+    await processDueEventReminders(db, {
+      now: new Date('2026-05-09T01:00:00Z'),
+      sender,
+    });
+
+    expect(sender).toHaveBeenCalledTimes(1);
+  });
+
+  test('retires an unresolved reminder after the LINE retry-key horizon', async () => {
+    const state = { rows: [dueRow({
+      status: 'processing', retry_count: 1,
+      claimed_at: '2026-05-07T23:00:00.000Z',
+      first_attempted_at: '2026-05-07T23:00:00.000Z',
+    })] };
+    const sender = vi.fn();
+
+    await processDueEventReminders(dueDB(state), {
+      now: new Date('2026-05-09T01:00:00Z'), sender,
+    });
+
+    expect(state.rows[0]).toMatchObject({
+      status: 'failed_permanent', last_error: 'LINE_RETRY_HORIZON_EXPIRED',
+    });
+    expect(sender).not.toHaveBeenCalled();
+  });
+
   test('excludes pharmacy-mode accounts in the due query', async () => {
     const sql: string[] = [];
     const db = {
       prepare(statement: string) {
         sql.push(statement);
-        return { bind: () => ({ all: async () => ({ results: [] }) }) };
+        return {
+          bind: () => ({
+            all: async () => ({ results: [] }),
+            run: async () => ({ meta: { changes: 0 } }),
+          }),
+        };
       },
     } as unknown as D1Database;
 
     await processDueEventReminders(db, { now: new Date('2026-05-09T00:00:00Z'), sender: vi.fn() });
 
-    expect(sql[0]).toContain('pharmacy_account_capabilities');
-    expect(sql[0]).toContain('la.is_active = 1');
-    expect(sql[0]).toContain('tenant_line_accounts');
-    expect(sql[0]).toContain("tenant.status = 'active'");
-    expect(sql[0]).toContain('e.line_account_id = b.line_account_id');
-    expect(sql[0]).toContain('s.event_id = b.event_id');
-    expect(sql[0]).toContain('f.line_account_id = b.line_account_id');
+    const dueSql = sql.find((statement) => statement.includes('FROM event_booking_reminders r')) ?? '';
+    expect(dueSql).toContain('pharmacy_account_capabilities');
+    expect(dueSql).toContain('la.is_active = 1');
+    expect(dueSql).toContain('tenant_line_accounts');
+    expect(dueSql).toContain("tenant.status = 'active'");
+    expect(dueSql).toContain("e.target_type = 'single'");
+    expect(dueSql).toContain("e.target_type = 'multi-account-dedup'");
+    expect(dueSql).toMatch(
+      /EXISTS\s*\(\s*SELECT 1 FROM json_each\(e\.account_ids\)\s+WHERE value = b\.line_account_id\s*\)/,
+    );
+    expect(dueSql).toContain('s.event_id = b.event_id');
+    expect(dueSql).toContain('f.line_account_id = b.line_account_id');
+    expect(dueSql).toContain('mapping.tenant_id');
+    expect(dueSql).toContain('b.line_account_id');
+    expect(dueSql).toContain('b.friend_id');
   });
   test('sends due pending reminders', async () => {
     const state = { rows: [dueRow({ id: 'r1' })] };
@@ -288,7 +375,14 @@ describe('processDueEventReminders', () => {
     expect(result).toEqual({ sent: 1, failed: 0 });
     expect(state.rows[0].status).toBe('sent');
     expect(sender).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'reminder_day_before' }),
+      expect.objectContaining({
+        db,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        kind: 'reminder_day_before',
+        retryKey: 'r1',
+      }),
     );
   });
 

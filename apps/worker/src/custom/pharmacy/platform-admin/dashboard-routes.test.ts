@@ -95,11 +95,13 @@ async function seedPlatformAdmin(sqlite: Sqlite3Database): Promise<string> {
      VALUES (?, ?, ?, 0, 1, ?, ?)`,
   ).run('staff-platform', 'platform-admin', 'unused-on-the-session-path', now, now);
   const token = generatePlatformAdminSessionToken();
-  sqlite.prepare(
+  const session = sqlite.prepare(
     `INSERT INTO platform_admin_sessions
        (token_hash, staff_id, credential_version, session_kind, expires_at, revoked_at, created_at)
-     VALUES (?, ?, 1, 'standard', ?, NULL, ?)`,
-  ).run(await hashTenantAdminSessionToken(token), 'staff-platform', utcAhead(DAY_MS), now);
+       VALUES (?, ?, 1, 'standard', ?, NULL, ?)`,
+  );
+  session.run(await hashTenantAdminSessionToken(token), 'staff-platform', utcAhead(DAY_MS), now);
+  session.run('a'.repeat(64), 'staff-platform', utcAhead(DAY_MS), now);
   return `lh_platform_admin_session=${token}`;
 }
 
@@ -162,6 +164,12 @@ function seedTenantSession(
   revokedAt: string | null = null,
 ): void {
   sqlite.prepare(
+    `INSERT OR IGNORE INTO tenant_admin_credentials
+       (tenant_id, staff_id, login_id, password_hash, must_change_password,
+        credential_version, created_at, updated_at)
+     VALUES (?, ?, ?, 'unused-on-the-session-path', 0, 1, ?, ?)`,
+  ).run(tenantId, staffId, `login-${staffId}`, createdAt, createdAt);
+  sqlite.prepare(
     `INSERT INTO tenant_admin_sessions
        (token_hash, tenant_id, staff_id, credential_version, session_kind, expires_at, revoked_at, created_at)
      VALUES (?, ?, ?, 1, 'standard', ?, ?, ?)`,
@@ -179,9 +187,9 @@ function seedGrant(
   sqlite.prepare(
     `INSERT INTO platform_admin_access_grants
        (id, platform_admin_id, tenant_id, scopes, reason, ticket_reference,
-        reauth_verified_at, issued_at, expires_at, revoked_at, revoked_by)
-     VALUES (?, 'staff-platform', ?, '["phi:read"]', 'support', NULL, ?, ?, ?, ?, NULL)`,
-  ).run(id, tenantId, now, now, expiresAt, revokedAt);
+        reauth_verified_at, issued_at, expires_at, revoked_at, revoked_by, session_token_hash)
+     VALUES (?, 'staff-platform', ?, '["phi:read"]', 'support', NULL, ?, ?, ?, ?, NULL, ?)`,
+  ).run(id, tenantId, now, now, expiresAt, revokedAt, 'a'.repeat(64));
 }
 
 function accessEvents(sqlite: Sqlite3Database) {

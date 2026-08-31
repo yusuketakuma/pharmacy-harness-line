@@ -6,6 +6,20 @@ import {
 } from './line-proxy-send.js';
 
 describe('pushViaHarnessProxy', () => {
+  test('rejects a missing retry key before dispatch', async () => {
+    const dispatch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    await expect(pushViaHarnessProxy(
+      'https://worker.example.com',
+      'channel-token',
+      'U00000000000000000000000000000000',
+      [{ type: 'text', text: 'test' }],
+      undefined as unknown as string,
+      dispatch,
+    )).rejects.toThrow('LINE retry key required');
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   test('bounds a hung push and reports the result as unknown', async () => {
     const controller = new AbortController();
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
@@ -74,9 +88,12 @@ describe('replyViaHarnessProxy', () => {
     });
   });
 
-  test('surfaces proxy failures without retrying a one-time reply token', async () => {
+  test('preserves only the safe invalid-token detail for deterministic classification', async () => {
     const dispatch = vi.fn().mockResolvedValue(
-      new Response('{"message":"invalid reply token"}', { status: 400, statusText: 'Bad Request' }),
+      new Response(JSON.stringify({
+        message: 'Invalid reply token',
+        details: [{ userId: 'U-private', secret: 'private-value' }],
+      }), { status: 400, statusText: 'Bad Request' }),
     );
 
     const failure = await replyViaHarnessProxy(
@@ -87,8 +104,9 @@ describe('replyViaHarnessProxy', () => {
       dispatch,
     ).catch((error: unknown) => error);
 
-    expect(String(failure)).toContain('LINE Harness proxy error: 400 Bad Request');
-    expect(String(failure)).not.toContain('invalid reply token');
+    expect(String(failure)).toContain('LINE API error: 400 Bad Request — Invalid reply token');
+    expect(String(failure)).not.toContain('U-private');
+    expect(String(failure)).not.toContain('private-value');
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 });

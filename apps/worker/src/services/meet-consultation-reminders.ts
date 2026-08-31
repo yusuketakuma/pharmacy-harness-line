@@ -51,6 +51,7 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 const MAX_RETRY = 3;
+const CLAIM_STALE_MS = 15 * MINUTE_MS;
 const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[a-z0-9-]+(?:[/?#].*)?$/i;
 
 function normalizeDate(value: string, field: string): Date {
@@ -229,7 +230,7 @@ export async function registerMeetConsultation(
             SELECT consultation.id FROM meet_consultations AS consultation
             INNER JOIN friends AS friend ON friend.id = consultation.friend_id
             WHERE consultation.external_event_id = ? AND friend.line_account_id = ?
-          ) AND kind=? AND status IN ('pending','failed')`,
+          ) AND kind=? AND status IN ('pending','failed','processing')`,
       )
       .bind(nowIso, input.externalEventId, lineAccountId, kind));
   }
@@ -295,8 +296,9 @@ export async function processDueMeetConsultationReminders(
          INNER JOIN meet_consultations c ON c.id = r.consultation_id
          INNER JOIN friends f ON f.id = c.friend_id
          INNER JOIN line_accounts la ON la.id = f.line_account_id
-        WHERE r.status IN ('pending','failed')
-          AND r.retry_count < ?
+        WHERE r.retry_count < ?
+          AND (r.status IN ('pending','failed')
+               OR (r.status = 'processing' AND r.updated_at <= ?))
           AND r.scheduled_at <= ?
           AND c.status = 'confirmed'
           AND c.starts_at > ?
@@ -305,12 +307,42 @@ export async function processDueMeetConsultationReminders(
         ORDER BY r.scheduled_at ASC
         LIMIT 100`,
     )
-    .bind(MAX_RETRY, nowIso, nowIso)
+    .bind(
+      MAX_RETRY,
+      new Date(options.now.getTime() - CLAIM_STALE_MS).toISOString(),
+      nowIso,
+      nowIso,
+    )
     .all<DueMeetReminderRow>();
 
   let sent = 0;
   let failed = 0;
   for (const row of due.results ?? []) {
+    const attempt = row.retry_count + 1;
+    const claim = await db.prepare(
+      `UPDATE meet_consultation_reminders
+          SET status='processing', retry_count=?, last_error=NULL, updated_at=?
+        WHERE id=? AND retry_count=?
+          AND (status IN ('pending','failed')
+               OR (status='processing' AND updated_at <= ?))
+          AND EXISTS (
+            SELECT 1 FROM meet_consultations c
+            INNER JOIN friends f ON f.id = c.friend_id
+            INNER JOIN line_accounts la ON la.id = f.line_account_id
+            WHERE c.id = meet_consultation_reminders.consultation_id
+              AND c.status = 'confirmed' AND c.starts_at > ?
+              AND f.is_following = 1 AND la.is_active = 1
+          )`,
+    ).bind(
+      attempt,
+      nowIso,
+      row.id,
+      row.retry_count,
+      new Date(options.now.getTime() - CLAIM_STALE_MS).toISOString(),
+      nowIso,
+    ).run();
+    if ((claim.meta?.changes ?? 0) !== 1) continue;
+
     try {
       const text = renderMeetReminderText(row.kind, row.starts_at, row.meet_url);
       await pushViaHarnessProxy(
@@ -321,31 +353,30 @@ export async function processDueMeetConsultationReminders(
         row.id,
         options.proxyDispatch,
       );
-      await db
+      const settled = await db
         .prepare(
           `UPDATE meet_consultation_reminders
               SET status='sent', sent_at=?, last_error=NULL, updated_at=?
-            WHERE id=?`,
+            WHERE id=? AND status='processing' AND retry_count=?`,
         )
-        .bind(nowIso, nowIso, row.id)
+        .bind(nowIso, nowIso, row.id, attempt)
         .run();
-      sent++;
+      if ((settled.meta?.changes ?? 0) === 1) sent++;
     } catch (error) {
-      const retryCount = row.retry_count + 1;
-      await db
+      const settled = await db
         .prepare(
           `UPDATE meet_consultation_reminders
-              SET status='failed', retry_count=?, last_error=?, updated_at=?
-            WHERE id=?`,
+              SET status='failed', last_error=?, updated_at=?
+            WHERE id=? AND status='processing' AND retry_count=?`,
         )
         .bind(
-          retryCount,
           error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000),
           nowIso,
           row.id,
+          attempt,
         )
         .run();
-      failed++;
+      if ((settled.meta?.changes ?? 0) === 1) failed++;
     }
   }
   return { sent, failed };

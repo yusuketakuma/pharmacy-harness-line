@@ -323,6 +323,7 @@ scenarios.delete('/api/scenarios/:id', async (c) => {
 scenarios.post('/api/scenarios/:id/steps', async (c) => {
   try {
     const scenarioId = c.req.param('id');
+    const tenantId = c.get('tenantId') ?? null;
     const body = await c.req.json<{
       stepOrder: number;
       delayMinutes?: number;
@@ -346,8 +347,8 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
     }
 
     const scenarioRow = await c.env.DB
-      .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ?`)
-      .bind(scenarioId)
+      .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ? AND tenant_id IS ?`)
+      .bind(scenarioId, tenantId)
       .first<{ delivery_mode: DeliveryMode }>();
     if (!scenarioRow) {
       return c.json({ success: false, error: 'Scenario not found' }, 404);
@@ -362,15 +363,15 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
     // templateId / onReachTagId 参照整合性チェック
     if (body.templateId != null) {
       const tpl = await c.env.DB
-        .prepare(`SELECT id FROM templates WHERE id = ?`)
-        .bind(body.templateId)
+        .prepare(`SELECT id FROM templates WHERE id = ? AND tenant_id IS ?`)
+        .bind(body.templateId, tenantId)
         .first<{ id: string }>();
       if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
     }
     if (body.onReachTagId != null) {
       const tag = await c.env.DB
-        .prepare(`SELECT id FROM tags WHERE id = ?`)
-        .bind(body.onReachTagId)
+        .prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
+        .bind(body.onReachTagId, tenantId)
         .first<{ id: string }>();
       if (!tag) return c.json({ success: false, error: 'onReachTagId not found' }, 400);
     }
@@ -403,6 +404,7 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
   try {
     const scenarioId = c.req.param('id');
     const stepId = c.req.param('stepId');
+    const tenantId = c.get('tenantId') ?? null;
     const body = await c.req.json<{
       stepOrder?: number;
       delayMinutes?: number;
@@ -442,16 +444,16 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
     let templateSnapshot: { message_type: string; message_content: string } | null = null;
     if (body.templateId !== undefined && body.templateId !== null) {
       const tpl = await c.env.DB
-        .prepare(`SELECT id, message_type, message_content FROM templates WHERE id = ?`)
-        .bind(body.templateId)
+        .prepare(`SELECT id, message_type, message_content FROM templates WHERE id = ? AND tenant_id IS ?`)
+        .bind(body.templateId, tenantId)
         .first<{ id: string; message_type: string; message_content: string }>();
       if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
       templateSnapshot = { message_type: tpl.message_type, message_content: tpl.message_content };
     }
     if (body.onReachTagId !== undefined && body.onReachTagId !== null) {
       const tag = await c.env.DB
-        .prepare(`SELECT id FROM tags WHERE id = ?`)
-        .bind(body.onReachTagId)
+        .prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
+        .bind(body.onReachTagId, tenantId)
         .first<{ id: string }>();
       if (!tag) return c.json({ success: false, error: 'onReachTagId not found' }, 400);
     }
@@ -467,8 +469,8 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       body.deliveryTime != null;
     if (scheduleTouched) {
       const scenarioRow = await c.env.DB
-        .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ?`)
-        .bind(scenarioId)
+        .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ? AND tenant_id IS ?`)
+        .bind(scenarioId, tenantId)
         .first<{ delivery_mode: DeliveryMode }>();
       if (!scenarioRow) {
         return c.json({ success: false, error: 'Scenario not found' }, 404);

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
 const lineClientMocks = vi.hoisted(() => ({
+  pushMessage: vi.fn(),
   pushTextMessage: vi.fn(),
   pushFlexMessage: vi.fn(),
   pushImageMessage: vi.fn(),
@@ -23,6 +24,10 @@ const boundaryMocks = vi.hoisted(() => ({
   accountResourceOwnedByStaff: vi.fn(),
 }));
 
+const deliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(),
+}));
+
 vi.mock('@line-crm/db', () => ({
   ...dbMocks,
   getOperators: vi.fn(),
@@ -35,6 +40,7 @@ vi.mock('@line-crm/db', () => ({
 
 vi.mock('../../custom/pharmacy/provisioning/line-credential-store.js', () => credentialMocks);
 vi.mock('../../middleware/tenant-boundary.js', () => boundaryMocks);
+vi.mock('../../services/outbound-line-delivery.js', () => deliveryMocks);
 
 vi.mock('@line-crm/line-sdk', () => ({
   LineClient: vi.fn().mockImplementation(function () { return lineClientMocks; }),
@@ -101,12 +107,13 @@ function setup(db: D1Database, tenantId = 'tenant-a') {
   return app;
 }
 
-function request(app: Hono<Env>, env: Env['Bindings']) {
+function request(app: Hono<Env>, env: Env['Bindings'], idempotencyKey = crypto.randomUUID()) {
   return app.request('/api/chats/chat-a/send', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Line-Harness-Source': 'manual',
+      'Idempotency-Key': idempotencyKey,
     },
     body: JSON.stringify({ content: 'hello from staff' }),
   }, env);
@@ -118,6 +125,11 @@ beforeEach(() => {
   dbMocks.getFriendById.mockResolvedValue(FRIEND);
   dbMocks.updateChat.mockResolvedValue(undefined);
   lineClientMocks.pushTextMessage.mockResolvedValue(undefined);
+  lineClientMocks.pushMessage.mockResolvedValue(undefined);
+  deliveryMocks.deliverTrackedLinePush.mockImplementation(async (params) => {
+    await params.send(params.request, 'provider-retry-key');
+    return 'sent';
+  });
   boundaryMocks.accountResourceOwnedByStaff.mockResolvedValue(true);
 });
 
@@ -137,11 +149,24 @@ describe('manual chat message credentials', () => {
       kind: 'channel_access_token',
     });
     expect(getLineAccountById).not.toHaveBeenCalled();
-    expect(lineClientMocks.pushTextMessage).toHaveBeenCalledWith(
+    expect(lineClientMocks.pushMessage).toHaveBeenCalledWith(
       FRIEND.line_user_id,
-      'hello from staff',
+      [{ type: 'text', text: 'hello from staff' }],
+      'provider-retry-key',
     );
-    expect(executions.some(({ sql }) => sql.includes("'manual'"))).toBe(true);
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      friendId: 'friend-a',
+      messageType: 'text',
+      content: 'hello from staff',
+      source: 'manual',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      request: {
+        to: FRIEND.line_user_id,
+        messages: [{ type: 'text', text: 'hello from staff' }],
+      },
+    }));
     expect(updateChat).toHaveBeenCalled();
   });
 
@@ -157,6 +182,8 @@ describe('manual chat message credentials', () => {
     expect(response.status).toBe(403);
     expect(credentialMocks.readLineCredential).toHaveBeenCalledTimes(shouldReadStore ? 1 : 0);
     expect(lineClientMocks.pushTextMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(executions.some(({ sql }) => sql.includes('INSERT INTO messages_log'))).toBe(false);
     expect(updateChat).not.toHaveBeenCalled();
   });
@@ -174,6 +201,8 @@ describe('manual chat message credentials', () => {
       kind: 'channel_access_token',
     });
     expect(lineClientMocks.pushTextMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(executions.some(({ sql }) => sql.includes('INSERT INTO messages_log'))).toBe(false);
   });
 
@@ -242,7 +271,38 @@ describe('manual chat message credentials', () => {
     );
     expect(credentialMocks.readLineCredential).not.toHaveBeenCalled();
     expect(lineClientMocks.pushTextMessage).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(executions.some(({ sql }) => sql.includes('INSERT INTO messages_log'))).toBe(false);
     expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it.each(['', 'not-a-uuid'])('rejects an invalid Idempotency-Key before sending', async (key) => {
+    const { db } = makeDb();
+    credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
+
+    const response = await request(setup(db), bindings(db, ROOT_SECRET), key);
+
+    expect(response.status).toBe(400);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+  });
+
+  it('requires the manual source marker before sending', async () => {
+    const { db } = makeDb();
+    credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
+
+    const response = await setup(db).request('/api/chats/chat-a/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({ content: 'hello from staff' }),
+    }, bindings(db, ROOT_SECRET));
+
+    expect(response.status).toBe(400);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
   });
 });

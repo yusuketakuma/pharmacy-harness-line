@@ -21,9 +21,9 @@ const ACCESS_TOKEN_B = `token-b-${'b'.repeat(64)}`;
 const ACCESS_TOKEN_C = `token-c-${'c'.repeat(64)}`;
 const CHANNEL_SECRET = 'a'.repeat(32);
 const require = createRequire(import.meta.url);
-const CREDENTIAL_MIGRATION = join(
+const BASELINE = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../packages/db/migrations/custom_018_pharmacy_line_credentials.sql',
+  '../../../../../../packages/db/migrations/001_v033_baseline.sql',
 );
 
 type SqliteStatement = {
@@ -158,22 +158,17 @@ function memoryDb(options: { mappingActive?: boolean; dbError?: string } = {}) {
 function sqliteDb() {
   const sqlite = new Sqlite(':memory:');
   sqlite.pragma('foreign_keys = ON');
+  sqlite.exec(readFileSync(BASELINE, 'utf8'));
   sqlite.exec(`
-    CREATE TABLE tenants (id TEXT PRIMARY KEY, status TEXT NOT NULL);
-    CREATE TABLE line_accounts (id TEXT PRIMARY KEY, is_active INTEGER NOT NULL);
-    CREATE TABLE tenant_line_accounts (
-      tenant_id TEXT NOT NULL,
-      line_account_id TEXT NOT NULL,
-      PRIMARY KEY (tenant_id, line_account_id),
-      FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-      FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
-    );
-  `);
-  sqlite.exec(readFileSync(CREDENTIAL_MIGRATION, 'utf8'));
-  sqlite.exec(`
-    INSERT INTO tenants VALUES ('tenant-a', 'active'), ('tenant-b', 'active');
-    INSERT INTO line_accounts VALUES ('account-a', 1), ('account-b', 1);
-    INSERT INTO tenant_line_accounts VALUES ('tenant-a', 'account-a'), ('tenant-b', 'account-b');
+    INSERT INTO tenants (id, tenant_code, display_name, status) VALUES
+      ('tenant-a', 'tenant-a', 'Tenant A', 'active'),
+      ('tenant-b', 'tenant-b', 'Tenant B', 'active');
+    INSERT INTO line_accounts
+      (id, channel_id, name, channel_access_token, channel_secret, is_active) VALUES
+      ('account-a', 'channel-a', 'Account A', 'legacy-a', 'secret-a', 1),
+      ('account-b', 'channel-b', 'Account B', 'legacy-b', 'secret-b', 1);
+    INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES
+      ('tenant-a', 'account-a'), ('tenant-b', 'account-b');
   `);
 
   const statement = (sql: string, values: unknown[] = []) => ({

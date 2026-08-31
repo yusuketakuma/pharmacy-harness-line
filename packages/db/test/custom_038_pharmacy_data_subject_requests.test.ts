@@ -12,8 +12,6 @@ import {
 } from '../../../apps/worker/src/custom/pharmacy/data-subject-requests/repository.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_038_pharmacy_data_subject_requests.sql');
-const RETENTION_MIGRATION = join(ROOT, 'migrations/custom_057_pharmacy_retention_deletion_intents.sql');
 const NOW = new Date('2026-08-20T00:00:00.000Z');
 
 type RunnableStatement = D1PreparedStatement & { runSync(): D1Result };
@@ -123,8 +121,6 @@ describe('custom_038 pharmacy data subject requests', () => {
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    db.exec(readFileSync(MIGRATION, 'utf8'));
-    db.exec(readFileSync(RETENTION_MIGRATION, 'utf8'));
     d1 = d1From(db);
     seedAccount(db, 'a');
     seedAccount(db, 'b');

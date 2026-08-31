@@ -10,6 +10,10 @@ const lineCredentialMocks = vi.hoisted(() => ({
   readLineCredential: vi.fn(),
 }));
 
+const deliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(),
+}));
+
 vi.mock('@line-crm/db', () => ({
   getLineAccounts: vi.fn(),
   getLineAccountsForTenant: vi.fn(),
@@ -28,6 +32,7 @@ vi.mock('../../middleware/auth.js', () => ({
 }));
 
 vi.mock('../../custom/pharmacy/provisioning/line-credential-store.js', () => lineCredentialMocks);
+vi.mock('../../services/outbound-line-delivery.js', () => deliveryMocks);
 
 vi.mock('@line-crm/line-sdk', async () => {
   const actual = await vi.importActual<typeof import('@line-crm/line-sdk')>('@line-crm/line-sdk');
@@ -79,7 +84,12 @@ function fakeDb(opts: {
   broadcastFriendIds?: string[];
   activeAccountCount?: number;
   pharmacyAccountId?: string;
-  pharmacyNotification?: { id: string; message_id: string; line_user_id: string };
+  pharmacyNotification?: {
+    id: string;
+    message_id: string;
+    line_user_id: string;
+    idempotency_key?: string;
+  };
   staffAssigned?: boolean;
 } = {}) {
   const executed: Exec[] = [];
@@ -119,7 +129,7 @@ function fakeDb(opts: {
           if (sql.includes('FROM pharmacy_notification_events')) {
             return stmt.params[0] === opts.pharmacyNotification?.id &&
               stmt.params[1] === opts.pharmacyAccountId
-              ? opts.pharmacyNotification
+              ? { idempotency_key: PHARMACY_RETRY_KEY, ...opts.pharmacyNotification }
               : null;
           }
           if (sql.includes('tenant_staff_memberships') && sql.includes('pharmacy_staff_accounts')) {
@@ -210,6 +220,8 @@ const ACCOUNT_2 = {
 
 const USER_A = U(0x123);
 const FRIEND = { id: 'friend-1', line_user_id: USER_A, line_account_id: 'acc-1' };
+const MANUAL_RETRY_KEY = '11111111-1111-5111-8111-111111111111';
+const PHARMACY_RETRY_KEY = '22222222-2222-5222-8222-222222222222';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -249,6 +261,10 @@ beforeEach(() => {
           revision: 1,
         }
       : null;
+  });
+  deliveryMocks.deliverTrackedLinePush.mockImplementation(async (params) => {
+    await params.send(params.request, 'provider-retry-key');
+    return 'sent';
   });
 });
 
@@ -517,18 +533,105 @@ describe('push', () => {
   test('allows only the approved payload bound to a claimed pharmacy notification event', async () => {
     const eventId = 'event-1';
     const text = '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。';
-    const { db } = fakeDb({
+    deliveryMocks.deliverTrackedLinePush.mockReset();
+    deliveryMocks.deliverTrackedLinePush.mockImplementation(async (params) => {
+      await params.send(params.request, 'dependency-provided-key');
+      return 'sent';
+    });
+    const { db, executed } = fakeDb({
       pharmacyAccountId: 'acc-1',
       pharmacyNotification: { id: eventId, message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
     });
     const res = await setupApp().request(pushRequest(
       'acc-token',
       { to: USER_A, messages: [{ type: 'text', text }] },
-      { 'X-Pharmacy-Notification-Event-Id': eventId },
+      {
+        'X-Pharmacy-Notification-Event-Id': eventId,
+        'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+      },
     ), {}, env(db));
 
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: PHARMACY_RETRY_KEY,
+      tenantId: 'tenant-a',
+      lineAccountId: 'acc-1',
+      friendId: FRIEND.id,
+      source: 'external',
+      messageType: 'text',
+      content: text,
+    }));
+    const [, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(init.headers['X-Line-Retry-Key']).toBe(PHARMACY_RETRY_KEY);
+    expect(init.headers).not.toHaveProperty('X-Pharmacy-Notification-Event-Id');
+    expect(loggedRows(executed)).toHaveLength(0);
+  });
+
+  test('does not return success when provider accepted but ledger settlement failed', async () => {
+    deliveryMocks.deliverTrackedLinePush.mockReset();
+    deliveryMocks.deliverTrackedLinePush.mockImplementation(async (params) => {
+      await params.send(params.request, params.operationId);
+      throw new Error('OUTBOUND_LINE_SETTLEMENT_FAILED');
+    });
+    const { db } = fakeDb({
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: 'event-settlement-failure', message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+    });
+
+    const res = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ type: 'text', text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。' }] },
+      {
+        'X-Pharmacy-Notification-Event-Id': 'event-settlement-failure',
+        'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+      },
+    ), {}, env(db));
+
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  test('approved pharmacy automated push requires a UUID retry key', async () => {
+    const { db } = fakeDb({
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: { id: 'event-missing-retry-key', message_id: 'pharmacy_onboarding_v1', line_user_id: USER_A },
+    });
+
+    const res = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ type: 'text', text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。' }] },
+      { 'X-Pharmacy-Notification-Event-Id': 'event-missing-retry-key' },
+    ), {}, env(db));
+
+    expect(res.status).toBe(400);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('binds the pharmacy event claim to its deterministic LINE retry key', async () => {
+    const { db } = fakeDb({
+      pharmacyAccountId: 'acc-1',
+      pharmacyNotification: {
+        id: 'event-key-bound',
+        message_id: 'pharmacy_onboarding_v1',
+        line_user_id: USER_A,
+        idempotency_key: PHARMACY_RETRY_KEY,
+      },
+    });
+
+    const res = await setupApp().request(pushRequest(
+      'acc-token',
+      { to: USER_A, messages: [{ type: 'text', text: '次回から、処方せんはこのLINEから事前に送れます。薬局で確認後、ご用意の状況をお知らせします。' }] },
+      {
+        'X-Pharmacy-Notification-Event-Id': 'event-key-bound',
+        'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+      },
+    ), {}, env(db));
+
+    expect(res.status).toBe(403);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('rejects an approved pharmacy payload when the staff key belongs to another tenant', async () => {
@@ -577,7 +680,10 @@ describe('push', () => {
     const allowed = await setupApp().request(pushRequest(
       'acc-token',
       { to: USER_A, messages: [message] },
-      { 'X-Pharmacy-Notification-Event-Id': eventId },
+      {
+        'X-Pharmacy-Notification-Event-Id': eventId,
+        'X-Line-Retry-Key': PHARMACY_RETRY_KEY,
+      },
     ), {}, env(fakeDb(options).db));
     expect(allowed.status).toBe(200);
 
@@ -595,13 +701,19 @@ describe('push', () => {
     vi.mocked(authenticateApiToken).mockResolvedValue({ id: 'staff-a', name: 'Staff', role: 'staff' });
     const denied = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: false });
     const deniedResponse = await setupApp().request(pushRequest(
-      'harness-key', undefined, { 'X-Line-Harness-Source': 'manual' },
+      'harness-key', undefined, {
+        'X-Line-Harness-Source': 'manual',
+        'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+      },
     ), {}, env(denied.db));
     expect(deniedResponse.status).toBe(403);
 
     const allowed = fakeDb({ pharmacyAccountId: 'acc-1', staffAssigned: true });
     const allowedResponse = await setupApp().request(pushRequest(
-      'harness-key', undefined, { 'X-Line-Harness-Source': 'manual' },
+      'harness-key', undefined, {
+        'X-Line-Harness-Source': 'manual',
+        'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+      },
     ), {}, env(allowed.db));
     expect(allowedResponse.status).toBe(200);
     expect(getFriendByLineUserIdForAccount).toHaveBeenCalledWith(
@@ -650,19 +762,56 @@ describe('push', () => {
     );
   });
 
-  test('manual header logs a 1:1 operator reply as source=manual and is not forwarded', async () => {
-    const { db, executed } = fakeDb();
+  test('manual header routes a 1:1 operator reply through the durable ledger', async () => {
+    const { db } = fakeDb();
     const res = await setupApp().request(
-      pushRequest('acc-token', undefined, { 'X-Line-Harness-Source': 'manual' }),
+      pushRequest('acc-token', undefined, {
+        'X-Line-Harness-Source': 'manual',
+        'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+      }),
       {},
       env(db),
     );
 
     expect(res.status).toBe(200);
-    expect(loggedRows(executed)).toHaveLength(1);
-    expect(loggedRows(executed)[0].source).toBe('manual');
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-a',
+      lineAccountId: 'acc-1',
+      friendId: 'friend-1',
+      messageType: 'text',
+      content: 'hello',
+      source: 'manual',
+      request: { to: USER_A, messages: [{ type: 'text', text: 'hello' }] },
+    }));
     const [, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(init.headers).not.toHaveProperty('X-Line-Harness-Source');
+    const operation = deliveryMocks.deliverTrackedLinePush.mock.calls[0]?.[0] as { operationId: string };
+    expect(init.headers['X-Line-Retry-Key']).toBe(operation.operationId);
+  });
+
+  test.each([undefined, 'not-a-uuid'])('manual source requires a UUID retry key', async (key) => {
+    const { db } = fakeDb();
+    const headers: Record<string, string> = { 'X-Line-Harness-Source': 'manual' };
+    if (key) headers['X-Line-Retry-Key'] = key;
+
+    const res = await setupApp().request(pushRequest('acc-token', undefined, headers), {}, env(db));
+
+    expect(res.status).toBe(400);
+    expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('treats a provider retry acceptance as success and settles the ledger', async () => {
+    fetchMock.mockResolvedValue(upstreamResponse(409));
+    const { db } = fakeDb();
+
+    const res = await setupApp().request(pushRequest('acc-token', undefined, {
+      'X-Line-Harness-Source': 'manual',
+      'X-Line-Retry-Key': MANUAL_RETRY_KEY,
+    }), {}, env(db));
+
+    expect(res.status).toBe(200);
+    expect(deliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
   });
 
   test('unknown source header is rejected before upstream send', async () => {
@@ -686,6 +835,7 @@ describe('push', () => {
           Authorization: 'Bearer acc-token',
           'Content-Type': 'application/json',
           'X-Line-Harness-Source': 'manual',
+          'X-Line-Retry-Key': MANUAL_RETRY_KEY,
         },
         body: JSON.stringify({ to: [USER_A], messages: [{ type: 'text', text: 'hello' }] }),
       }),

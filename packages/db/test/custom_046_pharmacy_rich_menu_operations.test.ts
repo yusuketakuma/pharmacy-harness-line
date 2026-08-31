@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_046_pharmacy_rich_menu_operations.sql');
 const HASH = 'a'.repeat(64);
 const ORDER = JSON.stringify([
   'prescription-send', 'prescription-history', 'medication-followup', 'manual-chat', 'pharmacy-info',
@@ -15,7 +14,6 @@ function setup(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-  db.exec(readFileSync(MIGRATION, 'utf8'));
   for (const accountId of ['account-a', 'account-b']) {
     db.prepare(`INSERT INTO line_accounts
       (id, channel_id, name, channel_access_token, channel_secret)

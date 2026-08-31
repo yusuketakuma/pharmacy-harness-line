@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { runExpirer } from './booking-expirer.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 
 interface StaleRow {
   id: string;
@@ -8,6 +9,9 @@ interface StaleRow {
   staff_name: string;
   channel_access_token: string;
   line_user_id: string;
+  tenant_id?: string;
+  line_account_id?: string;
+  friend_id?: string;
 }
 
 function stubDB(stale: StaleRow[], idempotencyPurged = 0) {
@@ -57,6 +61,9 @@ describe('runExpirer', () => {
         staff_name: '山田',
         channel_access_token: 'tok',
         line_user_id: 'U',
+        tenant_id: 'tenant-1',
+        line_account_id: 'account-1',
+        friend_id: 'friend-1',
       },
     ];
     const { db, updates } = stubDB(stale);
@@ -65,7 +72,15 @@ describe('runExpirer', () => {
     expect(result.expired).toBe(1);
     expect(sender).toHaveBeenCalledTimes(1);
     expect(sender).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'expired', toLineUserId: 'U' }),
+      expect.objectContaining({
+        kind: 'expired',
+        toLineUserId: 'U',
+        retryKey: await createBroadcastRetryKey('booking-notification', 'B1', 'expired'),
+        db,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+      }),
     );
     // bookings UPDATE expired + reminders UPDATE cancelled が発行されている
     expect(updates.some((u) => u.sql.includes("status='expired'"))).toBe(true);

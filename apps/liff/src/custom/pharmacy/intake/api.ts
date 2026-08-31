@@ -46,6 +46,7 @@ export interface TenantPrivacyPolicy {
   contact_point: string;
   entrustment_text: string;
   policy_version: number;
+  content_hash: string;
 }
 
 export interface PatientIntakeAnswers {
@@ -129,6 +130,8 @@ export const patientIntakeApi = {
     answers: PatientIntakeAnswers;
     representativeConsent: boolean;
     privacyConsent: boolean;
+    privacyPolicyVersion: number;
+    privacyPolicyHash: string;
   }) => json<{ intake: PatientIntake }>(
     `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}/intake`, body,
   ),

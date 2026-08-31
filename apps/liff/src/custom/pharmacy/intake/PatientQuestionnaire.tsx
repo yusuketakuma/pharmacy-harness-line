@@ -243,7 +243,6 @@ export function PatientQuestionnaire({
           <p className="mt-2 text-sm text-gray-700">内容を直す場合は「戻る」で前のステップへ戻れます。</p>
         </div>
         <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={representativeConsent} onChange={(event) => onRepresentativeConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>本人または代理人として、回答内容を薬局へ伝えることに同意します。</span></label>
-        {/* 個人情報取扱事業者は薬局。掲示が未設定でも送信は妨げない。 */}
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm leading-5 text-gray-700 space-y-1">
           <p className="font-bold text-gray-800">この薬局による個人情報の取扱いについて</p>
           {privacyPolicy ? <>
@@ -253,7 +252,7 @@ export function PatientQuestionnaire({
             {privacyPolicy.purpose_url && <p><a href={privacyPolicy.purpose_url} target="_blank" rel="noreferrer" className="font-bold text-green-800 underline">利用目的の詳細を見る</a></p>}
           </> : <p>利用目的の詳細は、この薬局にお問い合わせください。</p>}
         </div>
-        <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={privacyConsent} onChange={(event) => onPrivacyConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>個人情報の利用目的を確認し、薬局での調剤・連絡に同意します。</span></label>
+        <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={privacyConsent} onChange={(event) => onPrivacyConsentChange(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy || !privacyPolicy} /><span>個人情報の利用目的を確認し、薬局での調剤・連絡に同意します。</span></label>
       </div>}
     </section>
   );

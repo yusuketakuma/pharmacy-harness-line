@@ -9,26 +9,18 @@ const PKG_ROOT = join(__dirname, '..');
 
 function loadDb(): Database.Database {
   const db = new Database(':memory:');
-  // Apply base schema then the specific migration under test.
-  // (041 does not depend on any other migration — no FKs to migrated tables.)
-  const schema = readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8');
-  db.exec(schema);
-  const migration = readFileSync(
-    join(PKG_ROOT, 'migrations', '041_update_history.sql'),
-    'utf8',
-  );
-  db.exec(migration);
+  db.exec(readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8'));
   return db;
 }
 
-describe('041_update_history.sql', () => {
+describe('v0.33 update_history schema', () => {
   let db: Database.Database;
 
   beforeEach(() => {
     db = loadDb();
   });
 
-  it('creates update_history table with all 13 expected columns', () => {
+  it('creates update_history table with all expected columns', () => {
     const rows = db
       .prepare("PRAGMA table_info('update_history')")
       .all() as Array<{ name: string }>;
@@ -45,13 +37,14 @@ describe('041_update_history.sql', () => {
       'snapshot_admin_deployment',
       'snapshot_liff_deployment',
       'events_jsonl',
+      'release_evidence_json',
       'error',
       'rollback_of',
       'rollback_expires_at',
     ].sort();
 
     expect(names).toEqual(expected);
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(14);
   });
 
   it('rejects invalid status values via CHECK constraint', () => {

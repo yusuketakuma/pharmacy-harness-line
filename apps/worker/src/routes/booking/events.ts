@@ -40,6 +40,7 @@ import {
   type EventBookingAction,
 } from '../../services/event-booking-state.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 
 const events = new Hono<Env>();
 
@@ -916,6 +917,7 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
   // Hoisted function declarations lose narrowing of outer-scope `const`
   // captures; re-assert here to keep `friend` / `callerLineUserId` non-null.
   // The outer scope already returned on null, so these throws are unreachable.
+  if (account_id == null) throw new Error('runBookingFlow: account missing');
   if (friend == null) throw new Error('runBookingFlow: friend missing');
   if (callerLineUserId == null) throw new Error('runBookingFlow: callerLineUserId missing');
 
@@ -1117,19 +1119,45 @@ events.post('/api/liff/events/:id/bookings', async (c) => {
   try {
     const acc = await c.env.DB
       .prepare(
-        `SELECT la.channel_access_token, e.confirmation_message_extra
+        `SELECT mapping.tenant_id, la.channel_access_token,
+                e.confirmation_message_extra
            FROM line_accounts la
-           JOIN events e ON e.id = ?
-          WHERE la.id = ?`,
+           JOIN tenant_line_accounts mapping
+             ON mapping.line_account_id = la.id
+           JOIN tenants tenant
+             ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+           JOIN events e
+             ON e.id = ?
+            AND (
+              (e.target_type = 'single' AND e.line_account_id = la.id)
+              OR (e.target_type = 'multi-account-dedup'
+                  AND e.account_ids IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(e.account_ids) accounts
+                     WHERE accounts.value = la.id
+                  ))
+            )
+          WHERE la.id = ? AND la.is_active = 1`,
       )
       .bind(event.id, account_id)
-      .first<{ channel_access_token: string; confirmation_message_extra: string | null }>();
+      .first<{
+        tenant_id: string;
+        channel_access_token: string;
+        confirmation_message_extra: string | null;
+      }>();
     if (acc?.channel_access_token) {
       const kind: EventNotificationKind =
         status === 'requested' ? 'received_pending' : 'received_confirmed';
       await sendEventBookingNotification({
+        db: c.env.DB,
+        tenantId: acc.tenant_id,
+        lineAccountId: account_id,
+        friendId: friend.id,
         channelAccessToken: acc.channel_access_token,
         toLineUserId: callerLineUserId,
+        retryKey: await createBroadcastRetryKey(
+          'event-booking-notification', id, kind,
+        ),
         kind,
         ctx: {
           eventName: event.name,
@@ -1264,20 +1292,41 @@ async function notifyBookingFriend(
   try {
     const row = await db
       .prepare(
-        `SELECT e.name AS event_name, e.venue_name, e.venue_url,
+        `SELECT mapping.tenant_id, b.line_account_id, b.friend_id,
+                e.name AS event_name, e.venue_name, e.venue_url,
                 e.confirmation_message_extra,
                 s.starts_at AS slot_starts_at,
                 la.channel_access_token,
                 f.provider_line_user_id AS line_user_id
            FROM event_bookings b
-           JOIN events e ON e.id = b.event_id
-           JOIN event_slots s ON s.id = b.slot_id
-           JOIN line_accounts la ON la.id = b.line_account_id
-           JOIN friends f ON f.id = b.friend_id
+           JOIN events e
+             ON e.id = b.event_id
+            AND (
+              (e.target_type = 'single' AND e.line_account_id = b.line_account_id)
+              OR (e.target_type = 'multi-account-dedup'
+                  AND e.account_ids IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(e.account_ids) accounts
+                     WHERE accounts.value = b.line_account_id
+                  ))
+            )
+           JOIN event_slots s
+             ON s.id = b.slot_id AND s.event_id = b.event_id
+           JOIN line_accounts la
+             ON la.id = b.line_account_id AND la.is_active = 1
+           JOIN tenant_line_accounts mapping
+             ON mapping.line_account_id = la.id
+           JOIN tenants tenant
+             ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+           JOIN friends f
+             ON f.id = b.friend_id AND f.line_account_id = b.line_account_id
           WHERE b.id = ?`,
       )
       .bind(booking_id)
       .first<{
+        tenant_id: string;
+        line_account_id: string;
+        friend_id: string;
         event_name: string;
         venue_name: string | null;
         venue_url: string | null;
@@ -1288,8 +1337,15 @@ async function notifyBookingFriend(
       }>();
     if (!row || !row.channel_access_token) return;
     await sendEventBookingNotification({
+      db,
+      tenantId: row.tenant_id,
+      lineAccountId: row.line_account_id,
+      friendId: row.friend_id,
       channelAccessToken: row.channel_access_token,
       toLineUserId: row.line_user_id,
+      retryKey: await createBroadcastRetryKey(
+        'event-booking-notification', booking_id, kind,
+      ),
       kind,
       ctx: {
         eventName: row.event_name,

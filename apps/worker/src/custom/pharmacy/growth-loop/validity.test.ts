@@ -37,7 +37,7 @@ describe('prescription validity reminders', () => {
 
   it('claims, sends, and marks a verified validity once', async () => {
     const { db, calls, queries } = fakeDb();
-    mocks.send.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue('sent');
     const result = await processDuePrescriptionValidityReminders(db, {
       proxyBaseUrl: 'https://worker.example',
       lineCredentialKey: CREDENTIAL_KEY,
