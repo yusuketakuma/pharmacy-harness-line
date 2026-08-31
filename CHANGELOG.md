@@ -51,7 +51,7 @@
 | database | 82 files / 394 tests、typecheck PASS |
 | update engine | 22 files / 218 tests PASS |
 | Web | 52 files / 233 tests、typecheck、68-route static build PASS |
-| LIFF | 20 files / 128 tests、typecheck、build PASS |
+| LIFF | 20 files / 128 tests、typecheck、build、Chromium 13 tests PASS |
 | deploy・運用script | 19 files / 225 tests PASS |
 | production deploy・migration・LINE mutation | `NOT_RUN` |
 

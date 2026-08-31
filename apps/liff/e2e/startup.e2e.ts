@@ -32,7 +32,16 @@ async function mockAllPharmacyRoutes(page: Page): Promise<void> {
       '/api/liff/pharmacy/feature-access': { data: { existingFeatures: [] } },
       '/api/liff/pharmacy/prescriptions/me': { submissions: [] },
       '/api/liff/pharmacy/patients': { patients: [] },
-      '/api/liff/pharmacy/privacy-policy': { policy: null },
+      '/api/liff/pharmacy/privacy-policy': {
+        policy: {
+          purpose_text: '調剤と服薬支援に利用します。',
+          purpose_url: '',
+          contact_point: 'E2E薬局',
+          entrustment_text: '',
+          policy_version: 1,
+          content_hash: 'a'.repeat(64),
+        },
+      },
       '/api/liff/pharmacy/myna-handoffs/active': { handoff: null },
       '/api/liff/pharmacy/continuity': { obligations: [], expectations: [] },
       '/api/liff/pharmacy/medication-followups': { followUps: [] },
