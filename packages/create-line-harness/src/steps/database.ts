@@ -13,6 +13,7 @@ interface DatabaseResult {
 export type DatabaseSchema = "legacy" | "pharmacy-multitenant";
 
 interface BootstrapMeta {
+  schemaMode?: DatabaseSchema;
   includedMigrations: string[];
   migrationCount: number;
 }
@@ -170,6 +171,9 @@ function loadBootstrapMeta(repoDir: string): BootstrapMeta | null {
     const parsed = JSON.parse(readFileSync(metaPath, "utf8")) as BootstrapMeta;
     if (
       typeof parsed.migrationCount !== "number" ||
+      (parsed.schemaMode !== undefined &&
+        parsed.schemaMode !== "legacy" &&
+        parsed.schemaMode !== "pharmacy-multitenant") ||
       !Array.isArray(parsed.includedMigrations) ||
       !parsed.includedMigrations.every((value) => typeof value === "string")
     ) {
@@ -183,10 +187,12 @@ function loadBootstrapMeta(repoDir: string): BootstrapMeta | null {
 
 export function assertLegacySetupBundleAllowed(repoDir: string): void {
   const meta = loadBootstrapMeta(repoDir);
-  const includesCentralPharmacySchema = meta?.includedMigrations.some((file) => {
-    const match = /^custom_(\d+)_pharmacy_/.exec(file);
-    return match !== null && Number(match[1]) >= 14;
-  });
+  const includesCentralPharmacySchema =
+    meta?.schemaMode === "pharmacy-multitenant" ||
+    meta?.includedMigrations.some((file) => {
+      const match = /^custom_(\d+)_pharmacy_/.exec(file);
+      return match !== null && Number(match[1]) >= 14;
+    });
   if (includesCentralPharmacySchema) {
     throw new Error(
       "This pharmacy release uses the shared multitenant service. Use `pnpm tenant:setup`; standalone create-line-harness setup is disabled.",

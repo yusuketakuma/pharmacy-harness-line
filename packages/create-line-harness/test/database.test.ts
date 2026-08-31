@@ -50,7 +50,8 @@ describe("database schema guard", () => {
     writeFileSync(
       join(repoDir, "packages", "db", "bootstrap-meta.json"),
       JSON.stringify({
-        includedMigrations: ["custom_014_pharmacy_logical_tenants.sql"],
+        schemaMode: "pharmacy-multitenant",
+        includedMigrations: ["001_v033_baseline.sql"],
         migrationCount: 1,
       }),
     );

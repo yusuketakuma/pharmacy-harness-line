@@ -1,15 +1,28 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   getAutoReplies,
   getAutoReplyById,
   createAutoReply,
   updateAutoReply,
   deleteAutoReply,
+  getTemplateById,
 } from '@line-crm/db';
 import type { AutoReply as DbAutoReply } from '@line-crm/db';
 import type { Env } from '../../index.js';
+import { accountResourceOwnedByStaff } from '../../middleware/tenant-boundary.js';
 
 const autoReplies = new Hono<Env>();
+
+async function getOwnedAutoReply(
+  c: Context<Env>,
+  id: string,
+  tenantId: string,
+): Promise<DbAutoReply | null> {
+  const item = await getAutoReplyById(c.env.DB, id, tenantId);
+  if (!item?.line_account_id) return null;
+  if (!await accountResourceOwnedByStaff(c, tenantId, item.line_account_id)) return null;
+  return item;
+}
 
 interface EffectiveAccount {
   accountId: string;
@@ -75,12 +88,34 @@ async function computeEffectiveAccounts(
   });
 }
 
-async function buildAutomationKeywordIndex(db: D1Database): Promise<Map<string, Set<string>>> {
+async function buildAutomationKeywordIndex(
+  db: D1Database,
+  tenantId?: string,
+): Promise<Map<string, Set<string>>> {
   // event_type='message_received' で keyword を持ち、send_message を含む automation を全件取って
   // keyword -> set<account_id> のインデックス化。
-  const res = await db
-    .prepare(`SELECT line_account_id, conditions, actions FROM automations WHERE is_active = 1 AND event_type = 'message_received'`)
-    .all<{ line_account_id: string | null; conditions: string; actions: string }>();
+  const res = tenantId === undefined
+    ? await db
+      .prepare(`SELECT line_account_id, conditions, actions FROM automations WHERE is_active = 1 AND event_type = 'message_received'`)
+      .all<{ line_account_id: string | null; conditions: string; actions: string }>()
+    : await db
+      .prepare(`
+        SELECT automation.line_account_id, automation.conditions, automation.actions
+          FROM automations AS automation
+          INNER JOIN tenant_line_accounts AS mapping
+                  ON mapping.line_account_id = automation.line_account_id
+          INNER JOIN line_accounts AS account
+                  ON account.id = automation.line_account_id
+                 AND account.is_active = 1
+          INNER JOIN tenants AS tenant
+                  ON tenant.id = mapping.tenant_id
+                 AND tenant.status = 'active'
+         WHERE mapping.tenant_id = ?
+           AND automation.line_account_id IS NOT NULL
+           AND automation.is_active = 1
+           AND automation.event_type = 'message_received'`)
+      .bind(tenantId)
+      .all<{ line_account_id: string | null; conditions: string; actions: string }>();
   const idx = new Map<string, Set<string>>();
   for (const r of res.results ?? []) {
     if (!r.line_account_id) continue;  // global rules — skip; UI assumes per-account
@@ -107,15 +142,36 @@ async function buildAutomationKeywordIndex(db: D1Database): Promise<Map<string, 
 // GET /api/auto-replies — list all auto-replies (optional ?accountId filter)
 autoReplies.get('/api/auto-replies', async (c) => {
   try {
-    const accountId = c.req.query('accountId');
-    const items = await getAutoReplies(c.env.DB, accountId || undefined);
+    const accountId = c.req.query('accountId')?.trim() || undefined;
+    const tenantId = c.get('tenantId');
+    if (tenantId && accountId && !await accountResourceOwnedByStaff(c, tenantId, accountId)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
+    const items = tenantId
+      ? await getAutoReplies(c.env.DB, accountId, tenantId)
+      : await getAutoReplies(c.env.DB, accountId || undefined);
 
     // active LINE accounts を取得 + automations の keyword -> accounts インデックスを構築
-    const accRes = await c.env.DB
-      .prepare(`SELECT id, name FROM line_accounts WHERE is_active = 1 ORDER BY name`)
-      .all<{ id: string; name: string }>();
+    const accRes = tenantId
+      ? await c.env.DB
+        .prepare(`
+          SELECT account.id, account.name
+            FROM line_accounts AS account
+            INNER JOIN tenant_line_accounts AS mapping
+                    ON mapping.line_account_id = account.id
+            INNER JOIN tenants AS tenant
+                    ON tenant.id = mapping.tenant_id
+                   AND tenant.status = 'active'
+           WHERE mapping.tenant_id = ?
+             AND account.is_active = 1
+           ORDER BY account.name`)
+        .bind(tenantId)
+        .all<{ id: string; name: string }>()
+      : await c.env.DB
+        .prepare(`SELECT id, name FROM line_accounts WHERE is_active = 1 ORDER BY name`)
+        .all<{ id: string; name: string }>();
     const activeAccounts = accRes.results ?? [];
-    const automationIdx = await buildAutomationKeywordIndex(c.env.DB);
+    const automationIdx = await buildAutomationKeywordIndex(c.env.DB, tenantId || undefined);
 
     const data: SerializedAutoReply[] = await Promise.all(
       items.map(async (row) => {
@@ -136,7 +192,10 @@ autoReplies.get('/api/auto-replies', async (c) => {
 autoReplies.get('/api/auto-replies/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const item = await getAutoReplyById(c.env.DB, id);
+    const tenantId = c.get('tenantId');
+    const item = tenantId
+      ? await getOwnedAutoReply(c, id, tenantId)
+      : await getAutoReplyById(c.env.DB, id);
     if (!item) {
       return c.json({ success: false, error: 'Auto-reply not found' }, 404);
     }
@@ -150,6 +209,7 @@ autoReplies.get('/api/auto-replies/:id', async (c) => {
 // POST /api/auto-replies — create
 autoReplies.post('/api/auto-replies', async (c) => {
   try {
+    const tenantId = c.get('tenantId');
     const body = await c.req.json<{
       keyword: string;
       matchType?: 'exact' | 'contains';
@@ -162,6 +222,15 @@ autoReplies.post('/api/auto-replies', async (c) => {
     if (!body.keyword) {
       return c.json({ success: false, error: 'keyword is required' }, 400);
     }
+    const requestedLineAccountId = typeof body.lineAccountId === 'string'
+      ? body.lineAccountId.trim()
+      : null;
+    if (tenantId && !requestedLineAccountId) {
+      return c.json({ success: false, error: 'lineAccountId is required' }, 400);
+    }
+    if (tenantId && !await accountResourceOwnedByStaff(c, tenantId, requestedLineAccountId!)) {
+      return c.json({ success: false, error: 'Forbidden' }, 403);
+    }
     // template_id があれば content は空でも OK (template から resolve される)。
     // silent も content 不要。それ以外は inline content 必須。
     if (!body.templateId && !body.responseContent && body.responseType !== 'silent') {
@@ -173,13 +242,11 @@ autoReplies.post('/api/auto-replies', async (c) => {
     // クリアされた時に webhook resolve が空メッセージにフォールバックしてしまう。
     let resolvedResponseType = body.responseType ?? 'text';
     let resolvedResponseContent = body.responseContent ?? '';
-    if (body.templateId && (!body.responseContent || !body.responseType)) {
-      const { getTemplateById } = await import('@line-crm/db');
-      const tpl = await getTemplateById(c.env.DB, body.templateId);
-      if (tpl) {
-        if (!body.responseType) resolvedResponseType = tpl.message_type;
-        if (!body.responseContent) resolvedResponseContent = tpl.message_content;
-      }
+    if (body.templateId) {
+      const tpl = await getTemplateById(c.env.DB, body.templateId, tenantId || undefined);
+      if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
+      if (!body.responseType) resolvedResponseType = tpl.message_type;
+      if (!body.responseContent) resolvedResponseContent = tpl.message_content;
     }
 
     const item = await createAutoReply(c.env.DB, {
@@ -188,8 +255,12 @@ autoReplies.post('/api/auto-replies', async (c) => {
       responseType: resolvedResponseType,
       responseContent: resolvedResponseContent,
       templateId: body.templateId ?? null,
-      lineAccountId: body.lineAccountId ?? null,
+      lineAccountId: tenantId ? requestedLineAccountId : body.lineAccountId ?? null,
+      ...(tenantId ? { tenantId } : {}),
     });
+    if (!item) {
+      return c.json({ success: false, error: 'Auto-reply not found' }, 404);
+    }
 
     return c.json({ success: true, data: serializeAutoReply(item) }, 201);
   } catch (err) {
@@ -202,6 +273,13 @@ autoReplies.post('/api/auto-replies', async (c) => {
 autoReplies.put('/api/auto-replies/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    const tenantId = c.get('tenantId');
+    const existing = tenantId
+      ? await getOwnedAutoReply(c, id, tenantId)
+      : await getAutoReplyById(c.env.DB, id);
+    if (!existing) {
+      return c.json({ success: false, error: 'Auto-reply not found' }, 404);
+    }
     const body = await c.req.json<{
       keyword?: string;
       matchType?: 'exact' | 'contains';
@@ -218,21 +296,23 @@ autoReplies.put('/api/auto-replies/:id', async (c) => {
     if (body.responseType !== undefined) input.responseType = body.responseType;
     if (body.responseContent !== undefined) input.responseContent = body.responseContent;
     if ('templateId' in body) input.templateId = body.templateId;
-    if ('lineAccountId' in body) input.lineAccountId = body.lineAccountId;
+    if (!tenantId && 'lineAccountId' in body) input.lineAccountId = body.lineAccountId;
     if (body.isActive !== undefined) input.isActive = body.isActive;
 
     // templateId が新たに set されて responseContent が来てない場合は template の
     // 現在値を inline snapshot として書き込む (ON DELETE SET NULL の fallback 用)。
-    if (body.templateId && body.responseContent === undefined) {
-      const { getTemplateById } = await import('@line-crm/db');
-      const tpl = await getTemplateById(c.env.DB, body.templateId);
-      if (tpl) {
+    if (body.templateId) {
+      const tpl = await getTemplateById(c.env.DB, body.templateId, tenantId || undefined);
+      if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
+      if (body.responseContent === undefined) {
         input.responseContent = tpl.message_content;
         if (body.responseType === undefined) input.responseType = tpl.message_type;
       }
     }
 
-    const updated = await updateAutoReply(c.env.DB, id, input as Parameters<typeof updateAutoReply>[2]);
+    const updated = tenantId
+      ? await updateAutoReply(c.env.DB, id, input as Parameters<typeof updateAutoReply>[2], tenantId)
+      : await updateAutoReply(c.env.DB, id, input as Parameters<typeof updateAutoReply>[2]);
 
     if (!updated) {
       return c.json({ success: false, error: 'Auto-reply not found' }, 404);
@@ -249,11 +329,19 @@ autoReplies.put('/api/auto-replies/:id', async (c) => {
 autoReplies.delete('/api/auto-replies/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const item = await getAutoReplyById(c.env.DB, id);
+    const tenantId = c.get('tenantId');
+    const item = tenantId
+      ? await getOwnedAutoReply(c, id, tenantId)
+      : await getAutoReplyById(c.env.DB, id);
     if (!item) {
       return c.json({ success: false, error: 'Auto-reply not found' }, 404);
     }
-    await deleteAutoReply(c.env.DB, id);
+    const deleted = tenantId
+      ? await deleteAutoReply(c.env.DB, id, tenantId)
+      : await deleteAutoReply(c.env.DB, id);
+    if (tenantId && !deleted) {
+      return c.json({ success: false, error: 'Auto-reply not found' }, 404);
+    }
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/auto-replies/:id error:', err);

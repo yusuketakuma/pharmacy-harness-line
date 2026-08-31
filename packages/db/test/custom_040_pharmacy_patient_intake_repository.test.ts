@@ -53,6 +53,8 @@ const input: CreatePatientIntakeInput = {
   },
   representativeConsent: true,
   privacyConsent: true,
+  privacyPolicyVersion: 1,
+  privacyPolicyHash: 'a'.repeat(64),
 };
 
 function seed(db: Database.Database): void {
@@ -65,6 +67,20 @@ function seed(db: Database.Database): void {
   db.prepare(`INSERT INTO tenant_line_accounts
     (tenant_id, line_account_id, created_at, updated_at)
     VALUES ('tenant-a', 'account-a', ?, ?)`).run(NOW, NOW);
+  db.prepare(`INSERT INTO staff_members
+    (id, name, role, api_key, is_active, created_at, updated_at)
+    VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1, ?, ?)`).run(NOW, NOW);
+  db.prepare(`INSERT INTO tenant_staff_memberships
+    (tenant_id, staff_id, role, is_active, created_at, updated_at)
+    VALUES ('tenant-a', 'staff-a', 'admin', 1, ?, ?)`).run(NOW, NOW);
+  db.prepare(`INSERT INTO pharmacy_staff_accounts
+    (line_account_id, staff_id, is_active, created_at, updated_at)
+    VALUES ('account-a', 'staff-a', 1, ?, ?)`).run(NOW, NOW);
+  db.prepare(`INSERT INTO pharmacy_tenant_privacy_policy
+    (line_account_id, purpose_text, purpose_url, contact_point, entrustment_text,
+     policy_version, content_hash, updated_by, created_at, updated_at)
+    VALUES ('account-a', '調剤と連絡', '', '薬局窓口', '運営委託あり',
+            1, ?, 'staff-a', ?, ?)`).run('a'.repeat(64), NOW, NOW);
   db.prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES ('friend-a', 'U-a', 'account-a', 1, ?, ?)`).run(NOW, NOW);
@@ -179,6 +195,9 @@ describe('encrypted pharmacy patient intake repository', () => {
 
     sqlite.prepare(`DELETE FROM pharmacy_patient_intake_responses`).run();
     const first = await createPatientIntakeResponse(db, owner, 'patient-a', input, cryptoScope);
+    sqlite.prepare(`UPDATE pharmacy_tenant_privacy_policy
+      SET policy_version = 2, content_hash = ? WHERE line_account_id = 'account-a'`)
+      .run('b'.repeat(64));
     const second = await createPatientIntakeResponse(db, owner, 'patient-a', input, cryptoScope);
     expect(second.id).toBe(first.id);
     expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_patient_intake_responses`).get())

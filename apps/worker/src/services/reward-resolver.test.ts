@@ -4,6 +4,7 @@ import type { MessageTemplate, TrackedLink, Friend } from '@line-crm/db';
 
 const tplA: MessageTemplate = {
   id: 'tpl-a',
+  tenant_id: null,
   name: 'reward A',
   message_type: 'text',
   message_content: 'A',
@@ -13,6 +14,7 @@ const tplA: MessageTemplate = {
 
 const tplB: MessageTemplate = {
   id: 'tpl-b',
+  tenant_id: null,
   name: 'reward B',
   message_type: 'text',
   message_content: 'B',

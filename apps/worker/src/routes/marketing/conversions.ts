@@ -269,6 +269,7 @@ conversions.patch('/api/conversions/events/:id/approval', async (c) => {
             info.affiliateId,
             info.offerName,
             info.rewardAmount,
+            c.req.param('id'),
           );
         }
       } catch (err) {

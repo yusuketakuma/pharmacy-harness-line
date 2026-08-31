@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 
 // Mock availability so LIFF /slots route tests don't need to re-implement
 // the COUNT subquery — those are covered in event-availability.test.ts.
@@ -110,6 +111,7 @@ function makeEventDb(state: {
   bookings?: BookingRow[];
   accounts?: LineAccount[];
   friends?: FriendRow[];
+  queries?: string[];
 }): D1Database {
   state.slots ??= [];
   state.bookings ??= [];
@@ -117,6 +119,7 @@ function makeEventDb(state: {
   state.friends ??= [];
   const db = {
     prepare(sql: string) {
+      state.queries?.push(sql);
       let bound: unknown[] = [];
       const stmt = {
         bind(...args: unknown[]) {
@@ -138,14 +141,20 @@ function makeEventDb(state: {
             const acc = (state.accounts ?? []).find((a) => a.id === id);
             return (acc ? { channel_access_token: acc.channel_access_token ?? '' } : null) as T | null;
           }
-          // immediate booking notification: SELECT la.channel_access_token, e.confirmation_message_extra
-          //   FROM line_accounts la JOIN events e ON e.id = ? WHERE la.id = ?
-          if (sql.startsWith('SELECT la.channel_access_token, e.confirmation_message_extra')) {
+          // immediate booking notification: active account + tenant mapping + event membership.
+          if (sql.includes('FROM line_accounts la') &&
+              sql.includes('confirmation_message_extra') &&
+              !sql.includes('FROM event_bookings b')) {
             const [event_id, account_id] = bound as [string, string];
-            const acc = (state.accounts ?? []).find((a) => a.id === account_id);
+            const acc = (state.accounts ?? []).find((a) => a.id === account_id && a.is_active === 1);
             const ev = state.events.find((x) => x.id === event_id);
             if (!acc || !ev) return null as T | null;
+            const eventAccounts = ev.account_ids ? JSON.parse(ev.account_ids) as string[] : [];
+            if (ev.target_type === 'multi-account-dedup'
+              ? !eventAccounts.includes(account_id)
+              : ev.line_account_id !== account_id) return null as T | null;
             return {
+              tenant_id: `tenant-${account_id}`,
               channel_access_token: acc.channel_access_token ?? '',
               confirmation_message_extra: (ev as Record<string, unknown>).confirmation_message_extra ?? null,
             } as T;
@@ -198,10 +207,20 @@ function makeEventDb(state: {
             if (!b) return null as T | null;
             const e = state.events.find((x) => x.id === b.event_id);
             const s = (state.slots ?? []).find((x) => x.id === (b as Record<string, unknown>).slot_id);
-            const la = (state.accounts ?? []).find((x) => x.id === (b as Record<string, unknown>).line_account_id);
-            const f = (state.friends ?? []).find((x) => x.id === (b as Record<string, unknown>).friend_id);
+            const accountId = (b as Record<string, unknown>).line_account_id as string;
+            const la = (state.accounts ?? []).find((x) => x.id === accountId && x.is_active === 1);
+            const f = (state.friends ?? []).find(
+              (x) => x.id === (b as Record<string, unknown>).friend_id && x.line_account_id === accountId,
+            );
             if (!e || !s || !la || !f) return null as T | null;
+            const eventAccounts = e.account_ids ? JSON.parse(e.account_ids) as string[] : [];
+            if (e.target_type === 'multi-account-dedup'
+              ? !eventAccounts.includes(accountId)
+              : e.line_account_id !== accountId) return null as T | null;
             return {
+              tenant_id: `tenant-${accountId}`,
+              line_account_id: accountId,
+              friend_id: f.id,
               event_name: e.name,
               venue_name: e.venue_name,
               venue_url: e.venue_url,
@@ -777,7 +796,14 @@ function makeEventDb(state: {
   return db;
 }
 
-function setupApp(state: { events: EventRow[]; slots?: SlotRow[]; bookings?: BookingRow[] }) {
+function setupApp(state: {
+  events: EventRow[];
+  slots?: SlotRow[];
+  bookings?: BookingRow[];
+  accounts?: LineAccount[];
+  friends?: FriendRow[];
+  queries?: string[];
+}) {
   const app = new Hono<TestEnv>();
   const db = makeEventDb(state);
   app.use('*', async (c, next) => {
@@ -1461,7 +1487,16 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
     expect(state.bookings).toHaveLength(1);
     expect(reminderMocks.computeRemindersForBooking).toHaveBeenCalled();
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'received_confirmed' }),
+      expect.objectContaining({
+        db: expect.anything(),
+        tenantId: 'tenant-la1',
+        lineAccountId: 'la1',
+        friendId: 'f1',
+        kind: 'received_confirmed',
+        retryKey: await createBroadcastRetryKey(
+          'event-booking-notification', body.id, 'received_confirmed',
+        ),
+      }),
     );
     expect(idempotencyMocks.finalizeEventIdempotencyResponse).toHaveBeenCalled();
   });
@@ -1483,11 +1518,16 @@ describe('LIFF POST /api/liff/events/:id/bookings', () => {
       body: JSON.stringify({ slot_id: 's1' }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { status: string };
+    const body = (await res.json()) as { id: string; status: string };
     expect(body.status).toBe('requested');
     expect(reminderMocks.computeRemindersForBooking).not.toHaveBeenCalled();
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'received_pending' }),
+      expect.objectContaining({
+        kind: 'received_pending',
+        retryKey: await createBroadcastRetryKey(
+          'event-booking-notification', body.id, 'received_pending',
+        ),
+      }),
     );
   });
 
@@ -1965,8 +2005,59 @@ describe('admin bookings management', () => {
     expect(state.bookings[0].status).toBe('confirmed');
     expect(reminderMocks.computeRemindersForBooking).toHaveBeenCalled();
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'confirmed' }),
+      expect.objectContaining({
+        db: expect.anything(),
+        tenantId: 'tenant-la1',
+        lineAccountId: 'la1',
+        friendId: 'f1',
+        kind: 'confirmed',
+        retryKey: await createBroadcastRetryKey(
+          'event-booking-notification', 'b1', 'confirmed',
+        ),
+      }),
     );
+  });
+
+  test('POST decide notifies through the booking account of a multi-account event', async () => {
+    const queries: string[] = [];
+    const state = {
+      events: [baseEvent({
+        id: 'e1',
+        line_account_id: 'la1',
+        target_type: 'multi-account-dedup',
+        account_ids: JSON.stringify(['la1', 'la2']),
+      })],
+      slots: [{ id: 's1', event_id: 'e1', starts_at: '2099-06-01T10:00:00Z', ends_at: '2099-06-01T12:00:00Z', capacity: null, is_active: 1, sort_order: 0, deleted_at: null }],
+      bookings: [{ id: 'b2', event_id: 'e1', slot_id: 's1', friend_id: 'f2', line_account_id: 'la2', status: 'requested' } as BookingRow & Record<string, unknown>],
+      accounts: [{ id: 'la2', liff_id: 'L2', is_active: 1, channel_access_token: 'tok2' }],
+      friends: [{ id: 'f2', line_account_id: 'la2', line_user_id: 'U2' }],
+      queries,
+    };
+    const app = setupApp(state);
+
+    const res = await app.request('/api/events/admin/events/e1/bookings/b2/decide?account_id=la1', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'confirm' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-la2',
+        lineAccountId: 'la2',
+        friendId: 'f2',
+        toLineUserId: 'U2',
+      }),
+    );
+    const notificationQuery = queries.find((sql) =>
+      sql.includes('FROM event_bookings b') && sql.includes('channel_access_token')) ?? '';
+    expect(notificationQuery).toContain("e.target_type = 'single'");
+    expect(notificationQuery).toContain("e.target_type = 'multi-account-dedup'");
+    expect(notificationQuery).toContain('json_each(e.account_ids)');
+    expect(notificationQuery).toContain('tenant_line_accounts');
+    expect(notificationQuery).toContain("tenant.status = 'active'");
+    expect(notificationQuery).toContain('f.line_account_id = b.line_account_id');
   });
 
   test('POST decide reject transitions to rejected and appends reason to internal_note', async () => {
@@ -1987,7 +2078,12 @@ describe('admin bookings management', () => {
     expect(state.bookings[0].status).toBe('rejected');
     expect((state.bookings[0] as Record<string, unknown>).internal_note).toContain('定員満員');
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'rejected' }),
+      expect.objectContaining({
+        kind: 'rejected',
+        retryKey: await createBroadcastRetryKey(
+          'event-booking-notification', 'b1', 'rejected',
+        ),
+      }),
     );
   });
 
@@ -2027,7 +2123,12 @@ describe('admin bookings management', () => {
     expect((state.bookings[0] as Record<string, unknown>).cancelled_by).toBe('admin');
     expect(reminderMocks.cancelPendingRemindersFor).toHaveBeenCalled();
     expect(notifierMocks.sendEventBookingNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'cancelled_by_admin' }),
+      expect.objectContaining({
+        kind: 'cancelled_by_admin',
+        retryKey: await createBroadcastRetryKey(
+          'event-booking-notification', 'b1', 'cancelled_by_admin',
+        ),
+      }),
     );
   });
 

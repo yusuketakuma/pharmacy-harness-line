@@ -1,8 +1,11 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
-import { hashTenantPassword } from '../provisioning/credentials.js';
-import { platformAdminAuthMiddleware } from './auth.js';
+import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from '../../../middleware/admin-auth-config.js';
+import { hashTenantAdminSessionToken, hashTenantPassword } from '../provisioning/credentials.js';
+import { PLATFORM_ADMIN_AUTH_COOKIE, platformAdminAuthMiddleware } from './auth.js';
+import { requireActiveGrant } from './access-grant.js';
 import { platformAdminRoutes } from './routes.js';
 
 vi.mock('@line-crm/db', () => ({ getStaffByApiKey: vi.fn(async () => null) }));
@@ -95,7 +98,6 @@ type Grant = {
   issued_at: string;
   expires_at: string;
   revoked_at: string | null;
-  /** NULL = issued before custom_031, i.e. not bound to any session. */
   session_token_hash: string | null;
 };
 
@@ -114,6 +116,7 @@ type WebhookReceipt = {
 type Store = {
   db: D1Database;
   auditEvents: Array<Record<string, unknown>>;
+  sessions: Map<string, Session>;
   tenants: typeof tenants;
   grants: Grant[];
   receipts: WebhookReceipt[];
@@ -121,15 +124,16 @@ type Store = {
    * Makes the NEXT webhook-receipt SELECT return this snapshot instead of the
    * live row — the read-then-update window a concurrent retry (or the cron
    * sweep) lands in. Only the UPDATE's own eligibility predicate can close it.
-   */
+  */
   staleReceiptRead(row: WebhookReceipt): void;
+  revokePlatformSession(sessionTokenHash: string): void;
+  revokeBeforeNextGrantInsert(): void;
 };
 
 /**
  * An active, unexpired, unrevoked phi:read grant — support mode is ON.
- * session_token_hash defaults to null: a legacy, pre-custom_031 grant.
  */
-function seedGrant(store: Store, overrides: Partial<Grant> = {}): Grant {
+function seedGrant(store: Store, sessionTokenHash: string | null, overrides: Partial<Grant> = {}): Grant {
   const grant: Grant = {
     id: 'grant-fixture',
     platform_admin_id: admin.staff_id,
@@ -140,7 +144,7 @@ function seedGrant(store: Store, overrides: Partial<Grant> = {}): Grant {
     issued_at: new Date(Date.now() - 60_000).toISOString(),
     expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
     revoked_at: null,
-    session_token_hash: null,
+    session_token_hash: sessionTokenHash,
     ...overrides,
   };
   store.grants.push(grant);
@@ -179,6 +183,7 @@ function fakeDb(): Store {
     line_config_issue_count: 0,
   };
   let staleReceipt: WebhookReceipt | null = null;
+  let revokeBeforeGrantInsert = false;
 
   const db = {
     prepare(sql: string) {
@@ -205,15 +210,27 @@ function fakeDb(): Store {
             return values[0] === admin.staff_id ? { ...admin } : null;
           }
           // requireActiveGrant: this admin, this exact tenant, unrevoked,
-          // unexpired, and either unbound (legacy) or bound to THIS session.
+          // unexpired, and bound to THIS session.
           if (sql.includes('FROM platform_admin_access_grants')) {
             const bound = sql.includes('session_token_hash');
+            const requiresLiveSession = sql.includes('JOIN platform_admin_sessions AS session');
             return grants
-              .filter((grant) => grant.platform_admin_id === values[0] &&
-                grant.tenant_id === values[1] &&
-                !grant.revoked_at &&
-                grant.expires_at > String(values[2]) &&
-                (!bound || !grant.session_token_hash || grant.session_token_hash === values[3]))
+              .filter((grant) => {
+                if (grant.platform_admin_id !== values[0] ||
+                    grant.tenant_id !== values[1] ||
+                    !!grant.revoked_at ||
+                    grant.expires_at <= String(values[2]) ||
+                    (bound && grant.session_token_hash !== values[3])) return false;
+                if (!requiresLiveSession) return true;
+                const session = sessions.get(String(grant.session_token_hash));
+                return !!session &&
+                  session.staffId === admin.staff_id &&
+                  !session.revokedAt &&
+                  session.expiresAt > String(values[2]) &&
+                  session.credentialVersion === admin.credential_version &&
+                  admin.is_active === 1 &&
+                  admin.staff_active === 1;
+              })
               .sort((left, right) => (left.expires_at < right.expires_at ? 1 : -1))[0] ?? null;
           }
           if (sql.includes('FROM tenants AS tenant')) {
@@ -257,11 +274,12 @@ function fakeDb(): Store {
           if (sql.includes('FROM platform_admin_access_events')) {
             return { results: auditEvents.slice().reverse() };
           }
-          // listActiveGrants: every unrevoked, unexpired grant this admin holds.
+          // listActiveGrants: only grants bound to the caller session.
           if (sql.includes('FROM platform_admin_access_grants')) {
             return {
               results: grants.filter((grant) => grant.platform_admin_id === values[0] &&
-                !grant.revoked_at && grant.expires_at > String(values[1])),
+                grant.session_token_hash === values[1] &&
+                !grant.revoked_at && grant.expires_at > String(values[2])),
             };
           }
           return { results: [] };
@@ -280,6 +298,41 @@ function fakeDb(): Store {
             return { meta: { changes: 1 } };
           }
           if (sql.includes('INSERT INTO platform_admin_access_events')) {
+            if (sql.includes('FROM platform_admin_access_grants')) {
+              if (sql.includes("'support_mode_started'")) {
+                const grant = grants.find((candidate) =>
+                  candidate.id === values[3] && candidate.platform_admin_id === values[4] &&
+                  candidate.tenant_id === values[5] && candidate.session_token_hash === values[6] &&
+                  !candidate.revoked_at);
+                if (!grant) return { meta: { changes: 0 } };
+                auditEvents.push({
+                  id: values[0],
+                  platform_admin_id: grant.platform_admin_id,
+                  tenant_id: grant.tenant_id,
+                  action: 'support_mode_started',
+                  resource_type: 'access_grant',
+                  resource_id: grant.id,
+                  detail_json: values[1],
+                  created_at: values[2],
+                });
+                return { meta: { changes: 1 } };
+              }
+              const grant = grants.find((candidate) =>
+                candidate.id === values[2] && candidate.platform_admin_id === values[3] &&
+                candidate.session_token_hash === values[4] && !candidate.revoked_at);
+              if (!grant) return { meta: { changes: 0 } };
+              auditEvents.push({
+                id: values[0],
+                platform_admin_id: grant.platform_admin_id,
+                tenant_id: grant.tenant_id,
+                action: 'support_mode_ended',
+                resource_type: 'access_grant',
+                resource_id: grant.id,
+                detail_json: null,
+                created_at: values[1],
+              });
+              return { meta: { changes: 1 } };
+            }
             auditEvents.push({
               id: values[0],
               platform_admin_id: values[1],
@@ -322,6 +375,20 @@ function fakeDb(): Store {
             return { meta: { changes: 1 } };
           }
           if (sql.includes('INSERT INTO platform_admin_access_grants')) {
+            if (revokeBeforeGrantInsert) {
+              const session = sessions.get(String(values[9]));
+              if (session) session.revokedAt = new Date().toISOString();
+              revokeBeforeGrantInsert = false;
+            }
+            if (sql.includes('FROM platform_admin_sessions AS current_session')) {
+              const session = sessions.get(String(values[9]));
+              if (!session || session.staffId !== values[11] || session.revokedAt ||
+                  session.expiresAt <= String(values[12]) ||
+                  session.credentialVersion !== admin.credential_version ||
+                  !admin.is_active || !admin.staff_active) {
+                return { meta: { changes: 0 } };
+              }
+            }
             grants.push({
               id: String(values[0]),
               platform_admin_id: String(values[1]),
@@ -341,8 +408,11 @@ function fakeDb(): Store {
             // revokes every active grant this admin holds.
             const targets = sql.includes('WHERE id = ?')
               ? grants.filter((grant) => grant.id === values[2] &&
-                grant.platform_admin_id === values[3] && !grant.revoked_at)
-              : grants.filter((grant) => grant.platform_admin_id === values[2] && !grant.revoked_at);
+                grant.platform_admin_id === values[3] &&
+                grant.session_token_hash === values[4] && !grant.revoked_at)
+              : grants.filter((grant) => grant.platform_admin_id === values[2] &&
+                (!sql.includes('session_token_hash') || grant.session_token_hash === values[3]) &&
+                !grant.revoked_at);
             for (const grant of targets) grant.revoked_at = String(values[0]);
             return { meta: { changes: targets.length } };
           }
@@ -388,11 +458,19 @@ function fakeDb(): Store {
   return {
     db: db as unknown as D1Database,
     auditEvents,
+    sessions,
     tenants: rows,
     grants,
     receipts,
     staleReceiptRead(row: WebhookReceipt) {
       staleReceipt = row;
+    },
+    revokePlatformSession(sessionTokenHash: string) {
+      const session = sessions.get(sessionTokenHash);
+      if (session) session.revokedAt = new Date().toISOString();
+    },
+    revokeBeforeNextGrantInsert() {
+      revokeBeforeGrantInsert = true;
     },
   };
 }
@@ -419,6 +497,13 @@ function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bin
 
 function app(): Hono<Env> {
   const instance = new Hono<Env>();
+  instance.use('*', cors({
+    origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
+    credentials: true,
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: CORS_ALLOW_HEADERS,
+    maxAge: 600,
+  }));
   instance.use('/api/platform-admin/*', platformAdminAuthMiddleware);
   instance.route('/', platformAdminRoutes);
   return instance;
@@ -439,6 +524,12 @@ function cookieHeader(response: Response): string {
     .map((value) => value.split(';', 1)[0])
     .filter(Boolean)
     .join('; ');
+}
+
+async function sessionHash(cookie: string): Promise<string> {
+  const value = cookie.split('; ').find((part) => part.startsWith(`${PLATFORM_ADMIN_AUTH_COOKIE}=`));
+  const token = decodeURIComponent(value?.slice(PLATFORM_ADMIN_AUTH_COOKIE.length + 1) ?? '');
+  return hashTenantAdminSessionToken(token);
 }
 
 function loginRequest(password = 'Temporary pass 42', loginId = admin.login_id) {
@@ -467,13 +558,15 @@ async function standardSession(testEnv: Env['Bindings']) {
     }),
   }, testEnv);
   expect(changed.status).toBe(200);
+  const cookie = cookieHeader(changed);
   return {
-    cookie: cookieHeader(changed),
+    cookie,
     csrf: (await changed.clone().json() as { csrfToken: string }).csrfToken,
+    sessionHash: await sessionHash(cookie),
   };
 }
 
-type Auth = { cookie: string; csrf: string };
+type Auth = { cookie: string; csrf: string; sessionHash: string };
 
 /**
  * A SECOND live session for the same admin. Plain login, no password change,
@@ -487,9 +580,11 @@ async function secondSession(testEnv: Env['Bindings']): Promise<Auth> {
     testEnv,
   );
   expect(login.status).toBe(200);
+  const cookie = cookieHeader(login);
   return {
-    cookie: cookieHeader(login),
+    cookie,
     csrf: (await login.json() as { csrfToken: string }).csrfToken,
+    sessionHash: await sessionHash(cookie),
   };
 }
 
@@ -610,6 +705,35 @@ describe('platform admin authentication', () => {
     });
   });
 
+  it('allows credentialed admin login from ADMIN_ORIGIN and persists the session row', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const request = loginRequest();
+    const response = await app().request('/api/platform-admin/login', {
+      ...request,
+      headers: { ...request.headers, Origin: testEnv.ADMIN_ORIGIN! },
+    }, testEnv);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(testEnv.ADMIN_ORIGIN);
+    expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+
+    const authCookie = cookies(response).find((value) =>
+      value.startsWith(`${PLATFORM_ADMIN_AUTH_COOKIE}=`));
+    expect(authCookie).toEqual(expect.stringContaining('Path=/api/platform-admin'));
+    expect(authCookie).toEqual(expect.stringContaining('HttpOnly'));
+    expect(authCookie).toEqual(expect.stringContaining('Secure'));
+    expect(authCookie).toEqual(expect.stringContaining('SameSite=Lax'));
+
+    expect(store.sessions.size).toBe(1);
+    expect(store.sessions.get(await sessionHash(cookieHeader(response)))).toMatchObject({
+      staffId: admin.staff_id,
+      credentialVersion: admin.credential_version,
+      kind: 'bootstrap',
+      revokedAt: null,
+    });
+  });
+
   it('enforces CSRF on unsafe methods', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
@@ -672,17 +796,36 @@ describe('platform admin authentication', () => {
     expect((await app().request('/api/platform-admin/session', { headers: { cookie } }, testEnv)).status).toBe(401);
   });
 
-  it('revokes open support-mode grants on logout, not just the session', async () => {
+  it('audits logout in the same batch as session and grant revocations', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
-    seedGrant(store);
-    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+    seedGrant(store, auth.sessionHash);
+    const batch = vi.spyOn(store.db, 'batch');
 
     const logout = await postAs(testEnv, auth, '/api/platform-admin/logout');
+
     expect(logout.status).toBe(200);
-    // Otherwise a grant outlives the session that opened it by up to an hour.
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0]?.[0]).toHaveLength(3);
+    expect(store.auditEvents.at(-1)).toMatchObject({ action: 'logout' });
+  });
+
+  it('revokes only the logging-out session grant', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const sessionA = await standardSession(testEnv);
+    const sessionB = await secondSession(testEnv);
+    seedGrant(store, sessionA.sessionHash, { id: 'grant-a' });
+    seedGrant(store, sessionB.sessionHash, { id: 'grant-b' });
+    expect(await patientsStatus(testEnv, sessionA.cookie, 'tenant-a')).toBe(200);
+    expect(await patientsStatus(testEnv, sessionB.cookie, 'tenant-a')).toBe(200);
+
+    const logout = await postAs(testEnv, sessionA, '/api/platform-admin/logout');
+    expect(logout.status).toBe(200);
     expect(store.grants[0].revoked_at).not.toBeNull();
+    expect(store.grants[1].revoked_at).toBeNull();
+    expect(await patientsStatus(testEnv, sessionB.cookie, 'tenant-a')).toBe(200);
   });
 });
 
@@ -764,11 +907,11 @@ describe('platform admin cross-tenant access', () => {
   it('lists tenant patients through the existing account-scoped repository', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
-    const { cookie } = await standardSession(testEnv);
+    const auth = await standardSession(testEnv);
     // PHI needs an active support-mode grant, not just a session.
-    seedGrant(store);
+    seedGrant(store, auth.sessionHash);
 
-    const response = await app().request('/api/platform-admin/tenants/tenant-a/patients', { headers: { cookie } }, testEnv);
+    const response = await app().request('/api/platform-admin/tenants/tenant-a/patients', { headers: { cookie: auth.cookie } }, testEnv);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       data: [{ lineAccountId: 'account-a', id: 'patient-1' }],
@@ -779,12 +922,12 @@ describe('platform admin cross-tenant access', () => {
   it('assembles patient detail from the existing admin repositories, filtered to that patient', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
-    const { cookie } = await standardSession(testEnv);
-    seedGrant(store);
+    const auth = await standardSession(testEnv);
+    seedGrant(store, auth.sessionHash);
 
     const response = await app().request(
       '/api/platform-admin/tenants/tenant-a/patients/patient-1',
-      { headers: { cookie } },
+      { headers: { cookie: auth.cookie } },
       testEnv,
     );
     expect(response.status).toBe(200);
@@ -799,7 +942,7 @@ describe('platform admin cross-tenant access', () => {
     });
     const body = await (await app().request(
       '/api/platform-admin/tenants/tenant-a/patients/patient-1',
-      { headers: { cookie } },
+      { headers: { cookie: auth.cookie } },
       testEnv,
     )).json() as { data: { nextIntakeExpectations: unknown[]; mynaHandoffs: unknown[] } };
     expect(body.data.nextIntakeExpectations).toHaveLength(1);
@@ -813,7 +956,7 @@ describe('platform admin cross-tenant access', () => {
 
     const missing = await app().request(
       '/api/platform-admin/tenants/tenant-a/patients/patient-zz',
-      { headers: { cookie } },
+      { headers: { cookie: auth.cookie } },
       testEnv,
     );
     expect(missing.status).toBe(404);
@@ -822,11 +965,11 @@ describe('platform admin cross-tenant access', () => {
   it('fails closed before reading patient detail when the PHI key is unavailable', async () => {
     const store = fakeDb();
     const testEnv = env(store.db, { PHARMACY_PHI_KEY_V1: undefined });
-    const { cookie } = await standardSession(testEnv);
-    seedGrant(store);
+    const auth = await standardSession(testEnv);
+    seedGrant(store, auth.sessionHash);
     const response = await app().request(
       '/api/platform-admin/tenants/tenant-a/patients/patient-1',
-      { headers: { cookie } },
+      { headers: { cookie: auth.cookie } },
       testEnv,
     );
     expect(response.status).toBe(503);
@@ -970,11 +1113,11 @@ describe('platform admin audit coverage', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const isLogin = fixture.path === '/api/platform-admin/login';
-    const auth = isLogin ? { cookie: '', csrf: '' } : await standardSession(testEnv);
+    const auth = isLogin ? { cookie: '', csrf: '', sessionHash: '' } : await standardSession(testEnv);
     // Support mode is on: the PHI fixtures need it, and the grant-end fixture
     // needs a grant to end. Seeded after standardSession, whose password change
     // deliberately revokes every open grant.
-    if (!isLogin) seedGrant(store);
+    if (!isLogin) seedGrant(store, auth.sessionHash);
     const before = store.auditEvents.length;
 
     const response = await app().request(fixture.path, {
@@ -1012,7 +1155,7 @@ describe('platform admin support-mode grants', () => {
     const wrong = await startGrant(testEnv, auth, 'tenant-a', {
       ...GRANT_BODY, currentPassword: 'Not my password 99',
     });
-    expect(wrong.status).toBe(401);
+    expect(wrong.status).toBe(403);
     expect(store.grants).toHaveLength(0);
     expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(403);
 
@@ -1020,7 +1163,13 @@ describe('platform admin support-mode grants', () => {
     expect(granted.status).toBe(201);
     expect(store.grants).toHaveLength(1);
     expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
-    expect(store.auditEvents.some((event) => event.action === 'support_mode_started')).toBe(true);
+    const started = store.auditEvents.find((event) => event.action === 'support_mode_started');
+    expect(started?.detail_json).not.toContain(GRANT_BODY.reason);
+    expect(started?.detail_json).not.toContain(GRANT_BODY.ticketReference);
+    expect(JSON.parse(String(started?.detail_json))).toEqual({
+      scopes: ['phi:read'],
+      expiresAt: expect.any(String),
+    });
   });
 
   it('scopes a grant to exactly the tenant it was issued for', async () => {
@@ -1043,7 +1192,7 @@ describe('platform admin support-mode grants', () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
-    seedGrant(store, {
+    seedGrant(store, auth.sessionHash, {
       issued_at: new Date(Date.now() - 3_600_000).toISOString(),
       expires_at: new Date(Date.now() - 60_000).toISOString(),
     });
@@ -1074,9 +1223,13 @@ describe('platform admin support-mode grants', () => {
       action: 'support_mode_ended', resource_type: 'access_grant', resource_id: grantId,
     });
 
-    // Ending an already-ended grant is not a second revocation.
+    const auditCount = store.auditEvents.length;
+    // Invalid end requests are neither revocations nor audit events.
     expect((await postAs(testEnv, auth, `/api/platform-admin/support-grants/${grantId}/end`)).status)
       .toBe(404);
+    expect((await postAs(testEnv, auth, '/api/platform-admin/support-grants/missing/end')).status)
+      .toBe(404);
+    expect(store.auditEvents).toHaveLength(auditCount);
   });
 
   it('revokes every open grant when the admin changes password', async () => {
@@ -1101,24 +1254,71 @@ describe('platform admin support-mode grants', () => {
     const sessionA = await standardSession(testEnv);
     const sessionB = await secondSession(testEnv);
 
-    expect((await startGrant(testEnv, sessionA)).status).toBe(201);
+    const created = await startGrant(testEnv, sessionA);
+    expect(created.status).toBe(201);
+    const grantId = (await created.json() as { data: { id: string } }).data.id;
     expect(store.grants[0].session_token_hash).toEqual(expect.any(String));
 
     expect(await patientsStatus(testEnv, sessionA.cookie, 'tenant-a')).toBe(200);
     // Same admin, different session: a stolen cookie must not inherit the
     // break-glass access another browser re-authenticated for.
     expect(await patientsStatus(testEnv, sessionB.cookie, 'tenant-a')).toBe(403);
+
+    const activeA = await app().request('/api/platform-admin/support-grants/active', {
+      headers: { cookie: sessionA.cookie },
+    }, testEnv);
+    const activeB = await app().request('/api/platform-admin/support-grants/active', {
+      headers: { cookie: sessionB.cookie },
+    }, testEnv);
+    await expect(activeA.json()).resolves.toMatchObject({ data: [{ id: grantId }] });
+    await expect(activeB.json()).resolves.toMatchObject({ data: [] });
+
+    const auditCount = store.auditEvents.length;
+    expect((await postAs(
+      testEnv, sessionB, `/api/platform-admin/support-grants/${grantId}/end`,
+    )).status).toBe(404);
+    expect(store.auditEvents).toHaveLength(auditCount);
+    expect(await patientsStatus(testEnv, sessionA.cookie, 'tenant-a')).toBe(200);
+
+    expect((await postAs(
+      testEnv, sessionA, `/api/platform-admin/support-grants/${grantId}/end`,
+    )).status).toBe(200);
+    expect(store.auditEvents.at(-1)).toMatchObject({
+      tenant_id: 'tenant-a', action: 'support_mode_ended', resource_id: grantId,
+    });
   });
 
-  it('still honours a legacy grant issued before session binding existed', async () => {
+  it('rechecks the issuing session before honoring a grant', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
     const auth = await standardSession(testEnv);
-    // custom_031 is additive and nullable so an upgrade does not void the
-    // grants an on-call admin is holding mid-incident.
-    seedGrant(store, { session_token_hash: null });
+    expect((await startGrant(testEnv, auth)).status).toBe(201);
 
-    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(200);
+    store.revokePlatformSession(auth.sessionHash);
+    await expect(
+      requireActiveGrant(store.db, admin.staff_id, 'tenant-a', 'phi:read', auth.sessionHash),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('does not create or audit a grant when its session is revoked before insert', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    const auditCount = store.auditEvents.length;
+    store.revokeBeforeNextGrantInsert();
+
+    expect((await startGrant(testEnv, auth)).status).toBe(403);
+    expect(store.grants).toHaveLength(0);
+    expect(store.auditEvents).toHaveLength(auditCount);
+  });
+
+  it('never honours an unbound grant from another migration era', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    seedGrant(store, null);
+
+    expect(await patientsStatus(testEnv, auth.cookie, 'tenant-a')).toBe(403);
   });
 });
 
@@ -1240,16 +1440,16 @@ describe('platform admin response caching', () => {
   it('marks responses no-store on operational and PHI routes alike', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);
-    const { cookie } = await standardSession(testEnv);
-    seedGrant(store);
+    const auth = await standardSession(testEnv);
+    seedGrant(store, auth.sessionHash);
 
-    const list = await app().request('/api/platform-admin/tenants', { headers: { cookie } }, testEnv);
+    const list = await app().request('/api/platform-admin/tenants', { headers: { cookie: auth.cookie } }, testEnv);
     expect(list.status).toBe(200);
     expect(list.headers.get('cache-control')).toBe('no-store, private');
 
     const phi = await app().request(
       '/api/platform-admin/tenants/tenant-a/patients/patient-1',
-      { headers: { cookie } },
+      { headers: { cookie: auth.cookie } },
       testEnv,
     );
     expect(phi.status).toBe(200);

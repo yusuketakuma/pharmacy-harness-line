@@ -1,6 +1,7 @@
 // Cron handler: expire 24h-old request bookings + purge idempotency rows.
 
 import type { BookingNotificationSender } from './booking-notifier.js';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 import { purgeExpiredIdempotency } from './booking-idempotency.js';
 import { REQUEST_TTL_HOURS } from './booking-types.js';
 
@@ -11,6 +12,9 @@ interface StaleRow {
   staff_name: string;
   channel_access_token: string;
   line_user_id: string;
+  tenant_id: string;
+  line_account_id: string;
+  friend_id: string;
 }
 
 const JST_OFFSET_MS = 9 * 3600_000;
@@ -36,7 +40,10 @@ export async function runExpirer(
               m.name AS menu_name,
               s.display_name AS staff_name,
               la.channel_access_token,
-              f.provider_line_user_id AS line_user_id
+              f.provider_line_user_id AS line_user_id,
+              mapping.tenant_id,
+              b.line_account_id,
+              b.friend_id
          FROM bookings b
          INNER JOIN menus m
                  ON m.id = b.menu_id AND m.line_account_id = b.line_account_id
@@ -73,14 +80,21 @@ export async function runExpirer(
     if ((upd.meta?.changes ?? 0) === 0) continue;
     await db
       .prepare(
-        `UPDATE booking_reminders SET status='cancelled' WHERE booking_id = ? AND status IN ('pending','failed')`,
+        `UPDATE booking_reminders SET status='cancelled' WHERE booking_id = ? AND status IN ('pending','failed','processing')`,
       )
       .bind(row.id)
       .run();
     try {
       await params.sender({
+        db,
+        tenantId: row.tenant_id,
+        lineAccountId: row.line_account_id,
+        friendId: row.friend_id,
         channelAccessToken: row.channel_access_token,
         toLineUserId: row.line_user_id,
+        retryKey: await createBroadcastRetryKey(
+          'booking-notification', row.id, 'expired',
+        ),
         kind: 'expired',
         ctx: {
           menuName: row.menu_name,

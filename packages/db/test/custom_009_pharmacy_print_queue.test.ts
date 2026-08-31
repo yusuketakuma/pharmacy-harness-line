@@ -57,13 +57,10 @@ function seed(sqlite: Database.Database): void {
 }
 
 describe('custom_009 pharmacy web print task', () => {
-  it('is replay-safe and contains no resident-agent or printer telemetry states', () => {
+  it('contains no resident-agent or printer telemetry states', () => {
     const sqlite = new Database(':memory:');
     sqlite.pragma('foreign_keys = ON');
     sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    expect(() => sqlite.exec(readFileSync(
-      join(ROOT, 'migrations/custom_009_pharmacy_print_queue.sql'), 'utf8',
-    ))).not.toThrow();
     const sql = sqlite.prepare(
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pharmacy_print_tasks'`,
     ).get() as { sql: string };

@@ -96,7 +96,7 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
           notFound += 1;
         } else {
           otherErrors += 1;
-          console.error(`refresh-profile failed friend=${row.id}:`, msg);
+          console.error('refresh-profile failed:', msg);
         }
       } finally {
         processed += 1;
@@ -133,7 +133,9 @@ profileRefresh.post('/api/admin/broadcasts/:id/reset-to-draft', async (c) => {
   const db = c.env.DB;
 
   const logged = await db
-    .prepare('SELECT COUNT(*) AS cnt FROM messages_log WHERE broadcast_id = ?')
+    .prepare(
+      "SELECT COUNT(*) AS cnt FROM messages_log WHERE broadcast_id = ? AND COALESCE(delivery_type, '') != 'test'",
+    )
     .bind(id)
     .first<{ cnt: number }>();
   if (!logged) {

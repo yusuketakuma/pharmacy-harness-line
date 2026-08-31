@@ -11,6 +11,12 @@ interface DueRow {
   staff_name: string;
   channel_access_token: string;
   line_user_id: string;
+  tenant_id?: string;
+  line_account_id?: string;
+  friend_id?: string;
+  status?: 'pending' | 'processing' | 'failed' | 'failed_permanent' | 'sent' | 'cancelled';
+  claimed_at?: string | null;
+  first_attempted_at?: string | null;
 }
 
 function stubDB(due: DueRow[]) {
@@ -27,12 +33,58 @@ function stubDB(due: DueRow[]) {
         },
         async all() {
           if (sql.includes('FROM booking_reminders')) {
-            return { results: due };
+            const [, , staleClaimAt] = bound as [string, string, string];
+            return {
+              results: due.filter((row) => {
+                const status = row.status ?? 'pending';
+                return status === 'pending' || status === 'failed' ||
+                  (status === 'processing' && row.claimed_at != null && row.claimed_at <= staleClaimAt);
+              }).map((row) => ({ ...row })),
+            };
           }
           return { results: [] };
         },
         async run() {
           updates.push({ sql, bound });
+          if (sql.includes('LINE_RETRY_HORIZON_EXPIRED')) {
+            const [horizon] = bound as [string];
+            let changes = 0;
+            for (const row of due) {
+              const status = row.status ?? 'pending';
+              if ((status === 'processing' || status === 'failed') &&
+                  row.first_attempted_at != null && row.first_attempted_at <= horizon) {
+                row.status = 'failed_permanent';
+                changes += 1;
+              }
+            }
+            return { success: true, meta: { changes } };
+          }
+          if (sql.includes('SET retry_count = retry_count + 1')) {
+            const [claimedAt, firstAttemptedAt, id, expected, staleClaimAt] = bound as [
+              string, string, string, number, string,
+            ];
+            const row = due.find((item) => item.id === id);
+            const status = row?.status ?? 'pending';
+            if (!row || row.retry_count !== expected ||
+                (status !== 'pending' && status !== 'failed' &&
+                 !(status === 'processing' && row.claimed_at != null && row.claimed_at <= staleClaimAt))) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            row.retry_count += 1;
+            row.status = 'processing';
+            row.claimed_at = claimedAt;
+            row.first_attempted_at ??= firstAttemptedAt;
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (sql.includes("SET status='sent'")) {
+            const [, id, expected] = bound as [string, string, number | undefined];
+            const row = due.find((item) => item.id === id);
+            if (expected !== undefined &&
+                (!row || row.status !== 'processing' || row.retry_count !== expected)) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            if (row) row.status = 'sent';
+          }
           return { success: true, meta: { changes: 1 } };
         },
         async first() {
@@ -49,6 +101,47 @@ const REMINDER_HOURS_BEFORE = 2;
 const NOW = new Date('2026-05-10T05:01:00Z');
 
 describe('processDueReminders', () => {
+  test('does not dispatch the same reminder from an overlapping cron sweep', async () => {
+    const due: DueRow[] = [{
+      id: 'R1', booking_id: 'B1', kind: 'day_before', retry_count: 0,
+      starts_at: '2099-05-10T05:00:00Z', menu_name: 'カット', staff_name: '山田',
+      channel_access_token: 'tok', line_user_id: 'U_xyz', status: 'pending',
+    }];
+    const { db } = stubDB(due);
+    const sender = vi.fn(async () => {
+      if (sender.mock.calls.length === 1) {
+        await processDueReminders(db, {
+          now: NOW, sender, reminderHoursBefore: REMINDER_HOURS_BEFORE,
+        });
+      }
+    });
+
+    await processDueReminders(db, {
+      now: NOW, sender, reminderHoursBefore: REMINDER_HOURS_BEFORE,
+    });
+
+    expect(sender).toHaveBeenCalledTimes(1);
+  });
+
+  test('retires an unresolved reminder after the LINE retry-key horizon', async () => {
+    const due: DueRow[] = [{
+      id: 'R1', booking_id: 'B1', kind: 'day_before', retry_count: 1,
+      starts_at: '2099-05-10T05:00:00Z', menu_name: 'カット', staff_name: '山田',
+      channel_access_token: 'tok', line_user_id: 'U_xyz', status: 'processing',
+      claimed_at: '2026-05-08T00:00:00.000Z',
+      first_attempted_at: '2026-05-08T00:00:00.000Z',
+    }];
+    const { db } = stubDB(due);
+    const sender = vi.fn();
+
+    await processDueReminders(db, {
+      now: NOW, sender, reminderHoursBefore: REMINDER_HOURS_BEFORE,
+    });
+
+    expect(due[0].status).toBe('failed_permanent');
+    expect(sender).not.toHaveBeenCalled();
+  });
+
   test('due な reminder を sent にし sender を呼ぶ', async () => {
     const due: DueRow[] = [
       {
@@ -61,6 +154,9 @@ describe('processDueReminders', () => {
         staff_name: '山田',
         channel_access_token: 'tok',
         line_user_id: 'U_xyz',
+        tenant_id: 'tenant-1',
+        line_account_id: 'account-1',
+        friend_id: 'friend-1',
       },
     ];
     const { db, updates, queries } = stubDB(due);
@@ -76,7 +172,12 @@ describe('processDueReminders', () => {
       expect.objectContaining({
         channelAccessToken: 'tok',
         toLineUserId: 'U_xyz',
+        retryKey: 'R1',
         kind: 'day_before',
+        db,
+        tenantId: 'tenant-1',
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
       }),
     );
     expect(updates.find((u) => u.sql.includes("status='sent'"))).toBeTruthy();
@@ -124,7 +225,7 @@ describe('processDueReminders', () => {
       reminderHoursBefore: REMINDER_HOURS_BEFORE,
     });
     expect(result).toEqual({ sent: 0, failed: 1 });
-    const failedUpdate = updates.find((u) => u.sql.includes('UPDATE booking_reminders SET status'));
+    const failedUpdate = updates.find((u) => u.sql.includes('SET status = ?, retry_count = ?'));
     expect(failedUpdate).toBeTruthy();
     expect(failedUpdate!.bound[0]).toBe('failed');
     expect(failedUpdate!.bound[1]).toBe(1); // retry_count
@@ -151,7 +252,7 @@ describe('processDueReminders', () => {
       sender,
       reminderHoursBefore: REMINDER_HOURS_BEFORE,
     });
-    const u = updates.find((x) => x.sql.includes('UPDATE booking_reminders SET status'));
+    const u = updates.find((x) => x.sql.includes('SET status = ?, retry_count = ?'));
     expect(u!.bound[0]).toBe('failed_permanent');
     expect(u!.bound[1]).toBe(3);
   });

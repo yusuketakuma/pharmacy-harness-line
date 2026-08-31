@@ -10,6 +10,7 @@ describe('buildRewardMessage', () => {
   it('text テンプレートをそのまま返す', () => {
     const tpl: MessageTemplate = {
       id: 'r1',
+      tenant_id: null,
       name: 'reward text',
       message_type: 'text',
       message_content: '🎁 ありがとうございます！',
@@ -25,6 +26,7 @@ describe('buildRewardMessage', () => {
   it('text テンプレートの {displayName} を置換する', () => {
     const tpl: MessageTemplate = {
       id: 'r2',
+      tenant_id: null,
       name: 'reward greet',
       message_type: 'text',
       message_content: '{displayName}さん、おめでとう！',
@@ -40,6 +42,7 @@ describe('buildRewardMessage', () => {
   it('flex テンプレートをパースして返す', () => {
     const tpl: MessageTemplate = {
       id: 'r3',
+      tenant_id: null,
       name: 'reward flex',
       message_type: 'flex',
       message_content: JSON.stringify({ type: 'bubble', body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: 'やった！' }] } }),
@@ -54,6 +57,7 @@ describe('buildRewardMessage', () => {
   it('flex テンプレが不正な JSON の場合は null を返す', () => {
     const tpl: MessageTemplate = {
       id: 'r4',
+      tenant_id: null,
       name: 'broken',
       message_type: 'flex',
       message_content: '{ broken json',
@@ -74,6 +78,7 @@ describe('buildRewardMessage', () => {
     });
     const tpl: MessageTemplate = {
       id: 'r5',
+      tenant_id: null,
       name: 'flex with name',
       message_type: 'flex',
       message_content: flexJson,

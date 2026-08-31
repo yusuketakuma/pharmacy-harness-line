@@ -16,6 +16,8 @@ import {
 import type { Friend as DbFriend, Tag as DbTag } from '@line-crm/db';
 import { fireEvent } from '../../services/event-bus.js';
 import { buildMessage } from '../../services/step-delivery.js';
+import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js';
 import type { Env } from '../../index.js';
 import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../../custom/pharmacy/growth-loop/access.js';
@@ -23,6 +25,7 @@ import { accountResourceOwnedByStaff } from '../../middleware/tenant-boundary.js
 import { clampLimitOffset } from '../../lib/pagination.js';
 
 const friends = new Hono<Env>();
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const FRIEND_LIST_COLUMNS = `
   f.id,
@@ -696,6 +699,13 @@ friends.post('/api/friends/:id/messages', async (c) => {
     if (!tenantId) {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
+    if (c.req.header('X-Line-Harness-Source') !== 'manual') {
+      return c.json({ success: false, error: 'X-Line-Harness-Source must be manual' }, 400);
+    }
+    const idempotencyKey = c.req.header('Idempotency-Key')?.trim() ?? '';
+    if (!UUID_PATTERN.test(idempotencyKey)) {
+      return c.json({ success: false, error: 'Idempotency-Key must be a UUID' }, 400);
+    }
     const friendId = c.req.param('id');
     const body = await c.req.json<{
       messageType?: string;
@@ -757,19 +767,30 @@ friends.post('/api/friends/:id/messages', async (c) => {
     }
 
     const message = buildMessage(tracked.messageType, tracked.content, body.altText);
-    await lineClient.pushMessage(friend.line_user_id, [message]);
+    const operationId = await createBroadcastRetryKey(
+      'manual', tenantId, friendAccountId, friend.id, idempotencyKey,
+    );
+    const delivery = await deliverTrackedLinePush({
+      db,
+      operationId,
+      tenantId,
+      lineAccountId: friendAccountId,
+      friendId: friend.id,
+      messageType,
+      content: body.content,
+      source: 'manual',
+      request: { to: friend.line_user_id, messages: [message] },
+      send: (request, retryKey) => lineClient.pushMessage(
+        request.to,
+        request.messages,
+        retryKey,
+      ).then(() => undefined),
+    });
+    if (delivery === 'reconciliation_required' || delivery === 'in_flight') {
+      return c.json({ success: false, error: 'Message delivery requires reconciliation' }, 409);
+    }
 
-    // Log outgoing message
-    const logId = crypto.randomUUID();
-    await db
-      .prepare(
-        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, created_at)
-         VALUES (?, ?, 'outgoing', ?, ?, NULL, NULL, 'manual', ?)`,
-      )
-      .bind(logId, friend.id, messageType, body.content, jstNow())
-      .run();
-
-    return c.json({ success: true, data: { messageId: logId } });
+    return c.json({ success: true, data: { messageId: operationId } });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error('POST /api/friends/:id/messages error:', errMsg);

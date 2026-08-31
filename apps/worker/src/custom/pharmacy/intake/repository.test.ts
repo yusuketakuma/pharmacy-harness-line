@@ -50,6 +50,11 @@ const owner = { lineAccountId: 'account-1', friendId: 'friend-1' };
 const cryptoScope = {
   tenantId: 'tenant-1', rootSecret: 'synthetic-pharmacy-phi-root-secret-v1',
 };
+const policy = { policy_version: 1, content_hash: 'a'.repeat(64) };
+const policyProof = {
+  privacyPolicyVersion: policy.policy_version,
+  privacyPolicyHash: policy.content_hash,
+};
 
 describe('pharmacy patient repository', () => {
   it('validates and inserts a family patient in the owner scope', async () => {
@@ -264,7 +269,7 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db, calls } = fakeDb([patient, null, null]);
+    const { db, calls } = fakeDb([patient, null, policy, null, null]);
     await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
       idempotencyKey: 'intake-123',
       answers: {
@@ -285,12 +290,15 @@ describe('pharmacy patient repository', () => {
       },
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).resolves.toMatchObject({ id: expect.any(String), revision: 1 });
     expect(calls[0].sql).toContain('FROM pharmacy_patients');
     const responseWrite = calls.find((call) => call.operation === 'batch' &&
       call.sql.includes('INSERT INTO pharmacy_patient_intake_responses'));
     expect(responseWrite?.values).toEqual(expect.arrayContaining(['account-1', 'friend-1', 'patient-1']));
     expect(responseWrite?.sql).toContain("value = 'patient_intake'");
+    expect(responseWrite?.sql).toContain('policy.policy_version = ?');
+    expect(responseWrite?.sql).toContain('policy.content_hash = ?');
     expect(calls.filter((call) => call.operation === 'batch' &&
       call.sql.includes('INSERT INTO pharmacy_patient_intake_envelopes'))).toHaveLength(2);
   });
@@ -301,7 +309,7 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db, calls } = fakeDb([patient, null, null]);
+    const { db, calls } = fakeDb([patient, null, policy, null, null]);
     await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
       idempotencyKey: 'intake-fence',
       answers: {
@@ -311,6 +319,7 @@ describe('pharmacy patient repository', () => {
       },
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).resolves.toMatchObject({ id: expect.any(String) });
 
     const responseWrite = calls.find((call) => call.operation === 'batch' &&
@@ -328,7 +337,7 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db } = fakeDb([patient, null]);
+    const { db } = fakeDb([patient, null, policy, null, null, null, policy]);
     db.batch = vi.fn(async () => [
       { success: true, meta: { changes: 0 } },
       { success: true, meta: { changes: 1 } },
@@ -344,6 +353,7 @@ describe('pharmacy patient repository', () => {
       },
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).rejects.toThrow('patient intake storage failed');
   });
 
@@ -353,7 +363,7 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db } = fakeDb([patient, null, null]);
+    const { db } = fakeDb([patient, null, policy, null, null, null]);
     db.batch = vi.fn(async () => { throw new Error('D1 unavailable'); }) as D1Database['batch'];
 
     await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
@@ -365,6 +375,7 @@ describe('pharmacy patient repository', () => {
       },
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).rejects.toThrow('patient intake storage failed');
   });
 
@@ -380,7 +391,40 @@ describe('pharmacy patient repository', () => {
       answers: { allergiesStatus: 'none' } as never,
       representativeConsent: true,
       privacyConsent: false,
+      ...policyProof,
     }, cryptoScope)).rejects.toThrow('intake consent required');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects intake without a valid privacy policy proof before touching D1', async () => {
+    const { db, calls } = fakeDb(null);
+    await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
+      idempotencyKey: 'intake-123',
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
+      representativeConsent: true,
+      privacyConsent: true,
+    } as never, cryptoScope)).rejects.toThrow('invalid privacy policy proof');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects a non-string privacy policy hash before touching D1', async () => {
+    const { db, calls } = fakeDb(null);
+    await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
+      idempotencyKey: 'intake-123',
+      answers: {
+        allergiesStatus: 'none', adverseReactionStatus: 'none', medicationStatus: 'none',
+        medicalHistoryStatus: 'none', medicalHistoryTags: [], medicationNotebook: 'unknown',
+        smokingStatus: 'never', alcoholStatus: 'none', medicationAdherence: 'none',
+      },
+      representativeConsent: true,
+      privacyConsent: true,
+      privacyPolicyVersion: 1,
+      privacyPolicyHash: ['a'.repeat(64)] as never,
+    }, cryptoScope)).rejects.toThrow('invalid privacy policy proof');
     expect(calls).toHaveLength(0);
   });
 
@@ -396,6 +440,7 @@ describe('pharmacy patient repository', () => {
       answers: { allergiesStatus: 'none', adverseReactionStatus: 'none' } as never,
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).rejects.toThrow('invalid intake answers');
     expect(calls).toHaveLength(0);
   });
@@ -416,6 +461,7 @@ describe('pharmacy patient repository', () => {
       } as never,
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).rejects.toThrow('invalid intake answers');
     expect(calls).toHaveLength(0);
   });
@@ -436,6 +482,7 @@ describe('pharmacy patient repository', () => {
       } as never,
       representativeConsent: true,
       privacyConsent: true,
+      ...policyProof,
     }, cryptoScope)).rejects.toThrow('invalid intake answers');
     expect(calls).toHaveLength(0);
   });

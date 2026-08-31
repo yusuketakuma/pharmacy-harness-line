@@ -26,6 +26,7 @@ import { sendAdConversions } from './ad-conversion.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
 import { validateHttpsUrl } from '../lib/validate-https-url.js';
 import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { deliverTrackedLinePush } from './outbound-line-delivery.js';
 
 const OUTGOING_WEBHOOK_TIMEOUT_MS = 10_000;
 
@@ -396,6 +397,7 @@ async function processAutomations(
       }
       return true;
     });
+    let legacyReplyUnavailable = false;
 
     for (const automation of automations) {
       const automationAccountId = lineAccountId ?? automation.line_account_id;
@@ -406,8 +408,20 @@ async function processAutomations(
       if (!matchConditions(conditions, payload)) continue;
 
       const results: Array<{ action: string; success: boolean; error?: string }> = [];
+      let durableMessageFailure: Error | null = null;
 
       for (const [actionIndex, action] of actions.entries()) {
+        if (legacyReplyUnavailable && action.type === 'send_message') {
+          results.push({
+            action: action.type,
+            success: false,
+            error: 'LEGACY_REPLY_UNAVAILABLE',
+          });
+          continue;
+        }
+        const hadLegacyReplyToken = action.type === 'send_message'
+          && !eventKey
+          && Boolean(payload.replyToken);
         try {
           await executeAction(db, action, payload, lineAccessToken, automationAccountId, {
             tenantId: tenantId ?? null,
@@ -418,9 +432,14 @@ async function processAutomations(
             targetId: `${automation.id}:${actionIndex}`,
           });
           results.push({ action: action.type, success: true });
+          if (hadLegacyReplyToken && !payload.replyToken) legacyReplyUnavailable = true;
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
           results.push({ action: action.type, success: false, error: errorMsg });
+          if (eventKey && action.type === 'send_message' && !durableMessageFailure) {
+            durableMessageFailure = err instanceof Error ? err : new Error(errorMsg);
+          }
+          if (hadLegacyReplyToken && !payload.replyToken) legacyReplyUnavailable = true;
         }
       }
 
@@ -434,9 +453,11 @@ async function processAutomations(
         actionsResult: JSON.stringify(results),
         status: allSuccess ? 'success' : anySuccess ? 'partial' : 'failed',
       });
+      if (durableMessageFailure) throw durableMessageFailure;
     }
   } catch (err) {
     console.error('processAutomations error:', err);
+    if (eventKey) throw err;
   }
 }
 
@@ -508,12 +529,23 @@ async function executeAction(
 
     case 'send_message': {
       if (!lineAccessToken || !friendId) break;
+      if (!deliveryContext?.eventKey || !deliveryContext.tenantId || !deliveryContext.lineAccountId) {
+        throw new Error('AUTOMATION_DELIVERY_SCOPE_REQUIRED');
+      }
       const friend = await db
         .prepare('SELECT provider_line_user_id AS line_user_id FROM friends WHERE id = ?')
         .bind(friendId)
         .first<{ line_user_id: string }>();
       if (!friend) break;
       const lineClient = new LineClient(lineAccessToken);
+      const retryKey = await createBroadcastRetryKey(
+        'automation-message',
+        deliveryContext.tenantId,
+        deliveryContext.lineAccountId,
+        deliveryContext.eventType,
+        deliveryContext.eventKey,
+        deliveryContext.targetId,
+      );
 
       // template_id が set なら templates から content/type を resolve、
       // なければ inline params を使う。template が見つからない (削除済 等) は
@@ -552,39 +584,23 @@ async function executeAction(
         logContent = resolvedContent;
       }
 
-      let deliveryType: 'reply' | 'push';
-      if (payload.replyToken) {
-        try {
-          await lineClient.replyMessage(payload.replyToken, [msg]);
-          payload.replyToken = undefined;
-          deliveryType = 'reply';
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          const isTokenError = errMsg.includes('400') || errMsg.includes('Invalid reply token');
-          if (isTokenError) {
-            await lineClient.pushMessage(friend.line_user_id, [msg]);
-            deliveryType = 'push';
-          } else {
-            throw err;
-          }
-        }
-      } else {
-        await lineClient.pushMessage(friend.line_user_id, [msg]);
-        deliveryType = 'push';
-      }
-
-      // log は実際に送信した msg の type を反映する。msgType が 'image' 等で
-      // else 経路に入った場合、actual message は text なので 'text' で記録すべき。
-      // params の messageType をそのまま使うと admin 側で画像/Flex プレースホルダ
-      // が出てしまう。
-      await logOutgoingMessage(db, {
+      const result = await deliverTrackedLinePush({
+        db,
+        operationId: retryKey,
+        tenantId: deliveryContext.tenantId,
+        lineAccountId: deliveryContext.lineAccountId,
         friendId,
         messageType: msg.type,
         content: logContent,
-        deliveryType,
         source: 'automation',
-        lineAccountId,
+        request: { to: friend.line_user_id, messages: [msg] },
+        send: async (request, key) => {
+          await lineClient.pushMessage(request.to, request.messages, key);
+        },
       });
+      if (result === 'reconciliation_required') {
+        throw new Error('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+      }
       break;
     }
 

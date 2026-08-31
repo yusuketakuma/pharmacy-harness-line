@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
 const dbMocks = {
-  getStaffByApiKey: vi.fn().mockResolvedValue(null),
+  getStaffByApiKey: vi.fn(),
   applyMileageRulesForEvent: vi.fn(),
 };
 vi.mock('@line-crm/db', () => dbMocks);
@@ -14,9 +14,11 @@ const tenantDb = {
   prepare(sql: string) {
     const statement = {
       bind: () => statement,
-      first: async () => sql.includes('FROM tenants')
-        ? { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' }
-        : null,
+      first: async () => {
+        if (sql.includes('FROM tenants')) return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
+        if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
+        return null;
+      },
     };
     return statement;
   },
@@ -24,7 +26,6 @@ const tenantDb = {
 const env = {
   DB: tenantDb,
   API_KEY: 'owner-key',
-  LEGACY_ENV_OWNER_BYPASS: 'true',
 } as unknown as Env['Bindings'];
 
 function call(body: Record<string, unknown>, authorization = 'Bearer owner-key') {
@@ -40,7 +41,7 @@ function call(body: Record<string, unknown>, authorization = 'Bearer owner-key')
 
 beforeEach(() => {
   vi.clearAllMocks();
-  dbMocks.getStaffByApiKey.mockResolvedValue(null);
+  dbMocks.getStaffByApiKey.mockResolvedValue({ id: 'staff-1', name: 'Owner', role: 'owner' });
   dbMocks.applyMileageRulesForEvent.mockResolvedValue({
     event: { id: 'event-1' }, granted: [], queued: true,
   });

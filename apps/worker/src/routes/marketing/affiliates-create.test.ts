@@ -48,6 +48,7 @@ const tenantDb = {
         if (sql.includes('FROM tenants')) {
           return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
         }
+        if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
         if (sql.includes('FROM friends AS friend')) {
           return binds[1] === 'ghost' ? null : { line_account_id: 'generic-a' };
         }
@@ -67,7 +68,6 @@ const env = {
   DB: tenantDb,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
-  LEGACY_ENV_OWNER_BYPASS: 'true',
   WORKER_URL: 'https://worker.example.com',
 } as unknown as import('../../index.js').Env['Bindings'];
 
@@ -103,6 +103,7 @@ const UNIQUE_FRIEND_ERR = new Error(
 );
 
 beforeEach(() => {
+  dbMocks.getStaffByApiKey.mockResolvedValue({ id: 'staff-1', name: 'Owner', role: 'owner' });
   vi.clearAllMocks();
   dbMocks.getLineAccounts.mockResolvedValue([]);
   dbMocks.getLinkBaseUrl.mockResolvedValue(null); // fall back to WORKER_URL/r

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluateCondition,
+  isDeterministicInvalidReplyToken,
   isPermanentLineDeliveryError,
   isSupportedConditionType,
   SUPPORTED_CONDITION_TYPES,
@@ -10,6 +11,31 @@ import {
 } from './step-delivery.js';
 import type { LineClient } from '@line-crm/line-sdk';
 import type { Friend } from '@line-crm/db';
+
+const lineSdkMocks = vi.hoisted(() => {
+  const pushMessage = vi.fn(async (
+    _to: string,
+    _messages: unknown[],
+    _retryKey?: string,
+  ) => ({}));
+  const LineClient = vi.fn().mockImplementation(function () {
+    return { pushMessage };
+  });
+  return { LineClient, pushMessage };
+});
+vi.mock('@line-crm/line-sdk', () => ({ LineClient: lineSdkMocks.LineClient }));
+
+const outboundDeliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(async (params: {
+    request: unknown;
+    operationId: string;
+    send: (request: unknown, retryKey: string) => Promise<void>;
+  }) => {
+    await params.send(params.request, params.operationId);
+    return 'sent' as const;
+  }),
+}));
+vi.mock('./outbound-line-delivery.js', () => outboundDeliveryMocks);
 
 /**
  * Regression coverage for OSS issue #120 — scenario step
@@ -197,6 +223,21 @@ describe('evaluateCondition', () => {
   });
 
   describe('fail-safe semantics (OSS #120 regression)', () => {
+    it('omits friend identifiers from every fail-safe condition log', async () => {
+      const db = mockDb({});
+      for (const step of [
+        { condition_type: 'unknown', condition_value: 'value' },
+        { condition_type: 'tag_exists', condition_value: '' },
+        { condition_type: 'metadata_equals', condition_value: '{invalid' },
+        { condition_type: 'metadata_equals', condition_value: JSON.stringify({ key: 'tier' }) },
+      ]) {
+        expect(await evaluateCondition(db, 'friend-secret', step)).toBe(false);
+      }
+
+      expect(errorSpy).toHaveBeenCalledTimes(4);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('friend-secret');
+    });
+
     it('unknown condition_type → false (skip), NOT true (deliver)', async () => {
       // OSS issue #120: user passed condition_type='tag_not_has' (typo for tag_not_exists);
       // pre-fix behaviour was to fall through to default and return true → over-deliver to every
@@ -332,6 +373,18 @@ describe('isPermanentLineDeliveryError', () => {
   });
 });
 
+describe('isDeterministicInvalidReplyToken', () => {
+  it('matches only LINE 400 invalid-token responses', () => {
+    expect(isDeterministicInvalidReplyToken(
+      new Error('LINE API error: 400 Bad Request — Invalid reply token'),
+    )).toBe(true);
+    expect(isDeterministicInvalidReplyToken(
+      new Error('LINE API error: 500 Internal Server Error — Invalid reply token'),
+    )).toBe(false);
+    expect(isDeterministicInvalidReplyToken(new Error('Invalid reply token'))).toBe(false);
+  });
+});
+
 /**
  * Regression coverage for the condition-false jump path.
  *
@@ -358,6 +411,7 @@ describe('condition-false jump (next_step_on_false)', () => {
     nextStepOnFalse: number | null;
     steps?: number[];
     accountId?: string | null;
+    tenantId?: string | null;
     pharmacyMode?: boolean;
     mapped?: boolean;
     skipCondition?: boolean;
@@ -370,6 +424,7 @@ describe('condition-false jump (next_step_on_false)', () => {
     const advances: AdvanceCall[] = [];
     const completes: string[] = [];
     const pauses: string[] = [];
+    const accountId = opts.accountId === undefined ? 'account-1' : opts.accountId;
     const stepOrders = opts.steps ?? [1, 2, 3, 4];
     const stepRows = stepOrders.map((order) => ({
       id: `step-${order}`,
@@ -395,8 +450,17 @@ describe('condition-false jump (next_step_on_false)', () => {
             if (sql.includes('FROM pharmacy_account_capabilities')) {
               return opts.pharmacyMode ? { mode: 'pharmacy' } : null;
             }
-            if (sql.includes('line_accounts')) {
+            if (sql.includes('SELECT 1 AS ok') && sql.includes('line_accounts')) {
               return opts.mapped === false ? null : { ok: 1 };
+            }
+            if (sql.includes('FROM tenant_line_accounts')) {
+              return { tenant_id: opts.tenantId ?? 'tenant-1' };
+            }
+            if (sql.includes('FROM line_accounts')) {
+              return opts.mapped === false ? null : {
+                id: accountId,
+                channel_access_token: 'test-token',
+              };
             }
             if (sql.includes('FROM friend_tags')) {
               return null; // friend does NOT have tag-X → condition fails
@@ -409,11 +473,15 @@ describe('condition-false jump (next_step_on_false)', () => {
                 is_following: 1,
                 user_id: null,
                 metadata: null,
-                line_account_id: opts.accountId ?? null,
+                line_account_id: accountId,
               };
             }
             if (sql.includes('FROM scenarios')) {
-              return { delivery_mode: 'relative', line_account_id: opts.accountId ?? null };
+              return {
+                delivery_mode: 'relative',
+                line_account_id: accountId,
+                tenant_id: opts.tenantId ?? null,
+              };
             }
             return null;
           },
@@ -454,7 +522,7 @@ describe('condition-false jump (next_step_on_false)', () => {
               completes.push(args[1] as string);
               return { meta: { changes: 1 } };
             }
-            if (sql.includes("SET status = 'paused'")) {
+            if (sql.includes("SET status = 'paused'") && sql.includes('WHERE id = ?')) {
               pauses.push(args[1] as string);
               return { meta: { changes: 1 } };
             }
@@ -549,6 +617,60 @@ describe('condition-false jump (next_step_on_false)', () => {
 
     expect(push).not.toHaveBeenCalled();
     expect(pauses).toEqual(['fs1']);
+  });
+
+  it('pauses an unscoped scenario before calling LINE', async () => {
+    const { db, pauses } = deliveryMockDb({
+      nextStepOnFalse: null,
+      accountId: null,
+      skipCondition: true,
+    });
+    const { client, push } = mockLineClient();
+
+    await processStepDeliveries(db, client);
+
+    expect(push).not.toHaveBeenCalled();
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(pauses).toEqual(['fs1']);
+  });
+
+  it('persists the operation before calling the LINE provider', async () => {
+    const persistedOperationIds = new Set<string>();
+    outboundDeliveryMocks.deliverTrackedLinePush.mockClear();
+    outboundDeliveryMocks.deliverTrackedLinePush.mockImplementation(async (params) => {
+      persistedOperationIds.add(params.operationId);
+      await params.send(params.request, params.operationId);
+      return 'sent';
+    });
+    lineSdkMocks.pushMessage.mockClear();
+
+    const { db } = deliveryMockDb({
+      nextStepOnFalse: null,
+      accountId: 'account-1',
+      tenantId: 'tenant-1',
+      skipCondition: true,
+    });
+    const client = { pushMessage: lineSdkMocks.pushMessage } as unknown as LineClient;
+
+    await processStepDeliveries(db, client);
+
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
+    const operation = outboundDeliveryMocks.deliverTrackedLinePush.mock.calls[0][0];
+    expect(operation).toMatchObject({
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'f1',
+      source: 'scenario',
+      scenarioEnrollmentId: 'fs1',
+      scenarioStepId: 'step-2',
+      operationId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+      ),
+    });
+    expect(lineSdkMocks.pushMessage).toHaveBeenCalledOnce();
+    const retryKey = lineSdkMocks.pushMessage.mock.calls[0][2];
+    expect(retryKey).toBe(operation.operationId);
+    expect(persistedOperationIds.has(retryKey as string)).toBe(true);
   });
 });
 

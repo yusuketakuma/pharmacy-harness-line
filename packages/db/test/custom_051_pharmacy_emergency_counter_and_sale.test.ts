@@ -5,9 +5,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CORE_MIGRATION = join(ROOT, 'migrations/custom_035_pharmacy_emergency_contraception.sql');
-const DSR_MIGRATION = join(ROOT, 'migrations/custom_038_pharmacy_data_subject_requests.sql');
-const MIGRATION = join(ROOT, 'migrations/custom_051_pharmacy_emergency_counter_and_sale.sql');
 const NOW = '2026-08-22T00:00:00.000Z';
 
 function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
@@ -132,9 +129,6 @@ describe('custom_051 pharmacy emergency counter confirmations and sale records',
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    db.exec(readFileSync(CORE_MIGRATION, 'utf8'));
-    db.exec(readFileSync(DSR_MIGRATION, 'utf8'));
-    db.exec(readFileSync(MIGRATION, 'utf8'));
     seedAccount(db, 'a');
     seedAccount(db, 'b');
     seedReadyService(db, 'a');

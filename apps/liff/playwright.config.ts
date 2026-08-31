@@ -8,20 +8,20 @@ export default defineConfig({
   workers: 1,
   reporter: 'line',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:4302',
     browserName: 'chromium',
     trace: 'retain-on-failure',
   },
   webServer: [
     {
-      command: 'pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort',
-      port: 4173,
-      reuseExistingServer: !process.env.CI,
+      command: 'pnpm exec vite preview --host 127.0.0.1 --port 4302 --strictPort',
+      port: 4302,
+      reuseExistingServer: false,
     },
     {
-      command: 'pnpm exec vite --host 127.0.0.1 --port 4174 --strictPort --mode e2e',
-      port: 4174,
-      reuseExistingServer: !process.env.CI,
+      command: 'pnpm exec vite --host 127.0.0.1 --port 4303 --strictPort --mode e2e',
+      port: 4303,
+      reuseExistingServer: false,
     },
   ],
 });

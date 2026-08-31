@@ -16,28 +16,13 @@ import {
 import type { LineClient, Message } from '@line-crm/line-sdk';
 import { addJitter, sleep } from './stealth.js';
 import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
-
-async function isActiveMappedAccount(
-  db: D1Database,
-  accountId: string | null | undefined,
-): Promise<boolean> {
-  if (!accountId) return false;
-  const row = await db.prepare(
-    `SELECT 1 AS ok
-       FROM tenant_line_accounts AS mapping
-       INNER JOIN line_accounts AS account
-               ON account.id = mapping.line_account_id
-       INNER JOIN tenants AS tenant
-               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
-      WHERE mapping.line_account_id = ? AND account.is_active = 1
-      LIMIT 1`,
-  ).bind(accountId).first<{ ok: number }>();
-  return Boolean(row);
-}
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
+import { deliverTrackedLinePush } from './outbound-line-delivery.js';
+import { getActiveMappedAccountTenantId } from './step-delivery.js';
 
 export async function processReminderDeliveries(
   db: D1Database,
-  lineClient: LineClient,
+  _lineClient: LineClient,
 ): Promise<void> {
   const now = jstNow();
   const dueReminders = await getDueReminderDeliveries(db, now);
@@ -56,23 +41,41 @@ export async function processReminderDeliveries(
       }
 
       if (await isPharmacyModeAccount(db, friend.line_account_id)) continue;
-      if (!(await isActiveMappedAccount(db, friend.line_account_id))) continue;
+      const friendAccountId = (friend as unknown as Record<string, string | null>).line_account_id;
+      const tenantId = await getActiveMappedAccountTenantId(db, friendAccountId);
+      if (!tenantId || !friendAccountId) continue;
 
       // Resolve correct lineClient for this friend's account
-      let deliveryClient = lineClient;
-      const friendAccountId = (friend as unknown as Record<string, string | null>).line_account_id;
-      if (friendAccountId) {
-        const { getLineAccountById } = await import('@line-crm/db');
-        const account = await getLineAccountById(db, friendAccountId);
-        if (account) {
-          const { LineClient: LC } = await import('@line-crm/line-sdk');
-          deliveryClient = new LC(account.channel_access_token);
-        }
-      }
+      const { getLineAccountById } = await import('@line-crm/db');
+      const account = await getLineAccountById(db, friendAccountId);
+      if (!account) continue;
+      const { LineClient: LC } = await import('@line-crm/line-sdk');
+      const deliveryClient = new LC(account.channel_access_token);
 
       for (const step of fr.steps) {
         const message = buildMessage(step.message_type, step.message_content);
-        await deliveryClient.pushMessage(friend.line_user_id, [message]);
+        const retryKey = await createBroadcastRetryKey('reminder', fr.id, step.id);
+        const result = await deliverTrackedLinePush({
+          db,
+          operationId: retryKey,
+          tenantId,
+          lineAccountId: friendAccountId,
+          friendId: friend.id,
+          messageType: step.message_type,
+          content: step.message_content,
+          source: 'reminder',
+          request: { to: friend.line_user_id, messages: [message] },
+          send: async (request, providerRetryKey) => {
+            await deliveryClient.pushMessage(
+              request.to,
+              request.messages,
+              providerRetryKey,
+            );
+          },
+        });
+        if (result !== 'sent' && result !== 'already_sent') {
+          throw new Error('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+        }
 
         // Mark as delivered AFTER successful send.
         // INSERT OR IGNORE prevents duplicate records if parallel workers both sent.
@@ -83,21 +86,12 @@ export async function processReminderDeliveries(
           .bind(lockId, fr.id, step.id)
           .run();
 
-        // メッセージログに記録
-        const logId = crypto.randomUUID();
-        await db
-          .prepare(
-            `INSERT INTO messages_log (id, friend_id, direction, message_type, content, source, created_at)
-             VALUES (?, ?, 'outgoing', ?, ?, 'reminder', ?)`,
-          )
-          .bind(logId, friend.id, step.message_type, step.message_content, jstNow())
-          .run();
       }
 
       // 全ステップ配信済みかチェック
       await completeReminderIfDone(db, fr.id, fr.reminder_id);
     } catch (err) {
-      console.error(`リマインダ配信エラー (friend_reminder ${fr.id}):`, err);
+      console.error('リマインダ配信エラー:', err);
     }
   }
 }

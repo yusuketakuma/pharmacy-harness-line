@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
+import type { Env } from '../../index.js';
 
 const availabilityMocks = {
   computeSlots: vi.fn(() => [] as { start: string; end: string }[]),
@@ -16,12 +17,37 @@ vi.mock('../../services/availability.js', () => availabilityMocks);
 const notifierMocks = { sendBookingNotification: vi.fn() };
 vi.mock('../../services/booking-notifier.js', () => notifierMocks);
 
-const { default: booking } = await import('./booking.js');
+const calendarSyncMocks = {
+  verifyStaffCalendarConnection: vi.fn(async () => undefined),
+};
+vi.mock('../../services/booking-calendar-sync.js', async () => {
+  const actual = await vi.importActual<typeof import('../../services/booking-calendar-sync.js')>(
+    '../../services/booking-calendar-sync.js',
+  );
+  return { ...actual, verifyStaffCalendarConnection: calendarSyncMocks.verifyStaffCalendarConnection };
+});
+
+const liffAuthMocks = vi.hoisted(() => ({
+  verifyCallerLineIdentity: vi.fn(),
+}));
+vi.mock('../../services/liff-auth.js', () => liffAuthMocks);
+
+const { default: booking, verifyCallerLineUserId } = await import('./booking.js');
 
 function makeApp(db: unknown) {
   const app = new Hono();
   app.route('/', booking);
   return { app, env: { DB: db } };
+}
+
+function makeTenantApp(db: unknown) {
+  const app = new Hono<Env>();
+  app.use('*', async (c, next) => {
+    c.set('tenantId', 'tenant-a');
+    await next();
+  });
+  app.route('/', booking);
+  return { app, env: { DB: db } as Env['Bindings'] };
 }
 
 const emptyDb = {
@@ -33,6 +59,24 @@ const emptyDb = {
     }),
   }),
 };
+
+describe('LIFF booking identity scope', () => {
+  test('accepts only an identity bound to the requested account', async () => {
+    const context = {
+      req: { header: () => 'Bearer token' },
+      env: { DB: emptyDb },
+    } as never;
+    liffAuthMocks.verifyCallerLineIdentity.mockResolvedValueOnce({
+      lineUserId: 'U-a', loginChannelId: 'login-a', lineAccountId: 'account-a', tenantId: 'tenant-a',
+    });
+    await expect(verifyCallerLineUserId(context, 'account-b')).resolves.toBeNull();
+
+    liffAuthMocks.verifyCallerLineIdentity.mockResolvedValueOnce({
+      lineUserId: 'U-a', loginChannelId: 'login-a', lineAccountId: 'account-a', tenantId: 'tenant-a',
+    });
+    await expect(verifyCallerLineUserId(context, 'account-a')).resolves.toBe('U-a');
+  });
+});
 
 describe('GET /api/booking/admin/menus/:id/staff', () => {
   test('400 without account_id', async () => {
@@ -221,6 +265,70 @@ describe('POST /api/booking/admin/bookings', () => {
     expect(reminders.length).toBeGreaterThan(0);
   });
 
+  test('resolves notification scope from the persisted booking before sending', async () => {
+    availabilityMocks.computeSlots.mockReturnValue([{ start: '11:00', end: '12:00' }]);
+    notifierMocks.sendBookingNotification.mockResolvedValue(undefined);
+    const notification = {
+      starts_at: futureStartsAt,
+      line_account_id: 'acc1',
+      friend_id: 'f1',
+      tenant_id: 'tenant-a',
+      menu_name: 'カット',
+      staff_name: 'スタッフA',
+      channel_access_token: 'token',
+      line_user_id: 'U1',
+    };
+    const db = scriptedDb([
+      ['FROM friends', { first: { id: 'f1', is_following: 1 } }],
+      ['FROM staff WHERE', { first: { ok: 1 } }],
+      ['FROM menus m', { first: {
+        duration_minutes: 60,
+        buffer_after_minutes: 10,
+        dur: 60,
+        price: 8000,
+        is_offered: 1,
+      } }],
+      ['FROM staff_shifts', { first: { start_time: '10:00', end_time: '19:00' } }],
+      ['SELECT starts_at, block_ends_at FROM bookings', { all: { results: [] } }],
+      ['INSERT INTO bookings', { run: { meta: { changes: 1 } } }],
+      ['SELECT b.starts_at', { first: notification }],
+    ]);
+    const pending: Promise<unknown>[] = [];
+    const notificationCtx = {
+      waitUntil(promise: Promise<unknown>) { pending.push(promise); },
+      passThroughOnException() {},
+    } as unknown as ExecutionContext;
+    const { app, env } = makeApp(db);
+
+    const res = await app.request(
+      '/api/booking/admin/bookings?account_id=acc1',
+      {
+        method: 'POST',
+        body: JSON.stringify(validBody),
+        headers: { 'Content-Type': 'application/json' },
+      },
+      env,
+      notificationCtx,
+    );
+    await Promise.all(pending);
+
+    expect(res.status).toBe(201);
+    expect(notifierMocks.sendBookingNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        tenantId: 'tenant-a',
+        lineAccountId: 'acc1',
+        friendId: 'f1',
+      }),
+    );
+    const scopeQuery = db.calls.find((call) => call.sql.includes('SELECT b.starts_at'))?.sql ?? '';
+    expect(scopeQuery).toContain('tenant_line_accounts');
+    expect(scopeQuery).toContain("tenant.status = 'active'");
+    expect(scopeQuery).toContain('m.line_account_id = b.line_account_id');
+    expect(scopeQuery).toContain('s.line_account_id = b.line_account_id');
+    expect(scopeQuery).toContain('f.line_account_id = b.line_account_id');
+  });
+
   test('409 on slot conflict (atomic insert 0 rows)', async () => {
     availabilityMocks.computeSlots.mockReturnValue([{ start: '11:00', end: '12:00' }]);
     const db = happyDb(0);
@@ -320,5 +428,97 @@ describe('jstDayWindowUtc', () => {
     const { jstDayWindowUtc } = await import('./booking.js');
     expect(jstDayWindowUtc('2026-09-10').startUtc).toBe('2026-09-09T15:00:00.000Z');
     expect(jstDayWindowUtc('2026-11-09').startUtc).toBe('2026-11-08T15:00:00.000Z');
+  });
+});
+
+describe('legacy Google Calendar admin tenant scope', () => {
+  test('tenant A cannot read/update/delete tenant B and new connections store tenant A', async () => {
+    const calls: { sql: string; params: unknown[] }[] = [];
+    const connections = new Map([
+      ['connection-b', {
+        id: 'connection-b',
+        tenant_id: 'tenant-b',
+        line_account_id: 'account-b',
+        staff_id: 'staff-b',
+        auth_type: 'service_account',
+        access_token: null,
+        refresh_token: null,
+      }],
+    ]);
+    const db = {
+      calls,
+      prepare(sql: string) {
+        let params: unknown[] = [];
+        const statement = {
+          bind(...bound: unknown[]) {
+            params = bound;
+            calls.push({ sql, params });
+            return statement;
+          },
+          async first() {
+            const tenantId = params.find((value) => String(value).startsWith('tenant-'));
+            const accountId = params.find((value) => String(value).startsWith('account-'));
+            const staffId = params.find((value) => String(value).startsWith('staff-'));
+            if (sql.includes('FROM staff')) {
+              if (tenantId) {
+                return tenantId === 'tenant-a' && accountId === 'account-a' && staffId === 'staff-a'
+                  ? { ok: 1 }
+                  : null;
+              }
+              return accountId === 'account-a' && staffId === 'staff-a' ||
+                accountId === 'account-b' && staffId === 'staff-b'
+                ? { ok: 1 }
+                : null;
+            }
+            if (sql.includes('FROM tenant_line_accounts')) {
+              return tenantId === 'tenant-a' && accountId === 'account-a' ? { ok: 1 } : null;
+            }
+            if (sql.includes('FROM google_calendar_connections')) {
+              const connection = [...connections.values()].find((candidate) =>
+                candidate.line_account_id === accountId && candidate.staff_id === staffId &&
+                (!tenantId || candidate.tenant_id === tenantId));
+              return connection ?? null;
+            }
+            return null;
+          },
+          async all() { return { results: [] }; },
+          async run() { return { meta: { changes: 1 } }; },
+        };
+        return statement;
+      },
+    };
+    const { app, env } = makeTenantApp(db);
+
+    const foreignGet = await app.request(
+      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b', {}, env,
+    );
+    const foreignPut = await app.request(
+      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ calendar_id: 'calendar-b' }),
+      }, env);
+    const foreignDelete = await app.request(
+      '/api/booking/admin/staff/staff-b/google-calendar?account_id=account-b', {
+        method: 'DELETE',
+      }, env);
+
+    expect(foreignGet.status).toBe(404);
+    expect(foreignPut.status).toBe(404);
+    expect(foreignDelete.status).toBe(404);
+    expect(calls.filter(({ sql, params }) =>
+      sql.includes('google_calendar_connections') && params.includes('account-b'))).toHaveLength(0);
+
+    const ownPut = await app.request(
+      '/api/booking/admin/staff/staff-a/google-calendar?account_id=account-a', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ calendar_id: 'calendar-a' }),
+      }, env);
+
+    expect(ownPut.status).toBe(200);
+    const insert = calls.find(({ sql }) => sql.includes('INSERT INTO google_calendar_connections'));
+    expect(insert?.sql).toContain('tenant_id');
+    expect(insert?.params).toEqual(expect.arrayContaining(['tenant-a', 'account-a', 'staff-a']));
   });
 });

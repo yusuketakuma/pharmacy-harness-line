@@ -13,6 +13,7 @@ describe('buildIntroMessage', () => {
   it('text テンプレートの {formUrl} を実 URL に置換する', () => {
     const tpl: MessageTemplate = {
       id: 't1',
+      tenant_id: null,
       name: 'intro text',
       message_type: 'text',
       message_content: '🎁 特典が届きました！\n受け取りはこちら👉 {formUrl}',
@@ -48,6 +49,7 @@ describe('buildIntroMessage', () => {
     });
     const tpl: MessageTemplate = {
       id: 't2',
+      tenant_id: null,
       name: 'intro flex',
       message_type: 'flex',
       message_content: flexJson,
@@ -65,6 +67,7 @@ describe('buildIntroMessage', () => {
   it('複数の {formUrl} 出現を全て置換する', () => {
     const tpl: MessageTemplate = {
       id: 't3',
+      tenant_id: null,
       name: 'multi',
       message_type: 'text',
       message_content: '一回目 {formUrl} 二回目 {formUrl}',
@@ -81,6 +84,7 @@ describe('buildIntroMessage', () => {
   it('テンプレに {formUrl} が含まれない場合はデフォルト Flex にフォールバック', () => {
     const tpl: MessageTemplate = {
       id: 't4',
+      tenant_id: null,
       name: 'no placeholder',
       message_type: 'text',
       message_content: '🎉 ようこそ！',
@@ -94,6 +98,7 @@ describe('buildIntroMessage', () => {
   it('flex テンプレが不正な JSON の場合はデフォルト Flex にフォールバック', () => {
     const tpl: MessageTemplate = {
       id: 't5',
+      tenant_id: null,
       name: 'broken flex',
       message_type: 'flex',
       message_content: '{ this is not valid json {formUrl}',

@@ -1,5 +1,63 @@
 # Changelog
 
+## Pharmacy v0.33.0 (2026-08-31)
+
+> 公開範囲: package/source version `0.33.0`を`dev`向けsource releaseとして公開します。source tag `v0.33.0`とseller release `pharmacy-v0.33.0`は別identityです。main/production deploy、薬局アカウントのactivation、実患者データ操作、実LINE送信は本releaseに含めません。
+
+### 重要な破壊的変更
+
+- 正式リリース前のmigration履歴を`001_v033_baseline.sql`へ再構成し、v0.33固有の変更を`002`〜`008`へ整理しました。新規環境はこの8 migrationから構築します。
+- 旧migration ledgerを持つ既存DBへのin-place適用は行いません。update engineはepoch不一致を`wrong migration epoch`でfail closedにします。development DBを更新する場合も、別途承認したbackup・reset・recreate・read-backが必要です。
+- production DBのreset、migration適用、backfillは実施していません。
+
+### 利用者ごとの変更
+
+| 利用する人 | v0.33.0で変わること | メリット |
+| --- | --- | --- |
+| 患者 | LIFFのHTML shellを先に表示し、JavaScript読込中も状態を案内 | 初回起動時の白画面を減らし、読込中であることが分かる |
+| 薬局職員 | Growth DashboardにJST月単位の送受信数、手動/自動、push/reply、通知結果をcount-onlyで表示 | メッセージ本文や患者IDを開かず、担当LINEアカウントの運用量を確認できる |
+| owner/admin | password変更・staff無効化時のsession失効、session rotation family、期限付きsupport grantを強化 | 失効済みsessionや別sessionへのgrant再利用を防ぎやすくなる |
+| 運用担当 | LINE送信をaccount-scoped outbound ledgerとstable retry keyで追跡し、結果不明・stale worker・重複cronをfail closedで処理 | timeout後のblind retryや二重送信を減らし、再照合すべき送信を区別できる |
+| 開発者 | migration baseline、tenant/account scope、薬局専用API配置、dependency seamを整理 | 新規環境の再現性を上げ、共通コードへの薬局固有責務の混入を減らせる |
+
+### セキュリティ・テナント分離
+
+- auto reply、automation、reminder、scenario、template、form、booking、webhook、LINE proxyなどのquery/mutationをserver-resolved tenant・`line_account_id`へ固定
+- BAN health集計のaccount条件漏れと、指定accountのLINE clientがない場合に別accountへfallbackする問題を修正
+- Platform admin grantをsessionへ束縛し、staff無効化・credential変更時の既存session revokeを追加
+- update engineのWorker URL正規化から、多数のslashで多項式時間になり得る正規表現を削除
+- patient ID、friend ID、本文、secret、upstream response bodyを新しい統計・監査・運用logへ出さないcontractを維持
+- 担当者の1対1手動送信は`X-Line-Harness-Source: manual`を維持し、自動通知には付与しない
+
+### メッセージ配信と統計
+
+- `messages_log.line_account_id`とaccount/date indexを利用し、送信・受信・手動・自動・push・reply・test・legacy/unscopedを分離集計
+- 統計APIは認証済みstaffの担当accountだけを対象にし、最大32日、`from < to`、ISO日時を検証
+- broadcast test send、通常broadcast、scenario、booking/reminder、薬局通知を既存のoutbound ledgerへ接続
+- provider成功後のD1確定失敗、stale claim、unknown outcomeを再送前に照合し、同じlogical operationの二重送信を抑止
+
+### 動作速度・コード整理
+
+- 1秒遅延fixtureでLIFFの最初の可視表示を中央値約1,045msから約10msへ短縮。これは白画面解消の測定であり、LIFF ready時間やbundle全体の高速化は主張しません。
+- 20万行synthetic fixtureでaccount/date集計をcovering index化し、結果drift 0を確認
+- 共通Web API clientから薬局専用Growth/Rich Menu API 421行を既存`custom/pharmacy` seamへ移動
+- LINE retry-key判定を既存shared serviceへ集約し、重複実装を削除
+- 11 workspace packageの内部dependency cycle 0を確認
+
+### ローカル検証と公開境界
+
+| 確認項目 | 結果 |
+| --- | --- |
+| Worker | 236 files / 2,536 tests、typecheck PASS |
+| database | 82 files / 394 tests、typecheck PASS |
+| update engine | 22 files / 219 tests PASS |
+| Web | 52 files / 233 tests、typecheck、68-route static build PASS |
+| LIFF | 20 files / 128 tests、typecheck、build、Chromium 13 tests PASS |
+| deploy・運用script | 19 files / 225 tests PASS |
+| production deploy・migration・LINE mutation | `NOT_RUN` |
+
+詳細なlocal/synthetic証拠と未実施gateは`docs/pharmacy/evidence/v0.33.0-engineering-foundation.json`に記録しています。source releaseはproduction readinessの証拠へ代用しません。
+
 ## Pharmacy v0.32.0 (2026-08-24)
 
 > 公開状況: v0.32.0はローカル実装候補です。package version `0.32.0`とseller release `pharmacy-v0.32.0`は別物であり、seller release作成、deploy、薬局アカウントへの反映、本番データ操作はまだ行っていません。

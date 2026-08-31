@@ -37,7 +37,7 @@
  * - Prints "OK — N migrations pass." on success
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { argv, exit, stderr, stdout } from 'node:process';
@@ -139,7 +139,8 @@ const DEFAULT_MIGRATIONS_DIR = 'packages/db/migrations';
  * String comparison works here because migration prefixes are numeric and
  * zero-padded (`001`..`041`..), so lexicographic order matches numeric order.
  */
-export const POLICY_CUTOFF_PREFIX = '041';
+export const POLICY_CUTOFF_PREFIX = '002';
+const BASELINE_MIGRATION = '001_v033_baseline.sql';
 
 /**
  * Filter the list of migration filenames (basenames, not full paths) to those
@@ -177,12 +178,18 @@ function main(rawArgs: string[]): void {
 
   if (usingDefaults) {
     stdout.write(
-      `Policy: additive-only applied to migrations >= ${POLICY_CUTOFF_PREFIX} (CONTRIBUTING.md §Migration Policy).\n` +
-        `Older migrations grandfathered. Run with --all to override.\n`,
+      `Policy: additive-only applied to v0.33 post-baseline migrations >= ${POLICY_CUTOFF_PREFIX}.\n`,
     );
   }
 
   if (files.length === 0) {
+    if (
+      usingDefaults &&
+      existsSync(resolve(DEFAULT_MIGRATIONS_DIR, BASELINE_MIGRATION))
+    ) {
+      stdout.write('OK — 0 post-baseline migrations pass.\n');
+      return;
+    }
     stderr.write('check-migrations: no migration files found\n');
     exit(1);
   }

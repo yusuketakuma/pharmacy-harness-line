@@ -12,8 +12,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * - 'every-click': cooldown FIRST (before enrolling); a row that still owes
  *   step 1 is claimed (fencing the cron), re-clicks on an advanced row push
  *   again without touching it
- * - reply option: webhook follow sends via the free reply token and logs
- *   delivery_type='reply' (derived — no separate option)
+ * - reply option: webhook follow sends via the free reply token; deterministic
+ *   invalid-token failures release the claim, unknown outcomes pause it
+ *   instead of falling back to a cron push
  */
 
 const dbMocks = vi.hoisted(() => ({
@@ -24,6 +25,8 @@ const dbMocks = vi.hoisted(() => ({
   advanceFriendScenario: vi.fn(),
   completeFriendScenario: vi.fn(),
   claimFriendScenarioForDelivery: vi.fn(),
+  markFriendScenarioDeliveryAttempt: vi.fn(),
+  pauseFriendScenarioDelivery: vi.fn(),
   enrollFriendInScenario: vi.fn(),
   getLineAccountByChannelId: vi.fn(),
   getLineAccountById: vi.fn(),
@@ -45,6 +48,12 @@ vi.mock('@line-crm/line-sdk', () => ({
 
 const stepDeliveryMocks = vi.hoisted(() => ({
   evaluateCondition: vi.fn(async (_db: unknown, _friendId: string, _step: { id: string }) => true),
+  getActiveMappedAccountTenantId: vi.fn(),
+  getLineApiErrorStatus: vi.fn((error: unknown) => {
+    if (!(error instanceof Error)) return null;
+    const match = error.message.match(/^LINE API error:\s+(\d{3})\b/u);
+    return match ? Number(match[1]) : null;
+  }),
 }));
 vi.mock('./step-delivery.js', () => ({
   buildMessage: vi.fn((type: string, content: string) => ({ type, text: content })),
@@ -55,6 +64,12 @@ vi.mock('./step-delivery.js', () => ({
     content: msg.text,
   })),
   evaluateCondition: stepDeliveryMocks.evaluateCondition,
+  getActiveMappedAccountTenantId: stepDeliveryMocks.getActiveMappedAccountTenantId,
+  getLineApiErrorStatus: stepDeliveryMocks.getLineApiErrorStatus,
+  isDeterministicInvalidReplyToken: vi.fn((error: unknown) =>
+    stepDeliveryMocks.getLineApiErrorStatus(error) === 400
+      && error instanceof Error
+      && /\bInvalid reply token\b/iu.test(error.message)),
 }));
 
 // Cron-parity decoration (shared decorateForFriendPush pipeline).
@@ -64,10 +79,38 @@ const autoTrackMocks = vi.hoisted(() => ({
 }));
 vi.mock('./auto-track.js', () => autoTrackMocks);
 
+const outboundDeliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(async (params: {
+    request: { to: string; messages: unknown[] };
+    operationId: string;
+    send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+  }): Promise<'sent' | 'already_sent' | 'reconciliation_required'> => {
+    await params.send(params.request, params.operationId);
+    return 'sent' as const;
+  }),
+  deliverTrackedLineReply: vi.fn(async (params: {
+    beforeSend?: () => Promise<boolean>;
+    isDeterministicRejection?: (error: unknown) => boolean;
+    send: () => Promise<void>;
+  }) => {
+    if (params.beforeSend && !(await params.beforeSend())) return 'not_sent' as const;
+    try {
+      await params.send();
+    } catch (error) {
+      if (params.isDeterministicRejection?.(error)) return 'not_sent' as const;
+      throw error;
+    }
+    return 'sent' as const;
+  }),
+}));
+vi.mock('./outbound-line-delivery.js', () => outboundDeliveryMocks);
+
 import { pushImmediateFirstStep } from './immediate-first-step.js';
 
 const STEP1 = { id: 'step-1', step_order: 1, delay_minutes: 0, on_reach_tag_id: null };
 const STEP2 = { id: 'step-2', step_order: 2, delay_minutes: 60 };
+const CLAIM_TOKEN = 'claim-1';
+const CLAIM = { token: CLAIM_TOKEN, expectedStepOrder: 0 };
 
 interface DbCall {
   sql: string;
@@ -83,8 +126,11 @@ function makeDb(opts: {
   cooldownHit?: boolean;
   enrollmentLookup?: { id: string; current_step_order: number } | null;
   pharmacyAccountId?: string;
+  failResumeUpdate?: boolean;
 } = {}) {
   const calls: DbCall[] = [];
+  let resumeUpdateFailures = opts.failResumeUpdate ? 1 : 0;
+  const successfulResumeUpdates: DbCall[] = [];
   const db = {
     prepare: (sql: string) => ({
       bind: (...args: unknown[]) => {
@@ -99,15 +145,36 @@ function makeDb(opts: {
             }
             return null;
           },
-          run: async () => ({ meta: { changes: 1 } }),
+          run: async () => {
+            if (sql.includes(`SET status = 'active'`) && resumeUpdateFailures > 0) {
+              resumeUpdateFailures--;
+              throw new Error('synthetic D1 resume failure');
+            }
+            if (sql.includes(`SET status = 'active'`)) successfulResumeUpdates.push({ sql, args });
+            return { meta: { changes: 1 } };
+          },
         };
       },
     }),
   } as unknown as D1Database;
-  return { db, calls };
+  return { db, calls, successfulResumeUpdates };
 }
 
-const ctx = { defaultAccessToken: 'default-token', workerUrl: 'https://worker.example.com' };
+const unscopedCtx = {
+  defaultAccessToken: 'default-token',
+  workerUrl: 'https://worker.example.com',
+};
+const ctx = {
+  ...unscopedCtx,
+  tenantId: 'tenant-1',
+  lineAccountId: 'account-1',
+};
+const replyCtx = {
+  ...ctx,
+  tenantId: 'tenant-1',
+  lineAccountId: 'account-1',
+  eventKey: 'event-1',
+};
 
 function insertedLog(calls: DbCall[]): DbCall | undefined {
   return calls.find((c) => c.sql.includes('INSERT INTO messages_log'));
@@ -115,6 +182,10 @@ function insertedLog(calls: DbCall[]): DbCall | undefined {
 
 function claimReleased(calls: DbCall[]): boolean {
   return calls.some((c) => c.sql.includes(`status = 'active'`) && c.sql.includes(`status = 'delivering'`));
+}
+
+function pausedClaimResumed(calls: DbCall[]): boolean {
+  return calls.some((c) => c.sql.includes(`status = 'active'`) && c.sql.includes(`status = 'paused'`));
 }
 
 beforeEach(() => {
@@ -144,8 +215,13 @@ beforeEach(() => {
     messageContent: 'welcome!',
     templateIdAtSend: null,
   });
-  dbMocks.claimFriendScenarioForDelivery.mockResolvedValue(true);
+  dbMocks.claimFriendScenarioForDelivery.mockResolvedValue(CLAIM_TOKEN);
+  dbMocks.advanceFriendScenario.mockResolvedValue(true);
+  dbMocks.completeFriendScenario.mockResolvedValue(true);
+  dbMocks.markFriendScenarioDeliveryAttempt.mockResolvedValue(true);
+  dbMocks.pauseFriendScenarioDelivery.mockResolvedValue(true);
   dbMocks.enrollFriendInScenario.mockResolvedValue({ id: 'fs-1', current_step_order: 0 });
+  stepDeliveryMocks.getActiveMappedAccountTenantId.mockResolvedValue(null);
   lineClientMock.pushMessage.mockResolvedValue({});
   lineClientMock.replyMessage.mockResolvedValue({});
   autoTrackMocks.decorateForFriendPush.mockImplementation(
@@ -161,7 +237,7 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     });
     const { db, calls } = makeDb({ pharmacyAccountId: 'pharmacy-a' });
 
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
 
@@ -193,25 +269,111 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     expect(claimReleased(calls)).toBe(true);
   });
 
-  it('claims, pushes step 1, logs, and advances to step 2', async () => {
+  it('pauses an unscoped immediate push before LINE', async () => {
     const { db, calls } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+    });
+
+    expect(sent).toBe(false);
+    expect(dbMocks.claimFriendScenarioForDelivery).toHaveBeenCalledWith(db, 'fs-1', 0);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
+      db, 'fs-1', CLAIM_TOKEN,
+    );
+    expect(insertedLog(calls)).toBeUndefined();
+  });
+
+  it('uses the account-scoped outbound ledger before LINE for an immediate push', async () => {
+    const { db, calls } = makeDb();
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', {
+      ...ctx,
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+    }, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
 
     expect(sent).toBe(true);
-    expect(dbMocks.claimFriendScenarioForDelivery).toHaveBeenCalledWith(db, 'fs-1', 0);
-    expect(lineClientMock.pushMessage).toHaveBeenCalledWith('U-1', [{ type: 'text', text: 'welcome!' }]);
-    const log = insertedLog(calls);
-    expect(log).toBeDefined();
-    // delivery_type bind slot (7th value) stays NULL when not specified.
-    expect(log!.args[5]).toBe(null);
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
-    expect(dbMocks.completeFriendScenario).not.toHaveBeenCalled();
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
+    const operation = outboundDeliveryMocks.deliverTrackedLinePush.mock.calls[0]?.[0] as {
+      operationId: string;
+    };
+    expect(operation).toMatchObject({
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+      source: 'scenario',
+      scenarioEnrollmentId: 'fs-1',
+      scenarioStepId: 'step-1',
+      scenarioClaimToken: CLAIM_TOKEN,
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    });
+    expect(outboundDeliveryMocks.deliverTrackedLinePush.mock.invocationCallOrder[0])
+      .toBeLessThan(lineClientMock.pushMessage.mock.invocationCallOrder[0]);
+    expect(lineClientMock.pushMessage.mock.calls[0]?.[2]).toBe(operation.operationId);
+    expect(insertedLog(calls)).toBeUndefined();
+  });
+
+  it('advances without another provider call when the immediate push is already settled', async () => {
+    outboundDeliveryMocks.deliverTrackedLinePush.mockResolvedValueOnce('already_sent');
+    const { db, calls } = makeDb();
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', {
+      ...ctx,
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+    }, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+    });
+
+    expect(sent).toBe(true);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
+    expect(insertedLog(calls)).toBeUndefined();
+  });
+
+  it('derives the active tenant for an account-scoped immediate push', async () => {
+    dbMocks.getFriendById.mockResolvedValue({
+      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'account-1',
+      user_id: null, metadata: '{}',
+    });
+    stepDeliveryMocks.getActiveMappedAccountTenantId.mockResolvedValue('tenant-1');
+    const { db } = makeDb();
+
+    await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+    });
+
+    expect(stepDeliveryMocks.getActiveMappedAccountTenantId)
+      .toHaveBeenCalledWith(db, 'account-1');
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1', lineAccountId: 'account-1' }),
+    );
+  });
+
+  it('pauses an account-scoped claim when no active tenant mapping exists', async () => {
+    dbMocks.getFriendById.mockResolvedValue({
+      id: 'friend-1', line_user_id: 'U-1', line_account_id: 'account-1',
+      user_id: null, metadata: '{}',
+    });
+    const { db } = makeDb();
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+    });
+
+    expect(sent).toBe(false);
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(db, 'fs-1', CLAIM_TOKEN);
   });
 
   it('backs off without pushing when the cron already claimed the enrollment', async () => {
-    dbMocks.claimFriendScenarioForDelivery.mockResolvedValue(false);
+    dbMocks.claimFriendScenarioForDelivery.mockResolvedValue(null);
     const { db } = makeDb();
     const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
@@ -228,7 +390,22 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     });
     expect(sent).toBe(false);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
+  });
+
+  it('compares UTC messages_log timestamps against a +09:00 cooldown cutoff by instant', async () => {
+    dbMocks.toJstString.mockReturnValue('2026-07-19T12:00:00.000+09:00');
+    const { db, calls } = makeDb({ cooldownHit: true });
+
+    await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+    });
+
+    const cooldown = calls.find((call) => call.sql.includes('FROM messages_log'));
+    expect(cooldown?.args[2]).toBe('2026-07-19T12:00:00.000+09:00');
+    expect(cooldown?.sql).toMatch(/(datetime|julianday)\(created_at\)\s*>\s*\1\(\?\)/u);
   });
 
   it('releases the claim when the push API fails so the cron retries on schedule', async () => {
@@ -269,7 +446,9 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
     });
     expect(sent).toBe(true);
     expect(lineClientMock.pushMessage).toHaveBeenCalled();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
   });
 
   it('advances (best effort) in the outer catch when the send succeeded but logging threw — cron must not re-send', async () => {
@@ -293,7 +472,9 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
     expect(sent).toBe(true); // the message DID go out
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
     // The claim must not be left held once the enrollment is advanced.
     expect(calls.some((c) => c.sql.includes(`status = 'delivering'`) && c.sql.includes(`status = 'active'`))).toBe(false);
     errorSpy.mockRestore();
@@ -332,6 +513,7 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
         'fs-1',
         1,
         '2026-07-19T13:00:00.000+09:00',
+        CLAIM,
       );
     } finally {
       vi.useRealTimers();
@@ -350,17 +532,22 @@ describe("mode 'once' (default) — claim protocol with the cron", () => {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
     expect(sent).toBe(true);
-    expect(dbMocks.completeFriendScenario).toHaveBeenCalledWith(db, 'fs-1');
+    expect(dbMocks.completeFriendScenario).toHaveBeenCalledWith(db, 'fs-1', CLAIM);
     expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
   });
 });
 
 describe("mode 'every-click' — click-campaign re-delivery", () => {
   const everyClick = { mode: 'every-click' as const, targetLineUserId: 'U-token' };
+  const everyClickCtx = {
+    ...ctx,
+    tenantId: 'tenant-1',
+    lineAccountId: 'account-1',
+  };
 
   it('checks the cooldown BEFORE enrolling and skips entirely on a hit', async () => {
     const { db } = makeDb({ cooldownHit: true });
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, everyClick);
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', everyClickCtx, everyClick);
     expect(sent).toBe(false);
     // No fresh step-0 row may be left behind for the cron.
     expect(dbMocks.enrollFriendInScenario).not.toHaveBeenCalled();
@@ -370,44 +557,65 @@ describe("mode 'every-click' — click-campaign re-delivery", () => {
 
   it('enrolls, claims the fresh row (fencing the cron), pushes to targetLineUserId, and advances it', async () => {
     const { db, calls } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, everyClick);
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', everyClickCtx, everyClick);
     expect(sent).toBe(true);
     expect(dbMocks.enrollFriendInScenario).toHaveBeenCalledWith(db, 'friend-1', 'scn-1');
     // The fresh enrollment's next_delivery_at is already due, so the cron
     // could race the push — the claim fences it out.
     expect(dbMocks.claimFriendScenarioForDelivery).toHaveBeenCalledWith(db, 'fs-1', 0);
     // Push target is the id_token-derived LINE user id, not friend.line_user_id.
-    expect(lineClientMock.pushMessage).toHaveBeenCalledWith('U-token', [{ type: 'text', text: 'welcome!' }]);
-    expect(insertedLog(calls)).toBeDefined();
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
+    expect(lineClientMock.pushMessage).toHaveBeenCalledWith(
+      'U-token', [{ type: 'text', text: 'welcome!' }], expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    );
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledOnce();
+    expect(insertedLog(calls)).toBeUndefined();
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
   });
 
   it('skips the push when the claim fails — a concurrent deliverer (cron / follow webhook) owns step 1', async () => {
-    dbMocks.claimFriendScenarioForDelivery.mockResolvedValue(false);
+    dbMocks.claimFriendScenarioForDelivery.mockResolvedValue(null);
     const { db } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, everyClick);
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', everyClickCtx, everyClick);
     expect(sent).toBe(false);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
     expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
   });
 
-  it('re-click (already enrolled and advanced): pushes again but leaves the enrollment alone', async () => {
+  it('re-click (already enrolled and advanced): fails closed without a claim-backed operation', async () => {
     dbMocks.enrollFriendInScenario.mockResolvedValue(null); // INSERT OR IGNORE no-op
     const { db } = makeDb({ enrollmentLookup: { id: 'fs-1', current_step_order: 1 } });
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, everyClick);
-    expect(sent).toBe(true);
-    expect(lineClientMock.pushMessage).toHaveBeenCalled();
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', everyClickCtx, everyClick);
+    expect(sent).toBe(false);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
     expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
     expect(dbMocks.completeFriendScenario).not.toHaveBeenCalled();
     expect(dbMocks.claimFriendScenarioForDelivery).not.toHaveBeenCalled();
   });
 
+  it('fails closed when the click has no tenant/account scope', async () => {
+    const { db } = makeDb();
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, everyClick);
+
+    expect(sent).toBe(false);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
+      db, 'fs-1', CLAIM_TOKEN,
+    );
+  });
+
   it('repairs a stale behind row: re-click with an active step-0 enrollment advances it', async () => {
     dbMocks.enrollFriendInScenario.mockResolvedValue(null);
     const { db } = makeDb({ enrollmentLookup: { id: 'fs-stale', current_step_order: 0 } });
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, everyClick);
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', everyClickCtx, everyClick);
     expect(sent).toBe(true);
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-stale', 1, expect.any(String));
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-stale', 1, expect.any(String), CLAIM,
+    );
   });
 
   it('resolves the account token from accountChannelId before friend.line_account_id', async () => {
@@ -418,7 +626,7 @@ describe("mode 'every-click' — click-campaign re-delivery", () => {
       db,
       'friend-1',
       'scn-1',
-      { ...ctx, accountChannelId: 'CH-1' },
+      { ...everyClickCtx, accountChannelId: 'CH-1' },
       everyClick,
     );
     expect(dbMocks.getLineAccountByChannelId).toHaveBeenCalledWith(db, 'CH-1');
@@ -432,36 +640,144 @@ describe('reply option — webhook follow sends via the free reply token', () =>
     const { LineClient } = await import('@line-crm/line-sdk');
     const replyClient = { replyMessage: vi.fn().mockResolvedValue({}) };
     const { db, calls } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
       reply: { client: replyClient, replyToken: 'rt-1' },
     });
     expect(sent).toBe(true);
     expect(replyClient.replyMessage).toHaveBeenCalledWith('rt-1', [{ type: 'text', text: 'welcome!' }]);
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
+      db, 'fs-1', CLAIM_TOKEN,
+    );
+    expect(dbMocks.pauseFriendScenarioDelivery.mock.invocationCallOrder[0])
+      .toBeLessThan(replyClient.replyMessage.mock.invocationCallOrder[0]);
     expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
     expect(vi.mocked(LineClient)).not.toHaveBeenCalled();
-    const log = insertedLog(calls);
-    expect(log!.args[5]).toBe('reply');
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
+    expect(outboundDeliveryMocks.deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
+      db,
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+      source: 'scenario',
+      scenarioEnrollmentId: 'fs-1',
+      scenarioStepId: 'step-1',
+      scenarioClaimToken: CLAIM_TOKEN,
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    }));
+    expect(calls.some((call) => call.sql.includes('UPDATE messages_log'))).toBe(false);
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
   });
 
   it('releases the claim when the reply fails (token consumed) so the cron pushes on schedule', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const replyClient = { replyMessage: vi.fn().mockRejectedValue(new Error('Invalid reply token')) };
+    const replyClient = {
+      replyMessage: vi.fn().mockRejectedValue(
+        new Error('LINE API error: 400  — Invalid reply token'),
+      ),
+    };
     const { db, calls } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
       reply: { client: replyClient, replyToken: 'rt-used' },
     });
     expect(sent).toBe(false);
-    expect(claimReleased(calls)).toBe(true);
+    expect(pausedClaimResumed(calls)).toBe(true);
+    expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('keeps deterministic invalid-token recovery after a transient resume failure', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const replyClient = {
+      replyMessage: vi.fn().mockRejectedValue(
+        new Error('LINE API error: 400  — Invalid reply token'),
+      ),
+    };
+    const { db, successfulResumeUpdates } = makeDb({ failResumeUpdate: true });
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+      reply: { client: replyClient, replyToken: 'rt-used' },
+    });
+
+    expect(sent).toBe(false);
+    expect(replyClient.replyMessage).toHaveBeenCalledOnce();
+    expect(successfulResumeUpdates).toHaveLength(1);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('does not call LINE when the durable pause cannot be acquired', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    dbMocks.pauseFriendScenarioDelivery.mockResolvedValue(false);
+    const replyClient = { replyMessage: vi.fn().mockResolvedValue({}) };
+    const { db } = makeDb();
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+      reply: { client: replyClient, replyToken: 'rt-1' },
+    });
+
+    expect(sent).toBe(false);
+    expect(replyClient.replyMessage).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('keeps the scenario paused when the tracked reply marker commits but its D1 readback fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    outboundDeliveryMocks.deliverTrackedLineReply.mockImplementationOnce(async (params) => {
+      if (params.beforeSend && !(await params.beforeSend())) return 'not_sent';
+      throw new Error('synthetic D1 response loss after commit');
+    });
+    const replyClient = { replyMessage: vi.fn().mockResolvedValue({}) };
+    const { db, calls } = makeDb();
+
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+      reply: { client: replyClient, replyToken: 'rt-marker-readback' },
+    });
+
+    expect(sent).toBe(false);
+    expect(replyClient.replyMessage).not.toHaveBeenCalled();
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
+      db, 'fs-1', CLAIM_TOKEN,
+    );
+    expect(pausedClaimResumed(calls)).toBe(false);
+    expect(claimReleased(calls)).toBe(false);
+    expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('pauses the enrollment when the reply outcome is unknown instead of falling back to cron push', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const replyClient = { replyMessage: vi.fn().mockRejectedValue(new Error('network timeout')) };
+    const { db, calls } = makeDb();
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
+      enrollment: { id: 'fs-1', current_step_order: 0 },
+      reply: { client: replyClient, replyToken: 'rt-timeout' },
+    });
+
+    expect(sent).toBe(false);
+    expect(outboundDeliveryMocks.deliverTrackedLineReply).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    }));
+    expect(dbMocks.pauseFriendScenarioDelivery).toHaveBeenCalledWith(
+      db, 'fs-1', CLAIM_TOKEN,
+    );
+    expect(dbMocks.pauseFriendScenarioDelivery.mock.invocationCallOrder[0])
+      .toBeLessThan(replyClient.replyMessage.mock.invocationCallOrder[0]);
+    expect(claimReleased(calls)).toBe(false);
     expect(dbMocks.advanceFriendScenario).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 });
 
 describe('decoration — cron parity via the shared decorateForFriendPush pipeline', () => {
-  it('pipes expanded content through decorateForFriendPush and sends/logs the decorated output', async () => {
+  it('pipes expanded content through decorateForFriendPush and the tracked delivery', async () => {
     autoTrackMocks.decorateForFriendPush.mockResolvedValue({
       messageType: 'flex',
       content: 'tracked!&f=friend-1',
@@ -478,16 +794,17 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       'text',
       'welcome!',
       ctx.workerUrl,
-      { lineAccountId: null, friendId: 'friend-1' },
+      { lineAccountId: 'account-1', friendId: 'friend-1' },
     );
     // What LINE receives AND what messages_log records is the decorated
     // message, mirroring the cron.
     expect(lineClientMock.pushMessage).toHaveBeenCalledWith('U-1', [
       { type: 'flex', text: 'tracked!&f=friend-1' },
-    ]);
-    const log = insertedLog(calls);
-    expect(log!.args[2]).toBe('flex');
-    expect(log!.args[3]).toBe('tracked!&f=friend-1');
+    ], expect.stringMatching(/^[0-9a-f-]{36}$/u));
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+      expect.objectContaining({ messageType: 'flex', content: 'tracked!&f=friend-1' }),
+    );
+    expect(insertedLog(calls)).toBeUndefined();
   });
 
   it('owns tracked links by the friend’s line_account_id when it is wired', async () => {
@@ -498,8 +815,9 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       user_id: null,
       metadata: '{}',
     });
+    stepDeliveryMocks.getActiveMappedAccountTenantId.mockResolvedValue('tenant-1');
     const { db } = makeDb();
-    await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+    await pushImmediateFirstStep(db, 'friend-1', 'scn-1', unscopedCtx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
     expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(
@@ -516,12 +834,13 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       id: 'acct-9',
       channel_access_token: 'tok-9',
     });
+    stepDeliveryMocks.getActiveMappedAccountTenantId.mockResolvedValue('tenant-1');
     const { db } = makeDb();
     await pushImmediateFirstStep(
       db,
       'friend-1',
       'scn-1',
-      { ...ctx, accountChannelId: 'CH-9' },
+      { ...unscopedCtx, accountChannelId: 'CH-9' },
       { enrollment: { id: 'fs-1', current_step_order: 0 } },
     );
     expect(dbMocks.getLineAccountByChannelId).toHaveBeenCalledWith(db, 'CH-9');
@@ -543,7 +862,7 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       { defaultAccessToken: 'default-token' },
       { enrollment: { id: 'fs-1', current_step_order: 0 } },
     );
-    expect(sent).toBe(true);
+    expect(sent).toBe(false);
     expect(autoTrackMocks.decorateForFriendPush).toHaveBeenCalledWith(
       db,
       'text',
@@ -551,7 +870,8 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
       undefined,
       { lineAccountId: null, friendId: 'friend-1' },
     );
-    expect(lineClientMock.pushMessage).toHaveBeenCalledWith('U-1', [{ type: 'text', text: 'welcome!' }]);
+    expect(lineClientMock.pushMessage).not.toHaveBeenCalled();
+    expect(outboundDeliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
   });
 
   it('decorates the reply-token path too — follow-webhook welcomes carry tracked links', async () => {
@@ -561,7 +881,7 @@ describe('decoration — cron parity via the shared decorateForFriendPush pipeli
     });
     const replyClient = { replyMessage: vi.fn().mockResolvedValue({}) };
     const { db } = makeDb();
-    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', ctx, {
+    const sent = await pushImmediateFirstStep(db, 'friend-1', 'scn-1', replyCtx, {
       enrollment: { id: 'fs-1', current_step_order: 0 },
       reply: { client: replyClient, replyToken: 'rt-1' },
     });
@@ -629,9 +949,13 @@ describe('step conditions — cron parity on the instant path', () => {
       enrollment: { id: 'fs-1', current_step_order: 0 },
     });
     expect(sent).toBe(true);
-    expect(lineClientMock.pushMessage).toHaveBeenCalledWith('U-1', [{ type: 'text', text: 'reward!' }]);
+    expect(lineClientMock.pushMessage).toHaveBeenCalledWith(
+      'U-1', [{ type: 'text', text: 'reward!' }], expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    );
     // advanced to step 1's order, next scheduled from step 2
-    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(db, 'fs-1', 1, expect.any(String));
+    expect(dbMocks.advanceFriendScenario).toHaveBeenCalledWith(
+      db, 'fs-1', 1, expect.any(String), CLAIM,
+    );
   });
 
   it('skips a failing step 1 and instantly delivers the next immediate step whose condition passes', async () => {
@@ -644,7 +968,7 @@ describe('step conditions — cron parity on the instant path', () => {
     });
     expect(sent).toBe(true);
     // delivered step 2 and completed (no step after it)
-    expect(dbMocks.completeFriendScenario).toHaveBeenCalledWith(db, 'fs-1');
+    expect(dbMocks.completeFriendScenario).toHaveBeenCalledWith(db, 'fs-1', CLAIM);
   });
 
   it('does not walk past a non-immediate step: a failing delay-0 step 1 followed by a delayed step leaves the row to the cron', async () => {

@@ -108,6 +108,7 @@ describe('pharmacy tenant privacy policy routes', () => {
         contact_point: POLICY.contact_point,
         entrustment_text: POLICY.entrustment_text,
         policy_version: POLICY.policy_version,
+        content_hash: POLICY.content_hash,
       },
     });
   });

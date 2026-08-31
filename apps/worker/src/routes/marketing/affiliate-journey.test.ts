@@ -32,6 +32,7 @@ const tenantDb = {
         if (sql.includes('FROM tenants')) {
           return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
         }
+        if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
         if (sql.includes('FROM friends AS friend')) {
           return binds[1] === 'ghost' ? null : { line_account_id: 'generic-a' };
         }
@@ -51,11 +52,9 @@ const env = {
   DB: tenantDb,
   LINE_LOGIN_CHANNEL_ID: '2000000000',
   API_KEY,
-  LEGACY_ENV_OWNER_BYPASS: 'true',
 } as unknown as import('../../index.js').Env['Bindings'];
 
-// These routes sit behind authMiddleware. getStaffByApiKey is mocked to return
-// undefined, so this fixture explicitly opts into the legacy env-owner fallback.
+// These routes sit behind authMiddleware with an explicit tenant membership.
 function call(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${API_KEY}`);
@@ -69,6 +68,7 @@ function call(path: string, init?: RequestInit) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  dbMocks.getStaffByApiKey.mockResolvedValue({ id: 'staff-1', name: 'Owner', role: 'owner' });
   dbMocks.getLineAccounts.mockResolvedValue([]);
 });
 

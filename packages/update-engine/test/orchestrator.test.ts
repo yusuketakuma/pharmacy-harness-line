@@ -57,11 +57,6 @@ function loadDb(): Database.Database {
   const db = new Database(':memory:');
   const schema = readFileSync(join(DB_PKG, 'schema.sql'), 'utf8');
   db.exec(schema);
-  const migration = readFileSync(
-    join(DB_PKG, 'migrations', '041_update_history.sql'),
-    'utf8',
-  );
-  db.exec(migration);
   return db;
 }
 

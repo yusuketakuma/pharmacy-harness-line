@@ -26,6 +26,7 @@ const dbMocks = {
   recoverStuckDeliveries: vi.fn(),
   // /auth/callback deps
   getFriendByLineUserId: vi.fn(),
+  getFriendByLineUserIdForAccount: vi.fn(),
   upsertFriend: vi.fn(),
   createUser: vi.fn().mockResolvedValue({ id: 'U-uuid' }),
   getUserByEmail: vi.fn().mockResolvedValue(null),
@@ -56,6 +57,19 @@ vi.mock('@line-crm/db', () => dbMocks);
 
 const pushImmediateFirstStep = vi.fn().mockResolvedValue(true);
 vi.mock('../../services/immediate-first-step.js', () => ({ pushImmediateFirstStep }));
+
+const deliveryMocks = vi.hoisted(() => ({
+  tenantId: vi.fn(),
+  deliverPush: vi.fn(),
+}));
+vi.mock('../../services/step-delivery.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/step-delivery.js')>()),
+  getActiveMappedAccountTenantId: deliveryMocks.tenantId,
+}));
+vi.mock('../../services/outbound-line-delivery.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/outbound-line-delivery.js')>()),
+  deliverTrackedLinePush: deliveryMocks.deliverPush,
+}));
 
 const pharmacyAccessMocks = vi.hoisted(() => ({
   isPharmacyModeAccount: vi.fn(
@@ -130,6 +144,9 @@ function installFetchMock() {
           status: 200,
         });
       }
+      if (url === 'https://api.line.me/v2/bot/message/push') {
+        return new Response('{}', { status: 200 });
+      }
       // bot/info, push, etc → 404 so the handler falls through
       return new Response('not found', { status: 404 });
     }),
@@ -153,6 +170,21 @@ function callback(
   );
 }
 
+function sendFormLink(lineUserId = 'U-login') {
+  return worker.fetch(
+    new Request('https://worker.example.com/api/liff/send-form-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lineUserId, formId: 'form-1', idToken: 'id-token' }),
+    }),
+    env,
+    {
+      waitUntil(task: Promise<unknown>) { waitUntilTasks.push(task); },
+      passThroughOnException() {},
+    } as unknown as ExecutionContext,
+  );
+}
+
 const friendAddScenario = {
   id: 'SC-1',
   trigger_type: 'friend_add',
@@ -169,6 +201,8 @@ beforeEach(() => {
   igLinkError = null;
   storedIgIgsid = null;
   waitUntilTasks = [];
+  dbMocks.getLineAccounts.mockResolvedValue([]);
+  dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(null);
   dbMocks.createUser.mockResolvedValue({ id: 'U-uuid' });
   dbMocks.upsertFriend.mockResolvedValue({
     id: 'F-1',
@@ -180,6 +214,11 @@ beforeEach(() => {
   dbMocks.enrollFriendInScenario.mockResolvedValue({ id: 'FS-1' });
   dbMocks.getScenarioSteps.mockResolvedValue([]);
   dbMocks.getLineAccountByChannelId.mockResolvedValue(null);
+  deliveryMocks.tenantId.mockResolvedValue('tenant-generic');
+  deliveryMocks.deliverPush.mockImplementation(async (params) => {
+    await params.send(params.request, params.operationId);
+    return 'sent';
+  });
   pharmacyAccessMocks.isPharmacyModeAccount.mockResolvedValue(false);
   pharmacyAccessMocks.hasPharmacyModeAccount.mockResolvedValue(false);
 });
@@ -269,6 +308,147 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
 
     await callback({ form: 'form-1', account: 'CH-generic' });
 
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
+      ),
+    ).toBe(false);
+  });
+
+  it('sends an account-owned form link through the durable ledger only once', async () => {
+    const account = {
+      id: 'generic-a',
+      login_channel_id: '2000000002',
+      login_channel_secret: 'generic-secret',
+      channel_access_token: 'generic-token',
+      liff_id: '1000000002-Generic',
+    };
+    dbMocks.getLineAccountByChannelId.mockResolvedValue(account);
+    dbMocks.upsertFriend.mockResolvedValue({
+      id: 'F-1',
+      line_user_id: 'U-login',
+      line_account_id: account.id,
+      user_id: null,
+    });
+    deliveryMocks.deliverPush
+      .mockImplementationOnce(async (params) => {
+        await params.send(params.request, params.operationId);
+        return 'sent';
+      })
+      .mockResolvedValueOnce('already_sent');
+
+    await callback({ form: 'form-1', account: 'CH-generic' });
+    await callback({ form: 'form-1', account: 'CH-generic' });
+
+    expect(deliveryMocks.deliverPush).toHaveBeenCalledTimes(2);
+    const first = deliveryMocks.deliverPush.mock.calls[0][0];
+    const replay = deliveryMocks.deliverPush.mock.calls[1][0];
+    expect(first).toEqual(expect.objectContaining({
+      tenantId: 'tenant-generic',
+      lineAccountId: account.id,
+      friendId: 'F-1',
+      source: 'form',
+    }));
+    expect(replay.operationId).toBe(first.operationId);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(
+        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('does not send a generic form link for an accountless friend', async () => {
+    dbMocks.getLineAccountByChannelId.mockResolvedValue({
+      id: 'generic-a',
+      login_channel_id: '2000000002',
+      login_channel_secret: 'generic-secret',
+      channel_access_token: 'generic-token',
+      liff_id: '1000000002-Generic',
+    });
+
+    await callback({ form: 'form-1', account: 'CH-generic' });
+
+    expect(deliveryMocks.deliverPush).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('POST /api/liff/send-form-link — durable account scope', () => {
+  it('replays the same account-owned form operation without a second LINE call', async () => {
+    dbMocks.getLineAccounts.mockResolvedValue([{ id: 'generic-a', login_channel_id: '2000000000' }]);
+    const friend = {
+      id: 'F-1', line_user_id: 'U-login', line_account_id: 'generic-a',
+    };
+    dbMocks.getFriendByLineUserId.mockResolvedValue(null);
+    dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(friend);
+    dbMocks.getLineAccountById.mockResolvedValue({
+      id: 'generic-a', channel_access_token: 'generic-token', liff_id: '1000000002-Generic',
+    });
+    deliveryMocks.deliverPush
+      .mockImplementationOnce(async (params) => {
+        await params.send(params.request, params.operationId);
+        return 'sent';
+      })
+      .mockResolvedValueOnce('already_sent');
+
+    const firstResponse = await sendFormLink();
+    const replayResponse = await sendFormLink();
+
+    expect(firstResponse.status).toBe(200);
+    expect(replayResponse.status).toBe(200);
+    expect(deliveryMocks.deliverPush).toHaveBeenCalledTimes(2);
+    const first = deliveryMocks.deliverPush.mock.calls[0][0];
+    const replay = deliveryMocks.deliverPush.mock.calls[1][0];
+    expect(first).toEqual(expect.objectContaining({
+      tenantId: 'tenant-generic',
+      lineAccountId: 'generic-a',
+      friendId: 'F-1',
+      source: 'form',
+    }));
+    expect(replay.operationId).toBe(first.operationId);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(
+        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('rejects a friend from a different account than the verified login channel', async () => {
+    dbMocks.getLineAccounts.mockResolvedValue([
+      { id: 'generic-a', login_channel_id: '2000000000' },
+      { id: 'generic-b', login_channel_id: '2000000003' },
+    ]);
+    dbMocks.getFriendByLineUserId.mockResolvedValue(null);
+    dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(null);
+
+    const response = await sendFormLink();
+
+    expect(response.status).toBe(404);
+    expect(dbMocks.getFriendByLineUserIdForAccount).toHaveBeenCalledWith(
+      expect.anything(),
+      'U-login',
+      'generic-a',
+    );
+    expect(dbMocks.getFriendByLineUserId).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverPush).not.toHaveBeenCalled();
+  });
+
+  it('rejects an accountless friend without using the environment token', async () => {
+    dbMocks.getLineAccounts.mockResolvedValue([{ id: 'generic-a', login_channel_id: '2000000000' }]);
+    dbMocks.getFriendByLineUserId.mockResolvedValue({
+      id: 'F-1', line_user_id: 'U-login', line_account_id: null,
+    });
+    dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(null);
+
+    const response = await sendFormLink();
+
+    expect(response.status).toBe(404);
+    expect(dbMocks.getFriendByLineUserId).not.toHaveBeenCalled();
+    expect(deliveryMocks.deliverPush).not.toHaveBeenCalled();
     expect(
       vi.mocked(fetch).mock.calls.some(
         ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',

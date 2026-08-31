@@ -14,7 +14,16 @@ describe('custom_056 pharmacy recovery operations', () => {
     const meta = JSON.parse(readFileSync(join(ROOT, 'bootstrap-meta.json'), 'utf8')) as {
       includedMigrations: string[];
     };
-    expect(meta.includedMigrations).toContain('custom_056_pharmacy_recovery_operations.sql');
+    expect(meta.includedMigrations).toEqual([
+      '001_v033_baseline.sql',
+      '002_custom_060_messages_log_account_date.sql',
+      '003_outbound_line_deliveries.sql',
+      '004_custom_061_generic_resource_tenant_scope.sql',
+      '005_custom_062_ref_tracking_tenant_scope.sql',
+      '006_custom_063_auth_disable_revocation.sql',
+      '007_custom_064_legacy_access_grant_drain.sql',
+      '008_custom_065_session_rotation_family.sql',
+    ]);
 
     const tableNames = db.prepare(`SELECT name FROM sqlite_master
       WHERE type = 'table' AND name LIKE 'pharmacy_recovery_%'

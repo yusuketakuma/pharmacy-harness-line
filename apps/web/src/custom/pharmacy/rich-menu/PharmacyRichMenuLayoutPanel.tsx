@@ -1,9 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, api, type PharmacyRichMenuVersionDiff } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { ApplyToTagModal } from '@/components/rich-menus/apply-to-tag-modal'
 import { richMenuAreaStyle } from './preview-geometry'
+import { pharmacyRichMenuApi, type PharmacyRichMenuVersionDiff } from './api'
+import { pharmacyGrowthApi } from '../growth-loop/api'
 import { readinessStatusLabel } from '../growth-loop/FeatureSettingsPage'
 
 export const PHARMACY_RICH_MENU_LABELS: Record<string, string> = {
@@ -19,17 +21,17 @@ export function canMutatePharmacyRichMenu(role: string | null | undefined): bool
 }
 
 type Layout = Extract<
-  Awaited<ReturnType<typeof api.richMenuGroups.pharmacyLayout>>,
+  Awaited<ReturnType<typeof pharmacyRichMenuApi.pharmacyLayout>>,
   { success: true }
 >['data']
 
 type Lifecycle = Extract<
-  Awaited<ReturnType<typeof api.richMenuGroups.pharmacyLifecycle>>,
+  Awaited<ReturnType<typeof pharmacyRichMenuApi.pharmacyLifecycle>>,
   { success: true }
 >['data']
 
 type Version = Extract<
-  Awaited<ReturnType<typeof api.richMenuGroups.pharmacyVersions>>,
+  Awaited<ReturnType<typeof pharmacyRichMenuApi.pharmacyVersions>>,
   { success: true }
 >['data'][number]
 
@@ -61,7 +63,7 @@ const DIFF_UNVERIFIED_LABELS: Record<string, string> = {
 }
 
 type Readiness = Extract<
-  Awaited<ReturnType<typeof api.pharmacyGrowth.readiness>>,
+  Awaited<ReturnType<typeof pharmacyGrowthApi.readiness>>,
   { success: true }
 >['data']['richMenu']
 
@@ -154,10 +156,10 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     try {
       const [response, lifecycleResponse, versionsResponse, readinessResponse] = await Promise.all([
-        api.richMenuGroups.pharmacyLayout(requestedAccountId),
-        api.richMenuGroups.pharmacyLifecycle(requestedAccountId),
-        api.richMenuGroups.pharmacyVersions(requestedAccountId),
-        api.pharmacyGrowth.readiness(requestedAccountId),
+        pharmacyRichMenuApi.pharmacyLayout(requestedAccountId),
+        pharmacyRichMenuApi.pharmacyLifecycle(requestedAccountId),
+        pharmacyRichMenuApi.pharmacyVersions(requestedAccountId),
+        pharmacyGrowthApi.readiness(requestedAccountId),
       ])
       if (accountRef.current !== requestedAccountId) return
       if (!response.success || !lifecycleResponse.success || !versionsResponse.success || !readinessResponse.success) {
@@ -240,7 +242,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setDiffLoading(version.groupId)
     setError('')
     try {
-      const response = await api.richMenuGroups.pharmacyVersionDiff(
+      const response = await pharmacyRichMenuApi.pharmacyVersionDiff(
         requestedAccountId, version.groupId,
       )
       if (accountRef.current !== requestedAccountId) return
@@ -264,7 +266,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const response = await api.richMenuGroups.savePharmacyLayout(requestedAccountId, {
+      const response = await pharmacyRichMenuApi.savePharmacyLayout(requestedAccountId, {
         preferredOrder: order,
         expectedRevision: layout.revision,
       })
@@ -296,7 +298,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const response = await api.richMenuGroups.savePharmacyLifecycle(requestedAccountId, {
+      const response = await pharmacyRichMenuApi.savePharmacyLifecycle(requestedAccountId, {
         state,
         expectedRevision: lifecycle.revision,
       })
@@ -324,7 +326,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const response = await api.richMenuGroups.createPharmacyVersion(requestedAccountId, {
+      const response = await pharmacyRichMenuApi.createPharmacyVersion(requestedAccountId, {
         name: versionName.trim(),
         expectedLayoutRevision: layout.revision,
         expectedCapabilityRevision: layout.capabilityRevision,
@@ -354,14 +356,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const preview = await api.richMenuGroups.publishPharmacyVersion(
+      const preview = await pharmacyRichMenuApi.publishPharmacyVersion(
         version.groupId, requestedAccountId, { dryRun: true },
       )
       if (!preview.success) throw new Error(preview.error)
       const token = preview.data.confirmationToken
       if (!token) throw new Error('Confirmation token was not returned')
       if (!window.confirm(`「${version.name}」をLINE公式アカウントへ登録します。初期表示の切替は登録後に別途行います。`)) return
-      const response = await api.richMenuGroups.publishPharmacyVersion(
+      const response = await pharmacyRichMenuApi.publishPharmacyVersion(
         version.groupId, requestedAccountId, { dryRun: false, confirmationToken: token },
       )
       if (!response.success) throw new Error(response.error)
@@ -393,7 +395,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const response = await api.richMenuGroups.renamePharmacyVersion(
+      const response = await pharmacyRichMenuApi.renamePharmacyVersion(
         requestedAccountId,
         version.groupId,
         { name: requestedName.trim(), expectedUpdatedAt: version.updatedAt },
@@ -424,7 +426,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const response = await api.richMenuGroups.deletePharmacyVersion(
+      const response = await pharmacyRichMenuApi.deletePharmacyVersion(
         requestedAccountId, version.groupId, version.updatedAt,
       )
       if (accountRef.current !== requestedAccountId) return
@@ -457,7 +459,7 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const response = await api.richMenuGroups.reconcilePharmacyOperation(
+      const response = await pharmacyRichMenuApi.reconcilePharmacyOperation(
         requestedAccountId, version.unresolvedOperationId,
       )
       if (accountRef.current !== requestedAccountId) return
@@ -497,14 +499,14 @@ export function PharmacyRichMenuLayoutPanel({ accountId }: { accountId: string }
     setError('')
     setMessage('')
     try {
-      const preview = await api.richMenuGroups.resumePharmacyOperation(
+      const preview = await pharmacyRichMenuApi.resumePharmacyOperation(
         requestedAccountId, version.unresolvedOperationId, { dryRun: true },
       )
       if (!preview.success) throw new Error(preview.error)
       const token = preview.data.confirmationToken
       if (!token) throw new Error('Confirmation token was not returned')
       if (!window.confirm(`「${version.name}」の不足しているLINE登録段階を1つ再開します。実行後にLINEからread-backします。`)) return
-      const response = await api.richMenuGroups.resumePharmacyOperation(
+      const response = await pharmacyRichMenuApi.resumePharmacyOperation(
         requestedAccountId,
         version.unresolvedOperationId,
         { dryRun: false, confirmationToken: token },

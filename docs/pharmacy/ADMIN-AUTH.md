@@ -41,27 +41,12 @@ explicit `X-Tenant-Id`. This is API integration authentication, not an alternate
 dashboard login. A browser API key is never accepted as a session cookie or by
 `POST /api/auth/login`.
 
-### Legacy env-owner tenant bypass (`LEGACY_ENV_OWNER_BYPASS`)
+### Retired env-owner tenant bypass
 
-Normally, resolving a tenant via `X-Tenant-Id` still requires an active
-`tenant_staff_memberships` row for the caller — the header selects a tenant,
-but membership remains the authority. Setting `LEGACY_ENV_OWNER_BYPASS=true`
-lets the env-owner identity (a Bearer call authenticated via `API_KEY`) select
-a tenant without that membership row, for backward compatibility with
-installs predating per-tenant staff membership.
-
-- **When it's used**: only for `staff.id === 'env-owner'` (the `API_KEY`
-  fallback identity) targeting a tenant with `pharmacy_mode !== 1` — i.e. a
-  tenant with no LINE account ever mapped to it. It is structurally inert for
-  any pharmacy-mode tenant, which always falls through to the normal
-  membership check.
-- **How to observe usage**: every request that takes this path logs
-  `accept_via=LEGACY_ENV_OWNER_BYPASS tenant=<id>`. Grep Worker logs for
-  `accept_via=LEGACY_ENV_OWNER_BYPASS` to confirm whether it is still
-  exercised in production.
-- **Retirement condition**: safe to unset once zero occurrences are observed
-  over a full billing/audit cycle, matching the same retirement bar used for
-  `LEGACY_API_KEY` (see `apps/worker/src/middleware/auth.ts`).
+Resolving a tenant via `X-Tenant-Id` requires an active
+`tenant_staff_memberships` row for every caller, including the `env-owner`
+identity authenticated by `API_KEY`. The header selects a tenant; membership
+remains the authority. `LEGACY_ENV_OWNER_BYPASS` is retired and has no effect.
 
 ## Topology & configuration
 

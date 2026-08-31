@@ -1000,7 +1000,8 @@ webinarRoutes.put('/api/webinars/:id/ctas', async (c) => {
       });
     }
     const forms = await Promise.all(
-      [...formIdsToCheck].map((fid) => getFormById(c.env.DB, fid)),
+      [...formIdsToCheck].map((fid) =>
+        getFormById(c.env.DB, fid, c.get('tenantId') ?? null)),
     );
     if (forms.some((f) => !f)) {
       return c.json({ success: false, error: 'form_not_found' }, 400);

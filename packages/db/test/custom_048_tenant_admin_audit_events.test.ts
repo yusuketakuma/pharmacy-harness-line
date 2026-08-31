@@ -5,12 +5,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_048_tenant_admin_audit_events.sql');
-
 function setup(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
-  db.exec(readFileSync(MIGRATION, 'utf8'));
+  db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
   return db;
 }
 
@@ -26,7 +24,16 @@ describe('custom_048 tenant admin audit events', () => {
     const meta = JSON.parse(readFileSync(join(ROOT, 'bootstrap-meta.json'), 'utf8')) as {
       includedMigrations: string[];
     };
-    expect(meta.includedMigrations).toContain('custom_048_tenant_admin_audit_events.sql');
+    expect(meta.includedMigrations).toEqual([
+      '001_v033_baseline.sql',
+      '002_custom_060_messages_log_account_date.sql',
+      '003_outbound_line_deliveries.sql',
+      '004_custom_061_generic_resource_tenant_scope.sql',
+      '005_custom_062_ref_tracking_tenant_scope.sql',
+      '006_custom_063_auth_disable_revocation.sql',
+      '007_custom_064_legacy_access_grant_drain.sql',
+      '008_custom_065_session_rotation_family.sql',
+    ]);
   });
 
   it('requires a tenant or account scope and keeps rows append-only', () => {

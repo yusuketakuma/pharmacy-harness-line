@@ -45,11 +45,8 @@ function load(): { sqlite: Database.Database; db: D1Database } {
 }
 
 describe('custom_010 shared pharmacy activity inbox', () => {
-  it('is replay-safe and stores no recipient, raw key, payload, or PHI columns', () => {
+  it('stores no recipient, raw key, payload, or PHI columns', () => {
     const { sqlite } = load();
-    expect(() => sqlite.exec(readFileSync(
-      join(ROOT, 'migrations/custom_010_pharmacy_activity_notifications.sql'), 'utf8',
-    ))).not.toThrow();
     const columns = sqlite.prepare(`PRAGMA table_info(pharmacy_activity_notifications)`).all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).not.toEqual(expect.arrayContaining([
       'staff_id', 'idempotency_key', 'payload_json', 'patient_name', 'line_user_id',

@@ -21,10 +21,21 @@ describe('chat safety and accessibility', () => {
     expect(api).toContain("'X-Line-Harness-Source': 'manual'")
   })
 
+  it('reuses a caller idempotency key until each manual send succeeds', () => {
+    const page = readFileSync(new URL('./page.tsx', import.meta.url), 'utf8')
+    const api = readFileSync(new URL('../../lib/api.ts', import.meta.url), 'utf8')
+
+    expect(page).toContain('pendingDirectSendRef')
+    expect(page).toContain('pendingChatSendKeysRef')
+    expect(page).toContain("'Idempotency-Key': idempotencyKey")
+    expect(api).toContain('options: { idempotencyKey: string }')
+    expect(api).toContain("'Idempotency-Key': options.idempotencyKey")
+  })
+
   it('keeps disabled pharmacy chat review-only without exposing backend errors', () => {
     const page = readFileSync(new URL('./page.tsx', import.meta.url), 'utf8')
 
-    expect(page).toContain('api.pharmacyGrowth.config')
+    expect(page).toContain('pharmacyGrowthApi.config')
     expect(page).toContain("capabilities.includes('manual_chat')")
     expect(page).toContain("const chatMutationAllowed = manualChatState === 'enabled'")
     expect(page).toContain('確認のみ')

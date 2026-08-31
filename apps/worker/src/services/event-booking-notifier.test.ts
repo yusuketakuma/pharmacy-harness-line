@@ -1,5 +1,30 @@
-import { describe, expect, test } from 'vitest';
-import { renderEventNotificationText } from './event-booking-notifier.js';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+const outboundDeliveryMocks = vi.hoisted(() => ({
+  deliverTrackedLinePush: vi.fn(async (params: {
+    operationId: string;
+    request: { to: string; messages: unknown[] };
+    send: (
+      request: { to: string; messages: unknown[] },
+      retryKey: string,
+    ) => Promise<void>;
+  }) => {
+    await params.send(params.request, params.operationId);
+    return 'sent';
+  }),
+}));
+const pushMessage = vi.hoisted(() => vi.fn());
+
+vi.mock('./outbound-line-delivery.js', () => outboundDeliveryMocks);
+vi.mock('@line-crm/line-sdk', () => ({
+  LineClient: class {
+    pushMessage = pushMessage;
+  },
+}));
+import {
+  renderEventNotificationText,
+  sendEventBookingNotification,
+} from './event-booking-notifier.js';
 
 const baseCtx = {
   eventName: 'AAA説明会',
@@ -7,6 +32,85 @@ const baseCtx = {
   venueName: '渋谷ベース',
   venueUrl: 'https://maps.example/x',
 };
+
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
+
+test('retry key が無い通知は LINE call 前に拒否する', async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(sendEventBookingNotification({
+    channelAccessToken: 'token',
+    toLineUserId: 'U1',
+    kind: 'received_pending',
+    ctx: baseCtx,
+  } as never)).rejects.toThrow('LINE retry key required');
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test('account-scoped event notification is persisted before the LINE push', async () => {
+  await sendEventBookingNotification({
+    db: {} as D1Database,
+    tenantId: 'tenant-1',
+    lineAccountId: 'account-1',
+    friendId: 'friend-1',
+    channelAccessToken: 'token',
+    toLineUserId: 'U1',
+    retryKey: 'operation-1',
+    kind: 'received_pending',
+    ctx: baseCtx,
+  });
+
+  expect(outboundDeliveryMocks.deliverTrackedLinePush).toHaveBeenCalledWith(
+    expect.objectContaining({
+      db: expect.anything(),
+      operationId: 'operation-1',
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+      messageType: 'text',
+      source: 'automation',
+      request: expect.objectContaining({ to: 'U1' }),
+    }),
+  );
+  expect(pushMessage).toHaveBeenCalledWith('U1', expect.any(Array), 'operation-1');
+});
+
+test('already_sent is treated as a successful event notification', async () => {
+  outboundDeliveryMocks.deliverTrackedLinePush.mockResolvedValueOnce('already_sent');
+
+  await expect(sendEventBookingNotification({
+    db: {} as D1Database,
+    tenantId: 'tenant-1',
+    lineAccountId: 'account-1',
+    friendId: 'friend-1',
+    channelAccessToken: 'token',
+    toLineUserId: 'U1',
+    retryKey: 'operation-1',
+    kind: 'received_pending',
+    ctx: baseCtx,
+  })).resolves.toBeUndefined();
+  expect(pushMessage).not.toHaveBeenCalled();
+});
+
+test('unresolved event delivery does not report success', async () => {
+  outboundDeliveryMocks.deliverTrackedLinePush.mockResolvedValueOnce('reconciliation_required');
+
+  await expect(sendEventBookingNotification({
+    db: {} as D1Database,
+    tenantId: 'tenant-1',
+    lineAccountId: 'account-1',
+    friendId: 'friend-1',
+    channelAccessToken: 'token',
+    toLineUserId: 'U1',
+    retryKey: 'operation-1',
+    kind: 'received_pending',
+    ctx: baseCtx,
+  })).rejects.toThrow('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+});
 
 describe('renderEventNotificationText', () => {
   test('受付（承認待ち）', () => {

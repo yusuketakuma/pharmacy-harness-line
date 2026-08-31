@@ -5,27 +5,46 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MIGRATION = join(ROOT, 'migrations/custom_047_pharmacy_emergency_reminders.sql');
 const HASH = 'a'.repeat(64);
 
 function setup(): Database.Database {
   const db = new Database(':memory:');
-  db.pragma('foreign_keys = ON');
+  db.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
+  db.pragma('foreign_keys = OFF');
   db.exec(`
-    CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
-    CREATE TABLE pharmacy_staff_accounts (
-      line_account_id TEXT NOT NULL, staff_id TEXT NOT NULL,
-      PRIMARY KEY (line_account_id, staff_id)
-    );
-    CREATE TABLE pharmacy_emergency_intakes (
-      id TEXT NOT NULL, line_account_id TEXT NOT NULL,
-      PRIMARY KEY (id, line_account_id)
-    );
-    INSERT INTO line_accounts VALUES ('account-a'), ('account-b');
-    INSERT INTO pharmacy_staff_accounts VALUES ('account-a', 'staff-a'), ('account-b', 'staff-b');
-    INSERT INTO pharmacy_emergency_intakes VALUES ('intake-a', 'account-a'), ('intake-b', 'account-b');
+    DROP TRIGGER pharmacy_emergency_intake_active_assignment;
+    DROP TRIGGER pharmacy_emergency_intake_readiness;
+    DROP TRIGGER pharmacy_emergency_intake_slot_capacity;
+    DROP TRIGGER pharmacy_emergency_intake_stock;
   `);
-  db.exec(readFileSync(MIGRATION, 'utf8'));
+  db.exec(`
+    INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret) VALUES
+      ('account-a', 'channel-a', 'A', 'token-a', 'secret-a'),
+      ('account-b', 'channel-b', 'B', 'token-b', 'secret-b');
+    INSERT INTO tenants (id, tenant_code, display_name) VALUES
+      ('tenant-a', 'a', 'A'), ('tenant-b', 'b', 'B');
+    INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES
+      ('tenant-a', 'account-a'), ('tenant-b', 'account-b');
+    INSERT INTO staff_members (id, name, role, api_key) VALUES
+      ('staff-a', 'A', 'staff', 'key-a'), ('staff-b', 'B', 'staff', 'key-b');
+    INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role) VALUES
+      ('tenant-a', 'staff-a', 'staff'), ('tenant-b', 'staff-b', 'staff');
+    INSERT INTO pharmacy_staff_accounts
+      (line_account_id, staff_id, created_at, updated_at) VALUES
+      ('account-a', 'staff-a', '2026-08-21', '2026-08-21'),
+      ('account-b', 'staff-b', '2026-08-21', '2026-08-21');
+    INSERT INTO pharmacy_emergency_intakes
+      (id, reference_code, tenant_id, line_account_id, owner_friend_id, slot_id,
+       encrypted_payload, age_band, safe_contact_mode, consent_version,
+       idempotency_key, expires_at, created_at, updated_at) VALUES
+      ('intake-a', 'REFERENCE-A1', 'tenant-a', 'account-a', 'friend-a', 'slot-a',
+       'ciphertext', 'adult', 'neutral_line', 'v1', 'intake-key-a',
+       '2026-08-22', '2026-08-21', '2026-08-21'),
+      ('intake-b', 'REFERENCE-B1', 'tenant-b', 'account-b', 'friend-b', 'slot-b',
+       'ciphertext', 'adult', 'neutral_line', 'v1', 'intake-key-b',
+       '2026-08-22', '2026-08-21', '2026-08-21');
+  `);
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

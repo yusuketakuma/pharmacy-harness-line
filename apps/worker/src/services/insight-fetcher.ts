@@ -26,9 +26,13 @@ export async function processInsightFetch(
 
   for (const item of pending) {
     try {
-      const client =
-        (item.lineAccountId && lineClients.get(item.lineAccountId)) ||
-        defaultLineClient
+      const client = item.lineAccountId
+        ? lineClients.get(item.lineAccountId)
+        : defaultLineClient
+      if (!client) {
+        await markInsightFailed(db, item.insightId, item.retryCount)
+        continue
+      }
 
       if (item.lineRequestId) {
         // Broadcast — use message event insight

@@ -127,26 +127,23 @@ describe('checkMigration', () => {
 
 describe('filterMigrationsByPolicy', () => {
   const sample = [
-    '001_round2.sql',
-    '027_dedup_delivery.sql',
-    '029_account_management_v2.sql',
-    '040_events_multi_account.sql',
-    '041_update_history.sql',
-    '042_future.sql',
+    '001_v033_baseline.sql',
+    '002_custom_060_pharmacy_next.sql',
+    '003_future.sql',
   ];
 
   it('returns only files with prefix >= POLICY_CUTOFF_PREFIX by default', () => {
-    expect(POLICY_CUTOFF_PREFIX).toBe('041');
+    expect(POLICY_CUTOFF_PREFIX).toBe('002');
     expect(filterMigrationsByPolicy(sample)).toEqual([
-      '041_update_history.sql',
-      '042_future.sql',
+      '002_custom_060_pharmacy_next.sql',
+      '003_future.sql',
     ]);
   });
 
   it('returns only files with prefix >= POLICY_CUTOFF_PREFIX when all is false', () => {
     expect(filterMigrationsByPolicy(sample, { all: false })).toEqual([
-      '041_update_history.sql',
-      '042_future.sql',
+      '002_custom_060_pharmacy_next.sql',
+      '003_future.sql',
     ]);
   });
 
@@ -154,13 +151,12 @@ describe('filterMigrationsByPolicy', () => {
     expect(filterMigrationsByPolicy(sample, { all: true })).toEqual(sample);
   });
 
-  it('excludes the pre-existing 027 / 029 violations under the default cutoff', () => {
+  it('excludes the generated baseline from the additive-only policy', () => {
     const filtered = filterMigrationsByPolicy(sample);
-    expect(filtered).not.toContain('027_dedup_delivery.sql');
-    expect(filtered).not.toContain('029_account_management_v2.sql');
+    expect(filtered).not.toContain('001_v033_baseline.sql');
   });
 
   it('returns an empty array when no files meet the cutoff', () => {
-    expect(filterMigrationsByPolicy(['001_a.sql', '010_b.sql'])).toEqual([]);
+    expect(filterMigrationsByPolicy(['001_v033_baseline.sql'])).toEqual([]);
   });
 });

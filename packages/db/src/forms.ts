@@ -5,6 +5,7 @@ import { jstNow } from './utils.js';
 
 export interface Form {
   id: string;
+  tenant_id: string | null;
   name: string;
   description: string | null;
   fields: string; // JSON string of FormField[]
@@ -40,9 +41,13 @@ export interface FriendFormSubmission extends FormSubmission {
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
-export async function getForms(db: D1Database): Promise<Form[]> {
+export async function getForms(
+  db: D1Database,
+  tenantId: string | null = null,
+): Promise<Form[]> {
   const result = await db
-    .prepare(`SELECT * FROM forms ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM forms WHERE tenant_id IS ? ORDER BY created_at DESC`)
+    .bind(tenantId)
     .all<Form>();
   return result.results;
 }
@@ -60,7 +65,10 @@ export interface FormWithStats extends Form {
   used_by_accounts: FormUsedByAccount[];
 }
 
-export async function getFormsWithStats(db: D1Database): Promise<FormWithStats[]> {
+export async function getFormsWithStats(
+  db: D1Database,
+  tenantId: string | null = null,
+): Promise<FormWithStats[]> {
   // Single query: forms + last submission + per-account submission counts.
   // json_group_array returns '[]' (not NULL) when subquery yields no rows.
   const result = await db
@@ -86,11 +94,13 @@ export async function getFormsWithStats(db: D1Database): Promise<FormWithStats[]
             ) sub
             JOIN line_accounts la ON la.id = sub.line_account_id) AS used_by_accounts_json
        FROM forms f
+       WHERE f.tenant_id IS ?
        ORDER BY
          CASE WHEN last_submitted_at IS NULL THEN 1 ELSE 0 END,
          last_submitted_at DESC,
          f.created_at DESC`,
     )
+    .bind(tenantId)
     .all<Form & { last_submitted_at: string | null; used_by_accounts_json: string | null }>();
 
   return result.results.map((row) => {
@@ -108,10 +118,33 @@ export async function getFormsWithStats(db: D1Database): Promise<FormWithStats[]
   });
 }
 
-export async function getFormById(db: D1Database, id: string): Promise<Form | null> {
+export async function getFormById(
+  db: D1Database,
+  id: string,
+  tenantId?: string | null,
+): Promise<Form | null> {
+  const scoped = tenantId !== undefined;
   return db
-    .prepare(`SELECT * FROM forms WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM forms WHERE id = ?${scoped ? ' AND tenant_id IS ?' : ''}`)
+    .bind(...(scoped ? [id, tenantId] : [id]))
+    .first<Form>();
+}
+
+export async function getFormByIdForLineAccount(
+  db: D1Database,
+  id: string,
+  lineAccountId: string | null,
+): Promise<Form | null> {
+  return db
+    .prepare(
+      `SELECT form.*
+         FROM forms AS form
+         LEFT JOIN tenant_line_accounts AS mapping
+           ON mapping.line_account_id = ?
+        WHERE form.id = ?
+          AND form.tenant_id IS mapping.tenant_id`,
+    )
+    .bind(lineAccountId, id)
     .first<Form>();
 }
 
@@ -130,6 +163,7 @@ export interface CreateFormInput {
   ogTitle?: string | null;
   ogDescription?: string | null;
   ogImageUrl?: string | null;
+  tenantId?: string | null;
 }
 
 export async function createForm(db: D1Database, input: CreateFormInput): Promise<Form> {
@@ -139,16 +173,17 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
   await db
     .prepare(
       `INSERT INTO forms
-         (id, name, description, fields, on_submit_tag_id, on_submit_scenario_id,
+         (id, tenant_id, name, description, fields, on_submit_tag_id, on_submit_scenario_id,
           on_submit_message_type, on_submit_message_content,
           on_submit_webhook_url, on_submit_webhook_headers, on_submit_webhook_fail_message,
           save_to_metadata, is_active, submit_count,
           og_title, og_description, og_image_url,
           created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
+      input.tenantId ?? null,
       input.name,
       input.description ?? null,
       input.fields,
@@ -168,7 +203,7 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
     )
     .run();
 
-  return (await getFormById(db, id))!;
+  return (await getFormById(db, id, input.tenantId ?? null))!;
 }
 
 export interface UpdateFormInput {
@@ -193,8 +228,9 @@ export async function updateForm(
   db: D1Database,
   id: string,
   input: UpdateFormInput,
+  tenantId: string | null = null,
 ): Promise<Form | null> {
-  const existing = await getFormById(db, id);
+  const existing = await getFormById(db, id, tenantId);
   if (!existing) return null;
 
   const now = jstNow();
@@ -218,7 +254,7 @@ export async function updateForm(
            og_description = ?,
            og_image_url = ?,
            updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND tenant_id IS ?`,
     )
     .bind(
       input.name ?? existing.name,
@@ -252,20 +288,29 @@ export async function updateForm(
       'ogImageUrl' in input ? (input.ogImageUrl ?? null) : existing.og_image_url,
       now,
       id,
+      tenantId,
     )
     .run();
 
-  return getFormById(db, id);
+  return getFormById(db, id, tenantId);
 }
 
-export async function deleteForm(db: D1Database, id: string): Promise<void> {
+export async function deleteForm(
+  db: D1Database,
+  id: string,
+  tenantId: string | null = null,
+): Promise<boolean> {
   // フォームを参照しているウェビナー CTA カードも同時に削除する。宙吊りの
   // form_id が残ると、放置運用中のオートウェビナーでカードだけ出続けて
   // 全タップがエラーになる (D1 は FK 未強制)。
-  await db.batch([
-    db.prepare(`DELETE FROM webinar_ctas WHERE form_id = ?`).bind(id),
-    db.prepare(`DELETE FROM forms WHERE id = ?`).bind(id),
+  const results = await db.batch([
+    db.prepare(
+      `DELETE FROM webinar_ctas
+        WHERE form_id IN (SELECT id FROM forms WHERE id = ? AND tenant_id IS ?)`,
+    ).bind(id, tenantId),
+    db.prepare(`DELETE FROM forms WHERE id = ? AND tenant_id IS ?`).bind(id, tenantId),
   ]);
+  return (results[1]?.meta?.changes ?? 0) > 0;
 }
 
 // ── Submissions ───────────────────────────────────────────────────────────────
@@ -273,14 +318,16 @@ export async function deleteForm(db: D1Database, id: string): Promise<void> {
 export async function getFormSubmissions(
   db: D1Database,
   formId: string,
+  tenantId: string | null = null,
 ): Promise<FormSubmission[]> {
   const result = await db
     .prepare(
       `SELECT fs.*, f.display_name as friend_name FROM form_submissions fs
        LEFT JOIN friends f ON f.id = fs.friend_id
-       WHERE fs.form_id = ? ORDER BY fs.created_at DESC`,
+       INNER JOIN forms owner ON owner.id = fs.form_id
+       WHERE fs.form_id = ? AND owner.tenant_id IS ? ORDER BY fs.created_at DESC`,
     )
-    .bind(formId)
+    .bind(formId, tenantId)
     .all<FormSubmission & { friend_name: string | null }>();
   return result.results;
 }
@@ -297,7 +344,9 @@ export async function getFormSubmissionsByFriend(
       `SELECT fs.*, f.name AS form_name, f.fields AS form_fields
        FROM form_submissions fs
        JOIN forms f ON f.id = fs.form_id
-       WHERE fs.friend_id = ?
+       JOIN friends owner ON owner.id = fs.friend_id
+       LEFT JOIN tenant_line_accounts mapping ON mapping.line_account_id = owner.line_account_id
+       WHERE fs.friend_id = ? AND f.tenant_id IS mapping.tenant_id
        ORDER BY fs.created_at DESC
        LIMIT ?`,
     )

@@ -25,7 +25,7 @@ function serialize(t: MessageTemplate) {
 // GET /api/message-templates — list all
 messageTemplates.get('/api/message-templates', async (c) => {
   try {
-    const templates = await listMessageTemplates(c.env.DB);
+    const templates = await listMessageTemplates(c.env.DB, c.get('tenantId') ?? null);
     return c.json({ success: true, data: templates.map(serialize) });
   } catch (err) {
     console.error('GET /api/message-templates error:', err);
@@ -36,7 +36,7 @@ messageTemplates.get('/api/message-templates', async (c) => {
 // GET /api/message-templates/:id — get by id
 messageTemplates.get('/api/message-templates/:id', async (c) => {
   try {
-    const t = await getMessageTemplateById(c.env.DB, c.req.param('id'));
+    const t = await getMessageTemplateById(c.env.DB, c.req.param('id'), c.get('tenantId') ?? null);
     if (!t) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: serialize(t) });
   } catch (err) {
@@ -75,6 +75,7 @@ messageTemplates.post('/api/message-templates', async (c) => {
       name: body.name,
       messageType: body.messageType,
       messageContent: body.messageContent,
+      tenantId: c.get('tenantId') ?? null,
     });
     return c.json({ success: true, data: serialize(t) }, 201);
   } catch (err) {
@@ -97,7 +98,11 @@ messageTemplates.put('/api/message-templates/:id', async (c) => {
     }
 
     // Resolve effective type and content for validation
-    const existing = await getMessageTemplateById(c.env.DB, c.req.param('id'));
+    const existing = await getMessageTemplateById(
+      c.env.DB,
+      c.req.param('id'),
+      c.get('tenantId') ?? null,
+    );
     if (!existing) return c.json({ success: false, error: 'Not found' }, 404);
     const effectiveType = body.messageType ?? existing.message_type;
     const effectiveContent = body.messageContent ?? existing.message_content;
@@ -114,7 +119,7 @@ messageTemplates.put('/api/message-templates/:id', async (c) => {
       name: body.name,
       messageType: body.messageType,
       messageContent: body.messageContent,
-    });
+    }, c.get('tenantId') ?? null);
     if (!t) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: serialize(t) });
   } catch (err) {
@@ -126,7 +131,11 @@ messageTemplates.put('/api/message-templates/:id', async (c) => {
 // DELETE /api/message-templates/:id — delete
 messageTemplates.delete('/api/message-templates/:id', async (c) => {
   try {
-    const deleted = await deleteMessageTemplate(c.env.DB, c.req.param('id'));
+    const deleted = await deleteMessageTemplate(
+      c.env.DB,
+      c.req.param('id'),
+      c.get('tenantId') ?? null,
+    );
     if (!deleted) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true });
   } catch (err) {

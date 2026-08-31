@@ -23,6 +23,24 @@ import { getPharmacyOperationsSummary } from './operations-summary.js';
 
 export const pharmacyGrowthLoopRoutes = new Hono<Env>();
 
+const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-](\d{2}):(\d{2}))$/;
+
+function canonicalIsoInstant(value: string): { iso: string; time: number } | null {
+  const match = ISO_INSTANT.exec(value);
+  if (!match) return null;
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] =
+    match.slice(1).map(Number);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1] ||
+      hour > 23 || minute > 59 || second > 59 ||
+      (offsetHour !== undefined && (offsetHour > 23 || offsetMinute > 59))) {
+    return null;
+  }
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? { iso: new Date(time).toISOString(), time } : null;
+}
+
 async function accountScope(c: Context<Env>): Promise<
   { accountId: string; tenantId: string; staff: { id: string; role: 'owner' | 'admin' | 'staff' } } | Response
 > {
@@ -117,14 +135,15 @@ pharmacyGrowthLoopRoutes.get('/api/custom/pharmacy/growth/dashboard', async (c) 
   if (scope instanceof Response) return scope;
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
-  const from = c.req.query('from') ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const to = c.req.query('to') ?? new Date().toISOString();
-  const fromTime = Date.parse(from);
-  const toTime = Date.parse(to);
-  if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime >= toTime) {
+  const from = canonicalIsoInstant(
+    c.req.query('from') ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+  );
+  const to = canonicalIsoInstant(c.req.query('to') ?? new Date().toISOString());
+  if (!from || !to || from.time >= to.time ||
+      to.time - from.time > 32 * 24 * 60 * 60 * 1000) {
     return c.json({ success: false, error: 'invalid dashboard range' }, 400);
   }
-  const data = await getGrowthDashboard(c.env.DB, scope.accountId, from, to);
+  const data = await getGrowthDashboard(c.env.DB, scope.accountId, from.iso, to.iso);
   return c.json({ success: true, data });
 });
 

@@ -1,3 +1,4 @@
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import {
   classifySubmissionSource,
@@ -304,6 +305,61 @@ describe('medical source classification', () => {
 });
 
 describe('growth dashboard', () => {
+  it('counts mixed-offset message instants within the selected UTC bounds', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`CREATE TABLE messages_log (
+      id TEXT PRIMARY KEY, friend_id TEXT NOT NULL, direction TEXT NOT NULL,
+      delivery_type TEXT, source TEXT, line_account_id TEXT, created_at TEXT NOT NULL
+    );
+    CREATE TABLE outbound_line_deliveries (
+      id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, outcome TEXT NOT NULL,
+      stop_reason TEXT, attempt_count INTEGER NOT NULL,
+      first_attempted_at TEXT, settled_at TEXT, created_at TEXT NOT NULL
+    );
+    INSERT INTO messages_log VALUES
+      ('push-jst', 'friend-push', 'outgoing', 'push', 'automation', 'account-a', '2026-08-31T23:30:00.000+09:00'),
+      ('push-naive-jst', 'friend-naive', 'outgoing', 'push', 'automation', 'account-a', '2026-08-31T23:45:00.000'),
+      ('reply-utc', 'friend-reply', 'outgoing', 'reply', 'manual', 'account-a', '2026-08-31T14:30:00.000Z'),
+      ('test-jst', 'friend-test', 'outgoing', 'test', 'broadcast', 'account-a', '2026-08-15T12:00:00.000+09:00'),
+      ('incoming-jst', 'friend-in', 'incoming', NULL, 'line', 'account-a', '2026-08-01T00:30:00.000+09:00'),
+      ('other-account', 'friend-other', 'outgoing', 'push', 'automation', 'account-b', '2026-08-20T12:00:00.000+09:00');
+    INSERT INTO outbound_line_deliveries VALUES
+      ('open-a', 'account-a', 'open', NULL, 1, '2026-08-10T00:00:00.000Z', NULL, '2026-08-10T00:00:00.000Z'),
+      ('unknown-a', 'account-a', 'retired', 'reply_outcome_unknown', 1, '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z'),
+      ('rejected-a', 'account-a', 'retired', 'reply_rejected', 1, '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z'),
+      ('local-a', 'account-a', 'retired', 'local_precondition_failed', 1, '2026-08-13T00:00:00.000Z', '2026-08-13T00:00:00.000Z', '2026-08-13T00:00:00.000Z'),
+      ('local-no-attempt-a', 'account-a', 'retired', 'local_precondition_failed', 0, NULL, '2026-08-14T00:00:00.000Z', '2026-08-14T00:00:00.000Z'),
+      ('payload-a', 'account-a', 'retired', 'payload_unavailable', 0, NULL, '2026-08-15T00:00:00.000Z', '2026-07-31T14:00:00.000Z'),
+      ('accepted-a', 'account-a', 'accepted', NULL, 1, '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');`);
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: SQLInputValue[]) => ({
+          all: async () => ({ results: [] }),
+          first: async () => sql.includes('FROM messages_log') || sql.includes('FROM outbound_line_deliveries')
+            ? sqlite.prepare(sql).get(...values) ?? null
+            : null,
+        }),
+      }),
+    } as unknown as D1Database;
+
+    const dashboard = await getGrowthDashboard(
+      db,
+      'account-a',
+      '2026-07-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z',
+    );
+
+    expect(dashboard.messaging).toMatchObject({
+      sent: 3,
+      received: 1,
+      push: 2,
+      reply: 1,
+      uniqueCorrespondents: 4,
+      attempted: 1,
+      reconciliationRequired: 3,
+    });
+  });
+
   it('keeps unknown source counts and SLA denominators account-scoped', async () => {
     const queries: string[] = [];
     const db = {
@@ -322,6 +378,7 @@ describe('growth dashboard', () => {
               { category: 'transactional_care', outcome: 'sent', count: 1 },
               { category: 'proactive_noncare', outcome: 'sent', count: 2 },
               { category: 'proactive_noncare', outcome: 'blocked', count: 1 },
+              { category: 'transactional_care', outcome: 'attempted', count: 2, stale_count: 1 },
             ] };
             return { results: [] };
           },
@@ -331,6 +388,13 @@ describe('growth dashboard', () => {
             if (sql.includes('pharmacy_prescription_validities')) return { verified_validity: 1, reminder_sent: 0, reminder_closed_in_time: 0, expired_review_required: 0, confirmed_expired: 1 };
             if (sql.includes('exposed_friends')) return { exposed_friends: 1, unfollow_24h: 0, unfollow_72h: 0 };
             if (sql.includes('unfollow_alert_state')) return { unfollow_alert_state: 'alert_only' };
+            if (sql.includes('FROM messages_log')) return {
+              sent: 8, received: 5, manual: 3, automated: 5, source_unverified: 0,
+              push: 6, reply: 2, delivery_unverified: 0, unique_correspondents: 4,
+            };
+            if (sql.includes('FROM outbound_line_deliveries')) return {
+              attempted: 2, reconciliation_required: 1,
+            };
             return null;
           },
         }),
@@ -341,7 +405,16 @@ describe('growth dashboard', () => {
       sources: { primary: 0, other: 0, unknown: 1 },
       promises: { promised: 1, late: 1, readyEvents: 1 },
       validity: { confirmedExpired: 1 },
-      notifications: { alertState: 'alert_only', attempted: 4, proactiveAttempts: 3, proactiveCapBlocked: 1 },
+      notifications: {
+        alertState: 'alert_only', attempted: 6, proactiveAttempts: 3,
+        proactiveCapBlocked: 1, reconciliationRequired: 1,
+      },
+      messaging: {
+        sent: 8, received: 5, manual: 3, automated: 5, sourceUnverified: 0,
+        push: 6, reply: 2, deliveryUnverified: 0, uniqueCorrespondents: 4,
+        attempted: 2, reconciliationRequired: 1,
+        legacyUnscoped: { count: null, status: 'UNVERIFIED' },
+      },
       unfollow: { exposedFriends: 1 },
     });
     expect(queries.find((sql) => sql.includes('pharmacy_submission_sources'))).toContain("accepted.event_type = 'status_changed'");
@@ -354,5 +427,12 @@ describe('growth dashboard', () => {
     expect(queries.find((sql) => sql.includes('exposed_friends'))).toContain("n.outcome = 'sent'");
     expect(queries.find((sql) => sql.includes('exposed_friends')))
       .toContain("julianday(n.occurred_at, '+72 hours') <= julianday(?)");
+    const messagingQuery = queries.find((sql) => sql.includes('FROM messages_log')) ?? '';
+    expect(messagingQuery).toContain('line_account_id = ?');
+    expect(messagingQuery).toContain("delivery_type <> 'test'");
+    expect(messagingQuery).not.toContain('content');
+    const outboundQuery = queries.find((sql) => sql.includes('FROM outbound_line_deliveries')) ?? '';
+    expect(outboundQuery).toContain('line_account_id = ?');
+    expect(outboundQuery).not.toMatch(/friend|content|retry_key/u);
   });
 });

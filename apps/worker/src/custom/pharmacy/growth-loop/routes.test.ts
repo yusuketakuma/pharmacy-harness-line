@@ -140,6 +140,38 @@ describe('pharmacy Growth Loop routes', () => {
     expect(mocks.dashboard).not.toHaveBeenCalled();
   });
 
+  it('rejects impossible calendar dates before querying metrics', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/growth/dashboard?line_account_id=account-a&from=2026-02-31T00%3A00%3A00.000Z&to=2026-03-04T00%3A00%3A00.000Z',
+      {}, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.dashboard).not.toHaveBeenCalled();
+  });
+
+  it('canonicalizes valid offset bounds before querying metrics', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/growth/dashboard?line_account_id=account-a&from=2026-08-01T00%3A00%3A00%2B09%3A00&to=2026-09-01T00%3A00%3A00%2B09%3A00',
+      {}, env,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.dashboard).toHaveBeenCalledWith(
+      env.DB,
+      'account-a',
+      '2026-07-31T15:00:00.000Z',
+      '2026-08-31T15:00:00.000Z',
+    );
+  });
+
+  it('rejects dashboard ranges longer than 32 days', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/growth/dashboard?line_account_id=account-a&from=2026-07-01T00%3A00%3A00.000Z&to=2026-08-03T00%3A00%3A00.001Z',
+      {}, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.dashboard).not.toHaveBeenCalled();
+  });
+
   it('allows only an owner to change the pharmacy allowlist', async () => {
     const response = await app().request('/api/custom/pharmacy/growth/config?line_account_id=account-a', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

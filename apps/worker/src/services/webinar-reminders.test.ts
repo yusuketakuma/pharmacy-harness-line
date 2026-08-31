@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach, vi } from 'vitest';
+import { createBroadcastRetryKey } from './broadcast-retry-key.js';
 
 const dbMocks = {
   getDueWebinarRegistrations: vi.fn(),
@@ -185,6 +186,22 @@ describe('sendWebinarRegistrationConfirmation', () => {
     expect(proxyFetch).not.toHaveBeenCalled();
   });
 
+  test('account-less webinar confirmation is skipped before account authorization', async () => {
+    const canProcessAccount = vi.fn().mockResolvedValue(true);
+    await sendWebinarRegistrationConfirmation(
+      mappedDb(),
+      { account_id: null, title: 'テスト', slug: 'test-webinar' },
+      'friend-1',
+      NOW + 3600,
+      { ...OPTIONS, canProcessAccount },
+    );
+
+    expect(canProcessAccount).not.toHaveBeenCalled();
+    expect(pharmacyMode.check).not.toHaveBeenCalled();
+    expect(dbMocks.getFriendById).not.toHaveBeenCalled();
+    expect(proxyFetch).not.toHaveBeenCalled();
+  });
+
   test('予約直後の確認も Harness proxy 経由で送り、履歴化する', async () => {
     await sendWebinarRegistrationConfirmation(
       mappedDb(),
@@ -196,7 +213,16 @@ describe('sendWebinarRegistrationConfirmation', () => {
     expect(proxyFetch).toHaveBeenCalledTimes(1);
     const [url, init] = proxyFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://proxy.example.com/line-api/v2/bot/message/push');
-    expect(init.headers).toMatchObject({ Authorization: 'Bearer tok' });
+    expect(init.headers).toMatchObject({
+      Authorization: 'Bearer tok',
+      'X-Line-Retry-Key': await createBroadcastRetryKey(
+        'webinar-registration-confirmation',
+        'acc-1',
+        'test-webinar',
+        'friend-1',
+        String(NOW + 3600),
+      ),
+    });
     const body = JSON.parse(String(init.body)) as { messages: Array<{ text: string }> };
     expect(body.messages[0].text).toContain('受付しました');
     expect(body.messages[0].text).toContain(

@@ -81,33 +81,6 @@ export type BroadcastInsight = {
   fetchedAt?: string | null
 }
 
-export type PharmacyOperationsSummary = {
-  accountId: string
-  checkedAt: string
-  capabilityError: boolean
-  domains: Record<
-    'prescriptionIntake' | 'electronicPrescription' | 'patientIntake' |
-    'continuity' | 'medicationFollowup' | 'emergencyContraception',
-    {
-      enabled: boolean | null
-      activeCount: number | null
-      statusCounts: Record<string, number>
-      updatedAt: string | null
-      error: boolean
-    }
-  >
-  richMenu: {
-    status: 'READY' | 'BLOCKED' | 'UNVERIFIED' | null
-    capabilityEnabled: boolean | null
-    layoutConfigured: boolean | null
-    savedVersionAvailable: boolean | null
-    catalogVersionCurrent: boolean | null
-    publishedVersionAvailable: boolean | null
-    currentDefaultRecorded: boolean | null
-    error: boolean
-  }
-}
-
 export type RichMenuGroupDetail = {
   id: string
   accountId: string
@@ -141,78 +114,7 @@ export type RichMenuGroupDetail = {
   }>
 }
 
-export type PharmacyRichMenuVersionDiff = {
-  status: 'UNVERIFIED'
-  accountId: string
-  checkedAt: string
-  freshnessHours: 24
-  reasonCode: 'CURRENT_DEFAULT_EVIDENCE_STALE' | 'CURRENT_DEFAULT_VERSION_MISSING' |
-    'CURRENT_DEFAULT_MANIFEST_UNAVAILABLE'
-} | {
-  status: 'VERIFIED'
-  accountId: string
-  checkedAt: string
-  freshnessHours: 24
-  verifiedAt: string
-  current: {
-    groupId: string
-    layoutRevision: number
-    capabilityRevision: number
-    manifestHash: string
-    imageHash: string
-  }
-  draft: {
-    groupId: string
-    layoutRevision: number
-    capabilityRevision: number
-    manifestHash: string
-    imageHash: string
-  }
-  imageChanged: boolean
-  slots: Array<{
-    kind: 'same' | 'added' | 'removed' | 'moved' | 'action_changed' | 'image_changed'
-    currentIndex: number | null
-    draftIndex: number | null
-  }>
-}
-
-export type PharmacyRichMenuCandidate = {
-  accountId: string
-  preferredOrder: string[]
-  effectiveOrder: string[]
-  layoutRevision: number
-  capabilityRevision: number
-  catalogVersion: string
-  variantKey: string
-  menuSize: 'large' | 'compact'
-  width: 2500
-  height: 843 | 1686
-  imageHash: string
-  slots: Array<{
-    actionKey: string
-    label: string
-    actionType: 'uri' | 'message'
-    boundsX: number
-    boundsY: number
-    boundsWidth: number
-    boundsHeight: number
-  }>
-} & ({
-  syncStatus: 'UNVERIFIED'
-  reasonCode: 'CURRENT_DEFAULT_EVIDENCE_STALE' | 'CURRENT_DEFAULT_VERSION_MISSING' |
-    'CURRENT_DEFAULT_MANIFEST_UNAVAILABLE'
-} | {
-  syncStatus: 'CURRENT' | 'STALE'
-  verifiedAt: string
-  imageChanged: boolean
-  changes: Array<{
-    kind: 'same' | 'added' | 'removed' | 'moved' | 'action_changed' | 'image_changed'
-    currentIndex: number | null
-    draftIndex: number | null
-  }>
-})
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL
+export const API_URL = process.env.NEXT_PUBLIC_API_URL
 if (!API_URL) {
   throw new Error(
     'NEXT_PUBLIC_API_URL is not set. Build cannot proceed without a valid API URL. ' +
@@ -633,10 +535,13 @@ export const api = {
       fetchApi<ApiResponse<BroadcastInsight | null>>(`/api/broadcasts/${id}/insight`),
     fetchInsight: (id: string) =>
       fetchApi<ApiResponse<BroadcastInsight>>(`/api/broadcasts/${id}/fetch-insight`, { method: 'POST' }),
-    testSend: (id: string) =>
-      fetchApi<{ success: boolean; sent?: number; failed?: number; error?: string }>(`/api/broadcasts/${id}/test-send`, { method: 'POST' }),
+    testSend: (id: string, idempotencyKey: string) =>
+      fetchApi<{ success: boolean; sent?: number; failed?: number; error?: string }>(`/api/broadcasts/${id}/test-send`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+      }),
     getProgress: (id: string) =>
-      fetchApi<{ success: boolean; data?: { status: string; totalCount: number; successCount: number; batchOffset: number } }>(`/api/broadcasts/${id}/progress`),
+      fetchApi<{ success: boolean; data?: { status: string; totalCount: number; successCount: number; batchOffset: number; failedAccountIds: string[] | null } }>(`/api/broadcasts/${id}/progress`),
     previewCount: (id: string) =>
       fetchApi<{
         success: boolean;
@@ -1042,7 +947,7 @@ export const api = {
   },
   automations: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + params.accountId : ''
+      const query = params?.accountId ? '?lineAccountId=' + encodeURIComponent(params.accountId) : ''
       return fetchApi<ApiResponse<Automation[]>>('/api/automations' + query)
     },
     get: (id: string) =>
@@ -1054,6 +959,7 @@ export const api = {
       description?: string | null
       conditions?: Record<string, unknown>
       priority?: number
+      lineAccountId: string
     }) =>
       fetchApi<ApiResponse<Automation>>('/api/automations', {
         method: 'POST',
@@ -1100,21 +1006,28 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    send: (id: string, data: { content: string; messageType?: string }) =>
+    send: (
+      id: string,
+      data: { content: string; messageType?: string },
+      options: { idempotencyKey: string },
+    ) =>
       fetchApi<ApiResponse<unknown>>(`/api/chats/${id}/send`, {
         method: 'POST',
-        headers: { 'X-Line-Harness-Source': 'manual' },
+        headers: {
+          'X-Line-Harness-Source': 'manual',
+          'Idempotency-Key': options.idempotencyKey,
+        },
         body: JSON.stringify(data),
       }),
   },
   reminders: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + params.accountId : ''
+      const query = params?.accountId ? '?lineAccountId=' + encodeURIComponent(params.accountId) : ''
       return fetchApi<ApiResponse<Reminder[]>>('/api/reminders' + query)
     },
     get: (id: string) =>
       fetchApi<ApiResponse<Reminder & { steps: ReminderStep[] }>>(`/api/reminders/${id}`),
-    create: (data: { name: string; description?: string | null }) =>
+    create: (data: { name: string; description?: string | null; lineAccountId: string }) =>
       fetchApi<ApiResponse<Reminder>>('/api/reminders', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -1305,161 +1218,6 @@ export const api = {
     },
   },
   richMenuGroups: {
-    pharmacyCandidate: (accountId: string) =>
-      fetchApi<ApiResponse<PharmacyRichMenuCandidate>>(
-        `/api/custom/pharmacy/rich-menus/candidate?accountId=${encodeURIComponent(accountId)}`,
-      ),
-
-    pharmacyCandidateImageUrl: (
-      accountId: string,
-      candidate: Pick<PharmacyRichMenuCandidate, 'layoutRevision' | 'capabilityRevision' | 'imageHash'>,
-    ) => `${API_URL}/api/custom/pharmacy/rich-menus/candidate/image?${new URLSearchParams({
-      accountId,
-      layoutRevision: String(candidate.layoutRevision),
-      capabilityRevision: String(candidate.capabilityRevision),
-      imageHash: candidate.imageHash,
-    })}`,
-
-    pharmacyLayout: (accountId: string) =>
-      fetchApi<ApiResponse<{
-        preferredOrder: string[];
-        effectiveOrder: string[];
-        variantKey: string;
-        revision: number;
-        capabilityRevision: number;
-        updatedAt: string | null;
-      }>>(`/api/custom/pharmacy/rich-menus/layout?accountId=${encodeURIComponent(accountId)}`),
-
-    pharmacyLifecycle: (accountId: string) =>
-      fetchApi<ApiResponse<{
-        lineAccountId: string;
-        state: 'inactive' | 'active' | 'frozen';
-        revision: number;
-        updatedAt: string | null;
-      }>>(`/api/custom/pharmacy/rich-menus/lifecycle?accountId=${encodeURIComponent(accountId)}`),
-
-    savePharmacyLifecycle: (
-      accountId: string,
-      input: { state: 'inactive' | 'active' | 'frozen'; expectedRevision: number },
-    ) => fetchApi<ApiResponse<{
-      lineAccountId: string;
-      state: 'inactive' | 'active' | 'frozen';
-      revision: number;
-      updatedAt: string | null;
-    }>>(`/api/custom/pharmacy/rich-menus/lifecycle?accountId=${encodeURIComponent(accountId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    }),
-
-    savePharmacyLayout: (
-      accountId: string,
-      input: { preferredOrder: string[]; expectedRevision: number },
-    ) =>
-      fetchApi<ApiResponse<{
-        preferredOrder: string[];
-        effectiveOrder: string[];
-        variantKey: string;
-        revision: number;
-        capabilityRevision: number;
-        updatedAt: string | null;
-      }>>(`/api/custom/pharmacy/rich-menus/layout?accountId=${encodeURIComponent(accountId)}`, {
-        method: 'PUT',
-        body: JSON.stringify(input),
-      }),
-
-    pharmacyVersions: (accountId: string) =>
-      fetchApi<ApiResponse<Array<{
-        groupId: string;
-        lineAccountId: string;
-        name: string;
-        status: 'draft' | 'published';
-        currentDefault: boolean;
-        knownGood: boolean;
-        unverified: boolean;
-        unresolvedOperationId: string | null;
-        unresolvedOperationKind: 'publish' | 'set_default' | 'rollback' | null;
-        lineRichMenuId: string | null;
-        imageR2Key: string;
-        imageContentType: string;
-        menuSize: 'large' | 'compact';
-        layoutRevision: number;
-        capabilityRevision: number;
-        catalogVersion: string;
-        catalogVariantKey: string;
-        manifestHash: string;
-        imageHash: string;
-        createdAt: string;
-        updatedAt: string;
-      }>>>(`/api/custom/pharmacy/rich-menus/versions?accountId=${encodeURIComponent(accountId)}`),
-
-    pharmacyVersionDiff: (accountId: string, groupId: string) =>
-      fetchApi<ApiResponse<PharmacyRichMenuVersionDiff>>(
-        `/api/custom/pharmacy/rich-menus/versions/${encodeURIComponent(groupId)}/diff?accountId=${encodeURIComponent(accountId)}`,
-      ),
-
-    createPharmacyVersion: (accountId: string, input: {
-      name: string;
-      expectedLayoutRevision: number;
-      expectedCapabilityRevision: number;
-    }) => fetchApi<ApiResponse<{
-      groupId: string;
-      name: string;
-      status: 'draft';
-      catalogVersion: string;
-      menuSize: 'large' | 'compact';
-      catalogVariantKey: string;
-      imageHash: string;
-      manifestHash: string;
-      layoutRevision: number;
-      capabilityRevision: number;
-      imageR2Key: string;
-    }>>(`/api/custom/pharmacy/rich-menus/versions?accountId=${encodeURIComponent(accountId)}`, {
-      method: 'POST', body: JSON.stringify(input),
-    }),
-
-    renamePharmacyVersion: (
-      accountId: string,
-      groupId: string,
-      input: { name: string; expectedUpdatedAt: string },
-    ) => fetchApi<ApiResponse<{ groupId: string; name: string; updatedAt: string }>>(
-      `/api/custom/pharmacy/rich-menus/versions/${encodeURIComponent(groupId)}?accountId=${encodeURIComponent(accountId)}`,
-      { method: 'PATCH', body: JSON.stringify(input) },
-    ),
-
-    deletePharmacyVersion: (
-      accountId: string,
-      groupId: string,
-      expectedUpdatedAt: string,
-    ) => fetchApi<ApiResponse<{ cleanupPending: boolean }>>(
-      `/api/custom/pharmacy/rich-menus/versions/${encodeURIComponent(groupId)}?accountId=${encodeURIComponent(accountId)}&expectedUpdatedAt=${encodeURIComponent(expectedUpdatedAt)}`,
-      { method: 'DELETE' },
-    ),
-
-    reconcilePharmacyOperation: (accountId: string, operationId: string) =>
-      fetchApi<ApiResponse<{
-        status: 'succeeded' | 'failed' | 'running' | 'unknown';
-        reasonCode?: string;
-      }>>(
-        `/api/rich-menu-groups/operations/${encodeURIComponent(operationId)}/reconcile?accountId=${encodeURIComponent(accountId)}`,
-        { method: 'POST' },
-      ),
-
-    resumePharmacyOperation: (
-      accountId: string,
-      operationId: string,
-      input: { dryRun: boolean; confirmationToken?: string },
-    ) => fetchApi<ApiResponse<{
-      dryRun?: boolean;
-      confirmationToken?: string;
-      expiresAt?: number;
-      status?: 'running' | 'unknown';
-      publishPhase: 'intent_recorded' | 'remote_created' | 'image_uploaded' | 'alias_created';
-      nextStage?: 'create' | 'image_upload' | 'alias_create';
-    }>>(
-      `/api/rich-menu-groups/operations/${encodeURIComponent(operationId)}/resume?accountId=${encodeURIComponent(accountId)}`,
-      { method: 'POST', body: JSON.stringify(input) },
-    ),
-
     list: (accountId: string) =>
       fetchApi<ApiResponse<Array<{
         id: string;
@@ -1544,20 +1302,6 @@ export const api = {
         `/api/rich-menu-groups/${groupId}/publish`,
         { method: 'POST' },
       ),
-
-    publishPharmacyVersion: (
-      groupId: string,
-      accountId: string,
-      input: { dryRun: boolean; confirmationToken?: string },
-    ) => fetchApi<ApiResponse<{
-      dryRun?: boolean;
-      confirmationToken?: string;
-      expiresAt?: number;
-      readiness?: { status: 'READY' | 'BLOCKED'; reasonCodes: string[] };
-      pages?: Array<{ pageId: string; newRichMenuId: string }>;
-    }>>(`/api/rich-menu-groups/${groupId}/publish?accountId=${encodeURIComponent(accountId)}`, {
-      method: 'POST', body: JSON.stringify(input),
-    }),
 
     unpublish: (groupId: string) =>
       fetchApi<ApiResponse<{
@@ -1669,150 +1413,6 @@ export const api = {
     imageUrl: (key: string) =>
       `${API_URL}/api/rich-menu-images/${encodeURIComponent(key)}`,
   },
-  pharmacyGrowth: {
-    operationsSummary: (accountId: string) =>
-      fetchApi<ApiResponse<PharmacyOperationsSummary>>(
-        `/api/custom/pharmacy/operations-summary?line_account_id=${encodeURIComponent(accountId)}`,
-      ),
-    activeWork: (accountId: string) =>
-      fetchApi<ApiResponse<Record<
-        'prescription_intake' | 'electronic_prescription' | 'patient_intake' | 'continuity' |
-        'medication_followup' | 'emergency_contraception' | 'manual_chat' | 'pharmacy_info', number
-      >>>(`/api/custom/pharmacy/active-work?line_account_id=${encodeURIComponent(accountId)}`),
-    readiness: (accountId: string) =>
-      fetchApi<ApiResponse<{
-        accountId: string;
-        checkedAt: string;
-        configurationDoctor: {
-          accountId: string;
-          checkedAt: string;
-          status: 'READY' | 'BLOCKED' | 'UNVERIFIED';
-          reasonCodes: string[];
-          checks: Array<{
-            key: string;
-            required: boolean;
-            status: 'READY' | 'BLOCKED' | 'UNVERIFIED';
-            reasonCodes: string[];
-            impact: string;
-            fixHref: string;
-          }>;
-        };
-        electronicPrescription: {
-          status: 'READY' | 'BLOCKED' | 'UNVERIFIED';
-          capabilityEnabled: boolean;
-          endpointConfigured: boolean;
-          endpointEvidence: { status: 'UNVERIFIED'; source: 'manual_console'; checkedAt: string | null; freshnessHours: 24 };
-        };
-        emergencyContraception: {
-          status: 'READY' | 'BLOCKED';
-          capabilityEnabled: boolean;
-          trainedPharmacistAvailable: boolean;
-          inventoryAvailable: boolean;
-          futureSlotAvailable: boolean;
-        };
-        richMenu: {
-          status: 'READY' | 'BLOCKED' | 'UNVERIFIED';
-          syncStatus: 'CURRENT' | 'STALE' | 'UNVERIFIED';
-          capabilityEnabled: boolean;
-          layoutConfigured: boolean;
-          savedVersionAvailable: boolean;
-          catalogVersionCurrent: boolean;
-          publishedVersionAvailable: boolean;
-          currentDefaultRecorded: boolean;
-          capabilityRevisionCurrent: boolean;
-          uploadVerified: boolean;
-          defaultReadbackVerified: boolean;
-          evidenceCheckedAt: string | null;
-          reasonCodes: string[];
-        };
-      }>>(`/api/custom/pharmacy/readiness?line_account_id=${encodeURIComponent(accountId)}`),
-    config: (accountId: string) =>
-      fetchApi<ApiResponse<{
-        line_account_id: string;
-        mode: 'pharmacy';
-        capabilities: string[];
-        proactive_monthly_limit: number;
-        unfollow_alert_state: 'alert_only' | 'auto_pause';
-        revision: number;
-        created_at: string;
-        updated_at: string;
-      } | null>>(`/api/custom/pharmacy/growth/config?line_account_id=${encodeURIComponent(accountId)}`),
-    saveConfig: (accountId: string, body: {
-      capabilities: string[];
-      expectedRevision: number;
-      proactiveMonthlyLimit: number;
-    }) => fetchApi<ApiResponse<{
-      line_account_id: string;
-      mode: 'pharmacy';
-      capabilities: string[];
-      proactive_monthly_limit: number;
-      unfollow_alert_state: 'alert_only' | 'auto_pause';
-      revision: number;
-      created_at: string;
-      updated_at: string;
-    }>>(`/api/custom/pharmacy/growth/config?line_account_id=${encodeURIComponent(accountId)}`, {
-      method: 'PUT', body: JSON.stringify(body),
-    }),
-    dashboard: (accountId: string, from?: string, to?: string) => {
-      const query = new URLSearchParams({ line_account_id: accountId });
-      if (from) query.set('from', from);
-      if (to) query.set('to', to);
-      return fetchApi<ApiResponse<{
-        from: string;
-        to: string;
-        entry: {
-          firstTimeFollows: number;
-          measurableFollows: number;
-          firstSubmissions: number;
-          secondSubmissions: number;
-          firstSubmissionRate: { numerator: number; denominator: number; matureCohort: number; immatureCohort: number };
-          secondSubmissionRate: { numerator: number; denominator: number; matureCohort: number; immatureCohort: number };
-        };
-        sources: { primary: number; other: number; unknown: number; otherShare: number | null; knownDenominator: number; attributionCoverage: number | null };
-        promises: {
-          promised: number;
-          onTime: number;
-          late: number;
-          onTimeRate: number | null;
-          p50LatenessMinutes: number | null;
-          p90LatenessMinutes: number | null;
-          promiseRevisionCount: number;
-          promiseWithoutReady: number;
-          readyEvents: number;
-          promiseWithoutQuote: number;
-          graceMinutes: number;
-        };
-        validity: { verified: number; reminderSent: number; reminderClosedInTime: number; expiredReviewRequired: number; confirmedExpired: number };
-        notifications: { counts: Record<string, number>; proactiveCapBlocked: number; proactiveAttempts: number; attempted: number; alertState: 'alert_only' | 'auto_pause' };
-        unfollow: { exposedFriends: number; within24h: number; within72h: number; sampleSize: number; interpretation: string };
-      }>>(`/api/custom/pharmacy/growth/dashboard?${query.toString()}`);
-    },
-    sources: (accountId: string) =>
-      fetchApi<ApiResponse<Array<{ id: string; display_name: string; classification: 'primary' | 'other'; is_active: number; created_at: string; updated_at: string }>>>(
-        `/api/custom/pharmacy/growth/sources?line_account_id=${encodeURIComponent(accountId)}`,
-      ),
-    createSource: (accountId: string, body: { displayName: string; classification: 'primary' | 'other' }) =>
-      fetchApi<ApiResponse<{ id: string }>>(`/api/custom/pharmacy/growth/sources?line_account_id=${encodeURIComponent(accountId)}`, {
-        method: 'POST', body: JSON.stringify(body),
-      }),
-    setSourceActive: (accountId: string, sourceId: string, isActive: boolean) =>
-      fetchApi<ApiResponse<never>>(`/api/custom/pharmacy/growth/sources/${encodeURIComponent(sourceId)}?line_account_id=${encodeURIComponent(accountId)}`, {
-        method: 'PATCH', body: JSON.stringify({ isActive }),
-      }),
-    classifySource: (accountId: string, submissionId: string, body: { sourceId: string | null; classification: 'primary' | 'other' | 'unknown' }) =>
-      fetchApi<ApiResponse<never>>(`/api/custom/pharmacy/growth/submissions/${encodeURIComponent(submissionId)}/source?line_account_id=${encodeURIComponent(accountId)}`, {
-        method: 'POST', body: JSON.stringify(body),
-      }),
-    saveValidity: (accountId: string, submissionId: string, body: {
-      issuedOn: string | null;
-      validUntil: string | null;
-      validityBasis: 'default_4_days' | 'prescriber_specified';
-      verificationStatus: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
-    }) => fetchApi<ApiResponse<never>>(`/api/custom/pharmacy/growth/submissions/${encodeURIComponent(submissionId)}/validity?line_account_id=${encodeURIComponent(accountId)}`, {
-      method: 'PUT', body: JSON.stringify(body),
-    }),
-  },
-
   messageTemplates: {
     list: () =>
       fetchApi<ApiResponse<Array<{

@@ -49,13 +49,16 @@ export class FriendsResource {
     content: string,
     messageType: MessageType = 'text',
     altText?: string,
-    options?: { trackLinks?: boolean },
+    options?: { trackLinks?: boolean; idempotencyKey?: string },
   ): Promise<{ messageId: string }> {
     const res = await this.http.post<ApiResponse<{ messageId: string }>>(`/api/friends/${friendId}/messages`, {
       messageType,
       content,
       ...(altText ? { altText } : {}),
       ...(options?.trackLinks !== undefined ? { trackLinks: options.trackLinks } : {}),
+    }, {
+      'X-Line-Harness-Source': 'manual',
+      'Idempotency-Key': options?.idempotencyKey ?? crypto.randomUUID(),
     })
     return res.data
   }

@@ -19,6 +19,12 @@ import {
 } from '../../middleware/auth.js';
 import type { AuthenticatedStaff } from '../../middleware/auth.js';
 import { messageToLogPayload } from '../../services/step-delivery.js';
+import {
+  createBroadcastRetryKey,
+  createLineRetryKey,
+  isLineRetryKey,
+} from '../../services/broadcast-retry-key.js';
+import { deliverTrackedLinePush } from '../../services/outbound-line-delivery.js';
 import type { Env } from '../../index.js';
 import {
   findLineCredentialByAccessToken,
@@ -104,6 +110,7 @@ const LINE_USER_ID_RE = /^U[0-9a-f]{32}$/;
 type ParsedSend = { to?: unknown; messages?: unknown };
 
 type ProxyLogSource = 'external' | 'manual';
+type PharmacySendAuthorization = Response | { retryKey: string } | null;
 
 type LogRow = {
   friendId: string;
@@ -118,6 +125,7 @@ type ResolvedCaller = {
   upstreamToken: string;
   /** line_accounts.id when the channel is DB-registered, else null (env default). */
   lineAccountId: string | null;
+  tenantId: string | null;
   /** Total number of registered accounts — used to scope broadcast logging. */
   accountCount: number;
   staff: AuthenticatedStaff | null;
@@ -147,7 +155,6 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       c.env.DB,
       staff,
       c.req.header(TENANT_HEADER),
-      c.env.LEGACY_ENV_OWNER_BYPASS === 'true',
     );
     if (!identity) {
       return c.json({ message: 'Tenant access denied' }, 403);
@@ -191,6 +198,7 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       return {
         upstreamToken,
         lineAccountId: account.id,
+        tenantId: identity.tenant.id,
         accountCount: tenantAccounts.length,
         staff,
       };
@@ -225,6 +233,7 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       return {
         upstreamToken: credential.credential,
         lineAccountId: credential.lineAccountId,
+        tenantId: credential.tenantId,
         accountCount,
         staff: null,
       };
@@ -245,7 +254,13 @@ async function resolveCaller(c: Context<Env>, token: string): Promise<ResolvedCa
       if (!count || !Number.isSafeInteger(count.count) || count.count < 0) {
         return c.json(AUTH_FAILED, 401);
       }
-      return { upstreamToken: token, lineAccountId: null, accountCount: count.count, staff: null };
+      return {
+        upstreamToken: token,
+        lineAccountId: null,
+        tenantId: null,
+        accountCount: count.count,
+        staff: null,
+      };
     } catch {
       return c.json(AUTH_FAILED, 401);
     }
@@ -259,7 +274,7 @@ async function rejectUnsafePharmacySend(
   path: string,
   rawBody: string | undefined,
   source: ProxyLogSource,
-): Promise<Response | null> {
+): Promise<PharmacySendAuthorization> {
   const lineAccountId = caller.lineAccountId;
   if (!lineAccountId) {
     return await hasPharmacyModeAccount(c.env.DB)
@@ -289,17 +304,27 @@ async function rejectUnsafePharmacySend(
   }
   const messages = asMessages(parsed.messages);
   const event = await c.env.DB.prepare(
-    `SELECT e.message_id, f.provider_line_user_id AS line_user_id
+    `SELECT e.message_id, e.idempotency_key, f.provider_line_user_id AS line_user_id
        FROM pharmacy_notification_events e
        INNER JOIN friends f
          ON f.id = e.friend_id AND f.line_account_id = e.line_account_id
       WHERE e.id = ? AND e.line_account_id = ? AND e.outcome = 'attempted'`,
-  ).bind(eventId, lineAccountId).first<{ message_id: string; line_user_id: string }>();
+  ).bind(eventId, lineAccountId).first<{
+    message_id: string;
+    idempotency_key: string;
+    line_user_id: string;
+  }>();
   if (!event || parsed.to !== event.line_user_id || messages.length !== 1 ||
       !isApprovedRenderedPharmacyMessage(event.message_id, messages[0])) {
     return c.json({ message: 'Pharmacy notification payload rejected' }, 403);
   }
-  return null;
+  const expectedRetryKey = await createLineRetryKey(event.idempotency_key);
+  const suppliedRetryKey = c.req.header('X-Line-Retry-Key');
+  if (suppliedRetryKey && isLineRetryKey(suppliedRetryKey) &&
+      suppliedRetryKey.toLowerCase() !== expectedRetryKey) {
+    return c.json({ message: 'Pharmacy notification retry key rejected' }, 403);
+  }
+  return { retryKey: expectedRetryKey };
 }
 
 /** Look up friends for a set of userIds in IN-clause chunks (≤100 binds each). */
@@ -435,7 +460,7 @@ async function logProxySend(
 
     if (path === '/v2/bot/message/push' && typeof parsed.to === 'string') {
       if (!LINE_USER_ID_RE.test(parsed.to)) {
-        console.warn(`[line-proxy] push to non-user target not logged: ${parsed.to.slice(0, 4)}…`);
+        console.warn('[line-proxy] push to non-user target not logged');
         return;
       }
       const friend =
@@ -598,33 +623,130 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
       }
     }
 
+    let pharmacySendAuthorization: PharmacySendAuthorization = null;
     if (isMessageSend) {
-      const rejected = await rejectUnsafePharmacySend(c, caller, path, rawBody, logSource);
-      if (rejected) return rejected;
+      pharmacySendAuthorization = await rejectUnsafePharmacySend(c, caller, path, rawBody, logSource);
+      if (pharmacySendAuthorization instanceof Response) return pharmacySendAuthorization;
     }
+
+    const approvedPharmacyRetryKey = pharmacySendAuthorization &&
+      !(pharmacySendAuthorization instanceof Response)
+      ? pharmacySendAuthorization.retryKey
+      : null;
+    const trackedPharmacyAutomated = approvedPharmacyRetryKey !== null;
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${caller.upstreamToken}`,
     };
     const contentType = c.req.header('Content-Type');
     if (contentType) headers['Content-Type'] = contentType;
-    const retryKey = c.req.header('X-Line-Retry-Key');
-    if (retryKey) headers['X-Line-Retry-Key'] = retryKey;
+    const suppliedRetryKey = c.req.header('X-Line-Retry-Key');
+    const trackedManual = logSource === 'manual' && path === '/v2/bot/message/push';
+    const trackedPush = trackedManual || trackedPharmacyAutomated;
+    if (trackedPush && (!suppliedRetryKey || !isLineRetryKey(suppliedRetryKey))) {
+      return c.json({ message: 'X-Line-Retry-Key must be a UUID for tracked pushes' }, 400);
+    }
+    const retryKey = trackedPharmacyAutomated
+      ? approvedPharmacyRetryKey
+      : suppliedRetryKey;
 
-    let upstream: Response;
-    try {
-      upstream = await fetch(`${upstreamBase}${encodedPath}${url.search}`, {
-        method,
-        headers,
-        body: rawBody ?? binaryBody,
-        signal: c.req.raw.signal,
-      });
-    } catch {
-      log('line_proxy_upstream_fetch_failed', {}, 'error');
-      return c.json({ message: 'Upstream request failed' }, 502);
+    const upstreamState: { response: Response | null } = { response: null };
+    let acceptedRetry = false;
+    if (trackedPush) {
+      const { tenantId, lineAccountId } = caller;
+      if (!tenantId || !lineAccountId || !rawBody) {
+        return c.json({ message: 'Account scope required for tracked sends' }, 403);
+      }
+      let parsed: ParsedSend;
+      try {
+        parsed = JSON.parse(rawBody) as ParsedSend;
+      } catch {
+        return c.json({ message: 'Invalid message payload' }, 400);
+      }
+      const messages = asMessages(parsed.messages);
+      if (!LINE_USER_ID_RE.test(String(parsed.to ?? '')) ||
+          !Array.isArray(parsed.messages) || parsed.messages.length !== 1 || messages.length !== 1) {
+        return c.json({ message: 'Tracked push requires one user and one message' }, 400);
+      }
+      const to = parsed.to as string;
+      const friend =
+        (await getFriendByLineUserIdForAccount(c.env.DB, to, lineAccountId)) ??
+        (await createFriendForRecipient(
+          c.env.DB,
+          new LineClient(caller.upstreamToken),
+          to,
+          lineAccountId,
+        ));
+      if (!friend) return c.json({ message: 'Friend not found' }, 404);
+
+      const logPayload = messageToLogPayload(messages[0]);
+      const operationId = trackedManual
+        ? await createBroadcastRetryKey('manual-proxy', tenantId, lineAccountId, friend.id, retryKey!)
+        : retryKey!;
+      let fetchFailed = false;
+      let delivery: Awaited<ReturnType<typeof deliverTrackedLinePush>> | undefined;
+      try {
+        delivery = await deliverTrackedLinePush({
+          db: c.env.DB,
+          operationId,
+          tenantId,
+          lineAccountId,
+          friendId: friend.id,
+          messageType: logPayload.messageType,
+          content: logPayload.content,
+          source: logSource,
+          request: { to, messages },
+          send: async (request) => {
+            try {
+              upstreamState.response = await fetch(`${upstreamBase}${encodedPath}${url.search}`, {
+                method,
+                headers: { ...headers, 'X-Line-Retry-Key': operationId },
+                body: JSON.stringify(request),
+                signal: c.req.raw.signal,
+              });
+            } catch {
+              fetchFailed = true;
+              throw new Error('LINE_PROXY_UPSTREAM_FETCH_FAILED');
+            }
+            if (!upstreamState.response.ok && upstreamState.response.status !== 409) {
+              throw new Error('LINE_PROXY_UPSTREAM_REJECTED');
+            }
+          },
+        });
+      } catch (error) {
+        if (fetchFailed) {
+          log('line_proxy_upstream_fetch_failed', {}, 'error');
+          return c.json({ message: 'Upstream request failed' }, 502);
+        }
+        const upstream = upstreamState.response;
+        if (!upstream || upstream.ok || upstream.status === 409) throw error;
+      }
+      if (delivery === 'reconciliation_required' || delivery === 'in_flight') {
+        return c.json({ message: 'Message delivery requires reconciliation' }, 409);
+      }
+      if (delivery) {
+        await touchChat(c.env.DB, friend.id);
+        if (!upstreamState.response) return new Response(null, { status: 200 });
+        acceptedRetry = upstreamState.response.status === 409;
+      }
+    } else {
+      if (retryKey) headers['X-Line-Retry-Key'] = retryKey;
+      try {
+        upstreamState.response = await fetch(`${upstreamBase}${encodedPath}${url.search}`, {
+          method,
+          headers,
+          body: rawBody ?? binaryBody,
+          signal: c.req.raw.signal,
+        });
+      } catch {
+        log('line_proxy_upstream_fetch_failed', {}, 'error');
+        return c.json({ message: 'Upstream request failed' }, 502);
+      }
     }
 
-    if (isMessageSend && upstream.ok && rawBody) {
+    const upstream = upstreamState.response;
+    if (!upstream) return new Response(null, { status: 200 });
+    if (!trackedPush && isMessageSend && upstream.ok && rawBody) {
       // Log in the background where possible: a multicast to hundreds of
       // friends must not delay the client response (timeout → client retry →
       // double send). Falls back to inline await outside a Workers runtime.
@@ -649,7 +771,10 @@ function proxyHandler(prefix: string, upstreamBase: string, logSends: boolean) {
 
     // Stream the body through — api-data downloads (images, video) can be
     // large binary; buffering them as text would corrupt and bloat memory.
-    return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+    return new Response(upstream.body, {
+      status: acceptedRetry ? 200 : upstream.status,
+      headers: responseHeaders,
+    });
   };
 }
 

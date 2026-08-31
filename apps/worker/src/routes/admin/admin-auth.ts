@@ -21,9 +21,12 @@ import {
   verifyTenantPassword,
 } from '../../custom/pharmacy/provisioning/credentials.js';
 import { log } from '../../lib/log.js';
-import { tenantAuditStatement } from '../../lib/tenant-audit.js';
 
 export const adminAuth = new Hono<Env>();
+adminAuth.use('/api/auth/*', async (c, next) => {
+  c.header('Cache-Control', 'no-store, private');
+  await next();
+});
 const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
 const STANDARD_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const UNKNOWN_LOGIN_PASSWORD_HASH =
@@ -158,6 +161,11 @@ adminAuth.post('/api/auth/change-password', async (c) => {
   if (c.get('authMethod') !== 'password') {
     return c.json({ success: false, error: 'Password session required' }, 403);
   }
+  const sessionToken = adminSessionTokenFromCookie(c);
+  if (!sessionToken || !isTenantAdminSessionToken(sessionToken)) {
+    return c.json({ success: false, error: 'Password session required' }, 403);
+  }
+  const sessionTokenHash = await hashTenantAdminSessionToken(sessionToken);
   const body = await c.req
     .json<{ currentPassword?: string; newPassword?: string }>()
     .catch(() => ({}) as { currentPassword?: string; newPassword?: string });
@@ -194,25 +202,98 @@ adminAuth.post('/api/auth/change-password', async (c) => {
     return c.json({ success: false, error: 'New password must differ from the temporary password' }, 400);
   }
 
-  const now = new Date().toISOString();
   const passwordHash = await hashTenantPassword(newPassword);
+  const nextCredentialVersion = credentialVersion + 1;
+  const session = await newSession('standard');
+  const now = new Date().toISOString();
   const results = await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE tenant_admin_credentials
           SET password_hash = ?, must_change_password = 0,
               credential_version = credential_version + 1, updated_at = ?
-        WHERE tenant_id = ? AND staff_id = ? AND credential_version = ?`,
-    ).bind(passwordHash, now, tenantId, staffId, credentialVersion),
+        WHERE tenant_id = ? AND staff_id = ? AND credential_version = ?
+          AND EXISTS (
+            SELECT 1
+              FROM tenants AS tenant
+              INNER JOIN tenant_staff_memberships AS membership
+                      ON membership.tenant_id = tenant.id
+                     AND membership.staff_id = ?
+              INNER JOIN staff_members AS staff
+                      ON staff.id = membership.staff_id
+             WHERE tenant.id = ?
+               AND tenant.status = 'active'
+               AND membership.is_active = 1
+               AND staff.is_active = 1
+          )
+          AND EXISTS (
+            SELECT 1 FROM tenant_admin_sessions AS current_session
+             WHERE current_session.token_hash = ?
+               AND current_session.tenant_id = ?
+               AND current_session.staff_id = ?
+               AND current_session.credential_version = ?
+               AND current_session.revoked_at IS NULL
+               AND current_session.expires_at > ?
+          )`,
+    ).bind(
+      passwordHash, now, tenantId, staffId, credentialVersion, staffId, tenantId,
+      sessionTokenHash, tenantId, staffId, credentialVersion, now,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO tenant_admin_sessions
+         (token_hash, session_family_hash, tenant_id, staff_id, credential_version, session_kind,
+          expires_at, revoked_at, created_at)
+       SELECT ?, COALESCE(current_session.session_family_hash, current_session.token_hash),
+              ?, ?, ?, 'standard', ?, NULL, ?
+         FROM tenant_admin_sessions AS current_session
+        WHERE current_session.token_hash = ?
+          AND current_session.tenant_id = ?
+          AND current_session.staff_id = ?
+          AND current_session.credential_version = ?
+          AND current_session.revoked_at IS NULL
+          AND current_session.expires_at > ?
+          AND EXISTS (
+          SELECT 1 FROM tenant_admin_credentials AS current_credential
+           WHERE current_credential.tenant_id = ? AND current_credential.staff_id = ?
+             AND current_credential.credential_version = ?
+             AND current_credential.password_hash = ?
+             AND current_credential.updated_at = ?
+          )`,
+    ).bind(
+      session.tokenHash, tenantId, staffId, nextCredentialVersion,
+      session.expiresAt, now,
+      sessionTokenHash, tenantId, staffId, credentialVersion, now,
+      tenantId, staffId, nextCredentialVersion, passwordHash, now,
+    ),
     c.env.DB.prepare(
       `UPDATE tenant_admin_sessions
           SET revoked_at = ?
         WHERE tenant_id = ? AND staff_id = ? AND revoked_at IS NULL
-          AND credential_version <= ?`,
-    ).bind(now, tenantId, staffId, credentialVersion),
-    tenantAuditStatement(c.env.DB, {
-      tenantId, actorStaffId: staffId, action: 'staff.password_changed',
-      resourceType: 'staff', resourceId: staffId,
-    }),
+          AND credential_version <= ?
+          AND EXISTS (
+            SELECT 1 FROM tenant_admin_credentials AS credential
+             WHERE credential.tenant_id = ? AND credential.staff_id = ?
+               AND credential.credential_version = ?
+               AND credential.password_hash = ? AND credential.updated_at = ?
+          )`,
+    ).bind(
+      now, tenantId, staffId, credentialVersion,
+      tenantId, staffId, nextCredentialVersion, passwordHash, now,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO tenant_admin_audit_events
+         (id, tenant_id, line_account_id, actor_staff_id, action, resource_type,
+          resource_id, detail_json, created_at)
+       SELECT ?, ?, NULL, ?, 'staff.password_changed', 'staff', ?, NULL, ?
+        WHERE EXISTS (
+          SELECT 1 FROM tenant_admin_credentials AS credential
+           WHERE credential.tenant_id = ? AND credential.staff_id = ?
+             AND credential.credential_version = ?
+             AND credential.password_hash = ? AND credential.updated_at = ?
+        )`,
+    ).bind(
+      crypto.randomUUID(), tenantId, staffId, staffId, now,
+      tenantId, staffId, nextCredentialVersion, passwordHash, now,
+    ),
   ]);
   if (results[0].meta.changes !== 1) {
     return c.json({ success: false, error: 'Credential changed concurrently' }, 409);
@@ -221,20 +302,119 @@ adminAuth.post('/api/auth/change-password', async (c) => {
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();
-  const session = await newSession('standard');
-  await c.env.DB.prepare(
-    `INSERT INTO tenant_admin_sessions
-      (token_hash, tenant_id, staff_id, credential_version, session_kind,
-       expires_at, revoked_at, created_at)
-     VALUES (?, ?, ?, ?, 'standard', ?, NULL, ?)`,
-  ).bind(
-    session.tokenHash, tenantId, staffId, credentialVersion + 1,
-    session.expiresAt, now,
-  ).run();
   c.header('Set-Cookie', adminSessionCookie(session.token, config.sameSite), { append: true });
   c.header('Set-Cookie', tenantSessionCookie(tenantId, config.sameSite), { append: true });
   c.header('Set-Cookie', csrfCookie(csrfToken, config.sameSite), { append: true });
   return c.json({ success: true, data: { mustChangePassword: false }, csrfToken });
+});
+
+adminAuth.get('/api/auth/sessions', async (c) => {
+  if (c.get('authMethod') !== 'password') {
+    return c.json({ success: false, error: 'Password session required' }, 403);
+  }
+  const token = adminSessionTokenFromCookie(c);
+  if (!token || !isTenantAdminSessionToken(token)) {
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
+  const currentTokenHash = await hashTenantAdminSessionToken(token);
+  const now = new Date().toISOString();
+  const result = await c.env.DB.prepare(
+    `SELECT session_kind, expires_at, created_at,
+            CASE WHEN token_hash = ? THEN 1 ELSE 0 END AS is_current
+       FROM tenant_admin_sessions
+      WHERE tenant_id = ? AND staff_id = ?
+        AND revoked_at IS NULL AND expires_at > ?
+        AND credential_version = ?
+      ORDER BY created_at DESC`,
+  ).bind(
+    currentTokenHash,
+    c.get('tenantId'),
+    c.get('staff').id,
+    now,
+    c.get('credentialVersion'),
+  ).all<{
+    session_kind: 'bootstrap' | 'standard';
+    expires_at: string;
+    created_at: string;
+    is_current: number;
+  }>();
+  return c.json({
+    success: true,
+    data: {
+      sessions: (result.results ?? []).map((session) => ({
+        current: session.is_current === 1,
+        sessionKind: session.session_kind,
+        expiresAt: session.expires_at,
+        createdAt: session.created_at,
+      })),
+    },
+  });
+});
+
+adminAuth.post('/api/auth/sessions/revoke-others', async (c) => {
+  if (c.get('authMethod') !== 'password') {
+    return c.json({ success: false, error: 'Password session required' }, 403);
+  }
+  const token = adminSessionTokenFromCookie(c);
+  if (!token || !isTenantAdminSessionToken(token)) {
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
+  const body = await c.req.json<{ currentPassword?: unknown }>().catch(() => null);
+  const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : '';
+  const tenantId = c.get('tenantId');
+  const staffId = c.get('staff').id;
+  const credentialVersion = c.get('credentialVersion');
+  const credential = await c.env.DB.prepare(
+    `SELECT password_hash FROM tenant_admin_credentials
+      WHERE tenant_id = ? AND staff_id = ? AND credential_version = ?
+      LIMIT 1`,
+  ).bind(tenantId, staffId, credentialVersion).first<{ password_hash: string }>();
+  if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
+    return c.json({ success: false, error: 'Current password is incorrect' }, 403);
+  }
+
+  const now = new Date().toISOString();
+  const currentTokenHash = await hashTenantAdminSessionToken(token);
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE tenant_admin_sessions SET revoked_at = ?
+        WHERE tenant_id = ? AND staff_id = ? AND token_hash != ?
+          AND revoked_at IS NULL AND expires_at > ?
+          AND credential_version <= ?
+          AND EXISTS (
+            SELECT 1 FROM tenant_admin_sessions AS current_session
+             WHERE current_session.token_hash = ?
+               AND current_session.tenant_id = ?
+               AND current_session.staff_id = ?
+               AND current_session.credential_version = ?
+               AND current_session.revoked_at IS NULL
+               AND current_session.expires_at > ?
+          )`,
+    ).bind(
+      now, tenantId, staffId, currentTokenHash, now, credentialVersion,
+      currentTokenHash, tenantId, staffId, credentialVersion, now,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO tenant_admin_audit_events
+         (id, tenant_id, line_account_id, actor_staff_id, action, resource_type,
+          resource_id, detail_json, created_at)
+       SELECT ?, ?, NULL, ?, 'staff.other_sessions_revoked', 'staff', ?, NULL, ?
+        WHERE changes() > 0`,
+    ).bind(crypto.randomUUID(), tenantId, staffId, staffId, now),
+  ]);
+  if ((results[0].meta.changes ?? 0) === 0) {
+    const caller = await c.env.DB.prepare(
+      `SELECT 1 AS present FROM tenant_admin_sessions
+        WHERE token_hash = ? AND tenant_id = ? AND staff_id = ?
+          AND credential_version = ? AND revoked_at IS NULL AND expires_at > ?
+        LIMIT 1`,
+    ).bind(currentTokenHash, tenantId, staffId, credentialVersion, now)
+      .first<{ present: number }>();
+    if (!caller) {
+      return c.json({ success: false, error: 'Session changed concurrently' }, 409);
+    }
+  }
+  return c.json({ success: true, data: { revoked: results[0].meta.changes ?? 0 } });
 });
 
 /**
@@ -245,16 +425,35 @@ adminAuth.post('/api/auth/change-password', async (c) => {
 adminAuth.post('/api/auth/logout', async (c) => {
   const { sameSite } = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const session = adminSessionTokenFromCookie(c);
+  let revokeFailed = false;
   if (session && isTenantAdminSessionToken(session)) {
     const tokenHash = await hashTenantAdminSessionToken(session);
-    await c.env.DB.prepare(
-      `UPDATE tenant_admin_sessions SET revoked_at = ?
-        WHERE token_hash = ? AND revoked_at IS NULL`,
-    ).bind(new Date().toISOString(), tokenHash).run().catch(() => undefined);
+    try {
+      await c.env.DB.prepare(
+        `UPDATE tenant_admin_sessions SET revoked_at = ?
+          WHERE token_hash IN (
+            SELECT family_session.token_hash
+              FROM tenant_admin_sessions AS current_session
+              INNER JOIN tenant_admin_sessions AS family_session
+                      ON family_session.tenant_id = current_session.tenant_id
+                     AND family_session.staff_id = current_session.staff_id
+                     AND COALESCE(family_session.session_family_hash, family_session.token_hash) =
+                         COALESCE(current_session.session_family_hash, current_session.token_hash)
+             WHERE current_session.token_hash = ?
+          )
+            AND revoked_at IS NULL`,
+      ).bind(new Date().toISOString(), tokenHash).run();
+    } catch {
+      revokeFailed = true;
+      log('auth.logout_failed', { realm: 'tenant', reason: 'session_revoke_failed' }, 'error');
+    }
   }
   c.header('Set-Cookie', expiredCookie(ADMIN_AUTH_COOKIE, sameSite), { append: true });
   c.header('Set-Cookie', expiredCookie(TENANT_COOKIE, sameSite), { append: true });
   c.header('Set-Cookie', expiredCookie(CSRF_COOKIE, sameSite), { append: true });
+  if (revokeFailed) {
+    return c.json({ success: false, error: 'Failed to revoke session' }, 503);
+  }
   return c.json({ success: true, data: null });
 });
 
