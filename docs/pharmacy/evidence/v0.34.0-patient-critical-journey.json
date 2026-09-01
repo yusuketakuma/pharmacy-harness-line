@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-01T10:32:09Z",
+  "capturedAt": "2026-09-01T10:57:00Z",
   "scope": "v0.34.0-patient-critical-journey",
   "status": "NOT_RUN",
   "releaseReadiness": "BLOCKED",
@@ -13,7 +13,7 @@
     "baseSourceSha": "6679a979ebde",
     "baselineIdentity": "v0.33.2_BASE_SOURCE",
     "candidateIdentity": "LOCAL_SOURCE_COMMIT",
-    "exactCandidateSha": "1df53d6ca7b22488d775296efe9d461437dc1b92",
+    "exactCandidateSha": "4d54ec302368f369c9ea7fb04c587ba3de7c42c7",
     "frozenBeforeDeviceTrials": true,
     "dataPolicy": "Synthetic fixtures only. Do not capture PHI, PII, credentials, ID tokens, prescription images, or production data."
   },
@@ -112,8 +112,26 @@
   "automatedEvidence": {
     "workerFocused": "PASS_14_FILES_216_TESTS_POST_REVIEW",
     "liffFocused": "PASS_22_FILES_143_TESTS_POST_REVIEW",
+    "authOriginGuard": "PASS_4_FILES_157_TESTS_UNKNOWN_AND_LIFF_BROWSER_ORIGINS_REJECTED",
     "uxGateContract": "PASS_1_FILE_1_TEST",
-    "browserAudit": "NOT_RUN_NO_USER_SELECTED_BROWSER",
+    "browserAudit": "PASS_LOCAL_CHROME_SYNTHETIC_TIMELINE_STATES_AND_200_PERCENT",
+    "browserAuditCoverage": [
+      "390px populated timeline with three domains",
+      "network failure uses a Japanese alert, receives focus, and recovers through retry",
+      "empty timeline state",
+      "200-percent root text with no horizontal overflow and 44px-or-larger controls",
+      "long pharmacy name remains fully visible rather than ellipsized",
+      "timeline detail navigation retains liffId and opens the fixed prescription history route",
+      "axe-core WCAG 2 A/AA: zero violations and zero incomplete checks after remediation"
+    ],
+    "browserAuditLimit": "Local synthetic Chrome evidence only; it does not substitute for LINE WebView, VoiceOver, TalkBack, real-device zoom, slow-network, or participant trials.",
+    "sourceRemediationCommits": [
+      "3589ff6 reject untrusted browser login origins",
+      "d9d245e expose the shared LIFF version badge accessibly",
+      "d43debd hide timeline network error details behind the existing Japanese message helper",
+      "b29309e keep the full pharmacy name visible at increased text size",
+      "4d54ec3 give repeated timeline detail links distinct accessible names"
+    ],
     "claimBoundary": "Automated tests support the candidate but do not substitute for real iOS/Android LINE WebView or assistive-technology trials."
   },
   "results": {
@@ -125,7 +143,7 @@
     "realPatientData": "NOT_USED",
     "phiOrPiiCaptured": false,
     "credentialsCaptured": false,
-    "commit": "PASS_LOCAL_SOURCE_COMMIT_1df53d6ca7b22488d775296efe9d461437dc1b92",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_4d54ec302368f369c9ea7fb04c587ba3de7c42c7",
     "pullRequest": "NOT_RUN",
     "devDeploy": "NOT_RUN",
     "productionDeploy": "NOT_RUN",

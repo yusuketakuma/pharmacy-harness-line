@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest';
 type UxGateEvidence = {
   status: string;
   prerequisite: { V033_7: string };
-  freeze: { candidateIdentity: string; frozenBeforeDeviceTrials: boolean };
+  freeze: {
+    candidateIdentity: string;
+    exactCandidateSha: string;
+    frozenBeforeDeviceTrials: boolean;
+  };
   participants: Array<{ id: string }>;
   tasks: Array<{
     id: string;
@@ -17,7 +21,9 @@ type UxGateEvidence = {
     zeroTolerance: string[];
     auxiliaryMetrics: { completionSeconds: number; successRatePercent: number; gate: boolean };
   };
+  automatedEvidence: { browserAudit: string; browserAuditLimit: string };
   results: { deviceTrials: string; assistiveTechnology: string; slowNetwork: string };
+  boundaries: { commit: string };
 };
 
 describe('v0.34 patient critical journey UX gate', () => {
@@ -58,6 +64,10 @@ describe('v0.34 patient critical journey UX gate', () => {
       successRatePercent: 90,
       gate: false,
     });
+    expect(evidence.automatedEvidence.browserAudit)
+      .toBe('PASS_LOCAL_CHROME_SYNTHETIC_TIMELINE_STATES_AND_200_PERCENT');
+    expect(evidence.automatedEvidence.browserAuditLimit)
+      .toContain('does not substitute for LINE WebView');
     expect(evidence.results).toEqual({
       deviceTrials: 'NOT_RUN',
       assistiveTechnology: 'NOT_RUN',
