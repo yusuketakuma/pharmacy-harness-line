@@ -66,6 +66,7 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
       '007_custom_064_legacy_access_grant_drain.sql',
       '008_custom_065_session_rotation_family.sql',
       '009_custom_066_auth_session_activity.sql',
+      '010_custom_067_admin_login_throttles.sql',
     ]);
     const names = db.prepare(
       `SELECT name FROM sqlite_master

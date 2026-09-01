@@ -29,6 +29,10 @@ import {
   sessionMaxAgeSeconds,
   type AdminSessionKind,
 } from '../../custom/pharmacy/provisioning/auth-policy.js';
+import {
+  claimLoginAttempt,
+  clearLoginThrottleStatement,
+} from '../../custom/pharmacy/provisioning/auth-throttle.js';
 
 export const adminAuth = new Hono<Env>();
 adminAuth.use('/api/auth/*', async (c, next) => {
@@ -125,15 +129,31 @@ adminAuth.post('/api/auth/login', async (c) => {
     name: string;
     role: 'owner' | 'admin' | 'staff';
   }>();
+  const throttleKey = row ? {
+    realm: 'tenant' as const,
+    authorityId: row.id,
+    loginId: row.login_id,
+  } : null;
+  let attemptAllowed = false;
+  if (throttleKey) {
+    try {
+      attemptAllowed = (await claimLoginAttempt(c.env.DB, throttleKey)).allowed;
+    } catch {
+      log('auth.login_failed', {
+        realm: 'tenant', tenant_id: throttleKey.authorityId, reason: 'throttle_unavailable',
+      }, 'error');
+      return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+    }
+  }
   const passwordValid = await verifyTenantPassword(
     password,
     row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
   );
-  if (!row || !passwordValid) {
+  if (!row || !throttleKey || !attemptAllowed || !passwordValid) {
     log('auth.login_failed', {
       realm: 'tenant',
       ip: c.req.header('cf-connecting-ip'),
-      reason: row ? 'bad_password' : 'unknown_login',
+      reason: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_login',
       tenant_id: row?.id,
     }, 'warn');
     return c.json({ success: false, error: 'Unauthorized' }, 401);
@@ -141,15 +161,28 @@ adminAuth.post('/api/auth/login', async (c) => {
 
   const csrfToken = crypto.randomUUID();
   const session = await newSession(row.must_change_password === 1 ? 'bootstrap' : 'standard');
-  await c.env.DB.prepare(
-    `INSERT INTO tenant_admin_sessions
-      (token_hash, tenant_id, staff_id, credential_version, session_kind,
-       expires_at, last_seen_at, revoked_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-  ).bind(
-    session.tokenHash, row.id, row.staff_id, row.credential_version,
-    session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
-  ).run();
+  try {
+    const results = await c.env.DB.batch([
+      clearLoginThrottleStatement(c.env.DB, throttleKey),
+      c.env.DB.prepare(
+        `INSERT INTO tenant_admin_sessions
+          (token_hash, tenant_id, staff_id, credential_version, session_kind,
+           expires_at, last_seen_at, revoked_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      ).bind(
+        session.tokenHash, row.id, row.staff_id, row.credential_version,
+        session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
+      ),
+    ]);
+    if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+      throw new Error('login persistence conflict');
+    }
+  } catch {
+    log('auth.login_failed', {
+      realm: 'tenant', tenant_id: row.id, reason: 'session_persistence_failed',
+    }, 'error');
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+  }
   c.header('Set-Cookie', adminSessionCookie(
     session.token, config.sameSite, session.maxAgeSeconds,
   ), { append: true });

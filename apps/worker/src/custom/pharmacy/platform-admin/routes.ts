@@ -17,6 +17,10 @@ import {
   sessionMaxAgeSeconds,
   type AdminSessionKind,
 } from '../provisioning/auth-policy.js';
+import {
+  claimLoginAttempt,
+  clearLoginThrottleStatement,
+} from '../provisioning/auth-throttle.js';
 import { listAccountExpectations } from '../continuity/next-intake.js';
 import {
   getAdminPharmacyPatientHistory,
@@ -165,7 +169,7 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
   // a revoked platform admin or a deactivated staff member simply has no row,
   // and falls into the same timing-safe rejection as an unknown login.
   const row = await c.env.DB.prepare(
-    `SELECT credential.staff_id, credential.password_hash,
+    `SELECT credential.staff_id, credential.login_id, credential.password_hash,
             credential.must_change_password, credential.credential_version,
             staff.name
        FROM platform_admin_credentials AS credential
@@ -177,20 +181,38 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
       LIMIT 1`,
   ).bind(loginId).first<{
     staff_id: string;
+    login_id: string;
     password_hash: string;
     must_change_password: number;
     credential_version: number;
     name: string;
   }>();
+  const throttleKey = row ? {
+    realm: 'platform_admin' as const,
+    authorityId: row.staff_id,
+    loginId: row.login_id,
+  } : null;
+  let attemptAllowed = false;
+  if (throttleKey) {
+    try {
+      attemptAllowed = (await claimLoginAttempt(c.env.DB, throttleKey)).allowed;
+    } catch {
+      log('auth.login_failed', {
+        realm: 'platform_admin', platform_admin_id: throttleKey.authorityId,
+        reason: 'throttle_unavailable',
+      }, 'error');
+      return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+    }
+  }
   const passwordValid = await verifyTenantPassword(
     password,
     row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
   );
-  if (!row || !passwordValid) {
+  if (!row || !throttleKey || !attemptAllowed || !passwordValid) {
     log('auth.login_failed', {
       realm: 'platform_admin',
       ip: c.req.header('cf-connecting-ip'),
-      reason: row ? 'bad_password' : 'unknown_login',
+      reason: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_login',
       platform_admin_id: row?.staff_id,
     }, 'warn');
     // The audit table requires a real platform_admin_id, so only a known
@@ -201,15 +223,29 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
 
   const csrfToken = crypto.randomUUID();
   const session = await newSession(row.must_change_password === 1 ? 'bootstrap' : 'standard');
-  await c.env.DB.prepare(
-    `INSERT INTO platform_admin_sessions
-      (token_hash, staff_id, credential_version, session_kind,
-       expires_at, last_seen_at, revoked_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
-  ).bind(
-    session.tokenHash, row.staff_id, row.credential_version,
-    session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
-  ).run();
+  try {
+    const results = await c.env.DB.batch([
+      clearLoginThrottleStatement(c.env.DB, throttleKey),
+      c.env.DB.prepare(
+        `INSERT INTO platform_admin_sessions
+          (token_hash, staff_id, credential_version, session_kind,
+           expires_at, last_seen_at, revoked_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+      ).bind(
+        session.tokenHash, row.staff_id, row.credential_version,
+        session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
+      ),
+    ]);
+    if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+      throw new Error('login persistence conflict');
+    }
+  } catch {
+    log('auth.login_failed', {
+      realm: 'platform_admin', platform_admin_id: row.staff_id,
+      reason: 'session_persistence_failed',
+    }, 'error');
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+  }
   await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login');
 
   c.header('Set-Cookie', platformAdminSessionCookie(

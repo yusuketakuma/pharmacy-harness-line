@@ -19,6 +19,7 @@ const AUTH_DISABLE_REVOCATION_MIGRATION = '006_custom_063_auth_disable_revocatio
 const LEGACY_GRANT_DRAIN_MIGRATION = '007_custom_064_legacy_access_grant_drain.sql';
 const SESSION_ROTATION_FAMILY_MIGRATION = '008_custom_065_session_rotation_family.sql';
 const AUTH_SESSION_ACTIVITY_MIGRATION = '009_custom_066_auth_session_activity.sql';
+const ADMIN_LOGIN_THROTTLES_MIGRATION = '010_custom_067_admin_login_throttles.sql';
 
 const BENIGN_SQLITE_ERROR = /duplicate column name|already exists/i;
 
@@ -88,6 +89,7 @@ describe('bootstrap.sql', () => {
       LEGACY_GRANT_DRAIN_MIGRATION,
       SESSION_ROTATION_FAMILY_MIGRATION,
       AUTH_SESSION_ACTIVITY_MIGRATION,
+      ADMIN_LOGIN_THROTTLES_MIGRATION,
     ]);
   });
 

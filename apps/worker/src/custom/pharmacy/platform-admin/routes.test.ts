@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from '../../../middleware/admin-auth-config.js';
 import { hashTenantAdminSessionToken, hashTenantPassword } from '../provisioning/credentials.js';
@@ -152,8 +152,14 @@ function seedGrant(store: Store, sessionTokenHash: string | null, overrides: Par
   return grant;
 }
 
-function fakeDb(): Store {
+function fakeDb(rejectThrottle = false): Store {
   const sessions = new Map<string, Session>();
+  const throttles = new Map<string, {
+    failureCount: number;
+    windowStartedAt: string;
+    nextAllowedAt: string;
+    lockedUntil: string | null;
+  }>();
   const auditEvents: Array<Record<string, unknown>> = [];
   const rows = tenants.map((tenant) => ({ ...tenant }));
   const grants: Grant[] = [];
@@ -195,6 +201,30 @@ function fakeDb(): Store {
           return statement;
         },
         async first() {
+          if (sql.includes('INSERT INTO admin_login_throttles')) {
+            if (rejectThrottle) throw new Error('throttle unavailable');
+            const key = values.slice(0, 3).join('\0');
+            const now = String(values[3]);
+            const cutoff = String(values[6]);
+            const current = throttles.get(key);
+            if (current && ((current.lockedUntil && current.lockedUntil > now) ||
+                current.nextAllowedAt > now)) return null;
+            const reset = !current || current.lockedUntil !== null ||
+              current.windowStartedAt <= cutoff;
+            const failureCount = reset ? 1 : current.failureCount + 1;
+            const nextAllowedAt = reset ? now
+              : String(values[current.failureCount === 1 ? 9
+                : current.failureCount === 2 ? 10
+                  : current.failureCount === 3 ? 11 : 12]);
+            const lockedUntil = !reset && current.failureCount >= 4 ? String(values[14]) : null;
+            throttles.set(key, {
+              failureCount,
+              windowStartedAt: reset ? now : current.windowStartedAt,
+              nextAllowedAt,
+              lockedUntil,
+            });
+            return { failure_count: failureCount, locked_until: lockedUntil };
+          }
           if (sql.includes('FROM platform_admin_sessions AS session')) {
             const session = sessions.get(String(values[0]));
             if (!session || session.revokedAt || session.expiresAt <= String(values[1]) ||
@@ -294,6 +324,10 @@ function fakeDb(): Store {
           return { results: [] };
         },
         async run() {
+          if (sql.includes('DELETE FROM admin_login_throttles')) {
+            const changes = throttles.delete(values.slice(0, 3).join('\0')) ? 1 : 0;
+            return { meta: { changes } };
+          }
           if (sql.includes('INSERT INTO platform_admin_sessions')) {
             // The change-password insert inlines 'standard', shifting the binds.
             const literal = sql.includes("'standard'");
@@ -636,6 +670,8 @@ beforeEach(async () => {
   admin.staff_active = 1;
 });
 
+afterEach(() => vi.useRealTimers());
+
 describe('platform admin authentication', () => {
   it('rejects browser login from unknown and LIFF origins without issuing a session', async () => {
     const store = fakeDb();
@@ -688,6 +724,40 @@ describe('platform admin authentication', () => {
     expect(lines.join('\n')).not.toContain('Wrong password 42');
     expect(lines.join('\n')).not.toContain(admin.login_id);
     warn.mockRestore();
+  });
+
+  it('keeps the fifth failed password attempt locked in D1 across later requests', async () => {
+    vi.useFakeTimers();
+    admin.must_change_password = 0;
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const base = Date.parse('2026-09-01T12:00:00.000Z');
+
+    for (const seconds of [0, 0, 1, 3, 7]) {
+      vi.setSystemTime(new Date(base + seconds * 1000));
+      expect((await app().request(
+        '/api/platform-admin/login', loginRequest('Wrong password 42'), testEnv,
+      )).status).toBe(401);
+    }
+    vi.setSystemTime(new Date(base + 8_000));
+    expect((await app().request(
+      '/api/platform-admin/login', loginRequest(), testEnv,
+    )).status).toBe(401);
+    vi.setSystemTime(new Date(base + 907_000));
+    expect((await app().request(
+      '/api/platform-admin/login', loginRequest(), testEnv,
+    )).status).toBe(200);
+  });
+
+  it('fails closed without a session when durable throttle state is unavailable', async () => {
+    const store = fakeDb(true);
+    const response = await app().request(
+      '/api/platform-admin/login', loginRequest(), env(store.db),
+    );
+
+    expect(response.status).toBe(503);
+    expect(cookieValue(response, 'lh_platform_admin_session')).toBe('');
+    expect(store.sessions.size).toBe(0);
   });
 
   it('refuses to log in when the cookie topology is misconfigured', async () => {
