@@ -26,6 +26,8 @@ describe('pharmacy LIFF common shell', () => {
     expect(html).toContain('<h1');
     expect(html).toContain('受付状況');
     expect(html).toContain(`v${pharmacyLiffVersion}`);
+    expect(html).toContain('class="sr-only">アプリバージョン ');
+    expect(html).not.toContain('<span aria-label="アプリバージョン');
     expect(html).toContain('/pharmacy/menu?liffId=2000000000-AbCdEfGh');
     expect(html).toContain('すべての機能へ戻る');
   });

@@ -117,8 +117,8 @@ export function PharmacyShellHeader({ accountName, screenTitle, liffId }: {
         <p className="truncate text-sm font-bold text-green-800">{accountName || '薬局'}</p>
         <h1 ref={titleRef} tabIndex={-1} className="mt-1 text-xl font-bold text-gray-950 focus:outline-none">{screenTitle}</h1>
       </div>
-      <span aria-label={`アプリバージョン v${pharmacyLiffVersion}`} className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-bold text-gray-700">
-        v{pharmacyLiffVersion}
+      <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-bold text-gray-700">
+        <span className="sr-only">アプリバージョン </span>v{pharmacyLiffVersion}
       </span>
     </div>
     <Link to={pharmacyRoute('/pharmacy/menu', liffId)} className="pharmacy-control min-h-11 pharmacy-focus mt-3 inline-flex items-center font-bold text-green-800 underline">
