@@ -10,10 +10,12 @@ const mocks = vi.hoisted(() => ({
   getLatestAdminIntake: vi.fn(),
   createPatient: vi.fn(),
   getPatient: vi.fn(),
+  getPatientAccess: vi.fn(),
   createIntake: vi.fn(),
   getLatestIntake: vi.fn(),
   archivePatient: vi.fn(),
   updatePatient: vi.fn(),
+  setPrivacyConsent: vi.fn(),
   history: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
@@ -31,10 +33,12 @@ vi.mock('./repository.js', () => ({
   listAdminPharmacyPatients: mocks.listAdminPatients,
   createPharmacyPatient: mocks.createPatient,
   getPharmacyPatient: mocks.getPatient,
+  getPatientAccessState: mocks.getPatientAccess,
   createPatientIntakeResponse: mocks.createIntake,
   getLatestPatientIntake: mocks.getLatestIntake,
   archivePharmacyPatient: mocks.archivePatient,
   updatePharmacyPatient: mocks.updatePatient,
+  setPatientPrivacyConsent: mocks.setPrivacyConsent,
   getAdminPharmacyPatientHistory: mocks.history,
   getAdminPharmacyPatient: mocks.getAdminPatient,
   getLatestAdminPatientIntake: mocks.getLatestAdminIntake,
@@ -89,10 +93,15 @@ beforeEach(() => {
   });
   mocks.createPatient.mockResolvedValue({ id: 'patient-2', relationship: 'child' });
   mocks.getPatient.mockResolvedValue({ id: 'patient-1', relationship: 'self' });
+  mocks.getPatientAccess.mockResolvedValue({
+    access: 'self', permission: null, proxyExpiresAt: null,
+    privacy: 'active', notifications: 'enabled', controlVersion: 0,
+  });
   mocks.createIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
   mocks.getLatestIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
   mocks.archivePatient.mockResolvedValue(undefined);
   mocks.updatePatient.mockResolvedValue(undefined);
+  mocks.setPrivacyConsent.mockResolvedValue({ status: 'withdrawn', version: 1 });
   mocks.history.mockResolvedValue({ patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [] });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
@@ -198,6 +207,28 @@ describe('LIFF pharmacy patient and intake routes', () => {
     await expect(response.json()).resolves.toEqual({
       error: 'Privacy consent was withdrawn; re-consent is required',
     });
+  });
+
+  it('withdraws patient privacy consent with an expected control version', async () => {
+    const body = { action: 'withdraw', expectedControlVersion: 0 };
+    const response = await request(
+      '/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'withdrawn', version: 1 });
+    expect(mocks.setPrivacyConsent).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body);
+  });
+
+  it('returns caller-useful patient access state without actor identifiers', async () => {
+    const response = await request('/api/liff/pharmacy/patients/patient-1/access');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ access: {
+      access: 'self', permission: null, proxyExpiresAt: null,
+      privacy: 'active', notifications: 'enabled', controlVersion: 0,
+    } });
+    expect(mocks.getPatientAccess).toHaveBeenCalledWith(env.DB, owner, 'patient-1');
   });
 
   it('fails before intake storage when the PHI key is unavailable', async () => {

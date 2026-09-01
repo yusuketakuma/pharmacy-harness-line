@@ -7,8 +7,10 @@ import {
   archivePharmacyPatient,
   createPatientIntakeResponse,
   getPharmacyPatient,
+  getPatientAccessState,
   getLatestPatientIntake,
   listPharmacyPatients,
+  setPatientPrivacyConsent,
   updatePharmacyPatient,
   type CreatePatientIntakeInput,
 } from '../../../apps/worker/src/custom/pharmacy/intake/repository.js';
@@ -270,6 +272,11 @@ describe('encrypted pharmacy patient intake repository', () => {
 
     await expect(getPharmacyPatient(db, owner, 'patient-family'))
       .resolves.toMatchObject({ id: 'patient-family', relationship: 'child' });
+    await expect(getPatientAccessState(db, owner, 'patient-family')).resolves.toEqual({
+      access: 'proxy', permission: 'patient_intake_v1',
+      proxyExpiresAt: '2099-01-01T00:00:00.000Z', privacy: 'active',
+      notifications: 'enabled', controlVersion: 0,
+    });
     const created = await createPatientIntakeResponse(
       db, owner, 'patient-family', input, cryptoScope,
     );
@@ -314,5 +321,46 @@ describe('encrypted pharmacy patient intake repository', () => {
     await expect(getPharmacyPatient(db, owner, 'patient-a')).resolves.toBeNull();
     await expect(createPatientIntakeResponse(db, owner, 'patient-a', input, cryptoScope))
       .rejects.toThrow('patient not found');
+  });
+
+  it('changes privacy consent with CAS and an atomic PHI-free audit', async () => {
+    await expect(getPatientAccessState(db, owner, 'patient-a')).resolves.toEqual({
+      access: 'self', permission: null, proxyExpiresAt: null,
+      privacy: 'active', notifications: 'enabled', controlVersion: 0,
+    });
+    await expect(setPatientPrivacyConsent(db, owner, 'patient-a', {
+      action: 'withdraw', expectedControlVersion: 0,
+    })).resolves.toEqual({ status: 'withdrawn', version: 1 });
+    expect(sqlite.prepare(`SELECT privacy_withdrawn_at, privacy_reconsented_at, version
+      FROM pharmacy_patient_owner_controls WHERE patient_id = 'patient-a'`).get())
+      .toMatchObject({ privacy_withdrawn_at: expect.any(String), privacy_reconsented_at: null, version: 1 });
+    await expect(getPatientAccessState(db, owner, 'patient-a')).resolves.toMatchObject({
+      privacy: 'withdrawn', controlVersion: 1,
+    });
+
+    await expect(setPatientPrivacyConsent(db, owner, 'patient-a', {
+      action: 'reconsent', expectedControlVersion: 1,
+      privacyPolicyVersion: 1, privacyPolicyHash: 'a'.repeat(64),
+    })).resolves.toEqual({ status: 'reconsented', version: 2 });
+    expect(sqlite.prepare(`SELECT privacy_reconsented_at, privacy_policy_version,
+      privacy_policy_hash, version FROM pharmacy_patient_owner_controls
+      WHERE patient_id = 'patient-a'`).get()).toMatchObject({
+      privacy_reconsented_at: expect.any(String), privacy_policy_version: 1,
+      privacy_policy_hash: 'a'.repeat(64), version: 2,
+    });
+    expect(sqlite.prepare(`SELECT actor_kind, actor_id, action, control_version
+      FROM pharmacy_patient_control_audit_events ORDER BY control_version`).all()).toEqual([
+      { actor_kind: 'patient', actor_id: 'friend-a', action: 'privacy_withdrawn', control_version: 1 },
+      { actor_kind: 'patient', actor_id: 'friend-a', action: 'privacy_reconsented', control_version: 2 },
+    ]);
+
+    await expect(setPatientPrivacyConsent(db, owner, 'patient-a', {
+      action: 'withdraw', expectedControlVersion: 1,
+    })).rejects.toThrow('patient consent conflict');
+    await expect(setPatientPrivacyConsent(db, owner, 'missing-patient', {
+      action: 'withdraw', expectedControlVersion: 0,
+    })).rejects.toThrow('patient not found');
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_patient_control_audit_events`).get()).toEqual({ count: 2 });
   });
 });

@@ -366,6 +366,74 @@ export async function getPharmacyPatient(
   ).first<PharmacyPatient>();
 }
 
+export interface PatientAccessState {
+  access: 'self' | 'proxy';
+  permission: 'patient_intake_v1' | null;
+  proxyExpiresAt: string | null;
+  privacy: 'active' | 'withdrawn';
+  notifications: 'enabled' | 'stopped';
+  controlVersion: number;
+}
+
+export async function getPatientAccessState(
+  db: D1Database,
+  owner: PharmacyPatientOwner,
+  patientId: string,
+): Promise<PatientAccessState | null> {
+  const now = new Date().toISOString();
+  const row = await db.prepare(
+    `SELECT patient.relationship,
+            CASE WHEN patient.relationship = 'self' THEN NULL ELSE proxy.expires_at END AS proxy_expires_at,
+            CASE WHEN controls.privacy_withdrawn_at IS NOT NULL AND
+                           (controls.privacy_reconsented_at IS NULL OR
+                            unixepoch(controls.privacy_withdrawn_at) >
+                            unixepoch(controls.privacy_reconsented_at))
+                 THEN 1 ELSE 0 END AS privacy_withdrawn,
+            CASE WHEN controls.notifications_stopped_at IS NOT NULL AND
+                           (controls.notifications_resumed_at IS NULL OR
+                            unixepoch(controls.notifications_stopped_at) >
+                            unixepoch(controls.notifications_resumed_at))
+                 THEN 1 ELSE 0 END AS notifications_stopped,
+            COALESCE(controls.version, 0) AS control_version
+       FROM pharmacy_patients AS patient
+       LEFT JOIN pharmacy_patient_owner_controls AS controls
+         ON controls.line_account_id = patient.line_account_id
+        AND controls.patient_id = patient.id
+        AND controls.owner_friend_id = patient.owner_friend_id
+       LEFT JOIN pharmacy_patient_proxy_grants AS proxy
+         ON proxy.line_account_id = patient.line_account_id
+        AND proxy.patient_id = patient.id
+        AND proxy.actor_friend_id = ?
+        AND proxy.permission_code = 'patient_intake_v1'
+        AND proxy.revoked_at IS NULL
+        AND unixepoch(proxy.expires_at) > unixepoch(?)
+      WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+        AND controls.binding_suspended_at IS NULL
+        AND (patient.relationship = 'self' OR proxy.id IS NOT NULL)
+      ORDER BY proxy.expires_at DESC, proxy.id DESC
+      LIMIT 1`,
+  ).bind(
+    owner.friendId, now, patientId, owner.lineAccountId, owner.friendId,
+  ).first<{
+    relationship: PatientRelationship;
+    proxy_expires_at: string | null;
+    privacy_withdrawn: number;
+    notifications_stopped: number;
+    control_version: number;
+  }>();
+  if (!row) return null;
+  const proxy = row.relationship !== 'self';
+  return {
+    access: proxy ? 'proxy' : 'self',
+    permission: proxy ? 'patient_intake_v1' : null,
+    proxyExpiresAt: proxy ? row.proxy_expires_at : null,
+    privacy: row.privacy_withdrawn ? 'withdrawn' : 'active',
+    notifications: row.notifications_stopped ? 'stopped' : 'enabled',
+    controlVersion: row.control_version,
+  };
+}
+
 export async function getAdminPharmacyPatient(
   db: D1Database,
   lineAccountId: string,
@@ -444,6 +512,120 @@ export async function archivePharmacyPatient(
     owner.lineAccountId, owner.friendId, expectedUpdatedAt, owner.friendId, now,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('patient archive conflict');
+}
+
+export interface SetPatientPrivacyConsentInput {
+  action: 'withdraw' | 'reconsent';
+  expectedControlVersion: number;
+  privacyPolicyVersion?: number;
+  privacyPolicyHash?: string;
+}
+
+export async function setPatientPrivacyConsent(
+  db: D1Database,
+  owner: PharmacyPatientOwner,
+  patientId: string,
+  input: SetPatientPrivacyConsentInput,
+): Promise<{ status: 'withdrawn' | 'reconsented'; version: number }> {
+  if (input.action !== 'withdraw' && input.action !== 'reconsent') {
+    throw new Error('invalid privacy consent action');
+  }
+  if (!Number.isSafeInteger(input.expectedControlVersion) || input.expectedControlVersion < 0) {
+    throw new Error('invalid patient control version');
+  }
+  const now = new Date().toISOString();
+  const transitionId = crypto.randomUUID();
+  const nextVersion = input.expectedControlVersion + 1;
+  let mutation: D1PreparedStatement;
+
+  if (input.action === 'withdraw') {
+    mutation = db.prepare(
+      `INSERT INTO pharmacy_patient_owner_controls
+         (line_account_id, patient_id, owner_friend_id, privacy_withdrawn_at,
+          version, updated_at, last_transition_id)
+       SELECT ?, ?, ?, ?, 1, ?, ?
+         FROM pharmacy_patients AS patient
+        WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
+          AND ? = 0
+          ${patientAuthorityPredicate('patient')}
+       ON CONFLICT (line_account_id, patient_id) DO UPDATE SET
+         privacy_withdrawn_at = excluded.privacy_withdrawn_at,
+         version = pharmacy_patient_owner_controls.version + 1,
+         updated_at = excluded.updated_at,
+         last_transition_id = excluded.last_transition_id
+       WHERE pharmacy_patient_owner_controls.owner_friend_id = excluded.owner_friend_id
+         AND pharmacy_patient_owner_controls.version = ?`,
+    ).bind(
+      owner.lineAccountId, patientId, owner.friendId, now, now, transitionId,
+      patientId, owner.lineAccountId, owner.friendId, input.expectedControlVersion,
+      owner.friendId, now, input.expectedControlVersion,
+    );
+  } else {
+    const policy = await getEffectiveTenantPrivacyPolicy(db, owner.lineAccountId);
+    if (!policy) throw new Error('privacy policy required');
+    if (policy.policy_version !== input.privacyPolicyVersion ||
+        policy.content_hash !== input.privacyPolicyHash) {
+      throw new Error('privacy policy changed');
+    }
+    mutation = db.prepare(
+      `UPDATE pharmacy_patient_owner_controls AS controls
+          SET privacy_reconsented_at = ?, privacy_policy_version = ?,
+              privacy_policy_hash = ?, version = version + 1,
+              updated_at = ?, last_transition_id = ?
+        WHERE controls.line_account_id = ? AND controls.patient_id = ?
+          AND controls.owner_friend_id = ? AND controls.version = ?
+          AND controls.privacy_withdrawn_at IS NOT NULL
+          AND (controls.privacy_reconsented_at IS NULL OR
+               unixepoch(controls.privacy_withdrawn_at) >
+               unixepoch(controls.privacy_reconsented_at))
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = controls.patient_id
+               AND patient.line_account_id = controls.line_account_id
+               AND patient.owner_friend_id = controls.owner_friend_id
+               ${patientAuthorityPredicate('patient')}
+          )
+          AND ((? = 'tenant' AND EXISTS (
+                 SELECT 1 FROM pharmacy_tenant_privacy_policy AS current_policy
+                  WHERE current_policy.line_account_id = controls.line_account_id
+                    AND current_policy.policy_version = ?
+                    AND current_policy.content_hash = ?
+               )) OR (? = 'platform_default' AND NOT EXISTS (
+                 SELECT 1 FROM pharmacy_tenant_privacy_policy AS current_policy
+                  WHERE current_policy.line_account_id = controls.line_account_id
+               )))`,
+    ).bind(
+      now, input.privacyPolicyVersion, input.privacyPolicyHash, now, transitionId,
+      owner.lineAccountId, patientId, owner.friendId, input.expectedControlVersion,
+      owner.friendId, now,
+      policy.source, input.privacyPolicyVersion, input.privacyPolicyHash, policy.source,
+    );
+  }
+
+  const audit = db.prepare(
+    `INSERT INTO pharmacy_patient_control_audit_events
+       (id, line_account_id, patient_id, owner_friend_id, actor_kind, actor_id,
+        action, control_version, created_at)
+     SELECT ?, controls.line_account_id, controls.patient_id, controls.owner_friend_id,
+            'patient', ?, ?, controls.version, ?
+       FROM pharmacy_patient_owner_controls AS controls
+      WHERE controls.line_account_id = ? AND controls.patient_id = ?
+        AND controls.owner_friend_id = ? AND controls.version = ?
+        AND controls.last_transition_id = ?`,
+  ).bind(
+    crypto.randomUUID(), owner.friendId,
+    input.action === 'withdraw' ? 'privacy_withdrawn' : 'privacy_reconsented', now,
+    owner.lineAccountId, patientId, owner.friendId, nextVersion, transitionId,
+  );
+  const results = await db.batch([mutation, audit]);
+  if (results.length !== 2 || results.some((result) => result.meta?.changes !== 1)) {
+    if (!(await getPharmacyPatient(db, owner, patientId))) throw new Error('patient not found');
+    throw new Error('patient consent conflict');
+  }
+  return {
+    status: input.action === 'withdraw' ? 'withdrawn' : 'reconsented',
+    version: nextVersion,
+  };
 }
 
 export async function createPatientIntakeResponse(

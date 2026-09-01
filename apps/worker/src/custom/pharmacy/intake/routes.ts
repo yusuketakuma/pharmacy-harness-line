@@ -16,9 +16,11 @@ import {
   getAdminPharmacyPatientHistory,
   getLatestAdminPatientIntake,
   getLatestPatientIntake,
+  getPatientAccessState,
   getPharmacyPatient,
   listAdminPharmacyPatients,
   listPharmacyPatients,
+  setPatientPrivacyConsent,
   updatePharmacyPatient,
 } from './repository.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
@@ -167,6 +169,13 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id', async (c) => {
   return patient ? c.json({ patient }) : c.json({ error: 'Patient not found' }, 404);
 });
 
+pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/access', async (c) => {
+  const access = await getPatientAccessState(
+    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
+  );
+  return access ? c.json({ access }) : c.json({ error: 'Patient not found' }, 404);
+});
+
 pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
   if (!(await hasPharmacyCapability(c.env.DB, c.get('pharmacyPatient').lineAccountId, 'patient_intake'))) {
     return c.json({ error: 'Patient intake is not enabled', code: 'FEATURE_DISABLED' }, 409);
@@ -208,6 +217,23 @@ pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/intake', async (c) => 
   return c.json({ intake: await getLatestPatientIntake(
     c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), cryptoScope,
   ) });
+});
+
+pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/privacy-consent', async (c) => {
+  const body = await readJsonObject(c.req);
+  if (!body) return c.json({ error: 'Invalid JSON' }, 400);
+  try {
+    return c.json(await setPatientPrivacyConsent(
+      c.env.DB,
+      c.get('pharmacyPatient'),
+      c.req.param('id'),
+      body as never,
+    ));
+  } catch (error) {
+    const mapped = parseJsonError(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
 });
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) => {

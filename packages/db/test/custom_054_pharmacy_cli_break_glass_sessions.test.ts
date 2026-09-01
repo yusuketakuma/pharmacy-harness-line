@@ -22,6 +22,7 @@ describe('custom_054 pharmacy CLI break-glass sessions', () => {
       '009_custom_066_auth_session_activity.sql',
       '010_custom_067_admin_login_throttles.sql',
       '011_custom_068_patient_proxy_controls.sql',
+      '012_custom_069_patient_control_audit.sql',
     ]);
   });
 

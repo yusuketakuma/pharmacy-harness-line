@@ -1619,6 +1619,29 @@ CREATE TABLE pharmacy_notification_events (
     REFERENCES friends(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_patient_control_audit_events (
+  id              TEXT PRIMARY KEY,
+  line_account_id TEXT NOT NULL,
+  patient_id      TEXT NOT NULL,
+  owner_friend_id TEXT NOT NULL,
+  actor_kind      TEXT NOT NULL CHECK (actor_kind IN ('patient', 'staff')),
+  actor_id        TEXT NOT NULL CHECK (length(actor_id) BETWEEN 1 AND 128),
+  action          TEXT NOT NULL CHECK (action IN (
+    'privacy_withdrawn',
+    'privacy_reconsented',
+    'notifications_stopped',
+    'notifications_resumed',
+    'binding_suspended',
+    'proxy_granted',
+    'proxy_revoked'
+  )),
+  control_version INTEGER NOT NULL CHECK (control_version >= 1),
+  reason_code     TEXT CHECK (reason_code IS NULL OR length(reason_code) BETWEEN 1 AND 64),
+  created_at      TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id)
+);
+
 CREATE TABLE pharmacy_patient_intake_envelopes (
   response_id       TEXT NOT NULL,
   tenant_id         TEXT NOT NULL,
@@ -1714,7 +1737,7 @@ CREATE TABLE pharmacy_patient_owner_controls (
   ),
   binding_reason_code      TEXT,
   version                  INTEGER NOT NULL CHECK (version >= 1),
-  updated_at               TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL),
+  updated_at               TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL), last_transition_id TEXT,
   PRIMARY KEY (line_account_id, patient_id),
   CHECK (
     (privacy_policy_version IS NULL) = (privacy_policy_hash IS NULL)
@@ -3223,6 +3246,10 @@ CREATE INDEX idx_pharmacy_next_intake_expectations_patient
 CREATE INDEX idx_pharmacy_notification_events_exposure
   ON pharmacy_notification_events(line_account_id, friend_id, occurred_at, category, outcome);
 
+CREATE INDEX idx_pharmacy_patient_control_audit_scope
+  ON pharmacy_patient_control_audit_events
+    (line_account_id, patient_id, owner_friend_id, created_at DESC, id DESC);
+
 CREATE INDEX idx_pharmacy_patient_intake_envelopes_scope
   ON pharmacy_patient_intake_envelopes
     (tenant_id, line_account_id, owner_friend_id, patient_id, response_id, field_name);
@@ -3892,6 +3919,16 @@ BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF expectation_id, line_account_id ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_patient_control_audit_immutable_delete
+BEFORE DELETE ON pharmacy_patient_control_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'pharmacy patient control audit is immutable'); END;
+
+CREATE TRIGGER pharmacy_patient_control_audit_immutable_update
+BEFORE UPDATE ON pharmacy_patient_control_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'pharmacy patient control audit is immutable'); END;
 
 CREATE TRIGGER pharmacy_patient_intake_base_scope_insert BEFORE INSERT ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
 

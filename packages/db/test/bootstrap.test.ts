@@ -21,6 +21,7 @@ const SESSION_ROTATION_FAMILY_MIGRATION = '008_custom_065_session_rotation_famil
 const AUTH_SESSION_ACTIVITY_MIGRATION = '009_custom_066_auth_session_activity.sql';
 const ADMIN_LOGIN_THROTTLES_MIGRATION = '010_custom_067_admin_login_throttles.sql';
 const PATIENT_PROXY_CONTROLS_MIGRATION = '011_custom_068_patient_proxy_controls.sql';
+const PATIENT_CONTROL_AUDIT_MIGRATION = '012_custom_069_patient_control_audit.sql';
 
 const BENIGN_SQLITE_ERROR = /duplicate column name|already exists/i;
 
@@ -92,6 +93,7 @@ describe('bootstrap.sql', () => {
       AUTH_SESSION_ACTIVITY_MIGRATION,
       ADMIN_LOGIN_THROTTLES_MIGRATION,
       PATIENT_PROXY_CONTROLS_MIGRATION,
+      PATIENT_CONTROL_AUDIT_MIGRATION,
     ]);
   });
 
