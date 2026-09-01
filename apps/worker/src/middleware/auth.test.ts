@@ -663,16 +663,15 @@ describe('CORS allowed / blocked origins', () => {
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
   });
 
-  test('Cloudflare Pages preview origin for the admin project is echoed back', async () => {
+  test('Cloudflare Pages preview origin is not implicitly allowed', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
     const res = await app().request('/api/protected', {
       headers: { Origin: preview, Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
     }, crossSiteEnv());
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
-    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  test('login preflight succeeds from a Cloudflare Pages preview origin', async () => {
+  test('login preflight does not allow a Cloudflare Pages preview origin', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
     const res = await app().request('/api/auth/login', {
       method: 'OPTIONS',
@@ -683,11 +682,10 @@ describe('CORS allowed / blocked origins', () => {
       },
     }, crossSiteEnv());
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
-    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  test('direct Worker same-origin login preflight remains allowed', async () => {
+  test('direct Worker browser origin is not implicit when ADMIN_ORIGIN is configured', async () => {
     const res = await app().request(`${WORKERS}/api/auth/login`, {
       method: 'OPTIONS',
       headers: {
@@ -697,7 +695,7 @@ describe('CORS allowed / blocked origins', () => {
       },
     }, crossSiteEnv());
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(WORKERS);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
   test('LIFF origin cannot preflight an admin login route', async () => {
