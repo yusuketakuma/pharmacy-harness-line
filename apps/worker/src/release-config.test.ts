@@ -16,6 +16,8 @@ describe('Worker production release configuration', () => {
     expect(packageJson.scripts).toMatchObject({
       'build:production': 'CLOUDFLARE_ENV=production vite build',
       'deploy:production': 'pnpm build:production && wrangler deploy --env production --keep-vars',
+      'deploy:production:dry-run':
+        'pnpm build:production && wrangler deploy --env production --keep-vars --dry-run',
     });
 
     const production = wranglerSource.slice(wranglerSource.indexOf('[env.production]'));

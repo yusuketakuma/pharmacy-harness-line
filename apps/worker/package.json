@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
     "deploy:production": "pnpm build:production && wrangler deploy --env production --keep-vars",
+    "deploy:production:dry-run": "pnpm build:production && wrangler deploy --env production --keep-vars --dry-run",
     "typecheck": "tsc --noEmit",
     "inject-version": "tsx scripts/inject-version.ts"
   },
