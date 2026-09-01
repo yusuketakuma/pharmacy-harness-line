@@ -4,6 +4,12 @@ import { describe, expect, it } from 'vitest';
 type UxGateEvidence = {
   status: string;
   prerequisite: { V033_7: string };
+  localImplementation: {
+    V034_1: string;
+    V034_2: string;
+    V034_3: string;
+    V034_4: string;
+  };
   freeze: {
     candidateIdentity: string;
     exactCandidateSha: string;
@@ -35,6 +41,12 @@ describe('v0.34 patient critical journey UX gate', () => {
 
     expect(evidence.status).toBe('NOT_RUN');
     expect(evidence.prerequisite.V033_7).toBe('BLOCKED');
+    expect(evidence.localImplementation).toEqual({
+      V034_1: 'PARTIAL_LOCAL_EC_POLICY_GATE',
+      V034_2: 'PASS_LOCAL',
+      V034_3: 'PASS_LOCAL',
+      V034_4: 'PARTIAL_LOCAL_DEVICE_TRIALS_NOT_RUN',
+    });
     expect(evidence.freeze).toMatchObject({
       candidateIdentity: 'LOCAL_SOURCE_COMMIT',
       frozenBeforeDeviceTrials: true,
