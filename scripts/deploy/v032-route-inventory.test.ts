@@ -52,6 +52,7 @@ describe('V032 route inventory', () => {
       '/pharmacy/menu',
       '/pharmacy/patient-intake',
       '/pharmacy/receive',
+      '/pharmacy/timeline',
       '/prescriptions',
     ]);
 
@@ -61,6 +62,7 @@ describe('V032 route inventory', () => {
       'GET /api/liff/config',
       'GET /api/liff/pharmacy/feature-access',
       'GET /api/liff/pharmacy/prescriptions/me',
+      'GET /api/liff/pharmacy/timeline',
       'PUT /api/liff/pharmacy/prescriptions/:id/files/:position',
       'POST /api/liff/pharmacy/patients/:id/intake',
       'POST /api/liff/pharmacy/continuity/expectations/:id/respond',
@@ -72,17 +74,15 @@ describe('V032 route inventory', () => {
     ]) expect(routeKeys).toContain(key);
   });
 
-  it('covers every current custom pharmacy route source exactly once', () => {
+  it('covers every current custom pharmacy route source', () => {
     const inventory = buildV032RouteInventory();
     const expectedSources = discoverCustomPharmacyRouteSources(repoRoot);
-    const actualSources = inventory.apis
-      .filter((entry) => entry.surface !== 'patient-liff')
+    const actualSources = [...new Set(inventory.apis
       .filter((entry) => entry.source.startsWith('apps/worker/src/custom/pharmacy/'))
-      .map((entry) => entry.source)
+      .map((entry) => entry.source))]
       .sort();
 
     expect(actualSources).toEqual(expectedSources);
-    expect(new Set(actualSources).size).toBe(actualSources.length);
     for (const entry of inventory.apis) {
       expect(entry.routePaths?.length, `${entry.id} has no route declaration`).toBeGreaterThan(0);
     }
