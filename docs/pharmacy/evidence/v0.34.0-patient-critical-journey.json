@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-01T11:07:37Z",
+  "capturedAt": "2026-09-01T11:12:34Z",
   "scope": "v0.34.0-patient-critical-journey",
   "status": "NOT_RUN",
   "releaseReadiness": "BLOCKED",
@@ -19,7 +19,7 @@
     "baseSourceSha": "6679a979ebde",
     "baselineIdentity": "v0.33.2_BASE_SOURCE",
     "candidateIdentity": "LOCAL_SOURCE_COMMIT",
-    "exactCandidateSha": "0dcea76f134da75799a49fd4ec2ab562f38356b5",
+    "exactCandidateSha": "2d088933edba1555eeccda111410be84311c3a51",
     "frozenBeforeDeviceTrials": true,
     "dataPolicy": "Synthetic fixtures only. Do not capture PHI, PII, credentials, ID tokens, prescription images, or production data."
   },
@@ -117,10 +117,12 @@
   },
   "automatedEvidence": {
     "workerFocused": "PASS_14_FILES_216_TESTS_POST_REVIEW",
-    "workerPackage": "PASS_240_FILES_2557_TESTS_EXACT_CANDIDATE",
+    "workerPackage": "PASS_241_FILES_2558_TESTS_EXACT_CANDIDATE",
     "workerTypecheck": "PASS_EXACT_CANDIDATE",
     "workerBuild": "PASS_EXACT_CANDIDATE",
     "workerDeployDryRun": "PASS_NO_DEPLOY_2369_77_KIB_GZIP_487_31_KIB",
+    "workerProductionBuild": "PASS_EXACT_CANDIDATE",
+    "workerProductionDeployDryRun": "PASS_NO_DEPLOY_D1_LINE_CRM_R2_LINE_HARNESS_IMAGES_KEEP_VARS",
     "liffFocused": "PASS_22_FILES_143_TESTS_POST_REVIEW",
     "liffTypecheck": "PASS_EXACT_CANDIDATE",
     "liffBuild": "PASS_EXACT_CANDIDATE",
@@ -143,7 +145,8 @@
       "d43debd hide timeline network error details behind the existing Japanese message helper",
       "b29309e keep the full pharmacy name visible at increased text size",
       "4d54ec3 give repeated timeline detail links distinct accessible names",
-      "0dcea76 restore LIFF and Worker candidate type safety"
+      "0dcea76 restore LIFF and Worker candidate type safety",
+      "2d08893 build the selected production Worker environment and preserve provisioned vars"
     ],
     "claimBoundary": "Automated tests support the candidate but do not substitute for real iOS/Android LINE WebView or assistive-technology trials."
   },
@@ -156,7 +159,7 @@
     "realPatientData": "NOT_USED",
     "phiOrPiiCaptured": false,
     "credentialsCaptured": false,
-    "commit": "PASS_LOCAL_SOURCE_COMMIT_0dcea76f134da75799a49fd4ec2ab562f38356b5",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_2d088933edba1555eeccda111410be84311c3a51",
     "pullRequest": "NOT_RUN",
     "devDeploy": "NOT_RUN",
     "productionDeploy": "NOT_RUN",
