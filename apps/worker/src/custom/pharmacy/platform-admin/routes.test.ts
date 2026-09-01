@@ -86,6 +86,7 @@ type Session = {
   kind: 'bootstrap' | 'standard';
   expiresAt: string;
   revokedAt: string | null;
+  lastSeenAt?: string | null;
 };
 
 type Grant = {
@@ -199,7 +200,15 @@ function fakeDb(): Store {
             if (!session || session.revokedAt || session.expiresAt <= String(values[1]) ||
                 !admin.is_active || !admin.staff_active ||
                 session.credentialVersion !== admin.credential_version) return null;
-            return { ...admin, session_kind: session.kind };
+            if (sql.includes('session.last_seen_at') && session.lastSeenAt &&
+                session.lastSeenAt <= String(session.kind === 'bootstrap' ? values[2] : values[3])) {
+              return null;
+            }
+            return {
+              ...admin,
+              session_kind: session.kind,
+              last_seen_at: session.lastSeenAt ?? null,
+            };
           }
           if (sql.includes('FROM platform_admin_credentials AS credential')) {
             return values[0] === admin.login_id && admin.is_active && admin.staff_active
@@ -288,12 +297,14 @@ function fakeDb(): Store {
           if (sql.includes('INSERT INTO platform_admin_sessions')) {
             // The change-password insert inlines 'standard', shifting the binds.
             const literal = sql.includes("'standard'");
+            const hasActivity = sql.includes('last_seen_at');
             sessions.set(String(values[0]), {
               staffId: String(values[1]),
               credentialVersion: Number(values[2]),
               kind: literal ? 'standard' : values[3] as 'bootstrap' | 'standard',
               expiresAt: String(literal ? values[3] : values[4]),
               revokedAt: null,
+              lastSeenAt: hasActivity ? String(literal ? values[4] : values[5]) : null,
             });
             return { meta: { changes: 1 } };
           }
@@ -346,6 +357,12 @@ function fakeDb(): Store {
             return { meta: { changes: 1 } };
           }
           if (sql.includes('UPDATE platform_admin_sessions')) {
+            if (sql.includes('SET last_seen_at = ?')) {
+              const session = sessions.get(String(values[1]));
+              if (!session || session.revokedAt) return { meta: { changes: 0 } };
+              session.lastSeenAt = String(values[0]);
+              return { meta: { changes: 1 } };
+            }
             let changes = 0;
             if (sql.includes('WHERE token_hash')) {
               const session = sessions.get(String(values[1]));

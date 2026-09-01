@@ -19,6 +19,7 @@ describe('custom_053 outgoing webhook deliveries', () => {
       '006_custom_063_auth_disable_revocation.sql',
       '007_custom_064_legacy_access_grant_drain.sql',
       '008_custom_065_session_rotation_family.sql',
+      '009_custom_066_auth_session_activity.sql',
     ]);
   });
 

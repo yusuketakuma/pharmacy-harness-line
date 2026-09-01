@@ -385,7 +385,7 @@ describe('platform tenant provisioning', () => {
     // A retried CLI run sends a fresh random password; only the password may differ.
     const retried = await app().request(
       '/api/platform/pharmacy/tenants',
-      request({ ...requestBody, admin: { ...requestBody.admin, temporaryPassword: 'Other pass 99' } }),
+      request({ ...requestBody, admin: { ...requestBody.admin, temporaryPassword: 'Other password 99' } }),
       bindings(fake.db),
     );
     expect(retried.status).toBe(200);

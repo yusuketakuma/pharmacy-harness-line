@@ -24,25 +24,30 @@ import {
   verifyTenantPassword,
 } from '../../custom/pharmacy/provisioning/credentials.js';
 import { log } from '../../lib/log.js';
+import {
+  sessionExpiresAt,
+  sessionMaxAgeSeconds,
+  type AdminSessionKind,
+} from '../../custom/pharmacy/provisioning/auth-policy.js';
 
 export const adminAuth = new Hono<Env>();
 adminAuth.use('/api/auth/*', async (c, next) => {
   c.header('Cache-Control', 'no-store, private');
   await next();
 });
-const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
-const STANDARD_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const UNKNOWN_LOGIN_PASSWORD_HASH =
   'pbkdf2-sha256$100000$AAAAAAAAAAAAAAAAAAAAAA$7_iN48HsHUxblOLkYfnRLpCrY7dUnWGcyeEpHR_jjFc';
 
-async function newSession(kind: 'bootstrap' | 'standard') {
+async function newSession(kind: AdminSessionKind) {
   const token = generateTenantAdminSessionToken();
+  const now = new Date();
   return {
     token,
     tokenHash: await hashTenantAdminSessionToken(token),
     kind,
-    expiresAt: new Date(Date.now() +
-      (kind === 'bootstrap' ? BOOTSTRAP_SESSION_MS : STANDARD_SESSION_MS)).toISOString(),
+    expiresAt: sessionExpiresAt(kind, now),
+    issuedAt: now.toISOString(),
+    maxAgeSeconds: sessionMaxAgeSeconds(kind),
   };
 }
 
@@ -139,15 +144,21 @@ adminAuth.post('/api/auth/login', async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO tenant_admin_sessions
       (token_hash, tenant_id, staff_id, credential_version, session_kind,
-       expires_at, revoked_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+       expires_at, last_seen_at, revoked_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
   ).bind(
     session.tokenHash, row.id, row.staff_id, row.credential_version,
-    session.kind, session.expiresAt, new Date().toISOString(),
+    session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
   ).run();
-  c.header('Set-Cookie', adminSessionCookie(session.token, config.sameSite), { append: true });
-  c.header('Set-Cookie', tenantSessionCookie(row.id, config.sameSite), { append: true });
-  c.header('Set-Cookie', csrfCookie(csrfToken, config.sameSite), { append: true });
+  c.header('Set-Cookie', adminSessionCookie(
+    session.token, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
+  c.header('Set-Cookie', tenantSessionCookie(
+    row.id, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
+  c.header('Set-Cookie', csrfCookie(
+    csrfToken, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
   return c.json({
     success: true,
     data: {
@@ -178,7 +189,7 @@ adminAuth.post('/api/auth/change-password', async (c) => {
   const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : '';
   const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
   if (!isValidAdminPassword(newPassword)) {
-    return c.json({ success: false, error: 'New password must be 12 to 128 characters' }, 400);
+    return c.json({ success: false, error: 'New password must be 15 to 128 characters' }, 400);
   }
 
   const tenantId = c.get('tenantId');
@@ -247,9 +258,9 @@ adminAuth.post('/api/auth/change-password', async (c) => {
     c.env.DB.prepare(
       `INSERT INTO tenant_admin_sessions
          (token_hash, session_family_hash, tenant_id, staff_id, credential_version, session_kind,
-          expires_at, revoked_at, created_at)
+          expires_at, last_seen_at, revoked_at, created_at)
        SELECT ?, COALESCE(current_session.session_family_hash, current_session.token_hash),
-              ?, ?, ?, 'standard', ?, NULL, ?
+              ?, ?, ?, 'standard', ?, ?, NULL, ?
          FROM tenant_admin_sessions AS current_session
         WHERE current_session.token_hash = ?
           AND current_session.tenant_id = ?
@@ -266,7 +277,7 @@ adminAuth.post('/api/auth/change-password', async (c) => {
           )`,
     ).bind(
       session.tokenHash, tenantId, staffId, nextCredentialVersion,
-      session.expiresAt, now,
+      session.expiresAt, now, now,
       sessionTokenHash, tenantId, staffId, credentialVersion, now,
       tenantId, staffId, nextCredentialVersion, passwordHash, now,
     ),
@@ -308,9 +319,15 @@ adminAuth.post('/api/auth/change-password', async (c) => {
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();
-  c.header('Set-Cookie', adminSessionCookie(session.token, config.sameSite), { append: true });
-  c.header('Set-Cookie', tenantSessionCookie(tenantId, config.sameSite), { append: true });
-  c.header('Set-Cookie', csrfCookie(csrfToken, config.sameSite), { append: true });
+  c.header('Set-Cookie', adminSessionCookie(
+    session.token, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
+  c.header('Set-Cookie', tenantSessionCookie(
+    tenantId, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
+  c.header('Set-Cookie', csrfCookie(
+    csrfToken, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
   return c.json({ success: true, data: { mustChangePassword: false }, csrfToken });
 });
 

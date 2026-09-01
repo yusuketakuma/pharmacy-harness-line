@@ -2281,7 +2281,8 @@ CREATE TABLE platform_admin_sessions (
   expires_at         TEXT NOT NULL,
   revoked_at         TEXT,
   created_at         TEXT NOT NULL
-);
+, last_seen_at TEXT
+  CHECK (last_seen_at IS NULL OR unixepoch(last_seen_at) IS NOT NULL));
 
 CREATE TABLE platform_admins (
   staff_id   TEXT PRIMARY KEY REFERENCES staff_members(id) ON DELETE CASCADE,
@@ -2548,7 +2549,8 @@ CREATE TABLE tenant_admin_sessions (
   session_kind       TEXT NOT NULL CHECK (session_kind IN ('bootstrap', 'standard')),
   expires_at         TEXT NOT NULL,
   revoked_at         TEXT,
-  created_at         TEXT NOT NULL,
+  created_at         TEXT NOT NULL, last_seen_at TEXT
+  CHECK (last_seen_at IS NULL OR unixepoch(last_seen_at) IS NOT NULL),
   FOREIGN KEY (tenant_id, staff_id)
     REFERENCES tenant_staff_memberships (tenant_id, staff_id) ON DELETE CASCADE
 );

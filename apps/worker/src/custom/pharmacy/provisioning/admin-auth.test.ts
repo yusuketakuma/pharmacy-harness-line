@@ -46,6 +46,7 @@ type TestSession = {
   expiresAt: string;
   revokedAt: string | null;
   createdAt: string;
+  lastSeenAt?: string | null;
 };
 
 function tenantDb(
@@ -76,7 +77,16 @@ function tenantDb(
             if (!session || session.revokedAt || session.expiresAt <= String(values[1]) ||
                 session.tenantId !== tenant.id || session.staffId !== credential.staff_id ||
                 session.credentialVersion !== credential.credential_version) return null;
-            return { ...tenant, ...credential, session_kind: session.kind };
+            if (sql.includes('session.last_seen_at') && session.lastSeenAt &&
+                session.lastSeenAt <= String(session.kind === 'bootstrap' ? values[2] : values[3])) {
+              return null;
+            }
+            return {
+              ...tenant,
+              ...credential,
+              session_kind: session.kind,
+              last_seen_at: session.lastSeenAt ?? null,
+            };
           }
           if (sql.includes('FROM tenant_admin_credentials')) {
             const isLogin = sql.includes('credential.login_id');
@@ -114,6 +124,12 @@ function tenantDb(
           return { results: [] };
         },
         async run() {
+          if (sql.includes('SET last_seen_at = ?')) {
+            const session = sessions.get(String(values[1]));
+            if (!session || session.revokedAt) return { meta: { changes: 0 } };
+            session.lastSeenAt = String(values[0]);
+            return { meta: { changes: 1 } };
+          }
           if (sql.includes('INSERT INTO tenant_admin_audit_events')) {
             if (sql.includes('changes() > 0') && lastChanges === 0) {
               return { meta: { changes: 0 } };
@@ -129,6 +145,7 @@ function tenantDb(
           if (sql.includes('INSERT INTO tenant_admin_sessions')) {
             const kind = sql.includes("'standard'") ? 'standard' : values[4] as 'bootstrap' | 'standard';
             const expiresAt = sql.includes("'standard'") ? String(values[4]) : String(values[5]);
+            const hasActivity = sql.includes('last_seen_at');
             sessions.set(String(values[0]), {
               tenantId: String(values[1]),
               staffId: String(values[2]),
@@ -136,7 +153,12 @@ function tenantDb(
               kind,
               expiresAt,
               revokedAt: null,
-              createdAt: sql.includes("'standard'") ? String(values[5]) : String(values[6]),
+              createdAt: sql.includes("'standard'")
+                ? String(values[hasActivity ? 6 : 5])
+                : String(values[hasActivity ? 7 : 6]),
+              lastSeenAt: hasActivity
+                ? String(values[sql.includes("'standard'") ? 5 : 6])
+                : null,
             });
             lastChanges = 1;
             return { meta: { changes: 1 } };
@@ -344,7 +366,7 @@ describe('tenant admin password authentication', () => {
     expect(sessionCookie).toContain('HttpOnly');
     expect(sessionCookie).toContain('Secure');
     expect(sessionCookie).toContain('SameSite=Lax');
-    expect(sessionCookie).toContain('Max-Age=604800');
+    expect(sessionCookie).toContain('Max-Age=1800');
     const csrfCookie = cookies(response).find((value) => value.startsWith('lh_csrf=')) ?? '';
     expect(csrfCookie).not.toContain('HttpOnly');
     expect(csrfCookie).toContain('SameSite=Lax');
@@ -506,6 +528,8 @@ describe('tenant admin password authentication', () => {
       }),
     }, testEnv);
     expect(changed.status).toBe(200);
+    expect(cookies(changed).find((value) => value.startsWith('lh_admin_session=')) ?? '')
+      .toContain('Max-Age=28800');
     expect(credential.must_change_password).toBe(0);
     expect(credential.credential_version).toBe(2);
     expect(auditEvents).toEqual([{ action: 'staff.password_changed', detail: null }]);
@@ -530,6 +554,44 @@ describe('tenant admin password authentication', () => {
       headers: { cookie: newCookie },
     }, testEnv);
     expect(revoked.status).toBe(401);
+  });
+
+  it('rejects an idle standard session and enrolls a legacy session on first use', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T12:00:00.000Z'));
+    credential.must_change_password = 0;
+    const idleToken = generateTenantAdminSessionToken();
+    const legacyToken = generateTenantAdminSessionToken();
+    const future = '2026-09-01T20:00:00.000Z';
+    const idleSession: TestSession = {
+      tenantId: tenant.id,
+      staffId: credential.staff_id,
+      credentialVersion: 1,
+      kind: 'standard',
+      expiresAt: future,
+      revokedAt: null,
+      createdAt: '2026-09-01T11:00:00.000Z',
+      lastSeenAt: '2026-09-01T11:44:59.000Z',
+    };
+    const legacySession: TestSession = {
+      ...idleSession,
+      createdAt: '2026-09-01T11:59:00.000Z',
+      lastSeenAt: null,
+    };
+    const testEnv = env(tenantDb([
+      [await hashTenantAdminSessionToken(idleToken), idleSession],
+      [await hashTenantAdminSessionToken(legacyToken), legacySession],
+    ]));
+    const cookie = (token: string) => `lh_admin_session=${token}; lh_tenant=${tenant.id}`;
+
+    expect((await app().request('/api/protected', {
+      headers: { cookie: cookie(idleToken) },
+    }, testEnv)).status).toBe(401);
+    expect((await app().request('/api/protected', {
+      headers: { cookie: cookie(legacyToken) },
+    }, testEnv)).status).toBe(200);
+    expect(legacySession.lastSeenAt).toBe('2026-09-01T12:00:00.000Z');
+    vi.useRealTimers();
   });
 
   it('rejects malformed password-change field types without throwing', async () => {

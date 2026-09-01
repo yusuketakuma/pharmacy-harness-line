@@ -4,6 +4,7 @@ import {
   generateTenantAdminSessionToken,
   hashTenantAdminSessionToken,
   hashTenantPassword,
+  isValidAdminPassword,
   isTenantAdminSessionToken,
   verifyTenantPassword,
 } from './credentials.js';
@@ -28,6 +29,13 @@ describe('tenant admin credentials', () => {
     });
 
     expect(generateTemporaryPassword()).toMatch(/^Tmp-[A-Za-z0-9_-]{24}$/);
+  });
+
+  it('requires 15 Unicode code points for a password-only administrator', () => {
+    expect(isValidAdminPassword('12345678901234')).toBe(false);
+    expect(isValidAdminPassword('123456789012345')).toBe(true);
+    expect(isValidAdminPassword('薬'.repeat(15))).toBe(true);
+    expect(isValidAdminPassword('a'.repeat(129))).toBe(false);
   });
 
   it('stores only a one-way hash of a high-entropy opaque session token', async () => {

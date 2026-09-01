@@ -18,6 +18,7 @@ const REF_TRACKING_SCOPE_MIGRATION = '005_custom_062_ref_tracking_tenant_scope.s
 const AUTH_DISABLE_REVOCATION_MIGRATION = '006_custom_063_auth_disable_revocation.sql';
 const LEGACY_GRANT_DRAIN_MIGRATION = '007_custom_064_legacy_access_grant_drain.sql';
 const SESSION_ROTATION_FAMILY_MIGRATION = '008_custom_065_session_rotation_family.sql';
+const AUTH_SESSION_ACTIVITY_MIGRATION = '009_custom_066_auth_session_activity.sql';
 
 const BENIGN_SQLITE_ERROR = /duplicate column name|already exists/i;
 
@@ -86,6 +87,7 @@ describe('bootstrap.sql', () => {
       AUTH_DISABLE_REVOCATION_MIGRATION,
       LEGACY_GRANT_DRAIN_MIGRATION,
       SESSION_ROTATION_FAMILY_MIGRATION,
+      AUTH_SESSION_ACTIVITY_MIGRATION,
     ]);
   });
 
