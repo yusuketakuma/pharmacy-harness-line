@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-01T09:31:24Z",
+  "capturedAt": "2026-09-01T10:32:09Z",
   "scope": "v0.34.0-patient-critical-journey",
   "status": "NOT_RUN",
   "releaseReadiness": "BLOCKED",
@@ -9,11 +9,11 @@
     "rule": "V034 acceptance cannot promote or release while V033-7 is not PASS on one exact candidate."
   },
   "freeze": {
-    "branch": "chore/sync-main-into-dev-after-policy",
+    "branch": "feat/pharmacy-v0.34-patient-critical-journey",
     "baseSourceSha": "6679a979ebde",
     "baselineIdentity": "v0.33.2_BASE_SOURCE",
-    "candidateIdentity": "UNCOMMITTED_WORKTREE",
-    "exactCandidateSha": "NOT_AVAILABLE_UNCOMMITTED_WORKTREE",
+    "candidateIdentity": "LOCAL_SOURCE_COMMIT",
+    "exactCandidateSha": "1df53d6ca7b22488d775296efe9d461437dc1b92",
     "frozenBeforeDeviceTrials": true,
     "dataPolicy": "Synthetic fixtures only. Do not capture PHI, PII, credentials, ID tokens, prescription images, or production data."
   },
@@ -110,8 +110,8 @@
     "auxiliaryRule": "Time and success-rate targets are descriptive only and cannot override a safety, ownership, correctness, or accessibility failure."
   },
   "automatedEvidence": {
-    "workerFocused": "PASS_15_FILES_213_TESTS",
-    "liffFocused": "PASS_9_FILES_59_TESTS",
+    "workerFocused": "PASS_14_FILES_216_TESTS_POST_REVIEW",
+    "liffFocused": "PASS_22_FILES_143_TESTS_POST_REVIEW",
     "uxGateContract": "PASS_1_FILE_1_TEST",
     "browserAudit": "NOT_RUN_NO_USER_SELECTED_BROWSER",
     "claimBoundary": "Automated tests support the candidate but do not substitute for real iOS/Android LINE WebView or assistive-technology trials."
@@ -125,7 +125,7 @@
     "realPatientData": "NOT_USED",
     "phiOrPiiCaptured": false,
     "credentialsCaptured": false,
-    "commit": "NOT_RUN",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_1df53d6ca7b22488d775296efe9d461437dc1b92",
     "pullRequest": "NOT_RUN",
     "devDeploy": "NOT_RUN",
     "productionDeploy": "NOT_RUN",

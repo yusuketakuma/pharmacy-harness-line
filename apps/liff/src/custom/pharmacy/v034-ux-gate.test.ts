@@ -30,9 +30,11 @@ describe('v0.34 patient critical journey UX gate', () => {
     expect(evidence.status).toBe('NOT_RUN');
     expect(evidence.prerequisite.V033_7).toBe('BLOCKED');
     expect(evidence.freeze).toMatchObject({
-      candidateIdentity: 'UNCOMMITTED_WORKTREE',
+      candidateIdentity: 'LOCAL_SOURCE_COMMIT',
       frozenBeforeDeviceTrials: true,
     });
+    expect(evidence.freeze.exactCandidateSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(evidence.boundaries.commit).toContain(evidence.freeze.exactCandidateSha);
     expect(evidence.participants.map(({ id }) => id)).toEqual([
       'patient-self', 'family-proxy', 'older-adult',
     ]);
