@@ -40,6 +40,8 @@ type UxGateEvidence = {
     sharedDeploymentWorkflow: string;
     repositoryVerify: string;
     routeInventory: string;
+    currentCandidatePerformanceReplay: string;
+    liffBundleComparison: string;
   };
   results: { deviceTrials: string; assistiveTechnology: string; slowNetwork: string };
   boundaries: { commit: string };
@@ -107,6 +109,10 @@ describe('v0.34 patient critical journey UX gate', () => {
       sharedDeploymentWorkflow: 'PASS_1_FILE_26_TESTS',
       repositoryVerify: 'PASS_CURRENT_SOURCE_CANDIDATE_WORKSPACE_TYPES_TESTS_SCRIPTS_MIGRATIONS',
       routeInventory: 'PASS_38_PAGES_42_API_GROUPS_231_UNIQUE_ROUTES',
+      currentCandidatePerformanceReplay:
+        'PARTIAL_PASS_LOCAL_7_RUNS_DB_REPLAY_IMPROVED_NO_REMOTE_D1_OR_REAL_DEVICE',
+      liffBundleComparison:
+        'NO_INITIAL_BUNDLE_IMPROVEMENT_CURRENT_FEATURE_CANDIDATE_GZIP_PLUS_2_91_KIB',
     });
     expect(evidence.results).toEqual({
       deviceTrials: 'NOT_RUN',

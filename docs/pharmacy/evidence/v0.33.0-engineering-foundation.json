@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-01T11:26:52Z",
+  "capturedAt": "2026-09-01T11:37:00Z",
   "reviewedAt": null,
   "environment": "local-synthetic",
   "scope": "v0.33.0-engineering-foundation",
@@ -17,7 +17,7 @@
     "preEvidenceUntrackedFilesSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
     "migrationSetSha256": "991841fbe649f4435b1c4674a68b6597f26d3483866894dc03619f869b3574fc",
     "candidateRule": "No release PASS until one committed RC SHA reproduces all gates.",
-    "evidenceBoundary": "Repository aggregate and route/isolation inventory were rerun at this exact candidate. Historical performance measurements were not replayed and remain partial evidence only."
+    "evidenceBoundary": "Repository aggregate, route/isolation inventory, and local synthetic performance fixtures were rerun at this exact candidate. Remote D1 and real-device LIFF measurements remain outside this evidence."
   },
   "toolchain": {
     "node": "v26.6.0",
@@ -27,8 +27,10 @@
     "workerCompatibilityFlags": [
       "nodejs_compat"
     ],
-    "baselineClone": "/tmp/pharmacy-harness-v033-baseline.Xwr823",
-    "baselineCloneState": "HISTORICAL_CLEAN_HEAD_84290e0_NOT_REUSED_FOR_CURRENT_REPLAY"
+    "baselineClone": "/tmp/pharmacy-v033-current-replay.0uRTgm/baseline",
+    "baselineCloneState": "DETACHED_HEAD_84290e03d09e9f895567583aaeb34eee68cf6d81_OFFLINE_FROZEN_INSTALL",
+    "candidateClone": "/tmp/pharmacy-v033-current-replay.0uRTgm/candidate",
+    "candidateCloneState": "DETACHED_HEAD_b038890333628959837e44769f5d25886238084e_OFFLINE_FROZEN_INSTALL"
   },
   "performance": {
     "protocol": {
@@ -41,8 +43,8 @@
       "acceptance": "Do not adopt a change from relative percentages when the absolute delta is timer-scale or run variance overlaps."
     },
     "liffStartup": {
-      "status": "PASS_PERCEIVED_STARTUP_ONLY",
-      "fixture": "Chromium preview with every JavaScript request delayed 1000 ms",
+      "status": "PARTIAL_PASS_HISTORICAL_PERCEIVED_STARTUP_CURRENT_BUNDLE",
+      "fixture": "Historical Chromium preview with every JavaScript request delayed 1000 ms; current exact-candidate Vite artifact comparison",
       "runs": 5,
       "baselineMedianFirstVisibleMs": 1045,
       "candidateMedianFirstVisibleMs": 9.6,
@@ -52,55 +54,57 @@
       "candidateWarmBuildMedianSeconds": 2.88,
       "warmBuildDeltaPercent": 8.7,
       "baselineMainBundleGzipKb": 150.28,
-      "candidateMainBundleGzipKb": 150.63,
-      "bundleDeltaGzipKb": 0.35,
-      "claimBoundary": "The static shell removes the blank screen; LIFF-ready time, build time, and bundle size did not improve."
+      "candidateMainBundleGzipKb": 153.19,
+      "bundleDeltaGzipKb": 2.91,
+      "bundleDeltaPercent": 1.94,
+      "claimBoundary": "The historical static-shell result is not a current-candidate timing claim. The current feature candidate adds timeline and recovery behavior and grows the initial main bundle by 2.91 KiB gzip; LIFF-ready time and real-device startup remain unmeasured."
     },
     "sameNamedFixtureFeedback": {
       "staffDashboard": {
         "test": "keeps every Release 1 metric and its denominator caveat visible",
-        "baselineTotalMedianMs": 265,
-        "candidateTotalMedianMs": 237,
-        "totalDeltaPercent": -10.6,
-        "baselineTestBodyMedianMs": 2,
-        "candidateTestBodyMedianMs": 3,
-        "verdict": "NO_MEASURABLE_REGRESSION_1MS_ABSOLUTE_BODY_DELTA"
+        "baselineTotalMedianMs": 681.999,
+        "candidateTotalMedianMs": 689.704,
+        "totalDeltaPercent": 1.13,
+        "baselineTestBodyMedianMs": 0.699458,
+        "candidateTestBodyMedianMs": 0.902166,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_203MS_ABSOLUTE_BODY_DELTA"
       },
       "workerStatistics": {
         "test": "keeps unknown source counts and SLA denominators account-scoped",
-        "baselineTotalMedianMs": 187,
-        "candidateTotalMedianMs": 191,
-        "totalDeltaPercent": 2.1,
-        "baselineTestBodyMedianMs": 4,
-        "candidateTestBodyMedianMs": 4,
-        "verdict": "NO_MEASURABLE_REGRESSION"
+        "baselineTotalMedianMs": 628.501,
+        "candidateTotalMedianMs": 614.176,
+        "totalDeltaPercent": -2.28,
+        "baselineTestBodyMedianMs": 1.92625,
+        "candidateTestBodyMedianMs": 2.078042,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_152MS_ABSOLUTE_BODY_DELTA"
       },
       "webhookAuthorization": {
         "test": "uses destination to verify exactly one tenant secret",
-        "baselineTotalMedianMs": 448,
-        "candidateTotalMedianMs": 364,
-        "totalDeltaPercent": -18.8,
-        "baselineTestBodyMedianMs": 8,
-        "candidateTestBodyMedianMs": 6,
+        "baselineTotalMedianMs": 678.398,
+        "candidateTotalMedianMs": 708.882,
+        "totalDeltaPercent": 4.49,
+        "baselineTestBodyMedianMs": 3.304125,
+        "candidateTestBodyMedianMs": 3.250209,
         "verdict": "NO_MEASURABLE_REGRESSION"
       },
       "cronExternalSuccessRecovery": {
         "test": "does not resend after external success when D1 settlement is unknown",
-        "baselineTotalMedianMs": 558,
-        "candidateTotalMedianMs": 440,
-        "totalDeltaPercent": -21.1,
-        "baselineTestBodyMedianMs": 37,
-        "candidateTestBodyMedianMs": 56,
-        "verdict": "NO_PRODUCT_RUNTIME_CLAIM_19MS_SYNTHETIC_BODY_DELTA_WITH_OVERLAPPING_RUN_VARIANCE"
+        "baselineTotalMedianMs": 721.657,
+        "candidateTotalMedianMs": 717.556,
+        "totalDeltaPercent": -0.57,
+        "baselineTestBodyMedianMs": 13.958667,
+        "candidateTestBodyMedianMs": 28.974042,
+        "fixtureBoundary": "The timed body constructs different test databases: baseline uses a small schema plus custom_053 while candidate executes the full bootstrap.sql.",
+        "verdict": "NO_PRODUCT_RUNTIME_CLAIM_15_015MS_TEST_FIXTURE_SETUP_DELTA"
       },
       "databaseBootstrapReplay": {
         "test": "matches the schema produced by replaying all migrations",
-        "baselineTotalMedianMs": 365,
-        "candidateTotalMedianMs": 284,
-        "totalDeltaPercent": -22.2,
-        "baselineTestBodyMedianMs": 180,
-        "candidateTestBodyMedianMs": 88,
-        "testBodyDeltaPercent": -51.1,
+        "baselineTotalMedianMs": 645.83,
+        "candidateTotalMedianMs": 604.574,
+        "totalDeltaPercent": -6.39,
+        "baselineTestBodyMedianMs": 93.996,
+        "candidateTestBodyMedianMs": 35.19975,
+        "testBodyDeltaPercent": -62.55,
         "verdict": "PASS_LOCAL_SYNTHETIC_REPLAY_IMPROVEMENT"
       }
     },
@@ -124,19 +128,20 @@
       "baseline": {
         "sourceSha": "84290e03d09e9f895567583aaeb34eee68cf6d81",
         "routes": 67,
-        "chunks": 81,
-        "rawBytes": 1834281,
-        "gzipBytes": 552376
+        "jsFiles": 84,
+        "rawBytes": 1834676,
+        "gzipBytes": 549062
       },
       "candidate": {
-        "identity": "HISTORICAL_V033_WORKTREE_NOT_REPLAYED_AT_CURRENT_SHA",
+        "identity": "EXACT_SOURCE_COMMIT_b038890333628959837e44769f5d25886238084e",
         "routes": 68,
-        "chunks": 82,
-        "rawBytes": 1856251,
-        "gzipBytes": 558669
+        "jsFiles": 85,
+        "rawBytes": 1856646,
+        "gzipBytes": 555224
       },
-      "totalGzipDeltaBytes": 6293,
-      "totalGzipDeltaPercent": 1.14,
+      "totalRawDeltaBytes": 21970,
+      "totalGzipDeltaBytes": 6162,
+      "totalGzipDeltaPercent": 1.12,
       "genericRouteClientGzipDeltaBytes": {
         "/events": -294,
         "/pools": -294,
@@ -153,10 +158,10 @@
         "/rich-menus": 189,
         "/prescriptions": -297
       },
-      "claimBoundary": "Exact static build artifacts only. Removing pharmacy APIs from the shared client reduced representative generic route chunks by 263-294 gzip bytes, but the broader candidate added one route and 6293 gzip bytes overall, so no whole-app bundle improvement is claimed."
+      "claimBoundary": "Exact static JavaScript artifacts with deterministic gzip -n. The current candidate adds one route and 6162 gzip bytes overall, so no whole-app bundle improvement is claimed. Historical per-route deltas remain directional only."
     },
     "workerRemoteD1": "NOT_RUN_PRODUCTION_AND_REMOTE_MUTATION_GATE",
-    "verdict": "PARTIAL_PASS_LIFF_AND_LOCAL_SYNTHETIC_ONLY"
+    "verdict": "PARTIAL_PASS_CURRENT_LOCAL_SYNTHETIC_ONLY"
   },
   "localValidation": {
     "workerTestFiles": 241,
@@ -245,7 +250,7 @@
   },
   "releaseBlockers": [
     "G1/G2/G3/G6 require explicit product and security policy approval.",
-    "G7 has historical local staff bundle evidence but no current-candidate performance replay or remote Worker/D1 benchmark.",
+    "G7 current-candidate local replay passed, but remote Worker/D1 and real-device LIFF performance were not run.",
     "G10 production legacy NULL counts remain unverified.",
     "Production legacy status=sending queue drain or approved reset is not verified.",
     "No development deploy, production deploy, or activation exists."
