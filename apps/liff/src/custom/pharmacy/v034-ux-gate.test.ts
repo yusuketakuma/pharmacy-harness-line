@@ -35,6 +35,8 @@ type UxGateEvidence = {
     workerDeployDryRun: string;
     workerProductionBuild: string;
     workerProductionDeployDryRun: string;
+    workerProductionArgumentProbe: string;
+    liffProductionTarget: string;
   };
   results: { deviceTrials: string; assistiveTechnology: string; slowNetwork: string };
   boundaries: { commit: string };
@@ -94,7 +96,11 @@ describe('v0.34 patient critical journey UX gate', () => {
       workerDeployDryRun: 'PASS_NO_DEPLOY_2369_77_KIB_GZIP_487_31_KIB',
       workerProductionBuild: 'PASS_EXACT_CANDIDATE',
       workerProductionDeployDryRun:
-        'PASS_NO_DEPLOY_D1_LINE_CRM_R2_LINE_HARNESS_IMAGES_KEEP_VARS',
+        'PASS_EXACT_SCRIPT_NO_DEPLOY_D1_LINE_CRM_R2_LINE_HARNESS_IMAGES_KEEP_VARS',
+      workerProductionArgumentProbe:
+        'RED_LITERAL_SEPARATOR_REACHED_PLACEHOLDER_API_7003_NO_MUTATION',
+      liffProductionTarget:
+        'PASS_CONFIG_PROJECT_LINE_CRM_LIFF_PROD_BRANCH_MAIN_DEPLOY_NOT_RUN',
     });
     expect(evidence.results).toEqual({
       deviceTrials: 'NOT_RUN',

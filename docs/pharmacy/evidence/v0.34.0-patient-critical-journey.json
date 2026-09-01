@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-01T11:12:34Z",
+  "capturedAt": "2026-09-01T11:17:05Z",
   "scope": "v0.34.0-patient-critical-journey",
   "status": "NOT_RUN",
   "releaseReadiness": "BLOCKED",
@@ -19,7 +19,7 @@
     "baseSourceSha": "6679a979ebde",
     "baselineIdentity": "v0.33.2_BASE_SOURCE",
     "candidateIdentity": "LOCAL_SOURCE_COMMIT",
-    "exactCandidateSha": "2d088933edba1555eeccda111410be84311c3a51",
+    "exactCandidateSha": "429d6a59c1accabc3ffe494e9782b8ef1e48c007",
     "frozenBeforeDeviceTrials": true,
     "dataPolicy": "Synthetic fixtures only. Do not capture PHI, PII, credentials, ID tokens, prescription images, or production data."
   },
@@ -122,10 +122,12 @@
     "workerBuild": "PASS_EXACT_CANDIDATE",
     "workerDeployDryRun": "PASS_NO_DEPLOY_2369_77_KIB_GZIP_487_31_KIB",
     "workerProductionBuild": "PASS_EXACT_CANDIDATE",
-    "workerProductionDeployDryRun": "PASS_NO_DEPLOY_D1_LINE_CRM_R2_LINE_HARNESS_IMAGES_KEEP_VARS",
-    "liffFocused": "PASS_22_FILES_143_TESTS_POST_REVIEW",
+    "workerProductionDeployDryRun": "PASS_EXACT_SCRIPT_NO_DEPLOY_D1_LINE_CRM_R2_LINE_HARNESS_IMAGES_KEEP_VARS",
+    "workerProductionArgumentProbe": "RED_LITERAL_SEPARATOR_REACHED_PLACEHOLDER_API_7003_NO_MUTATION",
+    "liffFocused": "PASS_23_FILES_144_TESTS_EXACT_CANDIDATE",
     "liffTypecheck": "PASS_EXACT_CANDIDATE",
     "liffBuild": "PASS_EXACT_CANDIDATE",
+    "liffProductionTarget": "PASS_CONFIG_PROJECT_LINE_CRM_LIFF_PROD_BRANCH_MAIN_DEPLOY_NOT_RUN",
     "authOriginGuard": "PASS_4_FILES_157_TESTS_UNKNOWN_AND_LIFF_BROWSER_ORIGINS_REJECTED",
     "uxGateContract": "PASS_1_FILE_1_TEST",
     "browserAudit": "PASS_LOCAL_CHROME_SYNTHETIC_TIMELINE_STATES_AND_200_PERCENT",
@@ -146,7 +148,9 @@
       "b29309e keep the full pharmacy name visible at increased text size",
       "4d54ec3 give repeated timeline detail links distinct accessible names",
       "0dcea76 restore LIFF and Worker candidate type safety",
-      "2d08893 build the selected production Worker environment and preserve provisioned vars"
+      "2d08893 build the selected production Worker environment and preserve provisioned vars",
+      "c1c2acc provide an argument-free production Worker dry-run script",
+      "429d6a5 target the configured production LIFF Pages project explicitly"
     ],
     "claimBoundary": "Automated tests support the candidate but do not substitute for real iOS/Android LINE WebView or assistive-technology trials."
   },
@@ -159,7 +163,7 @@
     "realPatientData": "NOT_USED",
     "phiOrPiiCaptured": false,
     "credentialsCaptured": false,
-    "commit": "PASS_LOCAL_SOURCE_COMMIT_2d088933edba1555eeccda111410be84311c3a51",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_429d6a59c1accabc3ffe494e9782b8ef1e48c007",
     "pullRequest": "NOT_RUN",
     "devDeploy": "NOT_RUN",
     "productionDeploy": "NOT_RUN",
