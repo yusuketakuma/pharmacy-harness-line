@@ -12,6 +12,7 @@ describe('pharmacy LIFF main menu', () => {
   it('provides a direct tenant-preserving URL for every patient-facing feature', () => {
     expect(pharmacyMainMenuItems('1234567890-AbCd').map(({ label, to }) => [label, to]))
       .toEqual([
+        ['利用状況', '/pharmacy/timeline?liffId=1234567890-AbCd'],
         ['処方せん事前送信', '/prescriptions?view=send&liffId=1234567890-AbCd'],
         ['受付状況', '/prescriptions?view=history&liffId=1234567890-AbCd'],
         ['電子処方箋', '/prescriptions?view=electronic&liffId=1234567890-AbCd'],
@@ -25,15 +26,17 @@ describe('pharmacy LIFF main menu', () => {
 
   it('shows only account-enabled features in the server allowlist order', () => {
     expect(pharmacyMainMenuItems('liff-a', ['pharmacy_info', 'emergency_contraception'])
-      .map(({ label }) => label)).toEqual(['緊急避妊薬', '薬局情報']);
-    expect(pharmacyMainMenuItems('liff-a', []).map(({ label }) => label)).toEqual([]);
+      .map(({ label }) => label)).toEqual(['利用状況', '緊急避妊薬', '薬局情報']);
+    expect(pharmacyMainMenuItems('liff-a', []).map(({ label }) => label)).toEqual(['利用状況']);
   });
 
   it('keeps only the read/drain entry for an existing disabled feature', () => {
     expect(pharmacyMainMenuItems('liff-a', [], ['prescription_intake'])
-      .map(({ label, isExisting }) => [label, isExisting])).toEqual([['受付状況', true]]);
+      .map(({ label, isExisting }) => [label, isExisting])).toEqual([
+        ['利用状況', false], ['受付状況', true],
+      ]);
     expect(pharmacyMainMenuItems('liff-a', [], ['electronic_prescription'])
-      .map(({ label }) => label)).toEqual(['電子処方箋']);
+      .map(({ label }) => label)).toEqual(['利用状況', '電子処方箋']);
   });
 
   it('fails closed until the account feature config is loaded', () => {

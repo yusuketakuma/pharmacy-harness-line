@@ -117,6 +117,8 @@ function app() {
   a.post('/api/forms/:id/partial', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/prescriptions/recovery', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/timeline', (c) => c.json({ success: true }));
   a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
@@ -257,6 +259,8 @@ describe('protected API access', () => {
     ['GET', '/api/liff/pharmacy/privacy-policy'],
     ['GET', '/api/liff/pharmacy/feature-access'],
     ['GET', '/api/liff/pharmacy/myna-handoffs/active'],
+    ['GET', '/api/liff/pharmacy/prescriptions/recovery'],
+    ['GET', '/api/liff/pharmacy/timeline'],
     ['POST', '/api/liff/pharmacy/prescriptions/rx-1/arrival'],
   ])('lets the route-level LINE gate handle the patient action %s %s', async (method, path) => {
     const res = await app().request(path, { method }, env());
@@ -541,6 +545,16 @@ describe('prescription LIFF auth boundary', () => {
       method: 'DELETE',
     }, crossSiteEnv());
     expect(wrongMethod.status).toBe(401);
+  });
+
+  test('keeps timeline and recovery exceptions GET-only', async () => {
+    for (const path of [
+      '/api/liff/pharmacy/prescriptions/recovery',
+      '/api/liff/pharmacy/timeline',
+    ]) {
+      expect((await app().request(path, {}, crossSiteEnv())).status).toBe(200);
+      expect((await app().request(path, { method: 'DELETE' }, crossSiteEnv())).status).toBe(401);
+    }
   });
 });
 

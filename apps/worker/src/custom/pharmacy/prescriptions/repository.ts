@@ -405,6 +405,118 @@ export async function listPrescriptionHistory(
   return result.results;
 }
 
+export type PrescriptionRecovery =
+  | { state: 'none' }
+  | { state: 'ambiguous'; reason: 'multiple' | 'patient_binding_unavailable' }
+  | {
+      state: 'recoverable';
+      submission: {
+        id: string;
+        status: 'draft' | 'needs_resubmission';
+        uploadRevision: number;
+        updatedAt: string;
+        patientId: string;
+        desiredPickupAt: string | null;
+        desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
+        readyPositions: number[];
+        pendingPositions: number[];
+      };
+    };
+
+type RecoveryCandidate = {
+  id: string;
+  status: 'draft' | 'needs_resubmission';
+  upload_revision: number;
+  updated_at: string;
+  patient_id: string | null;
+  desired_pickup_at: string | null;
+  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null;
+};
+
+export type PrescriptionRecoverySelector =
+  | { idempotencyKey: string }
+  | { submissionId: string };
+
+/** Read-only recovery state used before the LIFF permits a new reserve. */
+export async function getPrescriptionRecovery(
+  db: D1Database,
+  patient: PrescriptionPatient,
+  selector?: PrescriptionRecoverySelector,
+): Promise<PrescriptionRecovery> {
+  const selectorClause = selector && 'idempotencyKey' in selector
+    ? 'AND s.idempotency_key = ?'
+    : selector
+      ? 'AND s.id = ?'
+      : '';
+  const candidates = await db.prepare(
+    `SELECT s.id, s.status, s.upload_revision, s.updated_at,
+            s.desired_pickup_at, s.desired_fulfillment_method, p.patient_id
+       FROM pharmacy_prescription_submissions s
+       LEFT JOIN pharmacy_prescription_patients p
+         ON p.submission_id = s.id
+        AND p.line_account_id = s.line_account_id
+        AND p.owner_friend_id = s.friend_id
+      WHERE s.line_account_id = ? AND s.friend_id = ?
+        ${selectorClause}
+        AND (
+          s.status = 'draft'
+          OR (
+            s.status = 'needs_resubmission'
+            AND s.active_revision IS NOT NULL
+            AND s.upload_revision > s.active_revision
+          )
+        )
+      ORDER BY s.created_at DESC, s.id DESC
+      LIMIT 2`,
+  ).bind(
+    patient.lineAccountId,
+    patient.friendId,
+    ...(selector ? ['idempotencyKey' in selector ? selector.idempotencyKey : selector.submissionId] : []),
+  ).all<RecoveryCandidate>();
+
+  if (candidates.results.length === 0) return { state: 'none' };
+  if (candidates.results.length > 1) return { state: 'ambiguous', reason: 'multiple' };
+  const candidate = candidates.results[0];
+  if (!candidate.patient_id) {
+    return { state: 'ambiguous', reason: 'patient_binding_unavailable' };
+  }
+
+  const files = await db.prepare(
+    `SELECT f.position, f.state
+       FROM pharmacy_prescription_files f
+       INNER JOIN pharmacy_prescription_submissions s
+         ON s.id = f.submission_id
+      WHERE s.id = ? AND s.line_account_id = ? AND s.friend_id = ?
+        AND f.revision = ?
+        AND f.state IN ('ready','pending')
+      ORDER BY f.position`,
+  ).bind(
+    candidate.id,
+    patient.lineAccountId,
+    patient.friendId,
+    candidate.upload_revision,
+  ).all<{ position: number; state: 'ready' | 'pending' }>();
+
+  return {
+    state: 'recoverable',
+    submission: {
+      id: candidate.id,
+      status: candidate.status,
+      uploadRevision: candidate.upload_revision,
+      updatedAt: candidate.updated_at,
+      patientId: candidate.patient_id,
+      desiredPickupAt: candidate.desired_pickup_at,
+      desiredFulfillmentMethod: candidate.desired_fulfillment_method,
+      readyPositions: files.results
+        .filter((file) => file.state === 'ready')
+        .map((file) => file.position),
+      pendingPositions: files.results
+        .filter((file) => file.state === 'pending')
+        .map((file) => file.position),
+    },
+  };
+}
+
 export interface PrescriptionObjectRef {
   id: string;
   r2_key: string;

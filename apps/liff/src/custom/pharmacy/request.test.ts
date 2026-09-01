@@ -5,7 +5,12 @@ vi.mock('../../lib/liff-auth.js', () => ({
   getLiffId: () => 'liff-1',
 }));
 
-import { pharmacyErrorMessage, requestPharmacyJson, requestPharmacyLiff } from './request.js';
+import {
+  isUnsupportedPharmacyFeature,
+  pharmacyErrorMessage,
+  requestPharmacyJson,
+  requestPharmacyLiff,
+} from './request.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -46,6 +51,57 @@ describe('requestPharmacyLiff', () => {
         message: '内容が更新されています。画面を再読み込みしてください。',
         status: 409,
         body: { error: 'Prescription changed' },
+      });
+  });
+
+  it('distinguishes previous-Worker feature absence from current binding and auth failures', async () => {
+    const errors = [
+      {
+        error: Object.assign(new Error('old Worker admin gate'), {
+          status: 401,
+          body: { success: false, error: 'Unauthorized' },
+        }),
+        unsupported: true,
+      },
+      {
+        error: Object.assign(new Error('route absent'), {
+          status: 404,
+          routeError: 'route_not_found',
+          body: { success: false, error: 'Not found' },
+        }),
+        unsupported: true,
+      },
+      {
+        error: Object.assign(new Error('current binding missing'), {
+          status: 404,
+          body: { error: 'Patient account not found' },
+        }),
+        unsupported: false,
+      },
+      {
+        error: Object.assign(new Error('current token invalid'), {
+          status: 401,
+          body: { error: 'Unauthorized' },
+        }),
+        unsupported: false,
+      },
+    ];
+
+    for (const { error, unsupported } of errors) {
+      expect(isUnsupportedPharmacyFeature(error)).toBe(unsupported);
+    }
+  });
+
+  it('preserves the route-not-found discriminator on JSON request failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ success: false, error: 'Not found' }),
+      { status: 404, headers: { 'X-Line-Harness-Error': 'route_not_found' } },
+    ));
+
+    await expect(requestPharmacyJson('/api/liff/pharmacy/timeline'))
+      .rejects.toMatchObject({
+        status: 404,
+        routeError: 'route_not_found',
       });
   });
 

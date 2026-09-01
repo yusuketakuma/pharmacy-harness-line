@@ -68,7 +68,7 @@ describe('pharmacy LIFF common shell', () => {
 
   it('wraps every pharmacy route without changing generic LIFF routes', () => {
     const source = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
-    expect(source.match(/<PharmacyPage/g)).toHaveLength(7);
+    expect(source.match(/<PharmacyPage/g)).toHaveLength(8);
     expect(source).toContain('<Route path="/booking" element={<Booking />} />');
     expect(source).toContain('screenTitle="緊急避妊薬"');
     expect(source).toContain('screenTitle="薬局情報"');

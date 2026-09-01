@@ -400,10 +400,17 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // this namespace cannot silently bypass staff authentication.
   const isPrescriptionPatientAction =
     (method === 'POST' && path === '/api/liff/pharmacy/prescriptions') ||
-    (method === 'GET' && path === '/api/liff/pharmacy/prescriptions/me') ||
+    (method === 'GET' && (
+      path === '/api/liff/pharmacy/prescriptions/me' ||
+      path === '/api/liff/pharmacy/prescriptions/recovery'
+    )) ||
     (method === 'PUT' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/files\/[^/]+$/.test(path)) ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission|arrival)$/.test(path));
   if (isPrescriptionPatientAction) return next();
+
+  // custom:pharmacy-patient-timeline — read-only projection with its own
+  // LINE ID-token and account/owner resolution.
+  if (method === 'GET' && path === '/api/liff/pharmacy/timeline') return next();
 
   // custom:pharmacy-intake — patient profiles and intake revisions verify the
   // LINE ID token in their route middleware, just like prescription uploads.

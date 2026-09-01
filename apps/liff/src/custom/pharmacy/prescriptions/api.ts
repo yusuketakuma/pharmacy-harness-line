@@ -18,6 +18,28 @@ export interface PrescriptionSubmission {
   updated_at: string;
 }
 
+export type PrescriptionRecovery =
+  | { state: 'none' }
+  | { state: 'ambiguous'; reason: 'multiple' | 'patient_binding_unavailable' }
+  | {
+      state: 'recoverable';
+      submission: {
+        id: string;
+        status: 'draft' | 'needs_resubmission';
+        uploadRevision: number;
+        updatedAt: string;
+        patientId: string;
+        desiredPickupAt: string | null;
+        desiredFulfillmentMethod: 'PICKUP' | 'DELIVERY' | null;
+        readyPositions: number[];
+        pendingPositions: number[];
+      };
+    };
+
+export type PrescriptionRecoverySelector =
+  | { idempotencyKey: string }
+  | { submissionId: string };
+
 function request<T>(
   path: string,
   init: RequestInit = {},
@@ -34,6 +56,19 @@ function json<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const prescriptionApi = {
+  recovery: (selector?: PrescriptionRecoverySelector) => {
+    const params = new URLSearchParams();
+    if (selector) {
+      params.set(
+        'idempotencyKey' in selector ? 'idempotencyKey' : 'submissionId',
+        'idempotencyKey' in selector ? selector.idempotencyKey : selector.submissionId,
+      );
+    }
+    const query = params.size > 0 ? `?${params}` : '';
+    return request<{ recovery: PrescriptionRecovery }>(
+      `/api/liff/pharmacy/prescriptions/recovery${query}`,
+    );
+  },
   reserve: (body: {
     idempotencyKey: string;
     desiredPickupAt: string | null;

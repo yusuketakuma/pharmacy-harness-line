@@ -16,6 +16,7 @@ import MedicationFollowUpPage from './custom/pharmacy/medication-followup/Medica
 import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception
 import MainMenuPage from './custom/pharmacy/menu/MainMenuPage.js'; // custom:pharmacy-menu
 import PharmacyInfoPage from './custom/pharmacy/public-profile/PharmacyInfoPage.js'; // custom:pharmacy-public-profile
+import PatientTimelinePage from './custom/pharmacy/timeline/PatientTimelinePage.js'; // custom:pharmacy-patient-timeline
 import { deprecatedReceiveTarget } from './custom/pharmacy/navigation.js';
 import PharmacyFeatureGate from './custom/pharmacy/menu/PharmacyFeatureGate.js';
 import { PharmacyAccessProvider, PharmacyShell } from './custom/pharmacy/PharmacyShell.js';
@@ -67,6 +68,7 @@ export default function App() {
       <Route path="/webinar/:slug" element={<Webinar />} />
       <Route path="/prescriptions" element={<PrescriptionRoute />} /> {/* custom:pharmacy-prescriptions */}
       <Route path="/pharmacy/menu" element={<PharmacyPage screenTitle="すべての機能"><MainMenuPage /></PharmacyPage>} /> {/* custom:pharmacy-menu */}
+      <Route path="/pharmacy/timeline" element={<PharmacyPage screenTitle="利用状況"><PatientTimelinePage /></PharmacyPage>} /> {/* custom:pharmacy-patient-timeline */}
       <Route path="/pharmacy/info" element={<PharmacyPage screenTitle="薬局情報" capability="pharmacy_info"><PharmacyInfoPage /></PharmacyPage>} /> {/* custom:pharmacy-public-profile */}
       <Route path="/pharmacy/patient-intake" element={<PharmacyPage screenTitle="患者アンケート" capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyPage>} /> {/* custom:pharmacy-intake */}
       <Route path="/pharmacy/continuity" element={<PharmacyPage screenTitle="継続フォロー" capability="continuity" allowExisting><ContinuityPage /></PharmacyPage>} /> {/* custom:pharmacy-continuity */}

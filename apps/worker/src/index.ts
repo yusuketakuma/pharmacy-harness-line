@@ -101,6 +101,7 @@ import adminVersion from './routes/admin/admin-version.js';
 import { mediaInquiries } from './routes/admin/media-inquiries.js';
 import { loginUnconfiguredPage } from './lib/login-unconfigured.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
+import { patientTimelineRoutes } from './custom/pharmacy/patient-timeline/routes.js'; // custom:pharmacy-patient-timeline
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
 import { fulfillmentRoutes } from './custom/pharmacy/fulfillment/routes.js'; // custom:pharmacy-fulfillment
 import { continuityRoutes } from './custom/pharmacy/continuity/routes.js'; // custom:pharmacy-continuity
@@ -295,6 +296,7 @@ app.route('/', liffRoutes);
 app.route('/', affiliateSelfRoutes);
 app.route('/', mediaInquiries);
 app.route('/', prescriptionRoutes); // custom:pharmacy-prescriptions
+app.route('/', patientTimelineRoutes); // custom:pharmacy-patient-timeline
 app.route('/', pharmacyIntakeRoutes); // custom:pharmacy-intake
 app.route('/', fulfillmentRoutes); // custom:pharmacy-fulfillment
 app.route('/', continuityRoutes); // custom:pharmacy-continuity
