@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../../../index.js';
-import { resolveAdminAuthConfig } from '../../../middleware/admin-auth-config.js';
+import {
+  isAllowedAdminRequestOrigin,
+  resolveAdminAuthConfig,
+} from '../../../middleware/admin-auth-config.js';
 import {
   generatePlatformAdminSessionToken,
   hashTenantAdminSessionToken,
@@ -137,6 +140,9 @@ function redactPatientAudit(rows: Array<Record<string, unknown>>): Array<Record<
  * scoped to a tenant.
  */
 platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
+  if (!isAllowedAdminRequestOrigin(c.env, c.req.header('Origin'), c.req.url)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   if (config.misconfigured) {
     console.error('[platform-admin] refused login — misconfigured topology:', config.misconfigured);

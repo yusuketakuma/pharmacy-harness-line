@@ -620,6 +620,22 @@ beforeEach(async () => {
 });
 
 describe('platform admin authentication', () => {
+  it('rejects browser login from unknown and LIFF origins without issuing a session', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db, { LIFF_ORIGIN: 'https://liff.example.test' });
+    for (const origin of ['https://evil.example.test', testEnv.LIFF_ORIGIN!]) {
+      const request = loginRequest();
+      const response = await app().request('/api/platform-admin/login', {
+        ...request,
+        headers: { ...request.headers, Origin: origin },
+      }, testEnv);
+
+      expect(response.status).toBe(403);
+      expect(cookieValue(response, 'lh_platform_admin_session')).toBe('');
+    }
+    expect(store.sessions.size).toBe(0);
+  });
+
   it('rejects missing fields, unknown logins and wrong passwords alike', async () => {
     const store = fakeDb();
     const testEnv = env(store.db);

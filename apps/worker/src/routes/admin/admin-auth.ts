@@ -11,7 +11,10 @@ import {
   expiredCookie,
   tenantSessionCookie,
 } from '../../middleware/auth.js';
-import { resolveAdminAuthConfig } from '../../middleware/admin-auth-config.js';
+import {
+  isAllowedAdminRequestOrigin,
+  resolveAdminAuthConfig,
+} from '../../middleware/admin-auth-config.js';
 import {
   generateTenantAdminSessionToken,
   hashTenantAdminSessionToken,
@@ -57,6 +60,9 @@ async function newSession(kind: 'bootstrap' | 'standard') {
  * configuration error.
  */
 adminAuth.post('/api/auth/login', async (c) => {
+  if (!isAllowedAdminRequestOrigin(c.env, c.req.header('Origin'), c.req.url)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   if (config.misconfigured) {
     console.error('[admin-auth] refused login — misconfigured topology:', config.misconfigured);

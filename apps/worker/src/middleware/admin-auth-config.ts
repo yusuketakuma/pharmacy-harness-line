@@ -283,3 +283,15 @@ export function resolveCorsOrigin(
     ? normalizedOrigin
     : '';
 }
+
+/** CORS response headers do not stop a simple cross-origin login POST from executing. */
+export function isAllowedAdminRequestOrigin(
+  env: AdminAuthEnv,
+  origin: string | undefined,
+  requestUrl: string,
+): boolean {
+  if (!origin) return true;
+  const normalizedOrigin = normalizeOrigin(origin);
+  return normalizedOrigin !== null &&
+    resolveCorsOrigin(env, normalizedOrigin, requestUrl) === normalizedOrigin;
+}

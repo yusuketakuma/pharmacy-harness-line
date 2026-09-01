@@ -252,6 +252,39 @@ function cookieHeader(response: Response): string {
 }
 
 describe('tenant admin password authentication', () => {
+  it('rejects browser login from unknown and LIFF origins without issuing a session', async () => {
+    const testEnv = env(undefined, { LIFF_ORIGIN: 'https://liff.example.test' });
+    for (const origin of ['https://evil.example.test', testEnv.LIFF_ORIGIN!]) {
+      const response = await app().request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Origin: origin },
+        body: JSON.stringify({
+          pharmacyCode: tenant.tenant_code,
+          loginId: credential.login_id,
+          password: 'Temporary pass 42',
+        }),
+      }, testEnv);
+
+      expect(response.status).toBe(403);
+      expect(cookieValue(response, 'lh_admin_session')).toBe('');
+    }
+  });
+
+  it('allows browser login from the configured admin origin', async () => {
+    const testEnv = env();
+    const response = await app().request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Origin: testEnv.ADMIN_ORIGIN! },
+      body: JSON.stringify({
+        pharmacyCode: tenant.tenant_code,
+        loginId: credential.login_id,
+        password: 'Temporary pass 42',
+      }),
+    }, testEnv);
+
+    expect(response.status).toBe(200);
+  });
+
   it('rejects malformed login field types without throwing', async () => {
     for (const body of [
       null,
