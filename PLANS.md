@@ -939,7 +939,7 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 - [x] **V034-3 upload recovery**: 本人/家族選択、画像単位idempotency、二重tap、送信済み/薬局受付済みの分離、offline/timeout/LINE WebView再起動/back操作を既存処方せんflowで回復可能にする。PHIをlocalStorageへ保存しない。
 - [ ] **V034-4 UX gate**: critical task一覧、対象者属性、試行数、成功/失敗定義、baseline、測定artifactを事前freezeする。iOS/Android LINE WebView、低速通信、200% zoom、VoiceOver/TalkBack、focus order、error identification、status announcement、contrastを確認し、二重送信/入力消失/wrong-owner/critical safety error 0を主判定にする。90秒/90%は安全性・正確性が悪化しない場合だけ補助指標に使う。
 
-**2026-09-01 local candidate evidence**: V034-2〜3は`0dcea76f134da75799a49fd4ec2ab562f38356b5`でローカル実装完了。V034-1は主要4domainがPASSだが条件付きECのHuman Gateが残るためpartial、V034-4も実機試験が未実施のためpartial。Worker 240 files / 2,557 tests、LIFF 22 files / 143 tests、両package typecheck、local Chrome synthetic auditがPASS。iOS/Android LINE WebView、VoiceOver/TalkBack、実機200% zoom、低速通信、participant trialsは`NOT_RUN`であり、V033-7も`BLOCKED`のためv0.34.0 release readinessは`BLOCKED`を維持する。
+**2026-09-01 local candidate evidence**: V034-2〜3は`0dcea76f134da75799a49fd4ec2ab562f38356b5`でローカル実装完了。V034-1は主要4domainがPASSだが条件付きECのHuman Gateが残るためpartial、V034-4も実機試験が未実施のためpartial。Worker 240 files / 2,557 tests、LIFF 22 files / 143 tests、両package typecheck、両production build、Worker deploy dry-run（実deployなし、gzip 487.31 KiB）、local Chrome synthetic auditがPASS。iOS/Android LINE WebView、VoiceOver/TalkBack、実機200% zoom、低速通信、participant trialsは`NOT_RUN`であり、V033-7も`BLOCKED`のためv0.34.0 release readinessは`BLOCKED`を維持する。
 
 #### v0.35.0 - Staff Critical Journey
 

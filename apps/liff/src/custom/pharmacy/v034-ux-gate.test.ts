@@ -27,7 +27,13 @@ type UxGateEvidence = {
     zeroTolerance: string[];
     auxiliaryMetrics: { completionSeconds: number; successRatePercent: number; gate: boolean };
   };
-  automatedEvidence: { browserAudit: string; browserAuditLimit: string };
+  automatedEvidence: {
+    browserAudit: string;
+    browserAuditLimit: string;
+    workerBuild: string;
+    liffBuild: string;
+    workerDeployDryRun: string;
+  };
   results: { deviceTrials: string; assistiveTechnology: string; slowNetwork: string };
   boundaries: { commit: string };
 };
@@ -80,6 +86,11 @@ describe('v0.34 patient critical journey UX gate', () => {
       .toBe('PASS_LOCAL_CHROME_SYNTHETIC_TIMELINE_STATES_AND_200_PERCENT');
     expect(evidence.automatedEvidence.browserAuditLimit)
       .toContain('does not substitute for LINE WebView');
+    expect(evidence.automatedEvidence).toMatchObject({
+      workerBuild: 'PASS_EXACT_CANDIDATE',
+      liffBuild: 'PASS_EXACT_CANDIDATE',
+      workerDeployDryRun: 'PASS_NO_DEPLOY_2369_77_KIB_GZIP_487_31_KIB',
+    });
     expect(evidence.results).toEqual({
       deviceTrials: 'NOT_RUN',
       assistiveTechnology: 'NOT_RUN',
