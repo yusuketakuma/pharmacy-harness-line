@@ -222,7 +222,10 @@ adminAuth.post('/api/auth/change-password', async (c) => {
   const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : '';
   const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
   if (!isValidAdminPassword(newPassword)) {
-    return c.json({ success: false, error: 'New password must be 15 to 128 characters' }, 400);
+    return c.json({
+      success: false,
+      error: 'New password must be 15 to 128 characters and not commonly compromised',
+    }, 400);
   }
 
   const tenantId = c.get('tenantId');

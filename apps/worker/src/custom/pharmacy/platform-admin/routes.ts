@@ -347,7 +347,10 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   const currentPassword = stringBody(body, 'currentPassword');
   const newPassword = stringBody(body, 'newPassword');
   if (!isValidAdminPassword(newPassword)) {
-    return c.json({ success: false, error: 'New password must be 15 to 128 characters' }, 400);
+    return c.json({
+      success: false,
+      error: 'New password must be 15 to 128 characters and not commonly compromised',
+    }, 400);
   }
   if (newPassword === currentPassword) {
     return c.json({ success: false, error: 'New password must differ from the current password' }, 400);

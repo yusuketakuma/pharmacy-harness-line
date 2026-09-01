@@ -28,6 +28,12 @@ opaque **HttpOnly session cookie** bound to exactly one tenant.
    absolute or 15 minutes idle.
 4. **Logout** — `POST /api/auth/logout` expires all three cookies.
 
+New and temporary administrator passwords must contain 15–128 Unicode code
+points and must not exactly match the locally versioned top-100,000 common
+password corpus. The corpus is generated from the MIT-licensed SecLists file
+pinned in `apps/worker/scripts/generate-common-passwords.mjs`; authentication
+never sends a candidate password to an external breach service.
+
 ### Why the CSRF token is also returned in the body
 
 In the default cross-site topology the admin (`*.pages.dev`) and the API

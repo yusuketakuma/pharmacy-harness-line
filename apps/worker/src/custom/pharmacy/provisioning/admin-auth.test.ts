@@ -593,6 +593,22 @@ describe('tenant admin password authentication', () => {
     expect(reused.status).toBe(400);
     expect(credential.must_change_password).toBe(1);
 
+    const common = await app().request('/api/auth/change-password', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: oldCookie,
+        'x-csrf-token': csrf,
+      },
+      body: JSON.stringify({
+        currentPassword: 'Temporary pass 42',
+        newPassword: 'passwordpassword',
+      }),
+    }, testEnv);
+    expect(common.status).toBe(400);
+    await expect(common.json()).resolves.toMatchObject({ error: expect.stringMatching(/compromised/) });
+    expect(credential.must_change_password).toBe(1);
+
     const changed = await app().request('/api/auth/change-password', {
       method: 'POST',
       headers: {
