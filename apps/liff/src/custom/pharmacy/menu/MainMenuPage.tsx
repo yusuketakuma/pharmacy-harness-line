@@ -34,7 +34,7 @@ async function loadEnabledPharmacyFeatures(): Promise<string[]> {
 }
 
 export function pharmacyMainMenuItems(liffId?: string, enabledFeatures?: readonly string[], existingFeatures: readonly string[] = []): PharmacyMenuItemWithState[] {
-  const items = [
+  const items: ReadonlyArray<PharmacyMenuItem> = [
     { label: '利用状況', description: '送信やフォローの状態をまとめて確認', icon: '覧', group: '送信後の確認・フォロー', to: pharmacyRoute('/pharmacy/timeline', liffId), allowExisting: true },
     { capability: 'prescription_intake', allowExisting: false, label: '処方せん事前送信', description: '紙の処方せんを撮影して送る', icon: '送', group: '今すぐ行う', to: pharmacyRoute('/prescriptions?view=send', liffId) },
     { capability: 'prescription_intake', allowExisting: true, label: '受付状況', description: '送信した処方せんの状況を確認', icon: '状', group: '送信後の確認・フォロー', to: pharmacyRoute('/prescriptions?view=history', liffId) },
@@ -44,7 +44,7 @@ export function pharmacyMainMenuItems(liffId?: string, enabledFeatures?: readonl
     { capability: 'medication_followup', allowExisting: true, label: '服薬後フォロー', description: 'お薬を使った後の状況を回答', icon: '後', group: '送信後の確認・フォロー', to: pharmacyRoute('/pharmacy/medication-followup', liffId) },
     { capability: 'emergency_contraception', allowExisting: true, label: '緊急避妊薬', description: '対応状況を確認して仮受付へ進む', icon: '緊', group: '今すぐ行う', to: pharmacyRoute('/pharmacy/emergency-contraception', liffId) },
     { capability: 'pharmacy_info', allowExisting: false, label: '薬局情報', description: '営業時間・サービス・アクセスを確認', icon: '店', group: '薬局情報・相談', to: pharmacyRoute('/pharmacy/info', liffId) },
-  ] as const satisfies ReadonlyArray<PharmacyMenuItem>;
+  ];
   return (enabledFeatures === undefined ? items : items.filter((item) =>
     !item.capability || enabledFeatures.includes(item.capability) ||
       (item.allowExisting && existingFeatures.includes(item.capability))))
