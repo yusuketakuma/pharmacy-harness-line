@@ -129,6 +129,29 @@ const INTAKE_SELECT = `
          representative_consent_at, privacy_consent_at, created_at
     FROM pharmacy_patient_intake_responses`;
 
+function patientAuthorityPredicate(patientAlias: string): string {
+  return `
+    AND NOT EXISTS (
+      SELECT 1 FROM pharmacy_patient_owner_controls AS controls
+       WHERE controls.line_account_id = ${patientAlias}.line_account_id
+         AND controls.patient_id = ${patientAlias}.id
+         AND controls.owner_friend_id = ${patientAlias}.owner_friend_id
+         AND controls.binding_suspended_at IS NOT NULL
+    )
+    AND (
+      ${patientAlias}.relationship = 'self'
+      OR EXISTS (
+        SELECT 1 FROM pharmacy_patient_proxy_grants AS proxy
+         WHERE proxy.line_account_id = ${patientAlias}.line_account_id
+           AND proxy.patient_id = ${patientAlias}.id
+           AND proxy.actor_friend_id = ?
+           AND proxy.permission_code = 'patient_intake_v1'
+           AND proxy.revoked_at IS NULL
+           AND unixepoch(proxy.expires_at) > unixepoch(?)
+      )
+    )`;
+}
+
 function boundedText(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.trim().length <= max;
 }
@@ -241,6 +264,7 @@ export async function createPharmacyPatient(
   input: CreatePharmacyPatientInput,
 ): Promise<PharmacyPatient> {
   validatePatientInput(input);
+  if (input.relationship !== 'self') throw new Error('proxy grant required');
   const now = new Date().toISOString();
   const patient: PharmacyPatient = {
     id: crypto.randomUUID(),
@@ -302,12 +326,14 @@ export async function listPharmacyPatients(
   includeArchived = false,
 ): Promise<PharmacyPatient[]> {
   const archivedClause = includeArchived ? '' : ' AND archived_at IS NULL';
+  const now = new Date().toISOString();
   const result = await db.prepare(
     `${PATIENT_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ?${archivedClause}
+      ${patientAuthorityPredicate('pharmacy_patients')}
       ORDER BY CASE relationship WHEN 'self' THEN 0 ELSE 1 END,
                updated_at DESC, id DESC`,
-  ).bind(owner.lineAccountId, owner.friendId).all<PharmacyPatient>();
+  ).bind(owner.lineAccountId, owner.friendId, owner.friendId, now).all<PharmacyPatient>();
   return result.results;
 }
 
@@ -330,10 +356,14 @@ export async function getPharmacyPatient(
   owner: PharmacyPatientOwner,
   patientId: string,
 ): Promise<PharmacyPatient | null> {
+  const now = new Date().toISOString();
   return db.prepare(
     `${PATIENT_SELECT}
-      WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?`,
-  ).bind(patientId, owner.lineAccountId, owner.friendId).first<PharmacyPatient>();
+      WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
+      ${patientAuthorityPredicate('pharmacy_patients')}`,
+  ).bind(
+    patientId, owner.lineAccountId, owner.friendId, owner.friendId, now,
+  ).first<PharmacyPatient>();
 }
 
 export async function getAdminPharmacyPatient(
@@ -364,6 +394,19 @@ export async function updatePharmacyPatient(
             city = ?, address_line1 = ?, address_line2 = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
         AND archived_at IS NULL AND updated_at = ?
+        ${patientAuthorityPredicate('pharmacy_patients')}
+        AND (
+          ? = 'self'
+          OR EXISTS (
+            SELECT 1 FROM pharmacy_patient_proxy_grants AS next_proxy
+             WHERE next_proxy.line_account_id = pharmacy_patients.line_account_id
+               AND next_proxy.patient_id = pharmacy_patients.id
+               AND next_proxy.actor_friend_id = ?
+               AND next_proxy.permission_code = 'patient_intake_v1'
+               AND next_proxy.revoked_at IS NULL
+               AND unixepoch(next_proxy.expires_at) > unixepoch(?)
+          )
+        )
         AND EXISTS (
           SELECT 1 FROM pharmacy_account_capabilities AS capability
            WHERE capability.line_account_id = pharmacy_patients.line_account_id
@@ -378,6 +421,7 @@ export async function updatePharmacyPatient(
     normalizedOptional(input.city), normalizedOptional(input.addressLine1),
     normalizedOptional(input.addressLine2), now,
     patientId, owner.lineAccountId, owner.friendId, expectedUpdatedAt,
+    owner.friendId, now, input.relationship, owner.friendId, now,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('patient update conflict');
 }
@@ -393,10 +437,11 @@ export async function archivePharmacyPatient(
     `UPDATE pharmacy_patients
         SET archived_at = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-        AND archived_at IS NULL AND updated_at = ?`,
+        AND archived_at IS NULL AND updated_at = ?
+        ${patientAuthorityPredicate('pharmacy_patients')}`,
   ).bind(
     now, now, patientId,
-    owner.lineAccountId, owner.friendId, expectedUpdatedAt,
+    owner.lineAccountId, owner.friendId, expectedUpdatedAt, owner.friendId, now,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('patient archive conflict');
 }
@@ -414,9 +459,17 @@ export async function createPatientIntakeResponse(
   const existing = await db.prepare(
     `${INTAKE_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
-        AND idempotency_key = ?`,
+        AND idempotency_key = ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_patients AS patient
+           WHERE patient.id = pharmacy_patient_intake_responses.patient_id
+             AND patient.line_account_id = pharmacy_patient_intake_responses.line_account_id
+             AND patient.owner_friend_id = pharmacy_patient_intake_responses.owner_friend_id
+             ${patientAuthorityPredicate('patient')}
+        )`,
   ).bind(
     owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
+    owner.friendId, new Date().toISOString(),
   ).first<PharmacyPatientIntakeResponse>();
   if (existing) return openPatientIntakeFields(db, existing, cryptoScope);
   const policy = await getEffectiveTenantPrivacyPolicy(db, owner.lineAccountId);
@@ -478,7 +531,7 @@ export async function createPatientIntakeResponse(
        (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
         patient_snapshot_json, answers_json, base_response_id,
         idempotency_key, representative_consent_at, privacy_consent_at, created_at,
-        privacy_policy_version, privacy_policy_hash)
+        privacy_policy_version, privacy_policy_hash, proxy_grant_id)
      SELECT ?, ?, ?, p.id, ?, ?,
             CASE WHEN EXISTS (
               SELECT 1 FROM pharmacy_patient_intake_migration_state migration
@@ -490,12 +543,36 @@ export async function createPatientIntakeResponse(
                WHERE migration.line_account_id = p.line_account_id
                  AND migration.phase = 'scrubbed'
             ) THEN '{}' ELSE ? END,
-            ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?,
+            CASE WHEN p.relationship = 'self' THEN NULL ELSE (
+              SELECT proxy.id FROM pharmacy_patient_proxy_grants AS proxy
+               WHERE proxy.line_account_id = p.line_account_id
+                 AND proxy.patient_id = p.id
+                 AND proxy.actor_friend_id = ?
+                 AND proxy.permission_code = 'patient_intake_v1'
+                 AND proxy.revoked_at IS NULL
+                 AND unixepoch(proxy.expires_at) > unixepoch(?)
+               ORDER BY proxy.expires_at DESC, proxy.id DESC
+               LIMIT 1
+            ) END
        FROM pharmacy_patients p
        LEFT JOIN pharmacy_tenant_privacy_policy policy
               ON policy.line_account_id = p.line_account_id
       WHERE p.id = ? AND p.line_account_id = ? AND p.owner_friend_id = ?
         AND p.archived_at IS NULL
+        ${patientAuthorityPredicate('p')}
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_patient_owner_controls AS privacy_controls
+           WHERE privacy_controls.line_account_id = p.line_account_id
+             AND privacy_controls.patient_id = p.id
+             AND privacy_controls.owner_friend_id = p.owner_friend_id
+             AND privacy_controls.privacy_withdrawn_at IS NOT NULL
+             AND (
+               privacy_controls.privacy_reconsented_at IS NULL
+               OR unixepoch(privacy_controls.privacy_withdrawn_at) >
+                  unixepoch(privacy_controls.privacy_reconsented_at)
+             )
+        )
         AND ((? = 'tenant'
               AND policy.policy_version = ? AND policy.content_hash = ?)
           OR (? = 'platform_default' AND policy.line_account_id IS NULL))
@@ -528,7 +605,9 @@ export async function createPatientIntakeResponse(
     response.answers_json, response.base_response_id, response.idempotency_key,
     response.representative_consent_at, response.privacy_consent_at, response.created_at,
     input.privacyPolicyVersion, input.privacyPolicyHash,
+    owner.friendId, now,
     patientId, owner.lineAccountId, owner.friendId,
+    owner.friendId, now,
     policy.source, input.privacyPolicyVersion, input.privacyPolicyHash, policy.source,
     owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
     cryptoScope.tenantId, owner.lineAccountId, RECOVERY_ENVIRONMENT, now,
@@ -545,11 +624,28 @@ export async function createPatientIntakeResponse(
     const winner = await db.prepare(
       `${INTAKE_SELECT}
         WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
-          AND idempotency_key = ?`,
+          AND idempotency_key = ?
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = pharmacy_patient_intake_responses.patient_id
+               AND patient.line_account_id = pharmacy_patient_intake_responses.line_account_id
+               AND patient.owner_friend_id = pharmacy_patient_intake_responses.owner_friend_id
+               ${patientAuthorityPredicate('patient')}
+          )`,
     ).bind(
       owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
+      owner.friendId, new Date().toISOString(),
     ).first<PharmacyPatientIntakeResponse>();
     if (winner) return openPatientIntakeFields(db, winner, cryptoScope);
+    const withdrawn = await db.prepare(
+      `SELECT 1 AS blocked FROM pharmacy_patient_owner_controls
+        WHERE line_account_id = ? AND patient_id = ? AND owner_friend_id = ?
+          AND privacy_withdrawn_at IS NOT NULL
+          AND (privacy_reconsented_at IS NULL OR
+               unixepoch(privacy_withdrawn_at) > unixepoch(privacy_reconsented_at))`,
+    ).bind(owner.lineAccountId, patientId, owner.friendId).first<{ blocked: number }>();
+    if (withdrawn) throw new Error('privacy consent withdrawn');
+    if (!(await getPharmacyPatient(db, owner, patientId))) throw new Error('patient not found');
     if (error instanceof Error && /constraint|unique|patient intake storage failed/i.test(error.message)) {
       const currentPolicy = await getEffectiveTenantPrivacyPolicy(db, owner.lineAccountId);
       if (!currentPolicy) throw new Error('privacy policy required');
@@ -572,12 +668,22 @@ export async function getLatestPatientIntake(
   patientId: string,
   cryptoScope: PatientIntakeCryptoScope,
 ): Promise<PharmacyPatientIntakeResponse | null> {
+  const now = new Date().toISOString();
   const row = await db.prepare(
     `${INTAKE_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
+        AND EXISTS (
+          SELECT 1 FROM pharmacy_patients AS patient
+           WHERE patient.id = pharmacy_patient_intake_responses.patient_id
+             AND patient.line_account_id = pharmacy_patient_intake_responses.line_account_id
+             AND patient.owner_friend_id = pharmacy_patient_intake_responses.owner_friend_id
+             ${patientAuthorityPredicate('patient')}
+        )
       ORDER BY revision DESC, id DESC
       LIMIT 1`,
-  ).bind(owner.lineAccountId, owner.friendId, patientId).first<PharmacyPatientIntakeResponse>();
+  ).bind(
+    owner.lineAccountId, owner.friendId, patientId, owner.friendId, now,
+  ).first<PharmacyPatientIntakeResponse>();
   return row ? openPatientIntakeFields(db, row, cryptoScope) : null;
 }
 

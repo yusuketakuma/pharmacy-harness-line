@@ -4,8 +4,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  archivePharmacyPatient,
   createPatientIntakeResponse,
+  getPharmacyPatient,
   getLatestPatientIntake,
+  listPharmacyPatients,
+  updatePharmacyPatient,
   type CreatePatientIntakeInput,
 } from '../../../apps/worker/src/custom/pharmacy/intake/repository.js';
 import { INVALID_PATIENT_INTAKE_ENVELOPE_ERROR } from '../../../apps/worker/src/custom/pharmacy/intake/encryption.js';
@@ -89,6 +93,23 @@ function seed(db: Database.Database): void {
      birth_date, created_at, updated_at)
     VALUES ('patient-a', 'account-a', 'friend-a', 'self', '患者A', 'カンジャエー',
             '1990-01-01', ?, ?)`).run(NOW, NOW);
+}
+
+function insertFamilyPatient(db: Database.Database): void {
+  db.prepare(`INSERT INTO pharmacy_patients
+    (id, line_account_id, owner_friend_id, relationship, name, name_kana,
+     birth_date, created_at, updated_at)
+    VALUES ('patient-family', 'account-a', 'friend-a', 'child', '患者B', 'カンジャビー',
+            '2018-01-01', ?, ?)`).run(NOW, NOW);
+}
+
+function insertActiveProxyGrant(db: Database.Database): void {
+  db.prepare(`INSERT INTO pharmacy_patient_proxy_grants
+    (id, line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
+     terms_version, terms_hash, granted_at, expires_at, version, created_at, updated_at)
+    VALUES ('grant-a', 'account-a', 'patient-family', 'friend-a', 'patient_intake_v1',
+            'self_attested', 1, ?, '2026-09-01T00:00:00.000Z',
+            '2099-01-01T00:00:00.000Z', 1, ?, ?)`).run('a'.repeat(64), NOW, NOW);
 }
 
 describe('encrypted pharmacy patient intake repository', () => {
@@ -218,5 +239,80 @@ describe('encrypted pharmacy patient intake repository', () => {
       .rejects.toThrow('patient not found');
     expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_patient_intake_responses`).get())
       .toEqual({ count: 0 });
+  });
+
+  it('does not treat a family relationship as patient authority', async () => {
+    insertFamilyPatient(sqlite);
+
+    await expect(listPharmacyPatients(db, owner)).resolves.toHaveLength(1);
+    await expect(getPharmacyPatient(db, owner, 'patient-family')).resolves.toBeNull();
+    sqlite.prepare(`INSERT INTO pharmacy_patient_proxy_grants
+      (id, line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
+       terms_version, terms_hash, granted_at, expires_at, version, created_at, updated_at)
+      VALUES ('expired-a', 'account-a', 'patient-family', 'friend-a', 'patient_intake_v1',
+              'self_attested', 1, ?, '2026-09-01T00:00:00.000Z',
+              '2026-09-01T00:00:01.000Z', 1, ?, ?)`).run('a'.repeat(64), NOW, NOW);
+    await expect(getPharmacyPatient(db, owner, 'patient-family')).resolves.toBeNull();
+    await expect(createPatientIntakeResponse(db, owner, 'patient-family', input, cryptoScope))
+      .rejects.toThrow('patient not found');
+    await expect(updatePharmacyPatient(db, owner, 'patient-family', NOW, {
+      relationship: 'child', name: '患者B', nameKana: 'カンジャビー', birthDate: '2018-01-01',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
+      addressLine1: null, addressLine2: null,
+    })).rejects.toThrow('patient update conflict');
+    await expect(archivePharmacyPatient(db, owner, 'patient-family', NOW))
+      .rejects.toThrow('patient archive conflict');
+  });
+
+  it('allows only an active patient_intake_v1 grant and records it on intake', async () => {
+    insertFamilyPatient(sqlite);
+    insertActiveProxyGrant(sqlite);
+
+    await expect(getPharmacyPatient(db, owner, 'patient-family'))
+      .resolves.toMatchObject({ id: 'patient-family', relationship: 'child' });
+    const created = await createPatientIntakeResponse(
+      db, owner, 'patient-family', input, cryptoScope,
+    );
+    expect(sqlite.prepare(`SELECT proxy_grant_id FROM pharmacy_patient_intake_responses
+      WHERE id = ?`).get(created.id)).toEqual({ proxy_grant_id: 'grant-a' });
+
+    sqlite.prepare(`UPDATE pharmacy_patient_proxy_grants
+      SET revoked_at = ?, revoke_reason_code = 'owner_revoked', version = version + 1, updated_at = ?
+      WHERE id = 'grant-a'`).run(NOW, NOW);
+
+    await expect(getPharmacyPatient(db, owner, 'patient-family')).resolves.toBeNull();
+    await expect(getLatestPatientIntake(db, owner, 'patient-family', cryptoScope))
+      .resolves.toBeNull();
+    await expect(createPatientIntakeResponse(db, owner, 'patient-family', input, cryptoScope))
+      .rejects.toThrow('patient not found');
+  });
+
+  it('keeps historical intake readable but blocks a new revision after privacy withdrawal', async () => {
+    const created = await createPatientIntakeResponse(db, owner, 'patient-a', input, cryptoScope);
+    sqlite.prepare(`INSERT INTO pharmacy_patient_owner_controls
+      (line_account_id, patient_id, owner_friend_id, privacy_withdrawn_at, version, updated_at)
+      VALUES ('account-a', 'patient-a', 'friend-a', ?, 1, ?)`).run(NOW, NOW);
+
+    await expect(getLatestPatientIntake(db, owner, 'patient-a', cryptoScope))
+      .resolves.toMatchObject({ id: created.id });
+    await expect(createPatientIntakeResponse(db, owner, 'patient-a', input, cryptoScope))
+      .resolves.toMatchObject({ id: created.id });
+    await expect(createPatientIntakeResponse(db, owner, 'patient-a', {
+      ...input, idempotencyKey: 'intake-key-002',
+    }, cryptoScope)).rejects.toThrow('privacy consent withdrawn');
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM pharmacy_patient_intake_responses`).get())
+      .toEqual({ count: 1 });
+  });
+
+  it('hides a suspended binding without invalidating the LINE identity', async () => {
+    sqlite.prepare(`INSERT INTO pharmacy_patient_owner_controls
+      (line_account_id, patient_id, owner_friend_id, binding_suspended_at,
+       binding_reason_code, version, updated_at)
+      VALUES ('account-a', 'patient-a', 'friend-a', ?, 'wrong_binding', 1, ?)`).run(NOW, NOW);
+
+    await expect(listPharmacyPatients(db, owner)).resolves.toEqual([]);
+    await expect(getPharmacyPatient(db, owner, 'patient-a')).resolves.toBeNull();
+    await expect(createPatientIntakeResponse(db, owner, 'patient-a', input, cryptoScope))
+      .rejects.toThrow('patient not found');
   });
 });

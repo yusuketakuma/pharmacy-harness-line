@@ -57,7 +57,7 @@ const policyProof = {
 };
 
 describe('pharmacy patient repository', () => {
-  it('validates and inserts a family patient in the owner scope', async () => {
+  it('rejects family creation until an expiring proxy grant can be issued atomically', async () => {
     const { db, calls } = fakeDb(null);
     await expect(createPharmacyPatient(db, owner, {
       relationship: 'child',
@@ -71,12 +71,8 @@ describe('pharmacy patient repository', () => {
       city: null,
       addressLine1: null,
       addressLine2: null,
-    })).resolves.toMatchObject({ id: expect.any(String) });
-    expect(calls[0].sql).toContain('INSERT INTO pharmacy_patients');
-    expect(calls[0].sql).toContain('line_account_id');
-    expect(calls[0].sql).toContain("value = 'patient_intake'");
-    expect(calls[0].values).toContain('account-1');
-    expect(calls[0].values).toContain('friend-1');
+    })).rejects.toThrow('proxy grant required');
+    expect(calls).toHaveLength(0);
   });
 
   it('rejects malformed profile data before touching D1', async () => {
@@ -126,7 +122,8 @@ describe('pharmacy patient repository', () => {
     ]);
     expect(calls[0].sql).toContain('line_account_id = ? AND owner_friend_id = ?');
     expect(calls[0].sql).toContain('archived_at IS NULL');
-    expect(calls[0].values).toEqual(['account-1', 'friend-1']);
+    expect(calls[0].values.slice(0, 3)).toEqual(['account-1', 'friend-1', 'friend-1']);
+    expect(calls[0].sql).toContain('pharmacy_patient_proxy_grants');
   });
 
   it('does not expose account linkage in the admin patient list', async () => {
@@ -337,7 +334,10 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db } = fakeDb([patient, null, policy, null, null, null, policy]);
+    const { db } = fakeDb([
+      patient, null, policy, null, null,
+      null, null, patient, policy,
+    ]);
     db.batch = vi.fn(async () => [
       { success: true, meta: { changes: 0 } },
       { success: true, meta: { changes: 1 } },
@@ -363,7 +363,10 @@ describe('pharmacy patient repository', () => {
       relationship: 'self', name: '患者', name_kana: 'カンジャ', birth_date: '2000-01-01',
       sex: null, contact_phone: null, archived_at: null,
     };
-    const { db } = fakeDb([patient, null, policy, null, null, null]);
+    const { db } = fakeDb([
+      patient, null, policy, null, null,
+      null, null, patient,
+    ]);
     db.batch = vi.fn(async () => { throw new Error('D1 unavailable'); }) as D1Database['batch'];
 
     await expect(createPatientIntakeResponse(db, owner, 'patient-1', {
@@ -493,6 +496,9 @@ describe('pharmacy patient repository', () => {
       id: 'response-2', revision: 2,
     });
     expect(calls[0].sql).toContain('line_account_id = ? AND owner_friend_id = ?');
-    expect(calls[0].values).toEqual(['account-1', 'friend-1', 'patient-1']);
+    expect(calls[0].values.slice(0, 4)).toEqual([
+      'account-1', 'friend-1', 'patient-1', 'friend-1',
+    ]);
+    expect(calls[0].sql).toContain('pharmacy_patient_proxy_grants');
   });
 });

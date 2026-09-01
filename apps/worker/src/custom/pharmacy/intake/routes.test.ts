@@ -125,18 +125,17 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalled();
   });
 
-  it('creates a family patient after validating the JSON boundary', async () => {
+  it('keeps family creation closed until a fixed proxy duration is configured', async () => {
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
       relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
       sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
       addressLine1: null, addressLine2: null,
     });
-    expect(response.status).toBe(201);
-    expect(mocks.createPatient).toHaveBeenCalledWith(env.DB, owner, {
-      relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
-      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
-      addressLine1: null, addressLine2: null,
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Family patient access requires an active proxy grant',
     });
+    expect(mocks.createPatient).not.toHaveBeenCalled();
   });
 
   it('blocks only new patient admission when patient intake is disabled', async () => {
@@ -189,6 +188,16 @@ describe('LIFF pharmacy patient and intake routes', () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: 'Privacy policy changed; retry' });
+  });
+
+  it('maps privacy withdrawal to an explicit re-consent conflict', async () => {
+    mocks.createIntake.mockRejectedValue(new Error('privacy consent withdrawn'));
+    const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', {});
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Privacy consent was withdrawn; re-consent is required',
+    });
   });
 
   it('fails before intake storage when the PHI key is unavailable', async () => {

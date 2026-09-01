@@ -97,18 +97,24 @@ pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
   return next();
 });
 
-function parseJsonError(error: unknown): { error: string; status: 400 | 404 | 409 } | null {
+function parseJsonError(error: unknown): { error: string; status: 400 | 403 | 404 | 409 } | null {
   const message = error instanceof Error ? error.message : '';
   if (message.startsWith('invalid ')) return { error: 'Invalid input', status: 400 };
   if (message === 'intake consent required') {
     return { error: 'Both representative and privacy consent are required', status: 400 };
   }
   if (message === 'patient not found') return { error: 'Patient not found', status: 404 };
+  if (message === 'proxy grant required') {
+    return { error: 'Family patient access requires an active proxy grant', status: 403 };
+  }
   if (message === 'privacy policy required') {
     return { error: 'Privacy policy is not configured', status: 409 };
   }
   if (message === 'privacy policy changed') {
     return { error: 'Privacy policy changed; retry', status: 409 };
+  }
+  if (message === 'privacy consent withdrawn') {
+    return { error: 'Privacy consent was withdrawn; re-consent is required', status: 409 };
   }
   if (message === 'FEATURE_DISABLED') {
     return { error: 'Patient intake is not enabled', status: 409 };
@@ -129,6 +135,9 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
   }
   const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
+  if (['child', 'spouse', 'parent', 'other'].includes(String(body.relationship))) {
+    return c.json({ error: 'Family patient access requires an active proxy grant' }, 403);
+  }
   try {
     const patient = await createPharmacyPatient(c.env.DB, owner, {
       relationship: body.relationship as never,
