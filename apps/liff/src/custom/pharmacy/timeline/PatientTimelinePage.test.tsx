@@ -53,6 +53,7 @@ describe('patient timeline UI', () => {
     expect(source).toContain('まだ利用履歴はありません');
     expect(source).toContain('role="alert"');
     expect(source).toContain('再試行');
+    expect(source).toContain('aria-label={`${timelineDomainLabel(item.domain)}の詳細を確認`}');
   });
 
   it('does not persist timeline responses in browser storage', () => {

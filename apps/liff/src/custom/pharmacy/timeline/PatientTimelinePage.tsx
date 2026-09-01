@@ -132,7 +132,7 @@ export default function PatientTimelinePage() {
           <h2 className="mt-1 text-lg font-bold text-gray-950">{timelineStatusLabel(item.status)}</h2>
           <p className="mt-2 text-base text-gray-700">{timelineNextActionLabel(item.nextAction)}</p>
           <time className="mt-2 block text-sm text-gray-600" dateTime={item.occurredAt}>{timelineDate(item.occurredAt)}</time>
-          <Link to={pharmacyRoute(safeTimelineDestination(item))} className="pharmacy-control pharmacy-focus mt-3 inline-flex min-h-11 items-center font-bold text-green-800 underline">
+          <Link to={pharmacyRoute(safeTimelineDestination(item))} aria-label={`${timelineDomainLabel(item.domain)}の詳細を確認`} className="pharmacy-control pharmacy-focus mt-3 inline-flex min-h-11 items-center font-bold text-green-800 underline">
             詳細を確認
           </Link>
         </article>
