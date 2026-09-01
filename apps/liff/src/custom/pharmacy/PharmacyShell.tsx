@@ -114,7 +114,7 @@ export function PharmacyShellHeader({ accountName, screenTitle, liffId }: {
   return <header className="border-b bg-white px-4 py-4">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="truncate text-sm font-bold text-green-800">{accountName || '薬局'}</p>
+        <p className="break-words text-sm font-bold text-green-800">{accountName || '薬局'}</p>
         <h1 ref={titleRef} tabIndex={-1} className="mt-1 text-xl font-bold text-gray-950 focus:outline-none">{screenTitle}</h1>
       </div>
       <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-bold text-gray-700">

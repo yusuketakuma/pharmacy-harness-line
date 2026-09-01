@@ -23,6 +23,8 @@ describe('pharmacy LIFF common shell', () => {
       /></MemoryRouter>,
     );
     expect(html).toContain('みどり薬局');
+    expect(html).toContain('break-words');
+    expect(html).not.toContain('truncate');
     expect(html).toContain('<h1');
     expect(html).toContain('受付状況');
     expect(html).toContain(`v${pharmacyLiffVersion}`);
