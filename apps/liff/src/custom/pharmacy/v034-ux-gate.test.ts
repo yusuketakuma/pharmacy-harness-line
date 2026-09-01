@@ -37,6 +37,7 @@ type UxGateEvidence = {
     workerProductionDeployDryRun: string;
     workerProductionArgumentProbe: string;
     liffProductionTarget: string;
+    sharedDeploymentWorkflow: string;
   };
   results: { deviceTrials: string; assistiveTechnology: string; slowNetwork: string };
   boundaries: { commit: string };
@@ -101,6 +102,7 @@ describe('v0.34 patient critical journey UX gate', () => {
         'RED_LITERAL_SEPARATOR_REACHED_PLACEHOLDER_API_7003_NO_MUTATION',
       liffProductionTarget:
         'PASS_CONFIG_PROJECT_LINE_CRM_LIFF_PROD_BRANCH_MAIN_DEPLOY_NOT_RUN',
+      sharedDeploymentWorkflow: 'PASS_1_FILE_26_TESTS',
     });
     expect(evidence.results).toEqual({
       deviceTrials: 'NOT_RUN',
