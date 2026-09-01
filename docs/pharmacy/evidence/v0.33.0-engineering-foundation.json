@@ -1,22 +1,23 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-08-31T00:32:49Z",
+  "capturedAt": "2026-09-01T11:26:52Z",
   "reviewedAt": null,
   "environment": "local-synthetic",
   "scope": "v0.33.0-engineering-foundation",
   "status": "IN_PROGRESS",
   "releaseReadiness": "BLOCKED",
   "sourceCandidate": {
-    "branch": "release/v0.33.0",
+    "branch": "feat/pharmacy-v0.34-patient-critical-journey",
     "baseSourceSha": "84290e03d09e9f895567583aaeb34eee68cf6d81",
-    "exactCandidateSha": "NOT_AVAILABLE_UNCOMMITTED_WORKTREE",
-    "identity": "RELEASE_CANDIDATE_WORKTREE",
-    "packageVersion": "0.33.0",
-    "trackedDiffSha256": "f9ec1fa43dcbeb214ad0575605bbbbc0887e66fa52695997d118968cfb77aab8",
-    "preEvidenceStatusManifestSha256": "e7f38a36be3cc4c74718a519934f9ff9db8883c03830cfb676c98a72b61e1c63",
-    "preEvidenceUntrackedFilesSha256": "579ffd5a58c6a646ec6ff7feb71efa77972662c8ca2a32e6334ae00bd5e4d5f4",
+    "exactCandidateSha": "b038890333628959837e44769f5d25886238084e",
+    "identity": "LOCAL_SOURCE_COMMIT",
+    "packageVersion": "0.33.2",
+    "trackedDiffSha256": "d87978210ad7fa9e8a18de73bead7717b14e305c08e98c3651721c9ef4c7ad64",
+    "preEvidenceStatusManifestSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
+    "preEvidenceUntrackedFilesSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
     "migrationSetSha256": "991841fbe649f4435b1c4674a68b6597f26d3483866894dc03619f869b3574fc",
-    "candidateRule": "No release PASS until one committed RC SHA reproduces all gates."
+    "candidateRule": "No release PASS until one committed RC SHA reproduces all gates.",
+    "evidenceBoundary": "Repository aggregate and route/isolation inventory were rerun at this exact candidate. Historical performance measurements were not replayed and remain partial evidence only."
   },
   "toolchain": {
     "node": "v26.6.0",
@@ -27,7 +28,7 @@
       "nodejs_compat"
     ],
     "baselineClone": "/tmp/pharmacy-harness-v033-baseline.Xwr823",
-    "baselineCloneState": "CLEAN_HEAD_84290e0"
+    "baselineCloneState": "HISTORICAL_CLEAN_HEAD_84290e0_NOT_REUSED_FOR_CURRENT_REPLAY"
   },
   "performance": {
     "protocol": {
@@ -128,7 +129,7 @@
         "gzipBytes": 552376
       },
       "candidate": {
-        "identity": "UNCOMMITTED_WORKTREE",
+        "identity": "HISTORICAL_V033_WORKTREE_NOT_REPLAYED_AT_CURRENT_SHA",
         "routes": 68,
         "chunks": 82,
         "rawBytes": 1856251,
@@ -158,11 +159,11 @@
     "verdict": "PARTIAL_PASS_LIFF_AND_LOCAL_SYNTHETIC_ONLY"
   },
   "localValidation": {
-    "workerTestFiles": 236,
-    "workerTests": 2536,
+    "workerTestFiles": 241,
+    "workerTests": 2558,
     "workerTypecheck": "PASS",
     "databaseTestFiles": 82,
-    "databaseTests": 394,
+    "databaseTests": 396,
     "databaseTypecheck": "PASS",
     "updateEngineTestFiles": 22,
     "updateEngineTests": 219,
@@ -170,8 +171,8 @@
     "webTests": 233,
     "webTypecheck": "PASS",
     "webBuild": "PASS_68_STATIC_ROUTES_WITH_NON_NETWORK_PLACEHOLDER_API_URL",
-    "liffTestFiles": 20,
-    "liffTests": 128,
+    "liffTestFiles": 23,
+    "liffTests": 144,
     "liffTypecheck": "PASS",
     "liffBuild": "PASS",
     "liffBrowserSmoke": "PASS_13_TESTS",
@@ -179,6 +180,7 @@
     "postBaselineMigrationPolicy": "PASS_7_MIGRATIONS",
     "scriptTestFiles": 19,
     "scriptTests": 225,
+    "repositoryVerify": "PASS_CURRENT_SOURCE_CANDIDATE_WORKSPACE_TYPES_TESTS_SCRIPTS_MIGRATIONS",
     "targetedDiffCheck": "PASS"
   },
   "refactor": {
@@ -204,24 +206,25 @@
     "genericWebApiPharmacyEndpoints": 0,
     "acceptedException": "packages/db tests may import Worker custom repositories only in paired custom migration integration tests, as required by packages/AGENTS.md.",
     "verdict": "Route, service, repository, pharmacy custom, shared package, UI, and custom migration authorities are locally consistent after the Web API responsibility split.",
-    "claimBoundary": "Local worktree evidence only; one committed RC SHA is still required for release evidence."
+    "claimBoundary": "Behavior-preserving refactor and placement checks are included in the committed local source candidate; production behavior remains unverified."
   },
   "isolationCoverage": {
-    "status": "PASS_LOCAL_CURRENT_WORKTREE",
+    "status": "PASS_LOCAL_EXACT_SOURCE_CANDIDATE",
     "authority": "scripts/deploy/v033-isolation-inventory.ts overlays the existing complete route/page inventory",
     "routeInventoryValidation": "PASS_1_FILE_10_TESTS",
+    "routeInventoryCounts": "PASS_38_PAGES_42_API_GROUPS_231_UNIQUE_ROUTES",
     "scheduledJobs": 33,
     "storageAndR2Entrypoints": 8,
     "patientDomains": 6,
     "overlayValidation": "PASS_1_FILE_3_TESTS",
     "focusedNegativeMatrix": "PASS_29_FILES_472_TESTS",
-    "fullWorkerValidation": "PASS_236_FILES_2536_TESTS_AND_TYPECHECK",
+    "fullWorkerValidation": "PASS_241_FILES_2558_TESTS_AND_TYPECHECK",
     "fixedDefects": [
       "BAN health volume aggregation now binds messages_log.line_account_id for each account.",
       "Broadcast insight fetching no longer falls back to another LINE client when an explicit line_account_id has no matching client."
     ],
     "providerMessageCallInventory": "PASS_1_FILE_4_TESTS; every in-process provider push/reply/broadcast call is paired with its durable delivery helper, while the one multicast and test-push replay retain frozen retry-key contracts.",
-    "claimBoundary": "Local synthetic/source evidence only. A committed single RC replay and any production readback remain separate gates."
+    "claimBoundary": "Exact committed local-source replay passed. Remote D1, production readback, and Human Gates remain separate."
   },
   "independentReviews": {
     "replyRecovery": "APPROVE_NO_MEDIUM_OR_HIGH",
@@ -232,7 +235,7 @@
     "V033-G1": "BLOCKED_POLICY_HUMAN_GATE",
     "V033-G2": "BLOCKED_POLICY_HUMAN_GATE",
     "V033-G3": "BLOCKED_POLICY_HUMAN_GATE",
-    "V033-G4": "PASS_LOCAL_CURRENT_INVENTORY_AND_NEGATIVE_MATRIX",
+    "V033-G4": "PASS_LOCAL_EXACT_CANDIDATE_INVENTORY_AND_NEGATIVE_MATRIX",
     "V033-G5": "PASS_LOCAL_CODE_PRODUCTION_GATE_BLOCKED",
     "V033-G6": "BLOCKED_POLICY_HUMAN_GATE",
     "V033-G7": "PARTIAL_PASS",
@@ -242,14 +245,13 @@
   },
   "releaseBlockers": [
     "G1/G2/G3/G6 require explicit product and security policy approval.",
-    "The working tree is uncommitted and cannot be an exact RC SHA.",
-    "G7 has local staff bundle evidence but no remote Worker/D1 benchmark or single-RC replay.",
-    "G10 production legacy NULL counts and the one-RC send/log path denominator remain unverified.",
+    "G7 has historical local staff bundle evidence but no current-candidate performance replay or remote Worker/D1 benchmark.",
+    "G10 production legacy NULL counts remain unverified.",
     "Production legacy status=sending queue drain or approved reset is not verified.",
-    "No exact-candidate repository verify, development deploy, production deploy, or activation exists."
+    "No development deploy, production deploy, or activation exists."
   ],
   "boundaries": {
-    "commit": "NOT_RUN",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_b038890333628959837e44769f5d25886238084e",
     "pullRequest": "NOT_RUN",
     "devPush": "NOT_RUN",
     "devDeploy": "NOT_RUN",
