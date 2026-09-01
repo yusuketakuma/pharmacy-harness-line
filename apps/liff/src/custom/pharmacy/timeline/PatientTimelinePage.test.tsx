@@ -47,6 +47,8 @@ describe('patient timeline UI', () => {
   it('distinguishes an unsupported Worker from empty data and current failures', () => {
     expect(source).toContain('isUnsupportedPharmacyFeature(error)');
     expect(source).not.toContain("error.status === 404");
+    expect(source).toContain("pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。')");
+    expect(source).not.toContain("error.message || '利用状況を読み込めませんでした。'");
     expect(source).toContain('この環境では、まとめ表示をまだ利用できません');
     expect(source).toContain('まだ利用履歴はありません');
     expect(source).toContain('role="alert"');

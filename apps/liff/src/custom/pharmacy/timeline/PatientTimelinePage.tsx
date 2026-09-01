@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { pharmacyRoute } from '../navigation.js';
-import { isUnsupportedPharmacyFeature } from '../request.js';
+import { isUnsupportedPharmacyFeature, pharmacyErrorMessage } from '../request.js';
 import { patientTimelineApi, type PatientTimelineItem } from './api.js';
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -79,7 +79,7 @@ export default function PatientTimelinePage() {
       if (!mounted.current) return;
       const error = caught as Error;
       if (isUnsupportedPharmacyFeature(error)) setLegacyWorker(true);
-      else setErrorMessage(error.message || '利用状況を読み込めませんでした。');
+      else setErrorMessage(pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。'));
     } finally {
       if (mounted.current) setLoading(false);
     }
