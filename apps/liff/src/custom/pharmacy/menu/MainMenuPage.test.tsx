@@ -46,7 +46,7 @@ describe('pharmacy LIFF main menu', () => {
     expect(html).toContain('機能一覧を読み込み中')
     for (const item of pharmacyMainMenuItems()) expect(html).not.toContain(item.label);
     expect(html).not.toContain('薬局へ相談');
-    expect(pharmacyAppVersion).toBe('0.33.2');
+    expect(pharmacyAppVersion).toBe('0.34.0');
   });
 
   it('renders an explicit read-only badge for disabled features with owned history', () => {
