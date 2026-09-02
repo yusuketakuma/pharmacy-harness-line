@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   archivePatient: vi.fn(),
   updatePatient: vi.fn(),
   setPrivacyConsent: vi.fn(),
+  setNotificationPreference: vi.fn(),
   revokeProxy: vi.fn(),
   suspendBinding: vi.fn(),
   history: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('./repository.js', () => ({
   archivePharmacyPatient: mocks.archivePatient,
   updatePharmacyPatient: mocks.updatePatient,
   setPatientPrivacyConsent: mocks.setPrivacyConsent,
+  setPatientNotificationPreference: mocks.setNotificationPreference,
   revokePatientProxyGrant: mocks.revokeProxy,
   suspendPatientBinding: mocks.suspendBinding,
   getAdminPharmacyPatientHistory: mocks.history,
@@ -108,6 +110,7 @@ beforeEach(() => {
   mocks.archivePatient.mockResolvedValue(undefined);
   mocks.updatePatient.mockResolvedValue(undefined);
   mocks.setPrivacyConsent.mockResolvedValue({ status: 'withdrawn', version: 1 });
+  mocks.setNotificationPreference.mockResolvedValue({ status: 'stopped', version: 1 });
   mocks.revokeProxy.mockResolvedValue({ status: 'revoked' });
   mocks.suspendBinding.mockResolvedValue({
     status: 'suspended', controlVersion: 1,
@@ -265,6 +268,19 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: 'withdrawn', version: 1 });
     expect(mocks.setPrivacyConsent).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body);
+  });
+
+  it('stops patient notifications with an expected control version', async () => {
+    const body = { action: 'stop', expectedControlVersion: 0 };
+    const response = await request(
+      '/api/liff/pharmacy/patients/patient-1/notification-preference', 'POST', body,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'stopped', version: 1 });
+    expect(mocks.setNotificationPreference).toHaveBeenCalledWith(
+      env.DB, owner, 'patient-1', body,
+    );
   });
 
   it('returns caller-useful patient access state without actor identifiers', async () => {

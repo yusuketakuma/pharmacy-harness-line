@@ -23,6 +23,7 @@ import {
   PATIENT_PROXY_TERMS_HASH,
   PATIENT_PROXY_TERMS_VERSION,
   revokePatientProxyGrant,
+  setPatientNotificationPreference,
   setPatientPrivacyConsent,
   suspendPatientBinding,
   updatePharmacyPatient,
@@ -264,6 +265,23 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/privacy-consent', asy
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
     return c.json(await setPatientPrivacyConsent(
+      c.env.DB,
+      c.get('pharmacyPatient'),
+      c.req.param('id'),
+      body as never,
+    ));
+  } catch (error) {
+    const mapped = parseJsonError(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
+});
+
+pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/notification-preference', async (c) => {
+  const body = await readJsonObject(c.req);
+  if (!body) return c.json({ error: 'Invalid JSON' }, 400);
+  try {
+    return c.json(await setPatientNotificationPreference(
       c.env.DB,
       c.get('pharmacyPatient'),
       c.req.param('id'),

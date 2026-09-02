@@ -735,6 +735,128 @@ export async function getPatientAccessState(
   };
 }
 
+export interface SetPatientNotificationPreferenceInput {
+  action: 'stop' | 'resume';
+  expectedControlVersion: number;
+}
+
+export async function setPatientNotificationPreference(
+  db: D1Database,
+  owner: PharmacyPatientOwner,
+  patientId: string,
+  input: SetPatientNotificationPreferenceInput,
+): Promise<{ status: 'stopped' | 'resumed'; version: number }> {
+  if (input.action !== 'stop' && input.action !== 'resume') {
+    throw new Error('invalid patient notification action');
+  }
+  if (!Number.isSafeInteger(input.expectedControlVersion) || input.expectedControlVersion < 0) {
+    throw new Error('invalid patient control version');
+  }
+  const now = new Date().toISOString();
+  const transitionId = crypto.randomUUID();
+  const nextVersion = input.expectedControlVersion + 1;
+  const mutation = input.action === 'stop'
+    ? db.prepare(
+      `INSERT INTO pharmacy_patient_owner_controls
+         (line_account_id, patient_id, owner_friend_id, notifications_stopped_at,
+          version, updated_at, last_transition_id)
+       SELECT ?, ?, ?, ?, 1, ?, ?
+         FROM pharmacy_patients AS patient
+        WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
+          AND patient.archived_at IS NULL
+          AND (? = 0 OR EXISTS (
+            SELECT 1 FROM pharmacy_patient_owner_controls AS existing
+             WHERE existing.line_account_id = patient.line_account_id
+               AND existing.patient_id = patient.id
+               AND existing.owner_friend_id = patient.owner_friend_id
+               AND existing.version = ?
+          ))
+          ${patientAuthorityPredicate('patient')}
+       ON CONFLICT (line_account_id, patient_id) DO UPDATE SET
+         notifications_stopped_at = excluded.notifications_stopped_at,
+         notifications_resumed_at = NULL,
+         version = pharmacy_patient_owner_controls.version + 1,
+         updated_at = excluded.updated_at,
+         last_transition_id = excluded.last_transition_id
+       WHERE pharmacy_patient_owner_controls.owner_friend_id = excluded.owner_friend_id
+         AND pharmacy_patient_owner_controls.version = ?
+         AND (pharmacy_patient_owner_controls.notifications_stopped_at IS NULL OR
+              pharmacy_patient_owner_controls.notifications_resumed_at IS NOT NULL AND
+              unixepoch(pharmacy_patient_owner_controls.notifications_resumed_at) >=
+              unixepoch(pharmacy_patient_owner_controls.notifications_stopped_at))`,
+    ).bind(
+      owner.lineAccountId, patientId, owner.friendId, now, now, transitionId,
+      patientId, owner.lineAccountId, owner.friendId,
+      input.expectedControlVersion, input.expectedControlVersion,
+      owner.friendId, now, input.expectedControlVersion,
+    )
+    : db.prepare(
+      `UPDATE pharmacy_patient_owner_controls AS controls
+          SET notifications_resumed_at = ?, version = version + 1,
+              updated_at = ?, last_transition_id = ?
+        WHERE controls.line_account_id = ? AND controls.patient_id = ?
+          AND controls.owner_friend_id = ? AND controls.version = ?
+          AND controls.notifications_stopped_at IS NOT NULL
+          AND (controls.notifications_resumed_at IS NULL OR
+               unixepoch(controls.notifications_stopped_at) >
+               unixepoch(controls.notifications_resumed_at))
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = controls.patient_id
+               AND patient.line_account_id = controls.line_account_id
+               AND patient.owner_friend_id = controls.owner_friend_id
+               AND patient.archived_at IS NULL
+               ${patientAuthorityPredicate('patient')}
+          )`,
+    ).bind(
+      now, now, transitionId, owner.lineAccountId, patientId, owner.friendId,
+      input.expectedControlVersion, owner.friendId, now,
+    );
+  const action = input.action === 'stop' ? 'notifications_stopped' : 'notifications_resumed';
+  const audit = db.prepare(
+    `INSERT INTO pharmacy_patient_control_audit_events
+       (id, line_account_id, patient_id, owner_friend_id, actor_kind, actor_id,
+        action, control_version, created_at)
+     SELECT ?, controls.line_account_id, controls.patient_id, controls.owner_friend_id,
+            'patient', ?, ?, controls.version, ?
+       FROM pharmacy_patient_owner_controls AS controls
+      WHERE controls.line_account_id = ? AND controls.patient_id = ?
+        AND controls.owner_friend_id = ? AND controls.version = ?
+        AND controls.last_transition_id = ?
+     UNION ALL
+     SELECT ?, NULL, ?, ?, 'patient', ?, ?, ?, ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM pharmacy_patient_owner_controls AS controls
+         WHERE controls.line_account_id = ? AND controls.patient_id = ?
+           AND controls.owner_friend_id = ? AND controls.version = ?
+           AND controls.last_transition_id = ?
+      )`,
+  ).bind(
+    crypto.randomUUID(), owner.friendId, action, now,
+    owner.lineAccountId, patientId, owner.friendId, nextVersion, transitionId,
+    crypto.randomUUID(), patientId, owner.friendId, owner.friendId, action, nextVersion, now,
+    owner.lineAccountId, patientId, owner.friendId, nextVersion, transitionId,
+  );
+  try {
+    const results = await db.batch([mutation, audit]);
+    if (results.length === 2 && results.every((item) => item.meta?.changes === 1)) {
+      return { status: input.action === 'stop' ? 'stopped' : 'resumed', version: nextVersion };
+    }
+  } catch {
+    // A concurrent preference change makes the audit guard abort this batch; read the winner below.
+  }
+  const current = await getPatientAccessState(db, owner, patientId);
+  if (!current) throw new Error('patient not found');
+  if ((input.action === 'stop' && current.notifications === 'stopped') ||
+      (input.action === 'resume' && current.notifications === 'enabled')) {
+    return {
+      status: input.action === 'stop' ? 'stopped' : 'resumed',
+      version: current.controlVersion,
+    };
+  }
+  throw new Error('patient notification conflict');
+}
+
 export async function getAdminPharmacyPatient(
   db: D1Database,
   lineAccountId: string,

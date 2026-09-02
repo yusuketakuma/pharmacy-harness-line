@@ -10,6 +10,7 @@ type DueValidity = {
   friend_id: string;
   valid_until: string;
   line_user_id: string;
+  patient_id: string | null;
 };
 
 export async function processDuePrescriptionValidityReminders(
@@ -51,7 +52,7 @@ export async function processDuePrescriptionValidityReminders(
     })) expiredReviewRequired++;
   }
   const rows = await db.prepare(
-    `SELECT v.submission_id, v.line_account_id, s.friend_id, v.valid_until,
+    `SELECT v.submission_id, v.line_account_id, s.friend_id, patient.patient_id, v.valid_until,
             f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
        FROM pharmacy_prescription_validities v
        INNER JOIN pharmacy_prescription_submissions s
@@ -62,6 +63,9 @@ export async function processDuePrescriptionValidityReminders(
          ON mapping.line_account_id = s.line_account_id
        INNER JOIN tenants tenant
          ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       LEFT JOIN pharmacy_prescription_patients patient
+         ON patient.submission_id = s.id AND patient.line_account_id = s.line_account_id
+        AND patient.owner_friend_id = s.friend_id
        INNER JOIN pharmacy_account_capabilities pc
          ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
         AND EXISTS (SELECT 1 FROM json_each(pc.capabilities_json) WHERE json_each.value = 'prescription_intake')
@@ -135,6 +139,7 @@ export async function processDuePrescriptionValidityReminders(
         to: row.line_user_id,
         lineAccountId: row.line_account_id,
         friendId: row.friend_id,
+        ...(row.patient_id ? { patientId: row.patient_id } : {}),
         messageId: 'prescription_validity_reminder_v1',
         category: 'transactional_care',
         vars: { genericDate: row.valid_until },

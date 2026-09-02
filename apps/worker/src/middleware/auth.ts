@@ -439,7 +439,10 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   const isPharmacyIntakePatientAction =
     path === '/api/liff/pharmacy/patients' && (method === 'GET' || method === 'POST') ||
     /^\/api\/liff\/pharmacy\/patients\/[^/]+(\/intake|\/archive)?$/.test(path) &&
-      (method === 'GET' || method === 'POST' || method === 'PATCH');
+      (method === 'GET' || method === 'POST' || method === 'PATCH') ||
+    method === 'GET' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/access$/.test(path) ||
+    method === 'POST' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/(privacy-consent|notification-preference)$/.test(path) ||
+    method === 'DELETE' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/proxy-grant$/.test(path);
   if (isPharmacyIntakePatientAction) return next();
 
   // custom:pharmacy-myna — the handoff and self-report routes verify the

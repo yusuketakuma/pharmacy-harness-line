@@ -36,6 +36,15 @@ export interface PatientIntake {
   created_at: string;
 }
 
+export interface PatientAccessState {
+  access: 'self' | 'proxy';
+  permission: 'patient_intake_v1' | null;
+  proxyExpiresAt: string | null;
+  privacy: 'active' | 'withdrawn';
+  notifications: 'enabled' | 'stopped';
+  controlVersion: number;
+}
+
 /**
  * The pharmacy's own APPI notice. The pharmacy — not the platform operator — is the
  * 個人情報取扱事業者, so every string here is authored by that pharmacy.
@@ -117,6 +126,15 @@ export const patientIntakeApi = {
   revokeProxy: (patientId: string) => request<{ status: 'revoked' }>(
     `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}/proxy-grant`,
     { method: 'DELETE' },
+  ),
+  access: (patientId: string) => request<{ access: PatientAccessState }>(
+    `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}/access`,
+  ),
+  setNotifications: (patientId: string, body: {
+    action: 'stop' | 'resume';
+    expectedControlVersion: number;
+  }) => json<{ status: 'stopped' | 'resumed'; version: number }>(
+    `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}/notification-preference`, body,
   ),
   updatePatient: (patientId: string, body: {
     expectedUpdatedAt: string;

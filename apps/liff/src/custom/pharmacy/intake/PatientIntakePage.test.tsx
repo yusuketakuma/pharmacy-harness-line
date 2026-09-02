@@ -308,6 +308,14 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(source).toContain('result.proxyGrant.expiresAt');
   });
 
+  it('loads and updates patient notification preferences independently', () => {
+    expect(source).toContain('patientIntakeApi.access(selectedId)');
+    expect(source).toContain('patientIntakeApi.setNotifications(selectedPatient.id');
+    expect(source).toContain('お知らせを停止する');
+    expect(source).toContain('お知らせを再開する');
+    expect(source).toContain('代理権限や個人情報の同意状態は変わりません');
+  });
+
   it('shows a success card with next steps and scrolls to top', () => {
     expect(source).toContain('window.scrollTo(0, 0)');
     expect(source).toContain('次にすること');

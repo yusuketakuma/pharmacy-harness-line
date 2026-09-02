@@ -57,6 +57,7 @@ describe('medication follow-up notifications', () => {
       db,
       lineAccountId: 'account-a',
       friendId: 'friend-a',
+      patientId: 'patient-a',
       messageId: 'medication_followup_v1',
       category: 'followup_care',
       vars: { followUpId: scheduled.id, liffId: scheduled.liff_id },

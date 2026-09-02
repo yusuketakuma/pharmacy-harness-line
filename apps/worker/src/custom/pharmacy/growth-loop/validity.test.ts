@@ -16,7 +16,7 @@ function fakeDb() {
         all: async () => {
           queries.push(sql);
           if (sql.includes('v.valid_until < ?')) return { results: [] };
-          return { results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] };
+          return { results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', patient_id: 'patient-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] };
         },
         run: async () => {
           calls.push(sql);
@@ -49,6 +49,7 @@ describe('prescription validity reminders', () => {
       lineAccountId: 'account-a',
       kind: 'channel_access_token',
     });
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ patientId: 'patient-a' }));
     expect(calls.filter((sql) => sql.includes('SET reminder_claimed_at = ?') || sql.includes('SET reminder_sent_at = ?')).length).toBe(2);
     expect(queries[1]).toContain("s.status = 'ready'");
     expect(queries[1]).toContain('f.provider_line_user_id AS line_user_id');

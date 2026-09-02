@@ -12,6 +12,7 @@ import {
   PATIENT_PROXY_TERMS_HASH,
   PATIENT_PROXY_TERMS_TEXT,
   revokePatientProxyGrant,
+  setPatientNotificationPreference,
   setPatientPrivacyConsent,
   suspendPatientBinding,
   type PharmacyPatient,
@@ -430,6 +431,26 @@ describe('pharmacy patient repository', () => {
       action: 'withdraw', expectedControlVersion: 0,
     })).resolves.toEqual({ status: 'withdrawn', version: 1 });
     expect(privacy.calls[0].sql).toContain("patient.relationship = 'self'");
+  });
+
+  it('stops and resumes patient notifications without changing other controls', async () => {
+    const stopped = fakeDb(null);
+    await expect(setPatientNotificationPreference(stopped.db, owner, 'patient-1', {
+      action: 'stop', expectedControlVersion: 0,
+    })).resolves.toEqual({ status: 'stopped', version: 1 });
+    expect(stopped.calls[0].sql).toContain('notifications_stopped_at');
+    expect(stopped.calls[0].sql).toContain('notifications_resumed_at = NULL');
+    expect(stopped.calls[0].sql).not.toContain('privacy_reconsented_at =');
+    expect(stopped.calls[0].sql).not.toContain('binding_suspended_at =');
+    expect(stopped.calls[1].values).toContain('notifications_stopped');
+
+    const resumed = fakeDb(null);
+    await expect(setPatientNotificationPreference(resumed.db, owner, 'patient-1', {
+      action: 'resume', expectedControlVersion: 1,
+    })).resolves.toEqual({ status: 'resumed', version: 2 });
+    expect(resumed.calls[0].sql).toContain('notifications_resumed_at');
+    expect(resumed.calls[0].sql).toContain('notifications_stopped_at');
+    expect(resumed.calls[1].values).toContain('notifications_resumed');
   });
 
   it('caps a new proxy grant at the Japan-time eighteenth birthday', async () => {

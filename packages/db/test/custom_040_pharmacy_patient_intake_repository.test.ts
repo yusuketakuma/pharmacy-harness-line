@@ -10,6 +10,7 @@ import {
   getPatientAccessState,
   getLatestPatientIntake,
   listPharmacyPatients,
+  setPatientNotificationPreference,
   setPatientPrivacyConsent,
   updatePharmacyPatient,
   type CreatePatientIntakeInput,
@@ -362,5 +363,33 @@ describe('encrypted pharmacy patient intake repository', () => {
     })).rejects.toThrow('patient not found');
     expect(sqlite.prepare(`SELECT COUNT(*) AS count
       FROM pharmacy_patient_control_audit_events`).get()).toEqual({ count: 2 });
+  });
+
+  it('changes notification preference with CAS without reviving other authority', async () => {
+    await setPatientPrivacyConsent(db, owner, 'patient-a', {
+      action: 'withdraw', expectedControlVersion: 0,
+    });
+    await expect(setPatientNotificationPreference(db, owner, 'patient-a', {
+      action: 'stop', expectedControlVersion: 1,
+    })).resolves.toEqual({ status: 'stopped', version: 2 });
+    await expect(getPatientAccessState(db, owner, 'patient-a')).resolves.toMatchObject({
+      privacy: 'withdrawn', notifications: 'stopped', controlVersion: 2,
+    });
+
+    await expect(setPatientNotificationPreference(db, owner, 'patient-a', {
+      action: 'resume', expectedControlVersion: 2,
+    })).resolves.toEqual({ status: 'resumed', version: 3 });
+    await expect(getPatientAccessState(db, owner, 'patient-a')).resolves.toMatchObject({
+      privacy: 'withdrawn', notifications: 'enabled', controlVersion: 3,
+    });
+    expect(sqlite.prepare(`SELECT action, control_version
+      FROM pharmacy_patient_control_audit_events ORDER BY control_version`).all()).toEqual([
+      { action: 'privacy_withdrawn', control_version: 1 },
+      { action: 'notifications_stopped', control_version: 2 },
+      { action: 'notifications_resumed', control_version: 3 },
+    ]);
+    await expect(setPatientNotificationPreference(db, owner, 'patient-a', {
+      action: 'stop', expectedControlVersion: 1,
+    })).rejects.toThrow('patient notification conflict');
   });
 });

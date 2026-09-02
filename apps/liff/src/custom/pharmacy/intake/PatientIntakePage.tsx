@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   patientIntakeApi,
   type PatientIntakeAnswers,
+  type PatientAccessState,
   type PatientRelationship,
   type PharmacyPatient,
   type TenantPrivacyPolicy,
@@ -50,6 +51,8 @@ export default function PatientIntakePage() {
   const [selectedId, setSelectedId] = useState('');
   const [latestRevision, setLatestRevision] = useState<number | null>(null);
   const [latestAnswers, setLatestAnswers] = useState<PatientIntakeAnswers | null>(null);
+  const [accessState, setAccessState] = useState<PatientAccessState | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
   const [answers, setAnswers] = useState<IntakeAnswersDraft>(INITIAL_INTAKE_ANSWERS);
   const [intakeStep, setIntakeStep] = useState(1);
   const [showStepErrors, setShowStepErrors] = useState(false);
@@ -191,6 +194,23 @@ export default function PatientIntakePage() {
     return () => { active = false; };
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!selectedId) {
+      setAccessState(null);
+      return;
+    }
+    let active = true;
+    setAccessLoading(true);
+    void patientIntakeApi.access(selectedId).then((result) => {
+      if (active) setAccessState(result.access);
+    }).catch((err: unknown) => {
+      if (active) setError(pharmacyErrorMessage(err, 'お知らせ設定を読み込めませんでした。'));
+    }).finally(() => {
+      if (active) setAccessLoading(false);
+    });
+    return () => { active = false; };
+  }, [selectedId]);
+
   async function createPatient() {
     const {
       relationship,
@@ -285,6 +305,35 @@ export default function PatientIntakePage() {
       if (remaining.length === 0) resetPatientForm('self');
     } catch (err) {
       setError(pharmacyErrorMessage(err, '代理入力権限を取り消せませんでした。'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateNotifications() {
+    if (!selectedPatient || !accessState || busy) return;
+    const action = accessState.notifications === 'enabled' ? 'stop' : 'resume';
+    if (action === 'stop' && !window.confirm(
+      'この患者について、薬局からの自動のお知らせを停止しますか？すでに停止したお知らせは、再開後も送信されません。',
+    )) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await patientIntakeApi.setNotifications(selectedPatient.id, {
+        action,
+        expectedControlVersion: accessState.controlVersion,
+      });
+      setAccessState((current) => current && ({
+        ...current,
+        notifications: result.status === 'stopped' ? 'stopped' : 'enabled',
+        controlVersion: result.version,
+      }));
+      setSuccess(result.status === 'stopped'
+        ? 'この患者について、自動のお知らせを停止しました。'
+        : 'この患者について、今後の自動のお知らせを再開しました。');
+    } catch (err) {
+      setError(pharmacyErrorMessage(err, 'お知らせ設定を変更できませんでした。'));
     } finally {
       setBusy(false);
     }
@@ -450,6 +499,26 @@ export default function PatientIntakePage() {
             </button>
           )}
         </section>
+
+        {!showNewPatient && selectedPatient && (
+          <section className="rounded-xl bg-white p-4 shadow-sm space-y-3" aria-labelledby="notification-heading">
+            <h2 id="notification-heading" className="font-bold">LINEのお知らせ</h2>
+            {accessLoading || !accessState ? (
+              <p className="text-sm text-gray-600">設定を確認しています...</p>
+            ) : <>
+              <p className="text-base text-gray-800">
+                現在：<strong>{accessState.notifications === 'enabled' ? '受け取る' : '停止中'}</strong>
+              </p>
+              <p className="text-sm leading-6 text-gray-700">
+                この患者について薬局から自動送信されるお知らせを設定します。代理権限や個人情報の同意状態は変わりません。
+              </p>
+              <button type="button" onClick={() => void updateNotifications()} disabled={busy}
+                className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50">
+                {accessState.notifications === 'enabled' ? 'お知らせを停止する' : 'お知らせを再開する'}
+              </button>
+            </>}
+          </section>
+        )}
 
         {!showNewPatient && selectedPatient && <>
           {latestAnswers && (

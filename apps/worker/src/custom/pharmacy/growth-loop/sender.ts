@@ -5,6 +5,7 @@ import {
   pushViaHarnessProxy,
 } from '../../../services/line-proxy-send.js';
 import { getPharmacyCapabilityConfig } from './repository.js';
+import { getPatientAccessState } from '../intake/repository.js';
 import {
   buildApprovedPharmacyMessage,
   type PharmacyAutomatedMessageId,
@@ -23,6 +24,7 @@ type AutomatedPushInput = {
   to: string;
   lineAccountId: string;
   friendId: string;
+  patientId?: string;
   messageId: PharmacyAutomatedMessageId;
   category: Exclude<PharmacyNotificationCategory, 'manual'>;
   vars?: PharmacyMessageVars;
@@ -35,6 +37,7 @@ export type PharmacyPushResult =
   | 'already_sent'
   | 'in_progress'
   | 'reconciliation_required'
+  | 'patient_blocked'
   | 'paused';
 
 function jstMonthBounds(now: Date): { from: string; to: string } {
@@ -51,7 +54,7 @@ async function markOutcome(
   db: D1Database,
   lineAccountId: string,
   retryKey: string,
-  outcome: 'sent' | 'failed',
+  outcome: 'sent' | 'failed' | 'blocked',
   occurredAt: string,
 ): Promise<void> {
   await db.prepare(
@@ -71,6 +74,21 @@ async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Pro
     crypto.randomUUID(), input.lineAccountId, input.friendId, input.messageId,
     input.category, occurredAt, input.retryKey, occurredAt,
   ).run();
+  await input.db.prepare(
+    `UPDATE pharmacy_notification_events
+        SET outcome = 'blocked', occurred_at = ?
+      WHERE line_account_id = ? AND idempotency_key = ?
+        AND outcome IN ('attempted','failed')`,
+  ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
+}
+
+async function canDeliverToPatient(input: AutomatedPushInput): Promise<boolean> {
+  if (!input.patientId) return true;
+  const access = await getPatientAccessState(input.db, {
+    lineAccountId: input.lineAccountId,
+    friendId: input.friendId,
+  }, input.patientId);
+  return access?.notifications === 'enabled';
 }
 
 export async function sendPharmacyAutomatedPush(
@@ -121,6 +139,10 @@ export async function sendPharmacyAutomatedPush(
   const month = jstMonthBounds(now);
   const notificationEventId = crypto.randomUUID();
   let dispatchEventId = notificationEventId;
+  if (!(await canDeliverToPatient(input))) {
+    await recordBlocked(input, occurredAt);
+    return 'patient_blocked';
+  }
   const claim = await input.db.prepare(
     `INSERT OR IGNORE INTO pharmacy_notification_events
       (id, line_account_id, friend_id, message_id, category, outcome,
@@ -193,6 +215,11 @@ export async function sendPharmacyAutomatedPush(
       await recordBlocked(input, occurredAt);
       throw new Error('pharmacy proactive frequency cap reached');
     }
+  }
+
+  if (!(await canDeliverToPatient(input))) {
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
+    return 'patient_blocked';
   }
 
   try {

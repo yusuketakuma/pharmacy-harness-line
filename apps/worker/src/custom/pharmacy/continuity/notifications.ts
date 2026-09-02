@@ -38,6 +38,7 @@ export async function deliverContinuityReminder(
       to: reminder.line_user_id,
       lineAccountId: reminder.line_account_id,
       friendId: reminder.owner_friend_id,
+      patientId: reminder.patient_id,
       messageId: 'continuity_reminder_v1',
       category: 'continuity',
       retryKey: `next-intake:${reminder.id}`,

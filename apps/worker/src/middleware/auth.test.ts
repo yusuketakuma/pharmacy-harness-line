@@ -118,6 +118,10 @@ function app() {
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.get('/api/liff/pharmacy/prescriptions/recovery', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/patients/:id/access', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/patients/:id/privacy-consent', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/patients/:id/notification-preference', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/patients/:id/proxy-grant', (c) => c.json({ success: true }));
   a.get('/api/liff/pharmacy/timeline', (c) => c.json({ success: true }));
   a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
@@ -318,6 +322,25 @@ describe('protected API access', () => {
 
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
+  });
+
+  test.each([
+    ['GET', '/api/liff/pharmacy/patients/patient-1/access'],
+    ['POST', '/api/liff/pharmacy/patients/patient-1/privacy-consent'],
+    ['POST', '/api/liff/pharmacy/patients/patient-1/notification-preference'],
+    ['DELETE', '/api/liff/pharmacy/patients/patient-1/proxy-grant'],
+  ])('lets the LIFF patient route perform its own identity verification: %s %s', async (method, path) => {
+    const response = await app().request(`${path}?liffId=test`, { method }, env());
+    expect(response.status).toBe(200);
+  });
+
+  test('does not broaden the LIFF patient control method allowlist', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/patients/patient-1/notification-preference?liffId=test',
+      { method: 'PUT' },
+      env(),
+    );
+    expect(response.status).toBe(401);
   });
 
   test('allows Idempotency-Key in cross-origin preflight requests', async () => {
