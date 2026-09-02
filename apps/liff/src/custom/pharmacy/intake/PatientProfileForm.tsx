@@ -14,6 +14,9 @@ const prefectures = [
   '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
 ] as const;
 
+export const PATIENT_PROXY_TERMS_TEXT = '保護者として、この未成年の患者情報とアンケートを代理入力します。代理権限は登録から最長90日間（18歳になるまで）有効で、自動更新されず、いつでも取り消せます。';
+export const PATIENT_PROXY_TERMS_HASH = '129e9ad353fff88b8623931245b5a1bed3ba30f2cb54e6b5f2c9be854c743f7c';
+
 export interface PatientProfileDraft {
   relationship: PatientRelationship;
   name: string;
@@ -26,6 +29,7 @@ export interface PatientProfileDraft {
   city: string;
   addressLine1: string;
   addressLine2: string;
+  proxyConsentAccepted: boolean;
 }
 
 export function emptyPatientProfileDraft(
@@ -43,6 +47,7 @@ export function emptyPatientProfileDraft(
     city: '',
     addressLine1: '',
     addressLine2: '',
+    proxyConsentAccepted: false,
   };
 }
 
@@ -59,16 +64,37 @@ export function patientProfileDraft(patient: PharmacyPatient): PatientProfileDra
     city: patient.city ?? '',
     addressLine1: patient.address_line1 ?? '',
     addressLine2: patient.address_line2 ?? '',
+    proxyConsentAccepted: false,
   };
 }
 
 export type PatientProfileErrors = Partial<Record<keyof PatientProfileDraft, string>>;
 
-export function patientProfileErrors(draft: PatientProfileDraft): PatientProfileErrors {
+function isMinorBirthDate(birthDate: string): boolean {
+  if (!birthDate) return false;
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (birthDate > today) return false;
+  const [birthYear, birthMonth, birthDay] = birthDate.split('-').map(Number);
+  const [year, month, day] = today.split('-').map(Number);
+  return year - birthYear - (month < birthMonth || (month === birthMonth && day < birthDay) ? 1 : 0) < 18;
+}
+
+export function patientProfileErrors(
+  draft: PatientProfileDraft,
+  editing = false,
+): PatientProfileErrors {
   const errors: PatientProfileErrors = {};
   if (!draft.name.trim()) errors.name = '氏名を入力してください';
   if (!draft.nameKana.trim()) errors.nameKana = '氏名カナを入力してください';
   if (!draft.birthDate) errors.birthDate = '生年月日を入力してください';
+  if (!editing && ['spouse', 'parent', 'other'].includes(draft.relationship)) {
+    errors.relationship = '成人のご家族は薬局で本人確認が必要です';
+  } else if (!editing && draft.relationship === 'child' && draft.birthDate &&
+             !isMinorBirthDate(draft.birthDate)) {
+    errors.relationship = '18歳以上のご家族は薬局で本人確認が必要です';
+  } else if (!editing && draft.relationship === 'child' && !draft.proxyConsentAccepted) {
+    errors.proxyConsentAccepted = '代理入力の条件を確認して同意してください';
+  }
   const hasAddress = Boolean(
     draft.postalCode.trim() || draft.prefecture || draft.city.trim() ||
     draft.addressLine1.trim() || draft.addressLine2.trim(),
@@ -110,22 +136,51 @@ export function PatientProfileForm({
   onToggleAddress: () => void;
   onSubmit: () => void;
 }) {
+  const requiresPharmacyVerification = !editing && (
+    ['spouse', 'parent', 'other'].includes(draft.relationship) ||
+    (draft.relationship === 'child' && Boolean(draft.birthDate) &&
+      !isMinorBirthDate(draft.birthDate))
+  );
   return (
     <div className="space-y-3" aria-label="家族を追加">
-      <label className="block text-sm">
-        続柄
-        <select
-          value={draft.relationship}
-          onChange={(event) => onChange('relationship', event.target.value as PatientRelationship)}
-          className="mt-1 block w-full rounded-lg border p-3"
-        >
-          <option value="self">本人</option>
-          <option value="child">子ども</option>
-          <option value="spouse">配偶者</option>
-          <option value="parent">親</option>
-          <option value="other">その他</option>
-        </select>
-      </label>
+      {editing ? <p className="text-sm">続柄：本人</p> : (
+        <label className="block text-sm">
+          続柄
+          <select
+            value={draft.relationship}
+            onChange={(event) => onChange('relationship', event.target.value as PatientRelationship)}
+            className="mt-1 block w-full rounded-lg border p-3"
+          >
+            <option value="self">本人</option>
+            <option value="child">子ども</option>
+            <option value="spouse">配偶者</option>
+            <option value="parent">親</option>
+            <option value="other">その他</option>
+          </select>
+          <FieldError message={errors.relationship} />
+        </label>
+      )}
+      {requiresPharmacyVerification && (
+        <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {draft.relationship === 'child' ? '18歳以上' : '成人'}のご家族は薬局で本人確認が必要です。薬局へお問い合わせください。
+        </p>
+      )}
+      {!editing && draft.relationship === 'child' && !requiresPharmacyVerification && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm leading-6 text-gray-800">
+          <p className="font-bold">保護者による代理入力</p>
+          <p>{PATIENT_PROXY_TERMS_TEXT}</p>
+          <label className="mt-2 flex min-h-11 items-start gap-3 font-bold">
+            <input
+              type="checkbox"
+              checked={draft.proxyConsentAccepted}
+              onChange={(event) => onChange('proxyConsentAccepted', event.target.checked)}
+              className="mt-1 h-5 w-5"
+            />
+            私は、この子どもの情報を代理入力する権限のある親または法定代理人であることを申し出て、条件に同意します
+          </label>
+          <FieldError message={errors.proxyConsentAccepted} />
+        </div>
+      )}
       <label className="block text-sm">
         氏名{REQUIRED_BADGE}
         <input required aria-invalid={errors.name ? true : undefined} autoComplete="name" value={draft.name} onChange={(event) => onChange('name', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 aria-[invalid]:border-red-500" />
@@ -186,7 +241,7 @@ export function PatientProfileForm({
           <input autoComplete="address-line2" value={draft.addressLine2} onChange={(event) => onChange('addressLine2', event.target.value)} className="mt-1 block w-full rounded-lg border p-3" maxLength={240} />
         </label>
       </div>}
-      <button type="button" onClick={onSubmit} disabled={busy} className="min-h-11 w-full rounded-lg bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">
+      <button type="button" onClick={onSubmit} disabled={busy || requiresPharmacyVerification} className="min-h-11 w-full rounded-lg bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">
         {editing ? '患者情報を更新する' : '患者を登録する'}
       </button>
     </div>

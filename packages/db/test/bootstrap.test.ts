@@ -94,6 +94,7 @@ describe('bootstrap.sql', () => {
       ADMIN_LOGIN_THROTTLES_MIGRATION,
       PATIENT_PROXY_CONTROLS_MIGRATION,
       PATIENT_CONTROL_AUDIT_MIGRATION,
+      '013_custom_070_patient_proxy_lifecycle.sql',
     ]);
   });
 

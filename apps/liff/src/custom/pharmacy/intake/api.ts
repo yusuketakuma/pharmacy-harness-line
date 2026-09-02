@@ -102,7 +102,22 @@ export const patientIntakeApi = {
     city: string | null;
     addressLine1: string | null;
     addressLine2: string | null;
-  }) => json<{ patient: PharmacyPatient }>('/api/liff/pharmacy/patients', body),
+    proxyConsent?: { accepted: boolean; termsVersion: number; termsHash: string };
+    registrationIdempotencyKey?: string;
+  }) => json<{
+    patient: PharmacyPatient;
+    proxyGrant?: {
+      permission: 'patient_intake_v1';
+      basis: 'self_attested_guardian';
+      expiresAt: string;
+      termsVersion: number;
+      termsHash: string;
+    };
+  }>('/api/liff/pharmacy/patients', body),
+  revokeProxy: (patientId: string) => request<{ status: 'revoked' }>(
+    `/api/liff/pharmacy/patients/${encodeURIComponent(patientId)}/proxy-grant`,
+    { method: 'DELETE' },
+  ),
   updatePatient: (patientId: string, body: {
     expectedUpdatedAt: string;
     relationship: PatientRelationship;

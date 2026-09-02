@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
+  archivePharmacyPatient,
   createPharmacyPatient,
   createPatientIntakeResponse,
   getAdminPharmacyPatientHistory,
@@ -7,6 +9,11 @@ import {
   getLatestPatientIntake,
   listAdminPharmacyPatients,
   listPharmacyPatients,
+  PATIENT_PROXY_TERMS_HASH,
+  PATIENT_PROXY_TERMS_TEXT,
+  revokePatientProxyGrant,
+  setPatientPrivacyConsent,
+  type PharmacyPatient,
   updatePharmacyPatient,
 } from './repository.js';
 
@@ -57,7 +64,11 @@ const policyProof = {
 };
 
 describe('pharmacy patient repository', () => {
-  it('rejects family creation until an expiring proxy grant can be issued atomically', async () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('creates a minor child and fixed 90-day proxy grant atomically', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T00:00:00.000Z'));
     const { db, calls } = fakeDb(null);
     await expect(createPharmacyPatient(db, owner, {
       relationship: 'child',
@@ -71,8 +82,89 @@ describe('pharmacy patient repository', () => {
       city: null,
       addressLine1: null,
       addressLine2: null,
+      proxyConsent: { accepted: true, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+      registrationIdempotencyKey: 'register-child-1',
+    })).resolves.toMatchObject({ relationship: 'child' });
+    expect(calls).toHaveLength(3);
+    expect(calls.every((call) => call.operation === 'batch')).toBe(true);
+    expect(calls[1].sql).toContain('INSERT INTO pharmacy_patient_proxy_grants');
+    expect(calls[1].sql).toContain("'patient_intake_v1'");
+    expect(calls[1].sql).toContain("'self_attested_guardian'");
+    expect(calls[1].values).toContain('2026-12-01T00:00:00.000Z');
+    expect(calls[2].sql).toContain("'proxy_granted'");
+    expect(calls[0].sql).toContain('registration_idempotency_key');
+    expect(calls[2].sql).toContain('terms_hash');
+  });
+
+  it.each([
+    ['child', '2000-04-01'],
+    ['spouse', '2000-04-01'],
+    ['parent', '1950-04-01'],
+    ['other', '2000-04-01'],
+  ] as const)('keeps unverified adult relationship %s closed', async (relationship, birthDate) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T00:00:00.000Z'));
+    const { db, calls } = fakeDb(null);
+    await expect(createPharmacyPatient(db, owner, {
+      relationship, name: '患者', nameKana: 'カンジャ', birthDate,
+      sex: null, contactPhone: null, postalCode: null, prefecture: null,
+      city: null, addressLine1: null, addressLine2: null,
+      proxyConsent: { accepted: true, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+    })).rejects.toThrow('adult family verification required');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('uses the Japan calendar date for the exact 18-year boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T16:00:00.000Z'));
+    const { db, calls } = fakeDb(null);
+    await expect(createPharmacyPatient(db, owner, {
+      relationship: 'child', name: '患者', nameKana: 'カンジャ', birthDate: '2008-09-02',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null,
+      city: null, addressLine1: null, addressLine2: null,
+      proxyConsent: { accepted: true, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+    })).rejects.toThrow('adult family verification required');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('requires the current proxy terms before creating a child', async () => {
+    const { db, calls } = fakeDb(null);
+    await expect(createPharmacyPatient(db, owner, {
+      relationship: 'child', name: '患者', nameKana: 'カンジャ', birthDate: '2018-04-01',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null,
+      city: null, addressLine1: null, addressLine2: null,
+      proxyConsent: { accepted: false, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+    })).rejects.toThrow('proxy consent required');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('preserves the previous family rejection for clients without proxy consent fields', async () => {
+    const { db, calls } = fakeDb(null);
+    await expect(createPharmacyPatient(db, owner, {
+      relationship: 'child', name: '患者', nameKana: 'カンジャ', birthDate: '2018-04-01',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null,
+      city: null, addressLine1: null, addressLine2: null,
     })).rejects.toThrow('proxy grant required');
     expect(calls).toHaveLength(0);
+  });
+
+  it('binds the recorded proxy hash to the canonical terms text', () => {
+    expect(createHash('sha256').update(PATIENT_PROXY_TERMS_TEXT).digest('hex'))
+      .toBe(PATIENT_PROXY_TERMS_HASH);
+  });
+
+  it('revokes the exact owner-scoped proxy grant and writes an audit event atomically', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T00:00:00.000Z'));
+    const { db, calls } = fakeDb({ id: 'grant-1', revoked_at: null, version: 1 });
+    await expect(revokePatientProxyGrant(db, owner, 'patient-1')).resolves.toEqual({ status: 'revoked' });
+    expect(calls[0].sql).toContain('line_account_id = ?');
+    expect(calls[0].values).toEqual(['account-1', 'patient-1', 'friend-1']);
+    expect(calls[1].sql).toContain('UPDATE pharmacy_patient_proxy_grants');
+    expect(calls[1].sql).toContain('last_transition_id = ?');
+    expect(calls[2].sql).toContain("'proxy_revoked'");
+    expect(calls[2].sql).toContain('grant.last_transition_id = ?');
+    expect(calls.slice(1).every((call) => call.operation === 'batch')).toBe(true);
   });
 
   it('rejects malformed profile data before touching D1', async () => {
@@ -124,6 +216,8 @@ describe('pharmacy patient repository', () => {
     expect(calls[0].sql).toContain('archived_at IS NULL');
     expect(calls[0].values.slice(0, 3)).toEqual(['account-1', 'friend-1', 'friend-1']);
     expect(calls[0].sql).toContain('pharmacy_patient_proxy_grants');
+    expect(calls[0].sql).toContain('proxy.superseded_at IS NULL');
+    expect(calls[0].sql).toContain("date(pharmacy_patients.birth_date, '+18 years')");
   });
 
   it('does not expose account linkage in the admin patient list', async () => {
@@ -251,13 +345,72 @@ describe('pharmacy patient repository', () => {
   it('updates a patient profile with owner-scoped optimistic concurrency', async () => {
     const { db, calls } = fakeDb(null);
     await expect(updatePharmacyPatient(db, owner, 'patient-1', '2026-08-17T00:00:00.000Z', {
-      relationship: 'child', name: '更新患者', nameKana: 'コウシンカンジャ',
+      relationship: 'self', name: '更新患者', nameKana: 'コウシンカンジャ',
       birthDate: '2018-04-01', sex: null, contactPhone: null,
       postalCode: null, prefecture: null, city: null, addressLine1: null, addressLine2: null,
     })).resolves.toBeUndefined();
     expect(calls[0].sql).toContain('UPDATE pharmacy_patients');
+    expect(calls[0].sql).not.toContain('SET relationship =');
+    expect(calls[0].sql).toContain("relationship = 'self'");
     expect(calls[0].sql).toContain('owner_friend_id = ?');
     expect(calls[0].sql).toContain("value = 'patient_intake'");
+  });
+
+  it('keeps profile archive and privacy controls self-only', async () => {
+    const archive = fakeDb(null);
+    await expect(archivePharmacyPatient(
+      archive.db, owner, 'patient-1', '2026-08-17T00:00:00.000Z',
+    )).resolves.toBeUndefined();
+    expect(archive.calls[0].sql).toContain("relationship = 'self'");
+
+    const privacy = fakeDb(null);
+    await expect(setPatientPrivacyConsent(privacy.db, owner, 'patient-1', {
+      action: 'withdraw', expectedControlVersion: 0,
+    })).resolves.toEqual({ status: 'withdrawn', version: 1 });
+    expect(privacy.calls[0].sql).toContain("patient.relationship = 'self'");
+  });
+
+  it('caps a new proxy grant at the Japan-time eighteenth birthday', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T00:00:00.000Z'));
+    const { db, calls } = fakeDb(null);
+    await createPharmacyPatient(db, owner, {
+      relationship: 'child', name: '患者', nameKana: 'カンジャ', birthDate: '2008-09-03',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null,
+      city: null, addressLine1: null, addressLine2: null,
+      proxyConsent: { accepted: true, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+      registrationIdempotencyKey: 'register-boundary-1',
+    });
+    expect(calls[1].values).toContain('2026-09-02T15:00:00.000Z');
+  });
+
+  it('returns the existing patient after an identical registration retry wins the unique key', async () => {
+    let stored: (PharmacyPatient & { registration_request_hash: string }) | null = null;
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
+        __sql: sql,
+        __values: values,
+        run: async () => ({ success: true, meta: { changes: 1 } }),
+        first: async () => stored,
+      }) }),
+      batch: async (statements: Array<{ __values: unknown[] }>) => {
+        stored = {
+          id: 'patient-existing', line_account_id: 'account-1', owner_friend_id: 'friend-1',
+          relationship: 'child', name: '患者', name_kana: 'カンジャ', birth_date: '2018-01-01',
+          sex: null, contact_phone: null, postal_code: null, prefecture: null, city: null,
+          address_line1: null, address_line2: null, archived_at: null,
+          registration_request_hash: String(statements[0].__values[15]),
+        };
+        throw new Error('UNIQUE constraint failed');
+      },
+    } as unknown as D1Database;
+    await expect(createPharmacyPatient(db, owner, {
+      relationship: 'child', name: '患者', nameKana: 'カンジャ', birthDate: '2018-01-01',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null,
+      city: null, addressLine1: null, addressLine2: null,
+      proxyConsent: { accepted: true, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+      registrationIdempotencyKey: 'register-retry-1',
+    })).resolves.toMatchObject({ id: 'patient-existing' });
   });
 
   it('creates an immutable intake revision with consent and a patient snapshot', async () => {

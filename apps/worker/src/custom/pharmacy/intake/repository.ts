@@ -49,6 +49,8 @@ export interface CreatePharmacyPatientInput {
   city: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
+  proxyConsent?: { accepted: boolean; termsVersion: number; termsHash: string };
+  registrationIdempotencyKey?: string;
 }
 
 export interface PatientIntakeAnswers {
@@ -114,6 +116,10 @@ const ALCOHOL_VALUES = new Set(['none', 'occasional', 'weekly', 'frequent', 'unk
 const MEDICATION_ADHERENCE_VALUES = new Set(['none', 'sometimes', 'often', 'unknown']);
 const PREGNANCY_VALUES = new Set(['not_applicable', 'yes', 'no', 'unknown']);
 const INTAKE_SCHEMA_VERSION = 2;
+export const PATIENT_PROXY_TERMS_VERSION = 1;
+export const PATIENT_PROXY_TERMS_TEXT = '保護者として、この未成年の患者情報とアンケートを代理入力します。代理権限は登録から最長90日間（18歳になるまで）有効で、自動更新されず、いつでも取り消せます。';
+export const PATIENT_PROXY_TERMS_HASH = '129e9ad353fff88b8623931245b5a1bed3ba30f2cb54e6b5f2c9be854c743f7c';
+const PATIENT_PROXY_DURATION_MS = 90 * 24 * 60 * 60 * 1000;
 const MEDICAL_HISTORY_TAGS = new Set([
   'hypertension', 'diabetes', 'dyslipidemia', 'heart_disease',
   'kidney_disease', 'liver_disease', 'asthma', 'other',
@@ -140,15 +146,18 @@ function patientAuthorityPredicate(patientAlias: string): string {
     )
     AND (
       ${patientAlias}.relationship = 'self'
-      OR EXISTS (
+      OR (${patientAlias}.relationship = 'child'
+      AND date(${patientAlias}.birth_date, '+18 years') > date('now', '+9 hours')
+      AND EXISTS (
         SELECT 1 FROM pharmacy_patient_proxy_grants AS proxy
          WHERE proxy.line_account_id = ${patientAlias}.line_account_id
            AND proxy.patient_id = ${patientAlias}.id
            AND proxy.actor_friend_id = ?
            AND proxy.permission_code = 'patient_intake_v1'
            AND proxy.revoked_at IS NULL
+           AND proxy.superseded_at IS NULL
            AND unixepoch(proxy.expires_at) > unixepoch(?)
-      )
+      ))
     )`;
 }
 
@@ -204,6 +213,28 @@ function validatePatientInput(input: CreatePharmacyPatientInput): void {
     throw new Error('invalid patient profile');
   }
   validateAddress(input);
+}
+
+function isMinor(birthDate: string, today: string): boolean {
+  if (birthDate > today) return false;
+  const [birthYear, birthMonth, birthDay] = birthDate.split('-').map(Number);
+  const [year, month, day] = today.split('-').map(Number);
+  const age = year - birthYear - (month < birthMonth || (month === birthMonth && day < birthDay) ? 1 : 0);
+  return age < 18;
+}
+
+function japanCalendarDate(date: Date): string {
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function majorityBoundary(birthDate: string): Date {
+  const [year, month, day] = birthDate.split('-').map(Number);
+  return new Date(Date.UTC(year + 18, month - 1, day) - 9 * 60 * 60 * 1000);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function validateIntakeInput(input: CreatePatientIntakeInput): void {
@@ -264,8 +295,23 @@ export async function createPharmacyPatient(
   input: CreatePharmacyPatientInput,
 ): Promise<PharmacyPatient> {
   validatePatientInput(input);
-  if (input.relationship !== 'self') throw new Error('proxy grant required');
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+  if (input.relationship !== 'self') {
+    if (!input.proxyConsent) throw new Error('proxy grant required');
+    if (input.relationship !== 'child' || !isMinor(input.birthDate, japanCalendarDate(nowDate))) {
+      throw new Error('adult family verification required');
+    }
+    if (!input.proxyConsent?.accepted ||
+        input.proxyConsent.termsVersion !== PATIENT_PROXY_TERMS_VERSION ||
+        input.proxyConsent.termsHash !== PATIENT_PROXY_TERMS_HASH) {
+      throw new Error('proxy consent required');
+    }
+    if (!input.registrationIdempotencyKey ||
+        !/^[A-Za-z0-9._:-]{8,128}$/.test(input.registrationIdempotencyKey)) {
+      throw new Error('invalid registration idempotency key');
+    }
+  }
   const patient: PharmacyPatient = {
     id: crypto.randomUUID(),
     line_account_id: owner.lineAccountId,
@@ -285,12 +331,24 @@ export async function createPharmacyPatient(
     created_at: now,
     updated_at: now,
   };
-  const result = await db.prepare(
+  const registrationIdempotencyKey = input.relationship === 'child'
+    ? input.registrationIdempotencyKey!
+    : null;
+  const registrationRequestHash = input.relationship === 'child'
+    ? await sha256Hex(JSON.stringify([
+      patient.relationship, patient.name, patient.name_kana, patient.birth_date,
+      patient.sex, patient.contact_phone, patient.postal_code, patient.prefecture,
+      patient.city, patient.address_line1, patient.address_line2,
+      PATIENT_PROXY_TERMS_VERSION, PATIENT_PROXY_TERMS_HASH,
+    ]))
+    : null;
+  const patientStatement = db.prepare(
     `INSERT INTO pharmacy_patients
        (id, line_account_id, owner_friend_id, relationship, name, name_kana,
         birth_date, sex, contact_phone, postal_code, prefecture, city,
-        address_line1, address_line2, archived_at, created_at, updated_at)
-     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?
+        address_line1, address_line2, archived_at, registration_idempotency_key,
+        registration_request_hash, created_at, updated_at)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM pharmacy_account_capabilities AS capability
          WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
@@ -312,12 +370,149 @@ export async function createPharmacyPatient(
     patient.city,
     patient.address_line1,
     patient.address_line2,
+    registrationIdempotencyKey,
+    registrationRequestHash,
     now,
     now,
     owner.lineAccountId,
-  ).run();
-  if ((result.meta?.changes ?? 0) !== 1) throw new Error('FEATURE_DISABLED');
+  );
+  if (input.relationship === 'self') {
+    const result = await patientStatement.run();
+    if ((result.meta?.changes ?? 0) !== 1) throw new Error('FEATURE_DISABLED');
+    return patient;
+  }
+
+  const grantId = crypto.randomUUID();
+  const expiresAt = new Date(Math.min(
+    Date.parse(now) + PATIENT_PROXY_DURATION_MS,
+    majorityBoundary(patient.birth_date).getTime(),
+  )).toISOString();
+  const grantStatement = db.prepare(
+    `INSERT INTO pharmacy_patient_proxy_grants
+       (id, line_account_id, patient_id, actor_friend_id, permission_code,
+        basis_code, terms_version, terms_hash, granted_at, expires_at,
+        revoked_at, revoke_reason_code, version, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'patient_intake_v1', 'self_attested_guardian',
+             ?, ?, ?, ?, NULL, NULL, 1, ?, ?)`,
+  ).bind(
+    grantId, owner.lineAccountId, patient.id, owner.friendId,
+    PATIENT_PROXY_TERMS_VERSION, PATIENT_PROXY_TERMS_HASH, now, expiresAt, now, now,
+  );
+  const auditStatement = db.prepare(
+    `INSERT INTO pharmacy_patient_control_audit_events
+       (id, line_account_id, patient_id, owner_friend_id, actor_kind, actor_id,
+        action, control_version, created_at, grant_id, permission_code, basis_code,
+        terms_version, terms_hash)
+     VALUES (?, ?, ?, ?, 'patient', ?, 'proxy_granted', 1, ?, ?,
+             'patient_intake_v1', 'self_attested_guardian', ?, ?)`,
+  ).bind(
+    crypto.randomUUID(), owner.lineAccountId, patient.id, owner.friendId, owner.friendId,
+    now, grantId, PATIENT_PROXY_TERMS_VERSION, PATIENT_PROXY_TERMS_HASH,
+  );
+  let results: D1Result[];
+  try {
+    results = await db.batch([patientStatement, grantStatement, auditStatement]);
+  } catch (error) {
+    const existing = await db.prepare(
+      `SELECT id, line_account_id, owner_friend_id, relationship, name, name_kana,
+              birth_date, sex, contact_phone, postal_code, prefecture, city,
+              address_line1, address_line2, archived_at, created_at, updated_at,
+              registration_request_hash
+         FROM pharmacy_patients
+        WHERE line_account_id = ? AND owner_friend_id = ?
+          AND registration_idempotency_key = ?
+          AND relationship = 'child'
+          AND date(birth_date, '+18 years') > date('now', '+9 hours')
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patient_proxy_grants AS proxy
+             WHERE proxy.line_account_id = pharmacy_patients.line_account_id
+               AND proxy.patient_id = pharmacy_patients.id
+               AND proxy.actor_friend_id = pharmacy_patients.owner_friend_id
+               AND proxy.permission_code = 'patient_intake_v1'
+               AND proxy.revoked_at IS NULL AND proxy.superseded_at IS NULL
+               AND unixepoch(proxy.expires_at) > unixepoch('now')
+          )`,
+    ).bind(
+      owner.lineAccountId, owner.friendId, registrationIdempotencyKey,
+    ).first<PharmacyPatient & { registration_request_hash: string }>();
+    if (!existing) throw error;
+    if (existing.registration_request_hash !== registrationRequestHash) {
+      throw new Error('registration idempotency conflict');
+    }
+    const { registration_request_hash: _, ...idempotentPatient } = existing;
+    return idempotentPatient;
+  }
+  if (results.length !== 3 || results[0]?.meta?.changes !== 1) throw new Error('FEATURE_DISABLED');
+  if (results.slice(1).some((result) => result.meta?.changes !== 1)) {
+    throw new Error('patient proxy conflict');
+  }
   return patient;
+}
+
+export async function revokePatientProxyGrant(
+  db: D1Database,
+  owner: PharmacyPatientOwner,
+  patientId: string,
+): Promise<{ status: 'revoked' }> {
+  const grant = await db.prepare(
+    `SELECT id, revoked_at, version
+       FROM pharmacy_patient_proxy_grants
+      WHERE line_account_id = ? AND patient_id = ? AND actor_friend_id = ?
+        AND permission_code = 'patient_intake_v1'
+        AND superseded_at IS NULL
+      ORDER BY granted_at DESC, id DESC
+      LIMIT 1`,
+  ).bind(owner.lineAccountId, patientId, owner.friendId).first<{
+    id: string;
+    revoked_at: string | null;
+    version: number;
+  }>();
+  if (!grant) throw new Error('patient not found');
+  if (grant.revoked_at) return { status: 'revoked' };
+
+  const now = new Date().toISOString();
+  const nextVersion = grant.version + 1;
+  const transitionId = crypto.randomUUID();
+  const mutation = db.prepare(
+    `UPDATE pharmacy_patient_proxy_grants
+        SET revoked_at = ?, revoke_reason_code = 'user_revoked', version = ?,
+            updated_at = ?, last_transition_id = ?
+      WHERE id = ? AND line_account_id = ? AND patient_id = ? AND actor_friend_id = ?
+        AND permission_code = 'patient_intake_v1' AND revoked_at IS NULL AND version = ?`,
+  ).bind(
+    now, nextVersion, now, transitionId, grant.id, owner.lineAccountId,
+    patientId, owner.friendId, grant.version,
+  );
+  const audit = db.prepare(
+    `INSERT INTO pharmacy_patient_control_audit_events
+       (id, line_account_id, patient_id, owner_friend_id, actor_kind, actor_id,
+        action, control_version, reason_code, created_at, grant_id, permission_code,
+        basis_code, terms_version, terms_hash)
+     SELECT ?, grant.line_account_id, grant.patient_id, grant.actor_friend_id,
+            'patient', grant.actor_friend_id, 'proxy_revoked', grant.version,
+            grant.revoke_reason_code, ?, grant.id, grant.permission_code,
+            grant.basis_code, grant.terms_version, grant.terms_hash
+       FROM pharmacy_patient_proxy_grants AS grant
+      WHERE grant.id = ? AND grant.line_account_id = ? AND grant.patient_id = ?
+        AND grant.actor_friend_id = ? AND grant.revoked_at = ? AND grant.version = ?
+        AND grant.last_transition_id = ?`,
+  ).bind(
+    crypto.randomUUID(), now, grant.id, owner.lineAccountId, patientId,
+    owner.friendId, now, nextVersion, transitionId,
+  );
+  const results = await db.batch([mutation, audit]);
+  if (results.length !== 2 || results.some((result) => result.meta?.changes !== 1)) {
+    const current = await db.prepare(
+      `SELECT revoked_at FROM pharmacy_patient_proxy_grants
+        WHERE id = ? AND line_account_id = ? AND patient_id = ? AND actor_friend_id = ?
+          AND permission_code = 'patient_intake_v1' AND superseded_at IS NULL`,
+    ).bind(
+      grant.id, owner.lineAccountId, patientId, owner.friendId,
+    ).first<{ revoked_at: string | null }>();
+    if (current?.revoked_at) return { status: 'revoked' };
+    throw new Error('patient proxy conflict');
+  }
+  return { status: 'revoked' };
 }
 
 export async function listPharmacyPatients(
@@ -406,11 +601,15 @@ export async function getPatientAccessState(
         AND proxy.actor_friend_id = ?
         AND proxy.permission_code = 'patient_intake_v1'
         AND proxy.revoked_at IS NULL
+        AND proxy.superseded_at IS NULL
         AND unixepoch(proxy.expires_at) > unixepoch(?)
       WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
         AND patient.archived_at IS NULL
         AND controls.binding_suspended_at IS NULL
-        AND (patient.relationship = 'self' OR proxy.id IS NOT NULL)
+        AND (patient.relationship = 'self' OR
+             (patient.relationship = 'child' AND
+              date(patient.birth_date, '+18 years') > date('now', '+9 hours') AND
+              proxy.id IS NOT NULL))
       ORDER BY proxy.expires_at DESC, proxy.id DESC
       LIMIT 1`,
   ).bind(
@@ -457,24 +656,12 @@ export async function updatePharmacyPatient(
   const now = new Date().toISOString();
   const result = await db.prepare(
     `UPDATE pharmacy_patients
-        SET relationship = ?, name = ?, name_kana = ?, birth_date = ?,
+        SET name = ?, name_kana = ?, birth_date = ?,
             sex = ?, contact_phone = ?, postal_code = ?, prefecture = ?,
             city = ?, address_line1 = ?, address_line2 = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-        AND archived_at IS NULL AND updated_at = ?
+        AND archived_at IS NULL AND updated_at = ? AND relationship = 'self'
         ${patientAuthorityPredicate('pharmacy_patients')}
-        AND (
-          ? = 'self'
-          OR EXISTS (
-            SELECT 1 FROM pharmacy_patient_proxy_grants AS next_proxy
-             WHERE next_proxy.line_account_id = pharmacy_patients.line_account_id
-               AND next_proxy.patient_id = pharmacy_patients.id
-               AND next_proxy.actor_friend_id = ?
-               AND next_proxy.permission_code = 'patient_intake_v1'
-               AND next_proxy.revoked_at IS NULL
-               AND unixepoch(next_proxy.expires_at) > unixepoch(?)
-          )
-        )
         AND EXISTS (
           SELECT 1 FROM pharmacy_account_capabilities AS capability
            WHERE capability.line_account_id = pharmacy_patients.line_account_id
@@ -483,13 +670,13 @@ export async function updatePharmacyPatient(
                           WHERE value = 'patient_intake')
         )`,
   ).bind(
-    input.relationship, input.name.trim(), input.nameKana.trim(), input.birthDate,
+    input.name.trim(), input.nameKana.trim(), input.birthDate,
     input.sex, input.contactPhone?.trim() || null,
     normalizedOptional(input.postalCode), normalizedOptional(input.prefecture),
     normalizedOptional(input.city), normalizedOptional(input.addressLine1),
     normalizedOptional(input.addressLine2), now,
     patientId, owner.lineAccountId, owner.friendId, expectedUpdatedAt,
-    owner.friendId, now, input.relationship, owner.friendId, now,
+    owner.friendId, now,
   ).run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('patient update conflict');
 }
@@ -505,7 +692,7 @@ export async function archivePharmacyPatient(
     `UPDATE pharmacy_patients
         SET archived_at = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-        AND archived_at IS NULL AND updated_at = ?
+        AND archived_at IS NULL AND updated_at = ? AND relationship = 'self'
         ${patientAuthorityPredicate('pharmacy_patients')}`,
   ).bind(
     now, now, patientId,
@@ -546,7 +733,7 @@ export async function setPatientPrivacyConsent(
        SELECT ?, ?, ?, ?, 1, ?, ?
          FROM pharmacy_patients AS patient
         WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
-          AND ? = 0
+          AND patient.relationship = 'self' AND ? = 0
           ${patientAuthorityPredicate('patient')}
        ON CONFLICT (line_account_id, patient_id) DO UPDATE SET
          privacy_withdrawn_at = excluded.privacy_withdrawn_at,
@@ -583,6 +770,7 @@ export async function setPatientPrivacyConsent(
              WHERE patient.id = controls.patient_id
                AND patient.line_account_id = controls.line_account_id
                AND patient.owner_friend_id = controls.owner_friend_id
+               AND patient.relationship = 'self'
                ${patientAuthorityPredicate('patient')}
           )
           AND ((? = 'tenant' AND EXISTS (
@@ -733,6 +921,7 @@ export async function createPatientIntakeResponse(
                  AND proxy.actor_friend_id = ?
                  AND proxy.permission_code = 'patient_intake_v1'
                  AND proxy.revoked_at IS NULL
+                 AND proxy.superseded_at IS NULL
                  AND unixepoch(proxy.expires_at) > unixepoch(?)
                ORDER BY proxy.expires_at DESC, proxy.id DESC
                LIMIT 1

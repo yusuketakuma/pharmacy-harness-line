@@ -3,9 +3,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import PatientIntakePage, { canSubmitIntake } from './PatientIntakePage.js';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   emptyPatientProfileDraft,
+  PATIENT_PROXY_TERMS_HASH,
+  PATIENT_PROXY_TERMS_TEXT,
   PatientProfileForm,
   patientProfileErrors,
 } from './PatientProfileForm.js';
@@ -244,6 +247,12 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(patientProfileErrors({
       ...emptyPatientProfileDraft('self'), name: '山田', nameKana: 'ヤマダ', birthDate: '1950-01-01',
     })).toEqual({});
+    expect(patientProfileErrors({
+      ...emptyPatientProfileDraft('child'), name: '子', nameKana: 'コ', birthDate: '2018-01-01',
+    })).toMatchObject({ proxyConsentAccepted: '代理入力の条件を確認して同意してください' });
+    expect(patientProfileErrors({
+      ...emptyPatientProfileDraft('spouse'), name: '配偶者', nameKana: 'ハイグウシャ', birthDate: '2000-01-01',
+    })).toMatchObject({ relationship: '成人のご家族は薬局で本人確認が必要です' });
   });
 
   it('renders required badges and field-level errors in the profile form', () => {
@@ -262,6 +271,41 @@ describe('patient intake submit flow (WP-12)', () => {
     expect(html).toContain('必須');
     expect(html).toContain('氏名を入力してください');
     expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain('90日間');
+    expect(html).toContain('自動更新されず');
+    expect(html).toContain('いつでも取り消せます');
+  });
+
+  it('blocks an adult child in place and keeps the displayed terms hash-bound', () => {
+    const html = renderToStaticMarkup(
+      <PatientProfileForm
+        draft={{
+          ...emptyPatientProfileDraft('child'),
+          birthDate: '2000-01-01',
+          proxyConsentAccepted: true,
+        }}
+        editing={false}
+        busy={false}
+        showAddress={false}
+        onChange={() => undefined}
+        onToggleAddress={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+    expect(html).toContain('18歳以上のご家族は薬局で本人確認が必要です');
+    expect(html).not.toContain(PATIENT_PROXY_TERMS_TEXT);
+    expect(html).toContain('disabled=""');
+    expect(createHash('sha256').update(PATIENT_PROXY_TERMS_TEXT).digest('hex'))
+      .toBe(PATIENT_PROXY_TERMS_HASH);
+  });
+
+  it('wires explicit proxy consent and immediate revocation into the patient flow', () => {
+    expect(source).toContain('proxyConsent: { accepted: proxyConsentAccepted, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH }');
+    expect(source).toContain('patientIntakeApi.revokeProxy(selectedPatient.id)');
+    expect(source).toContain('代理権限を取り消す');
+    expect(source).toContain('registrationIdempotencyKey: registrationIdempotencyKeyRef.current');
+    expect(source).toContain("selectedPatient.relationship === 'self'");
+    expect(source).toContain('result.proxyGrant.expiresAt');
   });
 
   it('shows a success card with next steps and scrolls to top', () => {

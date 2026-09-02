@@ -23,6 +23,7 @@ describe('custom_053 outgoing webhook deliveries', () => {
       '010_custom_067_admin_login_throttles.sql',
       '011_custom_068_patient_proxy_controls.sql',
       '012_custom_069_patient_control_audit.sql',
+      '013_custom_070_patient_proxy_lifecycle.sql',
     ]);
   });
 

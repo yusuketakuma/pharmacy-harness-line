@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   archivePatient: vi.fn(),
   updatePatient: vi.fn(),
   setPrivacyConsent: vi.fn(),
+  revokeProxy: vi.fn(),
   history: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
@@ -29,6 +30,8 @@ vi.mock('../prescriptions/patient.js', () => ({
   resolvePrescriptionPatient: mocks.resolvePatient,
 }));
 vi.mock('./repository.js', () => ({
+  PATIENT_PROXY_TERMS_VERSION: 1,
+  PATIENT_PROXY_TERMS_HASH: '129e9ad353fff88b8623931245b5a1bed3ba30f2cb54e6b5f2c9be854c743f7c',
   listPharmacyPatients: mocks.listPatients,
   listAdminPharmacyPatients: mocks.listAdminPatients,
   createPharmacyPatient: mocks.createPatient,
@@ -39,6 +42,7 @@ vi.mock('./repository.js', () => ({
   archivePharmacyPatient: mocks.archivePatient,
   updatePharmacyPatient: mocks.updatePatient,
   setPatientPrivacyConsent: mocks.setPrivacyConsent,
+  revokePatientProxyGrant: mocks.revokeProxy,
   getAdminPharmacyPatientHistory: mocks.history,
   getAdminPharmacyPatient: mocks.getAdminPatient,
   getLatestAdminPatientIntake: mocks.getLatestAdminIntake,
@@ -102,6 +106,7 @@ beforeEach(() => {
   mocks.archivePatient.mockResolvedValue(undefined);
   mocks.updatePatient.mockResolvedValue(undefined);
   mocks.setPrivacyConsent.mockResolvedValue({ status: 'withdrawn', version: 1 });
+  mocks.revokeProxy.mockResolvedValue({ status: 'revoked' });
   mocks.history.mockResolvedValue({ patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [] });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
@@ -134,7 +139,37 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalled();
   });
 
-  it('keeps family creation closed until a fixed proxy duration is configured', async () => {
+  it('creates a minor child only with explicit current proxy terms consent', async () => {
+    mocks.getPatientAccess.mockResolvedValueOnce({
+      access: 'proxy', permission: 'patient_intake_v1',
+      proxyExpiresAt: '2026-12-01T00:00:00.000Z', privacy: 'active',
+      notifications: 'enabled', controlVersion: 0,
+    });
+    const body = {
+      relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
+      addressLine1: null, addressLine2: null,
+      proxyConsent: {
+        accepted: true,
+        termsVersion: 1,
+        termsHash: '129e9ad353fff88b8623931245b5a1bed3ba30f2cb54e6b5f2c9be854c743f7c',
+      },
+      registrationIdempotencyKey: 'register-child-1',
+    };
+    const response = await request('/api/liff/pharmacy/patients', 'POST', {
+      ...body,
+    });
+    expect(response.status).toBe(201);
+    expect(mocks.createPatient).toHaveBeenCalledWith(env.DB, owner, body);
+    await expect(response.json()).resolves.toMatchObject({
+      proxyGrant: {
+        permission: 'patient_intake_v1', basis: 'self_attested_guardian',
+        expiresAt: '2026-12-01T00:00:00.000Z', termsVersion: 1,
+      },
+    });
+  });
+
+  it('keeps the previous 403 contract for family requests from an older LIFF', async () => {
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
       relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
       sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
@@ -144,7 +179,13 @@ describe('LIFF pharmacy patient and intake routes', () => {
     await expect(response.json()).resolves.toEqual({
       error: 'Family patient access requires an active proxy grant',
     });
-    expect(mocks.createPatient).not.toHaveBeenCalled();
+  });
+
+  it('revokes proxy authority for the exact patient owner', async () => {
+    const response = await request('/api/liff/pharmacy/patients/patient-1/proxy-grant', 'DELETE');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'revoked' });
+    expect(mocks.revokeProxy).toHaveBeenCalledWith(env.DB, owner, 'patient-1');
   });
 
   it('blocks only new patient admission when patient intake is disabled', async () => {
