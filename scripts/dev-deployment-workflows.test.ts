@@ -183,8 +183,11 @@ describe('development deployment workflow contract', () => {
 
     const steps = repositoryVerify.jobs.verify.steps;
     expect(steps.some((step: { run?: string }) => step.run === 'pnpm verify:ci')).toBe(true);
+    const sharedBuild = steps.find(
+      (step: { name?: string }) => step.name === 'Build shared packages',
+    ).run as string;
     expect(rootPackage.scripts['verify:ci']).toMatch(
-      /^pnpm --filter @line-harness\/sdk build && pnpm -r typecheck/,
+      new RegExp(`^${sharedBuild.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} && pnpm -r typecheck`),
     );
     const build = steps.find(
       (step: { name?: string }) => step.name === 'Build critical applications',

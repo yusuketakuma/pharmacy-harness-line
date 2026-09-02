@@ -15,7 +15,7 @@
     "deploy:update": "node packages/create-line-harness/dist/index.js update",
     "sandbox:create-line-harness": "bash scripts/run-create-line-harness-sandbox.sh",
     "test:scripts": "vitest run --config vitest.config.mts",
-    "verify:ci": "pnpm --filter @line-harness/sdk build && pnpm -r typecheck && pnpm -r test && pnpm test:scripts && pnpm tsx scripts/check-migrations.ts",
+    "verify:ci": "pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/update-engine --filter @line-harness/sdk build && pnpm -r typecheck && pnpm -r test && pnpm test:scripts && pnpm tsx scripts/check-migrations.ts",
     "build:bundle": "tsx scripts/release/build-bundle.ts",
     "tenant:setup": "tsx scripts/custom/pharmacy/setup-tenant.ts",
     "tenant:settings": "tsx scripts/custom/pharmacy/manage-tenant-settings.ts",
