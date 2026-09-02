@@ -54,6 +54,28 @@ export function createPatientListRequestGate() {
   }
 }
 
+function BindingSuspensionPanel({
+  busy,
+  status,
+  onSuspend,
+}: {
+  busy: boolean
+  status: string
+  onSuspend: () => void
+}) {
+  return (
+    <section className="rounded-xl border border-red-200 bg-white p-5" aria-labelledby="binding-suspension-title">
+      <h2 id="binding-suspension-title" className="font-semibold text-red-800">誤ったLINE紐付けの停止</h2>
+      <p className="mt-2 text-sm text-gray-600">本人確認後に実行してください。既存データは移動しません。停止後は、正しいLINE利用者から患者情報を新規登録します。</p>
+      {status
+        ? <p role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-800">{status}</p>
+        : <button type="button" onClick={onSuspend} disabled={busy} className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50">
+            {busy ? '停止中...' : 'この患者のLINE紐付けを停止'}
+          </button>}
+    </section>
+  )
+}
+
 export default function PatientIntakeAdminPage() {
   const { selectedAccountId, loading: accountLoading } = useAccount()
   const [patients, setPatients] = useState<PharmacyPatient[]>([])
@@ -62,6 +84,8 @@ export default function PatientIntakeAdminPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [bindingBusy, setBindingBusy] = useState(false)
+  const [bindingStatus, setBindingStatus] = useState('')
   const listRequestGate = useRef(createPatientListRequestGate()).current
   // ponytail: patient list API has no follow-up filter yet; ?followup=attention only guides to the panel.
   const [followupFocus] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('followup') === 'attention')
@@ -95,7 +119,23 @@ export default function PatientIntakeAdminPage() {
     historyRequestGate.abort()
     setHistory(null)
     setHistoryLoading(true)
+    setBindingStatus('')
     setSelectedId(patientId)
+  }
+
+  const suspendBinding = async () => {
+    if (!selectedAccountId || !selected) return
+    if (!window.confirm('この患者のLINE紐付けを停止します。本人確認済みであることを確認してください。既存データは移動しません。続けますか？')) return
+    setBindingBusy(true)
+    setError('')
+    try {
+      await pharmacyIntakeAdminApi.suspendBinding(selectedAccountId, selected.id)
+      setBindingStatus('LINE紐付けを停止しました。正しいLINE利用者から患者情報を新規登録してください。')
+    } catch {
+      setError('LINE紐付けを停止できませんでした。再読み込みして確認してください。')
+    } finally {
+      setBindingBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -126,6 +166,7 @@ export default function PatientIntakeAdminPage() {
     setPatients([])
     setSelectedId('')
     setHistory(null)
+    setBindingStatus('')
     historyRequestGate.abort()
     if (!selectedAccountId) return
     void load()
@@ -171,6 +212,13 @@ export default function PatientIntakeAdminPage() {
           {!selected ? <p className="py-8 text-sm text-gray-500">患者を選択してください。</p> : historyLoading && !history ? <p className="py-8 text-sm text-gray-500">患者情報を読み込み中...</p> : !history ? <p className="py-8 text-sm text-red-600">患者情報を表示できません。再度読み込んでください。</p> : <div className="mt-4 space-y-5 text-sm"><dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-gray-500">患者</dt><dd>{selected.name}</dd></div><div><dt className="text-gray-500">カナ</dt><dd>{selected.name_kana}</dd></div><div><dt className="text-gray-500">続柄</dt><dd>{RELATIONSHIP_LABELS[selected.relationship]}</dd></div><div><dt className="text-gray-500">生年月日・性別</dt><dd>{selected.birth_date} / {selected.sex ? SEX_LABELS[selected.sex] : '未登録'}</dd></div></dl><div className="rounded-lg bg-gray-50 p-4"><p><span className="font-medium">電話：</span>{selected.contact_phone || '未登録'}</p><p className="mt-2"><span className="font-medium">住所：</span>{[selected.postal_code, selected.prefecture, selected.city, selected.address_line1, selected.address_line2].filter(Boolean).join(' ') || '未登録'}</p>{!intake ? <p className="mt-3 text-gray-500">アンケート回答はまだありません。</p> : <><p className="mt-3"><span className="font-medium">最新回答：</span>第{intake.revision}版（{formatHistoryDate(intake.created_at)}）</p><p className="mt-2"><span className="font-medium">アレルギー：</span>{STATUS_LABELS[String(answers.allergiesStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">副作用経験：</span>{STATUS_LABELS[String(answers.adverseReactionStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">服用中の薬：</span>{STATUS_LABELS[String(answers.medicationStatus)] ?? '未回答'}{answers.medicationSummary ? ` / ${String(answers.medicationSummary)}` : ''}</p><p className="mt-2"><span className="font-medium">既往歴・通院：</span>{STATUS_LABELS[String(answers.medicalHistoryStatus)] ?? '未回答'}{medicalHistoryTags !== '未回答' && medicalHistoryTags ? ` / ${medicalHistoryTags}` : ''}{answers.medicalHistory ? ` / ${String(answers.medicalHistory)}` : ''}</p><p className="mt-2"><span className="font-medium">お薬手帳：</span>{NOTEBOOK_LABELS[String(answers.medicationNotebook)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">喫煙：</span>{SMOKING_LABELS[String(answers.smokingStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">飲酒：</span>{ALCOHOL_LABELS[String(answers.alcoholStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">お薬の飲み忘れ：</span>{ADHERENCE_LABELS[String(answers.medicationAdherence)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">妊娠の可能性：</span>{PREGNANCY_LABELS[String(answers.pregnancyStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">授乳中：</span>{PREGNANCY_LABELS[String(answers.breastfeedingStatus)] ?? '未回答'}</p><p className="mt-2"><span className="font-medium">連絡事項：</span>{String(answers.notes || '記載なし')}</p></>}</div><section aria-labelledby="patient-history-title"><h3 id="patient-history-title" className="font-semibold">対応履歴（新しい順）</h3>{history.timeline.length === 0 ? <p className="mt-2 text-gray-500">対応履歴はありません。</p> : <ol className="mt-2 max-h-80 space-y-2 overflow-y-auto border-l border-gray-200 pl-4">{history.timeline.map((event, index) => <li key={`${event.occurred_at}-${event.kind}-${index}`} className="relative"><span className="absolute -left-[1.35rem] top-1.5 h-2 w-2 rounded-full bg-green-500" /><p className="font-medium">{event.label}{event.status ? `：${historyStatusLabel(event.label, event.status)}` : ''}</p><p className="text-xs text-gray-500">{formatHistoryDate(event.occurred_at)}</p></li>)}</ol>}</section><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border border-gray-200 p-3"><p className="text-xs text-gray-500">処方せん</p><p className="mt-1 text-xl font-semibold">{history.prescriptions.length}件</p></div><div className="rounded-lg border border-gray-200 p-3"><p className="text-xs text-gray-500">受付回答</p><p className="mt-1 text-xl font-semibold">{history.quotes.length}件</p></div><div className="rounded-lg border border-gray-200 p-3"><p className="text-xs text-gray-500">継続フォロー</p><p className="mt-1 text-xl font-semibold">{history.continuity.length}件</p></div></div></div>}
         </section>
       </div>
+      {history && selected && (
+        <BindingSuspensionPanel
+          busy={bindingBusy}
+          status={bindingStatus}
+          onSuspend={() => void suspendBinding()}
+        />
+      )}
       {history && (
         <MedicationFollowUpPanel
           accountId={selectedAccountId}

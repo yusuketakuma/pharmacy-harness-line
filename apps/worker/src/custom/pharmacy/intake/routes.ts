@@ -24,6 +24,7 @@ import {
   PATIENT_PROXY_TERMS_VERSION,
   revokePatientProxyGrant,
   setPatientPrivacyConsent,
+  suspendPatientBinding,
   updatePharmacyPatient,
 } from './repository.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
@@ -328,6 +329,26 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
   return c.json({ patients: await listAdminPharmacyPatients(c.env.DB, lineAccountId, true) });
+});
+
+pharmacyIntakeRoutes.post('/api/custom/pharmacy/patients/:id/binding-suspension', async (c) => {
+  const staff = c.get('staff');
+  const lineAccountId = getPharmacyAccountId(c);
+  if (!staff) return c.json({ error: 'Unauthorized' }, 401);
+  if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
+  const body = await readJsonObject(c.req);
+  if (!body || body.reasonCode !== 'wrong_line_binding') {
+    return c.json({ error: 'Invalid input' }, 400);
+  }
+  try {
+    return c.json(await suspendPatientBinding(
+      c.env.DB, lineAccountId, c.req.param('id'), staff.id, body.reasonCode,
+    ));
+  } catch (error) {
+    const mapped = parseJsonError(error);
+    if (mapped) return c.json({ error: mapped.error }, mapped.status);
+    throw error;
+  }
 });
 
 pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/history', async (c) => {

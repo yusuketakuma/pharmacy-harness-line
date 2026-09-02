@@ -515,6 +515,108 @@ export async function revokePatientProxyGrant(
   return { status: 'revoked' };
 }
 
+export async function suspendPatientBinding(
+  db: D1Database,
+  lineAccountId: string,
+  patientId: string,
+  staffId: string,
+  reasonCode: string,
+): Promise<{
+  status: 'suspended';
+  controlVersion: number;
+  nextAction: 'recreate_under_verified_owner';
+}> {
+  if (!lineAccountId || !patientId || !staffId || staffId.length > 128 ||
+      reasonCode !== 'wrong_line_binding') {
+    throw new Error('invalid patient binding suspension');
+  }
+  const readState = () => db.prepare(
+    `SELECT patient.owner_friend_id, controls.binding_suspended_at,
+            COALESCE(controls.version, 0) AS version
+       FROM pharmacy_patients AS patient
+       LEFT JOIN pharmacy_patient_owner_controls AS controls
+         ON controls.line_account_id = patient.line_account_id
+        AND controls.patient_id = patient.id
+        AND controls.owner_friend_id = patient.owner_friend_id
+      WHERE patient.id = ? AND patient.line_account_id = ?`,
+  ).bind(patientId, lineAccountId).first<{
+    owner_friend_id: string;
+    binding_suspended_at: string | null;
+    version: number;
+  }>();
+  const current = await readState();
+  if (!current) throw new Error('patient not found');
+  const result = (controlVersion: number) => ({
+    status: 'suspended' as const,
+    controlVersion,
+    nextAction: 'recreate_under_verified_owner' as const,
+  });
+  if (current.binding_suspended_at) return result(current.version);
+
+  const now = new Date().toISOString();
+  const nextVersion = current.version + 1;
+  const transitionId = crypto.randomUUID();
+  const mutation = db.prepare(
+    `INSERT INTO pharmacy_patient_owner_controls
+       (line_account_id, patient_id, owner_friend_id, binding_suspended_at,
+        binding_reason_code, version, updated_at, last_transition_id)
+     SELECT patient.line_account_id, patient.id, patient.owner_friend_id,
+            ?, ?, 1, ?, ?
+       FROM pharmacy_patients AS patient
+      WHERE patient.id = ? AND patient.line_account_id = ?
+     ON CONFLICT (line_account_id, patient_id) DO UPDATE SET
+       binding_suspended_at = excluded.binding_suspended_at,
+       binding_reason_code = excluded.binding_reason_code,
+       version = pharmacy_patient_owner_controls.version + 1,
+       updated_at = excluded.updated_at,
+       last_transition_id = excluded.last_transition_id
+     WHERE pharmacy_patient_owner_controls.owner_friend_id = excluded.owner_friend_id
+       AND pharmacy_patient_owner_controls.version = ?
+       AND pharmacy_patient_owner_controls.binding_suspended_at IS NULL`,
+  ).bind(
+    now, reasonCode, now, transitionId,
+    patientId, lineAccountId, current.version,
+  );
+  const audit = db.prepare(
+    `INSERT INTO pharmacy_patient_control_audit_events
+       (id, line_account_id, patient_id, owner_friend_id, actor_kind, actor_id,
+        action, control_version, reason_code, created_at)
+     SELECT ?, controls.line_account_id, controls.patient_id, controls.owner_friend_id,
+            'staff', ?, 'binding_suspended', controls.version,
+            controls.binding_reason_code, ?
+       FROM pharmacy_patient_owner_controls AS controls
+      WHERE controls.line_account_id = ? AND controls.patient_id = ?
+        AND controls.owner_friend_id = ? AND controls.version = ?
+        AND controls.binding_suspended_at = ? AND controls.last_transition_id = ?
+     UNION ALL
+     SELECT ?, NULL, ?, ?, 'staff', ?, 'binding_suspended', ?, ?, ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM pharmacy_patient_owner_controls AS controls
+         WHERE controls.line_account_id = ? AND controls.patient_id = ?
+           AND controls.owner_friend_id = ? AND controls.version = ?
+           AND controls.binding_suspended_at = ? AND controls.last_transition_id = ?
+      )`,
+  ).bind(
+    crypto.randomUUID(), staffId, now, lineAccountId, patientId,
+    current.owner_friend_id, nextVersion, now, transitionId,
+    crypto.randomUUID(), patientId, current.owner_friend_id, staffId,
+    nextVersion, reasonCode, now, lineAccountId, patientId,
+    current.owner_friend_id, nextVersion, now, transitionId,
+  );
+  try {
+    const results = await db.batch([mutation, audit]);
+    if (results.length === 2 && results.every((item) => item.meta?.changes === 1)) {
+      return result(nextVersion);
+    }
+  } catch {
+    // A concurrent suspension makes the audit guard abort this batch; read the winner below.
+  }
+  const latest = await readState();
+  if (!latest) throw new Error('patient not found');
+  if (latest.binding_suspended_at) return result(latest.version);
+  throw new Error('patient binding suspension conflict');
+}
+
 export async function listPharmacyPatients(
   db: D1Database,
   owner: PharmacyPatientOwner,

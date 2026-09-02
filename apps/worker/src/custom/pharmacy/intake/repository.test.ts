@@ -13,6 +13,7 @@ import {
   PATIENT_PROXY_TERMS_TEXT,
   revokePatientProxyGrant,
   setPatientPrivacyConsent,
+  suspendPatientBinding,
   type PharmacyPatient,
   updatePharmacyPatient,
 } from './repository.js';
@@ -165,6 +166,67 @@ describe('pharmacy patient repository', () => {
     expect(calls[2].sql).toContain("'proxy_revoked'");
     expect(calls[2].sql).toContain('grant.last_transition_id = ?');
     expect(calls.slice(1).every((call) => call.operation === 'batch')).toBe(true);
+  });
+
+  it('suspends a wrong LINE binding without moving patient ownership', async () => {
+    const { db, calls } = fakeDb({
+      owner_friend_id: 'friend-1', binding_suspended_at: null, version: 0,
+    });
+
+    await expect(suspendPatientBinding(
+      db, 'account-1', 'patient-1', 'staff-1', 'wrong_line_binding',
+    )).resolves.toEqual({
+      status: 'suspended', controlVersion: 1,
+      nextAction: 'recreate_under_verified_owner',
+    });
+
+    expect(calls[0].sql).toContain('patient.line_account_id = ?');
+    expect(calls[0].values).toEqual(['patient-1', 'account-1']);
+    expect(calls[1].sql).toContain('INSERT INTO pharmacy_patient_owner_controls');
+    expect(calls[1].sql).toContain('binding_suspended_at');
+    expect(calls[1].sql).toContain('last_transition_id');
+    expect(calls[1].sql).not.toContain('AND ? = 0');
+    expect(calls[2].sql).toContain("'staff'");
+    expect(calls[2].sql).toContain("'binding_suspended'");
+    expect(calls[2].sql).toContain('UNION ALL');
+    expect(calls[2].sql).toContain('WHERE NOT EXISTS');
+    expect(calls[2].sql).toContain('SELECT ?, NULL');
+    expect(calls[2].values).toContain('staff-1');
+    expect(calls.every((call) => !call.sql.includes('UPDATE pharmacy_patients'))).toBe(true);
+  });
+
+  it('treats an already suspended binding as an idempotent success', async () => {
+    const { db, calls } = fakeDb({
+      owner_friend_id: 'friend-1',
+      binding_suspended_at: '2026-09-02T00:00:00.000Z',
+      version: 2,
+    });
+
+    await expect(suspendPatientBinding(
+      db, 'account-1', 'patient-1', 'staff-1', 'wrong_line_binding',
+    )).resolves.toEqual({
+      status: 'suspended', controlVersion: 2,
+      nextAction: 'recreate_under_verified_owner',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('converges on the winner of a concurrent binding suspension', async () => {
+    const states = [
+      { owner_friend_id: 'friend-1', binding_suspended_at: null, version: 0 },
+      { owner_friend_id: 'friend-1', binding_suspended_at: '2026-09-02T00:00:00.000Z', version: 1 },
+    ];
+    const db = {
+      prepare: () => ({ bind: () => ({ first: async () => states.shift() ?? null }) }),
+      batch: async () => { throw new Error('constraint failed'); },
+    } as unknown as D1Database;
+
+    await expect(suspendPatientBinding(
+      db, 'account-1', 'patient-1', 'staff-1', 'wrong_line_binding',
+    )).resolves.toEqual({
+      status: 'suspended', controlVersion: 1,
+      nextAction: 'recreate_under_verified_owner',
+    });
   });
 
   it('rejects malformed profile data before touching D1', async () => {

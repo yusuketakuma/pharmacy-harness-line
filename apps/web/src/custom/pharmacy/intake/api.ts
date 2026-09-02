@@ -87,4 +87,12 @@ export const pharmacyIntakeAdminApi = {
     `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/history?${accountQuery(accountId)}`,
     { signal },
   ),
+  suspendBinding: (accountId: string, patientId: string) => fetchApi<{
+    status: 'suspended'
+    controlVersion: number
+    nextAction: 'recreate_under_verified_owner'
+  }>(
+    `/api/custom/pharmacy/patients/${encodeURIComponent(patientId)}/binding-suspension?${accountQuery(accountId)}`,
+    { method: 'POST', body: JSON.stringify({ reasonCode: 'wrong_line_binding' }) },
+  ),
 }

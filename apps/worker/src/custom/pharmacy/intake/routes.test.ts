@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   updatePatient: vi.fn(),
   setPrivacyConsent: vi.fn(),
   revokeProxy: vi.fn(),
+  suspendBinding: vi.fn(),
   history: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('./repository.js', () => ({
   updatePharmacyPatient: mocks.updatePatient,
   setPatientPrivacyConsent: mocks.setPrivacyConsent,
   revokePatientProxyGrant: mocks.revokeProxy,
+  suspendPatientBinding: mocks.suspendBinding,
   getAdminPharmacyPatientHistory: mocks.history,
   getAdminPharmacyPatient: mocks.getAdminPatient,
   getLatestAdminPatientIntake: mocks.getLatestAdminIntake,
@@ -107,6 +109,10 @@ beforeEach(() => {
   mocks.updatePatient.mockResolvedValue(undefined);
   mocks.setPrivacyConsent.mockResolvedValue({ status: 'withdrawn', version: 1 });
   mocks.revokeProxy.mockResolvedValue({ status: 'revoked' });
+  mocks.suspendBinding.mockResolvedValue({
+    status: 'suspended', controlVersion: 1,
+    nextAction: 'recreate_under_verified_owner',
+  });
   mocks.history.mockResolvedValue({ patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [] });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
@@ -304,6 +310,58 @@ describe('LIFF pharmacy patient and intake routes', () => {
 });
 
 describe('admin pharmacy patient routes', () => {
+  it('lets authorized staff suspend only the selected account patient binding', async () => {
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients/patient-1/binding-suspension?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'wrong_line_binding' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: 'suspended', controlVersion: 1,
+      nextAction: 'recreate_under_verified_owner',
+    });
+    expect(mocks.suspendBinding).toHaveBeenCalledWith(
+      env.DB, 'account-1', 'patient-1', 'staff-1', 'wrong_line_binding',
+    );
+  });
+
+  it('rejects a binding suspension without the fixed reason code', async () => {
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients/patient-1/binding-suspension?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'free-form patient details' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.suspendBinding).not.toHaveBeenCalled();
+  });
+
+  it('denies a binding suspension outside the staff account scope', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients/patient-1/binding-suspension?line_account_id=account-2',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'wrong_line_binding' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.suspendBinding).not.toHaveBeenCalled();
+  });
+
   it('rejects a staff member outside the requested account', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await adminApp().request(
