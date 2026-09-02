@@ -148,7 +148,10 @@ describe('emergency contraception patient page', () => {
     expect(source).toContain("setBusy('submit')");
     expect(source).not.toContain('setInterval');
     expect(source).toContain('crypto.randomUUID()');
-    expect(app).toContain("import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception");
+    expect(app).toContain("const DeferredEmergencyContraceptionPage = lazy(() => import('./custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js')); // custom:pharmacy-emergency-contraception");
+    expect(app).toContain('fallback={<p role="status"');
+    expect(app).toContain('画面を読み込んでいます…');
+    expect(app).not.toContain("import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'");
     expect(app).toContain('<Route path="/pharmacy/emergency-contraception" element={<PharmacyPage screenTitle="緊急避妊薬" capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyPage>} /> {/* custom:pharmacy-emergency-contraception */}');
   });
 
