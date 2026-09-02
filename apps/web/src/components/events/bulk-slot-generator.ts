@@ -20,7 +20,7 @@ export interface GeneratedSlot {
 
 const JST_OFFSET_MIN = 9 * 60;
 
-function jstHHMMToUtcIso(date: string, hhmm: string): string {
+export function jstHHMMToUtcIso(date: string, hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);
   const totalMin = h * 60 + m - JST_OFFSET_MIN;
   // Negative means previous UTC day; we accept negative and let Date handle.

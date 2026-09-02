@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { required } from './cli-common.js';
 import {
   findPharmacyAdminApiCoverage,
   type PharmacyAdminApiCoverage,
@@ -143,12 +144,6 @@ function parseArgs(argv: string[]) {
   }
   if (preflight && doctor) throw new Error('--preflight and --doctor cannot be combined');
   return { values, apply, preflight, doctor, help };
-}
-
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
 }
 
 function endpoint(workerUrl: string, path: string): URL {

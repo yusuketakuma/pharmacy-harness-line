@@ -2,6 +2,9 @@
 // at the boundary (jstStartsAtIso) before posting.
 
 const JST_OFFSET_MS = 9 * 3600_000;
+const TOKYO_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
+  timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short',
+});
 
 export function jstToday(): string {
   const now = new Date();
@@ -27,4 +30,9 @@ export function jstStartsAtIso(date: string, hhmm: string): string {
 export function utcToJstDisplay(utcIso: string): string {
   const d = new Date(new Date(utcIso).getTime() + JST_OFFSET_MS).toISOString();
   return `${d.slice(0, 10)} ${d.slice(11, 16)}`;
+}
+
+export function formatTokyoDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? TOKYO_DATE_TIME_FORMATTER.format(date) : value;
 }

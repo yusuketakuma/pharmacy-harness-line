@@ -10,6 +10,7 @@ import {
   type EmergencyServiceOverview,
 } from './api.js';
 import { pharmacyErrorMessage } from '../request.js';
+import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 
 export const MHLW_EMERGENCY_CONTRACEPTION_URL =
   'https://www.mhlw.go.jp/stf/kinnkyuuhininnyaku.html';
@@ -154,15 +155,6 @@ function safeExternalUrl(value: string | null): string | null {
   } catch {
     return null;
   }
-}
-
-function formatTokyo(value: string): string {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat('ja-JP', {
-      timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short',
-    }).format(date)
-    : value;
 }
 
 function validDateOnly(value: string): boolean {

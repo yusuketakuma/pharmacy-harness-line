@@ -1,5 +1,5 @@
-import { randomBytes, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { requestId, required, safeText, temporaryPassword, workerOrigin } from './cli-common.js';
 
 type Writer = (line: string) => void;
 type Environment = Record<string, string | undefined>;
@@ -71,47 +71,14 @@ function parseArgs(argv: string[]): { values: Record<string, string>; dryRun: bo
   return { values, dryRun, help };
 }
 
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
-}
-
 function secret(environment: Environment, key: string): string {
   const value = environment[key]?.trim();
   if (!value) throw new Error(`${key} is required`);
   return value;
 }
 
-const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
-
-function requestId(values: Record<string, string>): string {
-  const supplied = values['idempotency-key']?.trim();
-  if (supplied && !IDEMPOTENCY_KEY_PATTERN.test(supplied)) {
-    throw new Error('--idempotency-key must be 8 to 128 ASCII characters');
-  }
-  return supplied || randomUUID();
-}
-
-// Random per run: never derivable from the platform key + printed idempotency key.
-// The server excludes the password from the idempotency request hash, so a retry
-// with a fresh password is still a replay that keeps the originally stored one.
-function temporaryPassword(): string {
-  return `Tmp-${randomBytes(24).toString('base64url')}`;
-}
-
 function workerEndpoint(raw: string): string {
-  const url = new URL(raw);
-  if ((url.protocol !== 'https:' && url.hostname !== 'localhost') ||
-      url.username || url.password || url.search || url.hash) {
-    throw new Error('--worker-url must be an HTTPS origin');
-  }
-  return new URL('/api/platform/pharmacy/tenants', url.origin).toString();
-}
-
-function safeText(value: unknown, fallback: string): string {
-  if (typeof value !== 'string' || !value) return fallback;
-  return value.replace(/[\u0000-\u001F\u007F]/gu, ' ').slice(0, 300);
+  return new URL('/api/platform/pharmacy/tenants', workerOrigin(raw)).toString();
 }
 
 export async function runTenantSetup(

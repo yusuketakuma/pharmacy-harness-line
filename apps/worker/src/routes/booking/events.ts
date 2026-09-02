@@ -41,6 +41,7 @@ import {
 } from '../../services/event-booking-state.js';
 import { awardActivityMileage } from '../../services/activity-mileage.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { resolveActiveLineAccountIdByLiffId } from './liff-account.js';
 
 const events = new Hono<Env>();
 
@@ -53,16 +54,6 @@ function bad(c: Context<Env>, code: string, status = 422): Response {
 
 function getAccountId(c: Context<Env>): string | null {
   return c.req.query('account_id') ?? null;
-}
-
-async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null> {
-  const liffId = c.req.query('liffId');
-  if (!liffId) return null;
-  const acc = await c.env.DB
-    .prepare(`SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1`)
-    .bind(liffId)
-    .first<{ id: string }>();
-  return acc?.id ?? null;
 }
 
 interface EventInput {
@@ -623,7 +614,7 @@ events.put('/api/events/admin/events/:id/slots/:slotId', async (c) => {
 // ============================================================
 
 events.get('/api/liff/events/me', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
@@ -668,7 +659,7 @@ events.get('/api/liff/events/me', async (c) => {
 });
 
 events.get('/api/liff/events/me/:bookingId', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
@@ -700,7 +691,7 @@ events.get('/api/liff/events/me/:bookingId', async (c) => {
 });
 
 events.post('/api/liff/events/me/:bookingId/cancel', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
   if (!callerLineUserId) return bad(c, 'unauthorized', 401);
@@ -745,7 +736,7 @@ events.post('/api/liff/events/me/:bookingId/cancel', async (c) => {
 // ============================================================
 
 events.get('/api/liff/events/:id', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const row = await c.env.DB
     .prepare(
@@ -802,7 +793,7 @@ events.get('/api/liff/events/:id', async (c) => {
 });
 
 events.get('/api/liff/events/:id/slots', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const ev = await c.env.DB
     .prepare(
@@ -854,7 +845,7 @@ function startsAtJst(utcIso: string): string {
 }
 
 events.post('/api/liff/events/:id/bookings', async (c) => {
-  const account_id = await resolveAccountIdFromLiff(c);
+  const account_id = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!account_id) return bad(c, 'liff_account_resolution_failed', 400);
   const idemKey = c.req.header('Idempotency-Key');
   if (!idemKey) return bad(c, 'idempotency_key_required', 400);
