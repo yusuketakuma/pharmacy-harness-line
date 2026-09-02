@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-02T12:00:32Z",
+  "capturedAt": "2026-09-02T12:46:00Z",
   "reviewedAt": null,
   "environment": "local-synthetic",
   "scope": "v0.33.0-engineering-foundation",
@@ -9,15 +9,15 @@
   "sourceCandidate": {
     "branch": "feat/pharmacy-v0.34-patient-critical-journey",
     "baseSourceSha": "84290e03d09e9f895567583aaeb34eee68cf6d81",
-    "exactCandidateSha": "241a1eb0a135a6d85f2fc11e7f3c537c517b0ff3",
+    "exactCandidateSha": "8baf31835bd16e723f6132206637942316b5faba",
     "identity": "LOCAL_SOURCE_COMMIT",
     "packageVersion": "0.33.2",
-    "trackedDiffSha256": "0273d72c538ecc535b1fbb5b45814f59c5b7b8bdb9261a2ae9057ea43b4e6890",
+    "trackedDiffSha256": "4ed0dadb115d84cdb1dc84551eeb1c38f09a1f93ebfbd6389aee5306cf460e79",
     "preEvidenceStatusManifestSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
     "preEvidenceUntrackedFilesSha256": "NOT_APPLICABLE_COMMITTED_CANDIDATE",
     "migrationSetSha256": "a052aee14d2e15fe458598d125ba9d8cb5a1e6aba672275638b2998a8c19add6",
     "candidateRule": "No release PASS until one committed RC SHA reproduces all gates.",
-    "evidenceBoundary": "Repository aggregate and migration safety were rerun from an offline fresh clone at this exact candidate. Performance numbers remain pinned to b038890333628959837e44769f5d25886238084e; remote D1 and real-device LIFF measurements remain outside this evidence."
+    "evidenceBoundary": "Repository aggregate, migration safety, representative local performance fixtures, LIFF build, and LIFF browser smoke were rerun for this exact candidate. Remote D1 and real-device LIFF measurements remain outside this evidence."
   },
   "approvedPolicy": {
     "identitySecurity": "APPROVED_2026-09-01",
@@ -35,8 +35,8 @@
     ],
     "baselineClone": "/tmp/pharmacy-v033-current-replay.0uRTgm/baseline",
     "baselineCloneState": "DETACHED_HEAD_84290e03d09e9f895567583aaeb34eee68cf6d81_OFFLINE_FROZEN_INSTALL",
-    "candidateClone": "/tmp/pharmacy-v033-rc-pass.aDo3EM/repo",
-    "candidateCloneState": "DETACHED_HEAD_241a1eb0a135a6d85f2fc11e7f3c537c517b0ff3_OFFLINE_FROZEN_INSTALL"
+    "candidateClone": "/tmp/pharmacy-v033-g7-final.N9xpGt/repo",
+    "candidateCloneState": "DETACHED_HEAD_8baf31835bd16e723f6132206637942316b5faba_OFFLINE_FROZEN_INSTALL"
   },
   "performance": {
     "protocol": {
@@ -44,75 +44,78 @@
       "productionDataUsed": false,
       "sameMachine": true,
       "sameNodeAndPnpm": true,
-      "measuredCandidateSha": "b038890333628959837e44769f5d25886238084e",
-      "currentExactCandidateReplay": "NOT_RUN_AFTER_AUTH_PROXY_NOTIFICATION_AND_CI_REPRODUCIBILITY_CHANGES",
+      "measuredCandidateSha": "8baf31835bd16e723f6132206637942316b5faba",
+      "currentExactCandidateReplay": "PASS_LOCAL_SYNTHETIC_REPRESENTATIVE_FIXTURES_AND_LIFF_ARTIFACT",
       "feedbackRuns": 7,
       "execution": "sequential_alternating_baseline_candidate",
       "acceptance": "Do not adopt a change from relative percentages when the absolute delta is timer-scale or run variance overlaps."
     },
     "liffStartup": {
-      "status": "PARTIAL_PASS_HISTORICAL_PERCEIVED_STARTUP_CURRENT_BUNDLE",
-      "fixture": "Historical Chromium preview with every JavaScript request delayed 1000 ms; current exact-candidate Vite artifact comparison",
+      "status": "PARTIAL_PASS_CURRENT_LOCAL_INITIAL_BUNDLE_REAL_DEVICE_NOT_RUN",
+      "fixture": "Historical Chromium preview with every JavaScript request delayed 1000 ms; baseline, pre-optimization candidate, and exact-candidate Vite artifact comparison",
       "runs": 5,
       "baselineMedianFirstVisibleMs": 1045,
       "candidateMedianFirstVisibleMs": 9.6,
       "deltaPercent": -99.1,
-      "accessibleStartupStatusE2E": "PASS_1_OF_1",
+      "accessibleStartupStatusE2E": "PASS_13_OF_13_ROUTES_INCLUDING_LAZY_DIRECT_ROUTE",
       "baselineWarmBuildMedianSeconds": 2.65,
       "candidateWarmBuildMedianSeconds": 2.88,
       "warmBuildDeltaPercent": 8.7,
-      "baselineMainBundleGzipKb": 150.28,
-      "candidateMainBundleGzipKb": 153.19,
-      "bundleDeltaGzipKb": 2.91,
-      "bundleDeltaPercent": 1.94,
-      "claimBoundary": "The historical static-shell result is not a current-candidate timing claim. The current feature candidate adds timeline and recovery behavior and grows the initial main bundle by 2.91 KiB gzip; LIFF-ready time and real-device startup remain unmeasured."
+      "baselineMainBundleGzipBytes": 148745,
+      "preOptimizationCandidateMainBundleGzipBytes": 153100,
+      "exactCandidateMainBundleGzipBytes": 146332,
+      "initialBundleDeltaFromPreOptimizationBytes": -6768,
+      "initialBundleDeltaFromPreOptimizationPercent": -4.42,
+      "initialBundleDeltaFromBaselineBytes": -2413,
+      "initialBundleDeltaFromBaselinePercent": -1.62,
+      "deferredEmergencyContraceptionGzipBytes": 8574,
+      "baselineTotalJavaScriptGzipBytes": 325452,
+      "preOptimizationTotalJavaScriptGzipBytes": 329807,
+      "exactCandidateTotalJavaScriptGzipBytes": 331613,
+      "totalJavaScriptDeltaFromPreOptimizationBytes": 1806,
+      "totalJavaScriptDeltaFromPreOptimizationPercent": 0.55,
+      "claimBoundary": "The exact candidate moves the low-frequency emergency-contraception page out of the initial LIFF main bundle and exposes an accessible loading status. Common-route initial JavaScript is smaller; total JavaScript and the direct emergency-contraception route are slightly larger. LIFF-ready time and real-device startup remain unmeasured."
     },
     "sameNamedFixtureFeedback": {
       "staffDashboard": {
         "test": "keeps every Release 1 metric and its denominator caveat visible",
-        "baselineTotalMedianMs": 681.999,
-        "candidateTotalMedianMs": 689.704,
-        "totalDeltaPercent": 1.13,
-        "baselineTestBodyMedianMs": 0.699458,
-        "candidateTestBodyMedianMs": 0.902166,
-        "verdict": "NO_MEASURABLE_REGRESSION_0_203MS_ABSOLUTE_BODY_DELTA"
+        "baselineTotalMedianMs": 1218.906,
+        "candidateTotalMedianMs": 1240.351,
+        "totalDeltaPercent": 1.76,
+        "baselineTestBodyMedianMs": 0.915291,
+        "candidateTestBodyMedianMs": 1.506834,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_592MS_ABSOLUTE_BODY_DELTA"
       },
       "workerStatistics": {
         "test": "keeps unknown source counts and SLA denominators account-scoped",
-        "baselineTotalMedianMs": 628.501,
-        "candidateTotalMedianMs": 614.176,
-        "totalDeltaPercent": -2.28,
-        "baselineTestBodyMedianMs": 1.92625,
-        "candidateTestBodyMedianMs": 2.078042,
-        "verdict": "NO_MEASURABLE_REGRESSION_0_152MS_ABSOLUTE_BODY_DELTA"
+        "combinedWorkerRunnerBaselineTotalMedianMs": 1533.874,
+        "combinedWorkerRunnerCandidateTotalMedianMs": 1501.672,
+        "combinedWorkerRunnerDeltaPercent": -2.1,
+        "baselineTestBodyMedianMs": 4.020417,
+        "candidateTestBodyMedianMs": 3.504584,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_516MS_ABSOLUTE_BODY_IMPROVEMENT"
       },
       "webhookAuthorization": {
         "test": "uses destination to verify exactly one tenant secret",
-        "baselineTotalMedianMs": 678.398,
-        "candidateTotalMedianMs": 708.882,
-        "totalDeltaPercent": 4.49,
-        "baselineTestBodyMedianMs": 3.304125,
-        "candidateTestBodyMedianMs": 3.250209,
-        "verdict": "NO_MEASURABLE_REGRESSION"
+        "baselineTestBodyMedianMs": 4.481833,
+        "candidateTestBodyMedianMs": 4.797208,
+        "verdict": "NO_MEASURABLE_REGRESSION_0_315MS_ABSOLUTE_BODY_DELTA"
       },
       "cronExternalSuccessRecovery": {
         "test": "does not resend after external success when D1 settlement is unknown",
-        "baselineTotalMedianMs": 721.657,
-        "candidateTotalMedianMs": 717.556,
-        "totalDeltaPercent": -0.57,
-        "baselineTestBodyMedianMs": 13.958667,
-        "candidateTestBodyMedianMs": 28.974042,
+        "baselineTestBodyMedianMs": 18.821667,
+        "candidateTestBodyMedianMs": 36.3205,
         "fixtureBoundary": "The timed body constructs different test databases: baseline uses a small schema plus custom_053 while candidate executes the full bootstrap.sql.",
-        "verdict": "NO_PRODUCT_RUNTIME_CLAIM_15_015MS_TEST_FIXTURE_SETUP_DELTA"
+        "verdict": "NO_PRODUCT_RUNTIME_CLAIM_17_499MS_TEST_FIXTURE_SETUP_DELTA"
       },
       "databaseBootstrapReplay": {
         "test": "matches the schema produced by replaying all migrations",
-        "baselineTotalMedianMs": 645.83,
-        "candidateTotalMedianMs": 604.574,
-        "totalDeltaPercent": -6.39,
-        "baselineTestBodyMedianMs": 93.996,
-        "candidateTestBodyMedianMs": 35.19975,
-        "testBodyDeltaPercent": -62.55,
+        "baselineTotalMedianMs": 1135.054,
+        "candidateTotalMedianMs": 1139.216,
+        "totalDeltaPercent": 0.37,
+        "baselineTestBodyMedianMs": 122.201583,
+        "candidateTestBodyMedianMs": 69.18225,
+        "testBodyDeltaPercent": -43.39,
         "verdict": "PASS_LOCAL_SYNTHETIC_REPLAY_IMPROVEMENT"
       }
     },
@@ -137,19 +140,19 @@
         "sourceSha": "84290e03d09e9f895567583aaeb34eee68cf6d81",
         "routes": 67,
         "jsFiles": 84,
-        "rawBytes": 1834676,
-        "gzipBytes": 549062
+        "rawBytes": 1834629,
+        "gzipBytes": 551457
       },
       "candidate": {
-        "identity": "EXACT_SOURCE_COMMIT_b038890333628959837e44769f5d25886238084e",
+        "identity": "EXACT_SOURCE_COMMIT_8baf31835bd16e723f6132206637942316b5faba",
         "routes": 68,
         "jsFiles": 85,
-        "rawBytes": 1856646,
-        "gzipBytes": 555224
+        "rawBytes": 1858968,
+        "gzipBytes": 558403
       },
-      "totalRawDeltaBytes": 21970,
-      "totalGzipDeltaBytes": 6162,
-      "totalGzipDeltaPercent": 1.12,
+      "totalRawDeltaBytes": 24339,
+      "totalGzipDeltaBytes": 6946,
+      "totalGzipDeltaPercent": 1.26,
       "genericRouteClientGzipDeltaBytes": {
         "/events": -294,
         "/pools": -294,
@@ -166,10 +169,10 @@
         "/rich-menus": 189,
         "/prescriptions": -297
       },
-      "claimBoundary": "Exact static JavaScript artifacts with deterministic gzip -n. The current candidate adds one route and 6162 gzip bytes overall, so no whole-app bundle improvement is claimed. Historical per-route deltas remain directional only."
+      "claimBoundary": "Same-machine static JavaScript artifacts with gzip level 9. The exact candidate's Web input tree is unchanged from the measured pre-optimization candidate; the added features grow total Web JavaScript by 6946 gzip bytes, so no whole-app Web bundle improvement is claimed. Historical per-route deltas remain directional only."
     },
     "workerRemoteD1": "NOT_RUN_PRODUCTION_AND_REMOTE_MUTATION_GATE",
-    "verdict": "PARTIAL_PASS_HISTORICAL_LOCAL_SYNTHETIC_CURRENT_EXACT_CANDIDATE_NOT_RERUN"
+    "verdict": "PARTIAL_PASS_CURRENT_LOCAL_SYNTHETIC_REMOTE_D1_AND_REAL_DEVICE_NOT_RUN"
   },
   "localValidation": {
     "workerTestFiles": 243,
@@ -183,12 +186,12 @@
     "webTestFiles": 52,
     "webTests": 236,
     "webTypecheck": "PASS",
-    "webBuild": "PASS_HISTORICAL_B0388903_68_STATIC_ROUTES_CURRENT_EXACT_CANDIDATE_NOT_RERUN",
+    "webBuild": "PASS_CURRENT_WEB_INPUT_EQUIVALENT_5_RUN_STATIC_ARTIFACT_COMPARISON",
     "liffTestFiles": 23,
     "liffTests": 147,
     "liffTypecheck": "PASS",
-    "liffBuild": "PASS_HISTORICAL_B0388903_CURRENT_EXACT_CANDIDATE_NOT_RERUN",
-    "liffBrowserSmoke": "PASS_HISTORICAL_B0388903_13_TESTS_CURRENT_EXACT_CANDIDATE_NOT_RERUN",
+    "liffBuild": "PASS_EXACT_CANDIDATE_INITIAL_MAIN_146332_GZIP_BYTES_DEFERRED_ROUTE_8574_GZIP_BYTES",
+    "liffBrowserSmoke": "PASS_EXACT_CANDIDATE_13_TESTS",
     "bootstrapGeneratorCheck": "PASS",
     "postBaselineMigrationPolicy": "PASS_12_MIGRATIONS",
     "scriptTestFiles": 19,
@@ -251,19 +254,19 @@
     "V033-G4": "PASS_LOCAL_EXACT_CANDIDATE_INVENTORY_AND_NEGATIVE_MATRIX",
     "V033-G5": "PASS_LOCAL_CODE_PRODUCTION_GATE_BLOCKED",
     "V033-G6": "PASS_LOCAL_APPROVED_POLICY_EXACT_CANDIDATE",
-    "V033-G7": "PARTIAL_PASS_HISTORICAL_LOCAL_CURRENT_CANDIDATE_NOT_RERUN",
+    "V033-G7": "PARTIAL_PASS_CURRENT_LOCAL_SYNTHETIC_REMOTE_D1_AND_REAL_DEVICE_NOT_RUN",
     "V033-G8": "PASS_LOCAL_CHARACTERIZATION_REFACTOR",
     "V033-G9": "PASS_LOCAL_PLACEMENT_SEAMS",
     "V033-G10": "PARTIAL_PASS_LOCAL_PRODUCTION_LEGACY_UNVERIFIED"
   },
   "releaseBlockers": [
-    "G7 performance was measured at b038890333628959837e44769f5d25886238084e, not the current exact candidate; remote Worker/D1 and real-device LIFF performance were not run.",
+    "G7 exact-candidate local synthetic performance passed, but remote Worker/D1 and real-device LIFF performance were not run.",
     "G10 production legacy NULL counts remain unverified.",
     "Production legacy status=sending queue drain or approved reset is not verified.",
     "No development deploy, production deploy, or activation exists."
   ],
   "boundaries": {
-    "commit": "PASS_LOCAL_SOURCE_COMMIT_241a1eb0a135a6d85f2fc11e7f3c537c517b0ff3",
+    "commit": "PASS_LOCAL_SOURCE_COMMIT_8baf31835bd16e723f6132206637942316b5faba",
     "pullRequest": "NOT_RUN",
     "devPush": "NOT_RUN",
     "devDeploy": "NOT_RUN",
