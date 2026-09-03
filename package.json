@@ -1,6 +1,6 @@
 {
   "name": "line-oss-crm",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "private": true,
   "description": "Open-source LINE Official Account CRM/marketing automation",
   "scripts": {
@@ -39,7 +39,8 @@
   "pnpm": {
     "overrides": {
       "esbuild@<0.28.1": ">=0.28.1",
-      "fast-uri@<3.1.6": "3.1.6"
+      "fast-uri@<3.1.6": "3.1.6",
+      "qs@<6.16.0": "6.16.0"
     }
   }
 }
