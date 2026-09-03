@@ -82,7 +82,7 @@ export function parseBundleStream(input: Readable): Promise<ParsedBundle> {
       }
 
       const chunks: Buffer[] = [];
-      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('data', (chunk) => chunks.push(chunk as Buffer));
       stream.on('end', () => {
         const buf = Buffer.concat(chunks);
         routeEntry(result, header.name, buf);
