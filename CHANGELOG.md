@@ -1,5 +1,32 @@
 # Changelog
 
+## Pharmacy v0.34.1 (2026-09-03)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.34.1`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.1`と販売者向けリリース`pharmacy-v0.34.1`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
+
+### セキュリティ修正
+
+- MCP serverが`@modelcontextprotocol/sdk`とExpressを通じて利用する`qs`を`6.15.3`から`6.16.0`へ更新
+- bracket形式のquery parameterで配列上限を回避できるDoS脆弱性（CVE-2026-82562 / GHSA-x5fp-wj9c-mxmx）を解消
+- 攻撃者が制御する`constructor.isBuffer`によって例外を発生させられるDoS脆弱性（CVE-2026-82417 / GHSA-4mjr-xmp4-gh2g）を解消
+- 既存のpnpm override方式を再利用し、MCP server、plugin template、SBOM生成を含む全経路で修正版を固定
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| production dependency audit | 既知の脆弱性0件 |
+| MCP server | 5 files / 19 tests PASS |
+| 全workspace | `verify:ci` PASS |
+| migration contract | post-baseline 12 migrations PASS |
+| main／production配備、seller release、実LINE操作 | `NOT_RUN` |
+
+### 変わらない安全条件
+
+- API、DB schema、migration、患者データ、LINE送信処理は変更しない
+- v0.34.0で未完了のEC開示方針、実端末・支援技術・低速通信・参加者試験のHuman Gateを完了扱いにしない
+- dev source releaseとdevelopment deployが成功しても、`pharmacy-v0.34.1` seller releaseやproduction readinessの証拠にはしない
+
 ## Pharmacy v0.34.0 (2026-09-03)
 
 > 公開範囲: パッケージ／ソースのバージョン`0.34.0`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.0`と販売者向けリリース`pharmacy-v0.34.0`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
