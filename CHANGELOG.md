@@ -1,5 +1,41 @@
 # Changelog
 
+## Pharmacy v0.34.2 (2026-09-03)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.34.2`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.2`と販売者向けリリース`pharmacy-v0.34.2`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
+
+### 依存関係と開発基盤
+
+- 全workspaceの直接依存40種をnpm registryの`latest`へ更新し、pnpmを`9.15.4`から`11.25.0`、TypeScriptを`5.9.3`から`7.0.2`へ更新
+- Next.js `16.3.4`、Vite `8.2.2`、Wrangler `4.128.0`、Hono `4.13.5`、LINE LIFF SDK `2.31.0`、hls.js `1.7.2`へ更新
+- Zod `4.5.4`、`@noble/hashes` `2.4.0`、`tar-stream` `3.2.1`などのruntime依存と、React／Node型定義・Cloudflare toolingを更新
+- GitHub Actionsを最新リリースと照合し、CodeQL、GitHub Pages、checkoutを含む全参照をcommit SHAへ固定
+- pnpm 11のworkspace設定へsecurity overrideとnative build許可を移し、追跡対象のnpm lockfileも現在のmanifestへ同期
+
+### TypeScript 7互換
+
+- `tsup`のTypeScript 7非互換な型宣言bundleを使わず、既存の`tsc`で宣言ファイルを生成
+- update engineのNode型依存を明示し、`tar-stream`のdata chunk型をruntime契約に合わせて保持
+- SDK、update engine、plugin templateの公開entryに必要なJavaScriptと型宣言が生成されることを確認
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| registry latest照合 | 直接依存40種、差分0件 |
+| production dependency audit | 既知の脆弱性0件 |
+| 全workspace | `verify:ci`、3,986 tests PASS |
+| 全workspace build | Worker、Admin、LIFF、packages PASS |
+| LIFF browser smoke | Chromium 13 tests PASS |
+| migration contract | post-baseline 12 migrations PASS |
+| main／production配備、seller release、実LINE操作 | `NOT_RUN` |
+
+### 変わらない安全条件
+
+- API、DB schema、migration、患者データ、LINE送信処理の契約は変更しない
+- dependency更新とdev source releaseを、未完了の実端末・支援技術・低速通信・参加者試験の代替証拠にしない
+- dev source releaseとdevelopment deployが成功しても、`pharmacy-v0.34.2` seller releaseやproduction readinessの証拠にはしない
+
 ## Pharmacy v0.34.1 (2026-09-03)
 
 > 公開範囲: パッケージ／ソースのバージョン`0.34.1`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.1`と販売者向けリリース`pharmacy-v0.34.1`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。

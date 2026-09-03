@@ -1,6 +1,6 @@
 {
   "name": "line-oss-crm",
-  "version": "0.34.1",
+  "version": "0.34.2",
   "private": true,
   "description": "Open-source LINE Official Account CRM/marketing automation",
   "scripts": {
@@ -24,23 +24,16 @@
     "rich-menu:catalog": "tsx scripts/custom/pharmacy/generate-rich-menu-catalog.ts",
     "platform:admin-bootstrap": "tsx scripts/custom/pharmacy/bootstrap-platform-admin.ts"
   },
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "@cyclonedx/cdxgen": "12.8.4",
-    "tsx": "^4.23.12",
-    "typescript": "^5.9.3",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.124.0",
+    "wrangler": "^4.128.0",
     "yaml": "^2.9.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "esbuild@<0.28.1": ">=0.28.1",
-      "fast-uri@<3.1.6": "3.1.6",
-      "qs@<6.16.0": "6.16.0"
-    }
   }
 }

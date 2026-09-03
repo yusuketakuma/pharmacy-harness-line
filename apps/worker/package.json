@@ -1,6 +1,6 @@
 {
   "name": "worker",
-  "version": "0.34.1",
+  "version": "0.34.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,24 +19,24 @@
     "@line-crm/db": "workspace:*",
     "@line-crm/line-sdk": "workspace:*",
     "@line-crm/shared": "workspace:*",
-    "hls.js": "^1.7.1",
-    "hono": "^4.13.3",
+    "hls.js": "^1.7.2",
+    "hono": "^4.13.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.53.0",
-    "@cloudflare/workers-types": "^5.20260820.1",
+    "@cloudflare/vite-plugin": "^1.54.3",
+    "@cloudflare/workers-types": "^5.20260903.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.0.5",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.12",
-    "typescript": "^5.9.3",
-    "vite": "^8.2.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.124.0"
+    "wrangler": "^4.128.0"
   }
 }

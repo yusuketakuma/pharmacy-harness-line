@@ -1,6 +1,6 @@
 {
   "name": "@line-harness/sdk",
-  "version": "0.34.1",
+  "version": "0.34.2",
   "description": "AI-native SDK for LINE Harness — programmatic LINE official account automation",
   "type": "module",
   "exports": {
@@ -20,7 +20,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc --emitDeclarationOnly",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -47,7 +47,7 @@
   },
   "devDependencies": {
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }
 }
