@@ -20,6 +20,7 @@ import {
   getAdminPrescriptionDetail,
   getAdminPrescriptionFile,
   getAdminPrescriptionStats,
+  getPrescriptionRecovery,
   listPrescriptionHistory,
   listAdminPrescriptionQueue,
   markPrescriptionFileDeleted,
@@ -79,6 +80,9 @@ async function readExpectedUpdatedAt(request: { json<T>(): Promise<T> }): Promis
 }
 
 prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => {
+  if (c.req.method === 'GET' && c.req.path === '/api/liff/pharmacy/prescriptions/recovery') {
+    c.header('Cache-Control', 'private, no-store');
+  }
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(
@@ -316,6 +320,30 @@ prescriptionRoutes.put('/api/liff/pharmacy/prescriptions/:id/files/:position', a
 prescriptionRoutes.get('/api/liff/pharmacy/prescriptions/me', async (c) => {
   const patient = c.get('prescriptionPatient');
   return c.json({ submissions: await listPrescriptionHistory(c.env.DB, patient) });
+});
+
+prescriptionRoutes.get('/api/liff/pharmacy/prescriptions/recovery', async (c) => {
+  const patient = c.get('prescriptionPatient');
+  const params = new URL(c.req.url).searchParams;
+  const idempotencyKeys = params.getAll('idempotencyKey');
+  const submissionIds = params.getAll('submissionId');
+  if (
+    idempotencyKeys.length > 1 || submissionIds.length > 1 ||
+    (idempotencyKeys.length > 0 && submissionIds.length > 0) ||
+    (idempotencyKeys[0] !== undefined && !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKeys[0])) ||
+    (submissionIds[0] !== undefined && !/^[A-Za-z0-9._:-]{1,128}$/.test(submissionIds[0]))
+  ) return c.json({ error: 'Invalid recovery selector' }, 400);
+
+  const selector = idempotencyKeys[0] !== undefined
+    ? { idempotencyKey: idempotencyKeys[0] }
+    : submissionIds[0] !== undefined
+      ? { submissionId: submissionIds[0] }
+      : undefined;
+  return c.json({
+    recovery: selector
+      ? await getPrescriptionRecovery(c.env.DB, patient, selector)
+      : await getPrescriptionRecovery(c.env.DB, patient),
+  });
 });
 
 prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/cancel', async (c) => {

@@ -56,6 +56,18 @@ CREATE TABLE ad_platforms (
   updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
+CREATE TABLE admin_login_throttles (
+  realm               TEXT NOT NULL CHECK (realm IN ('tenant', 'platform_admin')),
+  authority_id        TEXT NOT NULL CHECK (length(authority_id) BETWEEN 1 AND 128),
+  login_id_normalized TEXT NOT NULL CHECK (length(login_id_normalized) BETWEEN 1 AND 128),
+  failure_count       INTEGER NOT NULL CHECK (failure_count BETWEEN 1 AND 5),
+  window_started_at   TEXT NOT NULL CHECK (unixepoch(window_started_at) IS NOT NULL),
+  next_allowed_at     TEXT NOT NULL CHECK (unixepoch(next_allowed_at) IS NOT NULL),
+  locked_until        TEXT CHECK (locked_until IS NULL OR unixepoch(locked_until) IS NOT NULL),
+  updated_at          TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL),
+  PRIMARY KEY (realm, authority_id, login_id_normalized)
+);
+
 CREATE TABLE admin_users (
   id            TEXT PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
@@ -1607,6 +1619,38 @@ CREATE TABLE pharmacy_notification_events (
     REFERENCES friends(id, line_account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE pharmacy_patient_control_audit_events (
+  id              TEXT PRIMARY KEY,
+  line_account_id TEXT NOT NULL,
+  patient_id      TEXT NOT NULL,
+  owner_friend_id TEXT NOT NULL,
+  actor_kind      TEXT NOT NULL CHECK (actor_kind IN ('patient', 'staff')),
+  actor_id        TEXT NOT NULL CHECK (length(actor_id) BETWEEN 1 AND 128),
+  action          TEXT NOT NULL CHECK (action IN (
+    'privacy_withdrawn',
+    'privacy_reconsented',
+    'notifications_stopped',
+    'notifications_resumed',
+    'binding_suspended',
+    'proxy_granted',
+    'proxy_revoked'
+  )),
+  control_version INTEGER NOT NULL CHECK (control_version >= 1),
+  reason_code     TEXT CHECK (reason_code IS NULL OR length(reason_code) BETWEEN 1 AND 64),
+  created_at      TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL), grant_id TEXT REFERENCES pharmacy_patient_proxy_grants(id), permission_code TEXT CHECK (
+    permission_code IS NULL OR permission_code = 'patient_intake_v1'
+  ), basis_code TEXT CHECK (
+    basis_code IS NULL OR length(basis_code) BETWEEN 1 AND 64
+  ), terms_version INTEGER CHECK (
+    terms_version IS NULL OR terms_version >= 1
+  ), terms_hash TEXT CHECK (
+    terms_hash IS NULL OR
+    (length(terms_hash) = 64 AND terms_hash NOT GLOB '*[^0-9a-f]*')
+  ),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id)
+);
+
 CREATE TABLE pharmacy_patient_intake_envelopes (
   response_id       TEXT NOT NULL,
   tenant_id         TEXT NOT NULL,
@@ -1664,7 +1708,7 @@ CREATE TABLE pharmacy_patient_intake_responses (
   idempotency_key             TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
   representative_consent_at  TEXT NOT NULL,
   privacy_consent_at          TEXT NOT NULL,
-  created_at                  TEXT NOT NULL, privacy_policy_version INTEGER, privacy_policy_hash TEXT,
+  created_at                  TEXT NOT NULL, privacy_policy_version INTEGER, privacy_policy_hash TEXT, proxy_grant_id TEXT REFERENCES pharmacy_patient_proxy_grants(id),
   UNIQUE (id, patient_id, line_account_id, owner_friend_id),
   UNIQUE (line_account_id, patient_id, revision),
   UNIQUE (line_account_id, owner_friend_id, patient_id, idempotency_key),
@@ -1672,6 +1716,77 @@ CREATE TABLE pharmacy_patient_intake_responses (
     REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id),
   FOREIGN KEY (base_response_id)
     REFERENCES pharmacy_patient_intake_responses(id)
+);
+
+CREATE TABLE pharmacy_patient_owner_controls (
+  line_account_id          TEXT NOT NULL,
+  patient_id               TEXT NOT NULL,
+  owner_friend_id          TEXT NOT NULL,
+  privacy_withdrawn_at     TEXT CHECK (
+    privacy_withdrawn_at IS NULL OR unixepoch(privacy_withdrawn_at) IS NOT NULL
+  ),
+  privacy_reconsented_at   TEXT CHECK (
+    privacy_reconsented_at IS NULL OR unixepoch(privacy_reconsented_at) IS NOT NULL
+  ),
+  privacy_policy_version   INTEGER CHECK (
+    privacy_policy_version IS NULL OR privacy_policy_version >= 1
+  ),
+  privacy_policy_hash      TEXT CHECK (
+    privacy_policy_hash IS NULL OR
+    (length(privacy_policy_hash) = 64 AND privacy_policy_hash NOT GLOB '*[^0-9a-f]*')
+  ),
+  notifications_stopped_at TEXT CHECK (
+    notifications_stopped_at IS NULL OR unixepoch(notifications_stopped_at) IS NOT NULL
+  ),
+  notifications_resumed_at TEXT CHECK (
+    notifications_resumed_at IS NULL OR unixepoch(notifications_resumed_at) IS NOT NULL
+  ),
+  binding_suspended_at     TEXT CHECK (
+    binding_suspended_at IS NULL OR unixepoch(binding_suspended_at) IS NOT NULL
+  ),
+  binding_reason_code      TEXT,
+  version                  INTEGER NOT NULL CHECK (version >= 1),
+  updated_at               TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL), last_transition_id TEXT,
+  PRIMARY KEY (line_account_id, patient_id),
+  CHECK (
+    (privacy_policy_version IS NULL) = (privacy_policy_hash IS NULL)
+  ),
+  CHECK (
+    (binding_suspended_at IS NULL AND binding_reason_code IS NULL) OR
+    (binding_suspended_at IS NOT NULL AND length(binding_reason_code) BETWEEN 1 AND 64)
+  ),
+  FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id)
+);
+
+CREATE TABLE pharmacy_patient_proxy_grants (
+  id                 TEXT PRIMARY KEY,
+  line_account_id    TEXT NOT NULL,
+  patient_id         TEXT NOT NULL,
+  actor_friend_id    TEXT NOT NULL,
+  permission_code    TEXT NOT NULL CHECK (permission_code = 'patient_intake_v1'),
+  basis_code         TEXT NOT NULL CHECK (length(basis_code) BETWEEN 1 AND 64),
+  terms_version      INTEGER NOT NULL CHECK (terms_version >= 1),
+  terms_hash         TEXT NOT NULL CHECK (
+    length(terms_hash) = 64 AND terms_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  granted_at         TEXT NOT NULL CHECK (unixepoch(granted_at) IS NOT NULL),
+  expires_at         TEXT NOT NULL CHECK (
+    unixepoch(expires_at) IS NOT NULL AND unixepoch(expires_at) > unixepoch(granted_at)
+  ),
+  revoked_at         TEXT CHECK (revoked_at IS NULL OR unixepoch(revoked_at) IS NOT NULL),
+  revoke_reason_code TEXT,
+  version            INTEGER NOT NULL CHECK (version >= 1),
+  created_at         TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  updated_at         TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL), superseded_at TEXT CHECK (
+    superseded_at IS NULL OR unixepoch(superseded_at) IS NOT NULL
+  ), last_transition_id TEXT,
+  CHECK (
+    (revoked_at IS NULL AND revoke_reason_code IS NULL) OR
+    (revoked_at IS NOT NULL AND length(revoke_reason_code) BETWEEN 1 AND 64)
+  ),
+  FOREIGN KEY (patient_id, line_account_id, actor_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id)
 );
 
 CREATE TABLE pharmacy_patients (
@@ -1686,7 +1801,11 @@ CREATE TABLE pharmacy_patients (
   contact_phone    TEXT,
   archived_at     TEXT,
   created_at       TEXT NOT NULL,
-  updated_at       TEXT NOT NULL, postal_code TEXT, prefecture TEXT, city TEXT, address_line1 TEXT, address_line2 TEXT,
+  updated_at       TEXT NOT NULL, postal_code TEXT, prefecture TEXT, city TEXT, address_line1 TEXT, address_line2 TEXT, registration_idempotency_key TEXT, registration_request_hash TEXT CHECK (
+    registration_request_hash IS NULL OR
+    (length(registration_request_hash) = 64 AND
+     registration_request_hash NOT GLOB '*[^0-9a-f]*')
+  ),
   UNIQUE (id, line_account_id, owner_friend_id),
   FOREIGN KEY (owner_friend_id, line_account_id)
     REFERENCES friends(id, line_account_id)
@@ -2281,7 +2400,8 @@ CREATE TABLE platform_admin_sessions (
   expires_at         TEXT NOT NULL,
   revoked_at         TEXT,
   created_at         TEXT NOT NULL
-);
+, last_seen_at TEXT
+  CHECK (last_seen_at IS NULL OR unixepoch(last_seen_at) IS NOT NULL));
 
 CREATE TABLE platform_admins (
   staff_id   TEXT PRIMARY KEY REFERENCES staff_members(id) ON DELETE CASCADE,
@@ -2548,7 +2668,8 @@ CREATE TABLE tenant_admin_sessions (
   session_kind       TEXT NOT NULL CHECK (session_kind IN ('bootstrap', 'standard')),
   expires_at         TEXT NOT NULL,
   revoked_at         TEXT,
-  created_at         TEXT NOT NULL,
+  created_at         TEXT NOT NULL, last_seen_at TEXT
+  CHECK (last_seen_at IS NULL OR unixepoch(last_seen_at) IS NOT NULL),
   FOREIGN KEY (tenant_id, staff_id)
     REFERENCES tenant_staff_memberships (tenant_id, staff_id) ON DELETE CASCADE
 );
@@ -3140,6 +3261,10 @@ CREATE INDEX idx_pharmacy_next_intake_expectations_patient
 CREATE INDEX idx_pharmacy_notification_events_exposure
   ON pharmacy_notification_events(line_account_id, friend_id, occurred_at, category, outcome);
 
+CREATE INDEX idx_pharmacy_patient_control_audit_scope
+  ON pharmacy_patient_control_audit_events
+    (line_account_id, patient_id, owner_friend_id, created_at DESC, id DESC);
+
 CREATE INDEX idx_pharmacy_patient_intake_envelopes_scope
   ON pharmacy_patient_intake_envelopes
     (tenant_id, line_account_id, owner_friend_id, patient_id, response_id, field_name);
@@ -3150,6 +3275,10 @@ CREATE INDEX idx_pharmacy_patient_intake_migration_state_scope
 CREATE UNIQUE INDEX idx_pharmacy_patient_intake_responses_envelope_scope
   ON pharmacy_patient_intake_responses
     (id, patient_id, line_account_id, owner_friend_id, schema_version, revision);
+
+CREATE INDEX idx_pharmacy_patient_proxy_grants_access
+  ON pharmacy_patient_proxy_grants
+    (line_account_id, patient_id, actor_friend_id, permission_code, revoked_at, expires_at);
 
 CREATE UNIQUE INDEX idx_pharmacy_patients_active_self
   ON pharmacy_patients (line_account_id, owner_friend_id)
@@ -3406,6 +3535,16 @@ CREATE UNIQUE INDEX uq_google_calendar_connections_active_staff
 CREATE UNIQUE INDEX uq_rich_menu_groups_account_generator
   ON rich_menu_groups (account_id, generator_key)
   WHERE generator_key IS NOT NULL;
+
+CREATE UNIQUE INDEX ux_pharmacy_patient_proxy_current
+  ON pharmacy_patient_proxy_grants
+    (line_account_id, patient_id, actor_friend_id, permission_code)
+  WHERE revoked_at IS NULL AND superseded_at IS NULL;
+
+CREATE UNIQUE INDEX ux_pharmacy_patient_registration_idempotency
+  ON pharmacy_patients
+    (line_account_id, owner_friend_id, registration_idempotency_key)
+  WHERE registration_idempotency_key IS NOT NULL;
 
 CREATE TRIGGER auto_replies_template_scope_insert
 BEFORE INSERT ON auto_replies
@@ -3806,9 +3945,27 @@ CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON 
 
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF expectation_id, line_account_id ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
 
+CREATE TRIGGER pharmacy_patient_control_audit_immutable_delete
+BEFORE DELETE ON pharmacy_patient_control_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'pharmacy patient control audit is immutable'); END;
+
+CREATE TRIGGER pharmacy_patient_control_audit_immutable_update
+BEFORE UPDATE ON pharmacy_patient_control_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'pharmacy patient control audit is immutable'); END;
+
 CREATE TRIGGER pharmacy_patient_intake_base_scope_insert BEFORE INSERT ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_patient_intake_base_scope_update BEFORE UPDATE OF base_response_id, line_account_id, owner_friend_id, patient_id ON pharmacy_patient_intake_responses WHEN NEW.base_response_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses AS base WHERE base.id = NEW.base_response_id AND base.line_account_id = NEW.line_account_id AND base.owner_friend_id = NEW.owner_friend_id AND base.patient_id = NEW.patient_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_INTAKE_BASE_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_patient_proxy_grant_structure_immutable
+BEFORE UPDATE OF
+  line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
+  terms_version, terms_hash, granted_at, expires_at, created_at
+ON pharmacy_patient_proxy_grants
+BEGIN
+  SELECT RAISE(ABORT, 'pharmacy patient proxy grant structure is immutable'); END;
 
 CREATE TRIGGER pharmacy_prescription_submissions_source_handoff_scope_insert BEFORE INSERT ON pharmacy_prescription_submissions WHEN NEW.source_handoff_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_myna_handoffs AS handoff WHERE handoff.id = NEW.source_handoff_id AND handoff.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_SUBMISSION_SOURCE_HANDOFF_SCOPE_MISMATCH'); END;
 

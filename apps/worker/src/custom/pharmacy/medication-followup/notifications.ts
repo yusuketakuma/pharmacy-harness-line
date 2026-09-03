@@ -57,6 +57,7 @@ export async function processDueMedicationFollowUps(
         to: current.line_user_id,
         lineAccountId: current.line_account_id,
         friendId: current.owner_friend_id,
+        patientId: current.patient_id,
         messageId: 'medication_followup_v1',
         category: 'followup_care',
         vars: {

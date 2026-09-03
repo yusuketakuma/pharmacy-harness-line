@@ -88,7 +88,10 @@ export function isLoopbackOrigin(value: string | undefined | null): boolean {
 export function normalizeOrigin(value: string | undefined | null): string | null {
   if (!value) return null;
   try {
-    return new URL(value).origin;
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? parsed.origin
+      : null;
   } catch {
     return null;
   }
@@ -149,36 +152,11 @@ export function parseAllowedOrigins(env: AdminAuthEnv): string[] {
   return parseOriginList(env.ADMIN_ORIGIN);
 }
 
-function isCloudflarePagesOrigin(value: URL): boolean {
-  return value.hostname.toLowerCase().endsWith('.pages.dev');
-}
-
-/**
- * Cloudflare Pages exposes both the production project origin
- * (`https://project.pages.dev`) and deployment/branch preview origins such as
- * `https://hash.project.pages.dev`. Operators often click the preview URL that
- * Wrangler prints immediately after deploy, so treat origins inside the same
- * Pages project as equivalent for the admin allowlist.
- */
+/** Production browser origins must exactly match the reviewed allowlist. */
 export function isAllowedAdminOrigin(origin: string, allowedOrigin: string): boolean {
   const normalizedOrigin = normalizeOrigin(origin);
   const normalizedAllowed = normalizeOrigin(allowedOrigin);
-  if (!normalizedOrigin || !normalizedAllowed) return false;
-  if (stripTrailingSlash(normalizedOrigin) === stripTrailingSlash(normalizedAllowed)) {
-    return true;
-  }
-
-  try {
-    const candidate = new URL(normalizedOrigin);
-    const allowed = new URL(normalizedAllowed);
-    if (candidate.protocol !== allowed.protocol) return false;
-    if (!isCloudflarePagesOrigin(candidate) || !isCloudflarePagesOrigin(allowed)) {
-      return false;
-    }
-    return registrableDomain(candidate.hostname) === registrableDomain(allowed.hostname);
-  } catch {
-    return false;
-  }
+  return normalizedOrigin !== null && normalizedOrigin === normalizedAllowed;
 }
 
 export function resolveAdminAuthConfig(
@@ -186,6 +164,11 @@ export function resolveAdminAuthConfig(
   opts: { requestOrigin?: string } = {},
 ): AdminAuthConfig {
   const allowedOrigins = parseAllowedOrigins(env);
+  const configuredOrigins = env.ADMIN_ORIGIN?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean) ?? [];
+  const hasInvalidAdminOrigin = Boolean(env.ADMIN_ORIGIN?.trim()) &&
+    (configuredOrigins.length === 0 || configuredOrigins.some((origin) => !normalizeOrigin(origin)));
   // WORKER_URL is the source of truth, but the installer doesn't always set it.
   // Fall back to the request origin (which IS the Worker's own origin when an
   // API route is handling the request) so cross-site detection stays correct
@@ -206,7 +189,9 @@ export function resolveAdminAuthConfig(
     explicit ?? (allowCrossSite ? 'None' : 'Lax');
 
   let misconfigured: string | null = null;
-  if (crossSite && sameSite !== 'None') {
+  if (hasInvalidAdminOrigin) {
+    misconfigured = 'ADMIN_ORIGIN must contain only valid HTTP(S) origins.';
+  } else if (crossSite && sameSite !== 'None') {
     misconfigured =
       `Admin origin (${allowedOrigins.join(', ')}) is cross-site to the Worker API ` +
       `(${env.WORKER_URL ?? 'unset'}); a SameSite=${sameSite} session cookie will not be ` +
@@ -232,8 +217,8 @@ function isLiffApiRequest(requestUrl: string): boolean {
 /**
  * CORS origin resolver for credentialed admin and LIFF requests. Returns the
  * origin to echo back, or '' when it is not allowed (so no ACAO header is
- * set). Same-origin requests (and non-browser callers with no Origin header)
- * are always permitted; this keeps SDK/MCP Bearer callers working.
+ * set). A configured ADMIN_ORIGIN replaces the implicit Worker browser origin;
+ * non-browser callers with no Origin header remain permitted.
  *
  * LIFF origins are intentionally restricted to `/api/liff/*`. They must never
  * receive credentialed CORS access to admin/session routes because a patient-
@@ -268,6 +253,7 @@ export function resolveCorsOrigin(
   if (!normalizedOrigin) return '';
 
   if (
+    !env.ADMIN_ORIGIN?.trim() &&
     requestOrigin &&
     stripTrailingSlash(normalizedOrigin) === stripTrailingSlash(requestOrigin)
   ) {
@@ -282,4 +268,16 @@ export function resolveCorsOrigin(
   return isAllowedAdmin || isAllowedLiff
     ? normalizedOrigin
     : '';
+}
+
+/** CORS response headers do not stop a simple cross-origin login POST from executing. */
+export function isAllowedAdminRequestOrigin(
+  env: AdminAuthEnv,
+  origin: string | undefined,
+  requestUrl: string,
+): boolean {
+  if (!origin) return true;
+  const normalizedOrigin = normalizeOrigin(origin);
+  return normalizedOrigin !== null &&
+    resolveCorsOrigin(env, normalizedOrigin, requestUrl) === normalizedOrigin;
 }

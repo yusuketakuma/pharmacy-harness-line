@@ -4,9 +4,11 @@ import {
   generateTenantAdminSessionToken,
   hashTenantAdminSessionToken,
   hashTenantPassword,
+  isValidAdminPassword,
   isTenantAdminSessionToken,
   verifyTenantPassword,
 } from './credentials.js';
+import { COMMON_PASSWORDS_TEXT } from './common-passwords.generated.js';
 
 describe('tenant admin credentials', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -28,6 +30,21 @@ describe('tenant admin credentials', () => {
     });
 
     expect(generateTemporaryPassword()).toMatch(/^Tmp-[A-Za-z0-9_-]{24}$/);
+  });
+
+  it('requires 15 Unicode code points for a password-only administrator', () => {
+    expect(isValidAdminPassword('12345678901234')).toBe(false);
+    expect(isValidAdminPassword('123456789012345')).toBe(true);
+    expect(isValidAdminPassword('薬'.repeat(15))).toBe(true);
+    expect(isValidAdminPassword('a'.repeat(129))).toBe(false);
+  });
+
+  it('rejects a length-valid password from the versioned top-100k blocklist', () => {
+    const corpus = COMMON_PASSWORDS_TEXT.split('\n');
+    expect(corpus).toHaveLength(100_000);
+    expect(new Set(corpus).size).toBe(100_000);
+    expect(isValidAdminPassword('passwordpassword')).toBe(false);
+    expect(isValidAdminPassword('Correct horse battery 42')).toBe(true);
   });
 
   it('stores only a one-way hash of a high-entropy opaque session token', async () => {

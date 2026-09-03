@@ -1,5 +1,118 @@
 # Changelog
 
+## Pharmacy v0.34.0 (2026-09-03)
+
+> 公開範囲: パッケージ／ソースのバージョン`0.34.0`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.0`と販売者向けリリース`pharmacy-v0.34.0`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
+
+### このバージョンで目指したこと
+
+患者がLINE内で「これまでの状況」と「次にすること」を安全に確認でき、通信が途切れた場合も処方せんを重複送信しにくい導線を追加しました。同時に、薬局管理者のログイン、患者本人と家族代理の権限、同意・通知設定、誤ったLINE紐付けの復旧を、テナントとLINEアカウントの境界を越えない形で強化しました。
+
+### 利用者ごとの変更とメリット
+
+| 利用する人 | v0.34.0で変わること | メリット |
+| --- | --- | --- |
+| 患者 | 薬局LIFFに「利用状況」を追加し、処方せん、電子処方せん、継続支援、服薬後フォローを新しい順に表示 | 薬剤名や問診内容を一覧へ出さず、現在の状態と次に開く画面を確認できる |
+| 処方せんを送る患者・家族 | 本人／家族の選択、画像ごとの再試行、送信準備・薬局確認待ち・受付済みを区別 | 通信切断や画面再読込後に、結果不明の送信を盲目的に繰り返しにくくなる |
+| 未成年患者の保護者 | 未成年の家族登録時に、対象・利用目的・期限を確認して代理権限を発行し、本人側から取り消し可能 | 家族関係だけで恒久的な閲覧・入力権限が付くことを防げる |
+| 患者本人 | 個人情報同意の撤回・再同意、患者単位の通知停止・再開、現在のアクセス状態をLIFFで確認 | 過去記録を破壊せず、新規入力や将来通知を本人の操作で止められる |
+| 薬局職員 | 誤ったLINEアカウントへ患者を紐付けた場合、対象を隔離して正しい利用者に再登録を案内 | 古い患者所有者を書き換えたり臨床記録をコピーしたりせず復旧できる |
+| owner/admin・Platform admin | セッション期限、アイドル失効、ログイン試行制限、ブラウザorigin、共通パスワード拒否を強化 | 盗用セッション、総当たり、別サイトからのログイン、推測しやすい初期資格情報のリスクを減らせる |
+| 運用・開発担当 | development／productionのCloudflare設定を明示的に分離し、既存bindingを保持する検証を追加 | 誤ったD1・R2・Pagesへ配備する事故や、配備時の既存設定消失を防ぎやすくなる |
+
+### 患者向け「利用状況」
+
+- 既存の処方せん、電子処方せん、継続支援、服薬後フォローを、最大50件のread-only projectionとして新しい順に表示
+- APIはLIFFの認証済みLINE identityから患者本人と`line_account_id`をサーバー側で解決し、query parameterを権限として使用しない
+- 一覧へ出す情報をdomain、許可済みstatus、サーバー定義の次の操作、発生日時、既存detail routeに限定
+- patient/friend ID、患者名、薬剤名、処方内容、問診回答、staff note、暗号化payloadを返さず、一覧表示のための復号や更新を行わない
+- 別の所有者のrecordは表示せず、未知の内部statusは詳細確認へ安全に縮退
+- 緊急避妊薬の利用有無は機微性が高く、中立な遷移先と開示方針が承認されるまでタイムラインへ表示しない
+
+### 処方せん送信と通信切断からの回復
+
+- 本人／家族の選択、患者アンケート完了、画像、同意、通信状態、結果不明の送信を確認してから送信可能にする
+- 画像単位と受付単位のidempotency keyを使い、二重tap、timeout、再読込後の重複登録を抑止
+- 「送信準備中」「受付内容の確認待ち」「受付済み」を分け、患者端末から届いたことと薬局が受け付けたことを混同しない
+- upload結果が不明な場合は自動で成功・失敗を決めず、受付状況の再確認または不足画像の再選択へ案内
+- 処方せん画像や問診回答などのPHIを`localStorage`、`sessionStorage`、`IndexedDB`へ保存しない
+
+### 患者本人・家族代理・同意の権限管理
+
+- 家族関係や同意表示だけをアクセス権限にせず、現在有効な`patient_intake_v1`代理grantを患者・LINEアカウント・操作主体へ固定
+- 未成年の子どもに限り、固定された同意文面の版とSHA-256を確認して代理grantを発行
+- 代理権限の期限は「発行から90日」と「18歳到達」の早い方とし、アクセスのたびに失効・取消・年齢を再確認
+- 代理利用者による患者本人の氏名・生年月日変更、患者archive、個人情報同意変更、通知設定変更を禁止
+- 患者本人による代理権限の即時取消と、同じ依頼の安全な再実行に対応
+- 個人情報同意を撤回した場合は既存の認可済み履歴を保持しつつ、新しい問診revisionを停止。現在の薬局文面へ再同意した後だけ再開
+
+### 通知停止と誤紐付け復旧
+
+- 患者本人が患者単位で将来の自動通知を停止・再開できるCASとLIFF操作を追加
+- 処方せん状態、期限、継続支援、服薬後フォローは、送信claim時とLINE dispatch直前に現在の通知権限を再確認
+- 停止中の通知は再開後に古い内容を再送せず、送信しなかった結果を台帳へ確定
+- 通知設定は個人情報同意、代理権限、患者紐付け状態を暗黙に変更しない
+- 誤ったLINE紐付けは担当アカウント権限を持つstaffだけが`wrong_line_binding`理由で隔離可能
+- 復旧では旧所有者や臨床記録を変更せず、正しいLINE利用者が既存の本人／未成年登録フローから新規登録
+
+### 管理者ログインと資格情報
+
+- 通常セッションを最長8時間・アイドル15分、初期設定セッションを最長30分・アイドル10分に制限
+- tenant adminとPlatform adminのログイン失敗をD1へ保存し、1秒、2秒、4秒の待機後、15分間のlockへ移行
+- ログインIDをUnicode NFKC・trim・小文字化して試行制限を共有し、Worker再起動後も制限を維持
+- 設定済みAdmin originと同じoriginからのログインだけを許可し、未知のbrowser originやLIFF originからの管理者ログインを拒否
+- Unicode code point単位のパスワード長検証と、固定した100,000件のcommon-password blocklistをWorkerとAdmin UIで共通適用
+- 初回Platform／tenant admin CLIの必須値、HTTPS origin、再実行キー、ランダム仮パスワード、安全なエラー表示を共通化
+
+### 配備、更新、後方互換
+
+- production Worker buildでproduction用D1・R2を選び、`--keep-vars`で既存のprovision済み変数を保持
+- production LIFFは固定したPages projectと`main` branchだけを対象にし、dev projectの暗黙利用を防止
+- production dry-runを引数不要の専用scriptに分け、引数転送ミスによる実deployを防止
+- migrationは`custom_066`〜`custom_070`を加算し、既存table・column・route・API fieldを削除・renameしない
+- 旧Workerが追加columnを無視でき、旧形式の患者・問診insertが継続するexpand/default/fallback契約をテスト
+- fresh cloneの検証前に必要なshared packageをbuildし、過去のローカル`dist`へ依存しないCIへ変更
+
+### 動作速度とコード整理
+
+- 低頻度の緊急避妊薬画面をReact標準のlazy loadingへ分離し、LIFF初期main JavaScriptを153,100 bytesから146,332 gzip bytesへ4.42%削減
+- DB bootstrapのローカル反復中央値を122.202msから69.182msへ短縮。remote D1や実端末の速度改善とは扱わない
+- 薬局CLIの入力検証・再実行キー・仮パスワード・URL検証・安全な表示を共通化
+- LIFFの東京日時表示、Webイベント枠のJST→UTC変換、Worker予約のactive LIFFアカウント解決を既存経路間で共通化
+- tenant/account authorization、通知、API、schemaの意味を変えず、全体refactorで157行追加・192行削除
+
+### データベース移行
+
+| migration | 内容 |
+| --- | --- |
+| `custom_066` | admin sessionの種別、activity、失効判定を加算 |
+| `custom_067` | tenant／Platform adminの永続login throttleを加算 |
+| `custom_068` | 患者代理grantと患者owner controlを加算 |
+| `custom_069` | PHIを含まない患者control auditを加算 |
+| `custom_070` | 未成年代理登録・取消の整合性と重複防止を加算 |
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| 全workspace unit test | 9 projects / 3,759 tests PASS |
+| 配備・運用script test | 20 files / 227 tests PASS |
+| TypeScript | 全workspace typecheck、Web／LIFF直接typecheck PASS |
+| migration contract | post-baseline 12 migrations PASS |
+| LIFF browser smoke | Chromium 13 tests PASS |
+| ローカル表示監査 | 390px、200% text、keyboard focus、44px操作領域、axe-core A/AA PASS |
+| iOS／Android LINE WebView、VoiceOver／TalkBack、低速通信、参加者試験 | `NOT_RUN` |
+| developmentへのpush・配備・runtime read-back | リリース処理で実施・確認 |
+| main／production配備、seller release、実LINE操作 | `NOT_RUN` |
+
+### 変わらない安全条件と既知の未完了項目
+
+- タイムラインの緊急避妊薬表示はHuman Gate完了まで非表示を維持
+- 実端末・支援技術・低速通信・参加者試験が未実施のため、v0.34患者critical journey全体のproduction readinessは`BLOCKED`
+- 自動通知はPHIを含まない承認済みtemplateだけを使用し、薬剤師の判断を自動化しない
+- 本番DB migration、既存データ補完、production deploy、薬局アカウント有効化、実患者データ、実LINE送信は別途Human Gateを必要とする
+- dev source release、development deploy、`v0.34.0` GitHub Releaseが成功しても、`pharmacy-v0.34.0` seller releaseやproduction運用の証拠にはしない
+
 ## Pharmacy v0.33.2 (2026-08-31)
 
 > 公開範囲: パッケージ／ソースのバージョン`0.33.2`を`dev`向けに公開します。ソースコードのタグ`v0.33.2`と販売者向けリリース`pharmacy-v0.33.2`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの適用、DB操作、実患者データの操作、実際のLINE送信は含みません。

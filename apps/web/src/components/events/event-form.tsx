@@ -6,7 +6,7 @@ import { eventsApi, type EventDetail, type EventSlot } from '@/lib/api'
 import ImageUploader from '@/components/shared/image-uploader'
 import OgEditor from '@/components/shared/og-editor'
 import { useAccount } from '@/contexts/account-context'
-import { generateBulkSlots, type BulkSlotInput } from './bulk-slot-generator'
+import { generateBulkSlots, jstHHMMToUtcIso, type BulkSlotInput } from './bulk-slot-generator'
 
 type Tab = 'overview' | 'slots' | 'publish'
 
@@ -1034,14 +1034,6 @@ function BulkSlotDialog({
       </div>
     </div>
   )
-}
-
-function jstHHMMToUtcIso(date: string, hhmm: string): string {
-  const [h, m] = hhmm.split(':').map(Number)
-  const totalMin = h * 60 + m - 9 * 60
-  const [y, mo, d] = date.split('-').map(Number)
-  const t = Date.UTC(y, mo - 1, d) + totalMin * 60_000
-  return new Date(t).toISOString()
 }
 
 // ----------------------------------------------------------------

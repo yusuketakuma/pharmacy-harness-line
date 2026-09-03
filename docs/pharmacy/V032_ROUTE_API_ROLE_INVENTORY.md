@@ -7,7 +7,7 @@ V032-0 の実装対象は、新しい画面や API を追加することでは�
 - 基準 snapshot: `eaf35aa8aa8bb6cd831c84d30d2067662b48d3b7`
 - 機械可読 SSOT: [`scripts/deploy/v032-route-inventory.ts`](../../scripts/deploy/v032-route-inventory.ts)
 - 回帰テスト: [`scripts/deploy/v032-route-inventory.test.ts`](../../scripts/deploy/v032-route-inventory.test.ts)
-- 現行検出値: 37 pages、41 API source groups、227 unique `METHOD path-pattern`
+- 現行検出値: 38 pages、42 API source groups、231 unique `METHOD path-pattern`
 - この inventory はローカル source の静的検査だけを行い、Production、LINE、Google Calendar、実データを変更しない
 
 このsnapshotは実装開始時点のlive baselineであり、現行worktreeの
@@ -64,6 +64,7 @@ route/page/test実在性とmount順は回帰テスト実行時に再確認しま
 | path | component | role・authority | 表示/操作 | PHI / confirmation / test |
 | --- | --- | --- | --- | --- |
 | `/pharmacy/menu` | `menu/MainMenuPage.tsx` | verified LINE patient、server LIFF/account/friend binding | enabled/existing-only feature と3つの利用目的 | PHI-free-default、送信時再確認 / menu・V032 contract tests |
+| `/pharmacy/timeline` | `timeline/PatientTimelinePage.tsx` | verified LINE patient、server owner/account binding | 既存4domainのPHI最小化statusと固定next action | PHI-free-default、read-only/no-store / page・request tests |
 | `/prescriptions` | `prescriptions/PrescriptionPage.tsx` | verified LINE patient、server prescription owner/account scope | 手順、履歴、状態、到着/取消等 | PHI、consent・idempotency・CAS・single-flight / page・API tests |
 | `/pharmacy/patient-intake` | `intake/PatientIntakePage.tsx` | verified LINE patient、server patient/friend/account ownership | profile、3段階問診、最新回答 | PHI、必須回答・同意・memory-only draft / page・V032 contract tests |
 | `/pharmacy/continuity` | `continuity/ContinuityPage.tsx` | verified LINE patient、server continuity owner/account scope | 継続状態、次の行動、回答/休止 | PHI、existing-only・state/idempotency / page test |
@@ -95,6 +96,7 @@ route/page/test実在性とmount順は回帰テスト実行時に再確認しま
 | source group | 全 route patterns | role・scope / mutation・confirmation / PHI・test |
 | --- | --- | --- |
 | `routes/liff/liff.ts` | `GET /api/liff/config`; `GET /api/liff/pharmacy/feature-access` | unique LIFF resolution。feature access は verified LINE subject + friend/account binding / read-only、PHI-free-default; OAuth boundary・feature access tests |
+| `patient-timeline/routes.ts` | `GET /api/liff/pharmacy/timeline` | verified LINE owner/account scope; bounded allowlist projection、fixed destination、read-only/no-store / PHI-free-default; route・boundary tests |
 | `prescriptions/routes.ts` | `GET /api/liff/pharmacy/prescriptions/me`; `POST /api/liff/pharmacy/prescriptions`; `POST .../:id/arrival`; `POST .../:id/cancel`; `POST .../:id/resubmission`; `POST .../:id/submit`; `PUT .../:id/files/:position` | patient owner/account scope; consent、idempotency、CAS、R2 checksum / PHI; route・boundary tests |
 | `intake/routes.ts` | `GET/POST /api/liff/pharmacy/patients`; `GET/PATCH .../patients/:id`; `POST .../:id/archive`; `GET/POST .../:id/intake` | patient/friend/account ownership; encrypted-write-first、revision validation / PHI; route・repository tests |
 | `continuity/routes.ts` | `GET /api/liff/pharmacy/continuity`; `POST .../continuity/:id/pause`; `POST .../continuity/expectations/:id/respond` | continuity owner/account scope; existing-only、state/idempotency / PHI; route test |
@@ -132,7 +134,7 @@ route/page/test実在性とmount順は回帰テスト実行時に再確認しま
 | `emergency-contraception/routes.ts` | `GET/PUT /api/custom/pharmacy/emergency-contraception/config`; `GET/PUT .../reminders`; `PUT .../pharmacists/:staffId`; `POST .../slots`; `POST .../slots/:id/cancel`; `PUT .../inventory`; `GET .../intakes`; `GET .../intakes/:id`; `POST .../intakes/:id/transitions`; `GET/PUT .../intakes/:id/counter-confirmations/:section`; `POST/GET .../intakes/:id/sale` | staff + trained pharmacist gate; config/inventory/slot/intake/sale mutation; CSRF、confirmation、state/version / PHI; `emergency-contraception/routes.test.ts` |
 | `fulfillment/routes.ts` | `GET/POST /api/custom/pharmacy/fulfillment-quotes/:submissionId` | staff/submission/account scope; quote mutation は CSRF/state / PHI; `fulfillment/routes.test.ts` |
 | `growth-loop/routes.ts` | `GET /api/custom/pharmacy/growth/config`; `PUT .../growth/config`; `GET /api/custom/pharmacy/readiness`; `GET .../active-work`; `GET .../operations-summary`; `GET .../growth/dashboard`; `GET/POST .../growth/sources`; `PATCH .../growth/sources/:sourceId`; `POST .../growth/submissions/:submissionId/source`; `PUT .../growth/submissions/:submissionId/validity` | staff/capability/account scope; config/source/submission mutation は CSRF/revision/state / operational-sensitive; `growth-loop/routes.test.ts` |
-| `intake/routes.ts` | `GET /api/custom/pharmacy/patients`; `GET .../patients/:id`; `GET .../patients/:id/history`; `GET .../patients/:id/intake` | staff、encrypted tenant/account scope; patient id は selector / PHI; `intake/routes.test.ts` |
+| `intake/routes.ts` | `GET /api/custom/pharmacy/patients`; `GET .../patients/:id`; `GET .../patients/:id/history`; `GET .../patients/:id/intake`; `POST .../patients/:id/binding-suspension` | staff、encrypted tenant/account scope; patient id は selector。binding suspension は固定理由、確認、CAS、clinical-payload-free immutable audit、所有権移管なし / PHI; `intake/routes.test.ts` |
 | `medication-followup/routes.ts` | `POST /api/custom/pharmacy/medication-followups`; `POST .../medication-followups/:id/transitions` | staff/submission/account scope; create/transition は CSRF/state / PHI; `medication-followup/routes.test.ts` |
 | `myna/routes.ts` | `GET /api/custom/pharmacy/myna-handoffs`; `GET .../myna-handoffs/:id`; `POST .../:id/verifications`; `GET/PUT/PATCH /api/custom/pharmacy/myna-endpoint`; `POST .../myna-endpoint/verification` | staff/account scope; verification/config mutation は CSRF/state / PHI; `myna/routes.test.ts` |
 | `print/routes.ts` | `POST /api/custom/pharmacy/print/submissions/:id/prepare`; `POST .../print/tasks/:id/claim`; `POST .../print/tasks/:id/ack` | staff/submission/account scope; task transition は CSRF/state / PHI; `print/routes.test.ts` |

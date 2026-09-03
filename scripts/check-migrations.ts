@@ -116,7 +116,10 @@ function stripLineComments(sql: string): string {
 }
 
 export function checkMigration(sql: string): CheckResult {
-  const stripped = stripLineComments(sql);
+  const stripped = stripLineComments(sql).replace(
+    /\bIS\s+NOT\s+NULL\b/gi,
+    'IS NULL',
+  );
   for (const rule of RULES) {
     const m = stripped.match(rule.pattern);
     if (m) {

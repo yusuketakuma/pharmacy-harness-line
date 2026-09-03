@@ -10,10 +10,15 @@ const mocks = vi.hoisted(() => ({
   getLatestAdminIntake: vi.fn(),
   createPatient: vi.fn(),
   getPatient: vi.fn(),
+  getPatientAccess: vi.fn(),
   createIntake: vi.fn(),
   getLatestIntake: vi.fn(),
   archivePatient: vi.fn(),
   updatePatient: vi.fn(),
+  setPrivacyConsent: vi.fn(),
+  setNotificationPreference: vi.fn(),
+  revokeProxy: vi.fn(),
+  suspendBinding: vi.fn(),
   history: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
@@ -27,14 +32,21 @@ vi.mock('../prescriptions/patient.js', () => ({
   resolvePrescriptionPatient: mocks.resolvePatient,
 }));
 vi.mock('./repository.js', () => ({
+  PATIENT_PROXY_TERMS_VERSION: 1,
+  PATIENT_PROXY_TERMS_HASH: '129e9ad353fff88b8623931245b5a1bed3ba30f2cb54e6b5f2c9be854c743f7c',
   listPharmacyPatients: mocks.listPatients,
   listAdminPharmacyPatients: mocks.listAdminPatients,
   createPharmacyPatient: mocks.createPatient,
   getPharmacyPatient: mocks.getPatient,
+  getPatientAccessState: mocks.getPatientAccess,
   createPatientIntakeResponse: mocks.createIntake,
   getLatestPatientIntake: mocks.getLatestIntake,
   archivePharmacyPatient: mocks.archivePatient,
   updatePharmacyPatient: mocks.updatePatient,
+  setPatientPrivacyConsent: mocks.setPrivacyConsent,
+  setPatientNotificationPreference: mocks.setNotificationPreference,
+  revokePatientProxyGrant: mocks.revokeProxy,
+  suspendPatientBinding: mocks.suspendBinding,
   getAdminPharmacyPatientHistory: mocks.history,
   getAdminPharmacyPatient: mocks.getAdminPatient,
   getLatestAdminPatientIntake: mocks.getLatestAdminIntake,
@@ -89,10 +101,21 @@ beforeEach(() => {
   });
   mocks.createPatient.mockResolvedValue({ id: 'patient-2', relationship: 'child' });
   mocks.getPatient.mockResolvedValue({ id: 'patient-1', relationship: 'self' });
+  mocks.getPatientAccess.mockResolvedValue({
+    access: 'self', permission: null, proxyExpiresAt: null,
+    privacy: 'active', notifications: 'enabled', controlVersion: 0,
+  });
   mocks.createIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
   mocks.getLatestIntake.mockResolvedValue({ id: 'response-1', revision: 1 });
   mocks.archivePatient.mockResolvedValue(undefined);
   mocks.updatePatient.mockResolvedValue(undefined);
+  mocks.setPrivacyConsent.mockResolvedValue({ status: 'withdrawn', version: 1 });
+  mocks.setNotificationPreference.mockResolvedValue({ status: 'stopped', version: 1 });
+  mocks.revokeProxy.mockResolvedValue({ status: 'revoked' });
+  mocks.suspendBinding.mockResolvedValue({
+    status: 'suspended', controlVersion: 1,
+    nextAction: 'recreate_under_verified_owner',
+  });
   mocks.history.mockResolvedValue({ patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [] });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
@@ -125,18 +148,53 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalled();
   });
 
-  it('creates a family patient after validating the JSON boundary', async () => {
+  it('creates a minor child only with explicit current proxy terms consent', async () => {
+    mocks.getPatientAccess.mockResolvedValueOnce({
+      access: 'proxy', permission: 'patient_intake_v1',
+      proxyExpiresAt: '2026-12-01T00:00:00.000Z', privacy: 'active',
+      notifications: 'enabled', controlVersion: 0,
+    });
+    const body = {
+      relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
+      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
+      addressLine1: null, addressLine2: null,
+      proxyConsent: {
+        accepted: true,
+        termsVersion: 1,
+        termsHash: '129e9ad353fff88b8623931245b5a1bed3ba30f2cb54e6b5f2c9be854c743f7c',
+      },
+      registrationIdempotencyKey: 'register-child-1',
+    };
+    const response = await request('/api/liff/pharmacy/patients', 'POST', {
+      ...body,
+    });
+    expect(response.status).toBe(201);
+    expect(mocks.createPatient).toHaveBeenCalledWith(env.DB, owner, body);
+    await expect(response.json()).resolves.toMatchObject({
+      proxyGrant: {
+        permission: 'patient_intake_v1', basis: 'self_attested_guardian',
+        expiresAt: '2026-12-01T00:00:00.000Z', termsVersion: 1,
+      },
+    });
+  });
+
+  it('keeps the previous 403 contract for family requests from an older LIFF', async () => {
     const response = await request('/api/liff/pharmacy/patients', 'POST', {
       relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
       sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
       addressLine1: null, addressLine2: null,
     });
-    expect(response.status).toBe(201);
-    expect(mocks.createPatient).toHaveBeenCalledWith(env.DB, owner, {
-      relationship: 'child', name: '子', nameKana: 'コ', birthDate: '2018-04-01',
-      sex: null, contactPhone: null, postalCode: null, prefecture: null, city: null,
-      addressLine1: null, addressLine2: null,
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Family patient access requires an active proxy grant',
     });
+  });
+
+  it('revokes proxy authority for the exact patient owner', async () => {
+    const response = await request('/api/liff/pharmacy/patients/patient-1/proxy-grant', 'DELETE');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'revoked' });
+    expect(mocks.revokeProxy).toHaveBeenCalledWith(env.DB, owner, 'patient-1');
   });
 
   it('blocks only new patient admission when patient intake is disabled', async () => {
@@ -191,6 +249,51 @@ describe('LIFF pharmacy patient and intake routes', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Privacy policy changed; retry' });
   });
 
+  it('maps privacy withdrawal to an explicit re-consent conflict', async () => {
+    mocks.createIntake.mockRejectedValue(new Error('privacy consent withdrawn'));
+    const response = await request('/api/liff/pharmacy/patients/patient-1/intake', 'POST', {});
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Privacy consent was withdrawn; re-consent is required',
+    });
+  });
+
+  it('withdraws patient privacy consent with an expected control version', async () => {
+    const body = { action: 'withdraw', expectedControlVersion: 0 };
+    const response = await request(
+      '/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'withdrawn', version: 1 });
+    expect(mocks.setPrivacyConsent).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body);
+  });
+
+  it('stops patient notifications with an expected control version', async () => {
+    const body = { action: 'stop', expectedControlVersion: 0 };
+    const response = await request(
+      '/api/liff/pharmacy/patients/patient-1/notification-preference', 'POST', body,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'stopped', version: 1 });
+    expect(mocks.setNotificationPreference).toHaveBeenCalledWith(
+      env.DB, owner, 'patient-1', body,
+    );
+  });
+
+  it('returns caller-useful patient access state without actor identifiers', async () => {
+    const response = await request('/api/liff/pharmacy/patients/patient-1/access');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ access: {
+      access: 'self', permission: null, proxyExpiresAt: null,
+      privacy: 'active', notifications: 'enabled', controlVersion: 0,
+    } });
+    expect(mocks.getPatientAccess).toHaveBeenCalledWith(env.DB, owner, 'patient-1');
+  });
+
   it('fails before intake storage when the PHI key is unavailable', async () => {
     const response = await pharmacyIntakeRoutes.request(
       '/api/liff/pharmacy/patients/patient-1/intake?liffId=liff-1',
@@ -223,6 +326,58 @@ describe('LIFF pharmacy patient and intake routes', () => {
 });
 
 describe('admin pharmacy patient routes', () => {
+  it('lets authorized staff suspend only the selected account patient binding', async () => {
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients/patient-1/binding-suspension?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'wrong_line_binding' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: 'suspended', controlVersion: 1,
+      nextAction: 'recreate_under_verified_owner',
+    });
+    expect(mocks.suspendBinding).toHaveBeenCalledWith(
+      env.DB, 'account-1', 'patient-1', 'staff-1', 'wrong_line_binding',
+    );
+  });
+
+  it('rejects a binding suspension without the fixed reason code', async () => {
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients/patient-1/binding-suspension?line_account_id=account-1',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'free-form patient details' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.suspendBinding).not.toHaveBeenCalled();
+  });
+
+  it('denies a binding suspension outside the staff account scope', async () => {
+    mocks.access.mockResolvedValue(false);
+    const response = await adminApp().request(
+      '/api/custom/pharmacy/patients/patient-1/binding-suspension?line_account_id=account-2',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'wrong_line_binding' }),
+      },
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.suspendBinding).not.toHaveBeenCalled();
+  });
+
   it('rejects a staff member outside the requested account', async () => {
     mocks.access.mockResolvedValue(false);
     const response = await adminApp().request(

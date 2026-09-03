@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../../../index.js';
-import { resolveAdminAuthConfig } from '../../../middleware/admin-auth-config.js';
+import {
+  isAllowedAdminRequestOrigin,
+  resolveAdminAuthConfig,
+} from '../../../middleware/admin-auth-config.js';
 import {
   generatePlatformAdminSessionToken,
   hashTenantAdminSessionToken,
@@ -9,6 +12,15 @@ import {
   isValidAdminPassword,
   verifyTenantPassword,
 } from '../provisioning/credentials.js';
+import {
+  sessionExpiresAt,
+  sessionMaxAgeSeconds,
+  type AdminSessionKind,
+} from '../provisioning/auth-policy.js';
+import {
+  claimLoginAttempt,
+  clearLoginThrottleStatement,
+} from '../provisioning/auth-throttle.js';
 import { listAccountExpectations } from '../continuity/next-intake.js';
 import {
   getAdminPharmacyPatientHistory,
@@ -44,8 +56,6 @@ export const platformAdminRoutes = new Hono<Env>();
 // mounted on the whole /api/platform-admin/* prefix, so it covers this router
 // and its two siblings (dashboard-routes.ts, operations-routes.ts) alike.
 
-const BOOTSTRAP_SESSION_MS = 30 * 60 * 1000;
-const STANDARD_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 // Same constant-shape hash the tenant login uses so an unknown login costs the
 // same PBKDF2 work as a known one and cannot be distinguished by timing.
 const UNKNOWN_LOGIN_PASSWORD_HASH =
@@ -100,14 +110,16 @@ function toTenant(row: TenantRow) {
   };
 }
 
-async function newSession(kind: 'bootstrap' | 'standard') {
+async function newSession(kind: AdminSessionKind) {
   const token = generatePlatformAdminSessionToken();
+  const now = new Date();
   return {
     token,
     tokenHash: await hashTenantAdminSessionToken(token),
     kind,
-    expiresAt: new Date(Date.now() +
-      (kind === 'bootstrap' ? BOOTSTRAP_SESSION_MS : STANDARD_SESSION_MS)).toISOString(),
+    expiresAt: sessionExpiresAt(kind, now),
+    issuedAt: now.toISOString(),
+    maxAgeSeconds: sessionMaxAgeSeconds(kind),
   };
 }
 
@@ -137,6 +149,9 @@ function redactPatientAudit(rows: Array<Record<string, unknown>>): Array<Record<
  * scoped to a tenant.
  */
 platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
+  if (!isAllowedAdminRequestOrigin(c.env, c.req.header('Origin'), c.req.url)) {
+    return c.json({ success: false, error: 'Forbidden' }, 403);
+  }
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   if (config.misconfigured) {
     console.error('[platform-admin] refused login — misconfigured topology:', config.misconfigured);
@@ -154,7 +169,7 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
   // a revoked platform admin or a deactivated staff member simply has no row,
   // and falls into the same timing-safe rejection as an unknown login.
   const row = await c.env.DB.prepare(
-    `SELECT credential.staff_id, credential.password_hash,
+    `SELECT credential.staff_id, credential.login_id, credential.password_hash,
             credential.must_change_password, credential.credential_version,
             staff.name
        FROM platform_admin_credentials AS credential
@@ -166,20 +181,38 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
       LIMIT 1`,
   ).bind(loginId).first<{
     staff_id: string;
+    login_id: string;
     password_hash: string;
     must_change_password: number;
     credential_version: number;
     name: string;
   }>();
+  const throttleKey = row ? {
+    realm: 'platform_admin' as const,
+    authorityId: row.staff_id,
+    loginId: row.login_id,
+  } : null;
+  let attemptAllowed = false;
+  if (throttleKey) {
+    try {
+      attemptAllowed = (await claimLoginAttempt(c.env.DB, throttleKey)).allowed;
+    } catch {
+      log('auth.login_failed', {
+        realm: 'platform_admin', platform_admin_id: throttleKey.authorityId,
+        reason: 'throttle_unavailable',
+      }, 'error');
+      return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+    }
+  }
   const passwordValid = await verifyTenantPassword(
     password,
     row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
   );
-  if (!row || !passwordValid) {
+  if (!row || !throttleKey || !attemptAllowed || !passwordValid) {
     log('auth.login_failed', {
       realm: 'platform_admin',
       ip: c.req.header('cf-connecting-ip'),
-      reason: row ? 'bad_password' : 'unknown_login',
+      reason: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_login',
       platform_admin_id: row?.staff_id,
     }, 'warn');
     // The audit table requires a real platform_admin_id, so only a known
@@ -190,19 +223,37 @@ platformAdminRoutes.post('/api/platform-admin/login', async (c) => {
 
   const csrfToken = crypto.randomUUID();
   const session = await newSession(row.must_change_password === 1 ? 'bootstrap' : 'standard');
-  await c.env.DB.prepare(
-    `INSERT INTO platform_admin_sessions
-      (token_hash, staff_id, credential_version, session_kind,
-       expires_at, revoked_at, created_at)
-     VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-  ).bind(
-    session.tokenHash, row.staff_id, row.credential_version,
-    session.kind, session.expiresAt, new Date().toISOString(),
-  ).run();
+  try {
+    const results = await c.env.DB.batch([
+      clearLoginThrottleStatement(c.env.DB, throttleKey),
+      c.env.DB.prepare(
+        `INSERT INTO platform_admin_sessions
+          (token_hash, staff_id, credential_version, session_kind,
+           expires_at, last_seen_at, revoked_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+      ).bind(
+        session.tokenHash, row.staff_id, row.credential_version,
+        session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
+      ),
+    ]);
+    if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
+      throw new Error('login persistence conflict');
+    }
+  } catch {
+    log('auth.login_failed', {
+      realm: 'platform_admin', platform_admin_id: row.staff_id,
+      reason: 'session_persistence_failed',
+    }, 'error');
+    return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
+  }
   await recordPlatformAdminAccess(c.env.DB, row.staff_id, null, 'login');
 
-  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
-  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  c.header('Set-Cookie', platformAdminSessionCookie(
+    session.token, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
+  c.header('Set-Cookie', platformAdminCsrfCookie(
+    csrfToken, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
   return c.json({
     success: true,
     data: {
@@ -296,7 +347,10 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
   const currentPassword = stringBody(body, 'currentPassword');
   const newPassword = stringBody(body, 'newPassword');
   if (!isValidAdminPassword(newPassword)) {
-    return c.json({ success: false, error: 'New password must be 12 to 128 characters' }, 400);
+    return c.json({
+      success: false,
+      error: 'New password must be 15 to 128 characters and not commonly compromised',
+    }, 400);
   }
   if (newPassword === currentPassword) {
     return c.json({ success: false, error: 'New password must differ from the current password' }, 400);
@@ -347,9 +401,9 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
     c.env.DB.prepare(
       `INSERT INTO platform_admin_sessions
          (token_hash, session_family_hash, staff_id, credential_version, session_kind,
-          expires_at, revoked_at, created_at)
+          expires_at, last_seen_at, revoked_at, created_at)
        SELECT ?, COALESCE(current_session.session_family_hash, current_session.token_hash),
-              ?, ?, 'standard', ?, NULL, ?
+              ?, ?, 'standard', ?, ?, NULL, ?
          FROM platform_admin_sessions AS current_session
         WHERE current_session.token_hash = ?
           AND current_session.staff_id = ?
@@ -365,7 +419,7 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
           )`,
     ).bind(
       session.tokenHash, admin.id, nextCredentialVersion,
-      session.expiresAt, now,
+      session.expiresAt, now, now,
       sessionTokenHash, admin.id, credential.credential_version, now,
       admin.id, nextCredentialVersion, passwordHash, now,
     ),
@@ -425,8 +479,12 @@ platformAdminRoutes.post('/api/platform-admin/change-password', async (c) => {
 
   const config = resolveAdminAuthConfig(c.env, { requestOrigin: new URL(c.req.url).origin });
   const csrfToken = crypto.randomUUID();
-  c.header('Set-Cookie', platformAdminSessionCookie(session.token, config.sameSite), { append: true });
-  c.header('Set-Cookie', platformAdminCsrfCookie(csrfToken, config.sameSite), { append: true });
+  c.header('Set-Cookie', platformAdminSessionCookie(
+    session.token, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
+  c.header('Set-Cookie', platformAdminCsrfCookie(
+    csrfToken, config.sameSite, session.maxAgeSeconds,
+  ), { append: true });
   return c.json({ success: true, data: { mustChangePassword: false }, csrfToken });
 });
 

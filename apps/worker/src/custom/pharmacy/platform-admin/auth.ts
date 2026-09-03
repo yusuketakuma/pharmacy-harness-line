@@ -7,6 +7,7 @@ import {
   hashTenantAdminSessionToken,
   isPlatformAdminSessionToken,
 } from '../provisioning/credentials.js';
+import { sessionIdleCutoff } from '../provisioning/auth-policy.js';
 
 // Deliberately separate from every tenant-admin cookie/table. A platform
 // admin is not scoped to any tenant, so it must never be reachable through,
@@ -15,7 +16,6 @@ export const PLATFORM_ADMIN_AUTH_COOKIE = 'lh_platform_admin_session';
 export const PLATFORM_ADMIN_CSRF_COOKIE = 'lh_platform_admin_csrf';
 export const PLATFORM_ADMIN_CSRF_HEADER = 'x-platform-admin-csrf-token';
 
-const SESSION_MAX_AGE = 604800; // 7 days, matching tenant-admin sessions.
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export type AuthenticatedPlatformAdmin = {
@@ -80,12 +80,24 @@ export async function platformAdminSessionHash(c: Context<Env>): Promise<string 
 // stop a script that deliberately targets this exact prefix.
 const PLATFORM_ADMIN_COOKIE_PATH = '/api/platform-admin';
 
-export function platformAdminSessionCookie(token: string, sameSite: AdminSameSite): string {
-  return buildCookie(PLATFORM_ADMIN_AUTH_COOKIE, token, sameSite, SESSION_MAX_AGE, true, PLATFORM_ADMIN_COOKIE_PATH);
+export function platformAdminSessionCookie(
+  token: string,
+  sameSite: AdminSameSite,
+  maxAgeSeconds = 8 * 60 * 60,
+): string {
+  return buildCookie(
+    PLATFORM_ADMIN_AUTH_COOKIE, token, sameSite, maxAgeSeconds, true, PLATFORM_ADMIN_COOKIE_PATH,
+  );
 }
 
-export function platformAdminCsrfCookie(token: string, sameSite: AdminSameSite): string {
-  return buildCookie(PLATFORM_ADMIN_CSRF_COOKIE, token, sameSite, SESSION_MAX_AGE, false, PLATFORM_ADMIN_COOKIE_PATH);
+export function platformAdminCsrfCookie(
+  token: string,
+  sameSite: AdminSameSite,
+  maxAgeSeconds = 8 * 60 * 60,
+): string {
+  return buildCookie(
+    PLATFORM_ADMIN_CSRF_COOKIE, token, sameSite, maxAgeSeconds, false, PLATFORM_ADMIN_COOKIE_PATH,
+  );
 }
 
 export function expiredPlatformAdminCookie(name: string, sameSite: AdminSameSite): string {
@@ -105,11 +117,12 @@ export async function resolvePlatformAdminSession(
   if (!isPlatformAdminSessionToken(token)) return null;
   try {
     const tokenHash = await hashTenantAdminSessionToken(token);
-    const now = new Date().toISOString();
+    const currentTime = new Date();
+    const now = currentTime.toISOString();
     const row = await db.prepare(
       `SELECT credential.staff_id, staff.name,
               credential.must_change_password, credential.credential_version,
-              session.session_kind
+              session.session_kind, session.last_seen_at
          FROM platform_admin_sessions AS session
          INNER JOIN platform_admin_credentials AS credential
                  ON credential.staff_id = session.staff_id
@@ -121,11 +134,24 @@ export async function resolvePlatformAdminSession(
         WHERE session.token_hash = ?
           AND session.revoked_at IS NULL
           AND session.expires_at > ?
+          AND (session.last_seen_at IS NULL OR
+               (session.session_kind = 'bootstrap' AND session.last_seen_at > ?) OR
+               (session.session_kind = 'standard' AND session.last_seen_at > ?))
         LIMIT 1`,
-    ).bind(tokenHash, now).first<PlatformAdminSessionRow>();
+    ).bind(
+      tokenHash,
+      now,
+      sessionIdleCutoff('bootstrap', currentTime),
+      sessionIdleCutoff('standard', currentTime),
+    ).first<PlatformAdminSessionRow & { last_seen_at: string | null }>();
     if (!row) return null;
     const mustChangePassword = row.must_change_password === 1;
     if ((row.session_kind === 'bootstrap') !== mustChangePassword) return null;
+    await db.prepare(
+      `UPDATE platform_admin_sessions
+          SET last_seen_at = ?
+        WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`,
+    ).bind(now, tokenHash, now).run();
     return {
       admin: { id: row.staff_id, name: row.name },
       mustChangePassword,

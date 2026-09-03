@@ -16,15 +16,21 @@ describe('continuity reminder notifications', () => {
     push.mockResolvedValue(undefined);
     markReminded.mockResolvedValue({ status: 'reminded' });
     readCredential.mockResolvedValue('token');
+    const queries: string[] = [];
     const db = {
-      prepare: (sql: string) => ({
-        bind: () => ({
-          first: async () => sql.includes('pharmacy_account_capabilities')
-            ? { line_account_id: 'account-1', mode: 'pharmacy', capabilities_json: '["continuity"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' }
-            : null,
-          run: async () => ({ meta: { changes: 1 } }),
-        }),
-      }),
+      prepare: (sql: string) => {
+        queries.push(sql);
+        return ({
+          bind: () => ({
+            first: async () => sql.includes('pharmacy_account_capabilities')
+              ? { line_account_id: 'account-1', mode: 'pharmacy', capabilities_json: '["continuity"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' }
+              : sql.includes('SELECT patient.relationship')
+                ? { relationship: 'self', proxy_expires_at: null, privacy_withdrawn: 0, notifications_stopped: 0, control_version: 0 }
+                : null,
+            run: async () => ({ meta: { changes: 1 } }),
+          }),
+        });
+      },
     } as unknown as D1Database;
     const result = await deliverContinuityReminder({
       id: 'expectation-1', obligation_id: 'obligation-1', line_account_id: 'account-1',
@@ -52,6 +58,7 @@ describe('continuity reminder notifications', () => {
     expect(readCredential).toHaveBeenCalledWith(db, CREDENTIAL_KEY, {
       tenantId: 'tenant-a', lineAccountId: 'account-1', kind: 'channel_access_token',
     });
+    expect(queries.filter((sql) => sql.includes('SELECT patient.relationship'))).toHaveLength(2);
   });
 
   it('skips without sending when a tenant credential is missing or cross-tenant', async () => {

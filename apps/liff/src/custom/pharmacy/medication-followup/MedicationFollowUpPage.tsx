@@ -7,6 +7,7 @@ import {
   type PatientMedicationFollowUpStatus,
 } from './api.js';
 import { pharmacyRoute } from '../navigation.js';
+import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 
 export const PATIENT_RESPONSE_OPTIONS: Array<{
   value: PatientMedicationFollowUpResponse;
@@ -27,15 +28,6 @@ const STATUS_LABELS: Record<PatientMedicationFollowUpStatus, string> = {
 
 export function needsPatientMedicationFollowUpResponse(status: PatientMedicationFollowUpStatus): boolean {
   return status === 'delivered';
-}
-
-function formatTokyo(value: string): string {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat('ja-JP', {
-      timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short',
-    }).format(date)
-    : value;
 }
 
 export function patientMedicationFollowUpTimingLabel(item: Pick<

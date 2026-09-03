@@ -32,6 +32,16 @@ describe('patient list request gate', () => {
     expect(page).toContain('受付回答')
     expect(page).toContain("timeZone: 'Asia/Tokyo'")
   })
+
+  it('requires explicit confirmation and explains safe wrong-binding recovery', () => {
+    const page = readFileSync(new URL('./PatientIntakeAdminPage.tsx', import.meta.url), 'utf8')
+
+    expect(page).toContain('pharmacyIntakeAdminApi.suspendBinding')
+    expect(page).toContain('この患者のLINE紐付けを停止します')
+    expect(page).toContain('既存データは移動しません')
+    expect(page).toContain('正しいLINE利用者から患者情報を新規登録')
+    expect(page).toContain('role="status"')
+  })
 })
 
 describe('patient history labels', () => {

@@ -31,6 +31,7 @@ function fakeDb(options: {
     tenant_id: 'tenant-a',
     line_account_id: 'account-a',
     friend_id: 'friend-a',
+    patient_id: 'patient-a',
     intake_method: 'PAPER',
     liff_id: 'liff-1',
     estimated_ready_at: null,
@@ -40,6 +41,12 @@ function fakeDb(options: {
       bind: (...values: unknown[]) => ({
         first: async () => {
           calls.push({ sql, values, operation: 'first' });
+          if (sql.includes('SELECT patient.relationship')) {
+            return {
+              relationship: 'self', proxy_expires_at: null, privacy_withdrawn: 0,
+              notifications_stopped: 0, control_version: 0,
+            };
+          }
           if (options.notificationInProgress && sql.includes('SELECT id, outcome')) {
             return { id: 'notification-1', outcome: 'attempted', occurred_at: new Date().toISOString() };
           }

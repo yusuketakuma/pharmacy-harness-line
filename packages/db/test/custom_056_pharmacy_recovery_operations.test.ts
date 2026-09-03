@@ -23,6 +23,11 @@ describe('custom_056 pharmacy recovery operations', () => {
       '006_custom_063_auth_disable_revocation.sql',
       '007_custom_064_legacy_access_grant_drain.sql',
       '008_custom_065_session_rotation_family.sql',
+      '009_custom_066_auth_session_activity.sql',
+      '010_custom_067_admin_login_throttles.sql',
+      '011_custom_068_patient_proxy_controls.sql',
+      '012_custom_069_patient_control_audit.sql',
+      '013_custom_070_patient_proxy_lifecycle.sql',
     ]);
 
     const tableNames = db.prepare(`SELECT name FROM sqlite_master

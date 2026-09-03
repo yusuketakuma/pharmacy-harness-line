@@ -23,9 +23,13 @@ describe('pharmacy LIFF common shell', () => {
       /></MemoryRouter>,
     );
     expect(html).toContain('みどり薬局');
+    expect(html).toContain('break-words');
+    expect(html).not.toContain('truncate');
     expect(html).toContain('<h1');
     expect(html).toContain('受付状況');
     expect(html).toContain(`v${pharmacyLiffVersion}`);
+    expect(html).toContain('class="sr-only">アプリバージョン ');
+    expect(html).not.toContain('<span aria-label="アプリバージョン');
     expect(html).toContain('/pharmacy/menu?liffId=2000000000-AbCdEfGh');
     expect(html).toContain('すべての機能へ戻る');
   });
@@ -68,7 +72,7 @@ describe('pharmacy LIFF common shell', () => {
 
   it('wraps every pharmacy route without changing generic LIFF routes', () => {
     const source = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
-    expect(source.match(/<PharmacyPage/g)).toHaveLength(7);
+    expect(source.match(/<PharmacyPage/g)).toHaveLength(8);
     expect(source).toContain('<Route path="/booking" element={<Booking />} />');
     expect(source).toContain('screenTitle="緊急避妊薬"');
     expect(source).toContain('screenTitle="薬局情報"');

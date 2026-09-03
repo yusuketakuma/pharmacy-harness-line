@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { required, workerOrigin } from './cli-common.js';
 
 type Writer = (line: string) => void;
 type Environment = Record<string, string | undefined>;
@@ -43,18 +44,7 @@ function parseArgs(argv: string[]) {
   return { values, confirmScrub, confirmRestore, dryRun, help };
 }
 
-function required(values: Record<string, string>, key: string): string {
-  const value = values[key]?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
-}
-
 function endpoint(values: Record<string, string>): string {
-  const worker = new URL(required(values, 'worker-url'));
-  if ((worker.protocol !== 'https:' && worker.hostname !== 'localhost') ||
-      worker.username || worker.password || worker.search || worker.hash) {
-    throw new Error('--worker-url must be an HTTPS origin');
-  }
   const phase = required(values, 'phase');
   if (phase !== 'backfill' && phase !== 'scrub' && phase !== 'restore') {
     throw new Error('--phase must be backfill, scrub, or restore');
@@ -63,7 +53,7 @@ function endpoint(values: Record<string, string>): string {
   const accountId = encodeURIComponent(required(values, 'line-account-id'));
   return new URL(
     `/api/platform/pharmacy/tenants/${tenantId}/line-accounts/${accountId}/credentials/${phase}`,
-    worker.origin,
+    workerOrigin(required(values, 'worker-url')),
   ).toString();
 }
 

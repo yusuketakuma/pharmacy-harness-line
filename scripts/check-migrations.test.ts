@@ -26,6 +26,12 @@ describe('checkMigration', () => {
     expect(checkMigration(sql)).toEqual({ ok: true });
   });
 
+  it('allows a nullable column with an IS NOT NULL check predicate', () => {
+    const sql = `ALTER TABLE foo ADD COLUMN seen_at TEXT
+      CHECK (seen_at IS NULL OR unixepoch(seen_at) IS NOT NULL);`;
+    expect(checkMigration(sql)).toEqual({ ok: true });
+  });
+
   it('allows CREATE INDEX', () => {
     const sql = `CREATE INDEX idx_foo_name ON foo (name);`;
     expect(checkMigration(sql)).toEqual({ ok: true });

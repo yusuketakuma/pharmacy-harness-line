@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   patientIntakeApi,
   type PatientIntakeAnswers,
+  type PatientAccessState,
   type PatientRelationship,
   type PharmacyPatient,
   type TenantPrivacyPolicy,
@@ -11,6 +12,7 @@ import {
   emptyPatientProfileDraft,
   patientProfileDraft,
   patientProfileErrors,
+  PATIENT_PROXY_TERMS_HASH,
   PatientProfileForm,
   type PatientProfileDraft,
   type PatientProfileErrors,
@@ -49,6 +51,8 @@ export default function PatientIntakePage() {
   const [selectedId, setSelectedId] = useState('');
   const [latestRevision, setLatestRevision] = useState<number | null>(null);
   const [latestAnswers, setLatestAnswers] = useState<PatientIntakeAnswers | null>(null);
+  const [accessState, setAccessState] = useState<PatientAccessState | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
   const [answers, setAnswers] = useState<IntakeAnswersDraft>(INITIAL_INTAKE_ANSWERS);
   const [intakeStep, setIntakeStep] = useState(1);
   const [showStepErrors, setShowStepErrors] = useState(false);
@@ -70,6 +74,7 @@ export default function PatientIntakePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const registrationIdempotencyKeyRef = useRef(crypto.randomUUID());
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (error || privacyPolicyError) {
@@ -189,6 +194,23 @@ export default function PatientIntakePage() {
     return () => { active = false; };
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!selectedId) {
+      setAccessState(null);
+      return;
+    }
+    let active = true;
+    setAccessLoading(true);
+    void patientIntakeApi.access(selectedId).then((result) => {
+      if (active) setAccessState(result.access);
+    }).catch((err: unknown) => {
+      if (active) setError(pharmacyErrorMessage(err, 'お知らせ設定を読み込めませんでした。'));
+    }).finally(() => {
+      if (active) setAccessLoading(false);
+    });
+    return () => { active = false; };
+  }, [selectedId]);
+
   async function createPatient() {
     const {
       relationship,
@@ -202,8 +224,9 @@ export default function PatientIntakePage() {
       city,
       addressLine1,
       addressLine2,
+      proxyConsentAccepted,
     } = patientDraft;
-    const errors = patientProfileErrors(patientDraft);
+    const errors = patientProfileErrors(patientDraft, editing);
     setProfileErrors(errors);
     if (Object.keys(errors).length > 0) {
       setError('赤く表示された項目を確認してください。');
@@ -234,9 +257,23 @@ export default function PatientIntakePage() {
           }
           : patient));
       } else {
-        const result = await patientIntakeApi.createPatient(profile);
+        const result = await patientIntakeApi.createPatient({
+          ...profile,
+          ...(relationship === 'child' && {
+            proxyConsent: { accepted: proxyConsentAccepted, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+            registrationIdempotencyKey: registrationIdempotencyKeyRef.current,
+          }),
+        });
+        registrationIdempotencyKeyRef.current = crypto.randomUUID();
         setPatients((current) => [...current, result.patient]);
         setSelectedId(result.patient.id);
+        if (result.proxyGrant) {
+          const expiresOn = new Date(result.proxyGrant.expiresAt).toLocaleDateString(
+            'ja-JP', { timeZone: 'Asia/Tokyo' },
+          );
+          setSuccess(`代理入力権限は${expiresOn}まで有効です。自動更新はされません。`);
+          setSaved(false);
+        }
       }
       setShowNewPatient(false);
       setEditing(false);
@@ -246,6 +283,57 @@ export default function PatientIntakePage() {
       setDraftDirty(false);
     } catch (err) {
       setError(pharmacyErrorMessage(err, '患者情報を登録できませんでした。'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeProxy() {
+    if (!selectedPatient || selectedPatient.relationship === 'self' || busy ||
+        !window.confirm('この患者への代理入力権限を取り消しますか？取り消すと、直後から患者情報とアンケートを開けなくなります。')) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await patientIntakeApi.revokeProxy(selectedPatient.id);
+      const remaining = patients.filter((patient) => patient.id !== selectedPatient.id);
+      setPatients(remaining);
+      setSelectedId(remaining[0]?.id ?? '');
+      setSaved(false);
+      setDraftDirty(false);
+      setSuccess('代理入力権限を取り消しました。');
+      if (remaining.length === 0) resetPatientForm('self');
+    } catch (err) {
+      setError(pharmacyErrorMessage(err, '代理入力権限を取り消せませんでした。'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateNotifications() {
+    if (!selectedPatient || !accessState || busy) return;
+    const action = accessState.notifications === 'enabled' ? 'stop' : 'resume';
+    if (action === 'stop' && !window.confirm(
+      'この患者について、薬局からの自動のお知らせを停止しますか？すでに停止したお知らせは、再開後も送信されません。',
+    )) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await patientIntakeApi.setNotifications(selectedPatient.id, {
+        action,
+        expectedControlVersion: accessState.controlVersion,
+      });
+      setAccessState((current) => current && ({
+        ...current,
+        notifications: result.status === 'stopped' ? 'stopped' : 'enabled',
+        controlVersion: result.version,
+      }));
+      setSuccess(result.status === 'stopped'
+        ? 'この患者について、自動のお知らせを停止しました。'
+        : 'この患者について、今後の自動のお知らせを再開しました。');
+    } catch (err) {
+      setError(pharmacyErrorMessage(err, 'お知らせ設定を変更できませんでした。'));
     } finally {
       setBusy(false);
     }
@@ -341,6 +429,7 @@ export default function PatientIntakePage() {
     setPatientDraft(emptyPatientProfileDraft(relationshipValue));
     setShowAddress(false);
     setShowNewPatient(true);
+    registrationIdempotencyKeyRef.current = crypto.randomUUID();
   }
 
   function confirmIntakeNavigation(): boolean {
@@ -381,7 +470,7 @@ export default function PatientIntakePage() {
               }}>
                 {showNewPatient ? '一覧に戻る' : patients.length === 0 ? '本人を登録' : '家族を追加'}
               </button>
-              {selectedPatient && !showNewPatient && <button type="button" className="pharmacy-control min-h-11 text-base font-bold text-green-800" onClick={() => {
+              {selectedPatient && selectedPatient.relationship === 'self' && !showNewPatient && <button type="button" className="pharmacy-control min-h-11 text-base font-bold text-green-800" onClick={() => {
                 setEditing(true);
                 setShowNewPatient(true);
                 setPatientDraft(patientProfileDraft(selectedPatient));
@@ -404,7 +493,32 @@ export default function PatientIntakePage() {
             <label className="block text-sm">患者を選択<select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="mt-1 block w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
           )}
           {selectedPatient && <p className="text-sm text-gray-700">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
+          {selectedPatient && selectedPatient.relationship !== 'self' && !showNewPatient && (
+            <button type="button" onClick={() => void revokeProxy()} disabled={busy} className="min-h-11 w-full rounded-lg border border-red-300 bg-white px-4 py-3 font-bold text-red-700 disabled:opacity-50">
+              代理権限を取り消す
+            </button>
+          )}
         </section>
+
+        {!showNewPatient && selectedPatient && (
+          <section className="rounded-xl bg-white p-4 shadow-sm space-y-3" aria-labelledby="notification-heading">
+            <h2 id="notification-heading" className="font-bold">LINEのお知らせ</h2>
+            {accessLoading || !accessState ? (
+              <p className="text-sm text-gray-600">設定を確認しています...</p>
+            ) : <>
+              <p className="text-base text-gray-800">
+                現在：<strong>{accessState.notifications === 'enabled' ? '受け取る' : '停止中'}</strong>
+              </p>
+              <p className="text-sm leading-6 text-gray-700">
+                この患者について薬局から自動送信されるお知らせを設定します。代理権限や個人情報の同意状態は変わりません。
+              </p>
+              <button type="button" onClick={() => void updateNotifications()} disabled={busy}
+                className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50">
+                {accessState.notifications === 'enabled' ? 'お知らせを停止する' : 'お知らせを再開する'}
+              </button>
+            </>}
+          </section>
+        )}
 
         {!showNewPatient && selectedPatient && <>
           {latestAnswers && (

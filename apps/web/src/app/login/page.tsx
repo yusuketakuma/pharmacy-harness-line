@@ -92,8 +92,9 @@ export default function LoginPage() {
   const handlePasswordChange = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!apiUrl) return
-    if (newPassword.length < 12 || newPassword.length > 128) {
-      setError('新しいパスワードは12文字以上128文字以下で入力してください')
+    const passwordLength = [...newPassword].length
+    if (passwordLength < 15 || passwordLength > 128) {
+      setError('新しいパスワードは15文字以上128文字以下で入力してください')
       return
     }
     if (newPassword !== confirmPassword) {
@@ -114,9 +115,11 @@ export default function LoginPage() {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(res.status === 401
-          ? 'セッションが切れました。もう一度ログインしてください'
-          : 'パスワードを変更できませんでした。もう一度お試しください')
+        setError(res.status === 400
+          ? '15〜128文字で、よく使われるパスワード以外を指定してください'
+          : res.status === 401
+            ? 'セッションが切れました。もう一度ログインしてください'
+            : 'パスワードを変更できませんでした。もう一度お試しください')
         return
       }
       if (data?.csrfToken) localStorage.setItem('lh_csrf', data.csrfToken)

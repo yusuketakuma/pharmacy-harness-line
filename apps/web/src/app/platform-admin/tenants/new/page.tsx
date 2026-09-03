@@ -41,6 +41,13 @@ export default function PlatformAdminTenantNewPage() {
   function next(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    if (step === 0) {
+      const passwordLength = [...temporaryPassword].length
+      if (passwordLength < 15 || passwordLength > 128) {
+        setError('初期パスワードは15文字以上128文字以下で入力してください。')
+        return
+      }
+    }
     if (step === 2 && !liffId.startsWith(`${loginChannelId}-`)) {
       setError('LIFF IDはLINE LoginチャネルIDから始まる値を入力してください。')
       return
@@ -123,8 +130,8 @@ export default function PlatformAdminTenantNewPage() {
               <input type="email" maxLength={254} value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} className={inputClass} />
             </label>
             <label className="block text-sm font-medium">初期パスワード
-              <input required type="password" minLength={12} maxLength={128} autoComplete="new-password" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} className={inputClass} />
-              <span className="mt-1 block text-xs text-gray-500">12〜128文字。初回ログイン後に変更が必要です。</span>
+              <input required type="password" autoComplete="new-password" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} className={inputClass} />
+              <span className="mt-1 block text-xs text-gray-500">15〜128文字。よく使われるパスワードは登録できません。</span>
             </label>
           </>}
 

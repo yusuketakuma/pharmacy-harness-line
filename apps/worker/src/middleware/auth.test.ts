@@ -117,6 +117,12 @@ function app() {
   a.post('/api/forms/:id/partial', (c) => c.json({ success: true }));
   a.post('/api/forms/:id/opened', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/prescriptions/recovery', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/patients/:id/access', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/patients/:id/privacy-consent', (c) => c.json({ success: true }));
+  a.post('/api/liff/pharmacy/patients/:id/notification-preference', (c) => c.json({ success: true }));
+  a.delete('/api/liff/pharmacy/patients/:id/proxy-grant', (c) => c.json({ success: true }));
+  a.get('/api/liff/pharmacy/timeline', (c) => c.json({ success: true }));
   a.delete('/api/liff/pharmacy/prescriptions', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs', (c) => c.json({ success: true }));
   a.post('/api/liff/pharmacy/myna-handoffs/:id/launch', (c) => c.json({ success: true }));
@@ -257,6 +263,8 @@ describe('protected API access', () => {
     ['GET', '/api/liff/pharmacy/privacy-policy'],
     ['GET', '/api/liff/pharmacy/feature-access'],
     ['GET', '/api/liff/pharmacy/myna-handoffs/active'],
+    ['GET', '/api/liff/pharmacy/prescriptions/recovery'],
+    ['GET', '/api/liff/pharmacy/timeline'],
     ['POST', '/api/liff/pharmacy/prescriptions/rx-1/arrival'],
   ])('lets the route-level LINE gate handle the patient action %s %s', async (method, path) => {
     const res = await app().request(path, { method }, env());
@@ -314,6 +322,25 @@ describe('protected API access', () => {
 
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(LIFF);
+  });
+
+  test.each([
+    ['GET', '/api/liff/pharmacy/patients/patient-1/access'],
+    ['POST', '/api/liff/pharmacy/patients/patient-1/privacy-consent'],
+    ['POST', '/api/liff/pharmacy/patients/patient-1/notification-preference'],
+    ['DELETE', '/api/liff/pharmacy/patients/patient-1/proxy-grant'],
+  ])('lets the LIFF patient route perform its own identity verification: %s %s', async (method, path) => {
+    const response = await app().request(`${path}?liffId=test`, { method }, env());
+    expect(response.status).toBe(200);
+  });
+
+  test('does not broaden the LIFF patient control method allowlist', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/patients/patient-1/notification-preference?liffId=test',
+      { method: 'PUT' },
+      env(),
+    );
+    expect(response.status).toBe(401);
   });
 
   test('allows Idempotency-Key in cross-origin preflight requests', async () => {
@@ -542,6 +569,16 @@ describe('prescription LIFF auth boundary', () => {
     }, crossSiteEnv());
     expect(wrongMethod.status).toBe(401);
   });
+
+  test('keeps timeline and recovery exceptions GET-only', async () => {
+    for (const path of [
+      '/api/liff/pharmacy/prescriptions/recovery',
+      '/api/liff/pharmacy/timeline',
+    ]) {
+      expect((await app().request(path, {}, crossSiteEnv())).status).toBe(200);
+      expect((await app().request(path, { method: 'DELETE' }, crossSiteEnv())).status).toBe(401);
+    }
+  });
 });
 
 describe('Myna LIFF auth boundary', () => {
@@ -649,16 +686,15 @@ describe('CORS allowed / blocked origins', () => {
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
   });
 
-  test('Cloudflare Pages preview origin for the admin project is echoed back', async () => {
+  test('Cloudflare Pages preview origin is not implicitly allowed', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
     const res = await app().request('/api/protected', {
       headers: { Origin: preview, Cookie: `lh_admin_session=staff-key; lh_tenant=${encodeURIComponent(TENANT_ID)}` },
     }, crossSiteEnv());
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
-    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  test('login preflight succeeds from a Cloudflare Pages preview origin', async () => {
+  test('login preflight does not allow a Cloudflare Pages preview origin', async () => {
     const preview = 'https://abc123.your-admin.pages.dev';
     const res = await app().request('/api/auth/login', {
       method: 'OPTIONS',
@@ -669,11 +705,10 @@ describe('CORS allowed / blocked origins', () => {
       },
     }, crossSiteEnv());
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(preview);
-    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  test('direct Worker same-origin login preflight remains allowed', async () => {
+  test('direct Worker browser origin is not implicit when ADMIN_ORIGIN is configured', async () => {
     const res = await app().request(`${WORKERS}/api/auth/login`, {
       method: 'OPTIONS',
       headers: {
@@ -683,7 +718,7 @@ describe('CORS allowed / blocked origins', () => {
       },
     }, crossSiteEnv());
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(WORKERS);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
   test('LIFF origin cannot preflight an admin login route', async () => {

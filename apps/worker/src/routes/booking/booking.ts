@@ -44,6 +44,7 @@ import {
   signGoogleOAuthState,
   verifyGoogleOAuthState,
 } from '../../services/google-oauth.js';
+import { resolveActiveLineAccountIdByLiffId } from './liff-account.js';
 
 const booking = new Hono<Env>();
 const GOOGLE_OAUTH_CALLBACK_PATH = '/api/booking/google-calendar/oauth/callback';
@@ -97,16 +98,6 @@ export function jstDayWindowUtc(jstDate: string): { startUtc: string; endUtc: st
     startUtc: new Date(`${jstDate}T00:00:00+09:00`).toISOString(),
     endUtc: `${jstDate}T15:00:00Z`,
   };
-}
-
-async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null> {
-  const liffId = c.req.query('liffId');
-  if (!liffId) return null;
-  const acc = await c.env.DB
-    .prepare(`SELECT id FROM line_accounts WHERE liff_id = ? AND is_active = 1`)
-    .bind(liffId)
-    .first<{ id: string }>();
-  return acc?.id ?? null;
 }
 
 // LIFF が送る id_token を LINE Login API で verify し、認証済み LINE userId を返す。
@@ -232,7 +223,7 @@ async function notifyForBooking(
 // ================================================================
 
 booking.get('/api/liff/booking/menus', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const rows = await c.env.DB
     .prepare(
@@ -249,7 +240,7 @@ booking.get('/api/liff/booking/menus', async (c) => {
 });
 
 booking.get('/api/liff/booking/menus/:id/staff', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const menuId = c.req.param('id');
   const rows = await c.env.DB
@@ -270,7 +261,7 @@ booking.get('/api/liff/booking/menus/:id/staff', async (c) => {
 });
 
 booking.get('/api/liff/booking/availability', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const menuId = c.req.query('menu_id');
   const staffId = c.req.query('staff_id') || undefined;
@@ -298,7 +289,7 @@ booking.get('/api/liff/booking/availability', async (c) => {
 });
 
 booking.post('/api/liff/booking/requests', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   const idemKey = c.req.header('Idempotency-Key');
   if (!idemKey) return c.json({ error: 'missing_idempotency_key' }, 400);
@@ -489,7 +480,7 @@ booking.post('/api/liff/booking/requests', async (c) => {
 });
 
 booking.get('/api/liff/booking/me', async (c) => {
-  const accountId = await resolveAccountIdFromLiff(c);
+  const accountId = await resolveActiveLineAccountIdByLiffId(c.env.DB, c.req.query('liffId'));
   if (!accountId) return c.json({ error: 'unknown_liff' }, 404);
   // 履歴も idToken 検証必須。query の lineUserId に頼ると他人の履歴を覗けてしまう。
   const callerLineUserId = await verifyCallerLineUserId(c, accountId);

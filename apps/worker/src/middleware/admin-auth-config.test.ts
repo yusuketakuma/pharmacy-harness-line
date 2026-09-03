@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  isAllowedAdminRequestOrigin,
   isAllowedAdminOrigin,
   isCrossSite,
   parseAllowedOrigins,
@@ -53,6 +54,10 @@ describe('parseAllowedOrigins', () => {
   test('returns [] when unset', () => {
     expect(parseAllowedOrigins({})).toEqual([]);
   });
+
+  test('does not accept non-HTTP origins', () => {
+    expect(parseAllowedOrigins({ ADMIN_ORIGIN: 'javascript:alert(1)' })).toEqual([]);
+  });
 });
 
 describe('resolveAdminAuthConfig — topology guard', () => {
@@ -102,6 +107,14 @@ describe('resolveAdminAuthConfig — topology guard', () => {
     expect(cfg.misconfigured).toMatch(/ADMIN_ORIGIN/);
   });
 
+  test('a configured but invalid ADMIN_ORIGIN is flagged', () => {
+    const cfg = resolveAdminAuthConfig({
+      ADMIN_ORIGIN: 'not-an-origin',
+      WORKER_URL: WORKERS,
+    });
+    expect(cfg.misconfigured).toMatch(/valid HTTP/);
+  });
+
   test('no admin origin (worker-served same-origin) defaults to Lax and is valid', () => {
     const cfg = resolveAdminAuthConfig({ WORKER_URL: WORKERS });
     expect(cfg.crossSite).toBe(false);
@@ -142,9 +155,9 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
     expect(resolveCorsOrigin(env, PAGES, requestUrl)).toBe(PAGES);
   });
 
-  test('echoes a Cloudflare Pages preview URL for the allowlisted admin project', () => {
+  test('blocks a Cloudflare Pages preview URL that is not explicitly allowlisted', () => {
     const preview = 'https://abc123.your-admin.pages.dev';
-    expect(resolveCorsOrigin(env, preview, requestUrl)).toBe(preview);
+    expect(resolveCorsOrigin(env, preview, requestUrl)).toBe('');
   });
 
   test('blocks a Cloudflare Pages URL from another project', () => {
@@ -156,8 +169,9 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
     expect(resolveCorsOrigin(env, 'https://evil.example.com', requestUrl)).toBe('');
   });
 
-  test('always allows same-origin requests', () => {
-    expect(resolveCorsOrigin(env, WORKERS, requestUrl)).toBe(WORKERS);
+  test('allows Worker same-origin only when no explicit admin origin is configured', () => {
+    expect(resolveCorsOrigin(env, WORKERS, requestUrl)).toBe('');
+    expect(resolveCorsOrigin({ WORKER_URL: WORKERS }, WORKERS, requestUrl)).toBe(WORKERS);
   });
 
   test('permits no-Origin (non-browser / SDK) callers', () => {
@@ -215,17 +229,37 @@ describe('resolveCorsOrigin — allowed / blocked', () => {
   });
 });
 
-describe('isAllowedAdminOrigin — Cloudflare Pages previews', () => {
-  test('allows production and preview origins for the same Pages project', () => {
+describe('isAllowedAdminOrigin — exact production allowlist', () => {
+  test('allows only exact configured origins', () => {
     expect(isAllowedAdminOrigin('https://your-admin.pages.dev', PAGES)).toBe(true);
-    expect(isAllowedAdminOrigin('https://preview.your-admin.pages.dev', PAGES)).toBe(true);
-    expect(isAllowedAdminOrigin(PAGES, 'https://preview.your-admin.pages.dev')).toBe(true);
+    expect(isAllowedAdminOrigin('https://preview.your-admin.pages.dev', PAGES)).toBe(false);
+    expect(isAllowedAdminOrigin(PAGES, 'https://preview.your-admin.pages.dev')).toBe(false);
   });
 
   test('does not widen custom domains to arbitrary subdomains', () => {
     expect(
       isAllowedAdminOrigin('https://preview.admin.example.com', 'https://admin.example.com'),
     ).toBe(false);
+  });
+});
+
+describe('isAllowedAdminRequestOrigin — production browser entry', () => {
+  const env: AdminAuthEnv = {
+    ADMIN_ORIGIN: PAGES,
+    WORKER_URL: WORKERS,
+    ADMIN_ALLOW_CROSS_SITE: 'true',
+  };
+
+  test('accepts only the explicit admin origin, not preview or Worker origins', () => {
+    const requestUrl = `${WORKERS}/api/auth/login`;
+    expect(isAllowedAdminRequestOrigin(env, PAGES, requestUrl)).toBe(true);
+    expect(isAllowedAdminRequestOrigin(
+      env, 'https://preview.your-admin.pages.dev', requestUrl,
+    )).toBe(false);
+    expect(isAllowedAdminRequestOrigin(env, WORKERS, requestUrl)).toBe(false);
+    expect(isAllowedAdminRequestOrigin(
+      { ADMIN_ORIGIN: 'not-an-origin', WORKER_URL: WORKERS }, WORKERS, requestUrl,
+    )).toBe(false);
   });
 });
 

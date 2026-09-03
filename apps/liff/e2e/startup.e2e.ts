@@ -31,6 +31,7 @@ async function mockAllPharmacyRoutes(page: Page): Promise<void> {
     const bodies: Record<string, unknown> = {
       '/api/liff/pharmacy/feature-access': { data: { existingFeatures: [] } },
       '/api/liff/pharmacy/prescriptions/me': { submissions: [] },
+      '/api/liff/pharmacy/prescriptions/recovery': { recovery: { state: 'none' } },
       '/api/liff/pharmacy/patients': { patients: [] },
       '/api/liff/pharmacy/privacy-policy': {
         policy: {

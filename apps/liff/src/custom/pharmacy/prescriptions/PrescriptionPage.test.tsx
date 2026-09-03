@@ -13,6 +13,7 @@ import PrescriptionPage, {
   pendingRequirementLabels,
   mynaStatusLabel,
   prescriptionUnmetReasons,
+  prescriptionUploadPositions,
 } from './PrescriptionPage.js';
 
 const source = readFileSync(
@@ -121,7 +122,7 @@ describe('prescription upload UI contract', () => {
   });
 
   it('shows a re-confirmation hint next to the consent checkboxes during resubmission', () => {
-    expect(source).toMatch(/\{replacement\s*&&\s*<p[^>]*>[^<]*再度[^<]*<\/p>\}/);
+    expect(source).toMatch(/\{\(replacement \|\| recoveredSubmission\) && <p[^>]*>[^<]*再度[^<]*<\/p>\}/);
   });
 
   it('keeps submission blocked until both consents are re-checked, even with images attached', () => {
@@ -228,5 +229,63 @@ describe('prescription submit flow (WP-12)', () => {
     expect(source).toContain("setConfirming(true)");
     expect(source).toContain('window.scrollTo(0, 0)');
     expect(source).toContain('次にすること');
+  });
+});
+
+describe('prescription upload recovery (V034-3)', () => {
+  it('fills pending positions before missing positions and never overwrites ready slots', () => {
+    expect(prescriptionUploadPositions([1], [2], 2)).toEqual([2, 3]);
+    expect(prescriptionUploadPositions([1, 3], [], 2)).toEqual([2, 4]);
+    expect(prescriptionUploadPositions([1, 2, 3, 4], [], 1)).toEqual([]);
+  });
+
+  it('blocks confirmation until startup reconciliation and connectivity are known', () => {
+    expect(prescriptionUnmetReasons({
+      imageCount: 1, originalConsent: true, noticeConsent: true,
+      patientSelected: true, intakeDone: true, recoveryResolved: false, online: true,
+    })).toContain('未送信の状態を確認しています');
+    expect(prescriptionUnmetReasons({
+      imageCount: 1, originalConsent: true, noticeConsent: true,
+      patientSelected: true, intakeDone: true, recoveryResolved: true, online: false,
+    })).toContain('通信に接続してから送信してください');
+  });
+
+  it('reconciles before reserve and after an unknown mutation outcome', () => {
+    const startupRecovery = source.slice(
+      source.indexOf('const refreshRecovery'),
+      source.indexOf('useEffect(() => { void refreshHistory'),
+    );
+    const postErrorRecovery = source.slice(
+      source.indexOf('async function reconcileAfterSendError'),
+      source.indexOf('async function send()'),
+    );
+    expect(startupRecovery).toContain('prescriptionApi.recovery()');
+    expect(startupRecovery).not.toContain('attemptedSubmissionId');
+    expect(postErrorRecovery).toContain('? { submissionId: attemptedSubmissionId }');
+    expect(postErrorRecovery).toContain(': { idempotencyKey }');
+    expect(source).toContain('reconcileAfterSendError');
+    expect(source).toContain('isUnsupportedPharmacyFeature(error)');
+    expect(source).not.toContain("error.status === 404");
+    expect(source).toContain("item.status === 'received'");
+    expect(source).toContain('sendingRef.current');
+  });
+
+  it('binds a recovered patient, exposes ready and pending slots, and rechecks consent', () => {
+    expect(source).toContain('recovery.submission.patientId');
+    expect(source).toContain('readyPositions');
+    expect(source).toContain('pendingPositions');
+    expect(source).toContain('薬局に届いている画像');
+    expect(source).toContain('同じ画像をもう一度選択');
+    expect(source).toContain('disabled={busy || Boolean(recoveredSubmission)}');
+    expect(source).not.toMatch(/setOriginalConsent\(true\)|setNoticeConsent\(true\)/);
+    expect(source.match(/setOriginalConsent\(false\)/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(source.match(/setNoticeConsent\(false\)/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('warns on navigation, tracks offline state natively, and persists no recovery data', () => {
+    expect(source).toContain("addEventListener('beforeunload'");
+    expect(source).toContain("addEventListener('offline'");
+    expect(source).toContain("addEventListener('online'");
+    expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB|caches\./);
   });
 });

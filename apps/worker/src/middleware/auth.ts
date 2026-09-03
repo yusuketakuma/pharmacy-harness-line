@@ -13,15 +13,13 @@ import { resolvePlatformAdminSession } from '../custom/pharmacy/platform-admin/a
 import { recordPlatformAdminAccess } from '../custom/pharmacy/platform-admin/audit.js';
 import { isPlatformTenantSettingsPath } from '../custom/pharmacy/platform-admin/settings-scope.js';
 import { deny } from './deny.js';
+import { sessionIdleCutoff } from '../custom/pharmacy/provisioning/auth-policy.js';
 
 export const ADMIN_AUTH_COOKIE = 'lh_admin_session';
 export const TENANT_COOKIE = 'lh_tenant';
 export const CSRF_COOKIE = 'lh_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
 export const TENANT_HEADER = 'x-tenant-id';
-
-// 7 days, matching the previous localStorage session longevity.
-const SESSION_MAX_AGE = 604800;
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -70,13 +68,21 @@ export function csrfTokenFromCookie(c: Context<Env>): string | null {
 export { buildCookie } from './cookie.js';
 
 /** HttpOnly cookie carrying only an opaque password session. */
-export function adminSessionCookie(token: string, sameSite: AdminSameSite): string {
-  return buildCookie(ADMIN_AUTH_COOKIE, token, sameSite, SESSION_MAX_AGE, true);
+export function adminSessionCookie(
+  token: string,
+  sameSite: AdminSameSite,
+  maxAgeSeconds = 8 * 60 * 60,
+): string {
+  return buildCookie(ADMIN_AUTH_COOKIE, token, sameSite, maxAgeSeconds, true);
 }
 
 /** HttpOnly tenant binding paired with the admin session credential. */
-export function tenantSessionCookie(tenantId: string, sameSite: AdminSameSite): string {
-  return buildCookie(TENANT_COOKIE, tenantId, sameSite, SESSION_MAX_AGE, true);
+export function tenantSessionCookie(
+  tenantId: string,
+  sameSite: AdminSameSite,
+  maxAgeSeconds = 8 * 60 * 60,
+): string {
+  return buildCookie(TENANT_COOKIE, tenantId, sameSite, maxAgeSeconds, true);
 }
 
 /**
@@ -87,8 +93,12 @@ export function tenantSessionCookie(tenantId: string, sameSite: AdminSameSite): 
  * header against this cookie, which the browser does send back to the API
  * (SameSite=None).
  */
-export function csrfCookie(token: string, sameSite: AdminSameSite): string {
-  return buildCookie(CSRF_COOKIE, token, sameSite, SESSION_MAX_AGE, false);
+export function csrfCookie(
+  token: string,
+  sameSite: AdminSameSite,
+  maxAgeSeconds = 8 * 60 * 60,
+): string {
+  return buildCookie(CSRF_COOKIE, token, sameSite, maxAgeSeconds, false);
 }
 
 export function expiredCookie(name: string, sameSite: AdminSameSite): string {
@@ -209,12 +219,15 @@ async function authenticateOpaqueSession(
 ): Promise<RequestIdentity | null> {
   try {
     const tokenHash = await hashTenantAdminSessionToken(token);
-    const now = new Date().toISOString();
+    const currentTime = new Date();
+    const now = currentTime.toISOString();
+    const bootstrapIdleCutoff = sessionIdleCutoff('bootstrap', currentTime);
+    const standardIdleCutoff = sessionIdleCutoff('standard', currentTime);
     const row = await c.env.DB.prepare(
       `SELECT tenant.id, tenant.tenant_code, tenant.display_name,
               credential.staff_id, credential.must_change_password,
               credential.credential_version, staff.name, membership.role,
-              session.session_kind
+              session.session_kind, session.last_seen_at
          FROM tenant_admin_sessions AS session
          INNER JOIN tenant_admin_credentials AS credential
                  ON credential.tenant_id = session.tenant_id
@@ -231,8 +244,11 @@ async function authenticateOpaqueSession(
         WHERE session.token_hash = ?
           AND session.revoked_at IS NULL
           AND session.expires_at > ?
+          AND (session.last_seen_at IS NULL OR
+               (session.session_kind = 'bootstrap' AND session.last_seen_at > ?) OR
+               (session.session_kind = 'standard' AND session.last_seen_at > ?))
         LIMIT 1`,
-    ).bind(tokenHash, now).first<{
+    ).bind(tokenHash, now, bootstrapIdleCutoff, standardIdleCutoff).first<{
       id: string;
       tenant_code: string;
       display_name: string;
@@ -242,10 +258,16 @@ async function authenticateOpaqueSession(
       must_change_password: number;
       credential_version: number;
       session_kind: 'bootstrap' | 'standard';
+      last_seen_at: string | null;
     }>();
     if (!row || tenantToken(c) !== row.id) return null;
     const mustChangePassword = row.must_change_password === 1;
     if ((row.session_kind === 'bootstrap') !== mustChangePassword) return null;
+    await c.env.DB.prepare(
+      `UPDATE tenant_admin_sessions
+          SET last_seen_at = ?
+        WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`,
+    ).bind(now, tokenHash, now).run();
     return {
       staff: { id: row.staff_id, name: row.name, role: row.role },
       tenant: { id: row.id, code: row.tenant_code, name: row.display_name },
@@ -400,17 +422,27 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
   // this namespace cannot silently bypass staff authentication.
   const isPrescriptionPatientAction =
     (method === 'POST' && path === '/api/liff/pharmacy/prescriptions') ||
-    (method === 'GET' && path === '/api/liff/pharmacy/prescriptions/me') ||
+    (method === 'GET' && (
+      path === '/api/liff/pharmacy/prescriptions/me' ||
+      path === '/api/liff/pharmacy/prescriptions/recovery'
+    )) ||
     (method === 'PUT' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/files\/[^/]+$/.test(path)) ||
     (method === 'POST' && /^\/api\/liff\/pharmacy\/prescriptions\/[^/]+\/(submit|cancel|resubmission|arrival)$/.test(path));
   if (isPrescriptionPatientAction) return next();
+
+  // custom:pharmacy-patient-timeline — read-only projection with its own
+  // LINE ID-token and account/owner resolution.
+  if (method === 'GET' && path === '/api/liff/pharmacy/timeline') return next();
 
   // custom:pharmacy-intake — patient profiles and intake revisions verify the
   // LINE ID token in their route middleware, just like prescription uploads.
   const isPharmacyIntakePatientAction =
     path === '/api/liff/pharmacy/patients' && (method === 'GET' || method === 'POST') ||
     /^\/api\/liff\/pharmacy\/patients\/[^/]+(\/intake|\/archive)?$/.test(path) &&
-      (method === 'GET' || method === 'POST' || method === 'PATCH');
+      (method === 'GET' || method === 'POST' || method === 'PATCH') ||
+    method === 'GET' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/access$/.test(path) ||
+    method === 'POST' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/(privacy-consent|notification-preference)$/.test(path) ||
+    method === 'DELETE' && /^\/api\/liff\/pharmacy\/patients\/[^/]+\/proxy-grant$/.test(path);
   if (isPharmacyIntakePatientAction) return next();
 
   // custom:pharmacy-myna — the handoff and self-report routes verify the

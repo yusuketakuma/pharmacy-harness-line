@@ -53,8 +53,9 @@ export default function PlatformAdminLoginPage() {
 
   const handlePasswordChange = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (newPassword.length < 12 || newPassword.length > 128) {
-      setError('新しいパスワードは12文字以上128文字以下で入力してください')
+    const passwordLength = [...newPassword].length
+    if (passwordLength < 15 || passwordLength > 128) {
+      setError('新しいパスワードは15文字以上128文字以下で入力してください')
       return
     }
     if (newPassword !== confirmPassword) {
@@ -70,7 +71,9 @@ export default function PlatformAdminLoginPage() {
       setConfirmPassword('')
       router.push('/platform-admin/tenants')
     } catch (caught) {
-      setError(platformAdminErrorMessage(caught))
+      setError(caught instanceof PlatformAdminApiError && caught.status === 400
+        ? '15〜128文字で、よく使われるパスワード以外を指定してください'
+        : platformAdminErrorMessage(caught))
     } finally {
       setLoading(false)
     }

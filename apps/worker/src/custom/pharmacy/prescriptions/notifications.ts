@@ -21,6 +21,7 @@ interface NotificationRecipient {
   tenant_id: string;
   line_account_id: string;
   friend_id: string;
+  patient_id: string | null;
   intake_method: 'E_PRESCRIPTION' | 'PAPER' | 'MEDICAL_INSTITUTION_SENT';
   liff_id: string | null;
   estimated_ready_at: string | null;
@@ -106,7 +107,7 @@ export async function deliverPrescriptionNotification(
 ): Promise<{ status: PrescriptionNotificationStatus }> {
   const recipient = await db.prepare(
     `SELECT e.id AS status_event_id, e.reason_code, e.revision, s.status,
-            s.line_account_id, s.friend_id,
+            s.line_account_id, s.friend_id, patient.patient_id,
             s.intake_method,
             f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id, la.liff_id,
             q.estimated_ready_at
@@ -118,6 +119,9 @@ export async function deliverPrescriptionNotification(
          ON mapping.line_account_id = s.line_account_id
        INNER JOIN tenants tenant
          ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+       LEFT JOIN pharmacy_prescription_patients patient
+         ON patient.submission_id = s.id AND patient.line_account_id = s.line_account_id
+        AND patient.owner_friend_id = s.friend_id
        INNER JOIN pharmacy_prescription_events e
          ON e.submission_id = s.id AND e.event_type = 'status_changed'
         AND e.to_status = s.status
@@ -186,6 +190,7 @@ export async function deliverPrescriptionNotification(
       to: recipient.line_user_id,
       lineAccountId: recipient.line_account_id,
       friendId: recipient.friend_id,
+      ...(recipient.patient_id ? { patientId: recipient.patient_id } : {}),
       messageId: 'prescription_status_v1',
       category: 'transactional_care',
       vars: {

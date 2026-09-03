@@ -38,12 +38,14 @@ LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
 
 # ═══════════════════════════════════════════════════════════════
 # 本番環境
-# 使い方: npx wrangler deploy --env production --name your-worker-name
+# 事前確認: pnpm deploy:production:dry-run
+# 本番反映: pnpm deploy:production（Human Gate後のみ）
 # D1:     npx wrangler d1 execute your-database --env production --remote --file ...
 # ═══════════════════════════════════════════════════════════════
 [env.production]
 account_id = "YOUR_ACCOUNT_ID"
 compatibility_flags = ["nodejs_compat"]
+# 顧客ごとの公開URL等はHuman Gateで設定し、deploy:productionの--keep-varsで保持する。
 
 [env.production.assets]
 directory = "dist/client"

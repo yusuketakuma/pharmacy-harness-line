@@ -172,6 +172,9 @@ describe('development deployment workflow contract', () => {
 
   test('reports one required CI context for every pull request', () => {
     const repositoryVerify = parse(read('.github/workflows/repository-verify.yml')) as any;
+    const rootPackage = JSON.parse(read('package.json')) as {
+      scripts: Record<string, string>;
+    };
 
     expect(repositoryVerify.on.pull_request).toBeNull();
     expect(repositoryVerify.on.push.branches).toEqual(['main', 'dev']);
@@ -180,6 +183,12 @@ describe('development deployment workflow contract', () => {
 
     const steps = repositoryVerify.jobs.verify.steps;
     expect(steps.some((step: { run?: string }) => step.run === 'pnpm verify:ci')).toBe(true);
+    const sharedBuild = steps.find(
+      (step: { name?: string }) => step.name === 'Build shared packages',
+    ).run as string;
+    expect(rootPackage.scripts['verify:ci']).toMatch(
+      new RegExp(`^${sharedBuild.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} && pnpm -r typecheck`),
+    );
     const build = steps.find(
       (step: { name?: string }) => step.name === 'Build critical applications',
     );

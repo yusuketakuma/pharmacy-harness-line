@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   markFileReady: vi.fn(),
   submit: vi.fn(),
   listHistory: vi.fn(),
+  getRecovery: vi.fn(),
   cancel: vi.fn(),
   reserveResubmission: vi.fn(),
   reportArrival: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock('./repository.js', () => ({
   markPrescriptionFileReady: mocks.markFileReady,
   submitPrescription: mocks.submit,
   listPrescriptionHistory: mocks.listHistory,
+  getPrescriptionRecovery: mocks.getRecovery,
   cancelPrescription: mocks.cancel,
   reservePrescriptionResubmission: mocks.reserveResubmission,
   reportPrescriptionArrival: mocks.reportArrival,
@@ -111,7 +113,7 @@ describe('patient history, cancellation, and resubmission routes', () => {
   const patient = { lineAccountId: 'account-1', friendId: 'friend-1' };
   const deleteObject = vi.fn();
   const request = (path: string, method = 'GET') => prescriptionRoutes.request(
-    `${path}?liffId=liff-1`,
+    `${path}${path.includes('?') ? '&' : '?'}liffId=liff-1`,
     {
       method,
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
@@ -126,6 +128,15 @@ describe('patient history, cancellation, and resubmission routes', () => {
     mocks.verify.mockResolvedValue({ lineUserId: 'U1', loginChannelId: 'login-1' });
     mocks.resolvePatient.mockResolvedValue(patient);
     mocks.listHistory.mockResolvedValue([{ id: 'submission-1', status: 'received' }]);
+    mocks.getRecovery.mockResolvedValue({
+      state: 'recoverable',
+      submission: {
+        id: 'submission-1', status: 'draft', uploadRevision: 1,
+        updatedAt: '2026-08-17T00:00:00.000Z', patientId: 'patient-1',
+        desiredPickupAt: null, desiredFulfillmentMethod: 'PICKUP',
+        readyPositions: [1], pendingPositions: [],
+      },
+    });
     mocks.cancel.mockResolvedValue([
       { id: 'file-1', r2_key: 'custom/pharmacy/prescriptions/submission-1/1/file-1' },
     ]);
@@ -141,6 +152,44 @@ describe('patient history, cancellation, and resubmission routes', () => {
     await expect(response.json()).resolves.toEqual({
       submissions: [{ id: 'submission-1', status: 'received' }],
     });
+  });
+
+  it('returns a non-cacheable owner-scoped recovery projection', async () => {
+    const response = await request('/api/liff/pharmacy/prescriptions/recovery');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(mocks.getRecovery).toHaveBeenCalledWith(env.DB, patient);
+    await expect(response.json()).resolves.toMatchObject({
+      recovery: { state: 'recoverable', submission: { id: 'submission-1' } },
+    });
+  });
+
+  it('validates and forwards one owner-scoped recovery selector', async () => {
+    const response = await request(
+      '/api/liff/pharmacy/prescriptions/recovery?idempotencyKey=attempt-123',
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.getRecovery).toHaveBeenCalledWith(env.DB, patient, {
+      idempotencyKey: 'attempt-123',
+    });
+
+    const invalid = await request(
+      '/api/liff/pharmacy/prescriptions/recovery?idempotencyKey=bad',
+    );
+    expect(invalid.status).toBe(400);
+    const conflicting = await request(
+      '/api/liff/pharmacy/prescriptions/recovery?idempotencyKey=attempt-123&submissionId=submission-1',
+    );
+    expect(conflicting.status).toBe(400);
+  });
+
+  it('does not cache recovery authentication failures', async () => {
+    mocks.verify.mockResolvedValueOnce(null);
+    const response = await request('/api/liff/pharmacy/prescriptions/recovery');
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(mocks.getRecovery).not.toHaveBeenCalled();
   });
 
   it('keeps owned history available when prescription intake is disabled', async () => {

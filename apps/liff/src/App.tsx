@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import Booking from './pages/Booking.js';
 import BookingHistory from './pages/BookingHistory.js';
 import Event from './pages/Event.js';
@@ -13,12 +13,20 @@ import PrescriptionPage from './custom/pharmacy/prescriptions/PrescriptionPage.j
 import PatientIntakePage from './custom/pharmacy/intake/PatientIntakePage.js'; // custom:pharmacy-intake
 import ContinuityPage from './custom/pharmacy/continuity/ContinuityPage.js'; // custom:pharmacy-continuity
 import MedicationFollowUpPage from './custom/pharmacy/medication-followup/MedicationFollowUpPage.js'; // custom:pharmacy-medication-followup
-import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'; // custom:pharmacy-emergency-contraception
 import MainMenuPage from './custom/pharmacy/menu/MainMenuPage.js'; // custom:pharmacy-menu
 import PharmacyInfoPage from './custom/pharmacy/public-profile/PharmacyInfoPage.js'; // custom:pharmacy-public-profile
+import PatientTimelinePage from './custom/pharmacy/timeline/PatientTimelinePage.js'; // custom:pharmacy-patient-timeline
 import { deprecatedReceiveTarget } from './custom/pharmacy/navigation.js';
 import PharmacyFeatureGate from './custom/pharmacy/menu/PharmacyFeatureGate.js';
 import { PharmacyAccessProvider, PharmacyShell } from './custom/pharmacy/PharmacyShell.js';
+
+const DeferredEmergencyContraceptionPage = lazy(() => import('./custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js')); // custom:pharmacy-emergency-contraception
+
+function EmergencyContraceptionPage() {
+  return <Suspense fallback={<p role="status" className="py-6 text-center text-gray-600">画面を読み込んでいます…</p>}>
+    <DeferredEmergencyContraceptionPage />
+  </Suspense>;
+}
 
 function LegacyEntryRedirect() {
   const location = useLocation();
@@ -67,6 +75,7 @@ export default function App() {
       <Route path="/webinar/:slug" element={<Webinar />} />
       <Route path="/prescriptions" element={<PrescriptionRoute />} /> {/* custom:pharmacy-prescriptions */}
       <Route path="/pharmacy/menu" element={<PharmacyPage screenTitle="すべての機能"><MainMenuPage /></PharmacyPage>} /> {/* custom:pharmacy-menu */}
+      <Route path="/pharmacy/timeline" element={<PharmacyPage screenTitle="利用状況"><PatientTimelinePage /></PharmacyPage>} /> {/* custom:pharmacy-patient-timeline */}
       <Route path="/pharmacy/info" element={<PharmacyPage screenTitle="薬局情報" capability="pharmacy_info"><PharmacyInfoPage /></PharmacyPage>} /> {/* custom:pharmacy-public-profile */}
       <Route path="/pharmacy/patient-intake" element={<PharmacyPage screenTitle="患者アンケート" capability="patient_intake" allowExisting><PatientIntakePage /></PharmacyPage>} /> {/* custom:pharmacy-intake */}
       <Route path="/pharmacy/continuity" element={<PharmacyPage screenTitle="継続フォロー" capability="continuity" allowExisting><ContinuityPage /></PharmacyPage>} /> {/* custom:pharmacy-continuity */}

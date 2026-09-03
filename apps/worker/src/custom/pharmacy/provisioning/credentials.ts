@@ -1,3 +1,5 @@
+import { isCommonAdminPassword } from './common-passwords.js';
+
 const encoder = new TextEncoder();
 // ponytail: Cloudflare Workers caps PBKDF2 at 100k; raise only when the runtime supports it.
 const PBKDF2_ITERATIONS = 100_000;
@@ -46,11 +48,15 @@ export function generateTemporaryPassword(): string {
 }
 
 export function isValidAdminPassword(password: string): boolean {
-  return password.length >= 12 && password.length <= 128 && password.trim().length > 0;
+  const codePoints = [...password].length;
+  return codePoints >= 15 && codePoints <= 128 && password.trim().length > 0 &&
+    !isCommonAdminPassword(password);
 }
 
 export async function hashTenantPassword(password: string): Promise<string> {
-  if (!isValidAdminPassword(password)) throw new Error('Password must be 12 to 128 characters');
+  if (!isValidAdminPassword(password)) {
+    throw new Error('Password must be 15 to 128 characters and not commonly compromised');
+  }
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const hash = await derivePassword(password, salt, PBKDF2_ITERATIONS);
   return `pbkdf2-sha256$${PBKDF2_ITERATIONS}$${toBase64Url(salt)}$${toBase64Url(hash)}`;

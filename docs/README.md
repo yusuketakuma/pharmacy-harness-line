@@ -26,6 +26,7 @@
 | [CUSTOMER_DELIVERY.md](pharmacy/CUSTOMER_DELIVERY.md) | 薬局テナントの導入手順 |
 | [customer-production-update-checklist.md](pharmacy/customer-production-update-checklist.md) | 本番更新チェックリスト |
 | [manual-staff.md](pharmacy/manual-staff.md) / [manual-patient.md](pharmacy/manual-patient.md) | スタッフ向け / 患者向けの 1 枚マニュアル |
+| [WRONG_BINDING_RECOVERY.md](pharmacy/WRONG_BINDING_RECOVERY.md) | 患者とLINE利用者を誤って紐付けた場合の停止・再登録手順 |
 | [GROWTH_LOOP_ROADMAP.md](pharmacy/GROWTH_LOOP_ROADMAP.md) / [GROWTH_LOOP_KPI_CONTRACT.md](pharmacy/GROWTH_LOOP_KPI_CONTRACT.md) | 薬局統計 (Growth Loop) の拡張計画と KPI 定義 |
 | [PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md](pharmacy/PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md) | 印刷・活動通知の仕様 |
 | [rich-menu-update-review.md](pharmacy/rich-menu-update-review.md) | リッチメニュー更新のレビュー記録 |
