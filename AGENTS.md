@@ -4,6 +4,7 @@
 - ゴールから外れる提案をしないでください。
 - 実行依頼は承認済み範囲の検証まで完了させる。進捗と次の行動は必要な場合だけ説明し、完了後に追加タスクや定型句を必須にしない。
 - 私が大学生だと思って、言語化してください。
+- 変更経路に必要なコード・仕様・テストだけを読み、全リポジトリや全計画を常時読み込まない。計画・レビュー・調査だけの依頼は変更せず報告する。
 - LINE Harness Proxy から担当者として1対1返信する場合は、`X-Line-Harness-Source: manual` を必ず付けてください。予約通知などの自動送信には付けないでください。
 - Google Meetの個別相談を確定・変更した場合は、カレンダー更新だけで終えず、`POST /api/meet-consultations` にGoogle Calendar event ID・LINE friend ID・日時・Meet URLを登録してください。前日・1時間前のLINEリマインドを必須セットにします。キャンセル時は `DELETE /api/meet-consultations/:externalEventId` も実行してください。
 
