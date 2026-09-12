@@ -25,6 +25,7 @@ export interface FulfillmentRequirement {
 }
 
 export interface FulfillmentQuoteInput {
+  expectedRevision?: number;
   decision: FulfillmentDecision;
   reasonCodes: string[];
   requirements: FulfillmentRequirement[];
@@ -75,7 +76,8 @@ function defaultFulfillmentStatus(decision: FulfillmentDecision): FulfillmentSta
 }
 
 function validateQuote(input: FulfillmentQuoteInput): void {
-  if (!DECISIONS.has(input.decision) || !Array.isArray(input.reasonCodes) ||
+  if ((input.expectedRevision !== undefined && (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)) ||
+      !DECISIONS.has(input.decision) || !Array.isArray(input.reasonCodes) ||
       input.reasonCodes.length > 32 || input.reasonCodes.some((code) => !CODE_PATTERN.test(code)) ||
       !Array.isArray(input.requirements) || input.requirements.length > 32 ||
       input.requirements.some((requirement) => !requirement ||
@@ -160,16 +162,12 @@ export async function createFulfillmentQuote(
   input: FulfillmentQuoteInput,
 ): Promise<FulfillmentQuote> {
   const submission = await db.prepare(
-    `SELECT s.id, s.status, s.source_handoff_id, h.correlation_id
+    `SELECT s.id, s.status
        FROM pharmacy_prescription_submissions s
-       LEFT JOIN pharmacy_myna_handoffs h
-         ON h.id = s.source_handoff_id AND h.line_account_id = s.line_account_id
       WHERE s.id = ? AND s.line_account_id = ?`,
   ).bind(submissionId, lineAccountId).first<{
     id: string;
     status: string;
-    source_handoff_id?: string | null;
-    correlation_id?: string | null;
   }>();
   if (!submission) throw new Error('fulfillment submission not found');
   if (!['received', 'accepted', 'ready'].includes(submission.status)) {
@@ -182,7 +180,7 @@ export async function createFulfillmentQuote(
   const constraints = input.constraints ?? [];
   const reservationExpiresAt = input.reservationExpiresAt ?? null;
   const quoteId = crypto.randomUUID();
-  const inserted = await db.prepare(
+  const insert = db.prepare(
     `INSERT INTO pharmacy_fulfillment_quotes
        (id, submission_id, line_account_id, revision, decision,
         reason_codes_json, requirements_json, status, fulfillment_method,
@@ -194,6 +192,9 @@ export async function createFulfillmentQuote(
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        FROM pharmacy_prescription_submissions s
       WHERE s.id = ? AND s.line_account_id = ?
+        AND s.status IN ('received', 'accepted', 'ready')
+        AND (? IS NULL OR COALESCE((SELECT MAX(revision) FROM pharmacy_fulfillment_quotes
+             WHERE submission_id = s.id AND line_account_id = s.line_account_id), 0) = ?)
       RETURNING id, submission_id, line_account_id, revision, decision,
                 reason_codes_json, requirements_json, status, fulfillment_method,
                 constraints_json, reservation_expires_at, estimated_ready_at, valid_until,
@@ -216,21 +217,27 @@ export async function createFulfillmentQuote(
     now,
     submissionId,
     lineAccountId,
-  ).first<Record<string, unknown>>();
-  if (!inserted) throw new Error('fulfillment quote conflict');
-  const quote = decodeQuoteRow(inserted);
-  if (submission.source_handoff_id && submission.correlation_id) {
-    await db.prepare(
+    input.expectedRevision ?? null,
+    input.expectedRevision ?? null,
+  );
+  const [result] = await db.batch<Record<string, unknown>>([
+    insert,
+    db.prepare(
       `INSERT INTO pharmacy_myna_events
        (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
         correlation_id, metadata_json, occurred_at)
-       VALUES (?, ?, ?, 'FULFILLMENT_QUOTE_ISSUED', 'STAFF', ?, ?, '{}', ?)`,
-    ).bind(
-      crypto.randomUUID(), submission.source_handoff_id, lineAccountId, staffId,
-      submission.correlation_id, now,
-    ).run();
-  }
-  return quote;
+       SELECT ?, h.id, q.line_account_id, 'FULFILLMENT_QUOTE_ISSUED', 'STAFF', ?, h.correlation_id, '{}', ?
+         FROM pharmacy_fulfillment_quotes q
+         JOIN pharmacy_prescription_submissions s
+           ON s.id = q.submission_id AND s.line_account_id = q.line_account_id
+         JOIN pharmacy_myna_handoffs h
+           ON h.id = s.source_handoff_id AND h.line_account_id = s.line_account_id
+        WHERE q.id = ? AND q.submission_id = ? AND q.line_account_id = ?`,
+    ).bind(crypto.randomUUID(), staffId, now, quoteId, submissionId, lineAccountId),
+  ]);
+  const inserted = result.results[0];
+  if (!inserted) throw new Error('fulfillment quote conflict');
+  return decodeQuoteRow(inserted);
 }
 
 export async function getLatestFulfillmentQuote(

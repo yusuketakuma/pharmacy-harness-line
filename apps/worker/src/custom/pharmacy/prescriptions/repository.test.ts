@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import {
   applyAdminPrescriptionAction,
   cancelPrescription,
@@ -133,6 +134,42 @@ describe('reservePrescriptionDraft', () => {
 });
 
 describe('admin account-scoped repository', () => {
+  it('projects linked and latest intake timestamps without answers or another owner/account revision', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`CREATE TABLE pharmacy_prescription_patients (
+      submission_id TEXT, line_account_id TEXT, owner_friend_id TEXT, patient_id TEXT,
+      intake_response_id TEXT, reviewed_at TEXT);
+      CREATE TABLE pharmacy_patient_intake_responses (
+      id TEXT, line_account_id TEXT, owner_friend_id TEXT, patient_id TEXT,
+      revision INTEGER, created_at TEXT, answers_json TEXT);
+      INSERT INTO pharmacy_prescription_patients VALUES ('submission-a','account-a','friend-a','patient-a','response-1',NULL);
+      INSERT INTO pharmacy_patient_intake_responses VALUES
+      ('response-1','account-a','friend-a','patient-a',1,'2026-09-01T01:00:00.000Z','{"notes":"synthetic-private-answer"}'),
+      ('response-2','account-a','friend-a','patient-a',2,'2026-09-04T01:00:00.000Z','{}'),
+      ('wrong-account','account-b','friend-a','patient-a',9,'2026-09-05T01:00:00.000Z','{}'),
+      ('wrong-friend','account-a','friend-b','patient-a',10,'2026-09-05T01:00:00.000Z','{}'),
+      ('wrong-patient','account-a','friend-a','patient-b',11,'2026-09-05T01:00:00.000Z','{}');`);
+    const queries: string[] = [];
+    const db = { prepare: (sql: string) => ({ bind: (...values: SQLInputValue[]) => ({
+      first: async () => {
+        queries.push(sql);
+        if (sql.includes('FROM pharmacy_prescription_submissions')) return values[1] === 'account-a' ? { id: values[0], friend_id: 'friend-a' } : null;
+        if (sql.includes('FROM pharmacy_prescription_patients')) return sqlite.prepare(sql).get(...values) ?? null;
+        return null;
+      },
+      all: async () => ({ results: [] }),
+    }) }) } as unknown as D1Database;
+    try {
+      const result = await getAdminPrescriptionDetail(db, 'account-a', 'submission-a');
+      expect(result?.intake).toEqual({ revision: 1, submitted_at: '2026-09-01T01:00:00.000Z', latest_revision: 2, latest_submitted_at: '2026-09-04T01:00:00.000Z', reviewed_at: null });
+      expect(JSON.stringify(result)).not.toContain('synthetic-private-answer');
+      expect(queries.join('\n')).not.toContain('answers_json');
+      expect(queries[0]).toContain('f.display_name AS patient_display_name');
+      expect((await getAdminPrescriptionDetail(db, 'account-a', 'legacy-submission'))?.intake).toBeNull();
+      await expect(getAdminPrescriptionDetail(db, 'account-b', 'submission-a')).resolves.toBeNull();
+    } finally { sqlite.close(); }
+  });
+
   it('blocks a new-flow acceptance until the latest fulfillment quote is acceptable', async () => {
     const current = {
       status: 'received', updated_at: '2026-08-17T00:00:00.000Z', intake_required: 1,
@@ -365,6 +402,7 @@ describe('admin account-scoped repository', () => {
       [{ id: 'event-1', event_type: 'status_changed' }],
       { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
       { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
+      null,
     ];
     const calls: string[] = [];
     const db = {
@@ -383,6 +421,7 @@ describe('admin account-scoped repository', () => {
       events: [{ id: 'event-1', event_type: 'status_changed' }],
       source: { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
       validity: { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
+      intake: null,
     });
     expect(calls.every((sql) => sql.includes('line_account_id = ?'))).toBe(true);
     expect(calls.join('\n')).not.toContain('r2_key');

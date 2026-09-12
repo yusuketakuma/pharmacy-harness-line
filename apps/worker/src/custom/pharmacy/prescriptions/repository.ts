@@ -800,14 +800,17 @@ export async function getAdminPrescriptionDetail(
   events: Array<Record<string, unknown>>;
   source: Record<string, unknown> | null;
   validity: Record<string, unknown> | null;
+  intake: { revision: number; submitted_at: string; latest_revision: number; latest_submitted_at: string; reviewed_at: string | null } | null;
 } | null> {
   const submission = await db.prepare(
-    `SELECT id, friend_id, status, active_revision, upload_revision,
-            desired_pickup_at, desired_fulfillment_method, arrival_reported_at,
-            resubmission_reason_code, requested_at,
-            closed_at, created_at, updated_at
-       FROM pharmacy_prescription_submissions
-      WHERE id = ? AND line_account_id = ?`,
+    `SELECT s.id, s.friend_id, f.display_name AS patient_display_name,
+            s.status, s.active_revision, s.upload_revision,
+            s.desired_pickup_at, s.desired_fulfillment_method, s.arrival_reported_at,
+            s.resubmission_reason_code, s.requested_at,
+            s.closed_at, s.created_at, s.updated_at
+       FROM pharmacy_prescription_submissions s
+       LEFT JOIN friends f ON f.id = s.friend_id AND f.line_account_id = s.line_account_id
+      WHERE s.id = ? AND s.line_account_id = ?`,
   ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
   if (!submission) return null;
   const files = await db.prepare(
@@ -840,7 +843,25 @@ export async function getAdminPrescriptionDetail(
        FROM pharmacy_prescription_validities
       WHERE submission_id = ? AND line_account_id = ?`,
   ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
-  return { submission, files: files.results, events: events.results, source, validity };
+  const intake = await db.prepare(
+    `SELECT linked.revision, linked.created_at AS submitted_at,
+            latest.revision AS latest_revision, latest.created_at AS latest_submitted_at,
+            link.reviewed_at
+       FROM pharmacy_prescription_patients AS link
+       INNER JOIN pharmacy_patient_intake_responses AS linked
+         ON linked.id = link.intake_response_id AND linked.patient_id = link.patient_id
+        AND linked.line_account_id = link.line_account_id AND linked.owner_friend_id = link.owner_friend_id
+       INNER JOIN pharmacy_patient_intake_responses AS latest ON latest.id = (
+         SELECT r.id FROM pharmacy_patient_intake_responses AS r
+          WHERE r.patient_id = link.patient_id AND r.line_account_id = link.line_account_id
+            AND r.owner_friend_id = link.owner_friend_id
+          ORDER BY r.revision DESC, r.id DESC LIMIT 1
+       )
+      WHERE link.submission_id = ? AND link.line_account_id = ? AND link.owner_friend_id = ?`,
+  ).bind(submissionId, lineAccountId, submission.friend_id).first<{
+    revision: number; submitted_at: string; latest_revision: number; latest_submitted_at: string; reviewed_at: string | null;
+  }>();
+  return { submission, files: files.results, events: events.results, source, validity, intake };
 }
 
 const RESUBMISSION_REASONS = new Set([

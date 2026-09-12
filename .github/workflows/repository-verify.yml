@@ -80,6 +80,9 @@ jobs:
       - name: Run LIFF browser smoke
         run: pnpm --filter liff test:e2e
 
+      - name: Run pharmacy admin browser regression
+        run: pnpm --filter web test:e2e
+
       - name: Analyze with CodeQL
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938
 

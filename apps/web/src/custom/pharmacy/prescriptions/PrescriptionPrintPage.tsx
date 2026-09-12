@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useAccount } from '../../../contexts/account-context'
 import { prescriptionAdminApi, type PrescriptionFile } from './api'
@@ -46,11 +46,15 @@ export default function PrescriptionPrintPage() {
   const [claim, setClaim] = useState<{ taskId: string; operationId: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [recordError, setRecordError] = useState('')
   const [recording, setRecording] = useState(false)
   const [recorded, setRecorded] = useState(false)
   const [printInvoked, setPrintInvoked] = useState(false)
+  const requestRef = useRef(0)
+  const recordingRef = useRef(false)
 
   useEffect(() => {
+    requestRef.current += 1
     let disposed = false
     const urls: string[] = []
     if (!selectedAccountId || !submissionId) {
@@ -59,6 +63,7 @@ export default function PrescriptionPrintPage() {
     }
     setLoading(true)
     setError('')
+    setRecordError('')
     setImages([])
     setLoadedImages(0)
     setClaim(null)
@@ -99,6 +104,7 @@ export default function PrescriptionPrintPage() {
     })()
     return () => {
       disposed = true
+      requestRef.current += 1
       for (const url of urls) URL.revokeObjectURL(url)
     }
   }, [selectedAccountId, submissionId])
@@ -113,16 +119,21 @@ export default function PrescriptionPrintPage() {
   }, [images, loadedImages, print, printInvoked, recorded])
 
   const recordPrinted = useCallback(async () => {
-    if (!selectedAccountId || !claim || !canAcknowledgePrint(printInvoked, recording, recorded)) return
+    if (!selectedAccountId || !claim || recordingRef.current || !canAcknowledgePrint(printInvoked, recording, recorded)) return
     if (!window.confirm(printAcknowledgementMessage())) return
+    const request = requestRef.current
+    recordingRef.current = true
     setRecording(true)
+    setRecordError('')
     try {
       await pharmacyPrintApi.acknowledge(selectedAccountId, claim.taskId, claim.operationId)
+      if (request !== requestRef.current) return
       setClaim(null)
       setRecorded(true)
     } catch {
-      setError('印刷操作済みの記録を保存できませんでした。')
+      if (request === requestRef.current) setRecordError('印刷操作済みの記録を保存できませんでした。印刷結果を確認してから、同じ記録操作を再試行してください。')
     } finally {
+      recordingRef.current = false
       setRecording(false)
     }
   }, [claim, printInvoked, recorded, recording, selectedAccountId])
@@ -153,6 +164,7 @@ export default function PrescriptionPrintPage() {
           </button>
         </div>
       </div>
+      {recordError && <p role="alert" className="text-sm text-red-700 print:hidden">{recordError}</p>}
       <section className="space-y-4" aria-label="処方せん画像">
         {images.map((src, index) => (
           <img

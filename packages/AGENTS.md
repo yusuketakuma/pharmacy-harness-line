@@ -6,7 +6,7 @@
 | `shared` | 型定義・定数 | Worker / Web / LIFF で共有 |
 | `line-sdk` | LINE Messaging API 薄ラッパー | エラーメッセージに上流レスポンス本文を含めない(秘密情報対策) |
 | `sdk` | 外部向け TypeScript SDK | フォーク元由来 |
-| `mcp-server` | Claude Code 等から操作する MCP server。`src/custom/pharmacy/` に薬局向け操作 | 薬局向け追加はその配下 |
+| `mcp-server` | coding agent 等から操作する MCP server。`src/custom/pharmacy/` に薬局向け操作 | 薬局向け追加はその配下 |
 | `create-line-harness` | フォーク元の汎用セットアップ CLI | 薬局 tenant の作成は `scripts/custom/pharmacy` を使う |
 | `update-engine` | 自己更新エンジン | フォーク元由来 |
 | `plugin-template` | プラグイン雛形 | フォーク元由来 |

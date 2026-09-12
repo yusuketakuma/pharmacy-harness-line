@@ -1,5 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
+import { describe, expect, it, vi } from 'vitest';
 import {
   classifySubmissionSource,
   createMedicalSource,
@@ -11,6 +13,62 @@ import {
   summarizeCohorts,
   summarizePromiseMetrics,
 } from './repository.js';
+
+describe('pharmacist review optimistic concurrency', () => {
+  it.each(['source', 'validity'] as const)('atomically rejects stale %s writes without audit, advances the version, and keeps old clients compatible', async (kind) => {
+    const sqlite = new DatabaseSync(':memory:');
+    const schema = readFileSync(new URL('../../../../../../packages/db/schema.sql', import.meta.url), 'utf8');
+    const table = kind === 'source' ? 'pharmacy_submission_sources' : 'pharmacy_prescription_validities';
+    for (const name of [table, 'pharmacy_growth_events']) {
+      sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${name} \\([\\s\\S]*?\\n\\);`))![0]);
+    }
+    sqlite.exec(`CREATE TABLE line_accounts (id TEXT PRIMARY KEY);
+      INSERT INTO line_accounts VALUES ('account-a'), ('account-b');
+      CREATE TABLE pharmacy_medical_sources (id TEXT, line_account_id TEXT, UNIQUE(id, line_account_id));
+      CREATE TABLE pharmacy_prescription_submissions (id TEXT PRIMARY KEY, line_account_id TEXT, UNIQUE(id, line_account_id));
+      CREATE TABLE pharmacy_account_capabilities (line_account_id TEXT, mode TEXT, capabilities_json TEXT);
+      INSERT INTO pharmacy_prescription_submissions VALUES ('submission-a', 'account-a');`);
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: SQLInputValue[]) => ({
+        run: () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
+      }) }),
+      batch: async (statements: Array<{ run(): unknown }>) => {
+        sqlite.exec('BEGIN');
+        try { const results = statements.map((statement) => statement.run()); sqlite.exec('COMMIT'); return results; }
+        catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+      },
+    } as unknown as D1Database;
+    const read = () => sqlite.prepare(`SELECT * FROM ${table}`).get()!;
+    const auditCount = () => sqlite.prepare('SELECT count(*) AS count FROM pharmacy_growth_events').get()!.count;
+    const save = (expectedUpdatedAt: string | null | undefined, lineAccountId = 'account-a') => {
+      const input = { lineAccountId, submissionId: 'submission-a', staffId: 'staff-a', expectedUpdatedAt };
+      return kind === 'source'
+        ? classifySubmissionSource(db, { ...input, sourceId: null, classification: 'unknown' })
+        : savePrescriptionValidity(db, { ...input, issuedOn: '2026-09-05', validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'unverified' });
+    };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T01:00:00.000Z'));
+    try {
+      await save(null);
+      const original = read();
+      await expect(save(null)).rejects.toThrow('stale prescription review');
+      await expect(save('2026-09-04T00:00:00.000Z')).rejects.toThrow('stale prescription review');
+      expect(read()).toEqual(original);
+      expect(auditCount()).toBe(1);
+      await save(original.updated_at as string);
+      expect(read().updated_at).not.toBe(original.updated_at);
+      await expect(save(original.updated_at as string)).rejects.toThrow('stale prescription review');
+      await expect(save(read().updated_at as string, 'account-b')).rejects.toThrow();
+      expect(auditCount()).toBe(2);
+      await save(undefined); // Previous-version client: no new required field.
+      expect(auditCount()).toBe(3);
+      sqlite.exec(`CREATE TRIGGER reject_review_audit BEFORE INSERT ON pharmacy_growth_events BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;`);
+      const beforeAuditFailure = read();
+      await expect(save(read().updated_at as string)).rejects.toThrow('audit unavailable');
+      expect(read()).toEqual(beforeAuditFailure);
+    } finally { vi.useRealTimers(); sqlite.close(); }
+  });
+});
 
 describe('growth loop activation cohorts', () => {
   const events = [

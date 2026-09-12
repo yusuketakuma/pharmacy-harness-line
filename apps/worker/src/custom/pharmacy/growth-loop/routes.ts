@@ -41,6 +41,11 @@ function canonicalIsoInstant(value: string): { iso: string; time: number } | nul
   return Number.isFinite(time) ? { iso: new Date(time).toISOString(), time } : null;
 }
 
+function validReviewVersion(value: unknown): boolean {
+  return value === undefined || value === null ||
+    (typeof value === 'string' && canonicalIsoInstant(value)?.iso === value);
+}
+
 async function accountScope(c: Context<Env>): Promise<
   { accountId: string; tenantId: string; staff: { id: string; role: 'owner' | 'admin' | 'staff' } } | Response
 > {
@@ -206,6 +211,7 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/submissions/:submissi
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
   const body = await readJsonObject(c.req) ?? {};
+  if (!validReviewVersion(body.expectedUpdatedAt)) return c.json({ success: false, error: 'invalid review version' }, 400);
   if ((body.sourceId !== null && typeof body.sourceId !== 'string') ||
       !['primary', 'other', 'unknown'].includes(String(body.classification))) {
     return c.json({ success: false, error: 'invalid source classification' }, 400);
@@ -216,10 +222,14 @@ pharmacyGrowthLoopRoutes.post('/api/custom/pharmacy/growth/submissions/:submissi
       submissionId: c.req.param('submissionId'),
       sourceId: body.sourceId as string | null,
       classification: body.classification as 'primary' | 'other' | 'unknown',
+      expectedUpdatedAt: body.expectedUpdatedAt as string | null | undefined,
       staffId: scope.staff.id,
     });
     return c.json({ success: true });
   } catch (error) {
+    if (error instanceof Error && error.message === 'stale prescription review') {
+      return c.json({ success: false, error: 'Prescription review changed. Reload before saving.' }, 409);
+    }
     return c.json({ success: false, error: error instanceof Error ? error.message : 'source update failed' }, 400);
   }
 });
@@ -230,6 +240,7 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/submissions/:submissio
   const denied = await requireCapability(c, scope.accountId, 'pharmacy_dashboard');
   if (denied) return denied;
   const body = await readJsonObject(c.req) ?? {};
+  if (!validReviewVersion(body.expectedUpdatedAt)) return c.json({ success: false, error: 'invalid review version' }, 400);
   if (!['default_4_days', 'prescriber_specified'].includes(String(body.validityBasis)) ||
       !['unverified', 'verified', 'expired_review_required', 'expired_confirmed'].includes(String(body.verificationStatus))) {
     return c.json({ success: false, error: 'invalid validity input' }, 400);
@@ -242,10 +253,14 @@ pharmacyGrowthLoopRoutes.put('/api/custom/pharmacy/growth/submissions/:submissio
       validUntil: typeof body.validUntil === 'string' ? body.validUntil : null,
       validityBasis: body.validityBasis as 'default_4_days' | 'prescriber_specified',
       verificationStatus: body.verificationStatus as 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed',
+      expectedUpdatedAt: body.expectedUpdatedAt as string | null | undefined,
       staffId: scope.staff.id,
     });
     return c.json({ success: true });
   } catch (error) {
+    if (error instanceof Error && error.message === 'stale prescription review') {
+      return c.json({ success: false, error: 'Prescription review changed. Reload before saving.' }, 409);
+    }
     return c.json({ success: false, error: error instanceof Error ? error.message : 'validity update failed' }, 400);
   }
 });

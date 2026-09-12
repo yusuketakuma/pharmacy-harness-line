@@ -57,6 +57,7 @@ export function actionsForStatus(status: PrescriptionStatus): StatusAction[] {
 export function PrescriptionDetailPanel({
   detail,
   loading,
+  disabled = false,
   readyFiles,
   quote,
   quoteDraft,
@@ -73,6 +74,7 @@ export function PrescriptionDetailPanel({
 }: {
   detail: PrescriptionDetail | null
   loading: boolean
+  disabled?: boolean
   readyFiles: PrescriptionFile[]
   quote: FulfillmentQuote | null
   quoteDraft: FulfillmentQuoteDraft
@@ -93,10 +95,12 @@ export function PrescriptionDetailPanel({
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="prescription-detail-title">
       {loading && !detail ? <p>詳細を読み込み中...</p> : detail && (
-        <div className="space-y-5">
+        <fieldset disabled={disabled || loading || acting || quoteSaving} className="space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 id="prescription-detail-title" className="text-xl font-bold">処方せん詳細</h2>
+              <p className="mt-1 font-semibold">LINE表示名: {detail.submission.patient_display_name || '未確認'}</p>
+              <p className="mt-1 text-sm text-gray-600">氏名は画像・アンケートと照合してください。</p>
               <p className="mt-1 text-sm text-gray-500">状態: {statusLabel(detail.submission.status)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -120,6 +124,16 @@ export function PrescriptionDetailPanel({
             <div><dt className="text-gray-500">受取希望</dt><dd>{formatDate(detail.submission.desired_pickup_at)}</dd></div>
             <div><dt className="text-gray-500">再送理由</dt><dd>{reasonLabel(detail.submission.resubmission_reason_code)}</dd></div>
           </dl>
+
+          <div className="space-y-1 text-sm">
+            <h3 className="font-semibold">アンケート回答の確認時点</h3>
+            {detail.intake ? <>
+              <p>この処方せんに紐付く回答: 第{detail.intake.revision}版（{formatDate(detail.intake.submitted_at)}）</p>
+              <p>最新回答: 第{detail.intake.latest_revision}版（{formatDate(detail.intake.latest_submitted_at)}）</p>
+              <p>薬局の確認記録: {detail.intake.reviewed_at ? formatDate(detail.intake.reviewed_at) : '未確認'}</p>
+              {detail.intake.latest_revision > detail.intake.revision && <p role="status" className="text-amber-800">より新しい回答があります。「患者アンケート」で内容を確認してください。</p>}
+            </> : <p>{detail.intake === null ? 'アンケートとの紐付けを確認できません。対象患者を確認してください。' : 'アンケートの回答時刻は未確認です。'}</p>}
+          </div>
 
           <div>
             <h3 className="font-semibold">画像</h3>
@@ -162,7 +176,7 @@ export function PrescriptionDetailPanel({
               {detail.events.map((event) => <li key={event.id}>{formatDate(event.created_at)}: {event.to_status ? statusLabel(event.to_status) : event.event_type}{event.reason_code ? ` - ${reasonLabel(event.reason_code)}` : ''}</li>)}
             </ol>
           </details>
-        </div>
+        </fieldset>
       )}
     </section>
   )

@@ -82,6 +82,34 @@ beforeEach(() => {
 });
 
 describe('pharmacy Growth Loop routes', () => {
+  it.each(['source', 'validity'] as const)('preserves old %s requests and validates optional concurrency versions', async (kind) => {
+    const mutation = kind === 'source' ? mocks.classify : mocks.validity;
+    mutation.mockResolvedValue(undefined);
+    const body = kind === 'source'
+      ? { sourceId: null, classification: 'unknown' }
+      : { issuedOn: null, validUntil: null, validityBasis: 'default_4_days', verificationStatus: 'unverified' };
+    const request = (extra: object) => app().request(`/api/custom/pharmacy/growth/submissions/submission-a/${kind}?line_account_id=account-a`, {
+      method: kind === 'source' ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, ...extra }),
+    }, env);
+    for (const expectedUpdatedAt of [undefined, null, '2026-09-05T01:00:00.000Z']) {
+      expect((await request({ expectedUpdatedAt })).status).toBe(200);
+      expect(mutation.mock.lastCall?.[1].expectedUpdatedAt).toBe(expectedUpdatedAt);
+    }
+    for (const value of ['', 42, {}, 'invalid', '2026-02-30T01:00:00.000Z']) {
+      mutation.mockClear();
+      expect((await request({ expectedUpdatedAt: value })).status).toBe(400);
+      expect(mutation).not.toHaveBeenCalled();
+    }
+    mutation.mockRejectedValueOnce(new Error('stale prescription review'));
+    const conflict = await request({ expectedUpdatedAt: null });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toEqual({ success: false, error: 'Prescription review changed. Reload before saving.' });
+    mocks.access.mockResolvedValueOnce(null);
+    mutation.mockClear();
+    expect((await request({ expectedUpdatedAt: null })).status).toBe(403);
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
   it('returns readiness with the same account-scoped configuration doctor after authorization', async () => {
     const response = await app().request('/api/custom/pharmacy/readiness?line_account_id=account-a', {}, env);
     expect(response.status).toBe(200);

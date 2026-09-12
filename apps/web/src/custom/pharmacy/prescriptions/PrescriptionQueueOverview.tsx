@@ -37,7 +37,7 @@ export function isTemporaryDeploymentError(error: unknown): boolean {
 }
 
 export const formatDate = (value: string | null) => value
-  ? new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+  ? new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tokyo' }).format(new Date(value))
   : '指定なし'
 
 function waitingAge(value: string | null): string {
@@ -94,6 +94,8 @@ export function PrescriptionQueueOverview({
   onLoadMore: (cursor: string) => void
 }) {
   const [query, setQuery] = useState('')
+  const unconfirmed = loading || temporaryError || Boolean(error)
+  const unconfirmedLabel = loading ? '読み込み中' : '未確認'
   const visibleItems = filterPrescriptionQueueItems(tab === 'all' ? items : items.filter((item) => item.status === tab), query)
   const counts: Record<PrescriptionQueueTab, number> = {
     all: stats.total_count,
@@ -111,32 +113,33 @@ export function PrescriptionQueueOverview({
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-sm text-gray-500">受付内容の確認待ち</p>
-          <p className="mt-1 text-2xl font-bold">{stats.pending_count}件</p>
+          <p className="mt-1 text-2xl font-bold">{unconfirmed ? unconfirmedLabel : `${stats.pending_count}件`}</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-sm text-gray-500">最長待ち時間</p>
-          <p className="mt-1 text-2xl font-bold">{waitingAge(stats.oldest_wait_at)}</p>
+          <p className="mt-1 text-2xl font-bold">{unconfirmed ? unconfirmedLabel : waitingAge(stats.oldest_wait_at)}</p>
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="処方せんの状態">
+      <div className="flex flex-wrap gap-2 pb-1" role="group" aria-label="処方せんの状態">
         {TABS.map((item) => (
           <button
             key={item.value}
             type="button"
-            role="tab"
-            aria-selected={tab === item.value}
+            aria-pressed={tab === item.value}
             onClick={() => onTabChange(item.value)}
             className={`whitespace-nowrap rounded-full px-3 py-2 text-sm ${tab === item.value ? 'bg-green-600 text-white' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}
           >
-            {item.label} {counts[item.value] ?? 0}
+            {item.label} {unconfirmed ? unconfirmedLabel : counts[item.value] ?? 0}
           </button>
         ))}
       </div>
 
-      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="患者名または受付番号で絞り込み" aria-label="患者名または受付番号で絞り込み" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm sm:max-w-sm" />
+      <p className="text-sm text-gray-600">一覧の名前はLINE表示名です。患者本人の氏名とは限りません。</p>
+      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="LINE表示名または受付番号で絞り込み" aria-label="LINE表示名または受付番号で絞り込み" className="min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm sm:max-w-sm" />
       {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {temporaryError ? <PrescriptionQueueEmptyState temporaryError /> : visibleItems.length === 0 && !loading ? (query ? <p className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-600">「{query.trim()}」に一致する処方せんは読み込み済みの一覧にありません。</p> : <PrescriptionQueueEmptyState />) : (
+      {loading && <p role="status" className="text-sm text-gray-600">処方せん一覧を読み込み中です。</p>}
+      {temporaryError ? <PrescriptionQueueEmptyState temporaryError /> : visibleItems.length === 0 && !unconfirmed ? (query ? <p className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-600">「{query.trim()}」に一致する処方せんは読み込み済みの一覧にありません。</p> : <PrescriptionQueueEmptyState />) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <ul className="divide-y divide-gray-200">
             {visibleItems.map((item) => (

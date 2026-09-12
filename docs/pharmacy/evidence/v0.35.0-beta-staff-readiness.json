@@ -1,0 +1,1243 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-05T15:59:00.201Z",
+  "scope": "v0.35.0-beta-scope-and-staff-critical-journey",
+  "status": "UNVERIFIED",
+  "releaseReadiness": "BLOCKED",
+  "claimBoundary": "ローカル修正と試験の記録。外部ベータ、実スタッフ受入、配備、本番運用を完了した記録ではない。",
+  "authority": {
+    "plan": "PLANS.md#v0350---beta-scope--staff-critical-journey",
+    "product": "docs/pharmacy/IMPLEMENTATION_PLAN.md",
+    "routes": "scripts/deploy/v032-route-inventory.ts",
+    "isolation": "scripts/deploy/v033-isolation-inventory.ts",
+    "gateRule": "各参照元の本文と子要件を全て継承する。過去PASSは現候補へ転用せず、条件付き機能も既存案件の安全要件を除外しない。"
+  },
+  "freeze": {
+    "baseSourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+    "branch": "dev",
+    "packageVersion": "0.34.2",
+    "targetVersion": "0.35.0",
+    "exactCandidateSha": null,
+    "exactArtifactDigest": null,
+    "frozenBeforeStaffTrials": false,
+    "schemaFileSha256": "ae1424d1a2f212045d60b88030284da2aa4285dface225782bc5e1cdf2f11d49",
+    "schemaClaim": "ローカルschema.sqlのbytes hash。実D1 schema fingerprintではない。",
+    "migrationRange": [
+      "001_v033_baseline.sql",
+      "013_custom_070_patient_proxy_lifecycle.sql"
+    ],
+    "postBaselineMigrations": 12,
+    "sellerReference": {
+      "tag": "pharmacy-v0.32.0",
+      "commit": "cf746700f9e31ef20e07c2a9606e44b9197ccad3",
+      "claim": "検証したseller参照。packageの版や最新sellerを推定しない。"
+    },
+    "remoteReadback": {
+      "checkedAt": "2026-09-05T15:52:17Z",
+      "devSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+      "mainSha": "0e738bfde949314e80a1e5a3938333c0d13b97e3",
+      "development": {
+        "deploymentId": 6237281754,
+        "sourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+        "status": "SUCCESS"
+      },
+      "production": {
+        "deploymentId": 6180145685,
+        "sourceSha": "123545e888c6e6a7e533eaba865a5d09797657fb",
+        "status": "SUCCESS"
+      },
+      "claim": "GitHub deployment metadataのみ。現dirty候補のdeployed byte equality、実D1 migration、binding、LINE設定はUNVERIFIED。"
+    },
+    "migrationSet": {
+      "algorithm": "sha256 of JSON.stringify(sorted path/sha256 rows)",
+      "digest": "b15c4719845a7b7657c8c3a125e537fcfa1056e6951be3662f46c55a3b60ca4c"
+    }
+  },
+  "scopeDecision": {
+    "status": "BLOCKED",
+    "proposal": "1薬局・最大5名・成人本人を基本とする初回cohort案。人数・単位・機能範囲は未確定。",
+    "pending": [
+      "本人患者のみか、正当な代理権を持つ家族患者を含むか",
+      "曜日/時間帯、営業時間内の一次応答期限、主担当/代行担当"
+    ],
+    "authorization": "この資料は招待送信・参加登録・機能activation・deploy・本番変更を許可しない。"
+  },
+  "workflows": [
+    {
+      "id": "V035-F01",
+      "title": "処方せん提出から受渡し",
+      "ownerRole": "patient/staff owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "page-patient-liff-prescriptions",
+        "api-patient-liff-prescriptions",
+        "page-pharmacy-prescriptions",
+        "api-pharmacy-prescriptions",
+        "api-pharmacy-fulfillment"
+      ],
+      "handoffTo": [
+        "V035-2",
+        "V035-3",
+        "V039-1"
+      ],
+      "scope": "提出・再提出・取消・受付・準備・来局・受渡し。通信断、二重操作、画像保持を含む。",
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "V035-F02",
+      "title": "本人・問診・参加管理",
+      "ownerRole": "identity/security owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "page-pharmacy-patient-intakes",
+        "api-patient-liff-core",
+        "api-patient-liff-intake",
+        "api-pharmacy-data-subject-requests"
+      ],
+      "handoffTo": [
+        "V035-5",
+        "V038-6"
+      ],
+      "scope": "同意・本人照合・代理期限・撤回・誤紐付け。招待参加資格は既存consent/capabilityとは別で未実装。",
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "V035-F03",
+      "title": "1対1チャット・継続・服薬後フォロー",
+      "ownerRole": "pharmacy/messaging owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "page-generic-chats",
+        "api-chats",
+        "api-pharmacy-continuity",
+        "api-patient-liff-followup"
+      ],
+      "handoffTo": [
+        "V036-1",
+        "V036-2",
+        "V036-3",
+        "V036-4",
+        "V036-5",
+        "V036-6"
+      ],
+      "scope": "manual header、自動通知との区別、結果不明、未回答、薬剤師対応記録、電話引継ぎ。",
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "V035-F04",
+      "title": "スタッフ・薬局情報",
+      "ownerRole": "staff/UI owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "page-pharmacy-login",
+        "api-admin-auth",
+        "api-line-accounts",
+        "api-staff",
+        "api-pharmacy-print",
+        "api-pharmacy-public-profile",
+        "api-platform-admin-core"
+      ],
+      "handoffTo": [
+        "V035-2",
+        "V035-3",
+        "V035-4",
+        "V038-1",
+        "V038-3",
+        "V038-7"
+      ],
+      "scope": "session失効・account切替・競合・画像/印刷・連絡先/営業時間・support grant。",
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "V035-F05",
+      "title": "LINEアカウント運用",
+      "ownerRole": "messaging owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "api-line-accounts",
+        "api-pharmacy-rich-menu",
+        "api-chats"
+      ],
+      "handoffTo": [
+        "V036-6",
+        "V039-2"
+      ],
+      "scope": "follow/unfollow/再follow・重複/逆順・送信取消・未対応形式・枠不足・LINE側自動応答。実LINEはNOT_RUN。",
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "V035-F06",
+      "title": "障害・復旧",
+      "ownerRole": "data/ops owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "api-platform-data-protection",
+        "api-platform-admin-operations"
+      ],
+      "handoffTo": [
+        "V035-6",
+        "V037-3",
+        "V037-4",
+        "V037-5",
+        "V037-6",
+        "V039-4",
+        "V039-6"
+      ],
+      "scope": "停止・電話/店頭代替・D1/R2/FLE同世代復旧・旧client互換・通知ledger照合。実cloud復旧はNOT_RUN。",
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "V035-F07",
+      "title": "条件付き機能",
+      "ownerRole": "pharmacy/domain owner",
+      "ownerAcceptance": "UNVERIFIED",
+      "inventoryIds": [
+        "api-patient-liff-core",
+        "api-pharmacy-emergency-contraception",
+        "api-pharmacy-myna",
+        "api-meet-consultations"
+      ],
+      "handoffTo": [
+        "V035-0",
+        "V035-5",
+        "V036-6",
+        "V038-2"
+      ],
+      "scope": "家族・EC・Myna・Meetの新規提供範囲は未承認。既存案件の権利行使・閲覧・停止・必要な継続処理は除外しない。Meet提供時は登録/変更/取消と前日/1時間前通知を一体確認。",
+      "status": "UNVERIFIED"
+    }
+  ],
+  "humanGates": [
+    {
+      "id": "V035-HG01",
+      "sourceGate": "R2 lifecycle実設定のread-only確認",
+      "ownerRole": "Cloudflare account権限者",
+      "condition": "API 1回。既存ruleが画像を消していればDB行が孤立する障害",
+      "historicalStatus": "`NOT_RUN`（account ID placeholder）",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG02",
+      "sourceGate": "V030 synthetic account 初期設定end-to-end（実LINE端末、左上「処方せん送信」、rollback read-back）",
+      "ownerRole": "owner + 実端末",
+      "condition": "dev deploy済みWorker/Pages、synthetic account",
+      "historicalStatus": "`UNVERIFIED`",
+      "handoffTo": [
+        "V038-7",
+        "V039-1"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG03",
+      "sourceGate": "v0.29 binary rollback drill",
+      "ownerRole": "deploy権限者",
+      "condition": "新activation停止→remote default不変→pending reminder zero-send",
+      "historicalStatus": "`NOT_RUN`",
+      "handoffTo": [
+        "V039-4"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG04",
+      "sourceGate": "LINE Endpoint manual evidence（Console）",
+      "ownerRole": "owner",
+      "condition": "V029-1の手順",
+      "historicalStatus": "`UNVERIFIED`",
+      "handoffTo": [
+        "V038-1"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG05",
+      "sourceGate": "FLE production secret/backfill/coverage/scrub/restore drill",
+      "ownerRole": "ops + named approval",
+      "condition": "FLE-FINAL条件",
+      "historicalStatus": "`NOT_RUN`",
+      "handoffTo": [
+        "V035-6",
+        "V037-6",
+        "V039-4"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG06",
+      "sourceGate": "V033 login origin / recovery / emergency bypass / role境界",
+      "ownerRole": "security/infra owner + Human Gate",
+      "condition": "V033-G1のorigin matrix、server-side password session、recoveryと既定無効bypassを承認・実証する。MFAは導入せず、異常検知はV037へ分離",
+      "historicalStatus": "`BLOCKED`",
+      "handoffTo": [
+        "V035-5",
+        "V037-6",
+        "V039-2"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG07",
+      "sourceGate": "緊急避妊薬: 厚労省一覧掲載・実在庫・当日勤務・紙記録運用",
+      "ownerRole": "薬局",
+      "condition": "EC-0",
+      "historicalStatus": "`BLOCKED`",
+      "handoffTo": [
+        "V038-2"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG08",
+      "sourceGate": "緊急避妊薬 `retention_days` の意味（NEXT-2は自己申告payloadのみredact。`owner_friend_id`/`age_band`/status/event・reminder・access auditの識別可能な残存をtombstoneするか）",
+      "ownerRole": "経営・法務",
+      "condition": "患者向け「保存期間N日間」の解釈を決定。tombstone採用時はmigration + no-delete audit invariantの変更が必要",
+      "historicalStatus": "`BLOCKED`",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG09",
+      "sourceGate": "V029-13: dev deploy後のPages asset marker/Worker API/CORS証跡記録",
+      "ownerRole": "実装者(dev deploy実行者)",
+      "condition": "dev環境へのdeploy完了後に確認・記録する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG10",
+      "sourceGate": "V029-13: dev deploy後のcanonical readiness証跡記録",
+      "ownerRole": "実装者(dev deploy実行者)",
+      "condition": "同上",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V038-1"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG11",
+      "sourceGate": "V029-13: dev deploy後のLINE Endpoint自動/manual evidence記録",
+      "ownerRole": "実装者(dev deploy実行者)",
+      "condition": "同上",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V038-1"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG12",
+      "sourceGate": "V029-13: 実LINE端末Human Gate一式(Myna外部遷移/復帰/紙fallback、機能ON/OFF/全OFF、active drain、disabled旧rich-menu tap、緊急避妊薬status、通知同梱時のみ承認済み中立通知、薬局情報/FAX、右上version)",
+      "ownerRole": "薬局staff/実機端末操作者",
+      "condition": "dev deploy後に実LINE端末で1項目ずつ確認する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V038-7",
+        "V039-1"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG13",
+      "sourceGate": "V029-13: GitHub Release本文(`pharmacy-v0.29.0`)",
+      "ownerRole": "リリース担当者",
+      "condition": "GitHub APIで本文をfresh read-backする",
+      "historicalStatus": "`PASS`（2026-08-22 read-back）",
+      "handoffTo": [
+        "V039-3"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG14",
+      "sourceGate": "V029-13: production code deploy",
+      "ownerRole": "運用担当者",
+      "condition": "GitHub deployment/runとsource SHAをfresh read-backする",
+      "historicalStatus": "`PASS`（run `32507393605`、source `b26e890f424c735b11b895fb715f090851421c89`）",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG15",
+      "sourceGate": "V029-13: account activation/LINE mutation",
+      "ownerRole": "運用担当者",
+      "condition": "個別の明示指示を受けてから実行する",
+      "historicalStatus": "`NOT_RUN`",
+      "handoffTo": [
+        "V040-2"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG16",
+      "sourceGate": "V030-0: synthetic account受入(実v0.29 binary rollback drill、remote current/known-good identity確定)",
+      "ownerRole": "実装者/運用担当者",
+      "condition": "外部受入セッションで固定する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V039-4"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG17",
+      "sourceGate": "V030-2/V030-2D: 実ブラウザ狭幅・200% zoom確認",
+      "ownerRole": "実装者/QA",
+      "condition": "実端末・実ブラウザで目視確認する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V038-7"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG18",
+      "sourceGate": "V030-2/V030-2D/V030-3: 実LINE lifecycle確認(初期表示切替・保存versionのLINE登録・candidate作成〜upload〜set-default〜read-back)",
+      "ownerRole": "薬局staff/運用担当者",
+      "condition": "synthetic accountで明示Human Gateとして実施する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V039-4"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG19",
+      "sourceGate": "V030-3: 初期設定end-to-end実証(local prepare→LINE create/upload→set-default→read-back一致)",
+      "ownerRole": "実装者/運用担当者",
+      "condition": "V030-6のsynthetic account受入と同時に実施する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V038-1"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG20",
+      "sourceGate": "V030-6: production schema fingerprint/read-back",
+      "ownerRole": "運用担当者",
+      "condition": "workflow migration stepだけでなく、fresh D1 schema/migration setを照合する",
+      "historicalStatus": "`PASS`（2026-08-22 read-only。schema 410件、fingerprint `sha256:ddae0c74769f973dac6828f47a53b2c1a4ab8a7dfc765c5cf7e9bfa375504e14`、migration 123/123 checksum一致）",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG21",
+      "sourceGate": "V030-6: production code deploy",
+      "ownerRole": "運用担当者",
+      "condition": "GitHub deployment/runとsource SHAをfresh read-backする",
+      "historicalStatus": "`PASS`（deployment `6025995862`、run `32507393605`）",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG22",
+      "sourceGate": "V030-6: account activation(新lifecycle/reminderをONへ)",
+      "ownerRole": "運用担当者",
+      "condition": "deploy後もdefault inactiveのままであることを確認してから、個別の明示指示を受けて実行する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V040-2"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG23",
+      "sourceGate": "V030-6: LINE candidate create/upload/set-default/rollbackの一連のmutation",
+      "ownerRole": "運用担当者/薬局staff",
+      "condition": "account activation後、synthetic accountでのend-to-end実証を経てから実行する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V039-4"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG24",
+      "sourceGate": "V030-6: code rollback drill(新activation停止、remote default維持、pending reminder停止、reconcile確認)",
+      "ownerRole": "運用担当者",
+      "condition": "production incident対応手順として個別に実施する",
+      "historicalStatus": "NOT_RUN",
+      "handoffTo": [
+        "V039-4"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    },
+    {
+      "id": "V035-HG25",
+      "sourceGate": "V030-6: GitHub Release本文(`pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`)",
+      "ownerRole": "リリース担当者",
+      "condition": "GitHub APIで各本文をfresh read-backする",
+      "historicalStatus": "`PASS`（2026-08-22 read-back）",
+      "handoffTo": [
+        "V039-3"
+      ],
+      "candidateStatus": "UNVERIFIED"
+    }
+  ],
+  "mandatoryHandoff": [
+    {
+      "id": "V040-D0-1",
+      "handoffTo": [
+        "V035-0",
+        "V039-6"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V040-D0-2",
+      "handoffTo": [
+        "V035-0",
+        "V038-7"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V040-D0-3",
+      "handoffTo": [
+        "V035-0",
+        "V039-5"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V040-D0-5",
+      "handoffTo": [
+        "V035-0",
+        "V035-4",
+        "V035-6",
+        "V039-3"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V031-4R",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V032-6",
+      "handoffTo": [
+        "V035-0",
+        "V039-5"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V033-5",
+      "handoffTo": [
+        "V036-3",
+        "V036-6"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-A1",
+      "handoffTo": [
+        "V036-6",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-7",
+      "handoffTo": [
+        "V035-0",
+        "V039-5"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V034-1",
+      "handoffTo": [
+        "V038-2"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V034-4",
+      "handoffTo": [
+        "V035-4",
+        "V038-7"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V032-1",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V032-2",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V032-3",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V032-4",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V032-5",
+      "handoffTo": [
+        "V035-6",
+        "V037-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V033-G1",
+      "handoffTo": [
+        "V035-5",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G2",
+      "handoffTo": [
+        "V035-5",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G3",
+      "handoffTo": [
+        "V035-5",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G4",
+      "handoffTo": [
+        "V035-3",
+        "V035-5",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G5",
+      "handoffTo": [
+        "V036-3",
+        "V036-6"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G6",
+      "handoffTo": [
+        "V035-5",
+        "V038-6"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G7",
+      "handoffTo": [
+        "V035-4",
+        "V037-4"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G8",
+      "handoffTo": [
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G9",
+      "handoffTo": [
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V033-G10",
+      "handoffTo": [
+        "V036-6",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "CB-P0-01",
+      "handoffTo": [
+        "V035-0",
+        "V039-6"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "CB-P0-02",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "CB-P0-03",
+      "handoffTo": [
+        "V035-0",
+        "V039-3"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "CB-P0-04",
+      "handoffTo": [
+        "V035-5",
+        "V035-6",
+        "V039-4"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "CB-P0-05",
+      "handoffTo": [
+        "V035-6",
+        "V037-6",
+        "V039-4"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "CB-P0-06",
+      "handoffTo": [
+        "V036-3",
+        "V036-6",
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "CB-P0-07",
+      "handoffTo": [
+        "V035-5",
+        "V038-6"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V035-0",
+      "handoffTo": [
+        "V035-0"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V035-1",
+      "handoffTo": [
+        "V035-1"
+      ],
+      "ownerRole": "engineering/release owner",
+      "optionalNewSurface": true,
+      "reason": "追加画面のみ延期可能。既存業務・診断・安全gateは必須のまま。正式な延期は受入証拠と判断を要する。"
+    },
+    {
+      "id": "V035-2",
+      "handoffTo": [
+        "V035-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V035-3",
+      "handoffTo": [
+        "V035-3"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V035-4",
+      "handoffTo": [
+        "V035-4"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V035-5",
+      "handoffTo": [
+        "V035-5"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V035-6",
+      "handoffTo": [
+        "V035-6"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V036-1",
+      "handoffTo": [
+        "V036-1"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V036-2",
+      "handoffTo": [
+        "V036-2"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V036-3",
+      "handoffTo": [
+        "V036-3"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V036-4",
+      "handoffTo": [
+        "V036-4"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V036-5",
+      "handoffTo": [
+        "V036-5"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V036-6",
+      "handoffTo": [
+        "V036-6"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V037-0",
+      "handoffTo": [
+        "V037-0"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V037-1",
+      "handoffTo": [
+        "V037-1"
+      ],
+      "ownerRole": "engineering/release owner",
+      "optionalNewSurface": true,
+      "reason": "追加画面のみ延期可能。既存業務・診断・安全gateは必須のまま。正式な延期は受入証拠と判断を要する。"
+    },
+    {
+      "id": "V037-2",
+      "handoffTo": [
+        "V037-2"
+      ],
+      "ownerRole": "engineering/release owner",
+      "optionalNewSurface": true,
+      "reason": "追加画面のみ延期可能。既存業務・診断・安全gateは必須のまま。正式な延期は受入証拠と判断を要する。"
+    },
+    {
+      "id": "V037-3",
+      "handoffTo": [
+        "V037-3"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V037-4",
+      "handoffTo": [
+        "V037-4"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V037-5",
+      "handoffTo": [
+        "V037-5"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V037-6",
+      "handoffTo": [
+        "V037-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V038-1",
+      "handoffTo": [
+        "V038-1"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V038-2",
+      "handoffTo": [
+        "V038-2"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V038-3",
+      "handoffTo": [
+        "V038-3"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V038-4",
+      "handoffTo": [
+        "V038-4"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V038-5",
+      "handoffTo": [
+        "V038-5"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V038-6",
+      "handoffTo": [
+        "V038-6"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V038-7",
+      "handoffTo": [
+        "V038-7"
+      ],
+      "ownerRole": "pharmacy/product owner"
+    },
+    {
+      "id": "V039-1",
+      "handoffTo": [
+        "V039-1"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V039-2",
+      "handoffTo": [
+        "V039-2"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V039-3",
+      "handoffTo": [
+        "V039-3"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V039-4",
+      "handoffTo": [
+        "V039-4"
+      ],
+      "ownerRole": "data/infra/security owner"
+    },
+    {
+      "id": "V039-5",
+      "handoffTo": [
+        "V039-5"
+      ],
+      "ownerRole": "engineering/release owner"
+    },
+    {
+      "id": "V039-6",
+      "handoffTo": [
+        "V039-6"
+      ],
+      "ownerRole": "data/infra/security owner"
+    }
+  ],
+  "staffTrial": {
+    "status": "NOT_RUN",
+    "ownerRole": "pharmacy/QA owner",
+    "participants": {
+      "minimum": 2,
+      "maximum": 3,
+      "namesRecorded": false
+    },
+    "baselineSourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+    "startGate": "同一fixtureのbaseline/candidate buildと試験手順を先にfreezeし、担当者が承認してから開始。今のdirty treeを凍結済みと扱わない。",
+    "trialsPerTaskPerParticipant": 3,
+    "tasks": [
+      {
+        "id": "V035-UX01",
+        "start": "正しい薬局と処方せんを選び、画像・LINE表示名・問診の版/時刻・期限を照合する。",
+        "successDefinition": "別account/patientの情報0、LINE表示名を本人氏名と誤認0、必要な確認を援助なしで完了。"
+      },
+      {
+        "id": "V035-UX02",
+        "start": "発行元・使用期限・受付回答を編集し、別スタッフの更新と保存409を発生させる。",
+        "successDefinition": "古い入力の上書き0、入力保持、警告の理解、明示破棄/再取得から再編集できる。"
+      },
+      {
+        "id": "V035-UX03",
+        "start": "受付から準備完了・受渡しへ進め、再撮影依頼と取消の別ケースも行う。",
+        "successDefinition": "対象と影響を確認し、重複状態遷移0、送信受付を到達/既読と誤認0。"
+      },
+      {
+        "id": "V035-UX04",
+        "start": "印刷記録の503後に画像を維持し、同じ操作IDで再確認する。",
+        "successDefinition": "画像消失0、自動再送0、印刷記録と物理印刷を区別し、最新状態を確認できる。"
+      },
+      {
+        "id": "V035-UX05",
+        "start": "詳細取得中に案件/薬局を切り替え、通信断・低速・session期限切れを発生させる。",
+        "successDefinition": "旧応答の混入0、取得不能を空/完了と誤認0、再認証/再読込で安全に復帰。"
+      },
+      {
+        "id": "V035-UX06",
+        "start": "keyboard、390px/1440px、200%文字/zoom、利用するscreen readerで同じ業務を行う。",
+        "successDefinition": "名前/role/state、focus/error/statusが分かり、主操作の欠落・画面外・誤操作0。"
+      }
+    ],
+    "failureDefinition": "援助が必要、復帰不能、対象/状態の誤認、データ/入力の消失、二重処理、権限逸脱、critical safety errorは失敗。",
+    "recordFields": [
+      "anonymousParticipantCode",
+      "taskId",
+      "fixtureCode",
+      "buildDigest",
+      "environment",
+      "trialNumber",
+      "success",
+      "seconds",
+      "actionCount",
+      "backtrackCount",
+      "facilitatorIntervention",
+      "errorCode",
+      "recoveryOutcome"
+    ],
+    "order": "練習試行を別記録とし、baseline先行/candidate先行を参加者間で入れ替える。",
+    "zeroTolerance": [
+      "wrong-account",
+      "wrong-patient",
+      "stale-save",
+      "cross-account-display",
+      "critical-safety-error",
+      "input-loss",
+      "duplicate-mutation"
+    ],
+    "auxiliary": {
+      "successRatePercent": 90,
+      "timeReductionPercent": 30,
+      "primaryActionCount": 3,
+      "gate": false,
+      "rule": "小標本の形成的評価。安全性・正確性の失敗を達成率や速さで相殺しない。"
+    },
+    "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。"
+  },
+  "operationsPreparation": {
+    "status": "BLOCKED",
+    "authority": [
+      "PLANS.md:V032-5",
+      "docs/pharmacy/RETENTION_MATRIX.md",
+      "docs/pharmacy/WRONG_BINDING_RECOVERY.md"
+    ],
+    "recoveryTargets": {
+      "rpoHours": 24,
+      "rtoHours": 4,
+      "minimumGenerations": 3,
+      "independentFailureDomains": true,
+      "cloudRehearsal": "NOT_RUN"
+    },
+    "staffing": {
+      "hours": null,
+      "responseSla": null,
+      "primary": null,
+      "backup": null
+    },
+    "recoverySequence": [
+      "対象の新規受付/送信を停止",
+      "証拠と同一世代D1/R2/FLE/ledgerを保全",
+      "電話/店頭へ引継ぎ",
+      "許可された隔離環境で復元",
+      "参照・画像・復号・同意・通知ledgerを照合",
+      "RPO/RTOと孤立/二重処理0を確認",
+      "人間の承認後に業務を再開"
+    ],
+    "retentionDecision": "既存承認を継承。EC/DSR/tombstone未決をBLOCKEDのまま残し、新しい削除/保持期間を推測して実装しない。",
+    "syntheticLoadDraft": {
+      "status": "UNVERIFIED",
+      "claim": "測定手順案であり実薬局の負荷予測・SLO承認ではない。V037-0で確定する。",
+      "tenants": 2,
+      "accountsPerTenant": 1,
+      "patientsPerTenant": 5,
+      "concurrentStaffPerTenant": 2,
+      "apiRequestsPerSecond": 2,
+      "webhookBurst": 10,
+      "prescriptionImagesPerSubmission": 4,
+      "cronItemsPerTenant": 10,
+      "durationMinutes": 15,
+      "p95TargetMilliseconds": null,
+      "p99TargetMilliseconds": null
+    },
+    "workloadPending": [
+      "画像サイズ上限と実際の分布",
+      "API p95/p99・エラー率・backlog/retry許容値",
+      "tenant偏在と2倍profile",
+      "alert到達先と業務時間外の代替連絡先"
+    ]
+  },
+  "automatedEvidence": {
+    "workspaceUnit": {
+      "status": "PASS",
+      "files": 457,
+      "tests": 3777,
+      "command": "pnpm -r test",
+      "finalAffectedReplay": {
+        "status": "PASS",
+        "command": "pnpm --filter web test",
+        "files": 52,
+        "tests": 241,
+        "note": "Full workspace run後のJST表示修正を含むWeb全体を再検証。"
+      }
+    },
+    "scripts": {
+      "status": "PASS",
+      "files": 21,
+      "tests": 228,
+      "command": "pnpm test:scripts"
+    },
+    "webBrowser": {
+      "status": "PASS",
+      "tests": 11,
+      "command": "pnpm --filter web test:e2e",
+      "source": "apps/web/e2e/prescription-journey.e2e.ts",
+      "limit": "Local Chromium, synthetic APIs, America/Los_Angeles timezone, CSS text enlargement. No actual LINE/staff proof."
+    },
+    "types": {
+      "status": "PASS",
+      "commands": [
+        "pnpm -r typecheck",
+        "pnpm --filter web exec tsc --noEmit --incremental false",
+        "pnpm --filter liff exec tsc --noEmit"
+      ]
+    },
+    "criticalBuilds": {
+      "status": "PASS",
+      "applications": [
+        "worker",
+        "web",
+        "liff"
+      ],
+      "environment": "synthetic example.invalid endpoints; local builds only",
+      "warnings": [
+        "Existing large Vite chunks",
+        "Worker mixed static/dynamic dedup-broadcast import"
+      ]
+    },
+    "migrations": {
+      "status": "PASS",
+      "command": "pnpm tsx scripts/check-migrations.ts",
+      "postBaselineCount": 12
+    },
+    "assurance": {
+      "scope": "Local dirty worktree checks on 2026-09-06 JST, not exact-candidate CI or release attestation.",
+      "exactCandidateCi": "NOT_RUN",
+      "codeql": "NOT_RUN",
+      "secretScan": "PASS",
+      "dependencyLicenseAudit": "PASS",
+      "sbom": "PASS",
+      "provenance": "NOT_RUN",
+      "lockfileSha256": "381ab91085b16e44328fc191c8db7cbaa68c916427ed8918eda4ed8b13539f11",
+      "secretScanEvidence": {
+        "tool": "gitleaks 8.30.1",
+        "trackedCommand": "gitleaks git --pre-commit --redact=100 --no-banner --no-color --timeout 60",
+        "newPathCommand": "gitleaks dir --redact=100 --no-banner --no-color --timeout 60 <exact-path>",
+        "newPaths": ["apps/web/e2e", "apps/web/playwright.config.ts", "docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json", "scripts/deploy/v035-readiness.test.ts"],
+        "findings": 0,
+        "limit": "Regex secret scan only; not proof of zero PHI/PII or a replacement for CI commit-history scanning."
+      },
+      "dependencyLicenseEvidence": {
+        "auditCommand": "pnpm audit --prod --audit-level high",
+        "auditResult": "No known vulnerabilities found",
+        "licenseCommand": "pnpm licenses list --prod --json",
+        "licenseReportSha256": "e0a88c1efec6b72336b4308522c9fbd8470f0ff2dd987fdde999f772b4d34b59",
+        "licenseGroups": { "MIT": 141, "Apache-2.0": 19, "LGPL-3.0-or-later": 1, "SEE LICENSE IN README.md": 51, "CC-BY-4.0": 1, "BSD-3-Clause": 3, "ISC": 10, "BSD-2-Clause": 1, "Public domain": 1, "0BSD": 1 },
+        "unknownOrUnlicensedGroups": 0,
+        "localRepair": "Missing pnpm package indexes initially prevented the report. Frozen install alone did not fix them; pnpm store add restored indexes for the 268 exact installed production package coordinates. No dependency version or lockfile change, no lifecycle scripts, no store pruning.",
+        "limit": "The existing CI unknown/unlicensed baseline passed. This is not a legal-compliance conclusion for LGPL, attribution, or README-based terms."
+      },
+      "sbomEvidence": {
+        "command": "env -u NODE_PATH node node_modules/@cyclonedx/cdxgen/bin/cdxgen.js -t js --required-only --no-babel --no-install-deps --spec-version 1.6 --fail-on-error --output <local-output> .",
+        "toolVersion": "12.8.4",
+        "localPath": "/tmp/pharmacy-v035-assurance-nxV4TY/sbom.direct-node.cdx.json",
+        "sha256": "31f48c02d871ab4662b12b8d84114b712153df9b576d55f36e0c8bea4852dcfb",
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "components": 208,
+        "componentsWithoutLicenseMetadata": 65,
+        "limit": "Format/non-empty/unique-component check passed. The pnpm executable shim injects NODE_PATH; direct Node avoids that local secure-mode warning without changing global configuration. No provenance or deployed-artifact claim."
+      }
+    },
+    "liffBrowser": {
+      "status": "PASS",
+      "tests": 13,
+      "command": "pnpm --filter liff test:e2e",
+      "limit": "Local Chromium/synthetic; no real LINE or participant proof."
+    }
+  },
+  "boundaries": {
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "productionMutation": "NOT_RUN",
+    "invitation": "NOT_RUN",
+    "lineMutation": "NOT_RUN",
+    "realStaffTrials": "NOT_RUN",
+    "phiPiiCaptured": false
+  },
+  "handoffDefaults": {
+    "status": "UNVERIFIED",
+    "ownerAcceptance": "UNVERIFIED",
+    "subrequirements": "参照元の全本文・子要件を継承。担当ロールは割当案であり、人の受諾・未担当0は未確認。"
+  }
+}
