@@ -10,6 +10,7 @@ import {
   generateTemporaryPassword,
   hashTenantPassword,
 } from '../../custom/pharmacy/provisioning/credentials.js';
+import { isPharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
 
 const staff = new Hono<Env>();
 
@@ -283,6 +284,61 @@ staff.post('/api/staff', requireRole('owner'), async (c) => {
   try {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    if (await isPharmacyTenant(c.env.DB, tenantId)) {
+      const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+      if (!body || Array.isArray(body)) {
+        return c.json({ success: false, error: 'Invalid JSON body' }, 400);
+      }
+      if ('loginId' in body || 'temporaryPassword' in body) {
+        return c.json({ success: false, error: 'Individual staff credentials are retired' }, 410);
+      }
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const email = body.email === undefined || body.email === null
+        ? null
+        : typeof body.email === 'string' ? body.email.trim() : '__invalid__';
+      const role = body.role;
+      if (!name || name.length > 120) {
+        return c.json({ success: false, error: 'name is required' }, 400);
+      }
+      if (email === '__invalid__' || (email &&
+          (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)))) {
+        return c.json({ success: false, error: 'email is invalid' }, 400);
+      }
+      if (role !== 'admin' && role !== 'staff') {
+        return c.json({ success: false, error: 'role must be admin or staff' }, 400);
+      }
+
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await c.env.DB.batch([
+        c.env.DB.prepare(
+          `INSERT INTO staff_members
+             (id, name, email, role, api_key, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+        ).bind(id, name, email === '__invalid__' ? null : email, role,
+          `disabled:${crypto.randomUUID()}`, now, now),
+        c.env.DB.prepare(
+          `INSERT INTO tenant_staff_memberships
+             (tenant_id, staff_id, role, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, 1, ?, ?)`,
+        ).bind(tenantId, id, role, now, now),
+        c.env.DB.prepare(
+          `INSERT OR IGNORE INTO pharmacy_staff_accounts
+            (line_account_id, staff_id, is_active, created_at, updated_at)
+           SELECT line_account_id, ?, 1, ?, ?
+             FROM tenant_line_accounts
+            WHERE tenant_id = ?`,
+        ).bind(id, now, now, tenantId),
+        tenantAuditStatement(c.env.DB, {
+          tenantId, actorStaffId: c.get('staff').id, action: 'staff.created',
+          resourceType: 'staff', resourceId: id, detail: { role },
+        }),
+      ]);
+
+      const member = await getTenantStaffById(c.env.DB, tenantId, id);
+      if (!member) throw new Error('Created staff member was not found');
+      return c.json({ success: true, data: serializeStaff(member) }, 201);
+    }
     const body = await c.req.json<{
       name: string;
       loginId: string;
@@ -549,6 +605,9 @@ staff.post('/api/staff/:id/reset-password', requireRole('owner'), async (c) => {
   try {
     const tenantId = c.get('tenantId');
     if (!tenantId) return c.json({ success: false, error: 'Tenant context required' }, 401);
+    if (await isPharmacyTenant(c.env.DB, tenantId)) {
+      return c.json({ success: false, error: 'Individual staff credentials are retired' }, 410);
+    }
     const id = c.req.param('id')!;
     const member = await getTenantStaffById(c.env.DB, tenantId, id);
     if (!member) {

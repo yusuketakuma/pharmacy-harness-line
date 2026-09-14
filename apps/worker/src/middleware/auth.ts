@@ -115,6 +115,7 @@ export type AuthenticatedStaff = {
   id: string;
   name: string;
   role: 'owner' | 'admin' | 'staff';
+  principalKind?: 'human' | 'pharmacy_shared';
 };
 
 export type AuthenticatedTenant = {
@@ -226,13 +227,14 @@ async function authenticateOpaqueSession(
     const row = await c.env.DB.prepare(
       `SELECT tenant.id, tenant.tenant_code, tenant.display_name,
               credential.staff_id, credential.must_change_password,
-              credential.credential_version, staff.name, membership.role,
+              credential.credential_version, staff.name, staff.principal_kind, membership.role,
               session.session_kind, session.last_seen_at
          FROM tenant_admin_sessions AS session
          INNER JOIN tenant_admin_credentials AS credential
                  ON credential.tenant_id = session.tenant_id
                 AND credential.staff_id = session.staff_id
                 AND credential.credential_version = session.credential_version
+                AND credential.auth_enabled = 1
          INNER JOIN tenants AS tenant
                  ON tenant.id = credential.tenant_id AND tenant.status = 'active'
          INNER JOIN staff_members AS staff
@@ -240,6 +242,7 @@ async function authenticateOpaqueSession(
          INNER JOIN tenant_staff_memberships AS membership
                  ON membership.tenant_id = credential.tenant_id
                 AND membership.staff_id = credential.staff_id
+                AND membership.role = 'admin'
                 AND membership.is_active = 1
         WHERE session.token_hash = ?
           AND session.revoked_at IS NULL
@@ -254,6 +257,7 @@ async function authenticateOpaqueSession(
       display_name: string;
       staff_id: string;
       name: string;
+      principal_kind: 'human' | 'pharmacy_shared';
       role: AuthenticatedStaff['role'];
       must_change_password: number;
       credential_version: number;
@@ -269,7 +273,12 @@ async function authenticateOpaqueSession(
         WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`,
     ).bind(now, tokenHash, now).run();
     return {
-      staff: { id: row.staff_id, name: row.name, role: row.role },
+      staff: {
+        id: row.staff_id,
+        name: row.name,
+        role: row.role,
+        principalKind: row.principal_kind,
+      },
       tenant: { id: row.id, code: row.tenant_code, name: row.display_name },
       authMethod: 'password',
       credentialVersion: row.credential_version,

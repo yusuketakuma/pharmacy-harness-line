@@ -24,6 +24,7 @@ export const CORS_ALLOW_HEADERS = [
   'Content-Type',
   'Authorization',
   'X-CSRF-Token',
+  'X-Platform-Admin-CSRF-Token',
   'X-Tenant-Id',
   'Idempotency-Key',
 ];

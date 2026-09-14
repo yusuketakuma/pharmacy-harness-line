@@ -4,7 +4,6 @@ import { runTenantSetup } from './setup-tenant.js';
 const args = [
   '--worker-url', 'https://api.example.test',
   '--tenant-name', 'Pharmacy A',
-  '--admin-id', 'admin-a',
   '--admin-name', 'Owner A',
   '--admin-email', 'owner@example.test',
   '--line-channel-id', '2001234567',
@@ -76,7 +75,6 @@ describe('tenant setup CLI', () => {
       success: true,
       data: {
         tenantCode: '004821',
-        adminLoginId: 'admin-a',
         urls: {
           admin: 'https://admin.example.test',
           webhook: 'https://api.example.test/webhook',
@@ -102,14 +100,14 @@ describe('tenant setup CLI', () => {
     expect((init?.headers as Record<string, string>)['Idempotency-Key'])
       .toMatch(/^[0-9a-f-]{36}$/);
     const body = JSON.parse(String(init?.body)) as {
-      admin: { temporaryPassword: string };
+      admin: Record<string, unknown>;
       line: {
         channelAccessToken: string;
         channelSecret: string;
         loginChannelSecret: string | null;
       };
     };
-    expect(body.admin.temporaryPassword).toMatch(/^Tmp-[A-Za-z0-9_-]{32}$/);
+    expect(body.admin).toEqual({ displayName: 'Owner A', email: 'owner@example.test' });
     expect(body.line).toMatchObject({
       channelAccessToken: secrets.PHARMACY_LINE_CHANNEL_ACCESS_TOKEN,
       channelSecret: secrets.PHARMACY_LINE_CHANNEL_SECRET,
@@ -118,8 +116,7 @@ describe('tenant setup CLI', () => {
 
     const rendered = output.join('\n');
     expect(rendered).toContain('薬局コード: 004821');
-    expect(rendered).toContain('管理者ID: admin-a');
-    expect(rendered).toContain(`仮パスワード（初回のみ表示）: ${body.admin.temporaryPassword}`);
+    expect(rendered).toContain('初回パスワードは全体管理画面から発行してください');
     expect(rendered).not.toContain('LINE Callback URL');
     expect(rendered).not.toContain(secrets.PHARMACY_PLATFORM_ADMIN_KEY);
     expect(rendered).not.toContain(secrets.PHARMACY_LINE_CHANNEL_ACCESS_TOKEN);
@@ -142,13 +139,12 @@ describe('tenant setup CLI', () => {
     expect(output.join('\n')).toContain('PHARMACY_LINE_LOGIN_CHANNEL_SECRET');
   });
 
-  it('reuses a supplied idempotency key but never reproduces a temporary password', async () => {
+  it('reuses a supplied idempotency key without putting tenant credentials in the request', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
       data: {
         tenantCode: '004821',
-        adminLoginId: 'admin-a',
         urls: {},
         line: {},
       },
@@ -164,8 +160,11 @@ describe('tenant setup CLI', () => {
       .toBe('setup-retry-20260819');
     expect((second.headers as Record<string, string>)['Idempotency-Key'])
       .toBe('setup-retry-20260819');
-    expect(JSON.parse(String(first.body)).admin.temporaryPassword)
-      .not.toBe(JSON.parse(String(second.body)).admin.temporaryPassword);
+    const firstBody = JSON.parse(String(first.body)) as { admin: Record<string, unknown> };
+    const secondBody = JSON.parse(String(second.body)) as { admin: Record<string, unknown> };
+    expect(firstBody.admin).toEqual(secondBody.admin);
+    expect(firstBody.admin).not.toHaveProperty('loginId');
+    expect(firstBody.admin).not.toHaveProperty('temporaryPassword');
     expect(output.filter((line) => line.includes('再実行キー')).length).toBe(2);
   });
 
@@ -173,25 +172,25 @@ describe('tenant setup CLI', () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
-      data: { tenantCode: '004821', adminLoginId: 'admin-a', replayed: true, urls: {}, line: {} },
+      data: { tenantCode: '004821', replayed: true, urls: {}, line: {} },
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
 
     const exitCode = await runTenantSetup(args, secrets, fetcher, (line) => output.push(line));
 
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as {
-      admin: { temporaryPassword: string };
+      admin: Record<string, unknown>;
     };
     expect(exitCode).toBe(0);
     expect(output.join('\n')).toContain('薬局コード: 004821');
-    expect(output.join('\n')).not.toContain(body.admin.temporaryPassword);
+    expect(body.admin).not.toHaveProperty('temporaryPassword');
     expect(output.join('\n')).toContain('再実行');
   });
 
-  it('derives a different temporary password for a different tenant reusing the same idempotency key', async () => {
+  it('does not add tenant credentials when different tenant setup requests reuse an idempotency key', async () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       success: true,
-      data: { tenantCode: '004821', adminLoginId: 'admin-a', urls: {}, line: {} },
+      data: { tenantCode: '004821', urls: {}, line: {} },
     }), { status: 201, headers: { 'content-type': 'application/json' } }));
     const sharedIdempotencyKey = ['--idempotency-key', 'shared-lost-response-key'];
     const tenantAArgs = [...args, ...sharedIdempotencyKey];
@@ -203,8 +202,11 @@ describe('tenant setup CLI', () => {
 
     const first = fetcher.mock.calls[0][1]!;
     const second = fetcher.mock.calls[1][1]!;
-    expect(JSON.parse(String(first.body)).admin.temporaryPassword)
-      .not.toBe(JSON.parse(String(second.body)).admin.temporaryPassword);
+    const firstBody = JSON.parse(String(first.body)) as { admin: Record<string, unknown>; line: { channelId: string } };
+    const secondBody = JSON.parse(String(second.body)) as { admin: Record<string, unknown>; line: { channelId: string } };
+    expect(firstBody.admin).not.toHaveProperty('temporaryPassword');
+    expect(secondBody.admin).not.toHaveProperty('temporaryPassword');
+    expect(firstBody.line.channelId).not.toBe(secondBody.line.channelId);
   });
 
   it('fails before the request when required configuration is missing', async () => {

@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { requestId, required, safeText, temporaryPassword, workerOrigin } from './cli-common.js';
+import { requestId, required, safeText, workerOrigin } from './cli-common.js';
 
 type Writer = (line: string) => void;
 type Environment = Record<string, string | undefined>;
@@ -7,7 +7,6 @@ type Environment = Record<string, string | undefined>;
 const VALUE_FLAGS = new Set([
   'worker-url',
   'tenant-name',
-  'admin-id',
   'admin-name',
   'admin-email',
   'line-channel-id',
@@ -21,7 +20,6 @@ const HELP = `Usage:
   pnpm tenant:setup -- \\
     --worker-url https://api.example.jp \\
     --tenant-name "Example Pharmacy" \\
-    --admin-id admin \\
     --admin-name "Owner" \\
     --line-channel-id 2000000000 \\
     --line-name "Example Pharmacy LINE"
@@ -113,14 +111,11 @@ export async function runTenantSetup(
     const endpoint = workerEndpoint(required(parsed.values, 'worker-url'));
     const channelId = required(parsed.values, 'line-channel-id');
     const idempotencyKey = requestId(parsed.values);
-    const generatedTemporaryPassword = temporaryPassword();
     const body = {
       tenantName: required(parsed.values, 'tenant-name'),
       admin: {
-        loginId: required(parsed.values, 'admin-id'),
         displayName: required(parsed.values, 'admin-name'),
         email: parsed.values['admin-email']?.trim() || null,
-        temporaryPassword: generatedTemporaryPassword,
       },
       line: {
         channelId,
@@ -171,7 +166,7 @@ export async function runTenantSetup(
       error?: unknown;
       data?: {
         tenantCode?: unknown;
-        adminLoginId?: unknown;
+        sharedLoginIssued?: unknown;
         replayed?: unknown;
         urls?: Record<string, unknown>;
         line?: Record<string, unknown>;
@@ -188,13 +183,8 @@ export async function runTenantSetup(
     write('初期テナント設定が完了しました。');
     write(`薬局コード: ${safeText(payload.data.tenantCode, '未取得')}`);
     write('薬局コードはサーバーが発行します。控え忘れた場合は同じ --idempotency-key で再実行してください。');
-    write(`管理者ID: ${safeText(payload.data.adminLoginId, body.admin.loginId)}`);
-    if (payload.data.replayed === true) {
-      // The server kept the original credential; this run's password was never stored.
-      write('再実行のため仮パスワードは新規発行されません。控えが無い場合は管理画面のパスワード再発行を使ってください。');
-    } else {
-      write(`仮パスワード（初回のみ表示）: ${generatedTemporaryPassword}`);
-    }
+    write('ログインは薬局コード＋パスワードです。初回パスワードは全体管理画面から発行してください。');
+    if (payload.data.replayed === true) write('再実行では既存の設定を返しました。');
     write(`管理画面: ${safeText(urls.admin, '未設定')}`);
     write(`Webhook URL: ${safeText(urls.webhook, '未設定')}`);
     write(`LIFF Endpoint URL: ${safeText(urls.liffEndpoint, '未設定')}`);

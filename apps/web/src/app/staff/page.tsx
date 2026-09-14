@@ -5,7 +5,6 @@ import { ApiError, fetchApi } from '@/lib/api'
 import type { ApiResponse } from '@line-crm/shared'
 import type { StaffMember } from '@line-crm/shared'
 
-type NewCredential = { loginId: string; temporaryPassword: string; staffId: string }
 type StaffAccountAssignment = { id: string; name: string; assigned: boolean }
 type AssignmentEditor = { member: StaffMember; accounts: StaffAccountAssignment[] }
 
@@ -33,15 +32,11 @@ export default function StaffPage() {
   const [assignmentLoading, setAssignmentLoading] = useState(false)
   const [assignmentError, setAssignmentError] = useState('')
 
-  const [newCredential, setNewCredential] = useState<NewCredential | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [copyError, setCopyError] = useState('')
   const [mutatingId, setMutatingId] = useState<string | null>(null)
 
   // Create form
   const [showForm, setShowForm] = useState(false)
   const [formName, setFormName] = useState('')
-  const [formLoginId, setFormLoginId] = useState('')
   const [formEmail, setFormEmail] = useState('')
   const [formRole, setFormRole] = useState<'admin' | 'staff'>('staff')
   const [formLoading, setFormLoading] = useState(false)
@@ -73,28 +68,18 @@ export default function StaffPage() {
     setFormLoading(true)
     setFormError('')
     try {
-      const body: { name: string; loginId: string; role: 'admin' | 'staff'; email?: string } = {
+      const body: { name: string; role: 'admin' | 'staff'; email?: string } = {
         name: formName,
-        loginId: formLoginId,
         role: formRole,
       }
       if (formEmail) body.email = formEmail
 
-      const res = await fetchApi<ApiResponse<StaffMember & {
-        loginId: string
-        temporaryPassword: string
-      }>>('/api/staff', {
+      const res = await fetchApi<ApiResponse<StaffMember>>('/api/staff', {
         method: 'POST',
         body: JSON.stringify(body),
       })
       if (res.success) {
-        setNewCredential({
-          loginId: res.data.loginId,
-          temporaryPassword: res.data.temporaryPassword,
-          staffId: res.data.id,
-        })
         setFormName('')
-        setFormLoginId('')
         setFormEmail('')
         setFormRole('staff')
         setShowForm(false)
@@ -111,7 +96,7 @@ export default function StaffPage() {
 
   const handleToggleActive = async (member: StaffMember) => {
     if (mutatingId !== null) return
-    if (member.isActive && !confirm(`${member.name} を無効化しますか？\nこのスタッフはログインできなくなります。`)) return
+    if (member.isActive && !confirm(`${member.name} を無効化しますか？\nこの担当者を薬局業務の割当対象から外します。`)) return
     setMutatingId(member.id)
     try {
       await fetchApi<ApiResponse<StaffMember>>(`/api/staff/${member.id}`, {
@@ -121,29 +106,6 @@ export default function StaffPage() {
       await loadMembers()
     } catch {
       setError('更新に失敗しました')
-    } finally {
-      setMutatingId(null)
-    }
-  }
-
-  const handleResetPassword = async (member: StaffMember) => {
-    const loginId = member.loginId || window.prompt(`${member.name} の管理者IDを入力してください`)?.trim()
-    if (!loginId || !confirm(`${member.name} の仮パスワードを再発行しますか？\n現在のログインセッションは無効になります。`)) return
-    if (mutatingId !== null) return
-    setMutatingId(member.id)
-    try {
-      const res = await fetchApi<ApiResponse<{ loginId: string; temporaryPassword: string }>>(`/api/staff/${member.id}/reset-password`, {
-        method: 'POST',
-        body: JSON.stringify({ loginId }),
-      })
-      if (res.success) {
-        setNewCredential({ ...res.data, staffId: member.id })
-        await loadMembers()
-      } else {
-        setError(res.error ?? '仮パスワードの再発行に失敗しました')
-      }
-    } catch {
-      setError('仮パスワードの再発行に失敗しました')
     } finally {
       setMutatingId(null)
     }
@@ -160,18 +122,6 @@ export default function StaffPage() {
       setError('削除に失敗しました')
     } finally {
       setMutatingId(null)
-    }
-  }
-
-  const handleCopy = async () => {
-    if (!newCredential) return
-    setCopyError('')
-    try {
-      await navigator.clipboard.writeText(newCredential.temporaryPassword)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setCopyError('コピーできませんでした。表示された仮パスワードを手で控えてください。')
     }
   }
 
@@ -226,33 +176,7 @@ export default function StaffPage() {
           </button>
         }
       />
-
-      {newCredential && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-sm font-medium text-green-800 mb-2">
-            仮パスワードを発行しました。この画面で一度だけ表示されます。
-          </p>
-          <p className="mb-2 text-xs text-green-800">管理者ID: {newCredential.loginId}</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-white border border-green-200 rounded px-3 py-2 font-mono break-all">
-              {newCredential.temporaryPassword}
-            </code>
-            <button
-              onClick={handleCopy}
-              className="shrink-0 px-3 py-2 text-xs font-medium text-green-700 bg-white border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
-            >
-              {copied ? 'コピー済み' : 'コピー'}
-            </button>
-            <button
-              onClick={() => setNewCredential(null)}
-              className="shrink-0 px-3 py-2 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              閉じる
-            </button>
-          </div>
-          {copyError && <p role="alert" className="mt-2 text-xs text-red-700">{copyError}</p>}
-        </div>
-      )}
+      <p className="mb-6 text-sm text-gray-600">ログインは薬局共通アカウントで行います。この画面では、業務の担当者とLINEアカウントの割当だけを管理します。</p>
 
       {assignmentEditor && <section className="mb-6 rounded-lg border border-green-200 bg-white p-5" aria-labelledby="staff-assignment-title">
         <h2 id="staff-assignment-title" className="font-semibold text-gray-900">{assignmentEditor.member.name}の担当薬局</h2>
@@ -277,7 +201,7 @@ export default function StaffPage() {
         <div className="mb-6 p-5 bg-white border border-gray-200 rounded-lg shadow-sm">
           <h2 className="text-sm font-semibold text-gray-900 mb-4">新しいスタッフを追加</h2>
           <form onSubmit={handleCreate} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">名前 *</label>
                 <input
@@ -286,19 +210,6 @@ export default function StaffPage() {
                   onChange={(e) => setFormName(e.target.value)}
                   required
                   placeholder="田中 太郎"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">管理者ID *</label>
-                <input
-                  type="text"
-                  value={formLoginId}
-                  onChange={(e) => setFormLoginId(e.target.value)}
-                  required
-                  pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,63}"
-                  autoComplete="off"
-                  placeholder="tanaka.taro"
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
@@ -330,7 +241,7 @@ export default function StaffPage() {
             <div className="flex items-center gap-3">
               <button
                 type="submit"
-                disabled={formLoading || !formName || !formLoginId}
+                disabled={formLoading || !formName}
                 className="px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-opacity hover:opacity-90"
                 style={{ backgroundColor: '#06C755' }}
               >
@@ -382,7 +293,6 @@ export default function StaffPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">名前</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">メール</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ロール</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">管理者ID</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">状態</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
               </tr>
@@ -394,9 +304,6 @@ export default function StaffPage() {
                   <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{member.email ?? '—'}</td>
                   <td className="px-4 py-3">
                     <RoleBadge role={member.role} />
-                  </td>
-                  <td className="px-4 py-3 text-gray-400 font-mono text-xs hidden md:table-cell">
-                    {member.loginId ?? '未発行'}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1.5 text-xs ${member.isActive ? 'text-green-700' : 'text-gray-400'}`}>
@@ -419,13 +326,6 @@ export default function StaffPage() {
                             className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
                           >
                             {member.isActive ? '無効化' : '有効化'}
-                          </button>
-                          <button
-                            onClick={() => handleResetPassword(member)}
-                            disabled={mutatingId !== null}
-                            className="px-2.5 py-1 text-xs font-medium text-blue-600 bg-white border border-blue-200 rounded hover:bg-blue-50 transition-colors"
-                          >
-                            仮パスワード再発行
                           </button>
                           <button
                             onClick={() => handleDelete(member)}

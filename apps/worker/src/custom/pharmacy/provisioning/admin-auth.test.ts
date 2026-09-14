@@ -23,7 +23,7 @@ const credential = {
   staff_id: 'staff-a',
   name: 'Owner A',
   role: 'owner' as const,
-  login_id: 'admin-a',
+  login_id: tenant.tenant_code,
   password_hash: '',
   must_change_password: 1,
   credential_version: 1,
@@ -124,8 +124,8 @@ function tenantDb(
           if (sql.includes('FROM tenant_admin_credentials')) {
             const isLogin = sql.includes('credential.login_id');
             if (isLogin) {
-              return values[0] === tenant.tenant_code && values[1] === credential.login_id
-                ? { ...tenant, ...credential }
+              return values[0] === tenant.tenant_code
+                ? { ...tenant, ...credential, principal_kind: 'pharmacy_shared' }
                 : null;
             }
             return values[0] === tenant.id && values[1] === credential.staff_id &&
@@ -176,6 +176,13 @@ function tenantDb(
               : sql.includes("'staff.other_sessions_revoked'")
                 ? { action: 'staff.other_sessions_revoked', detail: null }
                 : { action: String(values[4]), detail: values[7] as string | null });
+            lastChanges = 1;
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('INSERT INTO pharmacy_auth_audit_events')) {
+            if (sql.includes('CASE WHEN changes() = 1') && lastChanges === 0) {
+              return { meta: { changes: 0 } };
+            }
             lastChanges = 1;
             return { meta: { changes: 1 } };
           }
@@ -319,7 +326,6 @@ describe('tenant admin password authentication', () => {
         headers: { 'content-type': 'application/json', Origin: origin },
         body: JSON.stringify({
           pharmacyCode: tenant.tenant_code,
-          loginId: credential.login_id,
           password: 'Temporary pass 42',
         }),
       }, testEnv);
@@ -336,7 +342,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json', Origin: testEnv.ADMIN_ORIGIN! },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -347,7 +352,7 @@ describe('tenant admin password authentication', () => {
   it('rejects malformed login field types without throwing', async () => {
     for (const body of [
       null,
-      { pharmacyCode: tenant.tenant_code, loginId: credential.login_id, password: 42 },
+      { pharmacyCode: tenant.tenant_code, password: 42 },
     ]) {
       const response = await app().request('/api/auth/login', {
         method: 'POST',
@@ -374,7 +379,7 @@ describe('tenant admin password authentication', () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       success: false,
-      error: 'Login ID and password are required',
+      error: 'Pharmacy code and password are required',
     });
     expect(cookieValue(response, 'lh_admin_session')).toBe('');
     expect(cookieValue(response, 'lh_tenant')).toBe('');
@@ -386,7 +391,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, env());
@@ -420,7 +424,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -437,7 +440,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Wrong password 42',
       }),
     }, testEnv);
@@ -448,7 +450,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -469,7 +470,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password,
       }),
     }, testEnv);
@@ -491,7 +491,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, env(tenantDb([], false, true)));
@@ -508,7 +507,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -565,7 +563,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -623,7 +620,7 @@ describe('tenant admin password authentication', () => {
     }, testEnv);
     expect(changed.status).toBe(200);
     expect(cookies(changed).find((value) => value.startsWith('lh_admin_session=')) ?? '')
-      .toContain('Max-Age=28800');
+      .toContain('Max-Age=0');
     expect(credential.must_change_password).toBe(0);
     expect(credential.credential_version).toBe(2);
     expect(auditEvents).toEqual([{ action: 'staff.password_changed', detail: null }]);
@@ -633,7 +630,16 @@ describe('tenant admin password authentication', () => {
     }, testEnv);
     expect(oldSession.status).toBe(401);
 
-    const newCookie = cookieHeader(changed);
+    const reauthenticated = await app().request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        pharmacyCode: tenant.tenant_code,
+        password: 'Permanent password 84',
+      }),
+    }, testEnv);
+    expect(reauthenticated.status).toBe(200);
+    const newCookie = cookieHeader(reauthenticated);
     const allowed = await app().request('/api/protected', {
       headers: { cookie: newCookie },
     }, testEnv);
@@ -695,7 +701,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -724,7 +729,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
@@ -746,7 +750,6 @@ describe('tenant admin password authentication', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         pharmacyCode: tenant.tenant_code,
-        loginId: credential.login_id,
         password: 'Temporary pass 42',
       }),
     }, testEnv);
