@@ -20,7 +20,8 @@ single Cloudflare Worker + D1 + R2 + Admin
 
 1. platform ownerが一意の薬局コードでtenantを作成する。
 2. LINE accountをtenantへ関連付ける。
-3. staffをtenantへ所属させ、owner/admin/staffの役割を設定する。
+3. 人間の担当者プロフィールをtenantへ所属させ、owner/admin/staffの役割とLINE accountの担当割当を設定する。
+   管理画面のログインはtenantごとの共通アカウント1つで行う。
 4. 薬局ごとのLINE Channel、LIFF、Webhook設定を登録する。
 5. synthetic userでログイン、LIFF、署名済みWebhook、R2画像参照を確認する。
 6. cross-tenant否定テストを確認してから利用を開始する。
@@ -62,9 +63,7 @@ export PHARMACY_LINE_LOGIN_CHANNEL_SECRET='<LINE Login channel secret>'
 
 pnpm tenant:setup -- \
   --worker-url https://<shared-worker-host> \
-  --tenant-code example-pharmacy \
   --tenant-name 'Example Pharmacy' \
-  --admin-id admin \
   --admin-name 'Owner' \
   --line-channel-id 2000000000 \
   --line-name 'Example Pharmacy LINE' \
@@ -72,31 +71,19 @@ pnpm tenant:setup -- \
   --liff-id 2000000001-AbCdEfGh
 ```
 
-成功時だけ薬局コード、管理者ID、1回限りの仮パスワードを表示します。初回
-ログインでは仮パスワード変更が必須です。旧APIキーによる管理画面ログインは
+成功時だけ薬局コードを表示します。共通パスワードはplatform adminのテナント詳細画面で
+「初回発行」し、発行時に一度だけ表示された値を薬局へ安全に渡します。初回ログインでは
+仮パスワード変更が必須です。旧APIキーによる管理画面ログインは
 利用できません。SDK/MCP向けのテナント限定APIキーは外部連携専用であり、管理
 画面へのログインには使用できません。
 
 ### 既存テナントの移行gate
 
-旧APIキーによる管理画面ログインを廃止する前に、既存tenantへ最初のowner
-ログインを1件だけ発行します。既存のLINE account、患者、処方せん、画像は変更
-しません。同じ入力の通信再試行は同じ発行結果として扱い、2人目の初期ownerは
-拒否します。仮パスワードは実行ごとにランダム生成され、再実行（`replayed`）では
-サーバー側の既存資格情報が維持されるため新しい仮パスワードは表示されません。
-控えが無い場合は管理画面のパスワード再発行を使います。
-
-```sh
-export PHARMACY_PLATFORM_ADMIN_KEY='<platform key>'
-pnpm tenant:admin-bootstrap -- \
-  --worker-url https://<shared-worker-host> \
-  --tenant-id '<tenant-id>' \
-  --admin-id admin \
-  --admin-name 'Owner'
-```
-
-成功時だけ薬局コード、管理者ID、1回限りの仮パスワードを表示します。新方式で
-ログインとパスワード変更を確認してから、以下のLINE資格情報移行へ進みます。
+旧APIキーによる管理画面ログインを廃止する前に、platform adminのテナント詳細画面で
+既存tenantの「初回発行」を1回実行します。既存のLINE account、患者、処方せん、画像は
+変更しません。控えが無い場合は同じ画面の「再発行」を使います。旧
+`pnpm tenant:admin-bootstrap` CLIは廃止済みです。新方式でログインとパスワード変更を
+確認してから、以下のLINE資格情報移行へ進みます。
 
 `custom_018`の適用だけでは、既存の`line_accounts`平文列は自動削除されません。
 本番では次の順序を崩さず、各段階の証跡を確認します。

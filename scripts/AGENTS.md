@@ -3,7 +3,7 @@
 | パス | 役割 | 注意 |
 |---|---|---|
 | `custom/pharmacy/setup-tenant.ts` | 薬局(tenant)の作成 | `pnpm tenant:setup` |
-| `custom/pharmacy/bootstrap-tenant-admin.ts` | テナント管理者の初回作成(仮パスワードはランダム生成) | `pnpm tenant:admin-bootstrap` |
+| `custom/pharmacy/bootstrap-tenant-admin.ts` | 廃止済み（共通パスワードはplatform admin画面から発行） | `pnpm tenant:admin-bootstrap` |
 | `custom/pharmacy/bootstrap-platform-admin.ts` | 全体管理者の初回作成(未初期化環境のみ) | `pnpm platform:admin-bootstrap` |
 | `custom/pharmacy/manage-tenant-settings.ts` | テナント設定の確認・変更 CLI(dry-run 既定、`--preflight`) | `pnpm tenant:settings` |
 | `custom/pharmacy/migrate-line-credentials.ts` | LINE 資格情報の専用ストアへの移行 | 出力に秘密情報を含めない |

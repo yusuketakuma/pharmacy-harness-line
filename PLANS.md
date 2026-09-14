@@ -127,7 +127,7 @@
 
 **Human Gate register（コード外のcanonical evidence status）**:
 
-状態は`PASS`、`FAIL`、`NOT_RUN`、`UNVERIFIED`、`BLOCKED`だけを使う。コード、test、release、deploy、activation、外部操作を相互に推論しない。GitHub Issuesが無効な間は、このregisterとV040-CBのP0 blocker registerを`open P0`のauthorityとし、V031/V032/V033/V037/V038/V039の未完了mandatory checklistを`open P1`の分母とする。`STRETCH`のV034/V035/V036はscopeへ明示昇格した場合だけP1へ数える。
+状態は`PASS`、`FAIL`、`NOT_RUN`、`UNVERIFIED`、`BLOCKED`だけを使う。コード、test、release、deploy、activation、外部操作を相互に推論しない。GitHub Issuesが無効な間は、このregisterとV040-CBのP0 blocker registerを`open P0`のauthorityとする。2026-09-05改訂のV040-CB「P0/P1引継ぎ対応表」を未完了mandatory checklistの対応先とし、V035/V036の基本業務・通信安全gateもP1分母へ含める。任意の追加UIや条件付きdomainの除外は、理由・既存案件の継続経路・検証証拠を残し、安全gateの除外と混同しない。
 
 | gate | 担当 | 実施条件 | 状態 |
 |---|---|---|---|
@@ -592,15 +592,21 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
   - **進捗(2026-08-21)**: release generatorを同一sourceから再実行し、228 JPEG、manifest、全SHA-256が既存local artifactと完全一致することを確認した。catalog総容量を50MB以下に制限するdeploy gateも追加し、現在artifactは36,954,062 bytes。development R2へ228画像とmanifestを登録し、全remote objectのbyte/hash/size一致を確認した。Worker rich-menu/DB/LIFF/Web/CLI・doctorのfocused testsはgreen。最新確認はWorker 93 files / 795 tests、Web薬局custom seam 28 files / 127 tests、LIFF薬局custom seam 16 files / 69 tests、deploy workflow・CLI契約 2 files / 62 tests。schema apply、deploy、account activation、LINE mutation、実端末受入、rollback drill、package/release metadataは未実行。
   - **完了(2026-08-22, ローカル/リリース分)**: 上記focused testのローカルgreenに加え、seller tag `pharmacy-v0.30.0`/`pharmacy-v0.30.1`/`pharmacy-v0.30.2`、package version、`CHANGELOG.md`「Pharmacy v0.30.0/v0.30.1/v0.30.2」を確認した。**方針からの逸脱を記録する**: package/tag/CHANGELOG/GitHub Releaseとproduction code deployは外部受入gateより先行した。2026-08-22のlive GitHub read-backでは各GitHub Release本文とproduction deployment run `32507393605`（source `b26e890f424c735b11b895fb715f090851421c89`）を確認したが、これをaccount activation、LINE lifecycle、rollback、実端末受入、production business operationの証拠へ代用しない。production D1 schema fingerprintはworkflow migration step成功だけでは閉じず`UNVERIFIED`、account activation、LINE candidate create/upload/set-default、code rollback drill、synthetic account実端末受入は`NOT_RUN`のままHuman Gate registerへ計上する。
 
-### V040-CB - v0.31.0〜v0.40.0 Stage 0からCore Closed Betaへのroadmap - 2026-08-22多角review反映版
+### V040-CB - v0.35.0〜v0.40.0 外部限定ベータ開始へのroadmap - 2026-09-05再構築
 
-**結論**: 2026-09-01のmilestone名は`v0.40.0`を維持するが、この日の最大成果は外部患者を入れないStage 0 synthetic internal alpha / beta candidateとする。Stage 2の24時間とStage 3の48〜72時間を省略せず、Stage 3観察完了後だけCore Closed Betaを名乗る。全gateが連続してPASSした場合の最短目標は2026-09-04〜05である。日付はearliest targetであり、gate未達ならversion、tag、`CHANGELOG.md`の完了表記を進めない。
+**結論**: `v0.40.0`で同意済み外部ユーザーへの限定ベータを開始する。Stage 0（synthetic）とStage 1（職員のみ）はv0.38〜v0.39で完了し、v0.40.0はStage 2から開始する。公開開始とCore Closed Beta acceptanceは別成果とし、Stage 2の最低24時間とStage 3の最低48〜72時間を省略しない。過去の2026-08〜09月の目標日は現行納期として使用しない。各版の完了条件とHuman Goで進め、未達なら外部公開しない。
+
+**今回の変更範囲**: 承認済み計画の`PLANS.md`反映のみ（`[tdd:skip:docs-only]`）。機能実装、package更新、commit/push、deploy、実患者導入を実施したことにはしない。`team_validation_mode: manual-pass`、サブエージェント未使用。Product（基本業務）、Architecture（既存domain再利用）、Security（権限・PHI・復旧）、QA（実端末・互換性）、Skeptic（未到達・非参加者・別artifact）を確認した。
+
+**Spec skip reason**: root `spec.md`は存在せず、既存の`docs/pharmacy/IMPLEMENTATION_PLAN.md`、`ADMIN-AUTH.md`、`RETENTION_MATRIX.md`等のproduct contractを維持する。今回はリリース順序と受入タスクの確定であり、API・schema・認証・保持方針の変更は行わない。参加者制御・送信取消等の未確定な挙動はV035-5/V036-6で該当正本へ最小deltaを先に確定し、実装と混同しない。
+
+**確認基準（2026-09-05）**: local `dev` / `99dd8b2`、package `0.34.2`。通知sender・durable webhook inbox・手動返信の既存3 test files / 44 testsが直前のレビューでPASS。全体CI、実LINE到達、実端末、実スタッフ、復旧、現production候補はこの証拠に含まれない。
 
 **deploy方針**: `dev`/developmentでsynthetic検証し、全release gateと人間の明示Go後だけ`main`/productionで段階開放する。
 
 **この節が置き換える計画**: 旧V031に同居していたmenu独自分析、予約切替、preset共有、患者timeline、職員action queue、fleet driftを分割する。`V031-L1`はv0.34.0、`V031-A1`はv0.35.0、`V031-P1`はv0.37.0へ移し、custom menu action counter、custom rich-menu scheduler、preset共有はv0.41.0以降へ延期する。
 
-**Oracle evidence**: session `review-the-proposed-pharmacy-harness`と`pharmacy-v040-roadmap-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、thinking `Pro`。restore/特権Human Gateをbackfill・scrubより先に置くこと、mixed-version migrationを各versionで継続すること、9月1日をStage 0に限定すること、consent/proxy、final-artifact assurance、重大incident時のglobal quarantineを反映した。
+**Oracle evidence**: 2026-09-05 session `pharmacy-beta-release-plan-review`、`requestedKey=gpt-5.6-sol`、`resolvedLabel=GPT-5.6 Sol`、`verified=yes`、thinking `Pro`。非機密要約による助言であり公開承認ではない。exact artifact、参加者境界、通知到達不明、業務までの復旧、観察時間だけで合格にしない条件を反映した。旧session `review-the-proposed-pharmacy-harness` / `pharmacy-v040-roadmap-review`のrestore先行・互換性・global quarantineは維持するが、「9月1日の0.40はStage 0のみ」は今回のユーザー方針で置き換える。
 
 #### 再調査時点のbaseline（2026-08-22、2026-08-26追記）
 
@@ -619,17 +625,39 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 
 #### Canonical statusと外部患者導入前P0 blocker register
 
-状態は`PASS`、`FAIL`、`NOT_RUN`、`UNVERIFIED`、`BLOCKED`だけを使う。GitHub Issuesが無効な間、次の表を`open P0`のcanonical分母とする。1行でも`PASS`以外ならStage 2へ進まない。`open P1`はV031/V032/V033/V037/V038/V039の未完了mandatory checklistから算出する。
+状態は`PASS`、`FAIL`、`NOT_RUN`、`UNVERIFIED`、`BLOCKED`だけを使う。GitHub Issuesが無効な間、次の表と冒頭Human Gate registerを`open P0`のauthorityとする。対象scopeの1行でも`PASS`以外ならStage 2へ進まない。`open P1`は下記引継ぎ表のmandatory checklistから算出する。過去artifactのPASSを現候補へ流用せず、01/03は履歴を保持して現候補を`UNVERIFIED`へ再基準化する（過去試験の失敗を意味しない）。
 
 | ID | Stage 2前の停止条件 | owner | 状態/evidence |
 |---|---|---|---|
-| `CB-P0-01` | source/scope/migration/schema/artifact evidenceをfreezeし、Human Gate registerをlive read-backと一致させる | release owner | `PASS`（`docs/pharmacy/evidence/v0.30.2-production-manifest.json`。stage=`pre-beta`。deployed byte equalityは`CB-P0-02`で実証する） |
+| `CB-P0-01` | source/scope/migration/schema/artifact evidenceをfreezeし、Human Gate registerをlive read-backと一致させる | release owner | `UNVERIFIED`（0.40候補未固定。過去の`docs/pharmacy/evidence/v0.30.2-production-manifest.json`は`PASS`、stage=`pre-beta`。deployed byte equalityは`CB-P0-02`で実証する） |
 | `CB-P0-02` | main/production候補のmanifest-bound artifact、source SHA一致、明示Human Go、非自動deployを実証する | infra/release owner | `NOT_RUN`（source preflightはmain push deployを無効化し、手動実行時の承認SHA完全一致を必須化済み。実際のHuman Go/deploy証拠は未取得） |
-| `CB-P0-03` | LIFFを含むrequired CI、CodeQL/SAST、SBOM、provenanceのbaselineを実在させる | repository owner | `PASS`（userが独立人間reviewerを不要と明示。runtime-bearing head `74abeb4`のPR run `32649189057`とattestation run `32649189692`がPASS） |
+| `CB-P0-03` | LIFFを含むrequired CI、CodeQL/SAST、SBOM、provenanceのbaselineを再利用しfinal artifactへ紐付ける | repository owner | `UNVERIFIED`（0.40候補の証拠未取得。過去のruntime-bearing head `74abeb4`のPR run `32649189057`とattestation run `32649189692`は`PASS`。独立人間reviewer不要の決定は維持） |
 | `CB-P0-04` | password step-up/session binding・revoke/durable lockout、PHI-free audit projection、FLE独立承認、authorization inventoryをPASSにする | security/infra owner | `NOT_RUN` |
 | `CB-P0-05` | common-generation D1/R2/FLE restore、legal hold coverage、ordered delete/retention dispositionをPASSにする | data/ops owner | `NOT_RUN` |
 | `CB-P0-06` | webhook fencing、outbound idempotency、external timeout/unknown-outcome reconciliationをPASSにする | Worker owner | `NOT_RUN` |
 | `CB-P0-07` | consent version/withdrawal、本人・家族proxy authority、wrong-binding recovery、staffing SLAをPASSにする | product/pharmacy/legal owner | `NOT_RUN` |
+
+#### P0/P1引継ぎ対応表（2026-09-05確定）
+
+旧タスクID・checkbox・個別証拠は削除せず以下の担当版へ引き継ぐ。対応表の完成は各gateの完了ではない。同一不具合は主IDで一度だけ数え、関連gateへリンクする。対象内のmandatory未完了をP1、患者安全・権限・PHI・復旧を阻害するものはP0へ昇格する。任意機能を外す場合も残る業務の安全試験を免除しない。
+
+| 引継ぎ元 / 分類 | 担当版・タスク | owner | 完了判定 / 現在の扱い |
+|---|---|---|---|
+| CB-P0-01 / P0 | V035-0 → V039-6 | release owner | scopeと現候補manifestの一致。現候補UNVERIFIED |
+| CB-P0-02、V031-4R / P0 | V039-3/6 → V040-1/2 | infra/release owner | 候補検証、明示deploy Go、公開前read-back、別のactivation Go。外部実行NOT_RUN |
+| CB-P0-03、V031-5 / P0 | V035-0 → V039-3 | repository owner | 既存CI/SBOM/provenanceをexact artifactへ結合。現候補UNVERIFIED |
+| CB-P0-04、V032-1〜3、V033-G1〜4 / P0 | V035-5/6 → V037-6 → V039-2/4 | security/infra owner | 認証・失効・認可・PHI-free監査・FLE独立承認。外部gate未完了を維持 |
+| CB-P0-05、V032-4/5、NEXT/FLEのHuman Gate / P0 | V035-6 → V037-6 → V039-4 | data/ops owner | 同世代復旧、legal hold、保持・削除判断、業務再開の実証。NOT_RUN/BLOCKEDを継承 |
+| CB-P0-06、V033-5/G5 / P0 | V036-3/6 → V037-4 → V039-2 | Worker owner | 重複・順序逆転・結果不明・古い実行者の副作用を照合。既存44 testsだけでcloseしない |
+| CB-P0-07、V033-6/G6、wrong-binding Human Gate / P0 | V035-5 → V036-4 → V038-6 → V039-2 | product/pharmacy/legal owner | 本人・代理・参加資格・撤回・停止・担当体制。NOT_RUNを継承 |
+| V031/V032/V033の残るmandatory（V032-6、V033-A1/G10、V033-7/G1〜10を含む） / P1、P0該当は上記 | V035-0で全量突合 → V036/37 → V039-5 | release owner + 各domain owner | 旧ローカル完了を運用完了にしない。各未完了チェックに主ID・担当・証拠を対応付ける |
+| V034-4、V032-A/L/Pの実端末・業務受入、V035-2〜4 / P1 | V035-2〜4 → V038-7 → V039-1/2 | pharmacy/UI/QA owner | 合成A/B、実端末、スタッフ試験でcritical safety error 0。V034-1のEC disclosureは条件付きgateを維持 |
+| V035-0/5/6、V036-1〜6 / P1、重大欠陥はP0 | V035/36 → V038/39 | product/Worker/pharmacy owner | 対象業務・LINE lifecycle・閉ループ・参加者制御の受入。新規拡張を延期しても基本安全は必須 |
+| V037-0/3〜6、V038-1〜7、V039-1〜6 / P1、重大欠陥はP0 | 各担当版 → V039-5 | ops/beta/release owner | 負荷・停止・導入・説明・互換性・exact artifactの検証。機能freezeは証拠未取得を隠さない |
+| V035-1、V037-1/2の追加UI / Optional | キューはB41-A1へ、fleet/snapshotは元IDのままv0.41以降へ延期可 | UI/ops owner | 既存導線・診断で受入可能な証拠があれば延期。必要性とPROMOTED/DEFERREDをV038前に記録。B41-P1/P2の別機能とは混同しない |
+| 条件付きfamily/EC/Myna、冒頭Human Gate registerの残項目 | V035-0/5 → V038-2/6 → V039 | product/pharmacy/security owner | 適用scope・理由・ownerを全行対応。対象外でも旧契約・既存案件の継続を壊さない。未判断はBLOCKED |
+
+**全量照合規則**: 冒頭Human Gate register、V031〜V039の未完了mandatory本文・子項目・機械inventoryを分母にし、上表にない残項目はV035-0へ未解決として取り込む。公開前に未分類0・未担当0・証拠なしPASS 0を確認する。個別gateの現状を再検証する前にP0/P1の実数を0と宣言しない。
 
 #### Beta stateと共通境界
 
@@ -654,7 +682,8 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 | 機能 | v0.40.0目標状態 | 条件 |
 |---|---|---|
 | 処方せん画像、受付状況、再撮影、取消、来局 | `BETA_READY` | 実端末E2E、R2/D1 restore、二重送信0 |
-| 本人/家族患者管理、患者情報、問診 | `BETA_READY` | owner境界、FLE coverage/restore、consent version/withdrawal、proxy権限/期限/取消、wrong-binding復旧確認後 |
+| 本人患者管理、患者情報、問診 | `BETA_READY` | owner境界、FLE coverage/restore、consent version/withdrawal、wrong-binding復旧確認後 |
+| 家族代理 | 条件付き`BETA_READY` | proxy権限/期限/取消とdisclosureのgateを満たす参加者だけ。初回成人本人cohort案とは区別し、既存契約・対応中案件を維持 |
 | 個別チャット、継続、服薬後follow-up | `BETA_READY` | closed-loop、wrong-target/duplicate/PHI通知0 |
 | 薬局情報、職員管理、Platform Admin | `BETA_READY` | tenant境界、owner/adminのpassword session・重要操作前step-up、support grant、PHI-free監査projection確認後 |
 | 電子処方箋handoff | 条件付き`BETA_READY` | endpointと患者/薬局境界を実環境確認したtenantだけ |
@@ -664,26 +693,21 @@ v0.30.0でrich menuへ直接配置できるtileは、現行v4の5種類（`presc
 | 介護施設portal、全国薬局検索、legacy一斉配信 | `BLOCKED` | 現beta責務外またはtenant境界未実装 |
 | custom menu counter/scheduler/preset/A-B test | `BLOCKED` | beta中核ではないためv0.41.0以降へ延期 |
 
-#### version依存順
+#### version依存順（納期は未設定、完了条件で進行）
 
-| 目標日 | Version | 主成果 | 前提 |
+| Version | 主成果 | 前提・終了条件 | owner |
 |---|---|---|---|
-| 2026-08-22 | Day 0 | scope/evidence freeze | versionを上げない |
-| 2026-08-23 | v0.31.0 | Release Governance & v0.30 Operational Acceptance | Day 0 |
-| 2026-08-24 | v0.31.1 | Rich menu初期設定UX・権限制御(source release済み。production受入はV031-4R) | v0.31.0 |
-| 2026-08-26 earliest | v0.32.0 | Administration & Patient Experience, Data Protection, Backup & Recovery(UX再編追加により2026-08-24から再見積) | v0.31.0 |
-| 2026-08-27 earliest | v0.33.0 | Identity, Tenant Isolation, Abuse Protection & Engineering Foundation | v0.32.0 |
-| v0.33.0完了後 | v0.34.0（stretch） | Patient Critical Journeyの不足分だけ | v0.33.0。V038前に`PROMOTED`/`DEFERRED`を固定し、既存journeyがgateを満たせばv0.41.0以降へ延期 |
-| v0.33.0完了後 | v0.35.0（stretch） | Staff Critical Journeyの不足分だけ | v0.33.0。V038前に`PROMOTED`/`DEFERRED`を固定し、既存journeyがgateを満たせばv0.41.0以降へ延期 |
-| v0.33.0完了後 | v0.36.0（stretch） | Closed-loop Follow-upの不足分だけ | v0.33.0。V038前に`PROMOTED`/`DEFERRED`を固定し、既存journey evidenceとV039分母を確定する |
-| 2026-08-29 earliest | v0.37.0 | Operations, Observability & Capacity | v0.33.0。stretch 3版は前提にしない。v0.33はlocal/syntheticの速度baselineとcode foundation、v0.37はproduction SLO・load/failure・alert・capacityを担当 |
-| 2026-08-30 | v0.38.0 | Beta Feature Complete & Onboarding | v0.37.0 |
-| 2026-08-31 | v0.39.0 | Release Candidate | v0.38.0、feature freeze |
-| 2026-09-01 | v0.40.0 milestone | Stage 0 synthetic internal alpha / beta candidate | v0.39.0全gate、外部患者0 |
-| 2026-09-02以降 | Stage 2 | limited patient beta | Stage 0/1 PASS後、最低24時間 |
-| 2026-09-04〜05 earliest | Stage 3 acceptance | Core Closed Beta | Stage 3を最低48〜72時間観察後に人間がGo |
+| v0.35.0 | Beta Scope & Staff Critical Journey | 対象業務・旧gate・担当を確定し基本業務を通す。参加者制御・復旧・適用性評価を開始 | product/release/pharmacy owner |
+| v0.36.0 | Closed-loop Follow-up & LINE Communication | v0.35のscope、通知結果不明・未返信・営業時間外を含む連絡の完結 | pharmacy/Worker owner |
+| v0.37.0 | Recovery, Operations & Capacity | v0.35から進めた復旧・保持判断とv0.36の通信契約。復旧・停止・負荷試験PASS | data/infra/ops owner |
+| v0.38.0 | Onboarding & Internal Rehearsal | v0.35〜37の工程gate、導入・参加者管理・実端末・職員受入、feature freeze | beta/pharmacy/UI/QA owner |
+| v0.39.0 | Release Candidate | v0.38、Stage 0/1完了、exact 0.40候補の検証・互換性・復旧・公開前gate | release owner |
+| v0.40.0 | Limited External Beta Start | v0.39、候補に対するdeploy Goとread-back、全対象gate PASS後のactivation Go。Stage 2から開始 | human Go authority + beta owner |
+| v0.40.x運用 | Stage 3評価・Stage 4拡張 | Stage 2最低24時間、Stage 3最低48〜72時間と業務イベントの観察、拡張ごとのHuman Go | beta/pharmacy owner |
 
-#### Day 0 - 2026-08-22 - scope/evidence freeze
+v0.31〜v0.34の節は履歴・残gateの正本として保持する。版番号は到達点であり、機能・データ復旧・運用準備を完全直列にしない。0.35で3領域へ着手し、共有DB/port/cache/外部状態を使う実行は直列化する。新しいキューやfleet画面を作るためだけにベータを遅らせない。
+
+#### Day 0 - scope/evidence freeze（2026-08-22起票、残項目はV035-0/6へ引継ぎ）
 
 - [ ] **V040-D0-1 sourceと環境をfreeze**: `main`、`dev`、現deployment source SHA、package、migration set、schema fingerprintをPHI-free evidenceへ記録する。productionへ変更を加えない。
 - [ ] **V040-D0-2 synthetic検証境界を固定**: developmentではsynthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。main/productionへのdeploy、activation、実患者導入は全gateと人間の明示Goまで行わない。
@@ -949,18 +973,51 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 
 **2026-09-01 local candidate evidence**: V034-2〜3は`b038890333628959837e44769f5d25886238084e`でローカル実装完了。V034-1は主要4domainがPASSだが条件付きECのHuman Gateが残るためpartial、V034-4も実機試験が未実施のためpartial。Worker 241 files / 2,558 tests、LIFF 23 files / 144 tests、両package typecheck、両production build、Worker deploy dry-run（実deployなし、gzip 487.31 KiB）、local Chrome synthetic audit、全workspace `verify:ci`がPASS。患者timelineの画面/APIをV032/V033 safety inventoryへ追加し、38 pages・42 API groups・231 unique route patternsのowner/account・PHI-free・read-only/no-store境界を固定した。production dry-runで`--env production`だけではdev D1/R2が残るRedを再現し、build時の`CLOUDFLARE_ENV=production`とdeploy時の`--keep-vars`を固定後、D1 `line-crm`・R2 `line-harness-images`へ切り替わるGreenを確認した。引数転送probeはliteral `--`でdry-runが無効化されplaceholder account APIへ到達したが7003でfailし外部変更0、引数不要の専用dry-run scriptで再実行してGreen。LIFF Pagesもproduction projectが暗黙選択されないRedに対し`line-crm-liff-prod`・`main`を明示するscriptを固定したが、実Pages deployは`NOT_RUN`。production公開URLの実値/read-back、iOS/Android LINE WebView、VoiceOver/TalkBack、実機200% zoom、低速通信、participant trialsは`NOT_RUN`であり、V033-7も`BLOCKED`のためv0.34.0 release readinessは`BLOCKED`を維持する。
 
-#### v0.35.0 - Staff Critical Journey
+#### v0.35.0 - Beta Scope & Staff Critical Journey
 
-**優先度**: `STRETCH`。既存staff journeyがStage 0/2の安全gateを満たす場合は実装せずv0.41.0以降へ延期する。
+**優先度**: scope・基本業務・安全gateは`Required`。V035-1の追加キューのみ`Optional`とし、既存summary/detailで受入可能ならB41-A1へ延期する。基本業務の不足は延期しない。
 
-- [ ] **V035-1 read-only action queue**: 既存domainから「対応が必要」recordだけをbounded unionで取得し、domain、非センシティブstatus、deadline区分、既存detail linkだけを返す。queueからassign/status変更/bulk mutation/decrypt/free-text保存を行わない。
+- [ ] **V035-0 beta scopeと旧gateの全量突合** `[tdd:skip:docs-and-evidence]`: V040-D0、P0/P1引継ぎ表、冒頭Human Gate registerを使い、対象業務・参加資格・対象外機能・各gateのowner/証拠/期限となる版を固定する。local/deployed SHA、package/seller identity、schema/migration/artifactの相違を記録し、過去PASSを現候補へ転用しない。**DoD**: 下記業務一覧の全行に試験ID・担当・適用scopeがあり、旧mandatoryの未分類0・未担当0。外部未検証はNOT_RUN等のまま明記する。
+
+- [x] **V035-1 read-only action queue**: 既存domainから「対応が必要」recordだけをbounded unionで取得し、domain、非センシティブstatus、deadline区分、既存detail linkだけを返す。queueからassign/status変更/bulk mutation/decrypt/free-text保存を行わない。**ローカル実装完了(2026-09-14)**: `GET /api/custom/pharmacy/action-queue`を追加し、7ドメインを各51件以内・全体50件以内でaccount scope取得、部分失敗と上限を表示する。レスポンスは4項目だけ（record ID・患者/友だち情報なし）で、既存確認画面へ遷移する。Worker route/repository 23 tests、Web UI追加テスト、API coverage、型検査がPASS。50件超の次ページ用cursorとrecord単位のdeep linkは、既存画面の導線で不足が実測された場合に追加する。
 - [ ] **V035-2 detailで既存mutationを再利用**: 処方せん画像、期限、問診更新時刻、受取希望、過去eventをdetailで確認し、既存authorization/CAS/auditを通して受付結果、再撮影理由、print retryを処理する。通知失敗と業務状態を分離する。
 - [ ] **V035-3 stale/partial failureを安全化**: account切替時のstale response破棄、CAS conflict後の再取得、1 domain failureの明示、stable cursor、EC list decrypt 0、cross-account 0をtestする。
 - [ ] **V035-4 UX gate**: task/試行/成功定義/baselineを事前freezeし、実薬局スタッフ2〜3名はformative testとして迷い、戻り、所要時間、error recoveryを記録する。release gateはaccount誤認/stale保存/cross-account表示/critical safety error 0を主判定にし、90%/30%短縮/3操作は安全性・正確性が悪化しない場合だけ補助指標にする。
 
+- [ ] **V035-5 参加者境界と適用性の契約** `[tdd:required]`: 既存本人認証・consent/proxy・account capabilityとbeta参加資格の違いを調べ、必要な最小のserver-side制御を正本へ確定してRed -> Greenにする。転送LIFF URL、正常tokenの未登録者、別tenant/account/patient、期限切れproxy、撤回後session/job、再実行webhookを試験する。公開LINEの非参加者チャットは受信不能を約束せず、通常相談の取扱い・保存・案内・担当を分け、無断でbeta業務へ登録しない。**DoD**: 対象操作と拒否/継続処理の行列が正本・テストに一致。保持・撤回・スタッフ端末の適用性判断を担当者へ対応付け、MFA非導入を無断変更しない。
+- [ ] **V035-6 復旧・運用準備の開始** `[tdd:skip:policy-and-rehearsal-preparation]`: V037-0/6を先行し、復旧目標時間/許容データ損失、保持・削除/保留、応答SLA、営業時間、primary/backup担当、緊急時代替、負荷条件を決定する。**DoD**: 数値・対象scope・責任者と検証手順を固定し、未承認の保持判断を実装や本番削除に使わない。
+
+**2026-09-14 V036 local WIP**: `016_custom_073_pharmacy_medication_followup_closure.sql`で質問票版・一次返信期限・対応記録、`017_custom_074_pharmacy_followup_operations.sql`で運用設定、`018_custom_075_pharmacy_medication_followup_assignments.sql`で明示的な人間担当者を追加した。既存follow-upの状態/CAS/event/idempotencyを再利用し、対応記録のない`responded`/`closed`遷移を拒否し、電話とLINEの記録を分離した。通知はapproved PHI-free template、同一retry key、account/tenant/friend/following/capability/患者認可/運用設定/outbound pauseの直前再確認を通す。未設定の営業時間・SLA・主担当・代行担当では運用設定を有効化せず、follow-up自動送信を`operations_blocked`にする。旧schemaでは既存読み取り・既存状態遷移を維持し、追加期限・対応記録は503で停止する互換分岐と回帰テストを追加した。外部LINE受入、実スタッフ/実端末、Meet/SMS/email、運用値の確定、release/production migration/activationは未実施であり、V036-4〜6のHuman Gateは`BLOCKED`/`NOT_RUN`を維持する。
+
+**2026-09-14 local verification update**: Astraの読取り専用監査で見つかった旧schemaの患者認可、対応記録なしの完了、旧payloadの担当者扱い、無効staff、送信直前membership/運用担当再確認、互換test adapterを修正した。修正後はDB `90 files / 428 tests`、Worker `247 files / 2,645 tests`、Web `52 files / 242 tests`、LIFF `24 files / 148 tests`、scripts `21 files / 218 tests`、workspace typecheck、全workspace build、migration checker `17 migrations`、bootstrap生成、`git diff --check`がPASS。これはlocal/synthetic evidenceであり、実LINE・実スタッフ/実端末・運用値確定・production migration/release/activationの完了を示さない。実装後Oracleレビュー`pharmacy-local-implementa-review`は、承認済み2ファイルのみ送信したが、別セッションによるOracle profile lockで`ERROR`となり、レビュー結果は`NOT_RUN`として扱う。
+
+**v0.35対象業務一覧（各行をV035-0で既存inventoryの試験IDへ結合）**:
+
+| 業務 | 必須の正常系・失敗系 | 主タスク / owner |
+|---|---|---|
+| 処方せん提出〜受渡し | 画像提出/再提出、受付、取消、準備完了、来局/受渡し、通信断・二重tap・画像消失なし | V034-3/4、V035-2/3、V039-1 / patient/staff担当 |
+| 本人・問診・参加管理 | 同意version、本人照合、非参加者、撤回/停止、誤紐付け復旧、予約済み通知の再検証 | V035-5、V038-6 / identity/security担当 |
+| 1対1チャット・継続・follow-up | 手動/自動区別、結果不明、未回答、要対応の薬剤師記録、電話/代理担当への引継ぎ | V036-1〜6 / pharmacy/Worker担当 |
+| スタッフ・薬局情報 | login/失効、account切替、競合更新、画像/印刷、薬局連絡先・営業時間、support grant | V035-2〜4、V038-1/3/7 / staff/UI担当 |
+| LINEアカウント運用 | follow/unfollow・再follow、重複/逆順、送信取消、未対応形式、送信枠不足、LINE側自動応答との重複 | V036-6、V039-2 / messaging担当 |
+| 障害・復旧 | 停止、電話/店頭代替、DB/画像/鍵の復旧、旧client互換、再開後の二重通知なし | V037-3〜6、V039-4/6 / data/ops担当 |
+| 条件付き機能 | 家族代理権/期限/取消、EC運用/disclosure、Myna外部handoff。Meet提供時は登録/変更/取消と前日・1時間前reminder | V035-0/5、V036-6、V038-2 / 各domain担当 |
+
+**初回cohort案**: 1薬局・最大5名、成人本人と正式な代理権がある家族を対象に含める（family inclusionは2026-09-13ユーザー確定）。氏名等は本台帳に記載しない。人数・EC/Mynaの有効範囲と、本人/家族を判定するserver-side参加資格契約は公開前に責任者が確定する。初回参加対象を絞ることは既存API/機能の削除・既存案件の放棄を許可しない。
+
+**2026-09-06 local WIP（release水準には未到達）**:
+
+- V035-2/3: 処方せんdetailの遅延応答・前案件の保存結果・未保存の確認入力・競合後の取得失敗・印刷記録失敗をブラウザでRed→Greenにした。発行元/使用期限は旧client互換の任意`expectedUpdatedAt`とDB原子的比較を追加し、競合時の上書き/偽auditを拒否する。受付回答は任意`expectedRevision`、書込時status確認、Myna eventとの同一transactionによりstale追記・取消後保存・回答だけの残存を拒否する。端末timezoneによらずJSTで表示/保存する。LINE表示名と患者氏名、LINE送信受付と到達/既読を区別する。問診の紐付き版/最新回答時刻はaccount/owner/patientで限定し、回答本文を取得しない。
+- 検証: workspace 457 files/3,777 tests（Worker 244/2,620、Web 52/241、LIFF 24/148を含む）、scripts 21/228、型検査、3 apps build、12 post-baseline migration検査がlocal PASS。最後の日時修正後にWeb全241 testsを再実行。ブラウザはAdmin 11 tests、LIFF 13 testsがPASS。薬局切替時の旧応答破棄、409/503後の入力保持と明示復旧、390px/200%文字拡大時の操作要素配置を確認した。これはlocal Chromium/syntheticのみであり、LINE実端末・VoiceOver/TalkBack・実スタッフ2〜3名の結果ではない。既存のVite chunk/mixed import警告は残り、exact-candidate CI/assuranceはNOT_RUN。
+- V035-0/4/5/6: [readiness evidence](docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json)へ7業務、旧Human Gate全25行、残項目・安全gate66項目（任意追加画面3項目を含む）の本文/子要件の引継ぎ先、実スタッフ6課題×各3試行、未決の運用条件を結合した。inventoryの参照漏れ検査はPASSだが、担当者の受諾・適用scope承認・exact候補・実スタッフ試験・参加者境界実装・運用条件確定は未完了。2026-09-13のユーザー回答で本人と正式な代理権を持つ家族を含むことが確定。営業時間/一次返信期限/主担当/代行担当は未定。復旧目標は既存V032-5のRPO24時間/RTO4時間/最低3世代を引き継ぐ。packageは`0.34.2`のまま、commit/push/deploy/本番変更/activationは実行していない。
+- local assurance追記: `pnpm audit --prod --audit-level high`は既知脆弱性0、既存license baselineはunknown/unlicensed group 0、gitleaks 8.30.1のtracked差分と新規4pathは検出0、CycloneDX 1.6は208 componentsで生成・構造確認PASS。pnpmストア索引欠落はインストール済みの正確な268座標の索引補完で復旧し、依存version/lockfileは不変。SBOMのlicense metadata欠落65件、README-based/LGPL等の利用条件判断、exact-candidate CI/CodeQL/provenanceとは別境界であり、包括的な適合性・公開可能性を主張しない。
+ - 2026-09-14 shared pharmacy auth local WIP: 薬局コード＋パスワードの共通`pharmacy_shared`主体、platform発行/再発行、認証監査、旧個人ログイン発行経路の`410`閉鎖、`014_custom_071_shared_pharmacy_auth.sql`とbootstrap再生成を実装。Oracleへはユーザーが明示承認したmigration/testの2ファイルだけを移行限定レビューへ送信し、指摘修正後にDB 88 files/414 tests、Worker 244/2,623、Web 52/241、scripts 21/218、型検査、migration/bootstrap/diff/gitleaksをlocal PASS。旧tenant admin bootstrap CLIの秘密生成・送信とstaff credential secret-outputも廃止した。全実装レビュー、V035-5参加者membership、緊急避妊薬認可、実スタッフ/実端末、production migration/release/activationは未完了・`BLOCKED`のまま。この行はmembership実装前の記録である。
+  - 2026-09-14 V035-5 authority-gap local WIP: 既存`patientAuthorityPredicate`を再利用し、リンク済み処方の患者書込み（下書き、画像、送信、取消、再提出、到着、復旧）と服薬フォロー患者回答の初回/replay/CASを現行の対象患者認可へ相関。追加で処方履歴、服薬フォロー一覧/対象取得、継続フォロー・次回事前送信、Myna、患者timelineの読み取りと患者状態変更にも同じ境界を適用した。未リンクの既存処理とstaff account readは維持し、既存`custom_005`/`custom_004`/`custom_012`/`custom_068`/`custom_070`の実DB合成テストを追加・更新。Oracleの計画レビューは承認済み非機密要約のみで条件付き採用。DB 88 files/419 tests、Worker 244/2,624、workspace typecheck local PASS。この行はmembership実装前の記録であり、成人家族の代理権、運用条件、実スタッフ/実端末、production migration/release/activationは未完了・`BLOCKED`のまま。
+  - 2026-09-14 V035-5 participant membership local WIP: `015_custom_072_pharmacy_beta_memberships.sql`で`beta_enabled`（既定`0`）と薬局アカウント×participant×subjectのmembershipを追加し、owner/admin向けlist/grant/suspend/resume/revoke API、`expectedVersion` CAS、tenant audit、同一batchの原子性を実装した。beta有効時は患者向けintake/処方せん/継続/follow-up/Myna/timeline/feature accessと通知送信直前でmembershipを再確認し、privacy/proxy/通知control、staff read、未紐付け処理を維持。本人と既存の正式な未成年proxy家族を対象とし、成人家族は正式な本人確認・代理権証跡・運用担当が未定のため登録を継続して閉鎖した。DB 89 files/423 tests、Worker 245/2,629 tests、workspace typecheck、migration checker、`git diff --check`をlocal検証対象とする。beta activation、実スタッフ/実端末、production migration/releaseは未実施。membership実装コードはユーザー承認済みOracle送信allowlist（014とcustom_071 testの2ファイル）に含めず、送信していない。
+
 #### v0.36.0 - Closed-loop Follow-up & Communication
 
-**優先度**: `STRETCH`。既存follow-upが安全に閉ループ化されている範囲だけ有効にし、新規拡張はv0.41.0以降へ延期できる。
+**優先度**: 対象scopeの閉ループ・通信安全・応答体制は`Required`。既存実装を再利用し、新規拡張だけをv0.41.0以降へ延期できる。
 
 - [ ] **V036-1 既存follow-up domainを閉ループ化**: 既存のcontinuity/medication-followup状態とrepositoryを再利用し、question set version、送信日時rule、template preview、患者回答、担当、deadline、優先確認、escalation、電話記録、対応結果、次回確認日を補う。重複follow-up modelを作らない。
 - [ ] **V036-2 state invariant**: `concern`、`pharmacist_requested`、`escalated`は薬剤師の対応記録なしに`closed`へ進めない。電話対応をLINE対応として記録しない。
@@ -968,9 +1025,11 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 - [ ] **V036-4 staffing/response gate**: beta service hours、status別response SLA、primary/backup assignee、overdue alert/escalation先、営業時間外/緊急時の患者表示をtenantごとにfreezeする。staffingを確保できないtenantではfollow-upを`BLOCKED`またはstaff-onlyにする。
 - [ ] **V036-5 release gate**: wrong-target/duplicate/PHI通知/PHI log/escalation未対応close/SLA超過放置を各0件とし、外部provider未確定のSMS/emailは`BLOCKED`のままにする。
 
-#### v0.37.0 - Operations, Observability & Capacity
+- [ ] **V036-6 LINE lifecycleと到達不明の受入** `[tdd:required]`: API受付成功と患者到達/既読を区別し、確認不能を確認済み表示にしない。手動返信は`X-Line-Harness-Source: manual`、自動送信には付けない。follow/unfollow・再follow、重複/逆順/再配送、画像取得失敗、未対応形式、送信枠不足、LINE側あいさつ/自動応答との二重返信を検証する。送信取消はチャット表示・保持が必要な記録・監査の扱いを既存正本へ確定後に実装し、無条件の全削除をしない。Meet提供時は`POST /api/meet-consultations`のCalendar event ID・LINE friend ID・日時・Meet URL、変更時再登録、取消時`DELETE /api/meet-consultations/:externalEventId`と前日/1時間前reminderを一体で検証する。**DoD**: local回帰と許可済み実LINE受入を別記録とし、結果不明時の照合・電話等への引継ぎが再現できる。
 
-v0.33.0はlocal/syntheticで再現可能な速度baseline、code refactor、配置整理を担当する。本節はproduction workload/SLO、fleet、alert、load/failure、capacityだけを担当し、v0.33で測定していない性能改善を推論しない。
+#### v0.37.0 - Recovery, Operations & Capacity
+
+v0.33.0はlocal/syntheticの速度baseline、code refactor、配置整理を担当した。本節は旧V032の復旧・保持の残gateも引き継ぎ、workload/SLO、alert、load/failure、capacityを実証する。V037-1/2の新規画面は既存doctor/runbookで同じ判定を実証できれば延期可とするが、drift確認・安全な診断自体は省略しない。
 
 - [ ] **V037-0 workload/SLOを測定前にfreeze**: tenant数、患者数、同時staff、API RPS、webhook burst、画像数/size、cron/outbox件数、tenant偏在、test継続時間と、p95/p99、error rate、D1 wait、backlog、retry/fairness上限を数値化する。「想定beta負荷の2倍」だけで分母を省略しない。
 - [ ] **V037-1 fleet drift**: tenant/accountごとにWorker/LIFF/Admin/seller version、schema、capability revision、rich-menu evidence、secret existence、readinessを`CURRENT`/`STALE`/`BLOCKED`/`UNVERIFIED`で表示するread-only viewを追加する。
@@ -979,13 +1038,19 @@ v0.33.0はlocal/syntheticで再現可能な速度baseline、code refactor、配�
 - [ ] **V037-4 load/failure test**: V037-0の2倍profileでD1 wait、API p50/p95/p99、webhook backlog、cron、outbox、slow query、tenant偏在を測る。LINE/D1/R2 timeout、webhook replay、cron重複、partial external successを注入し、final artifactで再実行する。外部callはoperation deadlineを持ち、timeout後を結果不明としてreconcileする。
 - [ ] **V037-5 release gate**: sustained D1 overload 0、cronは次周期前完了、retry bounded、1 tenantの異常で他tenant停止0、kill switch実証、alertからrunbookへ到達可能。継続queueing/主要UX悪化/tenant starvationが観測された場合だけpost-beta D1 shardを起票する。
 
-#### v0.38.0 - Beta Feature Complete & Onboarding
+- [ ] **V037-6 業務までの復旧と保持・BCP**: V035-6の目標に対し、隔離環境でD1/R2/FLE鍵世代と対応applicationを復元し、参照/checksum/復号、処方画像閲覧、同意状態、業務再開、通知ledger照合を確認する。legal hold・ordered delete・保存期間判断をCB-P0-05と一致させる。停止→証拠保持→電話/店頭代替→切戻し→照合→承認再開を訓練する。**DoD**: 復旧時間・データ損失が事前目標内、欠損/孤立/二重処理なし、責任者へalert到達。最終候補ではV039-4で再確認する。外部restore等は明示許可された環境・範囲のみ。
+
+**負荷試験境界**: V037-4は自システムと模擬provider応答を使い、LINE APIへ大量リクエストを送る負荷試験は行わない。実LINEは許可された少数の機能受入と設定read-backに限定する。
+
+#### v0.38.0 - Onboarding & Internal Rehearsal
 
 - [ ] **V038-1 fresh tenant onboarding**: 新規synthetic tenantをコード変更なしで開設し、LINE credential、LIFF endpoint、feature/rich-menu/secret/FLE/backup/admin origin-cookie readinessをdoctorの一意なreason codeで診断する。
 - [ ] **V038-2 provider/feature truth**: 各機能を`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`で表示し、external provider evidenceがない機能をREADYまたはUI導線ありにしない。
 - [ ] **V038-3 docs/operations**: 患者/職員manual、privacy policy、役割/委託関係、retention説明、incident contact、release notes、beta feedback導線を実装と一致させる。
-- [ ] **V038-4 feature freeze**: 2026-08-30終了でcode/config/dependencyを凍結する。menu counter/scheduler/preset/A-B test、公式insight連携、オンライン服薬指導、決済、配送、e薬Link、レセコン、SMS/email、介護施設portal、全国薬局検索はv0.41.0以降へ送る。freeze後の変更は新RC番号と影響gateの再実行を必須にする。
-- [ ] **V038-5 release gate**: fresh onboarding成功、doctorで不足を一意特定、UNVERIFIEDをREADY表示0、docs/実装一致、P0 blocker registerの全行`PASS`、open P1 0。GitHub Issuesが無効な間は本節のcanonical registerから件数を算出し、新規feature requestをv0.39.0へ入れない。
+- [ ] **V038-4 feature freeze**: 本版の機能・内部受入完了時にcode/config/dependencyを凍結する。menu counter/scheduler/preset/A-B test、公式insight連携、オンライン服薬指導、決済、配送、e薬Link、レセコン、SMS/email、介護施設portal、全国薬局検索はv0.41.0以降へ送る。freeze後の変更は新RC番号と影響gateの再実行を必須にする。
+- [ ] **V038-5 release gate**: fresh onboarding成功、doctorで不足を一意特定、UNVERIFIEDをREADY表示0、docs/実装一致、V035〜38の工程内P0/P1未解決0。final artifact・公開前deploy/read-back・activation承認はV039/V040へ明記して引き継ぎ、未実施をPASSにしない。外部開始にはcanonical registerの対象全行PASSが必要であり、本工程の完了では代替しない。新規feature requestをv0.39.0へ入れない。
+- [ ] **V038-6 参加登録・停止と説明の受入**: V035-5の契約で参加/非参加・撤回・再参加・古いsession/jobを検証し、患者説明・同意・privacy policy・保持/削除・問い合わせ先を実装に一致させる。**DoD**: server-side拒否と通常チャットの運用が再現でき、PHI/PIIをfeedbackや画面録画へ無断収集しない。
+- [ ] **V038-7 実端末・職員リハーサル**: V034-4/V035-4を引き継ぎ、実スタッフ2〜3名、iOS/Android LINE、低速/offline、200% zoom、VoiceOver/TalkBack、keyboard/focus/error/statusを確認する。薬局切替・競合保存・session期限切れ・画像再提出・営業時間外引継ぎを含める。**DoD**: critical safety error 0、失敗から復旧できる。Stage 0/1結果を記録し、V039で最終候補への適用を検証する。
 
 #### v0.39.0 - Release Candidate
 
@@ -997,21 +1062,29 @@ v0.33.0はlocal/syntheticで再現可能な速度baseline、code refactor、配�
 - [ ] **V039-4 operational drill**: migration rehearsal、D1/R2/FLE restore、rich-menu rollback、BCP tabletop、incident communication、kill switchを実行し、fresh read-backを保存する。
 - [ ] **V039-5 release gate**: open P0/P1/未承認High、cross-tenant/patient、wrong-target/duplicate、PHI log/通知を各0件、critical E2E/real-device 100%、restore/rollback/required checks/kill switchを全てPASSとする。1件でも未達なら`v0.40.0`を外部患者へ開放しない。
 
-#### v0.40.0 milestone - 2026-09-01 - Stage 0 synthetic internal alpha / beta candidate
+- [ ] **V039-6 exact 0.40 artifactと段階更新互換**: commit/build digest/package version、migration集合/順序、Worker bindings、機能設定、LINE webhook/LIFF/rich menu/template設定、鍵世代（値は記録しない）、同意/保持/runbookのrevisionをmanifestへ結合する。旧Admin/LIFF+新Worker、対応する切戻し構成、旧API/field意味維持をfocused compatibility testで確認する。**DoD**: 最終的な`0.40.0`成果物に対する検証とsmokeが存在する。0.39成果物のPASSをversion bump後の別buildへ転用しない。公開用tag前に候補buildを検証し、deployは明示Go後、deployed read-backはactivation前に完了する。
 
-- [ ] **V040-1 release identity**: 現行update-engineがprerelease suffixを受理しないため、最小互換案はpackage `0.40.0`、seller tag `pharmacy-v0.40.0`、GitHub Release `Pre-release`、runtime `releaseChannel=beta`とする。packageとseller tagを別identityとしてmanifestへ明記し、main/production deployへ自動接続しない。`0.40.0-beta.1`を採用する場合はsemver/update-engine/version contract/release workflowを先にRed -> Greenで対応する。
+#### v0.40.0 - Limited External Beta Start
+
+- [ ] **V040-1 release identity**: 現行update-engineがprerelease suffixを受理しないため、package `0.40.0`とseller tag `pharmacy-v0.40.0`を別identityとしてmanifestへ記録し、GitHub Releaseは`Pre-release`として区別する。既存runtimeへのbeta表示は実装・旧client互換を確認して扱い、`releaseChannel=beta`が実在すると推測しない。main/production deployへ自動接続しない。V039-6のexact候補に対する明示deploy Go、deployed read-back、全gate確認、別のactivation Goの順で公開する。`0.40.0-beta.1`を採用する場合はsemver/update-engine/version contract/release workflowを先にRed -> Greenで対応する。
 - [ ] **V040-2 staged activation**
 
   | Stage | 対象 | 最低観察期間/昇格条件 |
   |---|---|---|
-  | 0 | synthetic tenantのみ | 2026-09-01 earliest。全telemetry/alert確認、外部患者0 |
-  | 1 | 1薬局・職員のみ | 数時間、業務stateと通知state一致、外部患者0 |
-  | 2 | 同意済み5患者 | consent/proxy/withdrawal gateと全P0 PASS後、最低24時間のlimited beta |
-  | 3 | 1薬局・10〜30患者 | 最低48〜72時間のCore Closed Beta candidate。restore/alert/runbook/SLAを継続実証 |
+  | 0 | synthetic tenantのみ | v0.38〜39で完了。全telemetry/alert確認、外部患者0 |
+  | 1 | 1薬局・職員のみ | v0.38〜39で完了。数時間の業務・失敗回復と正しい通知状態表示、外部患者0 |
+  | 2 | 1薬局・同意済み最大5患者 | v0.40.0の開始点。確定cohort、consent/proxy/withdrawalと全対象P0/P1 gate PASS、Human Go後、最低24時間は拡張しない |
+  | 3 | 1薬局・10〜30患者 | 別のHuman Go後、最低48〜72時間の観察。restore/alert/runbook/SLAを継続実証 |
   | 4 | 最大3薬局 | Stage 3観察完了後にCore Closed Beta acceptanceを記録し、人間が拡大Go |
 
 - [ ] **V040-3 一件停止条件**: 通常のoperational degradationは前Stageへ戻す。cross-tenant/cross-patient、PHI exposure、処方せん画像消失、復旧不能な暗号化失敗、wrong-target/duplicate LINE送信、support grant逸脱、backup/restore不能はglobal external quarantineとし、outbound、patient intake、staff mutation、support grant、activationを停止してsessionを失効する。evidence preservation、impact assessment、修正版RC、関連gate再実行、人間の明示Goまで再開しない。LINE mutation結果不明をblind retryしない。
 - [ ] **V040-4 completion claim**: Stage 0の成功はsynthetic internal alpha、Stage 1はstaff internal acceptance、Stage 2とStage 3観察中はlimited betaとして記録する。Stage 3を最低48〜72時間観察して全gateが継続PASSした後だけCore Closed Beta acceptanceを記録する。実患者導入と各Stage昇格は人間の明示Goを必須とする。
+
+**観察の分母**: 24時間/48〜72時間の経過だけでは昇格しない。処方せんの一連の処理、双方向chat/follow-up、営業時間外から翌営業日への引継ぎ、SLA、問い合わせ/障害の未解決数を確認する。期間内に発生しなかった対象業務は未検証として残し、必要な観察を延長する。v0.40.0公開開始はbeta評価完了を意味しない。
+
+**承認順序とgateの適用時点**: 候補buildの作成・内部検証と公開tag/配備/activationは別操作とする。V039の候補検証・復旧・互換性等の事前条件を満たしてから明示deploy Goを取得し、外部患者を遮断した配備とread-backでCB-P0-02の配備証拠を閉じる。その後にV039-5を含む公開前全gateを最終照合し、別のactivation GoでStage 2を開始する。「全gate後にdeploy」をdeploy後にしか取得できないread-backまで先に要求する循環条件にはしない。配備前条件の免除や、配備しただけの公開許可にはしない。
+
+**公式資料（2026-09-05レビューで確認、適用判断と実証は各taskで実施）**: [LINE再送と受付/到達の区別](https://developers.line.biz/ja/docs/messaging-api/retrying-api-request/)、[Webhook再配送・送信取消](https://developers.line.biz/ja/docs/messaging-api/receiving-messages/)、[LINE負荷試験等の開発規則](https://developers.line.biz/ja/docs/messaging-api/development-guidelines/)、[厚労省の安全管理ガイドライン](https://www.mhlw.go.jp/stf/shingi/0000516275_00006.html)、[個人情報保護委員会の医療・介護関係ガイダンス](https://www.ppc.go.jp/personalinfo/legal/iryoukaigo_guidance/)。記載から未承認の保持変更やMFA必須を推測しない。
 
 #### v0.41.0以降 backlog提案 - 2026-08-24 plan review時に起票
 
@@ -1042,7 +1115,7 @@ v0.33.0はlocal/syntheticで再現可能な速度baseline、code refactor、配�
 - [ ] **B41-F2 家族proxy確認画面**: 家族proxyの対象・権限・期限を患者本人が確認できるread-only画面。V033-6(consent/proxy)完了が前提。
 - ※e薬Link・決済・配送・オンライン服薬指導は`BLOCKED`維持。provider契約・適合確認が動くまでUI導線も作らない(現計画どおり)。
 
-#### 日次Go/No-Go規則
+#### 日次Go/No-Go運用例（時刻は担当体制確定後に調整、gate順序は維持）
 
 | 時刻 | Gate |
 |---|---|
