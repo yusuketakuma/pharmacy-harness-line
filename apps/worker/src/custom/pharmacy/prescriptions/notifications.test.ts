@@ -41,6 +41,18 @@ function fakeDb(options: {
       bind: (...values: unknown[]) => ({
         first: async () => {
           calls.push({ sql, values, operation: 'first' });
+          if (sql.includes('final pharmacy dispatch scope')) {
+            return {
+              destination_line_user_id: 'U-patient',
+              is_following: 1,
+              account_active: 1,
+              tenant_status: 'active',
+              outbound_messaging_paused_at: null,
+              capability_enabled: 1,
+              followup_status: null,
+              followup_operations_enabled: null,
+            };
+          }
           if (sql.includes('SELECT patient.relationship')) {
             return {
               relationship: 'self', proxy_expires_at: null, privacy_withdrawn: 0,

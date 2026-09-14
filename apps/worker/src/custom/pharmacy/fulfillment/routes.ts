@@ -37,6 +37,8 @@ fulfillmentRoutes.use('/api/custom/pharmacy/fulfillment-quotes/*', async (c, nex
 
 function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | null {
   if (
+    (body.expectedRevision !== undefined && (typeof body.expectedRevision !== 'number' ||
+      !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0)) ||
     typeof body.decision !== 'string' || !Array.isArray(body.reasonCodes) ||
     !Array.isArray(body.requirements) ||
     !(
@@ -53,6 +55,7 @@ function toQuoteInput(body: Record<string, unknown>): FulfillmentQuoteInput | nu
       (typeof body.reservationExpiresAt !== 'string' || !Number.isFinite(Date.parse(body.reservationExpiresAt))))
   ) return null;
   return {
+    ...(typeof body.expectedRevision === 'number' ? { expectedRevision: body.expectedRevision } : {}),
     decision: body.decision as FulfillmentQuoteInput['decision'],
     reasonCodes: body.reasonCodes as string[],
     requirements: body.requirements as FulfillmentQuoteInput['requirements'],

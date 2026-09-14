@@ -35,6 +35,7 @@ import {
   setMynaEndpointEnabled,
 } from './endpoint-repository.js';
 import { base64UrlDecode, base64UrlEncode, launchTokenKey } from './endpoint.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
 
 type MynaBindings = Pick<Env['Bindings'], 'DB' | 'WORKER_PUBLIC_URL'> & {
   LINE_CHANNEL_ID?: string;
@@ -132,6 +133,9 @@ async function patientGate(c: Context<MynaEnv>, next: Next) {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('mynaPatient', patient);
   return next();
 }

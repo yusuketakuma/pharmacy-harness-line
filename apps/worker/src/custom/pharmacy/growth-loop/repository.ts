@@ -62,10 +62,11 @@ async function runAuditedMutation(
 ): Promise<boolean> {
   const audit = prepareGrowthEvent(db, event, {
     ignoreDuplicate: false,
-    condition,
+    condition: { ...condition, sql: `changes() = 1 AND (${condition.sql})` },
   });
   const results = await db.batch([mutation, audit]);
-  return (results[0]?.meta?.changes ?? 0) === 1 && (results[1]?.meta?.changes ?? 0) === 1;
+  // The audit's SQL proves one direct mutation; D1 mutation metadata also counts trigger writes.
+  return (results[1]?.meta?.changes ?? 0) === 1;
 }
 
 function defaultPrescriptionValidUntil(issuedOn: string | null, validityBasis: 'default_4_days' | 'prescriber_specified'): string | null {
@@ -252,7 +253,7 @@ export async function setMedicalSourceActive(
 
 export async function classifySubmissionSource(
   db: D1Database,
-  input: { lineAccountId: string; submissionId: string; sourceId: string | null; classification: 'primary' | 'other' | 'unknown'; staffId: string },
+  input: { lineAccountId: string; submissionId: string; sourceId: string | null; classification: 'primary' | 'other' | 'unknown'; staffId: string; expectedUpdatedAt?: string | null },
 ): Promise<void> {
   if (input.classification !== 'unknown' && !input.sourceId) throw new Error('source is required');
   if (input.classification === 'unknown' && input.sourceId) throw new Error('unknown source must not reference a source id');
@@ -273,14 +274,20 @@ export async function classifySubmissionSource(
         SELECT 1 FROM pharmacy_prescription_submissions
          WHERE id = ? AND line_account_id = ?
       )
+        AND (? = 0 OR (SELECT updated_at FROM pharmacy_submission_sources
+          WHERE submission_id = ? AND line_account_id = ?) IS ?)
      ON CONFLICT(submission_id) DO UPDATE SET
        source_id = excluded.source_id,
        classification = excluded.classification,
        entered_by = excluded.entered_by,
-       updated_at = excluded.updated_at`,
+       updated_at = CASE WHEN excluded.updated_at <= pharmacy_submission_sources.updated_at
+         THEN strftime('%Y-%m-%dT%H:%M:%fZ', pharmacy_submission_sources.updated_at, '+0.001 seconds')
+         ELSE excluded.updated_at END`,
   ).bind(
     input.submissionId, input.lineAccountId, input.sourceId, input.classification,
     input.staffId, timestamp, timestamp, input.submissionId, input.lineAccountId,
+    input.expectedUpdatedAt === undefined ? 0 : 1, input.submissionId, input.lineAccountId,
+    input.expectedUpdatedAt ?? null,
   );
   const changed = await runAuditedMutation(db, mutation, {
     lineAccountId: input.lineAccountId,
@@ -290,11 +297,11 @@ export async function classifySubmissionSource(
     idempotencyKey: `audit:${crypto.randomUUID()}`,
     metadata: { actor_id: input.staffId },
   }, {
-    sql: `EXISTS (SELECT 1 FROM pharmacy_submission_sources
-                  WHERE submission_id = ? AND line_account_id = ? AND updated_at = ?)`,
-    bindings: [input.submissionId, input.lineAccountId, timestamp],
+    sql: `changes() = 1 AND EXISTS (SELECT 1 FROM pharmacy_submission_sources
+                  WHERE submission_id = ? AND line_account_id = ?)`,
+    bindings: [input.submissionId, input.lineAccountId],
   });
-  if (!changed) throw new Error('prescription submission not found');
+  if (!changed) throw new Error(input.expectedUpdatedAt === undefined ? 'prescription submission not found' : 'stale prescription review');
 }
 
 export async function savePrescriptionValidity(
@@ -307,6 +314,7 @@ export async function savePrescriptionValidity(
     validityBasis: 'default_4_days' | 'prescriber_specified';
     verificationStatus: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
     staffId: string | null;
+    expectedUpdatedAt?: string | null;
   },
 ): Promise<void> {
   if (input.issuedOn && !isCalendarDate(input.issuedOn)) throw new Error('invalid issued date');
@@ -338,6 +346,8 @@ export async function savePrescriptionValidity(
                          WHERE value = 'prescription_intake')
        ) THEN ? ELSE NULL END, ?, ?
       WHERE EXISTS (SELECT 1 FROM pharmacy_prescription_submissions WHERE id = ? AND line_account_id = ?)
+        AND (? = 0 OR (SELECT updated_at FROM pharmacy_prescription_validities
+          WHERE submission_id = ? AND line_account_id = ?) IS ?)
      ON CONFLICT(submission_id) DO UPDATE SET
        issued_on = excluded.issued_on, valid_until = excluded.valid_until,
        validity_basis = excluded.validity_basis, verification_status = excluded.verification_status,
@@ -355,12 +365,16 @@ export async function savePrescriptionValidity(
           AND pharmacy_prescription_validities.validity_basis = excluded.validity_basis
           AND pharmacy_prescription_validities.verification_status = excluded.verification_status
          THEN pharmacy_prescription_validities.reminder_sent_at ELSE NULL END,
-       updated_at = excluded.updated_at`,
+       updated_at = CASE WHEN excluded.updated_at <= pharmacy_prescription_validities.updated_at
+         THEN strftime('%Y-%m-%dT%H:%M:%fZ', pharmacy_prescription_validities.updated_at, '+0.001 seconds')
+         ELSE excluded.updated_at END`,
   ).bind(
     input.submissionId, input.lineAccountId, input.issuedOn, validUntil, input.validityBasis,
     input.verificationStatus, input.staffId, verifiedAt,
     reminderDueAt, input.lineAccountId, reminderDueAt,
     timestamp, timestamp, input.submissionId, input.lineAccountId,
+    input.expectedUpdatedAt === undefined ? 0 : 1, input.submissionId, input.lineAccountId,
+    input.expectedUpdatedAt ?? null,
   );
   const changed = await runAuditedMutation(db, mutation, {
     lineAccountId: input.lineAccountId,
@@ -370,11 +384,11 @@ export async function savePrescriptionValidity(
     idempotencyKey: `audit:${crypto.randomUUID()}`,
     metadata: { actor_id: input.staffId },
   }, {
-    sql: `EXISTS (SELECT 1 FROM pharmacy_prescription_validities
-                  WHERE submission_id = ? AND line_account_id = ? AND updated_at = ?)`,
-    bindings: [input.submissionId, input.lineAccountId, timestamp],
+    sql: `changes() = 1 AND EXISTS (SELECT 1 FROM pharmacy_prescription_validities
+                  WHERE submission_id = ? AND line_account_id = ?)`,
+    bindings: [input.submissionId, input.lineAccountId],
   });
-  if (!changed) throw new Error('prescription submission not found');
+  if (!changed) throw new Error(input.expectedUpdatedAt === undefined ? 'prescription submission not found' : 'stale prescription review');
 }
 
 export async function markPrescriptionValidityExpiredReview(

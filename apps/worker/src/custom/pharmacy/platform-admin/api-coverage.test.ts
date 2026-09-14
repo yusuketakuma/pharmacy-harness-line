@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { emergencyContraceptionRoutes } from '../emergency-contraception/routes.js';
 import { pharmacyGrowthLoopRoutes } from '../growth-loop/routes.js';
 import { mynaRoutes } from '../myna/routes.js';
+import { betaMembershipRoutes } from '../beta-membership/routes.js';
 import { pharmacyPrivacyPolicyRoutes } from '../privacy-policy/routes.js';
 import { pharmacyPublicProfileRoutes } from '../public-profile/routes.js';
 import { pharmacyRichMenuRoutes } from '../rich-menu/routes.js';
@@ -20,6 +21,7 @@ const routeCandidates = [
   ...emergencyContraceptionRoutes.routes,
   ...pharmacyGrowthLoopRoutes.routes,
   ...mynaRoutes.routes,
+  ...betaMembershipRoutes.routes,
   ...pharmacyPrivacyPolicyRoutes.routes,
   ...pharmacyPublicProfileRoutes.routes,
   ...pharmacyRichMenuRoutes.routes,
@@ -82,15 +84,9 @@ describe('pharmacy admin API coverage leak detector', () => {
     expect(findPharmacyAdminApiCoverage('POST', '/api/staff')).toMatchObject({
       accountScope: 'tenant',
       mutationGate: 'apply',
-      safeOutput: false,
-      secretOutput: true,
+      safeOutput: true,
     });
-    expect(findPharmacyAdminApiCoverage('POST', '/api/staff/staff-a/reset-password')).toMatchObject({
-      accountScope: 'tenant',
-      mutationGate: 'apply',
-      safeOutput: false,
-      secretOutput: true,
-    });
+    expect(findPharmacyAdminApiCoverage('POST', '/api/staff/staff-a/reset-password')).toBeUndefined();
     expect(findPharmacyAdminApiCoverage('DELETE', '/api/staff/staff-a')).toMatchObject({
       accountScope: 'tenant',
       mutationGate: 'apply',
@@ -99,7 +95,9 @@ describe('pharmacy admin API coverage leak detector', () => {
     expect(findPharmacyAdminApiDeferred('PATCH', '/api/staff/staff-a')).toBeUndefined();
     expect(findPharmacyAdminApiDeferred('PUT', '/api/staff/staff-a/accounts')).toBeUndefined();
     expect(findPharmacyAdminApiDeferred('POST', '/api/staff')).toBeUndefined();
-    expect(findPharmacyAdminApiDeferred('POST', '/api/staff/staff-a/reset-password')).toBeUndefined();
+    expect(findPharmacyAdminApiDeferred('POST', '/api/staff/staff-a/reset-password')).toMatchObject({
+      reason: 'retired',
+    });
     expect(findPharmacyAdminApiDeferred('DELETE', '/api/staff/staff-a')).toBeUndefined();
   });
 

@@ -29,7 +29,7 @@ export const DEFAULT_PHARMACY_CAPABILITIES = PHARMACY_CAPABILITIES.filter(
 
 export type PharmacyCapability = (typeof PHARMACY_CAPABILITIES)[number];
 
-export type PharmacyStaff = Pick<AuthenticatedStaff, 'id' | 'role'>;
+export type PharmacyStaff = Pick<AuthenticatedStaff, 'id' | 'role' | 'principalKind'>;
 
 async function pharmacyCapabilityTableDeployed(db: D1Database): Promise<boolean> {
   try {
@@ -49,14 +49,20 @@ async function pharmacyCapabilityTableDeployed(db: D1Database): Promise<boolean>
 export function pharmacyStaffAccountPredicate(accountColumn: string, mappingAlias = 'mapping'): string {
   return `EXISTS (
     SELECT 1
-      FROM pharmacy_staff_accounts AS assignment
+      FROM staff_members AS staff
       INNER JOIN tenant_staff_memberships AS membership
-              ON membership.staff_id = assignment.staff_id
+              ON membership.staff_id = staff.id
              AND membership.tenant_id = ${mappingAlias}.tenant_id
              AND membership.is_active = 1
-     WHERE assignment.line_account_id = ${accountColumn}
-       AND assignment.staff_id = ?
-       AND assignment.is_active = 1
+             AND staff.is_active = 1
+      LEFT JOIN pharmacy_staff_accounts AS assignment
+             ON assignment.line_account_id = ${accountColumn}
+            AND assignment.staff_id = staff.id
+            AND assignment.is_active = 1
+     WHERE staff.id = ?
+       AND (assignment.staff_id IS NOT NULL OR
+            (staff.principal_kind = 'pharmacy_shared' AND
+             staff.shared_tenant_id = ${mappingAlias}.tenant_id))
   )`;
 }
 
@@ -105,11 +111,17 @@ export async function resolveAccessiblePharmacyTenant(
                  ON membership.tenant_id = mapping.tenant_id
                 AND membership.staff_id = ?
                 AND membership.is_active = 1
-         INNER JOIN pharmacy_staff_accounts AS assignment
-                 ON assignment.line_account_id = account.id
-                AND assignment.staff_id = membership.staff_id
-                AND assignment.is_active = 1
+         INNER JOIN staff_members AS staff
+                 ON staff.id = membership.staff_id
+                AND staff.is_active = 1
+         LEFT JOIN pharmacy_staff_accounts AS assignment
+                ON assignment.line_account_id = account.id
+               AND assignment.staff_id = membership.staff_id
+               AND assignment.is_active = 1
         WHERE account.id = ? AND account.is_active = 1
+          AND (assignment.staff_id IS NOT NULL OR
+               (staff.principal_kind = 'pharmacy_shared' AND
+                staff.shared_tenant_id = mapping.tenant_id))
         LIMIT 1`,
     ).bind(staff.id, lineAccountId).first<{ tenant_id: string }>();
     return account?.tenant_id ?? null;

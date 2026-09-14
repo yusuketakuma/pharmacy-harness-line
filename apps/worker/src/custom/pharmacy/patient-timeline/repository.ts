@@ -1,4 +1,6 @@
 import type { PrescriptionPatient } from '../prescriptions/patient.js';
+import { linkedPatientAuthorityPredicate } from '../prescriptions/repository.js';
+import { patientAuthorityPredicateFor } from '../intake/repository.js';
 
 export type TimelineDomain =
   | 'prescription'
@@ -79,6 +81,9 @@ export async function listPatientTimeline(
   db: D1Database,
   patient: PrescriptionPatient,
 ): Promise<PatientTimelineItem[]> {
+  const now = new Date().toISOString();
+  const linkedAuthorityPredicate = await linkedPatientAuthorityPredicate(db, 's');
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
   const result = await db.prepare(
     `WITH scope AS (
        SELECT ? AS line_account_id, ? AS friend_id
@@ -94,8 +99,9 @@ export async function listPatientTimeline(
               '/prescriptions?view=history' AS detail_path
          FROM pharmacy_prescription_submissions s
          CROSS JOIN scope
-        WHERE s.line_account_id = scope.line_account_id
+       WHERE s.line_account_id = scope.line_account_id
           AND s.friend_id = scope.friend_id
+          ${linkedAuthorityPredicate}
        UNION ALL
        SELECT 'electronic_prescription', h.status, h.created_at, h.id,
               '/prescriptions?view=electronic'
@@ -104,6 +110,17 @@ export async function listPatientTimeline(
         WHERE h.line_account_id = scope.line_account_id
           AND h.friend_id = scope.friend_id
           AND h.method = 'E_PRESCRIPTION'
+          AND (
+            h.patient_id IS NULL
+            OR EXISTS (
+              SELECT 1 FROM pharmacy_patients AS patient
+               WHERE patient.id = h.patient_id
+                 AND patient.line_account_id = h.line_account_id
+                 AND patient.owner_friend_id = h.friend_id
+                 AND patient.archived_at IS NULL
+                 ${authorityPredicate}
+            )
+          )
        UNION ALL
        SELECT 'continuity', o.status, o.created_at, o.id,
               '/pharmacy/continuity'
@@ -111,6 +128,14 @@ export async function listPatientTimeline(
          CROSS JOIN scope
         WHERE o.line_account_id = scope.line_account_id
           AND o.owner_friend_id = scope.friend_id
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = o.patient_id
+               AND patient.line_account_id = o.line_account_id
+               AND patient.owner_friend_id = o.owner_friend_id
+               AND patient.archived_at IS NULL
+               ${authorityPredicate}
+          )
        UNION ALL
        SELECT 'medication_follow_up', f.status, f.created_at, f.id,
               '/pharmacy/medication-followup'
@@ -118,12 +143,31 @@ export async function listPatientTimeline(
          CROSS JOIN scope
         WHERE f.line_account_id = scope.line_account_id
           AND f.owner_friend_id = scope.friend_id
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = f.patient_id
+               AND patient.line_account_id = f.line_account_id
+               AND patient.owner_friend_id = f.owner_friend_id
+               AND patient.archived_at IS NULL
+               ${authorityPredicate}
+          )
      )
      SELECT domain, source_status, occurred_at, detail_path
        FROM timeline
       ORDER BY occurred_at DESC, domain ASC, record_id ASC
       LIMIT 50`,
-  ).bind(patient.lineAccountId, patient.friendId).all<TimelineRow>();
+  ).bind(
+    patient.lineAccountId,
+    patient.friendId,
+    patient.friendId,
+    now,
+    patient.friendId,
+    now,
+    patient.friendId,
+    now,
+    patient.friendId,
+    now,
+  ).all<TimelineRow>();
 
   // ponytail: EC existence is sensitive; add it only after a human-approved neutral destination exists.
   return result.results.map((row) => {

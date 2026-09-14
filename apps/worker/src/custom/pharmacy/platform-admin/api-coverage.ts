@@ -43,7 +43,6 @@ const mutate = (
 const LINE_ACCOUNT = /^\/api\/line-accounts\/(?!order$)[^/]+$/u;
 const STAFF = /^\/api\/staff\/[^/]+$/u;
 const STAFF_ACCOUNTS = /^\/api\/staff\/[^/]+\/accounts$/u;
-const STAFF_RESET_PASSWORD = /^\/api\/staff\/[^/]+\/reset-password$/u;
 const GROWTH_CONFIG = /^\/api\/custom\/pharmacy\/growth\/config$/u;
 const GROWTH_DASHBOARD = /^\/api\/custom\/pharmacy\/growth\/dashboard$/u;
 const GROWTH_SOURCES = /^\/api\/custom\/pharmacy\/growth\/sources$/u;
@@ -81,10 +80,9 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
   mutate('POST', /^\/api\/line-accounts\/[^/]+\/connect$/u, 'path:before-last'),
 
   read(/^\/api\/staff(?:\/me|\/[^/]+|\/[^/]+\/accounts)?$/u, 'tenant'),
-  mutate('POST', /^\/api\/staff$/u, 'tenant', 'apply', true),
+  mutate('POST', /^\/api\/staff$/u, 'tenant'),
   mutate('PATCH', STAFF, 'tenant'),
   mutate('PUT', STAFF_ACCOUNTS, 'tenant'),
-  mutate('POST', STAFF_RESET_PASSWORD, 'tenant', 'apply', true),
   mutate('DELETE', STAFF, 'tenant'),
   read(/^\/api\/tags$/u, 'tenant'),
 
@@ -95,7 +93,7 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
   mutate('POST', GROWTH_SOURCES, 'query:line_account_id'),
   mutate('PATCH', GROWTH_SOURCE, 'query:line_account_id'),
   read(/^\/api\/custom\/pharmacy\/readiness$/u, 'query:line_account_id'),
-  read(/^\/api\/custom\/pharmacy\/(?:operations-summary|active-work)$/u, 'query:line_account_id'),
+  read(/^\/api\/custom\/pharmacy\/(?:operations-summary|active-work|action-queue)$/u, 'query:line_account_id'),
   read(PUBLIC_PROFILE, 'query:line_account_id'),
   mutate('PUT', PUBLIC_PROFILE, 'query:line_account_id'),
   read(PRIVACY_POLICY, 'query:line_account_id'),
@@ -130,7 +128,18 @@ export const PHARMACY_ADMIN_API_COVERAGE: readonly PharmacyAdminApiCoverage[] = 
 
 /** Routes intentionally unavailable to the generic settings CLI. */
 export const PHARMACY_ADMIN_API_DEFERRED: readonly PharmacyAdminApiDeferred[] = [
+  {
+    method: 'GET',
+    path: /^\/api\/custom\/pharmacy\/beta-memberships$/u,
+    reason: 'patient-operation',
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/custom\/pharmacy\/beta-memberships(?:\/[^/]+\/(?:suspend|resume|revoke))?$/u,
+    reason: 'patient-operation',
+  },
   { method: 'POST', path: /^\/api\/images$/u, reason: 'binary-output' },
+  { method: 'POST', path: /^\/api\/staff\/[^/]+\/reset-password$/u, reason: 'retired' },
   { method: 'GET', path: /^\/api\/images\/.+$/u, reason: 'binary-output' },
   { method: 'DELETE', path: /^\/api\/images\/.+$/u, reason: 'destructive-operation' },
   {

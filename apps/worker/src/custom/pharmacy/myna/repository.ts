@@ -10,6 +10,7 @@ import {
   verificationToReceiptStatus,
   type PrescriptionReceiptStatus,
 } from './state.js';
+import { patientAuthorityPredicateFor } from '../intake/repository.js';
 
 const ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CORRELATION_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
@@ -19,6 +20,25 @@ const HANDOFF_SELECT = `
          source, correlation_id, launched_at, patient_reported_at, expires_at,
          closed_at, created_at, updated_at
     FROM pharmacy_myna_handoffs`;
+
+async function patientHandoffAuthorityPredicate(
+  db: D1Database,
+  handoffAlias: string,
+): Promise<string> {
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  return `
+    AND (
+      ${handoffAlias}.patient_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM pharmacy_patients AS patient
+         WHERE patient.id = ${handoffAlias}.patient_id
+           AND patient.line_account_id = ${handoffAlias}.line_account_id
+           AND patient.owner_friend_id = ${handoffAlias}.friend_id
+           AND patient.archived_at IS NULL
+           ${authorityPredicate}
+      )
+    )`;
+}
 
 export interface MynaHandoff {
   id: string;
@@ -145,8 +165,12 @@ async function getHandoff(
   const values = friendId ? [handoffId, lineAccountId, friendId] : [handoffId, lineAccountId];
   const row = await db.prepare(
     `${HANDOFF_SELECT}
-      WHERE id = ? AND line_account_id = ?${suffix}`,
-  ).bind(...values).first<Record<string, unknown>>();
+      WHERE id = ? AND line_account_id = ?${suffix}
+      ${friendId ? await patientHandoffAuthorityPredicate(db, 'pharmacy_myna_handoffs') : ''}`,
+  ).bind(
+    ...values,
+    ...(friendId ? [friendId, new Date().toISOString()] : []),
+  ).first<Record<string, unknown>>();
   return row ? decodeHandoff(row) : null;
 }
 
@@ -226,26 +250,41 @@ export async function createMynaHandoff(
   input: CreateMynaHandoffInput,
 ): Promise<{ handoff: MynaHandoff; expectation: MynaExpectation }> {
   assertValidHandoffInput(input);
+  if (input.patientId) {
+    const patient = await db.prepare(
+      `SELECT id FROM pharmacy_patients
+        WHERE id = ? AND line_account_id = ? AND owner_friend_id = ? AND archived_at IS NULL
+          ${await patientAuthorityPredicateFor(db, 'pharmacy_patients')}`,
+    ).bind(
+      input.patientId, input.lineAccountId, input.friendId,
+      input.friendId, new Date().toISOString(),
+    ).first<{ id: string }>();
+    if (!patient) throw new Error('patient not found');
+  }
   const existing = await getHandoffByCorrelation(
     db, input.lineAccountId, input.friendId, input.correlationId,
   );
   if (existing) {
+    if (existing.patient_id && !await getHandoff(
+      db, input.lineAccountId, existing.id, input.friendId,
+    )) throw new Error('patient not found');
     const expectation = await getExpectation(db, input.lineAccountId, existing.id);
     if (!expectation) throw new Error('Myna expectation not found');
     return { handoff: existing, expectation };
   }
 
-  if (input.patientId) {
-    const patient = await db.prepare(
-      `SELECT id FROM pharmacy_patients
-        WHERE id = ? AND line_account_id = ? AND owner_friend_id = ? AND archived_at IS NULL`,
-    ).bind(input.patientId, input.lineAccountId, input.friendId).first<{ id: string }>();
-    if (!patient) throw new Error('patient not found');
-  }
-
   const now = new Date().toISOString();
   const handoffId = crypto.randomUUID();
   const expectationId = crypto.randomUUID();
+  const patientAuthorityClause = input.patientId
+    ? `
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = ? AND patient.line_account_id = ?
+               AND patient.owner_friend_id = ? AND patient.archived_at IS NULL
+               ${await patientAuthorityPredicateFor(db, 'patient')}
+          )`
+    : '';
   const handoffRow: MynaHandoff = {
     id: handoffId,
     line_account_id: input.lineAccountId,
@@ -291,10 +330,13 @@ export async function createMynaHandoff(
              WHERE capability.line_account_id = ? AND capability.mode = 'pharmacy'
                AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                             WHERE value = ?)
-          )`,
+          )${patientAuthorityClause}`,
       ).bind(
         expectationId, input.lineAccountId, input.friendId, input.patientId ?? null,
         handoffId, input.method, now, now, input.lineAccountId, requiredCapability,
+        ...(input.patientId
+          ? [input.patientId, input.lineAccountId, input.friendId, input.friendId, now]
+          : []),
       ),
       db.prepare(
         `INSERT INTO pharmacy_myna_handoffs
@@ -304,11 +346,14 @@ export async function createMynaHandoff(
           WHERE EXISTS (
             SELECT 1 FROM pharmacy_prescription_expectations
              WHERE id = ? AND line_account_id = ? AND handoff_id = ?
-          )`,
+          )${patientAuthorityClause}`,
       ).bind(
         handoffId, input.lineAccountId, input.friendId, input.patientId ?? null,
         expectationId, input.method, input.source, input.correlationId, input.expiresAt, now, now,
         expectationId, input.lineAccountId, handoffId,
+        ...(input.patientId
+          ? [input.patientId, input.lineAccountId, input.friendId, input.friendId, now]
+          : []),
       ),
       db.prepare(
         `INSERT INTO pharmacy_myna_events
@@ -318,10 +363,13 @@ export async function createMynaHandoff(
           WHERE EXISTS (
             SELECT 1 FROM pharmacy_myna_handoffs
              WHERE id = ? AND line_account_id = ?
-          )`,
+          )${patientAuthorityClause}`,
       ).bind(
         crypto.randomUUID(), handoffId, input.lineAccountId, input.friendId,
         input.correlationId, now, handoffId, input.lineAccountId,
+        ...(input.patientId
+          ? [input.patientId, input.lineAccountId, input.friendId, input.friendId, now]
+          : []),
       ),
     ]);
     if (results.some((result) => (result.meta?.changes ?? 0) !== 1)) {
@@ -354,13 +402,15 @@ export async function markMynaLaunchRequested(
     throw new Error(Date.parse(handoff.expires_at) <= Date.now() ? 'Myna handoff expired' : 'Myna handoff cannot launch');
   }
   const now = new Date().toISOString();
-  const [transition] = await db.batch([
+  const authorityPredicate = await patientHandoffAuthorityPredicate(db, 'pharmacy_myna_handoffs');
+  const [transition, event] = await db.batch([
     db.prepare(
       `UPDATE pharmacy_myna_handoffs
           SET status = 'LAUNCH_REQUESTED', launched_at = COALESCE(launched_at, ?), updated_at = ?
         WHERE id = ? AND line_account_id = ? AND friend_id = ?
-          AND status = 'CREATED' AND expires_at > ?`,
-    ).bind(now, now, handoffId, lineAccountId, friendId, now),
+          AND status = 'CREATED' AND expires_at > ?
+          ${authorityPredicate}`,
+    ).bind(now, now, handoffId, lineAccountId, friendId, now, friendId, now),
     db.prepare(
       `INSERT INTO pharmacy_myna_events
        (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
@@ -368,13 +418,16 @@ export async function markMynaLaunchRequested(
        SELECT ?, ?, ?, 'MYNA_EXTERNAL_LAUNCH_REQUESTED', 'PATIENT_CONTACT', ?, ?, '{}', ?
          FROM pharmacy_myna_handoffs
         WHERE id = ? AND line_account_id = ?
-          AND status = 'LAUNCH_REQUESTED' AND updated_at = ?`,
+          AND status = 'LAUNCH_REQUESTED' AND updated_at = ?
+          ${authorityPredicate}`,
     ).bind(
       crypto.randomUUID(), handoffId, lineAccountId, friendId, handoff.correlation_id, now,
-      handoffId, lineAccountId, now,
+      handoffId, lineAccountId, now, friendId, now,
     ),
   ]);
-  if ((transition?.meta?.changes ?? 0) !== 1) throw new Error('Myna handoff launch conflict');
+  if ((transition?.meta?.changes ?? 0) !== 1 || (event?.meta?.changes ?? 0) !== 1) {
+    throw new Error('Myna handoff launch conflict');
+  }
   return { ...handoff, status: 'LAUNCH_REQUESTED', launched_at: handoff.launched_at ?? now, updated_at: now };
 }
 
@@ -403,27 +456,35 @@ export async function recordMynaPatientReport(
     : result === 'NO_PRESCRIPTION_FOUND'
       ? 'MYNA_PATIENT_REPORTED_NO_PRESCRIPTION'
       : 'MYNA_SUPPORT_REQUESTED';
-  const [transition] = await db.batch([
+  const authorityPredicate = await patientHandoffAuthorityPredicate(db, 'pharmacy_myna_handoffs');
+  const [transition, event] = await db.batch([
     db.prepare(
       `UPDATE pharmacy_myna_handoffs
           SET status = ?, patient_reported_at = ?, updated_at = ?
         WHERE id = ? AND line_account_id = ? AND friend_id = ?
-          AND status NOT IN ('CLOSED','EXPIRED') AND updated_at = ?`,
-    ).bind(next, now, now, handoffId, lineAccountId, friendId, handoff.updated_at),
+          AND status NOT IN ('CLOSED','EXPIRED') AND updated_at = ?
+          ${authorityPredicate}`,
+    ).bind(
+      next, now, now, handoffId, lineAccountId, friendId, handoff.updated_at,
+      friendId, now,
+    ),
     db.prepare(
       `INSERT INTO pharmacy_myna_events
        (id, handoff_id, line_account_id, event_type, actor_type, actor_id,
         correlation_id, metadata_json, occurred_at)
        SELECT ?, ?, ?, ?, 'PATIENT_CONTACT', ?, ?, ?, ?
          FROM pharmacy_myna_handoffs
-        WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
+        WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?
+          ${authorityPredicate}`,
     ).bind(
       crypto.randomUUID(), handoffId, lineAccountId, eventType, friendId,
       handoff.correlation_id, JSON.stringify({ result }), now,
-      handoffId, lineAccountId, next, now,
+      handoffId, lineAccountId, next, now, friendId, now,
     ),
   ]);
-  if ((transition?.meta?.changes ?? 0) !== 1) throw new Error('Myna handoff report conflict');
+  if ((transition?.meta?.changes ?? 0) !== 1 || (event?.meta?.changes ?? 0) !== 1) {
+    throw new Error('Myna handoff report conflict');
+  }
   return { ...handoff, status: next, patient_reported_at: now, updated_at: now };
 }
 
@@ -465,6 +526,7 @@ export async function getActivePatientMynaHandoff(
   friendId: string,
 ): Promise<MynaHandoff | null> {
   await expireMynaHandoffs(db, lineAccountId);
+  const authorityPredicate = await patientHandoffAuthorityPredicate(db, 'pharmacy_myna_handoffs');
   const row = await db.prepare(
     `${HANDOFF_SELECT}
       WHERE line_account_id = ? AND friend_id = ?
@@ -472,9 +534,16 @@ export async function getActivePatientMynaHandoff(
         AND status IN ('CREATED','LAUNCH_REQUESTED','PATIENT_REPORTED_COMPLETE',
                        'PATIENT_REPORTED_NO_PRESCRIPTION','SUPPORT_NEEDED')
         AND expires_at > ?
+        ${authorityPredicate}
       ORDER BY created_at DESC, id DESC
       LIMIT 1`,
-  ).bind(lineAccountId, friendId, new Date().toISOString()).first<Record<string, unknown>>();
+  ).bind(
+    lineAccountId,
+    friendId,
+    new Date().toISOString(),
+    friendId,
+    new Date().toISOString(),
+  ).first<Record<string, unknown>>();
   return row ? decodeHandoff(row) : null;
 }
 

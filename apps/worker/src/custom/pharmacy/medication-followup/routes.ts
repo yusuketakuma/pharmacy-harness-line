@@ -10,15 +10,22 @@ import {
 } from '../prescriptions/patient.js';
 import {
   getOwnerMedicationFollowUp,
+  listMedicationFollowUpAssignees,
+  listMedicationFollowUpContacts,
   listOwnerMedicationFollowUps,
+  recordMedicationFollowUpContact,
   respondToMedicationFollowUp,
   scheduleMedicationFollowUp,
   transitionMedicationFollowUp,
   type MedicationFollowUp,
+  type MedicationFollowUpAssignee,
+  type MedicationFollowUpContactInput,
+  type MedicationFollowUpContactRecord,
   type MedicationFollowUpPatientResponse,
   type MedicationFollowUpStatus,
   type PatientMedicationFollowUp,
 } from './repository.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
 
 type MedicationFollowUpEnv = {
   Bindings: Env['Bindings'];
@@ -37,12 +44,48 @@ function adminProjection(row: MedicationFollowUp) {
     source_submission_id: row.source_submission_id,
     status: row.status,
     due_at: row.due_at,
+    question_set_version: row.question_set_version,
+    response_deadline_at: row.response_deadline_at,
+    assigned_to: row.assigned_to,
     delivered_at: row.delivered_at,
     responded_at: row.responded_at,
     closed_at: row.closed_at,
     version: row.version,
     created_at: row.created_at,
     updated_at: row.updated_at,
+  };
+}
+
+function contactProjection(row: MedicationFollowUpContactRecord) {
+  return {
+    id: row.id,
+    channel: row.channel,
+    outcome_code: row.outcome_code,
+    next_contact_at: row.next_contact_at,
+    occurred_at: row.occurred_at,
+  };
+}
+
+function assigneeProjection(row: MedicationFollowUpAssignee) {
+  return { id: row.id, name: row.name, role: row.role };
+}
+
+function parseContact(value: unknown): MedicationFollowUpContactInput | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  const nextContactAt = body.nextContactAt;
+  if ((nextContactAt !== undefined && nextContactAt !== null && typeof nextContactAt !== 'string') ||
+      typeof body.channel !== 'string' || typeof body.outcomeCode !== 'string' ||
+      typeof body.idempotencyKey !== 'string' ||
+      !['line', 'phone'].includes(body.channel) ||
+      !['answered', 'no_answer', 'resolved', 'follow_up_required', 'escalated'].includes(body.outcomeCode)) {
+    return null;
+  }
+  return {
+    channel: body.channel as MedicationFollowUpContactInput['channel'],
+    outcomeCode: body.outcomeCode as MedicationFollowUpContactInput['outcomeCode'],
+    ...(nextContactAt !== undefined ? { nextContactAt: nextContactAt as string | null } : {}),
+    idempotencyKey: body.idempotencyKey,
   };
 }
 
@@ -66,6 +109,9 @@ medicationFollowUpRoutes.use('/api/liff/pharmacy/medication-followups/*', async 
     c.env.DB, c.req.query('liffId') ?? '', identity,
   );
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('medicationFollowUpPatient', patient);
   return next();
 });
@@ -103,6 +149,9 @@ medicationFollowUpRoutes.post('/api/liff/pharmacy/medication-followups/:id/respo
     return c.json({ followUp: patientProjection(updated) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
+    if (/schema unavailable|closure unavailable/i.test(message)) {
+      return c.json({ error: '服薬後フォローの追加機能を確認できませんでした。' }, 503);
+    }
     return c.json({ error: '回答を保存できませんでした' }, /conflict/i.test(message) ? 409 : 400);
   }
 });
@@ -121,16 +170,36 @@ async function scope(c: Context<MedicationFollowUpEnv>): Promise<{
   return { lineAccountId, staff };
 }
 
+medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/assignees', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  try {
+    const assignees = await listMedicationFollowUpAssignees(c.env.DB, account.lineAccountId);
+    return c.json({ assignees: assignees.map(assigneeProjection) });
+  } catch (error) {
+    return followUpError(c, error);
+  }
+});
+
 function followUpError(c: Context<MedicationFollowUpEnv>, error: unknown): Response {
   const message = error instanceof Error ? error.message : '';
+  if (/schema unavailable|closure unavailable/i.test(message)) {
+    return c.json({ error: '服薬後フォローの追加対応記録は準備中です。' }, 503);
+  }
   if (/not found/i.test(message)) {
     return c.json({ error: '対象の服薬後フォローが見つかりません。' }, 404);
   }
+  if (/assigned staff/i.test(message)) {
+    return c.json({ error: '担当する人間スタッフを選択してください。' }, 400);
+  }
+  if (/invalid|due time|deadline|next contact/i.test(message)) {
+    return c.json({ error: '服薬後フォローの入力内容を確認してください。' }, 400);
+  }
+  if (/response record|required|contact conflict/i.test(message)) {
+    return c.json({ error: '対応記録を保存してから状態を更新してください。' }, 409);
+  }
   if (/already|conflict/i.test(message)) {
     return c.json({ error: '服薬後フォローは更新されています。再読み込みしてください。' }, 409);
-  }
-  if (/invalid|due time/i.test(message)) {
-    return c.json({ error: '服薬後フォローの入力内容を確認してください。' }, 400);
   }
   return c.json({ error: '服薬後フォローを処理できませんでした。' }, 500);
 }
@@ -143,17 +212,23 @@ medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups', async
   }
   const body = await readJsonObject(c.req);
   if (!body || typeof body.submissionId !== 'string' || typeof body.dueAt !== 'string' ||
-      typeof body.idempotencyKey !== 'string') {
+      typeof body.idempotencyKey !== 'string' ||
+      (body.responseDeadlineAt !== undefined && body.responseDeadlineAt !== null &&
+       typeof body.responseDeadlineAt !== 'string')) {
     return c.json({ error: 'submissionId, dueAt, and idempotencyKey are required' }, 400);
   }
   try {
-    const followUp = await scheduleMedicationFollowUp(c.env.DB, {
+    const scheduleInput = {
       lineAccountId: account.lineAccountId,
       submissionId: body.submissionId,
       dueAt: body.dueAt,
       staffId: account.staff.id,
       idempotencyKey: body.idempotencyKey,
-    });
+      ...(body.responseDeadlineAt !== undefined
+        ? { responseDeadlineAt: body.responseDeadlineAt as string | null }
+        : {}),
+    };
+    const followUp = await scheduleMedicationFollowUp(c.env.DB, scheduleInput);
     return c.json({ followUp: adminProjection(followUp) }, 201);
   } catch (error) {
     return followUpError(c, error);
@@ -168,16 +243,68 @@ medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups/:id/tra
       typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion)) {
     return c.json({ error: 'valid status and expectedVersion are required' }, 400);
   }
+  const contact = body.contact === undefined ? undefined : parseContact(body.contact);
+  if (body.contact !== undefined && !contact) {
+    return c.json({ error: '対応記録の入力内容を確認してください' }, 400);
+  }
+  if (body.assigneeStaffId !== undefined && body.assigneeStaffId !== null &&
+      typeof body.assigneeStaffId !== 'string') {
+    return c.json({ error: '担当者の入力内容を確認してください' }, 400);
+  }
   try {
-    const followUp = await transitionMedicationFollowUp(c.env.DB, {
+    const transitionInput = {
       lineAccountId: account.lineAccountId,
       followUpId: c.req.param('id'),
       toStatus: body.status as MedicationFollowUpStatus,
       expectedVersion: body.expectedVersion,
-      actorType: 'staff',
+      actorType: 'staff' as const,
       actorId: account.staff.id,
-    });
+      ...(contact ? { contact } : {}),
+      ...(body.assigneeStaffId !== undefined
+        ? { assigneeStaffId: body.assigneeStaffId as string | null }
+        : {}),
+    };
+    const followUp = await transitionMedicationFollowUp(c.env.DB, transitionInput);
     return c.json({ followUp: adminProjection(followUp) });
+  } catch (error) {
+    return followUpError(c, error);
+  }
+});
+
+medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/:id/contacts', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  try {
+    const contacts = await listMedicationFollowUpContacts(
+      c.env.DB, account.lineAccountId, c.req.param('id'),
+    );
+    return c.json({ contacts: contacts.map(contactProjection) });
+  } catch (error) {
+    return followUpError(c, error);
+  }
+});
+
+medicationFollowUpRoutes.post('/api/custom/pharmacy/medication-followups/:id/contacts', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  const body = await readJsonObject(c.req);
+  const contact = parseContact(body);
+  if (!contact || typeof body?.expectedVersion !== 'number' ||
+      !Number.isInteger(body.expectedVersion)) {
+    return c.json({ error: '対応記録とexpectedVersionは必須です' }, 400);
+  }
+  try {
+    const saved = await recordMedicationFollowUpContact(c.env.DB, {
+      lineAccountId: account.lineAccountId,
+      followUpId: c.req.param('id'),
+      channel: contact.channel,
+      outcomeCode: contact.outcomeCode,
+      nextContactAt: contact.nextContactAt,
+      actorStaffId: account.staff.id,
+      idempotencyKey: contact.idempotencyKey,
+      expectedVersion: body.expectedVersion,
+    });
+    return c.json({ contact: contactProjection(saved) });
   } catch (error) {
     return followUpError(c, error);
   }

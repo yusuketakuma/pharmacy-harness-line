@@ -4,6 +4,8 @@ import { Hono } from 'hono';
 const mocks = vi.hoisted(() => ({
   access: vi.fn(), capability: vi.fn(), schedule: vi.fn(), transition: vi.fn(),
   listOwner: vi.fn(), getOwner: vi.fn(), respond: vi.fn(), verify: vi.fn(), resolve: vi.fn(),
+  listContacts: vi.fn(), recordContact: vi.fn(),
+  betaParticipant: vi.fn(),
 }));
 vi.mock('../growth-loop/access.js', () => ({
   canAccessPharmacyAccount: mocks.access,
@@ -15,9 +17,14 @@ vi.mock('./repository.js', () => ({
   listOwnerMedicationFollowUps: mocks.listOwner,
   getOwnerMedicationFollowUp: mocks.getOwner,
   respondToMedicationFollowUp: mocks.respond,
+  listMedicationFollowUpContacts: mocks.listContacts,
+  recordMedicationFollowUpContact: mocks.recordContact,
 }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
+}));
 
 import { medicationFollowUpRoutes } from './routes.js';
 
@@ -46,6 +53,7 @@ beforeEach(() => {
     lineUserId: 'U-a', loginChannelId: 'login-a', tenantId: 'tenant-a', lineAccountId: 'account-a',
   });
   mocks.resolve.mockResolvedValue({ lineAccountId: 'account-a', friendId: 'friend-a' });
+  mocks.betaParticipant.mockResolvedValue(true);
   mocks.listOwner.mockResolvedValue([{
     id: 'followup-a', patient_name: '田中 太郎', status: 'delivered',
     due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
@@ -60,6 +68,11 @@ beforeEach(() => {
     id: 'followup-a', patient_name: '田中 太郎', status: 'concern',
     due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
     responded_at: '2026-08-21T10:00:00.000Z', closed_at: null, version: 4,
+  });
+  mocks.listContacts.mockResolvedValue([]);
+  mocks.recordContact.mockResolvedValue({
+    id: 'contact-a', channel: 'phone', outcome_code: 'answered',
+    next_contact_at: null, occurred_at: '2026-08-21T10:00:00.000Z',
   });
 });
 
@@ -221,6 +234,42 @@ describe('medication follow-up staff routes', () => {
     expect(response.status).toBe(400);
   });
 
+  it('passes a fixed contact record atomically with the responded transition', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/followup-a/transitions?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        status: 'responded', expectedVersion: 3,
+        contact: { channel: 'phone', outcomeCode: 'answered', idempotencyKey: 'contact-a' },
+      }) }, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.transition).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-a', followUpId: 'followup-a',
+      toStatus: 'responded', expectedVersion: 3,
+      actorType: 'staff', actorId: 'staff-a',
+      contact: { channel: 'phone', outcomeCode: 'answered', idempotencyKey: 'contact-a' },
+    });
+  });
+
+  it('records a staff contact with the account scope and expected version', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/followup-a/contacts?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        channel: 'phone', outcomeCode: 'follow_up_required',
+        nextContactAt: '2026-08-22T01:00:00.000Z', idempotencyKey: 'contact-follow-up',
+        expectedVersion: 3,
+      }) }, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.recordContact).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-a', followUpId: 'followup-a', channel: 'phone',
+      outcomeCode: 'follow_up_required', nextContactAt: '2026-08-22T01:00:00.000Z',
+      actorStaffId: 'staff-a', idempotencyKey: 'contact-follow-up', expectedVersion: 3,
+    });
+  });
+
   it('does not expose internal scheduling errors', async () => {
     mocks.schedule.mockRejectedValue(new Error('SQLITE_CONSTRAINT patient-123'));
     const response = await app().request(
@@ -233,6 +282,22 @@ describe('medication follow-up staff routes', () => {
 
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain('SQLITE_CONSTRAINT patient-123');
+  });
+
+  it('reports additive follow-up features as unavailable on an old schema', async () => {
+    mocks.schedule.mockRejectedValue(new Error('follow-up closure unavailable'));
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups?line_account_id=account-a',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        submissionId: 'submission-a', dueAt: '2026-08-21T09:00:00.000Z',
+        responseDeadlineAt: '2026-08-22T09:00:00.000Z', idempotencyKey: 'request-a',
+      }) }, env,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: '服薬後フォローの追加対応記録は準備中です。',
+    });
   });
 
   it('keeps transition conflicts distinct without returning repository text', async () => {

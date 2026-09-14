@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import {
   applyAdminPrescriptionAction,
   cancelPrescription,
@@ -45,6 +46,42 @@ function fakeDb(row: unknown, batchChanges = 1) {
   });
   return { db: { prepare, batch } as unknown as D1Database, calls, prepare };
 }
+
+describe('admin action concurrent audit', () => {
+  it('records only the winning update when two actions share the same timestamp', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`CREATE TABLE pharmacy_prescription_submissions (
+      id TEXT PRIMARY KEY, line_account_id TEXT, status TEXT, updated_at TEXT,
+      intake_required INTEGER, source_handoff_id TEXT, resubmission_reason_code TEXT, closed_at TEXT);
+      INSERT INTO pharmacy_prescription_submissions VALUES
+        ('submission-a', 'account-a', 'received', '2026-09-05T00:00:00.000Z', 0, NULL, NULL, NULL);
+      CREATE TABLE pharmacy_prescription_events (
+        id TEXT PRIMARY KEY, submission_id TEXT, actor_type TEXT, actor_id TEXT,
+        event_type TEXT, from_status TEXT, to_status TEXT, reason_code TEXT, created_at TEXT);`);
+    const db = {
+      prepare: (sql: string) => ({ bind: (...values: SQLInputValue[]) => ({
+        first: async () => sqlite.prepare(sql).get(...values),
+        run: () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
+      }) }),
+      batch: async (statements: Array<{ run(): unknown }>) => {
+        sqlite.exec('BEGIN');
+        try { const results = statements.map((statement) => statement.run()); sqlite.exec('COMMIT'); return results; }
+        catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+      },
+    } as unknown as D1Database;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T01:00:00.000Z'));
+    try {
+      const outcomes = await Promise.allSettled(['staff-a', 'staff-b'].map((actor) =>
+        applyAdminPrescriptionAction(db, 'account-a', 'submission-a', 'admin_cancel',
+          '2026-09-05T00:00:00.000Z', actor, null)));
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+      const rejected = outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult;
+      expect(rejected.reason.message).toBe('prescription admin action conflict');
+      expect(sqlite.prepare('SELECT count(*) AS n FROM pharmacy_prescription_events').get()!.n).toBe(1);
+    } finally { vi.useRealTimers(); sqlite.close(); }
+  });
+});
 
 describe('reservePrescriptionDraft', () => {
   it('inserts idempotently and reads back only through the patient tenant key', async () => {
@@ -133,6 +170,42 @@ describe('reservePrescriptionDraft', () => {
 });
 
 describe('admin account-scoped repository', () => {
+  it('projects linked and latest intake timestamps without answers or another owner/account revision', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`CREATE TABLE pharmacy_prescription_patients (
+      submission_id TEXT, line_account_id TEXT, owner_friend_id TEXT, patient_id TEXT,
+      intake_response_id TEXT, reviewed_at TEXT);
+      CREATE TABLE pharmacy_patient_intake_responses (
+      id TEXT, line_account_id TEXT, owner_friend_id TEXT, patient_id TEXT,
+      revision INTEGER, created_at TEXT, answers_json TEXT);
+      INSERT INTO pharmacy_prescription_patients VALUES ('submission-a','account-a','friend-a','patient-a','response-1',NULL);
+      INSERT INTO pharmacy_patient_intake_responses VALUES
+      ('response-1','account-a','friend-a','patient-a',1,'2026-09-01T01:00:00.000Z','{"notes":"synthetic-private-answer"}'),
+      ('response-2','account-a','friend-a','patient-a',2,'2026-09-04T01:00:00.000Z','{}'),
+      ('wrong-account','account-b','friend-a','patient-a',9,'2026-09-05T01:00:00.000Z','{}'),
+      ('wrong-friend','account-a','friend-b','patient-a',10,'2026-09-05T01:00:00.000Z','{}'),
+      ('wrong-patient','account-a','friend-a','patient-b',11,'2026-09-05T01:00:00.000Z','{}');`);
+    const queries: string[] = [];
+    const db = { prepare: (sql: string) => ({ bind: (...values: SQLInputValue[]) => ({
+      first: async () => {
+        queries.push(sql);
+        if (sql.includes('FROM pharmacy_prescription_submissions')) return values[1] === 'account-a' ? { id: values[0], friend_id: 'friend-a' } : null;
+        if (sql.includes('FROM pharmacy_prescription_patients')) return sqlite.prepare(sql).get(...values) ?? null;
+        return null;
+      },
+      all: async () => ({ results: [] }),
+    }) }) } as unknown as D1Database;
+    try {
+      const result = await getAdminPrescriptionDetail(db, 'account-a', 'submission-a');
+      expect(result?.intake).toEqual({ revision: 1, submitted_at: '2026-09-01T01:00:00.000Z', latest_revision: 2, latest_submitted_at: '2026-09-04T01:00:00.000Z', reviewed_at: null });
+      expect(JSON.stringify(result)).not.toContain('synthetic-private-answer');
+      expect(queries.join('\n')).not.toContain('answers_json');
+      expect(queries[0]).toContain('f.display_name AS patient_display_name');
+      expect((await getAdminPrescriptionDetail(db, 'account-a', 'legacy-submission'))?.intake).toBeNull();
+      await expect(getAdminPrescriptionDetail(db, 'account-b', 'submission-a')).resolves.toBeNull();
+    } finally { sqlite.close(); }
+  });
+
   it('blocks a new-flow acceptance until the latest fulfillment quote is acceptable', async () => {
     const current = {
       status: 'received', updated_at: '2026-08-17T00:00:00.000Z', intake_required: 1,
@@ -365,6 +438,7 @@ describe('admin account-scoped repository', () => {
       [{ id: 'event-1', event_type: 'status_changed' }],
       { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
       { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
+      null,
     ];
     const calls: string[] = [];
     const db = {
@@ -383,6 +457,7 @@ describe('admin account-scoped repository', () => {
       events: [{ id: 'event-1', event_type: 'status_changed' }],
       source: { source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' },
       validity: { issued_on: '2026-08-17', valid_until: '2026-08-20', validity_basis: 'default_4_days', verification_status: 'verified' },
+      intake: null,
     });
     expect(calls.every((sql) => sql.includes('line_account_id = ?'))).toBe(true);
     expect(calls.join('\n')).not.toContain('r2_key');
@@ -402,7 +477,8 @@ describe('patient history, cancellation, and resubmission', () => {
     expect(calls[0].sql).toContain('LEFT JOIN pharmacy_fulfillment_quotes');
     expect(calls[0].sql).toContain('q.estimated_ready_at');
     expect(calls[0].sql).toContain('q.requirements_json');
-    expect(calls[0].values).toEqual(['account-1', 'friend-1']);
+    expect(calls[0].values.slice(0, 2)).toEqual(['account-1', 'friend-1']);
+    expect(calls[0].values.slice(2)).toEqual(['friend-1', expect.any(String)]);
   });
 
   it('cancels only patient-cancellable state with CAS and returns owned live object keys', async () => {

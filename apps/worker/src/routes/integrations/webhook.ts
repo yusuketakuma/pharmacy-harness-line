@@ -90,6 +90,13 @@ function readWebhookEventId(event: WebhookEvent): string {
     : `synthetic:${crypto.randomUUID()}`;
 }
 
+function readWebhookOccurredAt(event: WebhookEvent): string | undefined {
+  const timestamp = (event as WebhookEvent & { timestamp?: unknown }).timestamp;
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return undefined;
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
+}
+
 /**
  * Returns true when this delivery is the one that stored the event. A false
  * means another delivery already owns it — completed (dedup) or still pending
@@ -541,6 +548,8 @@ async function handleEvent(
         displayName: profile?.displayName ?? null,
         pictureUrl: profile?.pictureUrl ?? null,
         statusMessage: profile?.statusMessage ?? null,
+        ...(readWebhookOccurredAt(event) ? { followEventAt: readWebhookOccurredAt(event) } : {}),
+        followEventId: webhookEventId,
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'FRIEND_ACCOUNT_CONFLICT') {
@@ -733,7 +742,10 @@ async function handleEvent(
       event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
 
-    await updateFriendFollowStatus(db, userId, false, lineAccountId);
+    await updateFriendFollowStatus(db, userId, false, lineAccountId, {
+      occurredAt: readWebhookOccurredAt(event),
+      eventId: webhookEventId,
+    });
     try {
       await recordPharmacyUnfollowMetrics({ db, lineAccountId, lineUserId: userId });
     } catch (error) {
@@ -778,8 +790,9 @@ async function handleEvent(
             webhookEventId,
             data: postbackData,
           });
-        } catch {
+        } catch (error) {
           console.error('[pharmacy-followup] patient response rejected');
+          throw error;
         }
       }
       return;

@@ -1,3 +1,5 @@
+import { patientAuthorityPredicateFor } from '../intake/repository.js';
+
 export type ContinuityStatus = 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended';
 
 export interface ContinuityObligation {
@@ -20,11 +22,14 @@ export interface ContinuityObligation {
 }
 
 const OBLIGATION_SELECT = `
-  SELECT id, line_account_id, owner_friend_id, patient_id, source_submission_id,
-         candidate_submission_id, status, expected_next_from, expected_next_to,
-         next_contact_at, consent_at, last_reminded_at, reminder_count,
-         created_at, updated_at
-    FROM pharmacy_continuity_obligations`;
+  SELECT obligation.id, obligation.line_account_id, obligation.owner_friend_id,
+         obligation.patient_id, obligation.source_submission_id,
+         obligation.candidate_submission_id, obligation.status,
+         obligation.expected_next_from, obligation.expected_next_to,
+         obligation.next_contact_at, obligation.consent_at,
+         obligation.last_reminded_at, obligation.reminder_count,
+         obligation.created_at, obligation.updated_at
+    FROM pharmacy_continuity_obligations AS obligation`;
 
 function dateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -236,12 +241,20 @@ export async function listPatientContinuity(
   lineAccountId: string,
   ownerFriendId: string,
 ): Promise<ContinuityObligation[]> {
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
   const result = await db.prepare(
     `${OBLIGATION_SELECT}
-      WHERE line_account_id = ? AND owner_friend_id = ?
-        AND status IN ('active','linked','paused')
-      ORDER BY next_contact_at, id`,
-  ).bind(lineAccountId, ownerFriendId).all<ContinuityObligation>();
+      INNER JOIN pharmacy_patients AS patient
+        ON patient.id = obligation.patient_id
+       AND patient.line_account_id = obligation.line_account_id
+       AND patient.owner_friend_id = obligation.owner_friend_id
+      WHERE obligation.line_account_id = ?
+        AND obligation.owner_friend_id = ?
+        AND patient.archived_at IS NULL
+        AND obligation.status IN ('active','linked','paused')
+        ${authorityPredicate}
+      ORDER BY obligation.next_contact_at, obligation.id`,
+  ).bind(lineAccountId, ownerFriendId, ownerFriendId, new Date().toISOString()).all<ContinuityObligation>();
   return result.results;
 }
 
@@ -252,24 +265,44 @@ export async function pausePatientContinuity(
   obligationId: string,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const [transition] = await db.batch([
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
+  const [transition, event] = await db.batch([
     db.prepare(
       `UPDATE pharmacy_continuity_obligations
           SET status = 'paused', updated_at = ?
         WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-          AND status IN ('active','linked')`,
-    ).bind(now, obligationId, lineAccountId, ownerFriendId),
+          AND status IN ('active','linked')
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = pharmacy_continuity_obligations.patient_id
+               AND patient.line_account_id = pharmacy_continuity_obligations.line_account_id
+               AND patient.owner_friend_id = pharmacy_continuity_obligations.owner_friend_id
+               AND patient.archived_at IS NULL
+               ${authorityPredicate}
+          )`,
+    ).bind(now, obligationId, lineAccountId, ownerFriendId, ownerFriendId, now),
     db.prepare(
       `INSERT INTO pharmacy_continuity_events
          (id, obligation_id, line_account_id, event_type, actor_type, actor_id, created_at)
        SELECT ?, o.id, o.line_account_id, 'paused', 'patient', ?, ?
          FROM pharmacy_continuity_obligations o
         WHERE o.id = ? AND o.line_account_id = ? AND o.owner_friend_id = ?
-          AND o.status = 'paused' AND o.updated_at = ?`,
+          AND o.status = 'paused' AND o.updated_at = ?
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = o.patient_id
+               AND patient.line_account_id = o.line_account_id
+               AND patient.owner_friend_id = o.owner_friend_id
+               AND patient.archived_at IS NULL
+               ${authorityPredicate}
+          )`,
     ).bind(
       crypto.randomUUID(), ownerFriendId, now,
       obligationId, lineAccountId, ownerFriendId, now,
+      ownerFriendId, now,
     ),
   ]);
-  if ((transition?.meta?.changes ?? 0) !== 1) throw new Error('continuity pause conflict');
+  if ((transition?.meta?.changes ?? 0) !== 1 || (event?.meta?.changes ?? 0) !== 1) {
+    throw new Error('continuity pause conflict');
+  }
 }

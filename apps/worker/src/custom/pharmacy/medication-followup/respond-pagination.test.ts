@@ -10,12 +10,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // DB yet still be told the save failed. This drives the real repository SQL
 // against an in-memory sqlite DB — the mocked routes.test.ts cannot exercise
 // the LIMIT 20 boundary since it mocks ./repository.js entirely.
-const mocks = vi.hoisted(() => ({ verify: vi.fn(), resolve: vi.fn(), capability: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  verify: vi.fn(), resolve: vi.fn(), capability: vi.fn(), betaParticipant: vi.fn(),
+  betaSchemaState: vi.fn(),
+}));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
 vi.mock('../growth-loop/access.js', () => ({
   canAccessPharmacyAccount: vi.fn(),
   hasPharmacyCapability: mocks.capability,
+  pharmacyStaffAccountPredicate: () => '? IS NOT NULL',
+}));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
+  getPharmacyBetaSchemaState: mocks.betaSchemaState,
 }));
 
 import { medicationFollowUpRoutes } from './routes.js';
@@ -39,12 +47,43 @@ const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite
 const SCHEMA = `
   CREATE TABLE pharmacy_patients (
     id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, owner_friend_id TEXT NOT NULL,
-    name TEXT NOT NULL
+    name TEXT NOT NULL, relationship TEXT NOT NULL DEFAULT 'self',
+    birth_date TEXT NOT NULL DEFAULT '1990-01-01', archived_at TEXT
+  );
+  CREATE TABLE pharmacy_patient_owner_controls (
+    line_account_id TEXT NOT NULL, patient_id TEXT NOT NULL, owner_friend_id TEXT NOT NULL,
+    binding_suspended_at TEXT
+  );
+  CREATE TABLE pharmacy_patient_proxy_grants (
+    line_account_id TEXT NOT NULL, patient_id TEXT NOT NULL, actor_friend_id TEXT NOT NULL,
+    permission_code TEXT NOT NULL, revoked_at TEXT, superseded_at TEXT, expires_at TEXT
+  );
+  CREATE TABLE pharmacy_account_capabilities (
+    line_account_id TEXT NOT NULL, mode TEXT NOT NULL, beta_enabled INTEGER NOT NULL
+  );
+  CREATE TABLE pharmacy_beta_memberships (
+    line_account_id TEXT NOT NULL, participant_friend_id TEXT NOT NULL,
+    subject_patient_id TEXT NOT NULL, status TEXT NOT NULL,
+    starts_at TEXT NOT NULL, expires_at TEXT NOT NULL
+  );
+  CREATE TABLE line_accounts (id TEXT PRIMARY KEY, is_active INTEGER NOT NULL DEFAULT 1);
+  CREATE TABLE tenant_line_accounts (tenant_id TEXT NOT NULL, line_account_id TEXT NOT NULL);
+  CREATE TABLE tenants (id TEXT PRIMARY KEY, status TEXT NOT NULL);
+  CREATE TABLE staff_members (
+    id TEXT PRIMARY KEY, principal_kind TEXT NOT NULL DEFAULT 'human',
+    shared_tenant_id TEXT, is_active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE tenant_staff_memberships (
+    tenant_id TEXT NOT NULL, staff_id TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE pharmacy_staff_accounts (
+    line_account_id TEXT NOT NULL, staff_id TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1
   );
   CREATE TABLE pharmacy_medication_followups (
     id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, owner_friend_id TEXT NOT NULL,
     patient_id TEXT NOT NULL, source_submission_id TEXT NOT NULL, status TEXT NOT NULL,
-    due_at TEXT NOT NULL, delivered_at TEXT, responded_at TEXT, assigned_to TEXT,
+    due_at TEXT NOT NULL, question_set_version INTEGER NOT NULL DEFAULT 1,
+    response_deadline_at TEXT, delivered_at TEXT, responded_at TEXT, assigned_to TEXT,
     closed_at TEXT, version INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
@@ -53,6 +92,12 @@ const SCHEMA = `
     event_type TEXT NOT NULL, from_status TEXT, to_status TEXT, actor_type TEXT NOT NULL,
     actor_id TEXT, idempotency_key TEXT NOT NULL, occurred_at TEXT NOT NULL,
     UNIQUE (line_account_id, idempotency_key)
+  );
+  CREATE TABLE pharmacy_medication_followup_contact_records (
+    id TEXT PRIMARY KEY, followup_id TEXT NOT NULL, line_account_id TEXT NOT NULL,
+    channel TEXT NOT NULL, outcome_code TEXT NOT NULL, next_contact_at TEXT,
+    actor_staff_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+    occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
   );
 `;
 
@@ -108,8 +153,13 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
     });
     mocks.resolve.mockResolvedValue({ lineAccountId: LINE_ACCOUNT_ID, friendId: FRIEND_ID });
     mocks.capability.mockResolvedValue(true);
+    mocks.betaParticipant.mockResolvedValue(true);
+    mocks.betaSchemaState.mockResolvedValue('ready');
 
     ({ db, close } = database());
+    await db.prepare(
+      `INSERT INTO pharmacy_account_capabilities VALUES (?, 'pharmacy', 0)`,
+    ).bind(LINE_ACCOUNT_ID).run();
     await db.prepare(
       `INSERT INTO pharmacy_patients (id, line_account_id, owner_friend_id, name)
        VALUES (?, ?, ?, ?)`,
@@ -155,7 +205,6 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
       },
       { DB: db },
     );
-
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       followUp: {

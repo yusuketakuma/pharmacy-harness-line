@@ -112,4 +112,26 @@ describe('FulfillmentQuote admin routes', () => {
     expect(response.status).toBe(400);
     expect(mocks.create).not.toHaveBeenCalled();
   });
+
+  it('passes the editing revision and preserves the existing conflict envelope', async () => {
+    mocks.create.mockRejectedValue(new Error('fulfillment quote conflict'));
+    const body = { ...quoteBody, expectedRevision: 0 };
+    const response = await app().request(
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
+    );
+    expect(mocks.create).toHaveBeenCalledWith(env.DB, 'account-1', 'submission-1', 'staff-1', body);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Fulfillment quote changed; retry' });
+    expect(mocks.enqueueActivity).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 1.5, '1', null, 9007199254740992])('rejects invalid expectedRevision %s', async (expectedRevision) => {
+    const response = await app().request(
+      '/api/custom/pharmacy/fulfillment-quotes/submission-1?line_account_id=account-1',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...quoteBody, expectedRevision }) }, env,
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
 });

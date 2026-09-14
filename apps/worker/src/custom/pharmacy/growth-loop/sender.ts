@@ -7,6 +7,11 @@ import {
 import { getPharmacyCapabilityConfig } from './repository.js';
 import { getPatientAccessState } from '../intake/repository.js';
 import {
+  getPharmacyBetaEnabled,
+  getPharmacyBetaSchemaState,
+  hasActivePharmacyBetaMembership,
+} from '../beta-membership/repository.js';
+import {
   buildApprovedPharmacyMessage,
   type PharmacyAutomatedMessageId,
   type PharmacyMessageVars,
@@ -38,6 +43,7 @@ export type PharmacyPushResult =
   | 'in_progress'
   | 'reconciliation_required'
   | 'patient_blocked'
+  | 'operations_blocked'
   | 'paused';
 
 function jstMonthBounds(now: Date): { from: string; to: string } {
@@ -82,13 +88,243 @@ async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Pro
   ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
 }
 
-async function canDeliverToPatient(input: AutomatedPushInput): Promise<boolean> {
+async function canDeliverToPatient(input: AutomatedPushInput, now = new Date()): Promise<boolean> {
   if (!input.patientId) return true;
   const access = await getPatientAccessState(input.db, {
     lineAccountId: input.lineAccountId,
     friendId: input.friendId,
   }, input.patientId);
-  return access?.notifications === 'enabled';
+  if (access?.privacy !== 'active' || access.notifications !== 'enabled') return false;
+  const betaEnabled = await getPharmacyBetaEnabled(input.db, input.lineAccountId);
+  if (betaEnabled === null) return false;
+  if (!betaEnabled) return true;
+  return hasActivePharmacyBetaMembership(input.db, {
+    lineAccountId: input.lineAccountId,
+    participantFriendId: input.friendId,
+    subjectPatientId: input.patientId,
+    now,
+  });
+}
+
+type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'operations_blocked';
+
+async function medicationFollowUpOperationsReady(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<boolean> {
+  try {
+    const row = await db.prepare(
+      `SELECT operations.enabled
+         FROM pharmacy_medication_followup_operations AS operations
+        WHERE operations.line_account_id = ? AND operations.enabled = 1
+          AND ${activeHumanFollowUpStaffPredicate('operations.line_account_id', 'operations.primary_staff_id')}
+          AND (
+            operations.backup_staff_id IS NULL
+            OR ${activeHumanFollowUpStaffPredicate('operations.line_account_id', 'operations.backup_staff_id')}
+          )
+        LIMIT 1`,
+    ).bind(lineAccountId).first<{ enabled: number }>();
+    return row?.enabled === 1;
+  } catch {
+    return false;
+  }
+}
+
+function activeHumanFollowUpStaffPredicate(accountColumn: string, staffColumn: string): string {
+  return `EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS staff_mapping
+      INNER JOIN line_accounts AS staff_account
+              ON staff_account.id = staff_mapping.line_account_id
+             AND staff_account.is_active = 1
+      INNER JOIN tenants AS staff_tenant
+              ON staff_tenant.id = staff_mapping.tenant_id
+             AND staff_tenant.status = 'active'
+      INNER JOIN tenant_staff_memberships AS staff_membership
+              ON staff_membership.tenant_id = staff_mapping.tenant_id
+             AND staff_membership.staff_id = ${staffColumn}
+             AND staff_membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = ${staffColumn}
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS staff_assignment
+              ON staff_assignment.line_account_id = ${accountColumn}
+             AND staff_assignment.staff_id = ${staffColumn}
+             AND staff_assignment.is_active = 1
+     WHERE staff_mapping.line_account_id = ${accountColumn}
+  )`;
+}
+
+function followUpOperationsReadyPredicate(accountColumn: string): string {
+  return `EXISTS (
+    SELECT 1
+      FROM pharmacy_medication_followup_operations AS operations
+     WHERE operations.line_account_id = ${accountColumn}
+       AND operations.enabled = 1
+       AND ${activeHumanFollowUpStaffPredicate(accountColumn, 'operations.primary_staff_id')}
+       AND (
+         operations.backup_staff_id IS NULL
+         OR ${activeHumanFollowUpStaffPredicate(accountColumn, 'operations.backup_staff_id')}
+       )
+  )`;
+}
+
+async function getFinalDispatchState(
+  input: AutomatedPushInput,
+  requiredCapability: string,
+): Promise<FinalDispatchState> {
+  const followUpId = input.messageId === 'medication_followup_v1'
+    ? input.vars?.followUpId ?? null
+    : null;
+  const betaSchema = input.patientId
+    ? await getPharmacyBetaSchemaState(input.db)
+    : 'legacy';
+  if (betaSchema === 'unavailable') return 'blocked';
+  const patientJoin = input.patientId
+    ? `
+        INNER JOIN pharmacy_patients AS patient
+                ON patient.id = ?
+               AND patient.line_account_id = friend.line_account_id
+               AND patient.owner_friend_id = friend.id
+        LEFT JOIN pharmacy_patient_owner_controls AS patient_controls
+               ON patient_controls.line_account_id = patient.line_account_id
+              AND patient_controls.patient_id = patient.id
+              AND patient_controls.owner_friend_id = patient.owner_friend_id
+        LEFT JOIN pharmacy_patient_proxy_grants AS patient_proxy
+               ON patient_proxy.line_account_id = patient.line_account_id
+              AND patient_proxy.patient_id = patient.id
+              AND patient_proxy.actor_friend_id = friend.id
+              AND patient_proxy.permission_code = 'patient_intake_v1'
+              AND patient_proxy.revoked_at IS NULL
+              AND patient_proxy.superseded_at IS NULL
+              AND unixepoch(patient_proxy.expires_at) > unixepoch(?)`
+    : '';
+  const patientScope = input.patientId
+    ? `
+       AND patient.archived_at IS NULL
+       AND patient_controls.binding_suspended_at IS NULL
+       AND (
+         patient.relationship = 'self'
+         OR (
+           patient.relationship = 'child'
+           AND date(patient.birth_date, '+18 years') > date('now', '+9 hours')
+           AND patient_proxy.id IS NOT NULL
+         )
+       )
+       AND (
+         patient_controls.privacy_withdrawn_at IS NULL
+         OR (
+           patient_controls.privacy_reconsented_at IS NOT NULL
+           AND unixepoch(patient_controls.privacy_withdrawn_at) <=
+               unixepoch(patient_controls.privacy_reconsented_at)
+         )
+       )
+       AND (
+         patient_controls.notifications_stopped_at IS NULL
+         OR (
+           patient_controls.notifications_resumed_at IS NOT NULL
+           AND unixepoch(patient_controls.notifications_stopped_at) <=
+               unixepoch(patient_controls.notifications_resumed_at)
+         )
+       )`
+    : '';
+  const betaScope = input.patientId && betaSchema === 'ready'
+    ? `
+       AND (
+         NOT EXISTS (
+           SELECT 1 FROM pharmacy_account_capabilities AS beta_capability
+            WHERE beta_capability.line_account_id = friend.line_account_id
+              AND beta_capability.mode = 'pharmacy'
+              AND beta_capability.beta_enabled = 1
+         )
+         OR EXISTS (
+           SELECT 1 FROM pharmacy_beta_memberships AS beta_membership
+            WHERE beta_membership.line_account_id = friend.line_account_id
+              AND beta_membership.participant_friend_id = friend.id
+              AND beta_membership.subject_patient_id = patient.id
+              AND beta_membership.status = 'active'
+              AND unixepoch(beta_membership.starts_at) <= unixepoch('now')
+              AND unixepoch(beta_membership.expires_at) > unixepoch('now')
+         )
+       )`
+    : '';
+  const operationsSelect = followUpId === null
+    ? '1 AS followup_operations_enabled'
+    : `CASE WHEN ${followUpOperationsReadyPredicate('friend.line_account_id')}
+            THEN 1 ELSE 0 END AS followup_operations_enabled`;
+  const row = await input.db.prepare(
+    `/* final pharmacy dispatch scope */
+      SELECT friend.provider_line_user_id AS destination_line_user_id,
+             friend.is_following,
+             account.is_active AS account_active,
+             tenant.status AS tenant_status,
+             tenant.outbound_messaging_paused_at,
+             CASE WHEN capability.mode = 'pharmacy' AND EXISTS (
+               SELECT 1 FROM json_each(capability.capabilities_json)
+                WHERE json_each.value = ?
+             ) THEN 1 ELSE 0 END AS capability_enabled,
+             followup.status AS followup_status,
+             ${operationsSelect}
+        FROM friends AS friend
+        INNER JOIN line_accounts AS account
+                ON account.id = friend.line_account_id
+        INNER JOIN tenant_line_accounts AS mapping
+                ON mapping.line_account_id = friend.line_account_id
+        INNER JOIN tenants AS tenant
+                ON tenant.id = mapping.tenant_id
+        INNER JOIN pharmacy_account_capabilities AS capability
+                ON capability.line_account_id = friend.line_account_id
+        ${patientJoin}
+        LEFT JOIN pharmacy_medication_followups AS followup
+               ON followup.id = ?
+              AND followup.line_account_id = friend.line_account_id
+              AND followup.owner_friend_id = friend.id
+              AND followup.patient_id = ?
+       WHERE friend.id = ? AND friend.line_account_id = ?
+         ${patientScope}
+         ${betaScope}
+       LIMIT 1`,
+  ).bind(
+    requiredCapability,
+    ...(input.patientId ? [input.patientId, new Date().toISOString()] : []),
+    followUpId,
+    input.patientId ?? null,
+    input.friendId,
+    input.lineAccountId,
+  ).first<{
+    destination_line_user_id: string | null;
+    is_following: number;
+    account_active: number;
+    tenant_status: string;
+    outbound_messaging_paused_at: string | null;
+    capability_enabled: number;
+    followup_status: string | null;
+    followup_operations_enabled: number | null;
+  }>();
+
+  if (!row || row.destination_line_user_id !== input.to || row.is_following !== 1 ||
+      row.account_active !== 1 || row.tenant_status !== 'active' ||
+      row.capability_enabled !== 1) {
+    return 'blocked';
+  }
+  if (followUpId !== null &&
+      row.followup_status !== 'due') {
+    return 'blocked';
+  }
+  if (followUpId !== null && row.followup_operations_enabled !== 1) {
+    return 'operations_blocked';
+  }
+  return row.outbound_messaging_paused_at ? 'paused' : 'ok';
+}
+
+async function leaveAttemptRetryable(
+  db: D1Database,
+  lineAccountId: string,
+  retryKey: string,
+  occurredAt: string,
+): Promise<void> {
+  await markOutcome(db, lineAccountId, retryKey, 'failed', occurredAt);
 }
 
 export async function sendPharmacyAutomatedPush(
@@ -131,6 +367,10 @@ export async function sendPharmacyAutomatedPush(
     );
     return 'paused';
   }
+  if (input.messageId === 'medication_followup_v1' &&
+      !(await medicationFollowUpOperationsReady(input.db, input.lineAccountId))) {
+    return 'operations_blocked';
+  }
 
   const now = input.now ?? new Date();
   const occurredAt = now.toISOString();
@@ -139,7 +379,7 @@ export async function sendPharmacyAutomatedPush(
   const month = jstMonthBounds(now);
   const notificationEventId = crypto.randomUUID();
   let dispatchEventId = notificationEventId;
-  if (!(await canDeliverToPatient(input))) {
+  if (!(await canDeliverToPatient(input, now))) {
     await recordBlocked(input, occurredAt);
     return 'patient_blocked';
   }
@@ -217,9 +457,28 @@ export async function sendPharmacyAutomatedPush(
     }
   }
 
-  if (!(await canDeliverToPatient(input))) {
+  if (!(await canDeliverToPatient(input, now))) {
     await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
     return 'patient_blocked';
+  }
+
+  const finalNow = new Date();
+  if (!(await canDeliverToPatient(input, finalNow))) {
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    return 'patient_blocked';
+  }
+  const finalDispatchState = await getFinalDispatchState(input, requiredCapability);
+  if (finalDispatchState === 'paused') {
+    await leaveAttemptRetryable(input.db, input.lineAccountId, input.retryKey, finalNow.toISOString());
+    return 'paused';
+  }
+  if (finalDispatchState === 'blocked') {
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    return 'patient_blocked';
+  }
+  if (finalDispatchState === 'operations_blocked') {
+    await leaveAttemptRetryable(input.db, input.lineAccountId, input.retryKey, finalNow.toISOString());
+    return 'operations_blocked';
   }
 
   try {

@@ -31,6 +31,7 @@ import {
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { resolvePatientIntakeCryptoScope } from './envelopes.js';
 import { recordTenantAudit } from '../../../lib/tenant-audit.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
 
 type IntakeBindings = {
   DB: D1Database;
@@ -101,6 +102,10 @@ pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
   c.set('pharmacyPatient', patient);
   c.set('pharmacyTenantId', identity.tenantId);
+  const controlPath = /\/(?:proxy-grant|privacy-consent|notification-preference|archive)$/.test(c.req.path);
+  if (!controlPath && !(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
   return next();
 });
 

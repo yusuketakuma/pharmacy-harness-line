@@ -22,7 +22,6 @@ describe('platform tenant settings scope', () => {
     ['POST', '/api/staff'],
     ['PATCH', '/api/staff/staff-a'],
     ['PUT', '/api/staff/staff-a/accounts'],
-    ['POST', '/api/staff/staff-a/reset-password'],
     ['DELETE', '/api/staff/staff-a'],
     ['GET', '/api/tags'],
   ])('allows a covered tenant configuration path: %s %s', (method, path) => {

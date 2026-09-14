@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Env } from '../../../index.js';
 import {
   isAllowedAdminRequestOrigin,
@@ -6,6 +6,7 @@ import {
 } from '../../../middleware/admin-auth-config.js';
 import {
   generatePlatformAdminSessionToken,
+  generateTemporaryPassword,
   hashTenantAdminSessionToken,
   hashTenantPassword,
   isPlatformAdminSessionToken,
@@ -48,6 +49,7 @@ import {
   platformAdminSessionCookie,
   platformAdminSessionHash,
   platformAdminSessionTokenFromCookie,
+  resolvePlatformAdminSession,
 } from './auth.js';
 
 export const platformAdminRoutes = new Hono<Env>();
@@ -61,7 +63,9 @@ export const platformAdminRoutes = new Hono<Env>();
 const UNKNOWN_LOGIN_PASSWORD_HASH =
   'pbkdf2-sha256$100000$AAAAAAAAAAAAAAAAAAAAAA$7_iN48HsHUxblOLkYfnRLpCrY7dUnWGcyeEpHR_jjFc';
 const TENANT_STATUSES = new Set(['active', 'suspended']);
-const LOG_TYPES = ['prescription_events', 'webhook_receipts', 'platform_admin_access'] as const;
+const LOG_TYPES = [
+  'prescription_events', 'webhook_receipts', 'platform_admin_access', 'pharmacy_auth',
+] as const;
 type LogType = (typeof LOG_TYPES)[number];
 
 const TENANT_SELECT = `
@@ -133,6 +137,66 @@ async function lineAccountIds(db: D1Database, tenantId: string): Promise<string[
 function stringBody(value: unknown, key: string): string {
   const record = value as Record<string, unknown> | null;
   return record && typeof record[key] === 'string' ? record[key] : '';
+}
+
+async function currentPlatformAdmin(c: Context<Env>) {
+  const token = platformAdminSessionTokenFromCookie(c);
+  const expected = c.get('platformAdmin');
+  if (!token || !expected) return null;
+  const resolved = await resolvePlatformAdminSession(c.env.DB, token);
+  return resolved && !resolved.mustChangePassword && resolved.admin.id === expected.id
+    ? resolved.admin
+    : null;
+}
+
+type SharedStaffRow = {
+  staff_id: string;
+  name: string;
+  is_active: number;
+  role: 'owner' | 'admin' | 'staff';
+  membership_active: number;
+  credential_version: number | null;
+  auth_enabled: number | null;
+};
+
+function sharedAuthAuditStatement(
+  db: D1Database,
+  event: {
+    actorStaffId: string;
+    targetTenantId: string;
+    targetStaffId: string;
+    action: string;
+    reasonCode: string;
+    requestId: string;
+  },
+): D1PreparedStatement {
+  return db.prepare(
+    `INSERT INTO pharmacy_auth_audit_events
+       (id, actor_kind, actor_staff_id, target_tenant_id, target_staff_id,
+        action, outcome, reason_code, request_id, created_at)
+     VALUES (?, 'platform_admin', ?, ?, ?, ?,
+             CASE WHEN changes() = 1 THEN 'success' ELSE NULL END,
+             ?, ?, ?)`,
+  ).bind(
+    crypto.randomUUID(), event.actorStaffId, event.targetTenantId, event.targetStaffId,
+    event.action, event.reasonCode, event.requestId, new Date().toISOString(),
+  );
+}
+
+async function findSharedStaff(db: D1Database, tenantId: string): Promise<SharedStaffRow | null> {
+  return db.prepare(
+    `SELECT staff.id AS staff_id, staff.name, staff.is_active,
+            membership.role, membership.is_active AS membership_active,
+            credential.credential_version, credential.auth_enabled
+       FROM staff_members AS staff
+       LEFT JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = ? AND membership.staff_id = staff.id
+       LEFT JOIN tenant_admin_credentials AS credential
+              ON credential.tenant_id = ? AND credential.staff_id = staff.id
+      WHERE staff.principal_kind = 'pharmacy_shared'
+        AND staff.shared_tenant_id = ?
+      LIMIT 1`,
+  ).bind(tenantId, tenantId, tenantId).first<SharedStaffRow>();
 }
 
 function redactPatientAudit(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -519,6 +583,172 @@ platformAdminRoutes.get('/api/platform-admin/tenants/:id', async (c) => {
   });
 });
 
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/shared-login/issue', async (c) => {
+  const admin = await currentPlatformAdmin(c);
+  if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const tenantId = c.req.param('id');
+  const tenant = await c.env.DB.prepare(
+    `SELECT id, tenant_code, display_name, status FROM tenants WHERE id = ? LIMIT 1`,
+  ).bind(tenantId).first<{ id: string; tenant_code: string; display_name: string; status: string }>();
+  if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
+  if (tenant.status !== 'active') {
+    return c.json({ success: false, error: 'Suspended tenants cannot receive credentials' }, 409);
+  }
+
+  // A stale human credential using the pharmacy code is a hard stop. The
+  // existing UNIQUE constraint still sees disabled rows, so never delete or
+  // rewrite that history to make room for the shared login.
+  const collision = await c.env.DB.prepare(
+    `SELECT credential.staff_id, staff.principal_kind
+       FROM tenant_admin_credentials AS credential
+       INNER JOIN staff_members AS staff ON staff.id = credential.staff_id
+      WHERE credential.tenant_id = ?
+        AND credential.login_id = ? COLLATE NOCASE
+      LIMIT 1`,
+  ).bind(tenantId, tenant.tenant_code).first<{ staff_id: string; principal_kind: string }>();
+  if (collision && collision.principal_kind !== 'pharmacy_shared') {
+    return c.json({ success: false, error: 'Pharmacy code conflicts with historical login data' }, 409);
+  }
+
+  const shared = await findSharedStaff(c.env.DB, tenantId);
+  if (shared && (shared.is_active !== 1 || shared.membership_active !== 1 || shared.role !== 'admin')) {
+    return c.json({ success: false, error: 'Shared pharmacy account is inactive or invalid' }, 409);
+  }
+  if (shared?.auth_enabled === 1) {
+    return c.json({ success: false, error: 'Shared pharmacy login is already issued' }, 409);
+  }
+
+  const staffId = shared?.staff_id ?? crypto.randomUUID();
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashTenantPassword(temporaryPassword);
+  const now = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+  const statements: D1PreparedStatement[] = [];
+  if (!shared) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO staff_members
+          (id, name, email, role, api_key, is_active, principal_kind, shared_tenant_id, created_at, updated_at)
+         VALUES (?, ?, NULL, 'admin', ?, 1, 'pharmacy_shared', ?, ?, ?)`,
+      ).bind(staffId, `${tenant.display_name} 共通管理者`, `disabled:${crypto.randomUUID()}`, tenantId, now, now),
+      c.env.DB.prepare(
+        `INSERT INTO tenant_staff_memberships
+          (tenant_id, staff_id, role, is_active, created_at, updated_at)
+         VALUES (?, ?, 'admin', 1, ?, ?)`,
+      ).bind(tenantId, staffId, now, now),
+    );
+  }
+  statements.push(
+    c.env.DB.prepare(
+      `INSERT INTO tenant_admin_credentials
+        (tenant_id, staff_id, login_id, password_hash, must_change_password,
+         credential_version, auth_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, 1, 1, ?, ?)`,
+    ).bind(tenantId, staffId, tenant.tenant_code, passwordHash, now, now),
+    sharedAuthAuditStatement(c.env.DB, {
+      actorStaffId: admin.id,
+      targetTenantId: tenantId,
+      targetStaffId: staffId,
+      action: 'shared_login_issue',
+      reasonCode: 'platform_issued',
+      requestId,
+    }),
+    platformAdminAccessStatement(
+      c.env.DB, admin.id, tenantId, 'shared_login_issue', 'staff', staffId,
+    ),
+  );
+  try {
+    const results = await c.env.DB.batch(statements);
+    const credentialResult = results[shared ? 0 : 2];
+    if ((credentialResult?.meta.changes ?? 0) === 0) {
+      return c.json({ success: false, error: 'Shared pharmacy login issuance conflicted' }, 409);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json({
+      success: false,
+      error: /constraint|unique|PHARMACY_/iu.test(message)
+        ? 'Shared pharmacy login issuance conflicted'
+        : 'Shared pharmacy login issuance failed',
+    }, /constraint|unique|PHARMACY_/iu.test(message) ? 409 : 503);
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      tenantId,
+      pharmacyCode: tenant.tenant_code,
+      staffId,
+      temporaryPassword,
+      mustChangePassword: true,
+    },
+  }, 201);
+});
+
+platformAdminRoutes.post('/api/platform-admin/tenants/:id/shared-login/reset-password', async (c) => {
+  const admin = await currentPlatformAdmin(c);
+  if (!admin) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  const tenantId = c.req.param('id');
+  const tenant = await c.env.DB.prepare(
+    `SELECT id, tenant_code, status FROM tenants WHERE id = ? LIMIT 1`,
+  ).bind(tenantId).first<{ id: string; tenant_code: string; status: string }>();
+  if (!tenant) return c.json({ success: false, error: 'Tenant not found' }, 404);
+  if (tenant.status !== 'active') {
+    return c.json({ success: false, error: 'Suspended tenants cannot receive credentials' }, 409);
+  }
+  const shared = await findSharedStaff(c.env.DB, tenantId);
+  if (!shared || shared.is_active !== 1 || shared.membership_active !== 1 ||
+      shared.role !== 'admin' || shared.auth_enabled !== 1 || shared.credential_version === null) {
+    return c.json({ success: false, error: 'Shared pharmacy login is not issued' }, 409);
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashTenantPassword(temporaryPassword);
+  const now = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+  try {
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE tenant_admin_credentials
+            SET password_hash = ?, must_change_password = 1,
+                credential_version = credential_version + 1, auth_enabled = 1, updated_at = ?
+          WHERE tenant_id = ? AND staff_id = ? AND login_id = ? COLLATE NOCASE
+            AND credential_version = ? AND auth_enabled = 1`,
+      ).bind(
+        passwordHash, now, tenantId, shared.staff_id, tenant.tenant_code,
+        shared.credential_version,
+      ),
+      sharedAuthAuditStatement(c.env.DB, {
+        actorStaffId: admin.id,
+        targetTenantId: tenantId,
+        targetStaffId: shared.staff_id,
+        action: 'shared_login_reset',
+        reasonCode: 'platform_reset',
+        requestId,
+      }),
+      platformAdminAccessStatement(
+        c.env.DB, admin.id, tenantId, 'shared_login_reset', 'staff', shared.staff_id,
+      ),
+    ]);
+    if ((results[0]?.meta.changes ?? 0) === 0) {
+      return c.json({ success: false, error: 'Shared pharmacy login reset conflicted' }, 409);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json({
+      success: false,
+      error: /constraint|unique|PHARMACY_/iu.test(message)
+        ? 'Shared pharmacy login reset conflicted'
+        : 'Shared pharmacy login reset failed',
+    }, /constraint|unique|PHARMACY_/iu.test(message) ? 409 : 503);
+  }
+
+  return c.json({
+    success: true,
+    data: { tenantId, pharmacyCode: tenant.tenant_code, staffId: shared.staff_id, temporaryPassword, mustChangePassword: true },
+  });
+});
+
 /**
  * PATCH /api/platform-admin/tenants/:id — displayName and status only.
  * tenant_code is the immutable tenant identifier every scoping query and
@@ -878,6 +1108,18 @@ platformAdminRoutes.get('/api/platform-admin/logs', async (c) => {
         LIMIT ?`,
     ).bind(...filters).all<Record<string, unknown>>();
     data.platformAdminAccess = redactPatientAudit(result.results ?? []);
+  }
+  if (wanted.includes('pharmacy_auth')) {
+    const result = await c.env.DB.prepare(
+      `SELECT id, actor_kind, actor_staff_id, target_tenant_id AS tenant_id,
+              target_staff_id, action, outcome, reason_code, created_at
+         FROM pharmacy_auth_audit_events
+        WHERE (? IS NULL OR target_tenant_id = ?)
+          AND (? IS NULL OR created_at >= ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?`,
+    ).bind(...filters).all<Record<string, unknown>>();
+    data.pharmacyAuth = result.results ?? [];
   }
 
   await recordPlatformAdminAccess(

@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ verify: vi.fn(), resolve: vi.fn(), list: vi.fn() }));
+const mocks = vi.hoisted(() => ({ verify: vi.fn(), resolve: vi.fn(), list: vi.fn(), betaParticipant: vi.fn() }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
 vi.mock('./repository.js', () => ({ listPatientTimeline: mocks.list }));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
+}));
 
 import { patientTimelineRoutes } from './routes.js';
 
@@ -16,6 +19,7 @@ beforeEach(() => {
     lineUserId: 'U-a', loginChannelId: 'login-a', tenantId: 'tenant-a', lineAccountId: 'account-a',
   });
   mocks.resolve.mockResolvedValue(patient);
+  mocks.betaParticipant.mockResolvedValue(true);
   mocks.list.mockResolvedValue([{
     domain: 'prescription', status: 'pending', nextAction: 'wait',
     occurredAt: '2026-09-01T00:00:00.000Z', detailPath: '/prescriptions?view=history',

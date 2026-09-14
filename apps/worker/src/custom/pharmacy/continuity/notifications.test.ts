@@ -22,7 +22,9 @@ describe('continuity reminder notifications', () => {
         queries.push(sql);
         return ({
           bind: () => ({
-            first: async () => sql.includes('pharmacy_account_capabilities')
+          first: async () => sql.includes('final pharmacy dispatch scope')
+            ? { destination_line_user_id: 'U1', is_following: 1, account_active: 1, tenant_status: 'active', outbound_messaging_paused_at: null, capability_enabled: 1, followup_status: null, followup_operations_enabled: null }
+            : sql.includes('pharmacy_account_capabilities')
               ? { line_account_id: 'account-1', mode: 'pharmacy', capabilities_json: '["continuity"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' }
               : sql.includes('SELECT patient.relationship')
                 ? { relationship: 'self', proxy_expires_at: null, privacy_withdrawn: 0, notifications_stopped: 0, control_version: 0 }
@@ -58,7 +60,7 @@ describe('continuity reminder notifications', () => {
     expect(readCredential).toHaveBeenCalledWith(db, CREDENTIAL_KEY, {
       tenantId: 'tenant-a', lineAccountId: 'account-1', kind: 'channel_access_token',
     });
-    expect(queries.filter((sql) => sql.includes('SELECT patient.relationship'))).toHaveLength(2);
+    expect(queries.filter((sql) => sql.includes('SELECT patient.relationship'))).toHaveLength(3);
   });
 
   it('skips without sending when a tenant credential is missing or cross-tenant', async () => {
