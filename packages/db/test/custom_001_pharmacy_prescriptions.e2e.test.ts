@@ -332,4 +332,100 @@ describe('synthetic prescription end-to-end', () => {
       ).get(RECOVERY_EVENT_ID)).toEqual({ count: sent });
     },
   );
+
+  it('rechecks linked patient authority before resubmission and its audit event', async () => {
+    const now = '2026-08-17T00:00:00.000Z';
+    const linkedPatientId = 'patient-linked';
+    const submissionId = 'submission-linked';
+    const intakeId = 'intake-linked';
+    sqlite.prepare(`INSERT INTO pharmacy_patients
+      (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date, created_at, updated_at)
+      VALUES (?, ?, ?, 'self', 'Linked Patient', 'LINKED PATIENT', '1990-01-01', ?, ?)`).run(
+      linkedPatientId, patient.lineAccountId, patient.friendId, now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_patient_intake_responses
+      (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
+       patient_snapshot_json, answers_json, idempotency_key, representative_consent_at,
+       privacy_consent_at, created_at)
+      VALUES (?, ?, ?, ?, 1, 1, '{}', '{}', ?, ?, ?, ?)`).run(
+      intakeId, patient.lineAccountId, patient.friendId, linkedPatientId,
+      'intake-linked-key', now, now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_prescription_submissions
+      (id, line_account_id, friend_id, idempotency_key, status, active_revision,
+       upload_revision, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'needs_resubmission', 1, 1, ?, ?)`).run(
+      submissionId, patient.lineAccountId, patient.friendId, 'submission-linked-key', now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_prescription_patients
+      (submission_id, line_account_id, owner_friend_id, patient_id, intake_response_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+      submissionId, patient.lineAccountId, patient.friendId, linkedPatientId, intakeId, now,
+    );
+
+    await reservePrescriptionResubmission(db, patient, submissionId, now);
+    const first = sqlite.prepare(`SELECT upload_revision, updated_at
+      FROM pharmacy_prescription_submissions WHERE id = ?`).get(submissionId) as {
+      upload_revision: number; updated_at: string;
+    };
+    const eventsBeforeRevoke = sqlite.prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_prescription_events WHERE submission_id = ?`).get(submissionId) as { count: number };
+    sqlite.prepare(`INSERT INTO pharmacy_patient_owner_controls
+      (line_account_id, patient_id, owner_friend_id, binding_suspended_at, binding_reason_code, version, updated_at)
+      VALUES (?, ?, ?, ?, 'binding_suspended', 1, ?)`).run(
+      patient.lineAccountId, linkedPatientId, patient.friendId, now, now,
+    );
+
+    await expect(reservePrescriptionResubmission(db, patient, submissionId, first.updated_at))
+      .rejects.toThrow(/resubmission conflict/i);
+    expect(sqlite.prepare(`SELECT upload_revision, updated_at
+      FROM pharmacy_prescription_submissions WHERE id = ?`).get(submissionId)).toEqual(first);
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_prescription_events WHERE submission_id = ?`).get(submissionId))
+      .toEqual(eventsBeforeRevoke);
+  });
+
+  it('allows an active minor proxy to read linked history, then hides it after revoke', async () => {
+    const now = '2026-08-17T00:00:00.000Z';
+    const childId = 'patient-child-proxy';
+    const intakeId = 'intake-child-proxy';
+    sqlite.prepare(`INSERT INTO pharmacy_patients
+      (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date, created_at, updated_at)
+      VALUES (?, ?, ?, 'child', 'Proxy Child', 'PROXY CHILD', '2018-01-01', ?, ?)`).run(
+      childId, patient.lineAccountId, patient.friendId, now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_patient_intake_responses
+      (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
+       patient_snapshot_json, answers_json, idempotency_key, representative_consent_at,
+       privacy_consent_at, created_at)
+      VALUES (?, ?, ?, ?, 1, 1, '{}', '{}', ?, ?, ?, ?)`).run(
+      intakeId, patient.lineAccountId, patient.friendId, childId,
+      'intake-child-proxy-key', now, now, now,
+    );
+    sqlite.prepare(`INSERT INTO pharmacy_patient_proxy_grants
+      (id, line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
+       terms_version, terms_hash, granted_at, expires_at, version, created_at, updated_at)
+      VALUES ('grant-child-proxy', ?, ?, ?, 'patient_intake_v1', 'self_attested_guardian',
+              1, ?, ?, '2099-01-01T00:00:00.000Z', 1, ?, ?)`).run(
+      patient.lineAccountId, childId, patient.friendId, 'a'.repeat(64), now, now, now,
+    );
+
+    const submission = await reservePrescriptionDraft(db, patient, {
+      idempotencyKey: 'child-proxy-history',
+      desiredPickupAt: null,
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+      patientId: childId,
+      intakeResponseId: intakeId,
+    });
+    await expect(listPrescriptionHistory(db, patient)).resolves.toEqual([
+      expect.objectContaining({ id: submission.id }),
+    ]);
+
+    sqlite.prepare(`UPDATE pharmacy_patient_proxy_grants
+      SET revoked_at = ?, revoke_reason_code = 'user_revoked', version = version + 1, updated_at = ?
+      WHERE id = 'grant-child-proxy'`).run(now, now);
+
+    await expect(listPrescriptionHistory(db, patient)).resolves.toEqual([]);
+  });
 });

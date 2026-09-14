@@ -28,6 +28,11 @@ describe('custom_056 pharmacy recovery operations', () => {
       '011_custom_068_patient_proxy_controls.sql',
       '012_custom_069_patient_control_audit.sql',
       '013_custom_070_patient_proxy_lifecycle.sql',
+      '014_custom_071_shared_pharmacy_auth.sql',
+      '015_custom_072_pharmacy_beta_memberships.sql',
+      '016_custom_073_pharmacy_medication_followup_closure.sql',
+      '017_custom_074_pharmacy_followup_operations.sql',
+      '018_custom_075_pharmacy_medication_followup_assignments.sql',
     ]);
 
     const tableNames = db.prepare(`SELECT name FROM sqlite_master
