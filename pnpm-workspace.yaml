@@ -15,3 +15,5 @@ overrides:
   esbuild@<0.28.1: ">=0.28.1"
   fast-uri@<3.1.6: "3.1.6"
   qs@<6.16.0: "6.16.0"
+  '@cyclonedx/cdxgen@12.8.4>undici': "7.29.0"
+  'miniflare@5.20260831.0-alpha>sharp': "0.35.4"
