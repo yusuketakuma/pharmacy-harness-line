@@ -206,7 +206,7 @@ describe('admin login boundary', () => {
     const denied = warn.mock.calls.map((call) => String(call[0]))
       .find((line) => line.includes('"event":"authz.denied"'));
     expect(JSON.parse(denied!)).toMatchObject({
-      route: '/api/protected', method: 'GET', status: 401, reason: 'Unauthorized',
+      route: '/*', method: 'GET', status: 401, reason: 'Unauthorized',
     });
     warn.mockRestore();
   });

@@ -160,7 +160,7 @@ friends.get('/api/friends', async (c) => {
       return c.json({ success: false, error: 'Staff account assignment required' }, 403);
     }
     const assignedAccountScope = pharmacyTenant
-      ? `AND ${pharmacyStaffAccountPredicate('f.line_account_id', 'tenant_mapping')}`
+      ? `AND ${await pharmacyStaffAccountPredicate(db, 'f.line_account_id', 'tenant_mapping')}`
       : '';
 
     // Build WHERE conditions
@@ -422,7 +422,7 @@ friends.get('/api/friends/count', async (c) => {
       return c.json({ success: false, error: 'Staff account assignment required' }, 403);
     }
     const assignedAccountScope = pharmacyTenant
-      ? `AND ${pharmacyStaffAccountPredicate('friend.line_account_id', 'mapping')}`
+      ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'friend.line_account_id', 'mapping')}`
       : '';
     const row = await c.env.DB.prepare(
       `SELECT COUNT(*) AS count
@@ -457,7 +457,7 @@ friends.get('/api/friends/ref-stats', async (c) => {
       return c.json({ success: false, error: 'Staff account assignment required' }, 403);
     }
     const assignedAccountScope = pharmacyTenant
-      ? `AND ${pharmacyStaffAccountPredicate('friend.line_account_id', 'mapping')}`
+      ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'friend.line_account_id', 'mapping')}`
       : '';
     const accountFilter = `${assignedAccountScope} ${lineAccountId ? 'AND friend.line_account_id = ?' : ''}`;
     const binds = [tenantId, ...(pharmacyTenant ? [staff!.id] : []), ...(lineAccountId ? [lineAccountId] : [])];

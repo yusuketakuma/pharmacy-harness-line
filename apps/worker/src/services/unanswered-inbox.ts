@@ -275,10 +275,18 @@ function applyFilters(rows: UnansweredRow[], opts: UnansweredInboxOptions): Unan
  *    マッチしない最新の incoming を preview として採用。全部マッチした thread のみ除外。
  */
 async function getAllUnansweredRows(db: D1Database, tenantId: string, staffId?: string): Promise<UnansweredRow[]> {
-  const scopedSql = (sql: string, accountColumn = 'friend.line_account_id') => staffId
-    ? sql.replace('WHERE mapping.tenant_id = ?',
-      `WHERE mapping.tenant_id = ? AND ${pharmacyStaffAccountPredicate(accountColumn)}`)
-    : sql;
+  const [friendScope, ruleScope] = staffId
+    ? await Promise.all([
+      pharmacyStaffAccountPredicate(db, 'friend.line_account_id'),
+      pharmacyStaffAccountPredicate(db, 'rule.line_account_id'),
+    ])
+    : ['', ''];
+  const scopedSql = (sql: string, accountColumn = 'friend.line_account_id') => {
+    if (!staffId) return sql;
+    const scope = accountColumn === 'rule.line_account_id' ? ruleScope : friendScope;
+    return sql.replace('WHERE mapping.tenant_id = ?',
+      `WHERE mapping.tenant_id = ? AND ${scope}`);
+  };
   const scopeBindings = staffId ? [tenantId, staffId] : [tenantId];
   const candidatesResult = await db.prepare(scopedSql(CANDIDATES_SQL)).bind(...scopeBindings).all<RawCandidateRow>();
   const candidates = candidatesResult.results ?? [];

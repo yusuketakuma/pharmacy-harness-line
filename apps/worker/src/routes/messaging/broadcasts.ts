@@ -9,7 +9,6 @@ import {
 import type { Broadcast as DbBroadcast, BroadcastMessageType, BroadcastTargetType } from '@line-crm/db';
 import { LineClient } from '@line-crm/line-sdk';
 import { processBroadcastSend, buildMessage, processQueuedBroadcasts } from '../../services/broadcast.js';
-import { computeDedupBroadcastPreview } from '../../services/dedup-broadcast.js';
 import type { SegmentCondition } from '../../services/segment-query.js';
 import { getLineAccountById } from '@line-crm/db';
 import type { Env } from '../../index.js';
@@ -207,6 +206,7 @@ broadcasts.get('/api/broadcasts/:id/preview-count', async (c) => {
     if (broadcast.target_type === 'multi-account-dedup') {
       const accountIds = parseJsonArray(raw.account_ids) ?? [];
       const dedupPriority = parseJsonArray(raw.dedup_priority) ?? [];
+      const { computeDedupBroadcastPreview } = await import('../../services/dedup-broadcast.js');
       const preview = await computeDedupBroadcastPreview(
         c.env.DB,
         accountIds,
@@ -693,6 +693,7 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
       const rawExisting = existing as unknown as Record<string, unknown>;
       const accountIds = parseJsonArray(rawExisting.account_ids) ?? [];
       const dedupPriority = parseJsonArray(rawExisting.dedup_priority) ?? [];
+      const { computeDedupBroadcastPreview } = await import('../../services/dedup-broadcast.js');
       const preview = await computeDedupBroadcastPreview(
         c.env.DB,
         accountIds,

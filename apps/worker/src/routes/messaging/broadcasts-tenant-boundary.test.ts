@@ -44,7 +44,10 @@ function db(ownedAccountIds: string[], sqlLog: string[] = []) {
             if (sql.includes('FROM pharmacy_account_capabilities')) return { mode: 'pharmacy' };
             if (sql.includes('FROM tenant_line_accounts AS mapping')) {
               const accountId = values.at(-1);
-              return ownedAccountIds.includes(accountId as string) ? { ok: 1 } : null;
+              if (!ownedAccountIds.includes(accountId as string)) return null;
+              return sql.includes('SELECT mapping.tenant_id')
+                ? { tenant_id: 'tenant-a' }
+                : { ok: 1 };
             }
             return null;
           },

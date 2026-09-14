@@ -26,6 +26,7 @@ import {
   type PatientMedicationFollowUp,
 } from './repository.js';
 import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
+import { recordTenantAudit } from '../../../lib/tenant-audit.js';
 
 type MedicationFollowUpEnv = {
   Bindings: Env['Bindings'];
@@ -278,6 +279,14 @@ medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/:id/cont
     const contacts = await listMedicationFollowUpContacts(
       c.env.DB, account.lineAccountId, c.req.param('id'),
     );
+    await recordTenantAudit(c.env.DB, {
+      lineAccountId: account.lineAccountId,
+      actorStaffId: account.staff.id,
+      action: 'phi.medication_followup_contacts_viewed',
+      resourceType: 'medication_followup',
+      resourceId: c.req.param('id'),
+    });
+    c.header('Cache-Control', 'private, no-store');
     return c.json({ contacts: contacts.map(contactProjection) });
   } catch (error) {
     return followUpError(c, error);

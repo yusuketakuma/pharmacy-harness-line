@@ -16,10 +16,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
-vi.mock('../growth-loop/access.js', () => ({
+vi.mock('../growth-loop/access.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../growth-loop/access.js')>(),
   canAccessPharmacyAccount: vi.fn(),
   hasPharmacyCapability: mocks.capability,
-  pharmacyStaffAccountPredicate: () => '? IS NOT NULL',
 }));
 vi.mock('../beta-membership/repository.js', () => ({
   canUsePharmacyBetaParticipant: mocks.betaParticipant,
@@ -27,6 +27,10 @@ vi.mock('../beta-membership/repository.js', () => ({
 }));
 
 import { medicationFollowUpRoutes } from './routes.js';
+import {
+  recordMedicationFollowUpContact,
+  transitionMedicationFollowUp,
+} from './repository.js';
 
 const require = createRequire(import.meta.url);
 const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
@@ -91,6 +95,7 @@ const SCHEMA = `
     id TEXT PRIMARY KEY, followup_id TEXT NOT NULL, line_account_id TEXT NOT NULL,
     event_type TEXT NOT NULL, from_status TEXT, to_status TEXT, actor_type TEXT NOT NULL,
     actor_id TEXT, idempotency_key TEXT NOT NULL, occurred_at TEXT NOT NULL,
+    assignee_staff_id TEXT,
     UNIQUE (line_account_id, idempotency_key)
   );
   CREATE TABLE pharmacy_medication_followup_contact_records (
@@ -164,6 +169,18 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
       `INSERT INTO pharmacy_patients (id, line_account_id, owner_friend_id, name)
        VALUES (?, ?, ?, ?)`,
     ).bind(PATIENT_ID, LINE_ACCOUNT_ID, FRIEND_ID, '田中 太郎').run();
+    await db.prepare(`INSERT INTO line_accounts (id) VALUES (?)`).bind(LINE_ACCOUNT_ID).run();
+    await db.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES ('tenant-a', ?)`).bind(LINE_ACCOUNT_ID).run();
+    await db.prepare(`INSERT INTO tenants (id, status) VALUES ('tenant-a', 'active')`).run();
+    await db.prepare(
+      `INSERT INTO staff_members (id, principal_kind, shared_tenant_id) VALUES ('staff-a', 'human', NULL), ('staff-b', 'human', NULL)`,
+    ).run();
+    await db.prepare(
+      `INSERT INTO tenant_staff_memberships (tenant_id, staff_id) VALUES ('tenant-a', 'staff-a'), ('tenant-a', 'staff-b')`,
+    ).run();
+    await db.prepare(
+      `INSERT INTO pharmacy_staff_accounts (line_account_id, staff_id) VALUES (?, 'staff-a')`,
+    ).bind(LINE_ACCOUNT_ID).run();
 
     // The row we will respond to: oldest by created_at, so it sits outside
     // the ORDER BY created_at DESC LIMIT 20 window once 20 newer rows exist.
@@ -231,6 +248,92 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
     await expect(replay.json()).resolves.toMatchObject({
       followUp: { id: TARGET_ID, status: 'no_issue', version: 2 },
     });
+    close();
+  });
+
+  it('treats an omitted assignee as null during assigned-transition replay', async () => {
+    await db.prepare(
+      `UPDATE pharmacy_medication_followups SET status = 'concern' WHERE id = ?`,
+    ).bind(TARGET_ID).run();
+    const input = {
+      lineAccountId: LINE_ACCOUNT_ID,
+      followUpId: TARGET_ID,
+      toStatus: 'assigned' as const,
+      expectedVersion: 1,
+      actorType: 'staff' as const,
+      actorId: 'staff-a',
+      idempotencyKey: 'assigned-replay-key',
+      now: new Date('2026-09-14T00:00:00.000Z'),
+    };
+
+    const first = await transitionMedicationFollowUp(db, input);
+    const replay = await transitionMedicationFollowUp(db, input);
+
+    expect(first).toMatchObject({ status: 'assigned', version: 2 });
+    expect(replay).toMatchObject({ status: 'assigned', version: 2 });
+    await expect(db.prepare(
+      `SELECT assignee_staff_id FROM pharmacy_medication_followup_events
+        WHERE idempotency_key = ?`,
+    ).bind(input.idempotencyKey).first<{ assignee_staff_id: string | null }>())
+      .resolves.toMatchObject({ assignee_staff_id: null });
+    close();
+  });
+
+  it('allows an identical contact replay after its follow-up time has passed', async () => {
+    const first = await recordMedicationFollowUpContact(db, {
+      lineAccountId: LINE_ACCOUNT_ID,
+      followUpId: TARGET_ID,
+      channel: 'phone',
+      outcomeCode: 'answered',
+      actorStaffId: 'staff-a',
+      idempotencyKey: 'contact-replay-key',
+      expectedVersion: 1,
+      now: new Date('2026-09-14T00:00:00.000Z'),
+    });
+    const replay = await recordMedicationFollowUpContact(db, {
+      lineAccountId: LINE_ACCOUNT_ID,
+      followUpId: TARGET_ID,
+      channel: 'phone',
+      outcomeCode: 'answered',
+      actorStaffId: 'staff-a',
+      idempotencyKey: 'contact-replay-key',
+      expectedVersion: 1,
+      now: new Date('2026-09-15T00:00:00.000Z'),
+    });
+
+    expect(replay.id).toBe(first.id);
+    close();
+  });
+
+  it('does not write a contact when the explicit assignee is not authorized', async () => {
+    await db.prepare(
+      `UPDATE pharmacy_medication_followups SET status = 'concern' WHERE id = ?`,
+    ).bind(TARGET_ID).run();
+
+    await expect(transitionMedicationFollowUp(db, {
+      lineAccountId: LINE_ACCOUNT_ID,
+      followUpId: TARGET_ID,
+      toStatus: 'assigned',
+      expectedVersion: 1,
+      actorType: 'staff',
+      actorId: 'staff-a',
+      assigneeStaffId: 'staff-b',
+      idempotencyKey: 'unauthorized-assignee-key',
+      contact: {
+        channel: 'phone', outcomeCode: 'answered', idempotencyKey: 'unauthorized-contact-key',
+      },
+      now: new Date('2026-09-14T00:00:00.000Z'),
+    })).rejects.toThrow('transition conflict');
+
+    await expect(db.prepare(
+      `SELECT status, version FROM pharmacy_medication_followups WHERE id = ?`,
+    ).bind(TARGET_ID).first<{ status: string; version: number }>())
+      .resolves.toMatchObject({ status: 'concern', version: 1 });
+    await expect(db.prepare(
+      `SELECT COUNT(*) AS count FROM pharmacy_medication_followup_contact_records
+        WHERE idempotency_key = ?`,
+    ).bind('unauthorized-contact-key').first<{ count: number }>())
+      .resolves.toMatchObject({ count: 0 });
     close();
   });
 });

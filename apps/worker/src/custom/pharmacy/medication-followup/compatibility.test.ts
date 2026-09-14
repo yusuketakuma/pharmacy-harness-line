@@ -85,8 +85,6 @@ function oldSchemaDb(): { db: D1Database; close: () => void } {
     CREATE TABLE tenants (id TEXT PRIMARY KEY, status TEXT NOT NULL);
     CREATE TABLE staff_members (
       id TEXT PRIMARY KEY,
-      principal_kind TEXT NOT NULL DEFAULT 'human',
-      shared_tenant_id TEXT,
       is_active INTEGER NOT NULL DEFAULT 1
     );
     CREATE TABLE tenant_staff_memberships (

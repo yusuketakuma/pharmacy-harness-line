@@ -321,7 +321,7 @@ export function MedicationFollowUpPanel({
       return
     }
     const contact = status === 'responded' && !hasMeaningfulContact ? readContactDraft() : undefined
-    if (status === 'responded' && !contact) return
+    if (status === 'responded' && !contact && !hasMeaningfulContact) return
     if (status === 'assigned' && !assigneeStaffId) {
       setError('担当する人間スタッフを選択してください。')
       return

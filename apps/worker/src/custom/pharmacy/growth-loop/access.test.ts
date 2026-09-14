@@ -54,6 +54,33 @@ describe('pharmacy staff account access', () => {
     )).resolves.toBe('tenant-a');
   });
 
+  it('allows the shared pharmacy principal through its tenant binding', async () => {
+    const sql: string[] = [];
+    const sharedDb = {
+      prepare(statement: string) {
+        sql.push(statement);
+        if (statement.includes('PRAGMA table_info(staff_members)')) {
+          return {
+            all: async () => ({ results: [
+              { name: 'principal_kind' }, { name: 'shared_tenant_id' },
+            ] }),
+          };
+        }
+        return {
+          bind: () => ({ first: async () => ({ tenant_id: 'tenant-a' }) }),
+        };
+      },
+    } as unknown as D1Database;
+
+    await expect(resolveAccessiblePharmacyTenant(
+      sharedDb,
+      { id: 'shared-pharmacy', role: 'admin', principalKind: 'pharmacy_shared' },
+      'account-a',
+    )).resolves.toBe('tenant-a');
+    expect(sql[1]).toContain("staff.principal_kind = 'pharmacy_shared'");
+    expect(sql[1]).toContain('staff.shared_tenant_id = mapping.tenant_id');
+  });
+
   it('rejects a staff member with only tenant membership and no account assignment', async () => {
     await expect(resolveAccessiblePharmacyTenant(
       db({ tenantId: 'tenant-a', assigned: true, accountAssigned: false }),
@@ -96,10 +123,11 @@ describe('pharmacy staff account access', () => {
       { id: 'staff-a', role: 'staff' },
       'account-a',
     )).resolves.toBe('tenant-a');
-    expect(sql).toHaveLength(1);
-    expect(sql[0]).toContain('pharmacy_staff_accounts');
-    expect(sql[0]).toContain('tenant_line_accounts');
-    expect(sql[0]).toContain('tenant_staff_memberships');
+    expect(sql).toHaveLength(2);
+    expect(sql[0]).toContain('PRAGMA table_info(staff_members)');
+    expect(sql[1]).toContain('pharmacy_staff_accounts');
+    expect(sql[1]).toContain('tenant_line_accounts');
+    expect(sql[1]).toContain('tenant_staff_memberships');
   });
 });
 

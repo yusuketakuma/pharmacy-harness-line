@@ -1,6 +1,9 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Env } from '../index.js';
-import { isPharmacyModeAccount } from '../custom/pharmacy/growth-loop/access.js';
+import {
+  isPharmacyModeAccount,
+  resolveAccessiblePharmacyTenant,
+} from '../custom/pharmacy/growth-loop/access.js';
 import { deny } from './deny.js';
 
 const ACCOUNT_KEYS = [
@@ -52,25 +55,7 @@ export async function accountResourceOwnedByStaff(
     if (pharmacyAccount) {
       const staff = c.get('staff');
       if (!staff || staff.id === 'env-owner') return false;
-      const assigned = await c.env.DB.prepare(
-        `SELECT 1 AS ok
-           FROM tenant_line_accounts AS mapping
-           INNER JOIN line_accounts AS account
-                   ON account.id = mapping.line_account_id
-           INNER JOIN tenant_staff_memberships AS membership
-                   ON membership.tenant_id = mapping.tenant_id
-                  AND membership.staff_id = ?
-                  AND membership.is_active = 1
-           INNER JOIN pharmacy_staff_accounts AS assignment
-                   ON assignment.line_account_id = mapping.line_account_id
-                  AND assignment.staff_id = membership.staff_id
-                  AND assignment.is_active = 1
-          WHERE account.id = mapping.line_account_id
-            AND account.is_active = 1
-            AND mapping.tenant_id = ? AND mapping.line_account_id = ?
-          LIMIT 1`,
-      ).bind(staff.id, tenantId, accountId).first<{ ok: number }>();
-      return Boolean(assigned);
+      return await resolveAccessiblePharmacyTenant(c.env.DB, staff, accountId) === tenantId;
     }
     const mapped = await c.env.DB.prepare(
       `SELECT 1 AS ok

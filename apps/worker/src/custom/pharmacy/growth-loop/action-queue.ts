@@ -131,10 +131,12 @@ const DETAIL_HREFS: Record<PharmacyActionQueueDomain, string> = {
   manualChat: '/chats?unanswered=1',
 };
 
+const TOKYO_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
 function tokyoDate(value: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(value);
+  return TOKYO_DATE_FORMATTER.format(value);
 }
 
 function deadlineKind(value: string | null, at: Date): PharmacyActionQueueDeadline {

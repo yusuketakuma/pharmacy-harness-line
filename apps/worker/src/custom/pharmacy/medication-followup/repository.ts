@@ -1,5 +1,8 @@
 import { patientAuthorityPredicateFor } from '../intake/repository.js';
-import { pharmacyStaffAccountPredicate } from '../growth-loop/access.js';
+import {
+  pharmacyHumanStaffPredicate,
+  pharmacyStaffAccountPredicate,
+} from '../growth-loop/access.js';
 
 export type MedicationFollowUpStatus =
   | 'scheduled'
@@ -162,11 +165,11 @@ function validOpaqueKey(value: string, maxLength = 160): boolean {
   return value.length >= 8 && value.length <= maxLength && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
-function validContactInput(input: {
+function normalizeContactInput(input: {
   channel: MedicationFollowUpContactChannel;
   outcomeCode: MedicationFollowUpContactOutcome;
   nextContactAt?: string | null;
-}, now: Date): string | null {
+}): string | null {
   if (!CONTACT_CHANNELS.has(input.channel) || !CONTACT_OUTCOMES.has(input.outcomeCode)) {
     throw new Error('invalid medication follow-up contact');
   }
@@ -177,13 +180,17 @@ function validContactInput(input: {
     return null;
   }
   const nextContact = new Date(input.nextContactAt);
-  if (!Number.isFinite(nextContact.getTime()) || nextContact.getTime() <= now.getTime()) {
-    throw new Error('next contact time must be in the future');
-  }
+  if (!Number.isFinite(nextContact.getTime())) throw new Error('invalid medication follow-up contact');
   return nextContact.toISOString();
 }
 
-function staffAccountAuthorityPredicate(accountColumn: string): string {
+function requireFutureContactAt(nextContactAt: string | null, now: Date): void {
+  if (nextContactAt !== null && Date.parse(nextContactAt) <= now.getTime()) {
+    throw new Error('next contact time must be in the future');
+  }
+}
+
+async function staffAccountAuthorityPredicate(db: D1Database, accountColumn: string): Promise<string> {
   return `EXISTS (
     SELECT 1
       FROM tenant_line_accounts AS mapping
@@ -192,11 +199,11 @@ function staffAccountAuthorityPredicate(accountColumn: string): string {
       INNER JOIN tenants AS tenant
               ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
      WHERE mapping.line_account_id = ${accountColumn}
-       AND ${pharmacyStaffAccountPredicate(accountColumn, 'mapping')}
+       AND ${await pharmacyStaffAccountPredicate(db, accountColumn, 'mapping')}
   )`;
 }
 
-function humanStaffAccountPredicate(accountColumn: string): string {
+async function humanStaffAccountPredicate(db: D1Database, accountColumn: string): Promise<string> {
   return `EXISTS (
     SELECT 1
       FROM tenant_line_accounts AS mapping
@@ -209,7 +216,7 @@ function humanStaffAccountPredicate(accountColumn: string): string {
       INNER JOIN staff_members AS assignee
               ON assignee.id = membership.staff_id
              AND assignee.is_active = 1
-             AND assignee.principal_kind = 'human'
+             AND ${await pharmacyHumanStaffPredicate(db, 'assignee')}
       INNER JOIN pharmacy_staff_accounts AS assignment
               ON assignment.line_account_id = ${accountColumn}
              AND assignment.staff_id = assignee.id
@@ -336,6 +343,7 @@ export async function scheduleMedicationFollowUp(
   if (!schema.closureColumns && responseDeadlineAt !== null) {
     throw new Error('follow-up closure unavailable');
   }
+  const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, '?');
   const source = await db.prepare(
     `SELECT pp.patient_id, pp.owner_friend_id
        FROM pharmacy_prescription_patients pp
@@ -380,7 +388,7 @@ export async function scheduleMedicationFollowUp(
            AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                           WHERE value = 'medication_followup')
         )
-          AND ${staffAccountAuthorityPredicate('?')}
+          AND ${staffAuthorityPredicate}
           AND NOT EXISTS (
           SELECT 1 FROM pharmacy_medication_followup_events
            WHERE line_account_id = ? AND idempotency_key = ?
@@ -403,7 +411,7 @@ export async function scheduleMedicationFollowUp(
            AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                           WHERE value = 'medication_followup')
         )
-          AND ${staffAccountAuthorityPredicate('?')}
+          AND ${staffAuthorityPredicate}
           AND NOT EXISTS (
           SELECT 1 FROM pharmacy_medication_followup_events
            WHERE line_account_id = ? AND idempotency_key = ?
@@ -437,7 +445,9 @@ export async function scheduleMedicationFollowUp(
   const saved = await db.prepare(
     `${followUpSelect(schema)} WHERE line_account_id = ? AND source_submission_id = ?`,
   ).bind(input.lineAccountId, input.submissionId).first<MedicationFollowUp>();
-  if (!saved || saved.due_at !== dueAt) throw new Error('medication follow-up scheduling conflict');
+  if (!saved || saved.due_at !== dueAt || saved.response_deadline_at !== responseDeadlineAt) {
+    throw new Error('medication follow-up scheduling conflict');
+  }
   return saved;
 }
 
@@ -501,7 +511,7 @@ export async function transitionMedicationFollowUp(
   }>();
   if (replay) {
     if (eventAssigneeColumn && input.toStatus === 'assigned' &&
-        replay.assignee_staff_id !== input.assigneeStaffId) {
+        replay.assignee_staff_id !== (input.assigneeStaffId ?? null)) {
       throw new Error('medication follow-up transition conflict');
     }
     return current;
@@ -519,6 +529,8 @@ export async function transitionMedicationFollowUp(
 
   const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
   const requiresHumanAssignee = input.toStatus === 'assigned' && input.assigneeStaffId !== undefined;
+  const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, 'followup.line_account_id');
+  const humanAssigneePredicate = await humanStaffAccountPredicate(db, 'followup.line_account_id');
 
   let contact: MedicationFollowUpContactRecord | null = null;
   let nextContactAt: string | null = null;
@@ -526,13 +538,14 @@ export async function transitionMedicationFollowUp(
     if (input.actorType !== 'staff' || !validOpaqueKey(input.contact.idempotencyKey)) {
       throw new Error('invalid medication follow-up contact');
     }
-    nextContactAt = validContactInput(input.contact, now);
+    nextContactAt = normalizeContactInput(input.contact);
     contact = await getMedicationFollowUpContactByKey(
       db, input.lineAccountId, input.contact.idempotencyKey,
     );
     if (contact && !sameContactInput(contact, input.contact, nextContactAt, input.followUpId)) {
       throw new Error('medication follow-up contact conflict');
     }
+    if (!contact) requireFutureContactAt(nextContactAt, now);
   }
   const requiresResponseRecord = input.toStatus === 'responded' ||
     (input.toStatus === 'closed' && current.status === 'responded');
@@ -585,12 +598,12 @@ export async function transitionMedicationFollowUp(
           )
           AND (
             ? <> 'staff'
-            OR ${staffAccountAuthorityPredicate('followup.line_account_id')}
+            OR ${staffAuthorityPredicate}
           )
           ${responseRecordGuard}
           AND (
             ? = 0
-            OR ${humanStaffAccountPredicate('followup.line_account_id')}
+            OR ${humanAssigneePredicate}
           )`,
   ).bind(
     eventId, input.toStatus, input.toStatus, input.actorType, input.actorId,
@@ -611,12 +624,17 @@ export async function transitionMedicationFollowUp(
          FROM pharmacy_medication_followups AS followup
         WHERE followup.id = ? AND followup.line_account_id = ?
           AND followup.status = ? AND followup.version = ?
-          AND ${staffAccountAuthorityPredicate('followup.line_account_id')}`,
+          AND ${staffAuthorityPredicate}
+          AND (
+            ? = 0
+            OR ${humanAssigneePredicate}
+          )`,
     ).bind(
       crypto.randomUUID(), input.contact.channel, input.contact.outcomeCode, nextContactAt,
       input.actorId, input.contact.idempotencyKey, timestamp, timestamp,
       input.followUpId, input.lineAccountId, current.status, input.expectedVersion,
       input.actorId,
+      requiresHumanAssignee ? 1 : 0, input.assigneeStaffId ?? input.actorId,
     )
     : null;
   const results = await db.batch([
@@ -652,12 +670,12 @@ export async function transitionMedicationFollowUp(
           )
           AND (
             ? <> 'staff'
-            OR ${staffAccountAuthorityPredicate('followup.line_account_id')}
+            OR ${staffAuthorityPredicate}
           )
           ${responseRecordGuard}
           AND (
             ? = 0
-            OR ${humanStaffAccountPredicate('followup.line_account_id')}
+            OR ${humanAssigneePredicate}
           )`,
     ).bind(
       input.toStatus,
@@ -707,7 +725,7 @@ export async function recordMedicationFollowUpContact(
   const schema = await medicationFollowUpSchema(db);
   if (!schema.contactRecords) throw new Error('follow-up closure unavailable');
   const now = input.now ?? new Date();
-  const nextContactAt = validContactInput(input, now);
+  const nextContactAt = normalizeContactInput(input);
   const contactInput: MedicationFollowUpContactInput = {
     channel: input.channel,
     outcomeCode: input.outcomeCode,
@@ -723,11 +741,13 @@ export async function recordMedicationFollowUpContact(
     }
     return existing;
   }
+  requireFutureContactAt(nextContactAt, now);
 
   const versionPredicate = input.expectedVersion === undefined
     ? ''
     : ' AND followup.version = ?';
   const timestamp = now.toISOString();
+  const staffAuthorityPredicate = await staffAccountAuthorityPredicate(db, 'followup.line_account_id');
   const result = await db.prepare(
     `INSERT OR IGNORE INTO pharmacy_medication_followup_contact_records
       (id, followup_id, line_account_id, channel, outcome_code, next_contact_at,
@@ -737,7 +757,7 @@ export async function recordMedicationFollowUpContact(
       WHERE followup.id = ? AND followup.line_account_id = ?
         AND followup.status NOT IN ('closed', 'cancelled')
         ${versionPredicate}
-        AND ${staffAccountAuthorityPredicate('followup.line_account_id')}`,
+        AND ${staffAuthorityPredicate}`,
   ).bind(
     crypto.randomUUID(), input.channel, input.outcomeCode, nextContactAt,
     input.actorStaffId, input.idempotencyKey, timestamp, timestamp,
@@ -789,6 +809,7 @@ export async function listMedicationFollowUpAssignees(
   db: D1Database,
   lineAccountId: string,
 ): Promise<MedicationFollowUpAssignee[]> {
+  const humanStaffPredicate = await pharmacyHumanStaffPredicate(db, 'staff');
   const result = await db.prepare(
     `SELECT DISTINCT staff.id, staff.name, membership.role
        FROM tenant_line_accounts AS mapping
@@ -799,9 +820,9 @@ export async function listMedicationFollowUpAssignees(
        INNER JOIN tenant_staff_memberships AS membership
                ON membership.tenant_id = mapping.tenant_id AND membership.is_active = 1
        INNER JOIN staff_members AS staff
-               ON staff.id = membership.staff_id
-              AND staff.is_active = 1
-              AND staff.principal_kind = 'human'
+              ON staff.id = membership.staff_id
+             AND staff.is_active = 1
+              AND ${humanStaffPredicate}
        INNER JOIN pharmacy_staff_accounts AS assignment
                ON assignment.line_account_id = mapping.line_account_id
               AND assignment.staff_id = staff.id

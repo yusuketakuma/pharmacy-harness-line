@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   access: vi.fn(), capability: vi.fn(), schedule: vi.fn(), transition: vi.fn(),
   listOwner: vi.fn(), getOwner: vi.fn(), respond: vi.fn(), verify: vi.fn(), resolve: vi.fn(),
   listContacts: vi.fn(), recordContact: vi.fn(),
+  audit: vi.fn(),
   betaParticipant: vi.fn(),
 }));
 vi.mock('../growth-loop/access.js', () => ({
@@ -25,6 +26,7 @@ vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mock
 vi.mock('../beta-membership/repository.js', () => ({
   canUsePharmacyBetaParticipant: mocks.betaParticipant,
 }));
+vi.mock('../../../lib/tenant-audit.js', () => ({ recordTenantAudit: mocks.audit }));
 
 import { medicationFollowUpRoutes } from './routes.js';
 
@@ -74,6 +76,7 @@ beforeEach(() => {
     id: 'contact-a', channel: 'phone', outcome_code: 'answered',
     next_contact_at: null, occurred_at: '2026-08-21T10:00:00.000Z',
   });
+  mocks.audit.mockResolvedValue(undefined);
 });
 
 describe('medication follow-up patient routes', () => {
@@ -267,6 +270,21 @@ describe('medication follow-up staff routes', () => {
       lineAccountId: 'account-a', followUpId: 'followup-a', channel: 'phone',
       outcomeCode: 'follow_up_required', nextContactAt: '2026-08-22T01:00:00.000Z',
       actorStaffId: 'staff-a', idempotencyKey: 'contact-follow-up', expectedVersion: 3,
+    });
+  });
+
+  it('audits and disables caching for contact history reads', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/followup-a/contacts?line_account_id=account-a',
+      {}, env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(mocks.audit).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-a', actorStaffId: 'staff-a',
+      action: 'phi.medication_followup_contacts_viewed',
+      resourceType: 'medication_followup', resourceId: 'followup-a',
     });
   });
 
