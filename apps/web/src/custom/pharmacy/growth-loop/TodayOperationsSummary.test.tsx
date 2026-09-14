@@ -58,4 +58,17 @@ describe('today operations summary', () => {
     expect(richMenuDisplayStatus({ ...summary.richMenu, status: 'BLOCKED', catalogVersionCurrent: true })).toBe('BLOCKED')
     expect(richMenuDisplayStatus({ ...summary.richMenu, catalogVersionCurrent: true })).toBe('UNVERIFIED')
   })
+
+  it('renders the bounded action queue without exposing record identifiers', () => {
+    const html = renderToStaticMarkup(<TodayOperationsSummaryView summary={summary} actionQueue={{
+      accountId: 'account-a', checkedAt: summary.checkedAt, partial: false, truncated: false,
+      items: [{ domain: 'medicationFollowup', status: 'concern', deadline: 'overdue', detailHref: '/patient-intakes?followup=attention' }],
+    }} />)
+
+    expect(html).toContain('対応が必要な項目')
+    expect(html).toContain('要確認')
+    expect(html).toContain('期限超過')
+    expect(html).toContain('href="/patient-intakes?followup=attention"')
+    expect(html).not.toContain('patient_id')
+  })
 })

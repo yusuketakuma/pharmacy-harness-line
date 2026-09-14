@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAccount } from '@/contexts/account-context'
 import { PRESCRIPTION_STATUS_LABELS } from '@/custom/pharmacy/prescriptions/PrescriptionQueueOverview'
-import { pharmacyGrowthApi, type PharmacyOperationsSummary } from './api'
+import { pharmacyGrowthApi, type PharmacyActionQueue, type PharmacyOperationsSummary } from './api'
 
 export type OperationsSummary = PharmacyOperationsSummary
 type DomainKey = keyof OperationsSummary['domains']
@@ -27,6 +27,20 @@ const STATUS_LABELS: Record<string, string> = {
   scheduled: '送信予約', due: '送信処理中', delivered: '回答待ち', concern: '要確認',
   pharmacist_requested: '薬剤師相談', assigned: '担当中', responded: '対応済み', escalated: '優先確認',
   provisional: '仮受付', reviewed: '確認済み',
+}
+
+const ACTION_DOMAIN_LABELS: Record<PharmacyActionQueue['items'][number]['domain'], string> = {
+  prescriptionIntake: '処方せん受付',
+  electronicPrescription: '電子処方箋受付',
+  patientIntake: '患者アンケート',
+  continuity: '継続フォロー',
+  medicationFollowup: '服薬フォロー',
+  emergencyContraception: '緊急避妊薬',
+  manualChat: '個別チャット',
+}
+
+const ACTION_DEADLINE_LABELS: Record<PharmacyActionQueue['items'][number]['deadline'], string> = {
+  overdue: '期限超過', today: '本日', upcoming: '今後', none: '期限なし',
 }
 
 export function createOperationsSummaryRequestGate() {
@@ -57,7 +71,15 @@ function formatUpdatedAt(value: string | null): string {
   }).format(new Date(value))
 }
 
-export function TodayOperationsSummaryView({ summary }: { summary: OperationsSummary }) {
+export function TodayOperationsSummaryView({
+  summary,
+  actionQueue,
+  actionQueueError = '',
+}: {
+  summary: OperationsSummary
+  actionQueue?: PharmacyActionQueue | null
+  actionQueueError?: string
+}) {
   return (
     <section className="mx-auto max-w-6xl space-y-4 p-6 pb-0" aria-labelledby="today-operations-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -97,6 +119,30 @@ export function TodayOperationsSummaryView({ summary }: { summary: OperationsSum
           <Link href="/rich-menus" className="mt-3 flex min-h-11 items-center text-sm font-medium text-green-700 hover:underline">設定画面を開く →</Link>
         </article>
       </div>
+      <section className="rounded-xl border border-gray-200 bg-white p-4" aria-labelledby="action-queue-title">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="action-queue-title" className="font-semibold text-gray-900">対応が必要な項目</h2>
+            <p className="mt-1 text-sm text-gray-600">既存の記録を確認するための読み取り専用一覧です。ここから状態変更や一括操作は行いません。</p>
+          </div>
+          {actionQueue?.truncated && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">先頭50件を表示</span>}
+        </div>
+        {actionQueueError
+          ? <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">対応一覧を取得できませんでした。各機能の画面から確認してください。</p>
+          : actionQueue?.partial && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">一部の機能を取得できませんでした。表示できた範囲だけを示しています。</p>}
+        {actionQueue && actionQueue.items.length === 0
+          ? <p className="mt-3 rounded-lg bg-gray-50 p-4 text-sm text-gray-600">対応が必要な項目はありません。</p>
+          : actionQueue && <ol className="mt-3 divide-y divide-gray-100 rounded-lg border border-gray-100">
+            {actionQueue.items.map((item, index) => <li key={`${item.domain}-${item.status}-${index}`}>
+              <Link href={item.detailHref} className="flex min-h-11 flex-wrap items-center justify-between gap-2 px-3 py-3 text-sm hover:bg-gray-50">
+                <span className="font-medium text-gray-900">{ACTION_DOMAIN_LABELS[item.domain]}</span>
+                <span className="text-gray-600">{STATUS_LABELS[item.status] ?? item.status}</span>
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">{ACTION_DEADLINE_LABELS[item.deadline]}</span>
+                <span className="font-medium text-green-700">確認画面へ →</span>
+              </Link>
+            </li>)}
+          </ol>}
+      </section>
       <p className="text-xs text-gray-500">集計時刻: {formatUpdatedAt(summary.checkedAt)}</p>
     </section>
   )
@@ -105,6 +151,8 @@ export function TodayOperationsSummaryView({ summary }: { summary: OperationsSum
 export default function TodayOperationsSummary() {
   const { selectedAccountId } = useAccount()
   const [summary, setSummary] = useState<OperationsSummary | null>(null)
+  const [actionQueue, setActionQueue] = useState<PharmacyActionQueue | null>(null)
+  const [actionQueueError, setActionQueueError] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const requestGate = useRef(createOperationsSummaryRequestGate()).current
@@ -115,13 +163,23 @@ export default function TodayOperationsSummary() {
     const request = requestGate.start()
     setLoading(true)
     setError('')
+    setActionQueue(null)
+    setActionQueueError('')
     try {
-      const response = await pharmacyGrowthApi.operationsSummary(accountId)
+      const [summaryResult, queueResult] = await Promise.allSettled([
+        pharmacyGrowthApi.operationsSummary(accountId),
+        pharmacyGrowthApi.actionQueue(accountId),
+      ])
       if (!requestGate.isCurrent(request)) return
-      if (!response.success || !response.data || response.data.accountId !== accountId) {
+      if (queueResult.status === 'fulfilled' && queueResult.value.success && queueResult.value.data && queueResult.value.data.accountId === accountId) {
+        setActionQueue(queueResult.value.data)
+      } else {
+        setActionQueueError('対応一覧を取得できませんでした。')
+      }
+      if (summaryResult.status === 'rejected' || !summaryResult.value.success || !summaryResult.value.data || summaryResult.value.data.accountId !== accountId) {
         throw new Error('invalid account summary')
       }
-      setSummary(response.data)
+      setSummary(summaryResult.value.data)
     } catch {
       if (requestGate.isCurrent(request)) setError('本日の対応を取得できませんでした。')
     } finally {
@@ -139,5 +197,5 @@ export default function TodayOperationsSummary() {
 
   if (loading && !summary) return <p role="status" className="px-6 py-8 text-center text-sm text-gray-500">本日の対応を読み込み中...</p>
   if (error) return <div className="mx-auto max-w-6xl p-6 pb-0"><p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p><button type="button" onClick={() => void load()} className="mt-3 min-h-11 rounded-lg border border-gray-300 px-4 text-sm font-medium">再試行</button></div>
-  return summary ? <TodayOperationsSummaryView summary={summary} /> : null
+  return summary ? <TodayOperationsSummaryView summary={summary} actionQueue={actionQueue} actionQueueError={actionQueueError} /> : null
 }

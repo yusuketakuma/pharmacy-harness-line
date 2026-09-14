@@ -64,6 +64,13 @@ export interface PrescriptionDetail {
   events: PrescriptionEvent[]
   source: PrescriptionSource | null
   validity: PrescriptionValidity | null
+  intake?: {
+    revision: number
+    submitted_at: string
+    latest_revision: number
+    latest_submitted_at: string
+    reviewed_at: string | null
+  } | null
 }
 
 export interface PrescriptionSource {
@@ -178,7 +185,7 @@ export const prescriptionAdminApi = {
     accountId: string,
     submissionId: string,
     body: Pick<FulfillmentQuote, 'decision' | 'reasonCodes' | 'requirements' | 'estimatedReadyAt' | 'validUntil'> &
-      Partial<Pick<FulfillmentQuote, 'status' | 'fulfillmentMethod' | 'constraints' | 'reservationExpiresAt'>>,
+      Partial<Pick<FulfillmentQuote, 'status' | 'fulfillmentMethod' | 'constraints' | 'reservationExpiresAt'>> & { expectedRevision?: number },
   ) => fetchApi<{ quote: FulfillmentQuote }>(
     `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
     { method: 'POST', body: JSON.stringify(body) },

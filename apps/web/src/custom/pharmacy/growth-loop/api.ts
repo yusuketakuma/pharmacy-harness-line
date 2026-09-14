@@ -28,10 +28,28 @@ export type PharmacyOperationsSummary = {
   }
 }
 
+export type PharmacyActionQueue = {
+  accountId: string
+  checkedAt: string
+  partial: boolean
+  truncated: boolean
+  items: Array<{
+    domain: 'prescriptionIntake' | 'electronicPrescription' | 'patientIntake' |
+      'continuity' | 'medicationFollowup' | 'emergencyContraception' | 'manualChat'
+    status: string
+    deadline: 'overdue' | 'today' | 'upcoming' | 'none'
+    detailHref: string
+  }>
+}
+
 export const pharmacyGrowthApi = {
   operationsSummary: (accountId: string) =>
     fetchApi<ApiResponse<PharmacyOperationsSummary>>(
       `/api/custom/pharmacy/operations-summary?line_account_id=${encodeURIComponent(accountId)}`,
+    ),
+  actionQueue: (accountId: string) =>
+    fetchApi<ApiResponse<PharmacyActionQueue>>(
+      `/api/custom/pharmacy/action-queue?line_account_id=${encodeURIComponent(accountId)}`,
     ),
   activeWork: (accountId: string) =>
     fetchApi<ApiResponse<Record<
@@ -172,7 +190,7 @@ export const pharmacyGrowthApi = {
     fetchApi<ApiResponse<never>>(`/api/custom/pharmacy/growth/sources/${encodeURIComponent(sourceId)}?line_account_id=${encodeURIComponent(accountId)}`, {
       method: 'PATCH', body: JSON.stringify({ isActive }),
     }),
-  classifySource: (accountId: string, submissionId: string, body: { sourceId: string | null; classification: 'primary' | 'other' | 'unknown' }) =>
+  classifySource: (accountId: string, submissionId: string, body: { sourceId: string | null; classification: 'primary' | 'other' | 'unknown'; expectedUpdatedAt?: string | null }) =>
     fetchApi<ApiResponse<never>>(`/api/custom/pharmacy/growth/submissions/${encodeURIComponent(submissionId)}/source?line_account_id=${encodeURIComponent(accountId)}`, {
       method: 'POST', body: JSON.stringify(body),
     }),
@@ -181,6 +199,7 @@ export const pharmacyGrowthApi = {
     validUntil: string | null
     validityBasis: 'default_4_days' | 'prescriber_specified'
     verificationStatus: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed'
+    expectedUpdatedAt?: string | null
   }) => fetchApi<ApiResponse<never>>(`/api/custom/pharmacy/growth/submissions/${encodeURIComponent(submissionId)}/validity?line_account_id=${encodeURIComponent(accountId)}`, {
     method: 'PUT', body: JSON.stringify(body),
   }),
