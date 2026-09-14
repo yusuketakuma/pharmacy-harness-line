@@ -377,6 +377,20 @@ Astraの読取り専用監査で見つかった旧schemaの患者認可、対応
 
 実装後Oracleレビュー`pharmacy-local-implementa-review`は、ユーザー承認済みのmigration/testの2ファイルだけを送信したが、別セッションによるOracle profile lockで`ERROR`となったため、レビュー結果は`NOT_RUN`として扱う。添付外のコードを追加送信していない。
 
+### 2026-09-14 残存事項の追加監査・補修
+
+上記の実装後監査に続き、Astraを旧schema互換、認可・競合、通知・beta、Web・性能の4観点で分離して再確認した。実装可能な確定不具合だけを主担当が修正し、契約・運用未確定の項目は権限を推測せず保留した。
+
+- `019_custom_076_pharmacy_followup_operations_scope.sql`を追加し、follow-up運用の主担当・代行担当について、insert/update時のtenant membershipとaccount assignment一致、`enabled=1`時のactive human staffをSQLite triggerで強制した。無効状態の事前設定とnullable backupは維持し、既存行の削除やbackfillは行っていない。
+- `packages/db/test/custom_076_pharmacy_followup_operations_scope.test.ts`、update-engineのmigration manifest、bootstrap SQL/meta、既存migration期待値を更新した。cross-tenant insert/update、無効staffの事前設定、enable時のactive human要件を合成SQLiteで検証した。
+- 開発audit経路の既知脆弱性は、`undici@7.29.0`と`sharp@0.35.4`への狭いpnpm overrideで解消した。全依存・production依存の`pnpm audit`はともに0件で、無関係な依存一括更新は行っていない。
+- `computeDedupBroadcastPreview`の全呼出元をdynamic importへ揃え、Worker buildの`INEFFECTIVE_DYNAMIC_IMPORT`を除去した。HLS `574.61 kB`は既に遅延ロードされているため、性能実測なしの分割は行っていない。
+- 追加した`019`／`020` migration／testのgitleaks個別走査は検出0件だった。Worker／DB全体の走査では既存synthetic test fixtureの固定値19件がgeneric-api-keyとして誤検出されたが、実credentialではないことを確認した。
+- 4観点のレビューで再確認したmembership世代束縛は、既存retry keyを変えずに作成時の`membership_id`を保持する追加migration `020_custom_077_pharmacy_beta_notification_bindings.sql`として実装した。処方せん状態、患者リンク後のstatus event、服薬後follow-up、継続期待、処方せん期限通知をsource triggerで同じaccount・participant・subjectへ不変束縛し、beta有効時にbindingなしの旧queueを送信しない。停止／再開は同一IDのretryable、取消→再付与は旧queueを新IDへ再束縛しない。成人家族の正式代理権は、本人確認・証跡・許可操作・期限／取消の運用が未確定のため、既存の拒否を維持する。
+- 追加実装レビューで確定した5件を補修した。患者リンクtriggerをsubmissionとevent作成時刻へ相関し、期限通知triggerのbeta条件を追加、停止中の初回status通知をmembership再開後に再発見するretry queryを追加した。外部送信前の一時停止・運用未設定・suspendedでは`attempted`を`failed`へ変換せず、binding読取障害は恒久blockedへ変換しない。対応する合成境界テストを追加した。
+
+今回の追加検証は、`pnpm verify:ci`（全workspace typecheck、全テスト4,058件、scripts、19 post-baseline migrations）、`NEXT_PUBLIC_API_URL=https://worker.example.invalid pnpm build`、LIFF Chromium E2E `13 tests`、Web Chromium E2E `11 tests`、frozen lockfile install、targeted DB/Worker test、`pnpm audit`全依存／production依存、`git diff --check`でPASSした。全てlocal/synthetic evidenceであり、実LINE、実スタッフ・実端末、運用値確定、production migration/release/activationを示さない。
+
 ## v0.35 beta admission preparation (HISTORICAL RECORD, 2026-09-06)
 
 The existing LINE identity, consent, proxy permission and account capability

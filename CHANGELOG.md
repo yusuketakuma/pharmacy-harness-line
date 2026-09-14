@@ -10,8 +10,66 @@
 
 この版の実装は、既存のtenant/account/patient認可、CAS、監査、idempotency、outbound ledger、webhook fencingを再利用しています。新しい患者・処方せん・follow-upの重複domain model、AI/OCR、marketplace routing、オンライン服薬指導、決済、配送、SMS/emailは追加していません。
 
+### v0.34.2との差分監査
+
+比較対象は、タグ`v0.34.2`（`99dd8b2`）から、全ブランチ・ワークツリーを`dev`へ集約した現在の`dev`（`8c0456b`）までです。差分は14コミット、151ファイル、`9,667`行追加、`2,073`行削除でした。main系の取り込み、薬局メニュー／公開プロフィール系の取り込み、release evidenceの追加もこの差分に含まれるため、薬局機能だけの行数とは扱いません。
+
+その後の残存事項監査で行った`019`／`020`、通知再試行・世代束縛の補修、対応テストは、上記統合基準に対する現在の作業treeへ追加しています。コミット済み履歴の統計と、未コミットの追加補修を混同しないように分けて記録します。
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| `d1fbc31` | 公開薬局情報へFAX番号を追加し、DB bootstrap、Worker、Web、LIFF、テストを同期 | 実装済み |
+| `af995a4` | 共有薬局認証、beta membership、follow-up closure、follow-up operations、担当者のadditive migration（`014`〜`018`）とDBテストを追加 | 実装済み |
+| `d031d54` | 薬局コード＋パスワードの共有ログイン、credential再発行、共有主体、認証監査、Platform Admin連携へ移行 | 実装済み。旧個人ログイン発行は意図的に後方互換なし |
+| `8011c63` | 本人／正式な未成年代理家族のbeta参加制御、患者アクセス・通知直前再検証、服薬後follow-upのCAS・idempotency・対応記録・自動送信を追加 | 実装済み。成人家族の代理権は対象外 |
+| `49aa9cf` | 薬局業務action queue、処方せん業務画面、遅延・競合・結果不明を扱うsynthetic E2Eを追加 | 実装済み |
+| `865868a`〜`6928904` | beta readiness、release evidence、検証記録、`0.35.0`版情報を追加 | 証跡・文書 |
+| `0e738bf`、`ac66415`、`e65bbcb`、`8c0456b` | main／関連作業ブランチの履歴を`dev`へ統合 | 統合済み。production反映ではない |
+
+特に変更量が大きい箇所は、readiness evidence（`+1,249`）、follow-up repository（`+631/-52`）、DB bootstrap（`+417/-7`）、beta membership repository（`+385`）、Web処方せんE2E（`+368`）、共有認証migration（`+336`）でした。これらは機能追加・移行証跡・テストデータを含むため、行数だけで品質改善や速度改善を主張しません。
+
+### 差分監査に基づくリファクタリング・バグ修正
+
+- 共有薬局主体の認可判定を`resolveAccessiblePharmacyTenant`へ集約し、tenant/account mapping、active tenant、staff membership、共有主体のtenant bindingを1クエリで確認するよう整理しました。`tenant-boundary`が共有ログインを個人の`pharmacy_staff_accounts` assignmentだけで拒否しないよう、同じ認可経路を再利用しています。
+- `staff_members.principal_kind`／`shared_tenant_id`がまだ存在しない旧Worker・旧DBでは、SQLが存在しない列を参照しないlegacy predicateへ縮退するようにしました。現在スキーマの検出結果はDBオブジェクト単位で正の結果だけを短時間再利用し、旧スキーマを誤って共有主体として許可しません。
+- 上記の非同期predicate変更に合わせて、chat、conversation、friend、activity digest、unanswered inbox、服薬後follow-upの呼出元を整理しました。旧スキーマ読み取りと、closure列がない状態の既存follow-up遷移を実DB互換テストで確認しています。
+- follow-up遷移の担当者省略値を`undefined`とDBの`NULL`で同一視し、同じidempotency keyの再送が不要な競合にならないようにしました。明示した担当者は人間staff・tenant membership・account assignmentまでSQL内で再確認し、担当者が未認可なら対応記録だけが先に残らないようにしました。
+- 対応記録の日時は入力を正規化してから、既存idempotency keyの一致確認を先に行うようにしました。新規記録だけ未来日時を要求し、期限経過後の同一payload再送は安全に同じ記録を返します。scheduleの保存後照合には`due_at`だけでなく`response_deadline_at`も含めました。
+- 服薬後follow-upの対応履歴GETにPHI view監査（`phi.medication_followup_contacts_viewed`）と`Cache-Control: private, no-store`を追加しました。既存の患者・アカウント境界を通過した後だけ監査と返却を行います。
+- beta membershipの通知判定を`active`／`suspended`／`blocked`へ分離しました。停止中は送信せず、外部送信前のledgerは`attempted`のまま保持して同じretry keyで再試行します。期限切れ・取消・不正日時・認可DB読取失敗はfail closedとし、bindingの一時読取障害だけは恒久blockedにしません。
+- Webのfollow-up画面で、既存の意味ある対応記録がある`responded`行を、画面上の新しい入力がないことだけで送信不能にしないよう条件を修正しました。
+- action queueの東京日付判定で毎回`Intl.DateTimeFormat`を生成せず、formatterを1つ再利用するようにしました。Node 26.6.0／SQLite 3.53.4、同一synthetic rows、warmup 3回・測定25回の比較では、7行の中央値`1.012ms→0.065ms`、70行`23.414ms→1.074ms`、357行`164.289ms→7.187ms`となり、返却内容は一致しました。
+- 認可拒否ログのroute値をHonoのroute templateへ変更し、患者ID・friend IDなどclient-controlledなpath identifierを一般のauthzログへ複写しないようにしました。
+
+### 残存事項レビューと追加補修（2026-09-14）
+
+差分監査後に、Astraへ旧schema互換、認可・競合、通知・beta、Web・性能の4観点を分離して読取り専用レビューさせました。主担当が各指摘を現行の呼出元・依存先・合成データで再確認し、実装可能な不具合だけを最小差分で補修しました。Astraはコードを変更・commit・pushしていません。
+
+- `019_custom_076_pharmacy_followup_operations_scope.sql`を追加し、`pharmacy_medication_followup_operations`のinsert/update時に、主担当・代行担当が対象tenantのstaff membershipと対象薬局accountのstaff assignmentへ属することをSQLite triggerで強制しました。`enabled=1`へ切り替える場合は、tenant/accountのmembership・assignmentがactiveで、staffの`principal_kind`が`human`であることもDB側で確認します。無効状態の事前設定とnullableな代行担当は許可し、既存行の削除・backfillは行いません。
+- `packages/db/test/custom_076_pharmacy_followup_operations_scope.test.ts`で、cross-tenant主担当のinsert、cross-tenant代行担当とaccount変更のupdate、無効staffの事前設定、active human staffへの切替、nullable backup、4 triggerの存在を合成SQLiteで確認しました。update-engineの固定migration manifest、bootstrap SQL/meta、既存DBテストのmigration期待値も同期しました。
+- `020_custom_077_pharmacy_beta_notification_bindings.sql`を追加し、処方せん状態、服薬後follow-up、継続期待、処方せん期限通知の既存retry keyへ、作成時点の`membership_id`・participant・subjectを不変に束縛しました。beta有効時の各source INSERT／患者リンク／validity更新でactiveまたはsuspended世代だけを記録し、取消→再付与後も古いqueueを新しいmembershipへ自動backfillしません。送信側は束縛IDを受け取れない場合、または同一IDが期限切れ・取消・対象不一致の場合にfail closedします。
+- `packages/db/test/custom_077_pharmacy_beta_notification_bindings.test.ts`で、4通知sourceの作成時束縛、患者リンク後のstatus event束縛、beta無効時の非backfill、取消→再付与後の旧ID保持、bindingのupdate/delete拒否を合成SQLiteで確認しました。既存retry key、`sent`／`attempted`／結果不明のledger意味は変更していません。
+- 送信直前のWorker再検証は残し、DBへ直接書き込まれた古い不正行や、担当者の失効・停止を送信時に再度fail closedできる二重防御としました。業務設定の書込みAPIは現行コードから確認できなかったため、新しい運用APIは追加していません。
+- `pnpm-workspace.yaml`の狭いparent overrideで、開発audit経路の`undici`を`7.29.0`、Wrangler/miniflare経路の`sharp`を`0.35.4`へ固定し、lockfileを更新しました。無関係な一括upgradeは行わず、`pnpm audit`（全依存・production依存）はともに既知の脆弱性`0`件になりました。
+- 重複配信previewの全呼出元をdynamic importへ揃え、Worker buildの`INEFFECTIVE_DYNAMIC_IMPORT`警告を除去しました。HLS chunkは既に遅延ロードされており、実測なしの分割は行わず、現在のbuild警告はWorker/LIFFのHLS `574.61 kB`だけです。
+- 追加した`019`／`020` migrationと合成testをgitleaksで個別走査し、検出0件でした。参考としてWorker/DBソース全体では既存test fixtureの固定値19件がgeneric-api-keyとして検出されましたが、いずれもsynthetic dataで実credentialではないため、値を外部へ出さず、今回の差分へ混入させていません。
+- Astraが再確認したmembership世代の未束縛は、`020_custom_077_pharmacy_beta_notification_bindings.sql`と共通senderのexact-ID再検証で補修しました。停止中に作成されたqueueは同じmembership IDへ束縛してretryableにし、取消後に再付与された新IDへ旧queueを付け替えません。成人家族の正式代理権は、本人確認方法、証跡の保持、許可する操作、期限・取消・複数代理人の扱いが未定のため、家族関係文字列だけで権限を拡張していません。
+- 追加実装レビューで確定した5件も補修しました。患者リンク後のstatus eventは同一submissionかつevent作成時点のmembershipだけを束縛し、期限通知triggerはbeta有効時だけ動作します。停止中の初回status通知はmembership再開後に再発見し、外部送信前に停止・運用未設定となったattempted行は結果不明の意味を保ちます。bindingの一時読取障害は`blocked`へ固定せず上位の再試行へ返します。
+- 今回の追加ファイルは、ユーザーが明示承認したOracle送信allowlist（`014` migrationとそのtest）の対象外です。新規ファイルをOracleへ送信せず、Oracleの追加実装レビュー結果を成功扱いにしていません。
+
+### 多角的レビューで確認した未変更項目
+
+4本のread-only Astraレビュー（旧スキーマ、認可・競合、通知・beta、Web・性能）を別々の観点で実施し、指摘は上記の確定修正または以下の保留へ分類しました。Astraはコードを変更・commit・pushしていません。
+
+- `patientId`を省略する既存処方せん受付と、患者IDを持たない既存通知は、既存利用者の処理を維持する現行計画と衝突するため変更していません。患者subject単位のbeta必須化へ変更する場合は、別途API契約と旧クライアント受入を定義します。
+- `pharmacy_followup_operations`のstaff foreign keyは単一列ですが、追加migration `019_custom_076_pharmacy_followup_operations_scope.sql`のscope triggerで、tenant membershipとaccount assignmentのcross-tenant不整合をDB insert/update時に拒否するよう補修しました。Workerの送信直前再検証も維持しています。
+- notification expectation／retry jobの世代束縛は`020_custom_077_pharmacy_beta_notification_bindings.sql`で追加しました。既存retry keyを変えずに、source生成時の不変bindingを参照し、beta有効時にbindingなしの旧queueを送信しません。古いWorkerがこの追加bindingを解釈できない混在状態ではbeta通知を有効化しない運用ゲートが必要です。
+- 成人家族の正式代理権は、本人確認・代理権証跡・許可操作・期限／取消の運用契約が未確定のため、既存の未成年proxy以外へ拡張していません。
+- 依存関係は狭いoverrideでaudit対象経路を更新し、全依存・production依存とも既知の脆弱性0件を確認しました。今後も無関係な一括upgradeは行いません。
+
 ### 薬局職員・Platform Admin向けの変更
 
+- 患者向け公開薬局情報へFAX番号を追加し、Worker、Web、LIFF、bootstrap、保存・表示バリデーションを同じfield契約へ揃えました。電話番号と同様に許可文字を限定し、公開情報欄へ患者情報や内部メモを入力しない注意を維持します。
 - 薬局画面のログイン入力を薬局コード＋パスワードだけに統一し、ログイン後は薬局の共有主体`pharmacy_shared`として有効な薬局accountへ入るようにしました。
 - 旧来の個人tenant-admin credentialを新規発行する経路、tenant admin bootstrap、tenant owner向けCLI session発行を`410`で終了しました。既存の個人ログインを隠し補完したり、先頭のownerを自動選択したりしません。
 - 初回発行と忘失時の再発行はPlatform Adminの専用操作へ分離し、共有credentialのtenant、薬局コード、admin membership、account assignment、sessionをサーバー側で束縛しました。
@@ -53,6 +111,8 @@
 | `016_custom_073_pharmacy_medication_followup_closure.sql` | follow-up質問票version、一次返信期限、電話／LINE対応記録を追加 |
 | `017_custom_074_pharmacy_followup_operations.sql` | 営業時間、response SLA、primary/backup、営業時間外・緊急時のfail-closed運用設定を追加 |
 | `018_custom_075_pharmacy_medication_followup_assignments.sql` | follow-up eventと対応経路へ明示的な人間担当者を追加 |
+| `019_custom_076_pharmacy_followup_operations_scope.sql` | follow-up運用の主担当・代行担当をtenant membership、account assignment、active human staffへDB側で束縛 |
+| `020_custom_077_pharmacy_beta_notification_bindings.sql` | beta対象の通知sourceと既存retry keyを作成時membershipへ不変束縛し、取消後の新世代への旧queue再生を防止 |
 
 全migrationはadditiveです。bootstrap SQLを再生成し、既存table・route・API fieldのrename/dropや、本番データのbackfill・削除は行いません。ログイン契約だけは、ユーザー確定要件に従い旧個人ログイン発行との後方互換を持たせず、旧発行経路を`410`で閉じています。
 
@@ -61,33 +121,37 @@
 | 確認項目 | 結果 |
 | --- | --- |
 | version contract | runtime package 6件、CHANGELOG、LIFF version contractの`0.35.0`統一／2 tests PASS |
-| `pnpm verify:ci` | 10 test suite／合計4,041 tests PASS、全workspace typecheck PASS |
-| `packages/db` unit／integration test | `90 files / 428 tests PASS` |
+| `pnpm verify:ci` | 10 test suite／合計4,058 tests PASS、全workspace typecheck PASS |
+| frozen lockfile install | `pnpm install --frozen-lockfile --ignore-scripts` PASS |
+| `packages/db` unit／integration test | `92 files / 436 tests PASS` |
 | `packages/line-sdk` test | `2 files / 5 tests PASS` |
 | `packages/sdk` test | `13 files / 56 tests PASS` |
 | `packages/mcp-server` test | `5 files / 19 tests PASS` |
 | `packages/update-engine` test | `22 files / 219 tests PASS` |
 | `packages/create-line-harness` test | `8 files / 61 tests PASS` |
-| `apps/worker` test | `247 files / 2,645 tests PASS` |
+| `apps/worker` test | `247 files / 2,654 tests PASS` |
 | `apps/web` test | `52 files / 242 tests PASS` |
 | `apps/liff` test | `24 files / 148 tests PASS` |
 | scripts test | `21 files / 218 tests PASS` |
 | workspace typecheck | `PASS`（全workspace） |
 | workspace build | `PASS`（`pnpm build`、Webはsynthetic `NEXT_PUBLIC_API_URL`） |
-| migration checker | `17 migrations PASS` |
+| migration checker | `19 post-baseline migrations PASS`（baselineを含む全20 migration） |
 | bootstrap generator／`git diff --check` | `PASS` |
 | production dependency audit | 既知の脆弱性`0`件 |
 | production license baseline | `unknown/unlicensed` group `0` |
 | CycloneDX SBOM | spec `1.6`／`208 components`、構造確認 PASS |
-| release変更対象のsecret scan | gitleaks検出`0`件（10ファイル） |
+| release変更対象のsecret scan | `gitleaks git --log-opts=v0.34.2..HEAD`で10 commitsを走査、検出`0`件 |
+| 追加ファイルのsecret scan | `019`／`020` migration／testは検出`0`件。Worker／DB全体の19件は既存synthetic test fixtureのgeneric-api-key誤検出 |
+| 全依存を含むaudit | 既知の脆弱性`0`件（`undici`／`sharp`は狭いoverrideで修正） |
 | LIFF Chromium E2E | synthetic `13 tests PASS` |
 | Web Chromium E2E | synthetic `11 tests PASS` |
+| build warning | build自体はPASS。Worker／LIFFでHLS `574.61 kB` chunkのみ。`INEFFECTIVE_DYNAMIC_IMPORT`は解消 |
 | 実LINE、実スタッフ・実端末、iOS／Android WebView、VoiceOver／TalkBack、Meet、SMS/email | `NOT_RUN` |
 
 ### リリース境界と未完了ゲート
 
 - `dev`の直接pushはGitHub保護ブランチにより許可されず、PRと必須check `verify`を必要とします。今回の版確定はローカル候補のversion/changelogであり、remoteへの直接反映とは別です。
-- Oracle実装レビューは、ユーザーが送信を承認した`packages/db/migrations/014_custom_071_shared_pharmacy_auth.sql`と`packages/db/test/custom_071_shared_pharmacy_auth.test.ts`の2ファイルだけを対象に試行しましたが、別セッションのprofile lockで`NOT_RUN`です。添付外のコードは送信していません。
+- Oracle実装レビューは、ユーザーが送信を承認した`packages/db/migrations/014_custom_071_shared_pharmacy_auth.sql`と`packages/db/test/custom_071_shared_pharmacy_auth.test.ts`の2ファイルだけを対象に試行しましたが、別セッションのprofile lockで`NOT_RUN`です。今回の追加リファクタリング対象は許可済みallowlist外のためOracleへ送信していません。添付外のコードは送信していません。
 - beta activation、production migration、production deploy、seller release、main merge、実患者データ、実LINE送信はこの版の作業に含めません。
 - 成人家族の代理権証跡、営業時間・一次返信期限・主担当・代行担当、実スタッフ／実端末受入、LINE到達／既読と結果不明の受入は未完了です。未完了のため、`0.35.0`を外部beta開始可能とは判定しません。
 - seller releaseはソースpackage versionと分離した`pharmacy-v0.35.0`として、V035の全Human Gateとrelease checkがPASSした後に扱います。外部限定beta開始版はロードマップどおり`v0.40.0`です。
