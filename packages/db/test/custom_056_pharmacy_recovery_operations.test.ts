@@ -33,6 +33,8 @@ describe('custom_056 pharmacy recovery operations', () => {
       '016_custom_073_pharmacy_medication_followup_closure.sql',
       '017_custom_074_pharmacy_followup_operations.sql',
       '018_custom_075_pharmacy_medication_followup_assignments.sql',
+      '019_custom_076_pharmacy_followup_operations_scope.sql',
+      '020_custom_077_pharmacy_beta_notification_bindings.sql',
     ]);
 
     const tableNames = db.prepare(`SELECT name FROM sqlite_master

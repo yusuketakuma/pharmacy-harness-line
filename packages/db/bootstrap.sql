@@ -945,6 +945,17 @@ CREATE TABLE pharmacy_beta_memberships (
     REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id) ON DELETE RESTRICT
 );
 
+CREATE TABLE pharmacy_beta_notification_bindings (
+  line_account_id       TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  retry_key             TEXT NOT NULL CHECK (length(retry_key) BETWEEN 8 AND 160),
+  participant_friend_id TEXT NOT NULL,
+  subject_patient_id    TEXT NOT NULL,
+  subject_owner_friend_id TEXT NOT NULL,
+  membership_id         TEXT NOT NULL REFERENCES pharmacy_beta_memberships(id) ON DELETE RESTRICT,
+  created_at            TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  PRIMARY KEY (line_account_id, retry_key)
+);
+
 CREATE TABLE pharmacy_cli_break_glass_sessions (
   id                TEXT PRIMARY KEY,
   token_hash        TEXT NOT NULL UNIQUE
@@ -3240,6 +3251,9 @@ CREATE INDEX idx_pharmacy_beta_memberships_participant
 CREATE INDEX idx_pharmacy_beta_memberships_subject
   ON pharmacy_beta_memberships(line_account_id, subject_patient_id, status, starts_at, expires_at);
 
+CREATE INDEX idx_pharmacy_beta_notification_bindings_membership
+  ON pharmacy_beta_notification_bindings(line_account_id, membership_id);
+
 CREATE INDEX idx_pharmacy_cli_break_glass_active
   ON pharmacy_cli_break_glass_sessions (tenant_id, revoked_at, expires_at);
 
@@ -3864,6 +3878,193 @@ WHEN EXISTS (
 )
 BEGIN SELECT RAISE(ABORT, 'PHARMACY_AUTH_AUDIT_ID_REUSE_FORBIDDEN'); END;
 
+CREATE TRIGGER pharmacy_beta_notification_binding_followup_insert
+AFTER INSERT ON pharmacy_medication_followups
+WHEN EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT NEW.line_account_id, 'medication-followup:' || NEW.id,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.created_at
+    FROM pharmacy_beta_memberships AS membership
+   WHERE membership.line_account_id = NEW.line_account_id
+     AND membership.participant_friend_id = NEW.owner_friend_id
+     AND membership.subject_patient_id = NEW.patient_id
+     AND membership.status IN ('active', 'suspended')
+     AND membership.starts_at <= NEW.created_at
+     AND membership.expires_at > NEW.created_at
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_immutable_delete
+BEFORE DELETE ON pharmacy_beta_notification_bindings
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_BETA_NOTIFICATION_BINDING_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_immutable_update
+BEFORE UPDATE ON pharmacy_beta_notification_bindings
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_BETA_NOTIFICATION_BINDING_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_next_intake_insert
+AFTER INSERT ON pharmacy_next_intake_expectations
+WHEN EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT NEW.line_account_id, 'next-intake:' || NEW.id,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.created_at
+    FROM pharmacy_beta_memberships AS membership
+   WHERE membership.line_account_id = NEW.line_account_id
+     AND membership.participant_friend_id = NEW.owner_friend_id
+     AND membership.subject_patient_id = NEW.patient_id
+     AND membership.status IN ('active', 'suspended')
+     AND membership.starts_at <= NEW.created_at
+     AND membership.expires_at > NEW.created_at
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_patient_link_insert
+AFTER INSERT ON pharmacy_prescription_patients
+WHEN EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id, event.id, membership.participant_friend_id,
+         membership.subject_patient_id, membership.subject_owner_friend_id,
+         membership.id, NEW.created_at
+    FROM pharmacy_prescription_events AS event
+    INNER JOIN pharmacy_prescription_submissions AS submission
+            ON submission.id = event.submission_id
+           AND submission.line_account_id = NEW.line_account_id
+           AND submission.friend_id = NEW.owner_friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = NEW.line_account_id
+           AND membership.participant_friend_id = NEW.owner_friend_id
+           AND membership.subject_patient_id = NEW.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= event.created_at
+           AND membership.expires_at > event.created_at
+   WHERE event.event_type = 'status_changed'
+     AND event.submission_id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_scope
+BEFORE INSERT ON pharmacy_beta_notification_bindings
+WHEN NOT EXISTS (SELECT 1 FROM pharmacy_beta_memberships AS membership
+                  WHERE membership.id = NEW.membership_id
+                    AND membership.line_account_id = NEW.line_account_id
+                    AND membership.participant_friend_id = NEW.participant_friend_id
+                    AND membership.subject_patient_id = NEW.subject_patient_id
+                    AND membership.subject_owner_friend_id = NEW.subject_owner_friend_id)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_BETA_NOTIFICATION_BINDING_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_status_event_insert
+AFTER INSERT ON pharmacy_prescription_events
+WHEN NEW.event_type = 'status_changed'
+ AND EXISTS (SELECT 1 FROM pharmacy_prescription_submissions AS submission
+              INNER JOIN pharmacy_prescription_patients AS patient_link
+                      ON patient_link.submission_id = submission.id
+                     AND patient_link.line_account_id = submission.line_account_id
+                     AND patient_link.owner_friend_id = submission.friend_id
+              INNER JOIN pharmacy_account_capabilities AS capability
+                      ON capability.line_account_id = submission.line_account_id
+                     AND capability.mode = 'pharmacy'
+                     AND capability.beta_enabled = 1
+             WHERE submission.id = NEW.submission_id)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id, NEW.id, membership.participant_friend_id,
+         membership.subject_patient_id, membership.subject_owner_friend_id,
+         membership.id, NEW.created_at
+    FROM pharmacy_prescription_submissions AS submission
+    INNER JOIN pharmacy_prescription_patients AS patient_link
+            ON patient_link.submission_id = submission.id
+           AND patient_link.line_account_id = submission.line_account_id
+           AND patient_link.owner_friend_id = submission.friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = submission.line_account_id
+           AND membership.participant_friend_id = submission.friend_id
+           AND membership.subject_patient_id = patient_link.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= NEW.created_at
+           AND membership.expires_at > NEW.created_at
+   WHERE submission.id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_validity_insert
+AFTER INSERT ON pharmacy_prescription_validities
+WHEN NEW.verification_status = 'verified'
+ AND NEW.valid_until IS NOT NULL
+ AND EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id,
+         'prescription-validity:' || NEW.submission_id || ':' || NEW.valid_until,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.created_at
+    FROM pharmacy_prescription_submissions AS submission
+    INNER JOIN pharmacy_prescription_patients AS patient_link
+            ON patient_link.submission_id = submission.id
+           AND patient_link.line_account_id = submission.line_account_id
+           AND patient_link.owner_friend_id = submission.friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = submission.line_account_id
+           AND membership.participant_friend_id = submission.friend_id
+           AND membership.subject_patient_id = patient_link.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= NEW.created_at
+           AND membership.expires_at > NEW.created_at
+   WHERE submission.id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_validity_update
+AFTER UPDATE OF verification_status, valid_until ON pharmacy_prescription_validities
+WHEN NEW.verification_status = 'verified'
+ AND NEW.valid_until IS NOT NULL
+ AND EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id,
+         'prescription-validity:' || NEW.submission_id || ':' || NEW.valid_until,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.updated_at
+    FROM pharmacy_prescription_submissions AS submission
+    INNER JOIN pharmacy_prescription_patients AS patient_link
+            ON patient_link.submission_id = submission.id
+           AND patient_link.line_account_id = submission.line_account_id
+           AND patient_link.owner_friend_id = submission.friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = submission.line_account_id
+           AND membership.participant_friend_id = submission.friend_id
+           AND membership.subject_patient_id = patient_link.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= NEW.updated_at
+           AND membership.expires_at > NEW.updated_at
+   WHERE submission.id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
 CREATE TRIGGER pharmacy_capability_emergency_mirror_disable
 AFTER UPDATE OF capabilities_json ON pharmacy_account_capabilities
 WHEN NOT EXISTS (
@@ -4088,6 +4289,140 @@ BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
 CREATE TRIGGER pharmacy_emergency_sale_records_no_update
 BEFORE UPDATE ON pharmacy_emergency_sale_records
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_enabled_staff_insert
+BEFORE INSERT ON pharmacy_medication_followup_operations
+WHEN NEW.enabled = 1 AND (
+  NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.primary_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.primary_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.primary_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  )
+  OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.backup_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.backup_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.backup_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  ))
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_ENABLED_STAFF_INVALID'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_enabled_staff_update
+BEFORE UPDATE OF line_account_id, primary_staff_id, backup_staff_id, enabled
+ON pharmacy_medication_followup_operations
+WHEN NEW.enabled = 1 AND (
+  NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.primary_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.primary_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.primary_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  )
+  OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.backup_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.backup_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.backup_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  ))
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_ENABLED_STAFF_INVALID'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_staff_scope_insert
+BEFORE INSERT ON pharmacy_medication_followup_operations
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.primary_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.primary_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+)
+OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.backup_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.backup_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+))
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_staff_scope_update
+BEFORE UPDATE OF line_account_id, primary_staff_id, backup_staff_id
+ON pharmacy_medication_followup_operations
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.primary_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.primary_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+)
+OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.backup_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.backup_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+))
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_human_credential_insert_guard
 BEFORE INSERT ON tenant_admin_credentials
