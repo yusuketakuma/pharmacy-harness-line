@@ -63,6 +63,11 @@
 | version contract | runtime package 6件、CHANGELOG、LIFF version contractの`0.35.0`統一／2 tests PASS |
 | `pnpm verify:ci` | 10 test suite／合計4,041 tests PASS、全workspace typecheck PASS |
 | `packages/db` unit／integration test | `90 files / 428 tests PASS` |
+| `packages/line-sdk` test | `2 files / 5 tests PASS` |
+| `packages/sdk` test | `13 files / 56 tests PASS` |
+| `packages/mcp-server` test | `5 files / 19 tests PASS` |
+| `packages/update-engine` test | `22 files / 219 tests PASS` |
+| `packages/create-line-harness` test | `8 files / 61 tests PASS` |
 | `apps/worker` test | `247 files / 2,645 tests PASS` |
 | `apps/web` test | `52 files / 242 tests PASS` |
 | `apps/liff` test | `24 files / 148 tests PASS` |
