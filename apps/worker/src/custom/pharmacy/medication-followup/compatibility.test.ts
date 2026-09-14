@@ -10,8 +10,12 @@ type SqliteDatabase = {
   prepare(sql: string): {
     get(...values: unknown[]): unknown;
     all(...values: unknown[]): unknown[];
+    run(...values: unknown[]): { changes: number };
   };
   exec(sql: string): void;
+  transaction<T>(
+    callback: (items: Array<{ execute?: () => unknown }>) => T,
+  ): (items: Array<{ execute?: () => unknown }>) => T;
   close(): void;
 };
 

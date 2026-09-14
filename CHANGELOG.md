@@ -1,5 +1,92 @@
 # Changelog
 
+## Pharmacy v0.35.0 (2026-09-14)
+
+> パッケージ／ソースのバージョンを`0.35.0`として確定し、v0.35のrelease candidateとして`dev`で管理します。ソースコードのタグ`v0.35.0`と販売者向けリリース`pharmacy-v0.35.0`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+薬局の管理画面を薬局コード＋パスワードの1つの共有薬局アカウントへ簡素化し、患者本人・正式な代理権がある家族の参加資格を薬局単位でサーバー側管理できるようにしました。薬局職員が確認すべき業務を既存の処方せん・Myna・問診・継続・服薬後follow-upへ安全に戻れる読み取り専用queueへまとめ、服薬後follow-upは対応記録・担当者・期限・送信直前認可を含む閉ループへ拡張しました。
+
+この版の実装は、既存のtenant/account/patient認可、CAS、監査、idempotency、outbound ledger、webhook fencingを再利用しています。新しい患者・処方せん・follow-upの重複domain model、AI/OCR、marketplace routing、オンライン服薬指導、決済、配送、SMS/emailは追加していません。
+
+### 薬局職員・Platform Admin向けの変更
+
+- 薬局画面のログイン入力を薬局コード＋パスワードだけに統一し、ログイン後は薬局の共有主体`pharmacy_shared`として有効な薬局accountへ入るようにしました。
+- 旧来の個人tenant-admin credentialを新規発行する経路、tenant admin bootstrap、tenant owner向けCLI session発行を`410`で終了しました。既存の個人ログインを隠し補完したり、先頭のownerを自動選択したりしません。
+- 初回発行と忘失時の再発行はPlatform Adminの専用操作へ分離し、共有credentialのtenant、薬局コード、admin membership、account assignment、sessionをサーバー側で束縛しました。
+- 認証成功・失敗、パスワード変更、credential発行・再発行を、パスワード・token・患者情報を含まない認証監査へ記録します。credentialの無効化・version変更では未失効sessionを残しません。
+- 共有主体を任意のstaffへ再割当できないよう、staff、credential、membership、account assignment、sessionの再利用・identity変更をDB制約とtriggerで防ぎます。
+- 管理画面のstaff・tenant・認証ログ表示を、新しい共有ログインと監査の契約に合わせました。パスワードやsecretの画面・CLI出力は行いません。
+
+### 患者本人・家族代理・beta参加資格
+
+- `015_custom_072_pharmacy_beta_memberships.sql`で、薬局account×参加者×対象患者単位の期限付きmembershipを追加しました。betaは既定OFFで、無断の招待・自動登録・自動再開・自動更新は行いません。
+- owner/adminだけが同一tenant・accountのmembershipを一覧、登録、停止、再開、取消できます。状態変更は`expectedVersion` CAS、期限、理由、tenant監査、同一batchの原子性を確認します。
+- betaが有効な場合、患者向けintake、処方せん、継続、服薬後follow-up、Myna、患者timeline、LIFF feature access、通知送信直前で現在のmembershipを再検証します。古いsession・job・webhookや失効済みproxyからの再開を許可しません。
+- 本人利用と、既存の正式な未成年proxyに紐づく家族利用を実装対象にしました。成人家族は、本人確認・正式な代理権証跡・薬局の運用担当が未確定のため、`403`で閉鎖しています。家族を含むbeta要件を、家族関係の文字列だけで満たしたことにはしません。
+- privacy撤回、proxy取消、通知停止、binding隔離などのcontrol pathと、薬局職員のaccount-scoped readはbeta参加資格の単純な一括拒否で隠さず、既存の安全な継続経路を維持します。
+
+### 薬局業務画面
+
+- `GET /api/custom/pharmacy/action-queue`を追加し、処方せん、Myna、問診、継続、服薬後follow-up、緊急避妊薬、未対応chatから対応候補をbounded unionで取得します。各domainと全体に上限を設け、部分失敗を他domainの成功と分けて表示します。
+- action queueの返却値はdomain、PHI-free status、deadline区分、既存detailへの導線だけに限定し、患者名、LINE ID、record ID、自由記述、問診本文、復号値、assign/status mutationを含めません。
+- 処方せんdetailへ、画像・期限・問診更新時刻・受取希望・過去event・受付回答を既存のauthorization/CAS/auditで確認できる導線を追加しました。
+- account切替や遅いdetail応答で前の患者を表示し続けないようにし、stale response、409競合、503結果不明、未保存入力、印刷・再撮影の復旧を明示します。
+- Webのsynthetic Playwright E2Eで、遅延detail、薬局account切替、競合保存、結果不明、既存recordへ戻る導線を確認できるようにしました。
+
+### 服薬後follow-upと通信安全
+
+- `016_custom_073_pharmacy_medication_followup_closure.sql`で質問票version、一次返信期限、電話／LINE対応記録を、`017_custom_074_pharmacy_followup_operations.sql`で営業時間・SLA・主担当・代行担当などの運用設定を、`018_custom_075_pharmacy_medication_followup_assignments.sql`で明示的な人間担当者を追加しました。
+- 既存follow-upのstate、event、CAS、idempotency、notification ledgerを再利用します。`concern`、`pharmacist_requested`、`escalated`から、対応記録なしに`closed`へ進めません。電話対応をLINE対応として記録しません。
+- `responded`／`closed`に必要な対応記録が存在しない旧schemaでは、既存の読み取り・既存状態遷移を維持し、追加の期限・対応記録を必要とする経路だけを`503`で停止します。新列・新tableの欠落を「beta無効」と誤認して認可を緩めません。
+- 自動通知はapproved PHI-free template、固定retry key、既存ledgerを使います。account、tenant、friend/following、capability、患者認可、対象state、運用設定、outbound pauseをenqueue後・claim後・送信直前に再確認します。
+- 営業時間・一次返信期限・主担当・代行担当は未定のため、運用設定を有効化せず、自動follow-up送信は`operations_blocked`でfail closedにします。電話・店頭などの代替対応は、LINE送信成功とは別の記録です。
+- 手動の1対1返信だけに`X-Line-Harness-Source: manual`を付け、自動送信へ付与しません。実LINEの到達・既読、LINE側自動応答との重複、結果不明の照合は外部受入で別途確認します。
+
+### データベース移行
+
+| migration | 内容 |
+| --- | --- |
+| `014_custom_071_shared_pharmacy_auth.sql` | `pharmacy_shared`主体、共有credential、auth audit、session・assignment・identity再利用防止、無効credentialのsession失効を追加 |
+| `015_custom_072_pharmacy_beta_memberships.sql` | 薬局account単位のbeta flag、participant×subject membership、期限・状態・CAS・監査を追加 |
+| `016_custom_073_pharmacy_medication_followup_closure.sql` | follow-up質問票version、一次返信期限、電話／LINE対応記録を追加 |
+| `017_custom_074_pharmacy_followup_operations.sql` | 営業時間、response SLA、primary/backup、営業時間外・緊急時のfail-closed運用設定を追加 |
+| `018_custom_075_pharmacy_medication_followup_assignments.sql` | follow-up eventと対応経路へ明示的な人間担当者を追加 |
+
+全migrationはadditiveです。bootstrap SQLを再生成し、既存table・route・API fieldのrename/dropや、本番データのbackfill・削除は行いません。ログイン契約だけは、ユーザー確定要件に従い旧個人ログイン発行との後方互換を持たせず、旧発行経路を`410`で閉じています。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件、CHANGELOG、LIFF version contractの`0.35.0`統一／2 tests PASS |
+| `pnpm verify:ci` | 10 test suite／合計4,041 tests PASS、全workspace typecheck PASS |
+| `packages/db` unit／integration test | `90 files / 428 tests PASS` |
+| `apps/worker` test | `247 files / 2,645 tests PASS` |
+| `apps/web` test | `52 files / 242 tests PASS` |
+| `apps/liff` test | `24 files / 148 tests PASS` |
+| scripts test | `21 files / 218 tests PASS` |
+| workspace typecheck | `PASS`（全workspace） |
+| workspace build | `PASS`（`pnpm build`、Webはsynthetic `NEXT_PUBLIC_API_URL`） |
+| migration checker | `17 migrations PASS` |
+| bootstrap generator／`git diff --check` | `PASS` |
+| production dependency audit | 既知の脆弱性`0`件 |
+| production license baseline | `unknown/unlicensed` group `0` |
+| CycloneDX SBOM | spec `1.6`／`208 components`、構造確認 PASS |
+| release変更対象のsecret scan | gitleaks検出`0`件（10ファイル） |
+| LIFF Chromium E2E | synthetic `13 tests PASS` |
+| Web Chromium E2E | synthetic `11 tests PASS` |
+| 実LINE、実スタッフ・実端末、iOS／Android WebView、VoiceOver／TalkBack、Meet、SMS/email | `NOT_RUN` |
+
+### リリース境界と未完了ゲート
+
+- `dev`の直接pushはGitHub保護ブランチにより許可されず、PRと必須check `verify`を必要とします。今回の版確定はローカル候補のversion/changelogであり、remoteへの直接反映とは別です。
+- Oracle実装レビューは、ユーザーが送信を承認した`packages/db/migrations/014_custom_071_shared_pharmacy_auth.sql`と`packages/db/test/custom_071_shared_pharmacy_auth.test.ts`の2ファイルだけを対象に試行しましたが、別セッションのprofile lockで`NOT_RUN`です。添付外のコードは送信していません。
+- beta activation、production migration、production deploy、seller release、main merge、実患者データ、実LINE送信はこの版の作業に含めません。
+- 成人家族の代理権証跡、営業時間・一次返信期限・主担当・代行担当、実スタッフ／実端末受入、LINE到達／既読と結果不明の受入は未完了です。未完了のため、`0.35.0`を外部beta開始可能とは判定しません。
+- seller releaseはソースpackage versionと分離した`pharmacy-v0.35.0`として、V035の全Human Gateとrelease checkがPASSした後に扱います。外部限定beta開始版はロードマップどおり`v0.40.0`です。
+
 ## Pharmacy v0.34.2 (2026-09-03)
 
 > 公開範囲: パッケージ／ソースのバージョン`0.34.2`を`dev`向けに公開し、development環境へ配備します。ソースコードのタグ`v0.34.2`と販売者向けリリース`pharmacy-v0.34.2`は別物です。`main`への反映、本番環境への配備、薬局アカウントへの機能適用、実患者データの操作、実際のLINE送信は含みません。
