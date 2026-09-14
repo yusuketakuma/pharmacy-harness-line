@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   respondExpectation: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
+  betaParticipant: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
@@ -34,6 +35,9 @@ vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
 }));
 vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
+}));
 
 import { continuityRoutes } from './routes.js';
 
@@ -66,6 +70,7 @@ beforeEach(() => {
   mocks.respondExpectation.mockResolvedValue({ id: 'expectation-1', status: 'accepted' });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
+  mocks.betaParticipant.mockResolvedValue(true);
 });
 
 describe('continuity routes', () => {

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   access: vi.fn(),
   capability: vi.fn(),
   audit: vi.fn(),
+  betaParticipant: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -60,6 +61,9 @@ vi.mock('../operations-access.js', () => ({
 }));
 vi.mock('../../../lib/tenant-audit.js', () => ({
   recordTenantAudit: mocks.audit,
+}));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
 }));
 
 import { pharmacyIntakeRoutes } from './routes.js';
@@ -119,6 +123,7 @@ beforeEach(() => {
   mocks.history.mockResolvedValue({ patient: { id: 'patient-1' }, intakes: [], prescriptions: [], quotes: [], continuity: [], timeline: [] });
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
+  mocks.betaParticipant.mockResolvedValue(true);
 });
 
 describe('LIFF pharmacy patient and intake routes', () => {

@@ -63,7 +63,15 @@ export type PharmacyPatientHistory = {
     created_at: string
     updated_at: string
   }>
-  medicationFollowUps: MedicationFollowUp[]
+  medicationFollowUps: Array<MedicationFollowUp & {
+    contacts: Array<{
+      id: string
+      channel: 'line' | 'phone'
+      outcome_code: 'answered' | 'no_answer' | 'resolved' | 'follow_up_required' | 'escalated'
+      next_contact_at: string | null
+      occurred_at: string
+    }>
+  }>
   timeline: Array<{
     kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna'
     occurred_at: string

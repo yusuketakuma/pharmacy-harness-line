@@ -1,5 +1,6 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
+import { getPharmacyBetaNotificationBinding } from '../beta-membership/repository.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 import {
   listDueMedicationFollowUps,
@@ -49,6 +50,13 @@ export async function processDueMedicationFollowUps(
       continue;
     }
     try {
+      const retryKey = `medication-followup:${current.id}`;
+      const betaMembershipId = await getPharmacyBetaNotificationBinding(db, {
+        lineAccountId: current.line_account_id,
+        retryKey,
+        participantFriendId: current.owner_friend_id,
+        subjectPatientId: current.patient_id,
+      });
       const outcome = await sendPharmacyAutomatedPush({
         db,
         proxyBaseUrl: options.proxyBaseUrl,
@@ -58,13 +66,14 @@ export async function processDueMedicationFollowUps(
         lineAccountId: current.line_account_id,
         friendId: current.owner_friend_id,
         patientId: current.patient_id,
+        ...(betaMembershipId ? { betaMembershipId } : {}),
         messageId: 'medication_followup_v1',
         category: 'followup_care',
         vars: {
           followUpId: current.id,
           ...(current.liff_id ? { liffId: current.liff_id } : {}),
         },
-        retryKey: `medication-followup:${current.id}`,
+        retryKey,
         now,
       });
       // Only confirmed LINE delivery may advance the clinical workflow.

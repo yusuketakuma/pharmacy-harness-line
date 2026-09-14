@@ -36,6 +36,7 @@ import { putR2ObjectOnce } from '../../../services/immutable-r2.js';
 import { enqueueActivityForAccount } from '../activity-notifications/repository.js'; // custom:pharmacy-activity-notifications
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { recordTenantAudit } from '../../../lib/tenant-audit.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
 
 type PrescriptionBindings = {
   DB: D1Database;
@@ -91,6 +92,9 @@ prescriptionRoutes.use('/api/liff/pharmacy/prescriptions/*', async (c, next) => 
     identity,
   );
   if (!patient) return c.json({ error: 'Prescription account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('prescriptionPatient', patient);
   return next();
 });

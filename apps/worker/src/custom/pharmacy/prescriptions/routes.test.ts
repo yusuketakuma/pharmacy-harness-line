@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   access: vi.fn(),
   capability: vi.fn(),
   audit: vi.fn(),
+  betaParticipant: vi.fn(),
 }));
 
 vi.mock('../../../services/liff-auth.js', () => ({
@@ -80,6 +81,9 @@ vi.mock('../growth-loop/access.js', () => ({
 vi.mock('../../../lib/tenant-audit.js', () => ({
   recordTenantAudit: mocks.audit,
 }));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
+}));
 
 import { prescriptionRoutes } from './routes.js';
 
@@ -107,6 +111,7 @@ beforeEach(() => {
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
+  mocks.betaParticipant.mockResolvedValue(true);
 });
 
 describe('patient history, cancellation, and resubmission routes', () => {

@@ -6,6 +6,7 @@ import {
 } from './envelopes.js';
 import { RECOVERY_ENVIRONMENT } from '../recovery/operations.js';
 import { getEffectiveTenantPrivacyPolicy } from '../privacy-policy/repository.js';
+import { getPharmacyBetaSchemaState } from '../beta-membership/repository.js';
 
 export type PharmacyPatientOwner = PrescriptionPatient;
 export type PatientRelationship = 'self' | 'child' | 'spouse' | 'parent' | 'other';
@@ -135,7 +136,28 @@ const INTAKE_SELECT = `
          representative_consent_at, privacy_consent_at, created_at
     FROM pharmacy_patient_intake_responses`;
 
-function patientAuthorityPredicate(patientAlias: string): string {
+export function patientAuthorityPredicate(
+  patientAlias: string,
+  options: { requireBeta?: boolean } = {},
+): string {
+  const betaClause = options.requireBeta === false ? '' : `
+    AND (
+      NOT EXISTS (
+        SELECT 1 FROM pharmacy_account_capabilities AS beta_capability
+         WHERE beta_capability.line_account_id = ${patientAlias}.line_account_id
+           AND beta_capability.mode = 'pharmacy'
+           AND beta_capability.beta_enabled = 1
+      )
+      OR EXISTS (
+        SELECT 1 FROM pharmacy_beta_memberships AS beta_membership
+         WHERE beta_membership.line_account_id = ${patientAlias}.line_account_id
+           AND beta_membership.participant_friend_id = ${patientAlias}.owner_friend_id
+           AND beta_membership.subject_patient_id = ${patientAlias}.id
+           AND beta_membership.status = 'active'
+           AND unixepoch(beta_membership.starts_at) <= unixepoch('now')
+           AND unixepoch(beta_membership.expires_at) > unixepoch('now')
+      )
+    )`;
   return `
     AND NOT EXISTS (
       SELECT 1 FROM pharmacy_patient_owner_controls AS controls
@@ -158,7 +180,21 @@ function patientAuthorityPredicate(patientAlias: string): string {
            AND proxy.superseded_at IS NULL
            AND unixepoch(proxy.expires_at) > unixepoch(?)
       ))
-    )`;
+    )${betaClause}`;
+}
+
+export async function patientAuthorityPredicateFor(
+  db: D1Database,
+  patientAlias: string,
+  options: { requireBeta?: boolean } = {},
+): Promise<string> {
+  if (options.requireBeta === false) return patientAuthorityPredicate(patientAlias, options);
+  const schema = await getPharmacyBetaSchemaState(db);
+  if (schema === 'unavailable') throw new Error('patient authority schema unavailable');
+  return patientAuthorityPredicate(patientAlias, {
+    ...options,
+    requireBeta: schema === 'ready',
+  });
 }
 
 function boundedText(value: unknown, max: number): value is string {
@@ -624,10 +660,11 @@ export async function listPharmacyPatients(
 ): Promise<PharmacyPatient[]> {
   const archivedClause = includeArchived ? '' : ' AND archived_at IS NULL';
   const now = new Date().toISOString();
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'pharmacy_patients');
   const result = await db.prepare(
     `${PATIENT_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ?${archivedClause}
-      ${patientAuthorityPredicate('pharmacy_patients')}
+      ${authorityPredicate}
       ORDER BY CASE relationship WHEN 'self' THEN 0 ELSE 1 END,
                updated_at DESC, id DESC`,
   ).bind(owner.lineAccountId, owner.friendId, owner.friendId, now).all<PharmacyPatient>();
@@ -654,10 +691,11 @@ export async function getPharmacyPatient(
   patientId: string,
 ): Promise<PharmacyPatient | null> {
   const now = new Date().toISOString();
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'pharmacy_patients');
   return db.prepare(
     `${PATIENT_SELECT}
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
-      ${patientAuthorityPredicate('pharmacy_patients')}`,
+      ${authorityPredicate}`,
   ).bind(
     patientId, owner.lineAccountId, owner.friendId, owner.friendId, now,
   ).first<PharmacyPatient>();
@@ -771,7 +809,7 @@ export async function setPatientNotificationPreference(
                AND existing.owner_friend_id = patient.owner_friend_id
                AND existing.version = ?
           ))
-          ${patientAuthorityPredicate('patient')}
+          ${patientAuthorityPredicate('patient', { requireBeta: false })}
        ON CONFLICT (line_account_id, patient_id) DO UPDATE SET
          notifications_stopped_at = excluded.notifications_stopped_at,
          notifications_resumed_at = NULL,
@@ -806,7 +844,7 @@ export async function setPatientNotificationPreference(
                AND patient.line_account_id = controls.line_account_id
                AND patient.owner_friend_id = controls.owner_friend_id
                AND patient.archived_at IS NULL
-               ${patientAuthorityPredicate('patient')}
+               ${patientAuthorityPredicate('patient', { requireBeta: false })}
           )`,
     ).bind(
       now, now, transitionId, owner.lineAccountId, patientId, owner.friendId,
@@ -878,14 +916,15 @@ export async function updatePharmacyPatient(
 ): Promise<void> {
   validatePatientInput(input);
   const now = new Date().toISOString();
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'pharmacy_patients');
   const result = await db.prepare(
     `UPDATE pharmacy_patients
         SET name = ?, name_kana = ?, birth_date = ?,
             sex = ?, contact_phone = ?, postal_code = ?, prefecture = ?,
             city = ?, address_line1 = ?, address_line2 = ?, updated_at = ?
-      WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
+        WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
         AND archived_at IS NULL AND updated_at = ? AND relationship = 'self'
-        ${patientAuthorityPredicate('pharmacy_patients')}
+        ${authorityPredicate}
         AND EXISTS (
           SELECT 1 FROM pharmacy_account_capabilities AS capability
            WHERE capability.line_account_id = pharmacy_patients.line_account_id
@@ -917,7 +956,7 @@ export async function archivePharmacyPatient(
         SET archived_at = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?
         AND archived_at IS NULL AND updated_at = ? AND relationship = 'self'
-        ${patientAuthorityPredicate('pharmacy_patients')}`,
+        ${patientAuthorityPredicate('pharmacy_patients', { requireBeta: false })}`,
   ).bind(
     now, now, patientId,
     owner.lineAccountId, owner.friendId, expectedUpdatedAt, owner.friendId, now,
@@ -958,7 +997,7 @@ export async function setPatientPrivacyConsent(
          FROM pharmacy_patients AS patient
         WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
           AND patient.relationship = 'self' AND ? = 0
-          ${patientAuthorityPredicate('patient')}
+          ${patientAuthorityPredicate('patient', { requireBeta: false })}
        ON CONFLICT (line_account_id, patient_id) DO UPDATE SET
          privacy_withdrawn_at = excluded.privacy_withdrawn_at,
          version = pharmacy_patient_owner_controls.version + 1,
@@ -995,7 +1034,7 @@ export async function setPatientPrivacyConsent(
                AND patient.line_account_id = controls.line_account_id
                AND patient.owner_friend_id = controls.owner_friend_id
                AND patient.relationship = 'self'
-               ${patientAuthorityPredicate('patient')}
+               ${patientAuthorityPredicate('patient', { requireBeta: false })}
           )
           AND ((? = 'tenant' AND EXISTS (
                  SELECT 1 FROM pharmacy_tenant_privacy_policy AS current_policy
@@ -1050,6 +1089,8 @@ export async function createPatientIntakeResponse(
   validateIntakeInput(input);
   const patient = await getPharmacyPatient(db, owner, patientId);
   if (!patient || patient.archived_at) throw new Error('patient not found');
+  const patientAuthority = await patientAuthorityPredicateFor(db, 'patient');
+  const responsePatientAuthority = await patientAuthorityPredicateFor(db, 'p');
   const existing = await db.prepare(
     `${INTAKE_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
@@ -1059,7 +1100,7 @@ export async function createPatientIntakeResponse(
            WHERE patient.id = pharmacy_patient_intake_responses.patient_id
              AND patient.line_account_id = pharmacy_patient_intake_responses.line_account_id
              AND patient.owner_friend_id = pharmacy_patient_intake_responses.owner_friend_id
-             ${patientAuthorityPredicate('patient')}
+             ${patientAuthority}
         )`,
   ).bind(
     owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
@@ -1155,7 +1196,7 @@ export async function createPatientIntakeResponse(
               ON policy.line_account_id = p.line_account_id
       WHERE p.id = ? AND p.line_account_id = ? AND p.owner_friend_id = ?
         AND p.archived_at IS NULL
-        ${patientAuthorityPredicate('p')}
+        ${responsePatientAuthority}
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_patient_owner_controls AS privacy_controls
            WHERE privacy_controls.line_account_id = p.line_account_id
@@ -1225,7 +1266,7 @@ export async function createPatientIntakeResponse(
              WHERE patient.id = pharmacy_patient_intake_responses.patient_id
                AND patient.line_account_id = pharmacy_patient_intake_responses.line_account_id
                AND patient.owner_friend_id = pharmacy_patient_intake_responses.owner_friend_id
-               ${patientAuthorityPredicate('patient')}
+               ${patientAuthority}
           )`,
     ).bind(
       owner.lineAccountId, owner.friendId, patientId, input.idempotencyKey,
@@ -1264,6 +1305,7 @@ export async function getLatestPatientIntake(
   cryptoScope: PatientIntakeCryptoScope,
 ): Promise<PharmacyPatientIntakeResponse | null> {
   const now = new Date().toISOString();
+  const authorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
   const row = await db.prepare(
     `${INTAKE_SELECT}
       WHERE line_account_id = ? AND owner_friend_id = ? AND patient_id = ?
@@ -1272,7 +1314,7 @@ export async function getLatestPatientIntake(
            WHERE patient.id = pharmacy_patient_intake_responses.patient_id
              AND patient.line_account_id = pharmacy_patient_intake_responses.line_account_id
              AND patient.owner_friend_id = pharmacy_patient_intake_responses.owner_friend_id
-             ${patientAuthorityPredicate('patient')}
+             ${authorityPredicate}
         )
       ORDER BY revision DESC, id DESC
       LIMIT 1`,
@@ -1339,10 +1381,20 @@ export interface PharmacyPatientHistory {
     due_at: string;
     delivered_at: string | null;
     responded_at: string | null;
+    assigned_to: string | null;
     closed_at: string | null;
+    question_set_version: number;
+    response_deadline_at: string | null;
     version: number;
     created_at: string;
     updated_at: string;
+    contacts: Array<{
+      id: string;
+      channel: 'line' | 'phone';
+      outcome_code: 'answered' | 'no_answer' | 'resolved' | 'follow_up_required' | 'escalated';
+      next_contact_at: string | null;
+      occurred_at: string;
+    }>;
   }>;
   timeline: Array<{
     kind: 'intake' | 'prescription' | 'fulfillment' | 'continuity' | 'medication_followup' | 'myna';
@@ -1416,7 +1468,8 @@ export async function getAdminPharmacyPatientHistory(
   if (!patient) return null;
   const [
     intakes, latestIntake, prescriptions, quotes, continuity, medicationFollowUps,
-    prescriptionEvents, continuityEvents, medicationFollowUpEvents, nextIntakeEvents, myna,
+    prescriptionEvents, continuityEvents, medicationFollowUpEvents, medicationFollowUpContacts,
+    nextIntakeEvents, myna,
   ] = await Promise.all([
     db.prepare(`SELECT id, patient_id, revision, schema_version,
                        representative_consent_at, privacy_consent_at, created_at
@@ -1448,11 +1501,23 @@ export async function getAdminPharmacyPatientHistory(
                  ORDER BY created_at DESC, id DESC`)
       .bind(lineAccountId, patientId).all<PharmacyPatientHistory['continuity'][number]>(),
     db.prepare(`SELECT id, source_submission_id, status, due_at, delivered_at,
-                       responded_at, closed_at, version, created_at, updated_at
+                       question_set_version, response_deadline_at,
+                       responded_at, assigned_to, closed_at, version, created_at, updated_at
                   FROM pharmacy_medication_followups
                  WHERE line_account_id = ? AND patient_id = ?
                  ORDER BY created_at DESC, id DESC`)
-      .bind(lineAccountId, patientId).all<PharmacyPatientHistory['medicationFollowUps'][number]>(),
+      .bind(lineAccountId, patientId).all<PharmacyPatientHistory['medicationFollowUps'][number]>().catch((error) => {
+        if (!(error instanceof Error) ||
+            !/no such column:\s*(question_set_version|response_deadline_at)/i.test(error.message)) {
+          throw error;
+        }
+        return db.prepare(`SELECT id, source_submission_id, status, due_at, delivered_at,
+                                  responded_at, assigned_to, closed_at, version, created_at, updated_at
+                             FROM pharmacy_medication_followups
+                            WHERE line_account_id = ? AND patient_id = ?
+                            ORDER BY created_at DESC, id DESC`)
+          .bind(lineAccountId, patientId).all<PharmacyPatientHistory['medicationFollowUps'][number]>();
+      }),
     db.prepare(`SELECT e.event_type, e.to_status, e.created_at
                   FROM pharmacy_prescription_events e
                   INNER JOIN pharmacy_prescription_submissions s
@@ -1477,6 +1542,27 @@ export async function getAdminPharmacyPatientHistory(
                  WHERE e.line_account_id = ? AND f.patient_id = ?
                  ORDER BY e.occurred_at DESC, e.id DESC`)
       .bind(lineAccountId, patientId).all<{ event_type: string; to_status: string | null; occurred_at: string }>(),
+    db.prepare(`SELECT c.id, c.followup_id, c.channel, c.outcome_code,
+                       c.next_contact_at, c.occurred_at
+                  FROM pharmacy_medication_followup_contact_records c
+                  INNER JOIN pharmacy_medication_followups f
+                    ON f.id = c.followup_id AND f.line_account_id = c.line_account_id
+                 WHERE c.line_account_id = ? AND f.patient_id = ?
+                 ORDER BY c.occurred_at DESC, c.id DESC`)
+      .bind(lineAccountId, patientId).all<{
+        id: string;
+        followup_id: string;
+        channel: 'line' | 'phone';
+        outcome_code: 'answered' | 'no_answer' | 'resolved' | 'follow_up_required' | 'escalated';
+        next_contact_at: string | null;
+        occurred_at: string;
+      }>().catch((error) => {
+        if (error instanceof Error &&
+            /no such table:\s*pharmacy_medication_followup_contact_records/i.test(error.message)) {
+          return { results: [] };
+        }
+        throw error;
+      }),
     db.prepare(`SELECT e.event_type AS status, e.occurred_at
                   FROM pharmacy_next_intake_expectation_events e
                   INNER JOIN pharmacy_next_intake_expectations expectation
@@ -1493,6 +1579,24 @@ export async function getAdminPharmacyPatientHistory(
   ]);
 
   const intakeSummaries = intakes.results.map(toAdminIntakeSummary);
+  const contactsByFollowUp = new Map<string, PharmacyPatientHistory['medicationFollowUps'][number]['contacts']>();
+  for (const contact of medicationFollowUpContacts.results) {
+    const contacts = contactsByFollowUp.get(contact.followup_id) ?? [];
+    contacts.push({
+      id: contact.id,
+      channel: contact.channel,
+      outcome_code: contact.outcome_code,
+      next_contact_at: contact.next_contact_at,
+      occurred_at: contact.occurred_at,
+    });
+    contactsByFollowUp.set(contact.followup_id, contacts);
+  }
+  const medicationFollowUpHistory = medicationFollowUps.results.map((followUp) => ({
+    ...followUp,
+    question_set_version: followUp.question_set_version ?? 1,
+    response_deadline_at: followUp.response_deadline_at ?? null,
+    contacts: contactsByFollowUp.get(followUp.id) ?? [],
+  }));
   const timeline: PharmacyPatientHistory['timeline'] = [
     ...intakes.results.map((item) => ({ kind: 'intake' as const, occurred_at: item.created_at, label: `アンケート回答 第${item.revision}版`, status: null })),
     ...prescriptionEvents.results.map((item) => ({ kind: 'prescription' as const, occurred_at: item.created_at, label: item.event_type === 'status_changed' ? '処方せん受付状態を更新' : '処方せん受付を更新', status: item.to_status })),
@@ -1510,7 +1614,7 @@ export async function getAdminPharmacyPatientHistory(
     prescriptions: prescriptions.results,
     quotes: quotes.results,
     continuity: continuity.results,
-    medicationFollowUps: medicationFollowUps.results,
+    medicationFollowUps: medicationFollowUpHistory,
     timeline,
   };
 }

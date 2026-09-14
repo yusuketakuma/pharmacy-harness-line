@@ -17,6 +17,7 @@ import { ApiError } from '../../../lib/api.js'
 import { PrescriptionImageViewer } from './PrescriptionImageViewer.js'
 import {
   PrescriptionQueueEmptyState,
+  PrescriptionQueueOverview,
   filterPrescriptionQueueItems,
   isTemporaryDeploymentError,
   statusLabel,
@@ -34,6 +35,19 @@ import {
 } from './PrescriptionPrintPage.js'
 
 describe('prescription admin UI contract', () => {
+  it.each(['loading', 'failed', 'unavailable'])('does not report zero work without a confirmed list (%s)', (state) => {
+    const html = renderToStaticMarkup(<PrescriptionQueueOverview
+      items={[]} stats={{ pending_count: 0, oldest_wait_at: null, total_count: 0 } as never}
+      tab="all" loading={state === 'loading'} temporaryError={state === 'unavailable'}
+      error={state === 'failed' ? '処方せん一覧を取得できませんでした。' : ''}
+      nextCursor={null} onTabChange={() => undefined} onOpenDetail={() => undefined} onLoadMore={() => undefined}
+    />)
+    expect(html).not.toContain('処方せんはありません')
+    expect(html).not.toContain('0件')
+    expect(html).not.toContain('待機なし')
+    expect(html).toContain(state === 'loading' ? '読み込み中' : '未確認')
+  })
+
   it('filters the loaded queue by patient name or submission id and scrolls to the detail', () => {
     const items = [
       { id: 'sub-0001', patient_display_name: '山田 太郎', status: 'received' },
@@ -46,7 +60,7 @@ describe('prescription admin UI contract', () => {
     const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
     expect(page).toContain("document.getElementById('prescription-detail-title')?.scrollIntoView(")
     const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8')
-    expect(overview).toContain('aria-label="患者名または受付番号で絞り込み"')
+    expect(overview).toContain('aria-label="LINE表示名または受付番号で絞り込み"')
   })
 
   it('shows fixed Japanese status and resubmission reason labels', () => {
@@ -88,6 +102,13 @@ describe('prescription admin UI contract', () => {
     ])
     expect(actionsForStatus('ready').map((action) => action.id)).toEqual(['close', 'cancel'])
     expect(actionsForStatus('closed')).toEqual([])
+  })
+
+  it('distinguishes LINE acceptance from patient delivery and reading', () => {
+    for (const status of ['sent', 'already_sent'] as const) {
+      expect(actionNotice(status)).toContain('到達・既読は未確認')
+      expect(actionNotice(status)).toContain('状態を更新')
+    }
   })
 
   it('treats 404 and 503 as temporary deployment errors', () => {
@@ -191,8 +212,8 @@ describe('prescription admin UI contract', () => {
     const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
     const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8')
 
-    expect(review).toContain('}, [source, submissionId])')
-    expect(review).toContain('}, [submissionId, validity])')
+    expect(review).toContain('}, [source, submissionId, reloadVersion])')
+    expect(review).toContain('}, [submissionId, validity, reloadVersion])')
     expect(page).toContain('const [loading, setLoading] = useState(true)')
     expect(page).toContain('setActionMessage(\'\')')
     expect(page).toContain('imageRequestRef.current')
@@ -267,7 +288,7 @@ describe('prescription admin UI contract', () => {
     const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
     const detail = readFileSync(new URL('./PrescriptionDetailPanel.tsx', import.meta.url), 'utf8')
 
-    expect(page).toContain('actionError={error}')
+    expect(page).toContain('actionError={actionError}')
     expect(detail).toContain('actionError && <p role="alert"')
     expect(page).toContain('await loadPrescriptionImage(')
   })

@@ -95,6 +95,13 @@ describe('bootstrap.sql', () => {
       PATIENT_PROXY_CONTROLS_MIGRATION,
       PATIENT_CONTROL_AUDIT_MIGRATION,
       '013_custom_070_patient_proxy_lifecycle.sql',
+      '014_custom_071_shared_pharmacy_auth.sql',
+      '015_custom_072_pharmacy_beta_memberships.sql',
+      '016_custom_073_pharmacy_medication_followup_closure.sql',
+      '017_custom_074_pharmacy_followup_operations.sql',
+      '018_custom_075_pharmacy_medication_followup_assignments.sql',
+      '019_custom_076_pharmacy_followup_operations_scope.sql',
+      '020_custom_077_pharmacy_beta_notification_bindings.sql',
     ]);
   });
 

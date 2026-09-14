@@ -182,7 +182,6 @@ describe('admin login boundary', () => {
       method: 'POST',
       body: JSON.stringify({
         pharmacyCode: 'missing',
-        loginId: 'missing-login-id',
         password: 'A guessed password 42',
       }),
       headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
@@ -193,8 +192,8 @@ describe('admin login boundary', () => {
     const lines = warn.mock.calls.map((call) => String(call[0]));
     const failed = lines.find((line) => line.includes('"event":"auth.login_failed"'));
     expect(failed).toBeDefined();
-    expect(JSON.parse(failed!)).toMatchObject({ realm: 'tenant', ip: '203.0.113.9', reason: 'unknown_login' });
-    expect(lines.join('\n')).not.toMatch(/missing-login-id|guessed password/);
+    expect(JSON.parse(failed!)).toMatchObject({ realm: 'tenant', ip: '203.0.113.9', reason: 'unknown_pharmacy_code' });
+    expect(lines.join('\n')).not.toContain('guessed password');
     derive.mockRestore();
     warn.mockRestore();
   });
@@ -207,7 +206,7 @@ describe('admin login boundary', () => {
     const denied = warn.mock.calls.map((call) => String(call[0]))
       .find((line) => line.includes('"event":"authz.denied"'));
     expect(JSON.parse(denied!)).toMatchObject({
-      route: '/api/protected', method: 'GET', status: 401, reason: 'Unauthorized',
+      route: '/*', method: 'GET', status: 401, reason: 'Unauthorized',
     });
     warn.mockRestore();
   });
@@ -271,7 +270,7 @@ describe('protected API access', () => {
     expect(res.status).toBe(200);
   });
 
-  test('allows the tenant-scoped staff lifecycle over a platform-admin session bearer', async () => {
+  test('allows the tenant-scoped staff lifecycle but blocks retired credential reset', async () => {
     const headers = {
       Authorization: `Bearer ${platformSession}`,
       'X-Tenant-Id': TENANT_ID,
@@ -300,7 +299,7 @@ describe('protected API access', () => {
     expect(create.status).toBe(200);
     expect(role.status).toBe(200);
     expect(accounts.status).toBe(200);
-    expect(resetPassword.status).toBe(200);
+    expect(resetPassword.status).toBe(401);
     expect(remove.status).toBe(200);
   });
 

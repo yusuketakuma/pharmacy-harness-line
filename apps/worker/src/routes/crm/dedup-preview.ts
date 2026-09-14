@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { computeDedupBroadcastPreview } from '../../services/dedup-broadcast.js';
 import { requireRole } from '../../middleware/role-guard.js';
 import type { Env } from '../../index.js';
 
@@ -27,6 +26,7 @@ dedupPreview.post(
     const dedupPriority = body.dedupPriority as string[];
     const targetTagId = (body.targetTagId as string | null | undefined) ?? null;
 
+    const { computeDedupBroadcastPreview } = await import('../../services/dedup-broadcast.js');
     const preview = await computeDedupBroadcastPreview(
       c.env.DB,
       accountIds,

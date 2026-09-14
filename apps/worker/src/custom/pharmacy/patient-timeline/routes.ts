@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { resolvePrescriptionPatient } from '../prescriptions/patient.js';
 import { listPatientTimeline } from './repository.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
 
 type TimelineEnv = { Bindings: { DB: D1Database } };
 
@@ -17,5 +18,8 @@ patientTimelineRoutes.get('/api/liff/pharmacy/timeline', async (c) => {
     identity,
   );
   if (!patient) return c.json({ error: 'Patient account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
   return c.json({ items: await listPatientTimeline(c.env.DB, patient) });
 });

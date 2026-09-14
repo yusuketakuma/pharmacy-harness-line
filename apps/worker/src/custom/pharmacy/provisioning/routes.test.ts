@@ -59,9 +59,7 @@ function fakeDb() {
         const tenant = statements.find((statement) => statement.sql.includes('INSERT INTO tenants'));
         const account = statements.find((statement) => statement.sql.includes('INSERT INTO line_accounts'));
         const staff = statements.find((statement) => statement.sql.includes('INSERT INTO staff_members'));
-        const credential = statements.find((statement) =>
-          statement.sql.includes('INSERT INTO tenant_admin_credentials'));
-        if (provision && tenant && account && staff && credential) {
+        if (provision && tenant && account && staff) {
           receipt = {
             idempotency_key: provision.values[0],
             request_hash: provision.values[1],
@@ -70,7 +68,8 @@ function fakeDb() {
             staff_id: staff.values[0],
             tenant_code: tenant.values[1],
             display_name: tenant.values[2],
-            login_id: credential.values[2],
+            login_id: null,
+            auth_enabled: null,
             line_account_name: account.values[2],
             liff_id: account.values[7],
           };
@@ -301,7 +300,8 @@ describe('platform tenant provisioning', () => {
       data: Record<string, unknown> & { urls: Record<string, string>; line: Record<string, unknown> };
     };
     expect(body.data).toMatchObject({
-      adminLoginId: 'admin-a',
+      adminLoginId: null,
+      sharedLoginIssued: false,
       replayed: false,
       line: { tokenValidated: true, webhookConfigured: true },
     });
@@ -323,8 +323,6 @@ describe('platform tenant provisioning', () => {
       expect.stringContaining('INSERT OR IGNORE INTO pharmacy_account_capabilities'),
       expect.stringContaining('INSERT INTO staff_members'),
       expect.stringContaining('INSERT INTO tenant_staff_memberships'),
-      expect.stringContaining('INSERT INTO tenant_admin_credentials'),
-      expect.stringContaining('INSERT INTO pharmacy_tenant_admin_bootstraps'),
       expect.stringContaining('INSERT INTO pharmacy_tenant_provisioning_requests'),
     ]));
     const capabilityInsert = fake.batches[0].find(({ sql }) =>
@@ -340,9 +338,9 @@ describe('platform tenant provisioning', () => {
     expect(storedValues).not.toContain(requestBody.line.channelSecret);
     expect(storedValues).not.toContain(requestBody.line.loginChannelSecret);
     expect(storedValues.some((value) =>
-      typeof value === 'string' && value.startsWith('pbkdf2-sha256$'))).toBe(true);
+      typeof value === 'string' && value.startsWith('pbkdf2-sha256$'))).toBe(false);
     const staffInsert = fake.batches[0].find(({ sql }) => sql.includes('INSERT INTO staff_members'));
-    expect(staffInsert?.values[3]).toMatch(/^disabled:/);
+    expect(staffInsert?.values[2]).toMatch(/^disabled:/);
 
     expect(lineFetch).toHaveBeenNthCalledWith(1, 'https://api.line.me/v2/bot/info', expect.objectContaining({
       method: 'GET',

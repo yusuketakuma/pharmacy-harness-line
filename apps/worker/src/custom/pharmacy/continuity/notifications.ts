@@ -1,5 +1,6 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
+import { getPharmacyBetaNotificationBinding } from '../beta-membership/repository.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 import {
   markNextIntakeExpectationReminded,
@@ -29,7 +30,14 @@ export async function deliverContinuityReminder(
     }).catch(() => null)
     : null;
   if (!reminder.line_user_id || !accessToken) return 'skipped';
+  const retryKey = `next-intake:${reminder.id}`;
   try {
+    const betaMembershipId = await getPharmacyBetaNotificationBinding(options.db, {
+      lineAccountId: reminder.line_account_id,
+      retryKey,
+      participantFriendId: reminder.owner_friend_id,
+      subjectPatientId: reminder.patient_id,
+    });
     const outcome = await sendPharmacyAutomatedPush({
       db: options.db,
       proxyBaseUrl: options.proxyBaseUrl,
@@ -39,9 +47,10 @@ export async function deliverContinuityReminder(
       lineAccountId: reminder.line_account_id,
       friendId: reminder.owner_friend_id,
       patientId: reminder.patient_id,
+      ...(betaMembershipId ? { betaMembershipId } : {}),
       messageId: 'continuity_reminder_v1',
       category: 'continuity',
-      retryKey: `next-intake:${reminder.id}`,
+      retryKey,
     });
     // Only confirmed LINE delivery may mark the expectation as reminded.
     if (outcome !== 'sent' && outcome !== 'already_sent') return 'skipped';

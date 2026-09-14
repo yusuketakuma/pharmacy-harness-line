@@ -335,6 +335,48 @@ function StaffPanel({ tenantId }: { tenantId: string }) {
   )
 }
 
+function SharedLoginPanel({ tenantId, pharmacyCode }: { tenantId: string; pharmacyCode: string }) {
+  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
+  const [error, setError] = useState('')
+
+  const issue = async (reset: boolean) => {
+    if (working || !window.confirm(reset
+      ? '薬局共通ログインのパスワードを再発行しますか?'
+      : '薬局共通ログインを初回発行しますか?')) return
+    setWorking(true)
+    setError('')
+    setTemporaryPassword(null)
+    try {
+      const response = reset
+        ? await platformAdminApi.resetSharedLoginPassword(tenantId)
+        : await platformAdminApi.issueSharedLogin(tenantId)
+      setTemporaryPassword(response.data.temporaryPassword)
+    } catch (caught) {
+      setError(platformAdminErrorMessage(caught))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  return (
+    <Panel title="薬局共通ログイン">
+      <p className="mb-3 text-sm text-gray-600">ログインは薬局コードとパスワードだけです。仮パスワードは発行時に一度だけ表示します。</p>
+      <p className="mb-3 text-sm">薬局コード: <code className="font-mono">{pharmacyCode}</code></p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => void issue(false)} disabled={working} className="rounded-lg bg-purple-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+          {working ? '発行中...' : '初回発行'}
+        </button>
+        <button type="button" onClick={() => void issue(true)} disabled={working} className="rounded-lg border border-purple-300 px-3 py-2 text-sm text-purple-800 disabled:opacity-50">
+          再発行
+        </button>
+      </div>
+      {temporaryPassword && <p className="mt-3 break-all rounded bg-purple-50 p-3 font-mono text-sm" role="status">仮パスワード（この画面で一度だけ表示）: {temporaryPassword}</p>}
+      {error && <p className="mt-2 text-sm text-red-600" role="alert">{error}</p>}
+    </Panel>
+  )
+}
+
 function OutboundPanel({ tenantId, outboundMessagingPausedAt: initialPausedAt }: {
   tenantId: string
   outboundMessagingPausedAt: string | null
@@ -516,6 +558,7 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
 
       <HealthPanel tenantId={tenant.id} />
       <LinePanel tenantId={tenant.id} />
+      <SharedLoginPanel tenantId={tenant.id} pharmacyCode={tenant.tenantCode} />
       <StaffPanel tenantId={tenant.id} />
       <OutboundPanel
         tenantId={tenant.id}

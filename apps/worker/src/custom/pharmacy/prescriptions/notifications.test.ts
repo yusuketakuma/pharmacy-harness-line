@@ -17,9 +17,12 @@ const CREDENTIAL_KEY = 'synthetic-line-credential-root-key-v1';
 function fakeDb(options: {
   recipient?: Record<string, unknown> | null;
   due?: unknown[];
+  bound?: unknown[];
   sent?: boolean;
   notificationAuditError?: boolean;
   notificationInProgress?: boolean;
+  bindingError?: Error;
+  betaEnabled?: boolean;
 } = {}) {
   const calls: Array<{ sql: string; values: unknown[]; operation: string }> = [];
   const recipient = options.sent ? null : options.recipient === undefined ? {
@@ -37,10 +40,26 @@ function fakeDb(options: {
     estimated_ready_at: null,
   } : options.recipient;
   const db = {
-    prepare: (sql: string) => ({
+    prepare: (sql: string) => {
+      if (options.bindingError && sql.includes('pharmacy_beta_notification_bindings')) {
+        throw options.bindingError;
+      }
+      return ({
       bind: (...values: unknown[]) => ({
         first: async () => {
           calls.push({ sql, values, operation: 'first' });
+          if (sql.includes('final pharmacy dispatch scope')) {
+            return {
+              destination_line_user_id: 'U-patient',
+              is_following: 1,
+              account_active: 1,
+              tenant_status: 'active',
+              outbound_messaging_paused_at: null,
+              capability_enabled: 1,
+              followup_status: null,
+              followup_operations_enabled: null,
+            };
+          }
           if (sql.includes('SELECT patient.relationship')) {
             return {
               relationship: 'self', proxy_expires_at: null, privacy_withdrawn: 0,
@@ -51,7 +70,7 @@ function fakeDb(options: {
             return { id: 'notification-1', outcome: 'attempted', occurred_at: new Date().toISOString() };
           }
           if (sql.includes('pharmacy_account_capabilities')) {
-            return { line_account_id: 'account-a', mode: 'pharmacy', capabilities_json: '["prescription_intake"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' };
+            return { line_account_id: 'account-a', mode: 'pharmacy', beta_enabled: options.betaEnabled ? 1 : 0, capabilities_json: '["prescription_intake"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' };
           }
           if (options.sent) {
             if (sql.includes('SELECT e.to_status')) return { to_status: 'ready', status: 'ready' };
@@ -61,7 +80,7 @@ function fakeDb(options: {
         },
         all: async () => {
           calls.push({ sql, values, operation: 'all' });
-          return { results: options.due ?? [] };
+          return { results: sql.includes('pharmacy_beta_notification_bindings') ? options.bound ?? [] : options.due ?? [] };
         },
         run: async () => {
           calls.push({ sql, values, operation: 'run' });
@@ -75,7 +94,8 @@ function fakeDb(options: {
           return { success: true, meta: { changes: 1 } };
         },
       }),
-    }),
+      });
+    },
   } as unknown as D1Database;
   return { db, calls };
 }
@@ -272,6 +292,37 @@ describe('prescription status notifications', () => {
     expect(calls[0].sql).toContain("delivery.outcome = 'attempted'");
     expect(calls[0].sql).toContain('LIMIT ?');
     expect(calls[0].values).toEqual([expect.any(String), 10]);
+  });
+
+  it('rediscovers a status event bound during suspension after the membership resumes', async () => {
+    const { db, calls } = fakeDb({
+      bound: [{ line_account_id: 'account-1', submission_id: 'submission-1', status_event_id: STATUS_EVENT_ID }],
+    });
+    const dispatch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await expect(retryFailedPrescriptionNotifications(db, {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+      lineCredentialKey: CREDENTIAL_KEY,
+    })).resolves.toEqual({ sent: 1, failed: 0, skipped: 0 });
+
+    expect(calls.some((call) => call.sql.includes('pharmacy_beta_notification_bindings'))).toBe(true);
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a transient binding read failure retryable instead of recording blocked', async () => {
+    const { db, calls } = fakeDb({ bindingError: new Error('temporary D1 read failure'), betaEnabled: true });
+    const dispatch = vi.fn();
+
+    await expect(deliverPrescriptionNotification(db, 'account-1', 'submission-1', {
+      proxyBaseUrl: 'https://worker.example',
+      proxyDispatch: dispatch,
+      lineCredentialKey: CREDENTIAL_KEY,
+    })).resolves.toEqual({ status: 'failed' });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(calls.some((call) => call.sql.includes("'blocked'"))).toBe(false);
+    expect(calls.some((call) => call.values.includes('notification_failed'))).toBe(true);
   });
 
   it('does not send when the tenant-scoped credential is missing or corrupt', async () => {

@@ -2,6 +2,7 @@ import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js'
 import type { PrescriptionStatus } from './state.js';
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
 import { pharmacyPrescriptionPageUrl } from '../growth-loop/policy.js';
+import { getPharmacyBetaNotificationBinding } from '../beta-membership/repository.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 
 export interface PrescriptionNotificationOptions {
@@ -11,6 +12,12 @@ export interface PrescriptionNotificationOptions {
 }
 
 export type PrescriptionNotificationStatus = 'sent' | 'already_sent' | 'failed' | 'skipped' | 'superseded';
+
+type RetryablePrescriptionNotification = {
+  line_account_id: string;
+  submission_id: string;
+  status_event_id: string;
+};
 
 interface NotificationRecipient {
   status_event_id: string;
@@ -182,6 +189,15 @@ export async function deliverPrescriptionNotification(
 
   const status = recipient.status === 'draft' ? undefined : recipient.status;
   try {
+    const retryKey = recipient.status_event_id;
+    const betaMembershipId = recipient.patient_id
+      ? await getPharmacyBetaNotificationBinding(db, {
+        lineAccountId: recipient.line_account_id,
+        retryKey,
+        participantFriendId: recipient.friend_id,
+        subjectPatientId: recipient.patient_id,
+      })
+      : null;
     const outcome = await sendPharmacyAutomatedPush({
       db,
       proxyBaseUrl: options.proxyBaseUrl,
@@ -191,6 +207,7 @@ export async function deliverPrescriptionNotification(
       lineAccountId: recipient.line_account_id,
       friendId: recipient.friend_id,
       ...(recipient.patient_id ? { patientId: recipient.patient_id } : {}),
+      ...(betaMembershipId ? { betaMembershipId } : {}),
       messageId: 'prescription_status_v1',
       category: 'transactional_care',
       vars: {
@@ -201,7 +218,7 @@ export async function deliverPrescriptionNotification(
           ? { liffId: recipient.liff_id, submissionId }
           : {}),
       },
-      retryKey: recipient.status_event_id,
+      retryKey,
     });
     // Do not claim the patient was told without a confirmed LINE delivery.
     if (outcome !== 'sent' && outcome !== 'already_sent') return { status: 'skipped' };
@@ -286,11 +303,61 @@ export async function retryFailedPrescriptionNotifications(
         )
       ORDER BY changed.created_at, changed.submission_id
       LIMIT ?`,
-  ).bind(staleAttemptAt, boundedLimit)
-    .all<{ line_account_id: string; submission_id: string; status_event_id: string }>();
+  ).bind(staleAttemptAt, boundedLimit).all<RetryablePrescriptionNotification>();
+
+  let retryable = due.results ?? [];
+  const retryCheckAt = new Date().toISOString();
+  if (retryable.length < boundedLimit) {
+    try {
+      // A status event can be first observed while its membership is suspended,
+      // so no notification ledger row exists yet. The immutable binding is the
+      // retry source once that same membership resumes. Missing binding schema
+      // is ignored here for old Workers; the normal retry query still runs.
+      const bound = await db.prepare(
+        `SELECT s.line_account_id, changed.submission_id, changed.id AS status_event_id
+           FROM pharmacy_prescription_events changed
+           INNER JOIN pharmacy_prescription_submissions s
+             ON s.id = changed.submission_id
+           INNER JOIN pharmacy_beta_notification_bindings binding
+             ON binding.line_account_id = s.line_account_id
+            AND binding.retry_key = changed.id
+           INNER JOIN pharmacy_beta_memberships membership
+             ON membership.id = binding.membership_id
+            AND membership.line_account_id = binding.line_account_id
+           INNER JOIN pharmacy_account_capabilities pc
+             ON pc.line_account_id = s.line_account_id AND pc.mode = 'pharmacy'
+          WHERE changed.event_type = 'status_changed' AND changed.to_status = s.status
+            AND NOT EXISTS (
+              SELECT 1 FROM pharmacy_prescription_events sent
+               WHERE sent.submission_id = changed.submission_id
+                 AND sent.event_type = 'notification_sent'
+                 AND sent.actor_id = changed.id
+            )
+            AND (
+              pc.beta_enabled = 0
+              OR (
+                membership.status = 'active'
+                AND membership.starts_at <= ?
+                AND membership.expires_at > ?
+              )
+            )
+          ORDER BY changed.created_at, changed.submission_id
+          LIMIT ?`,
+      ).bind(retryCheckAt, retryCheckAt, boundedLimit)
+        .all<RetryablePrescriptionNotification>();
+      const seen = new Set(retryable.map((row) => row.status_event_id));
+      retryable = [
+        ...retryable,
+        ...(bound.results ?? []).filter((row) => !seen.has(row.status_event_id)),
+      ].slice(0, boundedLimit);
+    } catch {
+      // The additive binding table may not exist yet, or a transient read may
+      // fail. In either case leave existing retry discovery intact.
+    }
+  }
 
   const result = { sent: 0, failed: 0, skipped: 0 };
-  for (const row of due.results ?? []) {
+  for (const row of retryable) {
     const delivery = await deliverPrescriptionNotification(
       db, row.line_account_id, row.submission_id, options, row.status_event_id,
     );

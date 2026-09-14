@@ -8,7 +8,7 @@ import {
 } from './cli-common.js';
 
 describe('pharmacy CLI common input handling', () => {
-  it('keeps shared argument and secret-output contracts consistent', () => {
+  it('keeps shared argument and one-time password generation contracts consistent', () => {
     expect(required({ tenant: ' tenant-a ' }, 'tenant')).toBe('tenant-a');
     expect(() => required({}, 'tenant')).toThrow('--tenant is required');
     expect(requestId({ 'idempotency-key': 'retry-key-0001' })).toBe('retry-key-0001');

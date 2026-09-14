@@ -506,7 +506,9 @@ CREATE TABLE friends (
   unfollow_count   INTEGER NOT NULL DEFAULT 0,
   created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, ref_code TEXT, metadata TEXT NOT NULL DEFAULT '{}', line_account_id TEXT REFERENCES line_accounts(id), first_tracked_link_id TEXT REFERENCES tracked_links (id) ON DELETE SET NULL, provider_line_user_id TEXT);
+, ref_code TEXT, metadata TEXT NOT NULL DEFAULT '{}', line_account_id TEXT REFERENCES line_accounts(id), first_tracked_link_id TEXT REFERENCES tracked_links (id) ON DELETE SET NULL, provider_line_user_id TEXT, follow_state_changed_at TEXT CHECK (
+    follow_state_changed_at IS NULL OR unixepoch(follow_state_changed_at) IS NOT NULL
+  ), follow_state_event_id TEXT);
 
 CREATE TABLE google_calendar_connections (
   id            TEXT PRIMARY KEY,
@@ -866,7 +868,8 @@ CREATE TABLE pharmacy_account_capabilities (
     CHECK (unfollow_alert_state IN ('alert_only','auto_pause')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
-);
+, beta_enabled INTEGER NOT NULL DEFAULT 0
+  CHECK (beta_enabled IN (0, 1)));
 
 CREATE TABLE pharmacy_account_capability_revisions (
   line_account_id TEXT PRIMARY KEY,
@@ -893,6 +896,64 @@ CREATE TABLE pharmacy_activity_notifications (
   UNIQUE (id, line_account_id),
   UNIQUE (line_account_id, dedupe_hash),
   FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
+);
+
+CREATE TABLE pharmacy_auth_audit_events (
+  id               TEXT PRIMARY KEY NOT NULL,
+  actor_kind       TEXT NOT NULL CHECK (
+    actor_kind IN ('pharmacy_shared', 'platform_admin', 'human', 'unauthenticated', 'system')
+  ),
+  actor_staff_id   TEXT REFERENCES staff_members(id) ON DELETE RESTRICT,
+  target_tenant_id TEXT REFERENCES tenants(id) ON DELETE RESTRICT,
+  target_staff_id  TEXT REFERENCES staff_members(id) ON DELETE RESTRICT,
+  action           TEXT NOT NULL CHECK (length(trim(action)) BETWEEN 1 AND 64),
+  outcome          TEXT NOT NULL CHECK (outcome IN ('success', 'failure', 'denied', 'unavailable')),
+  reason_code      TEXT NOT NULL CHECK (length(trim(reason_code)) BETWEEN 1 AND 64),
+  request_id       TEXT NOT NULL CHECK (length(trim(request_id)) BETWEEN 1 AND 128),
+  created_at       TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL)
+) WITHOUT ROWID;
+
+CREATE TABLE pharmacy_beta_memberships (
+  id                    TEXT PRIMARY KEY NOT NULL,
+  line_account_id       TEXT NOT NULL,
+  participant_friend_id TEXT NOT NULL,
+  subject_patient_id    TEXT NOT NULL,
+  subject_owner_friend_id TEXT NOT NULL,
+  access_kind           TEXT NOT NULL CHECK (access_kind IN ('self', 'family')),
+  status                TEXT NOT NULL DEFAULT 'active'
+                         CHECK (status IN ('active', 'suspended', 'revoked')),
+  starts_at             TEXT NOT NULL CHECK (unixepoch(starts_at) IS NOT NULL),
+  expires_at            TEXT NOT NULL CHECK (
+    unixepoch(expires_at) IS NOT NULL AND
+    unixepoch(expires_at) > unixepoch(starts_at)
+  ),
+  revoked_at            TEXT CHECK (revoked_at IS NULL OR unixepoch(revoked_at) IS NOT NULL),
+  revoke_reason_code    TEXT CHECK (
+    revoke_reason_code IS NULL OR length(trim(revoke_reason_code)) BETWEEN 1 AND 64
+  ),
+  version               INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  last_transition_id    TEXT,
+  created_at            TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  updated_at            TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL),
+  CHECK ((status = 'revoked' AND revoked_at IS NOT NULL) OR
+         (status <> 'revoked' AND revoked_at IS NULL)),
+  CHECK ((status = 'revoked' AND revoked_at IS NOT NULL AND revoke_reason_code IS NOT NULL) OR
+         (status <> 'revoked' AND revoked_at IS NULL AND revoke_reason_code IS NULL)),
+  FOREIGN KEY (participant_friend_id, line_account_id)
+    REFERENCES friends(id, line_account_id) ON DELETE RESTRICT,
+  FOREIGN KEY (subject_patient_id, line_account_id, subject_owner_friend_id)
+    REFERENCES pharmacy_patients(id, line_account_id, owner_friend_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE pharmacy_beta_notification_bindings (
+  line_account_id       TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  retry_key             TEXT NOT NULL CHECK (length(retry_key) BETWEEN 8 AND 160),
+  participant_friend_id TEXT NOT NULL,
+  subject_patient_id    TEXT NOT NULL,
+  subject_owner_friend_id TEXT NOT NULL,
+  membership_id         TEXT NOT NULL REFERENCES pharmacy_beta_memberships(id) ON DELETE RESTRICT,
+  created_at            TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  PRIMARY KEY (line_account_id, retry_key)
 );
 
 CREATE TABLE pharmacy_cli_break_glass_sessions (
@@ -1405,6 +1466,29 @@ CREATE TABLE pharmacy_medical_sources (
   UNIQUE (line_account_id, display_name)
 );
 
+CREATE TABLE pharmacy_medication_followup_contact_records (
+  id                 TEXT PRIMARY KEY,
+  followup_id        TEXT NOT NULL,
+  line_account_id    TEXT NOT NULL,
+  channel            TEXT NOT NULL CHECK (channel IN ('line', 'phone')),
+  outcome_code       TEXT NOT NULL CHECK (
+    outcome_code IN ('answered', 'no_answer', 'resolved', 'follow_up_required', 'escalated')
+  ),
+  next_contact_at    TEXT CHECK (
+    next_contact_at IS NULL OR unixepoch(next_contact_at) IS NOT NULL
+  ),
+  actor_staff_id     TEXT NOT NULL,
+  idempotency_key    TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 160),
+  occurred_at        TEXT NOT NULL CHECK (unixepoch(occurred_at) IS NOT NULL),
+  created_at         TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  CHECK (outcome_code <> 'follow_up_required' OR next_contact_at IS NOT NULL),
+  UNIQUE (line_account_id, idempotency_key),
+  FOREIGN KEY (followup_id, line_account_id)
+    REFERENCES pharmacy_medication_followups(id, line_account_id) ON DELETE CASCADE,
+  FOREIGN KEY (actor_staff_id)
+    REFERENCES staff_members(id)
+);
+
 CREATE TABLE pharmacy_medication_followup_events (
   id               TEXT PRIMARY KEY,
   followup_id      TEXT NOT NULL,
@@ -1424,10 +1508,31 @@ CREATE TABLE pharmacy_medication_followup_events (
   actor_type       TEXT NOT NULL CHECK (actor_type IN ('patient','staff','system')),
   actor_id         TEXT,
   idempotency_key  TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 160),
-  occurred_at      TEXT NOT NULL,
+  occurred_at      TEXT NOT NULL, assignee_staff_id TEXT REFERENCES staff_members(id),
   UNIQUE (line_account_id, idempotency_key),
   FOREIGN KEY (followup_id, line_account_id)
     REFERENCES pharmacy_medication_followups(id, line_account_id)
+);
+
+CREATE TABLE pharmacy_medication_followup_operations (
+  line_account_id          TEXT PRIMARY KEY REFERENCES line_accounts(id) ON DELETE CASCADE,
+  service_hours_text       TEXT NOT NULL CHECK (length(trim(service_hours_text)) BETWEEN 1 AND 2048),
+  response_sla_json        TEXT NOT NULL CHECK (
+    json_valid(response_sla_json) AND length(response_sla_json) BETWEEN 2 AND 4096
+  ),
+  primary_staff_id         TEXT NOT NULL REFERENCES staff_members(id),
+  backup_staff_id          TEXT REFERENCES staff_members(id),
+  after_hours_message_code TEXT NOT NULL CHECK (
+    after_hours_message_code IN ('contact_pharmacy_during_hours', 'seek_urgent_care')
+  ),
+  emergency_message_code   TEXT NOT NULL CHECK (
+    emergency_message_code IN ('contact_pharmacy_during_hours', 'seek_urgent_care')
+  ),
+  enabled                  INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+  version                  INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_at               TEXT NOT NULL CHECK (unixepoch(created_at) IS NOT NULL),
+  updated_at               TEXT NOT NULL CHECK (unixepoch(updated_at) IS NOT NULL),
+  CHECK (backup_staff_id IS NULL OR backup_staff_id <> primary_staff_id)
 );
 
 CREATE TABLE pharmacy_medication_followups (
@@ -1448,7 +1553,9 @@ CREATE TABLE pharmacy_medication_followups (
   version               INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   created_by            TEXT NOT NULL,
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL, question_set_version INTEGER NOT NULL DEFAULT 1 CHECK (question_set_version >= 1), response_deadline_at TEXT CHECK (
+    response_deadline_at IS NULL OR unixepoch(response_deadline_at) IS NOT NULL
+  ),
   UNIQUE (id, line_account_id),
   UNIQUE (line_account_id, source_submission_id),
   FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
@@ -2566,7 +2673,8 @@ CREATE TABLE staff_members (
   is_active  INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, api_key_hash TEXT);
+, api_key_hash TEXT, principal_kind TEXT NOT NULL DEFAULT 'human'
+  CHECK (principal_kind IN ('human', 'pharmacy_shared')), shared_tenant_id TEXT REFERENCES tenants(id) ON DELETE CASCADE);
 
 CREATE TABLE staff_menus (
   staff_id                  TEXT NOT NULL,
@@ -2633,7 +2741,11 @@ CREATE TABLE tenant_admin_audit_events (
   resource_type   TEXT,
   resource_id     TEXT,
   detail_json     TEXT,
-  created_at      TEXT NOT NULL,
+  created_at      TEXT NOT NULL, actor_kind TEXT CHECK (
+    actor_kind IS NULL OR actor_kind IN ('human', 'pharmacy_shared', 'platform_admin', 'system')
+  ), outcome TEXT CHECK (
+    outcome IS NULL OR outcome IN ('success', 'failure', 'denied', 'unavailable')
+  ),
   CHECK (tenant_id IS NOT NULL OR line_account_id IS NOT NULL)
 );
 
@@ -2647,7 +2759,7 @@ CREATE TABLE tenant_admin_credentials (
   credential_version   INTEGER NOT NULL DEFAULT 1
                        CHECK (credential_version >= 1),
   created_at           TEXT NOT NULL,
-  updated_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL, auth_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auth_enabled IN (0, 1)),
   PRIMARY KEY (tenant_id, staff_id),
   UNIQUE (tenant_id, login_id),
   FOREIGN KEY (tenant_id, staff_id)
@@ -3127,6 +3239,21 @@ CREATE INDEX idx_pharmacy_activity_notifications_open
   ON pharmacy_activity_notifications
      (line_account_id, acknowledged_at, created_at DESC, id DESC);
 
+CREATE INDEX idx_pharmacy_auth_audit_actor_created
+  ON pharmacy_auth_audit_events(actor_staff_id, created_at);
+
+CREATE INDEX idx_pharmacy_auth_audit_tenant_created
+  ON pharmacy_auth_audit_events(target_tenant_id, created_at);
+
+CREATE INDEX idx_pharmacy_beta_memberships_participant
+  ON pharmacy_beta_memberships(line_account_id, participant_friend_id, status, starts_at, expires_at);
+
+CREATE INDEX idx_pharmacy_beta_memberships_subject
+  ON pharmacy_beta_memberships(line_account_id, subject_patient_id, status, starts_at, expires_at);
+
+CREATE INDEX idx_pharmacy_beta_notification_bindings_membership
+  ON pharmacy_beta_notification_bindings(line_account_id, membership_id);
+
 CREATE INDEX idx_pharmacy_cli_break_glass_active
   ON pharmacy_cli_break_glass_sessions (tenant_id, revoked_at, expires_at);
 
@@ -3217,9 +3344,16 @@ CREATE INDEX idx_pharmacy_medical_sources_account
 CREATE UNIQUE INDEX idx_pharmacy_medical_sources_id_account
   ON pharmacy_medical_sources(id, line_account_id);
 
+CREATE INDEX idx_pharmacy_medication_followup_contacts_followup
+  ON pharmacy_medication_followup_contact_records
+     (line_account_id, followup_id, occurred_at DESC, id DESC);
+
 CREATE INDEX idx_pharmacy_medication_followup_events_followup
   ON pharmacy_medication_followup_events
      (line_account_id, followup_id, occurred_at DESC, id DESC);
+
+CREATE INDEX idx_pharmacy_medication_followup_operations_enabled
+  ON pharmacy_medication_followup_operations(line_account_id, enabled);
 
 CREATE INDEX idx_pharmacy_medication_followups_due
   ON pharmacy_medication_followups (line_account_id, status, due_at, id);
@@ -3369,6 +3503,10 @@ CREATE INDEX idx_pharmacy_rich_menu_operation_confirmations_operation
 
 CREATE INDEX idx_pharmacy_rich_menu_operations_group
   ON pharmacy_rich_menu_operations(line_account_id, group_id, created_at);
+
+CREATE INDEX idx_pharmacy_shared_staff_tenant
+  ON staff_members(shared_tenant_id, is_active)
+  WHERE principal_kind = 'pharmacy_shared';
 
 CREATE INDEX idx_pharmacy_staff_accounts_staff
   ON pharmacy_staff_accounts (staff_id, is_active, line_account_id);
@@ -3536,6 +3674,10 @@ CREATE UNIQUE INDEX uq_rich_menu_groups_account_generator
   ON rich_menu_groups (account_id, generator_key)
   WHERE generator_key IS NOT NULL;
 
+CREATE UNIQUE INDEX ux_pharmacy_beta_membership_current
+  ON pharmacy_beta_memberships(line_account_id, participant_friend_id, subject_patient_id)
+  WHERE status IN ('active', 'suspended') AND revoked_at IS NULL;
+
 CREATE UNIQUE INDEX ux_pharmacy_patient_proxy_current
   ON pharmacy_patient_proxy_grants
     (line_account_id, patient_id, actor_friend_id, permission_code)
@@ -3545,6 +3687,10 @@ CREATE UNIQUE INDEX ux_pharmacy_patient_registration_idempotency
   ON pharmacy_patients
     (line_account_id, owner_friend_id, registration_idempotency_key)
   WHERE registration_idempotency_key IS NOT NULL;
+
+CREATE UNIQUE INDEX ux_pharmacy_shared_staff_tenant
+  ON staff_members(shared_tenant_id)
+  WHERE principal_kind = 'pharmacy_shared';
 
 CREATE TRIGGER auto_replies_template_scope_insert
 BEFORE INSERT ON auto_replies
@@ -3715,6 +3861,209 @@ BEGIN
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
   ); END;
+
+CREATE TRIGGER pharmacy_auth_audit_delete_forbidden
+BEFORE DELETE ON pharmacy_auth_audit_events
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_AUTH_AUDIT_DELETE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_auth_audit_immutable
+BEFORE UPDATE ON pharmacy_auth_audit_events
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_AUTH_AUDIT_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_auth_audit_insert_guard
+BEFORE INSERT ON pharmacy_auth_audit_events
+WHEN EXISTS (
+  SELECT 1 FROM pharmacy_auth_audit_events AS existing
+   WHERE existing.id = NEW.id
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_AUTH_AUDIT_ID_REUSE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_followup_insert
+AFTER INSERT ON pharmacy_medication_followups
+WHEN EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT NEW.line_account_id, 'medication-followup:' || NEW.id,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.created_at
+    FROM pharmacy_beta_memberships AS membership
+   WHERE membership.line_account_id = NEW.line_account_id
+     AND membership.participant_friend_id = NEW.owner_friend_id
+     AND membership.subject_patient_id = NEW.patient_id
+     AND membership.status IN ('active', 'suspended')
+     AND membership.starts_at <= NEW.created_at
+     AND membership.expires_at > NEW.created_at
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_immutable_delete
+BEFORE DELETE ON pharmacy_beta_notification_bindings
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_BETA_NOTIFICATION_BINDING_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_immutable_update
+BEFORE UPDATE ON pharmacy_beta_notification_bindings
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_BETA_NOTIFICATION_BINDING_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_next_intake_insert
+AFTER INSERT ON pharmacy_next_intake_expectations
+WHEN EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT NEW.line_account_id, 'next-intake:' || NEW.id,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.created_at
+    FROM pharmacy_beta_memberships AS membership
+   WHERE membership.line_account_id = NEW.line_account_id
+     AND membership.participant_friend_id = NEW.owner_friend_id
+     AND membership.subject_patient_id = NEW.patient_id
+     AND membership.status IN ('active', 'suspended')
+     AND membership.starts_at <= NEW.created_at
+     AND membership.expires_at > NEW.created_at
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_patient_link_insert
+AFTER INSERT ON pharmacy_prescription_patients
+WHEN EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id, event.id, membership.participant_friend_id,
+         membership.subject_patient_id, membership.subject_owner_friend_id,
+         membership.id, NEW.created_at
+    FROM pharmacy_prescription_events AS event
+    INNER JOIN pharmacy_prescription_submissions AS submission
+            ON submission.id = event.submission_id
+           AND submission.line_account_id = NEW.line_account_id
+           AND submission.friend_id = NEW.owner_friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = NEW.line_account_id
+           AND membership.participant_friend_id = NEW.owner_friend_id
+           AND membership.subject_patient_id = NEW.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= event.created_at
+           AND membership.expires_at > event.created_at
+   WHERE event.event_type = 'status_changed'
+     AND event.submission_id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_scope
+BEFORE INSERT ON pharmacy_beta_notification_bindings
+WHEN NOT EXISTS (SELECT 1 FROM pharmacy_beta_memberships AS membership
+                  WHERE membership.id = NEW.membership_id
+                    AND membership.line_account_id = NEW.line_account_id
+                    AND membership.participant_friend_id = NEW.participant_friend_id
+                    AND membership.subject_patient_id = NEW.subject_patient_id
+                    AND membership.subject_owner_friend_id = NEW.subject_owner_friend_id)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_BETA_NOTIFICATION_BINDING_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_status_event_insert
+AFTER INSERT ON pharmacy_prescription_events
+WHEN NEW.event_type = 'status_changed'
+ AND EXISTS (SELECT 1 FROM pharmacy_prescription_submissions AS submission
+              INNER JOIN pharmacy_prescription_patients AS patient_link
+                      ON patient_link.submission_id = submission.id
+                     AND patient_link.line_account_id = submission.line_account_id
+                     AND patient_link.owner_friend_id = submission.friend_id
+              INNER JOIN pharmacy_account_capabilities AS capability
+                      ON capability.line_account_id = submission.line_account_id
+                     AND capability.mode = 'pharmacy'
+                     AND capability.beta_enabled = 1
+             WHERE submission.id = NEW.submission_id)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id, NEW.id, membership.participant_friend_id,
+         membership.subject_patient_id, membership.subject_owner_friend_id,
+         membership.id, NEW.created_at
+    FROM pharmacy_prescription_submissions AS submission
+    INNER JOIN pharmacy_prescription_patients AS patient_link
+            ON patient_link.submission_id = submission.id
+           AND patient_link.line_account_id = submission.line_account_id
+           AND patient_link.owner_friend_id = submission.friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = submission.line_account_id
+           AND membership.participant_friend_id = submission.friend_id
+           AND membership.subject_patient_id = patient_link.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= NEW.created_at
+           AND membership.expires_at > NEW.created_at
+   WHERE submission.id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_validity_insert
+AFTER INSERT ON pharmacy_prescription_validities
+WHEN NEW.verification_status = 'verified'
+ AND NEW.valid_until IS NOT NULL
+ AND EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id,
+         'prescription-validity:' || NEW.submission_id || ':' || NEW.valid_until,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.created_at
+    FROM pharmacy_prescription_submissions AS submission
+    INNER JOIN pharmacy_prescription_patients AS patient_link
+            ON patient_link.submission_id = submission.id
+           AND patient_link.line_account_id = submission.line_account_id
+           AND patient_link.owner_friend_id = submission.friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = submission.line_account_id
+           AND membership.participant_friend_id = submission.friend_id
+           AND membership.subject_patient_id = patient_link.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= NEW.created_at
+           AND membership.expires_at > NEW.created_at
+   WHERE submission.id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
+
+CREATE TRIGGER pharmacy_beta_notification_binding_validity_update
+AFTER UPDATE OF verification_status, valid_until ON pharmacy_prescription_validities
+WHEN NEW.verification_status = 'verified'
+ AND NEW.valid_until IS NOT NULL
+ AND EXISTS (SELECT 1 FROM pharmacy_account_capabilities AS capability
+              WHERE capability.line_account_id = NEW.line_account_id
+                AND capability.mode = 'pharmacy'
+                AND capability.beta_enabled = 1)
+BEGIN INSERT OR IGNORE INTO pharmacy_beta_notification_bindings
+  (line_account_id, retry_key, participant_friend_id, subject_patient_id,
+   subject_owner_friend_id, membership_id, created_at)
+  SELECT submission.line_account_id,
+         'prescription-validity:' || NEW.submission_id || ':' || NEW.valid_until,
+         membership.participant_friend_id, membership.subject_patient_id,
+         membership.subject_owner_friend_id, membership.id, NEW.updated_at
+    FROM pharmacy_prescription_submissions AS submission
+    INNER JOIN pharmacy_prescription_patients AS patient_link
+            ON patient_link.submission_id = submission.id
+           AND patient_link.line_account_id = submission.line_account_id
+           AND patient_link.owner_friend_id = submission.friend_id
+    INNER JOIN pharmacy_beta_memberships AS membership
+            ON membership.line_account_id = submission.line_account_id
+           AND membership.participant_friend_id = submission.friend_id
+           AND membership.subject_patient_id = patient_link.patient_id
+           AND membership.status IN ('active', 'suspended')
+           AND membership.starts_at <= NEW.updated_at
+           AND membership.expires_at > NEW.updated_at
+   WHERE submission.id = NEW.submission_id
+   ORDER BY membership.created_at DESC, membership.id DESC
+   LIMIT 1; END;
 
 CREATE TRIGGER pharmacy_capability_emergency_mirror_disable
 AFTER UPDATE OF capabilities_json ON pharmacy_account_capabilities
@@ -3941,6 +4290,160 @@ CREATE TRIGGER pharmacy_emergency_sale_records_no_update
 BEFORE UPDATE ON pharmacy_emergency_sale_records
 BEGIN SELECT RAISE(ABORT, 'EMERGENCY_SALE_RECORD_IMMUTABLE'); END;
 
+CREATE TRIGGER pharmacy_followup_operations_enabled_staff_insert
+BEFORE INSERT ON pharmacy_medication_followup_operations
+WHEN NEW.enabled = 1 AND (
+  NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.primary_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.primary_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.primary_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  )
+  OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.backup_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.backup_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.backup_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  ))
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_ENABLED_STAFF_INVALID'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_enabled_staff_update
+BEFORE UPDATE OF line_account_id, primary_staff_id, backup_staff_id, enabled
+ON pharmacy_medication_followup_operations
+WHEN NEW.enabled = 1 AND (
+  NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.primary_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.primary_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.primary_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  )
+  OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+      FROM tenant_line_accounts AS mapping
+      INNER JOIN tenant_staff_memberships AS membership
+              ON membership.tenant_id = mapping.tenant_id
+             AND membership.staff_id = NEW.backup_staff_id
+             AND membership.is_active = 1
+      INNER JOIN staff_members AS staff
+              ON staff.id = NEW.backup_staff_id
+             AND staff.is_active = 1
+             AND staff.principal_kind = 'human'
+      INNER JOIN pharmacy_staff_accounts AS assignment
+              ON assignment.line_account_id = NEW.line_account_id
+             AND assignment.staff_id = NEW.backup_staff_id
+             AND assignment.is_active = 1
+     WHERE mapping.line_account_id = NEW.line_account_id
+  ))
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_ENABLED_STAFF_INVALID'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_staff_scope_insert
+BEFORE INSERT ON pharmacy_medication_followup_operations
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.primary_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.primary_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+)
+OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.backup_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.backup_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+))
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_followup_operations_staff_scope_update
+BEFORE UPDATE OF line_account_id, primary_staff_id, backup_staff_id
+ON pharmacy_medication_followup_operations
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.primary_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.primary_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+)
+OR (NEW.backup_staff_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1
+    FROM tenant_line_accounts AS mapping
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = mapping.tenant_id
+           AND membership.staff_id = NEW.backup_staff_id
+    INNER JOIN pharmacy_staff_accounts AS assignment
+            ON assignment.line_account_id = NEW.line_account_id
+           AND assignment.staff_id = NEW.backup_staff_id
+   WHERE mapping.line_account_id = NEW.line_account_id
+))
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_FOLLOWUP_OPERATION_STAFF_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_human_credential_insert_guard
+BEFORE INSERT ON tenant_admin_credentials
+WHEN EXISTS (
+  SELECT 1 FROM staff_members AS staff
+   WHERE staff.id = NEW.staff_id
+     AND staff.principal_kind = 'human'
+     AND NEW.auth_enabled <> 0
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_HUMAN_CREDENTIAL_DISABLED'); END;
+
+CREATE TRIGGER pharmacy_human_credential_update_guard
+BEFORE UPDATE OF tenant_id, staff_id, login_id, auth_enabled ON tenant_admin_credentials
+WHEN EXISTS (
+  SELECT 1 FROM staff_members AS staff
+   WHERE staff.id = NEW.staff_id
+     AND staff.principal_kind = 'human'
+     AND NEW.auth_enabled <> 0
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_HUMAN_CREDENTIAL_DISABLED'); END;
+
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_insert BEFORE INSERT ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER pharmacy_myna_handoffs_expectation_scope_update BEFORE UPDATE OF expectation_id, line_account_id ON pharmacy_myna_handoffs WHEN NEW.expectation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pharmacy_prescription_expectations AS expectation WHERE expectation.id = NEW.expectation_id AND expectation.line_account_id = NEW.line_account_id) BEGIN SELECT RAISE(ABORT, 'PHARMACY_MYNA_EXPECTATION_SCOPE_MISMATCH'); END;
@@ -4112,6 +4615,248 @@ WHEN NOT EXISTS (
      AND operation.evidence_digest = NEW.evidence_digest
 )
 BEGIN SELECT RAISE(ABORT, 'RICH_MENU_RESUME_CONFIRMATION_EVIDENCE_MISMATCH'); END;
+
+CREATE TRIGGER pharmacy_session_delete_forbidden
+BEFORE DELETE ON tenant_admin_sessions
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SESSION_DELETE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_session_identity_immutable
+BEFORE UPDATE OF token_hash, tenant_id, staff_id, credential_version, session_kind,
+  session_family_hash, expires_at, created_at ON tenant_admin_sessions
+WHEN NEW.tenant_id <> OLD.tenant_id
+  OR NEW.token_hash <> OLD.token_hash
+  OR NEW.staff_id <> OLD.staff_id
+  OR NEW.credential_version <> OLD.credential_version
+  OR NEW.session_kind <> OLD.session_kind
+  OR COALESCE(NEW.session_family_hash, '') <> COALESCE(OLD.session_family_hash, '')
+  OR NEW.expires_at <> OLD.expires_at
+  OR NEW.created_at <> OLD.created_at
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SESSION_IDENTITY_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_session_insert_collision_guard
+BEFORE INSERT ON tenant_admin_sessions
+WHEN EXISTS (
+  SELECT 1 FROM tenant_admin_sessions AS existing
+   WHERE existing.token_hash = NEW.token_hash
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SESSION_TOKEN_REUSE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_session_revocation_immutable
+BEFORE UPDATE OF revoked_at ON tenant_admin_sessions
+WHEN OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS NULL
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SESSION_REVIVAL_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_account_assignment_guard
+BEFORE INSERT ON pharmacy_staff_accounts
+WHEN EXISTS (
+  SELECT 1 FROM staff_members AS staff
+   WHERE staff.id = NEW.staff_id AND staff.principal_kind = 'pharmacy_shared'
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_ACCOUNT_ASSIGNMENT_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_account_assignment_update_guard
+BEFORE UPDATE OF staff_id ON pharmacy_staff_accounts
+WHEN NEW.staff_id <> OLD.staff_id
+  AND (
+    EXISTS (SELECT 1 FROM staff_members WHERE id = OLD.staff_id AND principal_kind = 'pharmacy_shared')
+    OR EXISTS (SELECT 1 FROM staff_members WHERE id = NEW.staff_id AND principal_kind = 'pharmacy_shared')
+  )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_ACCOUNT_ASSIGNMENT_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_credential_delete_guard
+BEFORE DELETE ON tenant_admin_credentials
+WHEN EXISTS (
+  SELECT 1 FROM staff_members AS staff
+   WHERE staff.id = OLD.staff_id AND staff.principal_kind = 'pharmacy_shared'
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_CREDENTIAL_HISTORY_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_shared_credential_identity_guard
+BEFORE UPDATE OF tenant_id, staff_id, login_id ON tenant_admin_credentials
+WHEN (OLD.tenant_id <> NEW.tenant_id
+   OR OLD.staff_id <> NEW.staff_id
+   OR OLD.login_id COLLATE NOCASE <> NEW.login_id COLLATE NOCASE)
+  AND (
+    EXISTS (SELECT 1 FROM staff_members WHERE id = OLD.staff_id AND principal_kind = 'pharmacy_shared')
+    OR EXISTS (SELECT 1 FROM staff_members WHERE id = NEW.staff_id AND principal_kind = 'pharmacy_shared')
+  )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_CREDENTIAL_IDENTITY_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_shared_credential_insert_collision_guard
+BEFORE INSERT ON tenant_admin_credentials
+WHEN EXISTS (
+  SELECT 1
+    FROM tenant_admin_credentials AS existing
+    LEFT JOIN staff_members AS old_staff ON old_staff.id = existing.staff_id
+    LEFT JOIN staff_members AS new_staff ON new_staff.id = NEW.staff_id
+   WHERE existing.tenant_id = NEW.tenant_id
+     AND (existing.staff_id = NEW.staff_id OR existing.login_id = NEW.login_id COLLATE NOCASE)
+     AND (old_staff.principal_kind = 'pharmacy_shared' OR new_staff.principal_kind = 'pharmacy_shared')
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_CREDENTIAL_ID_REUSE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_credential_insert_guard
+BEFORE INSERT ON tenant_admin_credentials
+WHEN EXISTS (
+  SELECT 1
+    FROM staff_members AS staff
+    INNER JOIN tenants AS tenant ON tenant.id = NEW.tenant_id
+   WHERE staff.id = NEW.staff_id AND staff.principal_kind = 'pharmacy_shared'
+     AND (
+       NEW.login_id COLLATE NOCASE <> tenant.tenant_code COLLATE NOCASE
+       OR NEW.auth_enabled <> 1
+       OR staff.shared_tenant_id <> NEW.tenant_id
+       OR NOT EXISTS (
+         SELECT 1 FROM tenant_staff_memberships AS membership
+          WHERE membership.tenant_id = NEW.tenant_id
+            AND membership.staff_id = NEW.staff_id
+            AND membership.role = 'admin'
+            AND membership.is_active = 1
+       )
+     )
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_CREDENTIAL_INVALID'); END;
+
+CREATE TRIGGER pharmacy_shared_credential_revoke_sessions
+AFTER UPDATE OF auth_enabled, credential_version ON tenant_admin_credentials
+WHEN (OLD.auth_enabled <> NEW.auth_enabled AND NEW.auth_enabled = 0)
+   OR OLD.credential_version <> NEW.credential_version
+BEGIN
+  UPDATE tenant_admin_sessions
+     SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE tenant_id = NEW.tenant_id
+     AND staff_id = NEW.staff_id
+     AND revoked_at IS NULL; END;
+
+CREATE TRIGGER pharmacy_shared_credential_update_guard
+BEFORE UPDATE OF tenant_id, staff_id, login_id, auth_enabled ON tenant_admin_credentials
+WHEN EXISTS (
+  SELECT 1
+    FROM staff_members AS staff
+    INNER JOIN tenants AS tenant ON tenant.id = NEW.tenant_id
+  WHERE staff.id = NEW.staff_id AND staff.principal_kind = 'pharmacy_shared'
+    AND NEW.auth_enabled <> 0
+     AND (
+       NEW.login_id COLLATE NOCASE <> tenant.tenant_code COLLATE NOCASE
+       OR staff.shared_tenant_id <> NEW.tenant_id
+       OR NOT EXISTS (
+         SELECT 1 FROM tenant_staff_memberships AS membership
+          WHERE membership.tenant_id = NEW.tenant_id
+            AND membership.staff_id = NEW.staff_id
+            AND membership.role = 'admin'
+            AND membership.is_active = 1
+       )
+     )
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_CREDENTIAL_INVALID'); END;
+
+CREATE TRIGGER pharmacy_shared_membership_delete_guard
+BEFORE DELETE ON tenant_staff_memberships
+WHEN EXISTS (
+  SELECT 1 FROM staff_members
+   WHERE id = OLD.staff_id AND principal_kind = 'pharmacy_shared'
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_MEMBERSHIP_DELETE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_membership_identity_guard
+BEFORE UPDATE OF tenant_id, staff_id, role ON tenant_staff_memberships
+WHEN (NEW.tenant_id <> OLD.tenant_id OR NEW.staff_id <> OLD.staff_id OR NEW.role <> OLD.role)
+  AND (
+    EXISTS (SELECT 1 FROM staff_members WHERE id = OLD.staff_id AND principal_kind = 'pharmacy_shared')
+    OR EXISTS (SELECT 1 FROM staff_members WHERE id = NEW.staff_id AND principal_kind = 'pharmacy_shared')
+  )
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_MEMBERSHIP_IDENTITY_IMMUTABLE'); END;
+
+CREATE TRIGGER pharmacy_shared_membership_insert_collision_guard
+BEFORE INSERT ON tenant_staff_memberships
+WHEN EXISTS (
+  SELECT 1 FROM tenant_staff_memberships AS existing
+   LEFT JOIN staff_members AS staff ON staff.id = existing.staff_id
+   LEFT JOIN staff_members AS new_staff ON new_staff.id = NEW.staff_id
+  WHERE existing.tenant_id = NEW.tenant_id
+    AND existing.staff_id = NEW.staff_id
+    AND (staff.principal_kind = 'pharmacy_shared' OR new_staff.principal_kind = 'pharmacy_shared')
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_MEMBERSHIP_ID_REUSE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_membership_insert_guard
+BEFORE INSERT ON tenant_staff_memberships
+WHEN EXISTS (
+  SELECT 1 FROM staff_members AS staff
+   WHERE staff.id = NEW.staff_id
+     AND staff.principal_kind = 'pharmacy_shared'
+     AND (staff.shared_tenant_id IS NULL OR staff.shared_tenant_id <> NEW.tenant_id OR NEW.role <> 'admin')
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_MEMBERSHIP_SCOPE_INVALID'); END;
+
+CREATE TRIGGER pharmacy_shared_membership_update_guard
+BEFORE UPDATE OF tenant_id, staff_id, role ON tenant_staff_memberships
+WHEN EXISTS (
+  SELECT 1 FROM staff_members AS staff
+   WHERE staff.id = NEW.staff_id
+     AND staff.principal_kind = 'pharmacy_shared'
+     AND (staff.shared_tenant_id IS NULL OR staff.shared_tenant_id <> NEW.tenant_id OR NEW.role <> 'admin')
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_MEMBERSHIP_SCOPE_INVALID'); END;
+
+CREATE TRIGGER pharmacy_shared_session_authority_guard
+BEFORE INSERT ON tenant_admin_sessions
+WHEN NEW.revoked_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM staff_members AS shared_staff
+     WHERE shared_staff.id = NEW.staff_id
+       AND shared_staff.principal_kind = 'pharmacy_shared'
+  )
+  AND NOT EXISTS (
+  SELECT 1
+    FROM tenant_admin_credentials AS credential
+    INNER JOIN staff_members AS staff ON staff.id = credential.staff_id
+    INNER JOIN tenants AS tenant ON tenant.id = credential.tenant_id
+    INNER JOIN tenant_staff_memberships AS membership
+            ON membership.tenant_id = credential.tenant_id
+           AND membership.staff_id = credential.staff_id
+   WHERE credential.tenant_id = NEW.tenant_id
+     AND credential.staff_id = NEW.staff_id
+     AND credential.credential_version = NEW.credential_version
+     AND credential.auth_enabled = 1
+     AND staff.principal_kind = 'pharmacy_shared'
+     AND staff.is_active = 1
+     AND tenant.status = 'active'
+     AND membership.role = 'admin'
+     AND membership.is_active = 1
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_SESSION_AUTHORITY_REQUIRED'); END;
+
+CREATE TRIGGER pharmacy_shared_staff_delete_guard
+BEFORE DELETE ON staff_members
+WHEN OLD.principal_kind = 'pharmacy_shared'
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_STAFF_DELETE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_staff_insert_collision_guard
+BEFORE INSERT ON staff_members
+WHEN EXISTS (
+    SELECT 1 FROM staff_members AS existing
+     WHERE existing.id = NEW.id
+       AND (existing.principal_kind = 'pharmacy_shared'
+            OR NEW.principal_kind = 'pharmacy_shared')
+)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_STAFF_ID_REUSE_FORBIDDEN'); END;
+
+CREATE TRIGGER pharmacy_shared_staff_insert_guard
+BEFORE INSERT ON staff_members
+WHEN (NEW.principal_kind = 'pharmacy_shared' AND
+      (NEW.role <> 'admin' OR NEW.shared_tenant_id IS NULL))
+  OR (NEW.principal_kind = 'human' AND NEW.shared_tenant_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_STAFF_IDENTITY_INVALID'); END;
+
+CREATE TRIGGER pharmacy_shared_staff_update_guard
+BEFORE UPDATE OF id, principal_kind, shared_tenant_id, role ON staff_members
+WHEN NEW.principal_kind <> OLD.principal_kind
+  OR NEW.id <> OLD.id
+  OR COALESCE(NEW.shared_tenant_id, '') <> COALESCE(OLD.shared_tenant_id, '')
+  OR (NEW.principal_kind = 'pharmacy_shared' AND NEW.role <> 'admin')
+  OR (NEW.principal_kind = 'human' AND NEW.shared_tenant_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT, 'PHARMACY_SHARED_STAFF_IDENTITY_IMMUTABLE'); END;
 
 CREATE TRIGGER pharmacy_staff_accounts_keep_active_assignee
 BEFORE UPDATE OF line_account_id, staff_id, is_active ON pharmacy_staff_accounts

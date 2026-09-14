@@ -25,7 +25,7 @@ conversations.get('/api/conversations', async (c) => {
 
     const whereAccount = accountId ? 'AND f.line_account_id = ?' : '';
     const whereAssignedAccount = pharmacyTenant
-      ? `AND ${pharmacyStaffAccountPredicate('f.line_account_id', 'tenant_mapping')}`
+      ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
       : '';
     const whereMaxHours =
       maxHoursSince !== null

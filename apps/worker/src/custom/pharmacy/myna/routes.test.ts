@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   enqueueActivity: vi.fn(),
   access: vi.fn(),
   capability: vi.fn(),
+  betaParticipant: vi.fn(),
 }));
 
 vi.mock('./repository.js', () => ({
@@ -50,6 +51,9 @@ vi.mock('../operations-access.js', () => ({
   canAccessPharmacyOperationsAccount: mocks.access,
 }));
 vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
+vi.mock('../beta-membership/repository.js', () => ({
+  canUsePharmacyBetaParticipant: mocks.betaParticipant,
+}));
 
 import { mynaRoutes } from './routes.js';
 
@@ -105,6 +109,7 @@ beforeEach(() => {
   mocks.enqueueActivity.mockResolvedValue(null);
   mocks.access.mockResolvedValue(true);
   mocks.capability.mockResolvedValue(true);
+  mocks.betaParticipant.mockResolvedValue(true);
   mocks.setEndpointEnabled.mockResolvedValue({
     id: 'endpoint-1', line_account_id: 'account-1', tenant_alias: 'pharmacy-a',
     endpoint_url_masked: 'https://myna.example.test/…', enabled: false,

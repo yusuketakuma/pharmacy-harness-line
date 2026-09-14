@@ -114,13 +114,26 @@ type WebhookReceipt = {
   claim_token: string | null;
 };
 
+type SharedPharmacyAccount = {
+  staff_id: string;
+  name: string;
+  is_active: number;
+  role: 'admin';
+  membership_active: number;
+  credential_version: number;
+  auth_enabled: number;
+  must_change_password: number;
+};
+
 type Store = {
   db: D1Database;
   auditEvents: Array<Record<string, unknown>>;
+  authAuditEvents: Array<Record<string, unknown>>;
   sessions: Map<string, Session>;
   tenants: typeof tenants;
   grants: Grant[];
   receipts: WebhookReceipt[];
+  shared: SharedPharmacyAccount | null;
   /**
    * Makes the NEXT webhook-receipt SELECT return this snapshot instead of the
    * live row — the read-then-update window a concurrent retry (or the cron
@@ -161,6 +174,8 @@ function fakeDb(rejectThrottle = false): Store {
     lockedUntil: string | null;
   }>();
   const auditEvents: Array<Record<string, unknown>> = [];
+  const authAuditEvents: Array<Record<string, unknown>> = [];
+  let shared: SharedPharmacyAccount | null = null;
   const rows = tenants.map((tenant) => ({ ...tenant }));
   const grants: Grant[] = [];
   const receipts: WebhookReceipt[] = [
@@ -224,6 +239,15 @@ function fakeDb(rejectThrottle = false): Store {
               lockedUntil,
             });
             return { failure_count: failureCount, locked_until: lockedUntil };
+          }
+          if (sql.includes("principal_kind = 'pharmacy_shared'")) {
+            return shared ? { ...shared } : null;
+          }
+          if (sql.includes('FROM tenant_admin_credentials AS credential') &&
+              sql.includes('credential.login_id = ?')) {
+            return shared && values[0] === 'tenant-a' && values[1] === 'pharmacy-a'
+              ? { staff_id: shared.staff_id, principal_kind: 'pharmacy_shared' }
+              : null;
           }
           if (sql.includes('FROM platform_admin_sessions AS session')) {
             const session = sessions.get(String(values[0]));
@@ -313,6 +337,9 @@ function fakeDb(rejectThrottle = false): Store {
           if (sql.includes('FROM platform_admin_access_events')) {
             return { results: auditEvents.slice().reverse() };
           }
+          if (sql.includes('FROM pharmacy_auth_audit_events')) {
+            return { results: authAuditEvents.slice().reverse() };
+          }
           // listActiveGrants: only grants bound to the caller session.
           if (sql.includes('FROM platform_admin_access_grants')) {
             return {
@@ -339,6 +366,50 @@ function fakeDb(rejectThrottle = false): Store {
               expiresAt: String(literal ? values[3] : values[4]),
               revokedAt: null,
               lastSeenAt: hasActivity ? String(literal ? values[4] : values[5]) : null,
+            });
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("INSERT INTO staff_members") && sql.includes("'pharmacy_shared'")) {
+            shared = {
+              staff_id: String(values[0]),
+              name: String(values[1]),
+              is_active: 1,
+              role: 'admin',
+              membership_active: 1,
+              credential_version: 0,
+              auth_enabled: 0,
+              must_change_password: 1,
+            };
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('INSERT INTO tenant_admin_credentials')) {
+            if (!shared) return { meta: { changes: 0 } };
+            shared.credential_version = 1;
+            shared.auth_enabled = 1;
+            shared.must_change_password = 1;
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('UPDATE tenant_admin_credentials')) {
+            if (!shared || shared.staff_id !== values[3] ||
+                shared.credential_version !== Number(values[5]) || shared.auth_enabled !== 1) {
+              return { meta: { changes: 0 } };
+            }
+            shared.credential_version += 1;
+            shared.must_change_password = 1;
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes('INSERT INTO pharmacy_auth_audit_events')) {
+            authAuditEvents.push({
+              id: values[0],
+              actor_kind: 'platform_admin',
+              actor_staff_id: values[1],
+              target_tenant_id: values[2],
+              target_staff_id: values[3],
+              action: values[4],
+              outcome: 'success',
+              reason_code: values[5],
+              request_id: values[6],
+              created_at: values[7],
             });
             return { meta: { changes: 1 } };
           }
@@ -509,10 +580,13 @@ function fakeDb(rejectThrottle = false): Store {
   return {
     db: db as unknown as D1Database,
     auditEvents,
+    authAuditEvents,
     sessions,
     tenants: rows,
     grants,
     receipts,
+    get shared() { return shared; },
+    set shared(value: SharedPharmacyAccount | null) { shared = value; },
     staleReceiptRead(row: WebhookReceipt) {
       staleReceipt = row;
     },
@@ -544,6 +618,22 @@ function env(db: D1Database, overrides: Partial<Env['Bindings']> = {}): Env['Bin
     ...overrides,
     CROSS_ACCOUNT_TOKEN_KEY: 'cross-account-token-key-for-tests',
   };
+}
+
+function seedShared(store: Store, overrides: Partial<SharedPharmacyAccount> = {}): SharedPharmacyAccount {
+  const account: SharedPharmacyAccount = {
+    staff_id: 'shared-pharmacy-a',
+    name: 'Pharmacy A 共通管理者',
+    is_active: 1,
+    role: 'admin',
+    membership_active: 1,
+    credential_version: 3,
+    auth_enabled: 1,
+    must_change_password: 0,
+    ...overrides,
+  };
+  store.shared = account;
+  return account;
 }
 
 function app(): Hono<Env> {
@@ -932,6 +1022,84 @@ describe('platform admin authentication', () => {
   });
 });
 
+describe('shared pharmacy login management', () => {
+  it('issues one pharmacy-code credential and exposes only safe audit fields', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+
+    const response = await postAs(
+      testEnv,
+      auth,
+      '/api/platform-admin/tenants/tenant-a/shared-login/issue',
+    );
+    expect(response.status).toBe(201);
+    const body = await response.json() as {
+      data: { pharmacyCode: string; staffId: string; temporaryPassword: string; mustChangePassword: boolean };
+    };
+    expect(body.data).toMatchObject({
+      pharmacyCode: 'pharmacy-a',
+      mustChangePassword: true,
+    });
+    expect(body.data.staffId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(body.data.temporaryPassword).toEqual(expect.any(String));
+    expect(store.shared).toMatchObject({
+      auth_enabled: 1,
+      credential_version: 1,
+    });
+    expect(store.shared?.staff_id).toBe(body.data.staffId);
+    expect(store.authAuditEvents.at(-1)).toMatchObject({
+      action: 'shared_login_issue',
+      outcome: 'success',
+      target_tenant_id: 'tenant-a',
+      target_staff_id: body.data.staffId,
+    });
+    expect(JSON.stringify(store.authAuditEvents)).not.toContain(body.data.temporaryPassword);
+
+    const logs = await app().request('/api/platform-admin/logs?type=pharmacy_auth', {
+      headers: { cookie: auth.cookie },
+    }, testEnv);
+    expect(logs.status).toBe(200);
+    const logBody = await logs.json() as { data: { pharmacyAuth: Array<Record<string, unknown>> } };
+    expect(logBody.data.pharmacyAuth[0]).toMatchObject({
+      action: 'shared_login_issue',
+      outcome: 'success',
+    });
+    expect(JSON.stringify(logBody)).not.toContain(body.data.temporaryPassword);
+
+    const duplicate = await postAs(
+      testEnv,
+      auth,
+      '/api/platform-admin/tenants/tenant-a/shared-login/issue',
+    );
+    expect(duplicate.status).toBe(409);
+  });
+
+  it('resets the shared password with a versioned credential update and audit', async () => {
+    const store = fakeDb();
+    const testEnv = env(store.db);
+    const auth = await standardSession(testEnv);
+    seedShared(store);
+
+    const response = await postAs(
+      testEnv,
+      auth,
+      '/api/platform-admin/tenants/tenant-a/shared-login/reset-password',
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      data: { pharmacyCode: string; temporaryPassword: string; mustChangePassword: boolean };
+    };
+    expect(body.data).toMatchObject({ pharmacyCode: 'pharmacy-a', mustChangePassword: true });
+    expect(body.data.temporaryPassword).toEqual(expect.any(String));
+    expect(store.shared).toMatchObject({ credential_version: 4, must_change_password: 1 });
+    expect(store.authAuditEvents.at(-1)).toMatchObject({
+      action: 'shared_login_reset',
+      outcome: 'success',
+    });
+  });
+});
+
 describe('platform admin cross-tenant access', () => {
   it('lists fleet health without projecting patient counts', async () => {
     const store = fakeDb();
@@ -1165,6 +1333,15 @@ describe('platform admin audit coverage', () => {
     },
     'GET /api/platform-admin/tenants': { path: '/api/platform-admin/tenants', method: 'GET' },
     'GET /api/platform-admin/tenants/:id': { path: '/api/platform-admin/tenants/tenant-a', method: 'GET' },
+    'POST /api/platform-admin/tenants/:id/shared-login/issue': {
+      path: '/api/platform-admin/tenants/tenant-a/shared-login/issue',
+      method: 'POST',
+      status: 201,
+    },
+    'POST /api/platform-admin/tenants/:id/shared-login/reset-password': {
+      path: '/api/platform-admin/tenants/tenant-a/shared-login/reset-password',
+      method: 'POST',
+    },
     'PATCH /api/platform-admin/tenants/:id': {
       path: '/api/platform-admin/tenants/tenant-a',
       method: 'PATCH',
@@ -1217,6 +1394,7 @@ describe('platform admin audit coverage', () => {
     const testEnv = env(store.db);
     const isLogin = fixture.path === '/api/platform-admin/login';
     const auth = isLogin ? { cookie: '', csrf: '', sessionHash: '' } : await standardSession(testEnv);
+    if (fixture.path.endsWith('/shared-login/reset-password')) seedShared(store);
     // Support mode is on: the PHI fixtures need it, and the grant-end fixture
     // needs a grant to end. Seeded after standardSession, whose password change
     // deliberately revokes every open grant.

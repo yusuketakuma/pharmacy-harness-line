@@ -88,7 +88,7 @@ describe('platform admin UI contract', () => {
   it('provides a platform-admin-only guided tenant and LINE setup flow', () => {
     const tenants = read('app', 'platform-admin', 'tenants', 'page.tsx');
     expect(tenants).toContain('/platform-admin/tenants/new');
-    expect(tenantNew).toContain('テナントと初期管理者');
+    expect(tenantNew).toContain('テナントと共通アカウント');
     expect(tenantNew).toContain('Messaging API');
     expect(tenantNew).toContain('LINE Login / LIFF');
     expect(tenantNew).toContain('入力内容の確認');

@@ -49,11 +49,36 @@ describe('prescription recovery projection', () => {
         submission_id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL,
         owner_friend_id TEXT NOT NULL, patient_id TEXT NOT NULL
       );
+      CREATE TABLE pharmacy_patients (
+        id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, owner_friend_id TEXT NOT NULL,
+        relationship TEXT NOT NULL, birth_date TEXT NOT NULL, archived_at TEXT
+      );
+      CREATE TABLE pharmacy_patient_owner_controls (
+        line_account_id TEXT NOT NULL, patient_id TEXT NOT NULL, owner_friend_id TEXT NOT NULL,
+        binding_suspended_at TEXT
+      );
+      CREATE TABLE pharmacy_patient_proxy_grants (
+        line_account_id TEXT NOT NULL, patient_id TEXT NOT NULL, actor_friend_id TEXT NOT NULL,
+        permission_code TEXT NOT NULL, revoked_at TEXT, superseded_at TEXT, expires_at TEXT
+      );
+      CREATE TABLE pharmacy_account_capabilities (
+        line_account_id TEXT NOT NULL, mode TEXT NOT NULL, beta_enabled INTEGER NOT NULL
+      );
+      CREATE TABLE pharmacy_beta_memberships (
+        line_account_id TEXT NOT NULL, participant_friend_id TEXT NOT NULL,
+        subject_patient_id TEXT NOT NULL, status TEXT NOT NULL,
+        starts_at TEXT NOT NULL, expires_at TEXT NOT NULL
+      );
       CREATE TABLE pharmacy_prescription_files (
         id TEXT PRIMARY KEY, submission_id TEXT NOT NULL, revision INTEGER NOT NULL,
         position INTEGER NOT NULL, state TEXT NOT NULL, sha256 TEXT NOT NULL
       );
     `);
+    sqlite.prepare(`INSERT INTO pharmacy_patients
+      (id, line_account_id, owner_friend_id, relationship, birth_date)
+      VALUES ('patient-a', 'account-a', 'friend-a', 'self', '1990-01-01')`).run();
+    sqlite.prepare(`INSERT INTO pharmacy_account_capabilities
+      VALUES ('account-a', 'pharmacy', 0)`).run();
     db = d1From(sqlite);
   });
 

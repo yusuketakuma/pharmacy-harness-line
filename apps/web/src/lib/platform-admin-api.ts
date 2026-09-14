@@ -254,7 +254,7 @@ export type PlatformPatientDetail = {
   }>
 }
 
-export type PlatformLogType = 'prescription_events' | 'webhook_receipts' | 'platform_admin_access'
+export type PlatformLogType = 'prescription_events' | 'webhook_receipts' | 'platform_admin_access' | 'pharmacy_auth'
 
 export type PlatformAccessEvent = {
   id: string
@@ -289,6 +289,17 @@ export type PlatformLogs = {
     dead_lettered_at: string | null
   }>
   platformAdminAccess?: PlatformAccessEvent[]
+  pharmacyAuth?: Array<{
+    id: string
+    actor_kind: string
+    actor_staff_id: string | null
+    tenant_id: string | null
+    target_staff_id: string | null
+    action: string
+    outcome: string
+    reason_code: string
+    created_at: string
+  }>
 }
 
 /**
@@ -472,10 +483,8 @@ export type PlatformLineProbe =
 export type PlatformTenantProvisioningInput = {
   tenantName: string
   admin: {
-    loginId: string
     displayName: string
     email: string | null
-    temporaryPassword: string
   }
   line: {
     channelId: string
@@ -495,7 +504,9 @@ export type PlatformTenantProvisioningResult = {
   lineAccountId: string
   lineAccountName: string
   staffId: string
-  adminLoginId: string
+  adminLoginId: null
+  sharedLoginIssued: boolean
+  sharedLoginTemporaryPassword?: string
   replayed: boolean
   urls: { admin: string; webhook: string; liffEndpoint: string }
   line: {
@@ -531,6 +542,22 @@ export const platformAdminApi = {
         body: JSON.stringify(input),
       },
     ),
+  issueSharedLogin: (tenantId: string) =>
+    platformAdminFetch<Envelope<{
+      tenantId: string
+      pharmacyCode: string
+      staffId: string
+      temporaryPassword: string
+      mustChangePassword: true
+    }>>(`/tenants/${encodeURIComponent(tenantId)}/shared-login/issue`, { method: 'POST' }),
+  resetSharedLoginPassword: (tenantId: string) =>
+    platformAdminFetch<Envelope<{
+      tenantId: string
+      pharmacyCode: string
+      staffId: string
+      temporaryPassword: string
+      mustChangePassword: true
+    }>>(`/tenants/${encodeURIComponent(tenantId)}/shared-login/reset-password`, { method: 'POST' }),
   tenant: (id: string) =>
     platformAdminFetch<Envelope<PlatformTenantDetail>>(`/tenants/${encodeURIComponent(id)}`),
   updateTenant: (id: string, changes: { displayName?: string; status?: string }) =>

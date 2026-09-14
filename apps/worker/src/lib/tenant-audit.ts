@@ -14,16 +14,25 @@ export interface TenantAuditEvent {
   detail?: Record<string, string | number | boolean | null | string[]>;
 }
 
-export function tenantAuditStatement(db: D1Database, event: TenantAuditEvent): D1PreparedStatement {
+/**
+ * A trusted SQL guard lets a mutation and its audit row share one D1 batch.
+ * The guard is deliberately SQL, rather than a callback, because D1 cannot
+ * run application code between the two statements atomically.
+ */
+export interface TenantAuditInsertGuard {
+  sql: string;
+  bindings?: unknown[];
+}
+
+export function tenantAuditStatement(
+  db: D1Database,
+  event: TenantAuditEvent,
+  guard?: TenantAuditInsertGuard,
+): D1PreparedStatement {
   if (!event.tenantId && !event.lineAccountId) {
     throw new Error('tenant audit requires a tenant or account scope');
   }
-  return db.prepare(
-    `INSERT INTO tenant_admin_audit_events
-       (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
-        detail_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
+  const values = [
     crypto.randomUUID(),
     event.tenantId ?? null,
     event.lineAccountId ?? null,
@@ -33,7 +42,18 @@ export function tenantAuditStatement(db: D1Database, event: TenantAuditEvent): D
     event.resourceId ?? null,
     event.detail ? JSON.stringify(event.detail) : null,
     new Date().toISOString(),
-  );
+  ];
+  return db.prepare(guard
+    ? `INSERT INTO tenant_admin_audit_events
+         (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
+          detail_json, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE ${guard.sql}`
+    : `INSERT INTO tenant_admin_audit_events
+         (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
+          detail_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(...values, ...(guard?.bindings ?? []));
 }
 
 /** Standalone insert for reads (PHI views) that have no mutation batch to join. */

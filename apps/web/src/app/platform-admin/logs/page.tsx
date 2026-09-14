@@ -13,6 +13,7 @@ const TYPE_OPTIONS: Array<{ value: '' | PlatformLogType; label: string }> = [
   { value: 'prescription_events', label: '処方せんイベント' },
   { value: 'webhook_receipts', label: 'Webhook受信' },
   { value: 'platform_admin_access', label: '全体管理者アクセス' },
+  { value: 'pharmacy_auth', label: '薬局認証' },
 ]
 
 const LOG_COLUMN_LABELS: Record<string, string> = {
@@ -22,6 +23,8 @@ const LOG_COLUMN_LABELS: Record<string, string> = {
   webhook_event_id: 'Webhook対象', status: '状態', retry_count: '再試行回数',
   dead_lettered_at: '隔離日時', platform_admin_id: '全体管理者', action: '操作',
   resource_type: '対象種別', resource_id: '対象', detail_json: '詳細',
+  actor_kind: '操作者種別', actor_staff_id: '操作者', target_staff_id: '対象主体',
+  outcome: '結果', reason_code: '理由',
 }
 
 const SAFE_IDENTIFIER_COLUMNS = new Set([
@@ -226,6 +229,13 @@ export default function PlatformAdminLogsPage() {
           title="全体管理者アクセス"
           columns={['created_at', 'platform_admin_id', 'tenant_id', 'action', 'resource_type', 'resource_id', 'detail_json', 'id']}
           rows={logs.platformAdminAccess}
+        />
+      )}
+      {logs?.pharmacyAuth && (
+        <LogTable
+          title="薬局認証"
+          columns={['created_at', 'tenant_id', 'actor_kind', 'actor_staff_id', 'target_staff_id', 'action', 'outcome', 'reason_code', 'id']}
+          rows={logs.pharmacyAuth}
         />
       )}
     </div>

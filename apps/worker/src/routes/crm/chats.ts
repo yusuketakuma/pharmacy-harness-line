@@ -219,7 +219,7 @@ chats.get('/api/chats', async (c) => {
       return c.json({ success: false, error: 'Staff account assignment required' }, 403);
     }
     const assignedAccountSql = pharmacyTenant
-      ? `AND ${pharmacyStaffAccountPredicate('friend.line_account_id')}`
+      ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'friend.line_account_id')}`
       : '';
     const status = c.req.query('status') ?? undefined;
     const operatorId = c.req.query('operatorId') ?? undefined;
@@ -343,7 +343,9 @@ chats.get('/api/chats', async (c) => {
           SELECT id FROM chats WHERE friend_id = f.id ORDER BY created_at DESC LIMIT 1
         )` : ''}
         WHERE tenant_mapping.tenant_id = ?
-        ${pharmacyTenant ? `AND ${pharmacyStaffAccountPredicate('f.line_account_id', 'tenant_mapping')}` : ''}
+        ${pharmacyTenant
+          ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
+          : ''}
         ${conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : ''}
         ${useCursor ? 'AND (d.last_message_at < ? OR (d.last_message_at = ? AND d.friend_id < ?))' : ''}
         ORDER BY d.last_message_at DESC, d.friend_id DESC

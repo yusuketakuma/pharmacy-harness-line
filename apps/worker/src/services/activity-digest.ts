@@ -155,9 +155,13 @@ export async function getActivityDigest(
   const queryLimit = CATEGORY_LIMIT + 1;
   const unansweredLoader = options.unansweredLoader ?? computeUnansweredInbox;
   const staffBindings = staffId ? [staffId] : [];
-  const scope = (accountColumn: string) => staffId
-    ? `AND ${pharmacyStaffAccountPredicate(accountColumn, 'tenant_mapping')}`
-    : '';
+  const [friendScope, messageScope, bookingScope] = staffId
+    ? await Promise.all([
+      pharmacyStaffAccountPredicate(db, 'f.line_account_id', 'tenant_mapping'),
+      pharmacyStaffAccountPredicate(db, 'COALESCE(ml.line_account_id, f.line_account_id)', 'tenant_mapping'),
+      pharmacyStaffAccountPredicate(db, 'b.line_account_id', 'tenant_mapping'),
+    ])
+    : ['', '', ''];
 
   const [
     friendsResult,
@@ -176,7 +180,7 @@ export async function getActivityDigest(
                  ON tenant_mapping.line_account_id = f.line_account_id
          LEFT JOIN line_accounts la ON la.id = f.line_account_id
         WHERE tenant_mapping.tenant_id = ?
-          ${scope('f.line_account_id')}
+          ${friendScope ? `AND ${friendScope}` : ''}
           AND julianday(f.created_at) >= julianday(?)
         ORDER BY f.created_at DESC
         LIMIT ?`,
@@ -194,7 +198,7 @@ export async function getActivityDigest(
          LEFT JOIN line_accounts la
            ON la.id = COALESCE(ml.line_account_id, f.line_account_id)
         WHERE tenant_mapping.tenant_id = ?
-          ${scope('COALESCE(ml.line_account_id, f.line_account_id)')}
+          ${messageScope ? `AND ${messageScope}` : ''}
           AND ml.direction = 'incoming'
           AND julianday(ml.created_at) >= julianday(?)
         ORDER BY ml.created_at DESC
@@ -212,7 +216,7 @@ export async function getActivityDigest(
                  ON tenant_mapping.line_account_id = f.line_account_id
          LEFT JOIN line_accounts la ON la.id = f.line_account_id
         WHERE tenant_mapping.tenant_id = ?
-          ${scope('f.line_account_id')}
+          ${friendScope ? `AND ${friendScope}` : ''}
           AND julianday(fs.created_at) >= julianday(?)
         ORDER BY fs.created_at DESC
         LIMIT ?`,
@@ -231,7 +235,7 @@ export async function getActivityDigest(
          LEFT JOIN friends f ON f.id = b.friend_id
          LEFT JOIN line_accounts la ON la.id = b.line_account_id
         WHERE tenant_mapping.tenant_id = ?
-          ${scope('b.line_account_id')}
+          ${bookingScope ? `AND ${bookingScope}` : ''}
           AND julianday(b.requested_at) >= julianday(?)
         ORDER BY b.requested_at DESC
         LIMIT ?`,
@@ -250,7 +254,7 @@ export async function getActivityDigest(
          LEFT JOIN friends f ON f.id = b.friend_id
          LEFT JOIN line_accounts la ON la.id = b.line_account_id
         WHERE tenant_mapping.tenant_id = ?
-          ${scope('b.line_account_id')}
+          ${bookingScope ? `AND ${bookingScope}` : ''}
           AND julianday(b.requested_at) >= julianday(?)
         ORDER BY b.requested_at DESC
         LIMIT ?`,

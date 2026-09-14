@@ -14,6 +14,7 @@ import {
 } from './next-intake.js';
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
+import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js';
 
 type ContinuityEnv = {
   Bindings: { DB: D1Database; LINE_CHANNEL_ID?: string; LINE_LOGIN_CHANNEL_ID?: string };
@@ -60,6 +61,9 @@ continuityRoutes.use('/api/liff/pharmacy/continuity/*', async (c, next) => {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('continuityPatient', patient);
   return next();
 });

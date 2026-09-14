@@ -29,7 +29,7 @@ export const DEFAULT_PHARMACY_CAPABILITIES = PHARMACY_CAPABILITIES.filter(
 
 export type PharmacyCapability = (typeof PHARMACY_CAPABILITIES)[number];
 
-export type PharmacyStaff = Pick<AuthenticatedStaff, 'id' | 'role'>;
+export type PharmacyStaff = Pick<AuthenticatedStaff, 'id' | 'role' | 'principalKind'>;
 
 async function pharmacyCapabilityTableDeployed(db: D1Database): Promise<boolean> {
   try {
@@ -45,19 +45,72 @@ async function pharmacyCapabilityTableDeployed(db: D1Database): Promise<boolean>
   }
 }
 
-/** SQL predicate used when a pharmacy collection must hide unassigned accounts. */
-export function pharmacyStaffAccountPredicate(accountColumn: string, mappingAlias = 'mapping'): string {
+const sharedStaffSchemaByDb = new WeakMap<object, true>();
+
+async function pharmacySharedStaffSchemaDeployed(db: D1Database): Promise<boolean> {
+  if (sharedStaffSchemaByDb.has(db as object)) return true;
+  try {
+    const result = await db.prepare(
+      `PRAGMA table_info(staff_members)`,
+    ).all<{ name: string }>();
+    const columns = new Set((result.results ?? []).map((column) => column.name));
+    const deployed = columns.has('principal_kind') && columns.has('shared_tenant_id');
+    if (deployed) sharedStaffSchemaByDb.set(db as object, true);
+    return deployed;
+  } catch {
+    // The legacy assignment path is the narrower safe fallback when schema
+    // inspection is unavailable; it never grants an unassigned shared actor.
+    return false;
+  }
+}
+
+function staffAccountPredicateSql(
+  accountColumn: string,
+  mappingAlias: string,
+  supportsSharedStaff: boolean,
+): string {
+  const identityScope = supportsSharedStaff
+    ? `(assignment.staff_id IS NOT NULL OR
+            (staff.principal_kind = 'pharmacy_shared' AND
+             staff.shared_tenant_id = ${mappingAlias}.tenant_id))`
+    : 'assignment.staff_id IS NOT NULL';
   return `EXISTS (
     SELECT 1
-      FROM pharmacy_staff_accounts AS assignment
+      FROM staff_members AS staff
       INNER JOIN tenant_staff_memberships AS membership
-              ON membership.staff_id = assignment.staff_id
+              ON membership.staff_id = staff.id
              AND membership.tenant_id = ${mappingAlias}.tenant_id
              AND membership.is_active = 1
-     WHERE assignment.line_account_id = ${accountColumn}
-       AND assignment.staff_id = ?
-       AND assignment.is_active = 1
+             AND staff.is_active = 1
+      LEFT JOIN pharmacy_staff_accounts AS assignment
+             ON assignment.line_account_id = ${accountColumn}
+            AND assignment.staff_id = staff.id
+            AND assignment.is_active = 1
+     WHERE staff.id = ?
+       AND ${identityScope}
   )`;
+}
+
+/** SQL predicate used when a pharmacy collection must hide unassigned accounts. */
+export async function pharmacyStaffAccountPredicate(
+  db: D1Database,
+  accountColumn: string,
+  mappingAlias = 'mapping',
+): Promise<string> {
+  return staffAccountPredicateSql(
+    accountColumn,
+    mappingAlias,
+    await pharmacySharedStaffSchemaDeployed(db),
+  );
+}
+
+export async function pharmacyHumanStaffPredicate(
+  db: D1Database,
+  staffAlias = 'staff',
+): Promise<string> {
+  return (await pharmacySharedStaffSchemaDeployed(db))
+    ? `${staffAlias}.principal_kind = 'human'`
+    : '1 = 1';
 }
 
 export interface PharmacyCapabilityConfig {
@@ -92,24 +145,34 @@ export async function resolveAccessiblePharmacyTenant(
   if (!staff || !lineAccountId) return null;
   if (staff.id === 'env-owner') return null;
   try {
+    const supportsSharedStaff = await pharmacySharedStaffSchemaDeployed(db);
+    const identityScope = supportsSharedStaff
+      ? `(assignment.staff_id IS NOT NULL OR
+               (staff.principal_kind = 'pharmacy_shared' AND
+                staff.shared_tenant_id = mapping.tenant_id))`
+      : 'assignment.staff_id IS NOT NULL';
     // Keep the mapping, active tenant, membership, and account assignment in
     // one statement. Splitting these checks permits a remap between reads.
     const account = await db.prepare(
       `SELECT mapping.tenant_id
-         FROM line_accounts AS account
-         INNER JOIN tenant_line_accounts AS mapping
-                 ON mapping.line_account_id = account.id
+         FROM tenant_line_accounts AS mapping
+         INNER JOIN line_accounts AS account
+                 ON account.id = mapping.line_account_id
          INNER JOIN tenants AS tenant
                  ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
          INNER JOIN tenant_staff_memberships AS membership
                  ON membership.tenant_id = mapping.tenant_id
                 AND membership.staff_id = ?
                 AND membership.is_active = 1
-         INNER JOIN pharmacy_staff_accounts AS assignment
-                 ON assignment.line_account_id = account.id
-                AND assignment.staff_id = membership.staff_id
-                AND assignment.is_active = 1
-        WHERE account.id = ? AND account.is_active = 1
+         INNER JOIN staff_members AS staff
+                 ON staff.id = membership.staff_id
+                AND staff.is_active = 1
+         LEFT JOIN pharmacy_staff_accounts AS assignment
+                ON assignment.line_account_id = account.id
+               AND assignment.staff_id = membership.staff_id
+               AND assignment.is_active = 1
+         WHERE account.id = ? AND account.is_active = 1
+          AND ${identityScope}
         LIMIT 1`,
     ).bind(staff.id, lineAccountId).first<{ tenant_id: string }>();
     return account?.tenant_id ?? null;

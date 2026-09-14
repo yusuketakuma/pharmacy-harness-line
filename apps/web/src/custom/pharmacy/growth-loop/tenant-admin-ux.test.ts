@@ -21,7 +21,7 @@ describe('tenant admin UX quick wins', () => {
     const login = read('app/login/page.tsx')
     expect(login).toContain('res.status === 403')
     expect(login).toContain('このアカウントは無効化されています。薬局のオーナーにご確認ください')
-    expect(login).toContain('パスワードを忘れた場合は、薬局のオーナーまたは管理者に仮パスワードの再発行を依頼してください')
+    expect(login).toContain('パスワードを忘れた場合は、プラットフォーム管理者へ再発行を依頼してください')
   })
 
   it('UX-05: the CC prompt button is not rendered for a pharmacy tenant', () => {
@@ -69,12 +69,13 @@ describe('tenant admin UX quick wins', () => {
     expect(features).not.toContain('read-back')
   })
 
-  it('UX-08: staff mutations are serialized, confirmed, and clipboard failures are shown', () => {
+  it('UX-08: staff mutations are serialized and confirmed without individual credentials', () => {
     const staff = read('app/staff/page.tsx')
     expect(staff).toContain('const [mutatingId, setMutatingId] = useState<string | null>(null)')
     expect(staff).toContain('disabled={mutatingId !== null}')
     expect(staff).toContain('を無効化しますか？')
-    expect(staff).toContain('コピーできませんでした。表示された仮パスワードを手で控えてください')
+    expect(staff).not.toContain('仮パスワード')
+    expect(staff).not.toContain('管理者ID')
   })
 
   it('UX-10: the follow-up card deep-links to the attention view of the intake page', () => {

@@ -4,10 +4,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  getOwnerMedicationFollowUp,
   listPatientMedicationFollowUps,
+  listOwnerMedicationFollowUps,
   listDueMedicationFollowUps,
+  listMedicationFollowUpContacts,
   parseMedicationFollowUpPostback,
   recordMedicationFollowUpPatientResponse,
+  recordMedicationFollowUpContact,
   scheduleMedicationFollowUp,
   transitionMedicationFollowUp,
 } from '../../../apps/worker/src/custom/pharmacy/medication-followup/repository.js';
@@ -64,6 +68,18 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
     (tenant_id, line_account_id, created_at, updated_at)
     VALUES (?, ?, ?, ?)`)
     .run(`tenant-${suffix}`, accountId, now, now);
+  db.prepare(`INSERT INTO staff_members
+    (id, name, role, api_key, is_active, created_at, updated_at)
+    VALUES (?, ?, 'owner', ?, 1, ?, ?)`)
+    .run(`staff-${suffix}`, `Staff ${suffix}`, `key-${suffix}`, now, now);
+  db.prepare(`INSERT INTO tenant_staff_memberships
+    (tenant_id, staff_id, role, is_active, created_at, updated_at)
+    VALUES (?, ?, 'owner', 1, ?, ?)`)
+    .run(`tenant-${suffix}`, `staff-${suffix}`, now, now);
+  db.prepare(`INSERT INTO pharmacy_staff_accounts
+    (line_account_id, staff_id, is_active, created_at, updated_at)
+    VALUES (?, ?, 1, ?, ?)`)
+    .run(accountId, `staff-${suffix}`, now, now);
   db.prepare(`INSERT INTO friends
     (id, line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)`)
@@ -162,6 +178,7 @@ describe('custom_011 pharmacy medication follow-ups', () => {
       lineAccountId: 'account-a',
       submissionId: 'submission-a',
       dueAt: '2026-08-21T09:00:00.000Z',
+      responseDeadlineAt: '2026-08-21T10:00:00.000Z',
       staffId: 'staff-a',
       idempotencyKey: 'request-schedule-a',
       now: new Date('2026-08-18T00:00:00.000Z'),
@@ -177,6 +194,7 @@ describe('custom_011 pharmacy medication follow-ups', () => {
       source_submission_id: 'submission-a',
       status: 'scheduled',
       version: 1,
+      response_deadline_at: '2026-08-21T10:00:00.000Z',
     });
     expect(db.prepare('SELECT COUNT(*) AS count FROM pharmacy_medication_followups').get())
       .toEqual({ count: 1 });
@@ -184,6 +202,89 @@ describe('custom_011 pharmacy medication follow-ups', () => {
       .toEqual({ count: 1 });
     await expect(scheduleMedicationFollowUp(d1, { ...input, lineAccountId: 'account-b' }))
       .rejects.toThrow(/eligible closed submission/i);
+  });
+
+  it('requires a meaningful contact record before staff can mark a concern responded or closed', async () => {
+    let row = await scheduleMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', submissionId: 'submission-a',
+      dueAt: '2026-08-21T09:00:00.000Z', staffId: 'staff-a',
+      idempotencyKey: 'request-contact-gate', now: new Date('2026-08-18T00:00:00.000Z'),
+    });
+    for (const toStatus of ['due', 'delivered', 'concern', 'assigned'] as const) {
+      row = await transitionMedicationFollowUp(d1, {
+        lineAccountId: 'account-a', followUpId: row.id, toStatus,
+        expectedVersion: row.version, actorType: 'system', actorId: 'workflow-test',
+        ...(toStatus === 'assigned' ? { assigneeStaffId: 'staff-a' } : {}),
+      });
+    }
+    await expect(transitionMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, toStatus: 'responded',
+      expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+    })).rejects.toThrow(/response record required/i);
+
+    await expect(recordMedicationFollowUpContact(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, channel: 'phone',
+      outcomeCode: 'no_answer', actorStaffId: 'staff-a',
+      idempotencyKey: 'contact-no-answer', expectedVersion: row.version,
+      now: new Date('2026-08-18T00:05:00.000Z'),
+    })).resolves.toMatchObject({ outcome_code: 'no_answer' });
+    await expect(transitionMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, toStatus: 'responded',
+      expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+    })).rejects.toThrow(/response record required/i);
+
+    await expect(recordMedicationFollowUpContact(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, channel: 'phone',
+      outcomeCode: 'answered', actorStaffId: 'staff-a',
+      idempotencyKey: 'contact-answered', expectedVersion: row.version,
+      now: new Date('2026-08-18T00:06:00.000Z'),
+    })).resolves.toMatchObject({ outcome_code: 'answered', channel: 'phone' });
+    row = await transitionMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, toStatus: 'responded',
+      expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+    });
+    row = await transitionMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, toStatus: 'closed',
+      expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+    });
+    expect(row).toMatchObject({ status: 'closed', version: 7 });
+    await expect(listMedicationFollowUpContacts(d1, 'account-a', row.id))
+      .resolves.toEqual([
+        expect.objectContaining({ outcome_code: 'answered' }),
+        expect.objectContaining({ outcome_code: 'no_answer' }),
+      ]);
+    await expect(recordMedicationFollowUpContact(d1, {
+      lineAccountId: 'account-b', followUpId: row.id, channel: 'line',
+      outcomeCode: 'answered', actorStaffId: 'staff-b', idempotencyKey: 'contact-cross',
+    })).rejects.toThrow(/not found|conflict/i);
+  });
+
+  it('validates follow-up contact timing and keeps contact idempotency account-scoped', async () => {
+    const row = await scheduleMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', submissionId: 'submission-a',
+      dueAt: '2026-08-21T09:00:00.000Z', staffId: 'staff-a',
+      idempotencyKey: 'request-contact-validation', now: new Date('2026-08-18T00:00:00.000Z'),
+    });
+    const input = {
+      lineAccountId: 'account-a', followUpId: row.id, channel: 'line' as const,
+      outcomeCode: 'follow_up_required' as const, actorStaffId: 'staff-a',
+      idempotencyKey: 'contact-follow-up', expectedVersion: row.version,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+    };
+    await expect(recordMedicationFollowUpContact(d1, input))
+      .rejects.toThrow(/next contact time is required/i);
+    await expect(recordMedicationFollowUpContact(d1, {
+      ...input, nextContactAt: '2026-08-17T00:00:00.000Z',
+    })).rejects.toThrow(/next contact time must be in the future/i);
+    const saved = await recordMedicationFollowUpContact(d1, {
+      ...input, nextContactAt: '2026-08-21T10:00:00.000Z',
+    });
+    await expect(recordMedicationFollowUpContact(d1, {
+      ...input, nextContactAt: '2026-08-21T10:00:00.000Z',
+    })).resolves.toEqual(saved);
+    await expect(recordMedicationFollowUpContact(d1, {
+      ...input, outcomeCode: 'answered', nextContactAt: null,
+    })).rejects.toThrow(/contact conflict/i);
   });
 
   it('does not reuse one scheduling idempotency key for another submission', async () => {
@@ -219,13 +320,23 @@ describe('custom_011 pharmacy medication follow-ups', () => {
     await expect(transitionMedicationFollowUp(d1, {
       lineAccountId: 'account-a', followUpId: row.id, toStatus: 'assigned',
       expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+      assigneeStaffId: 'staff-a',
       now: new Date('2026-08-18T00:01:00.000Z'),
     })).rejects.toThrow(/invalid follow-up transition/i);
 
     for (const toStatus of ['due', 'delivered', 'concern', 'assigned', 'responded', 'closed'] as const) {
+      if (toStatus === 'responded') {
+        await recordMedicationFollowUpContact(d1, {
+          lineAccountId: 'account-a', followUpId: row.id, channel: 'phone',
+          outcomeCode: 'answered', actorStaffId: 'staff-a',
+          idempotencyKey: 'contact-transition-a', expectedVersion: row.version,
+          now: new Date('2026-08-18T00:05:00.000Z'),
+        });
+      }
       row = await transitionMedicationFollowUp(d1, {
         lineAccountId: 'account-a', followUpId: row.id, toStatus,
         expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+        ...(toStatus === 'assigned' ? { assigneeStaffId: 'staff-a' } : {}),
         now: new Date(`2026-08-18T00:0${row.version}:00.000Z`),
       });
     }
@@ -236,6 +347,36 @@ describe('custom_011 pharmacy medication follow-ups', () => {
     })).rejects.toThrow(/conflict|invalid follow-up transition/i);
     expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_medication_followup_events
       WHERE followup_id = ?`).get(row.id)).toEqual({ count: 7 });
+  });
+
+  it('does not store the shared pharmacy principal as a human assignee', async () => {
+    const now = '2026-08-18T00:00:00.000Z';
+    db.prepare(`INSERT INTO staff_members
+      (id, name, role, api_key, is_active, principal_kind, shared_tenant_id, created_at, updated_at)
+      VALUES ('shared-a', '薬局共通', 'admin', 'shared-key', 1, 'pharmacy_shared', 'tenant-a', ?, ?)`)
+      .run(now, now);
+    db.prepare(`INSERT INTO tenant_staff_memberships
+      (tenant_id, staff_id, role, is_active, created_at, updated_at)
+      VALUES ('tenant-a', 'shared-a', 'admin', 1, ?, ?)`)
+      .run(now, now);
+    let row = await scheduleMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', submissionId: 'submission-a',
+      dueAt: '2026-08-21T09:00:00.000Z', staffId: 'staff-a',
+      idempotencyKey: 'request-shared-assignee', now: new Date(now),
+    });
+    for (const toStatus of ['due', 'delivered', 'concern'] as const) {
+      row = await transitionMedicationFollowUp(d1, {
+        lineAccountId: 'account-a', followUpId: row.id, toStatus,
+        expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+      });
+    }
+    await expect(transitionMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', followUpId: row.id, toStatus: 'assigned',
+      expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+      assigneeStaffId: 'shared-a',
+    })).rejects.toThrow(/conflict/i);
+    expect(db.prepare(`SELECT assigned_to FROM pharmacy_medication_followups WHERE id = ?`)
+      .get(row.id)).toEqual({ assigned_to: null });
   });
 
   it('records a fixed patient response once and rejects cross-friend access', async () => {
@@ -267,6 +408,14 @@ describe('custom_011 pharmacy medication follow-ups', () => {
     });
     expect(first).toMatchObject({ status: 'concern', responded_at: expect.any(String) });
     expect(retry).toEqual(first);
+    db.prepare(`INSERT INTO pharmacy_patient_owner_controls
+      (line_account_id, patient_id, owner_friend_id, binding_suspended_at, binding_reason_code, version, updated_at)
+      VALUES ('account-a', 'patient-a', 'friend-a', '2026-08-18T00:00:00.000Z', 'binding_suspended', 1,
+              '2026-08-18T00:00:00.000Z')`).run();
+    await expect(recordMedicationFollowUpPatientResponse(d1, {
+      lineAccountId: 'account-a', friendId: 'friend-a',
+      ...action!, webhookEventId,
+    })).rejects.toThrow(/follow-up response unavailable/i);
     await expect(recordMedicationFollowUpPatientResponse(d1, {
       lineAccountId: 'account-a', friendId: 'friend-b',
       ...action!, webhookEventId: 'webhook-event-b',
@@ -275,6 +424,66 @@ describe('custom_011 pharmacy medication follow-ups', () => {
       .resolves.toEqual([expect.objectContaining({ id: row.id, status: 'concern' })]);
     await expect(listPatientMedicationFollowUps(d1, 'account-b', 'patient-a'))
       .resolves.toEqual([]);
+  });
+
+  it('allows an active minor proxy to read and answer, then hides the follow-up after revoke', async () => {
+    const now = '2026-08-18T00:00:00.000Z';
+    db.prepare(`INSERT INTO pharmacy_patients
+      (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date, created_at, updated_at)
+      VALUES ('patient-child-a', 'account-a', 'friend-a', 'child', 'Proxy Child', 'PROXY CHILD',
+              '2018-01-01', ?, ?)`).run(now, now);
+    db.prepare(`INSERT INTO pharmacy_patient_intake_responses
+      (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
+       patient_snapshot_json, answers_json, idempotency_key, representative_consent_at,
+       privacy_consent_at, created_at)
+      VALUES ('intake-child-a', 'account-a', 'friend-a', 'patient-child-a', 1, 1,
+              '{}', '{}', 'intake-child-a-key', ?, ?, ?)`).run(now, now, now);
+    db.prepare(`INSERT INTO pharmacy_patient_proxy_grants
+      (id, line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
+       terms_version, terms_hash, granted_at, expires_at, version, created_at, updated_at)
+      VALUES ('grant-child-a', 'account-a', 'patient-child-a', 'friend-a', 'patient_intake_v1',
+              'self_attested_guardian', 1, ?, ?, '2099-01-01T00:00:00.000Z', 1, ?, ?)`).run(
+      'a'.repeat(64), now, now, now,
+    );
+    db.prepare(`INSERT INTO pharmacy_prescription_submissions
+      (id, line_account_id, friend_id, idempotency_key, status, upload_revision,
+       closed_at, created_at, updated_at)
+      VALUES ('submission-child-a', 'account-a', 'friend-a', 'submission-child-a-key',
+              'closed', 1, ?, ?, ?)`).run(now, now, now);
+    db.prepare(`INSERT INTO pharmacy_prescription_patients
+      (submission_id, line_account_id, owner_friend_id, patient_id, intake_response_id, created_at)
+      VALUES ('submission-child-a', 'account-a', 'friend-a', 'patient-child-a', 'intake-child-a', ?)`).run(now);
+
+    const row = await scheduleMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', submissionId: 'submission-child-a',
+      dueAt: '2026-08-21T09:00:00.000Z', staffId: 'staff-a',
+      idempotencyKey: 'request-child-proxy', now: new Date(now),
+    });
+    for (const toStatus of ['due', 'delivered'] as const) {
+      await transitionMedicationFollowUp(d1, {
+        lineAccountId: 'account-a', followUpId: row.id, toStatus,
+        expectedVersion: row.version, actorType: 'system', actorId: 'cron',
+      });
+      row.version += 1;
+    }
+    await expect(listOwnerMedicationFollowUps(d1, 'account-a', 'friend-a'))
+      .resolves.toEqual([expect.objectContaining({ id: row.id, patient_id: 'patient-child-a' })]);
+    const response = await recordMedicationFollowUpPatientResponse(d1, {
+      lineAccountId: 'account-a', friendId: 'friend-a', followUpId: row.id,
+      response: 'concern', webhookEventId: 'proxy-child-response', now: new Date(now),
+    });
+    expect(response.status).toBe('concern');
+
+    db.prepare(`UPDATE pharmacy_patient_proxy_grants
+      SET revoked_at = ?, revoke_reason_code = 'user_revoked', version = version + 1, updated_at = ?
+      WHERE id = 'grant-child-a'`).run(now, now);
+
+    await expect(listOwnerMedicationFollowUps(d1, 'account-a', 'friend-a')).resolves.toEqual([]);
+    await expect(getOwnerMedicationFollowUp(d1, 'account-a', 'friend-a', row.id)).resolves.toBeNull();
+    await expect(recordMedicationFollowUpPatientResponse(d1, {
+      lineAccountId: 'account-a', friendId: 'friend-a', followUpId: row.id,
+      response: 'concern', webhookEventId: 'proxy-child-response', now: new Date(now),
+    })).rejects.toThrow(/follow-up response unavailable/i);
   });
 
   it('lists only due, following patients for accounts with the capability', async () => {

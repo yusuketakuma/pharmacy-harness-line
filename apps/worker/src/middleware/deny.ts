@@ -8,7 +8,9 @@ import { log } from '../lib/log.js';
  */
 export function deny(c: Context, status: 401 | 403, reason: string, error: string = reason): Response {
   log('authz.denied', {
-    route: new URL(c.req.url).pathname,
+    // Hono's route template avoids copying client-controlled resource IDs
+    // (including patient/friend IDs) into the general authz log.
+    route: c.req.routePath || 'unknown',
     method: c.req.method.toUpperCase(),
     status,
     reason,

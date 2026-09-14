@@ -204,6 +204,7 @@ describe('pharmacy-mode webhook allowlist', () => {
 
     expect(dbMocks.updateFriendFollowStatus).toHaveBeenCalledWith(
       expect.anything(), 'U-pharmacy', false, 'account-pharmacy',
+      expect.objectContaining({ eventId: expect.any(String), occurredAt: undefined }),
     );
     expect(mocks.recordUnfollow).toHaveBeenCalledWith(expect.objectContaining({
       lineAccountId: 'account-pharmacy', lineUserId: 'U-pharmacy',

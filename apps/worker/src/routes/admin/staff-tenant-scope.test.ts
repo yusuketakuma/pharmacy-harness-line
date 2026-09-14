@@ -245,7 +245,6 @@ describe('staff tenant scope', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'New Staff',
-          loginId: 'new-staff',
           email: 'not-an-email',
           role: 'staff',
         }),
@@ -253,6 +252,75 @@ describe('staff tenant scope', () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([400, 400]);
+  });
+
+  it('retires individual credentials for pharmacy tenants', async () => {
+    const db = {
+      prepare(sql: string) {
+        const statement = {
+          bind() { return statement; },
+          async first() {
+            return sql.includes('pharmacy_account_capabilities')
+              ? { pharmacy_install: 1 }
+              : owned;
+          },
+        };
+        return statement;
+      },
+      async batch() { throw new Error('must not write'); },
+    } as unknown as D1Database;
+    const { app, env } = mount(db);
+
+    const create = await app.request('/api/staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New Staff', loginId: 'new-staff', role: 'staff' }),
+    }, env);
+    const reset = await app.request('/api/staff/staff-a/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginId: 'owner-a' }),
+    }, env);
+
+    expect(create.status).toBe(410);
+    expect(reset.status).toBe(410);
+  });
+
+  it('creates a pharmacy staff profile without an individual credential', async () => {
+    const writes: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        const statement = {
+          params: [] as unknown[],
+          bind(...params: unknown[]) { statement.params = params; return statement; },
+          async first() {
+            return sql.includes('pharmacy_account_capabilities')
+              ? { pharmacy_install: 1 }
+              : { ...owned, id: String(statement.params[1] ?? 'staff-new'), login_id: null };
+          },
+          async run() { writes.push(sql); return { meta: { changes: 1 } }; },
+        };
+        return statement;
+      },
+      async batch(statements: Array<{ run(): Promise<unknown> }>) {
+        return Promise.all(statements.map((statement) => statement.run()));
+      },
+    } as unknown as D1Database;
+    const { app, env } = mount(db);
+
+    const response = await app.request('/api/staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Pharmacy Staff', email: 'staff@example.test', role: 'staff' }),
+    }, env);
+    const body = await response.json() as { data: Record<string, unknown> };
+
+    expect(response.status).toBe(201);
+    expect(body.data.loginId).toBeNull();
+    expect(body.data).not.toHaveProperty('temporaryPassword');
+    expect(writes.some((sql) => sql.includes('INSERT INTO staff_members'))).toBe(true);
+    expect(writes.some((sql) => sql.includes('INSERT INTO tenant_staff_memberships'))).toBe(true);
+    expect(writes.some((sql) => sql.includes('tenant_admin_credentials'))).toBe(false);
   });
 
   it('rejects malformed or invalid staff profile updates before database access', async () => {

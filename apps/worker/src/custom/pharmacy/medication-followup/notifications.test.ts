@@ -4,6 +4,7 @@ const listDue = vi.hoisted(() => vi.fn());
 const transition = vi.hoisted(() => vi.fn());
 const send = vi.hoisted(() => vi.fn());
 const readCredential = vi.hoisted(() => vi.fn());
+const binding = vi.hoisted(() => vi.fn());
 
 vi.mock('./repository.js', () => ({
   listDueMedicationFollowUps: listDue,
@@ -11,6 +12,7 @@ vi.mock('./repository.js', () => ({
 }));
 vi.mock('../growth-loop/sender.js', () => ({ sendPharmacyAutomatedPush: send }));
 vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: readCredential }));
+vi.mock('../beta-membership/repository.js', () => ({ getPharmacyBetaNotificationBinding: binding }));
 
 import { processDueMedicationFollowUps } from './notifications.js';
 
@@ -43,6 +45,7 @@ beforeEach(() => {
     .mockResolvedValueOnce({ ...scheduled, status: 'delivered', version: 3 });
   send.mockResolvedValue('sent');
   readCredential.mockResolvedValue('token-a');
+  binding.mockResolvedValue(null);
 });
 
 describe('medication follow-up notifications', () => {

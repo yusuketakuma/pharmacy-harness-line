@@ -95,6 +95,7 @@ export function FulfillmentQuoteEditor({
     <section className="rounded-lg border border-green-200 bg-green-50 p-4" aria-labelledby="prescription-answer-title">
       <h3 id="prescription-answer-title" className="font-semibold">受付回答</h3>
       <p className="mt-1 text-sm text-gray-600">受付可否・確認事項・準備予定を登録すると、患者さんへの案内まで進められます。</p>
+      <p className="mt-1 text-xs text-gray-600">準備予定時刻と回答の有効期限は日本時間です。</p>
       <label className="mt-3 block text-sm font-medium">
         受付可否
         <select value={draft.decision} onChange={(event) => {
@@ -139,7 +140,7 @@ export function FulfillmentQuoteEditor({
           </select>
         </label>)}
       </div>}
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="text-sm font-medium">準備予定時刻<input type="datetime-local" value={draft.readyAt} onChange={(event) => update({ readyAt: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2" /></label>
         <label className="text-sm font-medium">受取方法<select value={draft.method} onChange={(event) => update({ method: event.target.value as FulfillmentMethod | '' })} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="">未定</option>{Object.entries(METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div>

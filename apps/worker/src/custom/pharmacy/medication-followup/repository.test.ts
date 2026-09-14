@@ -20,7 +20,8 @@ describe('medication follow-up workflow', () => {
     );
     expect(source).toContain('WHERE f.line_account_id = ? AND f.owner_friend_id = ?');
     expect(source).toContain('patient.owner_friend_id = f.owner_friend_id');
-    expect(source).toContain(').bind(lineAccountId, friendId).all<PatientMedicationFollowUp>()');
+    expect(source).toContain("patientAuthorityPredicateFor(db, 'patient')");
+    expect(source).toContain('new Date().toISOString()');
   });
 
   it('gates only new scheduling at the final account-scoped write', () => {

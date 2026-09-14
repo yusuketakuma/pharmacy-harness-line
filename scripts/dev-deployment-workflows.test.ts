@@ -215,6 +215,7 @@ describe('development deployment workflow contract', () => {
       'pnpm audit --prod --audit-level high',
     );
     expect(namedStep('Run LIFF browser smoke').run).toBe('pnpm --filter liff test:e2e');
+    expect(namedStep('Run pharmacy admin browser regression')?.run).toBe('pnpm --filter web test:e2e');
     expect(namedStep('Generate CycloneDX SBOM').run).toContain('pnpm exec cdxgen');
     expect(namedStep('Upload assurance artifacts')).toBeTruthy();
 

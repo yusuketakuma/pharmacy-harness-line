@@ -1,4 +1,4 @@
-import { jstNow } from './utils.js';
+import { jstNow, toJstString } from './utils.js';
 export interface Friend {
   id: string;
   line_user_id: string;
@@ -200,6 +200,52 @@ export interface UpsertFriendInput {
   displayName?: string | null;
   pictureUrl?: string | null;
   statusMessage?: string | null;
+  followEventAt?: string;
+  followEventId?: string;
+}
+
+function normalizeFollowEvent(occurredAt?: string, eventId?: string): {
+  occurredAt: string;
+  eventId: string;
+} {
+  const parsed = occurredAt ? new Date(occurredAt) : new Date();
+  return {
+    occurredAt: Number.isFinite(parsed.getTime()) ? toJstString(parsed) : jstNow(),
+    eventId: eventId ?? '',
+  };
+}
+
+async function updateFriendFollowStatusLegacy(
+  db: D1Database,
+  lineUserId: string,
+  isFollowing: boolean,
+  lineAccountId: string | null,
+  now: string,
+): Promise<void> {
+  const scope = lineAccountId
+    ? 'provider_line_user_id = ? AND line_account_id = ?'
+    : 'provider_line_user_id = ? AND line_account_id IS NULL';
+  const scopeValues = lineAccountId ? [lineUserId, lineAccountId] : [lineUserId];
+  if (isFollowing) {
+    await db.prepare(`UPDATE friends
+      SET first_followed_at = COALESCE(first_followed_at, created_at),
+          current_follow_started_at = CASE
+            WHEN is_following = 0 OR current_follow_started_at IS NULL THEN ?
+            ELSE current_follow_started_at
+          END,
+          last_followed_at = CASE WHEN is_following = 0 THEN ? ELSE last_followed_at END,
+          is_following = 1, updated_at = ?
+      WHERE ${scope}`)
+      .bind(now, now, now, ...scopeValues).run();
+    return;
+  }
+  await db.prepare(`UPDATE friends
+    SET is_following = 0, current_follow_started_at = NULL,
+        last_unfollowed_at = CASE WHEN is_following = 1 THEN ? ELSE last_unfollowed_at END,
+        unfollow_count = unfollow_count + CASE WHEN is_following = 1 THEN 1 ELSE 0 END,
+        updated_at = ?
+    WHERE ${scope}`)
+    .bind(now, now, ...scopeValues).run();
 }
 
 export async function upsertFriend(
@@ -207,6 +253,7 @@ export async function upsertFriend(
   input: UpsertFriendInput,
 ): Promise<Friend> {
   const now = jstNow();
+  const followEvent = normalizeFollowEvent(input.followEventAt, input.followEventId);
   const requestedAccountId = input.lineAccountId ?? null;
   const existing = requestedAccountId
     ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
@@ -219,16 +266,6 @@ export async function upsertFriend(
          SET display_name = ?,
              picture_url = ?,
              status_message = ?,
-             first_followed_at = COALESCE(first_followed_at, created_at),
-             current_follow_started_at = CASE
-               WHEN is_following = 0 OR current_follow_started_at IS NULL THEN ?
-               ELSE current_follow_started_at
-             END,
-             last_followed_at = CASE
-               WHEN is_following = 0 THEN ?
-               ELSE COALESCE(last_followed_at, created_at)
-             END,
-             is_following = 1,
              updated_at = ?
          WHERE id = ?
            AND provider_line_user_id = ?
@@ -239,8 +276,6 @@ export async function upsertFriend(
         'pictureUrl' in input ? (input.pictureUrl ?? null) : existing.picture_url,
         'statusMessage' in input ? (input.statusMessage ?? null) : existing.status_message,
         now,
-        now,
-        now,
         existing.id,
         input.lineUserId,
         ...(requestedAccountId ? [requestedAccountId] : []),
@@ -250,6 +285,13 @@ export async function upsertFriend(
     if (result.meta.changes === 0) {
       throw new Error('FRIEND_ACCOUNT_CONFLICT');
     }
+    await updateFriendFollowStatus(
+      db,
+      input.lineUserId,
+      true,
+      requestedAccountId,
+      followEvent,
+    );
     const updated = requestedAccountId
       ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
       : await getFriendById(db, existing.id);
@@ -276,18 +318,36 @@ export async function upsertFriend(
         input.displayName ?? null,
         input.pictureUrl ?? null,
         input.statusMessage ?? null,
-        now,
-        now,
-        now,
+        followEvent.occurredAt,
+        followEvent.occurredAt,
+        followEvent.occurredAt,
         now,
         now,
       )
       .run();
+    await updateFriendFollowStatus(
+      db,
+      input.lineUserId,
+      true,
+      requestedAccountId,
+      followEvent,
+    );
   } catch (error) {
     const raced = requestedAccountId
       ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
       : await getFriendByLineUserId(db, input.lineUserId);
-    if (raced) return raced;
+    if (raced) {
+      await updateFriendFollowStatus(
+        db,
+        input.lineUserId,
+        true,
+        requestedAccountId,
+        followEvent,
+      );
+      return requestedAccountId
+        ? (await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId))!
+        : (await getFriendById(db, raced.id))!;
+    }
     throw error;
   }
 
@@ -299,41 +359,81 @@ export async function updateFriendFollowStatus(
   lineUserId: string,
   isFollowing: boolean,
   lineAccountId: string | null = null,
+  event: { occurredAt?: string; eventId?: string } = {},
 ): Promise<void> {
   const now = jstNow();
+  const followEvent = normalizeFollowEvent(event.occurredAt, event.eventId);
   const scope = lineAccountId
     ? 'provider_line_user_id = ? AND line_account_id = ?'
     : 'provider_line_user_id = ? AND line_account_id IS NULL';
   const scopeValues = lineAccountId ? [lineUserId, lineAccountId] : [lineUserId];
+  const eventIsNewer = `(follow_state_changed_at IS NULL OR
+    julianday(?) > julianday(follow_state_changed_at) OR
+    (julianday(?) = julianday(follow_state_changed_at) AND
+     ? > COALESCE(follow_state_event_id, ''))) `;
   if (isFollowing) {
-    await db
-      .prepare(
-        `UPDATE friends
+    try {
+      await db
+        .prepare(
+          `UPDATE friends
             SET first_followed_at = COALESCE(first_followed_at, created_at),
                 current_follow_started_at = CASE
                   WHEN is_following = 0 OR current_follow_started_at IS NULL THEN ?
                   ELSE current_follow_started_at
                 END,
                 last_followed_at = CASE WHEN is_following = 0 THEN ? ELSE last_followed_at END,
-                is_following = 1, updated_at = ?
-          WHERE ${scope}`,
-      )
-      .bind(now, now, now, ...scopeValues)
-      .run();
+                is_following = 1,
+                follow_state_changed_at = ?,
+                follow_state_event_id = ?,
+                updated_at = ?
+          WHERE ${eventIsNewer} AND ${scope}`,
+        )
+        .bind(
+          followEvent.occurredAt,
+          followEvent.occurredAt,
+          followEvent.occurredAt,
+          followEvent.eventId,
+          now,
+          followEvent.occurredAt,
+          followEvent.occurredAt,
+          followEvent.eventId,
+          ...scopeValues,
+        )
+        .run();
+    } catch (error) {
+      if (!(error instanceof Error && /no such column: follow_state_/.test(error.message))) throw error;
+      await updateFriendFollowStatusLegacy(db, lineUserId, isFollowing, lineAccountId, now);
+    }
     return;
   }
-  await db
-    .prepare(
-      `UPDATE friends
+  try {
+    await db
+      .prepare(
+        `UPDATE friends
           SET is_following = 0,
               current_follow_started_at = NULL,
               last_unfollowed_at = CASE WHEN is_following = 1 THEN ? ELSE last_unfollowed_at END,
               unfollow_count = unfollow_count + CASE WHEN is_following = 1 THEN 1 ELSE 0 END,
+              follow_state_changed_at = ?,
+              follow_state_event_id = ?,
               updated_at = ?
-        WHERE ${scope}`,
-    )
-    .bind(now, now, ...scopeValues)
-    .run();
+        WHERE ${eventIsNewer} AND ${scope}`,
+      )
+      .bind(
+        followEvent.occurredAt,
+        followEvent.occurredAt,
+        followEvent.eventId,
+        now,
+        followEvent.occurredAt,
+        followEvent.occurredAt,
+        followEvent.eventId,
+        ...scopeValues,
+      )
+      .run();
+  } catch (error) {
+    if (!(error instanceof Error && /no such column: follow_state_/.test(error.message))) throw error;
+    await updateFriendFollowStatusLegacy(db, lineUserId, isFollowing, lineAccountId, now);
+  }
 }
 
 /** Get merged metadata across all friend records sharing the same user_id (UUID). */

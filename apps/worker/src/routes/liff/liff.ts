@@ -51,6 +51,7 @@ import {
 } from '../../custom/pharmacy/growth-loop/access.js';
 import { resolvePrescriptionPatient } from '../../custom/pharmacy/prescriptions/patient.js';
 import { listExistingPatientFeatures } from '../../custom/pharmacy/growth-loop/patient-feature-access.js';
+import { canUsePharmacyBetaParticipant } from '../../custom/pharmacy/beta-membership/repository.js';
 
 
 // OAuth state base64 helpers. btoa() only accepts Latin-1, so a single
@@ -1249,6 +1250,9 @@ liffRoutes.get('/api/liff/pharmacy/feature-access', async (c) => {
   if (!identity) return c.json({ success: false, error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ success: false, error: 'Pharmacy account not found' }, 404);
+  if (!(await canUsePharmacyBetaParticipant(
+    c.env.DB, patient.lineAccountId, patient.friendId,
+  ))) return c.json({ success: true, data: { existingFeatures: [] } });
   const existingFeatures = await listExistingPatientFeatures(c.env.DB, patient);
   return c.json({ success: true, data: { existingFeatures } });
 });

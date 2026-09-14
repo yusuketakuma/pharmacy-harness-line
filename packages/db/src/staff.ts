@@ -8,6 +8,8 @@ export interface StaffMember {
   api_key: string;
   /** HMAC-SHA-256 of `api_key`. NULL for keys issued before custom_027. */
   api_key_hash: string | null;
+  principal_kind?: 'human' | 'pharmacy_shared';
+  shared_tenant_id?: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;

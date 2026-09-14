@@ -9,7 +9,7 @@ import {
 } from '@/lib/platform-admin-api'
 
 const steps = [
-  'テナントと初期管理者',
+  'テナントと共通アカウント',
   'Messaging API',
   'LINE Login / LIFF',
   '入力内容の確認',
@@ -26,10 +26,8 @@ export default function PlatformAdminTenantNewPage() {
   const idempotencyKey = useRef<string | null>(null)
 
   const [tenantName, setTenantName] = useState('')
-  const [adminLoginId, setAdminLoginId] = useState('')
   const [adminDisplayName, setAdminDisplayName] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
-  const [temporaryPassword, setTemporaryPassword] = useState('')
   const [channelId, setChannelId] = useState('')
   const [lineDisplayName, setLineDisplayName] = useState('')
   const [channelAccessToken, setChannelAccessToken] = useState('')
@@ -41,13 +39,6 @@ export default function PlatformAdminTenantNewPage() {
   function next(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
-    if (step === 0) {
-      const passwordLength = [...temporaryPassword].length
-      if (passwordLength < 15 || passwordLength > 128) {
-        setError('初期パスワードは15文字以上128文字以下で入力してください。')
-        return
-      }
-    }
     if (step === 2 && !liffId.startsWith(`${loginChannelId}-`)) {
       setError('LIFF IDはLINE LoginチャネルIDから始まる値を入力してください。')
       return
@@ -64,10 +55,8 @@ export default function PlatformAdminTenantNewPage() {
       const response = await platformAdminApi.provisionTenant({
         tenantName: tenantName.trim(),
         admin: {
-          loginId: adminLoginId.trim(),
           displayName: adminDisplayName.trim(),
           email: adminEmail.trim() || null,
-          temporaryPassword,
         },
         line: {
           channelId: channelId.trim(),
@@ -79,8 +68,16 @@ export default function PlatformAdminTenantNewPage() {
           liffId: liffId.trim(),
         },
       }, idempotencyKey.current)
-      setResult(response.data)
-      setTemporaryPassword('')
+      let result = response.data
+      if (!result.sharedLoginIssued) {
+        const issued = await platformAdminApi.issueSharedLogin(result.tenantId)
+        result = {
+          ...result,
+          sharedLoginIssued: true,
+          sharedLoginTemporaryPassword: issued.data.temporaryPassword,
+        }
+      }
+      setResult(result)
       setChannelAccessToken('')
       setChannelSecret('')
       setLoginChannelSecret('')
@@ -115,23 +112,15 @@ export default function PlatformAdminTenantNewPage() {
       {step < 3 && (
         <form onSubmit={next} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
           {step === 0 && <>
-            <p className="text-sm text-gray-600">薬局テナントと、最初にログインする管理者を設定します。</p>
+            <p className="text-sm text-gray-600">薬局テナントと、薬局コードで使う共通アカウントを設定します。</p>
             <label className="block text-sm font-medium">薬局・法人名
               <input required maxLength={120} value={tenantName} onChange={(event) => setTenantName(event.target.value)} className={inputClass} />
             </label>
-            <label className="block text-sm font-medium">初期管理者ログインID
-              <input required pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,63}" autoComplete="off" value={adminLoginId} onChange={(event) => setAdminLoginId(event.target.value)} className={inputClass} />
-              <span className="mt-1 block text-xs text-gray-500">半角英数字で始まる3〜64文字（記号は . _ -）</span>
-            </label>
-            <label className="block text-sm font-medium">初期管理者名
+            <label className="block text-sm font-medium">共通アカウントの表示名
               <input required maxLength={120} value={adminDisplayName} onChange={(event) => setAdminDisplayName(event.target.value)} className={inputClass} />
             </label>
             <label className="block text-sm font-medium">メールアドレス（任意）
               <input type="email" maxLength={254} value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} className={inputClass} />
-            </label>
-            <label className="block text-sm font-medium">初期パスワード
-              <input required type="password" autoComplete="new-password" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} className={inputClass} />
-              <span className="mt-1 block text-xs text-gray-500">15〜128文字。よく使われるパスワードは登録できません。</span>
             </label>
           </>}
 
@@ -178,7 +167,7 @@ export default function PlatformAdminTenantNewPage() {
           <p className="text-sm text-gray-600">登録後にLINE接続確認とWebhook URL設定を行います。リッチメニューは自動公開しません。</p>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-gray-500">薬局・法人名</dt><dd className="font-medium">{tenantName}</dd></div>
-            <div><dt className="text-gray-500">初期管理者</dt><dd className="font-medium">{adminDisplayName}（{adminLoginId}）</dd></div>
+            <div><dt className="text-gray-500">共通アカウント</dt><dd className="font-medium">{adminDisplayName}</dd></div>
             <div><dt className="text-gray-500">Messaging API</dt><dd className="font-medium">{lineDisplayName}（{channelId}）</dd></div>
             <div><dt className="text-gray-500">LINE Login / LIFF</dt><dd className="font-medium">{loginChannelId} / {liffId}</dd></div>
             <div><dt className="text-gray-500">秘密情報</dt><dd className="font-medium">入力済み（画面には再表示しません）</dd></div>
@@ -195,10 +184,14 @@ export default function PlatformAdminTenantNewPage() {
           <p className="font-semibold text-green-900">テナント設定が完了しました。</p>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-gray-600">テナントコード</dt><dd className="font-mono text-lg font-bold">{result.tenantCode}</dd></div>
-            <div><dt className="text-gray-600">管理者ログインID</dt><dd className="font-mono">{result.adminLoginId}</dd></div>
+            <div><dt className="text-gray-600">ログイン方式</dt><dd className="font-medium">薬局コード＋パスワード</dd></div>
+            {result.sharedLoginTemporaryPassword && (
+              <div className="sm:col-span-2"><dt className="text-gray-600">初回パスワード（この画面で一度だけ表示）</dt><dd className="break-all rounded bg-white p-2 font-mono">{result.sharedLoginTemporaryPassword}</dd></div>
+            )}
             <div><dt className="text-gray-600">LINE接続確認</dt><dd>{result.line.tokenValidated ? '成功' : '未確認'}</dd></div>
             <div><dt className="text-gray-600">Webhook自動設定</dt><dd>{result.line.webhookConfigured ? '成功' : '要確認'}</dd></div>
           </dl>
+          {!result.sharedLoginTemporaryPassword && result.sharedLoginIssued && <p className="rounded-lg bg-amber-100 p-3 text-sm text-amber-900">共通ログインは発行済みです。初回パスワードを紛失した場合は、全体管理者から再発行してください。</p>}
           {!result.line.webhookConfigured && <p role="alert" className="rounded-lg bg-amber-100 p-3 text-sm text-amber-900">LINE DevelopersでWebhook URLを設定し、「Webhookの利用」を有効にしてください。</p>}
           <div className="text-sm">
             <p><a href={result.urls.admin} target="_blank" rel="noreferrer" className="text-purple-800 underline">管理画面を開く</a></p>

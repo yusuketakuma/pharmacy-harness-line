@@ -130,16 +130,16 @@ describe('password change OCC loser', () => {
       sqlite.exec(`
         INSERT INTO tenants (id, tenant_code, display_name, status)
         VALUES ('tenant-a', 'pharmacy-a', 'Pharmacy A', 'active');
-        INSERT INTO staff_members (id, name, role, api_key, is_active)
-        VALUES ('staff-a', 'Staff A', 'owner', 'key-a', 1);
+        INSERT INTO staff_members (id, name, role, api_key, is_active, principal_kind, shared_tenant_id)
+        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1, 'pharmacy_shared', 'tenant-a');
         INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active)
-        VALUES ('tenant-a', 'staff-a', 'owner', 1);
+        VALUES ('tenant-a', 'staff-a', 'admin', 1);
       `);
       sqlite.prepare(
         `INSERT INTO tenant_admin_credentials
            (tenant_id, staff_id, login_id, password_hash, must_change_password,
-            credential_version, created_at, updated_at)
-         VALUES ('tenant-a', 'staff-a', 'admin-a', ?, 0, 1, ?, ?)`,
+            credential_version, auth_enabled, created_at, updated_at)
+         VALUES ('tenant-a', 'staff-a', 'pharmacy-a', ?, 0, 1, 1, ?, ?)`,
       ).run(currentHash, now, now);
       sqlite.prepare(
         `INSERT INTO tenant_admin_sessions
@@ -287,8 +287,8 @@ describe('password change OCC loser', () => {
       sqlite.exec(`
         INSERT INTO tenants (id, tenant_code, display_name, status)
         VALUES ('tenant-a', 'pharmacy-a', 'Pharmacy A', 'active');
-        INSERT INTO staff_members (id, name, role, api_key, is_active)
-        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1);
+        INSERT INTO staff_members (id, name, role, api_key, is_active, principal_kind, shared_tenant_id)
+        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1, 'pharmacy_shared', 'tenant-a');
         INSERT INTO staff_members (id, name, role, api_key, is_active)
         VALUES ('staff-owner', 'Staff Owner', 'owner', 'key-owner', 1);
         INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active)
@@ -299,8 +299,8 @@ describe('password change OCC loser', () => {
       sqlite.prepare(
         `INSERT INTO tenant_admin_credentials
            (tenant_id, staff_id, login_id, password_hash, must_change_password,
-            credential_version, created_at, updated_at)
-         VALUES ('tenant-a', 'staff-a', 'admin-a', ?, 0, 1, ?, ?)`,
+            credential_version, auth_enabled, created_at, updated_at)
+         VALUES ('tenant-a', 'staff-a', 'pharmacy-a', ?, 0, 1, 1, ?, ?)`,
       ).run(currentHash, now, now);
       sqlite.prepare(
         `INSERT INTO tenant_admin_sessions
@@ -434,8 +434,8 @@ describe('password change OCC loser', () => {
       sqlite.exec(`
         INSERT INTO tenants (id, tenant_code, display_name, status)
         VALUES ('tenant-a', 'pharmacy-a', 'Pharmacy A', 'active');
-        INSERT INTO staff_members (id, name, role, api_key, is_active)
-        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1);
+        INSERT INTO staff_members (id, name, role, api_key, is_active, principal_kind, shared_tenant_id)
+        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1, 'pharmacy_shared', 'tenant-a');
         INSERT INTO staff_members (id, name, role, api_key, is_active)
         VALUES ('staff-owner', 'Staff Owner', 'owner', 'key-owner', 1);
         INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active)
@@ -446,8 +446,8 @@ describe('password change OCC loser', () => {
       sqlite.prepare(
         `INSERT INTO tenant_admin_credentials
            (tenant_id, staff_id, login_id, password_hash, must_change_password,
-            credential_version, created_at, updated_at)
-         VALUES ('tenant-a', 'staff-a', 'admin-a', ?, 0, 1, ?, ?)`,
+            credential_version, auth_enabled, created_at, updated_at)
+         VALUES ('tenant-a', 'staff-a', 'pharmacy-a', ?, 0, 1, 1, ?, ?)`,
       ).run(currentHash, now, now);
       sqlite.prepare(
         `INSERT INTO tenant_admin_sessions
@@ -635,16 +635,16 @@ describe('tenant session control OCC loser', () => {
       sqlite.exec(`
         INSERT INTO tenants (id, tenant_code, display_name, status)
         VALUES ('tenant-a', 'pharmacy-a', 'Pharmacy A', 'active');
-        INSERT INTO staff_members (id, name, role, api_key, is_active)
-        VALUES ('staff-a', 'Staff A', 'owner', 'key-a', 1);
+        INSERT INTO staff_members (id, name, role, api_key, is_active, principal_kind, shared_tenant_id)
+        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1, 'pharmacy_shared', 'tenant-a');
         INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active)
-        VALUES ('tenant-a', 'staff-a', 'owner', 1);
+        VALUES ('tenant-a', 'staff-a', 'admin', 1);
       `);
       sqlite.prepare(
         `INSERT INTO tenant_admin_credentials
            (tenant_id, staff_id, login_id, password_hash, must_change_password,
-            credential_version, created_at, updated_at)
-         VALUES ('tenant-a', 'staff-a', 'admin-a', ?, 0, 1, ?, ?)`,
+            credential_version, auth_enabled, created_at, updated_at)
+         VALUES ('tenant-a', 'staff-a', 'pharmacy-a', ?, 0, 1, 1, ?, ?)`,
       ).run(currentHash, now, now);
       sqlite.prepare(
         `INSERT INTO tenant_admin_sessions
@@ -688,7 +688,7 @@ describe('tenant session control OCC loser', () => {
     }
   });
 
-  it('revokes the replacement session when a stale tenant logout finishes last', async () => {
+  it('requires reauthentication after tenant password change and does not mint a replacement session', async () => {
     const sqlite = fresh();
     try {
       const now = '2026-08-30T00:00:00.000Z';
@@ -698,16 +698,16 @@ describe('tenant session control OCC loser', () => {
       sqlite.exec(`
         INSERT INTO tenants (id, tenant_code, display_name, status)
         VALUES ('tenant-a', 'pharmacy-a', 'Pharmacy A', 'active');
-        INSERT INTO staff_members (id, name, role, api_key, is_active)
-        VALUES ('staff-a', 'Staff A', 'owner', 'key-a', 1);
+        INSERT INTO staff_members (id, name, role, api_key, is_active, principal_kind, shared_tenant_id)
+        VALUES ('staff-a', 'Staff A', 'admin', 'key-a', 1, 'pharmacy_shared', 'tenant-a');
         INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active)
-        VALUES ('tenant-a', 'staff-a', 'owner', 1);
+        VALUES ('tenant-a', 'staff-a', 'admin', 1);
       `);
       sqlite.prepare(
         `INSERT INTO tenant_admin_credentials
            (tenant_id, staff_id, login_id, password_hash, must_change_password,
-            credential_version, created_at, updated_at)
-         VALUES ('tenant-a', 'staff-a', 'admin-a', ?, 0, 1, ?, ?)`,
+            credential_version, auth_enabled, created_at, updated_at)
+         VALUES ('tenant-a', 'staff-a', 'pharmacy-a', ?, 0, 1, 1, ?, ?)`,
       ).run(currentHash, now, now);
       sqlite.prepare(
         `INSERT INTO tenant_admin_sessions
@@ -728,21 +728,15 @@ describe('tenant session control OCC loser', () => {
         body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPassword: LOSER_PASSWORD }),
       }, bindings(db));
       expect(changed.status).toBe(200);
-
-      const logout = await tenantApp().request('/api/auth/logout', {
-        method: 'POST',
-        headers: { cookie: `lh_admin_session=${token}; lh_tenant=tenant-a` },
-      }, bindings(db));
-      expect(logout.status).toBe(200);
       expect(sqlite.prepare(
         `SELECT session_family_hash, revoked_at
            FROM tenant_admin_sessions
           WHERE tenant_id = 'tenant-a' AND staff_id = 'staff-a'
             AND credential_version = 2`,
-      ).get()).toMatchObject({
-        session_family_hash: tokenHash,
-        revoked_at: expect.any(String),
-      });
+      ).get()).toBeUndefined();
+      expect(sqlite.prepare(
+        `SELECT revoked_at FROM tenant_admin_sessions WHERE token_hash = ?`,
+      ).get(tokenHash)).toMatchObject({ revoked_at: expect.any(String) });
     } finally {
       sqlite.close();
     }

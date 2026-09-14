@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ send: vi.fn(), expire: vi.fn(), readCredential: vi.fn() }));
+const mocks = vi.hoisted(() => ({ send: vi.fn(), expire: vi.fn(), readCredential: vi.fn(), binding: vi.fn() }));
 vi.mock('./sender.js', () => ({ sendPharmacyAutomatedPush: mocks.send }));
 vi.mock('./repository.js', () => ({ markPrescriptionValidityExpiredReview: mocks.expire }));
 vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: mocks.readCredential }));
+vi.mock('../beta-membership/repository.js', () => ({ getPharmacyBetaNotificationBinding: mocks.binding }));
 import { processDuePrescriptionValidityReminders } from './validity.js';
 
 const CREDENTIAL_KEY = 'synthetic-line-credential-root-key-v1';
@@ -33,6 +34,7 @@ describe('prescription validity reminders', () => {
     vi.clearAllMocks();
     mocks.expire.mockResolvedValue(false);
     mocks.readCredential.mockResolvedValue('token');
+    mocks.binding.mockResolvedValue(null);
   });
 
   it('claims, sends, and marks a verified validity once', async () => {

@@ -9,5 +9,7 @@ describe('staff account assignment UI', () => {
     expect(page).toContain('`/api/staff/${member.id}/accounts`')
     expect(page).toContain('JSON.stringify({ accountIds:')
     expect(page).toContain('この薬局の担当者を0人にはできません')
+    expect(page).not.toContain('管理者ID')
+    expect(page).not.toContain('仮パスワード')
   })
 })
