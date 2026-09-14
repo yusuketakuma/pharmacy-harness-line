@@ -129,6 +129,77 @@ export async function hasActivePharmacyBetaMembership(
   }
 }
 
+export type PharmacyBetaMembershipDeliveryState = 'active' | 'suspended' | 'blocked';
+
+export async function getPharmacyBetaNotificationBinding(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    retryKey: string;
+    participantFriendId: string;
+    subjectPatientId: string;
+  },
+): Promise<string | null> {
+  try {
+    const row = await db.prepare(
+      `SELECT membership_id
+         FROM pharmacy_beta_notification_bindings
+        WHERE line_account_id = ? AND retry_key = ?
+          AND participant_friend_id = ? AND subject_patient_id = ?
+        LIMIT 1`,
+    ).bind(
+      input.lineAccountId,
+      input.retryKey,
+      input.participantFriendId,
+      input.subjectPatientId,
+    ).first<{ membership_id: string }>();
+    return row?.membership_id ?? null;
+  } catch (error) {
+    // An old schema has no binding table, but a transient D1 failure must not
+    // be mistaken for a missing binding and permanently block its retry key.
+    if (error instanceof Error && MISSING_SCHEMA_RE.test(error.message)) return null;
+    throw new Error('pharmacy beta notification binding unavailable');
+  }
+}
+
+export async function getPharmacyBetaMembershipDeliveryState(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    participantFriendId: string;
+    subjectPatientId: string;
+    membershipId: string;
+    now?: Date;
+  },
+): Promise<PharmacyBetaMembershipDeliveryState> {
+  const now = input.now ?? new Date();
+  try {
+    const row = await db.prepare(
+      `SELECT status, starts_at, expires_at
+        FROM pharmacy_beta_memberships
+        WHERE line_account_id = ? AND participant_friend_id = ?
+          AND subject_patient_id = ? AND id = ?
+        ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'suspended' THEN 1 ELSE 2 END,
+                 updated_at DESC, id DESC
+        LIMIT 1`,
+    ).bind(
+      input.lineAccountId,
+      input.participantFriendId,
+      input.subjectPatientId,
+      input.membershipId,
+    ).first<{ status: 'active' | 'suspended' | 'revoked'; starts_at: string; expires_at: string }>();
+    const startsAt = Date.parse(row?.starts_at ?? '');
+    const expiresAt = Date.parse(row?.expires_at ?? '');
+    if (!row || !Number.isFinite(startsAt) || !Number.isFinite(expiresAt) ||
+        startsAt > now.getTime() || expiresAt <= now.getTime()) {
+      return 'blocked';
+    }
+    return row.status === 'suspended' ? 'suspended' : row.status === 'active' ? 'active' : 'blocked';
+  } catch {
+    return 'blocked';
+  }
+}
+
 /** Route-level participant gate. Subject-specific SQL predicates remain authoritative. */
 export async function canUsePharmacyBetaParticipant(
   db: D1Database,

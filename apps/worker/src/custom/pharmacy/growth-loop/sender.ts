@@ -9,7 +9,7 @@ import { getPatientAccessState } from '../intake/repository.js';
 import {
   getPharmacyBetaEnabled,
   getPharmacyBetaSchemaState,
-  hasActivePharmacyBetaMembership,
+  getPharmacyBetaMembershipDeliveryState,
 } from '../beta-membership/repository.js';
 import {
   buildApprovedPharmacyMessage,
@@ -30,6 +30,7 @@ type AutomatedPushInput = {
   lineAccountId: string;
   friendId: string;
   patientId?: string;
+  betaMembershipId?: string | null;
   messageId: PharmacyAutomatedMessageId;
   category: Exclude<PharmacyNotificationCategory, 'manual'>;
   vars?: PharmacyMessageVars;
@@ -88,25 +89,33 @@ async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Pro
   ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
 }
 
-async function canDeliverToPatient(input: AutomatedPushInput, now = new Date()): Promise<boolean> {
-  if (!input.patientId) return true;
+type PatientDeliveryState = 'allowed' | 'retryable' | 'blocked';
+
+async function getPatientDeliveryState(
+  input: AutomatedPushInput,
+  now = new Date(),
+): Promise<PatientDeliveryState> {
+  if (!input.patientId) return 'allowed';
   const access = await getPatientAccessState(input.db, {
     lineAccountId: input.lineAccountId,
     friendId: input.friendId,
   }, input.patientId);
-  if (access?.privacy !== 'active' || access.notifications !== 'enabled') return false;
+  if (access?.privacy !== 'active' || access.notifications !== 'enabled') return 'blocked';
   const betaEnabled = await getPharmacyBetaEnabled(input.db, input.lineAccountId);
-  if (betaEnabled === null) return false;
-  if (!betaEnabled) return true;
-  return hasActivePharmacyBetaMembership(input.db, {
+  if (betaEnabled === null) return 'blocked';
+  if (!betaEnabled) return 'allowed';
+  if (!input.betaMembershipId) return 'blocked';
+  const membership = await getPharmacyBetaMembershipDeliveryState(input.db, {
     lineAccountId: input.lineAccountId,
     participantFriendId: input.friendId,
     subjectPatientId: input.patientId,
+    membershipId: input.betaMembershipId,
     now,
   });
+  return membership === 'active' ? 'allowed' : membership === 'suspended' ? 'retryable' : 'blocked';
 }
 
-type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'operations_blocked';
+type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'operations_blocked';
 
 async function medicationFollowUpOperationsReady(
   db: D1Database,
@@ -241,14 +250,35 @@ async function getFinalDispatchState(
          OR EXISTS (
            SELECT 1 FROM pharmacy_beta_memberships AS beta_membership
             WHERE beta_membership.line_account_id = friend.line_account_id
+              AND beta_membership.id = ?
               AND beta_membership.participant_friend_id = friend.id
               AND beta_membership.subject_patient_id = patient.id
-              AND beta_membership.status = 'active'
+              AND beta_membership.status IN ('active', 'suspended')
               AND unixepoch(beta_membership.starts_at) <= unixepoch('now')
               AND unixepoch(beta_membership.expires_at) > unixepoch('now')
          )
        )`
     : '';
+  const betaMembershipStatus = input.patientId && betaSchema === 'ready'
+    ? `(
+         SELECT beta_membership.status
+           FROM pharmacy_beta_memberships AS beta_membership
+          WHERE beta_membership.line_account_id = friend.line_account_id
+            AND beta_membership.id = ?
+            AND beta_membership.participant_friend_id = friend.id
+            AND beta_membership.subject_patient_id = patient.id
+            AND EXISTS (
+              SELECT 1 FROM pharmacy_account_capabilities AS beta_capability
+               WHERE beta_capability.line_account_id = friend.line_account_id
+                 AND beta_capability.mode = 'pharmacy'
+                 AND beta_capability.beta_enabled = 1
+            )
+          ORDER BY CASE beta_membership.status
+                     WHEN 'active' THEN 0 WHEN 'suspended' THEN 1 ELSE 2 END,
+                   beta_membership.updated_at DESC, beta_membership.id DESC
+          LIMIT 1
+       ) AS beta_membership_status`
+    : 'NULL AS beta_membership_status';
   const operationsSelect = followUpId === null
     ? '1 AS followup_operations_enabled'
     : `CASE WHEN ${followUpOperationsReadyPredicate('friend.line_account_id')}
@@ -265,7 +295,8 @@ async function getFinalDispatchState(
                 WHERE json_each.value = ?
              ) THEN 1 ELSE 0 END AS capability_enabled,
              followup.status AS followup_status,
-             ${operationsSelect}
+             ${operationsSelect},
+             ${betaMembershipStatus}
         FROM friends AS friend
         INNER JOIN line_accounts AS account
                 ON account.id = friend.line_account_id
@@ -287,11 +318,13 @@ async function getFinalDispatchState(
        LIMIT 1`,
   ).bind(
     requiredCapability,
+    ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
     ...(input.patientId ? [input.patientId, new Date().toISOString()] : []),
     followUpId,
     input.patientId ?? null,
     input.friendId,
     input.lineAccountId,
+    ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
   ).first<{
     destination_line_user_id: string | null;
     is_following: number;
@@ -301,6 +334,7 @@ async function getFinalDispatchState(
     capability_enabled: number;
     followup_status: string | null;
     followup_operations_enabled: number | null;
+    beta_membership_status: 'active' | 'suspended' | 'revoked' | null;
   }>();
 
   if (!row || row.destination_line_user_id !== input.to || row.is_following !== 1 ||
@@ -308,6 +342,7 @@ async function getFinalDispatchState(
       row.capability_enabled !== 1) {
     return 'blocked';
   }
+  if (row.beta_membership_status === 'suspended') return 'patient_retryable';
   if (followUpId !== null &&
       row.followup_status !== 'due') {
     return 'blocked';
@@ -316,15 +351,6 @@ async function getFinalDispatchState(
     return 'operations_blocked';
   }
   return row.outbound_messaging_paused_at ? 'paused' : 'ok';
-}
-
-async function leaveAttemptRetryable(
-  db: D1Database,
-  lineAccountId: string,
-  retryKey: string,
-  occurredAt: string,
-): Promise<void> {
-  await markOutcome(db, lineAccountId, retryKey, 'failed', occurredAt);
 }
 
 export async function sendPharmacyAutomatedPush(
@@ -379,8 +405,9 @@ export async function sendPharmacyAutomatedPush(
   const month = jstMonthBounds(now);
   const notificationEventId = crypto.randomUUID();
   let dispatchEventId = notificationEventId;
-  if (!(await canDeliverToPatient(input, now))) {
-    await recordBlocked(input, occurredAt);
+  const initialPatientState = await getPatientDeliveryState(input, now);
+  if (initialPatientState !== 'allowed') {
+    if (initialPatientState === 'blocked') await recordBlocked(input, occurredAt);
     return 'patient_blocked';
   }
   const claim = await input.db.prepare(
@@ -457,27 +484,38 @@ export async function sendPharmacyAutomatedPush(
     }
   }
 
-  if (!(await canDeliverToPatient(input, now))) {
-    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
+  const postClaimPatientState = await getPatientDeliveryState(input, now);
+  if (postClaimPatientState !== 'allowed') {
+    if (postClaimPatientState === 'blocked') {
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
+    }
+    // No provider call has happened. Preserve an attempted row so a
+    // suspended membership or a transient gate can be retried safely.
     return 'patient_blocked';
   }
 
   const finalNow = new Date();
-  if (!(await canDeliverToPatient(input, finalNow))) {
-    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+  const finalPatientState = await getPatientDeliveryState(input, finalNow);
+  if (finalPatientState !== 'allowed') {
+    if (finalPatientState === 'blocked') {
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    }
+    // The external proxy has not been called yet; do not erase result-unknown
+    // semantics by converting the attempt to failed.
     return 'patient_blocked';
   }
   const finalDispatchState = await getFinalDispatchState(input, requiredCapability);
   if (finalDispatchState === 'paused') {
-    await leaveAttemptRetryable(input.db, input.lineAccountId, input.retryKey, finalNow.toISOString());
     return 'paused';
   }
   if (finalDispatchState === 'blocked') {
     await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
     return 'patient_blocked';
   }
+  if (finalDispatchState === 'patient_retryable') {
+    return 'patient_blocked';
+  }
   if (finalDispatchState === 'operations_blocked') {
-    await leaveAttemptRetryable(input.db, input.lineAccountId, input.retryKey, finalNow.toISOString());
     return 'operations_blocked';
   }
 

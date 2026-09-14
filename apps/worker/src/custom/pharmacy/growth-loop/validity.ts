@@ -1,6 +1,7 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { markPrescriptionValidityExpiredReview } from './repository.js';
 import { sendPharmacyAutomatedPush } from './sender.js';
+import { getPharmacyBetaNotificationBinding } from '../beta-membership/repository.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 
 type DueValidity = {
@@ -131,6 +132,15 @@ export async function processDuePrescriptionValidityReminders(
       continue;
     }
     try {
+      const retryKey = `prescription-validity:${row.submission_id}:${row.valid_until}`;
+      const betaMembershipId = row.patient_id
+        ? await getPharmacyBetaNotificationBinding(db, {
+          lineAccountId: row.line_account_id,
+          retryKey,
+          participantFriendId: row.friend_id,
+          subjectPatientId: row.patient_id,
+        })
+        : null;
       const outcome = await sendPharmacyAutomatedPush({
         db,
         proxyBaseUrl: options.proxyBaseUrl,
@@ -140,10 +150,11 @@ export async function processDuePrescriptionValidityReminders(
         lineAccountId: row.line_account_id,
         friendId: row.friend_id,
         ...(row.patient_id ? { patientId: row.patient_id } : {}),
+        ...(betaMembershipId ? { betaMembershipId } : {}),
         messageId: 'prescription_validity_reminder_v1',
         category: 'transactional_care',
         vars: { genericDate: row.valid_until },
-        retryKey: `prescription-validity:${row.submission_id}:${row.valid_until}`,
+        retryKey,
       });
       // Never stamp reminder_sent_at while nothing was confirmed sent.
       if (outcome !== 'sent' && outcome !== 'already_sent') {

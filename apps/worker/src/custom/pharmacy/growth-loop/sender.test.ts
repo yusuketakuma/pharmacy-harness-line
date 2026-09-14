@@ -4,7 +4,7 @@ const push = vi.hoisted(() => vi.fn());
 const config = vi.hoisted(() => vi.fn());
 const patientAccess = vi.hoisted(() => vi.fn());
 const betaEnabled = vi.hoisted(() => vi.fn());
-const betaMembership = vi.hoisted(() => vi.fn());
+const betaDeliveryState = vi.hoisted(() => vi.fn());
 const betaSchemaState = vi.hoisted(() => vi.fn());
 vi.mock('../../../services/line-proxy-send.js', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../../services/line-proxy-send.js')>(),
@@ -15,7 +15,7 @@ vi.mock('../intake/repository.js', () => ({ getPatientAccessState: patientAccess
 vi.mock('../beta-membership/repository.js', () => ({
   getPharmacyBetaEnabled: betaEnabled,
   getPharmacyBetaSchemaState: betaSchemaState,
-  hasActivePharmacyBetaMembership: betaMembership,
+  getPharmacyBetaMembershipDeliveryState: betaDeliveryState,
 }));
 
 import { LineHarnessUnknownOutcomeError } from '../../../services/line-proxy-send.js';
@@ -109,7 +109,7 @@ beforeEach(() => {
   config.mockResolvedValue({ capabilities: ['prescription_intake'], proactive_monthly_limit: 1 });
   patientAccess.mockResolvedValue({ privacy: 'active', notifications: 'enabled' });
   betaEnabled.mockResolvedValue(false);
-  betaMembership.mockResolvedValue(true);
+  betaDeliveryState.mockResolvedValue('active');
   betaSchemaState.mockResolvedValue('ready');
   push.mockResolvedValue(undefined);
 });
@@ -144,10 +144,11 @@ describe('pharmacy automated sender', () => {
     await expect(sendPharmacyAutomatedPush({ ...followUp, db: {} as D1Database }))
       .rejects.toThrow(/capability/);
     config.mockResolvedValue({ capabilities: ['medication_followup'], proactive_monthly_limit: 1 });
+    const seen: string[] = [];
     const db = scriptedDb([
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
       { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
-    ]);
+    ], seen);
     await expect(sendPharmacyAutomatedPush({ ...followUp, db })).resolves.toBe('sent');
     expect(push).toHaveBeenCalledOnce();
   });
@@ -451,20 +452,61 @@ describe('pharmacy automated sender', () => {
 
   it('blocks a patient notification when the beta membership is no longer active', async () => {
     betaEnabled.mockResolvedValue(true);
-    betaMembership.mockResolvedValue(false);
+    betaDeliveryState.mockResolvedValue('blocked');
     const db = scriptedDb([
       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
       { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
     ]);
 
     await expect(sendPharmacyAutomatedPush({
-      ...base, db, patientId: 'patient-a', now: new Date('2026-09-14T00:00:00.000Z'),
+      ...base, db, patientId: 'patient-a', betaMembershipId: 'membership-a',
+      now: new Date('2026-09-14T00:00:00.000Z'),
     })).resolves.toBe('patient_blocked');
-    expect(betaMembership).toHaveBeenCalledWith(expect.anything(), {
+    expect(betaDeliveryState).toHaveBeenCalledWith(expect.anything(), {
       lineAccountId: 'account-a', participantFriendId: 'friend-a',
-      subjectPatientId: 'patient-a', now: new Date('2026-09-14T00:00:00.000Z'),
+      subjectPatientId: 'patient-a', membershipId: 'membership-a',
+      now: new Date('2026-09-14T00:00:00.000Z'),
     });
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('keeps a suspended beta membership retryable instead of permanently blocked', async () => {
+    betaEnabled.mockResolvedValue(true);
+    betaDeliveryState.mockResolvedValue('suspended');
+    const db = scriptedDb([]);
+
+    await expect(sendPharmacyAutomatedPush({
+      ...base, db, patientId: 'patient-a', betaMembershipId: 'membership-a',
+      now: new Date('2026-09-14T00:00:00.000Z'),
+    })).resolves.toBe('patient_blocked');
+    expect(push).not.toHaveBeenCalled();
+    expect(db).toBeDefined();
+  });
+
+  it('preserves a stale result-unknown attempt when membership becomes suspended', async () => {
+    betaEnabled.mockResolvedValue(true);
+    betaDeliveryState
+      .mockResolvedValueOnce('active')
+      .mockResolvedValueOnce('suspended');
+    const seen: string[] = [];
+    const db = scriptedDb([
+      { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
+      { match: 'SELECT id, outcome', first: {
+        id: 'notification-1',
+        outcome: 'attempted',
+        occurred_at: '2026-09-13T23:00:00.000Z',
+        created_at: '2026-09-13T23:00:00.000Z',
+      } },
+      { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+    ], seen);
+
+    await expect(sendPharmacyAutomatedPush({
+      ...base, db, patientId: 'patient-a', betaMembershipId: 'membership-a',
+      now: new Date('2026-09-14T00:00:00.000Z'),
+    })).resolves.toBe('patient_blocked');
+    expect(push).not.toHaveBeenCalled();
+    expect(seen.some((sql) => sql.includes("SET outcome = 'failed'"))).toBe(false);
+    expect(db).toBeDefined();
   });
 
   it('applies the proactive monthly cap per friend with an atomic claim', async () => {
