@@ -109,9 +109,7 @@
   - `pending`/`processing` receiptは生LINE本文を保持したまま永久に残る。`sweepWebhookInbox` に滞留時間上限（例: 24h）超過の件数ログとdead-letter化を足す。削除は足さない（`RETENTION_MATRIX.md:210-213`）。
   - **DoD**: 既存inbox testに「24h超pendingがdead_letteredへ遷移、本文は不変」が追加されgreen。
 
-- [ ] **NEXT-7（Optional）lint baseline** `[lane:fast]` `[tdd:skip:tooling]` cc:TODO
-  - 採用するなら Biome 1依存（root devDependency、`biome.json` は `recommended` のみ）、`"lint": "biome check ."` を `verify:ci` へ追加。初回整形は**単独commit**に隔離し、NEXT-1〜6 のdiffと混ぜない。採用しない場合はこの行を `Reject: typecheck+testのみで4 release出荷済み` として閉じる。
-  - **DoD**: `pnpm lint` exit 0 かつ `repository-verify.yml` にstepが存在する（configだけは不合格）。
+- [x] **NEXT-7（Optional）lint baseline** `[lane:fast]` `[tdd:skip:tooling]` cc:Reject — `Reject: typecheck+testのみで4 release出荷済み`。v0.35.0途中での全ファイル整形diffはscope外のため採用しない。将来採用する場合はBiome 1依存・`recommended`のみ・初回整形を単独commitに隔離する条件は維持する。
 
 - [ ] **NEXT-8（Optional）FLE Oracle security review再実行** cc:TODO
   - `fle-final-security-review` はbrowser profile lockで `error` のまま。`oracle --dry-run summary --files-report` → 許可済みallowlistのみ添付で再実行し、`verified=yes` か `NOT_RUN` を記録する。advisory扱い。
@@ -709,7 +707,7 @@ v0.31〜v0.34の節は履歴・残gateの正本として保持する。版番号
 
 #### Day 0 - scope/evidence freeze（2026-08-22起票、残項目はV035-0/6へ引継ぎ）
 
-- [ ] **V040-D0-1 sourceと環境をfreeze**: `main`、`dev`、現deployment source SHA、package、migration set、schema fingerprintをPHI-free evidenceへ記録する。productionへ変更を加えない。
+- [x] **V040-D0-1 sourceと環境をfreeze**: `main`、`dev`、現deployment source SHA、package、migration set、schema fingerprintをPHI-free evidenceへ記録する。productionへ変更を加えない。**ローカル完了(2026-09-15)**: `docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json`の`freeze`に記録。main=`0e738bfde`、dev remote=`57745cd`、local candidate=`cc8019d`（未push）、deployed development=deployment `6438472415`/`57745cd` SUCCESS、deployed production=deployment `6180145685`/`123545e8` SUCCESS、package=`0.35.0`、migrationSet=20 files digest `1c66448e`、schemaFileSha256=`ae1424d1`（実D1 fingerprintではない旨明記）。GitHub deployment metadataのみ確認しproduction変更なし。
 - [ ] **V040-D0-2 synthetic検証境界を固定**: developmentではsynthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。main/productionへのdeploy、activation、実患者導入は全gateと人間の明示Goまで行わない。
 - [ ] **V040-D0-3 milestoneとledgerをSoT化**: v0.31.0〜v0.40.0のmilestone、上記`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`、P0 blocker、owner、evidence link、Human Gateを追跡する。GitHub Issuesを有効化するまでは本節のregisterをauthorityとし、日付では自動closeしない。
 - [ ] **V040-D0-5 assurance/measurement baseline**: LIFF critical build/E2E、CodeQL/SAST、secret/dependency/license scan、SBOM、provenanceのworkflowをv0.31.0から作成・初回実行する。critical task inventory、workload、SLO、staffing SLAも測定前にfreezeし、v0.39.0を初回実行日にしない。
@@ -1019,9 +1017,9 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 
 **優先度**: 対象scopeの閉ループ・通信安全・応答体制は`Required`。既存実装を再利用し、新規拡張だけをv0.41.0以降へ延期できる。
 
-- [ ] **V036-1 既存follow-up domainを閉ループ化**: 既存のcontinuity/medication-followup状態とrepositoryを再利用し、question set version、送信日時rule、template preview、患者回答、担当、deadline、優先確認、escalation、電話記録、対応結果、次回確認日を補う。重複follow-up modelを作らない。
-- [ ] **V036-2 state invariant**: `concern`、`pharmacist_requested`、`escalated`は薬剤師の対応記録なしに`closed`へ進めない。電話対応をLINE対応として記録しない。
-- [ ] **V036-3 outbound safety**: approved PHI-free template、outbox/idempotency、dispatch直前のtenant/account/friend/contact mode/feature/record/outbound pause再検証を必須にする。tracing reportはdraft/structured exportまでとし、薬剤師確認前の外部送信を禁止する。
+- [x] **V036-1 既存follow-up domainを閉ループ化**: 既存のcontinuity/medication-followup状態とrepositoryを再利用し、question set version、送信日時rule、template preview、患者回答、担当、deadline、優先確認、escalation、電話記録、対応結果、次回確認日を補う。重複follow-up modelを作らない。**ローカル完了(2026-09-15)**: 既存`pharmacy_medication_followups`へのadditive拡張で実装確認。`016_custom_073`で`question_set_version`・`response_deadline_at`・`contact_records`（channel line/phone、outcome_code、next_contact_at、idempotency_key）、`018_custom_075`で`events.assignee_staff_id`。送信日時ruleはstaff指定`dueAt`必須+due到達cron pickup。template previewは`MedicationFollowUpPanel`の`MEDICATION_FOLLOW_UP_CHOICES_PREVIEW`（問題なし/気になることがある/薬剤師に相談したい）固定表示。優先確認は`escalated`の画面label。`follow_up_required`時`next_contact_at`必須のCHECK。
+- [x] **V036-2 state invariant**: `concern`、`pharmacist_requested`、`escalated`は薬剤師の対応記録なしに`closed`へ進めない。電話対応をLINE対応として記録しない。**ローカル完了(2026-09-15)**: `TRANSITIONS`graphでconcern/pharmacist_requested→assigned/escalated、escalated→responded、responded→closedのみ許可しclosed直行経路なし。`transitionMedicationFollowUp`はresponded/closedで`outcome_code<>'no_answer'`のcontact recordをJS側（`requiresResponseRecord`→`follow-up response record required`）とSQL UPDATE guardの両方で要求。phone/lineは`channel` CHECK分離。検証: repository.test.ts「requires a pharmacist response before closing a patient concern」、routes.test.ts「passes a fixed contact record atomically with the responded transition」。
+- [x] **V036-3 outbound safety**: approved PHI-free template、outbox/idempotency、dispatch直前のtenant/account/friend/contact mode/feature/record/outbound pause再検証を必須にする。tracing reportはdraft/structured exportまでとし、薬剤師確認前の外部送信を禁止する。**ローカル完了(2026-09-15)**: `buildApprovedPharmacyMessage`のID/変数allowlist+`assertPharmacyAutomatedText`のunsafe-text fence。`pharmacy_notification_events`のINSERT OR IGNORE idempotency+retry horizon+proactive月次cap。`sendPharmacyAutomatedPush`がcapability(feature)・tenant outbound pause・`medicationFollowUpOperationsReady`(record)・patient delivery state(friend/contact)を直前再検証し、`020_custom_077`のmembership generation bindingでgeneration不一致queueを不送。外部送信経路はapproved templateのみで、staff作成文面の外部送信経路は存在しない（tracing report相当はstructured readのみ）。検証: notifications.test.ts「moves a due item through the approved PHI-free push once」「leaves a failed delivery due for an idempotent retry」「does not send when the tenant credential is missing or cross-tenant」、growth-loop/sender.test.ts、custom_077 binding tests。
 - [ ] **V036-4 staffing/response gate**: beta service hours、status別response SLA、primary/backup assignee、overdue alert/escalation先、営業時間外/緊急時の患者表示をtenantごとにfreezeする。staffingを確保できないtenantではfollow-upを`BLOCKED`またはstaff-onlyにする。
 - [ ] **V036-5 release gate**: wrong-target/duplicate/PHI通知/PHI log/escalation未対応close/SLA超過放置を各0件とし、外部provider未確定のSMS/emailは`BLOCKED`のままにする。
 

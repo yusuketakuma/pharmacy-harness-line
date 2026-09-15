@@ -1442,18 +1442,70 @@
     },
     "candidateVerification": {
       "candidateSha": "cc8019d44c586f1c9551530cd9526af52354188c",
-      "checkedAt": "2026-09-15",
-      "worker": {
+      "note": "現候補コードの最終検証（cc8019d以降はdocs/evidence-only commit）。2026-09-06の数値は別時点の記録であり転用ではない。",
+      "verifyCi": {
         "status": "PASS",
-        "files": 247,
-        "tests": 2661,
-        "command": "pnpm --filter worker test"
+        "command": "pnpm verify:ci",
+        "checkedAt": "2026-09-15",
+        "worker": {
+          "files": 247,
+          "tests": 2661
+        },
+        "web": {
+          "files": 52,
+          "tests": 242
+        },
+        "db": {
+          "files": 92,
+          "tests": 436
+        },
+        "liff": {
+          "tests": 148
+        },
+        "updateEngine": {
+          "files": 22,
+          "tests": 219
+        },
+        "mcpServer": {
+          "files": 5,
+          "tests": 19
+        },
+        "createLineHarness": {
+          "files": 8,
+          "tests": 61
+        },
+        "scripts": {
+          "files": 21,
+          "tests": 218
+        },
+        "migrationChecker": {
+          "status": "PASS",
+          "postBaselineMigrations": 19
+        },
+        "typecheck": "PASS (pnpm -r typecheck)"
       },
-      "workerTypecheck": {
+      "webBrowserE2e": {
         "status": "PASS",
-        "command": "pnpm --filter worker typecheck"
+        "tests": 11,
+        "command": "pnpm --filter web test:e2e",
+        "limit": "Local Chromium, synthetic APIs"
       },
-      "note": "現候補での局所検証。workspace全量・E2E・assuranceの最終再実行は最終検証cycleで行い、上記2026-09-06数値は現候補へ転用しない。"
+      "liffBrowserE2e": {
+        "status": "PASS",
+        "tests": 13,
+        "command": "pnpm --filter liff test:e2e",
+        "limit": "Local Chromium/synthetic"
+      },
+      "gitDiffCheck": "PASS",
+      "notRun": [
+        "exact-candidate CI",
+        "CodeQL on candidate",
+        "provenance on candidate",
+        "real LINE",
+        "real staff/device",
+        "production migration/deploy",
+        "beta activation"
+      ]
     }
   },
   "boundaries": {
