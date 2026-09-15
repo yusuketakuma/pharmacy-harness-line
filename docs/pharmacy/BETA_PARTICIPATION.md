@@ -103,4 +103,4 @@ runs and no record, notification, or side effect is produced.
   limit; no member-count cap exists in code.
 - All human gates (staff trial, real device, real LINE lifecycle, production
   migration/deploy, beta activation) remain `NOT_RUN` in
-  `docs/pharmacy/evidence/v0.35.0-beta-scope-and-staff-critical-journey.json`.
+  `docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json`.
