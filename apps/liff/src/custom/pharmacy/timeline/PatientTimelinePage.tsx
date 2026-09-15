@@ -9,6 +9,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   electronic_prescription: '電子処方箋',
   continuity: '継続フォロー',
   medication_follow_up: '服薬後フォロー',
+  patient_intake: '患者情報・アンケート',
+  manual_chat: '薬局への相談',
 };
 const STATUS_LABELS: Record<string, string> = {
   pending: '確認中です',
@@ -29,6 +31,8 @@ const SAFE_DESTINATIONS: Record<string, string> = {
   electronic_prescription: '/prescriptions?view=electronic',
   continuity: '/pharmacy/continuity',
   medication_follow_up: '/pharmacy/medication-followup',
+  patient_intake: '/pharmacy/patient-intake',
+  manual_chat: '/pharmacy/menu',
 };
 
 export function timelineDomainLabel(domain: string): string {
@@ -56,6 +60,7 @@ function timelineDate(value: string): string {
 const LEGACY_LINKS = [
   ['受付状況', '/prescriptions?view=history'],
   ['電子処方箋', '/prescriptions?view=electronic'],
+  ['患者情報・アンケート', '/pharmacy/patient-intake'],
   ['継続フォロー', '/pharmacy/continuity'],
   ['服薬後フォロー', '/pharmacy/medication-followup'],
 ] as const;

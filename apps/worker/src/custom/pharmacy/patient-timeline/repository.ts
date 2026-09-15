@@ -6,7 +6,9 @@ export type TimelineDomain =
   | 'prescription'
   | 'electronic_prescription'
   | 'continuity'
-  | 'medication_follow_up';
+  | 'medication_follow_up'
+  | 'patient_intake'
+  | 'manual_chat';
 export type TimelineStatus =
   | 'pending'
   | 'action_required'
@@ -73,6 +75,14 @@ const TIMELINE_STATES: Record<TimelineDomain, Record<string, TimelineState>> = {
     escalated: ['in_progress', 'wait'],
     closed: ['completed', 'none'],
     cancelled: ['cancelled', 'none'],
+  },
+  patient_intake: {
+    submitted: ['completed', 'none'],
+  },
+  manual_chat: {
+    unread: ['pending', 'wait'],
+    in_progress: ['in_progress', 'wait'],
+    resolved: ['completed', 'none'],
   },
 };
 
@@ -151,6 +161,30 @@ export async function listPatientTimeline(
                AND patient.archived_at IS NULL
                ${authorityPredicate}
           )
+       UNION ALL
+       SELECT 'patient_intake', 'submitted', MAX(r.created_at), r.patient_id,
+              '/pharmacy/patient-intake'
+         FROM pharmacy_patient_intake_responses r
+         CROSS JOIN scope
+        WHERE r.line_account_id = scope.line_account_id
+          AND r.owner_friend_id = scope.friend_id
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_patients AS patient
+             WHERE patient.id = r.patient_id
+               AND patient.line_account_id = r.line_account_id
+               AND patient.owner_friend_id = r.owner_friend_id
+               AND patient.archived_at IS NULL
+               ${authorityPredicate}
+          )
+        GROUP BY r.patient_id
+       UNION ALL
+       SELECT 'manual_chat', chat.status,
+              COALESCE(chat.last_message_at, chat.created_at), chat.id,
+              '/pharmacy/menu'
+         FROM chats chat
+         CROSS JOIN scope
+        WHERE chat.line_account_id = scope.line_account_id
+          AND chat.friend_id = scope.friend_id
      )
      SELECT domain, source_status, occurred_at, detail_path
        FROM timeline
@@ -159,6 +193,8 @@ export async function listPatientTimeline(
   ).bind(
     patient.lineAccountId,
     patient.friendId,
+    patient.friendId,
+    now,
     patient.friendId,
     now,
     patient.friendId,
