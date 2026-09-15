@@ -125,6 +125,7 @@ import { platformAdminDataProtectionRoutes } from './custom/pharmacy/platform-ad
 import { platformAdminAuthMiddleware } from './custom/pharmacy/platform-admin/auth.js'; // custom:pharmacy-platform-admin
 import { processDueMedicationFollowUps } from './custom/pharmacy/medication-followup/notifications.js'; // custom:pharmacy-medication-followup
 import { processExpiredMynaHandoffNotifications } from './custom/pharmacy/myna/notifications.js'; // custom:pharmacy-myna
+import { processEmergencyIntakeStatusNotifications } from './custom/pharmacy/emergency-contraception/status-notifications.js'; // custom:pharmacy-emergency-contraception
 import { retryFailedPrescriptionNotifications } from './custom/pharmacy/prescriptions/notifications.js'; // custom:pharmacy-prescriptions
 import { cleanupPrescriptionImages } from './custom/pharmacy/prescriptions/cleanup.js'; // custom:pharmacy-prescriptions
 import { purgeEmergencyIntakesPastRetention } from './custom/pharmacy/emergency-contraception/retention-purge.js'; // custom:pharmacy-emergency-contraception
@@ -1267,6 +1268,22 @@ async function scheduled(
       }
     }).catch(() => {
       console.error('[pharmacy-medication-followup] processor failed');
+    }));
+
+    jobs.push(processEmergencyIntakeStatusNotifications(env.DB, { // custom:pharmacy-emergency-contraception
+      proxyBaseUrl:
+        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+      now: new Date(event.scheduledTime),
+    }).then((result) => {
+      if (result.sent + result.failed > 0) {
+        console.log(
+          `[pharmacy-emergency-status] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+        );
+      }
+    }).catch(() => {
+      console.error('[pharmacy-emergency-status] processor failed');
     }));
 
     jobs.push(processExpiredMynaHandoffNotifications(env.DB, { // custom:pharmacy-myna
