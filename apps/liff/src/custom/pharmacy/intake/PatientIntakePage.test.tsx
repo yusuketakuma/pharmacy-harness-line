@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import PatientIntakePage, { canSubmitIntake } from './PatientIntakePage.js';
+import PatientIntakePage, { canSubmitIntake, isCurrentPatientReady } from './PatientIntakePage.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,14 @@ const source = readFileSync(
 );
 
 describe('patient intake UI contract', () => {
+  it('does not reuse another patient\'s loading or error state for an action', () => {
+    expect(isCurrentPatientReady('patient-a', { patientId: 'patient-a', status: 'ready' })).toBe(true);
+    expect(isCurrentPatientReady('patient-b', { patientId: 'patient-a', status: 'ready' })).toBe(false);
+    expect(isCurrentPatientReady('patient-a', { patientId: 'patient-a', status: 'loading' })).toBe(false);
+    expect(isCurrentPatientReady('patient-a', { patientId: 'patient-a', status: 'error' })).toBe(false);
+    expect(isCurrentPatientReady('patient-a', null)).toBe(false);
+  });
+
   it('requires both consents and a complete status answer', () => {
     expect(canSubmitIntake(answers, false, true, false, true)).toBe(false);
     expect(canSubmitIntake(answers, true, false, false, true)).toBe(false);
@@ -171,10 +179,18 @@ describe('patient intake UI contract', () => {
 
   it('offers a confirmed one-tap update from the last saved answers', () => {
     expect(source).toContain('前回から変更なしで更新');
-    expect(source).toContain('if (!latestAnswers || busy || !privacyPolicy || !window.confirm(');
+    expect(source).toContain('if (!latestAnswers || busy || !privacyPolicy || !intakeReady || !window.confirm(');
     expect(source).toContain('本人または代理人として');
     expect(source).toContain('個人情報の利用目的');
     expect(source).toContain('saveIntake(latestAnswers, true, true)');
+  });
+
+  it('resets patient-bound controls before loading a newly selected patient', () => {
+    expect(source).toContain('未送信の入力があります。患者を切り替えますか？');
+    expect(source).toContain('setIntakeLoadState(nextId ? { patientId: nextId, status: \'loading\' } : null);');
+    expect(source).toContain('setAccessState(null);');
+    expect(source).toContain('if (!selectedId || !intakeReady || busy) return;');
+    expect(source).toContain('if (!selectedPatient || !accessState || !accessReady || busy) return;');
   });
 });
 

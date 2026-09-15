@@ -4,7 +4,7 @@ Status: local source/test evidence on `dev` (v0.35.0 dev release line).
 This document is the canonical operation matrix for V035-5. It does not claim
 that a beta account has been activated, that production migrations have run,
 or that any LINE mutation or deployment has occurred. `beta_enabled` defaults
-to `0` and remains off everywhere.
+to `0`; activation of external environments is not verified by this document.
 
 ## Authority layers (distinct, not interchangeable)
 

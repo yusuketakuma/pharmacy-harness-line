@@ -1,12 +1,18 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import {
+  BrowserStorageUnavailableError,
+  persistStaffSession,
+  SessionStateUnavailableError,
+} from '@/lib/api'
 import { loginRedirectPath } from '@/lib/safe-next-path'
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [checked, setChecked] = useState(false)
+  const [sessionSafetyError, setSessionSafetyError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -24,23 +30,36 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         const res = await fetch(`${apiUrl}/api/auth/session`, { credentials: 'include' })
         if (!res.ok) throw new Error('unauthenticated')
         const data = await res.json()
-        if (!data?.success || !data?.data) throw new Error('unauthenticated')
+        if (cancelled) return
+        persistStaffSession(data)
         if (data.data.mustChangePassword) {
           if (!cancelled) router.replace('/login')
           return
         }
-        if (data.data.name) localStorage.setItem('lh_staff_name', data.data.name)
-        if (data.data.role) localStorage.setItem('lh_staff_role', data.data.role)
-        if (data.csrfToken) localStorage.setItem('lh_csrf', data.csrfToken)
-        if (!cancelled) setChecked(true)
-      } catch {
-        if (!cancelled) router.replace(loginRedirectPath())
+        setChecked(true)
+      } catch (caught) {
+        if (cancelled) return
+        if (caught instanceof BrowserStorageUnavailableError || caught instanceof SessionStateUnavailableError) {
+          setSessionSafetyError(caught instanceof BrowserStorageUnavailableError
+            ? 'ブラウザの保存領域を利用できないため、安全なログイン状態を確認できません。保存領域を有効にして再読み込みしてください。'
+            : '安全なセッション情報を確認できないため、保護された画面を開けません。再読み込みしてください。')
+        } else {
+          router.replace(loginRedirectPath())
+        }
       }
     }
 
     checkSession()
     return () => { cancelled = true }
   }, [pathname, router])
+
+  if (sessionSafetyError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <p role="alert" className="max-w-md text-center text-sm text-red-700">{sessionSafetyError}</p>
+      </div>
+    )
+  }
 
   if (!checked) {
     return (

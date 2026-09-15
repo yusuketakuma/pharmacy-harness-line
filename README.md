@@ -4,10 +4,10 @@
 OSS の LINE CRM [LINE Harness](https://github.com/Shudesu/line-harness-oss) をフォークし、薬局業務に必要な画面・データ境界・監査を追加したものです。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg)](tsconfig.base.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.0.2-3178c6.svg)](tsconfig.base.json)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1-f38020.svg)](apps/worker/wrangler.toml)
 [![Node 22+](https://img.shields.io/badge/node-%3E%3D22-339933.svg)](package.json)
-[![pnpm](https://img.shields.io/badge/pnpm-9.15-f69220.svg)](package.json)
+[![pnpm](https://img.shields.io/badge/pnpm-11.25.0-f69220.svg)](package.json)
 [![Repository Verify](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/repository-verify.yml/badge.svg)](https://github.com/yusuketakuma/pharmacy-harness-line/actions/workflows/repository-verify.yml)
 
 ![全体像](docs/assets/readme/hero.svg)
@@ -48,27 +48,29 @@ OSS の LINE CRM [LINE Harness](https://github.com/Shudesu/line-harness-oss) を
 
 ## クイックスタート
 
-前提: Cloudflare アカウント、LINE 公式アカウント (Messaging API + LINE Login/LIFF)、Node.js 22 以上、pnpm 9。
+前提: Cloudflare アカウント、LINE 公式アカウント (Messaging API + LINE Login/LIFF)、Node.js 22 以上、pnpm 11.25.0。
 
 ```bash
 pnpm install
 wrangler login
 
-# D1 スキーマ適用 (wrangler.toml の database 名に合わせて調整)
-pnpm db:migrate:local      # ローカル
-pnpm db:migrate            # リモート
+# ローカルの新規 D1 を schema.sql + additive migrations から作成 (リモート upgrade には使わない)
+pnpm --dir packages/db generate:bootstrap
+wrangler d1 execute your-database --file=packages/db/bootstrap.sql --local
 
-# Worker / 管理画面のビルド・デプロイ
+# リモート D1 の additive migration (必要な環境変数と人間の明示承認が必要)
+pnpm tsx scripts/deploy/apply-migrations.ts
+
+# Workerのデプロイ / 管理画面のビルド
 pnpm build
 pnpm deploy:worker
-pnpm deploy:web
+pnpm deploy:web             # Pages 用 Admin artifact の build のみ
 
 # 全体管理者の初回作成 (未初期化環境でのみ有効)
 pnpm platform:admin-bootstrap
 
 # 薬局 (tenant) の作成、管理者作成、設定確認
 pnpm tenant:setup
-pnpm tenant:admin-bootstrap
 pnpm tenant:settings -- --preflight --account-id <line_account_id>
 
 # リッチメニュー素材の一覧 (ドラフト作成のみ。LINE への登録は別操作)
@@ -129,10 +131,10 @@ flowchart LR
 - **tenant 分離** — すべての query と mutation を `line_account_id` と認証済み職員割り当てで scope。query parameter や画面の選択値を権限根拠にしない。処方せん・handoff の所属不一致は DB trigger でも拒否。
 - **LIFF の本人確認** — LINE ID token を Worker で検証。patient ID・friend ID・LIFF ID を外部 URL に付与しない。
 - **PHI-free 通知** — 自動 LINE 通知は承認済み定型文のみ。通知ログに患者氏名・LINE ID・処方内容を出さない contract test。
-- **構造化ログ** — `apps/worker/src/lib/log.ts` は allowlist されたキーだけを出力し、PHI・secret・request body は落ちない。
+- **構造化ログ** — `apps/worker/src/lib/log.ts` は未許可キーを除外する。値の安全性は呼出側で担保し、薬局 webhook の対象 7 分岐は固定 event/reason だけを渡す。PHI・secret・request body を許可キーへ渡さない。
 - **暗号化と資格情報** — 問診回答は AES-256-GCM の field 暗号化 (`PHARMACY_PHI_KEY_V1`)。LINE 資格情報は専用 store、職員 API key は keyed hash。
 - **監査** — 処方せん画像閲覧、緊急避妊薬の sensitive read、tenant 管理操作、platform-admin 操作を監査イベントとして記録。
-- **開示・消去請求と保存期間** — データ主体請求ワークフローを備え、法定保存期間 (PHI 一律 3 年) 内の消去は DB 制約で拒否。期限超過の処方せん画像は purge ジョブで削除。
+- **開示・消去請求と保存期間** — データ主体請求ワークフローと、データ種別ごとの保持・legal hold・削除方針を備える。処方せん画像の purge ジョブは実装済みだが、法的適合や全データ種別の削除完了はこの README では主張しない。
 - **その他** — webhook 署名検証と durable inbox、rate limit (token 全体の hash + client IP)、CORS allowlist、CSRF 対策。
 
 ### 汎用 CRM 機能を継承

@@ -2,6 +2,65 @@
 
 ## Active
 
+### MAINT-20260915 - 15領域メンテナンス監査と有限修正キュー
+
+**基準**: `dev` / `dcc8bb8f097b3188c2e56766ca00fb2826c9a561` / package `0.35.0`。
+**状態**: C1〜C4とドキュメント整合性のローカル実装・最終検証は完了。別コンテキストOracle実装再レビューは`PASS_WITH_CONCERNS`（確定不具合0）。ここでの完了はrelease、deploy、activation、production operationを意味しない。
+
+#### 今回の有限キュー
+
+- [x] **MAINT-C1 患者切替時のstale intake state防止** `[lane:gate]` `[tdd:required]`
+  - 対象: LIFF患者切替のload/access state、回答・同意・revision・access control。
+  - 不変条件: 選択中の患者IDとstateが一致し、`ready`になるまで保存・送信・確認を許可しない。キャンセルした切替では未送信入力を保持する。
+  - 検証: `PatientIntakePage.test.tsx` focused test、LIFF typecheck。
+- [x] **MAINT-C4 webhook error logのPHI-free固定化** `[lane:gate]` `[tdd:required]`
+  - 対象: pharmacy/common webhookの7つのraw error catch。generic CRMの残りのログは今回の範囲外。
+  - 不変条件: log payloadは固定event/reasonのみで、例外本文・request body・患者識別子を出さない。正常経路と失敗経路を維持する。
+  - 検証: webhook関連3 test files。
+- [x] **MAINT-C3 support-mode表示名cacheの非致命化** `[lane:gate]` `[tdd:required]`
+  - 対象: 任意のlocalStorage表示名cacheのみ。grant API・callback・event契約は変更しない。
+  - 不変条件: cache書込み失敗でsupport grantを停止・再実行しない。
+  - 検証: platform-admin UI focused test。
+- [x] **MAINT-C2 browser session/CSRFのsafe-stop** `[lane:gate]` `[tdd:required]`
+  - 対象: browser storage、session復元、login、password change、mutation前CSRF取得。
+  - 不変条件: CSRF欠落・storage不能・session保存不能時は空token送信や自動POSTを行わず、安全停止して明示する。
+  - 検証: API/UI safety focused tests、Web typecheck。
+- [x] **MAINT-D1/D2/D3 正本ドキュメント整合性** `[lane:fast]` `[tdd:skip:docs-only]`
+  - 対象: README、ADMIN-AUTH、BETA_PARTICIPATION、IMPLEMENTATION_PLAN、GROWTH_LOOP_ROADMAP。
+  - 不変条件: 現行script/auth/versionと一致させ、過去のrelease/deploy/法的適合を現在の証拠として再利用しない。
+  - 検証: `git diff --check`、関連source/scriptとの照合。
+
+#### レビュー記録
+
+- `pharmacy-maintenanc-implementa-review-r1`: `BLOCK`。C2のB1〜B3を確定。
+- `pharmacy-maintenanc-impl-review-r2`: `PASS_WITH_CONCERNS`。B1〜B3 close、新たな確定不具合なし。実React/browser競合、実API/実D1、変更範囲の独立証跡は未確認として保持。C4の厳密なJSON契約assertは任意改善。
+- 検証: workspace `467 files / 3876 tests`、typecheck `11 projects`、scripts `21 files / 218 tests`、migration checker `19 migrations`、LIFF/Worker/Web build pass。
+
+#### 次の7日（優先順）
+
+1. `V040-CB`の現候補artifact、CI/SBOM/provenance、実端末受入を同じsource SHAへ束ね、未検証gateを`PASS`へ推測で変更しない。
+2. 認証の分散rate limit / revoke / recoveryについて、既存契約を壊さない最小設計と合成テストを作る。外部操作・本番secret変更は範囲外。
+3. `pnpm verify:ci`相当のcheck-only結果をcurrent snapshotへ記録し、tracked生成物の扱いを確定する。
+
+#### 8〜30日
+
+- **FLE/復旧 gate**: `PLANS.md`のFLE blockerを、同世代backup・restore・writer fence・legal holdのsynthetic evidenceで再確認する。外部レビューと明示Human Gateが依存。
+- **保持・DSR**: retention matrix、削除順序、legal hold、対象データ種別の実装と運用証跡を突合する。法的適合はコードだけで確定しない。
+- **webhook/recovery reliability**: durable inbox滞留、結果不明の外部送信、重複・順序逆転を同一accountの合成fixtureで測定する。
+
+#### 31〜90日（条件付き）
+
+- 実測で分散rate limit、queue滞留、R2/D1復旧の限界が確認された場合だけ、既存境界を保つ拡張を計画する。
+- 外部限定ベータは、`V040-CB`のP0/P1と実端末・担当者・復旧・通知到達のHuman Gateが揃った場合だけ段階開放を検討する。
+
+#### 今は実施しないこと
+
+- remote migration、production deploy/activation、実患者データ、secret/IAM/DNS変更。
+- major dependency/framework/auth基盤更新、破壊的schema/API変更、全repo整形、AI/OCR、marketplace routing、新規重複domain。
+- performance改善、分散rate limit、3年retention purge、DR実演は、測定・外部gate・運用判断なしにコードを追加しない。
+
+判断が変わる条件は、current artifactの固定、synthetic/実端末結果、対象契約の明示改訂、またはP0相当の新事実が確認された場合に限る。
+
 ### ECF - 緊急避妊薬 事前情報収集フォーム v2 - 2026-08-22 計画
 
 **product contract**: `docs/pharmacy/EC_PREVISIT_FORM.md`（本書 > Plans.md）。`team_validation_mode: subagent`（Product / Architecture / Security / QA / Skeptic 5視点の独立レビュー反映済み）。**Spec delta**: 同ファイル新規作成。P8 EC-1 の受入条件「病歴・月経を取得しない」は operator 裁定（2026-08-22「情報をLINE経由で事前取得し、対面指導は必ず実施しつつ時間短縮」）により supersede。

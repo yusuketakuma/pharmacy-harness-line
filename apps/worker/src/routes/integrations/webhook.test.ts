@@ -430,6 +430,59 @@ describe('POST /webhook — DoS defenses (#104)', () => {
     // Fast-rejected before any crypto / DB work.
     expect(verifySignature).not.toHaveBeenCalled();
   });
+
+  test('keeps request-side inbox runner failures free of database error details', async () => {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const prepare = vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn(),
+        run: vi.fn().mockImplementation(async () => {
+          if (sql.includes("SET status = 'processing'")) {
+            throw new Error('synthetic-runner-detail');
+          }
+          return { meta: { changes: 1 } };
+        }),
+        all: vi.fn().mockResolvedValue({ results: [] }),
+      };
+      statement.bind.mockReturnValue(statement);
+      return statement;
+    });
+    const db = withWebhookIdentity({ prepare } as unknown as D1Database);
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+
+    try {
+      const response = await setupApp().request('/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Line-Signature': `${'A'.repeat(43)}=`,
+        },
+        body: JSON.stringify({
+          destination: 'bot',
+          events: [{
+            type: 'unfollow',
+            source: { type: 'user', userId: 'U-runner' },
+            webhookEventId: 'event-runner-failed',
+          }],
+        }),
+      }, { ...baseEnv, DB: db }, executionCtx);
+      await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
+
+      expect(response.status).toBe(200);
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"pharmacy_webhook_inbox_runner_failed"'),
+      ]));
+      expect(lines.join('\n')).not.toContain('synthetic-runner-detail');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });
 
 // Redelivery dedup, durable-before-ACK storage, cron recovery, dead-lettering

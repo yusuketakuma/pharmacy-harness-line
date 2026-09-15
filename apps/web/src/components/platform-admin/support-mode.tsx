@@ -49,7 +49,11 @@ function tenantNames(): Record<string, string> {
 
 export function rememberTenantName(tenantId: string, name: string): void {
   if (typeof window === 'undefined' || !name) return
-  localStorage.setItem(TENANT_NAME_STORAGE_KEY, JSON.stringify({ ...tenantNames(), [tenantId]: name }))
+  try {
+    localStorage.setItem(TENANT_NAME_STORAGE_KEY, JSON.stringify({ ...tenantNames(), [tenantId]: name }))
+  } catch {
+    // The name cache is optional; a storage policy must not block the grant.
+  }
 }
 
 const DURATION_OPTIONS = [15, 30, 45, 60].filter((minutes) => minutes <= MAX_GRANT_MINUTES)

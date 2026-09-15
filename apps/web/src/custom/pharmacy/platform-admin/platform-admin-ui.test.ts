@@ -157,6 +157,15 @@ describe('platform admin control center UI contract', () => {
     expect(supportMode).not.toContain('currentPassword=');
   });
 
+  it('keeps the optional tenant-name cache from blocking support-mode start', () => {
+    const remember = supportMode.slice(
+      supportMode.indexOf('export function rememberTenantName'),
+      supportMode.indexOf('const DURATION_OPTIONS'),
+    );
+    expect(remember).toMatch(/try\s*\{[\s\S]*localStorage\.setItem/);
+    expect(remember).toMatch(/localStorage\.setItem[\s\S]*catch/);
+  });
+
   it('shows a live countdown banner for every active grant on every page', () => {
     expect(layout).toContain('<SupportModeBanner />');
     expect(layout).toContain("@/components/platform-admin/support-mode");

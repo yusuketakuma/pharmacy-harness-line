@@ -1,11 +1,13 @@
 # Pharmacy Harness Line Implementation Plan
 
-Status: logical multi-tenancy is under local implementation on
-`v0.26.0/feature/logical-multitenancy`. Worker, DB, LIFF, and Admin focused
-tests/builds pass locally, including the additive `custom_022` integrity
-triggers. The currently public dev LIFF/Admin Pages still serve an older bundle
-(the multitenant asset contract is not present). No deployment was run in this
-task. Production data and settings were not read or mutated.
+Current local baseline (2026-09-15): branch `dev`, HEAD
+`dcc8bb8f097b3188c2e56766ca00fb2826c9a561`, package line `0.35.0`. The current
+maintenance changes and their local verification are uncommitted; they are not
+deployment, release, activation, or production-operation evidence.
+
+Historical status: logical multi-tenancy was under local implementation on
+`v0.26.0/feature/logical-multitenancy`. The historical text below is retained
+for traceability and must not be used as the current branch/version baseline.
 
 The former per-customer repository and per-customer Cloudflare delivery model
 is retired. Its GitHub update workflows, customer onboarding scripts, tenant

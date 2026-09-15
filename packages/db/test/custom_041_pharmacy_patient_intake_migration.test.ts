@@ -124,11 +124,13 @@ describe('pharmacy patient intake bounded migration', () => {
 
   it('defaults to dry-run, bounds at 50, and resumes with a PHI-free cursor report', async () => {
     const first = await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 2 });
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       counts: { scanned: 2, verified: 2, inserted: 0, rewrapped: 0, skipped: 0, scrubbed: 0, restored: 0, conflicts: 0 },
       errorCode: null,
-      nextCursor: 'response-2',
     });
+    // Opaque cursor: resumable but must not expose the raw response id.
+    expect(first.nextCursor).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(first.nextCursor).not.toContain('response-2');
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM pharmacy_patient_intake_envelopes').get())
       .toEqual({ count: 0 });
     expect(JSON.stringify(first)).not.toMatch(/patient-|\{"name"|status/);
@@ -228,6 +230,12 @@ describe('pharmacy patient intake bounded migration', () => {
   it('fails closed for partial, corrupt, mismatch, and CAS conflict without leaking row data', async () => {
     const initial = await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
     expect(initial.errorCode).toBeNull();
+    // Capture a valid resume cursor while the data is still intact — raw row
+    // ids are rejected as cursors, so the opaque page-1 token is required to
+    // reach the resume path at all.
+    const page1 = await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 1, dryRun: false });
+    expect(page1.errorCode).toBeNull();
+    expect(page1.nextCursor).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     sqlite.prepare(`DELETE FROM pharmacy_patient_intake_envelopes
       WHERE response_id = 'response-1' AND field_name = 'answers_json'`).run();
     const partial = await backfillPatientIntakeEnvelopes(db, { ...scope, cursor: null, limit: 50, dryRun: false });
@@ -235,7 +243,7 @@ describe('pharmacy patient intake bounded migration', () => {
 
     sqlite.prepare(`UPDATE pharmacy_patient_intake_responses SET answers_json = '{"status":"tampered"}' WHERE id = 'response-2'`).run();
     const mismatch = await backfillPatientIntakeEnvelopes(db, {
-      ...scope, cursor: 'response-1', limit: 50, dryRun: false,
+      ...scope, cursor: page1.nextCursor, limit: 50, dryRun: false,
     });
     expect(mismatch.errorCode).toBe('MISMATCH');
     expect(JSON.stringify(mismatch)).not.toMatch(/patient-|tampered/);
@@ -314,14 +322,18 @@ describe('pharmacy patient intake bounded migration', () => {
     const dryRun = await scrubPatientIntakeLegacyFields(db, {
       ...scope, cursor: null, limit: 1, approval: stateApproval,
     });
-    expect(dryRun).toMatchObject({ counts: { scanned: 1, scrubbed: 0 }, errorCode: null, nextCursor: 'response-1' });
+    expect(dryRun).toMatchObject({ counts: { scanned: 1, scrubbed: 0 }, errorCode: null });
+    expect(dryRun.nextCursor).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(dryRun.nextCursor).not.toContain('response-1');
     expect(sqlite.prepare(`SELECT patient_snapshot_json FROM pharmacy_patient_intake_responses WHERE id = 'response-1'`).get())
       .toEqual({ patient_snapshot_json: '{"name":"A"}' });
 
     const first = await scrubPatientIntakeLegacyFields(db, {
       ...scope, cursor: null, limit: 2, dryRun: false, approval: stateApproval,
     });
-    expect(first).toMatchObject({ counts: { scanned: 2, scrubbed: 2 }, errorCode: null, nextCursor: 'response-2' });
+    expect(first).toMatchObject({ counts: { scanned: 2, scrubbed: 2 }, errorCode: null });
+    expect(first.nextCursor).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(first.nextCursor).not.toContain('response-2');
     const resumed = await scrubPatientIntakeLegacyFields(db, {
       ...scope, cursor: first.nextCursor, limit: 2, dryRun: false, approval: stateApproval,
     });
@@ -356,7 +368,9 @@ describe('pharmacy patient intake bounded migration', () => {
     const result = await restorePatientIntakeLegacyFields(db, {
       ...scope, cursor: null, limit: 2, dryRun: false, approval: stateApproval,
     });
-    expect(result).toMatchObject({ counts: { scanned: 2, restored: 2 }, errorCode: null, nextCursor: 'response-2' });
+    expect(result).toMatchObject({ counts: { scanned: 2, restored: 2 }, errorCode: null });
+    expect(result.nextCursor).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(result.nextCursor).not.toContain('response-2');
     const resumed = await restorePatientIntakeLegacyFields(db, {
       ...scope, cursor: result.nextCursor, limit: 2, dryRun: false, approval: stateApproval,
     });

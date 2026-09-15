@@ -132,14 +132,121 @@ if (!API_URL) {
  */
 export const CSRF_STORAGE_KEY = 'lh_csrf'
 
+export class BrowserStorageUnavailableError extends Error {
+  constructor(message = 'Browser storage is unavailable') {
+    super(message)
+    this.name = 'BrowserStorageUnavailableError'
+  }
+}
+
+export class SessionStateUnavailableError extends Error {
+  constructor(message = 'Safe session state is unavailable') {
+    super(message)
+    this.name = 'SessionStateUnavailableError'
+  }
+}
+
+type StaffSessionData = {
+  id: string
+  name: string
+  role: 'owner' | 'admin' | 'staff'
+  principalKind?: 'human' | 'pharmacy_shared'
+  tenantId: string
+  tenantCode: string
+  tenantName: string
+  mustChangePassword: boolean
+}
+
+type StaffSession = {
+  success: true
+  data: StaffSessionData
+  csrfToken: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isStaffRole(value: unknown): value is StaffSessionData['role'] {
+  return value === 'owner' || value === 'admin' || value === 'staff'
+}
+
+function isPrincipalKind(value: unknown): value is StaffSessionData['principalKind'] {
+  return value === undefined || value === 'human' || value === 'pharmacy_shared'
+}
+
+function isCsrfToken(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && !/[\s\u0000-\u001F\u007F-\u009F]/u.test(value)
+}
+
+function parseStaffSession(session: unknown): StaffSession {
+  if (!isRecord(session) || session.success !== true || !isCsrfToken(session.csrfToken) || !isRecord(session.data)) {
+    throw new SessionStateUnavailableError('Authenticated staff session is unavailable')
+  }
+  const data = session.data
+  if (!isStaffRole(data.role) || !isPrincipalKind(data.principalKind)
+    || !isNonBlankString(data.id)
+    || !isNonBlankString(data.name)
+    || !isNonBlankString(data.tenantId)
+    || !isNonBlankString(data.tenantCode)
+    || !isNonBlankString(data.tenantName)
+    || typeof data.mustChangePassword !== 'boolean') {
+    throw new SessionStateUnavailableError('Authenticated staff session is unavailable')
+  }
+  return {
+    success: true,
+    csrfToken: session.csrfToken,
+    data: {
+      id: data.id,
+      name: data.name,
+      role: data.role,
+      ...(data.principalKind === undefined ? {} : { principalKind: data.principalKind }),
+      tenantId: data.tenantId,
+      tenantCode: data.tenantCode,
+      tenantName: data.tenantName,
+      mustChangePassword: data.mustChangePassword,
+    },
+  }
+}
+
 export function getCsrfToken(): string {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem(CSRF_STORAGE_KEY) || ''
+  if (typeof window === 'undefined') throw new SessionStateUnavailableError('CSRF token is unavailable')
+  try {
+    const token = localStorage.getItem(CSRF_STORAGE_KEY)
+    if (!isCsrfToken(token)) throw new SessionStateUnavailableError('CSRF token is unavailable')
+    return token
+  } catch (caught) {
+    if (caught instanceof SessionStateUnavailableError) throw caught
+    throw new BrowserStorageUnavailableError()
+  }
 }
 
 export function setCsrfToken(token: string | undefined | null): void {
-  if (typeof window === 'undefined' || !token) return
-  localStorage.setItem(CSRF_STORAGE_KEY, token)
+  if (typeof window === 'undefined' || token === undefined || token === null) return
+  if (!isCsrfToken(token)) throw new SessionStateUnavailableError('CSRF token is unavailable')
+  try {
+    localStorage.setItem(CSRF_STORAGE_KEY, token)
+  } catch {
+    throw new BrowserStorageUnavailableError()
+  }
+}
+
+export function persistStaffSession(session: unknown): StaffSession {
+  if (typeof window === 'undefined') throw new SessionStateUnavailableError()
+  const validated = parseStaffSession(session)
+  try {
+    setCsrfToken(validated.csrfToken)
+    localStorage.setItem('lh_staff_name', validated.data.name)
+    localStorage.setItem('lh_staff_role', validated.data.role)
+  } catch (caught) {
+    if (caught instanceof BrowserStorageUnavailableError || caught instanceof SessionStateUnavailableError) throw caught
+    throw new BrowserStorageUnavailableError()
+  }
+  return validated
 }
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
