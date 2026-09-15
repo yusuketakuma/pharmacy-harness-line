@@ -7,10 +7,12 @@ import { enqueueActivityForAccount } from '../activity-notifications/repository.
 import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
 import { readJsonObject } from '../json.js';
+import { lineProxy } from '../../../routes/integrations/line-proxy.js';
 import {
   resolvePrescriptionPatient,
   type PrescriptionPatient,
 } from '../prescriptions/patient.js';
+import { sendMynaHandoffStatusNotification } from './notifications.js';
 import {
   createMynaHandoff,
   getActivePatientMynaHandoff,
@@ -39,6 +41,7 @@ import { canUsePharmacyBetaParticipant } from '../beta-membership/repository.js'
 
 type MynaBindings = Pick<Env['Bindings'], 'DB' | 'WORKER_PUBLIC_URL'> & {
   LINE_CHANNEL_ID?: string;
+  LINE_CREDENTIAL_KEY_V1?: string;
   MYNA_ENDPOINT_ENCRYPTION_KEY?: string;
   MYNA_ALLOWED_HOSTS?: string;
 };
@@ -66,6 +69,16 @@ const VERIFICATIONS = new Set<MynaVerificationStatus>([
 const HIGH_RISK_VERIFICATIONS = new Set<MynaVerificationStatus>([
   'SUBMITTED_TO_OTHER_PHARMACY', 'PRESCRIPTION_EXPIRED', 'PATIENT_MISMATCH', 'MANUAL_EXCEPTION',
 ]);
+
+function mynaNotificationOptions(c: { req: { url: string }; env: MynaBindings }) {
+  return {
+    proxyBaseUrl: c.env.WORKER_PUBLIC_URL ?? new URL(c.req.url).origin,
+    proxyDispatch: (request: Request) => Promise.resolve(
+      lineProxy.fetch(request, c.env as Env['Bindings']),
+    ),
+    lineCredentialKey: c.env.LINE_CREDENTIAL_KEY_V1,
+  };
+}
 
 function encryptionSecret(c: { env: MynaBindings }): string | null {
   return c.env.MYNA_ENDPOINT_ENCRYPTION_KEY || null;
@@ -240,6 +253,13 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/patient-report', async (c)
     const handoff = await recordMynaPatientReport(
       c.env.DB, patient.lineAccountId, patient.friendId, c.req.param('id'), body.result as MynaPatientReport,
     );
+    try {
+      await sendMynaHandoffStatusNotification(
+        c.env.DB, mynaNotificationOptions(c), handoff,
+      );
+    } catch {
+      console.error('[pharmacy-myna] status notification unavailable');
+    }
     return c.json({ handoff });
   } catch (error) {
     return mapMynaError(c, error);
@@ -332,6 +352,13 @@ mynaRoutes.post('/api/custom/pharmacy/myna-handoffs/:id/verifications', async (c
       );
     } catch {
       console.error('[pharmacy-myna] activity notification unavailable');
+    }
+    try {
+      await sendMynaHandoffStatusNotification(
+        c.env.DB, mynaNotificationOptions(c), result.handoff,
+      );
+    } catch {
+      console.error('[pharmacy-myna] status notification unavailable');
     }
     return c.json(result, 201);
   } catch (error) {
