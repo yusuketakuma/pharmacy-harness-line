@@ -337,6 +337,11 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     expect(source).toContain('相談窓口を見る');
     expect(source).toContain('support_center_url');
   });
+
+  it('keeps the support center link at the minimum tap target', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    expect(source).toMatch(/supportCenterUrl && <a[^>]*pharmacy-control/);
+  });
 });
 
 const noSignals = {

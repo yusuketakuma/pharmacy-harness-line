@@ -64,11 +64,13 @@ function featureState(domain: OperationsSummary['domains'][DomainKey]): string {
   return domain.activeCount ? 'OFF（利用中）' : 'OFF'
 }
 
+const UPDATED_AT_FORMAT = new Intl.DateTimeFormat('ja-JP', {
+  timeZone: 'Asia/Tokyo', dateStyle: 'short', timeStyle: 'short',
+})
+
 function formatUpdatedAt(value: string | null): string {
   if (!value) return '更新なし'
-  return new Intl.DateTimeFormat('ja-JP', {
-    timeZone: 'Asia/Tokyo', dateStyle: 'short', timeStyle: 'short',
-  }).format(new Date(value))
+  return UPDATED_AT_FORMAT.format(new Date(value))
 }
 
 export function TodayOperationsSummaryView({

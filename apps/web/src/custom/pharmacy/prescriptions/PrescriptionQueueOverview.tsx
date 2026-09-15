@@ -36,8 +36,12 @@ export function isTemporaryDeploymentError(error: unknown): boolean {
     'status' in error && (error.status === 404 || error.status === 503)
 }
 
+const SHORT_DATE_TIME_FORMAT = new Intl.DateTimeFormat('ja-JP', {
+  dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tokyo',
+})
+
 export const formatDate = (value: string | null) => value
-  ? new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tokyo' }).format(new Date(value))
+  ? SHORT_DATE_TIME_FORMAT.format(new Date(value))
   : '指定なし'
 
 function waitingAge(value: string | null): string {

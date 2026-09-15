@@ -31,9 +31,11 @@ export function historyStatusLabel(label: string, status: string): string {
     : HISTORY_STATUS_LABELS[status] ?? status
 }
 
+const HISTORY_DATE_FORMAT = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo' })
+
 function formatHistoryDate(value: string): string {
   const date = new Date(value)
-  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+  return Number.isNaN(date.valueOf()) ? value : HISTORY_DATE_FORMAT.format(date)
 }
 
 export function createPatientListRequestGate() {
