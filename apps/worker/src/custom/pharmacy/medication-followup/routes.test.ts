@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listContacts: vi.fn(), recordContact: vi.fn(),
   audit: vi.fn(),
   betaParticipant: vi.fn(),
+  outlook: vi.fn(),
 }));
 vi.mock('../growth-loop/access.js', () => ({
   canAccessPharmacyAccount: mocks.access,
@@ -20,6 +21,7 @@ vi.mock('./repository.js', () => ({
   respondToMedicationFollowUp: mocks.respond,
   listMedicationFollowUpContacts: mocks.listContacts,
   recordMedicationFollowUpContact: mocks.recordContact,
+  getMedicationFollowUpOperationsOutlook: mocks.outlook,
 }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
@@ -71,6 +73,11 @@ beforeEach(() => {
     due_at: '2026-08-21T09:00:00.000Z', delivered_at: '2026-08-21T09:00:00.000Z',
     responded_at: '2026-08-21T10:00:00.000Z', closed_at: null, version: 4,
   });
+  mocks.outlook.mockResolvedValue({
+    serviceHoursText: '9:00-18:00', responseEstimateMinutes: 30,
+    afterHoursMessageCode: 'contact_pharmacy_during_hours',
+    emergencyMessageCode: 'seek_urgent_care',
+  });
   mocks.listContacts.mockResolvedValue([]);
   mocks.recordContact.mockResolvedValue({
     id: 'contact-a', channel: 'phone', outcome_code: 'answered',
@@ -95,6 +102,22 @@ describe('medication follow-up patient routes', () => {
       tenantId: 'tenant-a', lineAccountId: 'account-a',
     }));
     expect(mocks.listOwner).toHaveBeenCalledWith(env.DB, 'account-a', 'friend-a');
+  });
+
+  it('returns the whitelisted operations outlook for the owner account', async () => {
+    const response = await app().request(
+      '/api/liff/pharmacy/medication-followups/outlook?liffId=liff-a',
+      { headers: { Authorization: 'Bearer id-token-a' } }, env,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      outlook: {
+        serviceHoursText: '9:00-18:00', responseEstimateMinutes: 30,
+        afterHoursMessageCode: 'contact_pharmacy_during_hours',
+        emergencyMessageCode: 'seek_urgent_care',
+      },
+    });
+    expect(mocks.outlook).toHaveBeenCalledWith(env.DB, 'account-a');
   });
 
   it('rejects a non-participant before listing follow-ups', async () => {
