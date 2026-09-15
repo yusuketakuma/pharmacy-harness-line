@@ -167,7 +167,7 @@ export default function HealthPage() {
 
   return (
     <div>
-      <Header title="BAN検知ダッシュボード" />
+      <Header title="BAN検知" description="LINEからの利用制限(BAN)リスクを監視します。" />
 
       {/* Error */}
       {error && (

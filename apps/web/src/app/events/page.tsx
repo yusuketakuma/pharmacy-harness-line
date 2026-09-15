@@ -39,7 +39,7 @@ export default function EventsListPage() {
 
   return (
     <>
-      <Header title="イベント予約" />
+      <Header title="イベント予約" description="日時を指定したイベントを作成し、友だちに予約してもらいます。" />
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-6 flex justify-between items-center">
           <div>
