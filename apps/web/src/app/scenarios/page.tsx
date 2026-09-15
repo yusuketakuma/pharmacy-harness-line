@@ -128,6 +128,7 @@ export default function ScenariosPage() {
     <div>
       <Header
         title="シナリオ配信"
+        description="友だち追加後などに、順番にメッセージを届けるシナリオを作成・管理します。"
         action={
           <button
             onClick={() => setPickerOpen(true)}

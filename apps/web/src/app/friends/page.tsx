@@ -131,7 +131,7 @@ export default function FriendsPage() {
   return (
     <div>
       <Header
-        title="友だちリスト"
+        title="友だち管理"
         description="友だちの検索や、詳細情報の確認ができます。"
       />
 

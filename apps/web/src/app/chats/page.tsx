@@ -828,7 +828,7 @@ export default function ChatsPage() {
 
   return (
     <div>
-      <Header title="オペレーターチャット" />
+      <Header title="個別チャット" description="友だちと1対1でメッセージをやり取りします。" />
 
       {/* Error */}
       {error && (

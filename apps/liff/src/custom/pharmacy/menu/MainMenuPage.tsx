@@ -1,10 +1,14 @@
 import liff from '@line/liff';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getLiffId } from '../../../lib/liff-auth.js';
 import { pharmacyRoute } from '../navigation.js';
 import { pharmacyLiffVersion, usePharmacyAccess } from '../PharmacyShell.js';
 import type { PatientFeature } from './PharmacyFeatureGate.js';
+import {
+  medicationFollowUpApi,
+  type MedicationFollowUpOperationsOutlook,
+} from '../medication-followup/api.js';
 
 const CONSULTATION_MESSAGE = '薬局へ相談';
 export const pharmacyAppVersion = pharmacyLiffVersion;
@@ -87,7 +91,15 @@ export default function MainMenuPage() {
   const [sent, setSent] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [chatOutlook, setChatOutlook] = useState<MedicationFollowUpOperationsOutlook | null>(null);
   const sending = useRef(false);
+
+  useEffect(() => {
+    if (!enabledFeatures.includes('manual_chat')) return;
+    medicationFollowUpApi.outlook()
+      .then(({ outlook }) => setChatOutlook(outlook))
+      .catch(() => setChatOutlook(null));
+  }, [enabledFeatures]);
 
   async function consult() {
     if (sending.current) return;
@@ -154,6 +166,13 @@ export default function MainMenuPage() {
                 <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-full bg-green-50 text-base font-bold text-green-800">相</span>
                 <span className="mt-3 block font-bold leading-5 text-gray-950">薬局へ相談</span>
                 <span className="mt-1 block text-base leading-6 text-gray-700">トークへ相談メッセージを送る</span>
+                {chatOutlook && <span className="mt-1 block text-sm leading-5 text-gray-600">
+                  {chatOutlook.serviceHoursText}
+                  {chatOutlook.responseEstimateMinutes !== null && `／返信目安 約${chatOutlook.responseEstimateMinutes}分`}
+                </span>}
+                {chatOutlook?.afterHoursMessageCode === 'contact_pharmacy_during_hours' && (
+                  <span className="mt-1 block text-sm leading-5 text-gray-600">営業時間外のメッセージは、次の営業時間に順次ご対応します。</span>
+                )}
                 <span className="mt-2 block text-sm font-bold text-gray-700">利用可否：利用できます</span>
               </button>}
             </div>
