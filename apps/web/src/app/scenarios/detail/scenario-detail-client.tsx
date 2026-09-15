@@ -526,7 +526,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
   if (loading) {
     return (
       <div>
-        <Header title="シナリオ詳細" />
+        <Header title="シナリオ詳細" description="シナリオのステップと配信状況を確認・編集します。" />
         <div className="bg-white rounded-lg border border-gray-200 p-8 animate-pulse space-y-4">
           <div className="h-6 bg-gray-200 rounded w-1/3" />
           <div className="h-4 bg-gray-100 rounded w-2/3" />
@@ -539,7 +539,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
   if (!scenario) {
     return (
       <div>
-        <Header title="シナリオ詳細" />
+        <Header title="シナリオ詳細" description="シナリオのステップと配信状況を確認・編集します。" />
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
           <p className="text-gray-500">{error || 'シナリオが見つかりません'}</p>
           <Link href="/scenarios" className="text-sm text-green-600 hover:text-green-700 mt-4 inline-block">
@@ -557,6 +557,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
     <div>
       <Header
         title="シナリオ詳細"
+        description="シナリオのステップと配信状況を確認・編集します。"
         action={
           <Link
             href="/scenarios"

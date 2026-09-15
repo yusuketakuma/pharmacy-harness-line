@@ -34,7 +34,7 @@ describe('today operations summary', () => {
     expect(html).toContain('本日の対応')
     expect(html).toContain('OFF（利用中）')
     expect(html).toContain('一部取得できません')
-    expect(html).toContain('STALE')
+    expect(html).toContain('未反映')
     for (const href of ['/prescriptions', '/myna', '/patient-intakes', '/continuity', '/emergency-contraception', '/rich-menus']) {
       expect(html).toContain(`href="${href}"`)
     }
