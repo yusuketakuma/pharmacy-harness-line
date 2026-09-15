@@ -6,8 +6,7 @@ import {
   type PharmacyCapability,
   type PharmacyCapabilityConfig,
 } from './access.js';
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+import { isIsoCalendarDate } from '../dates.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -84,11 +83,7 @@ function prescriptionReminderDueAt(validUntil: string | null): string | null {
   return date.toISOString();
 }
 
-function isCalendarDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
-}
+const isCalendarDate = isIsoCalendarDate;
 
 export async function getPharmacyCapabilityConfig(
   db: D1Database,

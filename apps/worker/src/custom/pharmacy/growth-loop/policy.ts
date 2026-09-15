@@ -1,4 +1,5 @@
 import { quickReply, withQuickReply, type Message, type QuickReplyItem } from '@line-crm/line-sdk';
+import { isIsoCalendarDate } from '../dates.js';
 
 export type PharmacyNotificationCategory =
   | 'transactional_care'
@@ -104,11 +105,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const LIFF_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const OPAQUE_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 
-function isDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
+const isDateOnly = isIsoCalendarDate;
 
 /**
  * Approved templates are the primary control. This final check is a cheap
