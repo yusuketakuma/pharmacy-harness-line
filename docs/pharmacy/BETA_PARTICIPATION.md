@@ -23,9 +23,12 @@ All five are evaluated server-side. Query or body fields such as
 
 "Membership required" means `canUsePharmacyBetaParticipant(DB,
 patient.lineAccountId, patient.friendId)` is checked after identity and
-patient resolution and before the handler. Denial is always
+patient resolution and before the handler. Denial is
 `403 {"error":"Pharmacy beta participation required"}`; the handler never
-runs and no record, notification, or side effect is produced.
+runs and no record, notification, or side effect is produced. The single
+documented exception is the feature-discovery probe (matrix row below),
+which soft-denies with an empty feature list so the LIFF menu still renders
+for non-participants without exposing record data.
 
 | Operation | Route surface | Pre-beta authority | Membership | Deny / continue | Test evidence |
 | --- | --- | --- | --- | --- | --- |
@@ -38,8 +41,9 @@ runs and no record, notification, or side effect is produced.
 | Continuity view / pause / expectation response | `/api/liff/pharmacy/continuity*` | identity + owner | required | 403; obligation rows unchanged | `continuity/routes.test.ts` — "rejects a non-participant before reading the patient continuity view" |
 | Patient timeline | `GET /api/liff/pharmacy/timeline` | identity + owner | required | 403 | `patient-timeline/routes.test.ts` — "rejects a non-participant before reading the timeline" |
 | Medication follow-up list / detail / respond | `/api/liff/pharmacy/medication-followups*` | identity + owner + CAS + idempotency | required | 403; no event written | `medication-followup/routes.test.ts` — "rejects a non-participant before listing follow-ups"; `respond-pagination.test.ts` |
+| LIFF feature discovery | `GET /api/liff/pharmacy/feature-access` | LINE identity + owner | re-verified | **soft deny**: `200 {existingFeatures: []}` — discovery probe only; returns fixed feature names, never record data | `routes/liff/liff-pharmacy-feature-access.test.ts` — "returns an empty feature list instead of 403 for a non-participant" |
 | Withdrawal control paths | `.../patients/:id/{proxy-grant,privacy-consent,notification-preference,archive}` | identity + owner + control version CAS | **not required (explicit exemption)** | always available — withdrawal/stop must not be gated | `intake/routes.ts:105-108`; `intake/routes.test.ts` — "keeps withdrawal control paths available to a non-participant" |
-| Data-subject requests | `/api/liff/pharmacy/data-subject-requests*` | existing identity/authorization | not required | always available | `data-subject-requests/routes.test.ts`, `boundary.test.ts` |
+| Data-subject requests | `/api/custom/pharmacy/data-subject-requests*` (staff surface; no LIFF route exists) | staff session + tenant boundary + owner/admin role | not required (staff authority, not participant authority) | always available to staff; patients exercise rights through staff | `data-subject-requests/routes.test.ts`, `boundary.test.ts` |
 | Public pharmacy profile / privacy policy | public + LIFF profile routes | none/public | not required | always available | `public-profile/routes.test.ts`, `privacy-policy/routes.test.ts` |
 | Emergency contraception intake | `/api/liff/pharmacy/emergency-contraception*` | identity + owner + PHI key present + EC availability model | not required (EC keeps its own regulated availability gate; see Residuals) | EC-specific denials only | `emergency-contraception/routes.test.ts` |
 | Inbound LINE message / postback / follow / unfollow | LINE webhook | channel + account credential | not required | received into manual chat; **never enrolls sender in beta clinical work** | `webhook-pharmacy-mode.test.ts` |
@@ -53,7 +57,7 @@ runs and no record, notification, or side effect is produced.
 | Scenario | Expected behavior | Test evidence |
 | --- | --- | --- |
 | Forwarded LIFF URL carrying foreign ids | `liffId` + verified token resolve the account/friend; `line_account_id`/`friendId`/`patientId` parameters are never authority | `prescriptions/routes.test.ts` non-participant test asserts the check ran with the resolved `account-1`/`friend-1`, not query input; `patient-timeline/routes.test.ts` identity scope test |
-| Valid token, unregistered participant | every gated domain returns 403 before any read/write | the six new non-participant tests above; `custom_072` `canUsePharmacyBetaParticipant` false cases |
+| Valid token, unregistered participant | every gated domain returns 403 before any read/write; `feature-access` returns the documented empty-list soft deny | the six new non-participant tests above; `liff-pharmacy-feature-access.test.ts`; `custom_072` `canUsePharmacyBetaParticipant` false cases |
 | Different tenant / account / patient | identity→account binding is single-valued; cross-account writes rejected at FK + scope | `custom_072` cross-account rejection; per-domain cross-account denial tests; `MULTITENANT_OWNERSHIP_MATRIX.md` |
 | Expired proxy | minor proxy expiry/ revocation participates in `patientAuthorityPredicate`; membership grant for proxies requires current proxy consent | `custom_072` expiry boundary `[starts_at, expires_at)`; `intake/routes.test.ts` proxy-consent cases |
 | Session/job after revocation | membership re-checked inside write transaction and at dispatch; queued work keeps its authorizing membership generation | `custom_077` binding tests; `growth-loop/sender.test.ts` dispatch-time recheck, suspended-retryable, regrant non-resurrection |

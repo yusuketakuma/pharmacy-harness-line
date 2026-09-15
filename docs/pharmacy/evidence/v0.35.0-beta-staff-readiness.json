@@ -53,7 +53,7 @@
       "digest": "1c66448e8ce0135dfdad419ba5a692f6fd629321ebeef576710e91e80d54e074",
       "refreshedAt": "2026-09-15"
     },
-    "exactCandidateClaim": "2026-09-15時点のlocal dev HEAD（V035-5 route-level test追加済み）。以後のevidence/docs-only commitは検証済みcodeを変更しない。deploy SHA・artifact digestではない。"
+    "exactCandidateClaim": "2026-09-15時点のlocal dev HEAD（V035-5 route-level test追加済み）。以後のcommitはtest/docs/evidence-onlyでapplication codeは不変（automatedEvidence.postFreezeDeltas参照）。deploy SHA・artifact digestではない。"
   },
   "scopeDecision": {
     "status": "BLOCKED",
@@ -1128,7 +1128,7 @@
     "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。 fixture code・buildDigest・匿名participant codeのみ記録。",
     "baselineClaim": "deployed production build（現在のスタッフ体験）。所要時間短縮の比較基準。deploy metadata確認済み、byte equality未検証。",
     "candidateSourceSha": "cc8019d44c586f1c9551530cd9526af52354188c",
-    "candidateClaim": "2026-09-15 local dev HEAD。以後のdocs/evidence-only commitは被検証codeを変更しない。code変更があれば再freeze。",
+    "candidateClaim": "2026-09-15 local dev HEAD。以後のcommitはtest/docs/evidence-onlyで被検証application codeは不変（automatedEvidence.postFreezeDeltas参照）。application code変更があれば再freeze。",
     "frozenAt": "2026-09-15T09:20:00.000Z",
     "frozenBy": "engineering",
     "approvalStatus": "PENDING_OWNER_ACCEPTANCE",
@@ -1467,7 +1467,7 @@
     },
     "candidateVerification": {
       "candidateSha": "cc8019d44c586f1c9551530cd9526af52354188c",
-      "note": "現候補コードの最終検証（cc8019d以降はdocs/evidence-only commit）。2026-09-06の数値は別時点の記録であり転用ではない。",
+      "note": "現候補コードの最終検証（cc8019d以降はtest/docs/evidence-only commit、postFreezeDeltasに追記）。2026-09-06の数値は別時点の記録であり転用ではない。",
       "verifyCi": {
         "status": "PASS",
         "command": "pnpm verify:ci",
@@ -1531,7 +1531,14 @@
         "production migration/deploy",
         "beta activation"
       ]
-    }
+    },
+    "postFreezeDeltas": [
+      {
+        "date": "2026-09-15",
+        "summary": "V035-5 review follow-up: `liff-pharmacy-feature-access.test.ts`追加（feature-accessのsoft-deny `200 {existingFeatures:[]}`・handler未実行・resolved account/friend使用を固定）とBETA_PARTICIPATION.mdの行列訂正（DSR route surfaceを実在の`/api/custom/pharmacy/*`へ、feature-access行を文書化例外として追加）。application code不変。",
+        "verification": "pnpm --filter worker test: 248 files/2663 tests PASS (local HEAD)"
+      }
+    ]
   },
   "boundaries": {
     "commit": "NOT_RUN",
