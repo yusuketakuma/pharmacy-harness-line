@@ -15,7 +15,8 @@ export type PharmacyAutomatedMessageId =
   | 'prescription_validity_reminder_v1'
   | 'medication_followup_v1'
   | 'appointment_reminder_v1'
-  | 'myna_handoff_status_v1';
+  | 'myna_handoff_status_v1'
+  | 'emergency_intake_status_v1';
 
 export type PharmacyMessageVars = {
   status?: 'received' | 'accepted' | 'needs_resubmission' | 'ready' | 'closed' | 'cancelled';
@@ -27,6 +28,7 @@ export type PharmacyMessageVars = {
   genericTime?: string;
   followUpId?: string;
   handoffStatus?: 'EXPIRED' | 'SUPPORT_NEEDED' | 'PAPER_FALLBACK';
+  intakeStatus?: 'reviewed' | 'cancelled' | 'expired';
 };
 
 const REASONS: Record<NonNullable<PharmacyMessageVars['reasonCode']>, string> = {
@@ -72,6 +74,19 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
         default:
           return '電子処方箋の手続き状況が更新されました。';
       }
+    // Deliberately neutral: nothing in these texts identifies emergency
+    // contraception, matching the same rule as the appointment reminder.
+    case 'emergency_intake_status_v1':
+      switch (vars.intakeStatus) {
+        case 'reviewed':
+          return 'ご相談の受付内容の確認が完了しました。詳しくはLINEアプリでご確認ください。';
+        case 'cancelled':
+          return 'ご相談の受付が取り消されました。詳しくはLINEアプリでご確認ください。';
+        case 'expired':
+          return 'ご相談の受付期限が終了しました。詳しくはLINEアプリでご確認ください。';
+        default:
+          return 'ご相談の受付状況が更新されました。';
+      }
     case 'prescription_status_v1':
       switch (vars.status) {
         case 'received':
@@ -110,10 +125,12 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
   'medication_followup_v1',
   'appointment_reminder_v1',
   'myna_handoff_status_v1',
+  'emergency_intake_status_v1',
 ]);
-const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'intakeMethod', 'liffId', 'submissionId', 'genericDate', 'genericTime', 'followUpId', 'handoffStatus']);
+const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'intakeMethod', 'liffId', 'submissionId', 'genericDate', 'genericTime', 'followUpId', 'handoffStatus', 'intakeStatus']);
 const STATUSES = new Set(['received', 'accepted', 'needs_resubmission', 'ready', 'closed', 'cancelled']);
 const HANDOFF_STATUSES = new Set(['EXPIRED', 'SUPPORT_NEEDED', 'PAPER_FALLBACK']);
+const EMERGENCY_INTAKE_STATUSES = new Set(['reviewed', 'cancelled', 'expired']);
 const REASON_CODES = new Set(Object.keys(REASONS));
 const UNSAFE_RENDERED_TEXT = /薬剤名|疾患名|病名|医療機関名|医師名|患者名|自由記述|(?:病院|医院|診療所|クリニック|歯科)|(?:糖尿病|高血圧|がん|癌)|(?:ロキソニン|アムロジピン)|drug\s+name|diagnos(?:is|es)|hospital\s+name/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -174,6 +191,14 @@ export function buildApprovedPharmacyMessage(
   if ((id === 'myna_handoff_status_v1') !== Boolean(vars.handoffStatus) ||
       (id === 'myna_handoff_status_v1' &&
        Object.keys(vars).some((key) => key !== 'handoffStatus'))) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.intakeStatus && !EMERGENCY_INTAKE_STATUSES.has(vars.intakeStatus)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if ((id === 'emergency_intake_status_v1') !== Boolean(vars.intakeStatus) ||
+      (id === 'emergency_intake_status_v1' &&
+       Object.keys(vars).some((key) => key !== 'intakeStatus'))) {
     throw new Error('pharmacy notification variable rejected');
   }
   if (vars.genericDate && !isDateOnly(vars.genericDate)) {
@@ -275,6 +300,13 @@ export function isApprovedRenderedPharmacyMessage(
     return [...HANDOFF_STATUSES]
       .map((handoffStatus) => buildApprovedPharmacyMessage(id, {
         handoffStatus: handoffStatus as PharmacyMessageVars['handoffStatus'],
+      }))
+      .some(same);
+  }
+  if (id === 'emergency_intake_status_v1') {
+    return [...EMERGENCY_INTAKE_STATUSES]
+      .map((intakeStatus) => buildApprovedPharmacyMessage(id, {
+        intakeStatus: intakeStatus as PharmacyMessageVars['intakeStatus'],
       }))
       .some(same);
   }

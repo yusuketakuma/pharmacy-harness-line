@@ -368,6 +368,8 @@ export async function sendPharmacyAutomatedPush(
       ? 'medication_followup'
       : input.messageId === 'myna_handoff_status_v1'
         ? 'electronic_prescription'
+      : input.messageId === 'emergency_intake_status_v1'
+        ? 'emergency_contraception'
       : input.messageId === 'appointment_reminder_v1'
         ? 'emergency_contraception'
       : 'prescription_intake';
