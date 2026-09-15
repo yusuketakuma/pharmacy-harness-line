@@ -33,6 +33,7 @@ import { isPharmacyModeAccount } from '../../custom/pharmacy/growth-loop/access.
 import { handleMedicationFollowUpPostback } from '../../custom/pharmacy/medication-followup/webhook.js'; // custom:pharmacy-medication-followup
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js'; // custom:pharmacy-credentials
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
+import { log } from '../../lib/log.js';
 import {
   deliverTrackedLinePush,
   deliverTrackedLineReply,
@@ -200,8 +201,8 @@ export async function runWebhookInboxEvent(
       clearInterval(heartbeatTimer);
       await heartbeatInFlight;
     }
-  } catch (err) {
-    console.error('Error handling webhook event:', err);
+  } catch {
+    log('pharmacy_webhook_inbox_event_failed', { reason: 'processing_failed' }, 'error');
     // Stay in the inbox. The sweep retries until the attempt cap, then the row
     // is dead-lettered — kept with its payload so it can be replayed by hand
     // (status back to 'pending', retry_count 0). No replay UI exists yet.
@@ -336,11 +337,11 @@ async function ensureFriendFromWebhookUser(
     let profile: Awaited<ReturnType<LineClient['getProfile']>> | null = null;
     try {
       profile = await lineClient.getProfile(userId);
-    } catch (err) {
+    } catch {
       // A signed webhook already proves this user interacted with the bot.
       // If profile lookup is temporarily unavailable, keep the event processable
       // by creating the friend with the LINE userId and filling profile later.
-      console.error('[webhook] Failed to get profile for unknown user', err);
+      log('pharmacy_webhook_profile_fetch_failed', { reason: 'profile_unavailable' }, 'error');
     }
 
     try {
@@ -477,8 +478,8 @@ webhook.post('/webhook', async (c) => {
         claimed.push({ webhookEventId, event });
       }
     }
-  } catch (err) {
-    console.error('[webhook] failed to store inbound events', err);
+  } catch {
+    log('pharmacy_webhook_inbox_store_failed', { reason: 'storage_failed' }, 'error');
     return c.json({ status: 'error' }, 500);
   }
 
@@ -502,8 +503,8 @@ webhook.post('/webhook', async (c) => {
         webhook_event_id: item.webhookEventId,
         payload: null,
         event: item.event,
-      }).catch((err) => {
-        console.error('[webhook] inbox event runner failed', err);
+      }).catch(() => {
+        log('pharmacy_webhook_inbox_runner_failed', { reason: 'processing_failed' }, 'error');
       });
     }
   })());
@@ -536,8 +537,8 @@ async function handleEvent(
     let profile;
     try {
       profile = await lineClient.getProfile(userId);
-    } catch (err) {
-      console.error('Failed to get LINE profile', err);
+    } catch {
+      log('pharmacy_webhook_profile_fetch_failed', { reason: 'profile_unavailable' }, 'error');
     }
 
     let friend: Friend;
@@ -570,8 +571,8 @@ async function handleEvent(
         accessToken: lineAccessToken,
         proxyDispatch,
       });
-    } catch (error) {
-      console.error('[pharmacy-growth] follow metric failed', error instanceof Error ? error.message : 'unknown error');
+    } catch {
+      log('pharmacy_growth_follow_metric_failed', { reason: 'metric_record_failed' }, 'error');
     }
 
     if (await isPharmacyModeAccount(db, lineAccountId ?? friend.line_account_id)) return;
@@ -748,8 +749,8 @@ async function handleEvent(
     });
     try {
       await recordPharmacyUnfollowMetrics({ db, lineAccountId, lineUserId: userId });
-    } catch (error) {
-      console.error('[pharmacy-growth] unfollow metric failed', error instanceof Error ? error.message : 'unknown error');
+    } catch {
+      log('pharmacy_growth_unfollow_metric_failed', { reason: 'metric_record_failed' }, 'error');
     }
     return;
   }

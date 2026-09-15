@@ -1,6 +1,7 @@
 import {
   activePatientIntakeKeyVersion,
   decryptPatientIntakeEnvelopeFields,
+  PATIENT_INTAKE_LEGACY_SENTINEL,
   patientIntakeEncryptionContext,
   patientIntakeKeyVersions,
   patientIntakeRootSecret,
@@ -10,13 +11,16 @@ import {
   type StoredPatientIntakeEnvelope,
 } from './envelopes.js';
 import {
+  fromBase64Url,
   openPatientIntakeField,
   PATIENT_INTAKE_ENVELOPE_VERSION,
   PATIENT_INTAKE_KEY_VERSION,
   sealPatientIntakeField,
+  toBase64Url,
 } from './encryption.js';
+import { deriveAesGcmKey } from '../crypto-utils.js';
 
-export const PATIENT_INTAKE_LEGACY_SENTINEL = '{}';
+export { PATIENT_INTAKE_LEGACY_SENTINEL };
 
 export interface PatientIntakeMigrationScope extends PatientIntakeCryptoScope {
   lineAccountId: string;
@@ -80,6 +84,71 @@ interface MigrationState {
 }
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+
+const MIGRATION_CURSOR_LABEL = 'pharmacy-patient-intake:v1:migration-cursor';
+const MIGRATION_CURSOR_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
+const MIGRATION_CURSOR_MAX_LENGTH = 512;
+const GUARD_FAIL_PHASE = 'GUARD_FAIL';
+const GUARD_FAIL_DIGEST = '0'.repeat(64);
+
+type MigrationCursorOperation = 'backfill' | 'scrub' | 'restore';
+
+function migrationCursorKey(scope: PatientIntakeMigrationScope): Promise<CryptoKey> {
+  return deriveAesGcmKey(
+    patientIntakeRootSecret(scope, activePatientIntakeKeyVersion(scope)),
+    `${MIGRATION_CURSOR_LABEL}:key`,
+  );
+}
+
+function migrationCursorData(
+  scope: PatientIntakeMigrationScope,
+  operation: MigrationCursorOperation,
+): Uint8Array {
+  return encoder.encode(JSON.stringify({
+    purpose: MIGRATION_CURSOR_LABEL,
+    tenantId: scope.tenantId,
+    lineAccountId: scope.lineAccountId,
+    operation,
+  }));
+}
+
+async function sealMigrationCursor(
+  scope: PatientIntakeMigrationScope,
+  operation: MigrationCursorOperation,
+  responseId: string,
+): Promise<string> {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce, additionalData: migrationCursorData(scope, operation) },
+    await migrationCursorKey(scope),
+    encoder.encode(responseId),
+  );
+  return `${toBase64Url(nonce)}.${toBase64Url(new Uint8Array(ciphertext))}`;
+}
+
+async function openMigrationCursor(
+  scope: PatientIntakeMigrationScope,
+  operation: MigrationCursorOperation,
+  token: string,
+): Promise<string | null> {
+  try {
+    const [noncePart, ciphertextPart] = token.split('.');
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: fromBase64Url(noncePart, 12),
+        additionalData: migrationCursorData(scope, operation),
+      },
+      await migrationCursorKey(scope),
+      fromBase64Url(ciphertextPart),
+    );
+    const id = decoder.decode(plaintext);
+    return validIdentifier(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 function counts(): PatientIntakeMigrationReport['counts'] {
   return {
@@ -125,7 +194,10 @@ function validScope(scope: PatientIntakeMigrationScope): boolean {
 function migrationInputError(input: MigrationInput): ErrorCode | null {
   if (!validScope(input)) return 'INVALID_INPUT';
   if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 50) return 'INVALID_LIMIT';
-  return input.cursor !== null && !validIdentifier(input.cursor) ? 'INVALID_INPUT' : null;
+  if (input.cursor !== null &&
+      (input.cursor.length > MIGRATION_CURSOR_MAX_LENGTH ||
+       !MIGRATION_CURSOR_PATTERN.test(input.cursor))) return 'INVALID_INPUT';
+  return null;
 }
 
 function validApproval(value: PatientIntakeMigrationApproval | undefined): value is PatientIntakeMigrationApproval {
@@ -255,7 +327,11 @@ export async function backfillPatientIntakeEnvelopes(
   const inputError = migrationInputError(input);
   if (inputError) return failed(inputError);
   if (!await hasActiveScope(db, input)) return failed('SCOPE_NOT_FOUND');
-  const rows = await readRows(db, input, input.cursor, input.limit + 1);
+  const cursor = input.cursor === null
+    ? null
+    : await openMigrationCursor(input, 'backfill', input.cursor);
+  if (input.cursor !== null && cursor === null) return failed('INVALID_INPUT');
+  const rows = await readRows(db, input, cursor, input.limit + 1);
   const batch = rows.slice(0, input.limit);
   for (const row of batch) {
     resultCounts.scanned += 1;
@@ -329,7 +405,9 @@ export async function backfillPatientIntakeEnvelopes(
   return {
     counts: resultCounts,
     errorCode: null,
-    nextCursor: rows.length > input.limit ? batch.at(-1)?.id ?? input.cursor : null,
+    nextCursor: rows.length > input.limit
+      ? await sealMigrationCursor(input, 'backfill', batch.at(-1)!.id)
+      : null,
   };
 }
 
@@ -536,12 +614,78 @@ export async function freezePatientIntakeWrites(
     (tenant_id, line_account_id, phase, coverage_total, coverage_digest,
      approved_by, approval_reference, approved_at, updated_at)
     SELECT ?, ?, 'frozen', ?, ?, ?, ?, ?, ?
-    WHERE EXISTS (SELECT 1 FROM tenant_line_accounts WHERE tenant_id = ? AND line_account_id = ?)`)
+    WHERE EXISTS (SELECT 1 FROM tenant_line_accounts
+                  WHERE tenant_id = ? AND line_account_id = ?)
+      AND (SELECT COUNT(*) FROM pharmacy_patient_intake_responses response
+        WHERE response.line_account_id = ?
+          AND EXISTS (SELECT 1 FROM tenant_line_accounts mapping
+                      WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?)) = ?`)
     .bind(
       scope.tenantId, scope.lineAccountId, approval.coverageTotal, approval.coverageDigest,
-      approval.approvedBy, approval.approvalReference, now, now, scope.tenantId, scope.lineAccountId,
+      approval.approvedBy, approval.approvalReference, now, now,
+      scope.tenantId, scope.lineAccountId,
+      scope.lineAccountId, scope.tenantId, scope.lineAccountId, approval.coverageTotal,
     ).run();
   return write.meta?.changes === 1 ? coverage : { ...coverage, errorCode: 'STORAGE_FAILED' };
+}
+
+function stateGuardStatement(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+  expectedPhase: MigrationState['phase'],
+  expectedDigest: string,
+): D1PreparedStatement {
+  const now = new Date().toISOString();
+  return db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
+    (tenant_id, line_account_id, phase, coverage_total, coverage_digest,
+     approved_by, approval_reference, approved_at, updated_at)
+    SELECT current.tenant_id, current.line_account_id, current.phase,
+           current.coverage_total, current.coverage_digest,
+           current.approved_by, current.approval_reference,
+           current.approved_at, current.updated_at
+    FROM pharmacy_patient_intake_migration_state current
+    WHERE current.tenant_id = ? AND current.line_account_id = ?
+      AND NOT (current.phase = ? AND current.coverage_digest = ?)
+    UNION ALL
+    SELECT ?, ?, '${GUARD_FAIL_PHASE}', 0, '${GUARD_FAIL_DIGEST}', 'guard', 'guard', ?, ?
+    WHERE NOT EXISTS (SELECT 1 FROM pharmacy_patient_intake_migration_state missing
+      WHERE missing.tenant_id = ? AND missing.line_account_id = ?)`)
+    .bind(
+      scope.tenantId, scope.lineAccountId, expectedPhase, expectedDigest,
+      scope.tenantId, scope.lineAccountId, now, now,
+      scope.tenantId, scope.lineAccountId,
+    );
+}
+
+function datasetGuardStatement(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+  mode: 'scrub' | 'restore',
+  responseIds: string[] | null,
+): D1PreparedStatement {
+  const now = new Date().toISOString();
+  const violation = mode === 'scrub'
+    ? `(response.patient_snapshot_json <> '${PATIENT_INTAKE_LEGACY_SENTINEL}'
+        OR response.answers_json <> '${PATIENT_INTAKE_LEGACY_SENTINEL}')`
+    : `(response.patient_snapshot_json = '${PATIENT_INTAKE_LEGACY_SENTINEL}'
+        OR response.answers_json = '${PATIENT_INTAKE_LEGACY_SENTINEL}')`;
+  const idFilter = responseIds === null
+    ? ''
+    : `AND response.id IN (${responseIds.map(() => '?').join(', ')})`;
+  return db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
+    (tenant_id, line_account_id, phase, coverage_total, coverage_digest,
+     approved_by, approval_reference, approved_at, updated_at)
+    SELECT ?, ?, '${GUARD_FAIL_PHASE}', 0, '${GUARD_FAIL_DIGEST}', 'guard', 'guard', ?, ?
+    WHERE EXISTS (SELECT 1 FROM pharmacy_patient_intake_responses response
+      WHERE response.line_account_id = ?
+        AND EXISTS (SELECT 1 FROM tenant_line_accounts mapping
+                    WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?)
+        AND ${violation} ${idFilter})`)
+    .bind(
+      scope.tenantId, scope.lineAccountId, now, now,
+      scope.lineAccountId, scope.tenantId, scope.lineAccountId,
+      ...(responseIds ?? []),
+    );
 }
 
 async function migrateLegacyFields(
@@ -553,33 +697,32 @@ async function migrateLegacyFields(
   const inputError = migrationInputError(input);
   if (inputError) return failed(inputError);
   if (!validApproval(input.approval)) return failed('APPROVAL_REQUIRED');
-  let state = await readState(db, input);
+  const approval = input.approval;
+  const operation: MigrationCursorOperation = mode;
+  const cursor = input.cursor === null
+    ? null
+    : await openMigrationCursor(input, operation, input.cursor);
+  if (input.cursor !== null && cursor === null) return failed('INVALID_INPUT');
+  const state = await readState(db, input);
   const allowed = mode === 'scrub' ? ['frozen', 'scrubbing', 'restored'] : ['scrubbed', 'restoring'];
   if (!state || !allowed.includes(state.phase)) {
     return failed('INVALID_STATE');
   }
   const coverage = await inspectPatientIntakeCoverage(db, input);
   if (coverage.errorCode) return failed(coverage.errorCode);
-  if (coverage.coverageTotal !== state.coverage_total ||
-      coverage.coverageDigest !== state.coverage_digest ||
-      !approvalCoversState(state, input.approval)) return failed('COVERAGE_MISMATCH');
-  if (!approvalMatches(state, input.approval)) {
+  const coverageMatchesState = coverage.coverageTotal === state.coverage_total &&
+    coverage.coverageDigest === state.coverage_digest;
+  const approvalAttestsCurrent = approval.coverageTotal === coverage.coverageTotal &&
+    approval.coverageDigest === coverage.coverageDigest;
+  let rebind = false;
+  if (approvalMatches(state, approval)) {
+    if (!coverageMatchesState) return failed('COVERAGE_MISMATCH');
+  } else {
     if (mode !== 'restore' || input.cursor !== null) return failed('INVALID_STATE');
-    try {
-      if (!await rebindMigrationState(db, input, state, input.approval, 'scrubbed')) {
-        return failed('INVALID_STATE');
-      }
-    } catch {
-      return failed('STORAGE_FAILED');
-    }
-    state = {
-      ...state,
-      phase: 'scrubbed',
-      approved_by: input.approval.approvedBy,
-      approval_reference: input.approval.approvalReference,
-    };
+    if (!approvalAttestsCurrent) return failed('COVERAGE_MISMATCH');
+    rebind = true;
   }
-  const rows = await readRows(db, input, input.cursor, input.limit + 1);
+  const rows = await readRows(db, input, cursor, input.limit + 1);
   const batch = rows.slice(0, input.limit);
   const writes: D1PreparedStatement[] = [];
   for (const row of batch) {
@@ -611,41 +754,63 @@ async function migrateLegacyFields(
     }
     resultCounts.verified += 1;
   }
-  const nextCursor = rows.length > input.limit ? batch.at(-1)?.id ?? input.cursor : null;
+  const nextCursor = rows.length > input.limit
+    ? await sealMigrationCursor(input, operation, batch.at(-1)!.id)
+    : null;
   if (input.dryRun !== false) return { counts: resultCounts, errorCode: null, nextCursor };
+  const terminal = nextCursor === null;
+  const targetPhase: MigrationState['phase'] = mode === 'scrub'
+    ? (terminal ? 'scrubbed' : 'scrubbing')
+    : (terminal ? 'restored' : 'restoring');
+  const now = new Date().toISOString();
+  const statements: D1PreparedStatement[] = [
+    rebind
+      ? db.prepare(`UPDATE pharmacy_patient_intake_migration_state
+          SET phase = ?, coverage_total = ?, coverage_digest = ?,
+              approved_by = ?, approval_reference = ?, approved_at = ?, updated_at = ?
+          WHERE tenant_id = ? AND line_account_id = ? AND phase = ?
+            AND coverage_total = ? AND coverage_digest = ?
+            AND approved_by = ? AND approval_reference = ?
+            AND (SELECT COUNT(*) FROM pharmacy_patient_intake_responses response
+              WHERE response.line_account_id = ?
+                AND EXISTS (SELECT 1 FROM tenant_line_accounts mapping
+                            WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?)) = ?`)
+        .bind(
+          targetPhase, approval.coverageTotal, approval.coverageDigest,
+          approval.approvedBy, approval.approvalReference, now, now,
+          input.tenantId, input.lineAccountId, state.phase,
+          state.coverage_total, state.coverage_digest,
+          state.approved_by, state.approval_reference,
+          input.lineAccountId, input.tenantId, input.lineAccountId, approval.coverageTotal,
+        )
+      : db.prepare(`UPDATE pharmacy_patient_intake_migration_state
+          SET phase = ?, updated_at = ?
+          WHERE tenant_id = ? AND line_account_id = ? AND phase = ?
+            AND coverage_total = ? AND coverage_digest = ?`)
+        .bind(
+          targetPhase, now, input.tenantId, input.lineAccountId, state.phase,
+          state.coverage_total, state.coverage_digest,
+        ),
+    stateGuardStatement(
+      db, input, targetPhase, rebind ? approval.coverageDigest : state.coverage_digest,
+    ),
+    ...writes,
+    datasetGuardStatement(
+      db, input, mode, terminal ? null : batch.map((row) => row.id),
+    ),
+  ];
   try {
-    const phaseWrite = await db.prepare(`UPDATE pharmacy_patient_intake_migration_state SET phase = ?, updated_at = ?
-      WHERE tenant_id = ? AND line_account_id = ? AND phase = ? AND coverage_digest = ?`)
-      .bind(
-        mode === 'scrub' ? 'scrubbing' : 'restoring', new Date().toISOString(),
-        input.tenantId, input.lineAccountId, state.phase, state.coverage_digest,
-      ).run();
-    if (phaseWrite.meta?.changes !== 1) return failed('INVALID_STATE', resultCounts, input.cursor);
-    if (writes.length) {
-      const results = await db.batch(writes);
-      if (results.length !== writes.length || results.some((item) => item.meta?.changes !== 1)) {
-        resultCounts.conflicts += 1;
-        return failed('CAS_CONFLICT', resultCounts, input.cursor);
-      }
+    const results = await db.batch(statements);
+    const writeResults = results.slice(2, 2 + writes.length);
+    if (writeResults.some((item) => item.meta?.changes !== 1)) {
+      resultCounts.conflicts += 1;
+      return failed('CAS_CONFLICT', resultCounts, input.cursor);
     }
     if (mode === 'scrub') resultCounts.scrubbed = writes.length;
     else resultCounts.restored = writes.length;
-    if (nextCursor === null) {
-      if (mode === 'scrub') {
-        const completed = await db.prepare(`UPDATE pharmacy_patient_intake_migration_state SET phase = 'scrubbed', updated_at = ?
-          WHERE tenant_id = ? AND line_account_id = ? AND phase = 'scrubbing'`)
-          .bind(new Date().toISOString(), input.tenantId, input.lineAccountId).run();
-        if (completed.meta?.changes !== 1) return failed('INVALID_STATE', resultCounts, input.cursor);
-      } else {
-        const completed = await db.prepare(`UPDATE pharmacy_patient_intake_migration_state
-          SET phase = 'restored', updated_at = ?
-          WHERE tenant_id = ? AND line_account_id = ? AND phase = 'restoring'`)
-          .bind(new Date().toISOString(), input.tenantId, input.lineAccountId).run();
-        if (completed.meta?.changes !== 1) return failed('INVALID_STATE', resultCounts, input.cursor);
-      }
-    }
   } catch {
-    return failed('STORAGE_FAILED', resultCounts, input.cursor);
+    resultCounts.conflicts += 1;
+    return failed('CAS_CONFLICT', resultCounts, input.cursor);
   }
   return { counts: resultCounts, errorCode: null, nextCursor };
 }

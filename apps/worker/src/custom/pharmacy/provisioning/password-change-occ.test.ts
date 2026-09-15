@@ -1,9 +1,8 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
+import { DB_PACKAGE_ROOT, Sqlite } from '../test-sqlite.js';
 import type { Env } from '../../../index.js';
 import { authMiddleware } from '../../../middleware/auth.js';
 import { adminAuth } from '../../../routes/admin/admin-auth.js';
@@ -20,9 +19,6 @@ import {
   hashTenantPassword,
 } from './credentials.js';
 
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
-
 type SqliteStatement = {
   get(...values: unknown[]): unknown;
   all(...values: unknown[]): unknown[];
@@ -34,9 +30,7 @@ type SqliteDatabase = {
   prepare(sql: string): SqliteStatement;
   transaction<T>(fn: () => T): () => T;
 };
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => SqliteDatabase;
-const BOOTSTRAP = readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8');
+const BOOTSTRAP = readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8');
 
 function d1From(sqlite: SqliteDatabase, beforeFirstBatch: () => void): D1Database {
   let batchCount = 0;

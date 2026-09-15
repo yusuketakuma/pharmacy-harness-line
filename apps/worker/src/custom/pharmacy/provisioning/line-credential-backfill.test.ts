@@ -1,8 +1,7 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DB_PACKAGE_ROOT, Sqlite } from '../test-sqlite.js';
 import {
   type LineCredentialKind,
 } from './line-credentials.js';
@@ -20,13 +19,7 @@ const CHANNEL_SECRET = 's'.repeat(32);
 const LOGIN_CHANNEL_SECRET = 'l'.repeat(32);
 const LEGACY_SENTINEL = 'encrypted:v1';
 
-const require = createRequire(import.meta.url);
-const BASELINE = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../packages/db/migrations/001_v033_baseline.sql',
-);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => SqliteDatabase;
+const BASELINE = join(DB_PACKAGE_ROOT, 'migrations/001_v033_baseline.sql');
 
 type SqliteStatement = {
   get(...values: unknown[]): unknown;

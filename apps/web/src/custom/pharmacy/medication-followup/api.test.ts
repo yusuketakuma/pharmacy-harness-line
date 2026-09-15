@@ -4,6 +4,8 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('medication follow-up admin API', () => {
   it('schedules from a submission without accepting patient scope from the browser', async () => {
+    vi.stubGlobal('window', {})
+    vi.stubGlobal('localStorage', { getItem: () => 'csrf-token' })
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       followUp: { id: 'followup-a', status: 'scheduled', version: 1 },
     })))
@@ -28,6 +30,8 @@ describe('medication follow-up admin API', () => {
   })
 
   it('sends an optimistic staff transition', async () => {
+    vi.stubGlobal('window', {})
+    vi.stubGlobal('localStorage', { getItem: () => 'csrf-token' })
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       followUp: { id: 'followup-a', status: 'assigned', version: 4 },
     })))

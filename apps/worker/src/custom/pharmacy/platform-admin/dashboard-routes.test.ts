@@ -1,9 +1,13 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  DB_PACKAGE_ROOT,
+  Sqlite,
+  d1FromSqlite,
+  type TestSqliteDatabase,
+} from '../test-sqlite.js';
 import { toJstString } from '@line-crm/db';
 import type { Env } from '../../../index.js';
 import {
@@ -18,38 +22,10 @@ import { platformAdminDashboardRoutes } from './dashboard-routes.js';
 // "the counts are correct" assertion a tautology, so this file drives the
 // real schema through better-sqlite3 — the same adapter shape
 // routes/webhook-durable-inbox.test.ts already uses in this app.
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
+type Sqlite3Database = TestSqliteDatabase;
+const d1From = d1FromSqlite;
 
-type SqliteStatement = {
-  get(...values: unknown[]): unknown;
-  all(...values: unknown[]): unknown[];
-  run(...values: unknown[]): { changes: number };
-};
-type Sqlite3Database = {
-  pragma(sql: string): unknown;
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-};
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => Sqlite3Database;
-
-const BOOTSTRAP = readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8');
-
-/** Adapts better-sqlite3 to the slice of the D1 surface these routes use. */
-function d1From(sqlite: Sqlite3Database): D1Database {
-  const statement = (sql: string, values: unknown[] = []) => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async () => sqlite.prepare(sql).get(...values) ?? null,
-    all: async () => ({ success: true, results: sqlite.prepare(sql).all(...values), meta: {} }),
-    run: async () => ({
-      success: true,
-      meta: { changes: sqlite.prepare(sql).run(...values).changes },
-      results: [],
-    }),
-  });
-  return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
-}
+const BOOTSTRAP = readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8');
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;

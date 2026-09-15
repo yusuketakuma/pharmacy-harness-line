@@ -5,7 +5,7 @@ describe('pharmacy image upload account scope', () => {
     vi.resetModules()
     vi.stubEnv('NEXT_PUBLIC_API_URL', 'https://worker.example')
     vi.stubGlobal('window', {})
-    vi.stubGlobal('localStorage', { getItem: () => '' })
+    vi.stubGlobal('localStorage', { getItem: () => 'csrf-token' })
   })
 
   it('sends the selected account as a server-validated selector', async () => {

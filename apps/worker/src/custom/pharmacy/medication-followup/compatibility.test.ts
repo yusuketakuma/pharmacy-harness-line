@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
+import { Sqlite } from '../test-sqlite.js';
 import {
   listOwnerMedicationFollowUps,
   listPatientMedicationFollowUps,
@@ -18,10 +18,6 @@ type SqliteDatabase = {
   ): (items: Array<{ execute?: () => unknown }>) => T;
   close(): void;
 };
-
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => SqliteDatabase;
 
 function oldSchemaDb(): { db: D1Database; close: () => void } {
   const sqlite = new Sqlite(':memory:');

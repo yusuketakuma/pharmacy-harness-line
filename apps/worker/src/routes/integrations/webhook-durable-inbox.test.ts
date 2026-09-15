@@ -236,13 +236,48 @@ describe('webhook durable inbox (H-3)', () => {
   test('fails the request when the durable write fails instead of acking a lost event', async () => {
     const failing = d1From(sqlite, (sql) => sql.includes('INSERT OR IGNORE INTO pharmacy_webhook_event_receipts'));
     const { ctx, settle } = makeCtx();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const response = await post(failing, 'a', [textEvent('a', 'event-lost')], ctx);
+    try {
+      const response = await post(failing, 'a', [textEvent('a', 'event-lost')], ctx);
 
-    expect(response.status).toBe(500);
-    expect(ctx.waitUntil).not.toHaveBeenCalled();
-    expect(receipts()).toHaveLength(0);
-    await settle();
+      expect(response.status).toBe(500);
+      expect(ctx.waitUntil).not.toHaveBeenCalled();
+      expect(receipts()).toHaveLength(0);
+      await settle();
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"pharmacy_webhook_inbox_store_failed"'),
+      ]));
+      expect(lines.join('\n')).not.toContain('SIMULATED_D1_FAILURE');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test('keeps inbox handler failures free of database error details', async () => {
+    sqlite.pragma('ignore_check_constraints = ON');
+    sqlite.prepare(`UPDATE pharmacy_account_capabilities SET mode = 'generic'
+      WHERE line_account_id = 'account-a'`).run();
+    sqlite.pragma('ignore_check_constraints = OFF');
+    const failing = d1From(sqlite, (sql) => sql.includes('FROM auto_replies'));
+    const { ctx, settle } = makeCtx();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const response = await post(failing, 'a', [textEvent('a', 'event-handler-failed')], ctx);
+      await settle();
+
+      expect(response.status).toBe(200);
+      expect(receipts()[0]).toMatchObject({ status: 'failed', retry_count: 1 });
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"pharmacy_webhook_inbox_event_failed"'),
+      ]));
+      expect(lines.join('\n')).not.toContain('SIMULATED_D1_FAILURE');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   test('a pending row left behind by a dead isolate is completed by the cron sweep', async () => {

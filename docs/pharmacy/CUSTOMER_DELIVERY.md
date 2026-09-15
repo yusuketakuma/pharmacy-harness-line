@@ -140,6 +140,13 @@ LIFF Endpoint URLは、CLIまたは管理画面が表示する専用LIFF Pages U
 Webhook・API・OAuth callback用であり、LIFF Endpointへ登録してはいけません。登録先を
 取り違えると、LINEから開いた画面が汎用Workerクライアントになり、処方せん受付を開けません。
 
+## 検証環境の境界
+
+development環境での検証には、synthetic tenant A/B、synthetic LINE account A/B、
+synthetic patient A/Bだけを使用します。実患者データをdevelopmentへ投入しては
+いけません。main/productionへのdeploy、tenant/accountのactivation、実患者の
+導入は、対象の全gateと責任者の明示的なGoがあるまで行いません。
+
 ## 更新
 
 更新はplatformの`dev -> main`昇格後、中央Cloudflare環境へ1回だけ実施します。

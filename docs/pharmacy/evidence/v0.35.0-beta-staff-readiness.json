@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-05T15:59:00.201Z",
+  "capturedAt": "2026-09-15T09:15:00.000Z",
   "scope": "v0.35.0-beta-scope-and-staff-critical-journey",
   "status": "UNVERIFIED",
   "releaseReadiness": "BLOCKED",
@@ -15,30 +15,30 @@
   "freeze": {
     "baseSourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
     "branch": "dev",
-    "packageVersion": "0.34.2",
+    "packageVersion": "0.35.0",
     "targetVersion": "0.35.0",
-    "exactCandidateSha": null,
+    "exactCandidateSha": "cc8019d44c586f1c9551530cd9526af52354188c",
     "exactArtifactDigest": null,
-    "frozenBeforeStaffTrials": false,
+    "frozenBeforeStaffTrials": true,
     "schemaFileSha256": "ae1424d1a2f212045d60b88030284da2aa4285dface225782bc5e1cdf2f11d49",
-    "schemaClaim": "ローカルschema.sqlのbytes hash。実D1 schema fingerprintではない。",
+    "schemaClaim": "ローカルschema.sqlのbytes hash（2026-09-15再計算、値不変）。実D1 schema fingerprintではない。",
     "migrationRange": [
       "001_v033_baseline.sql",
-      "013_custom_070_patient_proxy_lifecycle.sql"
+      "020_custom_077_pharmacy_beta_notification_bindings.sql"
     ],
-    "postBaselineMigrations": 12,
+    "postBaselineMigrations": 19,
     "sellerReference": {
       "tag": "pharmacy-v0.32.0",
       "commit": "cf746700f9e31ef20e07c2a9606e44b9197ccad3",
-      "claim": "検証したseller参照。packageの版や最新sellerを推定しない。"
+      "claim": "検証したseller参照。最新seller tagはpharmacy-v0.32.0のまま（pharmacy-v0.35.0 seller tagは未作成）。packageの版や最新sellerを推定しない。"
     },
     "remoteReadback": {
-      "checkedAt": "2026-09-05T15:52:17Z",
-      "devSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+      "checkedAt": "2026-09-15T09:15:00Z",
+      "devSha": "57745cd996878406330651916f7449f803c27531",
       "mainSha": "0e738bfde949314e80a1e5a3938333c0d13b97e3",
       "development": {
-        "deploymentId": 6237281754,
-        "sourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+        "deploymentId": 6438472415,
+        "sourceSha": "57745cd996878406330651916f7449f803c27531",
         "status": "SUCCESS"
       },
       "production": {
@@ -46,12 +46,14 @@
         "sourceSha": "123545e888c6e6a7e533eaba865a5d09797657fb",
         "status": "SUCCESS"
       },
-      "claim": "GitHub deployment metadataのみ。現dirty候補のdeployed byte equality、実D1 migration、binding、LINE設定はUNVERIFIED。"
+      "claim": "GitHub deployment metadataのみ。local candidate cc8019d（a69af85含む未push 2 commitを含む）はdeployedではない。deployed devはorigin/dev 57745cd。実D1 migration、binding、LINE設定はUNVERIFIED。"
     },
     "migrationSet": {
       "algorithm": "sha256 of JSON.stringify(sorted path/sha256 rows)",
-      "digest": "b15c4719845a7b7657c8c3a125e537fcfa1056e6951be3662f46c55a3b60ca4c"
-    }
+      "digest": "1c66448e8ce0135dfdad419ba5a692f6fd629321ebeef576710e91e80d54e074",
+      "refreshedAt": "2026-09-15"
+    },
+    "exactCandidateClaim": "2026-09-15時点のlocal dev HEAD（V035-5 route-level test追加済み）。以後のcommitはtest/docs/evidence-onlyでapplication codeは不変（automatedEvidence.postFreezeDeltas参照）。deploy SHA・artifact digestではない。"
   },
   "scopeDecision": {
     "status": "BLOCKED",
@@ -63,10 +65,11 @@
       "claim": "ユーザーの要件回答。参加登録・制御実装・運用開始の完了を示さない。"
     },
     "pending": [
-      "参加人数・単位・機能範囲と対象操作の境界",
+      "参加人数・cohort単位・機能範囲（対象操作の境界はdocs/pharmacy/BETA_PARTICIPATION.mdで確定済み）",
       "曜日/時間帯、営業時間内の一次応答期限、主担当/代行担当"
     ],
-    "authorization": "この資料は招待送信・参加登録・機能activation・deploy・本番変更を許可しない。"
+    "authorization": "この資料は招待送信・参加登録・機能activation・deploy・本番変更を許可しない。",
+    "operationBoundaryRef": "docs/pharmacy/BETA_PARTICIPATION.md"
   },
   "workflows": [
     {
@@ -87,7 +90,13 @@
         "V039-1"
       ],
       "scope": "提出・再提出・取消・受付・準備・来局・受渡し。通信断、二重操作、画像保持を含む。",
-      "status": "UNVERIFIED"
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/custom/pharmacy/prescriptions/routes.test.ts",
+        "apps/web/src/custom/pharmacy/prescriptions/PrescriptionQueuePage.test.tsx",
+        "apps/web/e2e/prescription-journey.e2e.ts"
+      ],
+      "applicableScope": "提出・再提出・取消・受付・準備・来局・受渡し。通信断、二重操作、画像保持を含む。"
     },
     {
       "id": "V035-F02",
@@ -104,8 +113,16 @@
         "V035-5",
         "V038-6"
       ],
-      "scope": "同意・本人照合・代理期限・撤回・誤紐付け。招待参加資格は既存consent/capabilityとは別で未実装。",
-      "status": "UNVERIFIED"
+      "scope": "同意・本人照合・代理期限・撤回・誤紐付け。招待参加資格はcustom_072/077でserver-side実装済み（local）。activation・成人家族proxyは未実施。",
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/custom/pharmacy/intake/routes.test.ts",
+        "apps/worker/src/custom/pharmacy/beta-membership/routes.test.ts",
+        "apps/worker/src/custom/pharmacy/data-subject-requests/routes.test.ts",
+        "packages/db/test/custom_072_pharmacy_beta_memberships.test.ts",
+        "packages/db/test/custom_077_pharmacy_beta_notification_bindings.test.ts"
+      ],
+      "applicableScope": "同意・本人照合・代理期限・撤回・誤紐付け。招待参加資格はcustom_072/077でserver-side実装済み（local）。activation・成人家族proxyは未実施。"
     },
     {
       "id": "V035-F03",
@@ -127,7 +144,14 @@
         "V036-6"
       ],
       "scope": "manual header、自動通知との区別、結果不明、未回答、薬剤師対応記録、電話引継ぎ。",
-      "status": "UNVERIFIED"
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/custom/pharmacy/continuity/routes.test.ts",
+        "apps/worker/src/custom/pharmacy/medication-followup/routes.test.ts",
+        "apps/worker/src/custom/pharmacy/medication-followup/webhook.test.ts",
+        "apps/worker/src/routes/crm/chats-manual-message.test.ts"
+      ],
+      "applicableScope": "manual header、自動通知との区別、結果不明、未回答、薬剤師対応記録、電話引継ぎ。"
     },
     {
       "id": "V035-F04",
@@ -152,7 +176,13 @@
         "V038-7"
       ],
       "scope": "session失効・account切替・競合・画像/印刷・連絡先/営業時間・support grant。",
-      "status": "UNVERIFIED"
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/custom/pharmacy/print/routes.test.ts",
+        "apps/worker/src/custom/pharmacy/public-profile/routes.test.ts",
+        "apps/worker/src/middleware/tenant-boundary.test.ts"
+      ],
+      "applicableScope": "session失効・account切替・競合・画像/印刷・連絡先/営業時間・support grant。"
     },
     {
       "id": "V035-F05",
@@ -169,7 +199,13 @@
         "V039-2"
       ],
       "scope": "follow/unfollow/再follow・重複/逆順・送信取消・未対応形式・枠不足・LINE側自動応答。実LINEはNOT_RUN。",
-      "status": "UNVERIFIED"
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/routes/integrations/webhook-pharmacy-mode.test.ts",
+        "packages/db/test/custom_021_pharmacy_webhook_event_receipts.test.ts",
+        "apps/worker/src/custom/pharmacy/rich-menu/routes.test.ts"
+      ],
+      "applicableScope": "follow/unfollow/再follow・重複/逆順・送信取消・未対応形式・枠不足・LINE側自動応答。実LINEはNOT_RUN。"
     },
     {
       "id": "V035-F06",
@@ -190,7 +226,12 @@
         "V039-6"
       ],
       "scope": "停止・電話/店頭代替・D1/R2/FLE同世代復旧・旧client互換・通知ledger照合。実cloud復旧はNOT_RUN。",
-      "status": "UNVERIFIED"
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/custom/pharmacy/platform-admin/",
+        "docs/pharmacy/WRONG_BINDING_RECOVERY.md"
+      ],
+      "applicableScope": "停止・電話/店頭代替・D1/R2/FLE同世代復旧・旧client互換・通知ledger照合。実cloud復旧はNOT_RUN。"
     },
     {
       "id": "V035-F07",
@@ -210,7 +251,13 @@
         "V038-2"
       ],
       "scope": "家族・EC・Myna・Meetの新規提供範囲は未承認。既存案件の権利行使・閲覧・停止・必要な継続処理は除外しない。Meet提供時は登録/変更/取消と前日/1時間前通知を一体確認。",
-      "status": "UNVERIFIED"
+      "status": "UNVERIFIED",
+      "testIds": [
+        "apps/worker/src/custom/pharmacy/emergency-contraception/routes.test.ts",
+        "apps/worker/src/custom/pharmacy/myna/routes.test.ts",
+        "docs/pharmacy/BETA_PARTICIPATION.md"
+      ],
+      "applicableScope": "家族・EC・Myna・Meetの新規提供範囲は未承認。既存案件の権利行使・閲覧・停止・必要な継続処理は除外しない。Meet提供時は登録/変更/取消と前日/1時間前通知を一体確認。"
     }
   ],
   "humanGates": [
@@ -1010,7 +1057,7 @@
       "maximum": 3,
       "namesRecorded": false
     },
-    "baselineSourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+    "baselineSourceSha": "123545e888c6e6a7e533eaba865a5d09797657fb",
     "startGate": "同一fixtureのbaseline/candidate buildと試験手順を先にfreezeし、担当者が承認してから開始。今のdirty treeを凍結済みと扱わない。",
     "trialsPerTaskPerParticipant": 3,
     "tasks": [
@@ -1078,7 +1125,74 @@
       "gate": false,
       "rule": "小標本の形成的評価。安全性・正確性の失敗を達成率や速さで相殺しない。"
     },
-    "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。"
+    "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。 fixture code・buildDigest・匿名participant codeのみ記録。",
+    "baselineClaim": "deployed production build（現在のスタッフ体験）。所要時間短縮の比較基準。deploy metadata確認済み、byte equality未検証。",
+    "candidateSourceSha": "cc8019d44c586f1c9551530cd9526af52354188c",
+    "candidateClaim": "2026-09-15 local dev HEAD。以後のcommitはtest/docs/evidence-onlyで被検証application codeは不変（automatedEvidence.postFreezeDeltas参照）。application code変更があれば再freeze。",
+    "frozenAt": "2026-09-15T09:20:00.000Z",
+    "frozenBy": "engineering",
+    "approvalStatus": "PENDING_OWNER_ACCEPTANCE",
+    "fixtures": [
+      {
+        "code": "FIX-A-SELF",
+        "content": "合成薬局A・本人患者P1・処方せん1件（合成画像4枚・使用期限・問診rev2・受取希望）。受付→準備→受渡し。",
+        "tasks": [
+          "V035-UX01",
+          "V035-UX03",
+          "V035-UX06"
+        ],
+        "seeding": "apps/web/e2e/prescription-journey.e2e.tsと同じ合成route-mock/seeded dev D1"
+      },
+      {
+        "code": "FIX-B-FOREIGN",
+        "content": "合成薬局B・別患者・別処方せん。cross-account誤認の検出用。",
+        "tasks": [
+          "V035-UX01",
+          "V035-UX05"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-PROXY-CHILD",
+        "content": "未成年proxy家族患者（有効proxy consent、期限切れ境界ケース含む）。",
+        "tasks": [
+          "V035-UX01"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-CONFLICT",
+        "content": "同一処方せんを2名の合成スタッフが同時編集し409を発生させる。",
+        "tasks": [
+          "V035-UX02"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-PRINT-503",
+        "content": "print record APIが503を返す注入。画像維持・同一操作ID再確認。",
+        "tasks": [
+          "V035-UX04"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-OFFLINE",
+        "content": "通信断・低速・session期限切れをroute abort/delayで注入。",
+        "tasks": [
+          "V035-UX05"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-NONPARTICIPANT",
+        "content": "beta非参加friend。403境界と既存record/control path継続の確認。",
+        "tasks": [
+          "V035-UX01"
+        ],
+        "seeding": "同上"
+      }
+    ]
   },
   "operationsPreparation": {
     "status": "BLOCKED",
@@ -1130,7 +1244,87 @@
       "API p95/p99・エラー率・backlog/retry許容値",
       "tenant偏在と2倍profile",
       "alert到達先と業務時間外の代替連絡先"
-    ]
+    ],
+    "pendingDecisions": [
+      {
+        "id": "V035-6-D1",
+        "item": "営業時間（曜日/時間帯）",
+        "owner": "pharmacy owner",
+        "needed": "運用時間の確定値",
+        "verification": "follow-up senderのoperations_blocked解除条件として設定値をWorker testで確認",
+        "blocks": [
+          "medication-followup自動送信",
+          "一次返信期限の計算基準"
+        ]
+      },
+      {
+        "id": "V035-6-D2",
+        "item": "一次返信期限（応答SLA）",
+        "owner": "pharmacy owner",
+        "needed": "営業時間内の応答期限値",
+        "verification": "follow-up deadlineフィールドへの反映と境界テスト",
+        "blocks": [
+          "medication-followup自動送信",
+          "escalation閾値"
+        ]
+      },
+      {
+        "id": "V035-6-D3",
+        "item": "primary担当",
+        "owner": "pharmacy owner",
+        "needed": "担当者の指名（役職/個人の割当）",
+        "verification": "assignments tableへの登録と通知route確認",
+        "blocks": [
+          "medication-followup自動送信",
+          "障害時連絡網"
+        ]
+      },
+      {
+        "id": "V035-6-D4",
+        "item": "backup担当・緊急時代替",
+        "owner": "pharmacy owner",
+        "needed": "代行者指名と電話/店頭引継ぎ手順の確定",
+        "verification": "recoverySequence第3段「電話/店頭へ引継ぎ」の実地確認（Human Gate）",
+        "blocks": [
+          "medication-followup自動送信",
+          "cloud rehearsal"
+        ]
+      },
+      {
+        "id": "V035-6-D5",
+        "item": "EC sale/counter/auditとDSR tombstoneの保持方針",
+        "owner": "product/pharmacy/legal owner",
+        "needed": "RETENTION_MATRIX.md §EC/DSRの未決方針の確定",
+        "verification": "方針確定後のmigration+テスト追加。確定前はretention deleteを開始しない",
+        "blocks": [
+          "処方せん・incoming imageのretention delete開始"
+        ]
+      },
+      {
+        "id": "V035-6-D6",
+        "item": "p95/p99・error rate・backlog上限（負荷条件）",
+        "owner": "data/ops owner（V037-0で数値化）",
+        "needed": "syntheticLoadDraftへの目標値設定",
+        "verification": "V037-0 freeze→合成負荷計測→実値と目標の照合",
+        "blocks": [
+          "V037-0 workload/SLO freeze",
+          "alert閾値"
+        ]
+      },
+      {
+        "id": "V035-6-D7",
+        "item": "cloud復旧rehearsal",
+        "owner": "data/ops owner + Cloudflare account権限者",
+        "needed": "許可された隔離環境での実復旧",
+        "verification": "recoverySequence全7段の実施記録（Human Gate）",
+        "blocks": [
+          "RPO 24h/RTO 4hの実証",
+          "V039-4"
+        ]
+      }
+    ],
+    "claim": "数値はowner判断までBLOCKED。推測した保持期間・SLA・担当を実装やproduction削除へ使わない。",
+    "preparedAt": "2026-09-15"
   },
   "automatedEvidence": {
     "workspaceUnit": {
@@ -1198,7 +1392,12 @@
         "tool": "gitleaks 8.30.1",
         "trackedCommand": "gitleaks git --pre-commit --redact=100 --no-banner --no-color --timeout 60",
         "newPathCommand": "gitleaks dir --redact=100 --no-banner --no-color --timeout 60 <exact-path>",
-        "newPaths": ["apps/web/e2e", "apps/web/playwright.config.ts", "docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json", "scripts/deploy/v035-readiness.test.ts"],
+        "newPaths": [
+          "apps/web/e2e",
+          "apps/web/playwright.config.ts",
+          "docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json",
+          "scripts/deploy/v035-readiness.test.ts"
+        ],
         "findings": 0,
         "limit": "Regex secret scan only; not proof of zero PHI/PII or a replacement for CI commit-history scanning."
       },
@@ -1207,7 +1406,18 @@
         "auditResult": "No known vulnerabilities found",
         "licenseCommand": "pnpm licenses list --prod --json",
         "licenseReportSha256": "e0a88c1efec6b72336b4308522c9fbd8470f0ff2dd987fdde999f772b4d34b59",
-        "licenseGroups": { "MIT": 141, "Apache-2.0": 19, "LGPL-3.0-or-later": 1, "SEE LICENSE IN README.md": 51, "CC-BY-4.0": 1, "BSD-3-Clause": 3, "ISC": 10, "BSD-2-Clause": 1, "Public domain": 1, "0BSD": 1 },
+        "licenseGroups": {
+          "MIT": 141,
+          "Apache-2.0": 19,
+          "LGPL-3.0-or-later": 1,
+          "SEE LICENSE IN README.md": 51,
+          "CC-BY-4.0": 1,
+          "BSD-3-Clause": 3,
+          "ISC": 10,
+          "BSD-2-Clause": 1,
+          "Public domain": 1,
+          "0BSD": 1
+        },
         "unknownOrUnlicensedGroups": 0,
         "localRepair": "Missing pnpm package indexes initially prevented the report. Frozen install alone did not fix them; pnpm store add restored indexes for the 268 exact installed production package coordinates. No dependency version or lockfile change, no lifecycle scripts, no store pruning.",
         "limit": "The existing CI unknown/unlicensed baseline passed. This is not a legal-compliance conclusion for LGPL, attribution, or README-based terms."
@@ -1222,6 +1432,31 @@
         "components": 208,
         "componentsWithoutLicenseMetadata": 65,
         "limit": "Format/non-empty/unique-component check passed. The pnpm executable shim injects NODE_PATH; direct Node avoids that local secure-mode warning without changing global configuration. No provenance or deployed-artifact claim."
+      },
+      "fleOracleReview": {
+        "status": "COMPLETED",
+        "verified": "yes",
+        "session": "fle-final-security-rerun",
+        "ranAt": "2026-09-15",
+        "model": "Latest (requested gpt-6-pro)",
+        "durationMinutes": 14,
+        "attachments": "baseline envelope/migration-state DDL excerpt + intake/provisioning 6 files",
+        "verdict": "BLOCK mutating FLE migration/cutover/restore",
+        "findings": [
+          "F1 high: state auth and writes not atomic",
+          "F2 high: arbitrary cursor falsely completes scrub/restore",
+          "F3 high: restore dry-run mutates approval/write freeze",
+          "F4 high: freeze accepts stale coverage, intake stuck frozen",
+          "F5 high: post-scrub intake invalidates restore",
+          "F6 high(helper boundary): legacy fallback skips tenant/account check",
+          "F7 medium: report exposes raw response id"
+        ],
+        "trackedAs": [
+          "FLE-REVIEW-1",
+          "FLE-REVIEW-2",
+          "FLE-REVIEW-3"
+        ],
+        "claim": "advisory read-only review。exported migration helper向けの指摘で、現行FLE mutating操作は無効のまま。route-level exploitは未実証。activation根拠にしない。"
       }
     },
     "liffBrowser": {
@@ -1229,7 +1464,91 @@
       "tests": 13,
       "command": "pnpm --filter liff test:e2e",
       "limit": "Local Chromium/synthetic; no real LINE or participant proof."
-    }
+    },
+    "candidateVerification": {
+      "candidateSha": "cc8019d44c586f1c9551530cd9526af52354188c",
+      "note": "現候補コードの最終検証（cc8019d以降はtest/docs/evidence-only commit、postFreezeDeltasに追記）。2026-09-06の数値は別時点の記録であり転用ではない。",
+      "verifyCi": {
+        "status": "PASS",
+        "command": "pnpm verify:ci",
+        "checkedAt": "2026-09-15",
+        "worker": {
+          "files": 247,
+          "tests": 2661
+        },
+        "web": {
+          "files": 52,
+          "tests": 242
+        },
+        "db": {
+          "files": 92,
+          "tests": 436
+        },
+        "liff": {
+          "tests": 148
+        },
+        "updateEngine": {
+          "files": 22,
+          "tests": 219
+        },
+        "mcpServer": {
+          "files": 5,
+          "tests": 19
+        },
+        "createLineHarness": {
+          "files": 8,
+          "tests": 61
+        },
+        "scripts": {
+          "files": 21,
+          "tests": 218
+        },
+        "migrationChecker": {
+          "status": "PASS",
+          "postBaselineMigrations": 19
+        },
+        "typecheck": "PASS (pnpm -r typecheck)"
+      },
+      "webBrowserE2e": {
+        "status": "PASS",
+        "tests": 11,
+        "command": "pnpm --filter web test:e2e",
+        "limit": "Local Chromium, synthetic APIs"
+      },
+      "liffBrowserE2e": {
+        "status": "PASS",
+        "tests": 13,
+        "command": "pnpm --filter liff test:e2e",
+        "limit": "Local Chromium/synthetic"
+      },
+      "gitDiffCheck": "PASS",
+      "notRun": [
+        "exact-candidate CI",
+        "CodeQL on candidate",
+        "provenance on candidate",
+        "real LINE",
+        "real staff/device",
+        "production migration/deploy",
+        "beta activation"
+      ]
+    },
+    "postFreezeDeltas": [
+      {
+        "date": "2026-09-15",
+        "summary": "V035-5 review follow-up: `liff-pharmacy-feature-access.test.ts`追加（feature-accessのsoft-deny `200 {existingFeatures:[]}`・handler未実行・resolved account/friend使用を固定）とBETA_PARTICIPATION.mdの行列訂正（DSR route surfaceを実在の`/api/custom/pharmacy/*`へ、feature-access行を文書化例外として追加）。application code不変。",
+        "verification": "pnpm --filter worker test: 248 files/2663 tests PASS (local HEAD)"
+      },
+      {
+        "date": "2026-09-15",
+        "summary": "依頼対応の局所UI改善（local差分）: docs/pharmacy/OPERATION_GUIDE.md新規+docs/README.md索引、PrescriptionPrintPage.operationIdのsessionStorage guard（不可時fresh UUID fallback）、EC相談窓口リンクのpharmacy-control 44px化、一覧/集計/履歴のIntl.DateTimeFormat都度生成を共有化3箇所（出力不変）。application codeが変わったため、commit時はV035-4試験候補の再freezeが必要。",
+        "verification": "pnpm --filter web test: 52 files/244 tests PASS; pnpm --filter liff test: 24 files/149 tests PASS; web/liff typecheck PASS (local working tree)"
+      },
+      {
+        "date": "2026-09-15",
+        "summary": "FLE-REVIEW-1..3 実装（local差分、`fle-final-security-rerun` F1-F7由来）: migrateLegacyFieldsを単一db.batch原子化（state/dataset guardのINSERT..SELECT制約失敗化、終端account-wide postcondition、dryRun書込み0、freeze INSERT行数guard、restore fresh-approval rebind+fence）、openPatientIntakeFieldsのtenant mapping正確認+sentinel拒否、nextCursorのAES-GCM opaque operation-scoped handle化。migration-fle-review.test.ts新規（実SQLite）。application codeが変わったため、commit時はV035-4試験候補の再freezeが必要。FLE mutating操作の有効化は別gateのまま。",
+        "verification": "pnpm --filter worker test: 249 files/2673 tests PASS; worker typecheck PASS (local working tree)"
+      }
+    ]
   },
   "boundaries": {
     "commit": "NOT_RUN",

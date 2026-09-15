@@ -17,6 +17,8 @@ it('forwards the account-list abort signal to fetch', async () => {
 })
 
 it('suspends a binding with the fixed non-clinical reason', async () => {
+  vi.stubGlobal('window', {})
+  vi.stubGlobal('localStorage', { getItem: () => 'csrf-token' })
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({
     status: 'suspended', controlVersion: 1,
     nextAction: 'recreate_under_verified_owner',

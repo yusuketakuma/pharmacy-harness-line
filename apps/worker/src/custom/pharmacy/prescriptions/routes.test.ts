@@ -204,6 +204,15 @@ describe('patient history, cancellation, and resubmission routes', () => {
     expect(mocks.listHistory).toHaveBeenCalled();
   });
 
+  it('rejects a non-participant with the resolved account and friend, not query input', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const response = await request('/api/liff/pharmacy/prescriptions/me?line_account_id=account-9&friendId=friend-9');
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(mocks.betaParticipant).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
+    expect(mocks.listHistory).not.toHaveBeenCalled();
+  });
+
   it('commits cancellation before deleting and marking each R2 object', async () => {
     const response = await request(
       '/api/liff/pharmacy/prescriptions/submission-1/cancel',

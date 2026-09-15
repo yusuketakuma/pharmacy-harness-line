@@ -1,6 +1,6 @@
 # Pharmacy Growth Loop roadmap
 
-Status (2026-08-19): Release 1 implementation, local verification, and
+Historical status (2026-08-19): Release 1 implementation, local verification, and
 independent review evidence is retained from `feature/growth-loop-release-1`
 (`707e04f`). The current integration branch is
 `v0.26.0/feature/logical-multitenancy`; multitenant boundary work and LIFF
@@ -8,11 +8,16 @@ deployment-contract checks are local and uncommitted. The public dev LIFF/Admin
 Pages still serve an older bundle, so no deployment, LINE setting, production
 D1/R2 access, or production-data validation is claimed.
 
-The runtime application packages and pharmacy release metadata are unified at
+Historical status (2026-08-19): The runtime application packages and pharmacy release metadata are unified at
 `0.25.0` on `dev`. The `pharmacy-v0.25.0` tag is a pending release action, not
 deployment evidence. `minimum_client_version` and `rollback_compatible_from`
 remain `0.21.3` as compatibility floors for existing customers; they are not
 the current application version.
+
+Current local baseline (2026-09-15): branch `dev`, HEAD
+`dcc8bb8f097b3188c2e56766ca00fb2826c9a561`, package line `0.35.0`. This roadmap
+remains a product plan; local maintenance verification does not change release,
+deployment, activation, or production-operation status.
 
 ## Purpose
 

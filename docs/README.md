@@ -26,7 +26,9 @@
 | [CUSTOMER_DELIVERY.md](pharmacy/CUSTOMER_DELIVERY.md) | 薬局テナントの導入手順 |
 | [customer-production-update-checklist.md](pharmacy/customer-production-update-checklist.md) | 本番更新チェックリスト |
 | [manual-staff.md](pharmacy/manual-staff.md) / [manual-patient.md](pharmacy/manual-patient.md) | スタッフ向け / 患者向けの 1 枚マニュアル |
+| [OPERATION_GUIDE.md](pharmacy/OPERATION_GUIDE.md) | 日常運用の操作ガイド(1日の流れ・優先順位・トラブル対応・エスカレーション) |
 | [v0.35.0-beta-staff-readiness.json](pharmacy/evidence/v0.35.0-beta-staff-readiness.json) | 0.35対象業務、旧gate引継ぎ、スタッフ試験手順、未確定の運用条件。release水準は未到達 |
+| [BETA_PARTICIPATION.md](pharmacy/BETA_PARTICIPATION.md) | beta参加境界の操作行列(対象操作×拒否/継続・担当者判断・rollback境界)。V035-5の正本 |
 | [WRONG_BINDING_RECOVERY.md](pharmacy/WRONG_BINDING_RECOVERY.md) | 患者とLINE利用者を誤って紐付けた場合の停止・再登録手順 |
 | [GROWTH_LOOP_ROADMAP.md](pharmacy/GROWTH_LOOP_ROADMAP.md) / [GROWTH_LOOP_KPI_CONTRACT.md](pharmacy/GROWTH_LOOP_KPI_CONTRACT.md) | 薬局統計 (Growth Loop) の拡張計画と KPI 定義 |
 | [PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md](pharmacy/PHARMACY_PRINT_AND_ACTIVITY_NOTIFICATIONS.md) | 印刷・活動通知の仕様 |

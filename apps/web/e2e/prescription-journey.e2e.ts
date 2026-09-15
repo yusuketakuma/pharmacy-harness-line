@@ -30,7 +30,7 @@ async function mockPharmacy(page: Page, intercept?: (route: Route, path: string)
     const path = new URL(route.request().url()).pathname
     if (intercept && await intercept(route, path)) return
     let json: unknown
-    if (path === '/api/auth/session') json = { success: true, data: { name: '合成スタッフ', role: 'owner' }, csrfToken: 'synthetic-csrf' }
+    if (path === '/api/auth/session') json = { success: true, data: { id: 'synthetic-staff', name: '合成スタッフ', role: 'owner', tenantId: 'synthetic-tenant', tenantCode: 'SYNTHETIC', tenantName: '合成薬局', mustChangePassword: false }, csrfToken: 'synthetic-csrf' }
     else if (path === '/api/line-accounts') json = { success: true, data: [{ id: 'synthetic-account', name: '合成薬局', isActive: true, pharmacyMode: true }] }
     else if (path.endsWith('/growth/config')) json = { success: true, data: { capabilities: ['prescription_intake', 'patient_intake', 'manual_chat'] } }
     else if (path.endsWith('/active-work')) json = { success: true, data: {} }

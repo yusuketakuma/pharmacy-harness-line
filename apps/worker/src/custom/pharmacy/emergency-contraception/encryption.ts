@@ -1,3 +1,5 @@
+import { decodeBase64UrlLenient, toBase64Url } from '../crypto-utils.js';
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -8,17 +10,8 @@ export interface EmergencyEncryptionContext {
   intakeId: string;
 }
 
-function encodeBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function decodeBase64Url(value: string): Uint8Array {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
-  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
-}
+const encodeBase64Url = toBase64Url;
+const decodeBase64Url = decodeBase64UrlLenient;
 
 function validateContext(context: EmergencyEncryptionContext): void {
   if (Object.values(context).some((value) => !value || value.length > 160)) {

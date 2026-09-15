@@ -28,13 +28,17 @@ export function printAcknowledgementMessage(): string {
   return '印刷またはPDF保存が完了しましたか？ 印刷ダイアログをキャンセルした場合は記録しないでください。'
 }
 
-function operationId(submissionId: string): string {
+export function operationId(submissionId: string): string {
   const key = `pharmacy-print:${submissionId}`
-  const existing = sessionStorage.getItem(key)
-  if (existing) return existing
-  const created = crypto.randomUUID()
-  sessionStorage.setItem(key, created)
-  return created
+  try {
+    const existing = sessionStorage.getItem(key)
+    if (existing) return existing
+    const created = crypto.randomUUID()
+    sessionStorage.setItem(key, created)
+    return created
+  } catch {
+    return crypto.randomUUID()
+  }
 }
 
 export default function PrescriptionPrintPage() {

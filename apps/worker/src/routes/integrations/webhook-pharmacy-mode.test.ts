@@ -156,6 +156,72 @@ beforeEach(() => {
 });
 
 describe('pharmacy-mode webhook allowlist', () => {
+  it('keeps unknown-profile failures free of provider error details', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(null);
+      mocks.getProfile.mockRejectedValue(new Error('synthetic-profile-detail'));
+
+      await deliver({
+        type: 'message',
+        message: { type: 'sticker', id: 'sticker-1' },
+        source: { type: 'user', userId: 'U-pharmacy' },
+      }, database());
+
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"pharmacy_webhook_profile_fetch_failed"'),
+      ]));
+      expect(lines.join('\n')).not.toContain('synthetic-profile-detail');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('keeps pharmacy follow and metric failures free of provider error details', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      mocks.getProfile.mockRejectedValue(new Error('synthetic-follow-profile-detail'));
+      mocks.recordFollow.mockRejectedValue(new Error('synthetic-follow-metric-detail'));
+
+      await deliver({
+        type: 'follow',
+        replyToken: 'reply-follow',
+        source: { type: 'user', userId: 'U-pharmacy' },
+      }, database());
+
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"pharmacy_webhook_profile_fetch_failed"'),
+        expect.stringContaining('"event":"pharmacy_growth_follow_metric_failed"'),
+      ]));
+      expect(lines.join('\n')).not.toContain('synthetic-follow-profile-detail');
+      expect(lines.join('\n')).not.toContain('synthetic-follow-metric-detail');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('keeps pharmacy unfollow metric failures free of provider error details', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      mocks.recordUnfollow.mockRejectedValue(new Error('synthetic-unfollow-metric-detail'));
+
+      await deliver({
+        type: 'unfollow',
+        source: { type: 'user', userId: 'U-pharmacy' },
+      }, database());
+
+      const lines = consoleError.mock.calls.flatMap((args) => args.map((value) => String(value)));
+      expect(lines).toEqual(expect.arrayContaining([
+        expect.stringContaining('"event":"pharmacy_growth_unfollow_metric_failed"'),
+      ]));
+      expect(lines.join('\n')).not.toContain('synthetic-unfollow-metric-detail');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('records pharmacy onboarding but skips generic follow side effects', async () => {
     await deliver({
       type: 'follow',

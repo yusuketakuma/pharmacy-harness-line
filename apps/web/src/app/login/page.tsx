@@ -1,6 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  BrowserStorageUnavailableError,
+  getCsrfToken,
+  persistStaffSession,
+  SessionStateUnavailableError,
+} from '@/lib/api'
 import { safeNextPath } from '@/lib/safe-next-path'
 
 export default function LoginPage() {
@@ -30,9 +36,9 @@ export default function LoginPage() {
     let cancelled = false
     void fetch(`${apiUrl}/api/auth/session`, { credentials: 'include' })
       .then(async (response) => response.ok ? response.json() : null)
-      .then((sessionData) => {
-        if (cancelled || !sessionData?.data) return
-        if (sessionData.csrfToken) localStorage.setItem('lh_csrf', sessionData.csrfToken)
+      .then((sessionResponse) => {
+        if (cancelled || !sessionResponse) return
+        const sessionData = persistStaffSession(sessionResponse)
         if (sessionData.data.mustChangePassword) {
           setPasswordChangeRequired(true)
           setError('初回パスワード変更を続けてください。現在の仮パスワードをもう一度入力してください')
@@ -40,7 +46,13 @@ export default function LoginPage() {
           router.replace(nextPath)
         }
       })
-      .catch(() => undefined)
+    .catch((caught) => {
+      if (!cancelled && caught instanceof BrowserStorageUnavailableError) {
+        setError('ブラウザの保存領域を利用できないため、安全なログイン状態を確認できません。保存領域を有効にして再読み込みしてください')
+      } else if (!cancelled && caught instanceof SessionStateUnavailableError) {
+        setError('安全なセッション情報を確認できないため、ログイン状態を開けません。再読み込みしてください')
+      }
+    })
     return () => { cancelled = true }
   }, [apiUrl, router, nextPath])
 
@@ -72,9 +84,7 @@ export default function LoginPage() {
         return
       }
 
-      if (loginData?.data?.name) localStorage.setItem('lh_staff_name', loginData.data.name)
-      if (loginData?.data?.role) localStorage.setItem('lh_staff_role', loginData.data.role)
-      if (loginData?.csrfToken) localStorage.setItem('lh_csrf', loginData.csrfToken)
+      persistStaffSession(loginData)
       if (loginData?.data?.mustChangePassword) {
         setCurrentPassword(password)
         setPassword('')
@@ -82,8 +92,12 @@ export default function LoginPage() {
         return
       }
       router.push(nextPath)
-    } catch {
-      setError('接続に失敗しました')
+    } catch (caught) {
+      setError(caught instanceof BrowserStorageUnavailableError
+        ? 'ブラウザの保存領域を利用できないため、安全なログイン状態を確認できません。保存領域を有効にして再試行してください'
+        : caught instanceof SessionStateUnavailableError
+          ? '安全なセッション情報を受け取れないため、ログインを続けられません。再試行してください'
+        : '接続に失敗しました')
     } finally {
       setLoading(false)
     }
@@ -104,12 +118,13 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
+      const csrfToken = getCsrfToken()
       const res = await fetch(`${apiUrl}/api/auth/change-password`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': localStorage.getItem('lh_csrf') || '',
+          'X-CSRF-Token': csrfToken,
         },
         body: JSON.stringify({ currentPassword, newPassword }),
       })
@@ -128,9 +143,15 @@ export default function LoginPage() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
+      setPasswordChangeRequired(false)
+      setNotice('パスワードを変更しました。新しいパスワードでログインしてください')
       router.push(`/login?next=${encodeURIComponent(nextPath)}&reason=password-changed`)
-    } catch {
-      setError('接続に失敗しました')
+    } catch (caught) {
+      setError(caught instanceof BrowserStorageUnavailableError
+        ? 'ブラウザの保存領域を利用できないため、パスワードを変更できません。保存領域を有効にして再試行してください'
+        : caught instanceof SessionStateUnavailableError
+          ? 'CSRF情報を利用できないため、パスワードを変更できません。再読み込みしてください'
+        : '接続に失敗しました')
     } finally {
       setLoading(false)
     }

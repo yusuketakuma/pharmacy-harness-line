@@ -1,33 +1,11 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite } from '../test-sqlite.js';
 
 import { buildRetentionPreflight } from './preflight.js';
 
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as new (filename: string) => {
-  pragma(sql: string): unknown;
-  exec(sql: string): void;
-  prepare(sql: string): {
-    get(...values: unknown[]): unknown;
-    all(...values: unknown[]): unknown[];
-    run(...values: unknown[]): { changes: number };
-  };
-};
-
-function d1From(sqlite: InstanceType<typeof Sqlite>): D1Database {
-  const statement = (sql: string, values: unknown[] = []) => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {},
-    }) as D1Result<T>,
-  });
-  return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
-}
+const d1From = d1FromSqlite;
 
 const scope = { tenantId: 'tenant-a', lineAccountId: 'account-a', environment: 'test' };
 const createdAt = '2026-08-24T00:00:00.000Z';
@@ -39,7 +17,7 @@ describe('retention recovery preflight', () => {
   beforeEach(() => {
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     sqlite.prepare(`INSERT INTO line_accounts
       (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
       VALUES ('account-a', 'channel-a', 'A', 'token-a', 'secret-a', ?, ?)`).run(createdAt, createdAt);

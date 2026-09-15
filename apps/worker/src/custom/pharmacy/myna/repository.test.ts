@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
+import { Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import {
   createMynaHandoff,
   getActivePatientMynaHandoff,
@@ -8,19 +8,6 @@ import {
   recordMynaPatientReport,
   recordMynaVerification,
 } from './repository.js';
-
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => {
-    exec(sql: string): void;
-    prepare(sql: string): {
-      get(...values: unknown[]): unknown;
-      all(...values: unknown[]): unknown[];
-      run(...values: unknown[]): { changes: number };
-    };
-    transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R;
-    close(): void;
-  };
 
 function fakeDb(rows: {
   handoff?: Record<string, unknown> | null;
@@ -197,18 +184,8 @@ function handoffDb() {
           source, correlation_id, expires_at, created_at, updated_at)
        VALUES (?, 'account-1', 'friend-1', ?, NULL, 'PAPER', ?, 'LIFF', ?, ?, ?, ?)`,
     ).run(id, patientId, status, `correlation-${id}`, expiresAt, createdAt, createdAt);
-  const statement = (sql: string, values: unknown[] = []) => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async () => sqlite.prepare(sql).get(...values) ?? null,
-    all: async () => ({ success: true, results: sqlite.prepare(sql).all(...values), meta: {} }),
-    run: async () => ({
-      success: true,
-      results: [],
-      meta: { changes: sqlite.prepare(sql).run(...values).changes },
-    }),
-  });
   return {
-    db: { prepare: (sql: string) => statement(sql) } as unknown as D1Database,
+    db: d1FromSqlite(sqlite),
     insert,
     close: () => sqlite.close(),
   };
@@ -302,22 +279,8 @@ function createHandoffDb() {
   sqlite.prepare(`INSERT INTO pharmacy_account_capabilities
     (line_account_id, mode, capabilities_json)
     VALUES ('account-1', 'pharmacy', '["prescription_intake"]')`).run();
-  const statement = (sql: string, values: unknown[] = []) => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async () => sqlite.prepare(sql).get(...values) ?? null,
-    all: async () => ({ success: true, results: sqlite.prepare(sql).all(...values), meta: {} }),
-    run: () => ({
-      success: true,
-      results: [],
-      meta: { changes: sqlite.prepare(sql).run(...values).changes },
-    }),
-  });
   return {
-    db: {
-      prepare: (sql: string) => statement(sql),
-      batch: async (statements: Array<{ run(): unknown }>) =>
-        sqlite.transaction(() => statements.map((s) => s.run()))(),
-    } as unknown as D1Database,
+    db: d1FromSqlite(sqlite),
     close: () => sqlite.close(),
   };
 }

@@ -1,14 +1,15 @@
 # Admin Authentication (tenant password session + CSRF)
 
-The admin dashboard uses the pharmacy code, staff login ID, and password. The
-retired browser API-key login is not supported. A successful login creates an
-opaque **HttpOnly session cookie** bound to exactly one tenant.
+The admin dashboard uses the pharmacy code and the tenant's shared administrator
+password. A staff login ID is not entered by the browser login. The retired
+browser API-key login is not supported. A successful login creates an opaque
+**HttpOnly session cookie** bound to exactly one tenant.
 
 ## How it works
 
-1. **Login** — `POST /api/auth/login { pharmacyCode, loginId, password }`. The
-   Worker validates an active tenant, credential, staff member, and membership,
-   then sets three cookies:
+1. **Login** — `POST /api/auth/login { pharmacyCode, password }`. The Worker
+   validates an active tenant, its shared administrator credential, and the
+   corresponding membership, then sets three cookies:
    - `lh_admin_session` — the credential. **HttpOnly**, `Secure`, `Path=/`,
      `Max-Age=1800` for bootstrap sessions and `Max-Age=28800` for standard
      sessions. It contains only an opaque session token.

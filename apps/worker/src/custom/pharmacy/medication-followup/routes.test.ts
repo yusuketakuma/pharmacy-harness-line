@@ -97,6 +97,18 @@ describe('medication follow-up patient routes', () => {
     expect(mocks.listOwner).toHaveBeenCalledWith(env.DB, 'account-a', 'friend-a');
   });
 
+  it('rejects a non-participant before listing follow-ups', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const response = await app().request(
+      '/api/liff/pharmacy/medication-followups?liffId=liff-a',
+      { headers: { Authorization: 'Bearer id-token-a' } }, env,
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(mocks.betaParticipant).toHaveBeenCalledWith(env.DB, 'account-a', 'friend-a');
+    expect(mocks.listOwner).not.toHaveBeenCalled();
+  });
+
   it('records a fixed patient response with owner scope and idempotency', async () => {
     mocks.getOwner.mockResolvedValue({
       id: 'followup-a', patient_name: '田中 太郎', status: 'concern',

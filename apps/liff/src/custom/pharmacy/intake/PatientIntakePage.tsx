@@ -31,6 +31,18 @@ const relationshipLabels: Record<PatientRelationship, string> = {
   self: '本人', child: '子ども', spouse: '配偶者', parent: '親', other: 'その他',
 };
 
+export type PatientLoadState = {
+  patientId: string;
+  status: 'loading' | 'ready' | 'error';
+};
+
+export function isCurrentPatientReady(
+  selectedId: string,
+  state: PatientLoadState | null,
+): boolean {
+  return Boolean(selectedId && state?.patientId === selectedId && state.status === 'ready');
+}
+
 export function canSubmitIntake(
   answers: IntakeAnswersDraft,
   representativeConsent: boolean,
@@ -51,8 +63,9 @@ export default function PatientIntakePage() {
   const [selectedId, setSelectedId] = useState('');
   const [latestRevision, setLatestRevision] = useState<number | null>(null);
   const [latestAnswers, setLatestAnswers] = useState<PatientIntakeAnswers | null>(null);
+  const [intakeLoadState, setIntakeLoadState] = useState<PatientLoadState | null>(null);
   const [accessState, setAccessState] = useState<PatientAccessState | null>(null);
-  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessLoadState, setAccessLoadState] = useState<PatientLoadState | null>(null);
   const [answers, setAnswers] = useState<IntakeAnswersDraft>(INITIAL_INTAKE_ANSWERS);
   const [intakeStep, setIntakeStep] = useState(1);
   const [showStepErrors, setShowStepErrors] = useState(false);
@@ -112,6 +125,9 @@ export default function PatientIntakePage() {
   const patientSex = showNewPatient ? patientDraft.sex : selectedPatient?.sex;
   const showPregnancyQuestions = patientSex !== 'male' ||
     answers.pregnancyStatus !== 'not_applicable' || answers.breastfeedingStatus !== 'not_applicable';
+  const intakeReady = isCurrentPatientReady(selectedId, intakeLoadState);
+  const intakeLoading = intakeLoadState?.patientId === selectedId && intakeLoadState.status === 'loading';
+  const accessReady = isCurrentPatientReady(selectedId, accessLoadState);
 
   const loadPatients = useCallback(async () => {
     setLoading(true);
@@ -161,18 +177,30 @@ export default function PatientIntakePage() {
   }, [loadPrivacyPolicy]);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId) {
+      setIntakeLoadState(null);
+      return;
+    }
     let active = true;
     setDraftDirty(false);
     setIntakeStep(1);
     setLatestRevision(null);
     setLatestAnswers(null);
+    setIntakeLoadState({ patientId: selectedId, status: 'loading' });
+    setAnswers(INITIAL_INTAKE_ANSWERS);
+    setShowStepErrors(false);
+    setSaved(false);
+    setRepresentativeConsent(false);
+    setPrivacyConsent(false);
+    setSuccess(null);
+    setError(null);
     void patientIntakeApi.latest(selectedId).then((result) => {
       if (!active) return;
       const intake = result.intake;
       if (!intake) {
         setAnswers(INITIAL_INTAKE_ANSWERS);
         setIntakeStep(1);
+        setIntakeLoadState({ patientId: selectedId, status: 'ready' });
         return;
       }
       setLatestRevision(intake.revision);
@@ -184,11 +212,14 @@ export default function PatientIntakePage() {
         setLatestAnswers(savedAnswers);
         setAnswers(savedAnswers);
         setIntakeStep(1);
+        setIntakeLoadState({ patientId: selectedId, status: 'ready' });
       } catch {
+        setIntakeLoadState({ patientId: selectedId, status: 'error' });
         setError('回答を読み込めませんでした。');
       }
     }).catch((err: unknown) => {
       if (!active) return;
+      setIntakeLoadState({ patientId: selectedId, status: 'error' });
       setError(pharmacyErrorMessage(err, '回答を読み込めませんでした。'));
     });
     return () => { active = false; };
@@ -197,19 +228,48 @@ export default function PatientIntakePage() {
   useEffect(() => {
     if (!selectedId) {
       setAccessState(null);
+      setAccessLoadState(null);
       return;
     }
     let active = true;
-    setAccessLoading(true);
+    setAccessState(null);
+    setAccessLoadState({ patientId: selectedId, status: 'loading' });
     void patientIntakeApi.access(selectedId).then((result) => {
-      if (active) setAccessState(result.access);
+      if (!active) return;
+      setAccessState(result.access);
+      setAccessLoadState({ patientId: selectedId, status: 'ready' });
     }).catch((err: unknown) => {
-      if (active) setError(pharmacyErrorMessage(err, 'お知らせ設定を読み込めませんでした。'));
-    }).finally(() => {
-      if (active) setAccessLoading(false);
+      if (!active) return;
+      setAccessState(null);
+      setAccessLoadState({ patientId: selectedId, status: 'error' });
+      setError(pharmacyErrorMessage(err, 'お知らせ設定を読み込めませんでした。'));
     });
     return () => { active = false; };
   }, [selectedId]);
+
+  function resetPatientSelection(nextId: string) {
+    setSelectedId(nextId);
+    setLatestRevision(null);
+    setLatestAnswers(null);
+    setIntakeLoadState(nextId ? { patientId: nextId, status: 'loading' } : null);
+    setAccessState(null);
+    setAccessLoadState(nextId ? { patientId: nextId, status: 'loading' } : null);
+    setAnswers(INITIAL_INTAKE_ANSWERS);
+    setIntakeStep(1);
+    setShowStepErrors(false);
+    setSaved(false);
+    setDraftDirty(false);
+    setRepresentativeConsent(false);
+    setPrivacyConsent(false);
+    setError(null);
+    setSuccess(null);
+  }
+
+  function selectPatient(nextId: string) {
+    if (nextId === selectedId) return;
+    if (draftDirty && !window.confirm('未送信の入力があります。患者を切り替えますか？')) return;
+    resetPatientSelection(nextId);
+  }
 
   async function createPatient() {
     const {
@@ -266,7 +326,7 @@ export default function PatientIntakePage() {
         });
         registrationIdempotencyKeyRef.current = crypto.randomUUID();
         setPatients((current) => [...current, result.patient]);
-        setSelectedId(result.patient.id);
+        resetPatientSelection(result.patient.id);
         if (result.proxyGrant) {
           const expiresOn = new Date(result.proxyGrant.expiresAt).toLocaleDateString(
             'ja-JP', { timeZone: 'Asia/Tokyo' },
@@ -298,9 +358,7 @@ export default function PatientIntakePage() {
       await patientIntakeApi.revokeProxy(selectedPatient.id);
       const remaining = patients.filter((patient) => patient.id !== selectedPatient.id);
       setPatients(remaining);
-      setSelectedId(remaining[0]?.id ?? '');
-      setSaved(false);
-      setDraftDirty(false);
+      resetPatientSelection(remaining[0]?.id ?? '');
       setSuccess('代理入力権限を取り消しました。');
       if (remaining.length === 0) resetPatientForm('self');
     } catch (err) {
@@ -311,7 +369,7 @@ export default function PatientIntakePage() {
   }
 
   async function updateNotifications() {
-    if (!selectedPatient || !accessState || busy) return;
+    if (!selectedPatient || !accessState || !accessReady || busy) return;
     const action = accessState.notifications === 'enabled' ? 'stop' : 'resume';
     if (action === 'stop' && !window.confirm(
       'この患者について、薬局からの自動のお知らせを停止しますか？すでに停止したお知らせは、再開後も送信されません。',
@@ -344,7 +402,7 @@ export default function PatientIntakePage() {
     nextRepresentativeConsent: boolean,
     nextPrivacyConsent: boolean,
   ) {
-    if (!selectedId || busy) return;
+    if (!selectedId || !intakeReady || busy) return;
     if (!privacyPolicy) {
       setPrivacyPolicyError('個人情報の利用目的を確認できないため、アンケートを送信できません。薬局へお問い合わせください。');
       return;
@@ -384,7 +442,7 @@ export default function PatientIntakePage() {
   }
 
   async function submit() {
-    if (!canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)) return;
+    if (!intakeReady || !canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)) return;
     // canSubmitIntake guarantees the four safety answers are no longer ''.
     await saveIntake(answers as PatientIntakeAnswers, representativeConsent, privacyConsent);
   }
@@ -408,7 +466,7 @@ export default function PatientIntakePage() {
   }, []);
 
   async function confirmUnchanged() {
-    if (!latestAnswers || busy || !privacyPolicy || !window.confirm(
+    if (!latestAnswers || busy || !privacyPolicy || !intakeReady || !window.confirm(
       '前回の回答から変更がないことを確認します。本人または代理人として回答内容を薬局へ伝え、個人情報の利用目的を確認したうえで調剤・連絡に利用することに同意しますか？',
     )) return;
     await saveIntake(latestAnswers, true, true);
@@ -490,7 +548,7 @@ export default function PatientIntakePage() {
               onSubmit={() => void createPatient()}
             />
           ) : loading ? <p className="text-sm text-gray-500">読み込み中...</p> : patients.length === 0 ? <p className="text-sm text-gray-600">まず患者情報を登録してください。</p> : (
-            <label className="block text-sm">患者を選択<select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="mt-1 block w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
+            <label className="block text-sm">患者を選択<select value={selectedId} onChange={(event) => selectPatient(event.target.value)} className="mt-1 block w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
           )}
           {selectedPatient && <p className="text-sm text-gray-700">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
           {selectedPatient && selectedPatient.relationship !== 'self' && !showNewPatient && (
@@ -503,7 +561,7 @@ export default function PatientIntakePage() {
         {!showNewPatient && selectedPatient && (
           <section className="rounded-xl bg-white p-4 shadow-sm space-y-3" aria-labelledby="notification-heading">
             <h2 id="notification-heading" className="font-bold">LINEのお知らせ</h2>
-            {accessLoading || !accessState ? (
+            {!accessReady || !accessState ? (
               <p className="text-sm text-gray-600">設定を確認しています...</p>
             ) : <>
               <p className="text-base text-gray-800">
@@ -525,7 +583,7 @@ export default function PatientIntakePage() {
             <button
               type="button"
               onClick={() => void confirmUnchanged()}
-              disabled={busy}
+              disabled={busy || !intakeReady}
               className="w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50"
             >
               {busy ? '更新中…' : '前回から変更なしで更新'}
@@ -534,7 +592,7 @@ export default function PatientIntakePage() {
           <PatientQuestionnaire
             answers={answers}
             step={intakeStep}
-            busy={busy}
+            busy={busy || intakeLoading}
             showPregnancyQuestions={showPregnancyQuestions}
             representativeConsent={representativeConsent}
             privacyConsent={privacyConsent}
@@ -555,7 +613,7 @@ export default function PatientIntakePage() {
           </div>}
           <div className="flex gap-3">
             <button type="button" onClick={() => setIntakeStep((step) => Math.max(1, step - 1))} disabled={intakeStep === 1 || busy} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-40">戻る</button>
-            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
+            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy || intakeLoading} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!intakeReady || !canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
           </div>
           <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/prescriptions')); }} className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800">処方せん事前送信へ</button>
           <p className="text-sm leading-5 text-gray-700">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>

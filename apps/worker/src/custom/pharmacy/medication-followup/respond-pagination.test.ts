@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,25 +25,12 @@ vi.mock('../beta-membership/repository.js', () => ({
   getPharmacyBetaSchemaState: mocks.betaSchemaState,
 }));
 
+import { Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import { medicationFollowUpRoutes } from './routes.js';
 import {
   recordMedicationFollowUpContact,
   transitionMedicationFollowUp,
 } from './repository.js';
-
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => {
-    exec(sql: string): void;
-    prepare(sql: string): {
-      reader: boolean;
-      get(...values: unknown[]): unknown;
-      all(...values: unknown[]): unknown[];
-      run(...values: unknown[]): { changes: number };
-    };
-    transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R;
-    close(): void;
-  };
 
 // Only the columns the patient-response path touches; the production schema
 // lives in packages/db/migrations/custom_011_pharmacy_medication_followups.sql.
@@ -109,29 +95,7 @@ const SCHEMA = `
 function database() {
   const sqlite = new Sqlite(':memory:');
   sqlite.exec(SCHEMA);
-  type Statement = { sql: string; values: unknown[] };
-  const exec = ({ sql, values }: Statement) => {
-    const prepared = sqlite.prepare(sql);
-    if (prepared.reader) {
-      return { success: true, results: prepared.all(...values), meta: { changes: 0 } };
-    }
-    return { success: true, results: [], meta: { changes: prepared.run(...values).changes } };
-  };
-  const statement = (sql: string, values: unknown[] = []) => ({
-    sql,
-    values,
-    bind(...next: unknown[]) { return statement(sql, next); },
-    async first<T>() { return (sqlite.prepare(sql).get(...values) as T | undefined) ?? null; },
-    async all<T>() {
-      return { success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {} };
-    },
-    async run() { return exec({ sql, values }); },
-  });
-  const db = {
-    prepare: (sql: string) => statement(sql),
-    batch: async (items: Statement[]) =>
-      sqlite.transaction((batch: Statement[]) => batch.map(exec))(items),
-  } as unknown as D1Database;
+  const db = d1FromSqlite(sqlite);
   return { db, close: () => sqlite.close() };
 }
 

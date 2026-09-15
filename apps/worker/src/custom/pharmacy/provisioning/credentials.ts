@@ -1,4 +1,5 @@
 import { isCommonAdminPassword } from './common-passwords.js';
+import { decodeBase64Url, sameBytes, toBase64Url, toHex } from '../crypto-utils.js';
 
 const encoder = new TextEncoder();
 // ponytail: Cloudflare Workers caps PBKDF2 at 100k; raise only when the runtime supports it.
@@ -6,32 +7,7 @@ const PBKDF2_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
-}
-
-function fromBase64Url(value: string): Uint8Array | null {
-  if (!/^[A-Za-z0-9_-]+$/u.test(value)) return null;
-  try {
-    const padded = value.replaceAll('-', '+').replaceAll('_', '/')
-      .padEnd(Math.ceil(value.length / 4) * 4, '=');
-    const binary = atob(padded);
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    difference |= left[index] ^ right[index];
-  }
-  return difference === 0;
-}
+const fromBase64Url = decodeBase64Url;
 
 async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -74,10 +50,6 @@ export async function verifyTenantPassword(password: string, encoded: string): P
   }
   const actual = await derivePassword(password, salt, iterations);
   return sameBytes(actual, expected);
-}
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function generateTenantAdminSessionToken(): string {

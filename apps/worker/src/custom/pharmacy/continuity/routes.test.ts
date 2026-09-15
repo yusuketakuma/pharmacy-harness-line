@@ -117,6 +117,17 @@ describe('continuity routes', () => {
     expect(mocks.patientList).toHaveBeenCalled();
   });
 
+  it('rejects a non-participant before reading the patient continuity view', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const response = await continuityRoutes.request('/api/liff/pharmacy/continuity?liffId=liff-1', {
+      headers: { Authorization: 'Bearer token' },
+    }, env);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(mocks.betaParticipant).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
+    expect(mocks.patientList).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the LINE identity cannot be resolved', async () => {
     mocks.resolve.mockResolvedValue(null);
     const response = await continuityRoutes.request('/api/liff/pharmacy/continuity?liffId=liff-1', {

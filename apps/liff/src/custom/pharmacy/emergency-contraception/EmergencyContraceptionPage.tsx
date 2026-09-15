@@ -314,7 +314,7 @@ function IntakeList({
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
       <p className="mt-1 text-sm text-gray-600">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
-      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="mt-2 inline-block text-sm font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
+      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="pharmacy-control pharmacy-focus mt-2 inline-flex items-center text-sm font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
       {intakes.length === 0
         ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
         : <ul className="mt-3 space-y-3">{intakes.map((intake) => (

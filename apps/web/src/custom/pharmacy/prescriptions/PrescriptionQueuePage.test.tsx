@@ -1,7 +1,7 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   actionsForStatus,
   reasonLabel,
@@ -30,6 +30,7 @@ import {
 import { PrescriptionReviewEditor } from './PrescriptionReviewEditor.js'
 import {
   canAcknowledgePrint,
+  operationId,
   printAcknowledgementMessage,
   printablePrescriptionFiles,
 } from './PrescriptionPrintPage.js'
@@ -258,6 +259,34 @@ describe('prescription admin UI contract', () => {
 
     expect(page).not.toContain("if (prepared.task.status === 'acknowledged') {\n          if (!disposed) setRecorded(true)\n          return")
     expect(page).toContain('再印刷できます')
+  })
+
+  it('reuses the stored print operation id while session storage works', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value) },
+    })
+    try {
+      expect(operationId('submission-1')).toBe(operationId('submission-1'))
+      expect(operationId('submission-2')).not.toBe(operationId('submission-1'))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('falls back to a fresh print operation id when session storage is unavailable', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => { throw new Error('denied') },
+      setItem: () => { throw new Error('denied') },
+    })
+    try {
+      const first = operationId('submission-1')
+      expect(first).toMatch(/^[0-9a-f-]{36}$/)
+      expect(operationId('submission-1')).not.toBe(first)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('ignores a stale image request rejection once a newer request has already won', async () => {
