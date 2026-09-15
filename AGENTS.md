@@ -40,3 +40,12 @@ metadata, deployment evidence, and production operation are distinct claims.
 - `docs/pharmacy/` — このフォークの正本となる設計・運用・監査文書。`docs/upstream/` はフォーク元の汎用 CRM 文書で、古い場合がある。入口は `docs/README.md`。
 - `PLANS.md` — タスク台帳。`CHANGELOG.md` — リリース履歴。
 - `.claude/`、`.omc/` などエージェントのランタイム状態はコミットしない。
+
+## Devin Wiki
+
+`.devin/wiki.md` が存在する場合、Devin Cloud がこのリポジトリ用に生成した wiki へのリンクである。
+アーキテクチャ、モジュール配置、ドメイン用語などプロジェクトレベルの質問に答える前にまず読み、
+その後で実コードと照合する。無い場合は `~/.local/share/devin/cli/wiki/*/meta.json` の
+`repo_identifier` を `git remote get-url origin` 由来の `host/owner/repo` と照合し、一致する
+ディレクトリの `wiki.md` を参照する。`devin-wiki-sync` を実行するとリンクが更新される。
+wiki は概要把握の補助であり、正本は常にこのリポジトリのコードとドキュメントとする。
