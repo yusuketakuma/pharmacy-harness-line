@@ -9,6 +9,14 @@ const NOTIFIED_STATUSES = new Set<MynaHandoffStatus>([
   'SUPPORT_NEEDED', 'PAPER_FALLBACK', 'EXPIRED',
 ]);
 
+const HOUR_MS = 60 * 60 * 1000;
+const JST_OFFSET_MS = 9 * HOUR_MS;
+
+function isQuietHours(now: Date): boolean {
+  const localHour = new Date(now.getTime() + JST_OFFSET_MS).getUTCHours();
+  return localHour < 8 || localHour >= 21;
+}
+
 export interface MynaNotificationOptions {
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
@@ -88,13 +96,19 @@ export async function sendMynaHandoffStatusNotification(
  * delivers the one push a non-returning patient would otherwise never get.
  * Retry keys are `myna-status:{id}:EXPIRED` — deterministic per handoff, so
  * repeat sweeps dedupe through the notification-events idempotency claim.
+ *
+ * JST 21:00–08:00 is quiet time, matching the appointment reminders and the
+ * emergency-intake status sweep: expired rows stay unsent until the next
+ * tick after 08:00 inside the 72 h lookback.
  */
 export async function processExpiredMynaHandoffNotifications(
   db: D1Database,
   options: MynaNotificationOptions & { now?: Date; limit?: number },
 ): Promise<{ sent: number; failed: number; skipped: number }> {
   const now = options.now ?? new Date();
-  const lookback = new Date(now.getTime() - 72 * 60 * 60 * 1000).toISOString();
+  const result = { sent: 0, failed: 0, skipped: 0 };
+  if (isQuietHours(now)) return result;
+  const lookback = new Date(now.getTime() - 72 * HOUR_MS).toISOString();
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit ?? 50)));
   const rows = await db.prepare(
     `SELECT id, line_account_id, friend_id, patient_id, status
@@ -103,7 +117,6 @@ export async function processExpiredMynaHandoffNotifications(
       ORDER BY updated_at ASC, id ASC
       LIMIT ?`,
   ).bind(lookback, limit).all<NotifiableHandoff>();
-  const result = { sent: 0, failed: 0, skipped: 0 };
   for (const handoff of rows.results ?? []) {
     result[await sendMynaHandoffStatusNotification(db, options, handoff)] += 1;
   }
