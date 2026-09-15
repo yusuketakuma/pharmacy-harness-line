@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-15T09:15:00.000Z",
+  "capturedAt": "2026-09-15T13:10:00.000Z",
   "scope": "v0.35.0-beta-scope-and-staff-critical-journey",
   "status": "UNVERIFIED",
   "releaseReadiness": "BLOCKED",
@@ -15,9 +15,9 @@
   "freeze": {
     "baseSourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
     "branch": "dev",
-    "packageVersion": "0.35.0",
-    "targetVersion": "0.35.0",
-    "exactCandidateSha": "cc8019d44c586f1c9551530cd9526af52354188c",
+    "packageVersion": "0.35.1",
+    "targetVersion": "0.35.1",
+    "exactCandidateSha": "91bf07c6ebb0fc504b9183adfcfe937d9c03a476",
     "exactArtifactDigest": null,
     "frozenBeforeStaffTrials": true,
     "schemaFileSha256": "ae1424d1a2f212045d60b88030284da2aa4285dface225782bc5e1cdf2f11d49",
@@ -33,12 +33,12 @@
       "claim": "検証したseller参照。最新seller tagはpharmacy-v0.32.0のまま（pharmacy-v0.35.0 seller tagは未作成）。packageの版や最新sellerを推定しない。"
     },
     "remoteReadback": {
-      "checkedAt": "2026-09-15T09:15:00Z",
-      "devSha": "57745cd996878406330651916f7449f803c27531",
+      "checkedAt": "2026-09-15T13:10:00Z",
+      "devSha": "91bf07c6ebb0fc504b9183adfcfe937d9c03a476",
       "mainSha": "0e738bfde949314e80a1e5a3938333c0d13b97e3",
       "development": {
-        "deploymentId": 6438472415,
-        "sourceSha": "57745cd996878406330651916f7449f803c27531",
+        "deploymentId": 6459274677,
+        "sourceSha": "91bf07c6ebb0fc504b9183adfcfe937d9c03a476",
         "status": "SUCCESS"
       },
       "production": {
@@ -46,14 +46,14 @@
         "sourceSha": "123545e888c6e6a7e533eaba865a5d09797657fb",
         "status": "SUCCESS"
       },
-      "claim": "GitHub deployment metadataのみ。local candidate cc8019d（a69af85含む未push 2 commitを含む）はdeployedではない。deployed devはorigin/dev 57745cd。実D1 migration、binding、LINE設定はUNVERIFIED。"
+      "claim": "GitHub deployment metadataのみ。deployed development は candidate と同じ 91bf07c。deployed production は 123545e8 のまま（v0.35.1 は production 未配備）。実D1 migration、binding、LINE設定はUNVERIFIED。"
     },
     "migrationSet": {
       "algorithm": "sha256 of JSON.stringify(sorted path/sha256 rows)",
       "digest": "1c66448e8ce0135dfdad419ba5a692f6fd629321ebeef576710e91e80d54e074",
       "refreshedAt": "2026-09-15"
     },
-    "exactCandidateClaim": "2026-09-15時点のlocal dev HEAD（V035-5 route-level test追加済み）。以後のcommitはtest/docs/evidence-onlyでapplication codeは不変（automatedEvidence.postFreezeDeltas参照）。deploy SHA・artifact digestではない。"
+    "exactCandidateClaim": "2026-09-15 の dev HEAD = v0.35.1 タグ対象（PR #110-#119 マージ済み）。旧候補 cc8019d から application code を含む差分が入ったため再freeze。deploy SHA・artifact digest ではない。"
   },
   "scopeDecision": {
     "status": "BLOCKED",
@@ -1127,9 +1127,9 @@
     },
     "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。 fixture code・buildDigest・匿名participant codeのみ記録。",
     "baselineClaim": "deployed production build（現在のスタッフ体験）。所要時間短縮の比較基準。deploy metadata確認済み、byte equality未検証。",
-    "candidateSourceSha": "cc8019d44c586f1c9551530cd9526af52354188c",
-    "candidateClaim": "2026-09-15 local dev HEAD。以後のcommitはtest/docs/evidence-onlyで被検証application codeは不変（automatedEvidence.postFreezeDeltas参照）。application code変更があれば再freeze。",
-    "frozenAt": "2026-09-15T09:20:00.000Z",
+    "candidateSourceSha": "91bf07c6ebb0fc504b9183adfcfe937d9c03a476",
+    "candidateClaim": "2026-09-15 dev HEAD = v0.35.1（PR #110-#119 マージ済み、application code 変更を含むため再freeze）。旧候補 cc8019d は破棄。application code変更があれば再度再freeze。",
+    "frozenAt": "2026-09-15T13:10:00.000Z",
     "frozenBy": "engineering",
     "approvalStatus": "PENDING_OWNER_ACCEPTANCE",
     "fixtures": [
@@ -1466,26 +1466,35 @@
       "limit": "Local Chromium/synthetic; no real LINE or participant proof."
     },
     "candidateVerification": {
-      "candidateSha": "cc8019d44c586f1c9551530cd9526af52354188c",
-      "note": "現候補コードの最終検証（cc8019d以降はtest/docs/evidence-only commit、postFreezeDeltasに追記）。2026-09-06の数値は別時点の記録であり転用ではない。",
+      "candidateSha": "91bf07c6ebb0fc504b9183adfcfe937d9c03a476",
+      "note": "現候補 91bf07c（v0.35.1 dev HEAD）に MAINT-20260915-FU 差分（myna quiet-hours、rate-limit 合成テスト、evidence/PLANS 記録）を載せた maint/20260915-followups 作業ツリーで check-only 実行。commit 前のため tree 識別は base SHA + 差分で行う。CI/SBOM/provenance/CodeQL/secret scan は未実施。",
       "verifyCi": {
         "status": "PASS",
         "command": "pnpm verify:ci",
         "checkedAt": "2026-09-15",
         "worker": {
-          "files": 247,
-          "tests": 2661
+          "files": 251,
+          "tests": 2692
         },
         "web": {
           "files": 52,
-          "tests": 242
+          "tests": 251
         },
         "db": {
           "files": 92,
           "tests": 436
         },
         "liff": {
-          "tests": 148
+          "files": 24,
+          "tests": 151
+        },
+        "sdk": {
+          "files": 13,
+          "tests": 56
+        },
+        "lineSdk": {
+          "files": 2,
+          "tests": 5
         },
         "updateEngine": {
           "files": 22,
@@ -1509,27 +1518,17 @@
         },
         "typecheck": "PASS (pnpm -r typecheck)"
       },
-      "webBrowserE2e": {
-        "status": "PASS",
-        "tests": 11,
-        "command": "pnpm --filter web test:e2e",
-        "limit": "Local Chromium, synthetic APIs"
-      },
-      "liffBrowserE2e": {
-        "status": "PASS",
-        "tests": 13,
-        "command": "pnpm --filter liff test:e2e",
-        "limit": "Local Chromium/synthetic"
-      },
-      "gitDiffCheck": "PASS",
       "notRun": [
-        "exact-candidate CI",
-        "CodeQL on candidate",
-        "provenance on candidate",
-        "real LINE",
-        "real staff/device",
-        "production migration/deploy",
-        "beta activation"
+        "CI (merge commit)",
+        "SBOM",
+        "provenance attestation",
+        "CodeQL",
+        "secret scan",
+        "license audit",
+        "web test:e2e",
+        "liff test:e2e",
+        "real device acceptance",
+        "staff trial"
       ]
     },
     "postFreezeDeltas": [
@@ -1547,8 +1546,14 @@
         "date": "2026-09-15",
         "summary": "FLE-REVIEW-1..3 実装（local差分、`fle-final-security-rerun` F1-F7由来）: migrateLegacyFieldsを単一db.batch原子化（state/dataset guardのINSERT..SELECT制約失敗化、終端account-wide postcondition、dryRun書込み0、freeze INSERT行数guard、restore fresh-approval rebind+fence）、openPatientIntakeFieldsのtenant mapping正確認+sentinel拒否、nextCursorのAES-GCM opaque operation-scoped handle化。migration-fle-review.test.ts新規（実SQLite）。application codeが変わったため、commit時はV035-4試験候補の再freezeが必要。FLE mutating操作の有効化は別gateのまま。",
         "verification": "pnpm --filter worker test: 249 files/2673 tests PASS; worker typecheck PASS (local working tree)"
+      },
+      {
+        "date": "2026-09-15",
+        "summary": "再freeze: 候補を cc8019d から 91bf07c（v0.35.1、PR #110-#119 全マージ済みの dev HEAD）へ更新。含まれる差分: MAINT-20260915（session/CSRF safe-stop、LIFF患者切替stale防止、webhook PHI-freeログ、e2eモック追従）、myna/ECステータス通知、患者timeline拡張、follow-up outlook、管理画面日本語化、docs/upstream削除、.devin/blueprint、package 0.35.1。schema.sql sha256 不変、migration set 20 files 不変。",
+        "verification": "各PRで head 更新後の verify SUCCESS。候補 merge commit 自体の CI は PARTIAL。"
       }
-    ]
+    ],
+    "exactCandidateCi": "PARTIAL: 各PRは head 更新後に verify SUCCESS（最終 PR #119 head 640b6a5）。candidate merge commit 91bf07c 自体の CI run は未実施。release attestation ではない。"
   },
   "boundaries": {
     "commit": "NOT_RUN",

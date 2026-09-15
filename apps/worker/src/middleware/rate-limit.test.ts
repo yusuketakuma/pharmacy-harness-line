@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 import { rateLimitMiddleware } from './rate-limit.js';
 import type { Env } from '../index.js';
@@ -230,6 +230,65 @@ describe('rate-limit SENSITIVE_PATHS (percent-encoded path bypass)', () => {
       method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.50' },
     }, env);
     expect(blocked.status).toBe(429);
+  });
+});
+
+describe('rate-limit lifecycle (isolate boundary and window recovery)', () => {
+  test('a blocked sensitive path recovers after the window slides', async () => {
+    vi.useFakeTimers();
+    try {
+      const ip = '203.0.113.61';
+      const a = app();
+      for (let i = 0; i < 10; i++) {
+        const res = await a.request('/api/auth/login', {
+          method: 'POST', headers: { 'cf-connecting-ip': ip },
+        }, env);
+        expect(res.status).toBe(200);
+      }
+      const blocked = await a.request('/api/auth/login', {
+        method: 'POST', headers: { 'cf-connecting-ip': ip },
+      }, env);
+      expect(blocked.status).toBe(429);
+      expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0);
+
+      // No explicit unlock exists: the sliding window self-heals once the
+      // oldest attempt ages out. There is no persisted counter to restore.
+      vi.setSystemTime(Date.now() + 61_000);
+      const recovered = await a.request('/api/auth/login', {
+        method: 'POST', headers: { 'cf-connecting-ip': ip },
+      }, env);
+      expect(recovered.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('counters reset when the module reloads (per-isolate store, cold start)', async () => {
+    const ip = '203.0.113.62';
+    const a = app();
+    for (let i = 0; i < 10; i++) {
+      const res = await a.request('/api/auth/login', {
+        method: 'POST', headers: { 'cf-connecting-ip': ip },
+      }, env);
+      expect(res.status).toBe(200);
+    }
+    const blocked = await a.request('/api/auth/login', {
+      method: 'POST', headers: { 'cf-connecting-ip': ip },
+    }, env);
+    expect(blocked.status).toBe(429);
+
+    // A cold start re-imports the module with an empty in-memory store. This
+    // pins the documented contract: limits are per-isolate, not distributed,
+    // so N live isolates raise the effective ceiling to N x max.
+    vi.resetModules();
+    const { rateLimitMiddleware: freshMiddleware } = await import('./rate-limit.js');
+    const fresh = new Hono<Env>();
+    fresh.use('*', freshMiddleware);
+    fresh.post('/api/auth/login', (c) => c.json({ success: true }));
+    const afterReload = await fresh.request('/api/auth/login', {
+      method: 'POST', headers: { 'cf-connecting-ip': ip },
+    }, env);
+    expect(afterReload.status).toBe(200);
   });
 });
 
