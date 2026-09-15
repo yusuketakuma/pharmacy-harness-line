@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   medicationFollowUpApi,
+  type MedicationFollowUpOperationsOutlook,
   type PatientMedicationFollowUp,
   type PatientMedicationFollowUpResponse,
   type PatientMedicationFollowUpStatus,
@@ -53,6 +54,19 @@ function nextMedicationFollowUpAction(status: PatientMedicationFollowUpStatus): 
   return '表示された確認予定を待ってください。';
 }
 
+export function followUpOperationsOutlookLines(outlook: MedicationFollowUpOperationsOutlook): string[] {
+  const lines = [`対応時間: ${outlook.serviceHoursText}`];
+  if (outlook.responseEstimateMinutes !== null) {
+    lines.push(`通常、約${outlook.responseEstimateMinutes}分以内にご返信します。`);
+  }
+  for (const code of new Set([outlook.afterHoursMessageCode, outlook.emergencyMessageCode])) {
+    lines.push(code === 'seek_urgent_care'
+      ? 'お急ぎの症状がある場合は、返信を待たずに最寄りの医療機関へご相談ください。'
+      : '営業時間外のご連絡は、次の営業時間に順次ご対応します。');
+  }
+  return lines;
+}
+
 export default function MedicationFollowUpPage() {
   const [params] = useSearchParams();
   const requestedId = params.get('followUpId');
@@ -61,6 +75,7 @@ export default function MedicationFollowUpPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<{ id: string; text: string } | null>(null);
+  const [outlook, setOutlook] = useState<MedicationFollowUpOperationsOutlook | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,6 +83,9 @@ export default function MedicationFollowUpPage() {
     try {
       const result = await medicationFollowUpApi.list();
       setItems(result.followUps);
+      medicationFollowUpApi.outlook()
+        .then(({ outlook: next }) => setOutlook(next))
+        .catch(() => setOutlook(null));
     } catch {
       setError('服薬後フォローを読み込めませんでした。通信状態を確認して再読み込みしてください。');
     } finally {
@@ -117,6 +135,14 @@ export default function MedicationFollowUpPage() {
           <h2 className="mt-3 font-bold">次の操作</h2>
           <p className="mt-1 text-base text-gray-800">{loading ? '読み込みが終わるまでお待ちください。' : '一覧から状態を確認し、表示された回答を選んでください。'}</p>
         </section>
+        {outlook && (
+          <section className="pharmacy-card p-4" aria-labelledby="follow-up-outlook">
+            <h2 id="follow-up-outlook" className="font-bold">対応の見通し</h2>
+            {followUpOperationsOutlookLines(outlook).map((line) => (
+              <p key={line} className="mt-1 text-base text-gray-800">{line}</p>
+            ))}
+          </section>
+        )}
         <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-base text-red-800">
           強い息苦しさ、意識がもうろうとするなど緊急性が高い場合、この画面の回答を待たず、緊急時は119へ連絡してください。
         </section>

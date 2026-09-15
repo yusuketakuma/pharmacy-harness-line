@@ -9,6 +9,7 @@ import {
   type PrescriptionPatient,
 } from '../prescriptions/patient.js';
 import {
+  getMedicationFollowUpOperationsOutlook,
   getOwnerMedicationFollowUp,
   listMedicationFollowUpAssignees,
   listMedicationFollowUpContacts,
@@ -123,6 +124,14 @@ medicationFollowUpRoutes.get('/api/liff/pharmacy/medication-followups', async (c
     c.env.DB, owner.lineAccountId, owner.friendId,
   );
   return c.json({ followUps: followUps.map(patientProjection) });
+});
+
+medicationFollowUpRoutes.get('/api/liff/pharmacy/medication-followups/outlook', async (c) => {
+  const owner = c.get('medicationFollowUpPatient');
+  const outlook = await getMedicationFollowUpOperationsOutlook(
+    c.env.DB, owner.lineAccountId,
+  );
+  return c.json({ outlook });
 });
 
 medicationFollowUpRoutes.post('/api/liff/pharmacy/medication-followups/:id/respond', async (c) => {
