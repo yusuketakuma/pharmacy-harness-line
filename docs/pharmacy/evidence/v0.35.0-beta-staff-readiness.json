@@ -1244,7 +1244,87 @@
       "API p95/p99・エラー率・backlog/retry許容値",
       "tenant偏在と2倍profile",
       "alert到達先と業務時間外の代替連絡先"
-    ]
+    ],
+    "pendingDecisions": [
+      {
+        "id": "V035-6-D1",
+        "item": "営業時間（曜日/時間帯）",
+        "owner": "pharmacy owner",
+        "needed": "運用時間の確定値",
+        "verification": "follow-up senderのoperations_blocked解除条件として設定値をWorker testで確認",
+        "blocks": [
+          "medication-followup自動送信",
+          "一次返信期限の計算基準"
+        ]
+      },
+      {
+        "id": "V035-6-D2",
+        "item": "一次返信期限（応答SLA）",
+        "owner": "pharmacy owner",
+        "needed": "営業時間内の応答期限値",
+        "verification": "follow-up deadlineフィールドへの反映と境界テスト",
+        "blocks": [
+          "medication-followup自動送信",
+          "escalation閾値"
+        ]
+      },
+      {
+        "id": "V035-6-D3",
+        "item": "primary担当",
+        "owner": "pharmacy owner",
+        "needed": "担当者の指名（役職/個人の割当）",
+        "verification": "assignments tableへの登録と通知route確認",
+        "blocks": [
+          "medication-followup自動送信",
+          "障害時連絡網"
+        ]
+      },
+      {
+        "id": "V035-6-D4",
+        "item": "backup担当・緊急時代替",
+        "owner": "pharmacy owner",
+        "needed": "代行者指名と電話/店頭引継ぎ手順の確定",
+        "verification": "recoverySequence第3段「電話/店頭へ引継ぎ」の実地確認（Human Gate）",
+        "blocks": [
+          "medication-followup自動送信",
+          "cloud rehearsal"
+        ]
+      },
+      {
+        "id": "V035-6-D5",
+        "item": "EC sale/counter/auditとDSR tombstoneの保持方針",
+        "owner": "product/pharmacy/legal owner",
+        "needed": "RETENTION_MATRIX.md §EC/DSRの未決方針の確定",
+        "verification": "方針確定後のmigration+テスト追加。確定前はretention deleteを開始しない",
+        "blocks": [
+          "処方せん・incoming imageのretention delete開始"
+        ]
+      },
+      {
+        "id": "V035-6-D6",
+        "item": "p95/p99・error rate・backlog上限（負荷条件）",
+        "owner": "data/ops owner（V037-0で数値化）",
+        "needed": "syntheticLoadDraftへの目標値設定",
+        "verification": "V037-0 freeze→合成負荷計測→実値と目標の照合",
+        "blocks": [
+          "V037-0 workload/SLO freeze",
+          "alert閾値"
+        ]
+      },
+      {
+        "id": "V035-6-D7",
+        "item": "cloud復旧rehearsal",
+        "owner": "data/ops owner + Cloudflare account権限者",
+        "needed": "許可された隔離環境での実復旧",
+        "verification": "recoverySequence全7段の実施記録（Human Gate）",
+        "blocks": [
+          "RPO 24h/RTO 4hの実証",
+          "V039-4"
+        ]
+      }
+    ],
+    "claim": "数値はowner判断までBLOCKED。推測した保持期間・SLA・担当を実装やproduction削除へ使わない。",
+    "preparedAt": "2026-09-15"
   },
   "automatedEvidence": {
     "workspaceUnit": {
