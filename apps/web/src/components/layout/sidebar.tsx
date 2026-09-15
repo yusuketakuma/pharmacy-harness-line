@@ -369,6 +369,8 @@ export default function Sidebar() {
             ...section,
             items: section.items.flatMap((item) => {
               if ('pharmacyOnly' in item && item.pharmacyOnly && !selectedAccount?.pharmacyMode) return []
+              // 薬局テナントのトップ画面は「本日の対応」。ページの見出しと揃える。
+              if (item.href === '/' && selectedAccount?.pharmacyMode) return [{ ...item, label: '本日の対応' }]
               // Pharmacy tenants get the 薬局機能 section (via section.pharmacyOnly)
               // plus only the general entries the server actually permits them.
               // Everything else 403s, so listing it is a dead end.

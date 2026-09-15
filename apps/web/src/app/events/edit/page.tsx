@@ -16,14 +16,14 @@ function EditEventInner() {
   if (!selectedAccountId) {
     return (
       <>
-        <Header title="イベント編集" />
+        <Header title="イベント編集" description="イベントの内容を変更します。" />
         <div className="p-4 text-gray-500">アカウントを選択してください。</div>
       </>
     )
   }
   return (
     <>
-      <Header title="イベント編集" />
+      <Header title="イベント編集" description="イベントの内容を変更します。" />
       <EventForm accountId={selectedAccountId} eventId={id} />
     </>
   )

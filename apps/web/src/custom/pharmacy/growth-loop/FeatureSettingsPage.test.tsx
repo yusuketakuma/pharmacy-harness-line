@@ -20,7 +20,7 @@ describe('pharmacy patient feature settings', () => {
 
   it('announces OFF removal, ON addition, and movement as different candidate changes', () => {
     expect(pharmacyCandidateChangeLabel({ kind: 'removed', currentIndex: 1, draftIndex: null }))
-      .toBe('公開中の枠2を候補から削除します。OFFにした機能の画像とtap actionが公開中に残っています。')
+      .toBe('公開中の枠2を候補から削除します。OFFにした機能の画像とタップ時の動作が公開中に残っています。')
     expect(pharmacyCandidateChangeLabel({ kind: 'added', currentIndex: null, draftIndex: 0 }))
       .toBe('候補の枠1を追加します。ONにした機能は公開中メニューへまだ反映されていません。')
     expect(pharmacyCandidateChangeLabel({ kind: 'moved', currentIndex: 2, draftIndex: 0 }))
