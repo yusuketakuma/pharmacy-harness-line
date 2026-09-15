@@ -734,6 +734,13 @@ export default function PrescriptionPage() {
                         ? new Date(item.estimated_ready_at).toLocaleString('ja-JP')
                         : '薬局で確認中'}</p>
                       {item.desired_pickup_at && <p className="mt-1 text-gray-700">希望受取: {new Date(item.desired_pickup_at).toLocaleString('ja-JP')}</p>}
+                      {item.status === 'ready' && (
+                        <p className="mt-1 font-medium text-green-900">
+                          {item.desired_fulfillment_method === 'DELIVERY'
+                            ? 'お薬の準備ができました。配送でお受け取りください。'
+                            : 'お薬の準備ができました。薬局でお受け取りください。'}
+                        </p>
+                      )}
                       {pendingRequirementLabels(item.requirements_json).map((label) => (
                         <p key={label} className="mt-1 text-amber-800">確認事項: {label}</p>
                       ))}
