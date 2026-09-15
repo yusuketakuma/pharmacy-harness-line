@@ -1,5 +1,60 @@
 # Changelog
 
+## Pharmacy v0.35.1 (2026-09-15)
+
+> パッケージ／ソースのバージョンを`0.35.1`として確定し、v0.35系の保守リリースとして`dev`で管理します。ソースコードのタグ`v0.35.1`と販売者向けリリース`pharmacy-v0.35.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+v0.35.0で導入した共有薬局アカウント・beta参加資格・服薬後follow-up運用の上に、マージ済み8 PRと保守監査キュー`MAINT-20260915`の修正を積み増しました。患者向けには、電子処方箋（Myna）手続きと緊急避妊薬の事前受付について、確認・取消・期限切れの状態遷移を中立な定型文でLINE通知し、服薬後follow-upの対応見通しをLIFFへ表示します。管理画面は各ページに説明文を追加し、ステータス表記を日本語化しました。認証まわりでは、ブラウザ保存領域やCSRFが使えない環境で安全に停止するようにし、webhookの生エラーログを固定event/reasonのPHI-free構造化ログへ置き換えました。
+
+この版の実装も既存のtenant/account/patient認可、capability、notification ledger、retry key冪等、outbound pauseを再利用しています。新しいdomain model、AI/OCR、marketplace routing、破壊的schema/API変更は追加していません。
+
+### v0.35.0との差分監査
+
+比較対象は、v0.35.0のbeta範囲としてfreezeした候補`cc8019d`から、全マージを反映した`dev`（`80bb84e`）までです。差分は39コミット、165ファイル、`3,156`行追加、`14,501`行削除でした。削除行の大半は`docs/upstream/`と古いinventory/計画文書の整理で、コードの縮退ではありません。
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| PR #110 / `87cd33d` | session/CSRFのsafe-stop、LIFF患者切替のstale state防止、support-mode名cacheの非致命化、pharmacy webhook 7分岐のPHI-free固定ログ化 | 実装済み |
+| `2e50139` | patient-intake FLE migration helperの原子batch化・account-wide事後条件・opaque cursor（mutating操作は依然gate下） | 実装済み |
+| `2b406a5`〜`dcc8bb8` | crypto primitive・ISO日付validator・テスト用sqlite/D1 adapterの共通化 | refactor |
+| `95399ed` | UI安定性・44pxタップ領域・`Intl.DateTimeFormat`共有化 | 実装済み |
+| PR #111 | `docs/upstream/`とwiki代替済みの設計文書を削除し、docs/README・AGENTSを新構成へ | 文書整理 |
+| PR #112 | 管理画面各ページの説明文追加と薬局UIの日本語化（`readiness-labels.ts`共有化） | 実装済み |
+| PR #113 | `.devin/blueprint.yaml`（Devin環境blueprint）を追加 | 環境定義 |
+| PR #114 | ready状態の処方せんカードへ受取方法の再明示 | 実装済み |
+| PR #115 | LIFF服薬後follow-upへ運用設定由来の対応見通し表示（whitelist項目のみ） | 実装済み |
+| PR #116 | 患者timelineへ患者アンケート・個別chatの状態を追加 | 実装済み |
+| PR #117 | Myna handoffの`SUPPORT_NEEDED`/`PAPER_FALLBACK`/`EXPIRED`へPHI-free定型通知 | 実装済み |
+| PR #118 | 緊急避妊薬intakeの`reviewed`/`cancelled`/`expired`へ中立定型通知（JST 21-08 quiet hours付き） | 実装済み |
+
+### 差分監査で確認した安全性
+
+- 新しい通知2系統（`myna_handoff_status_v1`、`emergency_intake_status_v1`）は`buildApprovedPharmacyMessage`の変数allowlistへ追加され、各messageIdは対応するstatus変数1つだけを許可します。描画結果の照合`isApprovedRenderedPharmacyMessage`も全status variantへ拡張され、`UNSAFE_RENDERED_TEXT`の検査は変更していません。送信側はmessageIdを`electronic_prescription`/`emergency_contraception` capabilityへ対応付け、friend following・患者通知設定・beta binding・outbound pauseを既存経路で再確認します。
+- retry keyは`myna-status:{handoffId}:{status}`と`emergency-intake-status:{eventId}`の決定的値で、notification eventsの冪等claimで重複送信を抑止します。cron sweepは`updated_at`/`occurred_at`の72時間lookbackと`LIMIT 50`でboundedです。
+- `GET /api/liff/pharmacy/medication-followups/outlook`は運用設定のwhitelist項目（営業時間テキスト・boundedな返信目安分数・時間外/緊急メッセージcode）だけを返し、staff IDやSLA生JSONは患者へ出しません。`/:id` GETルートとの衝突はありません。
+- 患者timelineの`patient_intake`は`authorityPredicate`と`archived_at IS NULL`を既存domainと同じ形で適用し、`manual_chat`はfriend自身のchat状態だけを中立な`detail_path`へ投影します。
+- 認証のsafe-stop化では、storage不可・CSRF欠落・session不正形のとき空token送信や自動POSTを行わず、明示エラーで停止します。e2eモックは厳格化したsession形へ追従済みです。
+
+### 差分監査の指摘（修正済み・保留）
+
+- **修正済み**: `.devin/blueprint.yaml`が`pnpm@9.15.4`をinstallする記述になっていたのを、root `packageManager`の`pnpm@11.25.0`へ揃えました（本リリースコミットで対応）。
+- **保留（フォローアップ候補）**: `processExpiredMynaHandoffNotifications`のcron sweepにはJST 21:00–08:00のquiet-hoursガードがなく、深夜に期限切れpushが送信されえます。EC系通知・予約リマインドと同じ深夜抑制の適用を検討してください（patient-report/verification経由の即時通知は利用者・職員操作起点のため対象外）。
+- **保留（文書）**: `PLANS.md`の未完了タスク`B41-A3`が削除済みの`docs/pharmacy/GROWTH_LOOP_KPI_CONTRACT.md`を参照しています。タスクの基準文書を再指定する必要があります。歴史記録行中の`V032_ROUTE_API_ROLE_INVENTORY`/`GROWTH_LOOP_ROADMAP`参照は当時の記録としてそのまま保持します。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.35.1`へ統一 |
+| PR #110〜#118 `verify` (CI) | 全てSUCCESS（各headを最新devへ更新後に再実行） |
+| `apps/web` e2e `prescription-journey` | 11/11 PASS（ローカル再確認） |
+| migration / schema | 新規migrationなし（`custom_077`までの既存セットを維持） |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema drop、旧契約の意味変更なし |
+
+本エントリはローカル/CI/syntheticの証跡に基づき、release・deploy・activation・production operationの完了を意味しません。
+
 ## Pharmacy v0.35.0 (2026-09-14)
 
 > パッケージ／ソースのバージョンを`0.35.0`として確定し、v0.35のrelease candidateとして`dev`で管理します。ソースコードのタグ`v0.35.0`と販売者向けリリース`pharmacy-v0.35.0`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
