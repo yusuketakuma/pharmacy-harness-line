@@ -65,6 +65,16 @@ describe('patient timeline repository', () => {
         status TEXT NOT NULL, created_at TEXT NOT NULL,
         encrypted_payload TEXT NOT NULL, risk_flags_json TEXT NOT NULL
       );
+      CREATE TABLE pharmacy_patient_intake_responses (
+        id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL,
+        owner_friend_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+        revision INTEGER NOT NULL, created_at TEXT NOT NULL,
+        answers_json TEXT NOT NULL
+      );
+      CREATE TABLE chats (
+        id TEXT PRIMARY KEY, friend_id TEXT NOT NULL, line_account_id TEXT,
+        status TEXT NOT NULL, last_message_at TEXT, created_at TEXT NOT NULL
+      );
       INSERT INTO pharmacy_account_capabilities VALUES ('account-a', 'pharmacy', 0);
       INSERT INTO pharmacy_account_capabilities VALUES ('account-b', 'pharmacy', 0);
     `);
@@ -108,6 +118,17 @@ describe('patient timeline repository', () => {
       'ec-a', 'account-a', 'friend-a', 'provisional', at,
       'PHI-ENCRYPTED', '["PHI-RISK"]',
     );
+    sqlite.prepare(`INSERT INTO pharmacy_patient_intake_responses
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      'intake-a', 'account-a', 'friend-a', 'patient-a', 1, at,
+      '{"PHI-ANSWER":true}',
+    );
+    sqlite.prepare(`INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?)`).run(
+      'chat-a', 'friend-a', 'account-a', 'in_progress', null, at,
+    );
+    sqlite.prepare(`INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?)`).run(
+      'chat-other-owner', 'friend-b', 'account-a', 'unread', null, at,
+    );
 
     const result = await listPatientTimeline(db, {
       lineAccountId: 'account-a', friendId: 'friend-a',
@@ -123,8 +144,16 @@ describe('patient timeline repository', () => {
         occurredAt: at, detailPath: '/prescriptions?view=electronic',
       },
       {
+        domain: 'manual_chat', status: 'in_progress', nextAction: 'wait',
+        occurredAt: at, detailPath: '/pharmacy/menu',
+      },
+      {
         domain: 'medication_follow_up', status: 'unknown', nextAction: 'open_detail',
         occurredAt: at, detailPath: '/pharmacy/medication-followup',
+      },
+      {
+        domain: 'patient_intake', status: 'completed', nextAction: 'none',
+        occurredAt: at, detailPath: '/pharmacy/patient-intake',
       },
       {
         domain: 'prescription', status: 'pending', nextAction: 'wait',
@@ -132,7 +161,7 @@ describe('patient timeline repository', () => {
       },
     ]);
     expect(JSON.stringify(result)).not.toMatch(
-      /friend-|account-|patient|medicine|note|encrypted|risk|emergency|contraception|rx-a|myna-a/i,
+      /friend-|account-|patient-a|medicine|note|encrypted|risk|emergency|contraception|rx-a|myna-a|intake-a|chat-a|chat-other/i,
     );
   });
 
