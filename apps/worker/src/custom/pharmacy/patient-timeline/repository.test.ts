@@ -1,32 +1,10 @@
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite, type TestSqliteDatabase } from '../test-sqlite.js';
 import { listPatientTimeline } from './repository.js';
 
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
-
-type SqliteStatement = {
-  all(...values: unknown[]): unknown[];
-  run(...values: unknown[]): { changes: number };
-};
-type SqliteDatabase = {
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-};
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => SqliteDatabase;
-
-function d1From(sqlite: SqliteDatabase): D1Database {
-  return {
-    prepare: (sql: string) => ({
-      bind: (...values: unknown[]) => ({
-        all: async () => ({ results: sqlite.prepare(sql).all(...values) }),
-      }),
-    }),
-  } as unknown as D1Database;
-}
+type SqliteDatabase = TestSqliteDatabase;
+const d1From = d1FromSqlite;
 
 describe('patient timeline repository', () => {
   let sqlite: SqliteDatabase;

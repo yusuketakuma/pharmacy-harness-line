@@ -1,59 +1,19 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import { createRecoveryApproval, assertRecoveryExecution, claimRecoveryOperation,
   completeRecoveryOperation, getRecoveryOperation, preflightRecoveryOperation, approveRecoveryOperation,
   markRecoveryProgress,
   type RecoveryPreflight, type RecoveryPrincipal, type RecoveryScope } from './operations.js';
 
-const require = createRequire(import.meta.url);
-const Sqlite = require(join(
-  dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db/node_modules/better-sqlite3',
-)) as new (filename: string) => {
-  pragma(sql: string): unknown;
-  exec(sql: string): void;
-  prepare(sql: string): { get(...values: unknown[]): unknown; all(...values: unknown[]): unknown[]; run(...values: unknown[]): { changes: number } };
-};
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
+const d1From = d1FromSqlite;
 const NOW = '2026-08-24T00:00:00.000Z';
-
-function d1From(sqlite: InstanceType<typeof Sqlite>): D1Database {
-  const statement = (sql: string, values: unknown[] = []) => ({
-    __sql: sql,
-    __values: values,
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => sqlite.prepare(sql).get(...values) as T | undefined ?? null,
-    all: async <T>() => ({ results: sqlite.prepare(sql).all(...values) as T[] }),
-    run: async () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
-  });
-  return {
-    prepare: (sql: string) => statement(sql),
-    batch: async (statements: D1PreparedStatement[]) => {
-      const results: Array<{ meta: { changes: number } }> = [];
-      sqlite.exec('BEGIN');
-      try {
-        for (const statement of statements as unknown as Array<{ __sql?: string; __values?: unknown[] }>) {
-          if (!statement.__sql) throw new Error('test adapter statement missing SQL');
-          results.push({
-            meta: { changes: sqlite.prepare(statement.__sql).run(...(statement.__values ?? [])).changes },
-          });
-        }
-        sqlite.exec('COMMIT');
-        return results;
-      } catch (error) {
-        sqlite.exec('ROLLBACK');
-        throw error;
-      }
-    },
-  } as unknown as D1Database;
-}
 
 function seed(): { db: D1Database; sqlite: InstanceType<typeof Sqlite> } {
   const sqlite = new Sqlite(':memory:');
   sqlite.pragma('foreign_keys = ON');
-  sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+  sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
   sqlite.prepare(`INSERT INTO tenants
     (id, tenant_code, display_name, status, created_at, updated_at)
     VALUES ('tenant-a', 'a', 'A', 'active', ?, ?)`).run(NOW, NOW);

@@ -1,20 +1,6 @@
-import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Sqlite } from '../test-sqlite.js';
 import { listMynaHandoffs, recordMynaVerification } from './repository.js';
-
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => {
-    exec(sql: string): void;
-    prepare(sql: string): {
-      reader: boolean;
-      get(...values: unknown[]): unknown;
-      all(...values: unknown[]): unknown[];
-      run(...values: unknown[]): { changes: number };
-    };
-    transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R;
-    close(): void;
-  };
 
 const CREATED_AT = '2026-08-19T00:00:00.000Z';
 

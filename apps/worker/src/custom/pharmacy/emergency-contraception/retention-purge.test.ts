@@ -1,27 +1,11 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { DB_PACKAGE_ROOT, Sqlite, type TestSqliteDatabase } from '../test-sqlite.js';
 import { beforeEach, describe, expect, test } from 'vitest';
 
 import { purgeEmergencyIntakesPastRetention } from './retention-purge.js';
 
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
-
-type SqliteStatement = {
-  get(...values: unknown[]): unknown;
-  all(...values: unknown[]): unknown[];
-  run(...values: unknown[]): { changes: number };
-};
-type Sqlite3Database = {
-  pragma(sql: string): unknown;
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  transaction<T extends (...args: never[]) => unknown>(fn: T): T;
-};
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => Sqlite3Database;
+type Sqlite3Database = TestSqliteDatabase;
 
 type RunnableStatement = {
   bind(...next: unknown[]): RunnableStatement;
@@ -171,7 +155,7 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     intakeSeq = 0;
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     db = d1From(sqlite);
   });
 

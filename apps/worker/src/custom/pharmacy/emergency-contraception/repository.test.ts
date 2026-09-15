@@ -1,7 +1,11 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import {
+  DB_PACKAGE_ROOT,
+  Sqlite,
+  d1FromSqlite,
+  type TestSqliteDatabase,
+} from '../test-sqlite.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createEmergencyIntake, getAdminEmergencyIntakeDetail, getEmergencySaleRecord,
@@ -9,50 +13,8 @@ import {
   transitionEmergencyIntake, recordCounterConfirmation,
 } from './repository.js';
 
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
-
-type SqliteStatement = {
-  get(...values: unknown[]): unknown;
-  all(...values: unknown[]): unknown[];
-  run(...values: unknown[]): { changes: number };
-};
-type Sqlite3Database = {
-  pragma(sql: string): unknown;
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  transaction<T extends (...args: never[]) => unknown>(fn: T): T;
-};
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => Sqlite3Database;
-
-type RunnableStatement = {
-  bind(...next: unknown[]): RunnableStatement;
-  first(): Promise<unknown>;
-  all(): Promise<{ success: true; results: unknown[]; meta: Record<string, never> }>;
-  run(): Promise<{ success: true; meta: { changes: number }; results: never[] }>;
-  runSync(): { success: true; meta: { changes: number }; results: never[] };
-};
-
-/** Adapts better-sqlite3 to the D1 surface the worker uses, including batch(). */
-function d1From(sqlite: Sqlite3Database): D1Database {
-  const statement = (sql: string, values: unknown[] = []): RunnableStatement => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async () => sqlite.prepare(sql).get(...values) ?? null,
-    all: async () => ({ success: true, results: sqlite.prepare(sql).all(...values), meta: {} }),
-    run: async () => statement(sql, values).runSync(),
-    runSync: () => {
-      const info = sqlite.prepare(sql).run(...values);
-      return { success: true, meta: { changes: info.changes }, results: [] };
-    },
-  });
-  return {
-    prepare: (sql: string) => statement(sql),
-    batch: async (statements: RunnableStatement[]) => sqlite.transaction(() =>
-      statements.map((item) => item.runSync()),
-    )(),
-  } as unknown as D1Database;
-}
+type Sqlite3Database = TestSqliteDatabase;
+const d1From = d1FromSqlite;
 
 function settingsDb(
   calls: Array<{ sql: string; values: unknown[] }>,
@@ -193,7 +155,7 @@ describe('emergency contraception v2 payload round-trip (B1-B4/C1-C2/D3, ECF-6)'
   it('seals B1-B4/C1-C2/D3 into the v2 payload and returns them from the admin detail read with pregnancy_test_recommended', async () => {
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     db = d1From(sqlite);
     seedAccount();
 
@@ -237,7 +199,7 @@ describe('emergency contraception v2 payload round-trip (B1-B4/C1-C2/D3, ECF-6)'
   it('rejects a C2 exclusivity violation before sealing anything', async () => {
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     db = d1From(sqlite);
     seedAccount();
 
@@ -258,7 +220,7 @@ describe('emergency contraception v2 payload round-trip (B1-B4/C1-C2/D3, ECF-6)'
   it('maps a v1-shaped payload (no Phase B fields) to null instead of throwing', async () => {
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     db = d1From(sqlite);
     seedAccount();
 
@@ -381,7 +343,7 @@ describe('emergency contraception counter confirmation and sale record (Phase B,
   beforeEach(() => {
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     db = d1From(sqlite);
   });
 

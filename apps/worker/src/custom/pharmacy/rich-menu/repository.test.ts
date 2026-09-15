@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createRequire } from 'node:module';
+import { Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import {
   beginPharmacyRichMenuOperation,
   advancePharmacyRichMenuPublishPhase,
@@ -21,18 +21,6 @@ import {
   savePharmacyRichMenuLayout,
   savePharmacyRichMenuLifecycleControl,
 } from './repository.js';
-
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => {
-    exec(sql: string): void;
-    prepare(sql: string): {
-      get(...values: unknown[]): unknown;
-      all(...values: unknown[]): unknown[];
-      run(...values: unknown[]): { changes: number };
-    };
-    close(): void;
-  };
 
 function createDb() {
   const sqlite = new Sqlite(':memory:');
@@ -80,14 +68,8 @@ function createDb() {
     line_account_id TEXT PRIMARY KEY, state TEXT NOT NULL, revision INTEGER NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`);
-  const statement = (sql: string, values: unknown[] = []) => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({ results: sqlite.prepare(sql).all(...values) as T[] }),
-    run: async () => ({ meta: { changes: sqlite.prepare(sql).run(...values).changes } }),
-  });
   return {
-    db: { prepare: (sql: string) => statement(sql) } as unknown as D1Database,
+    db: d1FromSqlite(sqlite),
     close: () => sqlite.close(),
   };
 }

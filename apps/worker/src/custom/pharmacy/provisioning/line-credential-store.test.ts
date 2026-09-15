@@ -1,8 +1,7 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { DB_PACKAGE_ROOT, Sqlite } from '../test-sqlite.js';
 import {
   computeLineAccessTokenLookupDigest,
 } from './line-credentials.js';
@@ -20,11 +19,7 @@ const ACCESS_TOKEN_A = `token-a-${'a'.repeat(64)}`;
 const ACCESS_TOKEN_B = `token-b-${'b'.repeat(64)}`;
 const ACCESS_TOKEN_C = `token-c-${'c'.repeat(64)}`;
 const CHANNEL_SECRET = 'a'.repeat(32);
-const require = createRequire(import.meta.url);
-const BASELINE = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../packages/db/migrations/001_v033_baseline.sql',
-);
+const BASELINE = join(DB_PACKAGE_ROOT, 'migrations/001_v033_baseline.sql');
 
 type SqliteStatement = {
   get(...values: unknown[]): unknown;
@@ -38,9 +33,6 @@ type SqliteDatabase = {
   prepare(sql: string): SqliteStatement;
   close(): void;
 };
-
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => SqliteDatabase;
 
 type CredentialRow = {
   tenant_id: string;

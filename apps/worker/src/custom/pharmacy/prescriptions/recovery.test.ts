@@ -1,19 +1,12 @@
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { Sqlite } from '../test-sqlite.js';
 import { getPrescriptionRecovery } from './repository.js';
-
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
 
 type SqliteStatement = {
   all(...values: unknown[]): unknown[];
   run(...values: unknown[]): { changes: number };
 };
 type SqliteDatabase = { exec(sql: string): void; prepare(sql: string): SqliteStatement };
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => SqliteDatabase;
 
 function d1From(sqlite: SqliteDatabase, afterAll?: (sql: string) => void): D1Database {
   return {

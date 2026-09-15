@@ -1,8 +1,12 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import {
+  DB_PACKAGE_ROOT,
+  Sqlite,
+  d1FromSqlite,
+  type TestSqliteDatabase,
+} from '../test-sqlite.js';
 
 import {
   backfillIncomingImageTracking,
@@ -12,43 +16,8 @@ import {
   reconcileIncomingImageInventory,
 } from './incoming-images.js';
 
-const DB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../../../packages/db');
-const require = createRequire(import.meta.url);
-type SqliteStatement = {
-  get(...values: unknown[]): unknown;
-  all(...values: unknown[]): unknown[];
-  run(...values: unknown[]): { changes: number };
-  runSync(): D1Result;
-};
-type Sqlite3Database = {
-  pragma(sql: string): unknown;
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  transaction<T>(fn: () => T): () => T;
-};
-const Sqlite = require(join(DB_ROOT, 'node_modules/better-sqlite3')) as
-  new (filename: string) => Sqlite3Database;
-
-function d1From(sqlite: Sqlite3Database): D1Database {
-  const statement = (sql: string, values: unknown[] = []) => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {},
-    }) as D1Result<T>,
-    runSync: () => {
-      const info = sqlite.prepare(sql).run(...values);
-      return { success: true, meta: { changes: info.changes }, results: [] };
-    },
-    run: async () => statement(sql, values).runSync(),
-  });
-  return {
-    prepare: (sql: string) => statement(sql),
-    batch: async <T>(statements: D1PreparedStatement[]) => sqlite.transaction(() =>
-      statements.map((item) => (item as unknown as SqliteStatement).runSync() as D1Result<T>),
-    )(),
-  } as unknown as D1Database;
-}
+type Sqlite3Database = TestSqliteDatabase;
+const d1From = d1FromSqlite;
 
 const NOW = new Date('2026-08-20T00:00:00.000Z');
 const EXECUTION = {
@@ -69,7 +38,7 @@ describe('incoming image retention ledger', () => {
   beforeEach(() => {
     sqlite = new Sqlite(':memory:');
     sqlite.pragma('foreign_keys = ON');
-    sqlite.exec(readFileSync(join(DB_ROOT, 'bootstrap.sql'), 'utf8'));
+    sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
     const at = '2026-08-19T00:00:00.000Z';
     sqlite.prepare(`INSERT INTO line_accounts
       (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)

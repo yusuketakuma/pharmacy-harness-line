@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
+import { Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import {
   createEncryptedLineAccount,
   LINE_ACCOUNT_CONFLICT_ERROR,
@@ -10,19 +10,6 @@ import { readLineCredential } from './line-credential-store.js';
 const ROOT_SECRET = 'synthetic-root-secret-for-account-store-v1';
 const ACCESS_TOKEN = `token-${'a'.repeat(64)}`;
 const CHANNEL_SECRET = 'b'.repeat(32);
-const require = createRequire(import.meta.url);
-const Sqlite = require('../../../../../../packages/db/node_modules/better-sqlite3') as
-  new (filename: string) => {
-    exec(sql: string): void;
-    prepare(sql: string): {
-      reader: boolean;
-      get(...values: unknown[]): unknown;
-      all(...values: unknown[]): unknown[];
-      run(...values: unknown[]): { changes: number };
-    };
-    transaction<T extends unknown[], R>(fn: (...args: T) => R): (...args: T) => R;
-    close(): void;
-  };
 
 function database(batchError?: Error, updateChanges = 1) {
   const statements: Array<{ sql: string; values: unknown[] }> = [];
@@ -115,32 +102,7 @@ function sqliteDatabase() {
               '2026-08-17T00:00:00.000Z');
   `);
 
-  type Statement = { sql: string; values: unknown[] };
-  const statement = (sql: string, values: unknown[] = []) => ({
-    sql,
-    values,
-    bind(...next: unknown[]) { return statement(sql, next); },
-    async first<T>() { return (sqlite.prepare(sql).get(...values) as T | undefined) ?? null; },
-    async all<T>() {
-      return { success: true, results: sqlite.prepare(sql).all(...values) as T[], meta: {} };
-    },
-    async run() {
-      const result = sqlite.prepare(sql).run(...values);
-      return { success: true, results: [], meta: { changes: result.changes } };
-    },
-  });
-  const db = {
-    prepare: (sql: string) => statement(sql),
-    batch: async (items: Statement[]) => sqlite.transaction((batchItems: Statement[]) =>
-      batchItems.map(({ sql, values }) => {
-        const prepared = sqlite.prepare(sql);
-        if (prepared.reader) {
-          return { success: true, results: prepared.all(...values), meta: { changes: 0 } };
-        }
-        const result = prepared.run(...values);
-        return { success: true, results: [], meta: { changes: result.changes } };
-      }))(items),
-  } as unknown as D1Database;
+  const db = d1FromSqlite(sqlite);
   return { db, close: () => sqlite.close() };
 }
 
