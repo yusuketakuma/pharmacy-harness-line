@@ -1432,6 +1432,31 @@
         "components": 208,
         "componentsWithoutLicenseMetadata": 65,
         "limit": "Format/non-empty/unique-component check passed. The pnpm executable shim injects NODE_PATH; direct Node avoids that local secure-mode warning without changing global configuration. No provenance or deployed-artifact claim."
+      },
+      "fleOracleReview": {
+        "status": "COMPLETED",
+        "verified": "yes",
+        "session": "fle-final-security-rerun",
+        "ranAt": "2026-09-15",
+        "model": "Latest (requested gpt-6-pro)",
+        "durationMinutes": 14,
+        "attachments": "baseline envelope/migration-state DDL excerpt + intake/provisioning 6 files",
+        "verdict": "BLOCK mutating FLE migration/cutover/restore",
+        "findings": [
+          "F1 high: state auth and writes not atomic",
+          "F2 high: arbitrary cursor falsely completes scrub/restore",
+          "F3 high: restore dry-run mutates approval/write freeze",
+          "F4 high: freeze accepts stale coverage, intake stuck frozen",
+          "F5 high: post-scrub intake invalidates restore",
+          "F6 high(helper boundary): legacy fallback skips tenant/account check",
+          "F7 medium: report exposes raw response id"
+        ],
+        "trackedAs": [
+          "FLE-REVIEW-1",
+          "FLE-REVIEW-2",
+          "FLE-REVIEW-3"
+        ],
+        "claim": "advisory read-only review。exported migration helper向けの指摘で、現行FLE mutating操作は無効のまま。route-level exploitは未実証。activation根拠にしない。"
       }
     },
     "liffBrowser": {

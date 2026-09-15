@@ -111,8 +111,29 @@
 
 - [x] **NEXT-7（Optional）lint baseline** `[lane:fast]` `[tdd:skip:tooling]` cc:Reject — `Reject: typecheck+testのみで4 release出荷済み`。v0.35.0途中での全ファイル整形diffはscope外のため採用しない。将来採用する場合はBiome 1依存・`recommended`のみ・初回整形を単独commitに隔離する条件は維持する。
 
-- [ ] **NEXT-8（Optional）FLE Oracle security review再実行** cc:TODO
-  - `fle-final-security-review` はbrowser profile lockで `error` のまま。`oracle --dry-run summary --files-report` → 許可済みallowlistのみ添付で再実行し、`verified=yes` か `NOT_RUN` を記録する。advisory扱い。
+- [x] **NEXT-8（Optional）FLE Oracle security review再実行** cc:完了 `verified=yes`（2026-09-15、session `fle-final-security-rerun`、model resolved `Latest` requested `gpt-6-pro`、13m47s、~52k tokens、7 files bundled）
+  - dry-run後に許可済みallowlist相当を添付して再実行。旧`custom_040/041`は`001_v033_baseline.sql`統合済みのため、baselineのenvelope/migration-state DDL抜粋（1545-1610・3060-3078、verbatim）+ intake/provisioning 6ファイルで実施。advisory扱い。
+  - **Verdict: BLOCK mutating FLE migration/cutover/restore**（findings F1-F7）。確認されたのはexported migration helperとそれを有効化するcallerの問題であり、legacy provisioning routesはfreeze無効・他operationは`dryRun=true`固定でHTTP経路の認証迂回実証ではない。F6もhelper境界の記述でroute-level cross-tenant exploitは未実証。findings:
+    - F1 High: 状態認可とデータ書込みが非原子的（delayed restoreがre-scrub後にplaintext復帰。phase CASがapprovalを含まず、batch内SQL失敗でない0行更新を事後検知するのみ）
+    - F2 High: 任意cursorでscrub/restoreの偽完了（cursor枯渇≠全account完了。終端遷移にaccount-wide postconditionなし）
+    - F3 High: restore dry-runがapproval再束縛でstateを書き換え、write freezeを解除し得る
+    - F4 High: freezeがstale coverageを受理しintakeがfrozen stuck（検査とINSERTの間のrace、回復経路なし）
+    - F5 High: scrub後の通常intake 1件で旧coverageと不一致となりrestore不能
+    - F6 High(helper境界): legacy fallbackがtenant/account membershipを検証せずmigration state無しでplaintext返却（route-level到達性は外側middleware次第で未実証）
+    - F7 Medium: migration reportのnextCursorがraw response PKをserialize
+  - **耐えた範囲**: AEAD/AAD 10次元のmutation拒否、encrypted-write-firstのatomicity、backfillのpage制約とrewrap、20 synthetic checks実行。
+  - **対応**: findingsは新規issueとして後続登録（F1-F5はmutating cutover/rollback有効化前、F6はtenant-safe dual-read主張前、F7はreport出力からraw ID除去）。現行のFLE mutating操作は無効のまま維持し、本reviewをactivation根拠にしない。
+
+- [ ] **FLE-REVIEW-1 migration helper原子性・完了guard** `[tdd:required]` cc:TODO（`fle-final-security-rerun` F1-F5由来、mutating cutover/rollback/freeze有効化のrelease-blocking条件）
+  - F1: phase/approval guard・page mutation・finalizationを同一D1 batchへ。stale guardや0行更新はbatch内SQL制約失敗にする。
+  - F2: 終端遷移にaccount-wide postcondition（scrub完了時に対象legacy field残存0、restore完了時sentinel残存0）。cursor枯渇のみで完了しない。
+  - F3: `dryRun`がrebindMigrationState等の一切のDB書込みを行わないことのregression。approval再束縛はguard済みmutation transaction内へ。
+  - F4: freeze前にwrite fence確立後にcoverage再検査、またはstale snapshotの拒否+明示再承認refresh経路。
+  - F5: scrub後の新規intakeを含む現datasetへのfresh approval restore経路（旧approvalは不十分のまま、concurrent writerはfenceで遮断）。
+- [ ] **FLE-REVIEW-2 dual-read helperのtenant検証** `[tdd:required]` cc:TODO（同F6由来、tenant-safe dual-read主張の前提）
+  - `openPatientIntakeFields`のlegacy fallbackがtenant/account mappingを正に確認し、sentinel-only行を成功扱いしない。mapped legacy read成功・unmapped pair拒否・sentinel-only拒否・partial envelope非fallbackのregressionを追加。
+- [ ] **FLE-REVIEW-3 migration reportのraw ID除去** `[tdd:required]` cc:TODO（同F7由来）
+  - `nextCursor`のraw response PKをserializeせずopaque operation-scoped handleへ。report serializeがresponse/patient識別子・payload・envelope値・key materialを含まないregression。
 
 **Reject（コードで解決しない／今回やらない）**:
 
