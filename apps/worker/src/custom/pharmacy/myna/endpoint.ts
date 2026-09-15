@@ -1,16 +1,18 @@
+import {
+  decodeBase64UrlLenient,
+  deriveAesGcmKey,
+  deriveHmacKey,
+  toBase64Url,
+} from '../crypto-utils.js';
+
 const textEncoder = new TextEncoder();
 
 export function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return toBase64Url(bytes);
 }
 
 export function base64UrlDecode(value: string): Uint8Array {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
-  const binary = atob(padded);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return decodeBase64UrlLenient(value);
 }
 
 /** Legacy v1: SHA-256(secret) as key, no AAD. Read-only; new values are written as v2. */
@@ -34,15 +36,9 @@ function aad(scope: EndpointCryptoScope): Uint8Array {
 }
 
 /** v2 key: HMAC(secret, label:keyVersion), same derivation shape as the LINE credential store. */
-async function derivedKey(secret: string): Promise<CryptoKey> {
+function derivedKey(secret: string): Promise<CryptoKey> {
   if (!secret) throw new Error('Myna endpoint encryption key is not configured');
-  const hmacKey = await crypto.subtle.importKey(
-    'raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const material = await crypto.subtle.sign(
-    'HMAC', hmacKey, textEncoder.encode(`myna-endpoint:encryption:${KEY_VERSION}`),
-  );
-  return crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  return deriveAesGcmKey(secret, `myna-endpoint:encryption:${KEY_VERSION}`);
 }
 
 /**
@@ -50,17 +46,9 @@ async function derivedKey(secret: string): Promise<CryptoKey> {
  * (`GET /r/myna/:token`). Derived from the same encryption secret with a
  * distinct label so it can never be reused as the endpoint-URL AES-GCM key.
  */
-export async function launchTokenKey(secret: string): Promise<CryptoKey> {
+export function launchTokenKey(secret: string): Promise<CryptoKey> {
   if (!secret) throw new Error('Myna endpoint encryption key is not configured');
-  const hmacKey = await crypto.subtle.importKey(
-    'raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const material = await crypto.subtle.sign(
-    'HMAC', hmacKey, textEncoder.encode(`myna-endpoint:launch-token:${KEY_VERSION}`),
-  );
-  return crypto.subtle.importKey(
-    'raw', material, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'],
-  );
+  return deriveHmacKey(secret, `myna-endpoint:launch-token:${KEY_VERSION}`);
 }
 
 export function normalizeEndpointUrl(value: string, allowedHosts: string[]): string {

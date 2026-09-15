@@ -1,3 +1,14 @@
+import {
+  asBuffer,
+  decodeBase64Url,
+  deriveAesGcmKey,
+  hmacSha256,
+  isValidRootSecret,
+  sameText,
+  toBase64Url,
+  toHex,
+} from '../crypto-utils.js';
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
@@ -44,30 +55,10 @@ function invalid(): never {
   throw new Error(INVALID_LINE_CREDENTIAL_ERROR);
 }
 
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
-}
-
-function asBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.slice().buffer as ArrayBuffer;
-}
-
 function fromBase64Url(value: unknown, expectedLength?: number, maxLength?: number): Uint8Array {
-  if (typeof value !== 'string' || value.length === 0 ||
-      !/^[A-Za-z0-9_-]+$/u.test(value) || value.length % 4 === 1) invalid();
-  try {
-    const padded = value.replaceAll('-', '+').replaceAll('_', '/')
-      .padEnd(Math.ceil(value.length / 4) * 4, '=');
-    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
-    if (toBase64Url(bytes) !== value ||
-        (expectedLength !== undefined && bytes.length !== expectedLength) ||
-        (maxLength !== undefined && bytes.length > maxLength)) invalid();
-    return bytes;
-  } catch {
-    invalid();
-  }
+  const bytes = decodeBase64Url(value, expectedLength, maxLength);
+  if (!bytes) invalid();
+  return bytes;
 }
 
 function isLineCredentialKind(value: unknown): value is LineCredentialKind {
@@ -76,7 +67,7 @@ function isLineCredentialKind(value: unknown): value is LineCredentialKind {
 }
 
 function validateRootSecret(value: unknown): asserts value is string {
-  if (typeof value !== 'string' || encoder.encode(value).length < 32 || value.length > 4096) invalid();
+  if (!isValidRootSecret(value)) invalid();
 }
 
 function validateId(value: unknown): asserts value is string {
@@ -115,34 +106,11 @@ function aad(
   return encoder.encode(JSON.stringify({ tenantId, lineAccountId, kind, keyVersion }));
 }
 
-async function hmac(rootSecret: string, value: string): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    asBuffer(encoder.encode(rootSecret)),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
+function encryptionKey(rootSecret: string, keyVersion: number): Promise<CryptoKey> {
+  return deriveAesGcmKey(rootSecret, `${ROOT_SECRET_LABEL}:encryption:${keyVersion}`);
 }
 
-async function encryptionKey(rootSecret: string, keyVersion: number): Promise<CryptoKey> {
-  const material = await hmac(rootSecret, `${ROOT_SECRET_LABEL}:encryption:${keyVersion}`);
-  return crypto.subtle.importKey('raw', asBuffer(material), 'AES-GCM', false, ['encrypt', 'decrypt']);
-}
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-export function sameText(left: string, right: string): boolean {
-  let difference = left.length ^ right.length;
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    difference |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
-  }
-  return difference === 0;
-}
+export { sameText };
 
 export async function computeLineAccessTokenLookupDigest(
   rootSecret: string,
@@ -151,7 +119,7 @@ export async function computeLineAccessTokenLookupDigest(
   try {
     validateRootSecret(rootSecret);
     validateCredential('channel_access_token', credential);
-    return toHex(await hmac(
+    return toHex(await hmacSha256(
       rootSecret,
       `${ROOT_SECRET_LABEL}:lookup:channel_access_token:${credential}`,
     ));

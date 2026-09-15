@@ -18,6 +18,7 @@ import {
   sealPatientIntakeField,
   toBase64Url,
 } from './encryption.js';
+import { deriveAesGcmKey } from '../crypto-utils.js';
 
 export { PATIENT_INTAKE_LEGACY_SENTINEL };
 
@@ -93,15 +94,11 @@ const GUARD_FAIL_DIGEST = '0'.repeat(64);
 
 type MigrationCursorOperation = 'backfill' | 'scrub' | 'restore';
 
-async function migrationCursorKey(scope: PatientIntakeMigrationScope): Promise<CryptoKey> {
-  const hmacKey = await crypto.subtle.importKey(
-    'raw', encoder.encode(patientIntakeRootSecret(scope, activePatientIntakeKeyVersion(scope))),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+function migrationCursorKey(scope: PatientIntakeMigrationScope): Promise<CryptoKey> {
+  return deriveAesGcmKey(
+    patientIntakeRootSecret(scope, activePatientIntakeKeyVersion(scope)),
+    `${MIGRATION_CURSOR_LABEL}:key`,
   );
-  const material = await crypto.subtle.sign(
-    'HMAC', hmacKey, encoder.encode(`${MIGRATION_CURSOR_LABEL}:key`),
-  );
-  return crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
 function migrationCursorData(

@@ -7,6 +7,7 @@ import {
   type PatientIntakeEncryptedField,
   type PatientIntakeKeyVersion,
 } from './encryption.js';
+import { isValidRootSecret } from '../crypto-utils.js';
 
 export const PATIENT_INTAKE_LEGACY_SENTINEL = '{}';
 
@@ -42,11 +43,7 @@ export interface StoredPatientIntakeEnvelope {
   ciphertext: string;
 }
 
-const encoder = new TextEncoder();
-
-function validRootSecret(value: unknown): value is string {
-  return typeof value === 'string' && encoder.encode(value).length >= 32 && value.length <= 4096;
-}
+const validRootSecret = isValidRootSecret;
 
 export function resolvePatientIntakeCryptoScope(
   bindings: PatientIntakeCryptoBindings,
