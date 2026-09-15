@@ -219,6 +219,7 @@ export default function TemplatesPage() {
     <div>
       <Header
         title="テンプレート管理"
+        description="繰り返し使うメッセージのひな形を管理します。"
         action={
           <button
             onClick={() => setShowCreate(true)}

@@ -9,14 +9,14 @@ export default function NewEventPage() {
   if (!selectedAccountId) {
     return (
       <>
-        <Header title="新規イベント" />
+        <Header title="新規イベント" description="新しいイベントを作成します。" />
         <div className="p-4 text-gray-500">アカウントを選択してください。</div>
       </>
     )
   }
   return (
     <>
-      <Header title="新規イベント" />
+      <Header title="新規イベント" description="新しいイベントを作成します。" />
       <EventForm accountId={selectedAccountId} eventId={null} />
     </>
   )

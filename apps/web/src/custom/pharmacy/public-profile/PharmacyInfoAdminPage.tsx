@@ -131,7 +131,7 @@ export default function PharmacyInfoAdminPage() {
   }
 
   return <div>
-    <Header title="患者向け薬局情報" />
+    <Header title="患者向け薬局情報" description="患者向け画面に表示する営業時間・アクセス・支払方法などを編集します。" />
     {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {message && <p role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}
     {dirty && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">未保存の変更があります。</p>}

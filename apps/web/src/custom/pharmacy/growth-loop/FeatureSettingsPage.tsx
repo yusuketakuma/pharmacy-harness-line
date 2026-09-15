@@ -7,16 +7,19 @@ import { ApiError, api } from '@/lib/api'
 import { richMenuAreaStyle } from '@/custom/pharmacy/rich-menu/preview-geometry'
 import { pharmacyRichMenuApi, type PharmacyRichMenuCandidate } from '@/custom/pharmacy/rich-menu/api'
 import { pharmacyGrowthApi } from './api'
+import { readinessStatusLabel } from './readiness-labels'
+
+export { readinessStatusLabel }
 
 const PATIENT_FEATURES = [
-  { key: 'prescription_intake', label: '処方せん事前送信' },
-  { key: 'electronic_prescription', label: '電子処方箋' },
-  { key: 'emergency_contraception', label: '緊急避妊薬' },
-  { key: 'pharmacy_info', label: '薬局情報' },
-  { key: 'patient_intake', label: '患者アンケート' },
-  { key: 'continuity', label: '継続フォロー' },
-  { key: 'medication_followup', label: '服薬フォロー' },
-  { key: 'manual_chat', label: '個別チャット' },
+  { key: 'prescription_intake', label: '処方せん事前送信', description: '患者がLINEから処方せんの写真を送れます' },
+  { key: 'electronic_prescription', label: '電子処方箋', description: '患者が電子処方箋の手続きを始められます' },
+  { key: 'emergency_contraception', label: '緊急避妊薬', description: '患者がオンラインで仮受付できます' },
+  { key: 'pharmacy_info', label: '薬局情報', description: '営業時間やアクセスなどの案内を表示します' },
+  { key: 'patient_intake', label: '患者アンケート', description: '患者情報や問診の回答を登録してもらえます' },
+  { key: 'continuity', label: '継続フォロー', description: '次回来局の事前送信を案内します' },
+  { key: 'medication_followup', label: '服薬フォロー', description: '服薬後の状況確認の回答を受け付けます' },
+  { key: 'manual_chat', label: '個別チャット', description: '患者と1対1でメッセージをやり取りできます' },
 ] as const
 
 type PatientCapability = (typeof PATIENT_FEATURES)[number]['key']
@@ -28,15 +31,6 @@ export function setPatientCapability(
   capabilities: readonly string[], key: PatientCapability, enabled: boolean,
 ): string[] {
   return enabled ? [...new Set([...capabilities, key])] : capabilities.filter((value) => value !== key)
-}
-
-const READINESS_STATUS_LABELS: Record<string, string> = {
-  READY: '準備完了', BLOCKED: '要対応', CURRENT: '一致', STALE: '未反映', UNVERIFIED: '未確認',
-  VERIFIED: '確認済み', MISSING: '未設定',
-}
-
-export function readinessStatusLabel(status: string): string {
-  return READINESS_STATUS_LABELS[status] ?? status
 }
 
 const REASON_CODE_LABELS: Record<string, string> = {
@@ -68,7 +62,7 @@ type CandidateChange = Extract<PharmacyRichMenuCandidate, { syncStatus: 'CURRENT
 
 export function pharmacyCandidateChangeLabel(change: CandidateChange): string {
   if (change.kind === 'removed') {
-    return `公開中の枠${(change.currentIndex ?? 0) + 1}を候補から削除します。OFFにした機能の画像とtap actionが公開中に残っています。`
+    return `公開中の枠${(change.currentIndex ?? 0) + 1}を候補から削除します。OFFにした機能の画像とタップ時の動作が公開中に残っています。`
   }
   if (change.kind === 'added') {
     return `候補の枠${(change.draftIndex ?? 0) + 1}を追加します。ONにした機能は公開中メニューへまだ反映されていません。`
@@ -77,7 +71,7 @@ export function pharmacyCandidateChangeLabel(change: CandidateChange): string {
     return `公開中の枠${(change.currentIndex ?? 0) + 1}を候補の枠${(change.draftIndex ?? 0) + 1}へ移動します。`
   }
   const slot = (change.draftIndex ?? change.currentIndex ?? 0) + 1
-  if (change.kind === 'action_changed') return `枠${slot}のtap actionを変更します。`
+  if (change.kind === 'action_changed') return `枠${slot}のタップ時の動作を変更します。`
   if (change.kind === 'image_changed') return `枠${slot}の画像を変更します。`
   return `枠${slot}は公開中と同一です。`
 }
@@ -239,14 +233,14 @@ export default function FeatureSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-6">
-      <div><h1 className="text-2xl font-bold text-gray-900">機能設定</h1><p className="mt-1 text-sm text-gray-600">患者向けLIFFに表示する機能を薬局ごとに設定します。</p></div>
+      <div><h1 className="text-2xl font-bold text-gray-900">機能設定</h1><p className="mt-1 text-sm text-gray-600">患者がLINEアプリ内で使う機能を、薬局ごとにON/OFFします。</p></div>
       {staffRole === 'staff' && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">一般スタッフは閲覧のみです。変更はオーナーまたは管理者が行ってください。</p>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}
       <section className="rounded-xl border border-gray-200 bg-white p-5" aria-labelledby="patient-features-title">
         <h2 id="patient-features-title" className="font-semibold">患者向け機能</h2>
         <p className="mt-1 text-sm text-gray-600">全機能をOFFにもできます。OFF後も既存データは削除されず、対応中案件の完了・取消は継続できます。</p>
-        {loading || !config ? <p className="py-8 text-center text-sm text-gray-500">設定を読み込み中...</p> : <><div className="mt-4 divide-y divide-gray-200">{PATIENT_FEATURES.map(({ key, label }) => <label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3"><span><span className="block font-medium">{label}</span><span className="block text-xs text-gray-500">対応中 {activeWork?.[key] ?? 0}件</span></span><input type="checkbox" checked={draft.includes(key)} onChange={(event) => setDraft((current) => setPatientCapability(current, key, event.target.checked))} disabled={saving || !canMutate} className="h-5 w-5" /></label>)}</div><label className="mt-4 block max-w-xs text-sm font-medium">月間自動通知上限
+        {loading || !config ? <p className="py-8 text-center text-sm text-gray-500">設定を読み込み中...</p> : <><div className="mt-4 divide-y divide-gray-200">{PATIENT_FEATURES.map(({ key, label, description }) => <label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3"><span><span className="block font-medium">{label}</span><span className="block text-xs text-gray-500">{description}・対応中 {activeWork?.[key] ?? 0}件</span></span><input type="checkbox" checked={draft.includes(key)} onChange={(event) => setDraft((current) => setPatientCapability(current, key, event.target.checked))} disabled={saving || !canMutate} className="h-5 w-5" /></label>)}</div><label className="mt-4 block max-w-xs text-sm font-medium">月間自動通知上限
           <input type="number" min={0} max={100} step={1} value={monthlyLimit} onChange={(event) => setMonthlyLimit(Number(event.target.value))} disabled={saving || !canMutate} aria-describedby="monthly-limit-help" className="mt-1 min-h-11 w-full rounded border border-gray-300 px-3" />
           <span id="monthly-limit-help" className="mt-1 block text-xs font-normal text-gray-500">薬局から自動送信する中立通知の月間上限です。0で自動通知を停止します。</span>
         </label></>}
@@ -255,13 +249,13 @@ export default function FeatureSettingsPage() {
       </section>
       {shouldOfferRichMenuCandidate(config?.capabilities ?? []) && <section className="rounded-xl border border-violet-200 bg-white p-5" aria-labelledby="rich-menu-candidate-title">
         <h2 id="rich-menu-candidate-title" className="font-semibold">リッチメニュー候補</h2>
-        <p className="mt-1 text-sm text-gray-600">機能ON/OFF後の保存済みJPEGとtap actionです。確認だけではLINE表示を変更しません。</p>
+        <p className="mt-1 text-sm text-gray-600">機能をON/OFFしたあとのリッチメニュー候補の画像とタップ時の動作です。確認するだけではLINEの表示は変わりません。</p>
         <p className="mt-1 text-xs text-gray-500">電子処方箋・緊急避妊薬などは「すべての機能」から開けます。</p>
         <button type="button" onClick={() => void previewRichMenuCandidate()} disabled={candidateLoading} className="mt-3 min-h-11 rounded-lg border border-violet-600 px-4 py-2 text-sm font-medium text-violet-800 disabled:opacity-50">{candidateLoading ? '確認中…' : 'リッチメニュー候補画像を確認'}</button>
         {candidate && <div aria-live="polite" className="mt-4 rounded-lg bg-violet-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-medium">同期状態: {readinessStatusLabel(candidate.syncStatus)}</p>
-            <p className="text-xs text-gray-600">{candidate.menuSize === 'large' ? '2500×1686' : '2500×843'} / {candidate.catalogVersion} / {candidate.variantKey}</p>
+            <p className="text-xs text-gray-600">画像サイズ {candidate.menuSize === 'large' ? '2500×1686' : '2500×843'} ・ catalog {candidate.catalogVersion} ・ レイアウト {candidate.variantKey}</p>
           </div>
           {candidate.syncStatus === 'UNVERIFIED'
             ? <p className="mt-2 text-sm text-amber-800">LINEの現在表示を確認できないため、自動反映せず候補だけを表示しています。</p>
@@ -273,7 +267,7 @@ export default function FeatureSettingsPage() {
             <img src={pharmacyRichMenuApi.pharmacyCandidateImageUrl(candidate.accountId, candidate)} alt="機能設定から導出したリッチメニュー候補画像" className="absolute inset-0 h-full w-full object-cover" />
             {candidate.slots.map((slot, index) => <span key={slot.actionKey} role="img" tabIndex={0} aria-label={`候補枠${index + 1}: ${slot.label}, ${slot.actionType}`} className="absolute flex items-center justify-center border-2 border-violet-700 bg-violet-200/25 text-xs font-bold text-violet-950 outline-offset-2 focus:outline focus:outline-4 focus:outline-violet-700" style={richMenuAreaStyle(slot, candidate.menuSize)}>{index + 1}</span>)}
           </div>
-          <ol className="mt-3 grid gap-2 text-sm sm:grid-cols-2">{candidate.slots.map((slot, index) => <li key={slot.actionKey} className="rounded bg-white p-2">{index + 1}. {slot.label} ({slot.actionType})</li>)}</ol>
+          <ol className="mt-3 grid gap-2 text-sm sm:grid-cols-2">{candidate.slots.map((slot, index) => <li key={slot.actionKey} className="rounded bg-white p-2">{index + 1}. {slot.label} ({slot.actionType === 'uri' ? 'リンク' : 'メッセージ'})</li>)}</ol>
           <Link href="/rich-menus#pharmacy-rich-menu-layout-editor" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white">新しい配置を作成</Link>
         </div>}
       </section>}

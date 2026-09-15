@@ -152,6 +152,7 @@ function BroadcastList() {
     <div>
       <Header
         title="一斉配信"
+        description="友だち全員、または絞り込んだ相手へメッセージを作成・送信します。"
         action={
           <button
             onClick={() => setShowCreate(true)}
