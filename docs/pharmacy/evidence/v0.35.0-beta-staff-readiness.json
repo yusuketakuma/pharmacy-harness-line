@@ -1057,7 +1057,7 @@
       "maximum": 3,
       "namesRecorded": false
     },
-    "baselineSourceSha": "99dd8b2fbf4f318b96d2bdf5e0bf1cdc775db568",
+    "baselineSourceSha": "123545e888c6e6a7e533eaba865a5d09797657fb",
     "startGate": "同一fixtureのbaseline/candidate buildと試験手順を先にfreezeし、担当者が承認してから開始。今のdirty treeを凍結済みと扱わない。",
     "trialsPerTaskPerParticipant": 3,
     "tasks": [
@@ -1125,7 +1125,74 @@
       "gate": false,
       "rule": "小標本の形成的評価。安全性・正確性の失敗を達成率や速さで相殺しない。"
     },
-    "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。"
+    "dataPolicy": "合成fixtureのみ。実患者情報・ID token・credential・処方画像・回答本文を記録/録画/外部送信しない。実LINE端末/VoiceOver/TalkBackはlocal Chromiumとは別試験。 fixture code・buildDigest・匿名participant codeのみ記録。",
+    "baselineClaim": "deployed production build（現在のスタッフ体験）。所要時間短縮の比較基準。deploy metadata確認済み、byte equality未検証。",
+    "candidateSourceSha": "cc8019d44c586f1c9551530cd9526af52354188c",
+    "candidateClaim": "2026-09-15 local dev HEAD。以後のdocs/evidence-only commitは被検証codeを変更しない。code変更があれば再freeze。",
+    "frozenAt": "2026-09-15T09:20:00.000Z",
+    "frozenBy": "engineering",
+    "approvalStatus": "PENDING_OWNER_ACCEPTANCE",
+    "fixtures": [
+      {
+        "code": "FIX-A-SELF",
+        "content": "合成薬局A・本人患者P1・処方せん1件（合成画像4枚・使用期限・問診rev2・受取希望）。受付→準備→受渡し。",
+        "tasks": [
+          "V035-UX01",
+          "V035-UX03",
+          "V035-UX06"
+        ],
+        "seeding": "apps/web/e2e/prescription-journey.e2e.tsと同じ合成route-mock/seeded dev D1"
+      },
+      {
+        "code": "FIX-B-FOREIGN",
+        "content": "合成薬局B・別患者・別処方せん。cross-account誤認の検出用。",
+        "tasks": [
+          "V035-UX01",
+          "V035-UX05"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-PROXY-CHILD",
+        "content": "未成年proxy家族患者（有効proxy consent、期限切れ境界ケース含む）。",
+        "tasks": [
+          "V035-UX01"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-CONFLICT",
+        "content": "同一処方せんを2名の合成スタッフが同時編集し409を発生させる。",
+        "tasks": [
+          "V035-UX02"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-PRINT-503",
+        "content": "print record APIが503を返す注入。画像維持・同一操作ID再確認。",
+        "tasks": [
+          "V035-UX04"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-OFFLINE",
+        "content": "通信断・低速・session期限切れをroute abort/delayで注入。",
+        "tasks": [
+          "V035-UX05"
+        ],
+        "seeding": "同上"
+      },
+      {
+        "code": "FIX-NONPARTICIPANT",
+        "content": "beta非参加friend。403境界と既存record/control path継続の確認。",
+        "tasks": [
+          "V035-UX01"
+        ],
+        "seeding": "同上"
+      }
+    ]
   },
   "operationsPreparation": {
     "status": "BLOCKED",
