@@ -150,6 +150,7 @@ export default function AutoRepliesPage() {
     <div>
       <Header
         title="自動返信ルール"
+        description="キーワードや条件に合ったメッセージへ自動で返信するルールを管理します。"
         action={
           <button
             onClick={() => setEditing({

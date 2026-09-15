@@ -125,7 +125,7 @@ function BookingsInner() {
 
   return (
     <>
-      <Header title={event?.name ?? 'イベント予約管理'} />
+      <Header title={event?.name ?? 'イベント予約管理'} description="このイベントへの予約を一覧し、対応状況を更新します。" />
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-4 flex items-center gap-2 text-sm">
           <Link href="/events" className="text-blue-600 hover:underline">イベント一覧</Link>

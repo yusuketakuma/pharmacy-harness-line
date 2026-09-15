@@ -1,0 +1,34 @@
+# pnpm monorepo; packageManager pins pnpm@9.15.4, Node >=22 required.
+initialize: |
+  corepack enable
+  corepack prepare pnpm@9.15.4 --activate
+maintenance: |
+  pnpm install
+knowledge:
+  - name: verify
+    contents: |
+      pnpm verify:ci  # typecheck + tests + script tests + migration check
+  - name: test
+    contents: |
+      pnpm -r test
+  - name: dev
+    contents: |
+      (cd apps/web && pnpm dev)  # admin UI on :3001
+---
+runs-on: windows
+initialize: |
+  corepack enable
+  corepack prepare pnpm@9.15.4 --activate
+maintenance: |
+  # better-sqlite3 needs VS C++ build tools; skip native builds on Windows.
+  pnpm install --ignore-scripts
+knowledge:
+  - name: verify
+    contents: |
+      pnpm verify:ci  # typecheck + tests + script tests + migration check
+  - name: test
+    contents: |
+      pnpm -r test
+  - name: dev
+    contents: |
+      (cd apps/web && pnpm dev)  # admin UI on :3001

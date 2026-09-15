@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useAccount } from '@/contexts/account-context'
 import { PRESCRIPTION_STATUS_LABELS } from '@/custom/pharmacy/prescriptions/PrescriptionQueueOverview'
 import { pharmacyGrowthApi, type PharmacyActionQueue, type PharmacyOperationsSummary } from './api'
+import { readinessStatusLabel } from './readiness-labels'
 
 export type OperationsSummary = PharmacyOperationsSummary
 type DomainKey = keyof OperationsSummary['domains']
@@ -113,7 +114,7 @@ export function TodayOperationsSummaryView({
         <article className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="flex items-start justify-between gap-3">
             <h2 className="font-semibold text-gray-900">リッチメニュー</h2>
-            {!summary.richMenu.error && <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">{richMenuDisplayStatus(summary.richMenu)}</span>}
+            {!summary.richMenu.error && <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700">{readinessStatusLabel(richMenuDisplayStatus(summary.richMenu))}</span>}
           </div>
           {summary.richMenu.error
             ? <p role="alert" className="mt-3 text-sm text-red-700">一部取得できません</p>

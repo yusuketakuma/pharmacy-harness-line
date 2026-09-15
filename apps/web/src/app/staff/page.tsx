@@ -166,6 +166,7 @@ export default function StaffPage() {
     <div>
       <Header
         title="スタッフ管理"
+        description="管理画面にログインするスタッフの登録と、担当するLINEアカウントを管理します。"
         action={
           <button
             onClick={() => setShowForm(!showForm)}

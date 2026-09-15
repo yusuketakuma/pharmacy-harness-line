@@ -136,7 +136,7 @@ export default function EmergencyPage() {
 
   return (
     <div>
-      <Header title="緊急コントロール" />
+      <Header title="緊急コントロール" description="障害や事故のときに、アカウントの送信・受付をまとめて停止・復旧します。" />
 
       {/* Warning banner */}
       <div className="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-lg">

@@ -37,7 +37,7 @@ metadata, deployment evidence, and production operation are distinct claims.
 - `apps/liff/` — 患者向け LIFF アプリ。
 - `packages/*` — 共有コード。`db` (schema + migrations、薬局向けは `custom_NNN`)、`shared`、`sdk`、`line-sdk`、`mcp-server`、`update-engine`、`create-line-harness` (installer CLI)、`plugin-template`。
 - `scripts/custom/pharmacy/` — テナント作成・スタッフ登録などの薬局運用スクリプト。
-- `docs/pharmacy/` — このフォークの正本となる設計・運用・監査文書。`docs/upstream/` はフォーク元の汎用 CRM 文書で、古い場合がある。入口は `docs/README.md`。
+- `docs/pharmacy/` — このフォークの正本となる契約・運用・監査文書。コード構造や機能の説明は Devin 生成 wiki を参照し、リポジトリには wiki で代替できない文書だけを置く。入口は `docs/README.md`。
 - `PLANS.md` — タスク台帳。`CHANGELOG.md` — リリース履歴。
 - `.claude/`、`.omc/` などエージェントのランタイム状態はコミットしない。
 
