@@ -46,13 +46,13 @@ function asBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer as ArrayBuffer;
 }
 
-function toBase64Url(bytes: Uint8Array): string {
+export function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
 }
 
-function fromBase64Url(value: unknown, expectedLength?: number, maxLength?: number): Uint8Array {
+export function fromBase64Url(value: unknown, expectedLength?: number, maxLength?: number): Uint8Array {
   if (typeof value !== 'string' || value.length === 0 ||
       !/^[A-Za-z0-9_-]+$/u.test(value) || value.length % 4 === 1) invalid();
   try {

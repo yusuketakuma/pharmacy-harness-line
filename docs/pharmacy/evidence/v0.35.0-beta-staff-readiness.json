@@ -1537,6 +1537,16 @@
         "date": "2026-09-15",
         "summary": "V035-5 review follow-up: `liff-pharmacy-feature-access.test.ts`追加（feature-accessのsoft-deny `200 {existingFeatures:[]}`・handler未実行・resolved account/friend使用を固定）とBETA_PARTICIPATION.mdの行列訂正（DSR route surfaceを実在の`/api/custom/pharmacy/*`へ、feature-access行を文書化例外として追加）。application code不変。",
         "verification": "pnpm --filter worker test: 248 files/2663 tests PASS (local HEAD)"
+      },
+      {
+        "date": "2026-09-15",
+        "summary": "依頼対応の局所UI改善（local差分）: docs/pharmacy/OPERATION_GUIDE.md新規+docs/README.md索引、PrescriptionPrintPage.operationIdのsessionStorage guard（不可時fresh UUID fallback）、EC相談窓口リンクのpharmacy-control 44px化、一覧/集計/履歴のIntl.DateTimeFormat都度生成を共有化3箇所（出力不変）。application codeが変わったため、commit時はV035-4試験候補の再freezeが必要。",
+        "verification": "pnpm --filter web test: 52 files/244 tests PASS; pnpm --filter liff test: 24 files/149 tests PASS; web/liff typecheck PASS (local working tree)"
+      },
+      {
+        "date": "2026-09-15",
+        "summary": "FLE-REVIEW-1..3 実装（local差分、`fle-final-security-rerun` F1-F7由来）: migrateLegacyFieldsを単一db.batch原子化（state/dataset guardのINSERT..SELECT制約失敗化、終端account-wide postcondition、dryRun書込み0、freeze INSERT行数guard、restore fresh-approval rebind+fence）、openPatientIntakeFieldsのtenant mapping正確認+sentinel拒否、nextCursorのAES-GCM opaque operation-scoped handle化。migration-fle-review.test.ts新規（実SQLite）。application codeが変わったため、commit時はV035-4試験候補の再freezeが必要。FLE mutating操作の有効化は別gateのまま。",
+        "verification": "pnpm --filter worker test: 249 files/2673 tests PASS; worker typecheck PASS (local working tree)"
       }
     ]
   },

@@ -124,16 +124,19 @@
   - **耐えた範囲**: AEAD/AAD 10次元のmutation拒否、encrypted-write-firstのatomicity、backfillのpage制約とrewrap、20 synthetic checks実行。
   - **対応**: findingsは新規issueとして後続登録（F1-F5はmutating cutover/rollback有効化前、F6はtenant-safe dual-read主張前、F7はreport出力からraw ID除去）。現行のFLE mutating操作は無効のまま維持し、本reviewをactivation根拠にしない。
 
-- [ ] **FLE-REVIEW-1 migration helper原子性・完了guard** `[tdd:required]` cc:TODO（`fle-final-security-rerun` F1-F5由来、mutating cutover/rollback/freeze有効化のrelease-blocking条件）
+- [x] **FLE-REVIEW-1 migration helper原子性・完了guard** `[tdd:required]` cc:完了（`fle-final-security-rerun` F1-F5由来、mutating cutover/rollback/freeze有効化のrelease-blocking条件）
   - F1: phase/approval guard・page mutation・finalizationを同一D1 batchへ。stale guardや0行更新はbatch内SQL制約失敗にする。
   - F2: 終端遷移にaccount-wide postcondition（scrub完了時に対象legacy field残存0、restore完了時sentinel残存0）。cursor枯渇のみで完了しない。
   - F3: `dryRun`がrebindMigrationState等の一切のDB書込みを行わないことのregression。approval再束縛はguard済みmutation transaction内へ。
   - F4: freeze前にwrite fence確立後にcoverage再検査、またはstale snapshotの拒否+明示再承認refresh経路。
   - F5: scrub後の新規intakeを含む現datasetへのfresh approval restore経路（旧approvalは不十分のまま、concurrent writerはfenceで遮断）。
-- [ ] **FLE-REVIEW-2 dual-read helperのtenant検証** `[tdd:required]` cc:TODO（同F6由来、tenant-safe dual-read主張の前提）
+  - **ローカル実装完了(2026-09-15)**: `migrateLegacyFields`を書き換え、phase遷移UPDATE・`stateGuardStatement`（state行が期待phase/digestでない場合にPK重複・行欠損時にCHECK違反でbatch失敗させるINSERT..SELECT guard）・page write・`datasetGuardStatement`（中間pageは掃取行のpost状態確認、終端pageはaccount-wide postcondition: scrub=plaintext残0/restore=sentinel残0）を単一`db.batch`へ統合し、stale guard・0行更新・未完了検出を全てbatch内制約失敗としてrollbackする。`freezePatientIntakeWrites`のINSERTは`(SELECT COUNT(*) FROM responses) = approval.coverageTotal`の行数guardを持ち、fence確立前のdriftを0行挿入→`STORAGE_FAILED`として拒否する（stale snapshot拒否+明示再承認経路）。restoreの`!approvalMatches`分岐は「approvalが現datasetを証明する（fresh coverage一致）」場合のみrebindを許し、rebind UPDATEがphase・coverage・approvalを行数guard付きで一括更新してwriterを`'restoring'`fenceで遮断する。`dryRun`は全てのmutation statement構築より前にreturnするため一切書込まない。検証: `migration-fle-review.test.ts`実SQLite（better-sqlite3+BEGIN/COMMIT/ROLLBACK adapter）でstale guardのbatch rollback・uncovered plaintext残の完了拒否・fresh approval restore・drift freeze拒否・dryRun書込み0を確認。Worker 249 files/2,673 tests、worker typecheck local PASS。mutating操作の有効化自体は別gateのまま。
+- [x] **FLE-REVIEW-2 dual-read helperのtenant検証** `[tdd:required]` cc:完了（同F6由来、tenant-safe dual-read主張の前提）
   - `openPatientIntakeFields`のlegacy fallbackがtenant/account mappingを正に確認し、sentinel-only行を成功扱いしない。mapped legacy read成功・unmapped pair拒否・sentinel-only拒否・partial envelope非fallbackのregressionを追加。
-- [ ] **FLE-REVIEW-3 migration reportのraw ID除去** `[tdd:required]` cc:TODO（同F7由来）
+  - **ローカル実装完了(2026-09-15)**: no-envelope fallbackが`tenant_line_accounts`のmapping存在とmigration_state非存在を1クエリで正に確認し、unmapped pair・migration中・sentinel-only・片側sentinel行を全て`Invalid patient intake envelope`で拒否。partial envelopeは従来通りdecrypt経路でfail（非fallback）を回帰テスト化。検証: `migration-fle-review.test.ts`のF6系テスト実SQLite PASS。`repository.test.ts`のfakeDb/inline mockを複合チェック（`AS mapped`/`AS migrating`）へ追従。
+- [x] **FLE-REVIEW-3 migration reportのraw ID除去** `[tdd:required]` cc:完了（同F7由来）
   - `nextCursor`のraw response PKをserializeせずopaque operation-scoped handleへ。report serializeがresponse/patient識別子・payload・envelope値・key materialを含まないregression。
+  - **ローカル実装完了(2026-09-15)**: `nextCursor`をAES-GCM暗号トークン`nonce.ciphertext`（HMAC導出鍵はroot secret+`migration-cursor`ラベルで分離、AADにtenant/account/operationを束縛）へ変更。tamper・別operation・別scope・旧raw id入力は全て`INVALID_INPUT`。report serializeにresponse idを含まないことを`JSON.stringify(report)`非含有で固定。backfill/scrub/restoreの全report経路を対象。
 
 **Reject（コードで解決しない／今回やらない）**:
 
@@ -729,8 +732,10 @@ v0.31〜v0.34の節は履歴・残gateの正本として保持する。版番号
 #### Day 0 - scope/evidence freeze（2026-08-22起票、残項目はV035-0/6へ引継ぎ）
 
 - [x] **V040-D0-1 sourceと環境をfreeze**: `main`、`dev`、現deployment source SHA、package、migration set、schema fingerprintをPHI-free evidenceへ記録する。productionへ変更を加えない。**ローカル完了(2026-09-15)**: `docs/pharmacy/evidence/v0.35.0-beta-staff-readiness.json`の`freeze`に記録。main=`0e738bfde`、dev remote=`57745cd`、local candidate=`cc8019d`（未push）、deployed development=deployment `6438472415`/`57745cd` SUCCESS、deployed production=deployment `6180145685`/`123545e8` SUCCESS、package=`0.35.0`、migrationSet=20 files digest `1c66448e`、schemaFileSha256=`ae1424d1`（実D1 fingerprintではない旨明記）。GitHub deployment metadataのみ確認しproduction変更なし。
-- [ ] **V040-D0-2 synthetic検証境界を固定**: developmentではsynthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。main/productionへのdeploy、activation、実患者導入は全gateと人間の明示Goまで行わない。
-- [ ] **V040-D0-3 milestoneとledgerをSoT化**: v0.31.0〜v0.40.0のmilestone、上記`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`、P0 blocker、owner、evidence link、Human Gateを追跡する。GitHub Issuesを有効化するまでは本節のregisterをauthorityとし、日付では自動closeしない。
+- [x] **V040-D0-2 synthetic検証境界を固定**: developmentではsynthetic tenant A/B、synthetic LINE account A/B、synthetic patient A/Bだけを使い、実患者データ禁止をrunbookへ明記する。main/productionへのdeploy、activation、実患者導入は全gateと人間の明示Goまで行わない。
+  - **ローカル完了(2026-09-15)**: `docs/pharmacy/CUSTOMER_DELIVERY.md`へ「検証環境の境界」節を追加。synthetic tenant/LINE account/patient A/B限定・実患者データ禁止・全gate+人間明示Goまでproduction deploy/activation/実患者導入を行わない旨を明記。
+- [x] **V040-D0-3 milestoneとledgerをSoT化**: v0.31.0〜v0.40.0のmilestone、上記`BETA_READY`/`INTEGRATION_READY`/`BLOCKED`、P0 blocker、owner、evidence link、Human Gateを追跡する。GitHub Issuesを有効化するまでは本節のregisterをauthorityとし、日付では自動closeしない。
+  - **完了(2026-09-15、既存構造の確認で充足)**: version依存順表(v0.35〜v0.40.x、owner・終了条件付き)、機能境界表(`BETA_READY`/条件付き/`BLOCKED`)、CB-P0 blocker register(`CB-P0-01`〜)、冒頭Human Gate register(gate/担当/実施条件/状態)、各項目のevidence link・完了記録が全てPLANS.md内に存在し、「GitHub Issuesが無効な間はこのregisterとV040-CBのP0 blocker registerを`open P0`のauthorityとする」宣言済み。日付による自動closeの規定も存在しない。追加実装不要のため既存構造をauthorityとして確認・固定した。
 - [ ] **V040-D0-5 assurance/measurement baseline**: LIFF critical build/E2E、CodeQL/SAST、secret/dependency/license scan、SBOM、provenanceのworkflowをv0.31.0から作成・初回実行する。critical task inventory、workload、SLO、staffing SLAも測定前にfreezeし、v0.39.0を初回実行日にしない。
   - **進捗(2026-08-22)**: assurance部分はV031-5で完了。critical task inventory、workload、SLO、staffing SLAは未着手のため本項は未完了。
 
@@ -1009,6 +1014,8 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 **2026-09-14 V036 local WIP**: `016_custom_073_pharmacy_medication_followup_closure.sql`で質問票版・一次返信期限・対応記録、`017_custom_074_pharmacy_followup_operations.sql`で運用設定、`018_custom_075_pharmacy_medication_followup_assignments.sql`で明示的な人間担当者を追加した。既存follow-upの状態/CAS/event/idempotencyを再利用し、対応記録のない`responded`/`closed`遷移を拒否し、電話とLINEの記録を分離した。通知はapproved PHI-free template、同一retry key、account/tenant/friend/following/capability/患者認可/運用設定/outbound pauseの直前再確認を通す。未設定の営業時間・SLA・主担当・代行担当では運用設定を有効化せず、follow-up自動送信を`operations_blocked`にする。旧schemaでは既存読み取り・既存状態遷移を維持し、追加期限・対応記録は503で停止する互換分岐と回帰テストを追加した。外部LINE受入、実スタッフ/実端末、Meet/SMS/email、運用値の確定、release/production migration/activationは未実施であり、V036-4〜6のHuman Gateは`BLOCKED`/`NOT_RUN`を維持する。
 
 **2026-09-14 local verification update**: Astraの読取り専用監査で見つかった旧schemaの患者認可、対応記録なしの完了、旧payloadの担当者扱い、無効staff、送信直前membership/運用担当再確認、互換test adapterを修正した。修正後はDB `90 files / 428 tests`、Worker `247 files / 2,645 tests`、Web `52 files / 242 tests`、LIFF `24 files / 148 tests`、scripts `21 files / 218 tests`、workspace typecheck、全workspace build、migration checker `17 migrations`、bootstrap生成、`git diff --check`がPASS。これはlocal/synthetic evidenceであり、実LINE・実スタッフ/実端末・運用値確定・production migration/release/activationの完了を示さない。実装後Oracleレビュー`pharmacy-local-implementa-review`は、承認済み2ファイルのみ送信したが、別セッションによるOracle profile lockで`ERROR`となり、レビュー結果は`NOT_RUN`として扱う。
+
+**2026-09-15 操作ガイドと局所UI改善（依頼対応）**: `docs/pharmacy/OPERATION_GUIDE.md`を新規追加し`docs/README.md`へ索引（1日の流れ・優先順位・トラブル対応・エスカレーション。営業時間/SLA/担当は未決と明記）。`PrescriptionPrintPage.operationId`のsessionStorage例外をfresh UUID fallbackへ（storage不可でも印刷claim継続、回帰test 2件）。EC page相談窓口リンクを`pharmacy-control`で44pxタップ領域へ（source-scan test追加）。`PrescriptionQueueOverview.formatDate`/`TodayOperationsSummary.formatUpdatedAt`/`PatientIntakeAdminPage.formatHistoryDate`の`Intl.DateTimeFormat`都度生成を共有化（出力不変、Node計測20k回 447ms→12.5ms）。検証: web `52 files/244 tests`、liff `24 files/149 tests`、web/liff typecheck local PASS。application codeを変更したため、本差分をcommitする場合はV035-4 staff trial候補`cc8019d`の再freezeが必要。commit済み。
 
 **v0.35対象業務一覧（各行をV035-0で既存inventoryの試験IDへ結合）**:
 

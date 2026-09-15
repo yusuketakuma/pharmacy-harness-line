@@ -8,6 +8,8 @@ import {
   type PatientIntakeKeyVersion,
 } from './encryption.js';
 
+export const PATIENT_INTAKE_LEGACY_SENTINEL = '{}';
+
 export interface PatientIntakeCryptoScope {
   tenantId: string;
   rootSecret: string;
@@ -151,12 +153,18 @@ export async function openPatientIntakeFields<T extends PatientIntakeEncryptedRo
     WHERE response_id = ?
     ORDER BY field_name`).bind(row.id).all<StoredPatientIntakeEnvelope>();
   if (result.results.length === 0) {
-    const migration = await db.prepare(`SELECT phase
-      FROM pharmacy_patient_intake_migration_state
-      WHERE tenant_id = ? AND line_account_id = ?`).bind(
-      scope.tenantId, row.line_account_id,
-    ).first<{ phase: string }>();
-    if (migration) throw new Error(INVALID_PATIENT_INTAKE_ENVELOPE_ERROR);
+    const check = await db.prepare(`SELECT
+        EXISTS(SELECT 1 FROM tenant_line_accounts mapping
+          WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?) AS mapped,
+        EXISTS(SELECT 1 FROM pharmacy_patient_intake_migration_state migration
+          WHERE migration.tenant_id = ? AND migration.line_account_id = ?) AS migrating`)
+      .bind(scope.tenantId, row.line_account_id, scope.tenantId, row.line_account_id)
+      .first<{ mapped: number; migrating: number }>();
+    if (!check || check.mapped !== 1 || check.migrating === 1 ||
+        row.patient_snapshot_json === PATIENT_INTAKE_LEGACY_SENTINEL ||
+        row.answers_json === PATIENT_INTAKE_LEGACY_SENTINEL) {
+      throw new Error(INVALID_PATIENT_INTAKE_ENVELOPE_ERROR);
+    }
     return row;
   }
   const opened = await decryptPatientIntakeEnvelopeFields(row, scope, result.results);

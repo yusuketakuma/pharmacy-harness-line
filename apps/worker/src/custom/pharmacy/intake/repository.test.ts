@@ -35,7 +35,9 @@ function fakeDb(row: unknown | unknown[], allRows: unknown[] = []): {
       },
       first: async () => {
         calls.push({ sql, values, operation: 'first' });
-        return firstRows.shift() ?? null;
+        return sql.includes('AS mapped')
+          ? { mapped: 1, migrating: 0 }
+          : firstRows.shift() ?? null;
       },
       all: async () => {
         calls.push({ sql, values, operation: 'all' });
@@ -346,9 +348,11 @@ describe('pharmacy patient repository', () => {
     const db = {
       prepare: (sql: string) => ({
         bind: () => ({
-          first: async () => sql.includes('pharmacy_patient_intake_migration_state')
-            ? null
-            : sql.includes('pharmacy_patient_intake_responses') ? intake : patient,
+          first: async () => sql.includes('AS mapped')
+            ? { mapped: 1, migrating: 0 }
+            : sql.includes('pharmacy_patient_intake_migration_state')
+              ? null
+              : sql.includes('pharmacy_patient_intake_responses') ? intake : patient,
           all: async () => ({
             results: sql.includes('pharmacy_patient_intake_responses') ? [intake] : [],
           }),
@@ -386,9 +390,11 @@ describe('pharmacy patient repository', () => {
     };
     const historyDb = {
       prepare: (sql: string) => ({ bind: () => ({
-        first: async () => sql.includes('pharmacy_patient_intake_migration_state')
-          ? null
-          : sql.includes('pharmacy_patient_intake_responses') ? intake : patient,
+        first: async () => sql.includes('AS mapped')
+          ? { mapped: 1, migrating: 0 }
+          : sql.includes('pharmacy_patient_intake_migration_state')
+            ? null
+            : sql.includes('pharmacy_patient_intake_responses') ? intake : patient,
         all: async () => ({ results: sql.includes('pharmacy_patient_intake_responses') ? [intake] : [] }),
       }) }),
     } as unknown as D1Database;
