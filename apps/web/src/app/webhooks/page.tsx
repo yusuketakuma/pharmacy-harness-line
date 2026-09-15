@@ -238,6 +238,7 @@ export default function WebhooksPage() {
     <div>
       <Header
         title="Webhook管理"
+        description="外部システムへイベントを通知するWebhookを管理します。"
         action={
           <button
             onClick={() => setShowCreate(!showCreate)}

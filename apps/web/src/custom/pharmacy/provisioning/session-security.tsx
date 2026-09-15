@@ -183,7 +183,7 @@ export default function SessionSecurityPage() {
   return (
     <div>
       <Header
-        title="セッション・セキュリティ"
+        title="セッション管理"
         description="利用中の管理画面セッションを確認し、不要な端末をログアウトできます。"
       />
       <SessionSecurityView

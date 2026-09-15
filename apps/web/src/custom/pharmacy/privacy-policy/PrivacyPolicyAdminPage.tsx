@@ -99,7 +99,7 @@ export default function PrivacyPolicyAdminPage() {
 
   return (
     <div>
-      <Header title="個人情報の取扱い（患者向け掲示）" />
+      <Header title="個人情報の取扱い（患者向け掲示）" description="患者向け画面に掲示する個人情報の取扱い方針を編集します。" />
 
       <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
         <p className="font-bold">この内容は貴薬局の名義で患者に表示されます。</p>
