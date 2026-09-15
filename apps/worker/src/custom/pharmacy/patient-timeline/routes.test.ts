@@ -65,4 +65,17 @@ describe('patient timeline route', () => {
     expect(missing.headers.get('Cache-Control')).toBe('private, no-store');
     expect(mocks.list).not.toHaveBeenCalled();
   });
+
+  it('rejects a non-participant before reading the timeline', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const response = await patientTimelineRoutes.request(
+      '/api/liff/pharmacy/timeline?liffId=liff-a',
+      { headers: { Authorization: 'Bearer token' } },
+      env,
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(mocks.betaParticipant).toHaveBeenCalledWith(env.DB, 'account-a', 'friend-a');
+    expect(mocks.list).not.toHaveBeenCalled();
+  });
 });

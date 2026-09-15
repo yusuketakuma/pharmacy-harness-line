@@ -225,6 +225,19 @@ describe('Myna routes', () => {
     expect(mocks.activePatient).toHaveBeenCalled();
   });
 
+  it('rejects a non-participant before reading the active handoff', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const response = await app().request(
+      '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc', {
+        headers: { Authorization: 'Bearer token' },
+      }, env,
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(mocks.betaParticipant).toHaveBeenCalledWith(env.DB, 'account-1', 'friend-1');
+    expect(mocks.activePatient).not.toHaveBeenCalled();
+  });
+
   it('restores only the authenticated LINE contact active handoff', async () => {
     const response = await app().request(
       '/api/liff/pharmacy/myna-handoffs/active?liffId=123-abc',

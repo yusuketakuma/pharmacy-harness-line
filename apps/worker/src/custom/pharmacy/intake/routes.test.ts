@@ -153,6 +153,25 @@ describe('LIFF pharmacy patient and intake routes', () => {
     expect(mocks.listPatients).toHaveBeenCalled();
   });
 
+  it('rejects a non-participant before reading the patient list', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const response = await request('/api/liff/pharmacy/patients');
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(mocks.listPatients).not.toHaveBeenCalled();
+  });
+
+  it('keeps withdrawal control paths available to a non-participant', async () => {
+    mocks.betaParticipant.mockResolvedValue(false);
+    const body = { action: 'withdraw', expectedControlVersion: 0 };
+    const response = await request(
+      '/api/liff/pharmacy/patients/patient-1/privacy-consent', 'POST', body,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'withdrawn', version: 1 });
+    expect(mocks.setPrivacyConsent).toHaveBeenCalledWith(env.DB, owner, 'patient-1', body);
+  });
+
   it('creates a minor child only with explicit current proxy terms consent', async () => {
     mocks.getPatientAccess.mockResolvedValueOnce({
       access: 'proxy', permission: 'patient_intake_v1',
