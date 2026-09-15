@@ -1022,3 +1022,68 @@ export async function listDueMedicationFollowUps(
   ).bind(now.toISOString(), boundedLimit).all<DueMedicationFollowUp>();
   return result.results ?? [];
 }
+
+export type FollowUpOperationsMessageCode =
+  'contact_pharmacy_during_hours' | 'seek_urgent_care';
+
+export interface MedicationFollowUpOperationsOutlook {
+  serviceHoursText: string;
+  responseEstimateMinutes: number | null;
+  afterHoursMessageCode: FollowUpOperationsMessageCode;
+  emergencyMessageCode: FollowUpOperationsMessageCode;
+}
+
+// response_sla_json has no defined shape; only a bounded minute estimate is
+// patient-facing. Anything else in the JSON stays internal.
+const SLA_MINUTE_KEYS = new Set([
+  'typical_minutes', 'sla_minutes', 'response_minutes', 'minutes', 'typical',
+]);
+
+function patientSafeSlaMinutes(raw: string): number | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (SLA_MINUTE_KEYS.has(key) && typeof value === 'number' &&
+          Number.isFinite(value) && value > 0 && value <= 10080) {
+        return value;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read-only patient projection of the tenant's follow-up operations config.
+ * Whitelisted fields only — staff ids and the raw SLA JSON stay internal.
+ * Returns null when operations are disabled or the table is unavailable.
+ */
+export async function getMedicationFollowUpOperationsOutlook(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<MedicationFollowUpOperationsOutlook | null> {
+  try {
+    const row = await db.prepare(
+      `SELECT service_hours_text, response_sla_json, after_hours_message_code, emergency_message_code
+         FROM pharmacy_medication_followup_operations
+        WHERE line_account_id = ? AND enabled = 1
+        LIMIT 1`,
+    ).bind(lineAccountId).first<{
+      service_hours_text: string;
+      response_sla_json: string;
+      after_hours_message_code: FollowUpOperationsMessageCode;
+      emergency_message_code: FollowUpOperationsMessageCode;
+    }>();
+    if (!row) return null;
+    return {
+      serviceHoursText: row.service_hours_text,
+      responseEstimateMinutes: patientSafeSlaMinutes(row.response_sla_json),
+      afterHoursMessageCode: row.after_hours_message_code,
+      emergencyMessageCode: row.emergency_message_code,
+    };
+  } catch {
+    return null;
+  }
+}

@@ -18,9 +18,21 @@ export interface PatientMedicationFollowUp {
   version: number;
 }
 
+export type FollowUpOperationsMessageCode = 'contact_pharmacy_during_hours' | 'seek_urgent_care';
+
+export interface MedicationFollowUpOperationsOutlook {
+  serviceHoursText: string;
+  responseEstimateMinutes: number | null;
+  afterHoursMessageCode: FollowUpOperationsMessageCode;
+  emergencyMessageCode: FollowUpOperationsMessageCode;
+}
+
 export const medicationFollowUpApi = {
   list: () => requestPharmacyJson<{ followUps: PatientMedicationFollowUp[] }>(
     '/api/liff/pharmacy/medication-followups',
+  ),
+  outlook: () => requestPharmacyJson<{ outlook: MedicationFollowUpOperationsOutlook | null }>(
+    '/api/liff/pharmacy/medication-followups/outlook',
   ),
   respond: (
     followUpId: string,

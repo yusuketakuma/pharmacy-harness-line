@@ -259,6 +259,7 @@ export default function RemindersPage() {
     <div>
       <Header
         title="リマインダ配信"
+        description="設定した日時に友だちへリマインドを送信します。"
         action={
           <button
             onClick={() => setShowCreate(true)}

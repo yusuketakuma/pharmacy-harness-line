@@ -175,6 +175,7 @@ export default function MileagePage() {
     <div>
       <Header
         title="マイル"
+        description="友だちの行動に応じて貯まるマイルのルールを管理します。"
         action={
           <button
             onClick={() => void reloadAll()}

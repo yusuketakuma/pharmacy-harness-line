@@ -243,6 +243,7 @@ export default function AutomationsPage() {
     <div>
       <Header
         title="オートメーション"
+        description="条件に合う友だちへ自動でメッセージを送る仕組みを管理します。"
         action={
           <button
             onClick={() => setShowCreate(true)}
