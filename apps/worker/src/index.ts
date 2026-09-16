@@ -1118,6 +1118,7 @@ async function scheduled(
       proxyBaseUrl:
         env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
       proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
     });
     if (result.sent + result.failed > 0) {
       console.log(`[meet-consultation-reminders] sent=${result.sent} failed=${result.failed}`);

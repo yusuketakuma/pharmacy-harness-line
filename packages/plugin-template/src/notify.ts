@@ -1,11 +1,25 @@
 /**
- * Notify: check external conditions and send LINE messages via LINE Harness SDK.
+ * Notify: check external conditions and trigger automated LINE notifications
+ * via LINE Harness scenarios.
  *
- * Common patterns:
- * - Appointment reminder (24h before)
- * - Payment overdue alert
- * - New content/offer notification
- * - Membership expiry warning
+ * Contract note (F08): the per-friend messages API
+ * (`POST /api/friends/:id/messages`, exposed as `sendTextToFriend` /
+ * `sendFlexToFriend`) requires the `X-Line-Harness-Source: manual` header and
+ * is reserved for manual 1:1 staff replies — the Worker rejects it for
+ * automated sends. There is no external API for automated 1:1 pushes, so
+ * automated notifications must go through a `tag_added` scenario or a
+ * broadcast instead.
+ *
+ * Pattern used here:
+ *   1. cron checks external conditions
+ *   2. attach a per-notification *trigger* tag to the target friend
+ *   3. a `tag_added` scenario fires and sends the message
+ *   4. the tag itself doubles as the dedup marker — friends already carrying
+ *      it are skipped on the next cron run
+ *
+ * Scenario messages are static: per-friend variables (e.g. an appointment
+ * time) cannot be interpolated from outside. Point users at a LIFF page or
+ * web page for the details instead.
  */
 
 import { LineHarness } from '@line-harness/sdk'
@@ -32,7 +46,38 @@ export async function checkAndNotify(env: Env): Promise<void> {
 }
 
 /**
- * Example: send a reminder to friends with upcoming appointments.
+ * Find-or-create a `tag_added` scenario that sends a static message when the
+ * trigger tag is attached to a friend.
+ */
+async function ensureTagAddedScenario(
+  harness: LineHarness,
+  name: string,
+  triggerTagId: string,
+  messageContent: string,
+): Promise<void> {
+  const existing = (await harness.scenarios.list()).find((s) => s.name === name)
+  if (existing) return
+  const scenario = await harness.scenarios.create({
+    name,
+    triggerType: 'tag_added',
+    triggerTagId,
+    isActive: true,
+  })
+  await harness.scenarios.addStep(scenario.id, {
+    stepOrder: 1,
+    delayMinutes: 0,
+    messageType: 'text',
+    messageContent,
+  })
+}
+
+/**
+ * Example: trigger a reminder scenario for friends with upcoming appointments.
+ *
+ * The scenario sends a static reminder text; per-appointment details like the
+ * time or location stay in MyService, so the message links to a details page.
+ * Friends keep the trigger tag, which also prevents re-notification — remove
+ * it when the appointment passes so a future appointment can re-trigger.
  */
 async function sendAppointmentReminders(
   harness: LineHarness,
@@ -40,45 +85,45 @@ async function sendAppointmentReminders(
 ): Promise<void> {
   const upcoming = await myService.getUpcomingAppointments(24) // next 24 hours
 
-  // Ensure a dedup tag exists for appointment reminders
   const allTags = await harness.tags.list()
-  let reminderTag = allTags.find((t) => t.name === 'myservice:appt-reminded')
-  if (!reminderTag) {
-    reminderTag = await harness.tags.create({ name: 'myservice:appt-reminded', color: '#6B7280' })
+  let triggerTag = allTags.find((t) => t.name === 'myservice:appt-reminder')
+  if (!triggerTag) {
+    triggerTag = await harness.tags.create({ name: 'myservice:appt-reminder', color: '#6B7280' })
   }
+  await ensureTagAddedScenario(
+    harness,
+    'MyService appointment reminder',
+    triggerTag.id,
+    'Reminder: you have an appointment coming up.\n\nPlease check your booking page for the time and location.',
+  )
 
   for (const appointment of upcoming) {
     if (!appointment.lineHarnessFriendId) continue
 
     try {
-      // Check if we already sent a reminder (dedup via tag)
       const friend = await harness.friends.get(appointment.lineHarnessFriendId)
-      if (friend.tags.some((t) => t.name === 'myservice:appt-reminded')) {
-        console.log(`[Notify] Skipping (already reminded): ${appointment.lineHarnessFriendId}`)
+      if (friend.tags.some((t) => t.id === triggerTag.id)) {
+        console.log(`[Notify] Skipping (reminder already triggered): ${appointment.lineHarnessFriendId}`)
         continue
       }
 
-      // Tag FIRST to prevent duplicates if the message send succeeds but
-      // a subsequent cron run happens before the tag would have been written
-      await harness.friends.addTag(appointment.lineHarnessFriendId, reminderTag.id)
+      // Attaching the trigger tag enrolls the friend in the scenario, which
+      // performs the actual send — do NOT call sendTextToFriend here.
+      await harness.friends.addTag(appointment.lineHarnessFriendId, triggerTag.id)
 
-      await harness.sendTextToFriend(
-        appointment.lineHarnessFriendId,
-        `Reminder: you have an appointment tomorrow at ${appointment.time}.\n\n` +
-          `Location: ${appointment.location}\n` +
-          `If you need to reschedule, please contact us.`,
-      )
-
-      console.log(`[Notify] Sent reminder to ${appointment.lineHarnessFriendId}`)
+      console.log(`[Notify] Reminder scenario triggered for ${appointment.lineHarnessFriendId}`)
     } catch (error) {
-      console.error(`[Notify] Failed to send reminder:`, error)
+      console.error(`[Notify] Failed to trigger reminder:`, error)
     }
   }
 }
 
 /**
- * Example: notify friends whose memberships expire within 7 days.
- * Uses Flex Message for a richer layout.
+ * Example: trigger a renewal scenario for friends whose memberships expire
+ * within 7 days.
+ *
+ * To send a Flex Message instead of text, create the scenario step with
+ * messageType 'flex' and the Flex JSON in messageContent.
  */
 async function notifyExpiringMemberships(
   harness: LineHarness,
@@ -86,73 +131,33 @@ async function notifyExpiringMemberships(
 ): Promise<void> {
   const expiring = await myService.getExpiringMemberships(7) // next 7 days
 
-  // Ensure a dedup tag exists for renewal reminders
   const allTags = await harness.tags.list()
-  let renewalTag = allTags.find((t) => t.name === 'myservice:renewal-reminder')
-  if (!renewalTag) {
-    renewalTag = await harness.tags.create({ name: 'myservice:renewal-reminder', color: '#F59E0B' })
+  let triggerTag = allTags.find((t) => t.name === 'myservice:renewal-reminder')
+  if (!triggerTag) {
+    triggerTag = await harness.tags.create({ name: 'myservice:renewal-reminder', color: '#F59E0B' })
   }
+  await ensureTagAddedScenario(
+    harness,
+    'MyService renewal reminder',
+    triggerTag.id,
+    'Your membership is expiring soon.\n\nPlease renew from your account page to keep your benefits.',
+  )
 
   for (const membership of expiring) {
     if (!membership.lineHarnessFriendId) continue
 
     try {
-      // Check if we already sent a renewal reminder (dedup via tag)
       const friend = await harness.friends.get(membership.lineHarnessFriendId)
-      if (friend.tags.some((t) => t.name === 'myservice:renewal-reminder')) {
+      if (friend.tags.some((t) => t.id === triggerTag.id)) {
         console.log(`[Notify] Skipping (already notified): ${membership.lineHarnessFriendId}`)
         continue
       }
 
-      // Tag FIRST to prevent duplicate sends on subsequent cron runs
-      await harness.friends.addTag(membership.lineHarnessFriendId, renewalTag.id)
+      await harness.friends.addTag(membership.lineHarnessFriendId, triggerTag.id)
 
-      // Build a Flex Message for a richer notification
-      const flexMessage = JSON.stringify({
-        type: 'bubble',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'text',
-              text: 'Membership Expiring Soon',
-              weight: 'bold',
-              size: 'lg',
-            },
-            {
-              type: 'text',
-              text: `Your ${membership.planName} membership expires on ${membership.expiresAt}.`,
-              wrap: true,
-              margin: 'md',
-            },
-          ],
-        },
-        footer: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'button',
-              action: {
-                type: 'uri',
-                label: 'Renew Now',
-                uri: membership.renewUrl,
-              },
-              style: 'primary',
-            },
-          ],
-        },
-      })
-
-      await harness.sendFlexToFriend(
-        membership.lineHarnessFriendId,
-        flexMessage,
-      )
-
-      console.log(`[Notify] Sent renewal reminder to ${membership.lineHarnessFriendId}`)
+      console.log(`[Notify] Renewal scenario triggered for ${membership.lineHarnessFriendId}`)
     } catch (error) {
-      console.error(`[Notify] Failed to send renewal reminder:`, error)
+      console.error(`[Notify] Failed to trigger renewal reminder:`, error)
     }
   }
 }

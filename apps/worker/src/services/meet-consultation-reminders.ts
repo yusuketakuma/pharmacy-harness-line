@@ -1,5 +1,14 @@
 import type { HarnessProxyDispatch } from './line-proxy-send.js';
 import { pushViaHarnessProxy } from './line-proxy-send.js';
+import {
+  isPharmacyModeAccount,
+} from '../custom/pharmacy/growth-loop/access.js';
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
+import {
+  sendPharmacyAutomatedPush,
+  type PharmacyPushResult,
+} from '../custom/pharmacy/growth-loop/sender.js';
+import type { PharmacyMessageVars } from '../custom/pharmacy/growth-loop/policy.js';
 
 export type MeetReminderKind = 'day_before' | 'hour_before';
 export type MeetConsultationStatus = 'confirmed' | 'cancelled' | 'completed' | 'all';
@@ -22,6 +31,7 @@ export interface MeetReminderDeliveryOptions {
   now: Date;
   proxyBaseUrl: string;
   proxyDispatch?: HarnessProxyDispatch;
+  lineCredentialKey?: string;
 }
 
 interface MeetConsultationRow {
@@ -38,6 +48,7 @@ interface MeetConsultationRow {
 interface DueMeetReminderRow {
   id: string;
   consultation_id: string;
+  friend_id: string;
   kind: MeetReminderKind;
   retry_count: number;
   delivery_id: string | null;
@@ -45,6 +56,7 @@ interface DueMeetReminderRow {
   starts_at: string;
   meet_url: string;
   line_user_id: string;
+  line_account_id: string;
   channel_access_token: string;
 }
 
@@ -136,7 +148,7 @@ export async function registerMeetConsultation(
   input: RegisterMeetConsultationInput,
   lineAccountId: string,
   now = new Date(),
-): Promise<{ id: string; reminders: MeetReminderSchedule[] }> {
+): Promise<{ id: string; startsAt: string; reminders: MeetReminderSchedule[] }> {
   if (!input.externalEventId.trim()) throw new Error('externalEventId is required');
   if (!input.friendId.trim()) throw new Error('friendId is required');
   if (!input.title.trim()) throw new Error('title is required');
@@ -250,7 +262,7 @@ export async function registerMeetConsultation(
     .bind(input.externalEventId, lineAccountId).first<{ id: string }>();
   if (!registered) throw new Error('consultation account scope conflict');
 
-  return { id: registered.id, reminders: schedules };
+  return { id: registered.id, startsAt: normalizedStart, reminders: schedules };
 }
 
 export async function cancelMeetConsultation(
@@ -289,6 +301,72 @@ export async function cancelMeetConsultation(
   return results[0]?.meta?.changes === 1;
 }
 
+export function meetJstDateTime(startsAt: string): { genericDate: string; genericTime: string } {
+  const jst = new Date(normalizeDate(startsAt, 'startsAt').getTime() + 9 * HOUR_MS).toISOString();
+  return { genericDate: jst.slice(0, 10), genericTime: jst.slice(11, 16) };
+}
+
+/**
+ * 薬局アカウントは承認済みテンプレート送信経路(meet_consultation_v1)に
+ * 限定し、暗号化 credential ストアから token を取得する。
+ * line_accounts.channel_access_token の平文列は非薬局の従来経路専用。
+ */
+async function dispatchMeetReminder(
+  db: D1Database,
+  row: DueMeetReminderRow,
+  options: MeetReminderDeliveryOptions,
+): Promise<void> {
+  if (await isPharmacyModeAccount(db, row.line_account_id)) {
+    const tenant = await db.prepare(
+      `SELECT mapping.tenant_id FROM tenant_line_accounts AS mapping
+        WHERE mapping.line_account_id = ? LIMIT 1`,
+    ).bind(row.line_account_id).first<{ tenant_id: string }>();
+    const accessToken = options.lineCredentialKey && tenant
+      ? await readLineCredential(db, options.lineCredentialKey, {
+          tenantId: tenant.tenant_id,
+          lineAccountId: row.line_account_id,
+          kind: 'channel_access_token',
+        })
+      : null;
+    if (!accessToken) throw new Error('meet reminder channel credential unavailable');
+    const { genericDate, genericTime } = meetJstDateTime(row.starts_at);
+    const vars: PharmacyMessageVars = {
+      meetStatus: row.kind,
+      genericDate,
+      genericTime,
+      meetUrl: row.meet_url,
+    };
+    const outcome: PharmacyPushResult = await sendPharmacyAutomatedPush({
+      db,
+      proxyBaseUrl: options.proxyBaseUrl,
+      proxyDispatch: options.proxyDispatch,
+      accessToken,
+      to: row.line_user_id,
+      lineAccountId: row.line_account_id,
+      friendId: row.friend_id,
+      messageId: 'meet_consultation_v1',
+      category: 'transactional_care',
+      vars,
+      // delivery_id is re-minted per schedule generation, so the same key
+      // dedupes retries of this generation without reusing an older one.
+      retryKey: `meet-reminder:${row.delivery_id ?? row.id}`,
+    });
+    if (outcome !== 'sent' && outcome !== 'already_sent') {
+      throw new Error(`meet reminder not dispatched: ${outcome}`);
+    }
+    return;
+  }
+  const text = renderMeetReminderText(row.kind, row.starts_at, row.meet_url, options.now);
+  await pushViaHarnessProxy(
+    options.proxyBaseUrl,
+    row.channel_access_token,
+    row.line_user_id,
+    [{ type: 'text', text }],
+    row.delivery_id ?? row.id,
+    options.proxyDispatch,
+  );
+}
+
 export async function processDueMeetConsultationReminders(
   db: D1Database,
   options: MeetReminderDeliveryOptions,
@@ -297,8 +375,9 @@ export async function processDueMeetConsultationReminders(
   const due = await db
     .prepare(
       `SELECT r.id, r.consultation_id, r.kind, r.retry_count, r.delivery_id,
-              c.title, c.starts_at, c.meet_url,
-              f.provider_line_user_id AS line_user_id, la.channel_access_token
+              c.title, c.starts_at, c.meet_url, c.friend_id,
+              f.provider_line_user_id AS line_user_id, f.line_account_id,
+              la.channel_access_token
          FROM meet_consultation_reminders r
          INNER JOIN meet_consultations c ON c.id = r.consultation_id
          INNER JOIN friends f ON f.id = c.friend_id
@@ -352,15 +431,7 @@ export async function processDueMeetConsultationReminders(
     if ((claim.meta?.changes ?? 0) !== 1) continue;
 
     try {
-      const text = renderMeetReminderText(row.kind, row.starts_at, row.meet_url, options.now);
-      await pushViaHarnessProxy(
-        options.proxyBaseUrl,
-        row.channel_access_token,
-        row.line_user_id,
-        [{ type: 'text', text }],
-        row.delivery_id ?? row.id,
-        options.proxyDispatch,
-      );
+      await dispatchMeetReminder(db, row, options);
       const settled = await db
         .prepare(
           `UPDATE meet_consultation_reminders

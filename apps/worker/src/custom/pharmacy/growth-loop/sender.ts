@@ -372,6 +372,8 @@ export async function sendPharmacyAutomatedPush(
         ? 'emergency_contraception'
       : input.messageId === 'appointment_reminder_v1'
         ? 'emergency_contraception'
+      : input.messageId === 'meet_consultation_v1'
+        ? 'meet_consultation'
       : 'prescription_intake';
   if (!accountConfig || !accountConfig.capabilities.includes(requiredCapability)) {
     throw new Error('pharmacy notification capability is not enabled');

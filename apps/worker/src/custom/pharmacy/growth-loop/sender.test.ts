@@ -203,6 +203,44 @@ describe('pharmacy automated sender', () => {
     expect(push).toHaveBeenCalledOnce();
   });
 
+  it('requires the meet_consultation capability for Meet consultation pushes', async () => {
+    const reminder = {
+      ...base,
+      messageId: 'meet_consultation_v1' as const,
+      vars: {
+        meetStatus: 'hour_before' as const,
+        genericDate: '2026-08-09',
+        genericTime: '10:00',
+        meetUrl: 'https://meet.google.com/abc-defg-hij',
+      },
+      retryKey: 'meet-reminder:delivery-1',
+    };
+    // No capability — not even emergency_contraception — substitutes.
+    for (const capabilities of [
+      ['prescription_intake'],
+      ['emergency_contraception'],
+      ['meet_consultation'],
+    ]) {
+      config.mockResolvedValue({ capabilities, proactive_monthly_limit: 1 });
+      if (!capabilities.includes('meet_consultation')) {
+        await expect(sendPharmacyAutomatedPush({ ...reminder, db: {} as D1Database }))
+          .rejects.toThrow(/capability/u);
+        expect(push).not.toHaveBeenCalled();
+        continue;
+      }
+      const db = scriptedDb([
+        { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 1 } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      ]);
+      await expect(sendPharmacyAutomatedPush({ ...reminder, db })).resolves.toBe('sent');
+      expect(push).toHaveBeenCalledOnce();
+      const message = push.mock.calls[0][3][0];
+      expect(message.text).toContain('2026-08-09 10:00');
+      expect(message.text).toContain('https://meet.google.com/abc-defg-hij');
+      expect(message.text).not.toContain('Synthetic');
+    }
+  });
+
   it('requires account, friend, and database context at runtime', async () => {
     await expect(sendPharmacyAutomatedPush({
       ...base, db: undefined, lineAccountId: undefined, friendId: undefined,

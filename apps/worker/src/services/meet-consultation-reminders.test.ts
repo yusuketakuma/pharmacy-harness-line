@@ -1,5 +1,22 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  isPharmacyMode: vi.fn(),
+  readCredential: vi.fn(),
+  sendPush: vi.fn(),
+}));
+vi.mock('../custom/pharmacy/growth-loop/access.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../custom/pharmacy/growth-loop/access.js')>(),
+  isPharmacyModeAccount: mocks.isPharmacyMode,
+}));
+vi.mock('../custom/pharmacy/provisioning/line-credential-store.js', () => ({
+  readLineCredential: mocks.readCredential,
+}));
+vi.mock('../custom/pharmacy/growth-loop/sender.js', () => ({
+  sendPharmacyAutomatedPush: mocks.sendPush,
+}));
+
 import {
   cancelMeetConsultation,
   calculateMeetReminderSchedule,
@@ -8,6 +25,13 @@ import {
   registerMeetConsultation,
   renderMeetReminderText,
 } from './meet-consultation-reminders.js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.isPharmacyMode.mockResolvedValue(false);
+  mocks.readCredential.mockResolvedValue('pharmacy-channel-token');
+  mocks.sendPush.mockResolvedValue('sent');
+});
 
 function consultationDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -283,7 +307,7 @@ describe('processDueMeetConsultationReminders', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('sends pharmacy-account reminders through the Harness proxy with a PHI-free template', async () => {
+  it('sends generic-account reminders through the Harness proxy with a PHI-free template', async () => {
     const updates: unknown[][] = [];
     const queries: string[] = [];
     const db = {
@@ -298,12 +322,14 @@ describe('processDueMeetConsultationReminders', () => {
                   results: [{
                     id: '6db37bc2-f0c4-4fa8-baa6-5ec7069e1165',
                     consultation_id: 'consultation-1',
+                    friend_id: 'friend-a',
                     kind: 'hour_before',
                     retry_count: 0,
                     title: 'AI導入 個別相談',
                     starts_at: '2026-08-09T01:00:00.000Z',
                     meet_url: 'https://meet.google.com/abc-defg-hij',
                     line_user_id: 'U00000000000000000000000000000000',
+                    line_account_id: 'account-a',
                     channel_access_token: 'channel-token',
                   }],
                 };
@@ -338,6 +364,7 @@ describe('processDueMeetConsultationReminders', () => {
 
     expect(result).toEqual({ sent: 1, failed: 0 });
     expect(dispatch).toHaveBeenCalledOnce();
+    expect(mocks.sendPush).not.toHaveBeenCalled();
     expect(queries.find((sql) => sql.includes('FROM meet_consultation_reminders')))
       .not.toContain('pharmacy_account_capabilities');
     expect(updates).toContainEqual([
@@ -347,6 +374,198 @@ describe('processDueMeetConsultationReminders', () => {
       1,
       undefined,
     ]);
+  });
+
+  it('routes pharmacy-account reminders through the approved sender with the encrypted credential', async () => {
+    mocks.isPharmacyMode.mockResolvedValue(true);
+    const dueRow = {
+      id: '6db37bc2-f0c4-4fa8-baa6-5ec7069e1165',
+      consultation_id: 'consultation-1',
+      friend_id: 'friend-a',
+      kind: 'hour_before',
+      retry_count: 0,
+      delivery_id: 'delivery-1',
+      title: 'AI導入 個別相談',
+      starts_at: '2026-08-09T01:00:00.000Z', // 10:00 JST
+      meet_url: 'https://meet.google.com/abc-defg-hij',
+      line_user_id: 'U00000000000000000000000000000000',
+      line_account_id: 'account-a',
+      channel_access_token: 'channel-token',
+    };
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return {
+              all: async () =>
+                sql.includes('FROM meet_consultation_reminders r')
+                  ? { results: [dueRow] }
+                  : { results: [] },
+              first: async () =>
+                sql.includes('tenant_line_accounts') ? { tenant_id: 'tenant-a' } : null,
+              run: async () => ({ meta: { changes: 1 } }),
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const dispatch = vi.fn(async () => new Response('{}', { status: 200 }));
+
+    const result = await processDueMeetConsultationReminders(db, {
+      now: new Date('2026-08-09T00:00:00.000Z'),
+      proxyBaseUrl: 'https://proxy.example.com',
+      proxyDispatch: dispatch,
+      lineCredentialKey: 'root-key',
+    });
+
+    expect(result).toEqual({ sent: 1, failed: 0 });
+    // The plaintext column is never used on the pharmacy path; the sender
+    // receives the credential-store token and the approved template vars.
+    expect(mocks.readCredential).toHaveBeenCalledWith(db, 'root-key', {
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
+    });
+    expect(mocks.sendPush).toHaveBeenCalledWith(expect.objectContaining({
+      db,
+      accessToken: 'pharmacy-channel-token',
+      to: 'U00000000000000000000000000000000',
+      lineAccountId: 'account-a',
+      friendId: 'friend-a',
+      messageId: 'meet_consultation_v1',
+      category: 'transactional_care',
+      vars: {
+        meetStatus: 'hour_before',
+        genericDate: '2026-08-09',
+        genericTime: '10:00',
+        meetUrl: 'https://meet.google.com/abc-defg-hij',
+      },
+      retryKey: 'meet-reminder:delivery-1',
+    }));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('marks pharmacy reminders failed when the credential store is unavailable', async () => {
+    mocks.isPharmacyMode.mockResolvedValue(true);
+    const updates: unknown[][] = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...args: unknown[]) {
+            return {
+              all: async () =>
+                sql.includes('FROM meet_consultation_reminders r')
+                  ? { results: [{
+                      id: 'reminder-1', consultation_id: 'consultation-1', friend_id: 'friend-a',
+                      kind: 'day_before', retry_count: 0, delivery_id: null,
+                      title: 'x', starts_at: '2026-08-10T01:00:00.000Z',
+                      meet_url: 'https://meet.google.com/abc-defg-hij',
+                      line_user_id: 'U1', line_account_id: 'account-a',
+                      channel_access_token: 'channel-token',
+                    }] }
+                  : { results: [] },
+              first: async () => null,
+              run: async () => { updates.push(args); return { meta: { changes: 1 } }; },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const dispatch = vi.fn();
+
+    // No lineCredentialKey: the pharmacy path must fail closed instead of
+    // falling back to the plaintext channel_access_token column.
+    const result = await processDueMeetConsultationReminders(db, {
+      now: new Date('2026-08-09T00:00:00.000Z'),
+      proxyBaseUrl: 'https://proxy.example.com',
+      proxyDispatch: dispatch,
+    });
+
+    expect(result).toEqual({ sent: 0, failed: 1 });
+    expect(mocks.readCredential).not.toHaveBeenCalled();
+    expect(mocks.sendPush).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    const failure = updates.find((args) => typeof args[0] === 'string' && (args[0] as string).includes('credential'));
+    expect(failure).toBeTruthy();
+  });
+
+  it('records a pharmacy reminder as failed when the sender refuses the capability', async () => {
+    mocks.isPharmacyMode.mockResolvedValue(true);
+    mocks.sendPush.mockRejectedValue(new Error('pharmacy notification capability is not enabled'));
+    const updates: unknown[][] = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...args: unknown[]) {
+            return {
+              all: async () =>
+                sql.includes('FROM meet_consultation_reminders r')
+                  ? { results: [{
+                      id: 'reminder-1', consultation_id: 'consultation-1', friend_id: 'friend-a',
+                      kind: 'day_before', retry_count: 0, delivery_id: 'delivery-1',
+                      title: 'x', starts_at: '2026-08-10T01:00:00.000Z',
+                      meet_url: 'https://meet.google.com/abc-defg-hij',
+                      line_user_id: 'U1', line_account_id: 'account-a',
+                      channel_access_token: 'channel-token',
+                    }] }
+                  : { results: [] },
+              first: async () =>
+                sql.includes('tenant_line_accounts') ? { tenant_id: 'tenant-a' } : null,
+              run: async () => { updates.push(args); return { meta: { changes: 1 } }; },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const result = await processDueMeetConsultationReminders(db, {
+      now: new Date('2026-08-09T00:00:00.000Z'),
+      proxyBaseUrl: 'https://proxy.example.com',
+      proxyDispatch: vi.fn(),
+      lineCredentialKey: 'root-key',
+    });
+
+    expect(result).toEqual({ sent: 0, failed: 1 });
+    expect(mocks.sendPush).toHaveBeenCalledOnce();
+    expect(updates.some((args) => typeof args[0] === 'string' && (args[0] as string).includes('capability'))).toBe(true);
+  });
+
+  it('counts non-sent sender outcomes as retryable failures, not as delivered', async () => {
+    mocks.isPharmacyMode.mockResolvedValue(true);
+    mocks.sendPush.mockResolvedValue('paused');
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return {
+              all: async () =>
+                sql.includes('FROM meet_consultation_reminders r')
+                  ? { results: [{
+                      id: 'reminder-1', consultation_id: 'consultation-1', friend_id: 'friend-a',
+                      kind: 'day_before', retry_count: 0, delivery_id: 'delivery-1',
+                      title: 'x', starts_at: '2026-08-10T01:00:00.000Z',
+                      meet_url: 'https://meet.google.com/abc-defg-hij',
+                      line_user_id: 'U1', line_account_id: 'account-a',
+                      channel_access_token: 'channel-token',
+                    }] }
+                  : { results: [] },
+              first: async () =>
+                sql.includes('tenant_line_accounts') ? { tenant_id: 'tenant-a' } : null,
+              run: async () => ({ meta: { changes: 1 } }),
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const result = await processDueMeetConsultationReminders(db, {
+      now: new Date('2026-08-09T00:00:00.000Z'),
+      proxyBaseUrl: 'https://proxy.example.com',
+      proxyDispatch: vi.fn(),
+      lineCredentialKey: 'root-key',
+    });
+
+    expect(result).toEqual({ sent: 0, failed: 1 });
   });
 
   it('resends a rescheduled reminder under a fresh delivery key and refuses stale claims', async () => {

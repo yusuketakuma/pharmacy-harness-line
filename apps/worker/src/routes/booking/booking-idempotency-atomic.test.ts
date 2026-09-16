@@ -55,6 +55,9 @@ describe('LIFF booking result durability', () => {
                 return { ...bound, async first() {
                   if (hideCacheBeforeAvailability) return null;
                   return bound.first();
+                }, async all() {
+                  if (hideCacheBeforeAvailability) return { results: [] };
+                  return bound.all();
                 } };
               }
               if (!sql.includes('INSERT INTO booking_idempotency_scoped')) return bound;

@@ -1,13 +1,21 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Env } from '../../index.js';
 import {
   cancelMeetConsultation,
   listMeetConsultations,
+  meetJstDateTime,
   registerMeetConsultation,
   type MeetConsultationStatus,
   type RegisterMeetConsultationInput,
 } from '../../services/meet-consultation-reminders.js';
-import { resolveAccessiblePharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
+import {
+  hasPharmacyCapability,
+  resolveAccessiblePharmacyTenant,
+} from '../../custom/pharmacy/growth-loop/access.js';
+import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js';
+import { sendPharmacyAutomatedPush } from '../../custom/pharmacy/growth-loop/sender.js';
+import { lineProxy } from '../integrations/line-proxy.js';
 
 const meetConsultations = new Hono<Env>();
 const REGISTRATION_INPUT_ERRORS = new Set([
@@ -87,7 +95,13 @@ meetConsultations.post('/api/meet-consultations', async (c) => {
       return c.json({ success: false, error: 'account access denied' }, 403);
     }
     const registered = await registerMeetConsultation(c.env.DB, body, lineAccountId);
-    return c.json({ success: true, data: registered }, 201);
+    // Best-effort confirmation push on pharmacy accounts with the capability.
+    // Registration is already committed, so a notification failure must not
+    // turn this into an error response.
+    const confirmationSent = await sendMeetConfirmation(
+      c, tenantId, lineAccountId, body.friendId, body.meetUrl, registered,
+    );
+    return c.json({ success: true, data: { ...registered, confirmationSent } }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message === 'friend not found or not following') {
@@ -102,6 +116,56 @@ meetConsultations.post('/api/meet-consultations', async (c) => {
     return c.json({ success: false, error: 'consultation registration failed' }, 503);
   }
 });
+
+async function sendMeetConfirmation(
+  c: Context<Env>,
+  tenantId: string,
+  lineAccountId: string,
+  friendId: string,
+  meetUrl: string,
+  registered: { id: string; startsAt: string },
+): Promise<boolean> {
+  try {
+    if (!await hasPharmacyCapability(c.env.DB, lineAccountId, 'meet_consultation')) {
+      return false;
+    }
+    const friend = await c.env.DB.prepare(
+      `SELECT provider_line_user_id AS line_user_id FROM friends
+        WHERE id = ? AND line_account_id = ? AND is_following = 1 LIMIT 1`,
+    ).bind(friendId, lineAccountId).first<{ line_user_id: string | null }>();
+    const accessToken = c.env.LINE_CREDENTIAL_KEY_V1 && friend?.line_user_id
+      ? await readLineCredential(c.env.DB, c.env.LINE_CREDENTIAL_KEY_V1, {
+          tenantId, lineAccountId, kind: 'channel_access_token' })
+      : null;
+    if (!friend?.line_user_id || !accessToken) return false;
+    const { genericDate, genericTime } = meetJstDateTime(registered.startsAt);
+    const outcome = await sendPharmacyAutomatedPush({
+      db: c.env.DB,
+      proxyBaseUrl: c.env.WORKER_PUBLIC_URL ?? new URL(c.req.url).origin,
+      proxyDispatch: (request: Request) => Promise.resolve(
+        lineProxy.fetch(request, c.env as Env['Bindings']),
+      ),
+      accessToken,
+      to: friend.line_user_id,
+      lineAccountId,
+      friendId,
+      messageId: 'meet_consultation_v1',
+      category: 'transactional_care',
+      vars: {
+        meetStatus: 'scheduled',
+        genericDate,
+        genericTime,
+        meetUrl,
+      },
+      // The startsAt component lets a rescheduled consultation send a fresh
+      // confirmation while a duplicate registration dedupes.
+      retryKey: `meet-confirmation:${registered.id}:${registered.startsAt}`,
+    });
+    return outcome === 'sent' || outcome === 'already_sent';
+  } catch {
+    return false;
+  }
+}
 
 meetConsultations.delete('/api/meet-consultations/:externalEventId', async (c) => {
   const tenantId = c.get('tenantId');
