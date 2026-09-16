@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
+import { createRequestGate } from '../request-gate'
 import {
   emergencyContraceptionAdminApi,
   type AdminEmergencyIntake,
@@ -246,22 +247,6 @@ function formatDate(value: string): string {
 
 function formatSlot(slot: Pick<EmergencySlot, 'starts_at' | 'ends_at'>): string {
   return `${formatDate(slot.starts_at)}〜${formatDate(slot.ends_at)}`
-}
-
-function createRequestGate() {
-  let generation = 0
-  return {
-    start() {
-      generation += 1
-      return generation
-    },
-    abort() {
-      generation += 1
-    },
-    isCurrent(token: number) {
-      return generation === token
-    },
-  }
 }
 
 function initialInventoryRows(

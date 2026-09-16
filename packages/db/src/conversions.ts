@@ -210,7 +210,7 @@ export async function getConversionReport(
          cp.name as conversion_point_name,
          cp.event_type,
          COUNT(ce.id) as total_count,
-         COALESCE(SUM(cp.value), 0) as total_value
+         COALESCE(SUM(CASE WHEN ce.id IS NOT NULL THEN cp.value END), 0) as total_value
        FROM conversion_points cp
        LEFT JOIN conversion_events ce ON ce.conversion_point_id = cp.id ${conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : ''}
        GROUP BY cp.id

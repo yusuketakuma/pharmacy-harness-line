@@ -424,8 +424,8 @@ export async function submitPrescription(
        SELECT ?, id, 'patient', friend_id, 'status_changed',
               CASE WHEN upload_revision = 1 THEN 'draft' ELSE 'needs_resubmission' END,
               'received', upload_revision, ?
-         FROM pharmacy_prescription_submissions
-        WHERE id = ? AND line_account_id = ? AND friend_id = ?
+        FROM pharmacy_prescription_submissions
+        WHERE changes() = 1 AND id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'received' AND updated_at = ?`,
     ).bind(
       statusEventId,
@@ -649,8 +649,8 @@ export async function cancelPrescription(
        SELECT ?, id, 'patient', friend_id, 'status_changed',
               CASE WHEN active_revision IS NULL THEN 'draft' ELSE 'received' END,
               'cancelled', 'patient_cancelled', ?
-         FROM pharmacy_prescription_submissions
-        WHERE id = ? AND line_account_id = ? AND friend_id = ?
+        FROM pharmacy_prescription_submissions
+        WHERE changes() = 1 AND id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'cancelled' AND updated_at = ?`,
     ).bind(
       crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId, now,
@@ -693,8 +693,8 @@ export async function reservePrescriptionResubmission(
       `INSERT INTO pharmacy_prescription_events
          (id, submission_id, actor_type, actor_id, event_type, revision, created_at)
        SELECT ?, id, 'patient', friend_id, 'revision_reserved', upload_revision, ?
-         FROM pharmacy_prescription_submissions
-        WHERE id = ? AND line_account_id = ? AND friend_id = ?
+        FROM pharmacy_prescription_submissions
+        WHERE changes() = 1 AND id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'needs_resubmission' AND updated_at = ?`,
     ).bind(
       crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId, now,
@@ -1043,20 +1043,34 @@ export async function applyAdminPrescriptionAction(
     throw new Error('prescription admin action conflict');
   }
   const next = nextPrescriptionStatus(current.status, action);
+  let validityAtCheck: {
+    updated_at: string;
+    verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
+    valid_until: string | null;
+  } | null = null;
+  let quoteAtCheck: {
+    id: string;
+    revision: number;
+    decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
+    requirements_json: string;
+    status: FulfillmentStatus | null;
+    valid_until: string | null;
+  } | null = null;
   if (action === 'admin_accept') {
-    const validity = await db.prepare(
-      `SELECT verification_status, valid_until
+    validityAtCheck = await db.prepare(
+      `SELECT updated_at, verification_status, valid_until
          FROM pharmacy_prescription_validities
         WHERE submission_id = ? AND line_account_id = ?`,
     ).bind(submissionId, lineAccountId).first<{
+      updated_at: string;
       verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
       valid_until: string | null;
     }>();
-    if (!validity || validity.verification_status !== 'verified' || !validity.valid_until) {
+    if (!validityAtCheck || validityAtCheck.verification_status !== 'verified' || !validityAtCheck.valid_until) {
       throw new Error('prescription validity verification required');
     }
     const localDate = new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    if (validity.valid_until < localDate) {
+    if (validityAtCheck.valid_until < localDate) {
       await markPrescriptionValidityExpiredReview(db, {
         lineAccountId,
         submissionId,
@@ -1068,22 +1082,24 @@ export async function applyAdminPrescriptionAction(
     }
   }
   if (action === 'admin_accept' && (current.intake_required === 1 || current.source_handoff_id != null)) {
-    const quote = await db.prepare(
-      `SELECT decision, requirements_json, status, valid_until
+    quoteAtCheck = await db.prepare(
+      `SELECT id, revision, decision, requirements_json, status, valid_until
          FROM pharmacy_fulfillment_quotes
         WHERE submission_id = ? AND line_account_id = ?
         ORDER BY revision DESC, created_at DESC, id DESC
         LIMIT 1`,
     ).bind(submissionId, lineAccountId).first<{
+      id: string;
+      revision: number;
       decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
       requirements_json: string;
       status: FulfillmentStatus | null;
       valid_until: string | null;
     }>();
-    if (!quote) throw new Error('fulfillment quote required');
+    if (!quoteAtCheck) throw new Error('fulfillment quote required');
     let requirements;
     try {
-      requirements = JSON.parse(quote.requirements_json) as Array<{
+      requirements = JSON.parse(quoteAtCheck.requirements_json) as Array<{
         code: string;
         status: 'pending' | 'satisfied';
       }>;
@@ -1091,10 +1107,10 @@ export async function applyAdminPrescriptionAction(
       throw new Error('fulfillment quote invalid');
     }
     if (!quoteAllowsAcceptance({
-      decision: quote.decision,
+      decision: quoteAtCheck.decision,
       requirements,
-      status: quote.status,
-      validUntil: quote.valid_until,
+      status: quoteAtCheck.status,
+      validUntil: quoteAtCheck.valid_until,
     }, at)) {
       throw new Error('fulfillment quote not acceptable');
     }
@@ -1111,16 +1127,46 @@ export async function applyAdminPrescriptionAction(
       ? 'admin_cancelled'
       : null;
   const now = nextIsoTimestamp(expectedUpdatedAt);
+  const validityPrecondition = action === 'admin_accept' ? `
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_prescription_validities v
+             WHERE v.submission_id = pharmacy_prescription_submissions.id
+               AND v.line_account_id = pharmacy_prescription_submissions.line_account_id
+               AND v.updated_at = ? AND v.verification_status = ? AND v.valid_until IS ?
+          )` : '';
+  const quotePrecondition = quoteAtCheck ? `
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_fulfillment_quotes q
+             WHERE q.id = ? AND q.revision = ? AND q.decision = ?
+               AND q.requirements_json = ? AND q.status IS ? AND q.valid_until IS ?
+               AND q.submission_id = pharmacy_prescription_submissions.id
+               AND q.line_account_id = pharmacy_prescription_submissions.line_account_id
+               AND q.id = (
+                 SELECT latest.id FROM pharmacy_fulfillment_quotes latest
+                  WHERE latest.submission_id = pharmacy_prescription_submissions.id
+                    AND latest.line_account_id = pharmacy_prescription_submissions.line_account_id
+                  ORDER BY latest.revision DESC, latest.created_at DESC, latest.id DESC LIMIT 1
+               )
+          )` : '';
   const results = await db.batch([
     db.prepare(
       `UPDATE pharmacy_prescription_submissions
           SET status = ?, resubmission_reason_code = ?,
               closed_at = CASE WHEN ? IN ('closed','cancelled') THEN ? ELSE closed_at END,
               updated_at = ?
-        WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
+        WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?
+          ${validityPrecondition}${quotePrecondition}`,
     ).bind(
       next, action === 'admin_request_resubmission' ? reasonCode : null,
       next, now, now, submissionId, lineAccountId, current.status, expectedUpdatedAt,
+      ...(action === 'admin_accept' ? [
+        validityAtCheck?.updated_at ?? null, validityAtCheck?.verification_status ?? null,
+        validityAtCheck?.valid_until ?? null,
+      ] : []),
+      ...(quoteAtCheck ? [
+        quoteAtCheck.id, quoteAtCheck.revision, quoteAtCheck.decision,
+        quoteAtCheck.requirements_json, quoteAtCheck.status, quoteAtCheck.valid_until,
+      ] : []),
     ),
     db.prepare(
       `INSERT INTO pharmacy_prescription_events

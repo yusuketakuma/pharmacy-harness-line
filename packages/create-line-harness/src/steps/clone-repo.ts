@@ -1,10 +1,15 @@
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execa } from "execa";
 import {
-  isGeneratedInstalledWranglerToml,
   renderInstalledWranglerToml,
   resolveInstalledWranglerConfig,
   type SavedInstallConfig,
@@ -26,9 +31,9 @@ const REPO_URL =
  * migrations newer than the release, leaving the database "ahead" of what
  * the manifest expects on the next update.
  *
- * The clone is CLI-managed (`~/.line-harness`): apps/worker/wrangler.toml
- * is force-restored before checkout because setup itself patches/generates
- * it and a dirty copy would block `git checkout`.
+ * A dirty checkout is never reset here. Setup's canonical clone is made
+ * clean by `ensureRepo` only when its config is an exact regenerated file;
+ * custom checkouts fail closed and retain their edits.
  */
 export async function pinRepoToTag(
   repoDir: string,
@@ -37,17 +42,6 @@ export async function pinRepoToTag(
   const tag = `v${version}`;
   const s = p.spinner();
   s.start(`リリース ${tag} のソースに固定中...`);
-
-  // Drop CLI-authored wrangler.toml changes so the checkout can't conflict.
-  // The file is regenerated later in setup (applyPatchedConfig /
-  // syncInstalledWorkerConfig), so nothing user-authored is lost.
-  try {
-    await execa("git", ["checkout", "--", "apps/worker/wrangler.toml"], {
-      cwd: repoDir,
-    });
-  } catch {
-    // File may be untracked / repo pristine — fine.
-  }
 
   try {
     await execa(
@@ -120,16 +114,34 @@ export async function ensureRepo(repoDir: string | null): Promise<string> {
       }
     }
 
-    if (existsSync(wranglerTomlPath)) {
+    if (installedToml && existsSync(wranglerTomlPath)) {
       try {
         const currentToml = readFileSync(wranglerTomlPath, "utf-8");
-        if (isGeneratedInstalledWranglerToml(currentToml)) {
-          await execa("git", ["checkout", "--", "apps/worker/wrangler.toml"], {
-            cwd: homeDir,
-          });
+        if (currentToml === installedToml) {
+          // A generated file is safe to restore only when it is not staged.
+          // Marker-only or hand-edited files remain untouched.
+          await execa(
+            "git",
+            ["diff", "--cached", "--quiet", "--", "apps/worker/wrangler.toml"],
+            { cwd: homeDir },
+          );
+          const mode = statSync(wranglerTomlPath).mode & 0o777;
+          try {
+            await execa("git", ["checkout", "--", "apps/worker/wrangler.toml"], {
+              cwd: homeDir,
+            });
+          } catch {
+            // Restore the exact preimage if git failed after touching the file.
+            try {
+              writeFileSync(wranglerTomlPath, currentToml);
+              chmodSync(wranglerTomlPath, mode);
+            } catch {
+              // Leave the original failure visible through the pull guard.
+            }
+          }
         }
       } catch {
-        // Best effort — if the file stays dirty, the pull below may fail.
+        // A staged/mismatched/unreadable file is user-owned for this run.
       }
     }
 
@@ -143,13 +155,6 @@ export async function ensureRepo(repoDir: string | null): Promise<string> {
     }
     s.stop("リポジトリ更新完了");
 
-    if (installedToml) {
-      try {
-        writeFileSync(wranglerTomlPath, installedToml);
-      } catch {
-        // Non-critical — the next setup run will regenerate it again.
-      }
-    }
     return homeDir;
   }
 

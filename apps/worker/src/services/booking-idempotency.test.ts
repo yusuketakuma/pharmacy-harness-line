@@ -65,8 +65,18 @@ function memDB(): { db: D1Database; rows: Map<string, Row> } {
           }
           return { success: true, meta: {} };
         },
-        async all() {
-          return { results: [] };
+        async all<T>() {
+          if (sql.startsWith('SELECT')) {
+            // UNION ALL lookup binds key/account/friend twice; the shared rows
+            // Map stands in for both the legacy and scoped tables.
+            const [key, accountId, friendId] = bound as [string, string, string];
+            const row = rows.get(key);
+            if (!row || row.line_account_id !== accountId || row.friend_id !== friendId) {
+              return { results: [] as T[] };
+            }
+            return { results: [row] as T[] };
+          }
+          return { results: [] as T[] };
         },
       };
       return stmt;

@@ -16,7 +16,8 @@ export type PharmacyAutomatedMessageId =
   | 'medication_followup_v1'
   | 'appointment_reminder_v1'
   | 'myna_handoff_status_v1'
-  | 'emergency_intake_status_v1';
+  | 'emergency_intake_status_v1'
+  | 'meet_consultation_v1';
 
 export type PharmacyMessageVars = {
   status?: 'received' | 'accepted' | 'needs_resubmission' | 'ready' | 'closed' | 'cancelled';
@@ -29,6 +30,8 @@ export type PharmacyMessageVars = {
   followUpId?: string;
   handoffStatus?: 'EXPIRED' | 'SUPPORT_NEEDED' | 'PAPER_FALLBACK';
   intakeStatus?: 'reviewed' | 'cancelled' | 'expired';
+  meetStatus?: 'scheduled' | 'day_before' | 'hour_before';
+  meetUrl?: string;
 };
 
 const REASONS: Record<NonNullable<PharmacyMessageVars['reasonCode']>, string> = {
@@ -63,6 +66,20 @@ function textFor(id: PharmacyAutomatedMessageId, vars: PharmacyMessageVars): str
       return 'お薬を使い始めてからの体調はいかがですか。あてはまるものを選んでください。';
     case 'appointment_reminder_v1':
       return 'ご予約の時間が近づいています。必要に応じてLINEアプリで内容をご確認ください。';
+    // Deliberately neutral: "オンライン相談" does not identify the consultation
+    // topic. The Meet URL is approved by contract decision (audit v4, F24) —
+    // it is the recipient's own join link, not PHI.
+    case 'meet_consultation_v1':
+      switch (vars.meetStatus) {
+        case 'scheduled':
+          return `オンライン相談の予約を受け付けました。\n日時: ${vars.genericDate} ${vars.genericTime}\n参加用リンク: ${vars.meetUrl}`;
+        case 'day_before':
+          return `明日 ${vars.genericDate} ${vars.genericTime} からオンライン相談の予約があります。\n参加用リンク: ${vars.meetUrl}`;
+        case 'hour_before':
+          return `まもなく ${vars.genericDate} ${vars.genericTime} からオンライン相談が始まります。\n参加用リンク: ${vars.meetUrl}`;
+        default:
+          return 'オンライン相談の予約情報が更新されました。';
+      }
     case 'myna_handoff_status_v1':
       switch (vars.handoffStatus) {
         case 'SUPPORT_NEEDED':
@@ -126,11 +143,14 @@ const IDS = new Set<PharmacyAutomatedMessageId>([
   'appointment_reminder_v1',
   'myna_handoff_status_v1',
   'emergency_intake_status_v1',
+  'meet_consultation_v1',
 ]);
-const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'intakeMethod', 'liffId', 'submissionId', 'genericDate', 'genericTime', 'followUpId', 'handoffStatus', 'intakeStatus']);
+const VARIABLE_KEYS = new Set(['status', 'reasonCode', 'intakeMethod', 'liffId', 'submissionId', 'genericDate', 'genericTime', 'followUpId', 'handoffStatus', 'intakeStatus', 'meetStatus', 'meetUrl']);
 const STATUSES = new Set(['received', 'accepted', 'needs_resubmission', 'ready', 'closed', 'cancelled']);
 const HANDOFF_STATUSES = new Set(['EXPIRED', 'SUPPORT_NEEDED', 'PAPER_FALLBACK']);
 const EMERGENCY_INTAKE_STATUSES = new Set(['reviewed', 'cancelled', 'expired']);
+const MEET_STATUSES = new Set(['scheduled', 'day_before', 'hour_before']);
+const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[a-z0-9-]+(?:[/?#].*)?$/i;
 const REASON_CODES = new Set(Object.keys(REASONS));
 const UNSAFE_RENDERED_TEXT = /薬剤名|疾患名|病名|医療機関名|医師名|患者名|自由記述|(?:病院|医院|診療所|クリニック|歯科)|(?:糖尿病|高血圧|がん|癌)|(?:ロキソニン|アムロジピン)|drug\s+name|diagnos(?:is|es)|hospital\s+name/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -159,7 +179,7 @@ export function buildApprovedPharmacyMessage(
     throw new Error('pharmacy notification variable rejected');
   }
   for (const [key, value] of Object.entries(vars)) {
-    const maxLength = key === 'submissionId' ? 128 : 64;
+    const maxLength = key === 'submissionId' || key === 'meetUrl' ? 128 : 64;
     if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > maxLength)) {
       throw new Error('pharmacy notification variable rejected');
     }
@@ -199,6 +219,24 @@ export function buildApprovedPharmacyMessage(
   if ((id === 'emergency_intake_status_v1') !== Boolean(vars.intakeStatus) ||
       (id === 'emergency_intake_status_v1' &&
        Object.keys(vars).some((key) => key !== 'intakeStatus'))) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.meetStatus && !MEET_STATUSES.has(vars.meetStatus)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (vars.meetUrl && !MEET_URL_RE.test(vars.meetUrl)) {
+    throw new Error('pharmacy notification variable rejected');
+  }
+  if (id === 'meet_consultation_v1') {
+    // Every kind carries the consultation datetime and the recipient's own
+    // join link; no other variable is permitted.
+    if (!vars.meetStatus || !vars.meetUrl || !vars.genericDate || !vars.genericTime ||
+        Object.keys(vars).some((key) =>
+          key !== 'meetStatus' && key !== 'meetUrl' &&
+          key !== 'genericDate' && key !== 'genericTime')) {
+      throw new Error('pharmacy notification variable rejected');
+    }
+  } else if (vars.meetStatus !== undefined || vars.meetUrl !== undefined) {
     throw new Error('pharmacy notification variable rejected');
   }
   if (vars.genericDate && !isDateOnly(vars.genericDate)) {
@@ -316,6 +354,30 @@ export function isApprovedRenderedPharmacyMessage(
       buildApprovedPharmacyMessage(id),
       ...(date ? [buildApprovedPharmacyMessage(id, { genericDate: date })] : []),
     ].some(same);
+  }
+  if (id === 'meet_consultation_v1') {
+    const patterns: Array<{
+      meetStatus: NonNullable<PharmacyMessageVars['meetStatus']>;
+      re: RegExp;
+    }> = [
+      { meetStatus: 'scheduled',
+        re: /^オンライン相談の予約を受け付けました。\n日時: (\S+) (\S+)\n参加用リンク: (\S+)$/ },
+      { meetStatus: 'day_before',
+        re: /^明日 (\S+) (\S+) からオンライン相談の予約があります。\n参加用リンク: (\S+)$/ },
+      { meetStatus: 'hour_before',
+        re: /^まもなく (\S+) (\S+) からオンライン相談が始まります。\n参加用リンク: (\S+)$/ },
+    ];
+    return patterns.some(({ meetStatus, re }) => {
+      const match = re.exec(message.text);
+      if (!match) return false;
+      const [, genericDate, genericTime, meetUrl] = match;
+      if (!isDateOnly(genericDate) ||
+          !/^([01]\d|2[0-3]):[0-5]\d$/.test(genericTime) ||
+          !MEET_URL_RE.test(meetUrl)) return false;
+      return same(buildApprovedPharmacyMessage(id, {
+        meetStatus, genericDate, genericTime, meetUrl,
+      }));
+    });
   }
   const expected = buildApprovedPharmacyMessage(id);
   return same(expected);

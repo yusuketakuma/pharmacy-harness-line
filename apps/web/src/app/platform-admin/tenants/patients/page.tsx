@@ -1,5 +1,5 @@
 'use client'
-import { Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -7,7 +7,11 @@ import {
   platformAdminApi,
   type PlatformPatient,
 } from '@/lib/platform-admin-api'
-import { SupportModeRequired } from '@/components/platform-admin/support-mode'
+import {
+  SUPPORT_ACCESS_EXPIRED,
+  SUPPORT_GRANTS_CHANGED,
+  SupportModeRequired,
+} from '@/components/platform-admin/support-mode'
 
 const RELATIONSHIP_LABELS: Record<PlatformPatient['relationship'], string> = {
   self: '本人',
@@ -29,20 +33,37 @@ function PatientList({ tenantId }: { tenantId: string }) {
   const [error, setError] = useState('')
   // 403 は「サポートモード未開始」だけを意味する。一般エラーとは分けて扱う。
   const [grantMissing, setGrantMissing] = useState(false)
+  const requestId = useRef(0)
 
   const load = useCallback(() => {
+    const currentRequest = ++requestId.current
     setPatients(null)
     setError('')
     setGrantMissing(false)
     platformAdminApi.patients(tenantId)
-      .then((res) => setPatients(res.data))
+      .then((res) => {
+        if (requestId.current === currentRequest) setPatients(res.data)
+      })
       .catch((caught: Error) => {
+        if (requestId.current !== currentRequest) return
         if (isSupportModeRequired(caught)) setGrantMissing(true)
         else setError('患者一覧を取得できませんでした。再度お試しください。')
       })
   }, [tenantId])
 
-  useEffect(load, [load])
+  useEffect(() => {
+    load()
+    window.addEventListener(SUPPORT_GRANTS_CHANGED, load)
+    window.addEventListener(SUPPORT_ACCESS_EXPIRED, load)
+    return () => {
+      window.removeEventListener(SUPPORT_GRANTS_CHANGED, load)
+      window.removeEventListener(SUPPORT_ACCESS_EXPIRED, load)
+      requestId.current += 1
+      setPatients(null)
+      setError('')
+      setGrantMissing(false)
+    }
+  }, [load])
 
   return (
     <div>

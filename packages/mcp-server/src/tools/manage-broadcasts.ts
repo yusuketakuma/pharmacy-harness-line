@@ -16,7 +16,7 @@ export function registerManageBroadcasts(server: McpServer): void {
       messageContent: z.string().optional().describe("Message content (for create_draft, update)"),
       targetType: z.enum(["all", "tag"]).optional().describe("Target type (for create_draft, update)"),
       targetTagId: z.string().nullable().optional().describe("Target tag ID (for create_draft, update)"),
-      scheduledAt: z.string().nullable().optional().describe("ISO 8601 datetime to schedule (for create_draft, update)"),
+      scheduledAt: z.string().nullable().optional().describe("ISO 8601 datetime to schedule (for update; create_draft rejects it)"),
       segmentConditions: z.string().optional().describe("JSON string of segment conditions: {operator: 'AND'|'OR', rules: [{type, value}]} (for send_to_segment)"),
       accountId: z.string().optional().describe("LINE account ID (uses default if omitted)"),
     },
@@ -44,9 +44,11 @@ export function registerManageBroadcasts(server: McpServer): void {
           if (!title || !messageType || !messageContent) {
             throw new Error("title, messageType, messageContent are required for create_draft");
           }
+          if (scheduledAt !== undefined && scheduledAt !== null) {
+            throw new Error("scheduledAt is not allowed for create_draft; use the broadcast action for scheduling");
+          }
           const input: Record<string, unknown> = { title, messageType, messageContent, targetType: targetType ?? "all" };
           if (targetTagId) input.targetTagId = targetTagId;
-          if (scheduledAt) input.scheduledAt = scheduledAt;
           if (accountId) input.lineAccountId = accountId;
           const broadcast = await client.broadcasts.create(input as never);
           return { content: [{ type: "text" as const, text: JSON.stringify({ success: true, broadcast }, null, 2) }] };

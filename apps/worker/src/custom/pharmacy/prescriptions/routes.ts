@@ -23,7 +23,6 @@ import {
   getPrescriptionRecovery,
   listPrescriptionHistory,
   listAdminPrescriptionQueue,
-  markPrescriptionFileDeleted,
   markPrescriptionFileReady,
   recordPrescriptionFileViewed,
   reservePrescriptionDraft,
@@ -120,6 +119,7 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions', async (c) => {
   } catch {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
+  if (body === null) return c.json({ error: 'Invalid prescription draft' }, 400);
   const desiredPickupAt = body.desiredPickupAt;
   const desiredFulfillmentMethod = body.desiredFulfillmentMethod;
   const patientId = body.patientId;
@@ -181,6 +181,7 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/submit', async (c)
   } catch {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
+  if (body === null) return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
   if (
     typeof body.expectedUpdatedAt !== 'string' ||
     !Number.isFinite(Date.parse(body.expectedUpdatedAt)) ||
@@ -355,9 +356,8 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/cancel', async (c)
   const expectedUpdatedAt = await readExpectedUpdatedAt(c.req);
   if (!expectedUpdatedAt) return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
 
-  let files;
   try {
-    files = await cancelPrescription(
+    await cancelPrescription(
       c.env.DB, patient, c.req.param('id'), expectedUpdatedAt,
     );
   } catch (error) {
@@ -367,18 +367,10 @@ prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/cancel', async (c)
     throw error;
   }
 
-  let cleanupPending = !c.env.IMAGES;
-  if (c.env.IMAGES) {
-    for (const file of files) {
-      try {
-        await c.env.IMAGES.delete(file.r2_key);
-        await markPrescriptionFileDeleted(c.env.DB, patient, c.req.param('id'), file.id);
-      } catch {
-        cleanupPending = true;
-      }
-    }
-  }
-  return c.json({ status: 'cancelled', cleanupPending });
+  // I19-R2: cancelled prescription images stay inside the uniform 3-year
+  // retention scope. Physical deletion is exclusive to the recovery-gated
+  // retention purge, so a cancel never touches R2 and no cleanup can pend.
+  return c.json({ status: 'cancelled', cleanupPending: false });
 });
 
 prescriptionRoutes.post('/api/liff/pharmacy/prescriptions/:id/resubmission', async (c) => {
@@ -524,6 +516,7 @@ prescriptionRoutes.post('/api/custom/pharmacy/prescriptions/:id/actions/:action'
   } catch {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
+  if (body === null) return c.json({ error: 'Invalid action input' }, 400);
   if (
     typeof body.expectedUpdatedAt !== 'string' ||
     !Number.isFinite(Date.parse(body.expectedUpdatedAt)) ||

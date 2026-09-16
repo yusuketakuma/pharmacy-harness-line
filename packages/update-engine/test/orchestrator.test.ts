@@ -262,7 +262,7 @@ function makeFetch(
   fixture: Fixture,
   overrides: RouteOverrides = {},
 ): ReturnType<typeof vi.fn> {
-  let pagesGetCalls = 0; // for distinguishing admin vs liff getLatestDeployment
+  let pagesGetCalls = 0;
   let adminDeploymentCalls = 0;
 
   return vi.fn(async (url: string, init?: RequestInit) => {
@@ -396,7 +396,7 @@ function makeFetch(
       return makeResponse(o);
     }
 
-    // Pages admin project — getLatestDeployment, deploy, rollback, preflight.
+    // Pages admin project — canonical rollback target, deploy, rollback, preflight.
     if (url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments/`) && url.endsWith('/rollback')) {
       const o = overrides.adminRollback ?? { ok: true, status: 200 };
       return makeResponse(o);
@@ -406,13 +406,13 @@ function makeFetch(
       return makeResponse(o);
     }
     if (url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments`)) {
-      // getLatestDeployment (GET ...?per_page=1) → return OLD_ADMIN_DEPLOY first
+      // A newer preview must never become the rollback target.
       // POST deployments (create new) → return NEW_ADMIN_DEPLOY
       if (method === 'GET') {
         return makeResponse({
           ok: true,
           status: 200,
-          body: { result: [{ id: OLD_ADMIN_DEPLOY }] },
+          body: { result: [{ id: 'PREVIEW_ADMIN_DEPLOY', environment: 'preview' }] },
         });
       }
       adminDeploymentCalls++;
@@ -429,7 +429,7 @@ function makeFetch(
         return makeResponse({
           ok: true,
           status: 200,
-          body: { result: [{ id: OLD_LIFF_DEPLOY }] },
+          body: { result: [{ id: 'PREVIEW_LIFF_DEPLOY', environment: 'preview' }] },
         });
       }
       return makeResponse({
@@ -471,11 +471,17 @@ function makeFetch(
     if (url.includes(`/pages/projects/${ADMIN_PROJECT}`)) {
       pagesGetCalls++;
       const o = overrides.adminCheck ?? { ok: true, status: 200 };
-      return makeResponse(o);
+      return makeResponse({ ...o, body: o.body ?? { success: true, result: {
+        canonical_deployment: { id: OLD_ADMIN_DEPLOY, environment: 'production', is_skipped: false,
+          latest_stage: { name: 'deploy', status: 'success' } },
+      } } });
     }
     if (url.includes(`/pages/projects/${LIFF_PROJECT}`)) {
       const o = overrides.liffCheck ?? { ok: true, status: 200 };
-      return makeResponse(o);
+      return makeResponse({ ...o, body: o.body ?? { success: true, result: {
+        canonical_deployment: { id: OLD_LIFF_DEPLOY, environment: 'production', is_skipped: false,
+          latest_stage: { name: 'deploy', status: 'success' } },
+      } } });
     }
 
     throw new Error(`unrouted: ${method} ${url}`);
@@ -589,6 +595,51 @@ describe('runUpdate orchestrator', () => {
       (e) => e.step === 'rollback' && e.status === 'running',
     );
     expect(rollbackRun.error).toBeDefined();
+  });
+
+  it('observability failure does not block rollback or replace the original error', async () => {
+    globalThis.fetch = makeFetch(fixture) as unknown as typeof fetch;
+    const base = d1;
+    let failed = false;
+    const faultyD1: D1Like = {
+      prepare(sql: string) {
+        const statement = base.prepare(sql);
+        if (!sql.includes('SET error = ?')) return statement;
+        return {
+          bind(...args: any[]) {
+            const bound = statement.bind(...args);
+            return {
+              ...bound,
+              run: async () => {
+                if (!failed) {
+                  failed = true;
+                  throw new Error('synthetic observability failure');
+                }
+                return bound.run();
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const events: any[] = [];
+    const handle = await runUpdate({
+      ctx: sampleCtx(fixture, {
+        target: sampleRelease(fixture, { bundle_url: 'https://example.com/missing' }),
+      }),
+      d1: faultyD1,
+      workerHealthUrl: WORKER_HEALTH_URL,
+      adminUrl: ADMIN_URL,
+      liffUrl: LIFF_URL,
+      currentWorkerBundleUrl: SNAPSHOT_WORKER_URL,
+      onEvent: (event) => events.push(event),
+    });
+    await expect(handle.done).rejects.toThrow(/unrouted: GET/);
+    const rows = rawDb.prepare('SELECT id FROM update_history').all() as Array<{ id: string }>;
+    const row = (await getSnapshot(base, rows[0].id)) as SnapshotRow;
+    expect(row.status).toBe('rolled_back');
+    expect(events.some((event) => event.step === 'rollback' && event.status === 'done')).toBe(true);
   });
 
   it('apply fails (D1 migration error) → rollback runs, status = rolled_back', async () => {
@@ -748,8 +799,8 @@ describe('runUpdate orchestrator', () => {
     expect(events.some((e) => e.step === 'rollback' && e.status === 'done')).toBe(true);
   });
 
-  it('getLatestDeployment fails (snapshot never created) → outer await rejects, no row', async () => {
-    // Make BOTH pages project lookups return non-OK. getLatestDeployment is
+  it('canonical Pages lookup fails (snapshot never created) → outer await rejects, no row', async () => {
+    // Make BOTH project lookups return non-OK. The rollback target lookup is
     // invoked in parallel before createSnapshot, so a failure here should
     // reject the outer Promise and never reach the handle stage.
     const baseFetch = makeFetch(fixture);
@@ -757,8 +808,8 @@ describe('runUpdate orchestrator', () => {
       const method = (init?.method ?? 'GET').toUpperCase();
       if (
         method === 'GET' &&
-        (url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments`) ||
-          url.includes(`/pages/projects/${LIFF_PROJECT}/deployments`))
+        (url.endsWith(`/pages/projects/${ADMIN_PROJECT}`) ||
+          url.endsWith(`/pages/projects/${LIFF_PROJECT}`))
       ) {
         return makeResponse({
           ok: false,

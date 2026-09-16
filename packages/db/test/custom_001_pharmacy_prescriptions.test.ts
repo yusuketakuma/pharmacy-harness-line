@@ -77,6 +77,11 @@ describe('custom_001_pharmacy_prescriptions.sql', () => {
       '018_custom_075_pharmacy_medication_followup_assignments.sql',
       '019_custom_076_pharmacy_followup_operations_scope.sql',
       '020_custom_077_pharmacy_beta_notification_bindings.sql',
+      '021_calendar_bookings_overlap_index.sql',
+      '022_booking_idempotency_scoped.sql',
+    '023_meet_reminder_delivery_id.sql',
+    '024_stripe_effect_completion.sql',
+    '025_friend_link_scope_triggers.sql',
     ]);
     const names = db.prepare(
       `SELECT name FROM sqlite_master

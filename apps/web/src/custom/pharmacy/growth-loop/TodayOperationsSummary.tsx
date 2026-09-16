@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAccount } from '@/contexts/account-context'
 import { PRESCRIPTION_STATUS_LABELS } from '@/custom/pharmacy/prescriptions/PrescriptionQueueOverview'
+import { createRequestGate as createOperationsSummaryRequestGate } from '../request-gate'
 import { pharmacyGrowthApi, type PharmacyActionQueue, type PharmacyOperationsSummary } from './api'
 import { readinessStatusLabel } from './readiness-labels'
+
+export { createOperationsSummaryRequestGate }
 
 export type OperationsSummary = PharmacyOperationsSummary
 type DomainKey = keyof OperationsSummary['domains']
@@ -42,15 +45,6 @@ const ACTION_DOMAIN_LABELS: Record<PharmacyActionQueue['items'][number]['domain'
 
 const ACTION_DEADLINE_LABELS: Record<PharmacyActionQueue['items'][number]['deadline'], string> = {
   overdue: '期限超過', today: '本日', upcoming: '今後', none: '期限なし',
-}
-
-export function createOperationsSummaryRequestGate() {
-  let generation = 0
-  return {
-    start: () => ++generation,
-    abort: () => { generation += 1 },
-    isCurrent: (request: number) => generation === request,
-  }
 }
 
 export function richMenuDisplayStatus(richMenu: OperationsSummary['richMenu']): 'OFF' | 'STALE' | 'READY' | 'BLOCKED' | 'UNVERIFIED' {

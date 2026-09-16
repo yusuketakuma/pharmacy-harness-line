@@ -7,6 +7,7 @@ export const PATIENT_PHARMACY_CAPABILITIES = [
   'continuity',
   'medication_followup',
   'emergency_contraception',
+  'meet_consultation',
   'manual_chat',
   'pharmacy_info',
 ] as const;

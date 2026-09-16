@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../../index.js';
+import { clampLimitOffset } from '../../lib/pagination.js';
 import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../../custom/pharmacy/growth-loop/access.js';
+
+const TAG_LOOKUP_BIND_LIMIT = 100;
 
 const conversations = new Hono<Env>();
 
@@ -20,8 +23,16 @@ conversations.get('/api/conversations', async (c) => {
     const minHoursSince = Number(url.searchParams.get('minHoursSince') ?? '0');
     const maxHoursSinceParam = url.searchParams.get('maxHoursSince');
     const maxHoursSince = maxHoursSinceParam !== null ? Number(maxHoursSinceParam) : null;
-    const limit = Math.min(Number(url.searchParams.get('limit') ?? '50'), 200);
-    const offset = Number(url.searchParams.get('offset') ?? '0');
+    const page = clampLimitOffset(
+      url.searchParams.get('limit') ?? undefined,
+      url.searchParams.get('offset') ?? undefined,
+      50,
+    );
+    // SQLite requires OFFSET to fit its signed 64-bit integer range.
+    if (!page || page.offset >= 2 ** 63) {
+      return c.json({ success: false, error: 'limit / offset が不正です' }, 400);
+    }
+    const { limit, offset } = page;
 
     const whereAccount = accountId ? 'AND f.line_account_id = ?' : '';
     const whereAssignedAccount = pharmacyTenant
@@ -62,17 +73,18 @@ conversations.get('/api/conversations', async (c) => {
         GROUP BY friend_id
       ),
       latest_msg AS (
-        SELECT ml.friend_id, ml.content, ml.message_type
-        FROM messages_log ml
-        INNER JOIN (
-          SELECT friend_id, MAX(created_at) AS mx
-          FROM messages_log
-          WHERE direction = 'incoming'
-            AND (source IS NULL OR source != 'postback')
-          GROUP BY friend_id
-        ) lm ON lm.friend_id = ml.friend_id AND lm.mx = ml.created_at
-        WHERE ml.direction = 'incoming'
-          AND (ml.source IS NULL OR ml.source != 'postback')
+        SELECT friend_id, content, message_type
+        FROM (
+          SELECT ml.friend_id, ml.content, ml.message_type,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY ml.friend_id
+                   ORDER BY ml.created_at DESC, ml.id DESC
+                 ) AS row_number
+          FROM messages_log ml
+          WHERE ml.direction = 'incoming'
+            AND (ml.source IS NULL OR ml.source != 'postback')
+        ) ranked
+        WHERE row_number = 1
       ),
       ${latestChatCte}
       SELECT
@@ -151,14 +163,15 @@ conversations.get('/api/conversations', async (c) => {
       .first<{ total: number }>();
 
     // tags lookup (friend_id -> tag names)
-    const friendIds = results.map((r) => (r as { friend_id: string }).friend_id);
+    const friendIds = [...new Set(results.map((r) => (r as { friend_id: string }).friend_id))];
     const tagMap: Record<string, string[]> = {};
-    if (friendIds.length > 0) {
-      const placeholders = friendIds.map(() => '?').join(',');
+    for (let start = 0; start < friendIds.length; start += TAG_LOOKUP_BIND_LIMIT) {
+      const chunk = friendIds.slice(start, start + TAG_LOOKUP_BIND_LIMIT);
+      const placeholders = chunk.map(() => '?').join(',');
       const tagRows = await c.env.DB.prepare(
         `SELECT ft.friend_id, t.name FROM friend_tags ft JOIN tags t ON t.id = ft.tag_id WHERE ft.friend_id IN (${placeholders})`,
       )
-        .bind(...friendIds)
+        .bind(...chunk)
         .all<{ friend_id: string; name: string }>();
       for (const row of tagRows.results) {
         (tagMap[row.friend_id] ??= []).push(row.name);
@@ -206,7 +219,9 @@ conversations.get('/api/conversations/:friendId', async (c) => {
 
     const friendId = c.req.param('friendId');
     const url = new URL(c.req.url);
-    const limit = Math.min(Number(url.searchParams.get('limit') ?? '50'), 200);
+    const page = clampLimitOffset(url.searchParams.get('limit') ?? undefined, undefined, 50);
+    if (!page) return c.json({ success: false, error: 'limit が不正です' }, 400);
+    const { limit } = page;
     const before = url.searchParams.get('before');
 
     const friend = await c.env.DB.prepare(

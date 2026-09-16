@@ -3,6 +3,7 @@ import {
   getStripeEvents,
   getStripeEventByStripeId,
   createStripeEvent,
+  markStripeEventEffectsComplete,
   addTagToFriend,
 } from '@line-crm/db';
 import type { Env } from '../../index.js';
@@ -34,7 +35,10 @@ stripe.get('/api/integrations/stripe/events', async (c) => {
     const eventType = c.req.query('eventType') ?? undefined;
     const page = clampLimitOffset(c.req.query('limit'), undefined, 100);
     if (!page) return c.json({ success: false, error: 'limit が不正です' }, 400);
-    const items = await getStripeEvents(c.env.DB, { friendId, eventType, limit: page.limit });
+    // 認証 tenant が解決できている呼び出しはその tenant の friend に帰属する
+    // イベントだけに絞る（pharmacy allowlist 経由の cross-tenant 閲覧を防ぐ）。
+    const tenantId = c.get('tenantId') ?? undefined;
+    const items = await getStripeEvents(c.env.DB, { friendId, eventType, limit: page.limit, tenantId });
     return c.json({
       success: true,
       data: items.map((e) => ({
@@ -105,9 +109,11 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
       body = await c.req.json<StripeWebhookBody>();
     }
 
-    // 冪等性チェック
+    // 冪等性チェック: 受領済みかつ副作用完了なら早期return。
+    // Stripeは非2xx応答を再送するため、受領行があっても副作用未完了なら
+    // 効果を再実行する（各効果はイベントID由来のdedupeで1回だけ適用される）。
     const existing = await getStripeEventByStripeId(c.env.DB, body.id);
-    if (existing) {
+    if (existing?.effects_completed_at) {
       return c.json({ success: true, data: { message: 'Already processed' } });
     }
 
@@ -118,26 +124,45 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
     const friendId = obj.metadata?.line_friend_id ?? null;
 
     // イベントを記録
-    const event = await createStripeEvent(db, {
-      stripeEventId: body.id,
-      eventType: body.type,
-      friendId: friendId ?? undefined,
-      amount: obj.amount,
-      currency: obj.currency,
-      metadata: JSON.stringify(obj.metadata ?? {}),
-    });
+    let event = existing;
+    if (!event) {
+      try {
+        event = await createStripeEvent(db, {
+          stripeEventId: body.id,
+          eventType: body.type,
+          friendId: friendId ?? undefined,
+          amount: obj.amount,
+          currency: obj.currency,
+          metadata: JSON.stringify(obj.metadata ?? {}),
+        });
+      } catch (createErr) {
+        // 同時配信で別workerが先に受領した場合はその行を引き継いで効果を続行する。
+        event = await getStripeEventByStripeId(c.env.DB, body.id);
+        if (!event) throw createErr;
+      }
+    }
 
     // 決済成功時の自動処理
     if (body.type === 'payment_intent.succeeded' && friendId) {
       const { applyScoring } = await import('@line-crm/db');
-      await applyScoring(db, friendId, 'purchase');
+      await applyScoring(db, friendId, 'purchase', `stripe:${body.id}`);
 
-      // 自動タグ付け（product_idベース）
+      // 自動タグ付け（product_idベース）。tags.name はグローバル UNIQUE なので
+      // 同名 tag が他 tenant に存在しうる — friend の tenant（または
+      // tenant 未設定の legacy global tag）に一致するものだけを付与する。
       const productId = obj.metadata?.product_id;
       if (productId) {
         const tag = await db
-          .prepare(`SELECT id FROM tags WHERE name = ?`)
-          .bind(`purchased_${productId}`)
+          .prepare(
+            `SELECT tag.id
+               FROM tags AS tag
+               JOIN friends AS friend ON friend.id = ?
+               LEFT JOIN tenant_line_accounts AS mapping
+                 ON mapping.line_account_id = friend.line_account_id
+              WHERE tag.name = ?
+                AND (tag.tenant_id IS NULL OR tag.tenant_id = mapping.tenant_id)`,
+          )
+          .bind(friendId, `purchased_${productId}`)
           .first<{ id: string }>();
         if (tag) {
           await addTagToFriend(db, friendId, tag.id);
@@ -173,15 +198,28 @@ stripe.post('/api/integrations/stripe/webhook', async (c) => {
       );
     }
 
-    // サブスクリプションイベント処理
+    // サブスクリプションイベント処理（tag scope は上と同じ方針）
     if (body.type === 'customer.subscription.deleted' && friendId) {
       const cancelledTag = await db
-        .prepare(`SELECT id FROM tags WHERE name = 'subscription_cancelled'`)
+        .prepare(
+          `SELECT tag.id
+             FROM tags AS tag
+             JOIN friends AS friend ON friend.id = ?
+             LEFT JOIN tenant_line_accounts AS mapping
+               ON mapping.line_account_id = friend.line_account_id
+            WHERE tag.name = 'subscription_cancelled'
+              AND (tag.tenant_id IS NULL OR tag.tenant_id = mapping.tenant_id)`,
+        )
+        .bind(friendId)
         .first<{ id: string }>();
       if (cancelledTag) {
         await addTagToFriend(db, friendId, cancelledTag.id);
       }
     }
+
+    // 受領と効果完了を分けて記録する。ここまで来た時点で全副作用は
+    // dedupe付きで適用済みなので、次回再送は早期200へ戻る。
+    await markStripeEventEffectsComplete(db, body.id);
 
     return c.json({
       success: true,

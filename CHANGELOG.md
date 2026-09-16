@@ -1,5 +1,56 @@
 # Changelog
 
+## Pharmacy v0.35.2 (2026-09-17)
+
+> パッケージ／ソースのバージョンを`0.35.2`として確定し、v0.35系の保守リリースとして`dev`で管理します。ソースコードのタグ`v0.35.2`と販売者向けリリース`pharmacy-v0.35.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+監査キュー`AUDIT-V4-20260916`（40件+独立レビュー指摘）の成果を`dev`へ集約しました。患者向けには、Google Meet個別相談について、登録確定・前日・1時間前の3種類を承認済みの中立テンプレート（日時変数＋参加用Meetリンク）でLINE通知します。通知は新しい`meet_consultation` capabilityで制御し、薬局アカウントでは平文の`channel_access_token`列を使わず、暗号化credentialストア経由の承認済みsenderに一本化しました。処方せん画像の保持は、キャンセル・放置下書き・調剤完了を含む全画像を3年保持へ統一し、物理削除は復旧ゲート付きのretention purgeのみに限定しました。
+
+この版の実装も既存のtenant/account/patient認可、capability、notification ledger、retry key冪等、outbound pause、CASを再利用しています。新しいdomain model、AI/OCR、marketplace routing、破壊的schema/API変更は追加していません。
+
+### v0.35.1との差分監査
+
+比較対象は、v0.35.1のタグ対象`91bf07c`（cutコミット`66832ab`）から、監査v4成果を集約した現在の`dev`（`c109b90`）までです。差分は5コミット、114ファイル、`6,171`行追加、`978`行削除でした。追加行の大半は監査v4のmigration・テスト・証跡文書で、機能コードの縮退ではありません。
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| PR #119 / `91bf07c` | release/v0.35.1 マージ（version contract、LIFF version expectation の0.35.1追従） | 実装済み |
+| `54f399e` / PR #120 | Myna sweepのJST quiet-hours整合、rate-limit合成テスト、evidence/PLANS記録更新 | 実装済み |
+| `848ac39` | 監査v4堅牢化バッチ: booking冪等性・calendar overlap・meet reminder delivery_id・Stripe effects_completed_at・friend link scope trigger のadditive migration `021`〜`025`、bootstrap同期、I19-R2（全処方箋画像3年保持）、F20（通知sweep回帰の実SQLite化）、独立レビュー修復（chats stale wedge、bootstrap fallback、stripe tenant scope） | 実装済み |
+| `c109b90` | F24（Meet相談の承認済みsender接続）、F08（plugin-template自動通知のmanual API誤用修復）、I20-R2（冪等lookupの1query化） | 実装済み |
+
+### 差分監査で確認した安全性
+
+- 新しい通知`meet_consultation_v1`は`buildApprovedPharmacyMessage`の承認済みカタログへ追加され、`meetStatus`（scheduled/day_before/hour_before）・`genericDate`・`genericTime`・`meetUrl`の4変数だけを許可します。`meetUrl`は`https://meet.google.com/...`形式のみ受け付け、他messageIdでの`meetStatus`/`meetUrl`使用は拒否されます。描画結果の照合`isApprovedRenderedPharmacyMessage`も3 variantを検証します。
+- senderのcapability対応付けは`meet_consultation_v1`→`meet_consultation`を明示し、`emergency_contraception`等の既存capabilityでは代替できません。capability不在の薬局アカウントでは送信せずfail-closedでfailed記録します。
+- Meetリマインドの薬局経路は`isPharmacyModeAccount`判定→`readLineCredential`（暗号化credential、tenant/account/kindスコープ）→`sendPharmacyAutomatedPush`の順で、friend following・tenant active・outbound pause・notification events冪等claimを既存経路で再確認します。`retryKey`は`meet-reminder:{delivery_id}`で、再スケジュール時にdelivery_idを再採番するため前世代との衝突を防ぎます。非薬局アカウントは従来のgeneric経路を維持します。
+- 登録確定通知は`POST /api/meet-consultations`でbest-effort送信（`confirmationSent`フィールド追加）。通知失敗でも登録自体はコミット済みで201を返し、重複登録は`ON CONFLICT`で冪等です。
+- I19-R2の保持統一では、`cancelPrescription`のCAS・scope・戻り値、`markPrescriptionFileDeleted`のexport、cancel responseの`cleanupPending`フィールド形状をすべて維持し、workflow cleanupをfail-closed no-op化しました。retention-purgeの候補選択は`created_at`ベースでstatus非依存のため、保持された画像は3年後に正規purge対象へ到達します。
+- F08のplugin-template修復は、`POST /api/friends/:id/messages`（manual必須・手動返信専用）をやめ、`tag_added`scenario発火型へ変更しました。scenario文面は静的のためper-friend日時はLIFF誘導へ置き換え、triggerタグをdedupマーカーに利用します。
+- I20-R2の冪等lookup 1query化は、legacy優先順位とJS側期限判定（legacy expired→scopedフォールスルー）を維持したままdual-readを`UNION ALL`へ統合しました。
+
+### 差分監査の指摘（修正済み・保留）
+
+- **修正済み**: 監査v4キューのBLOCKED 2件（F24: Meet承認文面/capability不在、F08: plugin-template契約）をユーザー承認済み契約で解消。queueは42件中 INTEGRATED 41 / NOT_ADOPTED 1（F03撤回）でBLOCKED 0件になりました。
+- **修正済み**: 独立レビュー指摘のIR20-F20-01（回帰テストが実SQL未検証）とI19-R2（cancel画像即時削除 vs 全PHI保持）を解消。
+- **保留（既知事項）**: 監査coverageは全領域PARTIALのまま。installer benign-skipのtrigger差異（upstream-only経路）は個別対応見送り。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.35.2`へ統一 |
+| worker | 257 files / 2,815 tests PASS |
+| typecheck | 全パッケージ PASS |
+| plugin-template | typecheck PASS |
+| `git diff --check` | clean |
+| migration / schema | additive migration `021`〜`025`追加、bootstrap同期済み（`check-migrations.ts` OK） |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema drop、旧契約の意味変更なし |
+
+本エントリはローカル/CI/syntheticの証跡に基づき、release・deploy・activation・production operationの完了を意味しません。
+
 ## Pharmacy v0.35.1 (2026-09-15)
 
 > パッケージ／ソースのバージョンを`0.35.1`として確定し、v0.35系の保守リリースとして`dev`で管理します。ソースコードのタグ`v0.35.1`と販売者向けリリース`pharmacy-v0.35.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。

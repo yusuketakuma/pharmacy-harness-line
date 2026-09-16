@@ -330,9 +330,9 @@ export async function deployPagesProject(opts: {
 }
 
 /**
- * Return just the most recent deployment for a Pages project. Used by
- * the update engine to grab a known-good rollback target before
- * attempting a new deploy.
+ * Return the first entry in the Pages deployment list. Release-state
+ * evidence uses this list contract; rollback uses the canonical production
+ * deployment instead.
  */
 export async function getLatestDeployment(opts: {
   creds: CfApiCreds;

@@ -117,4 +117,81 @@ describe('pharmacy notification policy', () => {
       genericDate: '2026-08-21',
     })).toThrow(/variable rejected/);
   });
+
+  it('renders the Meet consultation templates with date/time and join link', () => {
+    const url = 'https://meet.google.com/abc-defg-hij';
+    expect(buildApprovedPharmacyMessage('meet_consultation_v1', {
+      meetStatus: 'scheduled', genericDate: '2026-09-10', genericTime: '19:00', meetUrl: url,
+    })).toEqual({
+      type: 'text',
+      text: `オンライン相談の予約を受け付けました。\n日時: 2026-09-10 19:00\n参加用リンク: ${url}`,
+    });
+    expect(buildApprovedPharmacyMessage('meet_consultation_v1', {
+      meetStatus: 'day_before', genericDate: '2026-09-10', genericTime: '19:00', meetUrl: url,
+    })).toEqual({
+      type: 'text',
+      text: `明日 2026-09-10 19:00 からオンライン相談の予約があります。\n参加用リンク: ${url}`,
+    });
+    expect(buildApprovedPharmacyMessage('meet_consultation_v1', {
+      meetStatus: 'hour_before', genericDate: '2026-09-10', genericTime: '19:00', meetUrl: url,
+    })).toEqual({
+      type: 'text',
+      text: `まもなく 2026-09-10 19:00 からオンライン相談が始まります。\n参加用リンク: ${url}`,
+    });
+    for (const meetStatus of ['scheduled', 'day_before', 'hour_before'] as const) {
+      const message = buildApprovedPharmacyMessage('meet_consultation_v1', {
+        meetStatus, genericDate: '2026-09-10', genericTime: '19:00', meetUrl: url,
+      });
+      expect(JSON.stringify(message)).not.toMatch(/緊急|避妊|妊娠|薬|患者|病院|診療/u);
+      expect(isApprovedRenderedPharmacyMessage('meet_consultation_v1', message)).toBe(true);
+    }
+  });
+
+  it('rejects Meet consultation variables that escape the approved contract', () => {
+    const base = {
+      genericDate: '2026-09-10', genericTime: '19:00',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    };
+    expect(() => buildApprovedPharmacyMessage('meet_consultation_v1', base as never))
+      .toThrow(/variable rejected/);
+    for (const meetUrl of [
+      'http://meet.google.com/abc-defg-hij',
+      'https://meet.google.com.evil.example/abc',
+      'https://zoom.us/j/123',
+      'meet.google.com/abc-defg-hij',
+    ]) {
+      expect(() => buildApprovedPharmacyMessage('meet_consultation_v1', {
+        ...base, meetStatus: 'scheduled', meetUrl,
+      })).toThrow(/variable rejected/);
+    }
+    expect(() => buildApprovedPharmacyMessage('meet_consultation_v1', {
+      ...base, meetStatus: 'cancelled' as never,
+    })).toThrow(/variable rejected/);
+    expect(() => buildApprovedPharmacyMessage('meet_consultation_v1', {
+      ...base, meetStatus: 'scheduled', status: 'ready',
+    })).toThrow(/variable rejected/);
+    expect(() => buildApprovedPharmacyMessage('prescription_status_v1', {
+      status: 'ready', meetUrl: base.meetUrl,
+    })).toThrow(/variable rejected/);
+  });
+
+  it('recognizes Meet consultation payloads only in the approved shape', () => {
+    const url = 'https://meet.google.com/abc-defg-hij';
+    const message = buildApprovedPharmacyMessage('meet_consultation_v1', {
+      meetStatus: 'day_before', genericDate: '2026-09-10', genericTime: '19:00', meetUrl: url,
+    });
+    expect(isApprovedRenderedPharmacyMessage('meet_consultation_v1', message)).toBe(true);
+    expect(isApprovedRenderedPharmacyMessage('meet_consultation_v1', {
+      type: 'text',
+      text: '明日 2026-09-10 19:00 からオンライン相談の予約があります。\n参加用リンク: https://zoom.us/j/123',
+    })).toBe(false);
+    expect(isApprovedRenderedPharmacyMessage('meet_consultation_v1', {
+      type: 'text',
+      text: `明日 2026-99-99 99:99 からオンライン相談の予約があります。\n参加用リンク: ${url}`,
+    })).toBe(false);
+    expect(isApprovedRenderedPharmacyMessage('meet_consultation_v1', {
+      type: 'text', text: `${message.type === 'text' ? message.text : ''}\n追記`,
+    })).toBe(false);
+    expect(isApprovedRenderedPharmacyMessage('appointment_reminder_v1', message)).toBe(false);
+  });
 });

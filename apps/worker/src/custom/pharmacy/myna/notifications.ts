@@ -111,10 +111,16 @@ export async function processExpiredMynaHandoffNotifications(
   const lookback = new Date(now.getTime() - 72 * HOUR_MS).toISOString();
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit ?? 50)));
   const rows = await db.prepare(
-    `SELECT id, line_account_id, friend_id, patient_id, status
-       FROM pharmacy_myna_handoffs
-      WHERE status = 'EXPIRED' AND updated_at >= ?
-      ORDER BY updated_at ASC, id ASC
+    `SELECT handoff.id, handoff.line_account_id, handoff.friend_id, handoff.patient_id, handoff.status
+       FROM pharmacy_myna_handoffs AS handoff
+      WHERE handoff.status = 'EXPIRED' AND handoff.updated_at >= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_notification_events AS notice
+           WHERE notice.line_account_id = handoff.line_account_id
+             AND notice.idempotency_key = 'myna-status:' || handoff.id || ':EXPIRED'
+             AND notice.outcome = 'sent'
+        )
+      ORDER BY handoff.updated_at ASC, handoff.id ASC
       LIMIT ?`,
   ).bind(lookback, limit).all<NotifiableHandoff>();
   for (const handoff of rows.results ?? []) {

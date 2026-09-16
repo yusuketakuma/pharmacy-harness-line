@@ -128,8 +128,31 @@ export async function purgeEmergencyIntakesPastRetention(
         .all<PurgeCandidateRow>();
 
       const rows = due.results ?? [];
-      const toPurge = rows.filter((row) => !row.on_legal_hold);
-      result.skippedLegalHold += rows.length - toPurge.length;
+      // Keep the existing metric: held rows in the original limited window.
+      result.skippedLegalHold += rows.filter((row) => row.on_legal_hold).length;
+
+      // Exclude holds before limiting candidates so an old held window cannot
+      // prevent later, unheld intakes from reaching their retention deadline.
+      const eligible = await db.prepare(
+        `SELECT intake.id AS id
+           FROM pharmacy_emergency_intakes intake
+          WHERE intake.line_account_id = ?
+            AND intake.created_at GLOB ?
+            AND intake.created_at < ?
+            AND NOT EXISTS (
+              SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
+               WHERE purged.resource_type = 'emergency_intake'
+                 AND purged.resource_id = intake.id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM pharmacy_data_subject_requests dsr
+               WHERE ${ACTIVE_LEGAL_HOLD}
+            )
+          ORDER BY intake.created_at, intake.id
+          LIMIT ?`,
+      ).bind(account.line_account_id, UTC_TIMESTAMP_GLOB, cutoff, nowIso, limit)
+        .all<Pick<PurgeCandidateRow, 'id'>>();
+      const toPurge = eligible.results ?? [];
       if (toPurge.length === 0) continue;
 
       const statements = toPurge.flatMap((row) => [

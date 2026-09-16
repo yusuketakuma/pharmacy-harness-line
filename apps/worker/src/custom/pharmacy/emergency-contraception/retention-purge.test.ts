@@ -95,6 +95,15 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
       VALUES (?, 'norlevo-otc', 999999, 1, ?, ?, ?)`).run(`account-${suffix}`, `staff-${suffix}`, now, now);
   }
 
+  function insertFriend(suffix: 'a' | 'b', friendId: string): void {
+    const now = '2026-01-01T00:00:00.000Z';
+    sqlite.prepare(`INSERT INTO friends
+      (id, line_user_id, provider_line_user_id, line_account_id, is_following, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 1, ?, ?)`).run(
+      friendId, `legacy-${friendId}`, `U-${friendId}`, `account-${suffix}`, now, now,
+    );
+  }
+
   let intakeSeq = 0;
   /** Each intake gets its own slot (unique starts_at) so slot/capacity triggers never collide. */
   function insertIntake(
@@ -162,6 +171,7 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
   test('redacts PHI only for intakes strictly past the account retention_days boundary', async () => {
     seedAccount('a', 30);
     const kept = insertIntake('a', '2026-07-22T12:00:00.001Z'); // 29 days minus 1ms
+    const atBoundary = insertIntake('a', '2026-07-21T12:00:00.000Z'); // exactly 30 days
     const purged = insertIntake('a', '2026-07-21T11:59:59.999Z'); // just past 30 days
 
     const result = await purgeEmergencyIntakesPastRetention(db, { now: NOW });
@@ -169,6 +179,9 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     expect(result).toEqual({ purged: 1, failed: 0, skippedFormat: 0, skippedLegalHold: 0 });
     const rows = intakePhi();
     expect(rows.find((r) => r.id === kept)).toMatchObject({
+      encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
+    });
+    expect(rows.find((r) => r.id === atBoundary)).toMatchObject({
       encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
     });
     expect(rows.find((r) => r.id === purged)).toMatchObject({ encrypted_payload: '', risk_flags_json: '[]' });
@@ -222,6 +235,99 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     expect(purgeLog()).toEqual([]);
   });
 
+  test('makes bounded progress across ticks when the oldest window is entirely held', async () => {
+    seedAccount('a', 30);
+    insertFriend('a', 'friend-a-unheld');
+    insertLegalHold('a', 'friend-a', null);
+    const held = [
+      insertIntake('a', '2023-01-01T00:00:00.000Z'),
+      insertIntake('a', '2023-01-02T00:00:00.000Z'),
+    ];
+    const firstUnheld = insertIntake('a', '2023-01-03T00:00:00.000Z', 'friend-a-unheld');
+
+    const first = await purgeEmergencyIntakesPastRetention(db, { now: NOW, limit: 2 });
+
+    expect(first).toEqual({ purged: 1, failed: 0, skippedFormat: 0, skippedLegalHold: 2 });
+    expect(purgeLog().map((row) => row.resource_id)).toEqual([firstUnheld]);
+    expect(intakePhi().find((row) => row.id === firstUnheld)).toMatchObject({
+      encrypted_payload: '', risk_flags_json: '[]',
+    });
+
+    const laterUnheld = [
+      insertIntake('a', '2023-01-04T00:00:00.000Z', 'friend-a-unheld'),
+      insertIntake('a', '2023-01-05T00:00:00.000Z', 'friend-a-unheld'),
+      insertIntake('a', '2023-01-06T00:00:00.000Z', 'friend-a-unheld'),
+    ];
+    const second = await purgeEmergencyIntakesPastRetention(db, {
+      now: new Date(NOW.getTime() + 60_000), limit: 2,
+    });
+    expect(second).toEqual({ purged: 2, failed: 0, skippedFormat: 0, skippedLegalHold: 2 });
+    expect(purgeLog().map((row) => row.resource_id)).toEqual([firstUnheld, ...laterUnheld.slice(0, 2)]);
+    expect(intakePhi().find((row) => row.id === laterUnheld[2])).toMatchObject({
+      encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
+    });
+
+    const third = await purgeEmergencyIntakesPastRetention(db, {
+      now: new Date(NOW.getTime() + 120_000), limit: 2,
+    });
+    expect(third).toEqual({ purged: 1, failed: 0, skippedFormat: 0, skippedLegalHold: 2 });
+    const fourth = await purgeEmergencyIntakesPastRetention(db, {
+      now: new Date(NOW.getTime() + 180_000), limit: 2,
+    });
+    expect(fourth).toEqual({ purged: 0, failed: 0, skippedFormat: 0, skippedLegalHold: 2 });
+    expect(purgeLog().map((row) => row.resource_id)).toEqual([firstUnheld, ...laterUnheld]);
+    for (const id of held) {
+      expect(intakePhi().find((row) => row.id === id)).toMatchObject({
+        encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
+      });
+    }
+    for (const id of [firstUnheld, ...laterUnheld]) {
+      expect(intakePhi().find((row) => row.id === id)).toMatchObject({
+        encrypted_payload: '', risk_flags_json: '[]',
+      });
+    }
+  });
+
+  test('counts held rows only in the original limited window', async () => {
+    seedAccount('a', 30);
+    insertFriend('a', 'friend-a-unheld');
+    insertLegalHold('a', 'friend-a', null);
+    insertIntake('a', '2023-01-01T00:00:00.000Z');
+    insertIntake('a', '2023-01-02T00:00:00.000Z');
+    insertIntake('a', '2023-01-03T00:00:00.000Z');
+    const unheld = insertIntake('a', '2023-01-04T00:00:00.000Z', 'friend-a-unheld');
+
+    const result = await purgeEmergencyIntakesPastRetention(db, { now: NOW, limit: 2 });
+
+    expect(result).toEqual({ purged: 1, failed: 0, skippedFormat: 0, skippedLegalHold: 2 });
+    expect(purgeLog().map((row) => row.resource_id)).toEqual([unheld]);
+    expect(intakePhi().filter((row) => row.id !== unheld)).toEqual([
+      expect.objectContaining({ encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]' }),
+      expect.objectContaining({ encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]' }),
+      expect.objectContaining({ encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]' }),
+    ]);
+  });
+
+  test.each([
+    { releaseAt: '2026-08-20T12:00:00.000Z', purged: 1, skippedLegalHold: 0 },
+    { releaseAt: '2026-08-20T12:00:00.001Z', purged: 0, skippedLegalHold: 1 },
+  ])('treats legal hold release at $releaseAt consistently with the exact cutoff', async ({
+    releaseAt, purged, skippedLegalHold,
+  }) => {
+    seedAccount('a', 30);
+    insertLegalHold('a', 'friend-a', releaseAt);
+    const intake = insertIntake('a', '2023-01-01T00:00:00.000Z');
+
+    const result = await purgeEmergencyIntakesPastRetention(db, { now: NOW });
+
+    expect(result).toEqual({ purged, failed: 0, skippedFormat: 0, skippedLegalHold });
+    expect(intakePhi().find((row) => row.id === intake)).toMatchObject({
+      encrypted_payload: purged ? '' : 'v1.nonce.ciphertext',
+      risk_flags_json: purged ? '[]' : '["flag_a"]',
+    });
+    expect(purgeLog()).toHaveLength(purged);
+  });
+
   test('purges once the legal hold release date has passed', async () => {
     seedAccount('a', 30);
     insertLegalHold('a', 'friend-a', '2025-01-01T00:00:00.000Z'); // released before NOW
@@ -246,8 +352,10 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
 
     const result = await purgeEmergencyIntakesPastRetention(racingDb, { now: NOW });
 
-    expect(result.purged).toBe(0);
-    expect(intakePhi().find((r) => r.id === held)).toMatchObject({ encrypted_payload: 'v1.nonce.ciphertext' });
+    expect(result).toEqual({ purged: 0, failed: 0, skippedFormat: 0, skippedLegalHold: 0 });
+    expect(intakePhi().find((r) => r.id === held)).toMatchObject({
+      encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
+    });
     expect(purgeLog()).toEqual([]);
   });
 
@@ -287,11 +395,19 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     expect(purgeLog()).toEqual([expect.objectContaining({ line_account_id: 'account-a', retention_days: 10 })]);
   });
 
-  test('keeps one account failure from stopping the other account purge, without leaking PHI in the result', async () => {
+  test('rolls back the whole failed account batch and lets the other account purge without leaking PHI', async () => {
     seedAccount('a', 30);
     seedAccount('b', 30);
-    insertIntake('a', '2023-01-01T00:00:00.000Z');
+    const firstA = insertIntake('a', '2023-01-01T00:00:00.000Z');
+    const failedA = insertIntake('a', '2023-01-02T00:00:00.000Z');
     const purgedB = insertIntake('b', '2023-01-01T00:00:00.000Z');
+    const originalA = intakePhi().filter((row) => row.line_account_id === 'account-a');
+    let firstRedactionObserved = false;
+    const failSecondUpdate = () => {
+      firstRedactionObserved = intakePhi().find((row) => row.id === firstA)?.encrypted_payload === ''
+        && purgeLog().some((row) => row.resource_id === firstA);
+      throw new Error('database is locked');
+    };
 
     const faultyDb: D1Database = {
       ...db,
@@ -304,11 +420,11 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
           ...statement,
           bind: (...values: unknown[]) => {
             const bound = statement.bind(...values) as unknown as RunnableStatement;
-            if (values.includes('account-a')) {
+            if (values.includes(failedA) && values.includes('account-a')) {
               return {
                 ...bound,
-                run: () => { throw new Error('database is locked'); },
-                runSync: () => { throw new Error('database is locked'); },
+                run: failSecondUpdate,
+                runSync: failSecondUpdate,
               };
             }
             return bound;
@@ -320,7 +436,14 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     const result = await purgeEmergencyIntakesPastRetention(faultyDb, { now: NOW });
 
     expect(result).toEqual({ purged: 1, failed: 1, skippedFormat: 0, skippedLegalHold: 0 });
-    expect(intakePhi().find((r) => r.id === purgedB)).toMatchObject({ encrypted_payload: '' });
+    expect(firstRedactionObserved).toBe(true);
+    expect(intakePhi().filter((row) => row.line_account_id === 'account-a')).toEqual(originalA);
+    expect(intakePhi().find((r) => r.id === purgedB)).toMatchObject({
+      encrypted_payload: '', risk_flags_json: '[]',
+    });
+    expect(purgeLog()).toEqual([
+      expect.objectContaining({ line_account_id: 'account-b', resource_id: purgedB }),
+    ]);
     expect(JSON.stringify(result)).not.toMatch(/patient|friend|ciphertext|risk_flag/iu);
   });
 });

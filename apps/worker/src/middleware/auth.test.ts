@@ -1,11 +1,11 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { authMiddleware, authenticateApiToken } from './auth.js';
 import { CORS_ALLOW_HEADERS, resolveCorsOrigin } from './admin-auth-config.js';
 import { adminAuth } from '../routes/admin/admin-auth.js';
-import type { Env } from '../index.js';
+import worker, { type Env } from '../index.js';
 
 vi.mock('@line-crm/db', () => ({
   getStaffByApiKey: vi.fn(async (_db: unknown, token: string) => {
@@ -642,6 +642,209 @@ describe('pharmacy follow-up and emergency LIFF auth boundary', () => {
     const response = await app().request(path, { method }, crossSiteEnv());
     expect(response.status).toBe(401);
   });
+});
+
+
+describe('medication follow-up outlook through the Worker root', () => {
+  const path = '/api/liff/pharmacy/medication-followups/outlook';
+  const identity = {
+    lineUserId: 'U-outlook-patient',
+    loginChannelId: 'outlook-login',
+    tenantId: 'tenant-outlook',
+    lineAccountId: 'account-outlook',
+  };
+  const idToken = `synthetic.${btoa(JSON.stringify({ aud: identity.loginChannelId }))}.signature`;
+  const projection = {
+    serviceHoursText: '9:00-18:00',
+    responseEstimateMinutes: 30,
+    afterHoursMessageCode: 'contact_pharmacy_during_hours',
+    emergencyMessageCode: 'seek_urgent_care',
+  };
+
+  function patientDb(options: {
+    participant?: boolean;
+    operations?: 'enabled' | 'disabled' | 'unavailable';
+    sla?: string;
+  } = {}) {
+    const queries: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...values: unknown[]) {
+            queries.push({ sql, values });
+            return {
+              async all() {
+                if (sql.includes('account.login_channel_id = ?')) {
+                  return { results: values[0] === identity.loginChannelId ? [{
+                    id: identity.lineAccountId,
+                    tenant_id: identity.tenantId,
+                    login_channel_id: identity.loginChannelId,
+                  }] : [] };
+                }
+                throw new Error('Unexpected outlook query');
+              },
+              async first() {
+                if (sql.includes('f.provider_line_user_id = ?')) {
+                  return JSON.stringify(values) === JSON.stringify([
+                    identity.lineUserId, 'outlook-liff', identity.loginChannelId,
+                    identity.tenantId, identity.lineAccountId,
+                  ]) ? { line_account_id: identity.lineAccountId, friend_id: 'outlook-friend' } : null;
+                }
+                if (sql.includes('SELECT beta_enabled')) {
+                  return values[0] === identity.lineAccountId ? { beta_enabled: 1 } : null;
+                }
+                if (sql.includes('FROM pharmacy_beta_memberships')) {
+                  return options.participant !== false &&
+                    values[0] === identity.lineAccountId && values[1] === 'outlook-friend'
+                    ? { active: 1 } : null;
+                }
+                if (sql.includes('FROM pharmacy_medication_followup_operations')) {
+                  if (options.operations === 'unavailable') throw new Error('no such table');
+                  if (options.operations === 'disabled' || values[0] !== identity.lineAccountId) return null;
+                  return {
+                    service_hours_text: projection.serviceHoursText,
+                    response_sla_json: options.sla ?? JSON.stringify({
+                      typical_minutes: 30, assigned_staff_id: 'internal-staff',
+                    }),
+                    after_hours_message_code: projection.afterHoursMessageCode,
+                    emergency_message_code: projection.emergencyMessageCode,
+                  };
+                }
+                throw new Error('Unexpected outlook query');
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    return {
+      db,
+      queries,
+      outlookQueries: () => queries.filter(({ sql }) =>
+        sql.includes('FROM pharmacy_medication_followup_operations')),
+    };
+  }
+
+  async function requestOutlook(db: D1Database, options: {
+    method?: string;
+    liffId?: string;
+    requestPath?: string;
+  } = {}) {
+    return worker.fetch(new Request(
+      `${WORKERS}${options.requestPath ?? path}?liffId=${options.liffId ?? 'outlook-liff'}`,
+      {
+        method: options.method ?? 'GET',
+        headers: { Authorization: `Bearer ${idToken}` },
+      },
+    ), env({ DB: db }));
+  }
+
+  beforeEach(() => {
+    // Only LINE's external verification response is synthetic. The Worker
+    // middleware, patient resolver, beta gate and public projection are real.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      expect(input).toBe('https://api.line.me/oauth2/v2.1/verify');
+      expect(init?.method).toBe('POST');
+      const body = init?.body as URLSearchParams;
+      expect(body.get('id_token')).toBe(idToken);
+      expect(body.get('client_id')).toBe(identity.loginChannelId);
+      return new Response(JSON.stringify({
+        sub: identity.lineUserId, aud: identity.loginChannelId,
+      }));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('serves only the four public fields to a LINE patient without staff credentials', async () => {
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ outlook: projection });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fixture.outlookQueries()).toEqual([{
+      sql: expect.stringContaining('WHERE line_account_id = ? AND enabled = 1'),
+      values: [identity.lineAccountId],
+    }]);
+  });
+
+  test.each(['disabled', 'unavailable'] as const)(
+    'preserves outlook:null when operations are %s',
+    async (operations) => {
+      const fixture = patientDb({ operations });
+      const response = await requestOutlook(fixture.db);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ outlook: null });
+      expect(fixture.outlookQueries()).toHaveLength(1);
+    },
+  );
+
+  test.each(['{"minutes":10081}', '{"assigned_staff_id":"internal-staff"}', 'null', 'not-json'])(
+    'keeps unapproved or invalid SLA data out of the public response: %s',
+    async (sla) => {
+      const response = await requestOutlook(patientDb({ sla }).db);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        outlook: { ...projection, responseEstimateMinutes: null },
+      });
+    },
+  );
+
+  test('rejects a token denied by LINE before resolving a patient or reading outlook', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 401 }));
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db);
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fixture.queries.some(({ sql }) => sql.includes('f.provider_line_user_id'))).toBe(false);
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+
+  test('rejects a patient without active beta participation before reading outlook', async () => {
+    const fixture = patientDb({ participant: false });
+    const response = await requestOutlook(fixture.db);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy beta participation required' });
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+
+  test('does not let another LIFF account override the verified account', async () => {
+    const fixture = patientDb();
+    const response = await requestOutlook(fixture.db, { liffId: 'unrelated-account-liff' });
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: 'Pharmacy account not found' });
+    expect(fixture.queries.find(({ sql }) => sql.includes('f.provider_line_user_id'))?.values)
+      .toEqual([
+        identity.lineUserId, 'unrelated-account-liff', identity.loginChannelId,
+        identity.tenantId, identity.lineAccountId,
+      ]);
+    expect(fixture.outlookQueries()).toHaveLength(0);
+  });
+
+  test.each(['POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'])(
+    'does not bypass staff authentication for %s on the outlook path',
+    async (method) => {
+      const fixture = patientDb();
+      const response = await requestOutlook(fixture.db, { method });
+      expect(response.status).toBe(401);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fixture.outlookQueries()).toHaveLength(0);
+    },
+  );
+
+  test.each([`${path}/extra`, `${path}-extra`])(
+    'does not exempt an adjacent path: %s',
+    async (requestPath) => {
+      const fixture = patientDb();
+      const response = await requestOutlook(fixture.db, { requestPath });
+      expect(response.status).toBe(401);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fixture.outlookQueries()).toHaveLength(0);
+    },
+  );
 });
 
 describe('pharmacy public-profile LIFF auth boundary', () => {

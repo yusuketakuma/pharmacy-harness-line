@@ -274,7 +274,7 @@ export async function fireEvent(
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
     fireOutgoingWebhooks(db, eventType, payload, eventTenantId, eventAccountId, eventKey),
-    processScoring(db, eventType, payload),
+    processScoring(db, eventType, payload, eventKey),
   ];
   if (payload.friendId && payload.conversionEventName) {
     phase1.push(
@@ -364,10 +364,18 @@ async function processScoring(
   db: D1Database,
   eventType: string,
   payload: EventPayload,
+  eventKey?: string,
 ): Promise<void> {
   if (!payload.friendId) return;
   try {
-    await applyScoring(db, payload.friendId, eventType);
+    // eventKey がある再配送可能な経路では rule ごとに dedupe する。
+    // キー無し(単発呼出し)は従来どおり毎回適用する。
+    await applyScoring(
+      db,
+      payload.friendId,
+      eventType,
+      eventKey ? `fire:${eventKey}` : undefined,
+    );
   } catch (err) {
     console.error('processScoring error:', err);
   }

@@ -355,6 +355,7 @@ describe('development deployment workflow contract', () => {
 
   test('records a pre-migration D1 bookmark and post-smoke deployment evidence', () => {
     const inject = deploy.steps[stepIndex('Inject runtime release metadata')];
+    const final = deploy.steps[stepIndex('Hash final Worker deploy artifacts')];
     const record = deploy.steps[stepIndex('Record release evidence')];
 
     expect(sharedDeploy).toContain('scripts/deploy/release-state.ts --with-bookmark');
@@ -365,8 +366,12 @@ describe('development deployment workflow contract', () => {
     expect(inject.id).toBe('release_artifacts');
     expect(inject.run).toContain('metadata="$(pnpm tsx apps/worker/scripts/inject-version.ts');
     expect(inject.run).toContain('echo "metadata=$metadata" >> "$GITHUB_OUTPUT"');
+    expect(stepIndex('Hash final Worker deploy artifacts')).toBeGreaterThan(stepIndex('Rebuild Worker with runtime release metadata'));
+    expect(stepIndex('Hash final Worker deploy artifacts')).toBeLessThan(stepIndex('Deploy to Cloudflare Workers'));
+    expect(final.env).toMatchObject({ ARTIFACT_METADATA: '${{ steps.release_artifacts.outputs.metadata }}' });
+    expect(final.run).toContain('scripts/deploy/final-artifact-metadata.ts');
     expect(record.env).toMatchObject({
-      ARTIFACT_METADATA: '${{ steps.release_artifacts.outputs.metadata }}',
+      ARTIFACT_METADATA: '${{ steps.final_artifacts.outputs.metadata }}',
       DEPLOY_TARGET: '${{ env.DEPLOY_TARGET }}',
       PHARMACY_SELLER_RELEASE: '${{ vars.PHARMACY_SELLER_RELEASE }}',
       RELEASE_STAGE: '${{ vars.RELEASE_STAGE }}',

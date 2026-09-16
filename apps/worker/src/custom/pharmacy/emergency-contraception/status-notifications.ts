@@ -94,6 +94,12 @@ export async function processEmergencyIntakeStatusNotifications(
          ON control.line_account_id = intake.line_account_id
       WHERE event.event_type IN ('reviewed', 'cancelled', 'expired')
         AND event.occurred_at >= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_notification_events AS notice
+           WHERE notice.line_account_id = event.line_account_id
+             AND notice.idempotency_key = 'emergency-intake-status:' || event.id
+             AND notice.outcome = 'sent'
+        )
       ORDER BY event.occurred_at ASC, event.id ASC
       LIMIT ?`,
   ).bind(lookback, limit).all<StatusNotificationRow>();

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { pharmacyRoute } from '../navigation.js';
 import {
   emergencyContraceptionApi,
+  type CreateEmergencyIntakeInput,
   type EmergencyIntake,
   type EmergencyIntakeStatus,
   type EmergencyMenstruationSignals,
@@ -76,6 +77,40 @@ export const EMPTY_EMERGENCY_DRAFT: EmergencyIntakeDraft = {
   consentAccepted: false,
   manufacturerCheckAcknowledged: false,
 };
+
+type EmergencyCreateOperation = {
+  idempotencyKey: string;
+  fingerprint: string;
+  payload: CreateEmergencyIntakeInput;
+};
+
+export function retainEmergencyCreateOperation(
+  current: EmergencyCreateOperation | null,
+  payload: CreateEmergencyIntakeInput,
+): EmergencyCreateOperation {
+  const fingerprint = JSON.stringify(payload);
+  if (current?.fingerprint === fingerprint) return current;
+  return {
+    idempotencyKey: crypto.randomUUID(),
+    fingerprint,
+    payload: structuredClone(payload),
+  };
+}
+
+type EmergencyCancelOperation = {
+  intakeId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+};
+
+export function retainEmergencyCancelOperation(
+  current: EmergencyCancelOperation | null,
+  intakeId: string,
+  expectedVersion: number,
+): EmergencyCancelOperation {
+  if (current?.intakeId === intakeId && current.expectedVersion === expectedVersion) return current;
+  return { intakeId, expectedVersion, idempotencyKey: crypto.randomUUID() };
+}
 
 // C2 exclusivity: noneApply/unknown are mutually exclusive with each other and
 // with any of the 4 signals (mirrors validMenstruationSignals in
@@ -801,6 +836,8 @@ export default function EmergencyContraceptionPage() {
   const [confirming, setConfirming] = useState(false);
   const [submittedCode, setSubmittedCode] = useState('');
   const [submittedAnyPhaseBFlag, setSubmittedAnyPhaseBFlag] = useState(false);
+  const submitOperationRef = useRef<EmergencyCreateOperation | null>(null);
+  const cancelOperationsRef = useRef(new Map<string, EmergencyCancelOperation>());
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (error) {
@@ -861,32 +898,39 @@ export default function EmergencyContraceptionPage() {
     setBusy('submit');
     setError('');
     setSuccess('');
+    const payload: CreateEmergencyIntakeInput = {
+      slotId: draft.slotId,
+      intercourseAt: toIntercourseAtPayload(draft),
+      intercourseTimeUnknown: draft.intercourseTimeUnknown,
+      age: Number(draft.age),
+      recentPurchaseCount: Number(draft.recentPurchaseCount),
+      patientWillVisit: draft.patientWillVisit,
+      acceptsInPersonDose: draft.acceptsInPersonDose,
+      lngAllergy: draft.lngAllergy,
+      liverDisease: draft.liverDisease,
+      currentlyPregnant: draft.currentlyPregnant,
+      breastfeeding: draft.breastfeeding,
+      underMedicalTreatment: draft.underMedicalTreatment,
+      drugAllergyHistory: draft.drugAllergyHistory,
+      heartKidneyGiDisease: draft.heartKidneyGiDisease,
+      stJohnsWort: draft.stJohnsWort,
+      lastMenstruationDate: draft.lastMenstruationDateUnknown ? null : (draft.lastMenstruationDate || null),
+      menstruationSignals: draft.menstruationSignals,
+      idDocumentAvailable: draft.idDocumentAvailable === 'undecided' ? null : draft.idDocumentAvailable === 'yes',
+      safeContactMode: draft.safeContactMode as EmergencySafeContactMode,
+      consentVersion: service.consent.version,
+      consentContentHash: service.consent.content_hash,
+      manufacturerCheckAcknowledged: draft.manufacturerCheckAcknowledged,
+      idempotencyKey: '',
+    };
+    const operation = retainEmergencyCreateOperation(submitOperationRef.current, payload);
+    submitOperationRef.current = operation;
     try {
       const result = await emergencyContraceptionApi.create({
-        slotId: draft.slotId,
-        intercourseAt: toIntercourseAtPayload(draft),
-        intercourseTimeUnknown: draft.intercourseTimeUnknown,
-        age: Number(draft.age),
-        recentPurchaseCount: Number(draft.recentPurchaseCount),
-        patientWillVisit: draft.patientWillVisit,
-        acceptsInPersonDose: draft.acceptsInPersonDose,
-        lngAllergy: draft.lngAllergy,
-        liverDisease: draft.liverDisease,
-        currentlyPregnant: draft.currentlyPregnant,
-        breastfeeding: draft.breastfeeding,
-        underMedicalTreatment: draft.underMedicalTreatment,
-        drugAllergyHistory: draft.drugAllergyHistory,
-        heartKidneyGiDisease: draft.heartKidneyGiDisease,
-        stJohnsWort: draft.stJohnsWort,
-        lastMenstruationDate: draft.lastMenstruationDateUnknown ? null : (draft.lastMenstruationDate || null),
-        menstruationSignals: draft.menstruationSignals,
-        idDocumentAvailable: draft.idDocumentAvailable === 'undecided' ? null : draft.idDocumentAvailable === 'yes',
-        safeContactMode: draft.safeContactMode as EmergencySafeContactMode,
-        consentVersion: service.consent.version,
-        consentContentHash: service.consent.content_hash,
-        manufacturerCheckAcknowledged: draft.manufacturerCheckAcknowledged,
-        idempotencyKey: crypto.randomUUID(),
+        ...operation.payload,
+        idempotencyKey: operation.idempotencyKey,
       });
+      if (submitOperationRef.current === operation) submitOperationRef.current = null;
       setIntakes((current) => [result.intake, ...current.filter((item) => item.id !== result.intake.id)]);
       setSubmittedAnyPhaseBFlag(
         draft.underMedicalTreatment || draft.drugAllergyHistory ||
@@ -900,7 +944,11 @@ export default function EmergencyContraceptionPage() {
       setError(pharmacyErrorMessage(
         err, '仮受付を送信できませんでした。最新の空き状況を確認してください。',
       ));
-      if (err && typeof err === 'object' && 'status' in err && err.status === 409) await load();
+      const status = err instanceof Error ? (err as Error & { status?: unknown }).status : undefined;
+      if (typeof status === 'number') {
+        if (submitOperationRef.current === operation) submitOperationRef.current = null;
+        if (status === 409) await load();
+      }
     } finally {
       setBusy(null);
     }
@@ -911,15 +959,27 @@ export default function EmergencyContraceptionPage() {
     setBusy(`cancel:${intake.id}`);
     setError('');
     setSuccess('');
+    const operationId = `${intake.id}:${intake.version}`;
+    const operation = retainEmergencyCancelOperation(
+      cancelOperationsRef.current.get(operationId) ?? null, intake.id, intake.version,
+    );
+    cancelOperationsRef.current.set(operationId, operation);
     try {
       const result = await emergencyContraceptionApi.cancel(
-        intake.id, intake.version, crypto.randomUUID(),
+        operation.intakeId, operation.expectedVersion, operation.idempotencyKey,
       );
+      if (cancelOperationsRef.current.get(operationId) === operation) {
+        cancelOperationsRef.current.delete(operationId);
+      }
       setIntakes((current) => current.map((item) => item.id === result.intake.id ? result.intake : item));
       setSubmittedCode('');
       setSubmittedAnyPhaseBFlag(false);
       setSuccess('仮受付を取消しました。');
     } catch (err) {
+      const status = err instanceof Error ? (err as Error & { status?: unknown }).status : undefined;
+      if (typeof status === 'number' && cancelOperationsRef.current.get(operationId) === operation) {
+        cancelOperationsRef.current.delete(operationId);
+      }
       await load();
       setError(pharmacyErrorMessage(
         err, '仮受付を取消できませんでした。最新の状態を確認してください。',

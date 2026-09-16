@@ -181,6 +181,14 @@ jobs:
         env:
           VITE_CALENDAR_CONNECTION_ID: ${{ vars.VITE_CALENDAR_CONNECTION_ID }}
 
+      - name: Hash final Worker deploy artifacts
+        id: final_artifacts
+        env:
+          ARTIFACT_METADATA: ${{ steps.release_artifacts.outputs.metadata }}
+        run: |
+          metadata="$(pnpm tsx scripts/deploy/final-artifact-metadata.ts)"
+          echo "metadata=$metadata" >> "$GITHUB_OUTPUT"
+
       - name: Check additive migration safety
         run: pnpm tsx scripts/check-migrations.ts
 
@@ -527,7 +535,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
           SOURCE_SHA: ${{ github.sha }}
-          ARTIFACT_METADATA: ${{ steps.release_artifacts.outputs.metadata }}
+          ARTIFACT_METADATA: ${{ steps.final_artifacts.outputs.metadata }}
           DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}
           PHARMACY_SELLER_RELEASE: ${{ vars.PHARMACY_SELLER_RELEASE }}
           RELEASE_STAGE: ${{ vars.RELEASE_STAGE }}

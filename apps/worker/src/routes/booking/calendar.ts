@@ -99,14 +99,23 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
       return c.json({ success: false, error: 'connectionId and date are required' }, 400);
     }
 
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00Z`) : null;
+    if (!day || !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== date
+      || !Number.isSafeInteger(slotMinutes) || slotMinutes < 1 || slotMinutes > 1440
+      || !Number.isInteger(startHour) || startHour < 0 || startHour > 23
+      || !Number.isInteger(endHour) || endHour <= startHour || endHour > 24
+      || Math.ceil((endHour - startHour) * 60 / slotMinutes) > 1440) {
+      return c.json({ success: false, error: 'Invalid slot range' }, 400);
+    }
+
     const tenantId = c.get('tenantId') ?? null;
     const conn = await getCalendarConnectionById(c.env.DB, connectionId, tenantId);
     if (!conn) {
       return c.json({ success: false, error: 'Calendar connection not found' }, 404);
     }
 
-    const dayStart = `${date}T${String(startHour).padStart(2, '0')}:00:00`;
-    const dayEnd = `${date}T${String(endHour).padStart(2, '0')}:00:00`;
+    const dayStart = `${date}T${String(startHour).padStart(2, '0')}:00:00+09:00`;
+    const dayEnd = `${date}T${String(endHour).padStart(2, '0')}:00:00+09:00`;
 
     // 既存D1予約を取得
     const bookings = await getBookingsInRange(
@@ -139,9 +148,9 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
     const slots: { startAt: string; endAt: string; available: boolean }[] = [];
     const baseDate = new Date(`${date}T${String(startHour).padStart(2, '0')}:00:00+09:00`);
 
-    for (let h = startHour; h < endHour; h += slotMinutes / 60) {
+    for (let minuteOffset = 0; minuteOffset < (endHour - startHour) * 60; minuteOffset += slotMinutes) {
       const slotStart = new Date(baseDate);
-      slotStart.setMinutes(slotStart.getMinutes() + (h - startHour) * 60);
+      slotStart.setMinutes(slotStart.getMinutes() + minuteOffset);
       const slotEnd = new Date(slotStart);
       slotEnd.setMinutes(slotEnd.getMinutes() + slotMinutes);
 

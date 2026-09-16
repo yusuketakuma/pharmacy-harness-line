@@ -213,22 +213,23 @@ describe('patient history, cancellation, and resubmission routes', () => {
     expect(mocks.listHistory).not.toHaveBeenCalled();
   });
 
-  it('commits cancellation before deleting and marking each R2 object', async () => {
+  it('commits cancellation without deleting retained R2 objects', async () => {
     const response = await request(
       '/api/liff/pharmacy/prescriptions/submission-1/cancel',
       'POST',
     );
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: 'cancelled', cleanupPending: false,
+    });
     expect(mocks.cancel).toHaveBeenCalled();
-    expect(deleteObject).toHaveBeenCalledWith(
-      'custom/pharmacy/prescriptions/submission-1/1/file-1',
-    );
-    expect(mocks.markFileDeleted).toHaveBeenCalledWith(
-      env.DB, patient, 'submission-1', 'file-1',
-    );
+    // I19-R2: cancelled images stay in the 3-year retention scope; only the
+    // recovery-gated purge may delete them.
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(mocks.markFileDeleted).not.toHaveBeenCalled();
   });
 
-  it('keeps cancellation valid and reports cleanup pending after R2 failure', async () => {
+  it('keeps cancellation valid even when R2 is unavailable', async () => {
     deleteObject.mockRejectedValueOnce(new Error('r2 unavailable'));
     const response = await request(
       '/api/liff/pharmacy/prescriptions/submission-1/cancel',
@@ -236,8 +237,9 @@ describe('patient history, cancellation, and resubmission routes', () => {
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      status: 'cancelled', cleanupPending: true,
+      status: 'cancelled', cleanupPending: false,
     });
+    expect(deleteObject).not.toHaveBeenCalled();
     expect(mocks.markFileDeleted).not.toHaveBeenCalled();
   });
 
@@ -749,5 +751,141 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
     expect(response.status).toBe(409);
     expect(head).toHaveBeenCalledWith('custom/pharmacy/prescriptions/submission-1/1/file-1');
     expect(mocks.markFileReady).not.toHaveBeenCalled();
+  });
+});
+
+describe('prescription JSON input contracts', () => {
+  const patient = { lineAccountId: 'account-1', friendId: 'friend-1' };
+  const expectedUpdatedAt = '2026-08-17T00:00:00.000Z';
+  const storage = { get: vi.fn(), head: vi.fn(), put: vi.fn(), delete: vi.fn() };
+  const testEnv = { DB: env.DB, IMAGES: storage as unknown as R2Bucket };
+  const endpoints = [
+    {
+      route: 'draft',
+      path: '/api/liff/pharmacy/prescriptions?liffId=liff-1',
+      error: 'Invalid prescription draft',
+    },
+    {
+      route: 'submit',
+      path: '/api/liff/pharmacy/prescriptions/submission-1/submit?liffId=liff-1',
+      error: 'Invalid expectedUpdatedAt',
+    },
+    {
+      route: 'action',
+      path: '/api/custom/pharmacy/prescriptions/submission-1/actions/accept?line_account_id=account-1',
+      error: 'Invalid action input',
+    },
+  ];
+  const invalidBodies = [
+    { label: 'malformed JSON', raw: '{', malformed: true },
+    { label: 'JSON null', raw: 'null' },
+    { label: 'array', raw: '[]' },
+    { label: 'string', raw: '"scalar"' },
+    { label: 'number', raw: '42' },
+    { label: 'boolean', raw: 'true' },
+    { label: 'empty object', raw: '{}' },
+  ];
+
+  function request(endpoint: typeof endpoints[number], raw: string) {
+    const router = endpoint.route === 'action' ? adminApp() : prescriptionRoutes;
+    return router.request(endpoint.path, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
+      body: raw,
+    }, testEnv);
+  }
+
+  beforeEach(() => {
+    mocks.verify.mockResolvedValue({ lineUserId: 'U1', loginChannelId: 'login-1' });
+    mocks.resolvePatient.mockResolvedValue(patient);
+    mocks.reserveDraft.mockResolvedValue({ id: 'submission-1', status: 'draft' });
+    mocks.submit.mockResolvedValue({ statusEventId: 'event-1' });
+    mocks.adminAction.mockResolvedValue({ status: 'accepted', statusEventId: 'event-1' });
+  });
+
+  it.each(endpoints.flatMap((endpoint) => invalidBodies.map((body) => ({
+    ...endpoint, ...body,
+  }))))('rejects $route / $label without business side effects', async (input) => {
+    const response = await request(input, input.raw);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: input.malformed ? 'Invalid JSON' : input.error,
+    });
+    for (const operation of [
+      mocks.reserveDraft, mocks.submit, mocks.adminAction,
+      mocks.reserveFile, mocks.markFileReady, mocks.markFileDeleted,
+      mocks.notify, mocks.linkContinuity, mocks.completeContinuity,
+      mocks.activation, mocks.enqueueActivity, mocks.audit,
+      ...Object.values(storage),
+    ]) {
+      expect(operation).not.toHaveBeenCalled();
+    }
+  });
+
+  it('keeps omitted optional draft fields out of the reservation input', async () => {
+    const body = {
+      idempotencyKey: 'request-123',
+      desiredPickupAt: null,
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    };
+    const response = await request(endpoints[0], JSON.stringify(body));
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      submission: { id: 'submission-1', status: 'draft' },
+    });
+    expect(mocks.reserveDraft).toHaveBeenCalledTimes(1);
+    expect(mocks.reserveDraft).toHaveBeenCalledWith(env.DB, patient, body);
+  });
+
+  it('keeps omitted fulfillment preference compatible with submit CAS', async () => {
+    const body = {
+      expectedUpdatedAt,
+      desiredPickupAt: null,
+      originalPrescriptionConsent: true,
+      readinessNoticeConsent: true,
+    };
+    const response = await request(endpoints[1], JSON.stringify(body));
+    expect(response.status).toBe(200);
+    expect(mocks.submit).toHaveBeenCalledTimes(1);
+    expect(mocks.submit).toHaveBeenCalledWith(
+      env.DB, patient, 'submission-1', { ...body, desiredFulfillmentMethod: null },
+    );
+    await expect(response.json()).resolves.toEqual({
+      status: 'received', statusEventId: 'event-1', notification: { status: 'sent' },
+    });
+  });
+
+  it('keeps omitted reason and operation id compatible with admin CAS', async () => {
+    const response = await request(endpoints[2], JSON.stringify({ expectedUpdatedAt }));
+    expect(response.status).toBe(200);
+    expect(mocks.adminAction).toHaveBeenCalledTimes(1);
+    expect(mocks.adminAction).toHaveBeenCalledWith(
+      env.DB, 'account-1', 'submission-1', 'admin_accept',
+      expectedUpdatedAt, 'staff-1', null, null,
+    );
+    await expect(response.json()).resolves.toEqual({
+      status: 'accepted', statusEventId: 'event-1', notification: { status: 'sent' },
+    });
+  });
+
+  it('preserves a stale admin CAS conflict without downstream side effects', async () => {
+    mocks.adminAction.mockRejectedValueOnce(new Error('prescription action conflict'));
+    const response = await request(endpoints[2], JSON.stringify({ expectedUpdatedAt }));
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Prescription changed or action is invalid',
+    });
+    expect(mocks.adminAction).toHaveBeenCalledTimes(1);
+    expect(mocks.adminAction).toHaveBeenCalledWith(
+      env.DB, 'account-1', 'submission-1', 'admin_accept',
+      expectedUpdatedAt, 'staff-1', null, null,
+    );
+    for (const operation of [
+      mocks.notify, mocks.activation, mocks.enqueueActivity, mocks.completeContinuity,
+      ...Object.values(storage),
+    ]) {
+      expect(operation).not.toHaveBeenCalled();
+    }
   });
 });

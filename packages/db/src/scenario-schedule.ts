@@ -20,6 +20,8 @@ export interface ScheduleContext {
   now: Date;
 }
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
 function addMinutes(date: Date, minutes: number): Date {
   const next = new Date(date);
   next.setMinutes(next.getMinutes() + minutes);
@@ -57,8 +59,12 @@ export function computeNextDeliveryAt(
     case 'absolute_time': {
       const target = addDays(context.enrolledAt, step.offset_days ?? 0);
       const [h, m] = (step.delivery_time ?? '00:00').split(':').map(Number);
-      target.setHours(h, m, 0, 0);
-      return target < context.now ? context.now : target;
+      // delivery_time is a JST wall-clock time. Shift into the JST frame and
+      // write via UTC setters so the result is identical in any host TZ.
+      const jst = new Date(target.getTime() + JST_OFFSET_MS);
+      jst.setUTCHours(h, m, 0, 0);
+      const result = new Date(jst.getTime() - JST_OFFSET_MS);
+      return result < context.now ? context.now : result;
     }
   }
 }

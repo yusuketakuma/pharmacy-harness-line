@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import PatientIntakePage, { canSubmitIntake, isCurrentPatientReady } from './PatientIntakePage.js';
+import PatientIntakePage, {
+  canSubmitIntake,
+  isCurrentPatientReady,
+  retainPatientIntakeOperation,
+} from './PatientIntakePage.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -173,8 +177,11 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('privacyPolicyVersion: privacyPolicy.policy_version');
     expect(source).toContain('privacyPolicyHash: privacyPolicy.content_hash');
     expect(source).toContain('status === 409');
-    expect(source).toContain('await loadPrivacyPolicy()');
+    expect(source).toContain('await loadPrivacyPolicy();');
     expect(source).toContain('setPrivacyConsent(false);\n      setPrivacyPolicy(result.policy);');
+    expect(source).toContain('intakeOperationEpochRef');
+    expect(source).toContain('retainPatientIntakeOperation');
+    expect(source).toContain('structuredClone(nextAnswers)');
   });
 
   it('offers a confirmed one-tap update from the last saved answers', () => {
@@ -191,6 +198,28 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('setAccessState(null);');
     expect(source).toContain('if (!selectedId || !intakeReady || busy) return;');
     expect(source).toContain('if (!selectedPatient || !accessState || !accessReady || busy) return;');
+  });
+});
+
+describe('patient intake idempotent operations', () => {
+  const input = {
+    answers,
+    representativeConsent: true,
+    privacyConsent: true,
+    privacyPolicyVersion: 1,
+    privacyPolicyHash: 'hash',
+  };
+
+  it('freezes key and payload, then starts a new operation for changed scope, epoch, or data', () => {
+    const first = retainPatientIntakeOperation(null, 'patient-a', 1, input);
+    const retry = retainPatientIntakeOperation(first, 'patient-a', 1, structuredClone(input));
+    expect(retry).toBe(first);
+    expect(retry.body.answers).not.toBe(input.answers);
+    expect(retry.body).toMatchObject({ ...input, idempotencyKey: expect.any(String) });
+    expect(retainPatientIntakeOperation(first, 'patient-b', 1, input)).not.toBe(first);
+    expect(retainPatientIntakeOperation(first, 'patient-a', 2, input)).not.toBe(first);
+    expect(retainPatientIntakeOperation(first, 'patient-a', 1, { ...input, privacyPolicyVersion: 2 }))
+      .not.toBe(first);
   });
 });
 

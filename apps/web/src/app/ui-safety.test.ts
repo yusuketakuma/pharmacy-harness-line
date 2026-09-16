@@ -164,6 +164,10 @@ describe('cross-screen safety and accessibility', () => {
   it('keeps platform patient errors generic and dates explicitly JST', () => {
     const list = source('./platform-admin/tenants/patients/page.tsx')
     expect(list).toContain('患者一覧を取得できませんでした。再度お試しください。')
+    expect(list).toContain('const currentRequest = ++requestId.current')
+    expect(list).toContain('if (requestId.current !== currentRequest) return')
+    expect(list).toContain('SUPPORT_GRANTS_CHANGED')
+    expect(list).toContain('SUPPORT_ACCESS_EXPIRED')
     const detail = source('./platform-admin/tenants/patients/detail/page.tsx')
     expect(detail).toContain("timeZone: 'Asia/Tokyo'")
     expect(detail).toContain('患者情報を取得できませんでした。再度お試しください。')
