@@ -572,6 +572,19 @@ export async function transitionMedicationFollowUp(
                  AND contact.outcome_code <> 'no_answer'
             )
           )` : '';
+  const contactMatchGuard = input.contact ? `
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_medication_followup_contact_records AS exact_contact
+             WHERE exact_contact.line_account_id = followup.line_account_id
+               AND exact_contact.followup_id = followup.id
+               AND exact_contact.idempotency_key = ?
+               AND exact_contact.channel = ?
+               AND exact_contact.outcome_code = ?
+               AND exact_contact.next_contact_at IS ?
+          )` : '';
+  const contactMatchValues = input.contact
+    ? [input.contact.idempotencyKey, input.contact.channel, input.contact.outcomeCode, nextContactAt]
+    : [];
 
   const eventId = crypto.randomUUID();
   const eventStatement = db.prepare(
@@ -601,6 +614,7 @@ export async function transitionMedicationFollowUp(
             OR ${staffAuthorityPredicate}
           )
           ${responseRecordGuard}
+          ${contactMatchGuard}
           AND (
             ? = 0
             OR ${humanAssigneePredicate}
@@ -613,6 +627,7 @@ export async function transitionMedicationFollowUp(
     input.actorType, input.actorId, input.actorId, timestamp,
     input.actorType, input.actorId,
     ...(schema.contactRecords ? [input.toStatus, input.toStatus] : []),
+    ...contactMatchValues,
     requiresHumanAssignee ? 1 : 0, input.assigneeStaffId ?? input.actorId,
   );
   const contactStatement = schema.contactRecords && input.contact && !contact
@@ -696,6 +711,14 @@ export async function transitionMedicationFollowUp(
   const updateIndex = eventIndex + 1;
   if ((results[eventIndex]?.meta?.changes ?? 0) !== 1 ||
       (results[updateIndex]?.meta?.changes ?? 0) !== 1) {
+    if (input.contact) {
+      const racedContact = await getMedicationFollowUpContactByKey(
+        db, input.lineAccountId, input.contact.idempotencyKey,
+      );
+      if (racedContact && !sameContactInput(racedContact, input.contact, nextContactAt, input.followUpId)) {
+        throw new Error('medication follow-up contact conflict');
+      }
+    }
     throw new Error('medication follow-up transition conflict');
   }
   const saved = await getFollowUp(db, input.lineAccountId, input.followUpId);

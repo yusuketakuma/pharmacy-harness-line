@@ -164,6 +164,17 @@ CREATE TABLE booking_idempotency_keys (
   expires_at       TEXT NOT NULL                  -- UTC ISO8601
 );
 
+CREATE TABLE booking_idempotency_scoped (
+  line_account_id TEXT NOT NULL,
+  friend_id       TEXT NOT NULL,
+  key             TEXT NOT NULL,
+  response_status INTEGER NOT NULL,
+  response_body   TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  expires_at      TEXT NOT NULL,
+  PRIMARY KEY (line_account_id, friend_id, key)
+);
+
 CREATE TABLE booking_reminders (
   id            TEXT PRIMARY KEY,
   booking_id    TEXT NOT NULL,
@@ -478,7 +489,7 @@ CREATE TABLE friend_scores (
   score_change    INTEGER NOT NULL,
   reason          TEXT,
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, idempotency_key TEXT);
 
 CREATE TABLE friend_tags (
   friend_id   TEXT NOT NULL REFERENCES friends (id) ON DELETE CASCADE,
@@ -604,7 +615,7 @@ CREATE TABLE meet_consultation_reminders (
   sent_at          TEXT,
   last_error       TEXT,
   created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), delivery_id TEXT,
   UNIQUE (consultation_id, kind)
 );
 
@@ -2708,7 +2719,7 @@ CREATE TABLE stripe_events (
   currency         TEXT,
   metadata         TEXT,
   processed_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, effects_completed_at TEXT);
 
 CREATE TABLE tags (
   id                          TEXT PRIMARY KEY,
@@ -3031,6 +3042,9 @@ CREATE INDEX idx_automations_active ON automations (is_active);
 
 CREATE INDEX idx_automations_event ON automations (event_type);
 
+CREATE INDEX idx_booking_idempotency_scoped_expires
+  ON booking_idempotency_scoped(expires_at);
+
 CREATE INDEX idx_bookings_account_status_starts ON bookings (line_account_id, status, starts_at);
 
 CREATE INDEX idx_bookings_friend_starts ON bookings (friend_id, starts_at DESC);
@@ -3042,6 +3056,9 @@ CREATE INDEX idx_broadcast_insights_broadcast_id ON broadcast_insights(broadcast
 CREATE INDEX idx_broadcast_insights_status ON broadcast_insights(status);
 
 CREATE INDEX idx_broadcasts_status ON broadcasts (status);
+
+CREATE INDEX idx_calendar_bookings_connection_start_instant
+  ON calendar_bookings (connection_id, julianday(start_at));
 
 CREATE INDEX idx_calendar_bookings_friend ON calendar_bookings (friend_id);
 
@@ -3116,6 +3133,10 @@ CREATE UNIQUE INDEX idx_friend_scenarios_unique ON friend_scenarios (friend_id, 
 CREATE INDEX idx_friend_scores_created ON friend_scores (created_at);
 
 CREATE INDEX idx_friend_scores_friend ON friend_scores (friend_id);
+
+CREATE UNIQUE INDEX idx_friend_scores_idempotency_key
+  ON friend_scores (idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 
 CREATE INDEX idx_friend_tags_tag_id ON friend_tags (tag_id);
 
@@ -3819,6 +3840,78 @@ WHEN (NEW.on_submit_tag_id IS NOT NULL AND NOT EXISTS (
          WHERE id = NEW.on_submit_scenario_id AND tenant_id IS NEW.tenant_id
       ))
 BEGIN SELECT RAISE(ABORT, 'FORM_RESOURCE_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER friend_scenarios_scope_insert
+BEFORE INSERT ON friend_scenarios
+WHEN EXISTS (
+  SELECT 1
+    FROM friends AS friend
+    JOIN scenarios AS scenario ON scenario.id = NEW.scenario_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE friend.id = NEW.friend_id
+     AND friend.line_account_id IS NOT NULL
+     AND (
+       (scenario.line_account_id IS NOT NULL
+          AND scenario.line_account_id IS NOT friend.line_account_id)
+       OR
+       (scenario.line_account_id IS NULL
+          AND scenario.tenant_id IS NOT NULL
+          AND mapping.tenant_id IS NOT scenario.tenant_id)
+     )
+)
+BEGIN SELECT RAISE(ABORT, 'FRIEND_SCENARIO_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER friend_scenarios_scope_update
+BEFORE UPDATE OF friend_id, scenario_id ON friend_scenarios
+WHEN EXISTS (
+  SELECT 1
+    FROM friends AS friend
+    JOIN scenarios AS scenario ON scenario.id = NEW.scenario_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE friend.id = NEW.friend_id
+     AND friend.line_account_id IS NOT NULL
+     AND (
+       (scenario.line_account_id IS NOT NULL
+          AND scenario.line_account_id IS NOT friend.line_account_id)
+       OR
+       (scenario.line_account_id IS NULL
+          AND scenario.tenant_id IS NOT NULL
+          AND mapping.tenant_id IS NOT scenario.tenant_id)
+     )
+)
+BEGIN SELECT RAISE(ABORT, 'FRIEND_SCENARIO_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER friend_tags_tenant_scope_insert
+BEFORE INSERT ON friend_tags
+WHEN EXISTS (
+  SELECT 1
+    FROM friends AS friend
+    JOIN tags AS tag ON tag.id = NEW.tag_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE friend.id = NEW.friend_id
+     AND tag.tenant_id IS NOT NULL
+     AND friend.line_account_id IS NOT NULL
+     AND mapping.tenant_id IS NOT tag.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'FRIEND_TAG_TENANT_SCOPE_MISMATCH'); END;
+
+CREATE TRIGGER friend_tags_tenant_scope_update
+BEFORE UPDATE OF friend_id, tag_id ON friend_tags
+WHEN EXISTS (
+  SELECT 1
+    FROM friends AS friend
+    JOIN tags AS tag ON tag.id = NEW.tag_id
+    LEFT JOIN tenant_line_accounts AS mapping
+      ON mapping.line_account_id = friend.line_account_id
+   WHERE friend.id = NEW.friend_id
+     AND tag.tenant_id IS NOT NULL
+     AND friend.line_account_id IS NOT NULL
+     AND mapping.tenant_id IS NOT tag.tenant_id
+)
+BEGIN SELECT RAISE(ABORT, 'FRIEND_TAG_TENANT_SCOPE_MISMATCH'); END;
 
 CREATE TRIGGER friends_account_immutable BEFORE UPDATE OF line_account_id ON friends WHEN OLD.line_account_id IS NOT NULL AND NEW.line_account_id IS NOT OLD.line_account_id BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;
 

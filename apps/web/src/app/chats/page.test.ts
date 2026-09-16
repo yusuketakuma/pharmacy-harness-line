@@ -32,6 +32,19 @@ describe('chat safety and accessibility', () => {
     expect(api).toContain("'Idempotency-Key': options.idempotencyKey")
   })
 
+  it('discards chat-detail responses for a chat that is no longer selected', () => {
+    const page = readFileSync(new URL('./page.tsx', import.meta.url), 'utf8')
+
+    expect(page).toContain('chatDetailEpochRef')
+    expect(page).toContain('selectedChatIdRef')
+    // Stale callers (e.g. a notes save resolving after a chat switch) must not
+    // supersede the selected chat's in-flight load, or the pane wedges.
+    expect(page).toContain('if (selectedChatIdRef.current !== chatId) return')
+    expect(page).toContain('chatDetailEpochRef.current !== epoch || selectedChatIdRef.current !== chatId')
+    expect(page).toContain('detail.id !== chatId')
+    expect(page).toContain('chatDetail && chatDetail.id !== selectedChatId')
+  })
+
   it('keeps disabled pharmacy chat review-only without exposing backend errors', () => {
     const page = readFileSync(new URL('./page.tsx', import.meta.url), 'utf8')
 

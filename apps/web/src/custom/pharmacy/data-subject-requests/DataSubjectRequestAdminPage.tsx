@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAccount } from '../../../contexts/account-context'
 import { pharmacyIntakeAdminApi, type PharmacyPatient } from '../intake/api'
+import { createRequestGate } from '../request-gate'
 import {
   dataSubjectRequestAdminApi,
   type DataSubjectRequest,
@@ -91,15 +92,6 @@ export const ARCHIVE_IS_NOT_ERASURE_NOTICE =
 
 export const NO_OUTBOUND_NOTICE =
   '本人への受付連絡・結果連絡はこの画面からは送信されません。記録のみを行い、連絡は担当者が個別に実施してください。'
-
-function createRequestGate() {
-  let generation = 0
-  return {
-    start() { generation += 1; return generation },
-    abort() { generation += 1 },
-    isCurrent(token: number) { return generation === token },
-  }
-}
 
 const STATUS_BADGE: Record<DataSubjectRequestStatus, string> = {
   received: 'bg-amber-100 text-amber-900',

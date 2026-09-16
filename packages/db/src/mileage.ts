@@ -269,6 +269,98 @@ export async function postMileageEntry(
   return entry;
 }
 
+export interface PostMileageEntryIfUnderDailyCapInput extends PostMileageEntryInput {
+  dailyCapActions: number;
+}
+
+/**
+ * Post a grant only while the rule's per-day action cap still has room.
+ * The cap predicate is evaluated inside the INSERT statement so two queue
+ * processors cannot both observe a count below the cap. Returns null when the
+ * cap is already reached; a retry finds and returns the existing entry.
+ */
+export async function postMileageEntryIfUnderDailyCap(
+  db: D1Database,
+  input: PostMileageEntryIfUnderDailyCapInput,
+): Promise<MileageLedgerEntry | null> {
+  if (!Number.isInteger(input.amount) || input.amount === 0) {
+    throw new Error('Mileage amount must be a non-zero integer');
+  }
+  if (!input.beneficiaryUserId && !input.beneficiaryFriendId) {
+    throw new Error('Mileage beneficiary is required');
+  }
+  if (!input.mileageRuleId) throw new Error('Daily-capped mileage requires a rule id');
+  if (!Number.isInteger(input.dailyCapActions) || input.dailyCapActions <= 0) {
+    throw new Error('dailyCapActions must be a positive integer');
+  }
+
+  const id = crypto.randomUUID();
+  const now = jstNow();
+  const programId = input.programId ?? DEFAULT_MILEAGE_PROGRAM_ID;
+  const occurredAt = input.occurredAt ?? now;
+  const beneficiaryUserId = input.beneficiaryUserId ?? null;
+  const beneficiaryFriendId = input.beneficiaryFriendId ?? null;
+  await ensureBuiltInProgram(db, programId);
+  const inserted = await db
+    .prepare(
+      `INSERT OR IGNORE INTO mileage_ledger
+         (id, program_id, beneficiary_user_id, beneficiary_friend_id,
+          engagement_event_id, mileage_rule_id, entry_type, status, amount, reason, source,
+          source_event_id, idempotency_key, reverses_entry_id, metadata,
+          occurred_at, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE (
+         SELECT COUNT(*) FROM mileage_ledger capped
+          WHERE capped.program_id = ?
+            AND capped.mileage_rule_id = ?
+            AND capped.entry_type = 'grant'
+            AND capped.status != 'void'
+            AND substr(capped.occurred_at, 1, 10) = substr(?, 1, 10)
+            AND ((? IS NOT NULL AND capped.beneficiary_user_id = ?)
+                 OR (? IS NULL AND capped.beneficiary_friend_id = ?))
+       ) < ?`,
+    )
+    .bind(
+      id,
+      programId,
+      beneficiaryUserId,
+      beneficiaryFriendId,
+      input.engagementEventId ?? null,
+      input.mileageRuleId,
+      input.entryType,
+      input.status ?? 'available',
+      input.amount,
+      input.reason,
+      input.source,
+      input.sourceEventId ?? null,
+      input.idempotencyKey,
+      input.reversesEntryId ?? null,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      occurredAt,
+      now,
+      programId,
+      input.mileageRuleId,
+      occurredAt,
+      beneficiaryUserId,
+      beneficiaryUserId,
+      beneficiaryUserId,
+      beneficiaryFriendId,
+      input.dailyCapActions,
+    )
+    .run();
+
+  const entry = await db
+    .prepare(
+      `SELECT * FROM mileage_ledger
+        WHERE program_id = ? AND idempotency_key = ?`,
+    )
+    .bind(programId, input.idempotencyKey)
+    .first<MileageLedgerEntry>();
+  if (entry) return entry;
+  if ((inserted.meta?.changes ?? 0) === 0) return null;
+  throw new Error('Failed to post mileage entry');
+}
+
 export interface MileageSummary {
   programId: string;
   programName: string;
@@ -1132,32 +1224,6 @@ async function applyMileageRulesImmediately(
       ? await resolveMileageMultiplier(db, beneficiaryFriendId, occurredAt)
       : actorMultiplier;
 
-    if (conditions.dailyCapActions && conditions.dailyCapActions > 0) {
-      const capRow = await db
-        .prepare(
-          `SELECT COUNT(*) AS action_count
-             FROM mileage_ledger ml
-            WHERE ml.program_id = ?
-              AND ml.mileage_rule_id = ?
-              AND ml.entry_type = 'grant'
-              AND ml.status != 'void'
-              AND substr(ml.occurred_at, 1, 10) = substr(?, 1, 10)
-              AND ((? IS NOT NULL AND ml.beneficiary_user_id = ?)
-                   OR (? IS NULL AND ml.beneficiary_friend_id = ?))`,
-        )
-        .bind(
-          rule.program_id,
-          rule.id,
-          occurredAt,
-          beneficiaryUserId,
-          beneficiaryUserId,
-          beneficiaryUserId,
-          beneficiaryFriendId,
-        )
-        .first<{ action_count: number }>();
-      if ((capRow?.action_count ?? 0) >= conditions.dailyCapActions) continue;
-    }
-
     const idempotencyKey = conditions.uniquePerReferredFriendPerSubject && input.subjectKey
       ? `rule:${rule.id}:referrer:${beneficiaryIdentityKey}:referred:${identityKey}:subject:${input.subjectKey}`
       : conditions.uniquePerReferredFriend
@@ -1167,7 +1233,7 @@ async function applyMileageRulesImmediately(
           : conditions.uniquePerSubjectPerDay && input.subjectKey
             ? `rule:${rule.id}:identity:${beneficiaryIdentityKey}:day:${occurredAt.slice(0, 10)}:subject:${input.subjectKey}`
             : `rule:${rule.id}:event:${event.id}`;
-    const entry = await postMileageEntry(db, {
+    const entryInput: PostMileageEntryInput = {
       programId: rule.program_id,
       beneficiaryUserId,
       beneficiaryFriendId,
@@ -1199,8 +1265,16 @@ async function applyMileageRulesImmediately(
         } : {}),
       },
       occurredAt,
-    });
-    granted.push(entry);
+    };
+    // The daily cap is enforced inside the INSERT so two processors draining the
+    // queue concurrently cannot both observe a count below the cap.
+    const entry = conditions.dailyCapActions && conditions.dailyCapActions > 0
+      ? await postMileageEntryIfUnderDailyCap(db, {
+        ...entryInput,
+        dailyCapActions: conditions.dailyCapActions,
+      })
+      : await postMileageEntry(db, entryInput);
+    if (entry) granted.push(entry);
   }
   return { event, granted };
 }
@@ -1726,6 +1800,24 @@ export async function syncAffiliateConversionMileage(
   if (status === 'approved') {
     const rewardMiles = context.reward_miles ?? 0;
     if (rewardMiles <= 0) return;
+    // The offer's mileage_program_id may have moved since the original
+    // approval. Reuse any live grant for this decision regardless of the
+    // program namespace it was posted under so a re-sync never double-pays.
+    const priorGrant = await db
+      .prepare(
+        `SELECT original.id
+           FROM mileage_ledger original
+           LEFT JOIN mileage_ledger reversal ON reversal.reverses_entry_id = original.id
+          WHERE original.source = 'affiliate_conversion'
+            AND original.source_event_id = ?
+            AND original.idempotency_key = ?
+            AND original.entry_type = 'grant'
+            AND original.status = 'available'
+            AND reversal.id IS NULL`,
+      )
+      .bind(eventId, `affiliate-conversion-grant:${eventId}:${decisionVersion}`)
+      .first<{ id: string }>();
+    if (priorGrant) return;
     await postMileageEntry(db, {
       programId,
       beneficiaryUserId: context.beneficiary_user_id,
@@ -1746,24 +1838,25 @@ export async function syncAffiliateConversionMileage(
     return;
   }
 
+  // Reversal must find grants under the program they were posted to, not the
+  // program the offer points at now; otherwise an offer edit strands them.
   const grants = await db
     .prepare(
       `SELECT original.*
          FROM mileage_ledger original
          LEFT JOIN mileage_ledger reversal ON reversal.reverses_entry_id = original.id
-        WHERE original.program_id = ?
-          AND original.source = 'affiliate_conversion'
+        WHERE original.source = 'affiliate_conversion'
           AND original.source_event_id = ?
           AND original.entry_type = 'grant'
           AND original.status = 'available'
           AND reversal.id IS NULL`,
     )
-    .bind(programId, eventId)
+    .bind(eventId)
     .all<MileageLedgerEntry>();
 
   for (const grant of grants.results) {
     await postMileageEntry(db, {
-      programId,
+      programId: grant.program_id,
       beneficiaryUserId: grant.beneficiary_user_id,
       beneficiaryFriendId: grant.beneficiary_friend_id,
       engagementEventId: event.id,

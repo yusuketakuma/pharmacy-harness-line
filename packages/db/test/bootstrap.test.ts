@@ -76,6 +76,35 @@ function readSchemaObjects(db: Database.Database) {
 }
 
 describe('bootstrap.sql', () => {
+  it('adds scoped booking receipts without rewriting a previous-version raw receipt', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(readFileSync(join(PKG_ROOT, 'schema.sql'), 'utf8'));
+      db.prepare(`INSERT INTO booking_idempotency_keys
+        (key, line_account_id, friend_id, response_status, response_body, expires_at)
+        VALUES ('shared', 'account-a', 'friend-a', 201, '{"booking_id":"old"}', '2099-01-01T00:00:00.000Z')`).run();
+      db.exec(readFileSync(join(MIGRATIONS_DIR, '022_booking_idempotency_scoped.sql'), 'utf8'));
+      db.prepare(`INSERT INTO booking_idempotency_scoped
+        (line_account_id, friend_id, key, response_status, response_body, expires_at)
+        VALUES (?, ?, 'shared', 201, ?, '2099-01-01T00:00:00.000Z')`)
+        .run('account-a', 'friend-a', '{"booking_id":"new-a"}');
+      db.prepare(`INSERT INTO booking_idempotency_scoped
+        (line_account_id, friend_id, key, response_status, response_body, expires_at)
+        VALUES (?, ?, 'shared', 201, ?, '2099-01-01T00:00:00.000Z')`)
+        .run('account-b', 'friend-b', '{"booking_id":"new-b"}');
+      expect(db.prepare(`SELECT response_body FROM booking_idempotency_keys WHERE key = 'shared'`).get())
+        .toEqual({ response_body: '{"booking_id":"old"}' });
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM booking_idempotency_scoped WHERE key = 'shared'`).get())
+        .toEqual({ count: 2 });
+      expect(() => db.prepare(`INSERT INTO booking_idempotency_scoped
+        (line_account_id, friend_id, key, response_status, response_body, expires_at)
+        VALUES ('account-a', 'friend-a', 'shared', 201, '{}', '2099-01-01T00:00:00.000Z')`).run())
+        .toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
   it('uses the v0.33 baseline followed by globally ordered additive migrations', () => {
     expect(
       readdirSync(MIGRATIONS_DIR)
@@ -102,6 +131,11 @@ describe('bootstrap.sql', () => {
       '018_custom_075_pharmacy_medication_followup_assignments.sql',
       '019_custom_076_pharmacy_followup_operations_scope.sql',
       '020_custom_077_pharmacy_beta_notification_bindings.sql',
+      '021_calendar_bookings_overlap_index.sql',
+      '022_booking_idempotency_scoped.sql',
+    '023_meet_reminder_delivery_id.sql',
+    '024_stripe_effect_completion.sql',
+    '025_friend_link_scope_triggers.sql',
     ]);
   });
 

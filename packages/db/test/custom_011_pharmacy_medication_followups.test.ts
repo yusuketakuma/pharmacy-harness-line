@@ -287,6 +287,62 @@ describe('custom_011 pharmacy medication follow-ups', () => {
     })).rejects.toThrow(/contact conflict/i);
   });
 
+  it.each([
+    { name: 'different channel', conflict: true,
+      requested: { channel: 'line', outcomeCode: 'resolved', idempotencyKey: 'raced-contact-key' },
+      competing: { channel: 'phone', outcomeCode: 'answered', idempotencyKey: 'raced-contact-key' } },
+    { name: 'different next contact time', conflict: true,
+      requested: { channel: 'line', outcomeCode: 'follow_up_required', idempotencyKey: 'raced-contact-key', nextContactAt: '2026-08-22T00:00:00.000Z' },
+      competing: { channel: 'line', outcomeCode: 'follow_up_required', idempotencyKey: 'raced-contact-key', nextContactAt: '2026-08-23T00:00:00.000Z' } },
+    { name: 'same payload', conflict: false,
+      requested: { channel: 'line', outcomeCode: 'resolved', idempotencyKey: 'raced-contact-key' },
+      competing: { channel: 'line', outcomeCode: 'resolved', idempotencyKey: 'raced-contact-key' } },
+  ] as const)('binds a raced contact key to its payload: $name', async ({ conflict, requested, competing }) => {
+    let row = await scheduleMedicationFollowUp(d1, {
+      lineAccountId: 'account-a', submissionId: 'submission-a',
+      dueAt: '2026-08-21T09:00:00.000Z', staffId: 'staff-a',
+      idempotencyKey: 'schedule-raced-contact', now: new Date('2026-08-18T00:00:00.000Z'),
+    });
+    for (const toStatus of ['due', 'delivered', 'concern', 'assigned'] as const) {
+      row = await transitionMedicationFollowUp(d1, {
+        lineAccountId: 'account-a', followUpId: row.id, toStatus,
+        expectedVersion: row.version, actorType: 'staff', actorId: 'staff-a',
+        ...(toStatus === 'assigned' ? { assigneeStaffId: 'staff-a' } : {}),
+      });
+    }
+    let injected = false;
+    const raced = { ...d1, batch: async (statements: D1PreparedStatement[]) => {
+      injected = true;
+      await recordMedicationFollowUpContact(d1, {
+        lineAccountId: 'account-a', followUpId: row.id, actorStaffId: 'staff-a',
+        expectedVersion: row.version, now: new Date('2026-08-18T00:00:00.000Z'), ...competing,
+      });
+      return d1.batch(statements);
+    } } as D1Database;
+    const input = {
+      lineAccountId: 'account-a', followUpId: row.id, toStatus: 'responded' as const,
+      expectedVersion: row.version, actorType: 'staff' as const, actorId: 'staff-a',
+      idempotencyKey: 'transition-raced-contact', contact: requested,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+    };
+    const beforeEvents = (db.prepare('SELECT COUNT(*) AS count FROM pharmacy_medication_followup_events').get() as { count: number }).count;
+    if (!conflict) {
+      await expect(transitionMedicationFollowUp(raced, input)).resolves.toMatchObject({ status: 'responded', version: row.version + 1 });
+      await expect(transitionMedicationFollowUp(d1, input)).resolves.toMatchObject({ status: 'responded', version: row.version + 1 });
+    } else {
+      await expect(transitionMedicationFollowUp(raced, input)).rejects.toThrow(/contact conflict/i);
+    }
+    expect(injected).toBe(true);
+    expect(db.prepare('SELECT channel, outcome_code FROM pharmacy_medication_followup_contact_records WHERE idempotency_key = ?').get(requested.idempotencyKey))
+      .toEqual({ channel: competing.channel, outcome_code: competing.outcomeCode });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM pharmacy_medication_followup_contact_records WHERE idempotency_key = ?').get(requested.idempotencyKey))
+      .toEqual({ count: 1 });
+    expect(db.prepare('SELECT status, version FROM pharmacy_medication_followups WHERE id = ?').get(row.id))
+      .toEqual({ status: conflict ? 'assigned' : 'responded', version: row.version + (conflict ? 0 : 1) });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM pharmacy_medication_followup_events').get())
+      .toEqual({ count: beforeEvents + (conflict ? 0 : 1) });
+  });
+
   it('does not reuse one scheduling idempotency key for another submission', async () => {
     const now = '2026-08-18T00:00:00.000Z';
     db.prepare(`INSERT INTO pharmacy_prescription_submissions

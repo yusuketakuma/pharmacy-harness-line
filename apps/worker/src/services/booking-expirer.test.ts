@@ -14,7 +14,7 @@ interface StaleRow {
   friend_id?: string;
 }
 
-function stubDB(stale: StaleRow[], idempotencyPurged = 0) {
+function stubDB(stale: StaleRow[], idempotencyPurged = 0, scopedPurged = 0) {
   const updates: Array<{ sql: string; bound: unknown[] }> = [];
   const queries: string[] = [];
   const db = {
@@ -36,6 +36,9 @@ function stubDB(stale: StaleRow[], idempotencyPurged = 0) {
           updates.push({ sql, bound });
           if (sql.includes('DELETE FROM booking_idempotency_keys')) {
             return { success: true, meta: { changes: idempotencyPurged } };
+          }
+          if (sql.includes('DELETE FROM booking_idempotency_scoped')) {
+            return { success: true, meta: { changes: scopedPurged } };
           }
           return { success: true, meta: { changes: 1 } };
         },
@@ -88,10 +91,11 @@ describe('runExpirer', () => {
   });
 
   test('idempotency expired keys 削除件数を返す', async () => {
-    const { db } = stubDB([], 3);
+    const { db, updates } = stubDB([], 3, 2);
     const sender = vi.fn();
     const result = await runExpirer(db, { now: NOW, sender });
-    expect(result.idempotencyPurged).toBe(3);
+    expect(result.idempotencyPurged).toBe(5);
+    expect(updates.some(({ sql }) => sql.includes('DELETE FROM booking_idempotency_scoped'))).toBe(true);
   });
 
   test('pharmacy accounts are excluded from the generic booking cron', async () => {

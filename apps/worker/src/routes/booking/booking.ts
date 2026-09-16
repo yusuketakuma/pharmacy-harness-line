@@ -22,7 +22,6 @@ import {
 } from '../../services/booking-calendar-sync.js';
 import {
   findIdempotencyResponse,
-  saveIdempotencyResponse,
 } from '../../services/booking-idempotency.js';
 import { sendBookingNotification } from '../../services/booking-notifier.js';
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
@@ -377,15 +376,29 @@ booking.post('/api/liff/booking/requests', async (c) => {
   const slotMatched = latestAvailability.by_staff[0]?.slots.some(
     (slot) => slot.date === startJstDate && slot.start === startJstHHMM,
   );
-  if (!slotMatched) return c.json({ error: 'slot_not_available' }, 422);
+  if (!slotMatched) {
+    // Another request with this key may have committed after the first cache lookup.
+    const completed = await findIdempotencyResponse(c.env.DB, {
+      key: idemKey, lineAccountId: accountId, friendId, now: new Date(),
+    });
+    if (completed) return c.json(completed.body as Record<string, unknown>, completed.status as 201 | 409);
+    return c.json({ error: 'slot_not_available' }, 422);
+  }
 
   const bookingId = crypto.randomUUID();
   const nowIso = new Date().toISOString();
-  // 競合チェックと INSERT を 1 ステートメントで原子化する。
+  const responseBody = { booking_id: bookingId, status: 'requested' };
+  const expiresAt = new Date(Date.parse(nowIso) + IDEMPOTENCY_TTL_MINUTES * 60_000).toISOString();
+  // 予約と再送応答を D1 の単一 transaction にまとめる。receipt 書込み失敗なら予約も戻す。
   // INSERT ... SELECT WHERE NOT EXISTS パターンで、同一スタッフの overlap 行がある場合は
   // 0 行 INSERT に落とす。changes=0 を 409 として扱う。
-  const insertResult = await c.env.DB
-    .prepare(
+  const [, , insertResult, receiptResult] = await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM booking_idempotency_keys WHERE key = ? AND expires_at <= ?`)
+      .bind(idemKey, nowIso),
+    c.env.DB.prepare(`DELETE FROM booking_idempotency_scoped
+                      WHERE line_account_id = ? AND friend_id = ? AND key = ? AND expires_at <= ?`)
+      .bind(accountId, friendId, idemKey, nowIso),
+    c.env.DB.prepare(
       `INSERT INTO bookings
         (id, line_account_id, friend_id, staff_id, menu_id,
          starts_at, ends_at, block_ends_at, status,
@@ -397,7 +410,11 @@ booking.post('/api/liff/booking/requests', async (c) => {
              AND status IN ('requested','confirmed')
              AND starts_at < ?
              AND block_ends_at > ?
-        )`,
+        )
+          AND NOT EXISTS (SELECT 1 FROM booking_idempotency_keys
+                           WHERE key = ? AND line_account_id = ? AND friend_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM booking_idempotency_scoped
+                           WHERE key = ? AND line_account_id = ? AND friend_id = ?)`,
     )
     .bind(
       bookingId,
@@ -416,21 +433,47 @@ booking.post('/api/liff/booking/requests', async (c) => {
       body.staff_id,
       blockEndsAt.toISOString(),
       startsAt.toISOString(),
-    )
-    .run();
+      idemKey,
+      accountId,
+      friendId,
+      idemKey,
+      accountId,
+      friendId,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO booking_idempotency_scoped
+         (line_account_id, friend_id, key, response_status, response_body, expires_at)
+       SELECT ?, ?, ?, CASE WHEN changes() = 1 THEN 201 ELSE 409 END,
+              CASE WHEN changes() = 1 THEN ? ELSE ? END, ?
+        WHERE NOT EXISTS (SELECT 1 FROM booking_idempotency_keys
+                           WHERE key = ? AND line_account_id = ? AND friend_id = ?)
+       ON CONFLICT DO NOTHING`,
+    ).bind(accountId, friendId, idemKey, JSON.stringify(responseBody),
+      JSON.stringify({ error: 'slot_conflict' }), expiresAt, idemKey, accountId, friendId),
+    // Previous-version workers only read raw keys. Mirror the first caller's
+    // receipt when that key is free; a different caller keeps its scoped one.
+    c.env.DB.prepare(
+      `INSERT INTO booking_idempotency_keys
+         (key, line_account_id, friend_id, response_status, response_body, expires_at)
+       SELECT ?, line_account_id, friend_id, response_status, response_body, expires_at
+         FROM booking_idempotency_scoped WHERE key = ? AND line_account_id = ? AND friend_id = ?
+       ON CONFLICT(key) DO NOTHING`,
+    ).bind(idemKey, idemKey, accountId, friendId),
+  ]);
   if ((insertResult.meta?.changes ?? 0) === 0) {
-    const err = { error: 'slot_conflict' };
-    await saveIdempotencyResponse(c.env.DB, {
+    const cachedAfterCommit = await findIdempotencyResponse(c.env.DB, {
       key: idemKey,
       lineAccountId: accountId,
       friendId,
-      status: 409,
-      body: err,
-      ttlMinutes: IDEMPOTENCY_TTL_MINUTES,
       now: new Date(),
     });
-    return c.json(err, 409);
+    if (cachedAfterCommit) {
+      return c.json(cachedAfterCommit.body as Record<string, unknown>,
+        cachedAfterCommit.status as 201 | 409);
+    }
+    return c.json({ error: 'slot_conflict' }, 409);
   }
+  if ((receiptResult.meta?.changes ?? 0) !== 1) throw new Error('booking receipt missing');
 
   c.executionCtx.waitUntil(
     awardActivityMileage(c.env.DB, {
@@ -466,16 +509,6 @@ booking.post('/api/liff/booking/requests', async (c) => {
     );
   }
 
-  const responseBody = { booking_id: bookingId, status: 'requested' };
-  await saveIdempotencyResponse(c.env.DB, {
-    key: idemKey,
-    lineAccountId: accountId,
-    friendId,
-    status: 201,
-    body: responseBody,
-    ttlMinutes: IDEMPOTENCY_TTL_MINUTES,
-    now: new Date(),
-  });
   return c.json(responseBody, 201);
 });
 

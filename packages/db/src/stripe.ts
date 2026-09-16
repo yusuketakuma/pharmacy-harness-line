@@ -10,22 +10,37 @@ export interface StripeEventRow {
   currency: string | null;
   metadata: string | null;
   processed_at: string;
+  effects_completed_at: string | null;
 }
 
-export async function getStripeEvents(db: D1Database, opts: { friendId?: string; eventType?: string; limit?: number } = {}): Promise<StripeEventRow[]> {
+export async function getStripeEvents(db: D1Database, opts: { friendId?: string; eventType?: string; limit?: number; tenantId?: string } = {}): Promise<StripeEventRow[]> {
   const limit = opts.limit ?? 100;
+  const filters: string[] = [];
+  const params: unknown[] = [];
+  let from = 'stripe_events';
+  if (opts.tenantId) {
+    // Tenant callers only see events attributable to their own friends; events
+    // without a friend cannot be attributed to a tenant and are excluded.
+    from = `stripe_events
+      JOIN friends AS friend ON friend.id = stripe_events.friend_id
+      JOIN tenant_line_accounts AS tenant_map
+        ON tenant_map.line_account_id = friend.line_account_id`;
+    filters.push('tenant_map.tenant_id = ?');
+    params.push(opts.tenantId);
+  }
   if (opts.friendId) {
-    const result = await db.prepare(`SELECT * FROM stripe_events WHERE friend_id = ? ORDER BY processed_at DESC LIMIT ?`)
-      .bind(opts.friendId, limit).all<StripeEventRow>();
-    return result.results;
+    filters.push('stripe_events.friend_id = ?');
+    params.push(opts.friendId);
   }
   if (opts.eventType) {
-    const result = await db.prepare(`SELECT * FROM stripe_events WHERE event_type = ? ORDER BY processed_at DESC LIMIT ?`)
-      .bind(opts.eventType, limit).all<StripeEventRow>();
-    return result.results;
+    filters.push('stripe_events.event_type = ?');
+    params.push(opts.eventType);
   }
-  const result = await db.prepare(`SELECT * FROM stripe_events ORDER BY processed_at DESC LIMIT ?`)
-    .bind(limit).all<StripeEventRow>();
+  const where = filters.length ? ` WHERE ${filters.join(' AND ')}` : '';
+  const result = await db
+    .prepare(`SELECT stripe_events.* FROM ${from}${where} ORDER BY stripe_events.processed_at DESC LIMIT ?`)
+    .bind(...params, limit)
+    .all<StripeEventRow>();
   return result.results;
 }
 
@@ -42,4 +57,15 @@ export async function createStripeEvent(
   await db.prepare(`INSERT INTO stripe_events (id, stripe_event_id, event_type, friend_id, amount, currency, metadata, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, input.stripeEventId, input.eventType, input.friendId ?? null, input.amount ?? null, input.currency ?? null, input.metadata ?? null, now).run();
   return (await db.prepare(`SELECT * FROM stripe_events WHERE id = ?`).bind(id).first<StripeEventRow>())!;
+}
+
+/** Mark the receipt's side effects complete after every retry-safe step ran. */
+export async function markStripeEventEffectsComplete(
+  db: D1Database,
+  stripeEventId: string,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE stripe_events SET effects_completed_at = ? WHERE stripe_event_id = ?`)
+    .bind(jstNow(), stripeEventId)
+    .run();
 }

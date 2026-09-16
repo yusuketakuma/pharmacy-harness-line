@@ -48,23 +48,30 @@ export async function findIdempotencyResponse(
   db: D1Database,
   params: FindIdempotencyParams,
 ): Promise<{ status: number; body: unknown } | null> {
-  const row = await db
-    .prepare(
-      `SELECT response_status, response_body, expires_at
-         FROM booking_idempotency_keys
-        WHERE key = ? AND line_account_id = ? AND friend_id = ?`,
-    )
-    .bind(params.key, params.lineAccountId, params.friendId)
-    .first<{ response_status: number; response_body: string; expires_at: string }>();
-  if (!row) return null;
-  if (new Date(row.expires_at) <= params.now) return null;
-  return { status: row.response_status, body: JSON.parse(row.response_body) };
+  for (const table of ['booking_idempotency_keys', 'booking_idempotency_scoped']) {
+    const row = await db
+      .prepare(
+        `SELECT response_status, response_body, expires_at
+           FROM ${table}
+          WHERE key = ? AND line_account_id = ? AND friend_id = ?`,
+      )
+      .bind(params.key, params.lineAccountId, params.friendId)
+      .first<{ response_status: number; response_body: string; expires_at: string }>();
+    if (row && new Date(row.expires_at) > params.now) {
+      return { status: row.response_status, body: JSON.parse(row.response_body) };
+    }
+  }
+  return null;
 }
 
 export async function purgeExpiredIdempotency(db: D1Database, now: Date): Promise<number> {
-  const result = await db
+  const legacy = await db
     .prepare(`DELETE FROM booking_idempotency_keys WHERE expires_at <= ?`)
     .bind(now.toISOString())
     .run();
-  return result.meta?.changes ?? 0;
+  const scoped = await db
+    .prepare(`DELETE FROM booking_idempotency_scoped WHERE expires_at <= ?`)
+    .bind(now.toISOString())
+    .run();
+  return (legacy.meta?.changes ?? 0) + (scoped.meta?.changes ?? 0);
 }

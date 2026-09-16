@@ -5,7 +5,7 @@ import {
   verifyBundleHashes,
   verifyBundleIntegrity,
 } from './bundle.js';
-import { getLatestDeployment } from './cf-api/pages.js';
+import { getRollbackPagesDeployment } from './cf-api/rollback-target.js';
 import {
   createSnapshot,
   getSnapshot,
@@ -14,7 +14,7 @@ import {
   setError,
   type D1Like,
 } from './snapshot.js';
-import { createEventEmitter } from './events.js';
+import { createEventEmitter, type EventEmitter } from './events.js';
 import { runPreflight } from './phases/preflight.js';
 import { runApply } from './phases/apply.js';
 import { runVerify } from './phases/verify.js';
@@ -132,7 +132,7 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
   const { ctx, d1, workerHealthUrl, adminUrl, liffUrl, currentWorkerBundleUrl, onEvent } = opts;
 
   // Step 1: snapshot the pre-update state. Both Pages projects expose
-  // `getLatestDeployment` which returns the id we'd revert to. These
+  // a canonical production deployment, which is the id we'd revert to. These
   // calls also serve as an early sanity check — they share the same
   // CF token as preflight, so a failure here surfaces the same auth
   // class of error before we touch the snapshot table.
@@ -147,9 +147,9 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
       creds: ctx.creds,
       scriptName: ctx.workerName,
     }),
-    getLatestDeployment({ creds: ctx.creds, projectName: ctx.adminPagesProject }),
+    getRollbackPagesDeployment({ creds: ctx.creds, projectName: ctx.adminPagesProject }),
     ctx.liffPagesProject
-      ? getLatestDeployment({ creds: ctx.creds, projectName: ctx.liffPagesProject })
+      ? getRollbackPagesDeployment({ creds: ctx.creds, projectName: ctx.liffPagesProject })
       : Promise.resolve({ id: '' }),
   ]);
 
@@ -225,8 +225,26 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
     } catch (e) {
       const original = e instanceof Error ? e : new Error(String(e));
       const originalStack = original.stack ?? String(original);
-      await setError(d1, updateId, originalStack);
-      await ev.emit({
+      // Recovery must not depend on the observability path that just failed.
+      // A D1/event-subscriber failure is recorded when possible, then rollback
+      // proceeds with best-effort event persistence and the original error is
+      // rethrown regardless of secondary failures.
+      const bestEffort = async (operation: () => Promise<void>): Promise<boolean> => {
+        try {
+          await operation();
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const recoveryEvents: EventEmitter = {
+        emit: async (event) => {
+          await bestEffort(() => ev.emit(event));
+        },
+        subscribe: ev.subscribe,
+      };
+      await bestEffort(() => setError(d1, updateId, originalStack));
+      await recoveryEvents.emit({
         step: 'rollback',
         status: 'running',
         error: original.message,
@@ -247,21 +265,26 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
               snapshotAdminDeployment: snap.snapshot_admin_deployment,
               snapshotLiffDeployment: snap.snapshot_liff_deployment ?? '',
             },
-            ev,
+            recoveryEvents,
           );
-          await updateStatus(d1, updateId, 'rolled_back');
+          const statusSaved = await bestEffort(() =>
+            updateStatus(d1, updateId, 'rolled_back'),
+          );
+          if (!statusSaved) {
+            await bestEffort(() => updateStatus(d1, updateId, 'failed'));
+          }
         } else {
           // No snapshot coordinates → cannot roll back safely.
-          await updateStatus(d1, updateId, 'failed');
+          await bestEffort(() => updateStatus(d1, updateId, 'failed'));
         }
       } catch (rbErr) {
         const rbMessage = rbErr instanceof Error ? rbErr.message : String(rbErr);
-        await setError(
+        await bestEffort(() => setError(
           d1,
           updateId,
           `original: ${original.message}\nrollback: ${rbMessage}`,
-        );
-        await updateStatus(d1, updateId, 'failed');
+        ));
+        await bestEffort(() => updateStatus(d1, updateId, 'failed'));
       }
       // Rethrow original so callers learn the update failed.
       throw original;

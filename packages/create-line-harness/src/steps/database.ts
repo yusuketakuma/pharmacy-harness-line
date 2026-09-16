@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { buildMigrationLedgerSql } from "@line-harness/update-engine";
+import { buildMigrationLedgerSql, splitSqlStatements } from "@line-harness/update-engine";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,16 @@ import { wrangler, WranglerError } from "../lib/wrangler.js";
 interface DatabaseResult {
   databaseId: string;
   databaseName: string;
+}
+
+export interface DatabaseOwnershipReceipt {
+  databaseId: string;
+  databaseName: string;
+}
+
+interface CreateDatabaseOptions {
+  requireNew?: boolean;
+  onCreated?: (receipt: DatabaseOwnershipReceipt) => void;
 }
 
 export type DatabaseSchema = "legacy" | "pharmacy-multitenant";
@@ -200,9 +210,10 @@ export function assertLegacySetupBundleAllowed(repoDir: string): void {
   }
 }
 
-export async function createDatabase(
+async function createDatabaseInternal(
   repoDir: string,
   databaseName: string,
+  options: CreateDatabaseOptions = {},
 ): Promise<DatabaseResult> {
   const s = p.spinner();
 
@@ -234,6 +245,10 @@ export async function createDatabase(
       error instanceof WranglerError &&
       error.stderr.includes("already exists")
     ) {
+      if (options.requireNew) {
+        s.stop("D1 データベースは既に存在します");
+        throw error;
+      }
       s.stop("D1 データベースは既に存在します");
       const listOutput = await runD1WithRetry(
         ["d1", "list", "--json"],
@@ -253,6 +268,10 @@ export async function createDatabase(
     }
   }
 
+  if (createdNow) {
+    options.onCreated?.({ databaseId, databaseName });
+  }
+
   const bootstrapFile = join(repoDir, "packages/db/bootstrap.sql");
   const schemaFile = join(repoDir, "packages/db/schema.sql");
   const migrationsDir = join(repoDir, "packages/db/migrations");
@@ -267,6 +286,56 @@ export async function createDatabase(
     bootstrapMeta !== null &&
     bootstrapMeta.includedMigrations.every((file) => migrationFiles.includes(file));
 
+  const appliedMigrations = new Set<string>();
+  const applySqlFile = async (
+    filePath: string,
+    label: string,
+    onApplied?: () => void,
+  ): Promise<void> => {
+    try {
+      await runD1WithRetry(
+        ["d1", "execute", databaseName, "--remote", "--file", filePath],
+        label,
+      );
+    } catch (err) {
+      if (!isBenignSchemaError(err)) {
+        s.stop(`${label} に失敗`);
+        throw err;
+      }
+      // ファイル内の途中statementで止まった可能性があるため1文ずつ再適用し、
+      // 全statementが適用済み(または重複skip)の時だけ完了とみなす。
+      for (const statement of splitSqlStatements(readFileSync(filePath, "utf-8"))) {
+        try {
+          await runD1WithRetry(
+            ["d1", "execute", databaseName, "--remote", "--command", statement],
+            `${label} (statement)`,
+          );
+        } catch (statementErr) {
+          if (!isBenignSchemaError(statementErr)) {
+            s.stop(`${label} に失敗`);
+            throw statementErr;
+          }
+        }
+      }
+    }
+    onApplied?.();
+  };
+
+  const applySchemaThenMigrations = async () => {
+    const totalFiles = 1 + migrationFiles.length;
+    s.start(`テーブル作成中（${totalFiles} files）...`);
+
+    await applySqlFile(schemaFile, "ベーススキーマ適用");
+
+    for (const file of migrationFiles) {
+      await applySqlFile(
+        join(migrationsDir, file),
+        `migration 適用: ${file}`,
+        () => appliedMigrations.add(file),
+      );
+    }
+  };
+
   if (canUseBootstrap) {
     const pendingMigrations = migrationFiles.filter(
       (file) => !includedMigrations.has(file),
@@ -277,87 +346,32 @@ export async function createDatabase(
         : `テーブル作成中（bootstrap + ${pendingMigrations.length} migrations）...`;
     s.start(label);
     try {
-      await runD1WithRetry(
-        [
-          "d1",
-          "execute",
-          databaseName,
-          "--remote",
-          "--file",
-          bootstrapFile,
-        ],
-        "bootstrap 適用",
+      await applySqlFile(bootstrapFile, "bootstrap 適用", () =>
+        includedMigrations.forEach((file) => appliedMigrations.add(file)),
       );
     } catch (err) {
-      if (!isBenignSchemaError(err)) {
-        s.stop("bootstrap 適用に失敗");
+      // The generated bootstrap bundle aggregates every migration, so it can
+      // contain both CREATE TRIGGER and CASE expressions — a combination the
+      // statement splitter fails closed on. Retry the interrupted bootstrap
+      // via schema.sql + per-migration files, which split individually.
+      if (
+        !(err instanceof Error) ||
+        !err.message.includes("full SQL parser")
+      ) {
         throw err;
       }
+      await applySchemaThenMigrations();
     }
 
     for (const file of pendingMigrations) {
-      try {
-        await runD1WithRetry(
-          [
-            "d1",
-            "execute",
-            databaseName,
-            "--remote",
-            "--file",
-            join(migrationsDir, file),
-          ],
-          `bootstrap 後 migration 適用: ${file}`,
-        );
-      } catch (err) {
-        if (!isBenignSchemaError(err)) {
-          s.stop(`migration 失敗: ${file}`);
-          throw err;
-        }
-      }
+      await applySqlFile(
+        join(migrationsDir, file),
+        `bootstrap 後 migration 適用: ${file}`,
+        () => appliedMigrations.add(file),
+      );
     }
   } else {
-    const totalFiles = 1 + migrationFiles.length;
-    s.start(`テーブル作成中（${totalFiles} files）...`);
-
-    try {
-      await runD1WithRetry(
-        [
-          "d1",
-          "execute",
-          databaseName,
-          "--remote",
-          "--file",
-          schemaFile,
-        ],
-        "ベーススキーマ適用",
-      );
-    } catch (err) {
-      if (!isBenignSchemaError(err)) {
-        s.stop("ベーススキーマ適用に失敗");
-        throw err;
-      }
-    }
-
-    for (const file of migrationFiles) {
-      try {
-        await runD1WithRetry(
-          [
-            "d1",
-            "execute",
-            databaseName,
-            "--remote",
-            "--file",
-            join(migrationsDir, file),
-          ],
-          `migration 適用: ${file}`,
-        );
-      } catch (err) {
-        if (!isBenignSchemaError(err)) {
-          s.stop(`migration 失敗: ${file}`);
-          throw err;
-        }
-      }
-    }
+    await applySchemaThenMigrations();
   }
 
   try {
@@ -370,12 +384,17 @@ export async function createDatabase(
   const migrationSources = new Map(
     migrationFiles.map((file) => [file, readFileSync(join(migrationsDir, file))]),
   );
+  // 適用が確認できたファイルだけを完了として記録する。途中失敗を寛容エラーで
+  // skip したまま全件記録すると、未適用migrationが永遠に再実行されない。
+  const ledgeredMigrations = migrationFiles.filter((file) =>
+    appliedMigrations.has(file),
+  );
   const ledgerDir = mkdtempSync(join(tmpdir(), "line-harness-ledger-"));
   const ledgerFile = join(ledgerDir, "baseline.sql");
   try {
     writeFileSync(
       ledgerFile,
-      buildMigrationLedgerSql(migrationFiles, migrationSources),
+      buildMigrationLedgerSql(ledgeredMigrations, migrationSources),
       { mode: 0o600 },
     );
     await runD1WithRetry(
@@ -392,4 +411,23 @@ export async function createDatabase(
   s.stop("テーブル作成完了");
 
   return { databaseId, databaseName };
+}
+
+export async function createDatabase(
+  repoDir: string,
+  databaseName: string,
+): Promise<DatabaseResult> {
+  return createDatabaseInternal(repoDir, databaseName);
+}
+
+/** Internal benchmark seam: reuse is forbidden and ownership is reported immediately. */
+export async function createDatabaseForBenchmark(
+  repoDir: string,
+  databaseName: string,
+  onCreated: (receipt: DatabaseOwnershipReceipt) => void,
+): Promise<DatabaseResult> {
+  return createDatabaseInternal(repoDir, databaseName, {
+    requireNew: true,
+    onCreated,
+  });
 }

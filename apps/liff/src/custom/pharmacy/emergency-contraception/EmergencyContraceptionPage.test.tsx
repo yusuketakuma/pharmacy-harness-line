@@ -11,10 +11,12 @@ import EmergencyContraceptionPage, {
   emergencyCompletionNextSteps,
   emergencyIntakeFieldErrors,
   emergencyNextAction,
+  retainEmergencyCancelOperation,
+  retainEmergencyCreateOperation,
   toIntercourseAtPayload,
   type EmergencyIntakeDraft,
 } from './EmergencyContraceptionPage.js';
-import type { EmergencyServiceOverview } from './api.js';
+import type { CreateEmergencyIntakeInput, EmergencyServiceOverview } from './api.js';
 
 const readyService: EmergencyServiceOverview = {
   ready: true,
@@ -148,6 +150,8 @@ describe('emergency contraception patient page', () => {
     expect(source).toContain("setBusy('submit')");
     expect(source).not.toContain('setInterval');
     expect(source).toContain('crypto.randomUUID()');
+    expect(source).toContain('retainEmergencyCreateOperation');
+    expect(source).toContain('typeof status === \'number\'');
     expect(app).toContain("const DeferredEmergencyContraceptionPage = lazy(() => import('./custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js')); // custom:pharmacy-emergency-contraception");
     expect(app).toContain('fallback={<p role="status"');
     expect(app).toContain('画面を読み込んでいます…');
@@ -162,6 +166,35 @@ describe('emergency contraception patient page', () => {
     const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
     expect(source).toContain('サーバー確認時刻')
     expect(source).toContain('serverNow')
+  });
+});
+
+describe('emergency intake idempotent operations', () => {
+  const payload: CreateEmergencyIntakeInput = {
+    slotId: 'slot-1', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
+    age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
+    lngAllergy: false, liverDisease: false, currentlyPregnant: false, breastfeeding: false,
+    underMedicalTreatment: false, drugAllergyHistory: false, heartKidneyGiDisease: false,
+    stJohnsWort: false, lastMenstruationDate: null,
+    menstruationSignals: { ...EMPTY_EMERGENCY_DRAFT.menstruationSignals, noneApply: true },
+    idDocumentAvailable: null, safeContactMode: 'neutral_line', consentVersion: 'v1',
+    consentContentHash: 'hash', manufacturerCheckAcknowledged: true, idempotencyKey: '',
+  };
+
+  it('reuses the same key and frozen payload only for the same create attempt', () => {
+    const first = retainEmergencyCreateOperation(null, payload);
+    const retry = retainEmergencyCreateOperation(first, structuredClone(payload));
+    expect(retry).toBe(first);
+    expect(retry.payload).not.toBe(payload);
+    expect(retry.payload).toEqual(payload);
+    expect(retainEmergencyCreateOperation(first, { ...payload, age: 21 })).not.toBe(first);
+  });
+
+  it('reuses cancellation keys only for the same intake version', () => {
+    const first = retainEmergencyCancelOperation(null, 'intake-1', 2);
+    expect(retainEmergencyCancelOperation(first, 'intake-1', 2)).toBe(first);
+    expect(retainEmergencyCancelOperation(first, 'intake-1', 3)).not.toBe(first);
+    expect(retainEmergencyCancelOperation(first, 'intake-2', 2)).not.toBe(first);
   });
 });
 

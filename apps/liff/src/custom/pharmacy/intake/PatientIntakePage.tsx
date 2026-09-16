@@ -57,6 +57,39 @@ export function canSubmitIntake(
   );
 }
 
+type PatientIntakeSubmission = Parameters<typeof patientIntakeApi.submit>[1];
+type PatientIntakeSubmissionInput = Omit<PatientIntakeSubmission, 'idempotencyKey'>;
+type PatientIntakeOperation = {
+  patientId: string;
+  epoch: number;
+  fingerprint: string;
+  body: PatientIntakeSubmission;
+};
+
+type PendingProfileSave = {
+  patientId: string;
+  previousUpdatedAt: string;
+  epoch: number;
+};
+
+export function retainPatientIntakeOperation(
+  current: PatientIntakeOperation | null,
+  patientId: string,
+  epoch: number,
+  input: PatientIntakeSubmissionInput,
+): PatientIntakeOperation {
+  const fingerprint = JSON.stringify(input);
+  if (current?.patientId === patientId && current.epoch === epoch && current.fingerprint === fingerprint) {
+    return current;
+  }
+  return {
+    patientId,
+    epoch,
+    fingerprint,
+    body: structuredClone({ ...input, idempotencyKey: crypto.randomUUID() }),
+  };
+}
+
 export default function PatientIntakePage() {
   const navigate = useNavigate();
   const [patients, setPatients] = useState<PharmacyPatient[]>([]);
@@ -83,11 +116,19 @@ export default function PatientIntakePage() {
   const [showAddress, setShowAddress] = useState(false);
   const [showNewPatient, setShowNewPatient] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [pendingProfileSave, setPendingProfileSave] = useState<PendingProfileSave | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const registrationIdempotencyKeyRef = useRef(crypto.randomUUID());
+  const intakeOperationEpochRef = useRef(0);
+  const intakeOperationRef = useRef<PatientIntakeOperation | null>(null);
+  const profileSaveEpochRef = useRef(0);
+  const profileSaveInFlightRef = useRef(false);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  useEffect(() => () => { profileSaveEpochRef.current += 1; }, []);
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (error || privacyPolicyError) {
@@ -248,6 +289,11 @@ export default function PatientIntakePage() {
   }, [selectedId]);
 
   function resetPatientSelection(nextId: string) {
+    intakeOperationEpochRef.current += 1;
+    profileSaveEpochRef.current += 1;
+    profileSaveInFlightRef.current = false;
+    selectedIdRef.current = nextId;
+    setPendingProfileSave(null);
     setSelectedId(nextId);
     setLatestRevision(null);
     setLatestAnswers(null);
@@ -272,6 +318,7 @@ export default function PatientIntakePage() {
   }
 
   async function createPatient() {
+    if (busy || profileSaveInFlightRef.current || pendingProfileSave) return;
     const {
       relationship,
       name,
@@ -292,48 +339,60 @@ export default function PatientIntakePage() {
       setError('赤く表示された項目を確認してください。');
       return;
     }
+    profileSaveInFlightRef.current = true;
     setBusy(true);
     setError(null);
-    try {
-      const profile = {
-        relationship, name, nameKana, birthDate, sex,
-        contactPhone: contactPhone.trim() || null,
-        postalCode: postalCode.trim() || null,
-        prefecture: prefecture || null,
-        city: city.trim() || null,
-        addressLine1: addressLine1.trim() || null,
-        addressLine2: addressLine2.trim() || null,
+    const profile = {
+      relationship, name, nameKana, birthDate, sex,
+      contactPhone: contactPhone.trim() || null,
+      postalCode: postalCode.trim() || null,
+      prefecture: prefecture || null,
+      city: city.trim() || null,
+      addressLine1: addressLine1.trim() || null,
+      addressLine2: addressLine2.trim() || null,
+    };
+    if (editing && selectedPatient) {
+      const operation: PendingProfileSave = {
+        patientId: selectedPatient.id,
+        previousUpdatedAt: selectedPatient.updated_at,
+        epoch: ++profileSaveEpochRef.current,
       };
-      if (editing && selectedPatient) {
-        await patientIntakeApi.updatePatient(selectedPatient.id, {
-          ...profile, expectedUpdatedAt: selectedPatient.updated_at,
+      try {
+        await patientIntakeApi.updatePatient(operation.patientId, {
+          ...profile, expectedUpdatedAt: operation.previousUpdatedAt,
         });
-        setPatients((current) => current.map((patient) => patient.id === selectedPatient.id
-          ? {
-            ...patient, relationship, name, name_kana: nameKana, birth_date: birthDate, sex,
-            contact_phone: profile.contactPhone, postal_code: profile.postalCode,
-            prefecture: profile.prefecture, city: profile.city,
-            address_line1: profile.addressLine1, address_line2: profile.addressLine2,
-          }
-          : patient));
-      } else {
-        const result = await patientIntakeApi.createPatient({
-          ...profile,
-          ...(relationship === 'child' && {
-            proxyConsent: { accepted: proxyConsentAccepted, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
-            registrationIdempotencyKey: registrationIdempotencyKeyRef.current,
-          }),
-        });
-        registrationIdempotencyKeyRef.current = crypto.randomUUID();
-        setPatients((current) => [...current, result.patient]);
-        resetPatientSelection(result.patient.id);
-        if (result.proxyGrant) {
-          const expiresOn = new Date(result.proxyGrant.expiresAt).toLocaleDateString(
-            'ja-JP', { timeZone: 'Asia/Tokyo' },
-          );
-          setSuccess(`代理入力権限は${expiresOn}まで有効です。自動更新はされません。`);
-          setSaved(false);
+        if (!isCurrentProfileSave(operation)) return;
+        setPendingProfileSave(operation);
+        await refreshSavedPatient(operation);
+      } catch (err) {
+        if (isCurrentProfileSave(operation)) {
+          setError(pharmacyErrorMessage(err, '患者情報を更新できませんでした。'));
         }
+      } finally {
+        if (isCurrentProfileSave(operation)) {
+          profileSaveInFlightRef.current = false;
+          setBusy(false);
+        }
+      }
+      return;
+    }
+    try {
+      const result = await patientIntakeApi.createPatient({
+        ...profile,
+        ...(relationship === 'child' && {
+          proxyConsent: { accepted: proxyConsentAccepted, termsVersion: 1, termsHash: PATIENT_PROXY_TERMS_HASH },
+          registrationIdempotencyKey: registrationIdempotencyKeyRef.current,
+        }),
+      });
+      registrationIdempotencyKeyRef.current = crypto.randomUUID();
+      setPatients((current) => [...current, result.patient]);
+      resetPatientSelection(result.patient.id);
+      if (result.proxyGrant) {
+        const expiresOn = new Date(result.proxyGrant.expiresAt).toLocaleDateString(
+          'ja-JP', { timeZone: 'Asia/Tokyo' },
+        );
+        setSuccess(`代理入力権限は${expiresOn}まで有効です。自動更新はされません。`);
+        setSaved(false);
       }
       setShowNewPatient(false);
       setEditing(false);
@@ -344,7 +403,55 @@ export default function PatientIntakePage() {
     } catch (err) {
       setError(pharmacyErrorMessage(err, '患者情報を登録できませんでした。'));
     } finally {
+      profileSaveInFlightRef.current = false;
       setBusy(false);
+    }
+  }
+
+  function isCurrentProfileSave(operation: PendingProfileSave): boolean {
+    return profileSaveEpochRef.current === operation.epoch &&
+      selectedIdRef.current === operation.patientId;
+  }
+
+  async function refreshSavedPatient(operation: PendingProfileSave) {
+    try {
+      const result = await patientIntakeApi.list();
+      if (!isCurrentProfileSave(operation)) return;
+      const patient = result.patients.find((entry) => entry.id === operation.patientId);
+      if (!patient || typeof patient.updated_at !== 'string' ||
+          !Number.isFinite(Date.parse(patient.updated_at)) ||
+          patient.updated_at === operation.previousUpdatedAt) {
+        throw new Error('saved patient version is not confirmed');
+      }
+      setPatients(result.patients);
+      setPendingProfileSave(null);
+      setShowNewPatient(false);
+      setEditing(false);
+      setPatientDraft(emptyPatientProfileDraft(patient.relationship));
+      setShowAddress(false);
+      setProfileErrors({});
+      setDraftDirty(false);
+      setSuccess('患者情報を更新しました。');
+      setError(null);
+    } catch {
+      if (isCurrentProfileSave(operation)) {
+        setError('患者情報は保存されました。最新版を確認できないため、再確認してください。更新を再送しないでください。');
+      }
+    }
+  }
+
+  async function retryProfileRefresh() {
+    if (!pendingProfileSave || busy || profileSaveInFlightRef.current) return;
+    profileSaveInFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await refreshSavedPatient(pendingProfileSave);
+    } finally {
+      if (isCurrentProfileSave(pendingProfileSave)) {
+        profileSaveInFlightRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -410,18 +517,32 @@ export default function PatientIntakePage() {
     setBusy(true);
     setError(null);
     setSuccess(null);
+    const submissionInput: PatientIntakeSubmissionInput = {
+      answers: structuredClone(nextAnswers),
+      representativeConsent: nextRepresentativeConsent,
+      privacyConsent: nextPrivacyConsent,
+      privacyPolicyVersion: privacyPolicy.policy_version,
+      privacyPolicyHash: privacyPolicy.content_hash,
+    };
+    const fingerprint = JSON.stringify(submissionInput);
+    const current = intakeOperationRef.current;
+    const sameOperation = current?.patientId === selectedId &&
+      current.epoch === intakeOperationEpochRef.current && current.fingerprint === fingerprint;
+    const epoch = sameOperation ? intakeOperationEpochRef.current : intakeOperationEpochRef.current + 1;
+    const operation = retainPatientIntakeOperation(
+      current, selectedId, epoch, submissionInput,
+    );
+    intakeOperationRef.current = operation;
+    intakeOperationEpochRef.current = operation.epoch;
     try {
-      const result = await patientIntakeApi.submit(selectedId, {
-        idempotencyKey: crypto.randomUUID(),
-        answers: nextAnswers,
-        representativeConsent: nextRepresentativeConsent,
-        privacyConsent: nextPrivacyConsent,
-        privacyPolicyVersion: privacyPolicy.policy_version,
-        privacyPolicyHash: privacyPolicy.content_hash,
-      });
+      const result = await patientIntakeApi.submit(operation.patientId, operation.body);
+      const currentOperation = intakeOperationRef.current === operation &&
+        intakeOperationEpochRef.current === operation.epoch;
+      if (intakeOperationRef.current === operation) intakeOperationRef.current = null;
+      if (!currentOperation) return;
       setLatestRevision(result.intake.revision);
-      setLatestAnswers(nextAnswers);
-      setAnswers(nextAnswers);
+      setLatestAnswers(operation.body.answers);
+      setAnswers(operation.body.answers);
       setDraftDirty(false);
       setSuccess('アンケートを保存しました。');
       setSaved(true);
@@ -430,11 +551,18 @@ export default function PatientIntakePage() {
       setShowStepErrors(false);
       window.scrollTo(0, 0);
     } catch (err) {
-      if (err instanceof Error &&
-          (err as Error & { status?: unknown }).status === 409) {
+      const status = err instanceof Error ? (err as Error & { status?: unknown }).status : undefined;
+      const currentOperation = intakeOperationRef.current === operation &&
+        intakeOperationEpochRef.current === operation.epoch;
+      if (typeof status === 'number' && intakeOperationRef.current === operation) {
+        intakeOperationRef.current = null;
+      }
+      if (!currentOperation) return;
+      if (status === 409) {
         setPrivacyConsent(false);
         await loadPrivacyPolicy();
       }
+      if (intakeOperationEpochRef.current !== operation.epoch) return;
       setError(pharmacyErrorMessage(err, 'アンケートを送信できませんでした。'));
     } finally {
       setBusy(false);
@@ -522,7 +650,7 @@ export default function PatientIntakePage() {
           <div className="flex items-center justify-between gap-3">
             <h2 id="patient-heading" className="font-bold">回答する患者</h2>
             <div className="flex gap-3">
-              <button type="button" className="pharmacy-control min-h-11 text-base font-bold text-green-800" onClick={() => {
+              <button type="button" disabled={Boolean(pendingProfileSave) || busy} className="pharmacy-control min-h-11 text-base font-bold text-green-800 disabled:opacity-50" onClick={() => {
                 if (showNewPatient) setShowNewPatient(false);
                 else resetPatientForm(patients.length === 0 ? 'self' : 'child');
               }}>
@@ -536,8 +664,12 @@ export default function PatientIntakePage() {
               }}>患者情報を修正</button>}
             </div>
           </div>
+          {pendingProfileSave && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            患者情報は保存されました。最新版の確認が必要です。
+            <button type="button" onClick={() => void retryProfileRefresh()} disabled={busy} className="pharmacy-control min-h-11 mt-2 block rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold disabled:opacity-50">患者情報を再確認</button>
+          </div>}
           {showNewPatient ? (
-            <PatientProfileForm
+            <fieldset disabled={Boolean(pendingProfileSave)}><PatientProfileForm
               draft={patientDraft}
               editing={editing}
               busy={busy}
@@ -546,7 +678,7 @@ export default function PatientIntakePage() {
               onChange={updatePatientDraft}
               onToggleAddress={() => setShowAddress((value) => !value)}
               onSubmit={() => void createPatient()}
-            />
+            /></fieldset>
           ) : loading ? <p className="text-sm text-gray-500">読み込み中...</p> : patients.length === 0 ? <p className="text-sm text-gray-600">まず患者情報を登録してください。</p> : (
             <label className="block text-sm">患者を選択<select value={selectedId} onChange={(event) => selectPatient(event.target.value)} className="mt-1 block w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
           )}

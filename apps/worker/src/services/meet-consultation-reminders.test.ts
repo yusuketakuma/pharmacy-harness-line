@@ -25,6 +25,7 @@ function consultationDb() {
       id TEXT PRIMARY KEY, consultation_id TEXT NOT NULL REFERENCES meet_consultations(id),
       kind TEXT NOT NULL, scheduled_at TEXT NOT NULL, status TEXT NOT NULL,
       retry_count INTEGER NOT NULL, sent_at TEXT, last_error TEXT,
+      delivery_id TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE (consultation_id, kind)
     );
@@ -92,6 +93,17 @@ describe('renderMeetReminderText', () => {
     expect(text).toContain('8月9日（日）10:00');
     expect(text).toContain('開始約1時間前');
     expect(text).toContain('https://meet.google.com/abc-defg-hij');
+  });
+
+  it('uses the actual JST day at delivery for relative labels', () => {
+    const url = 'https://meet.google.com/abc-defg-hij';
+    const start = '2026-08-08T12:00:00.000Z'; // 21:00 JST
+    expect(renderMeetReminderText('day_before', start, url,
+      new Date('2026-08-08T00:00:00.000Z'))).toContain('本日8月8日');
+    expect(renderMeetReminderText('day_before', start, url,
+      new Date('2026-08-07T12:00:00.000Z'))).toContain('明日8月8日');
+    expect(renderMeetReminderText('hour_before', '2026-08-08T15:30:00.000Z', url,
+      new Date('2026-08-08T14:30:00.000Z'))).toContain('明日8月9日');
   });
 });
 
@@ -333,6 +345,117 @@ describe('processDueMeetConsultationReminders', () => {
       '2026-08-09T00:00:00.000Z',
       '6db37bc2-f0c4-4fa8-baa6-5ec7069e1165',
       1,
+      undefined,
     ]);
+  });
+
+  it('resends a rescheduled reminder under a fresh delivery key and refuses stale claims', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`PRAGMA foreign_keys = ON;
+      CREATE TABLE line_accounts (
+        id TEXT PRIMARY KEY, channel_access_token TEXT NOT NULL, is_active INTEGER NOT NULL
+      );
+      CREATE TABLE friends (
+        id TEXT PRIMARY KEY, line_account_id TEXT NOT NULL, is_following INTEGER NOT NULL,
+        provider_line_user_id TEXT
+      );
+      CREATE TABLE meet_consultations (
+        id TEXT PRIMARY KEY, external_event_id TEXT NOT NULL UNIQUE,
+        friend_id TEXT NOT NULL REFERENCES friends(id), title TEXT NOT NULL,
+        starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, meet_url TEXT NOT NULL,
+        status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE meet_consultation_reminders (
+        id TEXT PRIMARY KEY, consultation_id TEXT NOT NULL REFERENCES meet_consultations(id),
+        kind TEXT NOT NULL, scheduled_at TEXT NOT NULL, status TEXT NOT NULL,
+        retry_count INTEGER NOT NULL, sent_at TEXT, last_error TEXT,
+        delivery_id TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        UNIQUE (consultation_id, kind)
+      );
+      INSERT INTO line_accounts VALUES ('account-a', 'channel-token', 1);
+      INSERT INTO friends VALUES ('friend-a', 'account-a', 1, 'U00000000000000000000000000000000');`);
+    const statement = (sql: string, values: SQLInputValue[] = []) => ({
+      __sql: sql,
+      bind: (...next: SQLInputValue[]) => statement(sql, next),
+      first: async <T>() => sqlite.prepare(sql).get(...values) as T | undefined ?? null,
+      all: async <T>() => ({ results: sqlite.prepare(sql).all(...values) as T[] }),
+      runSync: () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...values).changes) } }),
+      run: async () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...values).changes) } }),
+    });
+    const db = {
+      prepare: (sql: string) => statement(sql),
+      batch: async (statements: D1PreparedStatement[]) => {
+        const results: Array<{ meta: { changes: number } }> = [];
+        sqlite.exec('BEGIN');
+        try {
+          for (const item of statements as unknown as Array<ReturnType<typeof statement>>) {
+            results.push(item.runSync());
+          }
+          sqlite.exec('COMMIT');
+          return results;
+        } catch (error) {
+          sqlite.exec('ROLLBACK');
+          throw error;
+        }
+      },
+    } as unknown as D1Database;
+
+    const input = {
+      externalEventId: 'event-a',
+      friendId: 'friend-a',
+      title: 'Synthetic consultation',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    };
+    await registerMeetConsultation(db, {
+      ...input,
+      startsAt: '2026-08-10T10:00:00.000Z',
+      endsAt: '2026-08-10T11:00:00.000Z',
+    }, 'account-a', new Date('2026-08-08T00:00:00.000Z'));
+    const firstDelivery = sqlite.prepare(
+      `SELECT delivery_id FROM meet_consultation_reminders WHERE kind = 'day_before'`,
+    ).get() as { delivery_id: string };
+    expect(firstDelivery.delivery_id).toBeTruthy();
+
+    // Reschedule to a different slot: the reminder must get a new delivery key
+    // so the proxy's sent ledger for the old key cannot suppress it.
+    await registerMeetConsultation(db, {
+      ...input,
+      startsAt: '2026-08-12T10:00:00.000Z',
+      endsAt: '2026-08-12T11:00:00.000Z',
+    }, 'account-a', new Date('2026-08-08T00:00:00.000Z'));
+    const secondDelivery = sqlite.prepare(
+      `SELECT delivery_id, status FROM meet_consultation_reminders WHERE kind = 'day_before'`,
+    ).get() as { delivery_id: string; status: string };
+    expect(secondDelivery.status).toBe('pending');
+    expect(secondDelivery.delivery_id).not.toBe(firstDelivery.delivery_id);
+
+    // A stale read of the pre-reschedule generation must not claim the row.
+    const claim = sqlite.prepare(
+      `UPDATE meet_consultation_reminders
+          SET status='processing', retry_count=1, updated_at='2026-08-11T00:00:00.000Z'
+        WHERE id = (SELECT id FROM meet_consultation_reminders WHERE kind = 'day_before')
+          AND retry_count = 0 AND delivery_id IS ?`,
+    ).run(firstDelivery.delivery_id);
+    expect(claim.changes).toBe(0);
+
+    const retryKeys: string[] = [];
+    const dispatch = vi.fn(async (request: Request) => {
+      retryKeys.push(request.headers.get('x-line-retry-key') ?? '');
+      return new Response('{}', { status: 200 });
+    });
+    const result = await processDueMeetConsultationReminders(db, {
+      now: new Date('2026-08-11T11:00:00.000Z'),
+      proxyBaseUrl: 'https://proxy.example.com',
+      proxyDispatch: dispatch,
+    });
+    expect(result.sent).toBe(1);
+    expect(retryKeys).toEqual([secondDelivery.delivery_id]);
+    expect(
+      (sqlite.prepare(
+        `SELECT status FROM meet_consultation_reminders WHERE kind = 'day_before'`,
+      ).get() as { status: string }).status,
+    ).toBe('sent');
+    sqlite.close();
   });
 });

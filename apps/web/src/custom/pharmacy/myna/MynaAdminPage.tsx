@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useAccount } from '../../../contexts/account-context'
+import { createRequestGate } from '../request-gate'
 import { mynaAdminApi, type MynaEndpoint, type MynaHandoff, type MynaHandoffDetail, type MynaHandoffStatus, type MynaVerificationStatus } from './api'
+
+export { createRequestGate } from '../request-gate'
 
 const statusLabels: Record<MynaHandoff['status'], string> = {
   CREATED: '受付開始',
@@ -50,15 +53,6 @@ function formatTokyo(value: string): string {
 
 export function verificationConfirmationMessage(label: string): string {
   return `「${label}」として正式に記録します。記録後はこの画面から変更できません。よろしいですか？`
-}
-
-export function createRequestGate() {
-  let generation = 0
-  return {
-    start: () => ++generation,
-    abort: () => { generation += 1 },
-    isCurrent: (token: number) => generation === token,
-  }
 }
 
 export default function MynaAdminPage() {

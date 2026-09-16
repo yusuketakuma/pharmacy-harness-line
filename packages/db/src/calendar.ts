@@ -231,11 +231,12 @@ export async function getBookingsInRange(
          INNER JOIN google_calendar_connections AS connection
            ON connection.id = booking.connection_id
         WHERE booking.connection_id = ? AND connection.tenant_id IS ?
-          AND booking.start_at >= ? AND booking.end_at <= ?
+          AND julianday(booking.start_at) < julianday(?)
+          AND julianday(booking.end_at) > julianday(?)
           AND booking.status != 'cancelled'
         ORDER BY booking.start_at ASC`,
     )
-    .bind(connectionId, tenantId, startAt, endAt)
+    .bind(connectionId, tenantId, endAt, startAt)
     .all<CalendarBookingRow>();
   return result.results;
 }

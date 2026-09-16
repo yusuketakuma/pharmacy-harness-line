@@ -369,6 +369,11 @@ export default function ChatsPage() {
   const isComposingRef = useRef(false)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Stale chat-detail responses must never be applied: a slow load for the
+  // previously selected chat would otherwise paint another patient's messages
+  // and notes into the pane while sends/notes target the new selection.
+  const chatDetailEpochRef = useRef(0)
+  const selectedChatIdRef = useRef<string | null>(null)
   const [manualChatState, setManualChatState] = useState<'loading' | 'enabled' | 'review-only' | 'unverified'>('loading')
   const chatMutationAllowed = manualChatState === 'enabled'
 
@@ -518,20 +523,31 @@ export default function ChatsPage() {
   }, [sendMode])
 
   const loadChatDetail = useCallback(async (chatId: string) => {
+    // A late caller (e.g. a status/notes update for the previous chat resolving
+    // after the user switched) must not supersede the in-flight load of the
+    // chat that is actually selected — otherwise its response gets discarded
+    // and the pane wedges on the loading indicator.
+    if (selectedChatIdRef.current !== chatId) return
+    const epoch = ++chatDetailEpochRef.current
     setDetailLoading(true)
     setError('')
     try {
       const res = await api.chats.get(chatId)
+      if (chatDetailEpochRef.current !== epoch || selectedChatIdRef.current !== chatId) return
       if (res.success) {
-        setChatDetail(res.data as unknown as ChatDetail)
-        setNotes((res.data as unknown as ChatDetail).notes || '')
+        const detail = res.data as unknown as ChatDetail
+        if (detail.id !== chatId) return
+        setChatDetail(detail)
+        setNotes(detail.notes || '')
       } else {
         setError('チャット詳細を確認できませんでした。再読み込みしてください。')
       }
     } catch {
-      setError('チャット詳細を確認できませんでした。再読み込みしてください。')
+      if (chatDetailEpochRef.current === epoch && selectedChatIdRef.current === chatId) {
+        setError('チャット詳細を確認できませんでした。再読み込みしてください。')
+      }
     } finally {
-      setDetailLoading(false)
+      if (chatDetailEpochRef.current === epoch) setDetailLoading(false)
     }
   }, [])
 
@@ -551,10 +567,14 @@ export default function ChatsPage() {
   }, [])
 
   useEffect(() => {
+    selectedChatIdRef.current = selectedChatId
     if (selectedChatId) {
       loadChatDetail(selectedChatId)
     } else {
+      chatDetailEpochRef.current += 1
       setChatDetail(null)
+      setNotes('')
+      setDetailLoading(false)
     }
   }, [selectedChatId, loadChatDetail])
 
@@ -630,6 +650,10 @@ export default function ChatsPage() {
   }, [messageContent])
 
   const handleSelectChat = (chatId: string) => {
+    if (chatId !== selectedChatId) {
+      setChatDetail(null)
+      setNotes('')
+    }
     setSelectedChatId(chatId)
     setMessageContent('')
     setPendingImage(null)
@@ -990,7 +1014,7 @@ export default function ChatsPage() {
             <div className="flex-1 flex items-center justify-center">
               <p className="text-gray-400 text-sm">チャットを選択してください</p>
             </div>
-          ) : detailLoading ? (
+          ) : detailLoading || (chatDetail && chatDetail.id !== selectedChatId) ? (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-gray-400 text-sm">読み込み中...</p>
             </div>

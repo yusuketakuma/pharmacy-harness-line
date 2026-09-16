@@ -80,7 +80,7 @@ export async function repoPnpm(
   repoDir: string,
   args: string[],
   options?: ExecaOptions,
-) {
+): Promise<Awaited<ReturnType<typeof execa>>> {
   const spec = resolvePnpmSpec(repoDir);
 
   try {
