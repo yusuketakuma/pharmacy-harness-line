@@ -261,11 +261,15 @@ describe('synthetic prescription end-to-end', () => {
     const bucket = {
       delete: async (key: string) => { objects.delete(key); },
     } as unknown as R2Bucket;
+    // I19-R2: all prescription images (including closed submissions) are
+    // retained for the full 3-year period. Workflow cleanup is a fail-closed
+    // no-op; physical deletion is exclusive to the recovery-gated retention
+    // purge, which is exercised separately in retention-purge tests.
     await expect(cleanupPrescriptionImages(db, bucket, {
       now: new Date('2026-08-17T12:00:00.000Z'),
       limit: 10,
-    })).resolves.toEqual({ claimed: 3, deleted: 3, failed: 0, skipped: 0 });
-    expect(objects.size).toBe(0);
+    })).resolves.toEqual({ claimed: 0, deleted: 0, failed: 0, skipped: 0 });
+    expect(objects.size).toBe(3);
   });
 
   it.each([
