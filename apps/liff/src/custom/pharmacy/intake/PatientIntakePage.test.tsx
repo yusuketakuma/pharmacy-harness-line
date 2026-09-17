@@ -193,7 +193,7 @@ describe('patient intake UI contract', () => {
   });
 
   it('resets patient-bound controls before loading a newly selected patient', () => {
-    expect(source).toContain('未送信の入力があります。患者を切り替えますか？');
+    expect(source).toContain('未送信の入力があります。切り替えてもこの端末には下書きが残ります。患者を切り替えますか？');
     expect(source).toContain('setIntakeLoadState(nextId ? { patientId: nextId, status: \'loading\' } : null);');
     expect(source).toContain('setAccessState(null);');
     expect(source).toContain('if (!selectedId || !intakeReady || busy) return;');

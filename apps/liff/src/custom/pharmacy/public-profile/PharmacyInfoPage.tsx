@@ -3,7 +3,7 @@ import {
   pharmacyPublicProfileApi,
   type PharmacyPublicProfile,
 } from './api.js';
-import { PharmacyLoading, usePharmacyAutoRetry } from '../feedback.js';
+import { PharmacyLoading, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
 
 function safeGoogleMapsUrl(value: string): string | null {
   try {
@@ -110,6 +110,7 @@ export default function PharmacyInfoPage() {
   }, []);
 
   usePharmacyAutoRetry(loadFailures, load);
+  usePharmacyOnline(load);
 
   useEffect(() => { void load(); }, [load]);
 

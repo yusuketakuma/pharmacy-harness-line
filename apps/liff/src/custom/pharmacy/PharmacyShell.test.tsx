@@ -64,8 +64,10 @@ describe('pharmacy LIFF common shell', () => {
     await expect(loadPharmacyAccess()).rejects.toThrow('invalid LIFF config');
     const source = readFileSync(new URL('./PharmacyShell.tsx', import.meta.url), 'utf8');
     expect(source).toContain('if (loadingRef.current) return;');
-    expect(source).toContain('role="alert"');
-    expect(source).toContain('tabIndex={-1}');
+    // Error blocks announce via focus — a live region role on the same node
+    // would double-announce.
+    expect(source).toContain('ref={alertRef} tabIndex={-1}');
+    expect(source).not.toContain('ref={alertRef} tabIndex={-1} role="alert"');
     expect(source).toContain('min-h-11');
     expect(source).toContain('再試行');
   });

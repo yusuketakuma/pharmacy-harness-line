@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { PharmacyLoading, usePharmacyAutoRetry } from '../feedback.js';
+import { PharmacyLoading, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
 import { pharmacyRoute } from '../navigation.js';
 import { isUnsupportedPharmacyFeature, pharmacyErrorMessage } from '../request.js';
 import { patientTimelineApi, type PatientTimelineItem } from './api.js';
@@ -93,6 +93,7 @@ export default function PatientTimelinePage() {
   }, []);
 
   usePharmacyAutoRetry(loadFailures, load);
+  usePharmacyOnline(load);
 
   useEffect(() => {
     mounted.current = true;
@@ -127,7 +128,7 @@ export default function PatientTimelinePage() {
 
   return <main className="pharmacy-main mx-auto max-w-md space-y-4 p-4">
     <p className="pharmacy-supplemental">送信やフォローの状態を、最近のものから確認できます。</p>
-    {errorMessage && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-xl bg-red-50 p-4 text-base text-red-800 focus:outline-none">
+    {errorMessage && <div ref={errorRef} tabIndex={-1} className="rounded-xl bg-red-50 p-4 text-base text-red-800 focus:outline-none">
       <p>{errorMessage}</p>
       <button type="button" onClick={() => void load()} className="pharmacy-control pharmacy-focus mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 font-bold">再試行</button>
     </div>}

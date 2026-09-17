@@ -9,7 +9,7 @@ import {
 } from './api.js';
 import { pharmacyRoute } from '../navigation.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
-import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
 
 export const PATIENT_RESPONSE_OPTIONS: Array<{
   value: PatientMedicationFollowUpResponse;
@@ -99,6 +99,7 @@ export default function MedicationFollowUpPage() {
   }, []);
 
   usePharmacyAutoRetry(loadFailures, load);
+  usePharmacyOnline(load);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -183,7 +184,7 @@ export default function MedicationFollowUpPage() {
                         key={option.value}
                         type="button"
                         disabled={busyId === item.id}
-                        aria-busy={busyId === item.id}
+                        aria-busy={busyId === item.id && busyResponse === option.value}
                         onClick={() => void respond(item, option.value)}
                         className="pharmacy-control min-h-11 rounded-xl border border-green-200 bg-white px-4 py-3 text-left disabled:opacity-50"
                       >

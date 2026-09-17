@@ -4,7 +4,7 @@ import packageJson from '../../../package.json';
 import { getLiffId } from '../../lib/liff-auth.js';
 import { pharmacyRoute } from './navigation.js';
 import { requestPharmacyJson } from './request.js';
-import { PharmacyLoading, usePharmacyAutoRetry } from './feedback.js';
+import { PharmacyLoading, PharmacyOfflineBanner, usePharmacyAutoRetry, usePharmacyOnline } from './feedback.js';
 
 export const pharmacyLiffVersion = packageJson.version;
 
@@ -140,6 +140,7 @@ export function PharmacyShell({ screenTitle, children }: {
   children: ReactNode;
 }) {
   const access = usePharmacyAccess();
+  const online = usePharmacyOnline();
   const alertRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const locationKey = location.pathname;
@@ -154,18 +155,19 @@ export function PharmacyShell({ screenTitle, children }: {
 
   return <div className="pharmacy-shell mx-auto max-w-md">
     <PharmacyShellHeader accountName={access.accountName} screenTitle={screenTitle} />
+    {!online && <div className="px-4 pt-3"><PharmacyOfflineBanner online={online} /></div>}
     {access.loading
           ? <section aria-labelledby="pharmacy-loading-title" className="p-6">
           <h2 id="pharmacy-loading-title" className="sr-only">{screenTitle}</h2>
             <PharmacyLoading label="利用状況を確認しています..." lines={4} />
         </section>
       : access.configError
-        ? <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-base text-red-800">
+        ? <div ref={alertRef} tabIndex={-1} className="m-4 rounded-xl bg-red-50 p-4 text-base text-red-800">
             <p>{access.configError} 通信状態を確認して再試行してください。</p>
             <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再試行</button>
           </div>
         : <div key={locationKey} className="pharmacy-page-enter">
-            {access.existingError && <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
+            {access.existingError && <div ref={alertRef} tabIndex={-1} className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
               <p>{access.existingError} 有効な機能はそのまま利用できます。</p>
               <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold">再試行</button>
             </div>}

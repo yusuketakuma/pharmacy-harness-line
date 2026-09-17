@@ -47,7 +47,7 @@ export function pharmacyMainMenuItems(liffId?: string, enabledFeatures?: readonl
     { capability: 'patient_intake', allowExisting: true, label: '患者情報・アンケート', description: '患者情報と服薬状況を登録・更新', icon: '問', group: '今すぐ行う', to: pharmacyRoute('/pharmacy/patient-intake', liffId) },
     { capability: 'continuity', allowExisting: true, label: '継続フォロー', description: '次回事前送信のお知らせを確認', icon: '続', group: '送信後の確認・フォロー', to: pharmacyRoute('/pharmacy/continuity', liffId) },
     { capability: 'medication_followup', allowExisting: true, label: '服薬後フォロー', description: 'お薬を使った後の状況を回答', icon: '後', group: '送信後の確認・フォロー', to: pharmacyRoute('/pharmacy/medication-followup', liffId) },
-    { capability: 'emergency_contraception', allowExisting: true, label: '緊急避妊薬', description: '対応状況を確認して仮受付へ進む', icon: '緊', group: '今すぐ行う', to: pharmacyRoute('/pharmacy/emergency-contraception', liffId) },
+    { capability: 'emergency_contraception', allowExisting: true, label: '緊急避妊薬', description: '対応状況を確認して事前のお申し込みへ進む', icon: '緊', group: '今すぐ行う', to: pharmacyRoute('/pharmacy/emergency-contraception', liffId) },
     { capability: 'pharmacy_info', allowExisting: false, label: '薬局情報', description: '営業時間・サービス・アクセスを確認', icon: '店', group: '薬局情報・相談', to: pharmacyRoute('/pharmacy/info', liffId) },
   ];
   return (enabledFeatures === undefined ? items : items.filter((item) =>

@@ -6,7 +6,7 @@ import {
   type NextIntakeExpectation,
 } from './api.js';
 import { pharmacyRoute } from '../navigation.js';
-import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
 
 const labels: Record<ContinuityObligation['status'], string> = {
   active: '次回のご相談を受付中',
@@ -89,6 +89,7 @@ export default function ContinuityPage() {
     }
   }, []);
   usePharmacyAutoRetry(loadFailures, load);
+  usePharmacyOnline(load);
 
   useEffect(() => { void load(); }, [load]);
 

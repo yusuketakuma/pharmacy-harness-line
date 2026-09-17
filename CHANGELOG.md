@@ -1,5 +1,51 @@
 # Changelog
 
+## Pharmacy v0.36.2 (2026-09-18)
+
+> パッケージ／ソースのバージョンを`0.36.2`として確定し、患者向けLIFFの状態遷移の信頼性仕上げ一式を`dev`で管理します。ソースコードのタグ`v0.36.2`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+v0.36.1で増えた状態遷移（自動再試行・下書き・ステータス通知）を、患者が信用できる状態まで閉じるpatchです。新API・migration・通知経路の追加はなく、変更は`custom/pharmacy` seamのLIFF側のみです。計画はPLANS.mdのv0.36.2節（V036-12〜17）に固定済みで、条件付き2件（画像ごとの状態表示・接続状態案内）は採用条件を満たしたため実装しています。
+
+### v0.36.1との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| 自動再試行の堅牢化 | `usePharmacyAutoRetry`をload単位へ粒度変更（PrescriptionPage 4系統・PatientIntakePage 2系統が独立にretry）。attempt消費を`setTimeout`発火時へ移し、StrictModeのdev double-mountでretry budgetを二重消費しない。`mounted` guardでunmount後のsetStateを抑止 | 実装済み |
+| 下書きの信頼性 | `{savedAt, data}` envelope＋24時間TTL＋期限切れ削除。envelope無しのlegacy draftは一度だけ復帰（「保存時刻は不明」表示）し、次回保存で自動migrate。復帰時のみ「下書きを復元しました」通知＋保存時刻表示。切替・離脱ダイアログを「この端末には下書きが残ります」へ実挙動に整合 | 実装済み |
+| 読み上げの単一経路化 | live region（`role="status"`/`alert`）とfocusを分離：成功・情報ブロックはlive regionで読み上げ（scrollのみ、focus/tabIndex廃止）、エラーブロックはfocusで読み上げ（live role廃止）。二重読み上げを解消 | 実装済み |
+| `aria-busy`の限定 | 服薬フォローの選択肢で`aria-busy`を実際に送信中のボタンのみへ限定（他の選択肢はdisabledのままbusy非表示） | 実装済み |
+| 平易化 | `既往歴・通院中の病気`→`これまでにかかった病気・現在通院中の病気`、`説明と明示同意`→`説明と同意`（明示性は必須checkboxが担保）、`仮受付`へ初出説明`（確定前のお申し込み）`を付記 | 実装済み |
+| 画像ごとの送信状態 | 処方せんの各画像に`送信待ち/送信中…/送信済み/要再試行`の状態chip。`prescriptionApi.upload`逐次呼出を包む状態遷移のみで、upload transportは不変。失敗画像以降は一律`要再試行`で、結果不明を成功表示しない | 実装済み |
+| 接続状態案内 | `usePharmacyOnline`（offline/onlineイベント監視、online遷移時のみnamed read callback発火）＋Shell共通`PharmacyOfflineBanner`。全ページのidempotent readを復帰時に局所再取得。ページreload・dirty form/画像/mutationの自動送信なし | 実装済み |
+| 回帰ガード | `v036-ui-rules.test.ts`に追加：attemptのtimer内消費、retry/reconnect callbackのnamed read必須、focus target×live region併用禁止、`aria-busy`スコープ、平易化文言、画像4状態、`location.reload`禁止 | 実装済み |
+
+### 差分で確認した安全性
+
+- **下書きの期限と後方互換**: TTL 24hは工学的提案値（法令由来でない）。envelope無しlegacy draftは一度復帰して次回編集で新形式へ自動移行し、データを失わない。`data:null`/corrupt envelopeは復帰せず握りつぶす。患者A/Bのキー分離は`intakeDraftKey(patientId)`で維持。
+- **読み上げの重複排除**: `role="status"`（暗黙polite+atomic）ノードへのfocus移動はスクリーンリーダーで二重読み上げになるため、読み上げ経路を1本に統一。focusを受けるエラーブロックからは`role="alert"`を除去。
+- **接続復帰時の自動再取得**: `usePharmacyOnline`のcallbackはnamed idempotent readのみ（ガードで強制）。provider層へ`usePharmacyOnline(retry)`を配線すると`access.loading`が全childrenをskeletonへ差し替えdirty formを破壊するため、復帰再取得はpage層のreadのみに限定。
+- **画像状態の正直表示**: `done`は`upload()`のresolve後のみ。files配列が変わるとindex対応が崩れるため全量`queued`へreset（stale状態を引き継がない）。結果不明を`送信済み`表示しない。
+- **API契約**: 変更なし。upload transport・draft・intake answersの送出形式は不変。UI層のみの変更のため、旧LIFFとのlockstep deployは不要。
+
+### レビューで検出・修正した事項
+
+- provider層へ`usePharmacyOnline(retry)`を配線すると、復帰時のaccess再読込が`loading:true`で全childrenをskeletonへ差し替え、入力中フォームを破壊する問題を検出し取り止め（復帰再取得はpage層readへ限定）。
+- `loadDraft`のenvelope判定で`data:null`やnull本体のdraftが`data.answers`参照でTypeErrorになる経路を検出し、null/undefinedの早期returnで防御。
+- ガードテストが`feedback.tsx`内のhook定義行とコメント中の`role="alert"`記述を誤検出したため、定義site除外・コメント行skipで修正。
+- `isEnvelope`の`Boolean(value)`ナローイングがTS18047を出したため`value !== null`へ修正。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.36.2`へ統一 |
+| liff | 28 files / 189 tests PASS、`tsc --noEmit` PASS、Vite build成功 |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema変更、旧契約の意味変更なし |
+| 実LINE受入 / production deploy | NOT_RUN — Human Gate。local greenでは代替しない |
+| LINE送信取消 | BLOCKED継続 — V036-6-U1として正本確定まで実装しない |
+
 ## Pharmacy v0.36.1 (2026-09-18)
 
 > パッケージ／ソースのバージョンを`0.36.1`として確定し、患者向けLIFFのインタラクション・フォームUX改善一式を`dev`で管理します。ソースコードのタグ`v0.36.1`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。

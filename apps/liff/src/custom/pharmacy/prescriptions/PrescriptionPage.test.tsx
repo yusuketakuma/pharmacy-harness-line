@@ -284,8 +284,9 @@ describe('prescription upload recovery (V034-3)', () => {
 
   it('warns on navigation, tracks offline state natively, and persists no recovery data', () => {
     expect(source).toContain("addEventListener('beforeunload'");
-    expect(source).toContain("addEventListener('offline'");
-    expect(source).toContain("addEventListener('online'");
+    // Offline tracking lives in usePharmacyOnline (offline/online events with
+    // a read-only reconnect callback).
+    expect(source).toContain('usePharmacyOnline(reconnectReads)');
     expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB|caches\./);
   });
 });

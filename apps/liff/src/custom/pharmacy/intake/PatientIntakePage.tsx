@@ -25,8 +25,8 @@ import {
   type IntakeAnswersDraft,
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
-import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
-import { clearDraft, intakeDraftKey, loadDraft, NEW_PATIENT_DRAFT_KEY, saveDraft } from '../draftStorage.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
+import { clearDraft, draftRestoreMessage, intakeDraftKey, loadDraft, NEW_PATIENT_DRAFT_KEY, saveDraft } from '../draftStorage.js';
 import { pharmacyErrorMessage } from '../request.js';
 
 const relationshipLabels: Record<PatientRelationship, string> = {
@@ -121,9 +121,11 @@ export default function PatientIntakePage() {
   const [pendingProfileSave, setPendingProfileSave] = useState<PendingProfileSave | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [loadFailures, setLoadFailures] = useState(0);
+  const [patientsFailures, setPatientsFailures] = useState(0);
+  const [policyFailures, setPolicyFailures] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
   const registrationIdempotencyKeyRef = useRef(crypto.randomUUID());
   const intakeOperationEpochRef = useRef(0);
   const intakeOperationRef = useRef<PatientIntakeOperation | null>(null);
@@ -149,7 +151,7 @@ export default function PatientIntakePage() {
     const handleLinkClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target.closest('a') : null;
       if (!target || target.target === '_blank' || target.hasAttribute('download')) return;
-      if (!window.confirm('未送信の入力があります。画面を離れますか？')) {
+      if (!window.confirm('未送信の入力があります。この端末には下書きが残りますが、画面を離れますか？')) {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -178,19 +180,20 @@ export default function PatientIntakePage() {
     try {
       const result = await patientIntakeApi.list();
       setPatients(result.patients);
-      setLoadFailures(0);
+      setPatientsFailures(0);
       setSelectedId((current) => current || result.patients[0]?.id || '');
       if (result.patients.length === 0) {
         const draft = loadDraft<{ patientDraft?: PatientProfileDraft; showAddress?: boolean }>(NEW_PATIENT_DRAFT_KEY);
-        setPatientDraft(draft?.patientDraft
-          ? { ...emptyPatientProfileDraft('self'), ...draft.patientDraft }
+        setPatientDraft(draft?.data.patientDraft
+          ? { ...emptyPatientProfileDraft('self'), ...draft.data.patientDraft }
           : emptyPatientProfileDraft('self'));
-        setShowAddress(Boolean(draft?.showAddress));
+        setShowAddress(Boolean(draft?.data.showAddress));
+        if (draft?.data.patientDraft) setDraftNotice(draftRestoreMessage(draft.savedAt));
         setShowNewPatient(true);
       }
     } catch (err) {
       setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
-      setLoadFailures((count) => count + 1);
+      setPatientsFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
@@ -222,22 +225,34 @@ export default function PatientIntakePage() {
       }
       setPrivacyConsent(false);
       setPrivacyPolicy(result.policy);
-      setLoadFailures(0);
+      setPolicyFailures(0);
     } catch (err) {
       if (isActive()) {
         setPrivacyPolicyError(pharmacyErrorMessage(err, '個人情報の利用目的を確認できませんでした。再読み込みしてください。'));
-        setLoadFailures((count) => count + 1);
+        setPolicyFailures((count) => count + 1);
       }
     } finally {
       if (isActive()) setPrivacyPolicyLoading(false);
     }
   }, []);
 
-  const retryLoads = useCallback(() => {
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const retryPrivacyPolicy = useCallback(() => {
+    void loadPrivacyPolicy(() => mountedRef.current);
+  }, [loadPrivacyPolicy]);
+  usePharmacyAutoRetry(patientsFailures, loadPatients);
+  usePharmacyAutoRetry(policyFailures, retryPrivacyPolicy);
+  // On reconnect, re-run only idempotent reads — unsent form input is never
+  // submitted automatically.
+  const reconnectReads = useCallback(() => {
     void loadPatients();
-    void loadPrivacyPolicy();
-  }, [loadPatients, loadPrivacyPolicy]);
-  usePharmacyAutoRetry(loadFailures, retryLoads);
+    retryPrivacyPolicy();
+  }, [loadPatients, retryPrivacyPolicy]);
+  usePharmacyOnline(reconnectReads);
 
   useEffect(() => {
     let active = true;
@@ -252,6 +267,7 @@ export default function PatientIntakePage() {
     }
     let active = true;
     setDraftDirty(false);
+    setDraftNotice(null);
     setIntakeStep(1);
     setLatestRevision(null);
     setLatestAnswers(null);
@@ -268,9 +284,12 @@ export default function PatientIntakePage() {
       const intake = result.intake;
       const draft = loadDraft<{ answers?: Partial<IntakeAnswersDraft>; step?: number }>(intakeDraftKey(selectedId));
       if (!intake) {
-        setAnswers(draft?.answers ? { ...INITIAL_INTAKE_ANSWERS, ...draft.answers } : INITIAL_INTAKE_ANSWERS);
-        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.step ?? 1)));
-        if (draft?.answers) setDraftDirty(true);
+        setAnswers(draft?.data.answers ? { ...INITIAL_INTAKE_ANSWERS, ...draft.data.answers } : INITIAL_INTAKE_ANSWERS);
+        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
+        if (draft?.data.answers) {
+          setDraftDirty(true);
+          setDraftNotice(draftRestoreMessage(draft.savedAt));
+        }
         setIntakeLoadState({ patientId: selectedId, status: 'ready' });
         return;
       }
@@ -283,9 +302,12 @@ export default function PatientIntakePage() {
         setLatestAnswers(savedAnswers);
         // Draft wins over saved values, but saved values fill any key the
         // draft lacks (e.g. fields added after the draft was stored).
-        setAnswers(draft?.answers ? { ...savedAnswers, ...draft.answers } : savedAnswers);
-        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.step ?? 1)));
-        if (draft?.answers) setDraftDirty(true);
+        setAnswers(draft?.data.answers ? { ...savedAnswers, ...draft.data.answers } : savedAnswers);
+        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
+        if (draft?.data.answers) {
+          setDraftDirty(true);
+          setDraftNotice(draftRestoreMessage(draft.savedAt));
+        }
         setIntakeLoadState({ patientId: selectedId, status: 'ready' });
       } catch {
         setIntakeLoadState({ patientId: selectedId, status: 'error' });
@@ -346,7 +368,7 @@ export default function PatientIntakePage() {
 
   function selectPatient(nextId: string) {
     if (nextId === selectedId) return;
-    if (draftDirty && !window.confirm('未送信の入力があります。患者を切り替えますか？')) return;
+    if (draftDirty && !window.confirm('未送信の入力があります。切り替えてもこの端末には下書きが残ります。患者を切り替えますか？')) return;
     resetPatientSelection(nextId);
   }
 
@@ -648,16 +670,17 @@ export default function PatientIntakePage() {
     setProfileErrors({});
     setEditing(false);
     const draft = loadDraft<{ patientDraft?: PatientProfileDraft; showAddress?: boolean }>(NEW_PATIENT_DRAFT_KEY);
-    setPatientDraft(draft?.patientDraft
-      ? { ...emptyPatientProfileDraft(relationshipValue), ...draft.patientDraft }
+    setPatientDraft(draft?.data.patientDraft
+      ? { ...emptyPatientProfileDraft(relationshipValue), ...draft.data.patientDraft }
       : emptyPatientProfileDraft(relationshipValue));
-    setShowAddress(Boolean(draft?.showAddress));
+    setShowAddress(Boolean(draft?.data.showAddress));
+    if (draft?.data.patientDraft) setDraftNotice(draftRestoreMessage(draft.savedAt));
     setShowNewPatient(true);
     registrationIdempotencyKeyRef.current = crypto.randomUUID();
   }
 
   function confirmIntakeNavigation(): boolean {
-    if (draftDirty && !window.confirm('未送信の入力があります。画面を離れますか？')) return false;
+    if (draftDirty && !window.confirm('未送信の入力があります。この端末には下書きが残りますが、画面を離れますか？')) return false;
     setDraftDirty(false);
     return true;
   }
@@ -666,9 +689,10 @@ export default function PatientIntakePage() {
     <main className="pharmacy-main max-w-md mx-auto">
       <div className="p-4 space-y-4">
         <p className="text-base leading-6 text-gray-600">本人・ご家族の情報を薬局に伝えます。入力目安：約1分、選択式中心で詳細は任意です。</p>
-        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">{error}</div>}
+        {error && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">{error}</div>}
+        {draftNotice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-base text-blue-800">{draftNotice}</p>}
         {privacyPolicyLoading && <p role="status" className="rounded-lg bg-gray-50 p-3 text-base text-gray-700">個人情報の利用目的を確認しています...</p>}
-        {privacyPolicyError && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">
+        {privacyPolicyError && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">
           <p>{privacyPolicyError}</p>
           <button type="button" onClick={() => void loadPrivacyPolicy()} disabled={privacyPolicyLoading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
         </div>}
