@@ -78,13 +78,17 @@ export default function PatientTimelinePage() {
   const load = useCallback(async (quiet = false) => {
     // quiet = background refresh: keep the timeline mounted and do not
     // clear/re-set the error banner — a '' → message transition would steal
-    // focus on every retry cycle.
-    if (!quiet) setLoading(true);
-    if (!quiet) setErrorMessage('');
-    setLegacyWorker(false);
+    // focus on every retry cycle. legacyWorker is deterministic state, so it
+    // flips only on a real outcome (success or unsupported), never at the
+    // start of a background read.
+    if (!quiet) {
+      setLoading(true);
+      setErrorMessage('');
+      setLegacyWorker(false);
+    }
     try {
       const result = await patientTimelineApi.load();
-      if (mounted.current) { setItems(result.items); setLoadFailures(0); setErrorMessage(''); }
+      if (mounted.current) { setItems(result.items); setLoadFailures(0); setErrorMessage(''); setLegacyWorker(false); }
     } catch (caught) {
       if (!mounted.current) return;
       const error = caught as Error;

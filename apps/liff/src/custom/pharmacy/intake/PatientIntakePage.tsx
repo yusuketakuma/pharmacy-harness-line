@@ -26,7 +26,7 @@ import {
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
 import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
-import { clearDraft, draftRestoreMessage, intakeDraftKey, loadDraft, NEW_PATIENT_DRAFT_KEY, newPatientDraftKey, saveDraft, sweepIntakeDrafts } from '../draftStorage.js';
+import { clearDraft, draftRestoreMessage, intakeDraftKey, legacyIntakeDraftKey, migrateLegacyDraft, NEW_PATIENT_DRAFT_KEY, newPatientDraftKey, saveDraft, sweepIntakeDrafts } from '../draftStorage.js';
 import { cloneJsonValue, pharmacyUuid } from '../compat.js';
 import { getLiffId } from '../../../lib/liff-auth.js';
 import { pharmacyErrorMessage } from '../request.js';
@@ -97,23 +97,35 @@ export function retainPatientIntakeOperation(
 type NewPatientDraftData = { patientDraft?: PatientProfileDraft; showAddress?: boolean };
 
 // The new-patient draft key is scoped by liffId because multiple pharmacy
-// LIFF apps can share one Pages origin. The pre-scoping legacy key is read
-// once and migrated to the scoped key.
+// LIFF apps share one Pages origin. The pre-scoping legacy key is read once
+// and migrated to the scoped key.
 function loadNewPatientDraft() {
-  const scopedKey = newPatientDraftKey(getLiffId());
-  const scoped = loadDraft<NewPatientDraftData>(scopedKey);
-  if (scoped) return scoped;
-  const legacy = loadDraft<NewPatientDraftData>(NEW_PATIENT_DRAFT_KEY);
-  if (legacy) {
-    saveDraft(scopedKey, legacy.data);
-    clearDraft(NEW_PATIENT_DRAFT_KEY);
-  }
-  return legacy;
+  return migrateLegacyDraft<NewPatientDraftData>(newPatientDraftKey(getLiffId()), NEW_PATIENT_DRAFT_KEY);
 }
 
 function clearNewPatientDraft() {
+  // Only the scoped key is ours: a surviving legacy key may be another
+  // account's pre-scoping draft on this shared origin — its owner's page
+  // migrates it on next load, so it must not be deleted here.
   clearDraft(newPatientDraftKey(getLiffId()));
-  clearDraft(NEW_PATIENT_DRAFT_KEY);
+}
+
+type IntakeDraftData = { answers?: Partial<IntakeAnswersDraft>; step?: number };
+
+// The selectedId always comes from this account's patient list, which proves
+// a legacy unscoped draft with the same patientId belongs to this account —
+// safe to adopt into the scoped key.
+function loadIntakeDraft(patientId: string) {
+  return migrateLegacyDraft<IntakeDraftData>(
+    intakeDraftKey(getLiffId(), patientId), legacyIntakeDraftKey(patientId),
+  );
+}
+
+function clearIntakeDraft(patientId: string) {
+  clearDraft(intakeDraftKey(getLiffId(), patientId));
+  // The caller only reaches this for a patientId proven to be this account's
+  // (submitted or just revoked), so the legacy twin is safe to remove too.
+  clearDraft(legacyIntakeDraftKey(patientId));
 }
 
 export default function PatientIntakePage() {
@@ -228,8 +240,9 @@ export default function PatientIntakePage() {
       setError((current) => current === patientsLoadErrorRef.current ? null : current);
       // The list is authoritative: drafts of patients no longer in it
       // (deleted / proxy revoked) are orphaned and swept so they do not
-      // linger in localStorage past their TTL.
-      sweepIntakeDrafts(new Set(result.patients.map((patient) => patient.id)));
+      // linger in localStorage past their TTL. Scoped to this liffId — other
+      // accounts' drafts on this shared origin are never touched.
+      sweepIntakeDrafts(new Set(result.patients.map((patient) => patient.id)), getLiffId());
       // Revalidate the selection: a still-valid selection is kept as-is
       // mid-edit, but a vanished patient triggers the full selection reset —
       // the epoch bumps inside also cancel in-flight saves/submits so
@@ -273,7 +286,7 @@ export default function PatientIntakePage() {
   // Persist unsent input so an interrupted session can resume where it left off.
   useEffect(() => {
     if (!selectedId || !draftDirty) return;
-    saveDraft(intakeDraftKey(selectedId), { answers, step: intakeStep });
+    saveDraft(intakeDraftKey(getLiffId(), selectedId), { answers, step: intakeStep });
   }, [answers, intakeStep, selectedId, draftDirty]);
 
   useEffect(() => {
@@ -296,6 +309,13 @@ export default function PatientIntakePage() {
       const result = await patientIntakeApi.privacyPolicy();
       if (!isActive()) return;
       if (!result.policy) {
+        // The policy was removed server-side — authoritative state, not a
+        // transient failure: drop the cached policy and its consent even on a
+        // quiet refresh so a stale version can never be submitted against.
+        policyFingerprintRef.current = null;
+        setPrivacyPolicy(null);
+        setPrivacyConsent(false);
+        setPolicyFailures(0);
         setPrivacyPolicyError('この薬局では個人情報の利用目的が設定されていないため、アンケートを送信できません。薬局へお問い合わせください。');
         return;
       }
@@ -368,7 +388,7 @@ export default function PatientIntakePage() {
     void patientIntakeApi.latest(selectedId).then((result) => {
       if (!active) return;
       const intake = result.intake;
-      const draft = loadDraft<{ answers?: Partial<IntakeAnswersDraft>; step?: number }>(intakeDraftKey(selectedId));
+      const draft = loadIntakeDraft(selectedId);
       if (!intake) {
         setAnswers(draft?.data.answers ? { ...INITIAL_INTAKE_ANSWERS, ...draft.data.answers } : INITIAL_INTAKE_ANSWERS);
         setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
@@ -613,7 +633,7 @@ export default function PatientIntakePage() {
       // The revoked patient's draft becomes unreachable — drop it now. The
       // epoch bump also discards any in-flight list read that still contains
       // the revoked patient.
-      clearDraft(intakeDraftKey(selectedPatient.id));
+      clearIntakeDraft(selectedPatient.id);
       patientsEpochRef.current += 1;
       const remaining = patients.filter((patient) => patient.id !== selectedPatient.id);
       setPatients(remaining);
@@ -699,7 +719,7 @@ export default function PatientIntakePage() {
       setLatestAnswers(operation.body.answers);
       setAnswers(operation.body.answers);
       setDraftDirty(false);
-      clearDraft(intakeDraftKey(selectedId));
+      clearIntakeDraft(selectedId);
       setSuccess('アンケートを保存しました。');
       setSaved(true);
       setRepresentativeConsent(false);

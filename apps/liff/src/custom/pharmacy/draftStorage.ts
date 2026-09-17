@@ -82,18 +82,43 @@ export function clearDraft(key: string): void {
   }
 }
 
+// Restore-once migration for keys that predate liffId scoping. A legacy draft
+// is adopted into the scoped key and removed from the shared slot. Callers
+// differ in how ownership is resolved: for intake drafts the patientId comes
+// from this account's own list, which proves it is ours; for the new-patient
+// draft the owner is unverifiable, so first-claim wins — the same exposure the
+// shared key already had before scoping, now bounded to a single migration.
+// A legacy key whose owner never loads it stays put; it is never deleted here.
+export function migrateLegacyDraft<T>(scopedKey: string, legacyKey: string): LoadedDraft<T> | null {
+  const scoped = loadDraft<T>(scopedKey);
+  if (scoped) return scoped;
+  const legacy = loadDraft<T>(legacyKey);
+  if (legacy) {
+    saveDraft(scopedKey, legacy.data);
+    // saveDraft fails soft (denied storage / quota) — only drop the legacy
+    // copy once the scoped write is confirmed readable, so a failed migration
+    // cannot destroy the only copy of the draft.
+    if (loadDraft<T>(scopedKey) !== null) clearDraft(legacyKey);
+  }
+  return legacy;
+}
+
 // Drafts for patients that disappear from the patient list (deleted or proxy
 // revoked) are never read again, so the lazy TTL in loadDraft would keep them
 // forever. The intake page sweeps them whenever it loads the patient list —
-// the list is the authoritative scope of "who can still have a draft".
-export function sweepIntakeDrafts(validPatientIds: ReadonlySet<string>): void {
+// the list is the authoritative scope of "who can still have a draft". Only
+// keys scoped to THIS liffId are touched: one Pages origin serves every
+// pharmacy account, so unscoped legacy keys and other accounts' drafts are
+// never ours to delete.
+export function sweepIntakeDrafts(validPatientIds: ReadonlySet<string>, liffId: string): void {
   try {
     const storage = window.localStorage;
+    const scopedPrefix = `${INTAKE_PREFIX}${liffId}:`;
     const staleKeys: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
-      if (!key || !key.startsWith(INTAKE_PREFIX)) continue;
-      const patientId = key.slice(INTAKE_PREFIX.length);
+      if (!key || !key.startsWith(scopedPrefix)) continue;
+      const patientId = key.slice(scopedPrefix.length);
       if (!validPatientIds.has(patientId)) staleKeys.push(key);
     }
     for (const key of staleKeys) storage.removeItem(key);
@@ -110,10 +135,13 @@ export function draftRestoreMessage(savedAt: number | null): string {
   return `下書きを復元しました（${stamp}に保存）。`;
 }
 
-export const intakeDraftKey = (patientId: string) => `intake:${patientId}`;
-// LIFF apps for different pharmacy accounts may share one Pages origin, so the
-// new-patient draft is scoped by liffId to avoid restoring another account's
-// draft. NEW_PATIENT_DRAFT_KEY is the pre-scoping legacy key kept for
-// restore-once compatibility.
+// LIFF apps for different pharmacy accounts share one Pages origin, so every
+// draft key is scoped by liffId — otherwise one account could read, overwrite,
+// or delete another account's draft in the same localStorage.
+export const intakeDraftKey = (liffId: string, patientId: string) => `intake:${liffId}:${patientId}`;
+// Pre-scoping intake key shape, kept only so an existing draft can be adopted
+// by migrateLegacyDraft on first read. Never write it.
+export const legacyIntakeDraftKey = (patientId: string) => `intake:${patientId}`;
 export const newPatientDraftKey = (liffId: string) => `patient-profile:new:${liffId}`;
+// Pre-scoping legacy key kept for restore-once compatibility.
 export const NEW_PATIENT_DRAFT_KEY = 'patient-profile:new';

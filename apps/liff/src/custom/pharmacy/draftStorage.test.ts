@@ -4,7 +4,9 @@ import {
   DRAFT_TTL_MS,
   draftRestoreMessage,
   intakeDraftKey,
+  legacyIntakeDraftKey,
   loadDraft,
+  migrateLegacyDraft,
   NEW_PATIENT_DRAFT_KEY,
   newPatientDraftKey,
   saveDraft,
@@ -73,13 +75,21 @@ describe('draftStorage', () => {
 
   it('isolates drafts per patient key', () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
-    saveDraft(intakeDraftKey('patient-a'), { answers: { who: 'a' } });
-    saveDraft(intakeDraftKey('patient-b'), { answers: { who: 'b' } });
-    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('patient-a'), NOW)?.data.answers.who).toBe('a');
-    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('patient-b'), NOW)?.data.answers.who).toBe('b');
-    clearDraft(intakeDraftKey('patient-a'));
-    expect(loadDraft(intakeDraftKey('patient-a'), NOW)).toBeNull();
-    expect(loadDraft(intakeDraftKey('patient-b'), NOW)).not.toBeNull();
+    saveDraft(intakeDraftKey('app', 'patient-a'), { answers: { who: 'a' } });
+    saveDraft(intakeDraftKey('app', 'patient-b'), { answers: { who: 'b' } });
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app', 'patient-a'), NOW)?.data.answers.who).toBe('a');
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app', 'patient-b'), NOW)?.data.answers.who).toBe('b');
+    clearDraft(intakeDraftKey('app', 'patient-a'));
+    expect(loadDraft(intakeDraftKey('app', 'patient-a'), NOW)).toBeNull();
+    expect(loadDraft(intakeDraftKey('app', 'patient-b'), NOW)).not.toBeNull();
+  });
+
+  it('scopes intake drafts per liffId so tenants on one origin stay separate', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    saveDraft(intakeDraftKey('app-1', 'patient-a'), { answers: { who: 'a1' } });
+    saveDraft(intakeDraftKey('app-2', 'patient-a'), { answers: { who: 'a2' } });
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app-1', 'patient-a'), NOW)?.data.answers.who).toBe('a1');
+    expect(loadDraft<{ answers: { who: string } }>(intakeDraftKey('app-2', 'patient-a'), NOW)?.data.answers.who).toBe('a2');
   });
 
   it('fails soft when storage throws', () => {
@@ -121,15 +131,55 @@ describe('draftStorage', () => {
   });
 
   it('sweeps intake drafts for patients no longer in the list', () => {
-    store.set(`pharmacy-liff-draft:v1:intake:gone`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
-    store.set(`pharmacy-liff-draft:v1:intake:kept`, JSON.stringify({ savedAt: NOW, data: { a: 2 } }));
+    store.set('pharmacy-liff-draft:v1:intake:app:gone', JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
+    store.set('pharmacy-liff-draft:v1:intake:app:kept', JSON.stringify({ savedAt: NOW, data: { a: 2 } }));
     store.set('pharmacy-liff-draft:v1:patient-profile:new:app', JSON.stringify({ savedAt: NOW, data: {} }));
     store.set('unrelated-key', 'x');
-    sweepIntakeDrafts(new Set(['kept']));
-    expect(store.has('pharmacy-liff-draft:v1:intake:gone')).toBe(false);
-    expect(store.has('pharmacy-liff-draft:v1:intake:kept')).toBe(true);
+    sweepIntakeDrafts(new Set(['kept']), 'app');
+    expect(store.has('pharmacy-liff-draft:v1:intake:app:gone')).toBe(false);
+    expect(store.has('pharmacy-liff-draft:v1:intake:app:kept')).toBe(true);
     expect(store.has('pharmacy-liff-draft:v1:patient-profile:new:app')).toBe(true);
     expect(store.get('unrelated-key')).toBe('x');
+  });
+
+  it('never sweeps another tenant’s or a legacy unscoped intake draft', () => {
+    // Same Pages origin, different account: this tenant's list must not be
+    // treated as the authority over keys it does not own.
+    store.set('pharmacy-liff-draft:v1:intake:other:patient-x', JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
+    store.set('pharmacy-liff-draft:v1:intake:patient-y', JSON.stringify({ savedAt: NOW, data: { a: 2 } }));
+    store.set('pharmacy-liff-draft:v1:intake:app:stale', JSON.stringify({ savedAt: NOW, data: { a: 3 } }));
+    sweepIntakeDrafts(new Set(), 'app');
+    expect(store.has('pharmacy-liff-draft:v1:intake:other:patient-x')).toBe(true);
+    expect(store.has('pharmacy-liff-draft:v1:intake:patient-y')).toBe(true);
+    expect(store.has('pharmacy-liff-draft:v1:intake:app:stale')).toBe(false);
+  });
+
+  it('adopts a legacy draft into the scoped key on first read', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    store.set(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
+    const migrated = migrateLegacyDraft<{ a: number }>(intakeDraftKey('app', 'patient-a'), legacyIntakeDraftKey('patient-a'));
+    expect(migrated?.data).toEqual({ a: 1 });
+    expect(loadDraft(intakeDraftKey('app', 'patient-a'), NOW)?.data).toEqual({ a: 1 });
+    expect(store.has(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`)).toBe(false);
+  });
+
+  it('keeps the legacy draft when the scoped write cannot be confirmed', () => {
+    // Reads succeed but writes are denied (quota) — the only copy must survive.
+    vi.stubGlobal('window', {
+      localStorage: { ...fakeStorage, setItem: () => { throw new Error('quota'); } },
+    });
+    store.set(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
+    const migrated = migrateLegacyDraft<{ a: number }>(intakeDraftKey('app', 'patient-a'), legacyIntakeDraftKey('patient-a'));
+    expect(migrated?.data).toEqual({ a: 1 });
+    expect(store.has(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`)).toBe(true);
+  });
+
+  it('prefers the scoped draft and leaves the legacy key untouched when both exist', () => {
+    store.set(`pharmacy-liff-draft:v1:${intakeDraftKey('app', 'patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
+    store.set(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`, JSON.stringify({ savedAt: NOW, data: { a: 2 } }));
+    const loaded = migrateLegacyDraft<{ a: number }>(intakeDraftKey('app', 'patient-a'), legacyIntakeDraftKey('patient-a'));
+    expect(loaded?.data).toEqual({ a: 1 });
+    expect(store.has(`pharmacy-liff-draft:v1:${legacyIntakeDraftKey('patient-a')}`)).toBe(true);
   });
 
   it('scopes the new-patient draft key by liffId with the legacy key kept', () => {
@@ -153,7 +203,7 @@ describe('draftRestoreMessage', () => {
 
 describe('draft key scoping', () => {
   it('never reuses the new-patient key for an existing patient', () => {
-    expect(intakeDraftKey('abc')).not.toBe(NEW_PATIENT_DRAFT_KEY);
-    expect(intakeDraftKey('abc')).toContain('abc');
+    expect(intakeDraftKey('app', 'abc')).not.toBe(NEW_PATIENT_DRAFT_KEY);
+    expect(intakeDraftKey('app', 'abc')).toContain('abc');
   });
 });

@@ -961,7 +961,14 @@ export default function EmergencyContraceptionPage() {
   }
 
   async function submit() {
-    if (busy || !service?.consent) return;
+    if (busy) return;
+    if (!service?.consent) {
+      // The consent text disappeared between confirm and submit (service
+      // toggle or a refresh that returned none) — drop back to the form
+      // instead of leaving a stale confirm view mounted.
+      setConfirming(false);
+      return;
+    }
     if (!canSubmitEmergencyIntake(draft)) {
       setShowErrors(true);
       setSummaryNonce((nonce) => nonce + 1);
