@@ -230,10 +230,12 @@ test('keeps enabled features usable when existing-work lookup fails and retries 
   }));
 
   await page.goto('http://127.0.0.1:4303/pharmacy/info?liffId=e2e-liff');
-  await expect(page.getByRole('alert')).toContainText('利用中の機能を確認できませんでした');
+  const lookupError = page.locator('div.bg-amber-50', { hasText: '利用中の機能を確認できませんでした' });
+  await expect(lookupError).toBeVisible();
+  await expect(lookupError).toBeFocused();
   await expect(page.getByRole('heading', { name: '営業時間', level: 2 })).toBeVisible();
   await page.getByRole('button', { name: '再試行' }).click();
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('利用中の機能を確認できませんでした')).toHaveCount(0);
   await expect.poll(() => accessAttempts).toBe(2);
 });
 
