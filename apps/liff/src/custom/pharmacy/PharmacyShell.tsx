@@ -98,7 +98,9 @@ export function PharmacyAccessProvider({ children }: { children: ReactNode }) {
     } catch {
       if (mounted.current) {
         setAccess((current) => preserveChildren
-          ? { ...current, retrying: false, existingError: '利用中の機能を確認できませんでした。' }
+          // Keep the degraded-read message the server actually returned —
+          // a failed background retry must not downgrade it to a generic one.
+          ? { ...current, retrying: false, existingError: current.existingError || '利用中の機能を確認できませんでした。' }
           : { ...current, loading: false, retrying: false, configError: '機能一覧を取得できませんでした。' });
         if (preserveChildren) setExistingFailures((count) => count + 1);
         else setLoadFailures((count) => count + 1);
@@ -194,7 +196,7 @@ export function PharmacyShell({ screenTitle, children }: {
             <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再試行</button>
           </div>
         : <div key={locationKey} className="pharmacy-page-enter">
-            {access.existingError && <div ref={alertRef} tabIndex={-1} data-testid="existing-work-error" className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
+            {access.existingError && <div ref={alertRef} tabIndex={-1} className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
               <p>{access.existingError} 有効な機能はそのまま利用できます。</p>
               <button type="button" onClick={() => void access.retry()} disabled={access.retrying} aria-busy={access.retrying} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold disabled:opacity-50">
                 {access.retrying ? <PharmacySpinner label="確認中…" /> : '再試行'}

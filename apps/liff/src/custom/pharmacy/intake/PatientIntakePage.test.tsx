@@ -201,6 +201,16 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('if (!selectedId || !intakeReady || busy) return;');
     expect(source).toContain('if (!selectedPatient || !accessState || !accessReady || busy) return;');
   });
+
+  it('releases the profile-save lock even when a quiet refresh superseded the operation', () => {
+    // busy/profileSaveInFlightRef are mutexes — a quiet patient-list refresh
+    // may invalidate the operation mid-flight, so the finally cleanup must
+    // not be gated on the operation still being current. All three
+    // profile-save sites (create, edit, pending-retry) release directly.
+    const unlocks = source.match(/profileSaveInFlightRef\.current = false;\s*setBusy\(false\);/g) ?? [];
+    expect(unlocks.length).toBe(3);
+    expect(source).not.toMatch(/finally \{[^}]*isCurrentProfileSave/);
+  });
 });
 
 describe('patient intake idempotent operations', () => {

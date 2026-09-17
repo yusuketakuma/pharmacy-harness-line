@@ -876,6 +876,9 @@ export default function EmergencyContraceptionPage() {
   // Error message the list load last raised; quiet successes clear the shared
   // error channel only when that message is still the one shown.
   const loadErrorRef = useRef<string | null>(null);
+  // Last-started load wins: a quiet refresh must never overwrite the intake
+  // list that submit/cancel just rewrote.
+  const loadEpochRef = useRef(0);
   // Bumped per failed validation so the field summary re-announces.
   const [summaryNonce, setSummaryNonce] = useState(0);
   useEffect(() => {
@@ -896,8 +899,10 @@ export default function EmergencyContraceptionPage() {
       setLoading(true);
       setError('');
     }
+    const epoch = ++loadEpochRef.current;
     try {
       const result = await emergencyContraceptionApi.list();
+      if (epoch !== loadEpochRef.current) return;
       const nextFingerprint = result.service?.consent
         ? `${result.service.consent.version}:${result.service.consent.content_hash}`
         : null;
@@ -908,6 +913,9 @@ export default function EmergencyContraceptionPage() {
         setDraft((current) => ({ ...current, consentAccepted: false }));
       }
       consentFingerprintRef.current = nextFingerprint;
+      // When the confirm step can no longer render, fall back to the form
+      // (draft preserved) instead of resurrecting it on the next refresh.
+      if (!result.service?.ready || !result.service.consent) setConfirming(false);
       setService(result.service);
       setIntakes(result.intakes);
       setServerNow(result.server_now);
@@ -916,6 +924,7 @@ export default function EmergencyContraceptionPage() {
       // error must stay visible across a background refresh.
       setError((current) => current === loadErrorRef.current ? '' : current);
     } catch (err) {
+      if (epoch !== loadEpochRef.current) return;
       if (!quiet) {
         setService(null);
         const message = pharmacyErrorMessage(
@@ -926,7 +935,7 @@ export default function EmergencyContraceptionPage() {
       }
       setLoadFailures((count) => count + 1);
     } finally {
-      setLoading(false);
+      if (epoch === loadEpochRef.current) setLoading(false);
     }
   }, []);
 
@@ -1015,6 +1024,7 @@ export default function EmergencyContraceptionPage() {
         idempotencyKey: operation.idempotencyKey,
       });
       if (submitOperationRef.current === operation) submitOperationRef.current = null;
+      loadEpochRef.current += 1;
       setIntakes((current) => [result.intake, ...current.filter((item) => item.id !== result.intake.id)]);
       setSubmittedAnyPhaseBFlag(
         draft.underMedicalTreatment || draft.drugAllergyHistory ||
@@ -1055,6 +1065,7 @@ export default function EmergencyContraceptionPage() {
       if (cancelOperationsRef.current.get(operationId) === operation) {
         cancelOperationsRef.current.delete(operationId);
       }
+      loadEpochRef.current += 1;
       setIntakes((current) => current.map((item) => item.id === result.intake.id ? result.intake : item));
       setSubmittedCode('');
       setSubmittedAnyPhaseBFlag(false);

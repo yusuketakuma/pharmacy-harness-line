@@ -240,6 +240,19 @@ describe('v0.36 patient UI rules', () => {
     expect(prescriptions).toContain('recoveryAppliedRef.current = fingerprint');
     expect(prescriptions).toContain("void refreshRecovery('auto', true)");
     expect(prescriptions).toContain('void loadPatients(true)');
+    // Pages whose mutations write list state directly guard the refresh with
+    // a load epoch, so a stale in-flight read cannot undo a just-applied
+    // create/cancel/respond result.
+    for (const file of [
+      'emergency-contraception/EmergencyContraceptionPage.tsx',
+      'medication-followup/MedicationFollowUpPage.tsx',
+      'continuity/ContinuityPage.tsx',
+    ]) {
+      const page = readFileSync(join(SEAM_ROOT, file), 'utf8');
+      expect(page, file).toMatch(/const epoch = \+\+loadEpochRef\.current/);
+      expect(page, file).toMatch(/epoch !== loadEpochRef\.current/);
+      expect(page, file).toMatch(/loadEpochRef\.current \+= 1/);
+    }
   });
 
   // V036-16: each selected image shows its own send state; the upload

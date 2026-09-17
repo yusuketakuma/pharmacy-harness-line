@@ -74,19 +74,25 @@ export default function ContinuityPage() {
   // The message this load last raised; quiet successes clear the shared
   // error channel only while that message is still shown.
   const loadErrorRef = useRef<string | null>(null);
+  // Last-started load wins: a quiet refresh must never overwrite the list a
+  // pause/respond just rewrote.
+  const loadEpochRef = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
     // quiet = background refresh (auto-retry / reconnect): keep the current
     // list visible instead of flashing the skeleton, and never clobber a
     // pause/respond error banner.
     if (!quiet) setLoading(true);
+    const epoch = ++loadEpochRef.current;
     try {
       const result = await continuityApi.list();
+      if (epoch !== loadEpochRef.current) return;
       setItems(result.obligations);
       setExpectations(result.expectations);
       setError((current) => current === loadErrorRef.current ? null : current);
       setLoadFailures(0);
     } catch (err) {
+      if (epoch !== loadEpochRef.current) return;
       console.error(err);
       if (!quiet) {
         loadErrorRef.current = LOAD_ERROR_MESSAGE;
@@ -94,7 +100,7 @@ export default function ContinuityPage() {
       }
       setLoadFailures((count) => count + 1);
     } finally {
-      setLoading(false);
+      if (epoch === loadEpochRef.current) setLoading(false);
     }
   }, []);
   usePharmacyAutoRetry(loadFailures, () => void load(true));
@@ -105,6 +111,7 @@ export default function ContinuityPage() {
   async function pause(id: string) {
     if (!window.confirm('今後の継続フォローを一時停止しますか？')) return;
     setBusy(true); setError(null); setSuccess(null);
+    loadEpochRef.current += 1;
     try {
       await continuityApi.pause(id);
       setSuccess('継続フォローを一時停止しました。');
@@ -118,6 +125,7 @@ export default function ContinuityPage() {
   async function respond(id: string, response: 'accepted' | 'ended') {
     const previous = expectations;
     setBusy(true); setError(null); setSuccess(null);
+    loadEpochRef.current += 1;
     setPendingAction(`respond:${id}:${response}`);
     setExpectations((current) => current.map((item) => item.id === id ? { ...item, status: response } : item));
     try {

@@ -530,10 +530,11 @@ export default function PatientIntakePage() {
           setError(pharmacyErrorMessage(err, '患者情報を更新できませんでした。'));
         }
       } finally {
-        if (isCurrentProfileSave(operation)) {
-          profileSaveInFlightRef.current = false;
-          setBusy(false);
-        }
+        // busy/profileSaveInFlightRef are mutexes: nothing else could have
+        // started while this save held busy, so a quiet patient-list refresh
+        // that superseded the operation must not strand the lock.
+        profileSaveInFlightRef.current = false;
+        setBusy(false);
       }
       return;
     }
@@ -615,10 +616,8 @@ export default function PatientIntakePage() {
     try {
       await refreshSavedPatient(pendingProfileSave);
     } finally {
-      if (isCurrentProfileSave(pendingProfileSave)) {
-        profileSaveInFlightRef.current = false;
-        setBusy(false);
-      }
+      profileSaveInFlightRef.current = false;
+      setBusy(false);
     }
   }
 

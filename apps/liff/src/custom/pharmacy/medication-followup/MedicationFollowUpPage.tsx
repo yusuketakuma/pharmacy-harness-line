@@ -84,11 +84,16 @@ export default function MedicationFollowUpPage() {
   // error channel only while that message is still shown (a respond-error
   // banner must survive a background refresh).
   const loadErrorRef = useRef<string | null>(null);
+  // Last-started load wins: a quiet refresh must never overwrite the list a
+  // response submission just rewrote.
+  const loadEpochRef = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
+    const epoch = ++loadEpochRef.current;
     try {
       const result = await medicationFollowUpApi.list();
+      if (epoch !== loadEpochRef.current) return;
       setItems(result.followUps);
       setLoadFailures(0);
       setError((current) => current === loadErrorRef.current ? '' : current);
@@ -96,13 +101,14 @@ export default function MedicationFollowUpPage() {
         .then(({ outlook: next }) => setOutlook(next))
         .catch(() => setOutlook(null));
     } catch {
+      if (epoch !== loadEpochRef.current) return;
       if (!quiet) {
         loadErrorRef.current = '服薬後フォローを読み込めませんでした。通信状態を確認して再読み込みしてください。';
         setError(loadErrorRef.current);
       }
       setLoadFailures((count) => count + 1);
     } finally {
-      setLoading(false);
+      if (epoch === loadEpochRef.current) setLoading(false);
     }
   }, []);
 
@@ -126,6 +132,7 @@ export default function MedicationFollowUpPage() {
       const result = await medicationFollowUpApi.respond(
         item.id, response, item.version, pharmacyUuid(),
       );
+      loadEpochRef.current += 1;
       setItems((current) => current.map((candidate) =>
         candidate.id === result.followUp.id ? result.followUp : candidate));
       setSuccess({
