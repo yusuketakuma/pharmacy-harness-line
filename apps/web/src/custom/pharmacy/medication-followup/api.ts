@@ -43,7 +43,41 @@ export type MedicationFollowUpAssignee = {
   role: 'owner' | 'admin' | 'staff'
 }
 
+export type FollowUpOperationsMessageCode = 'contact_pharmacy_during_hours' | 'seek_urgent_care'
+
+export type MedicationFollowUpOperations = {
+  service_hours_text: string
+  response_sla: Record<string, number>
+  primary_staff_id: string
+  backup_staff_id: string | null
+  after_hours_message_code: FollowUpOperationsMessageCode
+  emergency_message_code: FollowUpOperationsMessageCode
+  enabled: boolean
+  version: number
+  created_at: string
+  updated_at: string
+}
+
 export const medicationFollowUpApi = {
+  getOperations: (accountId: string) => fetchApi<{ operations: MedicationFollowUpOperations | null }>(
+    `/api/custom/pharmacy/medication-followups/operations?${accountQuery(accountId)}`,
+  ),
+  saveOperations: (
+    accountId: string,
+    input: {
+      serviceHoursText: string
+      responseSla: Record<string, number>
+      primaryStaffId: string
+      backupStaffId: string | null
+      afterHoursMessageCode: FollowUpOperationsMessageCode
+      emergencyMessageCode: FollowUpOperationsMessageCode
+      enabled: boolean
+      expectedVersion: number
+    },
+  ) => fetchApi<{ operations: MedicationFollowUpOperations }>(
+    `/api/custom/pharmacy/medication-followups/operations?${accountQuery(accountId)}`,
+    { method: 'PUT', body: JSON.stringify(input) },
+  ),
   listAssignees: (accountId: string) => fetchApi<{ assignees: MedicationFollowUpAssignee[] }>(
     `/api/custom/pharmacy/medication-followups/assignees?${accountQuery(accountId)}`,
   ),

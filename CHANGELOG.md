@@ -1,5 +1,64 @@
 # Changelog
 
+## Pharmacy v0.36.0 (2026-09-17)
+
+> パッケージ／ソースのバージョンを`0.36.0`として確定し、Closed-loop Follow-up & Communication の残件と患者向けUI改善・薬局管理画面の機能追加を`dev`で管理します。ソースコードのタグ`v0.36.0`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+薬局側は、服薬フォローの運用設定（営業時間・応答SLA・主/副担当・時間外/緊急案内）を`GET/PUT /api/custom/pharmacy/medication-followups/operations`と管理画面パネルで読み書きできるようにし、スタッフ対応待ち案件の`response_deadline_at`をアクションキューと日次サマリーの期限超過分類へ乗せました。チャットには承認制の定型文ピッカーを追加し、既存の手動送信composerと`X-Line-Harness-Source: manual`経路を変えずに定型文を挿入できます。患者側はLIFF全画面で本文`text-base`・タップ領域`min-h-11`へ揃え、服薬フォロー回答の送信完了後に対応の見通し（返信目安・時間外/緊急の固定文言）を併記するようにしました。
+
+この版の実装も既存のtenant/account/staff認可、capability、`expectedVersion` CAS、tenant audit、triggerによるstaff scope不変条件、承認済みPHI-freeメッセージ検証を再利用しています。新しいdomain model、AI/OCR、marketplace routing、破壊的schema/API変更は追加していません。
+
+### v0.35.2との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| V036-4a 運用設定API | `GET/PUT` operations、`expectedVersion` CAS、同一batchでaudit、capability `medication_followup` 必須、trigger拒否の409/422変換 | 実装済み |
+| V036-4b 運用設定画面 | `MedicationFollowUpOperationsPanel`（営業時間・SLA・担当・時間外/緊急メッセージ・有効化トグル、409再取得、二重送信防止） | 実装済み |
+| V036-4c 患者表示 | 服薬フォロー回答完了ブロックに対応の見通し（安全な固定文言のみ、SLA内部JSON・staff識別子は非公開） | 実装済み |
+| V036-4d 期限超過可視化 | staff対応待ちstatusで`response_deadline_at`をdeadlineとして使用、旧schemaは列検出で`due_at`へfallback | 実装済み |
+| V036-7/8/9 LIFF UI | 全12画面監査、本文`text-base`/タップ`min-h-11`統一、送信失敗時の入力保持確認、回帰ガード`v036-ui-rules.test.ts` | 実装済み |
+| V036-10 チャット定型文 | additive migration `026_custom_078`、CRUD+承認API（owner/adminのみ・自己承認不可・version CAS・PHI-free強制）、定型文ピッカー（送信経路は不変） | 実装済み |
+| V036-11 KPI整合 | ダッシュボードへ「準備完了数」追加、分子/分母注記、`legacyUnscoped`実値バインド、`promiseWithoutReady`構造的ゼロの明示 | 実装済み |
+| V036-6 LINE lifecycle | 再follow冪等、重複/再配送(durable inbox)、画像取得失敗（null→`[画像]`fallback / throw→durable retry）、未対応形式、pharmacy postback単一処理、受付≠到達/既読、PHI/provider詳細をlogへ出さない合成テスト7件（follow/unfollowは既存webhookテストで担保） | ローカル完了・実LINE受入はHuman Gate |
+| V036-5 release gate | wrong-target/duplicate/PHI通知/PHI log/escalation未対応close/SLA超過放置の各0件を全テストスイートで照合 | ローカル照合済み |
+| version contract | runtime package 6件を`0.36.0`へ統一、LIFF version expectation追従 | 実装済み |
+
+### 差分で確認した安全性
+
+- 運用設定のPUTは`expectedVersion` CASとtrigger（staff/account scope・active human staff・enabled未完備拒否）で守り、cross-accountは403/404、stale versionは409、auditはmutationと同一D1 batchで原子的に書きます。
+- 定型文は`assertPharmacyAutomatedText`のPHI-free検証を再利用し、placeholder/補間らしい本文を拒否、承認はowner/adminのみで自己承認不可、identity列はtriggerで不変です。送信は既存のmanual composer経路のみで、自動送信経路は作っていません。
+- 患者向けoutlookはservice hours text・応答目安・承認済み時間外/緊急メッセージcodeのみを返し、raw SLA JSONや内部staff識別子を出しません。
+- LINE lifecycleはAPI受付成功と患者到達/既読を区別し、確認不能を確認済み表示にしません。画像取得失敗は返却`null`で`[画像]`fallback、throwはdurable inbox retryへ委譲し、provider error detailをlogへ残しません。
+
+### レビュー監査（サブエージェント5系統並列）と修正
+
+コミット前にWorker/DB/Web/LIFF/テスト・文書の5エージェントで差分監査を実施。critical/highなし。検出したmedium以下の指摘は全て修正済みです。
+
+- **PHIフェンスの穴を閉塞**: 運用設定の`service_hours_text`（自由テキスト→患者outlookへ表示）に`assertPharmacyAutomatedText`を適用。患者名・薬剤名らしい文言を含む保存を拒否します。
+- **サーバー側ロール整合**: `PUT /medication-followups/operations`へowner/adminチェックを追加。UIの「一般スタッフは閲覧のみ」表示とAPI契約を一致させ、一般staffは403を返すテストを追加。
+- **migration `026_custom_078` のtrigger/FK強化**: identity immutability triggerに`created_at`を追加。staff-scope triggerが`is_active`・`principal_kind='human'`を検証するよう強化。`created_by_staff_id`/`approved_by_staff_id`に`pharmacy_staff_accounts`へのFKを追加（作成者削除で更新不能になる孤立を防止）。bootstrap.sql/metaを再生成。
+- **LIFFガードテストの抜け道を修復**: 行末`<a`の検出漏れ、10行先読みの無関係マークアップ誤免責、`<input>`/inline label未対象、空ファイルのvacuous pass、`pharmacy-control` CSS値未ピンを修正。強化後のガードで実違反6件（`PrescriptionPage`のradio label 2件、EC/questionnaireのテキストリンク4件）を検出し`min-h-11`を適用済み。
+- **lifecycleテストハーネスの根本bug修正**: `database()`が呼出ごとにSQL記録をリセットしていた問題を`beforeEach`移動で解消。`fetchImage`呼出・未対応形式4件のmessages_log書込・`first_followed_at`/`created_at`区別をアサート強化。
+- **その他**: `?status=all`がarchivedを含むよう修正、`apps/web/tsconfig.tsbuildinfo`をuntrack、PLANSのstale識別子`custom_026`・route inventoryの"approve or reject"表記・CHANGELOG帰属を修正、患者向け表示のASCIIコロンを全角統一。
+
+監査で設計意図と確認し未変更としたもの: 定型文archiveは一般staff可（承認剥奪は職務分離として維持）、outlook判定は`enabled`のみ（staff active再確認は送信側gateの非対称責務）、inlineテキストリンクへの`min-h-11`適用に伴う行高44px化。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.36.0`へ統一 |
+| worker | 262 files / 2,857 tests PASS、typecheck PASS |
+| web | 55 files / 264 tests PASS、`tsc --noEmit` PASS |
+| liff | 26 files / 158 tests PASS、`tsc --noEmit` PASS |
+| packages/db | 99 files / 470 tests PASS |
+| scripts | 225 tests PASS（route inventoryへchat-templates登録済み） |
+| migration / schema | additive migration `026_custom_078`追加、bootstrap同期済み（`check-migrations.ts` OK） |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema drop、旧契約の意味変更なし |
+| 実LINE受入 / production deploy | NOT_RUN — Human Gate。local greenでは代替しない |
+
 ## Pharmacy v0.35.2 (2026-09-17)
 
 > パッケージ／ソースのバージョンを`0.35.2`として確定し、v0.35系の保守リリースとして`dev`で管理します。ソースコードのタグ`v0.35.2`と販売者向けリリース`pharmacy-v0.35.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。

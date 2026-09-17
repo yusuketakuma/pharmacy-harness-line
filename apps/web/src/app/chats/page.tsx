@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { parseStickerMessageContent, stickerFallback } from '@line-crm/shared'
 import { api, fetchApi } from '@/lib/api'
 import { pharmacyGrowthApi } from '@/custom/pharmacy/growth-loop/api'
+import { chatTemplateApi, type PharmacyChatTemplate } from '@/custom/pharmacy/chat-templates/api'
 import { UNANSWERED_REFRESH_EVENT } from '@/lib/events'
 import { useAccount } from '@/contexts/account-context'
 import Header from '@/components/layout/header'
@@ -376,6 +377,8 @@ export default function ChatsPage() {
   const selectedChatIdRef = useRef<string | null>(null)
   const [manualChatState, setManualChatState] = useState<'loading' | 'enabled' | 'review-only' | 'unverified'>('loading')
   const chatMutationAllowed = manualChatState === 'enabled'
+  // custom:pharmacy-chat-templates — approved canned replies for the manual composer
+  const [chatTemplates, setChatTemplates] = useState<PharmacyChatTemplate[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -400,6 +403,23 @@ export default function ChatsPage() {
     })
     return () => { cancelled = true }
   }, [selectedAccount?.id, selectedAccount?.pharmacyMode])
+
+  // custom:pharmacy-chat-templates — load approved templates only when the
+  // pharmacy manual composer is actually usable. Failure keeps the picker
+  // empty; the manual send path is unchanged.
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedAccount?.pharmacyMode || !chatMutationAllowed) {
+      setChatTemplates([])
+      return
+    }
+    void chatTemplateApi.list(selectedAccount.id, 'approved').then((response) => {
+      if (!cancelled) setChatTemplates(response.templates)
+    }).catch(() => {
+      if (!cancelled) setChatTemplates([])
+    })
+    return () => { cancelled = true }
+  }, [selectedAccount?.id, selectedAccount?.pharmacyMode, chatMutationAllowed])
 
   useEffect(() => {
     try {
@@ -1239,6 +1259,30 @@ export default function ChatsPage() {
                     <span>Shift+Enter</span>
                   </label>
                 </div>
+                {/* custom:pharmacy-chat-templates — inserts approved text into
+                    the manual composer only; sending stays on the existing
+                    confirm + manual header path. */}
+                {selectedAccount?.pharmacyMode && chatTemplates.length > 0 && (
+                  <div className="mb-2">
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const template = chatTemplates.find((t) => t.id === e.target.value)
+                        if (!template) return
+                        setMessageContent((current) =>
+                          current.trim() ? `${current}\n${template.body}` : template.body)
+                        textareaRef.current?.focus()
+                      }}
+                      className="min-h-11 w-full border border-gray-300 rounded-md px-2 py-1 text-sm bg-white"
+                      aria-label="定型文を挿入"
+                    >
+                      <option value="">定型文を挿入…</option>
+                      {chatTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>{template.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="mb-2">
                   <ImageUploader
                     mode="line-image"

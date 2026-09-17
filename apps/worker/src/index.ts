@@ -110,6 +110,7 @@ import { pharmacyRichMenuRoutes } from './custom/pharmacy/rich-menu/routes.js'; 
 import { pharmacyPrintRoutes } from './custom/pharmacy/print/routes.js'; // custom:pharmacy-print
 import { activityNotificationRoutes } from './custom/pharmacy/activity-notifications/routes.js'; // custom:pharmacy-activity-notifications
 import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup
+import { chatTemplateRoutes } from './custom/pharmacy/chat-templates/routes.js'; // custom:pharmacy-chat-templates
 import { betaMembershipRoutes } from './custom/pharmacy/beta-membership/routes.js'; // custom:pharmacy-beta-membership
 import { emergencyContraceptionRoutes } from './custom/pharmacy/emergency-contraception/routes.js'; // custom:pharmacy-emergency-contraception
 import { processEmergencyAppointmentReminders } from './custom/pharmacy/emergency-contraception/notifications.js'; // custom:pharmacy-emergency-contraception
@@ -310,6 +311,7 @@ app.route('/', pharmacyPrintRoutes); // custom:pharmacy-print
 app.route('/', activityNotificationRoutes); // custom:pharmacy-activity-notifications
 app.route('/', dataSubjectRequestRoutes); // custom:pharmacy-data-subject-requests
 app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup
+app.route('/', chatTemplateRoutes); // custom:pharmacy-chat-templates
 app.route('/', betaMembershipRoutes); // custom:pharmacy-beta-membership
 app.route('/', emergencyContraceptionRoutes); // custom:pharmacy-emergency-contraception
 app.route('/', pharmacyPrivacyPolicyRoutes); // custom:pharmacy-privacy-policy

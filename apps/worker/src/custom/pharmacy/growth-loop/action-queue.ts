@@ -38,6 +38,8 @@ const PER_DOMAIN_LIMIT = MAX_ITEMS + 1;
 const DOMAIN_QUERIES: ReadonlyArray<{
   domain: PharmacyActionQueueDomain;
   sql: string;
+  // Used when an additive column is not deployed yet; keeps the domain listed.
+  fallbackSql?: string;
   values: (lineAccountId: string, at: string) => Array<string | number>;
 }> = [
   {
@@ -84,7 +86,23 @@ const DOMAIN_QUERIES: ReadonlyArray<{
   },
   {
     domain: 'medicationFollowup',
-    sql: `SELECT id, status, due_at AS deadline_at, updated_at AS activity_at
+    // Once staff are the blocker, the SLA deadline matters more than the
+    // patient-facing due date; response_deadline_at is additive, so the
+    // due_at query stays as the pre-migration fallback.
+    sql: `SELECT id, status,
+                 CASE WHEN status IN ('concern', 'pharmacist_requested',
+                                      'assigned', 'escalated')
+                           AND response_deadline_at IS NOT NULL
+                      THEN response_deadline_at
+                      ELSE due_at END AS deadline_at,
+                 updated_at AS activity_at
+            FROM pharmacy_medication_followups
+           WHERE line_account_id = ?
+             AND status IN ('due', 'delivered', 'concern', 'pharmacist_requested',
+                           'assigned', 'responded', 'escalated')
+           ORDER BY deadline_at, id
+           LIMIT ?`,
+    fallbackSql: `SELECT id, status, due_at AS deadline_at, updated_at AS activity_at
             FROM pharmacy_medication_followups
            WHERE line_account_id = ?
              AND status IN ('due', 'delivered', 'concern', 'pharmacist_requested',
@@ -165,13 +183,22 @@ export async function getPharmacyActionQueue(
   lineAccountId: string,
   at = new Date(),
 ): Promise<PharmacyActionQueue> {
-  const results = await Promise.allSettled(DOMAIN_QUERIES.map(async ({ domain, sql, values }) => {
-    const result = await db.prepare(sql).bind(...values(lineAccountId, at.toISOString())).all<{
-      id: string;
-      status: string;
-      deadline_at: string | null;
-      activity_at: string | null;
-    }>();
+  const results = await Promise.allSettled(DOMAIN_QUERIES.map(async ({ domain, sql, fallbackSql, values }) => {
+    const run = (statement: string) => db.prepare(statement)
+      .bind(...values(lineAccountId, at.toISOString()))
+      .all<{
+        id: string;
+        status: string;
+        deadline_at: string | null;
+        activity_at: string | null;
+      }>();
+    let result: Awaited<ReturnType<typeof run>>;
+    try {
+      result = await run(sql);
+    } catch (error) {
+      if (!fallbackSql) throw error;
+      result = await run(fallbackSql);
+    }
     return (result.results ?? []).map((row) => ({ domain, ...row }));
   }));
 

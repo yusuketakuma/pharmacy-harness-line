@@ -108,7 +108,7 @@ describe('growth dashboard source manager', () => {
     const source = readFileSync(join(process.cwd(), 'src/custom/pharmacy/growth-loop/GrowthDashboardPage.tsx'), 'utf8')
     for (const label of [
       '計測可能な友だち追加', '未成熟', '発行元分類率', 'その他 ÷ 分類済み',
-      '遅延件数', '準備完了・予定なし', '確認済み使用期限', '期限前日通知後に期限内完了',
+      '準備完了数', '遅延件数', '準備完了・予定なし', '確認済み使用期限', '期限前日通知後に期限内完了',
       '月間上限で見送り', '能動通知の試行', 'サンプル数', '推定される時間的関連',
       '通知送信済み', '通知処理中', '通知失敗', '通知見送り', '要確認（24時間超）',
       '送信記録数（テスト除外）', '受信記録数', '手動送信', '自動送信',
@@ -119,6 +119,36 @@ describe('growth dashboard source manager', () => {
     ]) expect(source).toContain(label)
     expect(source).toContain('送信経路ごとの再送期限を超えた結果不明の送信です')
     expect(source).not.toContain('note="24時間を超えた結果不明の送信です"')
+  })
+
+  it('keeps every getGrowthDashboard field visible or explicitly documented', () => {
+    const source = readFileSync(join(process.cwd(), 'src/custom/pharmacy/growth-loop/GrowthDashboardPage.tsx'), 'utf8')
+    // Canonical coverage per docs/pharmacy/GROWTH_KPI_DEFINITIONS.md.
+    for (const field of [
+      'entry.firstTimeFollows', 'entry.measurableFollows',
+      'entry.firstSubmissionRate', 'entry.secondSubmissionRate',
+      'sources.primary', 'sources.other', 'sources.unknown',
+      'sources.knownDenominator', 'sources.attributionCoverage',
+      'promises.readyEvents', 'promises.promised', 'promises.onTimeRate',
+      'promises.onTime', 'promises.late', 'promises.promiseWithoutQuote',
+      'promises.p50LatenessMinutes', 'promises.p90LatenessMinutes',
+      'promises.promiseRevisionCount', 'promises.graceMinutes',
+      'validity.verified', 'validity.reminderSent', 'validity.reminderClosedInTime',
+      'validity.expiredReviewRequired', 'validity.confirmedExpired',
+      'notifications.counts', 'notifications.proactiveCapBlocked',
+      'notifications.proactiveAttempts', 'notifications.attempted',
+      'notifications.reconciliationRequired', 'notifications.alertState',
+      'messaging.sent', 'messaging.received', 'messaging.manual',
+      'messaging.automated', 'messaging.push', 'messaging.reply',
+      'messaging.attempted', 'messaging.reconciliationRequired',
+      'messaging.uniqueCorrespondents', 'messaging.sourceUnverified',
+      'messaging.deliveryUnverified', 'messaging.legacyUnscoped',
+      'unfollow.exposedFriends', 'unfollow.within24h', 'unfollow.within72h',
+      'unfollow.sampleSize', 'unfollow.interpretation',
+    ]) expect(source).toContain(`data.${field}`)
+    // promiseWithoutReady is structurally zero under the current query and
+    // intentionally not rendered; the definition doc records that decision.
+    expect(source).not.toContain('promiseWithoutReady')
   })
 
   it('keeps source failures separate and never shows a previous month as the selected month', () => {

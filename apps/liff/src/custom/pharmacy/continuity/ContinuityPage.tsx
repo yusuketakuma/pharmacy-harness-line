@@ -49,7 +49,7 @@ export function NextIntakeExpectationCard({
     <p className="font-bold text-gray-900">次回事前送信のお知らせ</p>
     <p className="mt-1 text-base text-gray-700">{expectationLabels[expectation.status]}</p>
     <p className="mt-1 text-base text-gray-600">目安：{expectation.expected_from}〜{expectation.expected_to}</p>
-    <p className="mt-2 text-sm text-gray-700">有効な処方せんは別途必要です。薬の確保や調剤を約束するものではありません。</p>
+    <p className="mt-2 text-base text-gray-700">有効な処方せんは別途必要です。薬の確保や調剤を約束するものではありません。</p>
     {expectation.status === 'offered' && <div className="mt-3 grid gap-2">
       <button type="button" onClick={() => void onRespond(expectation.id, 'accepted')} disabled={busy} className="pharmacy-control min-h-11 rounded-lg bg-green-700 px-4 py-2 text-base font-bold text-white disabled:opacity-50">お知らせを受け取る</button>
       <button type="button" onClick={() => void onRespond(expectation.id, 'ended')} disabled={busy} className="pharmacy-control min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-base text-gray-700 disabled:opacity-50">今回は登録しない</button>
@@ -120,13 +120,13 @@ export default function ContinuityPage() {
           <h2 className="mt-3 font-bold">次の操作</h2>
           <p className="mt-1 text-base text-gray-800">{loading ? '読み込みが終わるまでお待ちください。' : '一覧から状態を確認し、表示された操作を選んでください。'}</p>
         </section>
-        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-700">
           <p>{error}</p>
           <button type="button" onClick={() => void load()} disabled={loading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
         </div>}
         {success && <div role="status" className="rounded-lg bg-green-50 p-3 text-base text-green-800">{success}<Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link></div>}
-        {loading ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">継続フォローを読み込み中...</p>
-          : items.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-500">現在、継続フォローはありません。</p> : <ul className="space-y-3">{items.map((item) => {
+        {loading ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-500">継続フォローを読み込み中...</p>
+          : items.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-500">現在、継続フォローはありません。</p> : <ul className="space-y-3">{items.map((item) => {
           const expectation = expectationByObligation.get(item.id);
           return <li key={item.id} className="pharmacy-card p-4">
             <section aria-label="継続フォローの現在の状態と次の操作">
@@ -137,8 +137,8 @@ export default function ContinuityPage() {
             </section>
             {expectation
               ? <NextIntakeExpectationCard expectation={expectation} busy={busy} onRespond={respond} />
-              : <p className="mt-2 text-sm text-gray-600">次回のお知らせ時期はまだ設定されていません。</p>}
-            {item.candidate_submission_id && <p className="mt-2 text-sm text-green-700">次の処方せんを受付中です。</p>}
+              : <p className="mt-2 text-base text-gray-600">次回のお知らせ時期はまだ設定されていません。</p>}
+            {item.candidate_submission_id && <p className="mt-2 text-base text-green-700">次の処方せんを受付中です。</p>}
             {(item.status === 'active' || item.status === 'linked') && <button type="button" onClick={() => void pause(item.id)} disabled={busy} className="pharmacy-control min-h-11 mt-3 text-base text-gray-600 underline disabled:opacity-50">フォローを一時停止</button>}
           </li>;
         })}</ul>}

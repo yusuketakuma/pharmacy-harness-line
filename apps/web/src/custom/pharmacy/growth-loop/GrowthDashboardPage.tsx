@@ -260,8 +260,9 @@ export default function GrowthDashboardPage() {
       <section>
         <h2 className="mb-2 text-sm font-semibold text-gray-700">約束</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Card label="準備完了数" value={data.promises.readyEvents} />
           <Card label="準備予定あり" value={data.promises.promised} />
-          <Card label="予定内率" value={data.promises.onTimeRate === null ? '—' : `${Math.round(data.promises.onTimeRate * 100)}%`} note={`猶予 ${data.promises.graceMinutes}分`} />
+          <Card label="予定内率" value={data.promises.onTimeRate === null ? '—' : `${Math.round(data.promises.onTimeRate * 100)}%`} note={`${data.promises.onTime}/${data.promises.promised}・猶予 ${data.promises.graceMinutes}分`} />
           <Card label="遅延件数" value={data.promises.late} />
           <Card label="準備完了・予定なし" value={data.promises.promiseWithoutQuote} />
           <Card label="遅延の中央値（分）" value={data.promises.p50LatenessMinutes === null ? '—' : Math.round(data.promises.p50LatenessMinutes)} />
@@ -314,7 +315,7 @@ export default function GrowthDashboardPage() {
           <Card label="一意の対応者数" value={data.messaging.uniqueCorrespondents} />
           <Card label="送信元未確認" value={data.messaging.sourceUnverified} />
           <Card label="配信種別未確認" value={data.messaging.deliveryUnverified} />
-          <Card label="旧記録（アカウント未確定）" value="未確認" note="現在の所属から推測して数え直しません" />
+          <Card label="旧記録（アカウント未確定）" value={data.messaging.legacyUnscoped.status === 'UNVERIFIED' ? '未確認' : data.messaging.legacyUnscoped.count ?? '未確認'} note="現在の所属から推測して数え直しません" />
         </div>
       </section>
       <section>

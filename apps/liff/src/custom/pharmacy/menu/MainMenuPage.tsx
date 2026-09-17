@@ -151,10 +151,10 @@ export default function MainMenuPage() {
                 >
                   <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-full bg-green-50 text-base font-bold text-green-800">{item.icon}</span>
                   <span className="mt-3 flex flex-wrap items-center gap-1 font-bold leading-5 text-gray-950">{item.label}
-                    {item.isExisting && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-sm text-amber-900">確認のみ</span>}
+                    {item.isExisting && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-base text-amber-900">確認のみ</span>}
                   </span>
                   <span className="mt-1 block text-base leading-6 text-gray-700">{item.description}</span>
-                  <span className="mt-2 block text-sm font-bold text-gray-700">利用可否：{item.isExisting ? '確認のみ' : '利用できます'}</span>
+                  <span className="mt-2 block text-base font-bold text-gray-700">利用可否：{item.isExisting ? '確認のみ' : '利用できます'}</span>
                 </Link>
               ))}
               {group === '薬局情報・相談' && enabledFeatures.includes('manual_chat') && <button
@@ -166,14 +166,14 @@ export default function MainMenuPage() {
                 <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-full bg-green-50 text-base font-bold text-green-800">相</span>
                 <span className="mt-3 block font-bold leading-5 text-gray-950">薬局へ相談</span>
                 <span className="mt-1 block text-base leading-6 text-gray-700">トークへ相談メッセージを送る</span>
-                {chatOutlook && <span className="mt-1 block text-sm leading-5 text-gray-600">
+                {chatOutlook && <span className="mt-1 block text-base leading-5 text-gray-600">
                   {chatOutlook.serviceHoursText}
                   {chatOutlook.responseEstimateMinutes !== null && `／返信目安 約${chatOutlook.responseEstimateMinutes}分`}
                 </span>}
                 {chatOutlook?.afterHoursMessageCode === 'contact_pharmacy_during_hours' && (
-                  <span className="mt-1 block text-sm leading-5 text-gray-600">営業時間外のメッセージは、次の営業時間に順次ご対応します。</span>
+                  <span className="mt-1 block text-base leading-5 text-gray-600">営業時間外のメッセージは、次の営業時間に順次ご対応します。</span>
                 )}
-                <span className="mt-2 block text-sm font-bold text-gray-700">利用可否：利用できます</span>
+                <span className="mt-2 block text-base font-bold text-gray-700">利用可否：利用できます</span>
               </button>}
             </div>
           </section>

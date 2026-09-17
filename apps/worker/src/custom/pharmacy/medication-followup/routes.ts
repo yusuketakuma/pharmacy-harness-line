@@ -9,6 +9,7 @@ import {
   type PrescriptionPatient,
 } from '../prescriptions/patient.js';
 import {
+  getMedicationFollowUpOperations,
   getMedicationFollowUpOperationsOutlook,
   getOwnerMedicationFollowUp,
   listMedicationFollowUpAssignees,
@@ -16,12 +17,14 @@ import {
   listOwnerMedicationFollowUps,
   recordMedicationFollowUpContact,
   respondToMedicationFollowUp,
+  saveMedicationFollowUpOperations,
   scheduleMedicationFollowUp,
   transitionMedicationFollowUp,
   type MedicationFollowUp,
   type MedicationFollowUpAssignee,
   type MedicationFollowUpContactInput,
   type MedicationFollowUpContactRecord,
+  type MedicationFollowUpOperations,
   type MedicationFollowUpPatientResponse,
   type MedicationFollowUpStatus,
   type PatientMedicationFollowUp,
@@ -188,6 +191,97 @@ medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/assignee
     return c.json({ assignees: assignees.map(assigneeProjection) });
   } catch (error) {
     return followUpError(c, error);
+  }
+});
+
+function operationsProjection(row: MedicationFollowUpOperations) {
+  let responseSla: unknown = {};
+  try {
+    responseSla = JSON.parse(row.response_sla_json);
+  } catch {
+    responseSla = {};
+  }
+  return {
+    service_hours_text: row.service_hours_text,
+    response_sla: responseSla,
+    primary_staff_id: row.primary_staff_id,
+    backup_staff_id: row.backup_staff_id,
+    after_hours_message_code: row.after_hours_message_code,
+    emergency_message_code: row.emergency_message_code,
+    enabled: row.enabled === 1,
+    version: row.version,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function operationsError(c: Context<MedicationFollowUpEnv>, error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  if (/schema unavailable/i.test(message)) {
+    return c.json({ error: '服薬後フォローの運用設定は準備中です。' }, 503);
+  }
+  if (/invalid follow-up operations staff/i.test(message)) {
+    return c.json({ error: '担当者の設定を確認してください。' }, 400);
+  }
+  if (/invalid follow-up operations/i.test(message)) {
+    return c.json({ error: '運用設定の入力内容を確認してください。' }, 400);
+  }
+  if (/operations conflict/i.test(message)) {
+    return c.json({ error: '運用設定は別の操作で更新されています。再読み込みしてください。' }, 409);
+  }
+  return c.json({ error: '運用設定を処理できませんでした。' }, 500);
+}
+
+medicationFollowUpRoutes.get('/api/custom/pharmacy/medication-followups/operations', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  try {
+    const operations = await getMedicationFollowUpOperations(c.env.DB, account.lineAccountId);
+    return c.json({ operations: operations ? operationsProjection(operations) : null });
+  } catch (error) {
+    return operationsError(c, error);
+  }
+});
+
+medicationFollowUpRoutes.put('/api/custom/pharmacy/medication-followups/operations', async (c) => {
+  const account = await scope(c);
+  if (account instanceof Response) return account;
+  if (account.staff.role !== 'owner' && account.staff.role !== 'admin') {
+    return c.json({ error: '運用設定の変更はオーナーまたは管理者のみ実行できます' }, 403);
+  }
+  const body = await readJsonObject(c.req);
+  if (!body ||
+      typeof body.serviceHoursText !== 'string' ||
+      typeof body.responseSla !== 'object' || body.responseSla === null ||
+      Array.isArray(body.responseSla) ||
+      typeof body.primaryStaffId !== 'string' ||
+      (body.backupStaffId !== undefined && body.backupStaffId !== null &&
+       typeof body.backupStaffId !== 'string') ||
+      typeof body.afterHoursMessageCode !== 'string' ||
+      typeof body.emergencyMessageCode !== 'string' ||
+      typeof body.enabled !== 'boolean' ||
+      typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion)) {
+    return c.json({ error: '運用設定の入力内容を確認してください' }, 400);
+  }
+  if (!await hasPharmacyCapability(c.env.DB, account.lineAccountId, 'medication_followup')) {
+    return c.json({ error: '服薬後フォローはこのアカウントでは無効です' }, 409);
+  }
+  try {
+    const operations = await saveMedicationFollowUpOperations(c.env.DB, {
+      lineAccountId: account.lineAccountId,
+      serviceHoursText: body.serviceHoursText,
+      responseSla: body.responseSla,
+      primaryStaffId: body.primaryStaffId,
+      backupStaffId: body.backupStaffId as string | null | undefined,
+      afterHoursMessageCode: body.afterHoursMessageCode,
+      emergencyMessageCode: body.emergencyMessageCode,
+      enabled: body.enabled,
+      expectedVersion: body.expectedVersion,
+      actorStaffId: account.staff.id,
+    });
+    return c.json({ operations: operationsProjection(operations) });
+  } catch (error) {
+    return operationsError(c, error);
   }
 });
 

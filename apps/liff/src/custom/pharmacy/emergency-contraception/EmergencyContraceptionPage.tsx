@@ -243,7 +243,7 @@ export function canSubmitEmergencyIntake(
 }
 
 function FieldError({ id, message }: { id?: string; message?: string }) {
-  return message ? <p id={id} role="alert" className="text-sm font-bold text-red-700">{message}</p> : null;
+  return message ? <p id={id} role="alert" className="text-base font-bold text-red-700">{message}</p> : null;
 }
 
 export function toIntercourseAtPayload(draft: Pick<
@@ -278,7 +278,7 @@ export function EmergencyAlternativeLinks({
   return (
     <section className="rounded-xl border border-blue-200 bg-blue-50 p-4" aria-labelledby="emergency-alternatives">
       <h2 id="emergency-alternatives" className="font-bold text-blue-950">受付できない場合の相談先</h2>
-      <p className="mt-1 text-sm text-blue-900">
+      <p className="mt-1 text-base text-blue-900">
         期限や対応枠の都合でこの画面から受付できない場合は、以下の案内をご確認ください。
       </p>
       <div className="mt-3 grid gap-2">
@@ -309,7 +309,7 @@ export function EmergencyAlternativeLinks({
       </div>
       <Link
         to={pharmacyRoute('/prescriptions')}
-        className="pharmacy-control mt-3 flex min-h-11 items-center justify-center text-center text-sm font-bold text-blue-900 underline"
+        className="pharmacy-control mt-3 flex min-h-11 items-center justify-center text-center text-base font-bold text-blue-900 underline"
       >
         通常の受付へ戻る
       </Link>
@@ -320,7 +320,7 @@ export function EmergencyAlternativeLinks({
 function EmergencyCautionAlternatives({ service }: { service: EmergencyServiceOverview }) {
   const supportCenterUrl = safeExternalUrl(service.support_center_url);
   return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-base text-amber-950">
       <p className="font-bold">当てはまる項目があるため、以下もあわせてご検討ください</p>
       <p className="mt-1">送信は止まりません。来局時に薬剤師が対面で確認します。</p>
       <div className="mt-2 grid gap-2">
@@ -348,25 +348,25 @@ function IntakeList({
   return (
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
       <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
-      <p className="mt-1 text-sm text-gray-600">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
-      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="pharmacy-control pharmacy-focus mt-2 inline-flex items-center text-sm font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
+      <p className="mt-1 text-base text-gray-600">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
+      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="pharmacy-control pharmacy-focus mt-2 inline-flex items-center text-base font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
       {intakes.length === 0
-        ? <p className="mt-3 text-sm text-gray-600">現在の仮受付はありません。</p>
+        ? <p className="mt-3 text-base text-gray-600">現在の仮受付はありません。</p>
         : <ul className="mt-3 space-y-3">{intakes.map((intake) => (
           <li key={intake.id} className="rounded-lg border border-gray-200 p-3">
             <p className="font-bold text-gray-900">受付番号：{intake.reference_code}</p>
-            <p className="mt-1 text-sm text-gray-700">{STATUS_LABELS[intake.status]}</p>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-base text-gray-700">{STATUS_LABELS[intake.status]}</p>
+            <p className="mt-1 text-base text-gray-700">
               対応枠：{formatTokyo(intake.slot_starts_at)}〜{formatTokyo(intake.slot_ends_at)}
             </p>
-            <p className="mt-1 text-sm text-gray-700">有効期限：{formatTokyo(intake.expires_at)}</p>
-            <p className="mt-2 rounded-lg bg-green-50 p-2 text-sm text-green-900">次にすること：{emergencyNextAction(intake.status)}</p>
-            {intake.status === 'provisional' && <p className="mt-2 text-sm text-amber-900">患者申告は薬剤師確認前です。</p>}
+            <p className="mt-1 text-base text-gray-700">有効期限：{formatTokyo(intake.expires_at)}</p>
+            <p className="mt-2 rounded-lg bg-green-50 p-2 text-base text-green-900">次にすること：{emergencyNextAction(intake.status)}</p>
+            {intake.status === 'provisional' && <p className="mt-2 text-base text-amber-900">患者申告は薬剤師確認前です。</p>}
             {canCancel(intake.status) && <button
               type="button"
               onClick={() => void onCancel(intake)}
               disabled={busy !== null}
-              className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-bold text-red-800 disabled:opacity-50"
+              className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-base font-bold text-red-800 disabled:opacity-50"
             >
               {busy === `cancel:${intake.id}` ? '取消中...' : 'この仮受付を取消'}
             </button>}
@@ -390,8 +390,8 @@ export function EmergencyConsentSection({
   return (
     <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
       <h2 id="emergency-consent" className="font-bold text-gray-900">説明と明示同意</h2>
-      <p className="whitespace-pre-wrap text-sm text-gray-700">{consent.text_v2}</p>
-      <dl className="space-y-1 text-sm text-gray-700">
+      <p className="whitespace-pre-wrap text-base text-gray-700">{consent.text_v2}</p>
+      <dl className="space-y-1 text-base text-gray-700">
         <div><dt className="font-bold">申告の保存期間 / 販売記録</dt><dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd></div>
         <div><dt className="font-bold">問い合わせ先</dt><dd>{consent.privacy_contact}</dd></div>
       </dl>
@@ -399,11 +399,11 @@ export function EmergencyConsentSection({
         href={safeExternalUrl(consent.privacy_policy_url) ?? undefined}
         target="_blank"
         rel="noreferrer noopener"
-        className="text-sm font-bold text-green-800 underline"
+        className="inline-flex min-h-11 items-center text-base font-bold text-green-800 underline"
       >
         個人情報の利用目的・問い合わせ先を確認（外部サイト）
       </a>
-      <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+      <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
         <input
           type="checkbox"
           checked={consentAccepted}
@@ -445,11 +445,11 @@ export function EmergencyIntakeForm({
       onSubmit={(event) => { event.preventDefault(); void onSubmit(); }}
     >
       <h2 className="text-base font-bold text-gray-900">来局前の最小確認</h2>
-      <p className="text-sm text-gray-600">必要な項目だけ入力してください。</p>
+      <p className="text-base text-gray-600">必要な項目だけ入力してください。</p>
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">対象となる出来事の日時</legend>
-        <label className="block text-sm text-gray-700" htmlFor="emergency-intercourse-at">
+        <label className="block text-base text-gray-700" htmlFor="emergency-intercourse-at">
           {draft.intercourseTimeUnknown ? '出来事があった日' : '出来事があった日時'}
         </label>
         <input
@@ -463,8 +463,8 @@ export function EmergencyIntakeForm({
           className={fieldClass}
         />
         <FieldError message={errors.intercourseAt} />
-        {deadline && <p className="text-sm text-gray-700">服用期限：{formatTokyo(deadline.toISOString())}（残り約{remainingHours}時間）</p>}
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        {deadline && <p className="text-base text-gray-700">服用期限：{formatTokyo(deadline.toISOString())}（残り約{remainingHours}時間）</p>}
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.intercourseTimeUnknown}
@@ -476,7 +476,7 @@ export function EmergencyIntakeForm({
         </label>
       </fieldset>
 
-      <label className="block space-y-1 text-sm text-gray-700" htmlFor="emergency-slot">
+      <label className="block space-y-1 text-base text-gray-700" htmlFor="emergency-slot">
         <span className="font-bold text-gray-900">希望する対応枠</span>
         <select
           id="emergency-slot"
@@ -499,7 +499,7 @@ export function EmergencyIntakeForm({
       </label>
 
       <div className="grid grid-cols-2 gap-3">
-        <label className="block space-y-1 text-sm text-gray-700" htmlFor="emergency-age">
+        <label className="block space-y-1 text-base text-gray-700" htmlFor="emergency-age">
           <span className="font-bold text-gray-900">年齢</span>
           <input
             id="emergency-age"
@@ -517,7 +517,7 @@ export function EmergencyIntakeForm({
           />
           <FieldError message={errors.age} />
         </label>
-        <label className="block space-y-1 text-sm text-gray-700" htmlFor="emergency-recent-count">
+        <label className="block space-y-1 text-base text-gray-700" htmlFor="emergency-recent-count">
           <span className="font-bold text-gray-900">過去3か月の利用回数</span>
           <input
             id="emergency-recent-count"
@@ -533,13 +533,13 @@ export function EmergencyIntakeForm({
             className={fieldClass}
           />
           <FieldError message={errors.recentPurchaseCount} />
-          <p className="text-sm text-gray-700">回数によって受付をお断りするものではありません。安全のための確認です。</p>
+          <p className="text-base text-gray-700">回数によって受付をお断りするものではありません。安全のための確認です。</p>
         </label>
       </div>
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">あてはまる場合はチェックしてください（送信は止まりません）</legend>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.lngAllergy}
@@ -549,7 +549,7 @@ export function EmergencyIntakeForm({
           />
           レボノルゲストレルを含む薬でアレルギー症状が出たことがある
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.liverDisease}
@@ -559,7 +559,7 @@ export function EmergencyIntakeForm({
           />
           肝臓病の診断を受けている
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.currentlyPregnant}
@@ -569,7 +569,7 @@ export function EmergencyIntakeForm({
           />
           現在、お腹に赤ちゃんがいることが分かっている
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.breastfeeding}
@@ -584,7 +584,7 @@ export function EmergencyIntakeForm({
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">あてはまる場合はチェックしてください（お薬手帳の持参案内に使います）</legend>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.underMedicalTreatment}
@@ -594,7 +594,7 @@ export function EmergencyIntakeForm({
           />
           医師の治療を受けている
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.drugAllergyHistory}
@@ -604,7 +604,7 @@ export function EmergencyIntakeForm({
           />
           薬でアレルギー症状が出たことがある
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.heartKidneyGiDisease}
@@ -614,7 +614,7 @@ export function EmergencyIntakeForm({
           />
           心臓病・腎臓病・重度の消化器疾患の診断を受けている
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.stJohnsWort}
@@ -628,7 +628,7 @@ export function EmergencyIntakeForm({
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">直近の月経について</legend>
-        <label className="block space-y-1 text-sm text-gray-700" htmlFor="emergency-last-period">
+        <label className="block space-y-1 text-base text-gray-700" htmlFor="emergency-last-period">
           <span className="font-bold text-gray-900">直近の月経が始まった日</span>
           <input
             id="emergency-last-period"
@@ -639,7 +639,7 @@ export function EmergencyIntakeForm({
             className={fieldClass}
           />
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.lastMenstruationDateUnknown}
@@ -651,7 +651,7 @@ export function EmergencyIntakeForm({
         </label>
 
         <p className="font-bold text-gray-900">当てはまるものにチェック（複数可）</p>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.menstruationSignals.overOneMonthNoPeriod}
@@ -663,7 +663,7 @@ export function EmergencyIntakeForm({
           />
           直近の月経開始から1か月以上、次の月経がない
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.menstruationSignals.notRecoveredAfterBirth}
@@ -675,7 +675,7 @@ export function EmergencyIntakeForm({
           />
           出産などのあとで月経が戻っていない
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.menstruationSignals.lastPeriodDifferent}
@@ -687,7 +687,7 @@ export function EmergencyIntakeForm({
           />
           直近の月経が、いつもと違った（量が少ない・期間が短いなど）
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.menstruationSignals.earlierConcernOver3Weeks}
@@ -699,7 +699,7 @@ export function EmergencyIntakeForm({
           />
           直近の月経のあとで、今回より前に心配な出来事があり、3週間以上たっている
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.menstruationSignals.noneApply}
@@ -711,7 +711,7 @@ export function EmergencyIntakeForm({
           />
           当てはまるものはない
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.menstruationSignals.unknown}
@@ -730,7 +730,7 @@ export function EmergencyIntakeForm({
         <legend className="font-bold text-gray-900">本人確認書類を持参できる（任意）</legend>
         {([
           ['yes', 'はい'], ['no', 'いいえ'], ['undecided', '未定'],
-        ] as const).map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        ] as const).map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="radio"
             name="emergency-id-document"
@@ -746,7 +746,7 @@ export function EmergencyIntakeForm({
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">来局と服用方法の確認</legend>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.patientWillVisit}
@@ -757,7 +757,7 @@ export function EmergencyIntakeForm({
           本人が薬局へ来局します
         </label>
         <FieldError message={errors.patientWillVisit} />
-        <label className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.acceptsInPersonDose}
@@ -772,7 +772,7 @@ export function EmergencyIntakeForm({
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">安全な連絡方法</legend>
-        {SAFE_CONTACT_OPTIONS.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        {SAFE_CONTACT_OPTIONS.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="radio"
             name="emergency-safe-contact"
@@ -792,12 +792,12 @@ export function EmergencyIntakeForm({
           href={safeExternalUrl(service.manufacturer_check_url) ?? undefined}
           target="_blank"
           rel="noreferrer noopener"
-          className="font-bold text-green-900 underline"
+          className="inline-flex min-h-11 items-center font-bold text-green-900 underline"
         >
           メーカー公式セルフチェック（外部サイト）
         </a>
-        <p className="mt-2 text-sm text-gray-700">画像はLINEへ送らず、来局時に本人の端末で提示してください。</p>
-        <label className="mt-2 flex min-h-11 items-center gap-2 text-sm text-gray-800">
+        <p className="mt-2 text-base text-gray-700">画像はLINEへ送らず、来局時に本人の端末で提示してください。</p>
+        <label className="mt-2 flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
             checked={draft.manufacturerCheckAcknowledged}
@@ -810,7 +810,7 @@ export function EmergencyIntakeForm({
         <FieldError message={errors.manufacturerCheckAcknowledged} />
       </div>}
 
-      {showErrors && !draft.consentAccepted && <p role="alert" className="text-sm font-bold text-amber-900">送信するには、上の「説明と明示同意」の同意にチェックしてください。</p>}
+      {showErrors && !draft.consentAccepted && <p role="alert" className="text-base font-bold text-amber-900">送信するには、上の「説明と明示同意」の同意にチェックしてください。</p>}
       <button
         type="submit"
         disabled={disabled || !draft.consentAccepted}
@@ -818,7 +818,7 @@ export function EmergencyIntakeForm({
       >
         {busy === 'submit' ? '送信中...' : '送信内容を確認する'}
       </button>
-      <p className="text-sm text-gray-700">送信後も販売は確定しません。来局時に薬剤師が確認します。</p>
+      <p className="text-base text-gray-700">送信後も販売は確定しません。来局時に薬剤師が確認します。</p>
     </form>
   );
 }
@@ -1003,7 +1003,7 @@ export default function EmergencyContraceptionPage() {
           <p className="font-bold">仮受付であり、販売・服用・在庫を保証しません</p>
           <p className="mt-1">最終的な販売可否は、来局時に研修を修了した薬剤師が確認します。</p>
         </section>
-        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 focus:outline-none">
+        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none">
           <p>{error}</p>
           <button type="button" onClick={() => void load()} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
         </div>}
@@ -1019,14 +1019,14 @@ export default function EmergencyContraceptionPage() {
             href={safeExternalUrl(service?.support_center_url ?? null) ?? undefined}
             target="_blank"
             rel="noreferrer noopener"
-            className="mt-2 inline-block font-bold text-green-900 underline"
+            className="mt-2 inline-flex min-h-11 items-center font-bold text-green-900 underline"
           >
             相談窓口を見る（外部サイト）
           </a>}
           <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
         </div>}
         {loading
-          ? <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-600">受付状況を読み込み中...</p>
+          ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-600">受付状況を読み込み中...</p>
           : service?.ready && service.consent
             ? <>
               <EmergencyConsentSection
@@ -1038,7 +1038,7 @@ export default function EmergencyContraceptionPage() {
               {confirming
                 ? <section className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm" aria-labelledby="emergency-confirm">
                   <h2 id="emergency-confirm" className="font-bold text-gray-900">送信内容の確認</h2>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm text-gray-800">
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-base text-gray-800">
                     <dt className="text-gray-600">出来事の{draft.intercourseTimeUnknown ? '日' : '日時'}</dt><dd>{draft.intercourseTimeUnknown ? draft.intercourseAt : formatTokyo(toIntercourseAtPayload(draft))}</dd>
                     <dt className="text-gray-600">希望する対応枠</dt><dd>{selectedSlot ? `${formatTokyo(selectedSlot.starts_at)}〜${formatTokyo(selectedSlot.ends_at)}` : '未選択'}</dd>
                     <dt className="text-gray-600">年齢</dt><dd>{draft.age}歳</dd>
@@ -1064,7 +1064,7 @@ export default function EmergencyContraceptionPage() {
             : <>
               <section className="rounded-xl bg-white p-4 shadow-sm">
                 <h2 className="font-bold text-gray-900">現在この画面から受付できません</h2>
-                <p className="mt-2 text-sm text-gray-700">
+                <p className="mt-2 text-base text-gray-700">
                   {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
                 </p>
               </section>

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   betaParticipant: vi.fn(),
   outlook: vi.fn(),
+  getOperations: vi.fn(), saveOperations: vi.fn(),
 }));
 vi.mock('../growth-loop/access.js', () => ({
   canAccessPharmacyAccount: mocks.access,
@@ -22,6 +23,8 @@ vi.mock('./repository.js', () => ({
   listMedicationFollowUpContacts: mocks.listContacts,
   recordMedicationFollowUpContact: mocks.recordContact,
   getMedicationFollowUpOperationsOutlook: mocks.outlook,
+  getMedicationFollowUpOperations: mocks.getOperations,
+  saveMedicationFollowUpOperations: mocks.saveOperations,
 }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
@@ -36,7 +39,7 @@ const env = { DB: {} as D1Database };
 function app() {
   const root = new Hono<any>();
   root.use('*', async (c, next) => {
-    c.set('staff', { id: 'staff-a', name: 'Staff', role: 'staff' });
+    c.set('staff', { id: 'staff-a', name: 'Staff', role: 'owner' });
     await next();
   });
   root.route('/', medicationFollowUpRoutes);
@@ -84,6 +87,24 @@ beforeEach(() => {
     next_contact_at: null, occurred_at: '2026-08-21T10:00:00.000Z',
   });
   mocks.audit.mockResolvedValue(undefined);
+  mocks.getOperations.mockResolvedValue({
+    line_account_id: 'account-a', service_hours_text: '9:00-18:00',
+    response_sla_json: '{"typical_minutes":30,"concern_minutes":60}',
+    primary_staff_id: 'staff-a', backup_staff_id: null,
+    after_hours_message_code: 'contact_pharmacy_during_hours',
+    emergency_message_code: 'seek_urgent_care',
+    enabled: 1, version: 2,
+    created_at: '2026-08-20T09:00:00.000Z', updated_at: '2026-08-21T09:00:00.000Z',
+  });
+  mocks.saveOperations.mockResolvedValue({
+    line_account_id: 'account-a', service_hours_text: '9:00-18:00',
+    response_sla_json: '{"typical_minutes":30,"concern_minutes":60}',
+    primary_staff_id: 'staff-a', backup_staff_id: 'staff-b',
+    after_hours_message_code: 'contact_pharmacy_during_hours',
+    emergency_message_code: 'seek_urgent_care',
+    enabled: 1, version: 3,
+    created_at: '2026-08-20T09:00:00.000Z', updated_at: '2026-08-21T10:00:00.000Z',
+  });
 });
 
 describe('medication follow-up patient routes', () => {
@@ -366,5 +387,170 @@ describe('medication follow-up staff routes', () => {
     expect(await response.json()).toEqual({
       error: '服薬後フォローは更新されています。再読み込みしてください。',
     });
+  });
+});
+
+describe('medication follow-up operations routes', () => {
+  const operationsBody = {
+    serviceHoursText: '9:00-18:00',
+    responseSla: { typical_minutes: 30, concern_minutes: 60 },
+    primaryStaffId: 'staff-a', backupStaffId: 'staff-b',
+    afterHoursMessageCode: 'contact_pharmacy_during_hours',
+    emergencyMessageCode: 'seek_urgent_care',
+    enabled: true, expectedVersion: 2,
+  };
+
+  it('returns the scoped account operations config', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      {}, env,
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { operations: Record<string, unknown> };
+    expect(payload.operations).toMatchObject({
+      service_hours_text: '9:00-18:00',
+      response_sla: { typical_minutes: 30, concern_minutes: 60 },
+      primary_staff_id: 'staff-a', backup_staff_id: null,
+      enabled: true, version: 2,
+    });
+    expect(mocks.getOperations).toHaveBeenCalledWith(env.DB, 'account-a');
+  });
+
+  it('returns null operations when the account is not configured yet', async () => {
+    mocks.getOperations.mockResolvedValue(null);
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      {}, env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ operations: null });
+  });
+
+  it('rejects cross-account operations reads and writes before the repository', async () => {
+    mocks.access.mockResolvedValue(false);
+    const read = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-b',
+      {}, env,
+    );
+    const write = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-b',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+
+    expect(read.status).toBe(403);
+    expect(write.status).toBe(403);
+    expect(mocks.getOperations).not.toHaveBeenCalled();
+    expect(mocks.saveOperations).not.toHaveBeenCalled();
+  });
+
+  it('rejects operations writes from non-owner staff before the repository', async () => {
+    const root = new Hono<any>();
+    root.use('*', async (c, next) => {
+      c.set('staff', { id: 'staff-a', name: 'Staff', role: 'staff' });
+      await next();
+    });
+    root.route('/', medicationFollowUpRoutes);
+    const response = await root.request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.saveOperations).not.toHaveBeenCalled();
+  });
+
+  it('saves operations with the staff-derived account scope', async () => {
+    const response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { operations: Record<string, unknown> };
+    expect(payload.operations).toMatchObject({ enabled: true, version: 3 });
+    expect(mocks.saveOperations).toHaveBeenCalledWith(env.DB, {
+      lineAccountId: 'account-a',
+      serviceHoursText: '9:00-18:00',
+      responseSla: { typical_minutes: 30, concern_minutes: 60 },
+      primaryStaffId: 'staff-a', backupStaffId: 'staff-b',
+      afterHoursMessageCode: 'contact_pharmacy_during_hours',
+      emergencyMessageCode: 'seek_urgent_care',
+      enabled: true, expectedVersion: 2,
+      actorStaffId: 'staff-a',
+    });
+  });
+
+  it('rejects malformed operations payloads without touching the repository', async () => {
+    for (const body of [
+      { ...operationsBody, primaryStaffId: 7 },
+      { ...operationsBody, enabled: 'yes' },
+      { ...operationsBody, expectedVersion: 'two' },
+      { ...operationsBody, responseSla: ['typical_minutes'] },
+      { ...operationsBody, afterHoursMessageCode: 12 },
+    ]) {
+      const response = await app().request(
+        '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body) }, env,
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.saveOperations).not.toHaveBeenCalled();
+  });
+
+  it('requires the medication_followup capability for saves but not reads', async () => {
+    mocks.capability.mockResolvedValue(false);
+    const write = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+    const read = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      {}, env,
+    );
+
+    expect(write.status).toBe(409);
+    expect(read.status).toBe(200);
+    expect(mocks.saveOperations).not.toHaveBeenCalled();
+    expect(mocks.getOperations).toHaveBeenCalledWith(env.DB, 'account-a');
+  });
+
+  it('maps version conflicts, invalid staff and missing schema to stable statuses', async () => {
+    mocks.saveOperations.mockRejectedValue(new Error('follow-up operations conflict'));
+    let response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+    expect(response.status).toBe(409);
+
+    mocks.saveOperations.mockRejectedValue(new Error('invalid follow-up operations staff'));
+    response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+    expect(response.status).toBe(400);
+
+    mocks.saveOperations.mockRejectedValue(new Error('follow-up operations schema unavailable'));
+    response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(operationsBody) }, env,
+    );
+    expect(response.status).toBe(503);
+
+    mocks.getOperations.mockRejectedValue(new Error('follow-up operations schema unavailable'));
+    response = await app().request(
+      '/api/custom/pharmacy/medication-followups/operations?line_account_id=account-a',
+      {}, env,
+    );
+    expect(response.status).toBe(503);
   });
 });
