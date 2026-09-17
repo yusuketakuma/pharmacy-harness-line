@@ -8,6 +8,7 @@ import {
 import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
 import { pharmacyRoute } from '../navigation.js';
 import { mynaApi, type MynaHandoff, type MynaPatientReport } from '../myna/api.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
 import { isUnsupportedPharmacyFeature, pharmacyErrorMessage } from '../request.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -189,6 +190,7 @@ export default function PrescriptionPage() {
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailures, setLoadFailures] = useState(0);
   const [success, setSuccess] = useState<string | null>(null);
   const [sentSubmission, setSentSubmission] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -207,10 +209,12 @@ export default function PrescriptionPage() {
     try {
       const result = await prescriptionApi.history();
       setHistory(result.submissions);
+      setLoadFailures(0);
       if (requestedSubmissionId) openView('history');
       return result.submissions;
     } catch (err) {
       setError(pharmacyErrorMessage(err, '履歴を読み込めませんでした。'));
+      setLoadFailures((count) => count + 1);
       return [];
     } finally {
       setLoadingHistory(false);
@@ -221,6 +225,7 @@ export default function PrescriptionPage() {
     try {
       const result = await prescriptionApi.recovery();
       setRecovery(result.recovery);
+      setLoadFailures(0);
       if (result.recovery.state === 'recoverable') {
         setReplacement(null);
         setSelectedPatientId(result.recovery.submission.patientId);
@@ -240,6 +245,7 @@ export default function PrescriptionPage() {
       }
       setRecovery({ state: 'ambiguous', reason: 'patient_binding_unavailable' });
       setError(pharmacyErrorMessage(error, '未送信の状態を確認できませんでした。'));
+      setLoadFailures((count) => count + 1);
       return null;
     } finally {
       setRecoveryResolved(true);
@@ -254,30 +260,42 @@ export default function PrescriptionPage() {
       errorRef.current?.scrollIntoView({ block: 'center' });
     }
   }, [error]);
-  useEffect(() => {
-    let active = true;
-    void mynaApi.active().then((result) => {
-      if (active) setMynaHandoff(result.handoff);
-    }).catch((err: unknown) => {
-      if (active) setError(pharmacyErrorMessage(err, '電子処方箋の状況を読み込めませんでした。'));
-    }).finally(() => {
-      if (active) setLoadingMyna(false);
-    });
-    return () => { active = false; };
+  const loadMyna = useCallback(async () => {
+    setLoadingMyna(true);
+    try {
+      const result = await mynaApi.active();
+      setMynaHandoff(result.handoff);
+      setLoadFailures(0);
+    } catch (err) {
+      setError(pharmacyErrorMessage(err, '電子処方箋の状況を読み込めませんでした。'));
+      setLoadFailures((count) => count + 1);
+    } finally {
+      setLoadingMyna(false);
+    }
   }, []);
-  useEffect(() => {
-    let active = true;
-    void patientIntakeApi.list().then((result) => {
-      if (!active) return;
+  const loadPatients = useCallback(async () => {
+    setLoadingPatients(true);
+    try {
+      const result = await patientIntakeApi.list();
       setPatients(result.patients);
+      setLoadFailures(0);
       setSelectedPatientId((current) => current || result.patients[0]?.id || '');
-    }).catch((err: unknown) => {
-      if (active) setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
-    }).finally(() => {
-      if (active) setLoadingPatients(false);
-    });
-    return () => { active = false; };
+    } catch (err) {
+      setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
+      setLoadFailures((count) => count + 1);
+    } finally {
+      setLoadingPatients(false);
+    }
   }, []);
+  useEffect(() => { void loadMyna(); }, [loadMyna]);
+  useEffect(() => { void loadPatients(); }, [loadPatients]);
+  const retryLoads = useCallback(() => {
+    void refreshHistory();
+    void refreshRecovery();
+    void loadMyna();
+    void loadPatients();
+  }, [refreshHistory, refreshRecovery, loadMyna, loadPatients]);
+  usePharmacyAutoRetry(loadFailures, retryLoads);
   useEffect(() => {
     if (!selectedPatientId) {
       setIntakeResponseId('');
@@ -607,7 +625,7 @@ export default function PrescriptionPage() {
           {recoveredSubmission.pendingPositions.length > 0 && <p className="mt-1">通信が切れた画像があります。同じ画像をもう一度選択してください。</p>}
           <p className="mt-1">患者は変更できません。同意事項はもう一度確認してください。</p>
         </section>}
-        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-base text-green-800">
+        {success && <PharmacyStatusBlock tone="success">
           <p className="font-bold">{success}</p>
           {sentSubmission && <>
             <p className="mt-2 font-bold">次にすること</p>
@@ -618,7 +636,7 @@ export default function PrescriptionPage() {
             </ul>
           </>}
           <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
-        </div>}
+        </PharmacyStatusBlock>}
 
         {tab === 'electronic' ? (
           <section className="space-y-4" aria-labelledby="electronic-prescription-heading">
@@ -626,9 +644,9 @@ export default function PrescriptionPage() {
               <h2 id="electronic-prescription-heading" className="font-bold">電子処方箋を利用</h2>
               <p className="mt-2 text-base leading-6 text-gray-700">外部の受付画面で手続きします。患者情報・LINE ID・LIFF IDは外部URLへ付けません。</p>
               <p className="mt-2 text-base leading-5 text-amber-900">「手続きを終えた」は患者からの申告です。薬局で確認するまで正式な受領にはなりません。</p>
-              {loadingMyna ? <p className="py-6 text-center text-base text-gray-500">状況を読み込み中...</p> : <>
+              {loadingMyna ? <PharmacyLoading label="状況を読み込み中..." /> : <>
                 {mynaHandoff && <div className="mt-4 rounded-lg bg-gray-50 p-3 text-base"><p className="font-medium">電子処方箋の手続き状況</p><p className="mt-1 text-gray-600">状態：{mynaStatusLabel(mynaHandoff.status)} / 期限：{new Date(mynaHandoff.expires_at).toLocaleString('ja-JP')}</p></div>}
-                {(!mynaHandoff || canLaunchMynaPatientHandoff(mynaHandoff.status)) && <button type="button" onClick={() => void launchElectronic()} disabled={busy} className="mt-4 min-h-11 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? '処理中…' : mynaHandoff ? '外部画面へ戻る' : '電子処方箋の手続きを始める'}</button>}
+                {(!mynaHandoff || canLaunchMynaPatientHandoff(mynaHandoff.status)) && <button type="button" onClick={() => void launchElectronic()} disabled={busy} className="mt-4 min-h-11 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? <PharmacySpinner label="処理中…" /> : mynaHandoff ? '外部画面へ戻る' : '電子処方箋の手続きを始める'}</button>}
                 {mynaHandoff && mynaPatientReportOptions(mynaHandoff.status).length > 0 && <div className="mt-4 grid gap-2">{mynaPatientReportOptions(mynaHandoff.status).map(([result, label]) => <button key={result} type="button" onClick={() => void reportElectronic(result)} disabled={busy} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base disabled:opacity-50">{label}</button>)}</div>}
               </>}
             </div>
@@ -637,10 +655,10 @@ export default function PrescriptionPage() {
           <section className="space-y-4" aria-labelledby="upload-heading">
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <h2 className="font-bold">患者を選択</h2>
-              {loadingPatients ? <p className="text-base text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
+              {loadingPatients ? <PharmacyLoading label="患者情報を読み込み中..." /> : patients.length === 0 ? (
                 <p className="text-base text-gray-600"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="pharmacy-control inline-flex min-h-11 items-center font-bold text-green-800 underline">患者アンケート</Link>から患者情報を登録してください。</p>
               ) : <>
-                <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block min-h-11 w-full rounded-lg border border-gray-300 p-3" disabled={busy || Boolean(recoveredSubmission)} aria-label="処方せんの患者">
+                <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block min-h-11 w-full rounded-lg border border-gray-300 p-3 text-base" disabled={busy || Boolean(recoveredSubmission)} aria-label="処方せんの患者">
                   {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}（{patient.birth_date}）</option>)}
                 </select>
                 {!intakeResponseId && !recoveredSubmission && <p className="text-base text-amber-700"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="pharmacy-control inline-flex min-h-11 items-center font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
@@ -676,7 +694,7 @@ export default function PrescriptionPage() {
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <label className="block text-base font-medium">
                 希望受取日時（任意）
-                <input type="datetime-local" min={pickupMin} value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
+                <input type="datetime-local" min={pickupMin} value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3 text-base" disabled={busy} />
               </label>
               <fieldset className="space-y-2 text-base">
                 <legend className="font-medium">希望する受け取り方法</legend>
@@ -702,14 +720,14 @@ export default function PrescriptionPage() {
                   <li>受け取り方法: {desiredFulfillmentMethod === 'PICKUP' ? '薬局で受け取る' : '配送を希望'}</li>
                   <li>原本の持参・LINE通知: 同意済み</li>
                 </ul>
-                <button type="button" onClick={() => void send()} disabled={busy} className="min-h-11 w-full rounded-xl bg-green-700 px-4 py-4 font-bold text-white disabled:bg-gray-300">
-                  {busy ? '送信中…' : 'この内容で送信する'}
+                <button type="button" onClick={() => void send()} disabled={busy} aria-busy={busy} className="min-h-11 w-full rounded-xl bg-green-700 px-4 py-4 font-bold text-white disabled:bg-gray-300">
+                  {busy ? <PharmacySpinner label="送信中…" /> : 'この内容で送信する'}
                 </button>
                 <button type="button" onClick={() => setConfirming(false)} disabled={busy} className="min-h-11 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-50">修正する</button>
               </div>
             ) : (
               <button type="button" onClick={() => setConfirming(true)} disabled={unmetReasons.length > 0 || busy} className="min-h-11 w-full rounded-xl bg-green-700 px-4 py-4 font-bold text-white disabled:bg-gray-300">
-                {busy ? '送信中…' : replacement || recoveredSubmission ? '再開する内容を確認する' : '送信内容を確認する'}
+                {busy ? <PharmacySpinner label="送信中…" /> : replacement || recoveredSubmission ? '再開する内容を確認する' : '送信内容を確認する'}
               </button>
             )}
             <p className="text-base leading-5 text-gray-700">この送信だけでは受付完了ではありません。薬局の受付内容の確認連絡をご確認ください。</p>
@@ -717,7 +735,7 @@ export default function PrescriptionPage() {
         ) : (
           <section aria-labelledby="history-heading">
             <h2 id="history-heading" className="font-bold">受付状況</h2>
-            {loadingHistory ? <p className="py-8 text-center text-gray-500">読み込み中...</p> : history.length === 0 ? <p className="py-8 text-center text-gray-500">送信履歴はありません。</p> : (
+            {loadingHistory ? <PharmacyLoading label="読み込み中..." /> : history.length === 0 ? <p className="py-8 text-center text-gray-600">送信履歴はありません。</p> : (
               <ul className="mt-3 space-y-3">
                 {history.map((item) => (
                     <li key={item.id} className="pharmacy-card p-4">

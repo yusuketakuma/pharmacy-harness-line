@@ -86,4 +86,84 @@ describe('v0.36 patient UI rules', () => {
     const control = css.match(/\.pharmacy-control\s*\{[^}]*\}/)?.[0] ?? '';
     expect(control).toMatch(/min-height:\s*2\.75rem/);
   });
+
+  it('keeps the motion/feedback utilities and the reduced-motion opt-out', () => {
+    const css = readFileSync(join(SEAM_ROOT, '../../index.css'), 'utf8');
+    const animated = [
+      'pharmacy-page-enter',
+      'pharmacy-step-next',
+      'pharmacy-step-back',
+      'pharmacy-progress-bar',
+      'pharmacy-skeleton',
+      'pharmacy-spinner',
+    ];
+    for (const name of animated) {
+      expect(css, `.${name} must exist`).toContain(`.${name}`);
+    }
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*$/)?.[0] ?? '';
+    expect(reduced).not.toBe('');
+    for (const name of [...animated, 'pharmacy-control']) {
+      expect(reduced, `.${name} must be disabled under reduced motion`).toContain(`.${name}`);
+    }
+  });
+
+  it('resets scroll position and document.title on pharmacy route changes', () => {
+    const shell = readFileSync(join(SEAM_ROOT, 'PharmacyShell.tsx'), 'utf8');
+    expect(shell).toContain('window.scrollTo(0, 0)');
+    expect(shell).toContain('document.title');
+  });
+
+  it('avoids native number/date inputs (spinner/scroll/calendar traps)', () => {
+    const violations: string[] = [];
+    for (const file of seamFiles()) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (!/type="(?:number|date)"/.test(line)) return;
+        // Recent-date pickers (last menstruation) are fine; the ban targets
+        // remembered dates like birth dates, plus number spinners.
+        if (/type="date"/.test(line) && lines.slice(Math.max(0, index - 3), index).join('\n').includes('emergency-last-period')) return;
+        violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
+      });
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps text-entry fields at text-base (prevents iOS auto-zoom)', () => {
+    const violations: string[] = [];
+    for (const file of seamFiles()) {
+      const source = readFileSync(file, 'utf8');
+      const lines = source.split('\n');
+      lines.forEach((line, index) => {
+        if (!/<(?:input|textarea|select)(?=[\s>]|$)/.test(line)) return;
+        const tag = openingTag(lines, index);
+        if (/type="(?:radio|checkbox|file|hidden|submit|button)"/.test(tag)) return;
+        const usesSharedFieldClass = /className=\{fieldClass\}/.test(tag) &&
+          /fieldClass = '[^']*text-base/.test(source);
+        if (/text-(?:base|lg|xl|2xl)/.test(tag) || usesSharedFieldClass) return;
+        violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
+      });
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps patient-facing text at gray-600 or darker (contrast)', () => {
+    const violations: string[] = [];
+    for (const file of seamFiles()) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (/text-gray-[45]00/.test(line)) violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
+      });
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('marks in-flight submissions with aria-busy wherever a spinner is shown', () => {
+    const violations: string[] = [];
+    for (const file of seamFiles()) {
+      const source = readFileSync(file, 'utf8');
+      if (!source.includes('<PharmacySpinner')) continue;
+      if (!/aria-busy=\{/.test(source)) violations.push(file.replace(SEAM_ROOT, ''));
+    }
+    expect(violations).toEqual([]);
+  });
 });

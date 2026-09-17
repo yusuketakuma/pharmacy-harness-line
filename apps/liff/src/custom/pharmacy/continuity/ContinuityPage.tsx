@@ -6,6 +6,7 @@ import {
   type NextIntakeExpectation,
 } from './api.js';
 import { pharmacyRoute } from '../navigation.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
 
 const labels: Record<ContinuityObligation['status'], string> = {
   active: '次回のご相談を受付中',
@@ -39,10 +40,12 @@ function nextContinuityAction(
 export function NextIntakeExpectationCard({
   expectation,
   busy,
+  pendingAction = null,
   onRespond,
 }: {
   expectation: NextIntakeExpectation;
   busy: boolean;
+  pendingAction?: string | null;
   onRespond: (id: string, response: 'accepted' | 'ended') => Promise<void>;
 }) {
   return <section className="mt-3 rounded-lg border border-green-100 bg-green-50 p-3">
@@ -51,8 +54,8 @@ export function NextIntakeExpectationCard({
     <p className="mt-1 text-base text-gray-600">目安：{expectation.expected_from}〜{expectation.expected_to}</p>
     <p className="mt-2 text-base text-gray-700">有効な処方せんは別途必要です。薬の確保や調剤を約束するものではありません。</p>
     {expectation.status === 'offered' && <div className="mt-3 grid gap-2">
-      <button type="button" onClick={() => void onRespond(expectation.id, 'accepted')} disabled={busy} className="pharmacy-control min-h-11 rounded-lg bg-green-700 px-4 py-2 text-base font-bold text-white disabled:opacity-50">お知らせを受け取る</button>
-      <button type="button" onClick={() => void onRespond(expectation.id, 'ended')} disabled={busy} className="pharmacy-control min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-base text-gray-700 disabled:opacity-50">今回は登録しない</button>
+      <button type="button" onClick={() => void onRespond(expectation.id, 'accepted')} disabled={busy} aria-busy={pendingAction === `respond:${expectation.id}:accepted`} className="pharmacy-control min-h-11 rounded-lg bg-green-700 px-4 py-2 text-base font-bold text-white disabled:opacity-50">{pendingAction === `respond:${expectation.id}:accepted` ? <PharmacySpinner label="登録中…" /> : 'お知らせを受け取る'}</button>
+      <button type="button" onClick={() => void onRespond(expectation.id, 'ended')} disabled={busy} aria-busy={pendingAction === `respond:${expectation.id}:ended`} className="pharmacy-control min-h-11 rounded-lg border border-gray-300 bg-white px-4 py-2 text-base text-gray-700 disabled:opacity-50">{pendingAction === `respond:${expectation.id}:ended` ? <PharmacySpinner label="登録中…" /> : '今回は登録しない'}</button>
     </div>}
   </section>;
 }
@@ -63,9 +66,11 @@ export default function ContinuityPage() {
   const [items, setItems] = useState<ContinuityObligation[]>([]);
   const [expectations, setExpectations] = useState<NextIntakeExpectation[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [loadFailures, setLoadFailures] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,13 +79,17 @@ export default function ContinuityPage() {
       setItems(result.obligations);
       setExpectations(result.expectations);
       setError(null);
+      setLoadFailures(0);
     } catch (err) {
       console.error(err);
       setError(LOAD_ERROR_MESSAGE);
+      setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
+  usePharmacyAutoRetry(loadFailures, load);
+
   useEffect(() => { void load(); }, [load]);
 
   async function pause(id: string) {
@@ -97,15 +106,19 @@ export default function ContinuityPage() {
   }
 
   async function respond(id: string, response: 'accepted' | 'ended') {
+    const previous = expectations;
     setBusy(true); setError(null); setSuccess(null);
+    setPendingAction(`respond:${id}:${response}`);
+    setExpectations((current) => current.map((item) => item.id === id ? { ...item, status: response } : item));
     try {
       await continuityApi.respond(id, response);
       setSuccess(response === 'accepted' ? '次回事前送信のお知らせを登録しました。' : '今回は登録しません。');
       await load();
     } catch (err) {
       console.error(err);
+      setExpectations(previous);
       setError('次回事前送信のお知らせを変更できませんでした。時間をおいてもう一度お試しください。');
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setPendingAction(null); }
   }
 
   const expectationByObligation = new Map(expectations.map((item) => [item.obligation_id, item]));
@@ -124,9 +137,9 @@ export default function ContinuityPage() {
           <p>{error}</p>
           <button type="button" onClick={() => void load()} disabled={loading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
         </div>}
-        {success && <div role="status" className="rounded-lg bg-green-50 p-3 text-base text-green-800">{success}<Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link></div>}
-        {loading ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-500">継続フォローを読み込み中...</p>
-          : items.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-500">現在、継続フォローはありません。</p> : <ul className="space-y-3">{items.map((item) => {
+        {success && <PharmacyStatusBlock tone="success">{success}<Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link></PharmacyStatusBlock>}
+        {loading ? <PharmacyLoading label="継続フォローを読み込み中..." />
+          : items.length === 0 ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-600">現在、継続フォローはありません。</p> : <ul className="space-y-3">{items.map((item) => {
           const expectation = expectationByObligation.get(item.id);
           return <li key={item.id} className="pharmacy-card p-4">
             <section aria-label="継続フォローの現在の状態と次の操作">
@@ -136,7 +149,7 @@ export default function ContinuityPage() {
               <p className="mt-1 text-base text-gray-800">{nextContinuityAction(item, expectation)}</p>
             </section>
             {expectation
-              ? <NextIntakeExpectationCard expectation={expectation} busy={busy} onRespond={respond} />
+              ? <NextIntakeExpectationCard expectation={expectation} busy={busy} pendingAction={pendingAction} onRespond={respond} />
               : <p className="mt-2 text-base text-gray-600">次回のお知らせ時期はまだ設定されていません。</p>}
             {item.candidate_submission_id && <p className="mt-2 text-base text-green-700">次の処方せんを受付中です。</p>}
             {(item.status === 'active' || item.status === 'linked') && <button type="button" onClick={() => void pause(item.id)} disabled={busy} className="pharmacy-control min-h-11 mt-3 text-base text-gray-600 underline disabled:opacity-50">フォローを一時停止</button>}

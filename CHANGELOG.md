@@ -1,5 +1,60 @@
 # Changelog
 
+## Pharmacy v0.36.1 (2026-09-18)
+
+> パッケージ／ソースのバージョンを`0.36.1`として確定し、患者向けLIFFのインタラクション・フォームUX改善一式を`dev`で管理します。ソースコードのタグ`v0.36.1`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+患者側LIFFに対して、高齢患者を前提とした「迷わない・消えない・待ちが分かる」インタラクション層を追加しました。画面遷移・ステップ移動・読み込み・送信・失復帰の5面を、`custom/pharmacy` seam と `index.css` の共通部品で統一しています。API契約・DBスキーマ・通知経路の変更はありません。LIFF側のみの変更です。
+
+調査はサブエージェント4系統（LIFF公式ドキュメント / WCAG 2.2・DADS / 高齢者UX / GOV.UKフォーム設計）で実施し、採用した提案だけを実装しています。本文18px一括化・全画面の情報密度削減は、情報量確保のユーザー方針と競合するため採用していません。
+
+### v0.36.0との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| 画面遷移 | `PharmacyShell` で pathname 変化時に `pharmacy-page-enter` フェード（0.18s）＋ `scrollTo(0,0)`。query変化はscrollのみに分離し、タブ切替でフォーム入力を失わない。遷移ごとに `document.title` を「画面名｜薬局名」へ更新 | 実装済み |
+| ステップ遷移 | 問診3ステップ・EC（入力→確認）に方向スライド（次へ=左／戻る=右、0.2s）＋遷移後の見出しへ自動 focus。`role="progressbar"` 付き進捗バー | 実装済み |
+| ローディング | 全ローディング表示を `PharmacyLoading`（構造模倣スケルトン＋`role="status"`＋`sr-only`ラベル）へ統一。対象：shell/gate/menu/timeline/followup/continuity/info/処方せん×3/問診/EC | 実装済み |
+| 送信フィードバック | 全送信ボタンに `PharmacySpinner`（送信中…）＋ `aria-busy`。完了ブロックは `PharmacyStatusBlock`（mount時focus＋scrollIntoView）へ統一。継続フォローの受取登録はoptimistic update＋失敗時ロールバック | 実装済み |
+| 押下フィードバック | `.pharmacy-control:active` で scale(0.98)。`:disabled`/`[aria-disabled]` は除外 | 実装済み |
+| reduced-motion | `@media (prefers-reduced-motion: reduce)` で全アニメーション・transitionを停止 | 実装済み |
+| 下書き自動保存 | `draftStorage.ts` 新設。問診の回答＋ステップ・新規患者フォームを `localStorage` へ保存し、LIFF再起動・セッション切れで復帰。キーは患者ID単位で分離（`intakeDraftKey`/`NEW_PATIENT_DRAFT_KEY`）、送信成功時にクリア。storage不可環境は例外握りつぶしてフォーム自体は継続 | 実装済み |
+| 生年月日入力 | 患者登録の `type="date"` を廃止 → 年/月/日の3分割 `inputmode="numeric"` 入力。`birth_date`（YYYY-MM-DD）は派生値のためAPI契約不変 | 実装済み |
+| エラーサマリ | `PharmacyErrorSummary` 新設（上部一覧→該当fieldsetへジャンプ＋focus、mount時自動focus）。問診の未回答安全確認（ステップスコープ）とEC送信エラーに導入 | 実装済み |
+| 自動再試行 | `usePharmacyAutoRetry`（最大2回、3秒/6秒バックオフ、成功時リセット）を全idempotent loadへ配線：処方せん4系統・問診2系統・timeline・continuity・followup・info・shell初期アクセス。送信/mutationは対象外 | 実装済み |
+| iOS自動ズーム防止 | seam内の全 input/textarea/select を `text-base` へ（16px未満inputのフォーカス強制ズーム対策）。radio/checkbox/fileは対象外 | 実装済み |
+| コントラスト | `text-gray-500` → `text-gray-600`（空状態・履歴なし表示） | 実装済み |
+| 行間 | `.pharmacy-shell/.pharmacy-main` に `line-height: 1.6`（DADS 160%基準）を既定化 | 実装済み |
+| 数値入力 | ECの年齢・過去3か月利用回数を `type="number"` → `type="text" inputmode="numeric" pattern="[0-9]*"` ＋非数字除去（スピナー誤操作・スクロール値変化の排除） | 実装済み |
+| 回帰ガード | `v036-ui-rules.test.ts` に5規約追加：reduced-motion網羅性、`scrollTo`/`document.title` 存在、`type="number"/"date"`禁止（EC直近月経日は直近日付pickerとして例外許可）、テキスト入力の`text-base`必須、`text-gray-400/500`禁止、spinner使用時の`aria-busy`必須 | 実装済み |
+
+### 差分で確認した安全性
+
+- **PHIとlocalStorage**: 下書きは患者自身の端末内 `localStorage` にのみ保存され、サーバー送信は従来どおり送信操作時のみ。患者ID単位でキーを分離し、家族の別患者へ混入しない。送信成功・別患者選択時はリセットして混入を防止。storageが使えないWebView環境（プライベートモード等）はtry/catchで握りつぶし、フォーム自体は動作し続ける。
+- **下書き復帰のマージ順**: 保存済み回答の上に下書きを重ねる（`{...savedAnswers, ...draft.answers}`）。下書き保存後に追加された回答キーがあっても保存値を失わない。
+- **自動再試行の境界**: `usePharmacyAutoRetry` はidempotentなload専用。submit/mutationには配線しない設計をコメントで明記し、全呼出箇所がload経路であることを確認済み。失敗カウンタは成功時リセット、最大2回で停止（無限リトライなし）。
+- **タブ切替での入力保持**: `PharmacyShell` の再マウントキーはpathnameのみに限定し、query変化ではchildrenをunmountしない（処方せんタブ切替で選択中の患者・写真・同意を失わない）。
+- **エラーサマリのフォーカス競合**: 問診サマリは`showErrors`（「次へ」押下後）でのみ表示し、初回マウント時の未回答状態ではfocusを奪わない。ジャンプ先は当該ステップ内に限定（`SAFETY_KEYS_BY_STEP`）。ECの全ジャンプ先ID（10件）は実在を確認済み。
+- **遅延読み込みとの競合**: `usePharmacyAutoRetry` のretry callbackは`useCallback`で安定化し、timeoutはunmount/再実行時にclearTimeoutで解除。
+- **API契約**: 変更なし。`birth_date`文字列・EC draft・intake answersの送出形式は不変。UI層のみの変更のため、旧LIFFとのlockstep deployは不要。
+
+### レビューで検出・修正した事項
+
+- 下書き復帰のマージが `{...INITIAL, ...draft}` だったため、下書き保存後に追加された回答キーの保存値を失う可能性を `{...savedAnswers, ...draft}` へ修正。
+- 一括置換で radio/checkbox/sr-only input にも `text-base` が混入したものを全件除去（非テキスト入力は対象外）。
+- ガードテスト新規約が `emergency-last-period` の `type="date"` を誤検出したため、直近日付pickerとして明示例外化。
+
+### 確認状況
+
+| 確認項目 | 結果 |
+| --- | --- |
+| version contract | runtime package 6件を`0.36.1`へ統一 |
+| liff | 25 files / 164 tests PASS、`tsc --noEmit` PASS、Vite build成功 |
+| 破壊的変更 | なし。API field/routeのrename・削除、schema変更、旧契約の意味変更なし |
+| 実LINE受入 / production deploy | NOT_RUN — Human Gate。local greenでは代替しない |
+
 ## Pharmacy v0.36.0 (2026-09-17)
 
 > パッケージ／ソースのバージョンを`0.36.0`として確定し、Closed-loop Follow-up & Communication の残件と患者向けUI改善・薬局管理画面の機能追加を`dev`で管理します。ソースコードのタグ`v0.36.0`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。

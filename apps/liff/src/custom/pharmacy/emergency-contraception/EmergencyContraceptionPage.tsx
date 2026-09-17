@@ -11,6 +11,7 @@ import {
   type EmergencyServiceOverview,
 } from './api.js';
 import { pharmacyErrorMessage } from '../request.js';
+import { PharmacyErrorSummary, PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 
 export const MHLW_EMERGENCY_CONTRACEPTION_URL =
@@ -368,7 +369,7 @@ function IntakeList({
               disabled={busy !== null}
               className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-base font-bold text-red-800 disabled:opacity-50"
             >
-              {busy === `cancel:${intake.id}` ? '取消中...' : 'この仮受付を取消'}
+              {busy === `cancel:${intake.id}` ? <PharmacySpinner label="取消中…" /> : 'この仮受付を取消'}
             </button>}
           </li>
         ))}</ul>}
@@ -389,7 +390,7 @@ export function EmergencyConsentSection({
 }) {
   return (
     <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
-      <h2 id="emergency-consent" className="font-bold text-gray-900">説明と明示同意</h2>
+      <h2 id="emergency-consent" tabIndex={-1} className="font-bold text-gray-900">説明と明示同意</h2>
       <p className="whitespace-pre-wrap text-base text-gray-700">{consent.text_v2}</p>
       <dl className="space-y-1 text-base text-gray-700">
         <div><dt className="font-bold">申告の保存期間 / 販売記録</dt><dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd></div>
@@ -417,6 +418,20 @@ export function EmergencyConsentSection({
   );
 }
 
+const EMERGENCY_ERROR_FIELD_IDS: Partial<Record<keyof EmergencyIntakeDraft, string>> = {
+  intercourseAt: 'emergency-intercourse-at',
+  slotId: 'emergency-slot',
+  age: 'emergency-age',
+  recentPurchaseCount: 'emergency-recent-count',
+  menstruationSignals: 'emergency-menstruation-signals',
+  patientWillVisit: 'emergency-visit-dose',
+  acceptsInPersonDose: 'emergency-visit-dose',
+  safeContactMode: 'emergency-safe-contact-group',
+  manufacturerCheckAcknowledged: 'emergency-manufacturer-check',
+  consentAccepted: 'emergency-consent',
+  lastMenstruationDate: 'emergency-last-period',
+};
+
 export function EmergencyIntakeForm({
   draft,
   service,
@@ -435,17 +450,24 @@ export function EmergencyIntakeForm({
   const disabled = busy !== null;
   const errors = showErrors ? emergencyIntakeFieldErrors(draft) : {};
   const invalid = (key: keyof EmergencyIntakeDraft) => (errors[key] ? true : undefined);
-  const fieldClass = 'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 aria-[invalid]:border-red-500';
+  const fieldClass = 'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base aria-[invalid]:border-red-500';
   const deadline = emergencyIntakeDeadline(draft);
   const remainingHours = deadline ? Math.max(0, Math.round((deadline.getTime() - Date.now()) / (60 * 60 * 1000))) : null;
   const showCaution = draft.lngAllergy || draft.liverDisease || draft.currentlyPregnant;
   return (
     <form
+      id="emergency-intake-form"
       className="space-y-4 rounded-xl bg-white p-4 shadow-sm"
       onSubmit={(event) => { event.preventDefault(); void onSubmit(); }}
     >
       <h2 className="text-base font-bold text-gray-900">来局前の最小確認</h2>
       <p className="text-base text-gray-600">必要な項目だけ入力してください。</p>
+      {showErrors && Object.keys(errors).length > 0 && <PharmacyErrorSummary
+        items={Object.entries(errors).map(([key, message]) => ({
+          id: EMERGENCY_ERROR_FIELD_IDS[key as keyof EmergencyIntakeDraft] ?? 'emergency-intake-form',
+          label: message ?? '入力内容を確認してください',
+        }))}
+      />}
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">対象となる出来事の日時</legend>
@@ -503,13 +525,12 @@ export function EmergencyIntakeForm({
           <span className="font-bold text-gray-900">年齢</span>
           <input
             id="emergency-age"
-            type="number"
-            min="0"
-            max="120"
-            step="1"
+            type="text"
             inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
             value={draft.age}
-            onChange={(event) => onDraftChange('age', event.currentTarget.value)}
+            onChange={(event) => onDraftChange('age', event.currentTarget.value.replace(/[^0-9]/g, ''))}
             disabled={disabled}
             required
             aria-invalid={invalid('age')}
@@ -521,12 +542,12 @@ export function EmergencyIntakeForm({
           <span className="font-bold text-gray-900">過去3か月の利用回数</span>
           <input
             id="emergency-recent-count"
-            type="number"
-            min="0"
-            step="1"
+            type="text"
             inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
             value={draft.recentPurchaseCount}
-            onChange={(event) => onDraftChange('recentPurchaseCount', event.currentTarget.value)}
+            onChange={(event) => onDraftChange('recentPurchaseCount', event.currentTarget.value.replace(/[^0-9]/g, ''))}
             disabled={disabled}
             required
             aria-invalid={invalid('recentPurchaseCount')}
@@ -626,7 +647,7 @@ export function EmergencyIntakeForm({
         </label>
       </fieldset>
 
-      <fieldset className="space-y-2">
+      <fieldset className="space-y-2" id="emergency-menstruation-signals" tabIndex={-1}>
         <legend className="font-bold text-gray-900">直近の月経について</legend>
         <label className="block space-y-1 text-base text-gray-700" htmlFor="emergency-last-period">
           <span className="font-bold text-gray-900">直近の月経が始まった日</span>
@@ -744,7 +765,7 @@ export function EmergencyIntakeForm({
         </label>)}
       </fieldset>
 
-      <fieldset className="space-y-2">
+      <fieldset className="space-y-2" id="emergency-visit-dose" tabIndex={-1}>
         <legend className="font-bold text-gray-900">来局と服用方法の確認</legend>
         <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
@@ -770,7 +791,7 @@ export function EmergencyIntakeForm({
         <FieldError message={errors.acceptsInPersonDose} />
       </fieldset>
 
-      <fieldset className="space-y-2">
+      <fieldset className="space-y-2" id="emergency-safe-contact-group" tabIndex={-1}>
         <legend className="font-bold text-gray-900">安全な連絡方法</legend>
         {SAFE_CONTACT_OPTIONS.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
@@ -787,7 +808,7 @@ export function EmergencyIntakeForm({
         <FieldError message={errors.safeContactMode} />
       </fieldset>
 
-      {safeExternalUrl(service.manufacturer_check_url) && <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+      {safeExternalUrl(service.manufacturer_check_url) && <div id="emergency-manufacturer-check" tabIndex={-1} className="rounded-lg border border-green-200 bg-green-50 p-3">
         <a
           href={safeExternalUrl(service.manufacturer_check_url) ?? undefined}
           target="_blank"
@@ -814,9 +835,10 @@ export function EmergencyIntakeForm({
       <button
         type="submit"
         disabled={disabled || !draft.consentAccepted}
+        aria-busy={busy === 'submit'}
         className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50"
       >
-        {busy === 'submit' ? '送信中...' : '送信内容を確認する'}
+        {busy === 'submit' ? <PharmacySpinner label="送信中…" /> : '送信内容を確認する'}
       </button>
       <p className="text-base text-gray-700">送信後も販売は確定しません。来局時に薬剤師が確認します。</p>
     </form>
@@ -828,6 +850,7 @@ export default function EmergencyContraceptionPage() {
   const [intakes, setIntakes] = useState<EmergencyIntake[]>([]);
   const [draft, setDraft] = useState<EmergencyIntakeDraft>(EMPTY_EMERGENCY_DRAFT);
   const [loading, setLoading] = useState(true);
+  const [loadFailures, setLoadFailures] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -839,6 +862,10 @@ export default function EmergencyContraceptionPage() {
   const submitOperationRef = useRef<EmergencyCreateOperation | null>(null);
   const cancelOperationsRef = useRef(new Map<string, EmergencyCancelOperation>());
   const errorRef = useRef<HTMLDivElement>(null);
+  const confirmHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (confirming) confirmHeadingRef.current?.focus();
+  }, [confirming]);
   useEffect(() => {
     if (error) {
       errorRef.current?.focus();
@@ -854,15 +881,19 @@ export default function EmergencyContraceptionPage() {
       setService(result.service);
       setIntakes(result.intakes);
       setServerNow(result.server_now);
+      setLoadFailures(0);
     } catch (err) {
       setService(null);
       setError(pharmacyErrorMessage(
         err, '受付情報を読み込めませんでした。再読み込みしてください。',
       ));
+      setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  usePharmacyAutoRetry(loadFailures, load);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -1007,7 +1038,7 @@ export default function EmergencyContraceptionPage() {
           <p>{error}</p>
           <button type="button" onClick={() => void load()} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
         </div>}
-        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-base text-green-800">
+        {success && <PharmacyStatusBlock tone="success">
           <p className="font-bold">{success}</p>
           {submittedCode && <>
             <p className="mt-2 font-bold">次にすること</p>
@@ -1024,9 +1055,9 @@ export default function EmergencyContraceptionPage() {
             相談窓口を見る（外部サイト）
           </a>}
           <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
-        </div>}
+        </PharmacyStatusBlock>}
         {loading
-          ? <p className="rounded-xl bg-white p-6 text-center text-base text-gray-600">受付状況を読み込み中...</p>
+          ? <PharmacyLoading label="受付状況を読み込み中..." />
           : service?.ready && service.consent
             ? <>
               <EmergencyConsentSection
@@ -1035,9 +1066,13 @@ export default function EmergencyContraceptionPage() {
                 busy={busy}
                 onToggle={(checked) => changeDraft('consentAccepted', checked)}
               />
+              <div className="pharmacy-progress" role="progressbar" aria-valuemin={0} aria-valuemax={2} aria-valuenow={confirming ? 2 : 1} aria-label="仮受付の進み具合">
+                <div className="pharmacy-progress-bar" style={{ width: confirming ? '100%' : '50%' }} />
+              </div>
+              <div key={confirming ? 'confirm' : 'form'} className={confirming ? 'pharmacy-step-next' : 'pharmacy-step-back'}>
               {confirming
                 ? <section className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm" aria-labelledby="emergency-confirm">
-                  <h2 id="emergency-confirm" className="font-bold text-gray-900">送信内容の確認</h2>
+                  <h2 id="emergency-confirm" ref={confirmHeadingRef} tabIndex={-1} className="font-bold text-gray-900 focus:outline-none">送信内容の確認</h2>
                   <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-base text-gray-800">
                     <dt className="text-gray-600">出来事の{draft.intercourseTimeUnknown ? '日' : '日時'}</dt><dd>{draft.intercourseTimeUnknown ? draft.intercourseAt : formatTokyo(toIntercourseAtPayload(draft))}</dd>
                     <dt className="text-gray-600">希望する対応枠</dt><dd>{selectedSlot ? `${formatTokyo(selectedSlot.starts_at)}〜${formatTokyo(selectedSlot.ends_at)}` : '未選択'}</dd>
@@ -1046,8 +1081,8 @@ export default function EmergencyContraceptionPage() {
                     <dt className="text-gray-600">来局・服用方法</dt><dd>本人が来局し、薬剤師の面前で服用</dd>
                     <dt className="text-gray-600">連絡方法</dt><dd>{SAFE_CONTACT_OPTIONS.find((option) => option.value === draft.safeContactMode)?.label ?? '未選択'}</dd>
                   </dl>
-                  <button type="button" onClick={() => void submit()} disabled={busy !== null} className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">
-                    {busy === 'submit' ? '送信中...' : 'この内容で送信する'}
+                  <button type="button" onClick={() => void submit()} disabled={busy !== null} aria-busy={busy === 'submit'} className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+                    {busy === 'submit' ? <PharmacySpinner label="送信中…" /> : 'この内容で送信する'}
                   </button>
                   <button type="button" onClick={() => setConfirming(false)} disabled={busy !== null} className="min-h-11 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-bold text-gray-700 disabled:opacity-50">修正する</button>
                 </section>
@@ -1059,6 +1094,7 @@ export default function EmergencyContraceptionPage() {
                   onDraftChange={changeDraft}
                   onSubmit={review}
                 />}
+              </div>
               <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />
             </>
             : <>

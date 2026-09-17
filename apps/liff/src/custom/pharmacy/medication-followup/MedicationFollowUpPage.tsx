@@ -9,6 +9,7 @@ import {
 } from './api.js';
 import { pharmacyRoute } from '../navigation.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
 
 export const PATIENT_RESPONSE_OPTIONS: Array<{
   value: PatientMedicationFollowUpResponse;
@@ -73,9 +74,11 @@ export default function MedicationFollowUpPage() {
   const [items, setItems] = useState<PatientMedicationFollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyResponse, setBusyResponse] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<{ id: string; text: string } | null>(null);
   const [outlook, setOutlook] = useState<MedicationFollowUpOperationsOutlook | null>(null);
+  const [loadFailures, setLoadFailures] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,15 +86,19 @@ export default function MedicationFollowUpPage() {
     try {
       const result = await medicationFollowUpApi.list();
       setItems(result.followUps);
+      setLoadFailures(0);
       medicationFollowUpApi.outlook()
         .then(({ outlook: next }) => setOutlook(next))
         .catch(() => setOutlook(null));
     } catch {
       setError('服薬後フォローを読み込めませんでした。通信状態を確認して再読み込みしてください。');
+      setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  usePharmacyAutoRetry(loadFailures, load);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -103,6 +110,7 @@ export default function MedicationFollowUpPage() {
     const option = PATIENT_RESPONSE_OPTIONS.find((candidate) => candidate.value === response);
     if (!option || !window.confirm(`「${option.label}」として薬局へ送信します。送信後は変更できません。よろしいですか？`)) return;
     setBusyId(item.id);
+    setBusyResponse(response);
     setError('');
     setSuccess(null);
     try {
@@ -122,6 +130,7 @@ export default function MedicationFollowUpPage() {
       setError('回答を送信できませんでした。状態が変わっている可能性があるため、再読み込みしてください。');
     } finally {
       setBusyId(null);
+      setBusyResponse(null);
     }
   }
 
@@ -147,7 +156,7 @@ export default function MedicationFollowUpPage() {
           強い息苦しさ、意識がもうろうとするなど緊急性が高い場合、この画面の回答を待たず、緊急時は119へ連絡してください。
         </section>
         {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-800"><p>{error}</p><button type="button" onClick={() => void load()} className="pharmacy-control mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button></div>}
-        {loading ? <p className="pharmacy-card p-6 text-center text-base">読み込み中...</p>
+        {loading ? <PharmacyLoading label="読み込み中..." />
           : ordered.length === 0 ? <p className="pharmacy-card p-6 text-center pharmacy-supplemental">現在、確認が必要な服薬後フォローはありません。</p>
             : <ul className="space-y-3">{ordered.map((item) => (
               <li key={item.id} aria-current={item.id === requestedId ? 'true' : undefined} className={`pharmacy-card p-4 ${item.id === requestedId ? 'ring-2 ring-blue-700' : ''}`}>
@@ -159,13 +168,13 @@ export default function MedicationFollowUpPage() {
                 </section>
                 <p className="mt-2 text-base text-gray-700">{patientMedicationFollowUpTimingLabel(item)}</p>
                 {success?.id === item.id && (
-                  <div role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-base text-green-800">
+                  <PharmacyStatusBlock tone="success" className="mt-3">
                     <p>{success.text}</p>
                     {item.status !== 'no_issue' && outlook && followUpOperationsOutlookLines(outlook).map((line) => (
                       <p key={line} className="mt-1">{line}</p>
                     ))}
                     <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control mt-2 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
-                  </div>
+                  </PharmacyStatusBlock>
                 )}
                 {needsPatientMedicationFollowUpResponse(item.status) && (
                   <div className="mt-4 grid gap-2">
@@ -174,10 +183,11 @@ export default function MedicationFollowUpPage() {
                         key={option.value}
                         type="button"
                         disabled={busyId === item.id}
+                        aria-busy={busyId === item.id}
                         onClick={() => void respond(item, option.value)}
                         className="pharmacy-control min-h-11 rounded-xl border border-green-200 bg-white px-4 py-3 text-left disabled:opacity-50"
                       >
-                        <span className="block font-bold text-green-800">{option.label}</span>
+                        <span className="block font-bold text-green-800">{busyId === item.id && busyResponse === option.value ? <PharmacySpinner label="送信中…" /> : option.label}</span>
                         <span className="mt-1 block text-base text-gray-700">{option.description}</span>
                       </button>
                     ))}

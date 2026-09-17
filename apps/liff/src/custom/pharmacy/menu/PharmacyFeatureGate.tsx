@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { getLiffId } from '../../../lib/liff-auth.js';
 import { pharmacyRoute } from '../navigation.js';
+import { PharmacyLoading } from '../feedback.js';
 import { usePharmacyAccess } from '../PharmacyShell.js';
 
 export type PatientFeature = 'prescription_intake' | 'patient_intake' | 'electronic_prescription' |
@@ -39,7 +40,7 @@ export default function PharmacyFeatureGate({
   if (access === 'allowed') return children;
   return <section className="p-6 text-center pharmacy-supplemental" aria-labelledby="pharmacy-feature-state-title">
     {access === 'loading'
-      ? <p className="py-12 text-base text-gray-700">利用状況を確認しています...</p>
+      ? <PharmacyLoading label="利用状況を確認しています..." />
       : <>
           <h2 id="pharmacy-feature-state-title" className="mt-8 text-xl font-bold text-gray-950">{access === 'error' ? '利用状況を確認できません' : 'この機能は現在利用できません'}</h2>
           <p className="mt-3 text-base leading-6 text-gray-700">

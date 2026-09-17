@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import packageJson from '../../../package.json';
 import { getLiffId } from '../../lib/liff-auth.js';
 import { pharmacyRoute } from './navigation.js';
 import { requestPharmacyJson } from './request.js';
+import { PharmacyLoading, usePharmacyAutoRetry } from './feedback.js';
 
 export const pharmacyLiffVersion = packageJson.version;
 
@@ -68,6 +69,7 @@ export function PharmacyAccessProvider({ children }: { children: ReactNode }) {
     accountName: '', enabledFeatures: [], existingFeatures: [], existingError: '',
     loading: true, configError: '',
   });
+  const [loadFailures, setLoadFailures] = useState(0);
   const loadingRef = useRef(false);
   const mounted = useRef(true);
 
@@ -78,16 +80,22 @@ export function PharmacyAccessProvider({ children }: { children: ReactNode }) {
     try {
       const loaded = await loadPharmacyAccess();
       if (mounted.current) setAccess({ ...loaded, loading: false, configError: '' });
+      if (mounted.current) setLoadFailures(0);
     } catch {
-      if (mounted.current) setAccess((current) => ({
-        ...current,
-        loading: false,
-        configError: '機能一覧を取得できませんでした。',
-      }));
+      if (mounted.current) {
+        setAccess((current) => ({
+          ...current,
+          loading: false,
+          configError: '機能一覧を取得できませんでした。',
+        }));
+        setLoadFailures((count) => count + 1);
+      }
     } finally {
       loadingRef.current = false;
     }
   }, []);
+
+  usePharmacyAutoRetry(loadFailures, retry);
 
   useEffect(() => {
     mounted.current = true;
@@ -133,6 +141,13 @@ export function PharmacyShell({ screenTitle, children }: {
 }) {
   const access = usePharmacyAccess();
   const alertRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+  const locationKey = location.pathname;
+  const scrollKey = `${location.pathname}${location.search}`;
+  useEffect(() => { window.scrollTo(0, 0); }, [scrollKey]);
+  useEffect(() => {
+    document.title = `${screenTitle}｜${access.accountName || '薬局'}`;
+  }, [screenTitle, access.accountName]);
   useEffect(() => {
     if (access.configError || access.existingError) alertRef.current?.focus();
   }, [access.configError, access.existingError]);
@@ -140,21 +155,21 @@ export function PharmacyShell({ screenTitle, children }: {
   return <div className="pharmacy-shell mx-auto max-w-md">
     <PharmacyShellHeader accountName={access.accountName} screenTitle={screenTitle} />
     {access.loading
-          ? <section aria-labelledby="pharmacy-loading-title" className="p-6 text-center">
+          ? <section aria-labelledby="pharmacy-loading-title" className="p-6">
           <h2 id="pharmacy-loading-title" className="sr-only">{screenTitle}</h2>
-            <p role="status" className="py-8 text-base text-gray-700">利用状況を確認しています...</p>
+            <PharmacyLoading label="利用状況を確認しています..." lines={4} />
         </section>
       : access.configError
         ? <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-base text-red-800">
             <p>{access.configError} 通信状態を確認して再試行してください。</p>
             <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再試行</button>
           </div>
-        : <>
+        : <div key={locationKey} className="pharmacy-page-enter">
             {access.existingError && <div ref={alertRef} tabIndex={-1} role="alert" className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
               <p>{access.existingError} 有効な機能はそのまま利用できます。</p>
               <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold">再試行</button>
             </div>}
             {children}
-          </>}
+          </div>}
   </div>;
 }

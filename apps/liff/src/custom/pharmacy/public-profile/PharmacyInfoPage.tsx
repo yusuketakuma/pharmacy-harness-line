@@ -3,6 +3,7 @@ import {
   pharmacyPublicProfileApi,
   type PharmacyPublicProfile,
 } from './api.js';
+import { PharmacyLoading, usePharmacyAutoRetry } from '../feedback.js';
 
 function safeGoogleMapsUrl(value: string): string | null {
   try {
@@ -92,24 +93,29 @@ export default function PharmacyInfoPage() {
   const [profile, setProfile] = useState<PharmacyPublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [loadFailures, setLoadFailures] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       setProfile((await pharmacyPublicProfileApi.get()).profile);
+      setLoadFailures(0);
     } catch {
       setError('薬局情報を読み込めませんでした。通信状態を確認して再読み込みしてください。');
+      setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  usePharmacyAutoRetry(loadFailures, load);
+
   useEffect(() => { void load(); }, [load]);
 
   return (
     <main className="pharmacy-main mx-auto max-w-md">
-      {loading && <p role="status" className="p-8 text-center text-base text-gray-700">薬局情報を読み込み中...</p>}
+      {loading && <PharmacyLoading label="薬局情報を読み込み中..." />}
       {error && <div role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-base text-red-800"><p>{error}</p><button type="button" onClick={() => void load()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button></div>}
       {!loading && !error && profile && <PharmacyInfoContent profile={profile} />}
     </main>

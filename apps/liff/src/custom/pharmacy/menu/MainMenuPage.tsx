@@ -9,6 +9,7 @@ import {
   medicationFollowUpApi,
   type MedicationFollowUpOperationsOutlook,
 } from '../medication-followup/api.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock } from '../feedback.js';
 
 const CONSULTATION_MESSAGE = '薬局へ相談';
 export const pharmacyAppVersion = pharmacyLiffVersion;
@@ -134,7 +135,7 @@ export default function MainMenuPage() {
     <main className="pharmacy-main mx-auto max-w-md">
       <p className="pharmacy-supplemental px-4 pt-4">利用したい機能を選んでください。</p>
       <div className="space-y-6 p-4">
-        {loading && <p className="pharmacy-card p-6 text-center text-base">機能一覧を読み込み中...</p>}
+        {loading && <PharmacyLoading label="機能一覧を読み込み中..." lines={4} />}
         {!loading && menuItems.length === 0 && !enabledFeatures.includes('manual_chat') && (
           <p className="pharmacy-card p-6 text-center pharmacy-supplemental">現在、この薬局で利用できる機能はありません。薬局へ直接お問い合わせください。</p>
         )}
@@ -161,10 +162,11 @@ export default function MainMenuPage() {
                 type="button"
                 onClick={() => void consult()}
                 disabled={busy || sent}
+                aria-busy={busy}
                 className="pharmacy-card pharmacy-focus min-h-11 min-h-32 p-4 text-left disabled:opacity-50"
               >
                 <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-full bg-green-50 text-base font-bold text-green-800">相</span>
-                <span className="mt-3 block font-bold leading-5 text-gray-950">薬局へ相談</span>
+                <span className="mt-3 block font-bold leading-5 text-gray-950">{busy ? <PharmacySpinner label="送信中…" /> : '薬局へ相談'}</span>
                 <span className="mt-1 block text-base leading-6 text-gray-700">トークへ相談メッセージを送る</span>
                 {chatOutlook && <span className="mt-1 block text-base leading-5 text-gray-600">
                   {chatOutlook.serviceHoursText}
@@ -179,7 +181,7 @@ export default function MainMenuPage() {
           </section>
         ))}
       </div>
-      {status && <p role="status" className="pharmacy-card mx-4 p-3 text-base text-gray-700">{status}</p>}
+      {status && <PharmacyStatusBlock tone="info" className="mx-4">{status}</PharmacyStatusBlock>}
       {error && <p role="alert" className="mx-4 rounded-xl bg-red-50 p-3 text-base text-red-800">{error}</p>}
     </main>
   );
