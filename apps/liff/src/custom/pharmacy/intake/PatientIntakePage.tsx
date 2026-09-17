@@ -25,6 +25,8 @@ import {
   type IntakeAnswersDraft,
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
+import { clearDraft, intakeDraftKey, loadDraft, NEW_PATIENT_DRAFT_KEY, saveDraft } from '../draftStorage.js';
 import { pharmacyErrorMessage } from '../request.js';
 
 const relationshipLabels: Record<PatientRelationship, string> = {
@@ -119,6 +121,7 @@ export default function PatientIntakePage() {
   const [pendingProfileSave, setPendingProfileSave] = useState<PendingProfileSave | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadFailures, setLoadFailures] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const registrationIdempotencyKeyRef = useRef(crypto.randomUUID());
@@ -175,19 +178,36 @@ export default function PatientIntakePage() {
     try {
       const result = await patientIntakeApi.list();
       setPatients(result.patients);
+      setLoadFailures(0);
       setSelectedId((current) => current || result.patients[0]?.id || '');
       if (result.patients.length === 0) {
-        setPatientDraft(emptyPatientProfileDraft('self'));
+        const draft = loadDraft<{ patientDraft?: PatientProfileDraft; showAddress?: boolean }>(NEW_PATIENT_DRAFT_KEY);
+        setPatientDraft(draft?.patientDraft
+          ? { ...emptyPatientProfileDraft('self'), ...draft.patientDraft }
+          : emptyPatientProfileDraft('self'));
+        setShowAddress(Boolean(draft?.showAddress));
         setShowNewPatient(true);
       }
     } catch (err) {
       setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
+      setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { void loadPatients(); }, [loadPatients]);
+
+  // Persist unsent input so an interrupted session can resume where it left off.
+  useEffect(() => {
+    if (!selectedId || !draftDirty) return;
+    saveDraft(intakeDraftKey(selectedId), { answers, step: intakeStep });
+  }, [answers, intakeStep, selectedId, draftDirty]);
+
+  useEffect(() => {
+    if (!showNewPatient || editing || !draftDirty) return;
+    saveDraft(NEW_PATIENT_DRAFT_KEY, { patientDraft, showAddress });
+  }, [patientDraft, showAddress, showNewPatient, editing, draftDirty]);
 
   const loadPrivacyPolicy = useCallback(async (isActive: () => boolean = () => true) => {
     setPrivacyPolicyLoading(true);
@@ -202,14 +222,22 @@ export default function PatientIntakePage() {
       }
       setPrivacyConsent(false);
       setPrivacyPolicy(result.policy);
+      setLoadFailures(0);
     } catch (err) {
       if (isActive()) {
         setPrivacyPolicyError(pharmacyErrorMessage(err, '個人情報の利用目的を確認できませんでした。再読み込みしてください。'));
+        setLoadFailures((count) => count + 1);
       }
     } finally {
       if (isActive()) setPrivacyPolicyLoading(false);
     }
   }, []);
+
+  const retryLoads = useCallback(() => {
+    void loadPatients();
+    void loadPrivacyPolicy();
+  }, [loadPatients, loadPrivacyPolicy]);
+  usePharmacyAutoRetry(loadFailures, retryLoads);
 
   useEffect(() => {
     let active = true;
@@ -238,9 +266,11 @@ export default function PatientIntakePage() {
     void patientIntakeApi.latest(selectedId).then((result) => {
       if (!active) return;
       const intake = result.intake;
+      const draft = loadDraft<{ answers?: Partial<IntakeAnswersDraft>; step?: number }>(intakeDraftKey(selectedId));
       if (!intake) {
-        setAnswers(INITIAL_INTAKE_ANSWERS);
-        setIntakeStep(1);
+        setAnswers(draft?.answers ? { ...INITIAL_INTAKE_ANSWERS, ...draft.answers } : INITIAL_INTAKE_ANSWERS);
+        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.step ?? 1)));
+        if (draft?.answers) setDraftDirty(true);
         setIntakeLoadState({ patientId: selectedId, status: 'ready' });
         return;
       }
@@ -251,8 +281,11 @@ export default function PatientIntakePage() {
           ...(JSON.parse(intake.answers_json) as PatientIntakeAnswers),
         };
         setLatestAnswers(savedAnswers);
-        setAnswers(savedAnswers);
-        setIntakeStep(1);
+        // Draft wins over saved values, but saved values fill any key the
+        // draft lacks (e.g. fields added after the draft was stored).
+        setAnswers(draft?.answers ? { ...savedAnswers, ...draft.answers } : savedAnswers);
+        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.step ?? 1)));
+        if (draft?.answers) setDraftDirty(true);
         setIntakeLoadState({ patientId: selectedId, status: 'ready' });
       } catch {
         setIntakeLoadState({ patientId: selectedId, status: 'error' });
@@ -400,6 +433,7 @@ export default function PatientIntakePage() {
       setShowAddress(false);
       setProfileErrors({});
       setDraftDirty(false);
+      clearDraft(NEW_PATIENT_DRAFT_KEY);
     } catch (err) {
       setError(pharmacyErrorMessage(err, '患者情報を登録できませんでした。'));
     } finally {
@@ -544,6 +578,7 @@ export default function PatientIntakePage() {
       setLatestAnswers(operation.body.answers);
       setAnswers(operation.body.answers);
       setDraftDirty(false);
+      clearDraft(intakeDraftKey(selectedId));
       setSuccess('アンケートを保存しました。');
       setSaved(true);
       setRepresentativeConsent(false);
@@ -612,8 +647,11 @@ export default function PatientIntakePage() {
   function resetPatientForm(relationshipValue: PatientRelationship) {
     setProfileErrors({});
     setEditing(false);
-    setPatientDraft(emptyPatientProfileDraft(relationshipValue));
-    setShowAddress(false);
+    const draft = loadDraft<{ patientDraft?: PatientProfileDraft; showAddress?: boolean }>(NEW_PATIENT_DRAFT_KEY);
+    setPatientDraft(draft?.patientDraft
+      ? { ...emptyPatientProfileDraft(relationshipValue), ...draft.patientDraft }
+      : emptyPatientProfileDraft(relationshipValue));
+    setShowAddress(Boolean(draft?.showAddress));
     setShowNewPatient(true);
     registrationIdempotencyKeyRef.current = crypto.randomUUID();
   }
@@ -634,7 +672,7 @@ export default function PatientIntakePage() {
           <p>{privacyPolicyError}</p>
           <button type="button" onClick={() => void loadPrivacyPolicy()} disabled={privacyPolicyLoading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
         </div>}
-        {success && <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-base text-green-800">
+        {success && <PharmacyStatusBlock tone="success">
           <p className="font-bold">{success}</p>
           {saved && <>
             <p className="mt-2 font-bold">次にすること</p>
@@ -644,7 +682,7 @@ export default function PatientIntakePage() {
             </ul>
             <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/pharmacy/menu')); }} className="pharmacy-control min-h-11 mt-3 w-full rounded-xl border border-green-700 bg-white px-4 py-2 font-bold text-green-800">すべての機能へ戻る</button>
           </>}
-        </div>}
+        </PharmacyStatusBlock>}
 
         <section className="rounded-xl bg-white p-4 shadow-sm space-y-3" aria-labelledby="patient-heading">
           <div className="flex items-center justify-between gap-3">
@@ -664,10 +702,10 @@ export default function PatientIntakePage() {
               }}>患者情報を修正</button>}
             </div>
           </div>
-          {pendingProfileSave && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-base text-amber-900">
+          {pendingProfileSave && <PharmacyStatusBlock tone="info">
             患者情報は保存されました。最新版の確認が必要です。
-            <button type="button" onClick={() => void retryProfileRefresh()} disabled={busy} className="pharmacy-control min-h-11 mt-2 block rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold disabled:opacity-50">患者情報を再確認</button>
-          </div>}
+            <button type="button" onClick={() => void retryProfileRefresh()} disabled={busy} aria-busy={busy} className="pharmacy-control min-h-11 mt-2 block rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold disabled:opacity-50">患者情報を再確認</button>
+          </PharmacyStatusBlock>}
           {showNewPatient ? (
             <fieldset disabled={Boolean(pendingProfileSave)}><PatientProfileForm
               draft={patientDraft}
@@ -679,8 +717,8 @@ export default function PatientIntakePage() {
               onToggleAddress={() => setShowAddress((value) => !value)}
               onSubmit={() => void createPatient()}
             /></fieldset>
-          ) : loading ? <p className="text-base text-gray-500">読み込み中...</p> : patients.length === 0 ? <p className="text-base text-gray-600">まず患者情報を登録してください。</p> : (
-            <label className="block text-base">患者を選択<select value={selectedId} onChange={(event) => selectPatient(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
+          ) : loading ? <PharmacyLoading label="読み込み中..." /> : patients.length === 0 ? <p className="text-base text-gray-600">まず患者情報を登録してください。</p> : (
+            <label className="block text-base">患者を選択<select value={selectedId} onChange={(event) => selectPatient(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border p-3 text-base" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
           )}
           {selectedPatient && <p className="text-base text-gray-700">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
           {selectedPatient && selectedPatient.relationship !== 'self' && !showNewPatient && (
@@ -718,7 +756,7 @@ export default function PatientIntakePage() {
               disabled={busy || !intakeReady}
               className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50"
             >
-              {busy ? '更新中…' : '前回から変更なしで更新'}
+              {busy ? <PharmacySpinner label="更新中…" /> : '前回から変更なしで更新'}
             </button>
           )}
           <PatientQuestionnaire
@@ -745,7 +783,7 @@ export default function PatientIntakePage() {
           </div>}
           <div className="flex gap-3">
             <button type="button" onClick={() => setIntakeStep((step) => Math.max(1, step - 1))} disabled={intakeStep === 1 || busy} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 disabled:opacity-40">戻る</button>
-            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy || intakeLoading} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!intakeReady || !canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
+            {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy || intakeLoading} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!intakeReady || !canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)} aria-busy={busy} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? <PharmacySpinner label="保存中…" /> : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
           </div>
           <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/prescriptions')); }} className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800">処方せん事前送信へ</button>
           <p className="text-base leading-5 text-gray-700">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>

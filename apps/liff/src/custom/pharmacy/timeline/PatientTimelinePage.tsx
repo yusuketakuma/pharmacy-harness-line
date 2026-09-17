@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { PharmacyLoading, usePharmacyAutoRetry } from '../feedback.js';
 import { pharmacyRoute } from '../navigation.js';
 import { isUnsupportedPharmacyFeature, pharmacyErrorMessage } from '../request.js';
 import { patientTimelineApi, type PatientTimelineItem } from './api.js';
@@ -70,6 +71,7 @@ export default function PatientTimelinePage() {
   const [loading, setLoading] = useState(true);
   const [legacyWorker, setLegacyWorker] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [loadFailures, setLoadFailures] = useState(0);
   const errorRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
 
@@ -79,16 +81,18 @@ export default function PatientTimelinePage() {
     setErrorMessage('');
     try {
       const result = await patientTimelineApi.load();
-      if (mounted.current) setItems(result.items);
+      if (mounted.current) { setItems(result.items); setLoadFailures(0); }
     } catch (caught) {
       if (!mounted.current) return;
       const error = caught as Error;
       if (isUnsupportedPharmacyFeature(error)) setLegacyWorker(true);
-      else setErrorMessage(pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。'));
+      else { setErrorMessage(pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。')); setLoadFailures((count) => count + 1); }
     } finally {
       if (mounted.current) setLoading(false);
     }
   }, []);
+
+  usePharmacyAutoRetry(loadFailures, load);
 
   useEffect(() => {
     mounted.current = true;
@@ -101,9 +105,7 @@ export default function PatientTimelinePage() {
 
   if (loading) {
     return <main className="pharmacy-main mx-auto max-w-md p-4">
-      <p role="status" className="pharmacy-card p-6 text-center text-base text-gray-700">
-        利用状況を読み込み中...
-      </p>
+      <PharmacyLoading label="利用状況を読み込み中..." lines={4} />
     </main>;
   }
 

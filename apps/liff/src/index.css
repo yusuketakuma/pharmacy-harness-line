@@ -23,6 +23,8 @@ body {
 .pharmacy-main {
   color: var(--pharmacy-text);
   background: var(--pharmacy-bg);
+  /* DADS baseline: Japanese body text is denser; keep 160% line-height. */
+  line-height: 1.6;
 }
 
 .pharmacy-shell {
@@ -48,11 +50,90 @@ body {
 
 .pharmacy-control {
   min-height: 2.75rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.pharmacy-control:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(0.98);
 }
 
 .pharmacy-focus:focus-visible {
   outline: 3px solid var(--pharmacy-info);
   outline-offset: 2px;
+}
+
+/* ─── 画面・ステップ遷移 / ローディング ───────────────────────────────
+ * 高齢患者向けに短時間・小幅の動きに限定し、prefers-reduced-motion で全停止する。
+ */
+@keyframes pharmacy-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.pharmacy-page-enter {
+  animation: pharmacy-fade-in 0.18s ease-out both;
+}
+
+@keyframes pharmacy-step-next {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pharmacy-step-back {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.pharmacy-step-next { animation: pharmacy-step-next 0.2s ease-out both; }
+.pharmacy-step-back { animation: pharmacy-step-back 0.2s ease-out both; }
+
+.pharmacy-progress {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+.pharmacy-progress-bar {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--pharmacy-primary);
+  transition: width 0.3s ease;
+}
+
+@keyframes pharmacy-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pharmacy-skeleton {
+  border-radius: 0.5rem;
+  background: #e5e7eb;
+  animation: pharmacy-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pharmacy-spin {
+  to { transform: rotate(360deg); }
+}
+.pharmacy-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 9999px;
+  animation: pharmacy-spin 0.7s linear infinite;
+  vertical-align: -0.125em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pharmacy-control,
+  .pharmacy-page-enter,
+  .pharmacy-step-next,
+  .pharmacy-step-back,
+  .pharmacy-progress-bar,
+  .pharmacy-skeleton,
+  .pharmacy-spinner {
+    animation: none;
+    transition: none;
+  }
+  .pharmacy-control:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: none;
+  }
 }
 
 /* ─── アフィリエイト デザイントークン (worker client の af-* をミラー) ─────
