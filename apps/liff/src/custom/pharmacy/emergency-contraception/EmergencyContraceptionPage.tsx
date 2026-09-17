@@ -11,7 +11,7 @@ import {
   type EmergencyServiceOverview,
 } from './api.js';
 import { pharmacyErrorMessage } from '../request.js';
-import { PharmacyErrorSummary, PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
+import { PharmacyErrorSummary, PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 
 export const MHLW_EMERGENCY_CONTRACEPTION_URL =
@@ -390,7 +390,7 @@ export function EmergencyConsentSection({
 }) {
   return (
     <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
-      <h2 id="emergency-consent" tabIndex={-1} className="font-bold text-gray-900">説明と明示同意</h2>
+      <h2 id="emergency-consent" tabIndex={-1} className="font-bold text-gray-900">説明と同意</h2>
       <p className="whitespace-pre-wrap text-base text-gray-700">{consent.text_v2}</p>
       <dl className="space-y-1 text-base text-gray-700">
         <div><dt className="font-bold">申告の保存期間 / 販売記録</dt><dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd></div>
@@ -831,7 +831,7 @@ export function EmergencyIntakeForm({
         <FieldError message={errors.manufacturerCheckAcknowledged} />
       </div>}
 
-      {showErrors && !draft.consentAccepted && <p role="alert" className="text-base font-bold text-amber-900">送信するには、上の「説明と明示同意」の同意にチェックしてください。</p>}
+      {showErrors && !draft.consentAccepted && <p role="alert" className="text-base font-bold text-amber-900">送信するには、上の「説明と同意」にチェックしてください。</p>}
       <button
         type="submit"
         disabled={disabled || !draft.consentAccepted}
@@ -894,6 +894,7 @@ export default function EmergencyContraceptionPage() {
   }, []);
 
   usePharmacyAutoRetry(loadFailures, load);
+  usePharmacyOnline(load);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -1029,12 +1030,12 @@ export default function EmergencyContraceptionPage() {
           <h2 className="mt-3 font-bold">次の操作</h2>
           <p className="mt-1 text-base text-gray-800">{loading ? '読み込みが終わるまでお待ちください。' : service?.ready ? '説明と同意を確認し、対応枠を選んでください。' : intakes.length > 0 ? '下の受付状況を確認してください。' : '薬局または相談窓口へお問い合わせください。'}</p>
         </section>
-        <p className="pharmacy-supplemental">緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付できます。</p>
+        <p className="pharmacy-supplemental">緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付（確定前のお申し込み）できます。</p>
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-base text-amber-950">
           <p className="font-bold">仮受付であり、販売・服用・在庫を保証しません</p>
           <p className="mt-1">最終的な販売可否は、来局時に研修を修了した薬剤師が確認します。</p>
         </section>
-        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none">
+        {error && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none">
           <p>{error}</p>
           <button type="button" onClick={() => void load()} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
         </div>}

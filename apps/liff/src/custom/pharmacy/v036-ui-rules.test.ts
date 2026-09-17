@@ -25,6 +25,7 @@ const ALLOWED_SMALL_TEXT = [
   /break-words text-sm font-bold text-green-800/, // shell header account name
   /rounded-full bg-gray-100 px-2\.5 py-1 text-sm font-bold/, // shell version chip
   /text-center text-sm \$\{tab === view/, // prescriptions tab nav
+  /absolute left-1 top-1 rounded px-2 py-1 text-sm font-bold/, // per-image send status chip
 ];
 
 // Collect the opening tag only: accumulate lines from `start` until the line
@@ -165,5 +166,111 @@ describe('v0.36 patient UI rules', () => {
       if (!/aria-busy=\{/.test(source)) violations.push(file.replace(SEAM_ROOT, ''));
     }
     expect(violations).toEqual([]);
+  });
+
+  // V036-12: auto-retry is per-load, read-only, and StrictMode-safe. The
+  // attempt budget is consumed inside the setTimeout callback (never at
+  // schedule time), every call site passes a named read callback, and pages
+  // with several loads wire one hook per load family.
+  it('spends a retry attempt only when its timer fires', () => {
+    const source = readFileSync(join(SEAM_ROOT, 'feedback.tsx'), 'utf8');
+    const hook = source.slice(source.indexOf('export function usePharmacyAutoRetry'));
+    expect(hook).toMatch(/setTimeout\(\(\) => \{\s*attempts\.current \+= 1;\s*retryRef\.current\(\);/);
+    expect(hook).toMatch(/clearTimeout\(timer\)/);
+  });
+
+  it('wires auto-retry and reconnect callbacks to named reads only (no mutation paths)', () => {
+    const violations: string[] = [];
+    let callCount = 0;
+    for (const file of seamFiles()) {
+      if (file.endsWith('feedback.tsx')) continue; // hook definition site
+      const source = readFileSync(file, 'utf8');
+      const calls = source.matchAll(/usePharmacy(AutoRetry|Online)\(\s*([^,)]+?)\s*(?:,\s*([^)]+?)\s*)?\)/g);
+      for (const call of calls) {
+        callCount += 1;
+        // AutoRetry's callback is arg2; Online's reconnect callback is arg1.
+        const callback = (call[1] === 'Online' ? (call[2] ?? '') : (call[3] ?? '')).trim();
+        // No argument (banner-only usage) is fine; a present callback must be
+        // a named read — never an inline closure that could hide a mutation.
+        if (callback === '') continue;
+        if (!/^[A-Za-z_$][\w$]*$/.test(callback) || !/load|refresh|retry|fetch|read/i.test(callback)) {
+          violations.push(`${file.replace(SEAM_ROOT, '')} -> ${callback}`);
+        }
+      }
+    }
+    expect(callCount).toBeGreaterThanOrEqual(18);
+    expect(violations).toEqual([]);
+  });
+
+  // V036-16: each selected image shows its own send state; the upload
+  // transport itself is untouched. V036-17: reconnect handling never reloads
+  // the page — it re-runs named reads only.
+  it('tracks per-image send states without changing the upload transport', () => {
+    const source = readFileSync(join(SEAM_ROOT, 'prescriptions/PrescriptionPage.tsx'), 'utf8');
+    for (const label of ['送信待ち', '送信中…', '送信済み', '要再試行']) {
+      expect(source).toContain(label);
+    }
+    // The sequential upload call is unchanged — states wrap it, they do not
+    // alter how bytes move.
+    expect(source).toContain('await prescriptionApi.upload(submission.id, upload.position, upload.file)');
+    expect(source).not.toContain('XMLHttpRequest');
+  });
+
+  it('never reloads the page to recover connectivity', () => {
+    for (const file of seamFiles()) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, file).not.toMatch(/location\.reload|location\.href\s*=/);
+    }
+    const shell = readFileSync(join(SEAM_ROOT, 'PharmacyShell.tsx'), 'utf8');
+    expect(shell).toContain('PharmacyOfflineBanner');
+  });
+
+  it('retries each load family independently on multi-load pages', () => {
+    const count = (file: string) =>
+      (readFileSync(join(SEAM_ROOT, file), 'utf8').match(/usePharmacyAutoRetry\(/g) ?? []).length;
+    expect(count('prescriptions/PrescriptionPage.tsx')).toBeGreaterThanOrEqual(4);
+    expect(count('intake/PatientIntakePage.tsx')).toBeGreaterThanOrEqual(2);
+  });
+
+  // V036-14: a live region (role=status/alert) must never also be the focus
+  // target — screen readers would speak it once for the region change and
+  // again for the focus. Focused blocks announce via focus; live regions
+  // announce via the region. Neither may carry the other's channel.
+  it('never marks a focus target as a live region', () => {
+    const violations: string[] = [];
+    for (const file of seamFiles()) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (/^\s*(?:\/\/|\*)/.test(line)) return; // comments may quote the rule
+        if (!/tabIndex=\{-1\}|role="(?:alert|status)"/.test(line)) return;
+        const tag = openingTag(lines, index);
+        if (/tabIndex=\{-1\}/.test(tag) && /role="(?:alert|status)"/.test(tag)) {
+          violations.push(`${file.replace(SEAM_ROOT, '')}:${index + 1}`);
+        }
+      });
+    }
+    expect(violations).toEqual([]);
+  });
+
+  // V036-15: patient copy stays plain — medical/legal jargon is replaced or
+  // glossed at first use, and the EC page keeps its domain term 仮受付 only
+  // with an explanation attached.
+  it('keeps patient-facing copy plain', () => {
+    for (const file of seamFiles()) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, file).not.toContain('既往歴');
+      expect(source, file).not.toContain('明示同意');
+    }
+    const ec = readFileSync(join(SEAM_ROOT, 'emergency-contraception/EmergencyContraceptionPage.tsx'), 'utf8');
+    expect(ec).toContain('仮受付（確定前のお申し込み）');
+  });
+
+  it('scopes aria-busy to the exact in-flight control', () => {
+    const source = readFileSync(join(SEAM_ROOT, 'medication-followup/MedicationFollowUpPage.tsx'), 'utf8');
+    // Each response option is busy only while IT is submitting — siblings stay
+    // disabled but not "busy" (a busy flag on untouched controls misreports
+    // their state to assistive tech).
+    expect(source).toContain('aria-busy={busyId === item.id && busyResponse === option.value}');
+    expect(source).not.toContain('aria-busy={busyId === item.id}');
   });
 });

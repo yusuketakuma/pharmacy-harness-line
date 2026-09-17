@@ -66,7 +66,7 @@ const SAFETY_LABELS: Partial<Record<keyof IntakeAnswersDraft, string>> = {
   allergiesStatus: 'アレルギー',
   adverseReactionStatus: 'お薬で具合が悪くなった経験',
   medicationStatus: '服用中のお薬',
-  medicalHistoryStatus: '既往歴・通院中の病気',
+  medicalHistoryStatus: 'これまでにかかった病気・現在通院中の病気',
 };
 
 /** Form state: the four safety questions start unanswered ('') and must be chosen explicitly. */
@@ -238,7 +238,7 @@ export function PatientQuestionnaire({
 
       {step === 2 && <div className="space-y-4">
         <h3 ref={stepHeadingRef} tabIndex={-1} className="font-bold focus:outline-none">体調・生活</h3>
-        <ChoiceField required error={safetyError('medicalHistoryStatus')} name="medicalHistoryStatus" label="既往歴・通院中の病気" value={answers.medicalHistoryStatus} options={statusOptions} onChange={(value) => updateAnswer('medicalHistoryStatus', value)} />
+        <ChoiceField required error={safetyError('medicalHistoryStatus')} name="medicalHistoryStatus" label="これまでにかかった病気・現在通院中の病気" value={answers.medicalHistoryStatus} options={statusOptions} onChange={(value) => updateAnswer('medicalHistoryStatus', value)} />
         {answers.medicalHistoryStatus === 'yes' && <fieldset className="space-y-2"><legend className="text-base">当てはまる病気（複数選択・任意）</legend><div className="grid grid-cols-2 gap-2">{medicalHistoryTagOptions.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-base"><input type="checkbox" checked={answers.medicalHistoryTags.includes(option.value)} onChange={() => toggleMedicalHistoryTag(option.value)} className="h-5 w-5" />{option.label}</label>)}</div></fieldset>}
         {answers.medicalHistoryStatus === 'yes' && <label className="block text-base">病名・通院内容の補足（任意）<textarea value={answers.medicalHistory ?? ''} onChange={(event) => updateAnswer('medicalHistory', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
         <ChoiceField name="medicationNotebook" label="お薬手帳" value={answers.medicationNotebook} options={notebookOptions} onChange={(value) => updateAnswer('medicationNotebook', value)} />
@@ -258,7 +258,7 @@ export function PatientQuestionnaire({
             <dt className="text-gray-600">アレルギー</dt><dd>{labelOf(statusOptions, answers.allergiesStatus)}</dd>
             <dt className="text-gray-600">具合が悪くなった経験</dt><dd>{labelOf(statusOptions, answers.adverseReactionStatus)}</dd>
             <dt className="text-gray-600">服用中のお薬</dt><dd>{labelOf(statusOptions, answers.medicationStatus)}</dd>
-            <dt className="text-gray-600">既往歴・通院中の病気</dt><dd>{labelOf(statusOptions, answers.medicalHistoryStatus)}</dd>
+            <dt className="text-gray-600">これまでにかかった病気・現在通院中の病気</dt><dd>{labelOf(statusOptions, answers.medicalHistoryStatus)}</dd>
             <dt className="text-gray-600">お薬手帳</dt><dd>{labelOf(notebookOptions, answers.medicationNotebook)}</dd>
             <dt className="text-gray-600">喫煙</dt><dd>{labelOf(smokingOptions, answers.smokingStatus)}</dd>
             <dt className="text-gray-600">飲酒</dt><dd>{labelOf(alcoholOptions, answers.alcoholStatus)}</dd>

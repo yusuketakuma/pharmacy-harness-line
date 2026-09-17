@@ -51,7 +51,9 @@ describe('patient timeline UI', () => {
     expect(source).not.toContain("error.message || '利用状況を読み込めませんでした。'");
     expect(source).toContain('この環境では、まとめ表示をまだ利用できません');
     expect(source).toContain('まだ利用履歴はありません');
-    expect(source).toContain('role="alert"');
+    // The error block announces via focus (errorRef + tabIndex), not via a
+    // live-region role on the same node.
+    expect(source).toContain('ref={errorRef} tabIndex={-1}');
     expect(source).toContain('再試行');
     expect(source).toContain('aria-label={`${timelineDomainLabel(item.domain)}の詳細を確認`}');
   });

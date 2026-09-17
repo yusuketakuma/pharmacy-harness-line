@@ -8,7 +8,7 @@ import {
 import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
 import { pharmacyRoute } from '../navigation.js';
 import { mynaApi, type MynaHandoff, type MynaPatientReport } from '../myna/api.js';
-import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry } from '../feedback.js';
+import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
 import { isUnsupportedPharmacyFeature, pharmacyErrorMessage } from '../request.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -80,6 +80,22 @@ export function validatePrescriptionImages(
   }
   return null;
 }
+
+type ImageSendState = 'queued' | 'sending' | 'done' | 'retry';
+
+const IMAGE_SEND_LABELS: Record<ImageSendState, string> = {
+  queued: '送信待ち',
+  sending: '送信中…',
+  done: '送信済み',
+  retry: '要再試行',
+};
+
+const IMAGE_SEND_CHIP_CLASS: Record<ImageSendState, string> = {
+  queued: 'bg-gray-700 text-white',
+  sending: 'bg-blue-700 text-white',
+  done: 'bg-green-700 text-white',
+  retry: 'bg-red-700 text-white',
+};
 
 const statusLabels: Record<string, string> = {
   draft: '送信準備中',
@@ -172,6 +188,10 @@ export default function PrescriptionPage() {
     navigate(pharmacyRoute(`/prescriptions?view=${view}`));
   }, [navigate]);
   const [files, setFiles] = useState<File[]>([]);
+  // Per-image send states, aligned by index with `files`. 'done' is only set
+  // after that image's upload resolves — an unknown outcome is never shown as
+  // sent.
+  const [imageStates, setImageStates] = useState<ImageSendState[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [originalConsent, setOriginalConsent] = useState(false);
   const [noticeConsent, setNoticeConsent] = useState(false);
@@ -186,11 +206,13 @@ export default function PrescriptionPage() {
   const [replacement, setReplacement] = useState<PrescriptionSubmission | null>(null);
   const [recovery, setRecovery] = useState<PrescriptionRecovery | null>(null);
   const [recoveryResolved, setRecoveryResolved] = useState(false);
-  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [loadFailures, setLoadFailures] = useState(0);
+  const [historyFailures, setHistoryFailures] = useState(0);
+  const [recoveryFailures, setRecoveryFailures] = useState(0);
+  const [mynaFailures, setMynaFailures] = useState(0);
+  const [patientsFailures, setPatientsFailures] = useState(0);
   const [success, setSuccess] = useState<string | null>(null);
   const [sentSubmission, setSentSubmission] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -209,12 +231,12 @@ export default function PrescriptionPage() {
     try {
       const result = await prescriptionApi.history();
       setHistory(result.submissions);
-      setLoadFailures(0);
+      setHistoryFailures(0);
       if (requestedSubmissionId) openView('history');
       return result.submissions;
     } catch (err) {
       setError(pharmacyErrorMessage(err, '履歴を読み込めませんでした。'));
-      setLoadFailures((count) => count + 1);
+      setHistoryFailures((count) => count + 1);
       return [];
     } finally {
       setLoadingHistory(false);
@@ -225,7 +247,7 @@ export default function PrescriptionPage() {
     try {
       const result = await prescriptionApi.recovery();
       setRecovery(result.recovery);
-      setLoadFailures(0);
+      setRecoveryFailures(0);
       if (result.recovery.state === 'recoverable') {
         setReplacement(null);
         setSelectedPatientId(result.recovery.submission.patientId);
@@ -245,7 +267,7 @@ export default function PrescriptionPage() {
       }
       setRecovery({ state: 'ambiguous', reason: 'patient_binding_unavailable' });
       setError(pharmacyErrorMessage(error, '未送信の状態を確認できませんでした。'));
-      setLoadFailures((count) => count + 1);
+      setRecoveryFailures((count) => count + 1);
       return null;
     } finally {
       setRecoveryResolved(true);
@@ -260,42 +282,57 @@ export default function PrescriptionPage() {
       errorRef.current?.scrollIntoView({ block: 'center' });
     }
   }, [error]);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const loadMyna = useCallback(async () => {
     setLoadingMyna(true);
     try {
       const result = await mynaApi.active();
+      if (!mounted.current) return;
       setMynaHandoff(result.handoff);
-      setLoadFailures(0);
+      setMynaFailures(0);
     } catch (err) {
+      if (!mounted.current) return;
       setError(pharmacyErrorMessage(err, '電子処方箋の状況を読み込めませんでした。'));
-      setLoadFailures((count) => count + 1);
+      setMynaFailures((count) => count + 1);
     } finally {
-      setLoadingMyna(false);
+      if (mounted.current) setLoadingMyna(false);
     }
   }, []);
   const loadPatients = useCallback(async () => {
     setLoadingPatients(true);
     try {
       const result = await patientIntakeApi.list();
+      if (!mounted.current) return;
       setPatients(result.patients);
-      setLoadFailures(0);
+      setPatientsFailures(0);
       setSelectedPatientId((current) => current || result.patients[0]?.id || '');
     } catch (err) {
+      if (!mounted.current) return;
       setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
-      setLoadFailures((count) => count + 1);
+      setPatientsFailures((count) => count + 1);
     } finally {
-      setLoadingPatients(false);
+      if (mounted.current) setLoadingPatients(false);
     }
   }, []);
   useEffect(() => { void loadMyna(); }, [loadMyna]);
   useEffect(() => { void loadPatients(); }, [loadPatients]);
-  const retryLoads = useCallback(() => {
+  usePharmacyAutoRetry(historyFailures, refreshHistory);
+  usePharmacyAutoRetry(recoveryFailures, refreshRecovery);
+  usePharmacyAutoRetry(mynaFailures, loadMyna);
+  usePharmacyAutoRetry(patientsFailures, loadPatients);
+  // On reconnect, re-run only this page's idempotent reads — the dirty form
+  // and selected images are never sent automatically.
+  const reconnectReads = useCallback(() => {
     void refreshHistory();
     void refreshRecovery();
     void loadMyna();
     void loadPatients();
   }, [refreshHistory, refreshRecovery, loadMyna, loadPatients]);
-  usePharmacyAutoRetry(loadFailures, retryLoads);
+  const online = usePharmacyOnline(reconnectReads);
   useEffect(() => {
     if (!selectedPatientId) {
       setIntakeResponseId('');
@@ -313,18 +350,12 @@ export default function PrescriptionPage() {
   useEffect(() => {
     const urls = files.map((file) => URL.createObjectURL(file));
     setPreviews(urls);
+    // The file list changed outside a send — indexes no longer map to earlier
+    // per-image states, so fall back to honest "queued" instead of carrying
+    // stale positions.
+    setImageStates(files.map(() => 'queued'));
     return () => urls.forEach((url) => URL.revokeObjectURL(url));
   }, [files]);
-  useEffect(() => {
-    const markOffline = () => setOnline(false);
-    const markOnline = () => setOnline(true);
-    window.addEventListener('offline', markOffline);
-    window.addEventListener('online', markOnline);
-    return () => {
-      window.removeEventListener('offline', markOffline);
-      window.removeEventListener('online', markOnline);
-    };
-  }, []);
   useEffect(() => {
     if (files.length === 0 && (!recovery || recovery.state === 'none')) return;
     const warnBeforeLeave = (event: BeforeUnloadEvent) => {
@@ -472,8 +503,19 @@ export default function PrescriptionPage() {
         : files.map((_, index) => index + 1);
       plannedUploads = files.map((file, index) => ({ file, position: uploadPositions[index] }))
         .filter((upload): upload is { file: File; position: number } => upload.position !== undefined);
-      for (const upload of plannedUploads) {
-        await prescriptionApi.upload(submission.id, upload.position, upload.file);
+      setImageStates(plannedUploads.map(() => 'queued'));
+      for (let index = 0; index < plannedUploads.length; index += 1) {
+        const upload = plannedUploads[index];
+        setImageStates((states) => states.map((state, i) => (i === index ? 'sending' : state)));
+        try {
+          await prescriptionApi.upload(submission.id, upload.position, upload.file);
+          setImageStates((states) => states.map((state, i) => (i === index ? 'done' : state)));
+        } catch (uploadError) {
+          // The failed image and everything after it was never confirmed —
+          // mark it for retry rather than guessing an outcome.
+          setImageStates((states) => states.map((state, i) => (i >= index ? 'retry' : state)));
+          throw uploadError;
+        }
       }
       await prescriptionApi.submit(submission.id, {
         expectedUpdatedAt: 'updatedAt' in submission ? submission.updatedAt : submission.updated_at,
@@ -612,7 +654,7 @@ export default function PrescriptionPage() {
           <h2 className="mt-3 font-bold">次の操作</h2>
           <p className="mt-1 text-base text-gray-800">{tab === 'send' ? '患者と画像を確認して、送信内容を確認してください。' : tab === 'electronic' ? '外部画面の手続きを進め、終わったら状況を記録してください。' : '受付状況を確認し、表示された操作を選んでください。'}</p>
         </section>
-        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none">{error}</div>}
+        {error && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none">{error}</div>}
         {!recoveryResolved && tab === 'send' && <p role="status" className="rounded-lg bg-gray-50 p-3 text-base text-gray-700">未送信の状態を確認しています...</p>}
         {recovery?.state === 'ambiguous' && tab === 'send' && <div role="alert" className="rounded-lg bg-amber-50 p-3 text-base text-amber-900">
           <p className="font-bold">未送信の準備を自動で選べませんでした。</p>
@@ -684,6 +726,7 @@ export default function PrescriptionPage() {
                   {previews.map((url, index) => (
                     <li key={url} className="relative">
                       <img src={url} alt={`選択した処方せん ${index + 1}`} className="aspect-[4/3] w-full rounded-lg object-cover" />
+                      {imageStates[index] && <span className={`absolute left-1 top-1 rounded px-2 py-1 text-sm font-bold ${IMAGE_SEND_CHIP_CLASS[imageStates[index]]}`}>{IMAGE_SEND_LABELS[imageStates[index]]}</span>}
                       <button type="button" onClick={() => setFiles((items) => items.filter((_, i) => i !== index))} className="absolute right-1 top-1 min-h-11 rounded bg-black/70 px-3 py-2 text-base text-white" aria-label={`画像${index + 1}を削除`}>削除</button>
                     </li>
                   ))}
