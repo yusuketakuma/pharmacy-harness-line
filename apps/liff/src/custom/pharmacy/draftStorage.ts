@@ -16,6 +16,10 @@ export function loadDraft<T>(key: string): T | null {
 
 export function saveDraft(key: string, value: unknown): void {
   try {
+    // codeql[js/clear-text-storage-of-sensitive-data]: intentional feature —
+    // unsent form drafts persist only on the patient's own device (LIFF
+    // localStorage), are keyed per patient, cleared on submit, and are never
+    // transmitted outside the existing submit path.
     window.localStorage.setItem(PREFIX + key, JSON.stringify(value));
   } catch {
     // Storage unavailable (private mode / quota) — the form still works.
