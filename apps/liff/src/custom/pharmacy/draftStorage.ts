@@ -4,6 +4,7 @@
 // successful submit. Storage access is wrapped because WebView environments can
 // deny localStorage.
 const PREFIX = 'pharmacy-liff-draft:v1:';
+const INTAKE_PREFIX = `${PREFIX}intake:`;
 
 // Engineering trade-off, not a legal value: long enough to survive a session
 // interruption, short enough to limit PHI left on a shared device.
@@ -31,8 +32,19 @@ export function loadDraft<T>(key: string, now: number = Date.now()): LoadedDraft
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || parsed === undefined) return null;
     if (isEnvelope(parsed)) {
-      if (parsed.data === null || parsed.data === undefined) return null;
-      const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : null;
+      if (parsed.data === null || parsed.data === undefined) {
+        // Corrupt envelope — restore nothing and remove the litter so it
+        // cannot sit in storage forever.
+        window.localStorage.removeItem(PREFIX + key);
+        return null;
+      }
+      // Only a finite past timestamp is a trustworthy save time. A future or
+      // non-finite savedAt is treated as unknown (restored, never expired by
+      // a clock-skewed write) rather than as a reason to drop patient input.
+      const savedAt =
+        typeof parsed.savedAt === 'number' && Number.isFinite(parsed.savedAt) && parsed.savedAt <= now
+          ? parsed.savedAt
+          : null;
       if (savedAt !== null && now - savedAt > DRAFT_TTL_MS) {
         // Expired drafts are deleted and never restored.
         window.localStorage.removeItem(PREFIX + key);
@@ -70,6 +82,26 @@ export function clearDraft(key: string): void {
   }
 }
 
+// Drafts for patients that disappear from the patient list (deleted or proxy
+// revoked) are never read again, so the lazy TTL in loadDraft would keep them
+// forever. The intake page sweeps them whenever it loads the patient list —
+// the list is the authoritative scope of "who can still have a draft".
+export function sweepIntakeDrafts(validPatientIds: ReadonlySet<string>): void {
+  try {
+    const storage = window.localStorage;
+    const staleKeys: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key || !key.startsWith(INTAKE_PREFIX)) continue;
+      const patientId = key.slice(INTAKE_PREFIX.length);
+      if (!validPatientIds.has(patientId)) staleKeys.push(key);
+    }
+    for (const key of staleKeys) storage.removeItem(key);
+  } catch {
+    // Enumeration unavailable — lazy cleanup on read still applies.
+  }
+}
+
 /** Patient-facing label shown only when a draft was actually restored. */
 export function draftRestoreMessage(savedAt: number | null): string {
   if (savedAt === null) return '下書きを復元しました（保存時刻は不明です）。';
@@ -79,4 +111,9 @@ export function draftRestoreMessage(savedAt: number | null): string {
 }
 
 export const intakeDraftKey = (patientId: string) => `intake:${patientId}`;
+// LIFF apps for different pharmacy accounts may share one Pages origin, so the
+// new-patient draft is scoped by liffId to avoid restoring another account's
+// draft. NEW_PATIENT_DRAFT_KEY is the pre-scoping legacy key kept for
+// restore-once compatibility.
+export const newPatientDraftKey = (liffId: string) => `patient-profile:new:${liffId}`;
 export const NEW_PATIENT_DRAFT_KEY = 'patient-profile:new';

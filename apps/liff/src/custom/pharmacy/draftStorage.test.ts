@@ -6,13 +6,19 @@ import {
   intakeDraftKey,
   loadDraft,
   NEW_PATIENT_DRAFT_KEY,
+  newPatientDraftKey,
   saveDraft,
+  sweepIntakeDrafts,
 } from './draftStorage.js';
 
 // V036-13: draft trust — savedAt envelope, 24h TTL, legacy restore-once,
 // per-patient isolation, and fail-soft storage.
 const store = new Map<string, string>();
 const fakeStorage = {
+  get length() {
+    return store.size;
+  },
+  key: (index: number) => Array.from(store.keys())[index] ?? null,
   getItem: (key: string) => store.get(key) ?? null,
   setItem: (key: string, value: string) => { store.set(key, value); },
   removeItem: (key: string) => { store.delete(key); },
@@ -92,6 +98,44 @@ describe('draftStorage', () => {
   it('returns null for corrupt JSON', () => {
     store.set('pharmacy-liff-draft:v1:k', '{not json');
     expect(loadDraft('k')).toBeNull();
+  });
+
+  it('removes a corrupt envelope (data: null) instead of leaving litter', () => {
+    store.set('pharmacy-liff-draft:v1:k', JSON.stringify({ savedAt: NOW, data: null }));
+    expect(loadDraft('k', NOW)).toBeNull();
+    expect(store.has('pharmacy-liff-draft:v1:k')).toBe(false);
+  });
+
+  it('restores a draft with a future savedAt as unknown-time instead of expiring it', () => {
+    store.set('pharmacy-liff-draft:v1:k', JSON.stringify({ savedAt: NOW + 10_000, data: { a: 1 } }));
+    const loaded = loadDraft<{ a: number }>('k', NOW);
+    expect(loaded?.data).toEqual({ a: 1 });
+    expect(loaded?.savedAt).toBeNull();
+  });
+
+  it('restores a draft with a non-finite savedAt as unknown-time', () => {
+    store.set('pharmacy-liff-draft:v1:k', JSON.stringify({ savedAt: 'yesterday', data: 'x' }));
+    const loaded = loadDraft<string>('k', NOW);
+    expect(loaded?.data).toBe('x');
+    expect(loaded?.savedAt).toBeNull();
+  });
+
+  it('sweeps intake drafts for patients no longer in the list', () => {
+    store.set(`pharmacy-liff-draft:v1:intake:gone`, JSON.stringify({ savedAt: NOW, data: { a: 1 } }));
+    store.set(`pharmacy-liff-draft:v1:intake:kept`, JSON.stringify({ savedAt: NOW, data: { a: 2 } }));
+    store.set('pharmacy-liff-draft:v1:patient-profile:new:app', JSON.stringify({ savedAt: NOW, data: {} }));
+    store.set('unrelated-key', 'x');
+    sweepIntakeDrafts(new Set(['kept']));
+    expect(store.has('pharmacy-liff-draft:v1:intake:gone')).toBe(false);
+    expect(store.has('pharmacy-liff-draft:v1:intake:kept')).toBe(true);
+    expect(store.has('pharmacy-liff-draft:v1:patient-profile:new:app')).toBe(true);
+    expect(store.get('unrelated-key')).toBe('x');
+  });
+
+  it('scopes the new-patient draft key by liffId with the legacy key kept', () => {
+    expect(newPatientDraftKey('app-1')).toBe('patient-profile:new:app-1');
+    expect(newPatientDraftKey('app-2')).not.toBe(newPatientDraftKey('app-1'));
+    expect(NEW_PATIENT_DRAFT_KEY).toBe('patient-profile:new');
   });
 });
 
