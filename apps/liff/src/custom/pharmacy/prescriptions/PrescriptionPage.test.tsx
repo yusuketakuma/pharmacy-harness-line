@@ -271,7 +271,7 @@ describe('prescription upload recovery (V034-3)', () => {
   });
 
   it('binds a recovered patient, exposes ready and pending slots, and rechecks consent', () => {
-    expect(source).toContain('recovery.submission.patientId');
+    expect(source).toContain('setSelectedPatientId(submission.patientId)');
     expect(source).toContain('readyPositions');
     expect(source).toContain('pendingPositions');
     expect(source).toContain('薬局に届いている画像');

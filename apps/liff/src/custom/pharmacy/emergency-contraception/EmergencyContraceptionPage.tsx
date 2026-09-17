@@ -12,6 +12,7 @@ import {
 } from './api.js';
 import { pharmacyErrorMessage } from '../request.js';
 import { PharmacyErrorSummary, PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
+import { cloneJsonValue, pharmacyUuid } from '../compat.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 
 export const MHLW_EMERGENCY_CONTRACEPTION_URL =
@@ -92,9 +93,9 @@ export function retainEmergencyCreateOperation(
   const fingerprint = JSON.stringify(payload);
   if (current?.fingerprint === fingerprint) return current;
   return {
-    idempotencyKey: crypto.randomUUID(),
+    idempotencyKey: pharmacyUuid(),
     fingerprint,
-    payload: structuredClone(payload),
+    payload: cloneJsonValue(payload),
   };
 }
 
@@ -110,7 +111,7 @@ export function retainEmergencyCancelOperation(
   expectedVersion: number,
 ): EmergencyCancelOperation {
   if (current?.intakeId === intakeId && current.expectedVersion === expectedVersion) return current;
-  return { intakeId, expectedVersion, idempotencyKey: crypto.randomUUID() };
+  return { intakeId, expectedVersion, idempotencyKey: pharmacyUuid() };
 }
 
 // C2 exclusivity: noneApply/unknown are mutually exclusive with each other and
@@ -367,6 +368,7 @@ function IntakeList({
               type="button"
               onClick={() => void onCancel(intake)}
               disabled={busy !== null}
+              aria-busy={busy === `cancel:${intake.id}`}
               className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-base font-bold text-red-800 disabled:opacity-50"
             >
               {busy === `cancel:${intake.id}` ? <PharmacySpinner label="取消中…" /> : 'この仮受付を取消'}
@@ -437,6 +439,7 @@ export function EmergencyIntakeForm({
   service,
   busy,
   showErrors = false,
+  errorNonce = 0,
   onDraftChange,
   onSubmit,
 }: {
@@ -444,6 +447,8 @@ export function EmergencyIntakeForm({
   service: EmergencyServiceOverview;
   busy: string | null;
   showErrors?: boolean;
+  /** Changes per validation attempt so the summary re-announces even when the item set is identical. */
+  errorNonce?: number;
   onDraftChange: <K extends keyof EmergencyIntakeDraft>(key: K, value: EmergencyIntakeDraft[K]) => void;
   onSubmit: () => Promise<void>;
 }) {
@@ -463,6 +468,9 @@ export function EmergencyIntakeForm({
       <h2 className="text-base font-bold text-gray-900">来局前の最小確認</h2>
       <p className="text-base text-gray-600">必要な項目だけ入力してください。</p>
       {showErrors && Object.keys(errors).length > 0 && <PharmacyErrorSummary
+        key={errorNonce}
+        title="入力内容を確認してください"
+        hint="赤く表示された項目を確認してください。"
         items={Object.entries(errors).map(([key, message]) => ({
           id: EMERGENCY_ERROR_FIELD_IDS[key as keyof EmergencyIntakeDraft] ?? 'emergency-intake-form',
           label: message ?? '入力内容を確認してください',
@@ -863,6 +871,13 @@ export default function EmergencyContraceptionPage() {
   const cancelOperationsRef = useRef(new Map<string, EmergencyCancelOperation>());
   const errorRef = useRef<HTMLDivElement>(null);
   const confirmHeadingRef = useRef<HTMLHeadingElement>(null);
+  // Consent text the patient agreed to; a version change re-locks the form.
+  const consentFingerprintRef = useRef<string | null>(null);
+  // Error message the list load last raised; quiet successes clear the shared
+  // error channel only when that message is still the one shown.
+  const loadErrorRef = useRef<string | null>(null);
+  // Bumped per failed validation so the field summary re-announces.
+  const [summaryNonce, setSummaryNonce] = useState(0);
   useEffect(() => {
     if (confirming) confirmHeadingRef.current?.focus();
   }, [confirming]);
@@ -873,28 +888,50 @@ export default function EmergencyContraceptionPage() {
     }
   }, [error]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async (quiet = false) => {
+    // quiet = background refresh (auto-retry / online reconnect): keep the
+    // current service view instead of flashing the whole form away, and
+    // never steal focus or clobber a submit/cancel error banner.
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const result = await emergencyContraceptionApi.list();
+      const nextFingerprint = result.service?.consent
+        ? `${result.service.consent.version}:${result.service.consent.content_hash}`
+        : null;
+      if (consentFingerprintRef.current !== null &&
+          nextFingerprint !== consentFingerprintRef.current) {
+        // The consent text changed since the patient checked it — require
+        // agreement again.
+        setDraft((current) => ({ ...current, consentAccepted: false }));
+      }
+      consentFingerprintRef.current = nextFingerprint;
       setService(result.service);
       setIntakes(result.intakes);
       setServerNow(result.server_now);
       setLoadFailures(0);
+      // Only clear the banner this load actually raised — a submit/cancel
+      // error must stay visible across a background refresh.
+      setError((current) => current === loadErrorRef.current ? '' : current);
     } catch (err) {
-      setService(null);
-      setError(pharmacyErrorMessage(
-        err, '受付情報を読み込めませんでした。再読み込みしてください。',
-      ));
+      if (!quiet) {
+        setService(null);
+        const message = pharmacyErrorMessage(
+          err, '受付情報を読み込めませんでした。再読み込みしてください。',
+        );
+        loadErrorRef.current = message;
+        setError(message);
+      }
       setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  usePharmacyAutoRetry(loadFailures, load);
-  usePharmacyOnline(load);
+  usePharmacyAutoRetry(loadFailures, () => void load(true));
+  usePharmacyOnline(() => void load(true));
 
   useEffect(() => { void load(); }, [load]);
 
@@ -911,7 +948,11 @@ export default function EmergencyContraceptionPage() {
     if (busy || !service?.consent) return;
     if (!canSubmitEmergencyIntake(draft)) {
       setShowErrors(true);
-      setError('赤く表示された項目を確認してください。');
+      // The field-level summary is the single announcement target for
+      // validation failures — bump the nonce so an identical failure still
+      // re-focuses it instead of a competing page-level error block.
+      setSummaryNonce((nonce) => nonce + 1);
+      setError('');
       return;
     }
     setShowErrors(false);
@@ -920,14 +961,15 @@ export default function EmergencyContraceptionPage() {
   }
 
   async function submit() {
-    if (busy || !service?.consent || !canSubmitEmergencyIntake(draft)) {
+    if (busy || !service?.consent) return;
+    if (!canSubmitEmergencyIntake(draft)) {
       setShowErrors(true);
+      setSummaryNonce((nonce) => nonce + 1);
       setConfirming(false);
-      setError('赤く表示された項目を確認してください。');
+      setError('');
       return;
     }
     setConfirming(false);
-    setBusy('submit');
     setError('');
     setSuccess('');
     const payload: CreateEmergencyIntakeInput = {
@@ -957,6 +999,9 @@ export default function EmergencyContraceptionPage() {
     };
     const operation = retainEmergencyCreateOperation(submitOperationRef.current, payload);
     submitOperationRef.current = operation;
+    // Mark busy only after the payload and idempotency key are built — clone
+    // or key generation can throw on older WebViews and would strand busy.
+    setBusy('submit');
     try {
       const result = await emergencyContraceptionApi.create({
         ...operation.payload,
@@ -1092,6 +1137,7 @@ export default function EmergencyContraceptionPage() {
                   service={service}
                   busy={busy}
                   showErrors={showErrors}
+                  errorNonce={summaryNonce}
                   onDraftChange={changeDraft}
                   onSubmit={review}
                 />}

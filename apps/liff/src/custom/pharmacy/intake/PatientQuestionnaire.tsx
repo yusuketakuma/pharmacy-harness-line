@@ -97,6 +97,7 @@ function ChoiceField<T extends string>({
   options,
   required = false,
   error,
+  disabled = false,
   onChange,
 }: {
   name: keyof PatientIntakeAnswers;
@@ -105,6 +106,7 @@ function ChoiceField<T extends string>({
   options: ReadonlyArray<{ value: T; label: string }>;
   required?: boolean;
   error?: string;
+  disabled?: boolean;
   onChange: (value: T) => void;
 }) {
   return (
@@ -119,6 +121,7 @@ function ChoiceField<T extends string>({
               value={option.value}
               checked={value === option.value}
               onChange={() => onChange(option.value)}
+              disabled={disabled}
               className="peer sr-only"
             />
             <span className="pharmacy-control flex items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-base peer-checked:border-green-700 peer-checked:bg-green-50 peer-checked:font-bold peer-checked:before:mr-1 peer-checked:before:content-['✓'] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-blue-700">
@@ -158,6 +161,7 @@ export function PatientQuestionnaire({
   privacyConsent,
   privacyPolicy = null,
   showErrors = false,
+  errorNonce = 0,
   onAnswersChange,
   onRepresentativeConsentChange,
   onPrivacyConsentChange,
@@ -170,6 +174,8 @@ export function PatientQuestionnaire({
   privacyConsent: boolean;
   privacyPolicy?: TenantPrivacyPolicy | null;
   showErrors?: boolean;
+  /** Changes per validation attempt so the summary re-announces even when the item set is identical. */
+  errorNonce?: number;
   onAnswersChange: Dispatch<SetStateAction<IntakeAnswersDraft>>;
   onRepresentativeConsentChange: (value: boolean) => void;
   onPrivacyConsentChange: (value: boolean) => void;
@@ -221,37 +227,39 @@ export function PatientQuestionnaire({
       </div>
 
       {unanswered.length > 0 && <PharmacyErrorSummary
+        key={errorNonce}
         title="未回答の質問があります"
+        hint="赤く表示された質問に答えてから「次へ」を押してください。"
         items={unanswered.map((key) => ({ id: `intake-${key}`, label: SAFETY_LABELS[key] ?? '未回答の質問' }))}
       />}
 
       <div key={step} className={stepDirectionClass}>
       {step === 1 && <div className="space-y-4">
         <h3 ref={stepHeadingRef} tabIndex={-1} className="font-bold focus:outline-none">安全確認</h3>
-        <ChoiceField required error={safetyError('allergiesStatus')} name="allergiesStatus" label="アレルギー" value={answers.allergiesStatus} options={statusOptions} onChange={(value) => updateAnswer('allergiesStatus', value)} />
-        {answers.allergiesStatus === 'yes' && <label className="block text-base">アレルギーの内容（任意）<textarea value={answers.allergiesDetail ?? ''} onChange={(event) => updateAnswer('allergiesDetail', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
-        <ChoiceField required error={safetyError('adverseReactionStatus')} name="adverseReactionStatus" label="お薬で具合が悪くなった経験" value={answers.adverseReactionStatus} options={statusOptions} onChange={(value) => updateAnswer('adverseReactionStatus', value)} />
-        {answers.adverseReactionStatus === 'yes' && <label className="block text-base">その内容（任意）<textarea value={answers.adverseReactionDetail ?? ''} onChange={(event) => updateAnswer('adverseReactionDetail', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
-        <ChoiceField required error={safetyError('medicationStatus')} name="medicationStatus" label="服用中のお薬" value={answers.medicationStatus} options={statusOptions} onChange={(value) => updateAnswer('medicationStatus', value)} />
-        {answers.medicationStatus === 'yes' && <label className="block text-base">薬・サプリメントの名前（任意）<textarea value={answers.medicationSummary ?? ''} onChange={(event) => updateAnswer('medicationSummary', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
+        <ChoiceField disabled={busy} required error={safetyError('allergiesStatus')} name="allergiesStatus" label="アレルギー" value={answers.allergiesStatus} options={statusOptions} onChange={(value) => updateAnswer('allergiesStatus', value)} />
+        {answers.allergiesStatus === 'yes' && <label className="block text-base">アレルギーの内容（任意）<textarea disabled={busy} value={answers.allergiesDetail ?? ''} onChange={(event) => updateAnswer('allergiesDetail', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
+        <ChoiceField disabled={busy} required error={safetyError('adverseReactionStatus')} name="adverseReactionStatus" label="お薬で具合が悪くなった経験" value={answers.adverseReactionStatus} options={statusOptions} onChange={(value) => updateAnswer('adverseReactionStatus', value)} />
+        {answers.adverseReactionStatus === 'yes' && <label className="block text-base">その内容（任意）<textarea disabled={busy} value={answers.adverseReactionDetail ?? ''} onChange={(event) => updateAnswer('adverseReactionDetail', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
+        <ChoiceField disabled={busy} required error={safetyError('medicationStatus')} name="medicationStatus" label="服用中のお薬" value={answers.medicationStatus} options={statusOptions} onChange={(value) => updateAnswer('medicationStatus', value)} />
+        {answers.medicationStatus === 'yes' && <label className="block text-base">薬・サプリメントの名前（任意）<textarea disabled={busy} value={answers.medicationSummary ?? ''} onChange={(event) => updateAnswer('medicationSummary', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
       </div>}
 
       {step === 2 && <div className="space-y-4">
         <h3 ref={stepHeadingRef} tabIndex={-1} className="font-bold focus:outline-none">体調・生活</h3>
-        <ChoiceField required error={safetyError('medicalHistoryStatus')} name="medicalHistoryStatus" label="これまでにかかった病気・現在通院中の病気" value={answers.medicalHistoryStatus} options={statusOptions} onChange={(value) => updateAnswer('medicalHistoryStatus', value)} />
-        {answers.medicalHistoryStatus === 'yes' && <fieldset className="space-y-2"><legend className="text-base">当てはまる病気（複数選択・任意）</legend><div className="grid grid-cols-2 gap-2">{medicalHistoryTagOptions.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-base"><input type="checkbox" checked={answers.medicalHistoryTags.includes(option.value)} onChange={() => toggleMedicalHistoryTag(option.value)} className="h-5 w-5" />{option.label}</label>)}</div></fieldset>}
-        {answers.medicalHistoryStatus === 'yes' && <label className="block text-base">病名・通院内容の補足（任意）<textarea value={answers.medicalHistory ?? ''} onChange={(event) => updateAnswer('medicalHistory', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
-        <ChoiceField name="medicationNotebook" label="お薬手帳" value={answers.medicationNotebook} options={notebookOptions} onChange={(value) => updateAnswer('medicationNotebook', value)} />
-        <ChoiceField name="smokingStatus" label="喫煙" value={answers.smokingStatus} options={smokingOptions} onChange={(value) => updateAnswer('smokingStatus', value)} />
-        <ChoiceField name="alcoholStatus" label="飲酒" value={answers.alcoholStatus} options={alcoholOptions} onChange={(value) => updateAnswer('alcoholStatus', value)} />
-        <ChoiceField name="medicationAdherence" label="お薬の飲み忘れ" value={answers.medicationAdherence} options={adherenceOptions} onChange={(value) => updateAnswer('medicationAdherence', value)} />
-        {showPregnancyQuestions && <><ChoiceField name="pregnancyStatus" label="妊娠の可能性（該当する方のみ）" value={answers.pregnancyStatus ?? 'not_applicable'} options={pregnancyOptions} onChange={(value) => updateAnswer('pregnancyStatus', value)} /><ChoiceField name="breastfeedingStatus" label="授乳中（該当する方のみ）" value={answers.breastfeedingStatus ?? 'not_applicable'} options={pregnancyOptions} onChange={(value) => updateAnswer('breastfeedingStatus', value)} /></>}
+        <ChoiceField disabled={busy} required error={safetyError('medicalHistoryStatus')} name="medicalHistoryStatus" label="これまでにかかった病気・現在通院中の病気" value={answers.medicalHistoryStatus} options={statusOptions} onChange={(value) => updateAnswer('medicalHistoryStatus', value)} />
+        {answers.medicalHistoryStatus === 'yes' && <fieldset className="space-y-2"><legend className="text-base">当てはまる病気（複数選択・任意）</legend><div className="grid grid-cols-2 gap-2">{medicalHistoryTagOptions.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-base"><input type="checkbox" checked={answers.medicalHistoryTags.includes(option.value)} onChange={() => toggleMedicalHistoryTag(option.value)} disabled={busy} className="h-5 w-5" />{option.label}</label>)}</div></fieldset>}
+        {answers.medicalHistoryStatus === 'yes' && <label className="block text-base">病名・通院内容の補足（任意）<textarea disabled={busy} value={answers.medicalHistory ?? ''} onChange={(event) => updateAnswer('medicalHistory', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={2} maxLength={2000} /></label>}
+        <ChoiceField disabled={busy} name="medicationNotebook" label="お薬手帳" value={answers.medicationNotebook} options={notebookOptions} onChange={(value) => updateAnswer('medicationNotebook', value)} />
+        <ChoiceField disabled={busy} name="smokingStatus" label="喫煙" value={answers.smokingStatus} options={smokingOptions} onChange={(value) => updateAnswer('smokingStatus', value)} />
+        <ChoiceField disabled={busy} name="alcoholStatus" label="飲酒" value={answers.alcoholStatus} options={alcoholOptions} onChange={(value) => updateAnswer('alcoholStatus', value)} />
+        <ChoiceField disabled={busy} name="medicationAdherence" label="お薬の飲み忘れ" value={answers.medicationAdherence} options={adherenceOptions} onChange={(value) => updateAnswer('medicationAdherence', value)} />
+        {showPregnancyQuestions && <><ChoiceField disabled={busy} name="pregnancyStatus" label="妊娠の可能性（該当する方のみ）" value={answers.pregnancyStatus ?? 'not_applicable'} options={pregnancyOptions} onChange={(value) => updateAnswer('pregnancyStatus', value)} /><ChoiceField disabled={busy} name="breastfeedingStatus" label="授乳中（該当する方のみ）" value={answers.breastfeedingStatus ?? 'not_applicable'} options={pregnancyOptions} onChange={(value) => updateAnswer('breastfeedingStatus', value)} /></>}
       </div>}
 
       {step === 3 && <div className="space-y-4">
         <h3 ref={stepHeadingRef} tabIndex={-1} className="font-bold focus:outline-none">確認・送信</h3>
         <p className="text-base text-gray-600">回答内容を確認し、薬局に伝えたいことがあれば入力してください。</p>
-        <label className="block text-base">薬局に伝えたいこと（任意）<textarea value={answers.notes ?? ''} onChange={(event) => updateAnswer('notes', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={3} maxLength={2000} /></label>
+        <label className="block text-base">薬局に伝えたいこと（任意）<textarea disabled={busy} value={answers.notes ?? ''} onChange={(event) => updateAnswer('notes', event.target.value)} className="mt-1 block w-full rounded-lg border p-3 text-base" rows={3} maxLength={2000} /></label>
         <div className="rounded-lg border-2 border-green-700 bg-white p-3 text-base" role="group" aria-labelledby="intake-confirm-heading">
           <p id="intake-confirm-heading" className="font-bold">送信内容の確認</p>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-gray-800">

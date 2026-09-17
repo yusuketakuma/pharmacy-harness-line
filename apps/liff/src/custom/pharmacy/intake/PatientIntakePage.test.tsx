@@ -178,10 +178,12 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('privacyPolicyHash: privacyPolicy.content_hash');
     expect(source).toContain('status === 409');
     expect(source).toContain('await loadPrivacyPolicy();');
-    expect(source).toContain('setPrivacyConsent(false);\n      setPrivacyPolicy(result.policy);');
+    // Consent resets only when the policy fingerprint actually changed —
+    // never on a plain reconnect re-read.
+    expect(source).toMatch(/policyFingerprintRef\.current !== fingerprint[\s\S]*?setPrivacyConsent\(false\)[\s\S]*?setPrivacyPolicy\(result\.policy\)/);
     expect(source).toContain('intakeOperationEpochRef');
     expect(source).toContain('retainPatientIntakeOperation');
-    expect(source).toContain('structuredClone(nextAnswers)');
+    expect(source).toContain('cloneJsonValue(nextAnswers)');
   });
 
   it('offers a confirmed one-tap update from the last saved answers', () => {

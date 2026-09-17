@@ -75,25 +75,31 @@ export default function PatientTimelinePage() {
   const errorRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (quiet = false) => {
+    // quiet = background refresh: keep the timeline mounted and do not
+    // clear/re-set the error banner — a '' → message transition would steal
+    // focus on every retry cycle.
+    if (!quiet) setLoading(true);
+    if (!quiet) setErrorMessage('');
     setLegacyWorker(false);
-    setErrorMessage('');
     try {
       const result = await patientTimelineApi.load();
-      if (mounted.current) { setItems(result.items); setLoadFailures(0); }
+      if (mounted.current) { setItems(result.items); setLoadFailures(0); setErrorMessage(''); }
     } catch (caught) {
       if (!mounted.current) return;
       const error = caught as Error;
       if (isUnsupportedPharmacyFeature(error)) setLegacyWorker(true);
-      else { setErrorMessage(pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。')); setLoadFailures((count) => count + 1); }
+      else {
+        if (!quiet) setErrorMessage(pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。'));
+        setLoadFailures((count) => count + 1);
+      }
     } finally {
       if (mounted.current) setLoading(false);
     }
   }, []);
 
-  usePharmacyAutoRetry(loadFailures, load);
-  usePharmacyOnline(load);
+  usePharmacyAutoRetry(loadFailures, () => void load(true));
+  usePharmacyOnline(() => void load(true));
 
   useEffect(() => {
     mounted.current = true;

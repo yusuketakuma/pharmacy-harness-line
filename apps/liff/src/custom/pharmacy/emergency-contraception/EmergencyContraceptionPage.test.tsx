@@ -149,7 +149,7 @@ describe('emergency contraception patient page', () => {
     expect(source).toContain('consentContentHash: service.consent.content_hash');
     expect(source).toContain("setBusy('submit')");
     expect(source).not.toContain('setInterval');
-    expect(source).toContain('crypto.randomUUID()');
+    expect(source).toContain('pharmacyUuid()');
     expect(source).toContain('retainEmergencyCreateOperation');
     expect(source).toContain('typeof status === \'number\'');
     expect(app).toContain("const DeferredEmergencyContraceptionPage = lazy(() => import('./custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js')); // custom:pharmacy-emergency-contraception");

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   medicationFollowUpApi,
@@ -7,6 +7,7 @@ import {
   type PatientMedicationFollowUpResponse,
   type PatientMedicationFollowUpStatus,
 } from './api.js';
+import { pharmacyUuid } from '../compat.js';
 import { pharmacyRoute } from '../navigation.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
@@ -79,27 +80,34 @@ export default function MedicationFollowUpPage() {
   const [success, setSuccess] = useState<{ id: string; text: string } | null>(null);
   const [outlook, setOutlook] = useState<MedicationFollowUpOperationsOutlook | null>(null);
   const [loadFailures, setLoadFailures] = useState(0);
+  // The message this load last raised; quiet successes clear the shared
+  // error channel only while that message is still shown (a respond-error
+  // banner must survive a background refresh).
+  const loadErrorRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const result = await medicationFollowUpApi.list();
       setItems(result.followUps);
       setLoadFailures(0);
+      setError((current) => current === loadErrorRef.current ? '' : current);
       medicationFollowUpApi.outlook()
         .then(({ outlook: next }) => setOutlook(next))
         .catch(() => setOutlook(null));
     } catch {
-      setError('服薬後フォローを読み込めませんでした。通信状態を確認して再読み込みしてください。');
+      if (!quiet) {
+        loadErrorRef.current = '服薬後フォローを読み込めませんでした。通信状態を確認して再読み込みしてください。';
+        setError(loadErrorRef.current);
+      }
       setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  usePharmacyAutoRetry(loadFailures, load);
-  usePharmacyOnline(load);
+  usePharmacyAutoRetry(loadFailures, () => void load(true));
+  usePharmacyOnline(() => void load(true));
 
   useEffect(() => { void load(); }, [load]);
 
@@ -116,7 +124,7 @@ export default function MedicationFollowUpPage() {
     setSuccess(null);
     try {
       const result = await medicationFollowUpApi.respond(
-        item.id, response, item.version, crypto.randomUUID(),
+        item.id, response, item.version, pharmacyUuid(),
       );
       setItems((current) => current.map((candidate) =>
         candidate.id === result.followUp.id ? result.followUp : candidate));

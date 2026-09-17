@@ -4,7 +4,7 @@ import packageJson from '../../../package.json';
 import { getLiffId } from '../../lib/liff-auth.js';
 import { pharmacyRoute } from './navigation.js';
 import { requestPharmacyJson } from './request.js';
-import { PharmacyLoading, PharmacyOfflineBanner, usePharmacyAutoRetry, usePharmacyOnline } from './feedback.js';
+import { PharmacyLoading, PharmacyOfflineBanner, PharmacySpinner, usePharmacyAutoRetry, usePharmacyOnline } from './feedback.js';
 
 export const pharmacyLiffVersion = packageJson.version;
 
@@ -18,12 +18,14 @@ type PharmacyAccess = {
 type PharmacyAccessState = PharmacyAccess & {
   loading: boolean;
   configError: string;
+  /** A refresh is running while children stay mounted. */
+  retrying: boolean;
   retry: () => Promise<void>;
 };
 
 const PharmacyAccessContext = createContext<PharmacyAccessState>({
   accountName: '', enabledFeatures: [], existingFeatures: [], existingError: '',
-  loading: true, configError: '', retry: async () => {},
+  loading: true, configError: '', retrying: false, retry: async () => {},
 });
 
 export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
@@ -67,28 +69,39 @@ export async function loadPharmacyAccess(): Promise<PharmacyAccess> {
 export function PharmacyAccessProvider({ children }: { children: ReactNode }) {
   const [access, setAccess] = useState<Omit<PharmacyAccessState, 'retry'>>({
     accountName: '', enabledFeatures: [], existingFeatures: [], existingError: '',
-    loading: true, configError: '',
+    loading: true, configError: '', retrying: false,
   });
   const [loadFailures, setLoadFailures] = useState(0);
+  const [existingFailures, setExistingFailures] = useState(0);
   const loadingRef = useRef(false);
   const mounted = useRef(true);
+  // Once the first load succeeded, children hold live form state — a later
+  // retry (manual button, auto-retry, online reconnect) must run in the
+  // background and never swap them back to the loading skeleton.
+  const loadedOnceRef = useRef(false);
 
   const retry = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
-    setAccess((current) => ({ ...current, loading: true, configError: '', existingError: '' }));
+    const preserveChildren = loadedOnceRef.current;
+    setAccess((current) => preserveChildren
+      ? { ...current, retrying: true }
+      : { ...current, loading: true, retrying: true, configError: '', existingError: '' });
     try {
       const loaded = await loadPharmacyAccess();
-      if (mounted.current) setAccess({ ...loaded, loading: false, configError: '' });
-      if (mounted.current) setLoadFailures(0);
+      if (mounted.current) {
+        loadedOnceRef.current = true;
+        setAccess({ ...loaded, loading: false, configError: '', retrying: false });
+        setLoadFailures(0);
+        setExistingFailures(loaded.existingError ? (count) => count + 1 : 0);
+      }
     } catch {
       if (mounted.current) {
-        setAccess((current) => ({
-          ...current,
-          loading: false,
-          configError: '機能一覧を取得できませんでした。',
-        }));
-        setLoadFailures((count) => count + 1);
+        setAccess((current) => preserveChildren
+          ? { ...current, retrying: false, existingError: '利用中の機能を確認できませんでした。' }
+          : { ...current, loading: false, retrying: false, configError: '機能一覧を取得できませんでした。' });
+        if (preserveChildren) setExistingFailures((count) => count + 1);
+        else setLoadFailures((count) => count + 1);
       }
     } finally {
       loadingRef.current = false;
@@ -96,6 +109,13 @@ export function PharmacyAccessProvider({ children }: { children: ReactNode }) {
   }, []);
 
   usePharmacyAutoRetry(loadFailures, retry);
+  // A missing feature-access projection is a degraded read, not a dead end —
+  // retry it in the background like any other failed idempotent load.
+  usePharmacyAutoRetry(existingFailures, retry);
+  // Reconnect refresh is safe here because retry() preserves mounted
+  // children; without it a configError after a network drop is a dead end.
+  const retryAccess = useCallback(() => { void retry(); }, [retry]);
+  usePharmacyOnline(retryAccess);
 
   useEffect(() => {
     mounted.current = true;
@@ -149,8 +169,15 @@ export function PharmacyShell({ screenTitle, children }: {
   useEffect(() => {
     document.title = `${screenTitle}｜${access.accountName || '薬局'}`;
   }, [screenTitle, access.accountName]);
+  // Banner changes announce themselves by focus — except while the patient
+  // is typing: a background retry (auto-retry / reconnect) must not steal
+  // focus out of a form field mid-edit.
   useEffect(() => {
-    if (access.configError || access.existingError) alertRef.current?.focus();
+    if (!access.configError && !access.existingError) return;
+    const active = document.activeElement;
+    const typing = active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+    if (!typing) alertRef.current?.focus();
   }, [access.configError, access.existingError]);
 
   return <div className="pharmacy-shell mx-auto max-w-md">
@@ -167,9 +194,11 @@ export function PharmacyShell({ screenTitle, children }: {
             <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再試行</button>
           </div>
         : <div key={locationKey} className="pharmacy-page-enter">
-            {access.existingError && <div ref={alertRef} tabIndex={-1} className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
+            {access.existingError && <div ref={alertRef} tabIndex={-1} data-testid="existing-work-error" className="m-4 rounded-xl bg-amber-50 p-4 text-base text-amber-900">
               <p>{access.existingError} 有効な機能はそのまま利用できます。</p>
-              <button type="button" onClick={() => void access.retry()} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold">再試行</button>
+              <button type="button" onClick={() => void access.retry()} disabled={access.retrying} aria-busy={access.retrying} className="pharmacy-control min-h-11 mt-3 rounded-lg border border-amber-300 bg-white px-4 py-2 font-bold disabled:opacity-50">
+                {access.retrying ? <PharmacySpinner label="確認中…" /> : '再試行'}
+              </button>
             </div>}
             {children}
           </div>}

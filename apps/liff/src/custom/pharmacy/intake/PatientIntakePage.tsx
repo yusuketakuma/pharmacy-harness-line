@@ -26,7 +26,9 @@ import {
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
 import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
-import { clearDraft, draftRestoreMessage, intakeDraftKey, loadDraft, NEW_PATIENT_DRAFT_KEY, saveDraft } from '../draftStorage.js';
+import { clearDraft, draftRestoreMessage, intakeDraftKey, loadDraft, NEW_PATIENT_DRAFT_KEY, newPatientDraftKey, saveDraft, sweepIntakeDrafts } from '../draftStorage.js';
+import { cloneJsonValue, pharmacyUuid } from '../compat.js';
+import { getLiffId } from '../../../lib/liff-auth.js';
 import { pharmacyErrorMessage } from '../request.js';
 
 const relationshipLabels: Record<PatientRelationship, string> = {
@@ -88,8 +90,30 @@ export function retainPatientIntakeOperation(
     patientId,
     epoch,
     fingerprint,
-    body: structuredClone({ ...input, idempotencyKey: crypto.randomUUID() }),
+    body: cloneJsonValue({ ...input, idempotencyKey: pharmacyUuid() }),
   };
+}
+
+type NewPatientDraftData = { patientDraft?: PatientProfileDraft; showAddress?: boolean };
+
+// The new-patient draft key is scoped by liffId because multiple pharmacy
+// LIFF apps can share one Pages origin. The pre-scoping legacy key is read
+// once and migrated to the scoped key.
+function loadNewPatientDraft() {
+  const scopedKey = newPatientDraftKey(getLiffId());
+  const scoped = loadDraft<NewPatientDraftData>(scopedKey);
+  if (scoped) return scoped;
+  const legacy = loadDraft<NewPatientDraftData>(NEW_PATIENT_DRAFT_KEY);
+  if (legacy) {
+    saveDraft(scopedKey, legacy.data);
+    clearDraft(NEW_PATIENT_DRAFT_KEY);
+  }
+  return legacy;
+}
+
+function clearNewPatientDraft() {
+  clearDraft(newPatientDraftKey(getLiffId()));
+  clearDraft(NEW_PATIENT_DRAFT_KEY);
 }
 
 export default function PatientIntakePage() {
@@ -126,7 +150,7 @@ export default function PatientIntakePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [draftNotice, setDraftNotice] = useState<string | null>(null);
-  const registrationIdempotencyKeyRef = useRef(crypto.randomUUID());
+  const registrationIdempotencyKeyRef = useRef(pharmacyUuid());
   const intakeOperationEpochRef = useRef(0);
   const intakeOperationRef = useRef<PatientIntakeOperation | null>(null);
   const profileSaveEpochRef = useRef(0);
@@ -134,13 +158,23 @@ export default function PatientIntakePage() {
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   useEffect(() => () => { profileSaveEpochRef.current += 1; }, []);
+  // Two separate refs: previously both blocks shared errorRef, so the second
+  // rendered block always stole the ref — the wrong node got focused.
   const errorRef = useRef<HTMLDivElement>(null);
+  const policyErrorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (error || privacyPolicyError) {
-      errorRef.current?.focus();
-      errorRef.current?.scrollIntoView({ block: 'center' });
-    }
+    const target = error ? errorRef.current : privacyPolicyError ? policyErrorRef.current : null;
+    target?.focus();
+    target?.scrollIntoView({ block: 'center' });
   }, [error, privacyPolicyError]);
+  // New-patient draft is restored at most once per mount; reconnects must not
+  // re-overwrite a form the patient is editing.
+  const newPatientDraftHandledRef = useRef(false);
+  // Fingerprint of the currently shown privacy policy; consent is only reset
+  // when the policy actually changed.
+  const policyFingerprintRef = useRef<string | null>(null);
+  // Bumped on each failed validation so the error summary re-announces.
+  const [summaryNonce, setSummaryNonce] = useState(0);
 
   useEffect(() => {
     if (!draftDirty) return;
@@ -175,15 +209,45 @@ export default function PatientIntakePage() {
   const intakeLoading = intakeLoadState?.patientId === selectedId && intakeLoadState.status === 'loading';
   const accessReady = isCurrentPatientReady(selectedId, accessLoadState);
 
-  const loadPatients = useCallback(async () => {
-    setLoading(true);
+  // Generation guard: a mutation (create/revoke/confirm-read) or a newer
+  // load supersedes an earlier in-flight list — a slow quiet refresh can
+  // never resurrect a revoked patient.
+  const patientsEpochRef = useRef(0);
+  // Error message the patient list load last surfaced; a quiet success
+  // clears the shared error channel only if its own message is still shown.
+  const patientsLoadErrorRef = useRef<string | null>(null);
+
+  const loadPatients = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    const epoch = ++patientsEpochRef.current;
     try {
       const result = await patientIntakeApi.list();
+      if (epoch !== patientsEpochRef.current) return;
       setPatients(result.patients);
       setPatientsFailures(0);
-      setSelectedId((current) => current || result.patients[0]?.id || '');
-      if (result.patients.length === 0) {
-        const draft = loadDraft<{ patientDraft?: PatientProfileDraft; showAddress?: boolean }>(NEW_PATIENT_DRAFT_KEY);
+      setError((current) => current === patientsLoadErrorRef.current ? null : current);
+      // The list is authoritative: drafts of patients no longer in it
+      // (deleted / proxy revoked) are orphaned and swept so they do not
+      // linger in localStorage past their TTL.
+      sweepIntakeDrafts(new Set(result.patients.map((patient) => patient.id)));
+      // Revalidate the selection: a still-valid selection is kept as-is
+      // mid-edit, but a vanished patient triggers the full selection reset —
+      // the epoch bumps inside also cancel in-flight saves/submits so
+      // nothing for the old patient can land on the next one.
+      const current = selectedIdRef.current;
+      if (current && !result.patients.some((patient) => patient.id === current)) {
+        resetPatientSelection(result.patients[0]?.id ?? '');
+        setEditing(false);
+        setPatientDraft(emptyPatientProfileDraft('self'));
+        setShowAddress(false);
+        setProfileErrors({});
+        setShowNewPatient(result.patients.length === 0);
+      } else if (!current) {
+        setSelectedId(result.patients[0]?.id ?? '');
+      }
+      if (result.patients.length === 0 && !newPatientDraftHandledRef.current) {
+        newPatientDraftHandledRef.current = true;
+        const draft = loadNewPatientDraft();
         setPatientDraft(draft?.data.patientDraft
           ? { ...emptyPatientProfileDraft('self'), ...draft.data.patientDraft }
           : emptyPatientProfileDraft('self'));
@@ -192,10 +256,15 @@ export default function PatientIntakePage() {
         setShowNewPatient(true);
       }
     } catch (err) {
-      setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
+      if (epoch !== patientsEpochRef.current) return;
+      if (!quiet) {
+        const message = pharmacyErrorMessage(err, '患者情報を読み込めませんでした。');
+        patientsLoadErrorRef.current = message;
+        setError(message);
+      }
       setPatientsFailures((count) => count + 1);
     } finally {
-      setLoading(false);
+      if (epoch === patientsEpochRef.current) setLoading(false);
     }
   }, []);
 
@@ -209,13 +278,20 @@ export default function PatientIntakePage() {
 
   useEffect(() => {
     if (!showNewPatient || editing || !draftDirty) return;
-    saveDraft(NEW_PATIENT_DRAFT_KEY, { patientDraft, showAddress });
+    saveDraft(newPatientDraftKey(getLiffId()), { patientDraft, showAddress });
   }, [patientDraft, showAddress, showNewPatient, editing, draftDirty]);
 
-  const loadPrivacyPolicy = useCallback(async (isActive: () => boolean = () => true) => {
-    setPrivacyPolicyLoading(true);
-    setPrivacyPolicy(null);
-    setPrivacyPolicyError(null);
+  const loadPrivacyPolicy = useCallback(async (
+    isActive: () => boolean = () => true,
+    quiet = false,
+  ) => {
+    // quiet reconnects keep the current policy visible instead of flashing
+    // the section away and back.
+    if (!quiet) {
+      setPrivacyPolicyLoading(true);
+      setPrivacyPolicy(null);
+      setPrivacyPolicyError(null);
+    }
     try {
       const result = await patientIntakeApi.privacyPolicy();
       if (!isActive()) return;
@@ -223,12 +299,22 @@ export default function PatientIntakePage() {
         setPrivacyPolicyError('この薬局では個人情報の利用目的が設定されていないため、アンケートを送信できません。薬局へお問い合わせください。');
         return;
       }
-      setPrivacyConsent(false);
+      // Consent is tied to the policy the patient actually saw: reset it only
+      // when version or content changed — a plain reconnect must not silently
+      // uncheck it.
+      const fingerprint = `${result.policy.policy_version}:${result.policy.content_hash}`;
+      if (policyFingerprintRef.current !== fingerprint) {
+        policyFingerprintRef.current = fingerprint;
+        setPrivacyConsent(false);
+      }
       setPrivacyPolicy(result.policy);
+      setPrivacyPolicyError(null);
       setPolicyFailures(0);
     } catch (err) {
       if (isActive()) {
-        setPrivacyPolicyError(pharmacyErrorMessage(err, '個人情報の利用目的を確認できませんでした。再読み込みしてください。'));
+        // A quiet background failure keeps the current policy visible — the
+        // failure counter drives auto-retry instead of a focus-stealing error.
+        if (!quiet) setPrivacyPolicyError(pharmacyErrorMessage(err, '個人情報の利用目的を確認できませんでした。再読み込みしてください。'));
         setPolicyFailures((count) => count + 1);
       }
     } finally {
@@ -242,16 +328,16 @@ export default function PatientIntakePage() {
     return () => { mountedRef.current = false; };
   }, []);
   const retryPrivacyPolicy = useCallback(() => {
-    void loadPrivacyPolicy(() => mountedRef.current);
+    void loadPrivacyPolicy(() => mountedRef.current, true);
   }, [loadPrivacyPolicy]);
-  usePharmacyAutoRetry(patientsFailures, loadPatients);
+  usePharmacyAutoRetry(patientsFailures, () => void loadPatients(true));
   usePharmacyAutoRetry(policyFailures, retryPrivacyPolicy);
-  // On reconnect, re-run only idempotent reads — unsent form input is never
-  // submitted automatically.
+  // On reconnect, re-run only idempotent reads — quietly, so neither the
+  // consent checkbox nor the form fields the patient is editing are reset.
   const reconnectReads = useCallback(() => {
-    void loadPatients();
-    retryPrivacyPolicy();
-  }, [loadPatients, retryPrivacyPolicy]);
+    void loadPatients(true);
+    void loadPrivacyPolicy(() => mountedRef.current, true);
+  }, [loadPatients, loadPrivacyPolicy]);
   usePharmacyOnline(reconnectReads);
 
   useEffect(() => {
@@ -439,8 +525,12 @@ export default function PatientIntakePage() {
           registrationIdempotencyKey: registrationIdempotencyKeyRef.current,
         }),
       });
-      registrationIdempotencyKeyRef.current = crypto.randomUUID();
-      setPatients((current) => [...current, result.patient]);
+      registrationIdempotencyKeyRef.current = pharmacyUuid();
+      // Our own write supersedes any in-flight patient list read.
+      patientsEpochRef.current += 1;
+      setPatients((current) => current.some((patient) => patient.id === result.patient.id)
+        ? current
+        : [...current, result.patient]);
       resetPatientSelection(result.patient.id);
       if (result.proxyGrant) {
         const expiresOn = new Date(result.proxyGrant.expiresAt).toLocaleDateString(
@@ -455,7 +545,7 @@ export default function PatientIntakePage() {
       setShowAddress(false);
       setProfileErrors({});
       setDraftDirty(false);
-      clearDraft(NEW_PATIENT_DRAFT_KEY);
+      clearNewPatientDraft();
     } catch (err) {
       setError(pharmacyErrorMessage(err, '患者情報を登録できませんでした。'));
     } finally {
@@ -479,6 +569,7 @@ export default function PatientIntakePage() {
           patient.updated_at === operation.previousUpdatedAt) {
         throw new Error('saved patient version is not confirmed');
       }
+      patientsEpochRef.current += 1;
       setPatients(result.patients);
       setPendingProfileSave(null);
       setShowNewPatient(false);
@@ -519,6 +610,11 @@ export default function PatientIntakePage() {
     setSuccess(null);
     try {
       await patientIntakeApi.revokeProxy(selectedPatient.id);
+      // The revoked patient's draft becomes unreachable — drop it now. The
+      // epoch bump also discards any in-flight list read that still contains
+      // the revoked patient.
+      clearDraft(intakeDraftKey(selectedPatient.id));
+      patientsEpochRef.current += 1;
       const remaining = patients.filter((patient) => patient.id !== selectedPatient.id);
       setPatients(remaining);
       resetPatientSelection(remaining[0]?.id ?? '');
@@ -570,11 +666,10 @@ export default function PatientIntakePage() {
       setPrivacyPolicyError('個人情報の利用目的を確認できないため、アンケートを送信できません。薬局へお問い合わせください。');
       return;
     }
-    setBusy(true);
-    setError(null);
-    setSuccess(null);
+    // Build the retained operation BEFORE marking busy: clone/key generation
+    // can throw on older WebViews, and a stuck busy flag disables the page.
     const submissionInput: PatientIntakeSubmissionInput = {
-      answers: structuredClone(nextAnswers),
+      answers: cloneJsonValue(nextAnswers),
       representativeConsent: nextRepresentativeConsent,
       privacyConsent: nextPrivacyConsent,
       privacyPolicyVersion: privacyPolicy.policy_version,
@@ -590,10 +685,14 @@ export default function PatientIntakePage() {
     );
     intakeOperationRef.current = operation;
     intakeOperationEpochRef.current = operation.epoch;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
     try {
       const result = await patientIntakeApi.submit(operation.patientId, operation.body);
       const currentOperation = intakeOperationRef.current === operation &&
-        intakeOperationEpochRef.current === operation.epoch;
+        intakeOperationEpochRef.current === operation.epoch &&
+        selectedIdRef.current === operation.patientId;
       if (intakeOperationRef.current === operation) intakeOperationRef.current = null;
       if (!currentOperation) return;
       setLatestRevision(result.intake.revision);
@@ -610,7 +709,8 @@ export default function PatientIntakePage() {
     } catch (err) {
       const status = err instanceof Error ? (err as Error & { status?: unknown }).status : undefined;
       const currentOperation = intakeOperationRef.current === operation &&
-        intakeOperationEpochRef.current === operation.epoch;
+        intakeOperationEpochRef.current === operation.epoch &&
+        selectedIdRef.current === operation.patientId;
       if (typeof status === 'number' && intakeOperationRef.current === operation) {
         intakeOperationRef.current = null;
       }
@@ -635,7 +735,11 @@ export default function PatientIntakePage() {
   function nextStep() {
     if (safetyUnansweredKeys(answers, intakeStep).length > 0) {
       setShowStepErrors(true);
-      setError('赤く表示された質問に答えてから「次へ」を押してください。');
+      // The field-level summary is the single announcement target for
+      // validation failures — bump the nonce so an identical failure still
+      // re-focuses it instead of a competing page-level error block.
+      setSummaryNonce((nonce) => nonce + 1);
+      setError(null);
       return;
     }
     setShowStepErrors(false);
@@ -669,14 +773,14 @@ export default function PatientIntakePage() {
   function resetPatientForm(relationshipValue: PatientRelationship) {
     setProfileErrors({});
     setEditing(false);
-    const draft = loadDraft<{ patientDraft?: PatientProfileDraft; showAddress?: boolean }>(NEW_PATIENT_DRAFT_KEY);
+    const draft = loadNewPatientDraft();
     setPatientDraft(draft?.data.patientDraft
       ? { ...emptyPatientProfileDraft(relationshipValue), ...draft.data.patientDraft }
       : emptyPatientProfileDraft(relationshipValue));
     setShowAddress(Boolean(draft?.data.showAddress));
     if (draft?.data.patientDraft) setDraftNotice(draftRestoreMessage(draft.savedAt));
     setShowNewPatient(true);
-    registrationIdempotencyKeyRef.current = crypto.randomUUID();
+    registrationIdempotencyKeyRef.current = pharmacyUuid();
   }
 
   function confirmIntakeNavigation(): boolean {
@@ -692,7 +796,7 @@ export default function PatientIntakePage() {
         {error && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">{error}</div>}
         {draftNotice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-base text-blue-800">{draftNotice}</p>}
         {privacyPolicyLoading && <p role="status" className="rounded-lg bg-gray-50 p-3 text-base text-gray-700">個人情報の利用目的を確認しています...</p>}
-        {privacyPolicyError && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">
+        {privacyPolicyError && <div ref={policyErrorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">
           <p>{privacyPolicyError}</p>
           <button type="button" onClick={() => void loadPrivacyPolicy()} disabled={privacyPolicyLoading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
         </div>}
@@ -778,6 +882,7 @@ export default function PatientIntakePage() {
               type="button"
               onClick={() => void confirmUnchanged()}
               disabled={busy || !intakeReady}
+              aria-busy={busy}
               className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50"
             >
               {busy ? <PharmacySpinner label="更新中…" /> : '前回から変更なしで更新'}
@@ -792,6 +897,7 @@ export default function PatientIntakePage() {
             privacyConsent={privacyConsent}
             privacyPolicy={privacyPolicy}
             showErrors={showStepErrors}
+            errorNonce={summaryNonce}
             onAnswersChange={updateAnswers}
             onRepresentativeConsentChange={(value) => { setRepresentativeConsent(value); setDraftDirty(true); setSaved(false); }}
             onPrivacyConsentChange={(value) => { setPrivacyConsent(value); setDraftDirty(true); setSaved(false); }}

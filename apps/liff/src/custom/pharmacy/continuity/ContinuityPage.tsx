@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   continuityApi,
@@ -71,25 +71,34 @@ export default function ContinuityPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loadFailures, setLoadFailures] = useState(0);
+  // The message this load last raised; quiet successes clear the shared
+  // error channel only while that message is still shown.
+  const loadErrorRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (quiet = false) => {
+    // quiet = background refresh (auto-retry / reconnect): keep the current
+    // list visible instead of flashing the skeleton, and never clobber a
+    // pause/respond error banner.
+    if (!quiet) setLoading(true);
     try {
       const result = await continuityApi.list();
       setItems(result.obligations);
       setExpectations(result.expectations);
-      setError(null);
+      setError((current) => current === loadErrorRef.current ? null : current);
       setLoadFailures(0);
     } catch (err) {
       console.error(err);
-      setError(LOAD_ERROR_MESSAGE);
+      if (!quiet) {
+        loadErrorRef.current = LOAD_ERROR_MESSAGE;
+        setError(LOAD_ERROR_MESSAGE);
+      }
       setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
-  usePharmacyAutoRetry(loadFailures, load);
-  usePharmacyOnline(load);
+  usePharmacyAutoRetry(loadFailures, () => void load(true));
+  usePharmacyOnline(() => void load(true));
 
   useEffect(() => { void load(); }, [load]);
 

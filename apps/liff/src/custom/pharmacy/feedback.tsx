@@ -89,9 +89,11 @@ export function PharmacyOfflineBanner({ online }: { online: boolean }) {
   </p>;
 }
 
-export function PharmacyErrorSummary({ items, title = '入力内容を確認してください' }: {
+export function PharmacyErrorSummary({ items, title = '入力内容を確認してください', hint }: {
   items: ReadonlyArray<{ id: string; label: string }>;
   title?: string;
+  /** Optional patient-facing instruction shown under the title. */
+  hint?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -103,6 +105,7 @@ export function PharmacyErrorSummary({ items, title = '入力内容を確認し�
   return <div ref={ref} tabIndex={-1}
     className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-base focus:outline-none">
     <p className="font-bold text-red-800">{title}</p>
+    {hint && <p className="mt-1 text-base text-red-800">{hint}</p>}
     <ul className="mt-2 list-disc space-y-1 pl-5 text-red-800">
       {items.map((item) => <li key={`${item.id}:${item.label}`}>
         <button type="button" onClick={() => {

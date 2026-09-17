@@ -9,6 +9,7 @@ import { patientIntakeApi, type PharmacyPatient } from '../intake/api.js';
 import { pharmacyRoute } from '../navigation.js';
 import { mynaApi, type MynaHandoff, type MynaPatientReport } from '../myna/api.js';
 import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
+import { pharmacyUuid } from '../compat.js';
 import { isUnsupportedPharmacyFeature, pharmacyErrorMessage } from '../request.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -197,7 +198,7 @@ export default function PrescriptionPage() {
   const [noticeConsent, setNoticeConsent] = useState(false);
   const [desiredPickupAt, setDesiredPickupAt] = useState('');
   const [desiredFulfillmentMethod, setDesiredFulfillmentMethod] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => pharmacyUuid());
   const [history, setHistory] = useState<PrescriptionSubmission[]>([]);
   const [patients, setPatients] = useState<PharmacyPatient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState('');
@@ -226,51 +227,104 @@ export default function PrescriptionPage() {
   // datetime-local expects local time without seconds; past slots cannot be requested.
   const pickupMin = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
-  const refreshHistory = useCallback(async () => {
-    setLoadingHistory(true);
+  // Generation guards: a mutation (send/cancel/reconcile) or a newer load
+  // makes an earlier in-flight response stale — last-started wins, so a slow
+  // quiet refresh can never resurrect a cancelled or superseded view.
+  const historyEpochRef = useRef(0);
+  const recoveryEpochRef = useRef(0);
+  const patientsEpochRef = useRef(0);
+  const mynaEpochRef = useRef(0);
+  // Error message each load family last surfaced; a quiet success clears the
+  // shared error channel only if its own message is still the one shown.
+  const historyLoadErrorRef = useRef<string | null>(null);
+  const patientsLoadErrorRef = useRef<string | null>(null);
+  const mynaLoadErrorRef = useRef<string | null>(null);
+  const recoveryLoadErrorRef = useRef<string | null>(null);
+
+  const refreshHistory = useCallback(async (quiet = false) => {
+    if (!quiet) setLoadingHistory(true);
+    const epoch = ++historyEpochRef.current;
     try {
       const result = await prescriptionApi.history();
+      if (epoch !== historyEpochRef.current) return [];
       setHistory(result.submissions);
       setHistoryFailures(0);
+      setError((current) => current === historyLoadErrorRef.current ? null : current);
       if (requestedSubmissionId) openView('history');
       return result.submissions;
     } catch (err) {
-      setError(pharmacyErrorMessage(err, '履歴を読み込めませんでした。'));
+      if (epoch !== historyEpochRef.current) return [];
+      if (!quiet) {
+        const message = pharmacyErrorMessage(err, '履歴を読み込めませんでした。');
+        historyLoadErrorRef.current = message;
+        setError(message);
+      }
       setHistoryFailures((count) => count + 1);
       return [];
     } finally {
-      setLoadingHistory(false);
+      if (epoch === historyEpochRef.current) setLoadingHistory(false);
     }
   }, [openView, requestedSubmissionId]);
 
-  const refreshRecovery = useCallback(async (): Promise<PrescriptionRecovery | null> => {
+  // The recovered submission copied into the form, keyed by id+updated_at.
+  // 'auto' populate runs only while THIS recovery is new — a background
+  // refresh (auto-retry, online reconnect) re-fills fields the first time a
+  // recoverable submission appears but never rewrites the fields a patient
+  // is editing for a recovery already shown. 'always' is for explicit flows
+  // (resubmission start) that intentionally re-initialise the form.
+  const recoveryAppliedRef = useRef<string | null>(null);
+  const refreshRecovery = useCallback(async (
+    populate: 'auto' | 'always' = 'auto',
+    quiet = false,
+  ): Promise<PrescriptionRecovery | null> => {
+    const epoch = ++recoveryEpochRef.current;
     try {
       const result = await prescriptionApi.recovery();
+      if (epoch !== recoveryEpochRef.current) return null;
       setRecovery(result.recovery);
       setRecoveryFailures(0);
+      setError((current) => current === recoveryLoadErrorRef.current ? null : current);
       if (result.recovery.state === 'recoverable') {
-        setReplacement(null);
-        setSelectedPatientId(result.recovery.submission.patientId);
-        setOriginalConsent(false);
-        setNoticeConsent(false);
-        setDesiredPickupAt(localDateTimeValue(result.recovery.submission.desiredPickupAt));
-        setDesiredFulfillmentMethod(
-          result.recovery.submission.desiredFulfillmentMethod ?? 'PICKUP',
-        );
+        const submission = result.recovery.submission;
+        const fingerprint = `${submission.id}:${submission.updatedAt}`;
+        if (populate === 'always' || recoveryAppliedRef.current !== fingerprint) {
+          recoveryAppliedRef.current = fingerprint;
+          setReplacement(null);
+          setSelectedPatientId(submission.patientId);
+          setOriginalConsent(false);
+          setNoticeConsent(false);
+          setDesiredPickupAt(localDateTimeValue(submission.desiredPickupAt));
+          setDesiredFulfillmentMethod(submission.desiredFulfillmentMethod ?? 'PICKUP');
+        } else {
+          // A recoverable submission locks the patient select; fill an empty
+          // selection so the recovered draft stays submittable, but never
+          // overwrite a value the patient already has.
+          setSelectedPatientId((current) => current || submission.patientId);
+        }
+      } else {
+        recoveryAppliedRef.current = null;
       }
       return result.recovery;
     } catch (caught) {
+      if (epoch !== recoveryEpochRef.current) return null;
       const error = caught as Error;
       if (isUnsupportedPharmacyFeature(error)) {
         setRecovery({ state: 'none' });
         return null;
       }
-      setRecovery({ state: 'ambiguous', reason: 'patient_binding_unavailable' });
-      setError(pharmacyErrorMessage(error, '未送信の状態を確認できませんでした。'));
+      // A background failure keeps the last-known state — downgrading a
+      // 'recoverable' view to 'ambiguous' would hide the banner and lock the
+      // form for what is usually a transient drop.
+      if (!quiet) {
+        setRecovery({ state: 'ambiguous', reason: 'patient_binding_unavailable' });
+        const message = pharmacyErrorMessage(error, '未送信の状態を確認できませんでした。');
+        recoveryLoadErrorRef.current = message;
+        setError(message);
+      }
       setRecoveryFailures((count) => count + 1);
       return null;
     } finally {
-      setRecoveryResolved(true);
+      if (epoch === recoveryEpochRef.current) setRecoveryResolved(true);
     }
   }, []);
 
@@ -287,50 +341,75 @@ export default function PrescriptionPage() {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  const loadMyna = useCallback(async () => {
-    setLoadingMyna(true);
+  const loadMyna = useCallback(async (quiet = false) => {
+    if (!quiet) setLoadingMyna(true);
+    const epoch = ++mynaEpochRef.current;
     try {
       const result = await mynaApi.active();
-      if (!mounted.current) return;
+      if (!mounted.current || epoch !== mynaEpochRef.current) return;
       setMynaHandoff(result.handoff);
       setMynaFailures(0);
+      setError((current) => current === mynaLoadErrorRef.current ? null : current);
     } catch (err) {
-      if (!mounted.current) return;
-      setError(pharmacyErrorMessage(err, '電子処方箋の状況を読み込めませんでした。'));
+      if (!mounted.current || epoch !== mynaEpochRef.current) return;
+      if (!quiet) {
+        const message = pharmacyErrorMessage(err, '電子処方箋の状況を読み込めませんでした。');
+        mynaLoadErrorRef.current = message;
+        setError(message);
+      }
       setMynaFailures((count) => count + 1);
     } finally {
-      if (mounted.current) setLoadingMyna(false);
+      if (mounted.current && epoch === mynaEpochRef.current) setLoadingMyna(false);
     }
   }, []);
-  const loadPatients = useCallback(async () => {
-    setLoadingPatients(true);
+  const loadPatients = useCallback(async (quiet = false) => {
+    if (!quiet) setLoadingPatients(true);
+    const epoch = ++patientsEpochRef.current;
     try {
       const result = await patientIntakeApi.list();
-      if (!mounted.current) return;
+      if (!mounted.current || epoch !== patientsEpochRef.current) return;
       setPatients(result.patients);
       setPatientsFailures(0);
-      setSelectedPatientId((current) => current || result.patients[0]?.id || '');
+      setError((current) => current === patientsLoadErrorRef.current ? null : current);
+      // Revalidate the selection against the refreshed list: a revoked
+      // patient can no longer be submitted, and an empty selection falls
+      // back to the first patient — without ever overwriting a still-valid
+      // choice mid-edit.
+      setSelectedPatientId((current) =>
+        current && result.patients.some((patient) => patient.id === current)
+          ? current
+          : result.patients[0]?.id ?? '',
+      );
     } catch (err) {
-      if (!mounted.current) return;
-      setError(pharmacyErrorMessage(err, '患者情報を読み込めませんでした。'));
+      if (!mounted.current || epoch !== patientsEpochRef.current) return;
+      if (!quiet) {
+        const message = pharmacyErrorMessage(err, '患者情報を読み込めませんでした。');
+        patientsLoadErrorRef.current = message;
+        setError(message);
+      }
       setPatientsFailures((count) => count + 1);
     } finally {
-      if (mounted.current) setLoadingPatients(false);
+      if (mounted.current && epoch === patientsEpochRef.current) setLoadingPatients(false);
     }
   }, []);
   useEffect(() => { void loadMyna(); }, [loadMyna]);
   useEffect(() => { void loadPatients(); }, [loadPatients]);
-  usePharmacyAutoRetry(historyFailures, refreshHistory);
-  usePharmacyAutoRetry(recoveryFailures, refreshRecovery);
-  usePharmacyAutoRetry(mynaFailures, loadMyna);
-  usePharmacyAutoRetry(patientsFailures, loadPatients);
+  // Auto-retries run quiet so a mid-edit refresh failure never flashes a
+  // skeleton over the form; recovery keeps 'auto' so a first-load failure
+  // still populates on retry.
+  usePharmacyAutoRetry(historyFailures, () => void refreshHistory(true));
+  usePharmacyAutoRetry(recoveryFailures, () => void refreshRecovery('auto', true));
+  usePharmacyAutoRetry(mynaFailures, () => void loadMyna(true));
+  usePharmacyAutoRetry(patientsFailures, () => void loadPatients(true));
   // On reconnect, re-run only this page's idempotent reads — the dirty form
-  // and selected images are never sent automatically.
+  // and selected images are never sent automatically, and quiet+ fingerprint
+  // gating keep the background refresh from flashing skeletons or
+  // overwriting fields the patient is editing.
   const reconnectReads = useCallback(() => {
-    void refreshHistory();
-    void refreshRecovery();
-    void loadMyna();
-    void loadPatients();
+    void refreshHistory(true);
+    void refreshRecovery('auto', true);
+    void loadMyna(true);
+    void loadPatients(true);
   }, [refreshHistory, refreshRecovery, loadMyna, loadPatients]);
   const online = usePharmacyOnline(reconnectReads);
   useEffect(() => {
@@ -365,13 +444,15 @@ export default function PrescriptionPage() {
     window.addEventListener('beforeunload', warnBeforeLeave);
     return () => window.removeEventListener('beforeunload', warnBeforeLeave);
   }, [files.length, recovery]);
-  useEffect(() => {
-    if (!recoveredSubmission || loadingPatients) return;
-    if (!patients.some((patient) => patient.id === recoveredSubmission.patientId)) {
-      setRecovery({ state: 'ambiguous', reason: 'patient_binding_unavailable' });
-      setError('未送信の処方せんに紐づく患者を確認できませんでした。受付状況から確認してください。');
-    }
-  }, [loadingPatients, patients, recoveredSubmission]);
+  // The recovered submission's patient is missing only when the list loaded
+  // successfully without them (deleted or proxy revoked). A transient list
+  // failure leaves patients empty too, but must NOT flip recovery to
+  // 'ambiguous' — derived state stays reversible and clears itself once the
+  // patient list loads again.
+  const patientBindingMissing = Boolean(
+    recoveredSubmission && !loadingPatients && patientsFailures === 0 &&
+    !patients.some((patient) => patient.id === recoveredSubmission.patientId),
+  );
 
   function chooseFiles(selected: FileList | null) {
     if (!selected) return;
@@ -395,7 +476,7 @@ export default function PrescriptionPage() {
     patientSelected: Boolean(selectedPatientId),
     intakeDone: Boolean(intakeResponseId) || Boolean(recoveredSubmission),
     recoveryResolved,
-    recoveryBlocked: recovery?.state === 'ambiguous',
+    recoveryBlocked: recovery?.state === 'ambiguous' || patientBindingMissing,
     online,
   });
   const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
@@ -404,11 +485,13 @@ export default function PrescriptionPage() {
     setFiles([]);
     setReplacement(null);
     setRecovery({ state: 'none' });
+    recoveryEpochRef.current += 1;
+    recoveryAppliedRef.current = null;
     setOriginalConsent(false);
     setNoticeConsent(false);
     setDesiredPickupAt('');
     setDesiredFulfillmentMethod('PICKUP');
-    setIdempotencyKey(crypto.randomUUID());
+    setIdempotencyKey(pharmacyUuid());
     setSuccess(message);
     setSentSubmission(true);
     await refreshHistory();
@@ -444,11 +527,15 @@ export default function PrescriptionPage() {
           : { idempotencyKey },
       );
       const nextRecovery = result.recovery;
+      recoveryEpochRef.current += 1;
       setRecovery(nextRecovery);
       setRecoveryResolved(true);
       if (nextRecovery.state === 'recoverable' && (
         attemptedSubmissionId === null || nextRecovery.submission.id === attemptedSubmissionId
       )) {
+        // This populate IS the applied copy — record the fingerprint so a
+        // later background refresh does not re-populate over patient edits.
+        recoveryAppliedRef.current = `${nextRecovery.submission.id}:${nextRecovery.submission.updatedAt}`;
         const ready = new Set(nextRecovery.submission.readyPositions);
         setSelectedPatientId(nextRecovery.submission.patientId);
         setOriginalConsent(false);
@@ -557,7 +644,7 @@ export default function PrescriptionPage() {
       await prescriptionApi.reserveResubmission(item.id, item.updated_at);
       const updated = (await refreshHistory()).find((entry) => entry.id === item.id);
       if (!updated) throw new Error('再提出情報を読み込めませんでした。');
-      const recovered = await refreshRecovery();
+      const recovered = await refreshRecovery('always');
       if (recovered?.state === 'recoverable' && recovered.submission.id === item.id) {
         setReplacement(null);
       } else {
@@ -601,15 +688,19 @@ export default function PrescriptionPage() {
     setSuccess(null);
     try {
       const handoff = mynaHandoff ?? (await mynaApi.create(
-        'E_PRESCRIPTION', crypto.randomUUID(), selectedPatientId || undefined,
+        'E_PRESCRIPTION', pharmacyUuid(), selectedPatientId || undefined,
       )).handoff;
       const launched = await mynaApi.launch(handoff.id);
+      mynaEpochRef.current += 1;
       setMynaHandoff(launched.handoff);
+      // On success the page navigates away to the external handoff; if the
+      // navigation never happens (popup blocked, URL dead), the finally
+      // still re-arms the button instead of leaving it dead.
       window.location.assign(launched.launchUrl);
     } catch (err) {
       setError(pharmacyErrorMessage(err, '電子処方箋の手続きを開始できませんでした。'));
-      mynaBusy.current = false;
     } finally {
+      mynaBusy.current = false;
       setBusy(false);
     }
   }
@@ -622,6 +713,7 @@ export default function PrescriptionPage() {
     setSuccess(null);
     try {
       const response = await mynaApi.report(mynaHandoff.id, result);
+      mynaEpochRef.current += 1;
       setMynaHandoff(response.handoff);
       setSuccess(result === 'COMPLETED'
         ? '手続き完了の申告を記録しました。薬局での受領確認はまだ完了していません。'
@@ -667,6 +759,10 @@ export default function PrescriptionPage() {
           {recoveredSubmission.pendingPositions.length > 0 && <p className="mt-1">通信が切れた画像があります。同じ画像をもう一度選択してください。</p>}
           <p className="mt-1">患者は変更できません。同意事項はもう一度確認してください。</p>
         </section>}
+        {patientBindingMissing && tab === 'send' && <div className="rounded-lg bg-amber-50 p-3 text-base text-amber-900">
+          <p className="font-bold">未送信の処方せんに紐づく患者を確認できませんでした。</p>
+          <p className="mt-1">患者情報の登録状況を確認してください。取り消された患者には送信できません。</p>
+        </div>}
         {success && <PharmacyStatusBlock tone="success">
           <p className="font-bold">{success}</p>
           {sentSubmission && <>
@@ -688,7 +784,7 @@ export default function PrescriptionPage() {
               <p className="mt-2 text-base leading-5 text-amber-900">「手続きを終えた」は患者からの申告です。薬局で確認するまで正式な受領にはなりません。</p>
               {loadingMyna ? <PharmacyLoading label="状況を読み込み中..." /> : <>
                 {mynaHandoff && <div className="mt-4 rounded-lg bg-gray-50 p-3 text-base"><p className="font-medium">電子処方箋の手続き状況</p><p className="mt-1 text-gray-600">状態：{mynaStatusLabel(mynaHandoff.status)} / 期限：{new Date(mynaHandoff.expires_at).toLocaleString('ja-JP')}</p></div>}
-                {(!mynaHandoff || canLaunchMynaPatientHandoff(mynaHandoff.status)) && <button type="button" onClick={() => void launchElectronic()} disabled={busy} className="mt-4 min-h-11 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? <PharmacySpinner label="処理中…" /> : mynaHandoff ? '外部画面へ戻る' : '電子処方箋の手続きを始める'}</button>}
+                {(!mynaHandoff || canLaunchMynaPatientHandoff(mynaHandoff.status)) && <button type="button" onClick={() => void launchElectronic()} disabled={busy} aria-busy={busy} className="mt-4 min-h-11 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? <PharmacySpinner label="処理中…" /> : mynaHandoff ? '外部画面へ戻る' : '電子処方箋の手続きを始める'}</button>}
                 {mynaHandoff && mynaPatientReportOptions(mynaHandoff.status).length > 0 && <div className="mt-4 grid gap-2">{mynaPatientReportOptions(mynaHandoff.status).map(([result, label]) => <button key={result} type="button" onClick={() => void reportElectronic(result)} disabled={busy} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base disabled:opacity-50">{label}</button>)}</div>}
               </>}
             </div>
@@ -727,7 +823,7 @@ export default function PrescriptionPage() {
                     <li key={url} className="relative">
                       <img src={url} alt={`選択した処方せん ${index + 1}`} className="aspect-[4/3] w-full rounded-lg object-cover" />
                       {imageStates[index] && <span className={`absolute left-1 top-1 rounded px-2 py-1 text-sm font-bold ${IMAGE_SEND_CHIP_CLASS[imageStates[index]]}`}>{IMAGE_SEND_LABELS[imageStates[index]]}</span>}
-                      <button type="button" onClick={() => setFiles((items) => items.filter((_, i) => i !== index))} className="absolute right-1 top-1 min-h-11 rounded bg-black/70 px-3 py-2 text-base text-white" aria-label={`画像${index + 1}を削除`}>削除</button>
+                      <button type="button" disabled={busy} onClick={() => setFiles((items) => items.filter((_, i) => i !== index))} className="absolute right-1 top-1 min-h-11 rounded bg-black/70 px-3 py-2 text-base text-white disabled:opacity-50" aria-label={`画像${index + 1}を削除`}>削除</button>
                     </li>
                   ))}
                 </ul>
