@@ -1175,6 +1175,7 @@ Lane Dが遅延した場合はLane Uを止めてでもLane Dを優先する。La
 - **延期**: EC下書き(高感度PHI・時間依存・同意version整合を通常draft policyで処理不可、専用data classification/TTL/clear条件の正本化が先)、bundle分割(500kB warning≠初期表示遅延、V037-0でbudget freeze後に実測)、B41一括前倒し(異質scope、backup/restoreはV037へ)。
 - **実施順序**: V036-12→13→14→15→条件付き16→17→LIFF全regression→version contract/CHANGELOG。retryを先に直すのは後続のoffline/retry手動確認を不安定な基盤で行わないため。
 - **Human Gate（本版でも未実施）**: 実LINE受入（iOS WKWebView/Android WebView固有挙動はdesktop Chromium smokeで代替不可）、VoiceOver/TalkBack実機、production反映。
+- **リリース完了(2026-09-18)**: version contract(runtime package 6件)を`0.36.2`へ統一、CHANGELOG節追加、PR #124をdevへmerge(`c09fb2b`)。CI修正2件: (1)`v035-readiness.test.ts`がPLANS.md未完了IDの`mandatoryHandoff`マッピングを要求するため`V036-6-U1`を`V036-6`へhandoffとして証跡JSONへ追加、(2)e2e `startup.e2e.ts`の`getByRole('alert')`期待をV036-14のfocus読み上げ契約へ更新(amber blockのvisible+focused検証、ローカルPlaywrightでgreen確認)。tag `v0.36.2`は修正込み`3c69901`へ付け替えpush、`release` workflow(run 35251546492)全step成功・GitHub Release本文をCHANGELOG節で更新。dev deploy(run 35251791439)全step成功——migration safety check、Worker deploy+health、LIFF Pages、Admin Pages、証跡記録まで完了。配信bundleに`0.36.2`・`pharmacy-liff-draft`/`savedAt`・`下書きを復元しました`・`送信待ち`/`要再試行`・`通信が切れています`を確認済み。
 
 #### v0.37.0 - Recovery, Operations & Capacity
 
