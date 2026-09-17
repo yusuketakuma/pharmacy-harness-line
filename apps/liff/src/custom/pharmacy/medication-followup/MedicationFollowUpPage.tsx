@@ -55,7 +55,7 @@ function nextMedicationFollowUpAction(status: PatientMedicationFollowUpStatus): 
 }
 
 export function followUpOperationsOutlookLines(outlook: MedicationFollowUpOperationsOutlook): string[] {
-  const lines = [`対応時間: ${outlook.serviceHoursText}`];
+  const lines = [`対応時間：${outlook.serviceHoursText}`];
   if (outlook.responseEstimateMinutes !== null) {
     lines.push(`通常、約${outlook.responseEstimateMinutes}分以内にご返信します。`);
   }
@@ -157,8 +157,16 @@ export default function MedicationFollowUpPage() {
                   <p className="mt-3 font-bold">次の操作</p>
                   <p className="mt-1 text-base text-gray-800">{nextMedicationFollowUpAction(item.status)}</p>
                 </section>
-                <p className="mt-2 text-sm text-gray-700">{patientMedicationFollowUpTimingLabel(item)}</p>
-                {success?.id === item.id && <p role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-base text-green-800">{success.text}<Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control mt-2 inline-flex items-center font-bold underline">すべての機能へ戻る</Link></p>}
+                <p className="mt-2 text-base text-gray-700">{patientMedicationFollowUpTimingLabel(item)}</p>
+                {success?.id === item.id && (
+                  <div role="status" className="mt-3 rounded-lg bg-green-50 p-3 text-base text-green-800">
+                    <p>{success.text}</p>
+                    {item.status !== 'no_issue' && outlook && followUpOperationsOutlookLines(outlook).map((line) => (
+                      <p key={line} className="mt-1">{line}</p>
+                    ))}
+                    <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control mt-2 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
+                  </div>
+                )}
                 {needsPatientMedicationFollowUpResponse(item.status) && (
                   <div className="mt-4 grid gap-2">
                     {PATIENT_RESPONSE_OPTIONS.map((option) => (

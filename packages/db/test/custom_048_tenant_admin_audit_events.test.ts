@@ -50,6 +50,7 @@ describe('custom_048 tenant admin audit events', () => {
     '023_meet_reminder_delivery_id.sql',
     '024_stripe_effect_completion.sql',
     '025_friend_link_scope_triggers.sql',
+      '026_custom_078_pharmacy_chat_templates.sql',
     ]);
   });
 

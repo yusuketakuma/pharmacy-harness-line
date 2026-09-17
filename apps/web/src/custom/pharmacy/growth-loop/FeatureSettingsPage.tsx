@@ -6,6 +6,8 @@ import { useAccount } from '@/contexts/account-context'
 import { ApiError, api } from '@/lib/api'
 import { richMenuAreaStyle } from '@/custom/pharmacy/rich-menu/preview-geometry'
 import { pharmacyRichMenuApi, type PharmacyRichMenuCandidate } from '@/custom/pharmacy/rich-menu/api'
+import MedicationFollowUpOperationsPanel from '@/custom/pharmacy/medication-followup/MedicationFollowUpOperationsPanel'
+import ChatTemplatesPanel from '@/custom/pharmacy/chat-templates/ChatTemplatesPanel'
 import { pharmacyGrowthApi } from './api'
 import { readinessStatusLabel } from './readiness-labels'
 
@@ -247,6 +249,20 @@ export default function FeatureSettingsPage() {
         {!monthlyLimitValid && <p role="alert" className="mt-2 text-sm text-red-700">月間自動通知上限は0〜100の整数で入力してください。</p>}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-amber-700">{dirty ? '未保存の変更があります。' : '保存済みです。'}</p><button type="button" onClick={() => void save()} disabled={!canMutate || !dirty || !monthlyLimitValid || saving || loading} className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? '保存中…' : '設定を保存'}</button></div>
       </section>
+      {config?.capabilities.includes('medication_followup') && (
+        <MedicationFollowUpOperationsPanel
+          key={`followup-operations-${selectedAccountId}`}
+          accountId={selectedAccountId}
+          canMutate={canMutate}
+        />
+      )}
+      {config?.capabilities.includes('manual_chat') && (
+        <ChatTemplatesPanel
+          key={`chat-templates-${selectedAccountId}`}
+          accountId={selectedAccountId}
+          canMutate={canMutate}
+        />
+      )}
       {shouldOfferRichMenuCandidate(config?.capabilities ?? []) && <section className="rounded-xl border border-violet-200 bg-white p-5" aria-labelledby="rich-menu-candidate-title">
         <h2 id="rich-menu-candidate-title" className="font-semibold">リッチメニュー候補</h2>
         <p className="mt-1 text-sm text-gray-600">機能をON/OFFしたあとのリッチメニュー候補の画像とタップ時の動作です。確認するだけではLINEの表示は変わりません。</p>

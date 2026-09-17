@@ -1,8 +1,10 @@
 import { patientAuthorityPredicateFor } from '../intake/repository.js';
+import { assertPharmacyAutomatedText } from '../growth-loop/policy.js';
 import {
   pharmacyHumanStaffPredicate,
   pharmacyStaffAccountPredicate,
 } from '../growth-loop/access.js';
+import { tenantAuditStatement } from '../../../lib/tenant-audit.js';
 
 export type MedicationFollowUpStatus =
   | 'scheduled'
@@ -1109,4 +1111,191 @@ export async function getMedicationFollowUpOperationsOutlook(
   } catch {
     return null;
   }
+}
+
+export interface MedicationFollowUpOperations {
+  line_account_id: string;
+  service_hours_text: string;
+  response_sla_json: string;
+  primary_staff_id: string;
+  backup_staff_id: string | null;
+  after_hours_message_code: FollowUpOperationsMessageCode;
+  emergency_message_code: FollowUpOperationsMessageCode;
+  enabled: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Per-status SLA minute keys plus the patient-facing typical estimate.
+// Values are whole minutes in 1..10080 (7 days).
+export const FOLLOWUP_OPERATIONS_SLA_KEYS = new Set([
+  'typical_minutes', 'concern_minutes', 'pharmacist_requested_minutes',
+  'assigned_minutes', 'escalated_minutes', 'responded_minutes',
+]);
+
+const FOLLOWUP_OPERATIONS_MESSAGE_CODES = new Set<FollowUpOperationsMessageCode>([
+  'contact_pharmacy_during_hours', 'seek_urgent_care',
+]);
+
+async function requireFollowUpOperationsTable(db: D1Database): Promise<void> {
+  let columns: Set<string>;
+  try {
+    columns = await tableColumns(db, 'pharmacy_medication_followup_operations');
+  } catch {
+    throw new Error('follow-up operations schema unavailable');
+  }
+  if (!columns.has('line_account_id') || !columns.has('version')) {
+    throw new Error('follow-up operations schema unavailable');
+  }
+}
+
+export async function getMedicationFollowUpOperations(
+  db: D1Database,
+  lineAccountId: string,
+): Promise<MedicationFollowUpOperations | null> {
+  await requireFollowUpOperationsTable(db);
+  return db.prepare(
+    `SELECT line_account_id, service_hours_text, response_sla_json,
+            primary_staff_id, backup_staff_id, after_hours_message_code,
+            emergency_message_code, enabled, version, created_at, updated_at
+       FROM pharmacy_medication_followup_operations
+      WHERE line_account_id = ?
+      LIMIT 1`,
+  ).bind(lineAccountId).first<MedicationFollowUpOperations>();
+}
+
+function normalizeOperationsSla(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('invalid follow-up operations');
+  }
+  const normalized: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!FOLLOWUP_OPERATIONS_SLA_KEYS.has(key) ||
+        typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1 || raw > 10080) {
+      throw new Error('invalid follow-up operations');
+    }
+    normalized[key] = raw;
+  }
+  const json = JSON.stringify(normalized);
+  if (json.length > 4096) throw new Error('invalid follow-up operations');
+  return json;
+}
+
+export async function saveMedicationFollowUpOperations(
+  db: D1Database,
+  input: {
+    lineAccountId: string;
+    serviceHoursText: string;
+    responseSla: unknown;
+    primaryStaffId: string;
+    backupStaffId?: string | null;
+    afterHoursMessageCode: string;
+    emergencyMessageCode: string;
+    enabled: boolean;
+    expectedVersion: number;
+    actorStaffId: string;
+    now?: Date;
+  },
+): Promise<MedicationFollowUpOperations> {
+  const serviceHoursText = typeof input.serviceHoursText === 'string'
+    ? input.serviceHoursText.trim()
+    : '';
+  const backupStaffId = input.backupStaffId ?? null;
+  if (!input.lineAccountId ||
+      serviceHoursText.length < 1 || serviceHoursText.length > 2048 ||
+      !Number.isInteger(input.expectedVersion) || input.expectedVersion < 0 ||
+      !validStaffId(input.actorStaffId) || !validStaffId(input.primaryStaffId) ||
+      (backupStaffId !== null &&
+       (!validStaffId(backupStaffId) || backupStaffId === input.primaryStaffId)) ||
+      !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(
+        input.afterHoursMessageCode as FollowUpOperationsMessageCode) ||
+      !FOLLOWUP_OPERATIONS_MESSAGE_CODES.has(
+        input.emergencyMessageCode as FollowUpOperationsMessageCode) ||
+      typeof input.enabled !== 'boolean') {
+    throw new Error('invalid follow-up operations');
+  }
+  // serviceHoursText is shown verbatim to patients, so the same PHI-free
+  // fence that guards automated message text applies here.
+  try {
+    assertPharmacyAutomatedText(serviceHoursText);
+  } catch {
+    throw new Error('invalid follow-up operations');
+  }
+  const responseSlaJson = normalizeOperationsSla(input.responseSla);
+  // The patient outlook surfaces a typical estimate, so enabling operations
+  // without one would publish an incomplete read model.
+  if (input.enabled &&
+      typeof (input.responseSla as Record<string, unknown>).typical_minutes !== 'number') {
+    throw new Error('invalid follow-up operations');
+  }
+  await requireFollowUpOperationsTable(db);
+  const current = await getMedicationFollowUpOperations(db, input.lineAccountId);
+  if ((current?.version ?? 0) !== input.expectedVersion) {
+    throw new Error('follow-up operations conflict');
+  }
+  const nextVersion = input.expectedVersion + 1;
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const write = current
+    ? db.prepare(
+      `UPDATE pharmacy_medication_followup_operations
+          SET service_hours_text = ?, response_sla_json = ?,
+              primary_staff_id = ?, backup_staff_id = ?,
+              after_hours_message_code = ?, emergency_message_code = ?,
+              enabled = ?, version = version + 1, updated_at = ?
+        WHERE line_account_id = ? AND version = ?`,
+    ).bind(
+      serviceHoursText, responseSlaJson, input.primaryStaffId, backupStaffId,
+      input.afterHoursMessageCode, input.emergencyMessageCode,
+      input.enabled ? 1 : 0, timestamp, input.lineAccountId, input.expectedVersion,
+    )
+    : db.prepare(
+      `INSERT INTO pharmacy_medication_followup_operations
+        (line_account_id, service_hours_text, response_sla_json,
+         primary_staff_id, backup_staff_id, after_hours_message_code,
+         emergency_message_code, enabled, version, created_at, updated_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pharmacy_medication_followup_operations
+           WHERE line_account_id = ?
+        )`,
+    ).bind(
+      input.lineAccountId, serviceHoursText, responseSlaJson,
+      input.primaryStaffId, backupStaffId, input.afterHoursMessageCode,
+      input.emergencyMessageCode, input.enabled ? 1 : 0, timestamp, timestamp,
+      input.lineAccountId,
+    );
+  const audit = tenantAuditStatement(db, {
+    lineAccountId: input.lineAccountId,
+    actorStaffId: input.actorStaffId,
+    action: 'pharmacy_followup_operations_saved',
+    resourceType: 'medication_followup_operations',
+    resourceId: input.lineAccountId,
+    detail: { enabled: input.enabled, created: current === null },
+  }, {
+    sql: `EXISTS (
+      SELECT 1 FROM pharmacy_medication_followup_operations
+       WHERE line_account_id = ? AND version = ? AND updated_at = ?
+    )`,
+    bindings: [input.lineAccountId, nextVersion, timestamp],
+  });
+  let results: D1Result[];
+  try {
+    results = await db.batch([write, audit]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (/STAFF_SCOPE_MISMATCH|ENABLED_STAFF_INVALID/.test(message)) {
+      throw new Error('invalid follow-up operations staff');
+    }
+    throw error;
+  }
+  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
+      (results[1]?.meta?.changes ?? 0) !== 1) {
+    throw new Error('follow-up operations conflict');
+  }
+  const saved = await getMedicationFollowUpOperations(db, input.lineAccountId);
+  if (!saved || saved.version !== nextVersion) {
+    throw new Error('follow-up operations conflict');
+  }
+  return saved;
 }

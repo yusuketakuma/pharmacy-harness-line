@@ -627,10 +627,10 @@ export default function PatientIntakePage() {
   return (
     <main className="pharmacy-main max-w-md mx-auto">
       <div className="p-4 space-y-4">
-        <p className="text-sm leading-6 text-gray-600">本人・ご家族の情報を薬局に伝えます。入力目安：約1分、選択式中心で詳細は任意です。</p>
-        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 focus:outline-none">{error}</div>}
-        {privacyPolicyLoading && <p role="status" className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">個人情報の利用目的を確認しています...</p>}
-        {privacyPolicyError && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 focus:outline-none">
+        <p className="text-base leading-6 text-gray-600">本人・ご家族の情報を薬局に伝えます。入力目安：約1分、選択式中心で詳細は任意です。</p>
+        {error && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">{error}</div>}
+        {privacyPolicyLoading && <p role="status" className="rounded-lg bg-gray-50 p-3 text-base text-gray-700">個人情報の利用目的を確認しています...</p>}
+        {privacyPolicyError && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">
           <p>{privacyPolicyError}</p>
           <button type="button" onClick={() => void loadPrivacyPolicy()} disabled={privacyPolicyLoading} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">再読み込み</button>
         </div>}
@@ -664,7 +664,7 @@ export default function PatientIntakePage() {
               }}>患者情報を修正</button>}
             </div>
           </div>
-          {pendingProfileSave && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          {pendingProfileSave && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-base text-amber-900">
             患者情報は保存されました。最新版の確認が必要です。
             <button type="button" onClick={() => void retryProfileRefresh()} disabled={busy} className="pharmacy-control min-h-11 mt-2 block rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold disabled:opacity-50">患者情報を再確認</button>
           </div>}
@@ -679,10 +679,10 @@ export default function PatientIntakePage() {
               onToggleAddress={() => setShowAddress((value) => !value)}
               onSubmit={() => void createPatient()}
             /></fieldset>
-          ) : loading ? <p className="text-sm text-gray-500">読み込み中...</p> : patients.length === 0 ? <p className="text-sm text-gray-600">まず患者情報を登録してください。</p> : (
-            <label className="block text-sm">患者を選択<select value={selectedId} onChange={(event) => selectPatient(event.target.value)} className="mt-1 block w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
+          ) : loading ? <p className="text-base text-gray-500">読み込み中...</p> : patients.length === 0 ? <p className="text-base text-gray-600">まず患者情報を登録してください。</p> : (
+            <label className="block text-base">患者を選択<select value={selectedId} onChange={(event) => selectPatient(event.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border p-3" disabled={busy}>{patients.map((patient) => <option key={patient.id} value={patient.id}>{relationshipLabels[patient.relationship]}：{patient.name}</option>)}</select></label>
           )}
-          {selectedPatient && <p className="text-sm text-gray-700">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
+          {selectedPatient && <p className="text-base text-gray-700">生年月日：{selectedPatient.birth_date}　回答版：{latestRevision ? `第${latestRevision}版` : '未回答'}</p>}
           {selectedPatient && selectedPatient.relationship !== 'self' && !showNewPatient && (
             <button type="button" onClick={() => void revokeProxy()} disabled={busy} className="min-h-11 w-full rounded-lg border border-red-300 bg-white px-4 py-3 font-bold text-red-700 disabled:opacity-50">
               代理権限を取り消す
@@ -694,12 +694,12 @@ export default function PatientIntakePage() {
           <section className="rounded-xl bg-white p-4 shadow-sm space-y-3" aria-labelledby="notification-heading">
             <h2 id="notification-heading" className="font-bold">LINEのお知らせ</h2>
             {!accessReady || !accessState ? (
-              <p className="text-sm text-gray-600">設定を確認しています...</p>
+              <p className="text-base text-gray-600">設定を確認しています...</p>
             ) : <>
               <p className="text-base text-gray-800">
                 現在：<strong>{accessState.notifications === 'enabled' ? '受け取る' : '停止中'}</strong>
               </p>
-              <p className="text-sm leading-6 text-gray-700">
+              <p className="text-base leading-6 text-gray-700">
                 この患者について薬局から自動送信されるお知らせを設定します。代理権限や個人情報の同意状態は変わりません。
               </p>
               <button type="button" onClick={() => void updateNotifications()} disabled={busy}
@@ -716,7 +716,7 @@ export default function PatientIntakePage() {
               type="button"
               onClick={() => void confirmUnchanged()}
               disabled={busy || !intakeReady}
-              className="w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50"
+              className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800 disabled:opacity-50"
             >
               {busy ? '更新中…' : '前回から変更なしで更新'}
             </button>
@@ -734,7 +734,7 @@ export default function PatientIntakePage() {
             onRepresentativeConsentChange={(value) => { setRepresentativeConsent(value); setDraftDirty(true); setSaved(false); }}
             onPrivacyConsentChange={(value) => { setPrivacyConsent(value); setDraftDirty(true); setSaved(false); }}
           />
-          {intakeStep === INTAKE_STEP_COUNT && !canSubmitIntake(answers, representativeConsent, privacyConsent, false, privacyPolicy !== null) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {intakeStep === INTAKE_STEP_COUNT && !canSubmitIntake(answers, representativeConsent, privacyConsent, false, privacyPolicy !== null) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-base text-amber-900">
             <p className="font-bold">送信するには、次を確認してください</p>
             <ul className="mt-1 list-disc space-y-1 pl-5">
               {(['allergiesStatus', 'adverseReactionStatus', 'medicationStatus', 'medicalHistoryStatus'] as const).some((key) => !answers[key]) && <li>安全確認の質問（ステップ1・2）に未回答があります。「戻る」で回答してください。</li>}
@@ -748,7 +748,7 @@ export default function PatientIntakePage() {
             {intakeStep < INTAKE_STEP_COUNT ? <button type="button" onClick={nextStep} disabled={busy || intakeLoading} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">次へ</button> : <button type="button" onClick={() => void submit()} disabled={!intakeReady || !canSubmitIntake(answers, representativeConsent, privacyConsent, busy, privacyPolicy !== null)} className="min-h-11 flex-1 rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:bg-gray-300">{busy ? '保存中…' : latestRevision ? '回答を更新する' : 'アンケートを送信する'}</button>}
           </div>
           <button type="button" onClick={() => { if (confirmIntakeNavigation()) navigate(pharmacyRoute('/prescriptions')); }} className="pharmacy-control min-h-11 w-full rounded-xl border border-green-700 bg-white px-4 py-3 font-bold text-green-800">処方せん事前送信へ</button>
-          <p className="text-sm leading-5 text-gray-700">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>
+          <p className="text-base leading-5 text-gray-700">回答内容は薬局の確認に使います。緊急時は医療機関へご相談ください。</p>
         </>}
       </div>
     </main>

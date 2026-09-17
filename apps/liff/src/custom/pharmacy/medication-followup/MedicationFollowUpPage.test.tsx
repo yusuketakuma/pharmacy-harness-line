@@ -55,6 +55,9 @@ describe('patient medication follow-up page', () => {
     expect(source).toContain('aria-current={item.id === requestedId');
     expect(source).toContain('通信状態を確認して再読み込み');
     expect(source).toContain('onClick={() => void load()}');
+    // After a staff-facing response, restate the operations outlook so the
+    // patient sees the reply estimate and the after-hours guidance in context.
+    expect(source).toContain("item.status !== 'no_issue' && outlook && followUpOperationsOutlookLines(outlook)");
   });
 
   it('is mounted under the pharmacy custom seam', () => {

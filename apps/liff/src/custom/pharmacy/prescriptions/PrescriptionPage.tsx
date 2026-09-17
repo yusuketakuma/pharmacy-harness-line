@@ -624,12 +624,12 @@ export default function PrescriptionPage() {
           <section className="space-y-4" aria-labelledby="electronic-prescription-heading">
             <div className="rounded-xl bg-white p-4 shadow-sm">
               <h2 id="electronic-prescription-heading" className="font-bold">電子処方箋を利用</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-700">外部の受付画面で手続きします。患者情報・LINE ID・LIFF IDは外部URLへ付けません。</p>
-              <p className="mt-2 text-sm leading-5 text-amber-900">「手続きを終えた」は患者からの申告です。薬局で確認するまで正式な受領にはなりません。</p>
-              {loadingMyna ? <p className="py-6 text-center text-sm text-gray-500">状況を読み込み中...</p> : <>
-                {mynaHandoff && <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm"><p className="font-medium">電子処方箋の手続き状況</p><p className="mt-1 text-gray-600">状態: {mynaStatusLabel(mynaHandoff.status)} / 期限: {new Date(mynaHandoff.expires_at).toLocaleString('ja-JP')}</p></div>}
+              <p className="mt-2 text-base leading-6 text-gray-700">外部の受付画面で手続きします。患者情報・LINE ID・LIFF IDは外部URLへ付けません。</p>
+              <p className="mt-2 text-base leading-5 text-amber-900">「手続きを終えた」は患者からの申告です。薬局で確認するまで正式な受領にはなりません。</p>
+              {loadingMyna ? <p className="py-6 text-center text-base text-gray-500">状況を読み込み中...</p> : <>
+                {mynaHandoff && <div className="mt-4 rounded-lg bg-gray-50 p-3 text-base"><p className="font-medium">電子処方箋の手続き状況</p><p className="mt-1 text-gray-600">状態：{mynaStatusLabel(mynaHandoff.status)} / 期限：{new Date(mynaHandoff.expires_at).toLocaleString('ja-JP')}</p></div>}
                 {(!mynaHandoff || canLaunchMynaPatientHandoff(mynaHandoff.status)) && <button type="button" onClick={() => void launchElectronic()} disabled={busy} className="mt-4 min-h-11 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? '処理中…' : mynaHandoff ? '外部画面へ戻る' : '電子処方箋の手続きを始める'}</button>}
-                {mynaHandoff && mynaPatientReportOptions(mynaHandoff.status).length > 0 && <div className="mt-4 grid gap-2">{mynaPatientReportOptions(mynaHandoff.status).map(([result, label]) => <button key={result} type="button" onClick={() => void reportElectronic(result)} disabled={busy} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50">{label}</button>)}</div>}
+                {mynaHandoff && mynaPatientReportOptions(mynaHandoff.status).length > 0 && <div className="mt-4 grid gap-2">{mynaPatientReportOptions(mynaHandoff.status).map(([result, label]) => <button key={result} type="button" onClick={() => void reportElectronic(result)} disabled={busy} className="min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base disabled:opacity-50">{label}</button>)}</div>}
               </>}
             </div>
           </section>
@@ -637,19 +637,19 @@ export default function PrescriptionPage() {
           <section className="space-y-4" aria-labelledby="upload-heading">
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
               <h2 className="font-bold">患者を選択</h2>
-              {loadingPatients ? <p className="text-sm text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
-                <p className="text-sm text-gray-600"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="pharmacy-control inline-flex min-h-11 items-center font-bold text-green-800 underline">患者アンケート</Link>から患者情報を登録してください。</p>
+              {loadingPatients ? <p className="text-base text-gray-500">患者情報を読み込み中...</p> : patients.length === 0 ? (
+                <p className="text-base text-gray-600"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="pharmacy-control inline-flex min-h-11 items-center font-bold text-green-800 underline">患者アンケート</Link>から患者情報を登録してください。</p>
               ) : <>
-                <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block w-full rounded-lg border border-gray-300 p-3" disabled={busy || Boolean(recoveredSubmission)} aria-label="処方せんの患者">
+                <select value={selectedPatientId} onChange={(event) => setSelectedPatientId(event.target.value)} className="block min-h-11 w-full rounded-lg border border-gray-300 p-3" disabled={busy || Boolean(recoveredSubmission)} aria-label="処方せんの患者">
                   {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name}（{patient.birth_date}）</option>)}
                 </select>
-                {!intakeResponseId && !recoveredSubmission && <p className="text-sm text-amber-700"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
+                {!intakeResponseId && !recoveredSubmission && <p className="text-base text-amber-700"><Link to={pharmacyRoute('/pharmacy/patient-intake')} className="pharmacy-control inline-flex min-h-11 items-center font-bold underline">この患者のアンケートに回答</Link>してから送信してください。</p>}
               </>}
             </div>
             <div className="rounded-xl bg-white p-4 shadow-sm">
               <h2 id="upload-heading" className="font-bold">{replacement || recoveredSubmission?.status === 'needs_resubmission' ? '処方せんを再撮影' : '処方せん画像'}</h2>
-              <p className="mt-1 text-sm text-gray-700">全体が入り、文字が読める明るい写真を1〜4枚選んでください。</p>
-              <label className="mt-3 block cursor-pointer rounded-lg border-2 border-dashed border-gray-300 p-5 text-center text-sm font-medium text-green-700">
+              <p className="mt-1 text-base text-gray-700">全体が入り、文字が読める明るい写真を1〜4枚選んでください。</p>
+              <label className="mt-3 block cursor-pointer rounded-lg border-2 border-dashed border-gray-300 p-5 text-center text-base font-medium text-green-700">
                 カメラで撮影・画像を選択
                 <input
                   className="sr-only"
@@ -674,28 +674,28 @@ export default function PrescriptionPage() {
             </div>
 
             <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
-              <label className="block text-sm font-medium">
+              <label className="block text-base font-medium">
                 希望受取日時（任意）
                 <input type="datetime-local" min={pickupMin} value={desiredPickupAt} onChange={(event) => setDesiredPickupAt(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 p-3" disabled={busy} />
               </label>
-              <fieldset className="space-y-2 text-sm">
+              <fieldset className="space-y-2 text-base">
                 <legend className="font-medium">希望する受け取り方法</legend>
-                <label className="flex items-center gap-3"><input type="radio" name="fulfillment-method" value="PICKUP" checked={desiredFulfillmentMethod === 'PICKUP'} onChange={() => setDesiredFulfillmentMethod('PICKUP')} disabled={busy} className="h-5 w-5" />薬局で受け取る</label>
-                <label className="flex items-center gap-3"><input type="radio" name="fulfillment-method" value="DELIVERY" checked={desiredFulfillmentMethod === 'DELIVERY'} onChange={() => setDesiredFulfillmentMethod('DELIVERY')} disabled={busy} className="h-5 w-5" />配送を希望（薬局の確認後に確定）</label>
+                <label className="flex min-h-11 items-center gap-3"><input type="radio" name="fulfillment-method" value="PICKUP" checked={desiredFulfillmentMethod === 'PICKUP'} onChange={() => setDesiredFulfillmentMethod('PICKUP')} disabled={busy} className="h-5 w-5" />薬局で受け取る</label>
+                <label className="flex min-h-11 items-center gap-3"><input type="radio" name="fulfillment-method" value="DELIVERY" checked={desiredFulfillmentMethod === 'DELIVERY'} onChange={() => setDesiredFulfillmentMethod('DELIVERY')} disabled={busy} className="h-5 w-5" />配送を希望（薬局の確認後に確定）</label>
               </fieldset>
-              {(replacement || recoveredSubmission) && <p className="text-sm text-amber-900">再開・再提出のため、同意事項に再度チェックしてください。</p>}
-              <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={originalConsent} onChange={(event) => setOriginalConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>処方せん原本を持参します</span></label>
-              <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={noticeConsent} onChange={(event) => setNoticeConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>準備完了通知をLINEで受け取ります</span></label>
+              {(replacement || recoveredSubmission) && <p className="text-base text-amber-900">再開・再提出のため、同意事項に再度チェックしてください。</p>}
+              <label className="flex min-h-11 items-start gap-3 text-base"><input type="checkbox" checked={originalConsent} onChange={(event) => setOriginalConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>処方せん原本を持参します</span></label>
+              <label className="flex min-h-11 items-start gap-3 text-base"><input type="checkbox" checked={noticeConsent} onChange={(event) => setNoticeConsent(event.target.checked)} className="mt-1 h-5 w-5" disabled={busy} /><span>準備完了通知をLINEで受け取ります</span></label>
             </div>
 
-            {unmetReasons.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            {unmetReasons.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-base text-amber-900">
               <p className="font-bold">送信するには、次を確認してください</p>
               <ul className="mt-1 list-disc space-y-1 pl-5">{unmetReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
             </div>}
             {confirming ? (
               <div className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4" role="group" aria-labelledby="confirm-heading">
                 <h2 id="confirm-heading" className="font-bold">送信内容の確認</h2>
-                <ul className="space-y-1 text-sm text-gray-800">
+                <ul className="space-y-1 text-base text-gray-800">
                   <li>患者: {selectedPatient ? selectedPatient.name : '未選択'}</li>
                   <li>処方せんの写真: {totalImageCount}枚</li>
                   <li>希望受取日時: {desiredPickupAt ? new Date(desiredPickupAt).toLocaleString('ja-JP') : '指定なし'}</li>
@@ -712,7 +712,7 @@ export default function PrescriptionPage() {
                 {busy ? '送信中…' : replacement || recoveredSubmission ? '再開する内容を確認する' : '送信内容を確認する'}
               </button>
             )}
-            <p className="text-sm leading-5 text-gray-700">この送信だけでは受付完了ではありません。薬局の受付内容の確認連絡をご確認ください。</p>
+            <p className="text-base leading-5 text-gray-700">この送信だけでは受付完了ではありません。薬局の受付内容の確認連絡をご確認ください。</p>
           </section>
         ) : (
           <section aria-labelledby="history-heading">
@@ -726,9 +726,9 @@ export default function PrescriptionPage() {
                       <p className="mt-1 text-base">{statusLabels[item.status] ?? item.status}</p>
                       <p className="mt-3 font-bold">次の操作</p>
                       <p className="mt-1 text-base text-gray-800">{item.status === 'needs_resubmission' ? '画像を再撮影してください。' : item.status === 'accepted' || item.status === 'ready' ? '来局前に受付状況を確認してください。' : '薬局からの確認連絡をお待ちください。'}</p>
-                      <p className="mt-1 text-sm text-gray-700">{new Date(item.created_at).toLocaleString('ja-JP')}・第{item.upload_revision}版</p>
+                      <p className="mt-1 text-base text-gray-700">{new Date(item.created_at).toLocaleString('ja-JP')}・第{item.upload_revision}版</p>
                     </section>
-                    <div className="mt-3 rounded-lg bg-green-50 p-3 text-sm" aria-label="受付状況">
+                    <div className="mt-3 rounded-lg bg-green-50 p-3 text-base" aria-label="受付状況">
                       <p className="font-bold text-green-800">受付状況</p>
                       <p className="mt-1 text-gray-700">準備予定: {item.estimated_ready_at
                         ? new Date(item.estimated_ready_at).toLocaleString('ja-JP')
@@ -745,12 +745,12 @@ export default function PrescriptionPage() {
                         <p key={label} className="mt-1 text-amber-800">確認事項: {label}</p>
                       ))}
                     </div>
-                    {item.resubmission_reason_code && <p className="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-800">{reasonLabels[item.resubmission_reason_code] ?? '画像をご確認ください'}</p>}
+                    {item.resubmission_reason_code && <p className="mt-3 rounded bg-amber-50 p-2 text-base text-amber-800">{reasonLabels[item.resubmission_reason_code] ?? '画像をご確認ください'}</p>}
                     <div className="mt-3 flex justify-end gap-3">
-                      {(item.status === 'draft' || item.status === 'received') && <button type="button" disabled={busy} onClick={() => void cancel(item)} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 text-sm font-bold text-red-700 disabled:opacity-50">送信を取り消す</button>}
+                      {(item.status === 'draft' || item.status === 'received') && <button type="button" disabled={busy} onClick={() => void cancel(item)} className="min-h-11 rounded-lg border border-red-300 bg-white px-3 text-base font-bold text-red-700 disabled:opacity-50">送信を取り消す</button>}
                       {item.status === 'needs_resubmission' && <button type="button" disabled={busy} onClick={() => void startResubmission(item)} className="min-h-11 rounded-lg bg-green-700 px-4 py-2 text-base font-bold text-white disabled:opacity-50">再撮影する</button>}
                       {(item.status === 'accepted' || item.status === 'ready') && !item.arrival_reported_at && <button type="button" disabled={busy} onClick={() => void reportArrival(item)} className="min-h-11 rounded-lg bg-green-700 px-4 py-2 text-base font-bold text-white disabled:opacity-50">来局しました</button>}
-                      {item.arrival_reported_at && <span className="text-sm font-medium text-green-800">到着通知済み</span>}
+                      {item.arrival_reported_at && <span className="text-base font-medium text-green-800">到着通知済み</span>}
                     </div>
                   </li>
                 ))}

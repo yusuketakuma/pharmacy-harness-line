@@ -122,6 +122,11 @@ export function TodayOperationsSummaryView({
             <h2 id="action-queue-title" className="font-semibold text-gray-900">対応が必要な項目</h2>
             <p className="mt-1 text-sm text-gray-600">既存の記録を確認するための読み取り専用一覧です。ここから状態変更や一括操作は行いません。</p>
           </div>
+          {actionQueue && actionQueue.items.filter((item) => item.deadline === 'overdue').length > 0 && (
+            <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+              期限超過 {actionQueue.items.filter((item) => item.deadline === 'overdue').length}件
+            </span>
+          )}
           {actionQueue?.truncated && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">先頭50件を表示</span>}
         </div>
         {actionQueueError
