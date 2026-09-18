@@ -149,7 +149,7 @@ describe('emergency contraception patient page', () => {
     expect(source).toContain('consentContentHash: service.consent.content_hash');
     expect(source).toContain("setBusy('submit')");
     expect(source).not.toContain('setInterval');
-    expect(source).toContain('crypto.randomUUID()');
+    expect(source).toContain('pharmacyUuid()');
     expect(source).toContain('retainEmergencyCreateOperation');
     expect(source).toContain('typeof status === \'number\'');
     expect(app).toContain("const DeferredEmergencyContraceptionPage = lazy(() => import('./custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js')); // custom:pharmacy-emergency-contraception");
@@ -166,6 +166,17 @@ describe('emergency contraception patient page', () => {
     const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
     expect(source).toContain('サーバー確認時刻')
     expect(source).toContain('serverNow')
+  });
+
+  it('keeps the freshest list read authoritative and drops a dead confirm step', () => {
+    const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
+    // A quiet refresh that started before a submit/cancel must not land its
+    // stale intake list afterwards — mutations bump the load epoch.
+    expect(source).toMatch(/const epoch = \+\+loadEpochRef\.current/);
+    expect(source).toMatch(/loadEpochRef\.current \+= 1;\s*\n\s*setIntakes/);
+    // When the loaded service can no longer render the confirm step, the
+    // page falls back to the form instead of resurrecting it later.
+    expect(source).toContain('if (!result.service?.ready || !result.service.consent) setConfirming(false)');
   });
 });
 

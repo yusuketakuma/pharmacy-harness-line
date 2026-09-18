@@ -1,3 +1,4 @@
+import { pharmacyUuid } from '../compat.js';
 import { requestPharmacyLiff } from '../request.js';
 
 export type ContinuityStatus = 'active' | 'linked' | 'fulfilled' | 'paused' | 'ended';
@@ -44,6 +45,6 @@ export const continuityApi = {
   }>(`/api/liff/pharmacy/continuity/expectations/${encodeURIComponent(id)}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ response, idempotencyKey: crypto.randomUUID() }),
+    body: JSON.stringify({ response, idempotencyKey: pharmacyUuid() }),
   }),
 };

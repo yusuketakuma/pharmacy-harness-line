@@ -185,21 +185,74 @@ describe('v0.36 patient UI rules', () => {
     for (const file of seamFiles()) {
       if (file.endsWith('feedback.tsx')) continue; // hook definition site
       const source = readFileSync(file, 'utf8');
-      const calls = source.matchAll(/usePharmacy(AutoRetry|Online)\(\s*([^,)]+?)\s*(?:,\s*([^)]+?)\s*)?\)/g);
+      // Capture to the statement-ending `);` so arrow bodies with their own
+      // parentheses (e.g. `() => void load(true)`) are seen whole.
+      const calls = source.matchAll(/usePharmacy(AutoRetry|Online)\(([\s\S]*?)\)\s*;/g);
       for (const call of calls) {
         callCount += 1;
+        const args = (call[2] ?? '').trim();
+        const comma = args.indexOf(',');
         // AutoRetry's callback is arg2; Online's reconnect callback is arg1.
-        const callback = (call[1] === 'Online' ? (call[2] ?? '') : (call[3] ?? '')).trim();
-        // No argument (banner-only usage) is fine; a present callback must be
-        // a named read — never an inline closure that could hide a mutation.
+        const callback = (call[1] === 'Online'
+          ? (comma === -1 ? args : args.slice(0, comma))
+          : (comma === -1 ? '' : args.slice(comma + 1))).trim();
+        // No argument (banner-only usage) is fine. A named read must carry a
+        // read-style name; a thin arrow may only invoke named reads — never
+        // inline state writes that could stomp an in-progress form.
         if (callback === '') continue;
-        if (!/^[A-Za-z_$][\w$]*$/.test(callback) || !/load|refresh|retry|fetch|read/i.test(callback)) {
+        if (/^[A-Za-z_$][\w$]*$/.test(callback)) {
+          if (!/load|refresh|retry|fetch|read/i.test(callback)) {
+            violations.push(`${file.replace(SEAM_ROOT, '')} -> ${callback}`);
+          }
+          continue;
+        }
+        // Multi-statement arrows (`() => { ...; ... }`) are rejected outright:
+        // the non-greedy capture would stop at the first `);` and hide the
+        // rest of the body from the checks below.
+        if (!callback.startsWith('()') || /[{;]/.test(callback)) {
+          violations.push(`${file.replace(SEAM_ROOT, '')} -> ${callback}`);
+          continue;
+        }
+        const invoked = [...callback.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]);
+        const hasSetterOrAssign = /set[A-Z]|[^=!<>]=[^=>]/.test(callback.replace('=>', ''));
+        if (invoked.length === 0 || invoked.some((name) => !/load|refresh|retry|fetch|read/i.test(name)) || hasSetterOrAssign) {
           violations.push(`${file.replace(SEAM_ROOT, '')} -> ${callback}`);
         }
       }
     }
     expect(callCount).toBeGreaterThanOrEqual(18);
     expect(violations).toEqual([]);
+  });
+
+  // A reconnect refresh must never stomp in-progress patient input: quiet
+  // reads keep content mounted, recovery populate is gated, and consent
+  // resets only when the underlying policy text actually changed.
+  it('keeps background refreshes from overwriting in-progress form state', () => {
+    const intake = readFileSync(join(SEAM_ROOT, 'intake/PatientIntakePage.tsx'), 'utf8');
+    expect(intake).toMatch(/void loadPatients\(true\);\s*\n\s*void loadPrivacyPolicy\(\(\) => mountedRef\.current, true\)/);
+    expect(intake).toMatch(/policyFingerprintRef\.current !== fingerprint[\s\S]*?setPrivacyConsent\(false\)/);
+    expect(intake).toContain('newPatientDraftHandledRef.current');
+    const prescriptions = readFileSync(join(SEAM_ROOT, 'prescriptions/PrescriptionPage.tsx'), 'utf8');
+    // Recovery populate is fingerprint-gated: the same recoverable
+    // submission is never re-copied over in-progress edits, and a quiet
+    // failure keeps the last-known state instead of downgrading it.
+    expect(prescriptions).toMatch(/recoveryAppliedRef\.current !== fingerprint/);
+    expect(prescriptions).toContain('recoveryAppliedRef.current = fingerprint');
+    expect(prescriptions).toContain("void refreshRecovery('auto', true)");
+    expect(prescriptions).toContain('void loadPatients(true)');
+    // Pages whose mutations write list state directly guard the refresh with
+    // a load epoch, so a stale in-flight read cannot undo a just-applied
+    // create/cancel/respond result.
+    for (const file of [
+      'emergency-contraception/EmergencyContraceptionPage.tsx',
+      'medication-followup/MedicationFollowUpPage.tsx',
+      'continuity/ContinuityPage.tsx',
+    ]) {
+      const page = readFileSync(join(SEAM_ROOT, file), 'utf8');
+      expect(page, file).toMatch(/const epoch = \+\+loadEpochRef\.current/);
+      expect(page, file).toMatch(/epoch !== loadEpochRef\.current/);
+      expect(page, file).toMatch(/loadEpochRef\.current \+= 1/);
+    }
   });
 
   // V036-16: each selected image shows its own send state; the upload

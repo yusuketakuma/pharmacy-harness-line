@@ -178,10 +178,12 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('privacyPolicyHash: privacyPolicy.content_hash');
     expect(source).toContain('status === 409');
     expect(source).toContain('await loadPrivacyPolicy();');
-    expect(source).toContain('setPrivacyConsent(false);\n      setPrivacyPolicy(result.policy);');
+    // Consent resets only when the policy fingerprint actually changed —
+    // never on a plain reconnect re-read.
+    expect(source).toMatch(/policyFingerprintRef\.current !== fingerprint[\s\S]*?setPrivacyConsent\(false\)[\s\S]*?setPrivacyPolicy\(result\.policy\)/);
     expect(source).toContain('intakeOperationEpochRef');
     expect(source).toContain('retainPatientIntakeOperation');
-    expect(source).toContain('structuredClone(nextAnswers)');
+    expect(source).toContain('cloneJsonValue(nextAnswers)');
   });
 
   it('offers a confirmed one-tap update from the last saved answers', () => {
@@ -198,6 +200,19 @@ describe('patient intake UI contract', () => {
     expect(source).toContain('setAccessState(null);');
     expect(source).toContain('if (!selectedId || !intakeReady || busy) return;');
     expect(source).toContain('if (!selectedPatient || !accessState || !accessReady || busy) return;');
+  });
+
+  it('releases the profile-save lock even when a quiet refresh superseded the operation', () => {
+    // busy/profileSaveInFlightRef are mutexes — a quiet patient-list refresh
+    // may invalidate the operation mid-flight, so the finally cleanup must
+    // not be gated on the operation still being current. All three
+    // profile-save sites (create, edit, pending-retry) release directly.
+    const unlocks = source.match(/profileSaveInFlightRef\.current = false;\s*setBusy\(false\);/g) ?? [];
+    expect(unlocks.length).toBe(3);
+    expect(source).not.toMatch(/finally \{[^}]*isCurrentProfileSave/);
+    // The whole profile form freezes for the busy window too — an edit made
+    // mid-save would be discarded when the save result resets the draft.
+    expect(source).toContain('disabled={Boolean(pendingProfileSave) || busy}');
   });
 });
 

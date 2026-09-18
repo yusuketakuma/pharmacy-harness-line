@@ -95,22 +95,24 @@ export default function PharmacyInfoPage() {
   const [error, setError] = useState('');
   const [loadFailures, setLoadFailures] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async (quiet = false) => {
+    // quiet = background refresh: keep the profile mounted and leave the
+    // error banner untouched on failure.
+    if (!quiet) setLoading(true);
     try {
       setProfile((await pharmacyPublicProfileApi.get()).profile);
       setLoadFailures(0);
+      setError('');
     } catch {
-      setError('薬局情報を読み込めませんでした。通信状態を確認して再読み込みしてください。');
+      if (!quiet) setError('薬局情報を読み込めませんでした。通信状態を確認して再読み込みしてください。');
       setLoadFailures((count) => count + 1);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  usePharmacyAutoRetry(loadFailures, load);
-  usePharmacyOnline(load);
+  usePharmacyAutoRetry(loadFailures, () => void load(true));
+  usePharmacyOnline(() => void load(true));
 
   useEffect(() => { void load(); }, [load]);
 
