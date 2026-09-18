@@ -366,3 +366,227 @@ test('detail separates the LINE display name and linked intake from a newer resp
   await expect(panel.getByRole('status')).toContainText('より新しい回答があります')
   expect(unexpected).toEqual([])
 })
+
+const requestGatePages = [
+  { name: 'Myna', page: '/myna', api: '/api/custom/pharmacy/myna-handoffs' },
+  { name: 'ECAdmin', page: '/emergency-contraception', api: '/api/custom/pharmacy/emergency-contraception/config' },
+  { name: 'Today', page: '/', api: '/api/custom/pharmacy/operations-summary' },
+  { name: 'DSR', page: '/data-subject-requests', api: '/api/custom/pharmacy/data-subject-requests' },
+] as const
+type RequestGatePage = typeof requestGatePages[number]
+
+function gateResponse(target: RequestGatePage, accountId: string, marker: 'A' | 'B', status = 'CREATED') {
+  if (target.name === 'Myna') return { handoffs: [{
+    id: `synthetic-handoff-${marker}`, friend_id: `gate-${marker}`, patient_id: null,
+    method: 'E_PRESCRIPTION', status, source: 'LIFF', correlation_id: `synthetic-${marker}`,
+    launched_at: null, patient_reported_at: null, closed_at: null,
+    created_at: createdAt, updated_at: createdAt, expires_at: '2026-09-08T01:00:00.000Z',
+  }] }
+  if (target.name === 'ECAdmin') return {
+    settings: {
+      line_account_id: accountId, is_enabled: 0, pharmacy_registration_number: `gate-${marker}`,
+      product_code: '', purpose_text: '', manufacturer_check_url: '', privacy_policy_url: '',
+      privacy_contact: '', consent_version: '', retention_days: 30, consultation_minutes: 30,
+      reservation_ttl_minutes: 30, privacy_space_ready: 0, drinking_water_ready: 0,
+      partner_clinic_url: '', support_center_url: '', updated_by: 'synthetic-staff',
+      created_at: createdAt, updated_at: createdAt,
+    },
+    available_staff: [], pharmacists: [], inventory: [], slots: [],
+  }
+  if (target.name === 'DSR') return { requests: [{
+    id: `synthetic-request-${marker}`, patient_id: 'synthetic-patient', request_type: 'access',
+    status: 'received', reason: `gate-${marker}`, legal_hold: null, legal_hold_basis: null,
+    legal_hold_release_at: null, outcome_note: null, version: 1, submitted_at: createdAt,
+    identity_verified_at: null, legal_hold_assessed_at: null, resolved_at: null,
+    resolved_by: null, updated_at: createdAt,
+  }] }
+  return { success: true, data: {
+    accountId, checkedAt: createdAt, capabilityError: false,
+    domains: Object.fromEntries([
+      'prescriptionIntake', 'electronicPrescription', 'patientIntake',
+      'continuity', 'medicationFollowup', 'emergencyContraception',
+    ].map((domain) => [domain, {
+      enabled: true, activeCount: domain === 'prescriptionIntake' ? (marker === 'A' ? 11 : 22) : 0,
+      statusCounts: {}, updatedAt: null, error: false,
+    }])),
+    richMenu: {
+      status: 'UNVERIFIED', capabilityEnabled: false, layoutConfigured: false,
+      savedVersionAvailable: false, catalogVersionCurrent: false,
+      publishedVersionAvailable: false, currentDefaultRecorded: false, error: false,
+    },
+  } }
+}
+
+// The home route also mounts its statistics consumer. Supply a small valid
+// empty aggregate instead of replacing that component or bypassing its API.
+const emptyGrowthDashboard = {
+  from: createdAt, to: '2026-10-01T00:00:00.000Z',
+  entry: {
+    firstTimeFollows: 0, measurableFollows: 0, firstSubmissions: 0, secondSubmissions: 0,
+    firstSubmissionRate: { numerator: 0, denominator: 0, matureCohort: 0, immatureCohort: 0 },
+    secondSubmissionRate: { numerator: 0, denominator: 0, matureCohort: 0, immatureCohort: 0 },
+  },
+  sources: { primary: 0, other: 0, unknown: 0, otherShare: null, knownDenominator: 0, attributionCoverage: null },
+  promises: {
+    promised: 0, onTime: 0, late: 0, onTimeRate: null, p50LatenessMinutes: null,
+    p90LatenessMinutes: null, promiseRevisionCount: 0, promiseWithoutReady: 0,
+    readyEvents: 0, promiseWithoutQuote: 0, graceMinutes: 0,
+  },
+  validity: { verified: 0, reminderSent: 0, reminderClosedInTime: 0, expiredReviewRequired: 0, confirmedExpired: 0 },
+  notifications: { counts: {}, proactiveCapBlocked: 0, proactiveAttempts: 0, attempted: 0, reconciliationRequired: 0, alertState: 'alert_only' },
+  messaging: {
+    sent: 0, received: 0, manual: 0, automated: 0, sourceUnverified: 0, push: 0, reply: 0,
+    deliveryUnverified: 0, uniqueCorrespondents: 0, attempted: 0, reconciliationRequired: 0,
+    legacyUnscoped: { count: null, status: 'UNVERIFIED' },
+  },
+  unfollow: { exposedFriends: 0, within24h: 0, within72h: 0, sampleSize: 0, interpretation: '合成データなし' },
+}
+
+async function mockRequestGateConsumers(page: Page, intercept: (route: Route, path: string) => Promise<boolean>) {
+  return mockPharmacy(page, async (route, path) => {
+    if (await intercept(route, path)) return true
+    const accountId = new URL(route.request().url()).searchParams.get('line_account_id') ?? ''
+    let json: unknown
+    if (path === '/api/line-accounts') json = { success: true, data: [
+      { id: 'synthetic-account', name: '合成薬局A', isActive: true, pharmacyMode: true },
+      { id: 'synthetic-account-b', name: '合成薬局B', isActive: true, pharmacyMode: true },
+    ] }
+    else if (path === '/api/custom/pharmacy/myna-endpoint') json = { endpoint: null }
+    else if (path === '/api/custom/pharmacy/emergency-contraception/intakes') json = { intakes: [], next_cursor: null }
+    else if (path === '/api/custom/pharmacy/emergency-contraception/reminders') json = { state: 'inactive', revision: 0, timeZone: 'Asia/Tokyo', updatedAt: null }
+    else if (path === '/api/custom/pharmacy/patients') json = { patients: [] }
+    else if (path === '/api/custom/pharmacy/action-queue') json = {
+      success: true, data: { accountId, checkedAt: createdAt, partial: false, truncated: false, items: [] },
+    }
+    else if (path === '/api/custom/pharmacy/growth/dashboard') json = { success: true, data: emptyGrowthDashboard }
+    else return false
+    await route.fulfill({ json })
+    return true
+  })
+}
+
+async function expectCurrentGateConsumer(page: Page, target: RequestGatePage) {
+  if (target.name === 'Myna') {
+    await expect(page.getByText('患者: gate-B', { exact: true })).toBeVisible()
+    await expect(page.getByText('患者: gate-A', { exact: true })).toHaveCount(0)
+  } else if (target.name === 'ECAdmin') {
+    await expect(page.getByLabel('薬局登録番号', { exact: true })).toHaveValue('gate-B')
+  } else if (target.name === 'DSR') {
+    await expect(page.getByText('gate-B', { exact: true })).toBeVisible()
+    await expect(page.getByText('gate-A', { exact: true })).toHaveCount(0)
+  } else {
+    const card = page.getByRole('article').filter({
+      has: page.getByRole('heading', { name: '処方せん受付', exact: true }),
+    })
+    await expect(card).toContainText('22件')
+    await expect(card).not.toContainText('11件')
+  }
+  // Next's empty route-announcer live region is not an application error.
+  // Keep every other alert, including a nonempty announcer, in this check.
+  await expect(page.getByRole('alert').and(
+    page.locator(':not(#__next-route-announcer__:empty)'),
+  )).toHaveCount(0)
+}
+
+for (const target of requestGatePages) for (const lateStatus of [200, 503]) {
+  test(`request gate baseline: ${target.name} ignores old account ${lateStatus} after real unmount`, async ({ page }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const requested = new Promise<void>((resolve) => { started = resolve })
+    let heldCount = 0
+    let finishedCount = 0
+    const unexpected = await mockRequestGateConsumers(page, async (route, path) => {
+      if (path !== target.api) return false
+      const accountId = new URL(route.request().url()).searchParams.get('line_account_id')
+      expect(['synthetic-account', 'synthetic-account-b']).toContain(accountId)
+      if (accountId === 'synthetic-account') {
+        heldCount += 1
+        started()
+        await pending
+        await route.fulfill({
+          status: lateStatus,
+          json: lateStatus === 200 ? gateResponse(target, accountId, 'A') : { error: 'Synthetic old account failure' },
+        })
+        finishedCount += 1
+      } else await route.fulfill({ json: gateResponse(target, accountId!, 'B') })
+      return true
+    })
+    await page.goto(target.page)
+    await requested
+    const previousMain = await page.locator('main').first().elementHandle()
+    expect(previousMain).not.toBeNull()
+    await page.getByRole('button', { name: /合成薬局A/ }).click()
+    await page.getByRole('button', { name: /合成薬局B/ }).click()
+    await expect.poll(() => previousMain!.evaluate((node) => node.isConnected)).toBe(false)
+    await expectCurrentGateConsumer(page, target)
+
+    const arrived = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === target.api &&
+        url.searchParams.get('line_account_id') === 'synthetic-account' && response.status() === lateStatus
+    })
+    release()
+    await arrived
+    await expect.poll(() => finishedCount).toBe(heldCount)
+    await settleRender(page)
+    await expectCurrentGateConsumer(page, target)
+    expect(pageErrors).toEqual([])
+    expect(unexpected).toEqual([])
+  })
+}
+
+for (const lateStatus of [200, 503]) {
+  test(`request gate baseline: Myna ignores superseded filter ${lateStatus} without unmount`, async ({ page }) => {
+    const target = requestGatePages[0]
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const requested = new Promise<void>((resolve) => { started = resolve })
+    const unexpected = await mockRequestGateConsumers(page, async (route, path) => {
+      if (path !== target.api) return false
+      const status = new URL(route.request().url()).searchParams.get('status')
+      if (status === 'CREATED') {
+        started()
+        await pending
+        await route.fulfill({
+          status: lateStatus,
+          json: lateStatus === 200 ? gateResponse(target, 'synthetic-account', 'A') : { error: 'Synthetic stale filter failure' },
+        })
+      } else await route.fulfill({ json: gateResponse(target, 'synthetic-account', 'B', status ?? 'CREATED') })
+      return true
+    })
+    await page.goto(target.page)
+    await expectCurrentGateConsumer(page, target)
+    const currentMain = await page.locator('main').first().elementHandle()
+    const filter = page.getByRole('combobox', { name: '状態', exact: true })
+    await filter.selectOption('CREATED')
+    await requested
+    await expect(filter).toBeEnabled()
+    const currentResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === target.api && url.searchParams.get('status') === 'CLOSED'
+    })
+    await filter.selectOption('CLOSED')
+    await currentResponse
+    await expect(page.getByText('電子処方箋・薬局確認済み', { exact: true })).toBeVisible()
+    await expectCurrentGateConsumer(page, target)
+    const arrived = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === target.api && url.searchParams.get('status') === 'CREATED' &&
+        response.status() === lateStatus
+    })
+    release()
+    await arrived
+    await settleRender(page)
+    await expect(filter).toHaveValue('CLOSED')
+    await expectCurrentGateConsumer(page, target)
+    expect(await currentMain!.evaluate((node) => node.isConnected)).toBe(true)
+    expect(pageErrors).toEqual([])
+    expect(unexpected).toEqual([])
+  })
+}
