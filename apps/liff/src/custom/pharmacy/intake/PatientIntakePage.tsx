@@ -854,7 +854,7 @@ export default function PatientIntakePage() {
             <button type="button" onClick={() => void retryProfileRefresh()} disabled={busy} aria-busy={busy} className="pharmacy-control min-h-11 mt-2 block rounded-lg border border-amber-700 bg-white px-4 py-2 font-bold disabled:opacity-50">患者情報を再確認</button>
           </PharmacyStatusBlock>}
           {showNewPatient ? (
-            <fieldset disabled={Boolean(pendingProfileSave)}><PatientProfileForm
+            <fieldset disabled={Boolean(pendingProfileSave) || busy}><PatientProfileForm
               draft={patientDraft}
               editing={editing}
               busy={busy}

@@ -210,6 +210,9 @@ describe('patient intake UI contract', () => {
     const unlocks = source.match(/profileSaveInFlightRef\.current = false;\s*setBusy\(false\);/g) ?? [];
     expect(unlocks.length).toBe(3);
     expect(source).not.toMatch(/finally \{[^}]*isCurrentProfileSave/);
+    // The whole profile form freezes for the busy window too — an edit made
+    // mid-save would be discarded when the save result resets the draft.
+    expect(source).toContain('disabled={Boolean(pendingProfileSave) || busy}');
   });
 });
 

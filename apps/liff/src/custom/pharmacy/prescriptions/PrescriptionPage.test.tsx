@@ -263,6 +263,9 @@ describe('prescription upload recovery (V034-3)', () => {
     expect(startupRecovery).not.toContain('attemptedSubmissionId');
     expect(postErrorRecovery).toContain('? { submissionId: attemptedSubmissionId }');
     expect(postErrorRecovery).toContain(': { idempotencyKey }');
+    // The reconcile read writes history directly, so it must claim the epoch —
+    // a stale quiet refresh in flight must not overwrite the reconciled list.
+    expect(postErrorRecovery).toContain('historyEpochRef.current += 1');
     expect(source).toContain('reconcileAfterSendError');
     expect(source).toContain('isUnsupportedPharmacyFeature(error)');
     expect(source).not.toContain("error.status === 404");

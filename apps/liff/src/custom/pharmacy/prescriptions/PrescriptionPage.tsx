@@ -505,6 +505,9 @@ export default function PrescriptionPage() {
   ): Promise<boolean> {
     try {
       const result = await prescriptionApi.history();
+      // This reconcile read is newer than any quiet refresh still in flight —
+      // claim the epoch so a stale response cannot overwrite it.
+      historyEpochRef.current += 1;
       setHistory(result.submissions);
       const item = result.submissions.find((entry) => entry.id === attemptedSubmissionId);
       if (item && (
