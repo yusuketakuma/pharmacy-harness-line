@@ -1,5 +1,29 @@
 # Changelog
 
+## Pharmacy v0.36.3 (2026-09-19)
+
+> パッケージ／ソースのバージョンを`0.36.3`として確定し、v0.36.2 フォローアップ監査の修復一式を`dev`で管理します。ソースコードのタグ`v0.36.3`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
+
+### このバージョンで目指したこと
+
+v0.36.2 に対するフォローアップ監査(2026-09-18〜19)で確認した欠陥を閉じる patch です。新 API・migration・通知経路の追加はなく、変更は `custom/pharmacy` seam の LIFF 側とテストのみです。計画は PLANS.md の v0.36.2 節(フォローアップ監査)に記録済みです。
+
+### v0.36.2 との差分概要
+
+| 範囲 | 主な変更 | 判定 |
+| --- | --- | --- |
+| 旧 LINE WebView 互換 | `compat.ts` を追加し、`crypto.randomUUID` / `structuredClone` 非対応環境向けフォールバック(`pharmacyUuid` / `cloneJsonValue`)を薬局シーム全箇所に適用 | 実装済み |
+| 入力中フォームの保護 | quiet(バックグラウンド)リフレッシュがマウント済み内容を破壊しない契約を全ページに統一。reconnect/auto-retry の callback を named idempotent read に限定し、last-started-wins の load epoch で古い応答が新しい変更結果を上書きしないことを保証 | 実装済み |
+| 下書きのテナント隔離 | intake/new-patient 下書きキーを `liffId` でスコープ化し、共有 Pages オリジン上のテナント跨り PHI 露出を解消。legacy キーは write→re-read 検証→削除の restore-once マイグレーション。`sweepIntakeDrafts` は自テナント prefix のみ | 実装済み |
+| 保存ロック・整合 | profile-save ミューテックスを `finally` で無条件解放し supersede 時のロック残留を解消。`reconcileAfterSendError` の history 直書きに epoch bump を要求。`PatientProfileForm` を `pendingProfileSave \|\| busy` で全凍結 | 実装済み |
+| 回帰ガード | request-gate の stale レスポンス隔離(Myna/ECAdmin/Today/DSR × unmount後・フィルタ変更後 × 200/503)を e2e でピン留め。LIFF 側は profile 凍結・mutex 解放・history epoch のソースピンを追加 | 実装済み |
+
+### 差分で確認した安全性
+
+- **後方互換**: 公開 API・CLI・ルート・ペイロード・マニフェスト契約は不変。localStorage キーの移行は write→検証→削除の restore-once で非破壊。lockstep deploy 不要。
+- **検証**: `pnpm --filter liff test` 202件、`tsc --noEmit`、`pnpm --filter liff build`、`playwright` e2e 21件、`v035-readiness`/`version-contract` テスト全てパス。
+- **残 Human Gate**: 実機 LINE 動作確認・VoiceOver・本番反映は未実施。
+
 ## Pharmacy v0.36.2 (2026-09-18)
 
 > パッケージ／ソースのバージョンを`0.36.2`として確定し、患者向けLIFFの状態遷移の信頼性仕上げ一式を`dev`で管理します。ソースコードのタグ`v0.36.2`と販売者向けリリース`pharmacy-v0.36.x`は別のidentityです。本エントリの作成だけでは、`main`への反映、本番環境への配備、薬局アカウントへのbeta適用、実患者データの操作、実際のLINE送信を行いません。
