@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectPrescriptionImage } from './image.js';
+import { inspectPrescriptionImage, MAX_IMAGE_BYTES, readPrescriptionImageBody } from './image.js';
 
 describe('inspectPrescriptionImage', () => {
   it.each([
@@ -30,5 +30,37 @@ describe('inspectPrescriptionImage', () => {
     await expect(
       inspectPrescriptionImage('image/jpeg', new Uint8Array(10 * 1024 * 1024 + 1)),
     ).rejects.toThrow('image exceeds 10 MiB');
+  });
+});
+
+
+describe('readPrescriptionImageBody', () => {
+  it('preserves bytes split across chunks up to the exact limit', async () => {
+    const bytes = new Uint8Array(MAX_IMAGE_BYTES);
+    bytes.set([0xff, 0xd8, 0xff]);
+    bytes[MAX_IMAGE_BYTES - 1] = 123;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.subarray(0, 1));
+        controller.enqueue(bytes.subarray(1, 3));
+        controller.enqueue(bytes.subarray(3));
+        controller.close();
+      },
+    });
+    const result = await readPrescriptionImageBody(body);
+    expect(result?.byteLength).toBe(MAX_IMAGE_BYTES);
+    expect(Buffer.compare(result!, bytes)).toBe(0);
+    expect(await inspectPrescriptionImage('image/jpeg', result!)).toEqual(
+      await inspectPrescriptionImage('image/jpeg', bytes),
+    );
+    expect(body.locked).toBe(false);
+  });
+
+  it('preserves empty input and propagates stream failure while releasing the lock', async () => {
+    expect(await readPrescriptionImageBody(null)).toEqual(new Uint8Array());
+    const failure = new Error('synthetic read failure');
+    const body = new ReadableStream<Uint8Array>({ pull(controller) { controller.error(failure); } });
+    await expect(readPrescriptionImageBody(body)).rejects.toBe(failure);
+    expect(body.locked).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import type { Env } from '../../../index.js';
 import { getPharmacyAccountId } from '../account.js';
 import { lineProxy } from '../../../routes/integrations/line-proxy.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
-import { inspectPrescriptionImage } from './image.js';
+import { inspectPrescriptionImage, MAX_IMAGE_BYTES, readPrescriptionImageBody } from './image.js';
 import {
   resolvePrescriptionPatient,
   type PrescriptionPatient,
@@ -252,13 +252,14 @@ prescriptionRoutes.put('/api/liff/pharmacy/prescriptions/:id/files/:position', a
     if (!Number.isSafeInteger(length) || length < 0) {
       return c.json({ error: 'Invalid Content-Length' }, 400);
     }
-    if (length > 10 * 1024 * 1024) {
+    if (length > MAX_IMAGE_BYTES) {
       return c.json({ error: 'Image exceeds 10 MiB' }, 413);
     }
   }
 
   const contentType = (c.req.header('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
-  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  const bytes = await readPrescriptionImageBody(c.req.raw.body);
+  if (bytes === null) return c.json({ error: 'Image exceeds 10 MiB' }, 413);
   let inspected: { byteSize: number; sha256: string };
   try {
     inspected = await inspectPrescriptionImage(contentType, bytes);

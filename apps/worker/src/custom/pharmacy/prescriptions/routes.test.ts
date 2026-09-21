@@ -56,7 +56,8 @@ vi.mock('./repository.js', () => ({
   recordPrescriptionFileViewed: mocks.recordFileViewed,
   applyAdminPrescriptionAction: mocks.adminAction,
 }));
-vi.mock('./image.js', () => ({
+vi.mock('./image.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./image.js')>(),
   inspectPrescriptionImage: mocks.inspectImage,
 }));
 vi.mock('./notifications.js', () => ({
@@ -695,6 +696,35 @@ describe('PUT /api/liff/pharmacy/prescriptions/:id/files/:position', () => {
     const response = await upload({ 'Content-Length': String(10 * 1024 * 1024 + 1) });
     expect(response.status).toBe(413);
     expect(mocks.inspectImage).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '1'])('stops oversized streamed input even with Content-Length %s', async (declaredLength) => {
+    const actualImage = await vi.importActual<typeof import('./image.js')>('./image.js');
+    mocks.inspectImage.mockImplementation(actualImage.inspectPrescriptionImage);
+    let reads = 0;
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads += 1;
+        if (reads <= 12) controller.enqueue(new Uint8Array(1024 * 1024));
+        else controller.close();
+      },
+      cancel: cancelled,
+    }, { highWaterMark: 0 });
+    const headers: Record<string, string> = {
+      Authorization: 'Bearer token', 'Content-Type': 'image/png',
+    };
+    if (declaredLength !== undefined) headers['Content-Length'] = declaredLength;
+    const response = await prescriptionRoutes.request(new Request(
+      'https://worker.example/api/liff/pharmacy/prescriptions/submission-1/files/1?liffId=liff-1',
+      { method: 'PUT', headers, body, duplex: 'half' } as RequestInit,
+    ), undefined, { DB: env.DB, IMAGES: { put, head } as unknown as R2Bucket });
+    expect(response.status).toBe(413);
+    expect(reads).toBe(11);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(mocks.inspectImage).not.toHaveBeenCalled();
+    expect(mocks.reserveFile).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
   });
 
   it('persists pending, writes R2, and only then marks ready', async () => {
