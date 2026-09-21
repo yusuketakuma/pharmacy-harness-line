@@ -18,12 +18,14 @@ import {
   sealPatientIntakeField,
   toBase64Url,
 } from './encryption.js';
+import type { RecoveryExecution, RecoveryOperation } from '../recovery/operations.js';
 import { deriveAesGcmKey } from '../crypto-utils.js';
 
 export { PATIENT_INTAKE_LEGACY_SENTINEL };
 
 export interface PatientIntakeMigrationScope extends PatientIntakeCryptoScope {
   lineAccountId: string;
+  execution?: RecoveryExecution;
 }
 
 export interface PatientIntakeMigrationApproval {
@@ -354,7 +356,7 @@ export async function backfillPatientIntakeEnvelopes(
       resultCounts.verified += 1;
       if (input.dryRun === false) {
         try {
-          const results = await db.batch(statements);
+          const results = await migrationBatch(db, input, 'fle_backfill', statements);
           if (results.length !== 2 || results.some((item) => item.meta?.changes !== 1)) {
             resultCounts.conflicts += 1;
             return failed('CAS_CONFLICT', resultCounts, input.cursor);
@@ -391,7 +393,7 @@ export async function backfillPatientIntakeEnvelopes(
       return failed('CORRUPT_ENVELOPE', resultCounts, input.cursor);
     }
     try {
-      const result = await write.run();
+      const result = await migrationWrite(db, input, 'fle_backfill', write);
       if (result.meta?.changes !== 2) {
         resultCounts.conflicts += 1;
         return failed('CAS_CONFLICT', resultCounts, input.cursor);
@@ -569,7 +571,7 @@ async function rebindMigrationState(
   phase: MigrationState['phase'],
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const result = await db.prepare(`UPDATE pharmacy_patient_intake_migration_state
+  const statement = db.prepare(`UPDATE pharmacy_patient_intake_migration_state
     SET phase = ?, approved_by = ?, approval_reference = ?, approved_at = ?, updated_at = ?
     WHERE tenant_id = ? AND line_account_id = ? AND phase = ?
       AND coverage_total = ? AND coverage_digest = ?
@@ -577,7 +579,8 @@ async function rebindMigrationState(
     phase, approval.approvedBy, approval.approvalReference, now, now,
     scope.tenantId, scope.lineAccountId, state.phase,
     state.coverage_total, state.coverage_digest, state.approved_by, state.approval_reference,
-  ).run();
+  );
+  const result = await migrationWrite(db, scope, 'plaintext_scrub', statement);
   return result.meta?.changes === 1;
 }
 
@@ -610,7 +613,7 @@ export async function freezePatientIntakeWrites(
     }
   }
   const now = new Date().toISOString();
-  const write = await db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
+  const statement = db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
     (tenant_id, line_account_id, phase, coverage_total, coverage_digest,
      approved_by, approval_reference, approved_at, updated_at)
     SELECT ?, ?, 'frozen', ?, ?, ?, ?, ?, ?
@@ -625,8 +628,14 @@ export async function freezePatientIntakeWrites(
       approval.approvedBy, approval.approvalReference, now, now,
       scope.tenantId, scope.lineAccountId,
       scope.lineAccountId, scope.tenantId, scope.lineAccountId, approval.coverageTotal,
-    ).run();
-  return write.meta?.changes === 1 ? coverage : { ...coverage, errorCode: 'STORAGE_FAILED' };
+    );
+  try {
+    const write = await migrationWrite(db, scope, 'plaintext_scrub', statement);
+    return write.meta?.changes === 1 ? coverage : { ...coverage, errorCode: 'STORAGE_FAILED' };
+  } catch (error) {
+    if (!scope.execution) throw error;
+    return { ...coverage, errorCode: 'STORAGE_FAILED' };
+  }
 }
 
 function stateGuardStatement(
@@ -686,6 +695,53 @@ function datasetGuardStatement(
       scope.lineAccountId, scope.tenantId, scope.lineAccountId,
       ...(responseIds ?? []),
     );
+}
+
+// The failing CHECK guard and the writes must share one atomic batch. An
+// earlier authorization read cannot protect a write after the lease expires.
+// Check again before commit so expiry during the writes rolls them all back.
+async function migrationBatch(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+  operation: RecoveryOperation,
+  statements: D1PreparedStatement[],
+): Promise<D1Result[]> {
+  const execution = scope.execution;
+  if (!execution) return db.batch(statements);
+  if (execution.tenantId !== scope.tenantId || execution.lineAccountId !== scope.lineAccountId ||
+      execution.operation !== operation) throw new Error('INVALID_EXECUTION_SCOPE');
+  const guard = db.prepare(`INSERT INTO pharmacy_patient_intake_migration_state
+    (tenant_id, line_account_id, phase, coverage_total, coverage_digest,
+     approved_by, approval_reference, approved_at, updated_at)
+    SELECT ?, ?, '${GUARD_FAIL_PHASE}', 0, '${GUARD_FAIL_DIGEST}', 'guard', 'guard', '', ''
+    WHERE NOT EXISTS (
+      SELECT 1 FROM pharmacy_recovery_operations operation
+      JOIN pharmacy_recovery_execution_fences fence ON fence.fence_id = operation.fence_id
+      WHERE operation.id = ? AND operation.tenant_id = ? AND operation.line_account_id = ?
+        AND operation.environment = ? AND operation.operation = ?
+        AND operation.status = 'running' AND operation.execution_id = ?
+        AND operation.fence_token = ? AND operation.executor_subject = ?
+        AND fence.operation_id = operation.id AND fence.execution_id = operation.execution_id
+        AND fence.fence_token = operation.fence_token AND fence.owner_subject = operation.executor_subject
+        AND fence.tenant_id = operation.tenant_id AND fence.line_account_id = operation.line_account_id
+        AND fence.environment = operation.environment AND fence.status = 'active'
+        AND fence.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`).bind(
+    scope.tenantId, scope.lineAccountId, execution.operationId, scope.tenantId,
+    scope.lineAccountId, execution.environment, operation, execution.executionId,
+    execution.fenceToken, execution.executorSubject,
+  );
+  return (await db.batch([guard, ...statements, guard])).slice(1, -1);
+}
+
+async function migrationWrite(
+  db: D1Database,
+  scope: PatientIntakeMigrationScope,
+  operation: RecoveryOperation,
+  statement: D1PreparedStatement,
+): Promise<D1Result> {
+  return scope.execution
+    ? (await migrationBatch(db, scope, operation, [statement]))[0]!
+    : statement.run();
 }
 
 async function migrateLegacyFields(
@@ -800,7 +856,9 @@ async function migrateLegacyFields(
     ),
   ];
   try {
-    const results = await db.batch(statements);
+    const results = await migrationBatch(
+      db, input, mode === 'scrub' ? 'plaintext_scrub' : 'plaintext_restore', statements,
+    );
     const writeResults = results.slice(2, 2 + writes.length);
     if (writeResults.some((item) => item.meta?.changes !== 1)) {
       resultCounts.conflicts += 1;

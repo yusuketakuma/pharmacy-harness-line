@@ -1,3 +1,8 @@
+import {
+  createRecoveryApproval, assertRecoveryExecution, claimRecoveryOperation,
+  preflightRecoveryOperation, approveRecoveryOperation,
+  type RecoveryPreflight, type RecoveryPrincipal, type RecoveryScope,
+} from '../recovery/operations.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +17,7 @@ import {
   type PatientIntakeEncryptedRow,
 } from './envelopes.js';
 import {
+  backfillPatientIntakeEnvelopes,
   freezePatientIntakeWrites,
   inspectPatientIntakeCoverage,
   restorePatientIntakeLegacyFields,
@@ -373,5 +379,200 @@ describe('FLE migration report cursor (F7)', () => {
     await expect(scrubPatientIntakeLegacyFields(db, {
       ...CRYPTO, cursor: 'resp-cursor-b', limit: 1, dryRun: true, approval,
     })).resolves.toMatchObject({ errorCode: 'INVALID_INPUT' });
+  });
+});
+
+const scope: RecoveryScope = {
+  tenantId: 'tenant-a', lineAccountId: 'account-a', environment: 'test',
+};
+const approver: RecoveryPrincipal = { issuer: 'platform-admin', subject: 'admin-a' };
+const executor: RecoveryPrincipal = { issuer: 'platform-admin', subject: 'admin-b' };
+const preflight: RecoveryPreflight = {
+  schemaDigest: 'b'.repeat(64),
+  fieldInventoryDigest: 'c'.repeat(64),
+  keyVersions: ['1'],
+  backupGenerationId: 'backup-a',
+  expectedRowCount: 1,
+  expectedObjectCount: 0,
+  stopPolicy: 'stop-on-drift',
+  rollbackPolicy: 'restore-verified-envelope',
+  evidenceDigest: 'a'.repeat(64),
+  rowDigest: 'e'.repeat(64),
+  coverageTotal: 1,
+  coverageVerified: true,
+  keyRecoveryAcknowledged: true,
+};
+
+async function runningRecovery(db: D1Database, operation: 'plaintext_scrub' | 'plaintext_restore' | 'fle_backfill') {
+  const created = await createRecoveryApproval(db, {
+    scope, operation, requestedBy: approver,
+    approvalExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    idempotencyKey: 'concurrent-recovery',
+  });
+  await preflightRecoveryOperation(db, {
+    operationId: created.id, scope, operation, preflight,
+  });
+  await approveRecoveryOperation(db, {
+    operationId: created.id, scope, operation, principal: approver,
+  });
+  const claimed = await claimRecoveryOperation(db, {
+    operationId: created.id, scope, operation, executor,
+  });
+  return {
+    operation, operationId: claimed.id,
+    executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
+    executorSubject: executor.subject, ...scope,
+  };
+}
+
+
+describe('recovery execution guard at the intake write', () => {
+  it.each([
+    ['plaintext_scrub', 'valid'],
+    ['plaintext_scrub', 'expired'],
+    ['plaintext_scrub', 'replaced'],
+    ['plaintext_scrub', 'foreign-account'],
+    ['plaintext_scrub', 'foreign-environment'],
+    ['plaintext_scrub', 'expired-during-write'],
+    ['plaintext_restore', 'valid'],
+    ['plaintext_restore', 'expired'],
+  ] as const)('%s with %s execution', async (operation, condition) => {
+    const { db, sqlite } = seedBase();
+    try {
+      sqlite.prepare(`INSERT INTO pharmacy_recovery_backup_generations
+        (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
+         expected_row_count, expected_object_count, verified_at, created_at)
+        VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 1, 0, ?, ?)`)
+        .run('a'.repeat(64), NOW, NOW);
+      const row = seedResponse(sqlite, 'resp-a');
+      await seedEnvelopes(sqlite, row, row.patient_snapshot_json, row.answers_json);
+      const approval = await approvalFor(db, 'admin-a');
+      expect((await freezePatientIntakeWrites(db, CRYPTO, approval)).errorCode).toBeNull();
+      if (operation === 'plaintext_restore') {
+        expect((await scrubPatientIntakeLegacyFields(db, {
+          ...CRYPTO, cursor: null, limit: 50, dryRun: false, approval,
+        })).errorCode).toBeNull();
+      }
+      const before = responseFields(sqlite, row.id);
+      const phaseBefore = migrationState(sqlite)?.phase;
+      const execution = await runningRecovery(db, operation);
+      await assertRecoveryExecution(db, execution);
+      if (condition === 'expired-during-write') {
+        sqlite.exec(`CREATE TEMP TRIGGER expire_recovery_during_write
+          BEFORE UPDATE OF patient_snapshot_json ON pharmacy_patient_intake_responses
+          BEGIN UPDATE pharmacy_recovery_execution_fences
+            SET expires_at = '2000-01-01T00:00:00.000Z' WHERE line_account_id = 'account-a'; END`);
+      }
+      const delayed = {
+        ...db,
+        batch: async (statements: D1PreparedStatement[]) => {
+          if (condition === 'expired') {
+            sqlite.prepare(`UPDATE pharmacy_recovery_execution_fences
+              SET expires_at = '2000-01-01T00:00:00.000Z' WHERE operation_id = ?`)
+              .run(execution.operationId);
+          } else if (condition === 'replaced') {
+            sqlite.prepare(`UPDATE pharmacy_recovery_execution_fences
+              SET fence_token = ? WHERE operation_id = ?`).run('replacement'.repeat(4), execution.operationId);
+          }
+          return db.batch(statements);
+        },
+      } as D1Database;
+      const migrate = operation === 'plaintext_scrub'
+        ? scrubPatientIntakeLegacyFields : restorePatientIntakeLegacyFields;
+      const result = await migrate(delayed, {
+        ...CRYPTO, cursor: null, limit: 50, dryRun: false, approval,
+        execution: condition === 'foreign-account'
+          ? { ...execution, lineAccountId: 'account-other' }
+          : condition === 'foreign-environment' ? { ...execution, environment: 'other' } : execution,
+      });
+      if (condition === 'valid') {
+        expect(result.errorCode).toBeNull();
+        expect(responseFields(sqlite, row.id)).toEqual(operation === 'plaintext_scrub'
+          ? { patient_snapshot_json: '{}', answers_json: '{}' }
+          : { patient_snapshot_json: row.patient_snapshot_json, answers_json: row.answers_json });
+      } else {
+        expect(result.errorCode).toBe('CAS_CONFLICT');
+        expect(responseFields(sqlite, row.id)).toEqual(before);
+        expect(migrationState(sqlite)?.phase).toBe(phaseBefore);
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe('recovery execution guard for envelope and freeze writes', () => {
+  it.each([
+    ['backfill', false], ['backfill', true],
+    ['rewrap', false], ['rewrap', true],
+    ['freeze', false], ['freeze', true],
+    ['rebind', false], ['rebind', true],
+  ] as const)('%s expires before write: %s', async (mode, expire) => {
+    const { db, sqlite } = seedBase();
+    try {
+      sqlite.prepare(`INSERT INTO pharmacy_recovery_backup_generations
+        (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
+         expected_row_count, expected_object_count, verified_at, created_at)
+        VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 1, 0, ?, ?)`)
+        .run('a'.repeat(64), NOW, NOW);
+      const row = seedResponse(sqlite, 'resp-a');
+      if (mode !== 'backfill') {
+        await seedEnvelopes(sqlite, row, row.patient_snapshot_json, row.answers_json);
+      }
+      const approval = mode === 'backfill' ? undefined : await approvalFor(db, 'admin-a');
+      if (mode === 'rebind') {
+        expect((await freezePatientIntakeWrites(db, CRYPTO, approval!)).errorCode).toBeNull();
+      }
+      const readEnvelopes = () => sqlite.prepare(`SELECT * FROM pharmacy_patient_intake_envelopes
+        WHERE response_id = 'resp-a' ORDER BY field_name`).all();
+      const beforeEnvelopes = readEnvelopes();
+      const beforeState = migrationState(sqlite);
+      const execution = await runningRecovery(db,
+        mode === 'freeze' || mode === 'rebind' ? 'plaintext_scrub' : 'fle_backfill');
+      await assertRecoveryExecution(db, execution);
+      let writes = 0;
+      const delayed = {
+        ...db,
+        batch: async (statements: D1PreparedStatement[]) => {
+          writes++;
+          if (expire) sqlite.prepare(`UPDATE pharmacy_recovery_execution_fences
+            SET expires_at = '2000-01-01T00:00:00.000Z' WHERE operation_id = ?`).run(execution.operationId);
+          return db.batch(statements);
+        },
+      } as D1Database;
+      const scope = { ...CRYPTO, execution };
+      const result = mode === 'freeze' || mode === 'rebind'
+        ? await freezePatientIntakeWrites(delayed, scope,
+          mode === 'rebind' ? { ...approval!, approvalReference: 'new-approval' } : approval!)
+        : await backfillPatientIntakeEnvelopes(delayed, {
+          ...scope, ...(mode === 'rewrap' ? { rootSecretV2: 'v'.repeat(32), activeKeyVersion: 2 as const } : {}),
+          cursor: null, limit: 50, dryRun: false,
+        });
+      expect(writes).toBe(1);
+      if (expire) {
+        expect(result.errorCode).not.toBeNull();
+        expect(readEnvelopes()).toEqual(beforeEnvelopes);
+        expect(migrationState(sqlite)).toEqual(beforeState);
+      } else {
+        expect(result.errorCode).toBeNull();
+        if (mode === 'freeze' || mode === 'rebind') {
+          expect(migrationState(sqlite)?.phase).toBe('frozen');
+          expect(migrationState(sqlite)?.approval_reference)
+            .toBe(mode === 'rebind' ? 'new-approval' : approval!.approvalReference);
+        } else {
+          const keys = sqlite.prepare(`SELECT key_version FROM pharmacy_patient_intake_envelopes
+            WHERE response_id = 'resp-a' ORDER BY field_name`).all();
+          expect(keys).toEqual([{ key_version: mode === 'rewrap' ? 2 : 1 }, { key_version: mode === 'rewrap' ? 2 : 1 }]);
+          const opened = await openPatientIntakeFields(db, row, {
+            ...CRYPTO, rootSecretV2: 'v'.repeat(32),
+          });
+          expect(opened.patient_snapshot_json).toBe(row.patient_snapshot_json);
+          expect(opened.answers_json).toBe(row.answers_json);
+        }
+      }
+      expect(responseFields(sqlite, row.id)).toEqual({
+        patient_snapshot_json: row.patient_snapshot_json, answers_json: row.answers_json,
+      });
+    } finally { sqlite.close(); }
   });
 });

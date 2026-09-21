@@ -14,6 +14,7 @@ import {
   RECOVERY_ENVIRONMENT,
   RECOVERY_OPERATIONS,
   RecoveryOperationError,
+  type RecoveryExecution,
   type RecoveryOperation,
   type RecoveryPreflight,
   type RecoveryPrincipal,
@@ -217,6 +218,7 @@ async function executeIntakeOperation(
   operation: NonNullable<Awaited<ReturnType<typeof getRecoveryOperation>>>,
   cryptoScope: PatientIntakeCryptoScope,
   body: Body,
+  execution: RecoveryExecution,
 ): Promise<IntakeExecutionResult> {
   if (!operation.preflight) throw new RecoveryOperationError('PREFLIGHT_REQUIRED');
   const cursor = body.cursor === null || body.cursor === undefined
@@ -227,6 +229,7 @@ async function executeIntakeOperation(
       limit < 1 || limit > MAX_BATCH) throw new RecoveryOperationError('INVALID_INPUT');
   const scope = {
     ...cryptoScope,
+    execution,
     lineAccountId: operation.scope.lineAccountId,
   };
   if (operation.operation === 'fle_backfill') {
@@ -500,7 +503,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
         });
       return c.json({ success: true, data: { operation: final, result } });
     }
-    const result = await executeIntakeOperation(c.env.DB, verified, cryptoScope!, body);
+    const result = await executeIntakeOperation(c.env.DB, verified, cryptoScope!, body, execution);
     if (result.errorCode) {
       throw new RecoveryOperationError(
         ['COVERAGE_MISMATCH', 'MISMATCH', 'MIXED_SENTINEL', 'CORRUPT_ENVELOPE',

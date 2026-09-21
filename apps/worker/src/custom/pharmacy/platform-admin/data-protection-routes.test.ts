@@ -503,8 +503,24 @@ describe('platform-admin data protection recovery routes', () => {
     expect(response.status).toBe(200);
     expect(recoveryMocks.claimRecoveryOperation).not.toHaveBeenCalled();
     expect(migrationMocks.scrubPatientIntakeLegacyFields).toHaveBeenCalledWith(
-      expect.anything(), expect.objectContaining({ cursor: 'cursor-a' }),
+      expect.anything(), expect.objectContaining({
+        cursor: 'cursor-a',
+        execution: {
+          operationId: running.id, operation: running.operation, ...scope,
+          executionId: running.executionId, fenceToken: running.fenceToken,
+          executorSubject: 'admin-executor',
+        },
+      }),
     );
+    const spoofed = await app().request(`${endpoint}/operation-a/execute`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        dryRun: false, resume: true, preflight,
+        execution: { executionId: 'forged', executorSubject: 'forged', lineAccountId: 'other' },
+      }),
+    }, env());
+    expect(spoofed.status).toBe(400);
+    expect(migrationMocks.scrubPatientIntakeLegacyFields).toHaveBeenCalledTimes(1);
   });
 
   it('blocks deletion until authoritative retention readiness is READY', async () => {
