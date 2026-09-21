@@ -542,7 +542,7 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       delivery_time: body.deliveryTime,
       template_id: body.templateId,
       on_reach_tag_id: body.onReachTagId,
-    });
+    }, { scenarioId, tenantId });
 
     if (!updated) {
       return c.json({ success: false, error: 'Step not found' }, 404);
@@ -559,7 +559,10 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
 scenarios.delete('/api/scenarios/:id/steps/:stepId', async (c) => {
   try {
     const stepId = c.req.param('stepId');
-    await deleteScenarioStep(c.env.DB, stepId);
+    await deleteScenarioStep(c.env.DB, stepId, {
+      scenarioId: c.req.param('id'),
+      tenantId: c.get('tenantId') ?? null,
+    });
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/scenarios/:id/steps/:stepId error:', err);

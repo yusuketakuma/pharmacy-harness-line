@@ -338,11 +338,27 @@ export type UpdateScenarioStepInput = Partial<
   >
 >;
 
+type ScenarioStepScope = { scenarioId: string; tenantId: string | null };
+
+function scenarioStepPredicate(id: string, scope?: ScenarioStepScope) {
+  return scope
+    ? {
+        sql: `id = ? AND scenario_id = ? AND EXISTS (
+          SELECT 1 FROM scenarios AS parent
+           WHERE parent.id = scenario_steps.scenario_id AND parent.tenant_id IS ?
+        )`,
+        values: [id, scope.scenarioId, scope.tenantId],
+      }
+    : { sql: 'id = ?', values: [id] };
+}
+
 export async function updateScenarioStep(
   db: D1Database,
   id: string,
   updates: UpdateScenarioStepInput,
+  scope?: ScenarioStepScope,
 ): Promise<ScenarioStep | null> {
+  const predicate = scenarioStepPredicate(id, scope);
   const fields: string[] = [];
   const values: unknown[] = [];
 
@@ -396,21 +412,26 @@ export async function updateScenarioStep(
   }
 
   if (fields.length > 0) {
-    values.push(id);
+    values.push(...predicate.values);
     await db
-      .prepare(`UPDATE scenario_steps SET ${fields.join(', ')} WHERE id = ?`)
+      .prepare(`UPDATE scenario_steps SET ${fields.join(', ')} WHERE ${predicate.sql}`)
       .bind(...values)
       .run();
   }
 
   return db
-    .prepare(`SELECT * FROM scenario_steps WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM scenario_steps WHERE ${predicate.sql}`)
+    .bind(...predicate.values)
     .first<ScenarioStep>();
 }
 
-export async function deleteScenarioStep(db: D1Database, id: string): Promise<void> {
-  await db.prepare(`DELETE FROM scenario_steps WHERE id = ?`).bind(id).run();
+export async function deleteScenarioStep(
+  db: D1Database,
+  id: string,
+  scope?: ScenarioStepScope,
+): Promise<void> {
+  const predicate = scenarioStepPredicate(id, scope);
+  await db.prepare(`DELETE FROM scenario_steps WHERE ${predicate.sql}`).bind(...predicate.values).run();
 }
 
 export async function getScenarioSteps(
