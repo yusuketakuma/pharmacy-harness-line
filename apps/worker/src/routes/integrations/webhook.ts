@@ -34,6 +34,7 @@ import { handleMedicationFollowUpPostback } from '../../custom/pharmacy/medicati
 import { readLineCredential } from '../../custom/pharmacy/provisioning/line-credential-store.js'; // custom:pharmacy-credentials
 import { createBroadcastRetryKey } from '../../services/broadcast-retry-key.js';
 import { log } from '../../lib/log.js';
+import { readBoundedBody } from '../../lib/read-bounded-body.js';
 import {
   deliverTrackedLinePush,
   deliverTrackedLineReply,
@@ -374,15 +375,12 @@ webhook.post('/webhook', async (c) => {
     }
   }
 
-  const rawBody = await c.req.text();
-
-  // Post-read size guard for the case where Content-Length was absent or untrustworthy.
-  // Use UTF-8 byte count: `rawBody.length` counts UTF-16 code units, so multibyte
-  // payloads (Japanese/emoji) would otherwise bypass the cap.
-  const rawBodyByteLength = new TextEncoder().encode(rawBody).byteLength;
-  if (rawBodyByteLength > MAX_WEBHOOK_BODY_SIZE) {
+  // Enforce the actual byte limit while reading, even without a trustworthy header.
+  const bodyBytes = await readBoundedBody(c.req.raw.body, MAX_WEBHOOK_BODY_SIZE);
+  if (bodyBytes === null) {
     return c.json({ status: 'too_large' }, 413);
   }
+  const rawBody = new TextDecoder().decode(bodyBytes);
 
   const signature = c.req.header('X-Line-Signature') ?? '';
   const db = c.env.DB;

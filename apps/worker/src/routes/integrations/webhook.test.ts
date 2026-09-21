@@ -240,6 +240,55 @@ describe('POST /webhook — DoS defenses (#104)', () => {
     expect(verifySignature).not.toHaveBeenCalled();
   });
 
+  test.each([undefined, '1'])('stops reading an oversized stream with Content-Length %s', async (declared) => {
+    let reads = 0;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads++;
+        if (reads <= 8) controller.enqueue(new Uint8Array(256 * 1024));
+        else controller.close();
+      },
+      cancel,
+    }, { highWaterMark: 0 });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (declared !== undefined) headers['Content-Length'] = declared;
+    const request = new Request('http://localhost/webhook', {
+      method: 'POST', headers, body, duplex: 'half',
+    } as RequestInit);
+    const response = await setupApp().fetch(request, baseEnv, baseExecutionCtx);
+    expect(response.status).toBe(413);
+    expect(reads).toBe(5);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(verifySignature).not.toHaveBeenCalled();
+  });
+
+  test.each([false, true])('preserves UTF-8 signature text across stream chunks (BOM: %s)', async (bom) => {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    const prefix = JSON.stringify({ destination: 'bot', events: [], note: '薬💊' });
+    const encodedPrefix = new TextEncoder().encode(prefix);
+    const padding = ' '.repeat(1024 * 1024 - encodedPrefix.byteLength - (bom ? 3 : 0));
+    const bytes = new TextEncoder().encode((bom ? '\uFEFF' : '') + prefix + padding);
+    expect(bytes.byteLength).toBe(1024 * 1024);
+    const expectedText = await new Response(bytes).text();
+    const split = bytes.indexOf(0xf0) + 1;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.subarray(0, split));
+        controller.enqueue(bytes.subarray(split, split + 1));
+        controller.enqueue(bytes.subarray(split + 1));
+        controller.close();
+      },
+    });
+    const signature = `${'A'.repeat(43)}=`;
+    const request = new Request('http://localhost/webhook', {
+      method: 'POST', headers: { 'X-Line-Signature': signature }, body, duplex: 'half',
+    } as RequestInit);
+    const response = await setupApp().fetch(request, baseEnv, baseExecutionCtx);
+    expect(response.status).toBe(200);
+    expect(verifySignature).toHaveBeenCalledWith('env-default-secret', expectedText, signature);
+  });
+
   test('rejects malformed JSON before D1 lookup or signature work', async () => {
     vi.mocked(verifySignature).mockResolvedValue(false);
 
