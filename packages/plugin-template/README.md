@@ -45,6 +45,7 @@ pnpm install
 |---|---|
 | `LINE_HARNESS_API_URL` | Your LINE Harness API base URL |
 | `LINE_HARNESS_API_KEY` | API key for LINE Harness (set as secret) |
+| `LINE_HARNESS_TENANT_ID` | Required LINE Harness tenant ID |
 | `EXTERNAL_API_KEY` | API key for the external service (set as secret) |
 | `LINE_ACCOUNT_ID` | (Optional) LINE account ID for multi-account setups |
 
@@ -97,6 +98,7 @@ pnpm build:mcp
       "env": {
         "LINE_HARNESS_API_URL": "https://your-line-harness.example.com",
         "LINE_HARNESS_API_KEY": "your-api-key",
+        "LINE_HARNESS_TENANT_ID": "your-tenant-id",
         "EXTERNAL_API_KEY": "your-external-api-key"
       }
     }

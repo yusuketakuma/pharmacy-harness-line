@@ -16,6 +16,7 @@
  *         "env": {
  *           "LINE_HARNESS_API_URL": "https://...",
  *           "LINE_HARNESS_API_KEY": "...",
+ *           "LINE_HARNESS_TENANT_ID": "your-tenant-id",
  *           "EXTERNAL_API_KEY": "..."
  *         }
  *       }
