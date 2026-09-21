@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
+import { splitSqlStatements } from '../scripts/split-sql-statements.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, '..');
@@ -24,13 +25,6 @@ const PATIENT_PROXY_CONTROLS_MIGRATION = '011_custom_068_patient_proxy_controls.
 const PATIENT_CONTROL_AUDIT_MIGRATION = '012_custom_069_patient_control_audit.sql';
 
 const BENIGN_SQLITE_ERROR = /duplicate column name|already exists/i;
-
-function splitSqlStatements(sql: string): string[] {
-  return sql
-    .split(/;\s*(?:\r?\n|$)/)
-    .map((statement) => statement.trim())
-    .filter(Boolean);
-}
 
 function applyMigrationReplay(db: Database.Database): void {
   const migrationFiles = readdirSync(MIGRATIONS_DIR)

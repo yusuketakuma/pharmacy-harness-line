@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { splitSqlStatements } from "./split-sql-statements.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(SCRIPT_DIR, "..");
@@ -35,13 +36,6 @@ function listPostBaselineMigrations() {
 
 function isBenignSqliteError(error) {
   return error instanceof Error && BENIGN_SQLITE_ERROR.test(error.message);
-}
-
-function splitSqlStatements(sql) {
-  return sql
-    .split(/;\s*(?:\r?\n|$)/)
-    .map((statement) => statement.trim())
-    .filter(Boolean);
 }
 
 function applyMigrationFile(db, fileName) {
