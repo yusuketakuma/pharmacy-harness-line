@@ -24,16 +24,16 @@ export interface FollowerIdsPage {
 }
 
 /**
- * Error for a non-2xx LINE response. Carries status plus the upstream
- * `message`/`error` field only — never the raw body, which can echo request
- * payloads (user ids, message text) into logs.
+ * Error for a non-2xx LINE response. The upstream body, including its
+ * `message`/`error` fields, can echo private request data. Callers log this
+ * error, so only emit a fixed known detail needed for retry classification.
  */
 async function lineApiError(res: Response): Promise<Error> {
   const body = (await res.json().catch(() => null)) as { message?: unknown; error?: unknown } | null;
-  const detail = body && typeof (body.message ?? body.error) === 'string'
-    ? String(body.message ?? body.error).slice(0, 200)
+  const detail = (body?.message ?? body?.error) === 'Invalid reply token'
+    ? ' — Invalid reply token'
     : '';
-  return new Error(`LINE API error: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);
+  return new Error(`LINE API error: ${res.status} ${res.statusText}${detail}`);
 }
 
 export class LineClient {

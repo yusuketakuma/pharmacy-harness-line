@@ -100,10 +100,12 @@ export async function replyViaHarnessProxy(
 
   const body = (await response.json().catch(() => null)) as
     { message?: unknown; error?: unknown } | null;
-  const detail = body && typeof (body.message ?? body.error) === 'string'
-    ? String(body.message ?? body.error).slice(0, 200)
+  // Preserve the deterministic rejection marker without logging arbitrary
+  // upstream text, which may echo private request data.
+  const detail = (body?.message ?? body?.error) === 'Invalid reply token'
+    ? ' — Invalid reply token'
     : '';
   throw new Error(
-    `LINE API error: ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`,
+    `LINE API error: ${response.status} ${response.statusText}${detail}`,
   );
 }

@@ -63,6 +63,20 @@ describe('pushViaHarnessProxy', () => {
 });
 
 describe('replyViaHarnessProxy', () => {
+  test.each([
+    { message: 'synthetic-patient-private-details' },
+    { error: 'synthetic-patient-private-details' },
+    { message: 'Invalid reply token: synthetic-patient-private-details' },
+  ])('omits arbitrary upstream details: %j', async (body) => {
+    const failure = await replyViaHarnessProxy(
+      'https://worker.example.com', 'synthetic-token', 'synthetic-reply',
+      [{ type: 'text', text: 'test' }],
+      vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 400, statusText: 'Bad Request' })),
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe('LINE API error: 400 Bad Request');
+  });
+
   test('sends reply messages through the Harness proxy endpoint', async () => {
     let captured: Request | null = null;
     const dispatch = vi.fn(async (request: Request) => {
