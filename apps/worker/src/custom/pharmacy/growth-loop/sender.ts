@@ -81,11 +81,12 @@ async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Pro
     crypto.randomUUID(), input.lineAccountId, input.friendId, input.messageId,
     input.category, occurredAt, input.retryKey, occurredAt,
   ).run();
+  // A prior attempt may have reached LINE; stopping delivery cannot resolve its outcome.
   await input.db.prepare(
     `UPDATE pharmacy_notification_events
         SET outcome = 'blocked', occurred_at = ?
       WHERE line_account_id = ? AND idempotency_key = ?
-        AND outcome IN ('attempted','failed')`,
+        AND outcome = 'failed'`,
   ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
 }
 
@@ -115,7 +116,7 @@ async function getPatientDeliveryState(
   return membership === 'active' ? 'allowed' : membership === 'suspended' ? 'retryable' : 'blocked';
 }
 
-type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'continuity_inactive' | 'patient_retryable' | 'operations_blocked';
+type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'operations_blocked';
 
 async function medicationFollowUpOperationsReady(
   db: D1Database,
@@ -365,7 +366,7 @@ async function getFinalDispatchState(
   }
   if (continuityReminder) {
     if (!['active', 'paused'].includes(row.expectation_status ?? '') ||
-        !['active', 'paused'].includes(row.continuity_status ?? '')) return 'continuity_inactive';
+        !['active', 'paused'].includes(row.continuity_status ?? '')) return 'blocked';
     // A pause can be lifted; preserve the existing attempt for a later retry.
     if (row.expectation_status === 'paused' || row.continuity_status === 'paused') return 'patient_retryable';
   }
@@ -521,7 +522,7 @@ export async function sendPharmacyAutomatedPush(
 
   const postClaimPatientState = await getPatientDeliveryState(input, now);
   if (postClaimPatientState !== 'allowed') {
-    if (postClaimPatientState === 'blocked') {
+    if (postClaimPatientState === 'blocked' && !reclaimedUnknownAttempt) {
       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
     }
     // No provider call has happened. Preserve an attempted row so a
@@ -532,7 +533,7 @@ export async function sendPharmacyAutomatedPush(
   const finalNow = new Date();
   const finalPatientState = await getPatientDeliveryState(input, finalNow);
   if (finalPatientState !== 'allowed') {
-    if (finalPatientState === 'blocked') {
+    if (finalPatientState === 'blocked' && !reclaimedUnknownAttempt) {
       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
     }
     // The external proxy has not been called yet; do not erase result-unknown
@@ -543,9 +544,9 @@ export async function sendPharmacyAutomatedPush(
   if (finalDispatchState === 'paused') {
     return 'paused';
   }
-  if (finalDispatchState === 'blocked' || finalDispatchState === 'continuity_inactive') {
+  if (finalDispatchState === 'blocked') {
     // Cancellation prevents another send, but cannot determine an earlier provider result.
-    if (finalDispatchState !== 'continuity_inactive' || !reclaimedUnknownAttempt) {
+    if (!reclaimedUnknownAttempt) {
       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
     }
     return 'patient_blocked';

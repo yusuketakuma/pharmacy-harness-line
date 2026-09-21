@@ -432,7 +432,7 @@ describe('pharmacy automated sender', () => {
       patientAccess.mockResolvedValue(access);
       const db = scriptedDb([
         { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
-        { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
+        { match: "outcome = 'failed'", run: { changes: 0 } },
       ]);
 
       await expect(sendPharmacyAutomatedPush({
@@ -449,7 +449,7 @@ describe('pharmacy automated sender', () => {
     patientAccess.mockResolvedValue({ notifications: 'stopped' });
     const db = scriptedDb([
       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 0 } },
-      { match: "outcome IN ('attempted','failed')", run: { changes: 1 } },
+      { match: "outcome = 'failed'", run: { changes: 1 } },
     ]);
 
     await expect(sendPharmacyAutomatedPush({
@@ -493,7 +493,7 @@ describe('pharmacy automated sender', () => {
     betaDeliveryState.mockResolvedValue('blocked');
     const db = scriptedDb([
       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
-      { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
+      { match: "outcome = 'failed'", run: { changes: 0 } },
     ]);
 
     await expect(sendPharmacyAutomatedPush({
@@ -553,7 +553,7 @@ describe('pharmacy automated sender', () => {
       { match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: 0 } },
       { match: 'SELECT id, outcome', first: null },
       { match: "VALUES (?, ?, ?, ?, ?, 'blocked'", run: { changes: 1 } },
-      { match: "outcome IN ('attempted','failed')", run: { changes: 0 } },
+      { match: "outcome = 'failed'", run: { changes: 0 } },
     ], seen);
 
     await expect(sendPharmacyAutomatedPush({

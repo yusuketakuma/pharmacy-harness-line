@@ -201,3 +201,66 @@ it('preserves a previous unknown delivery when the expectation ends before retry
 
   } finally { sqlite.close(); }
 });
+
+it.each(['initial_patient', 'post_claim_patient', 'final_patient', 'final_account'])(
+  'retains unknown delivery history when stopped at %s', async phase => {
+    const { LineHarnessUnknownOutcomeError } = await import('../../../services/line-proxy-send.js');
+    const { setPatientNotificationPreference } = await import('../intake/repository.js');
+    const { sqlite, db } = setup();
+    try {
+      const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
+      push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('synthetic unknown delivery'));
+      expect(await deliver(reminder, db)).toBe('failed');
+      const previous = sqlite.prepare("SELECT created_at FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get();
+      sqlite.exec("UPDATE pharmacy_notification_events SET occurred_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','-16 minutes') WHERE idempotency_key='next-intake:expectation-000'");
+      let patientReads = 0;
+      let stopped = false;
+      const intercepted = {
+        ...db,
+        prepare: (sql: string) => {
+          const statement = db.prepare(sql);
+          const patientRead = sql.includes('SELECT patient.relationship');
+          const finalRead = sql.includes('final pharmacy dispatch scope');
+          if (!patientRead && !finalRead) return statement;
+          return {bind: (...values: unknown[]) => ({first: async () => {
+            if (patientRead) patientReads++;
+            const stopAt = phase === 'initial_patient' ? 1 : phase === 'post_claim_patient' ? 2 : 3;
+            if (!stopped && phase !== 'final_account' && patientRead && patientReads === stopAt) {
+              await setPatientNotificationPreference(db, {lineAccountId:'account-a',friendId:'friend-a'}, 'patient-000', {action:'stop',expectedControlVersion:0});
+              stopped = true;
+            }
+            if (phase === 'final_account' && finalRead) {
+              sqlite.exec("UPDATE line_accounts SET is_active=0 WHERE id='account-a'");
+              stopped = true;
+            }
+            return statement.bind(...values).first();
+          }})};
+        },
+      } as D1Database;
+      expect(await deliver(reminder, intercepted)).toBe('skipped');
+      expect(stopped).toBe(true);
+      expect(push).toHaveBeenCalledOnce();
+      expect(sqlite.prepare("SELECT outcome,created_at FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get())
+        .toEqual({...previous as object,outcome:'attempted'});
+      expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {sqlite.close();}
+  },
+);
+
+it.each(['new', 'known_failure'])(
+  'still records a stop as blocked for a %s notification', async previous => {
+    const { setPatientNotificationPreference } = await import('../intake/repository.js');
+    const { sqlite, db } = setup();
+    try {
+      const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
+      if (previous === 'known_failure') {
+        push.mockRejectedValueOnce(new Error('synthetic known failure'));
+        expect(await deliver(reminder, db)).toBe('failed');
+      }
+      await setPatientNotificationPreference(db, {lineAccountId:'account-a',friendId:'friend-a'}, 'patient-000', {action:'stop',expectedControlVersion:0});
+      expect(await deliver(reminder, db)).toBe('skipped');
+      expect(push).toHaveBeenCalledTimes(previous === 'new' ? 0 : 1);
+      expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get()).toEqual({outcome:'blocked'});
+    } finally {sqlite.close();}
+  },
+);
