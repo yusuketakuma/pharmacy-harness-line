@@ -268,11 +268,23 @@ export const RETENTION_SOURCE_INVENTORY = [
   ...OWNER_PHI_RECORDED_AT_SOURCES.map(([field]) => field),
 ] as const;
 
-const LATEST_PHI_SQL =
-  `SELECT recorded_at FROM (${[
-    ...PATIENT_PHI_RECORDED_AT_SOURCES,
-    ...OWNER_PHI_RECORDED_AT_SOURCES,
-  ].map(([, sql]) => sql).join('\n UNION ALL ')}) AS source_dates`;
+// D1 accepts only small compound SELECTs. Group UNION ALL terms recursively
+// within one statement, preserving the snapshot and every null/invalid source.
+function retentionSourceQuery(queries: string[]): string {
+  while (queries.length > 5) {
+    const groups: string[] = [];
+    for (let i = 0; i < queries.length; i += 5) {
+      groups.push(`SELECT recorded_at FROM (${queries.slice(i, i + 5).join('\n UNION ALL ')})`);
+    }
+    queries = groups;
+  }
+  return queries.join('\n UNION ALL ');
+}
+
+const LATEST_PHI_SQL = `SELECT recorded_at FROM (${retentionSourceQuery([
+  ...PATIENT_PHI_RECORDED_AT_SOURCES,
+  ...OWNER_PHI_RECORDED_AT_SOURCES,
+].map(([, sql]) => sql))}) AS source_dates`;
 
 /**
  * 患者に紐づくPHI記録のうち最新のものの記録時刻。
