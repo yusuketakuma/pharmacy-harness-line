@@ -438,6 +438,37 @@ describe('platform-admin data protection recovery routes', () => {
     expect(recoveryMocks.completeRecoveryOperation).not.toHaveBeenCalled();
   });
 
+  it.each(['PROGRESS_CONFLICT', 'COMPLETE_CONFLICT'])('preserves the active operation when a request loses a %s race', async (code) => {
+    const running = {
+      ...operation, status: 'running' as const, executorSubject: 'admin-executor',
+      executionId: 'execution-a', fenceId: 'fence-a', fenceToken: 'f'.repeat(32),
+      lastBatchId: 'previous-batch',
+    };
+    recoveryMocks.getRecoveryOperation.mockResolvedValue(running);
+    recoveryMocks.preflightRecoveryOperation.mockResolvedValue(running);
+    recoveryMocks.assertRecoveryExecution.mockResolvedValue({ operation: running, fence: {} });
+    migrationMocks.freezePatientIntakeWrites.mockResolvedValue({ errorCode: null });
+    migrationMocks.scrubPatientIntakeLegacyFields.mockResolvedValue({
+      counts: { scanned: 1, verified: 1 }, errorCode: null, nextCursor: null,
+    });
+    recoveryMocks.markRecoveryProgress.mockResolvedValueOnce({ ...running, processedRowCount: 1 });
+    if (code === 'PROGRESS_CONFLICT') {
+      recoveryMocks.markRecoveryProgress.mockReset().mockRejectedValueOnce(new recoveryMocks.RecoveryOperationError(code));
+    } else {
+      recoveryMocks.completeRecoveryOperation.mockRejectedValueOnce(new recoveryMocks.RecoveryOperationError(code));
+    }
+    const response = await app().request(`${endpoint}/operation-a/execute`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dryRun: false, resume: true, preflight }),
+    }, env());
+    expect(response.status).toBe(409);
+    expect(recoveryMocks.markRecoveryProgress).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      expectedLastBatchId: 'previous-batch',
+    }));
+    expect(recoveryMocks.markRecoveryFailed).not.toHaveBeenCalled();
+    expect(recoveryMocks.markRecoveryStale).not.toHaveBeenCalled();
+  });
+
   it('resumes a running batch for the same executor without claiming it again', async () => {
     const running = {
       ...operation,

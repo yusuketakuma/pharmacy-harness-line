@@ -475,6 +475,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
       const progressed = result.readiness.status === 'READY'
         ? await markRecoveryProgress(c.env.DB, {
           ...execution,
+          expectedLastBatchId: verified.lastBatchId,
           batchId: stringValue(body.batchId) ??
             `${verified.id}:${verified.processedRowCount}:${verified.processedObjectCount}`,
           cursor: null,
@@ -510,6 +511,7 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
     const batchId = stringValue(body.batchId) ?? `${verified.id}:${verified.cursor ?? 'start'}`;
     const progressed = await markRecoveryProgress(c.env.DB, {
       ...execution,
+      expectedLastBatchId: verified.lastBatchId,
       batchId,
       cursor: result.nextCursor,
       processedRowCount: verified.processedRowCount + (result.counts.scanned ?? 0),
@@ -526,6 +528,12 @@ platformAdminDataProtectionRoutes.post(`${RECOVERY_PATH}/:operationId/execute`, 
     });
     return c.json({ success: true, data: { operation: final, result } });
   } catch (error) {
+    if (error instanceof RecoveryOperationError &&
+        ['PROGRESS_CONFLICT', 'COMPLETE_CONFLICT'].includes(error.code)) {
+      // Another request may have advanced the same execution. Its operation
+      // and lease must survive this request's stale progress/completion attempt.
+      return errorResponse(c, error);
+    }
     if (error instanceof RecoveryOperationError &&
         ['PREFLIGHT_BLOCKED', 'STALE', 'EXECUTION_NOT_FOUND', 'FENCE_EXPIRED'].includes(error.code)) {
       const latest = await getRecoveryOperation(c.env.DB, operationId).catch(() => null);

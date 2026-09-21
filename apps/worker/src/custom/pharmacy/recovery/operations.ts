@@ -91,6 +91,8 @@ export type RecoveryProgressInput = RecoveryExecution & {
   cursor: string | null;
   processedRowCount: number;
   processedObjectCount: number;
+  /** Snapshot used to compute this batch; omitted by legacy internal callers. */
+  expectedLastBatchId?: string | null;
 };
 
 export class RecoveryOperationError extends Error {
@@ -778,11 +780,29 @@ export async function assertRecoveryFence(
   return row ? rowToFence(row) : null;
 }
 
+// Recheck the execution lease inside each mutation, not only in the earlier read.
+const ACTIVE_OPERATION_FENCE = `EXISTS (
+  SELECT 1 FROM pharmacy_recovery_execution_fences fence
+  WHERE fence.fence_id = pharmacy_recovery_operations.fence_id
+    AND fence.operation_id = pharmacy_recovery_operations.id
+    AND fence.tenant_id = pharmacy_recovery_operations.tenant_id
+    AND fence.line_account_id = pharmacy_recovery_operations.line_account_id
+    AND fence.environment = pharmacy_recovery_operations.environment
+    AND fence.execution_id = pharmacy_recovery_operations.execution_id
+    AND fence.fence_token = pharmacy_recovery_operations.fence_token
+    AND fence.owner_subject = pharmacy_recovery_operations.executor_subject
+    AND fence.status = 'active'
+    AND fence.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
+
 export async function markRecoveryProgress(
   db: D1Database,
   input: RecoveryProgressInput,
 ): Promise<RecoveryOperationRecord> {
   const current = (await assertRecoveryExecution(db, input)).operation;
+  if (input.expectedLastBatchId !== undefined &&
+      current.lastBatchId !== input.expectedLastBatchId && current.lastBatchId !== input.batchId) {
+    throw new RecoveryOperationError('PROGRESS_CONFLICT');
+  }
   if (!validIdentifier(input.batchId) || input.batchId.length > 240 ||
       (input.cursor !== null && !validIdentifier(input.cursor)) ||
       !Number.isSafeInteger(input.processedRowCount) || input.processedRowCount < current.processedRowCount ||
@@ -798,18 +818,22 @@ export async function markRecoveryProgress(
     }
     return current;
   }
+  const now = new Date().toISOString();
   const result = await db.prepare(`UPDATE pharmacy_recovery_operations SET
       cursor = ?, processed_row_count = ?, processed_object_count = ?,
       last_batch_id = ?, updated_at = ?
     WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
       AND operation = ? AND status = 'running' AND execution_id = ?
       AND fence_token = ? AND executor_subject = ?
-      AND (last_batch_id IS NULL OR last_batch_id <> ?)`)
+      AND last_batch_id IS ? AND cursor IS ?
+      AND processed_row_count = ? AND processed_object_count = ?
+      AND ${ACTIVE_OPERATION_FENCE}`)
     .bind(
       input.cursor, input.processedRowCount, input.processedObjectCount, input.batchId,
-      new Date().toISOString(), input.operationId, input.tenantId, input.lineAccountId,
+      now, input.operationId, input.tenantId, input.lineAccountId,
       input.environment, input.operation, input.executionId, input.fenceToken,
-      input.executorSubject, input.batchId,
+      input.executorSubject, current.lastBatchId, current.cursor,
+      current.processedRowCount, current.processedObjectCount,
     ).run();
   if (result.meta?.changes !== 1) throw new RecoveryOperationError('PROGRESS_CONFLICT');
   return (await operationById(db, input.operationId))!;
@@ -836,12 +860,27 @@ export async function completeRecoveryOperation(
         status = 'completed', completed_at = ?, updated_at = ?
       WHERE id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
         AND operation = ? AND status = 'running' AND execution_id = ?
-        AND fence_token = ? AND executor_subject = ?`)
+        AND fence_token = ? AND executor_subject = ?
+        AND processed_row_count = expected_row_count AND processed_object_count = expected_object_count
+        AND expected_row_count = ? AND expected_object_count = ?
+        AND last_batch_id IS ? AND cursor IS ?
+        AND ${ACTIVE_OPERATION_FENCE}`)
       .bind(
         now, now, current.id, input.tenantId, input.lineAccountId, input.environment,
         input.operation, input.executionId, input.fenceToken, input.executorSubject,
+        current.preflight.expectedRowCount, current.preflight.expectedObjectCount,
+        current.lastBatchId, current.cursor,
       ),
-    releaseFenceStatement(db, current.fenceId!, now),
+    db.prepare(`UPDATE pharmacy_recovery_execution_fences SET status = 'released', released_at = ?
+      WHERE fence_id = ? AND tenant_id = ? AND line_account_id = ? AND environment = ?
+        AND status = 'active' AND execution_id = ? AND fence_token = ? AND owner_subject = ?
+        AND EXISTS (SELECT 1 FROM pharmacy_recovery_operations operation
+          WHERE operation.id = pharmacy_recovery_execution_fences.operation_id
+            AND operation.fence_id = pharmacy_recovery_execution_fences.fence_id
+            AND operation.execution_id = pharmacy_recovery_execution_fences.execution_id
+            AND operation.status = 'completed' AND operation.completed_at = ?)`)
+      .bind(now, current.fenceId, input.tenantId, input.lineAccountId, input.environment,
+        input.executionId, input.fenceToken, input.executorSubject, now),
   ]);
   if (results.length !== 2 || results[0]?.meta?.changes !== 1 || results[1]?.meta?.changes !== 1) {
     throw new RecoveryOperationError('COMPLETE_CONFLICT');

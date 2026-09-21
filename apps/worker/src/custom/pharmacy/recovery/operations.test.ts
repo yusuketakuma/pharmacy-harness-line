@@ -53,7 +53,114 @@ const preflight: RecoveryPreflight = {
   keyRecoveryAcknowledged: true,
 };
 
+async function runningRecovery(db: D1Database) {
+  const created = await createRecoveryApproval(db, {
+    scope, operation: 'plaintext_scrub', requestedBy: approver,
+    approvalExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    idempotencyKey: 'concurrent-recovery',
+  });
+  await preflightRecoveryOperation(db, {
+    operationId: created.id, scope, operation: 'plaintext_scrub', preflight,
+  });
+  await approveRecoveryOperation(db, {
+    operationId: created.id, scope, operation: 'plaintext_scrub', principal: approver,
+  });
+  const claimed = await claimRecoveryOperation(db, {
+    operationId: created.id, scope, operation: 'plaintext_scrub', executor,
+  });
+  return {
+    operation: 'plaintext_scrub' as const, operationId: claimed.id,
+    executionId: claimed.executionId!, fenceToken: claimed.fenceToken!,
+    executorSubject: executor.subject, ...scope,
+  };
+}
+
+// Interleave another real SQLite write after the authorization read but before
+// this request's first write. No timers or mocked SQL results are involved.
+function beforeWrite(db: D1Database, effect: () => void | Promise<void>): D1Database {
+  let pending = true;
+  const before = async () => { if (pending) { pending = false; await effect(); } };
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => ({
+    ...statement,
+    bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+    run: async () => { await before(); return statement.run(); },
+  }) as D1PreparedStatement;
+  return {
+    ...db,
+    prepare: (sql: string) => wrap(db.prepare(sql)),
+    batch: async (statements: D1PreparedStatement[]) => { await before(); return db.batch(statements); },
+  } as D1Database;
+}
+
 describe('pharmacy recovery operation state machine', () => {
+  it('rejects a stale concurrent batch without moving the committed cursor or counts backwards', async () => {
+    const { db, sqlite } = seed();
+    try {
+      const execution = await runningRecovery(db);
+      const delayed = beforeWrite(db, async () => {
+        await markRecoveryProgress(db, {
+          ...execution, batchId: 'winner', cursor: 'cursor-new',
+          processedRowCount: 1, processedObjectCount: 0,
+        });
+      });
+      await expect(markRecoveryProgress(delayed, {
+        ...execution, batchId: 'late', cursor: 'cursor-old',
+        processedRowCount: 0, processedObjectCount: 0,
+      })).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
+      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({
+        status: 'running', lastBatchId: 'winner', cursor: 'cursor-new', processedRowCount: 1,
+      });
+    } finally { sqlite.close(); }
+  });
+
+  it('rejects progress if the execution fence expires after authorization', async () => {
+    const { db, sqlite } = seed();
+    try {
+      const execution = await runningRecovery(db);
+      const expired = beforeWrite(db, () => {
+        sqlite.prepare('UPDATE pharmacy_recovery_execution_fences SET expires_at = ?').run(NOW);
+      });
+      await expect(markRecoveryProgress(expired, {
+        ...execution, batchId: 'late', cursor: 'cursor-old',
+        processedRowCount: 1, processedObjectCount: 0,
+      })).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
+      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({ processedRowCount: 0 });
+    } finally { sqlite.close(); }
+  });
+
+  it('rejects a batch computed from an older snapshot even if its counts are equal', async () => {
+    const { db, sqlite } = seed();
+    try {
+      const execution = await runningRecovery(db);
+      const winner = {
+        ...execution, batchId: 'winner', cursor: 'cursor-new', expectedLastBatchId: null,
+        processedRowCount: 1, processedObjectCount: 0,
+      };
+      await markRecoveryProgress(db, winner);
+      await expect(markRecoveryProgress(db, winner)).resolves.toMatchObject({ lastBatchId: 'winner' });
+      await expect(markRecoveryProgress(db, {
+        ...winner, batchId: 'late', cursor: 'cursor-old',
+      })).rejects.toMatchObject({ code: 'PROGRESS_CONFLICT' });
+      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({ cursor: 'cursor-new' });
+    } finally { sqlite.close(); }
+  });
+
+  it.each(['progress', 'fence'])('does not complete or release the fence when %s changes after authorization', async (change) => {
+    const { db, sqlite } = seed();
+    try {
+      const execution = await runningRecovery(db);
+      await markRecoveryProgress(db, {
+        ...execution, batchId: 'done', cursor: null, processedRowCount: 1, processedObjectCount: 0,
+      });
+      const changed = beforeWrite(db, () => {
+        if (change === 'progress') sqlite.exec('UPDATE pharmacy_recovery_operations SET processed_row_count = 0');
+        else sqlite.prepare('UPDATE pharmacy_recovery_execution_fences SET expires_at = ?').run(NOW);
+      });
+      await expect(completeRecoveryOperation(changed, execution)).rejects.toMatchObject({ code: 'COMPLETE_CONFLICT' });
+      expect(await getRecoveryOperation(db, execution.operationId)).toMatchObject({ status: 'running' });
+      expect(sqlite.prepare('SELECT status FROM pharmacy_recovery_execution_fences').get()).toEqual({ status: 'active' });
+    } finally { sqlite.close(); }
+  });
   it('requires a verified preflight, independent executor, and one CAS claim', async () => {
     const { db } = seed();
     const created = await createRecoveryApproval(db, {
