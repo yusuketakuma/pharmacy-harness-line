@@ -723,8 +723,8 @@ chats.post('/api/chats/:id/send', async (c) => {
     await updateChat(c.env.DB, chat.id, { status: 'in_progress', lastMessageAt: jstNow() });
 
     return c.json({ success: true, data: { sent: true, messageId: operationId } });
-  } catch (err) {
-    console.error('POST /api/chats/:id/send error:', err);
+  } catch {
+    log('chat_manual_send_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });

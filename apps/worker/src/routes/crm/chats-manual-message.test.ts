@@ -135,6 +135,50 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe('manual chat send error privacy', () => {
+  it.each(['request', 'flex', 'image', 'delivery'])(
+    'keeps sensitive %s failures out of logs and responses', async (failure) => {
+      const { db } = makeDb();
+      credentialMocks.readLineCredential.mockResolvedValue('tenant-account-token');
+      const sensitive = 'PHI_MARK';
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        if (failure === 'delivery') {
+          deliveryMocks.deliverTrackedLinePush.mockRejectedValueOnce(new Error(sensitive));
+        }
+        const response = await setup(db).request('/api/chats/chat-a/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Line-Harness-Source': 'manual',
+            'Idempotency-Key': crypto.randomUUID(),
+          },
+          body: failure === 'request' ? sensitive : JSON.stringify({
+            messageType: failure === 'delivery' ? 'text' : failure,
+            content: sensitive,
+          }),
+        }, bindings(db, ROOT_SECRET));
+
+        expect(response.status).toBe(500);
+        expect(await response.json()).toEqual({ success: false, error: 'Internal server error' });
+        const logged = errorSpy.mock.calls.flat().map(String).join(' ');
+        expect(logged).not.toContain(sensitive);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(errorSpy.mock.calls[0][0]))).toEqual({
+          ts: expect.any(String), level: 'error', event: 'chat_manual_send_failed',
+        });
+        expect(updateChat).not.toHaveBeenCalled();
+        if (failure !== 'delivery') {
+          expect(deliveryMocks.deliverTrackedLinePush).not.toHaveBeenCalled();
+        }
+        expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    },
+  );
+});
+
 describe('manual chat message credentials', () => {
   it('reads the tenant-bound credential and keeps the manual audit row', async () => {
     const { db, executions } = makeDb();
