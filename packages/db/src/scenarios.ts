@@ -161,6 +161,8 @@ export interface CreateScenarioInput {
   deliveryMode?: DeliveryMode;
   /** Owning tenant. Required for an account-unassigned scenario to ever fire. */
   tenantId?: string | null;
+  lineAccountId?: string | null;
+  isActive?: boolean;
 }
 
 export async function createScenario(
@@ -172,8 +174,8 @@ export async function createScenario(
 
   await db
     .prepare(
-      `INSERT INTO scenarios (id, name, description, trigger_type, trigger_tag_id, is_active, delivery_mode, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+      `INSERT INTO scenarios (id, name, description, trigger_type, trigger_tag_id, is_active, delivery_mode, tenant_id, line_account_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -181,16 +183,18 @@ export async function createScenario(
       input.description ?? null,
       input.triggerType,
       input.triggerTagId ?? null,
+      input.isActive === false ? 0 : 1,
       input.deliveryMode ?? 'relative',
       input.tenantId ?? null,
+      input.lineAccountId ?? null,
       now,
       now,
     )
     .run();
 
   return (await db
-    .prepare(`SELECT * FROM scenarios WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT * FROM scenarios WHERE id = ? AND tenant_id IS ? AND line_account_id IS ?`)
+    .bind(id, input.tenantId ?? null, input.lineAccountId ?? null)
     .first<Scenario>())!;
 }
 

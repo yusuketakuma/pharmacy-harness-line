@@ -39,6 +39,8 @@ export function registerCreateScenario(server: McpServer): void {
         .describe("LINE account ID (uses default if omitted)"),
     },
     async ({ name, triggerType, triggerTagId, steps, accountId }) => {
+      let createdScenarioId: string | undefined;
+      let confirmedStepCount = 0;
       try {
         if (triggerType === "tag_added" && !triggerTagId) {
           return {
@@ -102,22 +104,21 @@ export function registerCreateScenario(server: McpServer): void {
           triggerType,
           triggerTagId,
           lineAccountId: accountId,
+          isActive: false,
         });
+        createdScenarioId = scenario.id;
 
-        try {
-          for (let i = 0; i < parsedSteps.length; i++) {
-            const step = parsedSteps[i];
-            await client.scenarios.addStep(scenario.id, {
-              stepOrder: i + 1,
-              delayMinutes: step.delayMinutes,
-              messageType: step.type,
-              messageContent: step.content,
-            });
-          }
-        } catch (stepError) {
-          await client.scenarios.delete(scenario.id).catch(() => {});
-          throw stepError;
+        for (let i = 0; i < parsedSteps.length; i++) {
+          const step = parsedSteps[i];
+          await client.scenarios.addStep(scenario.id, {
+            stepOrder: i + 1,
+            delayMinutes: step.delayMinutes,
+            messageType: step.type,
+            messageContent: step.content,
+          });
+          confirmedStepCount += 1;
         }
+        await client.scenarios.update(scenario.id, { isActive: true });
 
         const scenarioWithSteps = await client.scenarios.get(scenario.id);
         return {
@@ -138,7 +139,16 @@ export function registerCreateScenario(server: McpServer): void {
             {
               type: "text" as const,
               text: JSON.stringify(
-                { success: false, error: String(error) },
+                {
+                  success: false,
+                  error: String(error),
+                  ...(createdScenarioId ? {
+                    scenarioId: createdScenarioId,
+                    confirmedStepCount,
+                    outcome: "unknown",
+                    message: "The scenario has been retained. Check its steps and active status before retrying; the last operation may already have committed.",
+                  } : {}),
+                },
                 null,
                 2,
               ),

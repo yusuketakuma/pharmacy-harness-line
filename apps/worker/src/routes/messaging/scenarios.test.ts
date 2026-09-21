@@ -93,6 +93,25 @@ beforeEach(() => {
   for (const fn of Object.values(dbMocks)) fn.mockReset();
 });
 
+describe('POST /api/scenarios initial scope', () => {
+  test('passes account and inactive state to the initial insert and returns the saved scope', async () => {
+    const row = { ...rowBase, id: 'scenario-a', name: 'draft', is_active: 0, line_account_id: 'account-a' };
+    dbMocks.createScenario.mockResolvedValue(row);
+    const prepare = vi.fn(() => { throw new Error('unexpected post-insert mutation'); });
+    const response = await setupApp({ prepare } as unknown as D1Database, 'tenant-a').request('/api/scenarios', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'draft', triggerType: 'friend_add', lineAccountId: 'account-a', isActive: false }),
+    });
+    expect(response.status).toBe(201);
+    expect(dbMocks.createScenario).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      tenantId: 'tenant-a', lineAccountId: 'account-a', isActive: false,
+    }));
+    expect((await response.json() as { data: unknown }).data).toMatchObject({ isActive: false, lineAccountId: 'account-a' });
+    expect(prepare).not.toHaveBeenCalled();
+    expect(dbMocks.updateScenario).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/scenarios?lineAccountId=X', () => {
   test('includes both account-bound and global (NULL) scenarios', async () => {
     const rows: ScenarioRow[] = [

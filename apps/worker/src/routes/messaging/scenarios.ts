@@ -242,7 +242,7 @@ scenarios.post('/api/scenarios', async (c) => {
       return c.json({ success: false, error: 'invalid deliveryMode' }, 400);
     }
 
-    let scenario = await createScenario(c.env.DB, {
+    const scenario = await createScenario(c.env.DB, {
       name: body.name,
       description: body.description ?? null,
       triggerType: body.triggerType,
@@ -250,19 +250,9 @@ scenarios.post('/api/scenarios', async (c) => {
       deliveryMode: deliveryMode as DeliveryMode,
       // Account-unassigned scenarios only fire inside their own tenant (M-1).
       tenantId: c.get('tenantId') ?? null,
+      lineAccountId: body.lineAccountId || null,
+      isActive: body.isActive !== false,
     });
-
-    // Save line_account_id if provided
-    if (body.lineAccountId) {
-      await c.env.DB.prepare(`UPDATE scenarios SET line_account_id = ? WHERE id = ?`)
-        .bind(body.lineAccountId, scenario.id).run();
-    }
-
-    // createScenario() always sets is_active=1; override if the caller requested inactive
-    if (body.isActive === false) {
-      const updated = await updateScenario(c.env.DB, scenario.id, { is_active: 0 });
-      if (updated) scenario = updated;
-    }
 
     return c.json({ success: true, data: serializeScenario(scenario) }, 201);
   } catch (err) {
