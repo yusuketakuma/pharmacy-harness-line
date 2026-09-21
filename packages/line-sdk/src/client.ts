@@ -8,6 +8,7 @@ import type {
   RichMenuObject,
   UserProfile,
 } from './types.js';
+import { createLineApiError } from './errors.js';
 
 const LINE_API_BASE = 'https://api.line.me';
 
@@ -21,19 +22,6 @@ export interface FollowersInsight {
 export interface FollowerIdsPage {
   userIds: string[];
   next?: string;
-}
-
-/**
- * Error for a non-2xx LINE response. The upstream body, including its
- * `message`/`error` fields, can echo private request data. Callers log this
- * error, so only emit a fixed known detail needed for retry classification.
- */
-async function lineApiError(res: Response): Promise<Error> {
-  const body = (await res.json().catch(() => null)) as { message?: unknown; error?: unknown } | null;
-  const detail = (body?.message ?? body?.error) === 'Invalid reply token'
-    ? ' — Invalid reply token'
-    : '';
-  return new Error(`LINE API error: ${res.status} ${res.statusText}${detail}`);
 }
 
 export class LineClient {
@@ -72,7 +60,7 @@ export class LineClient {
     }
 
     if (!res.ok) {
-      throw await lineApiError(res);
+      throw await createLineApiError(res);
     }
 
     // Some endpoints (e.g. push, reply) return an empty body with 200.
@@ -223,7 +211,7 @@ export class LineClient {
     });
     if (res.status === 404) return null;
     if (!res.ok) {
-      throw await lineApiError(res);
+      throw await createLineApiError(res);
     }
     const data = (await res.json()) as { richMenuId: string };
     return data.richMenuId;
@@ -269,7 +257,7 @@ export class LineClient {
       body: imageData,
     });
     if (!res.ok) {
-      throw await lineApiError(res);
+      throw await createLineApiError(res);
     }
   }
 

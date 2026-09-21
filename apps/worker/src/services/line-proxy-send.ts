@@ -1,4 +1,4 @@
-import type { Message } from '@line-crm/line-sdk';
+import { createLineApiError, type Message } from '@line-crm/line-sdk';
 
 export type HarnessProxyDispatch = (request: Request) => Promise<Response>;
 
@@ -98,14 +98,5 @@ export async function replyViaHarnessProxy(
   const response = dispatch ? await dispatch(new Request(url, init)) : await fetch(url, init);
   if (response.ok) return;
 
-  const body = (await response.json().catch(() => null)) as
-    { message?: unknown; error?: unknown } | null;
-  // Preserve the deterministic rejection marker without logging arbitrary
-  // upstream text, which may echo private request data.
-  const detail = (body?.message ?? body?.error) === 'Invalid reply token'
-    ? ' — Invalid reply token'
-    : '';
-  throw new Error(
-    `LINE API error: ${response.status} ${response.statusText}${detail}`,
-  );
+  throw await createLineApiError(response);
 }
