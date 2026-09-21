@@ -76,6 +76,7 @@ export default function MedicationFollowUpPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyResponse, setBusyResponse] = useState<string | null>(null);
+  const respondingRef = useRef(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<{ id: string; text: string } | null>(null);
   const [outlook, setOutlook] = useState<MedicationFollowUpOperationsOutlook | null>(null);
@@ -122,8 +123,12 @@ export default function MedicationFollowUpPage() {
     : items, [items, requestedId]);
 
   async function respond(item: PatientMedicationFollowUp, response: PatientMedicationFollowUpResponse) {
+    if (respondingRef.current) return;
     const option = PATIENT_RESPONSE_OPTIONS.find((candidate) => candidate.value === response);
     if (!option || !window.confirm(`「${option.label}」として薬局へ送信します。送信後は変更できません。よろしいですか？`)) return;
+    // One response owns the shared busy/error/success state until it settles.
+    // The ref also guards re-entry before React renders disabled buttons.
+    respondingRef.current = true;
     setBusyId(item.id);
     setBusyResponse(response);
     setError('');
@@ -145,6 +150,7 @@ export default function MedicationFollowUpPage() {
       await load();
       setError('回答を送信できませんでした。状態が変わっている可能性があるため、再読み込みしてください。');
     } finally {
+      respondingRef.current = false;
       setBusyId(null);
       setBusyResponse(null);
     }
@@ -198,7 +204,7 @@ export default function MedicationFollowUpPage() {
                       <button
                         key={option.value}
                         type="button"
-                        disabled={busyId === item.id}
+                        disabled={busyId !== null}
                         aria-busy={busyId === item.id && busyResponse === option.value}
                         onClick={() => void respond(item, option.value)}
                         className="pharmacy-control min-h-11 rounded-xl border border-green-200 bg-white px-4 py-3 text-left disabled:opacity-50"

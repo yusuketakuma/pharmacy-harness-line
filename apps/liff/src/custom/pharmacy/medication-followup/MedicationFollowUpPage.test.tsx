@@ -51,7 +51,7 @@ describe('patient medication follow-up page', () => {
     const source = readFileSync(new URL('./MedicationFollowUpPage.tsx', import.meta.url), 'utf8');
     expect(source).toContain('window.confirm');
     expect(source).toContain('min-h-11');
-    expect(source).toContain('disabled={busyId === item.id}');
+    expect(source).toContain('disabled={busyId !== null}');
     expect(source).toContain('aria-current={item.id === requestedId');
     expect(source).toContain('通信状態を確認して再読み込み');
     expect(source).toContain('onClick={() => void load()}');
