@@ -6,6 +6,14 @@ import { describe, expect, it } from 'vitest';
 import { splitSqlStatements } from '../scripts/split-sql-statements.mjs';
 
 describe('bootstrap migration statement boundaries', () => {
+  it('writes the complete bootstrap to a pipe before exiting', () => {
+    const root = resolve('.');
+    const output = execFileSync(process.execPath, [join(root, 'scripts/generate-bootstrap.mjs'), '--stdout'], {
+      env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR },
+    });
+    expect(output.equals(readFileSync(join(root, 'bootstrap.sql')))).toBe(true);
+  });
+
   it('preserves multiline trigger bodies, CASE, comments and quoted semicolons in the generated database', () => {
     const root = resolve('.');
     const scratch = mkdtempSync(join(root, '.audit-bootstrap-'));

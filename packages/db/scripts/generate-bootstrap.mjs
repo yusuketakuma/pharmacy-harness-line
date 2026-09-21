@@ -163,7 +163,10 @@ const wantsStdout = process.argv.includes("--stdout");
 const wantsCheck = process.argv.includes("--check");
 
 if (wantsStdout) {
-  process.stdout.write(generated.sql);
+  // A pipe may buffer writes asynchronously; finish writing before exit.
+  await new Promise((resolve, reject) => {
+    process.stdout.write(generated.sql, (error) => error ? reject(error) : resolve());
+  });
   process.exit(0);
 }
 
