@@ -1,3 +1,4 @@
+import { Hono } from 'hono';
 import { describe, expect, test, beforeEach, vi } from 'vitest';
 
 // Mock the DB package — /t/:linkId route reads the link via getTrackedLinkById
@@ -349,5 +350,37 @@ describe('GET /t/:linkId — short codes', () => {
     expect(res.headers.get('location')).toContain(
       encodeURIComponent('https://worker.example.com/t/Ab3xY9k'),
     );
+  });
+});
+
+
+describe('PATCH tracked link ownership before mutation', () => {
+  test.each([
+    { owner: 'account-b', target: undefined, status: 404 },
+    { owner: 'account-b', target: 'account-a', status: 404 },
+    { owner: 'account-a', target: 'account-b', status: 404 },
+    { owner: 'account-a', target: 'account-a', status: 200 },
+    { owner: null, target: undefined, status: 200 },
+  ])('owner=$owner target=$target returns $status', async ({ owner, target, status }) => {
+    const before = makeLink({ line_account_id: owner });
+    const body = { name: 'updated', ...(target === undefined ? {} : { lineAccountId: target }) };
+    dbMocks.getTrackedLinkById.mockResolvedValue(before);
+    dbMocks.updateTrackedLink.mockResolvedValue({ ...before, name: 'updated', line_account_id: target ?? owner });
+    const db = {
+      prepare: () => ({ bind: () => ({ all: async () => ({ results: [{ line_account_id: 'account-a' }] }) }) }),
+    } as unknown as D1Database;
+    const app = new Hono<any>();
+    app.use('*', async (c, next) => { c.set('tenantId', 'tenant-a'); await next(); });
+    app.route('/', trackedLinks);
+    const res = await app.request('https://worker.example.com/api/tracked-links/link-1', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, { DB: db });
+    expect(res.status).toBe(status);
+    if (status === 404) {
+      expect(dbMocks.updateTrackedLink).not.toHaveBeenCalled();
+    } else {
+      expect(dbMocks.updateTrackedLink).toHaveBeenCalledWith(db, 'link-1', body);
+      expect(await res.json()).toMatchObject({ success: true, data: { name: 'updated' } });
+    }
   });
 });

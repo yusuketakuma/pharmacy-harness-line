@@ -208,8 +208,18 @@ trackedLinks.patch('/api/tracked-links/:id', async (c) => {
       ogImageUrl?: string | null;
     }>();
 
+    const allowed = await tenantAccountIds(c);
+    const existing = await getTrackedLinkById(c.env.DB, id);
+    if (!existing || !linkVisibleToTenant(existing, allowed)
+      || !linkVisibleToTenant({
+        ...existing,
+        line_account_id: body.lineAccountId === undefined ? existing.line_account_id : body.lineAccountId,
+      }, allowed)) {
+      return c.json({ success: false, error: 'Tracked link not found' }, 404);
+    }
+
     const link = await updateTrackedLink(c.env.DB, id, body);
-    if (!link || !linkVisibleToTenant(link, await tenantAccountIds(c))) {
+    if (!link || !linkVisibleToTenant(link, allowed)) {
       return c.json({ success: false, error: 'Tracked link not found' }, 404);
     }
     const base = await resolveApiLinkBase(c);
