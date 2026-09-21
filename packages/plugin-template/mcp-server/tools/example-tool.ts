@@ -31,11 +31,14 @@ export function registerExampleTool(server: McpServer): void {
    * Tool: lookup_customer
    * Looks up a customer in MyService and enriches with LINE Harness data.
    */
-  server.tool(
+  server.registerTool(
     'lookup_customer',
-    'Look up a customer in MyService and show their LINE profile, tags, and membership status.',
     {
-      customerId: z.string().describe('The customer ID in MyService'),
+      description: 'Look up a customer in MyService and show their LINE profile, tags, and membership status.',
+      // Keep the published input contract while retaining Zod's unknown-key stripping.
+      inputSchema: z.object({
+        customerId: z.string().describe('The customer ID in MyService'),
+      }).meta({ additionalProperties: false }),
     },
     async ({ customerId }) => {
       try {
@@ -105,22 +108,24 @@ export function registerExampleTool(server: McpServer): void {
    * Tool: send_myservice_notification
    * Send a notification about a MyService event to a LINE friend.
    */
-  server.tool(
+  server.registerTool(
     'send_myservice_notification',
-    'Send a MyService-related notification (appointment reminder, etc.) to a LINE friend.',
     {
-      friendId: z.string().describe('LINE Harness friend ID'),
-      notificationType: z
-        .enum(['appointment_reminder', 'membership_expiry', 'custom'])
-        .describe('Type of notification to send'),
-      message: z
-        .string()
-        .optional()
-        .describe('Custom message text (required for "custom" type)'),
-      customerId: z
-        .string()
-        .optional()
-        .describe('MyService customer ID (for auto-generating message content)'),
+      description: 'Send a MyService-related notification (appointment reminder, etc.) to a LINE friend.',
+      inputSchema: z.object({
+        friendId: z.string().describe('LINE Harness friend ID'),
+        notificationType: z
+          .enum(['appointment_reminder', 'membership_expiry', 'custom'])
+          .describe('Type of notification to send'),
+        message: z
+          .string()
+          .optional()
+          .describe('Custom message text (required for "custom" type)'),
+        customerId: z
+          .string()
+          .optional()
+          .describe('MyService customer ID (for auto-generating message content)'),
+      }).meta({ additionalProperties: false }),
     },
     async ({ friendId, notificationType, message, customerId }) => {
       try {

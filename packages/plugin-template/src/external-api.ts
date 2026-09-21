@@ -48,21 +48,32 @@ export class MyServiceClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
-    })
-
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`MyService API error ${response.status}: ${text}`)
+    let response: Response
+    try {
+      response = await fetch(`${BASE_URL}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          ...init?.headers,
+        },
+      })
+    } catch {
+      // Transport errors can include external input; callers may log this error.
+      throw new Error('MyService API request failed')
     }
 
-    return response.json() as Promise<T>
+    if (!response.ok) {
+      // Do not read or propagate a response body that may contain private data.
+      await response.body?.cancel().catch(() => undefined)
+      throw new Error(`MyService API error ${response.status}`)
+    }
+
+    try {
+      return await response.json() as T
+    } catch {
+      throw new Error('MyService API returned invalid JSON')
+    }
   }
 
   /**

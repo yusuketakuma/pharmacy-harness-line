@@ -58,8 +58,8 @@ export default {
     // Webhook endpoint: receives events from MyService
     if (url.pathname === '/webhook' && request.method === 'POST') {
       try {
-        const body = await request.json() as Record<string, unknown>
-        console.log('[MyService Plugin] Webhook received:', JSON.stringify(body))
+        await request.json()
+        console.log('[MyService Plugin] Webhook received')
 
         // TODO: Validate webhook signature from MyService
         // TODO: Process the webhook event
@@ -68,8 +68,9 @@ export default {
         return new Response(JSON.stringify({ received: true }), {
           headers: { 'Content-Type': 'application/json' },
         })
-      } catch (error) {
-        console.error('[MyService Plugin] Webhook error:', error)
+      } catch {
+        // JSON parser errors may contain fragments of the untrusted body.
+        console.error('[MyService Plugin] Invalid webhook request')
         return new Response(JSON.stringify({ error: 'Invalid request' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
