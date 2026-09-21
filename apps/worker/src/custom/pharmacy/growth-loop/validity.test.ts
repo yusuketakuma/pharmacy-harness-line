@@ -15,6 +15,7 @@ function fakeDb() {
     prepare: (sql: string) => ({
       bind: (..._values: unknown[]) => ({
         all: async () => {
+          if (sql.startsWith('PRAGMA')) return { results: [] };
           queries.push(sql);
           if (sql.includes('v.valid_until < ?')) return { results: [] };
           return { results: [{ submission_id: 'submission-1', line_account_id: 'account-a', tenant_id: 'tenant-a', friend_id: 'friend-a', patient_id: 'patient-a', valid_until: '2026-08-21', line_user_id: 'U-a' }] };
@@ -85,9 +86,9 @@ describe('prescription validity reminders', () => {
     const todayFor = async (now: Date) => {
       const bound: unknown[][] = [];
       const db = {
-        prepare: () => ({ bind: (...values: unknown[]) => ({
+        prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
           run: async () => { bound.push(values); return { meta: { changes: 0 } }; },
-          all: async () => { bound.push(values); return { results: [] }; },
+          all: async () => { if (!sql.startsWith('PRAGMA')) bound.push(values); return { results: [] }; },
         }) }),
       } as unknown as D1Database;
       await processDuePrescriptionValidityReminders(db, { proxyBaseUrl: 'https://worker.example', lineCredentialKey: CREDENTIAL_KEY, now });
@@ -141,6 +142,7 @@ describe('prescription validity reminders', () => {
       prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({
         run: async () => { calls.push({ sql, values, operation: 'run' }); return { meta: { changes: 1 } }; },
         all: async () => {
+          if (sql.startsWith('PRAGMA')) return { results: [] };
           calls.push({ sql, values, operation: 'all' });
           return sql.includes('v.valid_until < ?')
             ? { results: [{ submission_id: 'submission-1', line_account_id: 'account-a' }] }

@@ -2094,7 +2094,8 @@ CREATE TABLE pharmacy_prescription_validities (
   reminder_claimed_at TEXT,
   reminder_sent_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL, notification_checked_at TEXT
+  CHECK (notification_checked_at IS NULL OR unixepoch(notification_checked_at) IS NOT NULL),
   CHECK (valid_until IS NULL OR issued_on IS NULL OR valid_until >= issued_on),
   CHECK (verification_status = 'unverified' OR
     (issued_on IS NOT NULL AND valid_until IS NOT NULL AND
@@ -3575,6 +3576,10 @@ CREATE INDEX idx_pharmacy_submission_sources_account
 
 CREATE INDEX idx_pharmacy_tenant_provisioning_tenant
   ON pharmacy_tenant_provisioning_requests (tenant_id, created_at);
+
+CREATE INDEX idx_pharmacy_validity_notification_queue
+  ON pharmacy_prescription_validities (COALESCE(notification_checked_at, reminder_due_at), reminder_due_at, submission_id)
+  WHERE verification_status = 'verified' AND reminder_sent_at IS NULL;
 
 CREATE INDEX idx_pharmacy_webhook_event_receipts_received
   ON pharmacy_webhook_event_receipts (received_at);

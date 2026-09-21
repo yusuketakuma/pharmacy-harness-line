@@ -52,6 +52,8 @@ export async function processDuePrescriptionValidityReminders(
       at: now,
     })) expiredReviewRequired++;
   }
+  const columns = await db.prepare('PRAGMA table_info(pharmacy_prescription_validities)').bind().all<{ name: string }>();
+  const notificationQueue = columns.results?.some(column => column.name === 'notification_checked_at') ?? false;
   const rows = await db.prepare(
     `SELECT v.submission_id, v.line_account_id, s.friend_id, patient.patient_id, v.valid_until,
             f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id
@@ -77,7 +79,7 @@ export async function processDuePrescriptionValidityReminders(
         AND (v.reminder_claimed_at IS NULL OR v.reminder_claimed_at < ?)
         AND s.status = 'ready'
         AND f.is_following = 1 AND la.is_active = 1
-      ORDER BY v.reminder_due_at, v.submission_id LIMIT ?`,
+      ORDER BY ${notificationQueue ? 'COALESCE(v.notification_checked_at, v.reminder_due_at), ' : ''}v.reminder_due_at, v.submission_id LIMIT ?`,
   ).bind(today, timestamp, staleClaim, limit).all<DueValidity>();
 
   const result = {
@@ -89,8 +91,17 @@ export async function processDuePrescriptionValidityReminders(
   for (const row of rows.results ?? []) {
     const claim = await db.prepare(
       `UPDATE pharmacy_prescription_validities
-          SET reminder_claimed_at = ?, updated_at = ?
+          SET reminder_claimed_at = ?, updated_at = ?${notificationQueue ? `,
+              notification_checked_at = CASE
+                WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
+                ELSE notification_checked_at END` : ''}
         WHERE submission_id = ? AND line_account_id = ?
+          AND EXISTS (
+            SELECT 1 FROM tenant_line_accounts AS mapping
+            INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+            INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id AND account.is_active = 1
+            WHERE mapping.tenant_id = ? AND mapping.line_account_id = pharmacy_prescription_validities.line_account_id
+          )
           AND verification_status = 'verified' AND reminder_sent_at IS NULL
           AND (reminder_claimed_at IS NULL OR reminder_claimed_at < ?)
           AND valid_until IS NOT NULL AND valid_until >= ?
@@ -107,7 +118,10 @@ export async function processDuePrescriptionValidityReminders(
                AND EXISTS (SELECT 1 FROM json_each(capability.capabilities_json)
                             WHERE value = 'prescription_intake')
           )`,
-    ).bind(timestamp, timestamp, row.submission_id, row.line_account_id, staleClaim, today).run();
+    ).bind(
+      timestamp, timestamp, ...(notificationQueue ? [timestamp, timestamp] : []),
+      row.submission_id, row.line_account_id, row.tenant_id, staleClaim, today,
+    ).run();
     if ((claim.meta?.changes ?? 0) !== 1) {
       result.skipped++;
       continue;
