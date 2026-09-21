@@ -79,6 +79,7 @@ export interface MedicationFollowUpAssignee {
 }
 
 export interface DueMedicationFollowUp extends MedicationFollowUp {
+  notification_checked_at?: string | null;
   tenant_id: string;
   line_user_id: string;
   liff_id: string | null;
@@ -89,6 +90,7 @@ export interface PatientMedicationFollowUp extends MedicationFollowUp {
 }
 
 type MedicationFollowUpSchema = {
+  notificationQueue: boolean;
   closureColumns: boolean;
   contactRecords: boolean;
   eventAssigneeColumn: boolean;
@@ -112,6 +114,7 @@ async function medicationFollowUpSchema(db: D1Database): Promise<MedicationFollo
   }
   const [followUpColumns, contactColumns, eventColumns] = columns;
   return {
+    notificationQueue: followUpColumns.has('notification_checked_at'),
     closureColumns: followUpColumns.has('question_set_version') && followUpColumns.has('response_deadline_at'),
     contactRecords: contactColumns.size > 0,
     eventAssigneeColumn: eventColumns.has('assignee_staff_id'),
@@ -1025,7 +1028,7 @@ export async function listDueMedicationFollowUps(
   const result = await db.prepare(
     `SELECT ${followUpFields(schema, 'f')},
             friend.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id,
-            account.liff_id
+            account.liff_id${schema.notificationQueue ? ', f.notification_checked_at' : ''}
        FROM pharmacy_medication_followups f
        INNER JOIN friends friend
          ON friend.id = f.owner_friend_id AND friend.line_account_id = f.line_account_id
@@ -1042,10 +1045,36 @@ export async function listDueMedicationFollowUps(
         )
       WHERE f.status IN ('scheduled','due') AND f.due_at <= ?
         AND friend.is_following = 1 AND account.is_active = 1
-      ORDER BY f.due_at, f.id
+      ORDER BY ${schema.notificationQueue ? 'COALESCE(f.notification_checked_at, f.due_at), ' : ''}f.due_at, f.id
       LIMIT ?`,
   ).bind(now.toISOString(), boundedLimit).all<DueMedicationFollowUp>();
   return result.results ?? [];
+}
+
+/** Rotate every inspected item, including paused/failed sends, without changing clinical state. */
+export async function markMedicationFollowUpNotificationChecked(
+  db: D1Database,
+  row: DueMedicationFollowUp,
+  now: Date,
+): Promise<boolean> {
+  // Old schemas retain their existing query and delivery contract during rollout.
+  if (!('notification_checked_at' in row)) return true;
+  const timestamp = now.toISOString();
+  const result = await db.prepare(
+    `UPDATE pharmacy_medication_followups
+        SET notification_checked_at = CASE
+          WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
+          ELSE notification_checked_at END
+      WHERE id = ? AND line_account_id = ? AND version = ?
+        AND status IN ('scheduled','due')
+        AND EXISTS (
+          SELECT 1 FROM tenant_line_accounts AS mapping
+          INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+          INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id AND account.is_active = 1
+          WHERE mapping.tenant_id = ? AND mapping.line_account_id = pharmacy_medication_followups.line_account_id
+        )`,
+  ).bind(timestamp, timestamp, row.id, row.line_account_id, row.version, row.tenant_id).run();
+  return (result.meta?.changes ?? 0) === 1;
 }
 
 export type FollowUpOperationsMessageCode =

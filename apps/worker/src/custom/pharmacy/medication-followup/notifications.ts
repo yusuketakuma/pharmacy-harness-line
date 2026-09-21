@@ -4,6 +4,7 @@ import { getPharmacyBetaNotificationBinding } from '../beta-membership/repositor
 import { readLineCredential } from '../provisioning/line-credential-store.js';
 import {
   listDueMedicationFollowUps,
+  markMedicationFollowUpNotificationChecked,
   transitionMedicationFollowUp,
 } from './repository.js';
 
@@ -23,6 +24,11 @@ export async function processDueMedicationFollowUps(
   for (const row of rows) {
     let current = row;
     try {
+      if ('notification_checked_at' in current &&
+          !await markMedicationFollowUpNotificationChecked(db, current, now)) {
+        result.skipped++;
+        continue;
+      }
       if (current.status === 'scheduled') {
         current = { ...current, ...await transitionMedicationFollowUp(db, {
           lineAccountId: current.line_account_id,

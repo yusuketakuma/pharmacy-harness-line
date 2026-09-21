@@ -131,6 +131,7 @@ describe('bootstrap.sql', () => {
     '024_stripe_effect_completion.sql',
     '025_friend_link_scope_triggers.sql',
       '026_custom_078_pharmacy_chat_templates.sql',
+      '027_custom_079_pharmacy_followup_notification_queue.sql',
     ]);
   });
 

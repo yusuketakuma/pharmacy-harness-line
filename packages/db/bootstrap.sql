@@ -1591,7 +1591,8 @@ CREATE TABLE pharmacy_medication_followups (
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL, question_set_version INTEGER NOT NULL DEFAULT 1 CHECK (question_set_version >= 1), response_deadline_at TEXT CHECK (
     response_deadline_at IS NULL OR unixepoch(response_deadline_at) IS NOT NULL
-  ),
+  ), notification_checked_at TEXT
+  CHECK (notification_checked_at IS NULL OR unixepoch(notification_checked_at) IS NOT NULL),
   UNIQUE (id, line_account_id),
   UNIQUE (line_account_id, source_submission_id),
   FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
@@ -3361,6 +3362,10 @@ CREATE INDEX idx_pharmacy_emergency_sale_records_sold_at
 
 CREATE INDEX idx_pharmacy_emergency_slots_available
   ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);
+
+CREATE INDEX idx_pharmacy_followup_notification_queue
+  ON pharmacy_medication_followups (COALESCE(notification_checked_at, due_at), due_at, id)
+  WHERE status IN ('scheduled', 'due');
 
 CREATE INDEX idx_pharmacy_fulfillment_quotes_decision
   ON pharmacy_fulfillment_quotes (line_account_id, decision, created_at DESC);
