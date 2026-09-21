@@ -65,6 +65,7 @@ export function registerBroadcast(server: McpServer): void {
       accountId,
       trackLinks,
     }) => {
+      let attemptedBroadcastId: string | undefined;
       try {
         const client = getClient();
 
@@ -145,27 +146,23 @@ export function registerBroadcast(server: McpServer): void {
             trackLinks,
           });
 
-          try {
-            const result = await client.broadcasts.sendToSegment(
-              broadcast.id,
-              parsedConditions,
-            );
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify(
-                    { success: true, broadcast: result },
-                    null,
-                    2,
-                  ),
-                },
-              ],
-            };
-          } catch (sendError) {
-            await client.broadcasts.delete(broadcast.id).catch(() => {});
-            throw sendError;
-          }
+          attemptedBroadcastId = broadcast.id;
+          const result = await client.broadcasts.sendToSegment(
+            broadcast.id,
+            parsedConditions,
+          );
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  { success: true, broadcast: result },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
         }
 
         // URL の短縮 (auto-track) は worker が送信時に行う (上の segment 経路と同じ理由)。
@@ -182,6 +179,7 @@ export function registerBroadcast(server: McpServer): void {
           trackLinks,
         });
 
+        if (!scheduledAt) attemptedBroadcastId = broadcast.id;
         const result = scheduledAt
           ? broadcast
           : await client.broadcasts.send(broadcast.id);
@@ -204,7 +202,15 @@ export function registerBroadcast(server: McpServer): void {
             {
               type: "text" as const,
               text: JSON.stringify(
-                { success: false, error: String(error) },
+                {
+                  success: false,
+                  error: String(error),
+                  ...(attemptedBroadcastId ? {
+                    broadcastId: attemptedBroadcastId,
+                    outcome: "unknown",
+                    message: "The broadcast has been retained. Check its status before retrying; sending may already have started.",
+                  } : {}),
+                },
                 null,
                 2,
               ),
