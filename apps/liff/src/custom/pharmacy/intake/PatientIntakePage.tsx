@@ -137,6 +137,11 @@ export default function PatientIntakePage() {
   const [intakeLoadState, setIntakeLoadState] = useState<PatientLoadState | null>(null);
   const [accessState, setAccessState] = useState<PatientAccessState | null>(null);
   const [accessLoadState, setAccessLoadState] = useState<PatientLoadState | null>(null);
+  const [intakeReadAttempt, setIntakeReadAttempt] = useState(0);
+  const [accessReadAttempt, setAccessReadAttempt] = useState(0);
+  const intakeReadPatientRef = useRef('');
+  const intakeReadErrorRef = useRef<string | null>(null);
+  const accessReadErrorRef = useRef<string | null>(null);
   const [answers, setAnswers] = useState<IntakeAnswersDraft>(INITIAL_INTAKE_ANSWERS);
   const [intakeStep, setIntakeStep] = useState(1);
   const [showStepErrors, setShowStepErrors] = useState(false);
@@ -220,6 +225,12 @@ export default function PatientIntakePage() {
   const intakeReady = isCurrentPatientReady(selectedId, intakeLoadState);
   const intakeLoading = intakeLoadState?.patientId === selectedId && intakeLoadState.status === 'loading';
   const accessReady = isCurrentPatientReady(selectedId, accessLoadState);
+  const intakeReadFailed = intakeLoadState?.patientId === selectedId && intakeLoadState.status === 'error';
+  const accessReadFailed = accessLoadState?.patientId === selectedId && accessLoadState.status === 'error';
+  const retryFailedPatientReads = useCallback(() => {
+    if (intakeReadFailed) setIntakeReadAttempt((attempt) => attempt + 1);
+    if (accessReadFailed) setAccessReadAttempt((attempt) => attempt + 1);
+  }, [intakeReadFailed, accessReadFailed]);
 
   // Generation guard: a mutation (create/revoke/confirm-read) or a newer
   // load supersedes an earlier in-flight list — a slow quiet refresh can
@@ -357,7 +368,8 @@ export default function PatientIntakePage() {
   const reconnectReads = useCallback(() => {
     void loadPatients(true);
     void loadPrivacyPolicy(() => mountedRef.current, true);
-  }, [loadPatients, loadPrivacyPolicy]);
+    retryFailedPatientReads();
+  }, [loadPatients, loadPrivacyPolicy, retryFailedPatientReads]);
   usePharmacyOnline(reconnectReads);
 
   useEffect(() => {
@@ -367,36 +379,52 @@ export default function PatientIntakePage() {
   }, [loadPrivacyPolicy]);
 
   useEffect(() => {
+    const retryingPatient = intakeReadPatientRef.current === selectedId;
+    intakeReadPatientRef.current = selectedId;
     if (!selectedId) {
       setIntakeLoadState(null);
       return;
     }
     let active = true;
-    setDraftDirty(false);
-    setDraftNotice(null);
-    setIntakeStep(1);
-    setLatestRevision(null);
-    setLatestAnswers(null);
+    // Capture at read start: the questionnaire is disabled while loading.
+    // A failed read may already have editable, unsent input (even if browser
+    // draft storage is unavailable), so a retry must keep that in-memory input.
+    const preserveInput = retryingPatient && draftDirty;
+    if (!retryingPatient) {
+      setDraftDirty(false);
+      setDraftNotice(null);
+      setIntakeStep(1);
+      setLatestRevision(null);
+      setLatestAnswers(null);
+      setAnswers(INITIAL_INTAKE_ANSWERS);
+      setShowStepErrors(false);
+      setSaved(false);
+      setRepresentativeConsent(false);
+      setPrivacyConsent(false);
+      setSuccess(null);
+      setError(null);
+    }
     setIntakeLoadState({ patientId: selectedId, status: 'loading' });
-    setAnswers(INITIAL_INTAKE_ANSWERS);
-    setShowStepErrors(false);
-    setSaved(false);
-    setRepresentativeConsent(false);
-    setPrivacyConsent(false);
-    setSuccess(null);
-    setError(null);
+    const markReady = () => {
+      setIntakeLoadState({ patientId: selectedId, status: 'ready' });
+      const previousError = intakeReadErrorRef.current;
+      setError((current) => current === previousError ? null : current);
+      intakeReadErrorRef.current = null;
+    };
     void patientIntakeApi.latest(selectedId).then((result) => {
       if (!active) return;
       const intake = result.intake;
       const draft = loadIntakeDraft(selectedId);
       if (!intake) {
-        setAnswers(draft?.data.answers ? { ...INITIAL_INTAKE_ANSWERS, ...draft.data.answers } : INITIAL_INTAKE_ANSWERS);
-        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
-        if (draft?.data.answers) {
-          setDraftDirty(true);
-          setDraftNotice(draftRestoreMessage(draft.savedAt));
+        if (!preserveInput) {
+          setAnswers(draft?.data.answers ? { ...INITIAL_INTAKE_ANSWERS, ...draft.data.answers } : INITIAL_INTAKE_ANSWERS);
+          setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
+          if (draft?.data.answers) {
+            setDraftDirty(true);
+            setDraftNotice(draftRestoreMessage(draft.savedAt));
+          }
         }
-        setIntakeLoadState({ patientId: selectedId, status: 'ready' });
+        markReady();
         return;
       }
       setLatestRevision(intake.revision);
@@ -408,24 +436,28 @@ export default function PatientIntakePage() {
         setLatestAnswers(savedAnswers);
         // Draft wins over saved values, but saved values fill any key the
         // draft lacks (e.g. fields added after the draft was stored).
-        setAnswers(draft?.data.answers ? { ...savedAnswers, ...draft.data.answers } : savedAnswers);
-        setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
-        if (draft?.data.answers) {
-          setDraftDirty(true);
-          setDraftNotice(draftRestoreMessage(draft.savedAt));
+        if (!preserveInput) {
+          setAnswers(draft?.data.answers ? { ...savedAnswers, ...draft.data.answers } : savedAnswers);
+          setIntakeStep(Math.min(INTAKE_STEP_COUNT, Math.max(1, draft?.data.step ?? 1)));
+          if (draft?.data.answers) {
+            setDraftDirty(true);
+            setDraftNotice(draftRestoreMessage(draft.savedAt));
+          }
         }
-        setIntakeLoadState({ patientId: selectedId, status: 'ready' });
+        markReady();
       } catch {
         setIntakeLoadState({ patientId: selectedId, status: 'error' });
-        setError('回答を読み込めませんでした。');
+        intakeReadErrorRef.current = '回答を読み込めませんでした。';
+        setError(intakeReadErrorRef.current);
       }
     }).catch((err: unknown) => {
       if (!active) return;
       setIntakeLoadState({ patientId: selectedId, status: 'error' });
-      setError(pharmacyErrorMessage(err, '回答を読み込めませんでした。'));
+      intakeReadErrorRef.current = pharmacyErrorMessage(err, '回答を読み込めませんでした。');
+      setError(intakeReadErrorRef.current);
     });
     return () => { active = false; };
-  }, [selectedId]);
+  }, [selectedId, intakeReadAttempt]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -440,14 +472,18 @@ export default function PatientIntakePage() {
       if (!active) return;
       setAccessState(result.access);
       setAccessLoadState({ patientId: selectedId, status: 'ready' });
+      const previousError = accessReadErrorRef.current;
+      setError((current) => current === previousError ? null : current);
+      accessReadErrorRef.current = null;
     }).catch((err: unknown) => {
       if (!active) return;
       setAccessState(null);
       setAccessLoadState({ patientId: selectedId, status: 'error' });
-      setError(pharmacyErrorMessage(err, 'お知らせ設定を読み込めませんでした。'));
+      accessReadErrorRef.current = pharmacyErrorMessage(err, 'お知らせ設定を読み込めませんでした。');
+      setError(accessReadErrorRef.current);
     });
     return () => { active = false; };
-  }, [selectedId]);
+  }, [selectedId, accessReadAttempt]);
 
   function resetPatientSelection(nextId: string) {
     intakeOperationEpochRef.current += 1;
@@ -813,6 +849,10 @@ export default function PatientIntakePage() {
       <div className="p-4 space-y-4">
         <p className="text-base leading-6 text-gray-600">本人・ご家族の情報を薬局に伝えます。入力目安：約1分、選択式中心で詳細は任意です。</p>
         {error && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">{error}</div>}
+        {(intakeReadFailed || accessReadFailed) && <div className="rounded-lg bg-red-50 p-3 text-base text-red-700">
+          <p>患者の回答または設定を確認できませんでした。入力した内容を残して再読み込みできます。</p>
+          <button type="button" onClick={retryFailedPatientReads} disabled={busy} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold disabled:opacity-50">患者の回答と設定を再読み込み</button>
+        </div>}
         {draftNotice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-base text-blue-800">{draftNotice}</p>}
         {privacyPolicyLoading && <p role="status" className="rounded-lg bg-gray-50 p-3 text-base text-gray-700">個人情報の利用目的を確認しています...</p>}
         {privacyPolicyError && <div ref={policyErrorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-700 focus:outline-none">
@@ -878,7 +918,7 @@ export default function PatientIntakePage() {
         {!showNewPatient && selectedPatient && (
           <section className="rounded-xl bg-white p-4 shadow-sm space-y-3" aria-labelledby="notification-heading">
             <h2 id="notification-heading" className="font-bold">LINEのお知らせ</h2>
-            {!accessReady || !accessState ? (
+            {accessReadFailed ? <p className="text-base text-red-700">設定を確認できませんでした。上の再読み込みボタンを押してください。</p> : !accessReady || !accessState ? (
               <p className="text-base text-gray-600">設定を確認しています...</p>
             ) : <>
               <p className="text-base text-gray-800">
