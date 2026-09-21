@@ -23,7 +23,7 @@ describe('continuity reminder notifications', () => {
         return ({
           bind: () => ({
           first: async () => sql.includes('final pharmacy dispatch scope')
-            ? { destination_line_user_id: 'U1', is_following: 1, account_active: 1, tenant_status: 'active', outbound_messaging_paused_at: null, capability_enabled: 1, followup_status: null, followup_operations_enabled: null }
+            ? { destination_line_user_id: 'U1', is_following: 1, account_active: 1, tenant_status: 'active', outbound_messaging_paused_at: null, capability_enabled: 1, expectation_status: 'active', continuity_status: 'active', followup_status: null, followup_operations_enabled: null }
             : sql.includes('pharmacy_account_capabilities')
               ? { line_account_id: 'account-1', mode: 'pharmacy', capabilities_json: '["continuity"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' }
               : sql.includes('SELECT patient.relationship')
