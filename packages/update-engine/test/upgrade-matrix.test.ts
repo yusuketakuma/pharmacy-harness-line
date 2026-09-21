@@ -36,6 +36,7 @@ const MIGRATION_MANIFEST = [
 '025_friend_link_scope_triggers.sql',
   '026_custom_078_pharmacy_chat_templates.sql',
   '027_custom_079_pharmacy_followup_notification_queue.sql',
+  '028_custom_080_pharmacy_continuity_notification_queue.sql',
 ] as const;
 const BASELINE = MIGRATION_MANIFEST[0];
 const baseline = readFileSync(join(MIGRATIONS_DIR, BASELINE));

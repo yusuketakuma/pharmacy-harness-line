@@ -38,6 +38,7 @@ describe('custom_054 pharmacy CLI break-glass sessions', () => {
     '025_friend_link_scope_triggers.sql',
       '026_custom_078_pharmacy_chat_templates.sql',
       '027_custom_079_pharmacy_followup_notification_queue.sql',
+      '028_custom_080_pharmacy_continuity_notification_queue.sql',
     ]);
   });
 

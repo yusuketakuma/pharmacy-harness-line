@@ -436,6 +436,8 @@ export async function claimDueNextIntakeExpectations(
   limit = 50,
 ): Promise<DueNextIntakeExpectation[]> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+  const columns = await db.prepare('PRAGMA table_info(pharmacy_next_intake_expectations)').all<{ name: string }>();
+  const notificationQueue = columns.results?.some(column => column.name === 'notification_checked_at') ?? false;
   const due = await db.prepare(
     `SELECT e.id, e.obligation_id, e.line_account_id, e.owner_friend_id,
             e.patient_id, e.status, e.timing_source, e.supply_days,
@@ -461,17 +463,36 @@ export async function claimDueNextIntakeExpectations(
         )
       WHERE e.status IN ('accepted','active') AND e.reminder_at <= ?
         AND o.status = 'active' AND friend.is_following = 1 AND account.is_active = 1
-      ORDER BY e.reminder_at, e.id
+      ORDER BY ${notificationQueue ? 'COALESCE(e.notification_checked_at, e.reminder_at), ' : ''}e.reminder_at, e.id
       LIMIT ?`,
   ).bind(now.toISOString(), boundedLimit).all<DueNextIntakeExpectation>();
 
   const claimed: DueNextIntakeExpectation[] = [];
   for (const row of due.results ?? []) {
-    if (row.status === 'active') {
-      claimed.push(row);
-      continue;
-    }
     try {
+      if (notificationQueue) {
+        // A skipped or failed notification must not monopolize the next cron batch.
+        const timestamp = now.toISOString();
+        const checked = await db.prepare(
+          `UPDATE pharmacy_next_intake_expectations
+              SET notification_checked_at = CASE
+                WHEN notification_checked_at IS NULL OR notification_checked_at < ? THEN ?
+                ELSE notification_checked_at END
+            WHERE id = ? AND line_account_id = ? AND version = ?
+              AND status IN ('accepted','active')
+              AND EXISTS (
+                SELECT 1 FROM tenant_line_accounts AS mapping
+                INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
+                INNER JOIN line_accounts AS account ON account.id = mapping.line_account_id AND account.is_active = 1
+                WHERE mapping.tenant_id = ? AND mapping.line_account_id = pharmacy_next_intake_expectations.line_account_id
+              )`,
+        ).bind(timestamp, timestamp, row.id, row.line_account_id, row.version, row.tenant_id).run();
+        if ((checked.meta?.changes ?? 0) !== 1) continue;
+      }
+      if (row.status === 'active') {
+        claimed.push(row);
+        continue;
+      }
       const result = await transitionExpectation(db, {
         lineAccountId: row.line_account_id,
         expectationId: row.id,
@@ -484,7 +505,7 @@ export async function claimDueNextIntakeExpectations(
       });
       claimed.push({ ...row, ...result.expectation });
     } catch {
-      // Another cron invocation owns this transition.
+      // A stale row or failed queue write cannot be dispatched by this invocation.
     }
   }
   return claimed;

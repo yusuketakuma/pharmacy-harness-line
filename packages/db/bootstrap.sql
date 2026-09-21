@@ -1733,7 +1733,8 @@ CREATE TABLE pharmacy_next_intake_expectations (
   version            INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   created_by         TEXT NOT NULL,
   created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL, notification_checked_at TEXT
+  CHECK (notification_checked_at IS NULL OR unixepoch(notification_checked_at) IS NOT NULL),
   UNIQUE (obligation_id),
   UNIQUE (id, line_account_id),
   CHECK (expected_to >= expected_from),
@@ -3315,6 +3316,10 @@ CREATE INDEX idx_pharmacy_continuity_due
 
 CREATE INDEX idx_pharmacy_continuity_events_obligation
   ON pharmacy_continuity_events (line_account_id, obligation_id, created_at, id);
+
+CREATE INDEX idx_pharmacy_continuity_notification_queue
+  ON pharmacy_next_intake_expectations (COALESCE(notification_checked_at, reminder_at), reminder_at, id)
+  WHERE status IN ('accepted', 'active');
 
 CREATE UNIQUE INDEX idx_pharmacy_continuity_open_patient
   ON pharmacy_continuity_obligations (line_account_id, patient_id)
