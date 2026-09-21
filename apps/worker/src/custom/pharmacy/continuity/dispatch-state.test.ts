@@ -136,7 +136,7 @@ it('does not send after patient pause, and leaves the retry key usable after res
     await pausePatientContinuity(db, 'account-a', 'friend-a', 'obligation-000');
     expect(await deliver(reminder, db)).toBe('skipped');
     expect(push).not.toHaveBeenCalled();
-    expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get()).toEqual({outcome:'attempted'});
+    expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get()).toEqual({outcome:'failed'});
     // Simulate a later authorized resumption and the existing 15-minute retry window.
     sqlite.exec("UPDATE pharmacy_continuity_obligations SET status='active' WHERE id='obligation-000'; UPDATE pharmacy_notification_events SET occurred_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','-16 minutes') WHERE idempotency_key='next-intake:expectation-000'");
     expect(await deliver(reminder, db)).toBe('sent');
@@ -264,3 +264,103 @@ it.each(['new', 'known_failure'])(
     } finally {sqlite.close();}
   },
 );
+
+
+it.each([
+  ['continuity', false], ['tenant', false],
+  ['continuity', true], ['tenant', true],
+] as const)('resumes known-unsent %s pauses after 25h while preserving prior unknown=%s', async (gate, unknown) => {
+  const { LineHarnessUnknownOutcomeError } = await import('../../../services/line-proxy-send.js');
+  const { sqlite, db } = setup();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+  try {
+    const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
+    if (unknown) {
+      push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('synthetic unknown'));
+      expect(await deliver(reminder, db)).toBe('failed');
+      vi.setSystemTime(new Date(NOW.getTime() + 16 * 60 * 1000));
+    }
+    const intercepted = {
+      ...db,
+      prepare(sql: string) {
+        const statement = db.prepare(sql);
+        if (!sql.includes('final pharmacy dispatch scope')) return statement;
+        return { bind: (...values: unknown[]) => ({ first: async () => {
+          if (gate === 'continuity') await pausePatientContinuity(db, 'account-a', 'friend-a', 'obligation-000');
+          else sqlite.prepare("UPDATE tenants SET outbound_messaging_paused_at=? WHERE id='tenant-a'").run(new Date().toISOString());
+          return statement.bind(...values).first();
+        } }) };
+      },
+    } as D1Database;
+    expect(await deliver(reminder, intercepted)).toBe('skipped');
+    expect(push).toHaveBeenCalledTimes(unknown ? 1 : 0);
+    expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get())
+      .toEqual({ outcome: unknown ? 'attempted' : 'failed' });
+    sqlite.exec("UPDATE tenants SET outbound_messaging_paused_at=NULL WHERE id='tenant-a'; UPDATE pharmacy_continuity_obligations SET status='active' WHERE id='obligation-000'");
+    vi.setSystemTime(new Date(NOW.getTime() + 25 * 60 * 60 * 1000));
+    expect(await deliver(reminder, db)).toBe(unknown ? 'skipped' : 'sent');
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get())
+      .toEqual({ outcome: unknown ? 'attempted' : 'sent' });
+  } finally {
+    vi.useRealTimers();
+    sqlite.close();
+  }
+});
+
+
+it('does not let an old deferred caller overwrite a newer unknown attempt', async () => {
+  const { LineHarnessUnknownOutcomeError } = await import('../../../services/line-proxy-send.js');
+  const { sqlite, db } = setup();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+  try {
+    const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
+    const intercepted = {
+      ...db,
+      prepare(sql: string) {
+        const statement = db.prepare(sql);
+        if (!sql.includes('final pharmacy dispatch scope')) return statement;
+        return { bind: (...values: unknown[]) => ({ first: async () => {
+          vi.setSystemTime(new Date(NOW.getTime() + 16 * 60 * 1000));
+          push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('synthetic newer unknown'));
+          expect(await deliver(reminder, db)).toBe('failed');
+          await pausePatientContinuity(db, 'account-a', 'friend-a', 'obligation-000');
+          return statement.bind(...values).first();
+        } }) };
+      },
+    } as D1Database;
+    expect(await deliver(reminder, intercepted)).toBe('skipped');
+    expect(push).toHaveBeenCalledOnce();
+    expect(sqlite.prepare("SELECT outcome,occurred_at FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get())
+      .toEqual({ outcome: 'attempted', occurred_at: new Date(NOW.getTime() + 16 * 60 * 1000).toISOString() });
+  } finally {
+    vi.useRealTimers();
+    sqlite.close();
+  }
+});
+
+
+it.each(['sent', 'failed'] as const)('does not overwrite a newer unknown attempt with an old provider %s result', async outcome => {
+  const { LineHarnessUnknownOutcomeError } = await import('../../../services/line-proxy-send.js');
+  const { sqlite, db } = setup();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+  try {
+    const [reminder] = await claimDueNextIntakeExpectations(db, NOW, 1);
+    push.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date(NOW.getTime() + 16 * 60 * 1000));
+      push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('synthetic newer unknown'));
+      expect(await deliver(reminder, db)).toBe('failed');
+      if (outcome === 'failed') throw new Error('synthetic old definitive failure');
+    });
+    expect(await deliver(reminder, db)).toBe(outcome);
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(sqlite.prepare("SELECT outcome,occurred_at FROM pharmacy_notification_events WHERE idempotency_key='next-intake:expectation-000'").get())
+      .toEqual({ outcome: 'attempted', occurred_at: new Date(NOW.getTime() + 16 * 60 * 1000).toISOString() });
+  } finally {
+    vi.useRealTimers();
+    sqlite.close();
+  }
+});

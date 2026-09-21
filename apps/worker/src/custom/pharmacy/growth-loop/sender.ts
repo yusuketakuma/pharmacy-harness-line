@@ -63,12 +63,14 @@ async function markOutcome(
   retryKey: string,
   outcome: 'sent' | 'failed' | 'blocked',
   occurredAt: string,
+  claimedAt: string,
 ): Promise<void> {
   await db.prepare(
     `UPDATE pharmacy_notification_events
         SET outcome = ?, occurred_at = ?
-      WHERE line_account_id = ? AND idempotency_key = ? AND outcome <> 'sent'`,
-  ).bind(outcome, occurredAt, lineAccountId, retryKey).run();
+      WHERE line_account_id = ? AND idempotency_key = ?
+        AND outcome = 'attempted' AND occurred_at = ?`,
+  ).bind(outcome, occurredAt, lineAccountId, retryKey, claimedAt).run();
 }
 
 async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Promise<void> {
@@ -116,7 +118,7 @@ async function getPatientDeliveryState(
   return membership === 'active' ? 'allowed' : membership === 'suspended' ? 'retryable' : 'blocked';
 }
 
-type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'validity_retryable' | 'operations_blocked';
+type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'operations_blocked';
 
 async function medicationFollowUpOperationsReady(
   db: D1Database,
@@ -396,7 +398,7 @@ async function getFinalDispatchState(
     return 'blocked';
   }
   // Eligibility can return after staff re-verification; do not permanently consume the retry key.
-  if (validityReminder && row.validity_dispatch_allowed !== 1) return 'validity_retryable';
+  if (validityReminder && row.validity_dispatch_allowed !== 1) return 'patient_retryable';
   if (continuityReminder) {
     if (!['active', 'paused'].includes(row.expectation_status ?? '') ||
         !['active', 'paused'].includes(row.continuity_status ?? '')) return 'blocked';
@@ -555,40 +557,36 @@ export async function sendPharmacyAutomatedPush(
 
   const postClaimPatientState = await getPatientDeliveryState(input, now);
   if (postClaimPatientState !== 'allowed') {
-    if (postClaimPatientState === 'blocked' && !reclaimedUnknownAttempt) {
-      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
+    if (!reclaimedUnknownAttempt) {
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, postClaimPatientState === 'blocked' ? 'blocked' : 'failed', new Date().toISOString(), occurredAt);
     }
-    // No provider call has happened. Preserve an attempted row so a
-    // suspended membership or a transient gate can be retried safely.
+    // A known-unsent transient gate can retry; preserve any earlier unknown attempt.
     return 'patient_blocked';
   }
 
   const finalNow = new Date();
   const finalPatientState = await getPatientDeliveryState(input, finalNow);
   if (finalPatientState !== 'allowed') {
-    if (finalPatientState === 'blocked' && !reclaimedUnknownAttempt) {
-      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    if (!reclaimedUnknownAttempt) {
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, finalPatientState === 'blocked' ? 'blocked' : 'failed', finalNow.toISOString(), occurredAt);
     }
-    // The external proxy has not been called yet; do not erase result-unknown
-    // semantics by converting the attempt to failed.
+    // Do not erase an earlier result-unknown attempt when stopping this call.
     return 'patient_blocked';
   }
   const finalDispatchState = await getFinalDispatchState(input, requiredCapability);
+  if (['paused', 'patient_retryable', 'operations_blocked'].includes(finalDispatchState) &&
+      !reclaimedUnknownAttempt) {
+    // This attempt has not reached the provider. It can resume beyond the
+    // reconciliation horizon reserved for genuinely unknown provider results.
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', finalNow.toISOString(), occurredAt);
+  }
   if (finalDispatchState === 'paused') {
     return 'paused';
   }
   if (finalDispatchState === 'blocked') {
     // Cancellation prevents another send, but cannot determine an earlier provider result.
     if (!reclaimedUnknownAttempt) {
-      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
-    }
-    return 'patient_blocked';
-  }
-  if (finalDispatchState === 'validity_retryable') {
-    // This attempt never reached the provider; only an earlier unknown attempt
-    // must retain its reconciliation deadline. Staff may re-verify later.
-    if (!reclaimedUnknownAttempt) {
-      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', finalNow.toISOString());
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString(), occurredAt);
     }
     return 'patient_blocked';
   }
@@ -614,12 +612,12 @@ export async function sendPharmacyAutomatedPush(
     );
   } catch (error) {
     if (error instanceof LineHarnessUnknownOutcomeError) throw error;
-    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', new Date().toISOString());
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', new Date().toISOString(), occurredAt);
     throw error;
   }
 
   // LINE accepted the stable retry key. If this D1 finalization fails, leave
   // the row attempted so the stale retry reconciles with that same key.
-  await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString());
+  await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString(), occurredAt);
   return 'sent';
 }

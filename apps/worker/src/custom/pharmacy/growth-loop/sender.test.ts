@@ -21,7 +21,7 @@ vi.mock('../beta-membership/repository.js', () => ({
 import { LineHarnessUnknownOutcomeError } from '../../../services/line-proxy-send.js';
 import { sendPharmacyAutomatedPush } from './sender.js';
 
-type Step = { match: string; run?: { changes: number }; first?: unknown; error?: Error };
+type Step = { match: string; run?: { changes: number }; first?: unknown; error?: Error; check?: (values: unknown[]) => void };
 type FinalScope = {
   destination_line_user_id?: string | null;
   is_following?: number;
@@ -30,6 +30,7 @@ type FinalScope = {
   outbound_messaging_paused_at?: string | null;
   capability_enabled?: number;
   followup_status?: string | null;
+  beta_membership_status?: string | null;
   followup_operations_enabled?: number | null;
 } | null;
 
@@ -84,7 +85,8 @@ function scriptedDb(
       const step = steps.shift();
       if (!step || !sql.includes(step.match)) throw new Error(`unexpected SQL: ${sql}`);
       return {
-        bind() {
+        bind(...values: unknown[]) {
+          step.check?.(values);
           return {
             run: async () => {
               if (step.error) throw step.error;
@@ -565,3 +567,33 @@ describe('pharmacy automated sender', () => {
     expect(push).not.toHaveBeenCalled();
   });
 });
+
+
+it.each(['post_claim', 'final_patient', 'final_scope', 'operations'] as const)(
+  'records known-unsent deferral at %s and preserves an earlier unknown result', async phase => {
+    for (const unknown of [false, true]) {
+      push.mockClear();
+      betaEnabled.mockResolvedValue(phase !== 'operations');
+      betaDeliveryState.mockReset().mockResolvedValue('active');
+      if (phase === 'post_claim') betaDeliveryState.mockResolvedValueOnce('active').mockResolvedValueOnce('suspended');
+      if (phase === 'final_patient') betaDeliveryState.mockResolvedValueOnce('active').mockResolvedValueOnce('active').mockResolvedValueOnce('suspended');
+      config.mockResolvedValue({ capabilities: ['prescription_intake', 'medication_followup'], proactive_monthly_limit: 1 });
+      const steps: Step[] = [{ match: 'INSERT OR IGNORE INTO pharmacy_notification_events', run: { changes: unknown ? 0 : 1 } }];
+      if (unknown) steps.push(
+        { match: 'SELECT id, outcome', first: { id: 'notification-1', outcome: 'attempted', occurred_at: '2026-09-13T23:00:00.000Z', created_at: '2026-09-13T23:00:00.000Z' } },
+        { match: 'UPDATE pharmacy_notification_events', run: { changes: 1 } },
+      );
+      else steps.push({ match: 'UPDATE pharmacy_notification_events', run: { changes: 1 }, check: values => expect(values[0]).toBe('failed') });
+      const db = scriptedDb(steps, [], null, phase === 'operations'
+        ? { followup_operations_enabled: 0 }
+        : { beta_membership_status: 'suspended' }, 1);
+      const message = phase === 'operations'
+        ? { messageId: 'medication_followup_v1' as const, category: 'followup_care' as const, vars: { followUpId: '123e4567-e89b-42d3-a456-426614174000' } }
+        : {};
+      expect(await sendPharmacyAutomatedPush({ ...base, ...message, db, patientId: 'patient-a', betaMembershipId: 'membership-a', now: new Date('2026-09-14T00:00:00.000Z') }))
+        .toBe(phase === 'operations' ? 'operations_blocked' : 'patient_blocked');
+      expect(steps).toEqual([]);
+      expect(push).not.toHaveBeenCalled();
+    }
+  },
+);
