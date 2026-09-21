@@ -1112,10 +1112,12 @@ async function scheduled(
       console.error('event-booking-reminders error:', e);
     }
 
-  // 外部Google Calendarで確定したMeet個別相談。前日・1時間前のLINE通知を
-  // D1で管理し、送信は必ずLINE Harness Proxyを通す。
-    try {
-      const result = await processDueMeetConsultationReminders(env.DB, {
+  }
+
+  // Meet reminders also serve pharmacy accounts through the approved sender.
+  // Keep them outside the generic-only gate, after credential refresh.
+  try {
+    const result = await processDueMeetConsultationReminders(env.DB, {
       now: new Date(),
       proxyBaseUrl:
         env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
@@ -1125,10 +1127,11 @@ async function scheduled(
     if (result.sent + result.failed > 0) {
       console.log(`[meet-consultation-reminders] sent=${result.sent} failed=${result.failed}`);
     }
-    } catch (e) {
-      console.error('meet-consultation-reminders error:', e);
-    }
+  } catch (e) {
+    console.error('meet-consultation-reminders error:', e);
+  }
 
+  if (runGenericCron) {
   // ウェビナー予約リマインド (セッション選択メニュー)。時刻厳守・軽量なので
   // booking 系リマインドと同じく重いジョブより先に実行する。
     try {
