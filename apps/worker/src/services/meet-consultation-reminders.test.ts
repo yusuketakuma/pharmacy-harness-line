@@ -239,6 +239,86 @@ describe('meet consultation tenant and account scope', () => {
     sqlite.close();
   });
 
+  it('preserves the prior schedule and reminders when rescheduling fails or another account collides', async () => {
+    const { db, sqlite } = consultationDb();
+    const input = {
+      externalEventId: 'event-a', friendId: 'friend-a', title: 'Synthetic consultation',
+      startsAt: '2026-08-10T10:00:00.000Z', endsAt: '2026-08-10T11:00:00.000Z',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    };
+    const now = new Date('2026-08-08T00:00:00.000Z');
+    await registerMeetConsultation(db, input, 'account-a', now);
+    sqlite.exec("UPDATE meet_consultation_reminders SET status='sent', retry_count=1");
+    const readState = () => ({
+      consultations: sqlite.prepare('SELECT * FROM meet_consultations').all(),
+      reminders: sqlite.prepare('SELECT * FROM meet_consultation_reminders ORDER BY kind').all(),
+    });
+    const before = readState();
+    try {
+      sqlite.exec("INSERT INTO friends VALUES ('friend-b', 'account-b', 1)");
+      await expect(registerMeetConsultation(db, { ...input, friendId: 'friend-b' }, 'account-b', now))
+        .rejects.toThrow('consultation account scope conflict');
+      expect(readState()).toEqual(before);
+
+      sqlite.exec(`CREATE TRIGGER reject_hour_before
+        BEFORE INSERT ON meet_consultation_reminders WHEN NEW.kind = 'hour_before'
+        BEGIN SELECT RAISE(ABORT, 'synthetic reminder failure'); END;`);
+      await expect(registerMeetConsultation(db, { ...input,
+        startsAt: '2026-08-12T10:00:00.000Z', endsAt: '2026-08-12T11:00:00.000Z',
+      }, 'account-a', now)).rejects.toThrow(/reminder failure/);
+      expect(readState()).toEqual(before);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it.each(['new', 'reschedule'])('preserves a delivered generation during concurrent identical %s registrations', async (mode) => {
+    const { db, sqlite } = consultationDb();
+    const input = {
+      externalEventId: 'event-race', friendId: 'friend-a', title: 'Synthetic consultation',
+      startsAt: '2026-08-10T10:00:00.000Z', endsAt: '2026-08-10T11:00:00.000Z',
+      meetUrl: 'https://meet.google.com/abc-defg-hij',
+    };
+    const now = new Date('2026-08-08T00:00:00.000Z');
+    if (mode === 'reschedule') {
+      await registerMeetConsultation(db, { ...input,
+        startsAt: '2026-08-09T10:00:00.000Z', endsAt: '2026-08-09T11:00:00.000Z',
+      }, 'account-a', now);
+    }
+    let releaseSecond!: () => void;
+    const firstCommitted = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    let batches = 0;
+    let delivered: unknown;
+    const readReminders = () => sqlite.prepare(
+      'SELECT kind, delivery_id, status, retry_count, sent_at FROM meet_consultation_reminders ORDER BY kind',
+    ).all();
+    const racingDb = {
+      ...db,
+      batch: async (statements: D1PreparedStatement[]) => {
+        const batchNumber = ++batches;
+        if (batchNumber === 2) await firstCommitted;
+        const result = await db.batch(statements);
+        if (batchNumber === 1) {
+          // The first generation can be sent before a delayed duplicate commits.
+          sqlite.exec("UPDATE meet_consultation_reminders SET status='sent', retry_count=1, sent_at='2026-08-09T10:00:00.000Z'");
+          delivered = readReminders();
+          releaseSecond();
+        }
+        return result;
+      },
+    } as D1Database;
+    try {
+      const [first, duplicate] = await Promise.all([
+        registerMeetConsultation(racingDb, input, 'account-a', now),
+        registerMeetConsultation(racingDb, input, 'account-a', now),
+      ]);
+      expect(first.id).toBe(duplicate.id);
+      expect(readReminders()).toEqual(delivered);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('converges on the event owner when another registration wins the insert race', async () => {
     const { db, sqlite } = consultationDb();
     const racingDb = {

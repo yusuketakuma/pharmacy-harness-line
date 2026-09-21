@@ -34,17 +34,6 @@ export interface MeetReminderDeliveryOptions {
   lineCredentialKey?: string;
 }
 
-interface MeetConsultationRow {
-  id: string;
-  external_event_id: string;
-  friend_id: string;
-  title: string;
-  starts_at: string;
-  ends_at: string;
-  meet_url: string;
-  status: 'confirmed' | 'cancelled' | 'completed';
-}
-
 interface DueMeetReminderRow {
   id: string;
   consultation_id: string;
@@ -165,27 +154,30 @@ export async function registerMeetConsultation(
     .first<{ id: string }>();
   if (!friend) throw new Error('friend not found or not following');
 
-  const existing = await db
-    .prepare(`SELECT consultation.* FROM meet_consultations consultation
-      INNER JOIN friends friend ON friend.id = consultation.friend_id
-      WHERE consultation.external_event_id = ? AND friend.line_account_id = ?`)
-    .bind(input.externalEventId, lineAccountId)
-    .first<MeetConsultationRow>();
-  const consultationId = existing?.id ?? crypto.randomUUID();
+  const consultationId = crypto.randomUUID();
   const normalizedStart = start.toISOString();
   const normalizedEnd = end.toISOString();
-  const scheduleChanged = Boolean(
-    existing &&
-    (existing.friend_id !== input.friendId ||
-      existing.starts_at !== normalizedStart ||
-      existing.ends_at !== normalizedEnd ||
-      existing.meet_url !== input.meetUrl),
-  );
   const nowIso = now.toISOString();
 
   const schedules = calculateMeetReminderSchedule(normalizedStart, now);
   const expectedKinds = new Set(schedules.map((item) => item.kind));
   const statements: D1PreparedStatement[] = [
+    // Compare against the persisted schedule inside this batch, before replacing
+    // it. A duplicate request that read an older schedule must not reset a
+    // generation another request has already registered or delivered.
+    db.prepare(
+      `UPDATE meet_consultation_reminders
+          SET status='cancelled', updated_at=?
+        WHERE kind IN (${schedules.map(() => '?').join(',')})
+          AND consultation_id IN (
+            SELECT consultation.id FROM meet_consultations AS consultation
+            INNER JOIN friends AS friend ON friend.id = consultation.friend_id
+            WHERE consultation.external_event_id = ? AND friend.line_account_id = ?
+              AND (consultation.friend_id <> ? OR consultation.starts_at <> ?
+                OR consultation.ends_at <> ? OR consultation.meet_url <> ?)
+          )`,
+    ).bind(nowIso, ...schedules.map((item) => item.kind), input.externalEventId,
+      lineAccountId, input.friendId, normalizedStart, normalizedEnd, input.meetUrl),
     db.prepare(
       `INSERT INTO meet_consultations
         (id, external_event_id, friend_id, title, starts_at, ends_at, meet_url, status, created_at, updated_at)
@@ -232,10 +224,10 @@ export async function registerMeetConsultation(
          scheduled_at=excluded.scheduled_at, status='pending', retry_count=0,
          delivery_id=excluded.delivery_id,
          sent_at=NULL, last_error=NULL, updated_at=excluded.updated_at
-       WHERE ? = 1 OR meet_consultation_reminders.status = 'cancelled'`,
+       WHERE meet_consultation_reminders.status = 'cancelled'`,
     ).bind(
       crypto.randomUUID(), item.kind, item.scheduledAt, crypto.randomUUID(), nowIso, nowIso,
-      input.externalEventId, lineAccountId, !existing || scheduleChanged ? 1 : 0,
+      input.externalEventId, lineAccountId,
     ));
   }
 
@@ -255,7 +247,7 @@ export async function registerMeetConsultation(
   }
 
   const results = await db.batch(statements);
-  if (results[0]?.meta?.changes !== 1) throw new Error('consultation account scope conflict');
+  if (results[1]?.meta?.changes !== 1) throw new Error('consultation account scope conflict');
   const registered = await db.prepare(`SELECT consultation.id FROM meet_consultations consultation
     INNER JOIN friends friend ON friend.id = consultation.friend_id
     WHERE consultation.external_event_id = ? AND friend.line_account_id = ?`)
