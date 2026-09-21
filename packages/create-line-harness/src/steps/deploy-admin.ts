@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, win32 } from "node:path";
 import {
   materializeAdminFiles,
   findResidualPlaceholders,
@@ -40,7 +40,21 @@ function stageAdminFiles(
   adminFiles: Map<string, Buffer>,
   workerUrl: string,
 ): string {
-  const stageDir = mkdtempSync(join(tmpdir(), "clh-admin-"));
+  // Validate every entry before creating or writing anything. Bundle hashes
+  // authenticate bytes, not whether their names stay inside our staging dir.
+  for (const relPath of adminFiles.keys()) {
+    if (
+      !relPath ||
+      posix.isAbsolute(relPath) ||
+      win32.isAbsolute(relPath) ||
+      relPath.includes("\\") ||
+      relPath.includes(":") ||
+      relPath.includes("\0") ||
+      relPath.split("/").includes("..")
+    ) {
+      throw new Error("unsafe Admin asset path");
+    }
+  }
   const files = materializeAdminFiles(adminFiles, workerUrl);
   const residual = findResidualPlaceholders(files);
   if (residual.length > 0) {
@@ -48,12 +62,18 @@ function stageAdminFiles(
       `未知のプレースホルダーが残っています（動作に影響する可能性）: ${residual.slice(0, 5).join(", ")}${residual.length > 5 ? " …" : ""}`,
     );
   }
-  for (const [relPath, buf] of files) {
-    const dest = join(stageDir, relPath);
-    mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, buf);
+  const stageDir = mkdtempSync(join(tmpdir(), "clh-admin-"));
+  try {
+    for (const [relPath, buf] of files) {
+      const dest = join(stageDir, relPath);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, buf);
+    }
+    return stageDir;
+  } catch (error) {
+    rmSync(stageDir, { recursive: true, force: true });
+    throw error;
   }
-  return stageDir;
 }
 
 export async function deployAdmin(
