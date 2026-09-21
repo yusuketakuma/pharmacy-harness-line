@@ -362,6 +362,8 @@ export default function ChatsPage() {
   const sendLockRef = useRef(false)
   const pendingChatSendKeysRef = useRef(new Map<string, string>())
   const [notes, setNotes] = useState('')
+  const notesDirtyRef = useRef(false)
+  const notesRevisionRef = useRef(0)
   const [savingNotes, setSavingNotes] = useState(false)
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false)
   const [loadingSeconds, setLoadingSeconds] = useState(5)
@@ -558,7 +560,7 @@ export default function ChatsPage() {
         const detail = res.data as unknown as ChatDetail
         if (detail.id !== chatId) return
         setChatDetail(detail)
-        setNotes(detail.notes || '')
+        if (!notesDirtyRef.current) setNotes(detail.notes || '')
       } else {
         setError('チャット詳細を確認できませんでした。再読み込みしてください。')
       }
@@ -588,6 +590,8 @@ export default function ChatsPage() {
 
   useEffect(() => {
     selectedChatIdRef.current = selectedChatId
+    notesDirtyRef.current = false
+    notesRevisionRef.current += 1
     if (selectedChatId) {
       loadChatDetail(selectedChatId)
     } else {
@@ -846,9 +850,15 @@ export default function ChatsPage() {
 
   const handleSaveNotes = async () => {
     if (!chatMutationAllowed || !selectedChatId) return
+    const revision = notesRevisionRef.current
     setSavingNotes(true)
     try {
       await api.chats.update(selectedChatId, { notes })
+      // A completed save only acknowledges the draft that was submitted.
+      // Selection changes also advance the revision, including A → B → A.
+      if (selectedChatIdRef.current === selectedChatId && notesRevisionRef.current === revision) {
+        notesDirtyRef.current = false
+      }
       loadChatDetail(selectedChatId)
     } catch {
       setError('メモの保存に失敗しました。')
@@ -1200,7 +1210,11 @@ export default function ChatsPage() {
                     type="text"
                     value={notes}
                     disabled={!chatMutationAllowed}
-                    onChange={(e) => setNotes(e.target.value)}
+                    onChange={(e) => {
+                      notesDirtyRef.current = true
+                      notesRevisionRef.current += 1
+                      setNotes(e.target.value)
+                    }}
                     placeholder="メモを入力..."
                     className="flex-1 text-xs border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"
                   />
