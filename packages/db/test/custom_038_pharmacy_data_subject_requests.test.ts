@@ -321,6 +321,132 @@ describe('custom_038 pharmacy data subject requests', () => {
     })).rejects.toThrow(/not found/i);
   });
 
+  it('advances an existing exact and owner fence when another request is received', async () => {
+    const first = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'erasure', reason: '最初の請求', staffId: 'staff-a', now: NOW,
+    });
+    const verified = await markDataSubjectIdentityVerified(d1, {
+      lineAccountId: 'account-a', requestId: first.id,
+      expectedVersion: first.version, staffId: 'staff-a', now: NOW,
+    });
+    const second = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'access', reason: '次の請求', staffId: 'staff-a', now: NOW,
+    });
+    expect(second.hold_epoch).toBeGreaterThan(verified.hold_epoch);
+    expect(db.prepare(`SELECT patient_key, epoch, status FROM pharmacy_retention_hold_epochs
+      WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
+      { patient_key: '*', epoch: verified.hold_epoch + 1, status: 'unknown' },
+      { patient_key: 'patient-a', epoch: verified.hold_epoch + 1, status: 'unknown' },
+    ]);
+    expect(await listDataSubjectRequests(d1, 'account-b')).toEqual([]);
+  });
+
+  it.each([[4, 9], [9, 4]])('advances the highest exact/owner epoch (%i/%i) without changing another account', async (exact, owner) => {
+    const insert = db.prepare(`INSERT INTO pharmacy_retention_hold_epochs
+      (tenant_id, line_account_id, owner_friend_id, patient_key, epoch, status, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'held', ?)`);
+    insert.run('tenant-a', 'account-a', 'friend-a', 'patient-a', exact, TS);
+    insert.run('tenant-a', 'account-a', 'friend-a', '*', owner, TS);
+    insert.run('tenant-b', 'account-b', 'friend-b', '*', 50, TS);
+    const created = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'access', reason: '合成の請求', staffId: 'staff-a', now: NOW,
+    });
+    expect(created.hold_epoch).toBe(10);
+    expect(db.prepare(`SELECT line_account_id, patient_key, epoch, status
+      FROM pharmacy_retention_hold_epochs ORDER BY line_account_id, patient_key`).all()).toEqual([
+      { line_account_id: 'account-a', patient_key: '*', epoch: 10, status: 'unknown' },
+      { line_account_id: 'account-a', patient_key: 'patient-a', epoch: 10, status: 'unknown' },
+      { line_account_id: 'account-b', patient_key: '*', epoch: 50, status: 'held' },
+    ]);
+  });
+
+  it('advances the shared owner fence when a request belongs to another family member', async () => {
+    db.prepare(`INSERT INTO pharmacy_patients
+      (id, line_account_id, owner_friend_id, relationship, name, name_kana,
+       birth_date, created_at, updated_at)
+      SELECT 'patient-family', line_account_id, owner_friend_id, 'child',
+             name, name_kana, birth_date, created_at, updated_at
+        FROM pharmacy_patients WHERE id = 'patient-a'`).run();
+    const first = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'access', reason: '合成の請求', staffId: 'staff-a', now: NOW,
+    });
+    expect(first.hold_epoch).toBe(1);
+    const second = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-family',
+      requestType: 'access', reason: '家族の合成請求', staffId: 'staff-a', now: NOW,
+    });
+    expect(second.hold_epoch).toBe(2);
+    expect(db.prepare(`SELECT patient_key, epoch FROM pharmacy_retention_hold_epochs
+      WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
+      { patient_key: '*', epoch: 2 }, { patient_key: 'patient-a', epoch: 1 },
+      { patient_key: 'patient-family', epoch: 2 },
+    ]);
+  });
+
+  it.each(['receipt', 'assessment'] as const)('rejects an old resolution without changing a concurrent %s fence', async (stage) => {
+    const first = await createDataSubjectRequest(d1, {
+      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+      requestType: 'erasure', reason: '最初の請求', staffId: 'staff-a', now: NOW,
+    });
+    const verified = await markDataSubjectIdentityVerified(d1, {
+      lineAccountId: 'account-a', requestId: first.id,
+      expectedVersion: first.version, staffId: 'staff-a', now: NOW,
+    });
+    const assessed = await assessDataSubjectLegalHold(d1, {
+      lineAccountId: 'account-a', requestId: first.id,
+      expectedVersion: verified.version, staffId: 'staff-a', now: NOW,
+    });
+    expect(assessed.legal_hold).toBe(0);
+    let latestEpoch = 0;
+    let latestStatus = 'unknown';
+    const concurrentDb = {
+      prepare: d1.prepare.bind(d1),
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        // The first resolution already read its released assessment. A second
+        // request and new PHI arrive before its guarded transition commits.
+        seedPhi(db, 'a', NOW.toISOString());
+        const second = await createDataSubjectRequest(d1, {
+          lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
+          requestType: 'erasure', reason: '並行する請求', staffId: 'staff-a', now: NOW,
+        });
+        latestEpoch = second.hold_epoch;
+        latestStatus = 'unknown';
+        if (stage === 'assessment') {
+          const secondVerified = await markDataSubjectIdentityVerified(d1, {
+            lineAccountId: 'account-a', requestId: second.id,
+            expectedVersion: second.version, staffId: 'staff-a', now: NOW,
+          });
+          const secondAssessed = await assessDataSubjectLegalHold(d1, {
+            lineAccountId: 'account-a', requestId: second.id,
+            expectedVersion: secondVerified.version, staffId: 'staff-a', now: NOW,
+          });
+          expect(secondAssessed.legal_hold).toBe(1);
+          latestEpoch = secondAssessed.hold_epoch;
+          latestStatus = 'held';
+        }
+        return d1.batch<T>(statements);
+      },
+    } as D1Database;
+    await expect(resolveDataSubjectRequest(concurrentDb, {
+      lineAccountId: 'account-a', requestId: first.id,
+      expectedVersion: assessed.version, decision: 'resolved', outcomeNote: '対応済み',
+      staffId: 'staff-a', now: NOW,
+    })).rejects.toThrow(/conflict/i);
+    expect(db.prepare(`SELECT status, version FROM pharmacy_data_subject_requests WHERE id = ?`)
+      .get(first.id)).toEqual({ status: 'legal_hold_assessed', version: assessed.version });
+    expect(db.prepare(`SELECT count(*) AS count FROM pharmacy_data_subject_request_events
+      WHERE request_id = ? AND event_type = 'resolved'`).get(first.id)).toEqual({ count: 0 });
+    expect(db.prepare(`SELECT patient_key, epoch, status FROM pharmacy_retention_hold_epochs
+      WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
+      { patient_key: '*', epoch: latestEpoch, status: latestStatus },
+      { patient_key: 'patient-a', epoch: latestEpoch, status: latestStatus },
+    ]);
+  });
+
   /** 消去請求を出して legal hold 判定まで進める。 */
   async function assessErasure(): Promise<{ legal_hold: number; legal_hold_release_at: string | null }> {
     const created = await createDataSubjectRequest(d1, {

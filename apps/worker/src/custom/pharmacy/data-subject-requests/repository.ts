@@ -141,6 +141,7 @@ function eventStatement(
 }
 
 type HoldEpochTransitionInput = {
+  transitionEventId?: string;
   lineAccountId: string;
   requestId: string;
   expectedVersion: number;
@@ -172,11 +173,14 @@ function holdEpochStatements(
              AND epoch_hold.line_account_id = request.line_account_id
              AND epoch_hold.owner_friend_id = request.owner_friend_id
              AND epoch_hold.patient_key IN (request.patient_id, '*')
-        ), 0) = ?`}`;
+        ), 0) = ?`}${input.transitionEventId === undefined ? '' : `
+        AND EXISTS (SELECT 1 FROM pharmacy_data_subject_request_events AS event
+                     WHERE event.id = ? AND event.request_id = request.id
+                       AND event.line_account_id = request.line_account_id)`}`;
   const nextEpoch = (input.expectedHoldEpoch ?? 0) + 1;
   const binds = (keyValue: string | undefined, guardEpoch: number | undefined) => [
     ...(keyValue === undefined ? [] : [keyValue]),
-    nextEpoch,
+    ...(input.expectedHoldEpoch === undefined ? [] : [nextEpoch]),
     input.status,
     input.releaseAt,
     input.reasonCode,
@@ -186,24 +190,37 @@ function holdEpochStatements(
     input.fromStatus,
     input.expectedVersion,
     ...(guardEpoch === undefined ? [] : [guardEpoch]),
+    ...(input.transitionEventId === undefined ? [] : [input.transitionEventId]),
   ];
-  const statement = (keyExpression: string, keyValue: string | undefined, guardEpoch: number | undefined) => db.prepare(
-    `INSERT INTO pharmacy_retention_hold_epochs
+  const statement = (keyExpression: string, keyValue: string | undefined, guardEpoch: number | undefined) => {
+    // A new request must advance the existing generation inside the same batch.
+    // Its wildcard row reuses the generation just written to the exact row.
+    const epochValue = input.expectedHoldEpoch === undefined ? `(
+      SELECT COALESCE(MAX(epoch), 0)${keyValue === undefined ? ' + 1' : ''}
+        FROM pharmacy_retention_hold_epochs AS existing_hold
+       WHERE existing_hold.tenant_id = request.tenant_id
+         AND existing_hold.line_account_id = request.line_account_id
+         AND existing_hold.owner_friend_id = request.owner_friend_id
+         AND existing_hold.patient_key IN (request.patient_id, '*')
+    )` : '?';
+    return db.prepare(
+      `INSERT INTO pharmacy_retention_hold_epochs
        (tenant_id, line_account_id, owner_friend_id, patient_key, epoch,
         status, release_at, reason_code, updated_at)
      SELECT request.tenant_id, request.line_account_id, request.owner_friend_id,
-            ${keyExpression}, ?, ?, ?, ?, ?${source(guardEpoch)}
+            ${keyExpression}, ${epochValue}, ?, ?, ?, ?${source(guardEpoch)}
      ON CONFLICT (tenant_id, line_account_id, owner_friend_id, patient_key)
      DO UPDATE SET epoch = excluded.epoch,
                    status = excluded.status,
                    release_at = excluded.release_at,
                    reason_code = excluded.reason_code,
                    updated_at = excluded.updated_at`,
-  ).bind(...binds(keyValue, guardEpoch));
+    ).bind(...binds(keyValue, guardEpoch));
+  };
   return [
     statement('request.patient_id', undefined, input.expectedHoldEpoch),
-    // The exact row owns the old-epoch CAS. The owner-wide row accepts only the
-    // resulting epoch, so a stale writer cannot leave a partial wildcard fence.
+    // Both rows require the event inserted by this transition. Checking only
+    // nextEpoch could accept a generation written by a concurrent request.
     statement('?', '*', input.expectedHoldEpoch === undefined ? undefined : nextEpoch),
   ];
 }
@@ -223,12 +240,12 @@ async function commitTransition(
     expectedHoldEpoch?: number;
   },
   update: (eventId: string) => D1PreparedStatement,
-  extras: D1PreparedStatement[] = [],
+  extras: (eventId: string) => D1PreparedStatement[] = () => [],
 ): Promise<DataSubjectRequest> {
   const eventId = crypto.randomUUID();
   const results = await db.batch([
     eventStatement(db, { ...input, eventId }),
-    ...extras,
+    ...extras(eventId),
     update(eventId),
   ]);
   if (results.some((result) => (result?.meta?.changes ?? 0) !== 1)) {
@@ -341,7 +358,8 @@ export async function markDataSubjectIdentityVerified(
     timestamp, timestamp, input.requestId, input.lineAccountId, input.expectedVersion,
     current.hold_epoch + 1,
     eventId, input.requestId, input.lineAccountId,
-  ), holdEpochStatements(db, {
+  ), (eventId) => holdEpochStatements(db, {
+    transitionEventId: eventId,
     lineAccountId: input.lineAccountId,
     requestId: input.requestId,
     expectedVersion: input.expectedVersion,
@@ -405,7 +423,8 @@ export async function assessDataSubjectLegalHold(
     input.requestId, input.lineAccountId, input.expectedVersion,
     current.hold_epoch + 1,
     eventId, input.requestId, input.lineAccountId,
-  ), holdEpochStatements(db, {
+  ), (eventId) => holdEpochStatements(db, {
+    transitionEventId: eventId,
     lineAccountId: input.lineAccountId,
     requestId: input.requestId,
     expectedVersion: input.expectedVersion,
@@ -484,7 +503,8 @@ export async function resolveDataSubjectRequest(
     // and increments the aggregate once; compare against that post-bump value.
     input.requestId, input.lineAccountId, input.expectedVersion, current.hold_epoch + 1,
     eventId, input.requestId, input.lineAccountId,
-  ), holdEpochStatements(db, {
+  ), (eventId) => holdEpochStatements(db, {
+    transitionEventId: eventId,
     lineAccountId: input.lineAccountId,
     requestId: input.requestId,
     expectedVersion: input.expectedVersion,
