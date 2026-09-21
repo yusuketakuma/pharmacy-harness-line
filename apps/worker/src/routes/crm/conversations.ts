@@ -50,7 +50,7 @@ conversations.get('/api/conversations', async (c) => {
     // 共有し、片方だけ編集されて total と items が食い違うのを防ぐ。
     const latestChatCte = `
       latest_chat AS (
-        SELECT friend_id, status, MAX(created_at) AS created_at
+        SELECT friend_id, status, MAX(julianday(created_at)) AS latest_at
         FROM chats
         GROUP BY friend_id
       )`;
@@ -60,14 +60,14 @@ conversations.get('/api/conversations', async (c) => {
       -- conversations queue (要対応の自発メッセージ) は postback (rich menu tap) を除外する。
       -- postback は button 押下で「人間の返信を要する自発メッセージ」ではないため。
       WITH last_incoming AS (
-        SELECT friend_id, MAX(created_at) AS at
+        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd
         FROM messages_log
         WHERE direction = 'incoming'
           AND (source IS NULL OR source != 'postback')
         GROUP BY friend_id
       ),
       last_human AS (
-        SELECT friend_id, MAX(created_at) AS at
+        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd
         FROM messages_log
         WHERE direction = 'outgoing' AND source = 'manual'
         GROUP BY friend_id
@@ -78,7 +78,7 @@ conversations.get('/api/conversations', async (c) => {
           SELECT ml.friend_id, ml.content, ml.message_type,
                  ROW_NUMBER() OVER (
                    PARTITION BY ml.friend_id
-                   ORDER BY ml.created_at DESC, ml.id DESC
+                   ORDER BY julianday(ml.created_at) DESC, ml.id DESC
                  ) AS row_number
           FROM messages_log ml
           WHERE ml.direction = 'incoming'
@@ -108,12 +108,12 @@ conversations.get('/api/conversations', async (c) => {
       WHERE f.is_following = 1
         AND tenant_mapping.tenant_id = ?
         ${whereAssignedAccount}
-        AND (lh.at IS NULL OR lh.at < li.at)
+        AND (lh.at_jd IS NULL OR lh.at_jd < li.at_jd)
         ${whereNotResolved}
         AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) >= ?
         ${whereMaxHours}
         ${whereAccount}
-      ORDER BY li.at ASC
+      ORDER BY li.at_jd ASC
       LIMIT ? OFFSET ?
     `;
 
@@ -129,13 +129,13 @@ conversations.get('/api/conversations', async (c) => {
     // total count
     const countSql = `
       WITH last_incoming AS (
-        SELECT friend_id, MAX(created_at) AS at FROM messages_log
+        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd FROM messages_log
         WHERE direction = 'incoming'
           AND (source IS NULL OR source != 'postback')
         GROUP BY friend_id
       ),
       last_human AS (
-        SELECT friend_id, MAX(created_at) AS at FROM messages_log
+        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd FROM messages_log
         WHERE direction = 'outgoing' AND source = 'manual' GROUP BY friend_id
       ),
       ${latestChatCte}
@@ -148,7 +148,7 @@ conversations.get('/api/conversations', async (c) => {
       WHERE f.is_following = 1
         AND tenant_mapping.tenant_id = ?
         ${whereAssignedAccount}
-        AND (lh.at IS NULL OR lh.at < li.at)
+        AND (lh.at_jd IS NULL OR lh.at_jd < li.at_jd)
         ${whereNotResolved}
         AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) >= ?
         ${whereMaxHours}
@@ -253,17 +253,17 @@ conversations.get('/api/conversations/:friendId', async (c) => {
       .all<{ name: string }>();
     const tags = tagRows.results.map((r) => r.name);
 
-    // Normalize the `before` cursor via julianday() so sub-second precision
+    // Compare both sorting and the `before` cursor via julianday() so sub-second precision
     // is preserved and cursors in any ISO 8601 timezone form (Z, +09:00) sort
     // correctly against stored `+09:00` timestamps. strftime('%s', ...) would
     // truncate to whole seconds and drop messages that share a second.
     const msgSql = before
       ? `SELECT id, direction, message_type, content, delivery_type, source, broadcast_id, scenario_step_id, created_at
          FROM messages_log WHERE friend_id = ? AND julianday(created_at) < julianday(?)
-         ORDER BY created_at DESC LIMIT ?`
+         ORDER BY julianday(created_at) DESC, id DESC LIMIT ?`
       : `SELECT id, direction, message_type, content, delivery_type, source, broadcast_id, scenario_step_id, created_at
          FROM messages_log WHERE friend_id = ?
-         ORDER BY created_at DESC LIMIT ?`;
+         ORDER BY julianday(created_at) DESC, id DESC LIMIT ?`;
     const bindings: (string | number)[] = before ? [friendId, before, limit] : [friendId, limit];
     const msgResult = await c.env.DB.prepare(msgSql)
       .bind(...bindings)

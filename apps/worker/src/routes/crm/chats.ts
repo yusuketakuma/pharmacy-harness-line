@@ -100,14 +100,14 @@ async function resolveOrCreateChat(db: D1Database, id: string): Promise<ChatLike
   // 最新行を選ぶ (unanswered-inbox / conversations の latest_chat CTE と同じ基準)。
   // 最古行を選ぶと、旧重複データがある DB で読み手と別の行に status を書いてしまう。
   const byFriend = await db
-    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY created_at DESC LIMIT 1`)
+    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
     .bind(friend.id)
     .first<ChatLike>();
   if (byFriend) return byFriend;
 
   const lastMsg = await db
     .prepare(
-      `SELECT MAX(created_at) AS last FROM messages_log WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')`,
+      `SELECT created_at AS last, MAX(julianday(created_at)) AS latest_at FROM messages_log WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')`,
     )
     .bind(friend.id)
     .first<{ last: string | null }>();
@@ -125,7 +125,7 @@ async function resolveOrCreateChat(db: D1Database, id: string): Promise<ChatLike
     .bind(newId, friend.id, lastMessageAt, now, now, friend.id)
     .run();
   return (await db
-    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY created_at DESC LIMIT 1`)
+    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
     .bind(friend.id)
     .first<ChatLike>())!;
 }
@@ -310,59 +310,63 @@ chats.get('/api/chats', async (c) => {
     // incoming を常に優先すると、プロキシ経由の manual/external 送信が messages_log に
     // 正しく保存されていても、一覧には何日も前の incoming とその日時が残って見える。
     // また page の並び順は最新 any なのにレスポンスの lastMessageAt だけ過去の incoming に
-    // なるため、フロントが作るページング cursor と SQL のソートキーも食い違っていた。
+    // なるため、message がある friend はその日時、ない場合だけ chat 日時を
+    // page のソートキーと lastMessageAt の両方に使う。
     // 未対応モードだけは取得後に unansweredMap の incoming で明示的に上書きする。
     // text 以外 (flex/image/sticker 等) は content を NULL にして payload size を抑える
     // (フロントは type で 📋 Flex / 📷 画像 等のラベルを出すので content は不要)。
+    // UTC/JST が混在するため MAX は julianday で瞬間を比較する。
     // any_agg の bare column (content 等) は「単一 MAX() を含む集約は max 行の
     // 値を返す」という SQLite の documented 挙動で argmax として使っている。
     // 集約は page 確定後の friend に絞って実行する (全 friend 分の content を
     // materialize しない)。last_any は並び順決定専用のスリムな全走査 1 回のみ。
     const sql = `
       WITH last_any AS MATERIALIZED (
-        SELECT friend_id, MAX(created_at) AS last_message_at
+        SELECT friend_id, created_at AS last_message_at, MAX(julianday(created_at)) AS latest_at
         FROM messages_log
         WHERE (delivery_type IS NULL OR delivery_type != 'test')
           AND ${accountFilterSql}
         GROUP BY friend_id
       ),
       deduped AS MATERIALIZED (
-        SELECT friend_id, MAX(last_message_at) AS last_message_at FROM (
+        SELECT friend_id, last_message_at, MAX(julianday(last_message_at)) AS latest_at FROM (
           SELECT friend_id, last_message_at FROM last_any
           UNION ALL
-          SELECT friend_id, last_message_at FROM chats WHERE ${accountFilterSql}
+          SELECT friend_id, last_message_at FROM chats
+          WHERE ${accountFilterSql}
+            AND NOT EXISTS (SELECT 1 FROM last_any WHERE last_any.friend_id = chats.friend_id)
         ) GROUP BY friend_id
       ),
       page AS MATERIALIZED (
-        SELECT d.friend_id, d.last_message_at
+        SELECT d.friend_id, d.last_message_at, d.latest_at
         FROM deduped d
         INNER JOIN friends f ON f.id = d.friend_id
         INNER JOIN tenant_line_accounts AS tenant_mapping
                 ON tenant_mapping.line_account_id = f.line_account_id
         ${pageNeedsChats ? `LEFT JOIN chats c ON c.id = (
-          SELECT id FROM chats WHERE friend_id = f.id ORDER BY created_at DESC LIMIT 1
+          SELECT id FROM chats WHERE friend_id = f.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1
         )` : ''}
         WHERE tenant_mapping.tenant_id = ?
         ${pharmacyTenant
           ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
           : ''}
         ${conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : ''}
-        ${useCursor ? 'AND (d.last_message_at < ? OR (d.last_message_at = ? AND d.friend_id < ?))' : ''}
-        ORDER BY d.last_message_at DESC, d.friend_id DESC
+        ${useCursor ? 'AND (d.latest_at < julianday(?) OR (d.latest_at = julianday(?) AND d.friend_id < ?))' : ''}
+        ORDER BY d.latest_at DESC, d.friend_id DESC
         LIMIT ?
       ),
       any_agg AS (
         SELECT friend_id,
           CASE WHEN message_type = 'text' THEN SUBSTR(content, 1, 200) ELSE NULL END AS content,
           direction, message_type,
-          MAX(created_at) AS created_at
+          MAX(julianday(created_at)) AS latest_at
         FROM messages_log
         WHERE (delivery_type IS NULL OR delivery_type != 'test')
           AND friend_id IN (SELECT friend_id FROM page)
         GROUP BY friend_id
       ),
       recent_msg AS (
-        SELECT friend_id, content, direction, message_type, created_at AS preview_at
+        SELECT friend_id, content, direction, message_type
         FROM any_agg
       )
       SELECT
@@ -375,7 +379,7 @@ chats.get('/api/chats', async (c) => {
         c.operator_id,
         COALESCE(c.status, 'resolved') AS status,
         c.notes,
-        COALESCE(rm.preview_at, d.last_message_at) AS last_message_at,
+        d.last_message_at AS last_message_at,
         rm.content AS last_message_content,
         rm.direction AS last_message_direction,
         rm.message_type AS last_message_type,
@@ -384,10 +388,10 @@ chats.get('/api/chats', async (c) => {
       FROM page d
       INNER JOIN friends f ON f.id = d.friend_id
       LEFT JOIN chats c ON c.id = (
-        SELECT id FROM chats WHERE friend_id = f.id ORDER BY created_at DESC LIMIT 1
+        SELECT id FROM chats WHERE friend_id = f.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1
       )
       LEFT JOIN recent_msg rm ON rm.friend_id = f.id
-      ORDER BY d.last_message_at DESC, d.friend_id DESC
+      ORDER BY d.latest_at DESC, d.friend_id DESC
     `;
 
     // placeholder 順 = SQL 出現順: last_any(account) → deduped 内 chats(account) →
@@ -436,7 +440,7 @@ chats.get('/api/chats', async (c) => {
         .sort((a, b) => {
           const aAt = typeof a.lastMessageAt === 'string' ? a.lastMessageAt : '';
           const bAt = typeof b.lastMessageAt === 'string' ? b.lastMessageAt : '';
-          return bAt.localeCompare(aAt);
+          return Date.parse(bAt) - Date.parse(aAt);
         });
     }
 
@@ -467,7 +471,7 @@ chats.get('/api/chats/:id', async (c) => {
       friendId = friendRow.id;
       // 同じ friend に紐づく chats 行があれば採用（lazy-create 後の再読みで status/notes を拾うため）
       const existing = await c.env.DB
-        .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY created_at DESC LIMIT 1`)
+        .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
         .bind(friendRow.id)
         .first<{ id: string; friend_id: string; operator_id: string | null; status: string; notes: string | null; last_message_at: string | null; created_at: string; updated_at: string }>();
       if (existing) {
@@ -497,7 +501,7 @@ chats.get('/api/chats/:id', async (c) => {
         `SELECT id, friend_id, direction, message_type, content, created_at
          FROM messages_log
          WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')
-         ORDER BY created_at DESC LIMIT 1000`,
+         ORDER BY julianday(created_at) DESC, id DESC LIMIT 1000`,
       )
       .bind(resolvedFriendId)
       .all();

@@ -89,22 +89,34 @@ const CANDIDATES_SQL = `
             ON mapping.line_account_id = friend.line_account_id
     WHERE mapping.tenant_id = ?
   ),
-  agg AS (
-    SELECT
-      friend_id,
-      MAX(CASE WHEN direction='incoming' AND (source IS NULL OR source != 'postback') THEN created_at END) AS last_incoming,
-      MAX(CASE WHEN direction='outgoing' AND source='manual' THEN created_at END) AS last_manual,
-      MAX(CASE WHEN direction='outgoing' AND source IN
-          ('auto_reply','automation','automation_backfill','scenario','broadcast')
-        THEN created_at END) AS last_machine
+  latest_by_kind AS (
+    -- Select one raw timestamp per kind using its instant, without rewriting
+    -- response timestamps or sorting/materializing message content.
+    SELECT friend_id,
+      CASE
+        WHEN direction='incoming' AND (source IS NULL OR source != 'postback') THEN 'incoming'
+        WHEN direction='outgoing' AND source='manual' THEN 'manual'
+        WHEN direction='outgoing' AND source IN
+          ('auto_reply','automation','automation_backfill','scenario','broadcast') THEN 'machine'
+      END AS kind,
+      created_at,
+      MAX(julianday(created_at)) AS latest_at
     FROM messages_log
     WHERE friend_id IN (SELECT id FROM tenant_friends)
+    GROUP BY friend_id, kind
+  ),
+  agg AS (
+    SELECT friend_id,
+      MAX(CASE WHEN kind='incoming' THEN created_at END) AS last_incoming,
+      MAX(CASE WHEN kind='manual' THEN created_at END) AS last_manual,
+      MAX(CASE WHEN kind='machine' THEN created_at END) AS last_machine
+    FROM latest_by_kind
     GROUP BY friend_id
   ),
   latest_chat AS (
     -- friend ごとの最新 chats 行の status (bare-column + 単一 MAX の argmax)。
     -- 相関サブクエリだと候補 friend 数ぶん個別 seek になるため一括 GROUP BY で取る。
-    SELECT friend_id, status, MAX(created_at) AS created_at
+    SELECT friend_id, status, MAX(julianday(created_at)) AS latest_at
     FROM chats
     WHERE friend_id IN (SELECT id FROM tenant_friends)
     GROUP BY friend_id
@@ -126,9 +138,9 @@ const CANDIDATES_SQL = `
   WHERE f.is_following = 1
     AND (la.id IS NULL OR la.is_active = 1)
     AND agg.last_incoming IS NOT NULL
-    AND (agg.last_manual IS NULL OR agg.last_manual < agg.last_incoming)
+    AND (agg.last_manual IS NULL OR julianday(agg.last_manual) < julianday(agg.last_incoming))
     AND COALESCE(lc.status, 'unread') != 'resolved'
-  ORDER BY agg.last_incoming ASC
+  ORDER BY julianday(agg.last_incoming) ASC
 `;
 
 // 候補 friend の "last_manual 以降の全 incoming" (postback 除く)。
@@ -146,7 +158,7 @@ const RECENT_INCOMINGS_SQL = `
     WHERE mapping.tenant_id = ?
   ),
   last_manual AS (
-    SELECT friend_id, MAX(created_at) AS lm
+    SELECT friend_id, MAX(julianday(created_at)) AS lm
     FROM messages_log
     WHERE direction='outgoing' AND source='manual'
       AND friend_id IN (SELECT id FROM tenant_friends)
@@ -158,8 +170,8 @@ const RECENT_INCOMINGS_SQL = `
   WHERE ml.direction='incoming'
     AND ml.friend_id IN (SELECT id FROM tenant_friends)
     AND (ml.source IS NULL OR ml.source != 'postback')
-    AND (lm.lm IS NULL OR ml.created_at > lm.lm)
-  ORDER BY ml.friend_id, ml.created_at DESC
+    AND (lm.lm IS NULL OR julianday(ml.created_at) > lm.lm)
+  ORDER BY ml.friend_id, julianday(ml.created_at) DESC, ml.id DESC
 `;
 
 // 候補 friend の "last_manual 以降の auto_reply outgoing (reply 限定)"。
@@ -175,7 +187,7 @@ const RECENT_AUTO_REPLY_OUTGOINGS_SQL = `
     WHERE mapping.tenant_id = ?
   ),
   last_manual AS (
-    SELECT friend_id, MAX(created_at) AS lm
+    SELECT friend_id, MAX(julianday(created_at)) AS lm
     FROM messages_log
     WHERE direction='outgoing' AND source='manual'
       AND friend_id IN (SELECT id FROM tenant_friends)
@@ -188,8 +200,8 @@ const RECENT_AUTO_REPLY_OUTGOINGS_SQL = `
     AND ml.friend_id IN (SELECT id FROM tenant_friends)
     AND ml.source='auto_reply'
     AND ml.delivery_type='reply'
-    AND (lm.lm IS NULL OR ml.created_at > lm.lm)
-  ORDER BY ml.friend_id, ml.created_at ASC
+    AND (lm.lm IS NULL OR julianday(ml.created_at) > lm.lm)
+  ORDER BY ml.friend_id, julianday(ml.created_at) ASC, ml.id ASC
 `;
 
 
@@ -354,7 +366,7 @@ async function getAllUnansweredRows(db: D1Database, tenantId: string, staffId?: 
 
   // 新しい順 (= 直近 incoming が先頭)。実運用では「最近来た会話を上から潰す」
   // 流れの方が手が動く (2026-05-12 野田さん運用フィードバック)。
-  rows.sort((a, b) => b.lastIncomingAt.localeCompare(a.lastIncomingAt));
+  rows.sort((a, b) => Date.parse(b.lastIncomingAt) - Date.parse(a.lastIncomingAt));
   return rows;
 }
 
@@ -417,7 +429,7 @@ export async function countUnanswered(db: D1Database, tenantId: string, staffId?
     } else {
       byAccountMap.set(key, { accountName: r.accountName, count: 1 });
     }
-    if (oldest === null || r.lastIncomingAt < oldest) oldest = r.lastIncomingAt;
+    if (oldest === null || Date.parse(r.lastIncomingAt) < Date.parse(oldest)) oldest = r.lastIncomingAt;
   }
 
   const byAccount = [...byAccountMap.entries()]
