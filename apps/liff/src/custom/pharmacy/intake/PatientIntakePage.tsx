@@ -26,9 +26,9 @@ import {
 } from './PatientQuestionnaire.js';
 import { pharmacyRoute } from '../navigation.js';
 import { PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
-import { clearDraft, draftRestoreMessage, intakeDraftKey, legacyIntakeDraftKey, migrateLegacyDraft, NEW_PATIENT_DRAFT_KEY, newPatientDraftKey, saveDraft, sweepIntakeDrafts } from '../draftStorage.js';
+import { clearDraft, draftRestoreMessage, loadDraft, userIntakeDraftKey, userNewPatientDraftKey, saveDraft, sweepUserIntakeDrafts } from '../draftStorage.js';
 import { cloneJsonValue, pharmacyUuid } from '../compat.js';
-import { getLiffId } from '../../../lib/liff-auth.js';
+import { getLiffId, getLineUserId } from '../../../lib/liff-auth.js';
 import { pharmacyErrorMessage } from '../request.js';
 
 const relationshipLabels: Record<PatientRelationship, string> = {
@@ -96,36 +96,24 @@ export function retainPatientIntakeOperation(
 
 type NewPatientDraftData = { patientDraft?: PatientProfileDraft; showAddress?: boolean };
 
-// The new-patient draft key is scoped by liffId because multiple pharmacy
-// LIFF apps share one Pages origin. The pre-scoping legacy key is read once
-// and migrated to the scoped key.
+// Legacy drafts have no author identity. Do not expose or delete them merely
+// because another person uses the same pharmacy app on this browser.
 function loadNewPatientDraft() {
-  return migrateLegacyDraft<NewPatientDraftData>(newPatientDraftKey(getLiffId()), NEW_PATIENT_DRAFT_KEY);
+  return loadDraft<NewPatientDraftData>(userNewPatientDraftKey(getLiffId(), getLineUserId()));
 }
 
 function clearNewPatientDraft() {
-  // Only the scoped key is ours: a surviving legacy key may be another
-  // account's pre-scoping draft on this shared origin — its owner's page
-  // migrates it on next load, so it must not be deleted here.
-  clearDraft(newPatientDraftKey(getLiffId()));
+  clearDraft(userNewPatientDraftKey(getLiffId(), getLineUserId()));
 }
 
 type IntakeDraftData = { answers?: Partial<IntakeAnswersDraft>; step?: number };
 
-// The selectedId always comes from this account's patient list, which proves
-// a legacy unscoped draft with the same patientId belongs to this account —
-// safe to adopt into the scoped key.
 function loadIntakeDraft(patientId: string) {
-  return migrateLegacyDraft<IntakeDraftData>(
-    intakeDraftKey(getLiffId(), patientId), legacyIntakeDraftKey(patientId),
-  );
+  return loadDraft<IntakeDraftData>(userIntakeDraftKey(getLiffId(), getLineUserId(), patientId));
 }
 
 function clearIntakeDraft(patientId: string) {
-  clearDraft(intakeDraftKey(getLiffId(), patientId));
-  // The caller only reaches this for a patientId proven to be this account's
-  // (submitted or just revoked), so the legacy twin is safe to remove too.
-  clearDraft(legacyIntakeDraftKey(patientId));
+  clearDraft(userIntakeDraftKey(getLiffId(), getLineUserId(), patientId));
 }
 
 export default function PatientIntakePage() {
@@ -251,9 +239,9 @@ export default function PatientIntakePage() {
       setError((current) => current === patientsLoadErrorRef.current ? null : current);
       // The list is authoritative: drafts of patients no longer in it
       // (deleted / proxy revoked) are orphaned and swept so they do not
-      // linger in localStorage past their TTL. Scoped to this liffId — other
-      // accounts' drafts on this shared origin are never touched.
-      sweepIntakeDrafts(new Set(result.patients.map((patient) => patient.id)), getLiffId());
+      // linger in localStorage past their TTL. Scoped to this LIFF app and user — other
+      // people's drafts on this shared origin are never touched.
+      sweepUserIntakeDrafts(new Set(result.patients.map((patient) => patient.id)), getLiffId(), getLineUserId());
       // Revalidate the selection: a still-valid selection is kept as-is
       // mid-edit, but a vanished patient triggers the full selection reset —
       // the epoch bumps inside also cancel in-flight saves/submits so
@@ -297,12 +285,12 @@ export default function PatientIntakePage() {
   // Persist unsent input so an interrupted session can resume where it left off.
   useEffect(() => {
     if (!selectedId || !draftDirty) return;
-    saveDraft(intakeDraftKey(getLiffId(), selectedId), { answers, step: intakeStep });
+    saveDraft(userIntakeDraftKey(getLiffId(), getLineUserId(), selectedId), { answers, step: intakeStep });
   }, [answers, intakeStep, selectedId, draftDirty]);
 
   useEffect(() => {
     if (!showNewPatient || editing || !draftDirty) return;
-    saveDraft(newPatientDraftKey(getLiffId()), { patientDraft, showAddress });
+    saveDraft(userNewPatientDraftKey(getLiffId(), getLineUserId()), { patientDraft, showAddress });
   }, [patientDraft, showAddress, showNewPatient, editing, draftDirty]);
 
   const loadPrivacyPolicy = useCallback(async (

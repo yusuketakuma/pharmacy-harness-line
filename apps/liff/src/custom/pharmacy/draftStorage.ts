@@ -82,13 +82,9 @@ export function clearDraft(key: string): void {
   }
 }
 
-// Restore-once migration for keys that predate liffId scoping. A legacy draft
-// is adopted into the scoped key and removed from the shared slot. Callers
-// differ in how ownership is resolved: for intake drafts the patientId comes
-// from this account's own list, which proves it is ours; for the new-patient
-// draft the owner is unverifiable, so first-claim wins — the same exposure the
-// shared key already had before scoping, now bounded to a single migration.
-// A legacy key whose owner never loads it stays put; it is never deleted here.
+// Legacy compatibility helper. Current patient forms do not call this:
+// historical keys have no author identity, and patient access alone does not
+// prove who wrote unsent input. Keep the old helper contract for older callers.
 export function migrateLegacyDraft<T>(scopedKey: string, legacyKey: string): LoadedDraft<T> | null {
   const scoped = loadDraft<T>(scopedKey);
   if (scoped) return scoped;
@@ -111,9 +107,12 @@ export function migrateLegacyDraft<T>(scopedKey: string, legacyKey: string): Loa
 // pharmacy account, so unscoped legacy keys and other accounts' drafts are
 // never ours to delete.
 export function sweepIntakeDrafts(validPatientIds: ReadonlySet<string>, liffId: string): void {
+  sweepDrafts(validPatientIds, `${INTAKE_PREFIX}${liffId}:`);
+}
+
+function sweepDrafts(validPatientIds: ReadonlySet<string>, scopedPrefix: string): void {
   try {
     const storage = window.localStorage;
-    const scopedPrefix = `${INTAKE_PREFIX}${liffId}:`;
     const staleKeys: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
@@ -145,3 +144,22 @@ export const legacyIntakeDraftKey = (patientId: string) => `intake:${patientId}`
 export const newPatientDraftKey = (liffId: string) => `patient-profile:new:${liffId}`;
 // Pre-scoping legacy key kept for restore-once compatibility.
 export const NEW_PATIENT_DRAFT_KEY = 'patient-profile:new';
+
+
+// A LIFF app identifies the pharmacy, not the person using a shared browser.
+// Keep these keys outside the legacy intake prefix so an older app cannot
+// sweep a different user's new drafts. Unattributed legacy data stays intact.
+const userIntakePrefix = (liffId: string, lineUserId: string) =>
+  `user-intake:${encodeURIComponent(liffId)}:${encodeURIComponent(lineUserId)}:`;
+
+export const userIntakeDraftKey = (liffId: string, lineUserId: string, patientId: string) =>
+  `${userIntakePrefix(liffId, lineUserId)}${patientId}`;
+
+export const userNewPatientDraftKey = (liffId: string, lineUserId: string) =>
+  `user-patient-profile:new:${encodeURIComponent(liffId)}:${encodeURIComponent(lineUserId)}`;
+
+export function sweepUserIntakeDrafts(
+  validPatientIds: ReadonlySet<string>, liffId: string, lineUserId: string,
+): void {
+  sweepDrafts(validPatientIds, PREFIX + userIntakePrefix(liffId, lineUserId));
+}

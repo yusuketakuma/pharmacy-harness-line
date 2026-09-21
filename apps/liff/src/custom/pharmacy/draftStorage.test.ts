@@ -11,6 +11,9 @@ import {
   newPatientDraftKey,
   saveDraft,
   sweepIntakeDrafts,
+  sweepUserIntakeDrafts,
+  userIntakeDraftKey,
+  userNewPatientDraftKey,
 } from './draftStorage.js';
 
 // V036-13: draft trust — savedAt envelope, 24h TTL, legacy restore-once,
@@ -205,5 +208,41 @@ describe('draft key scoping', () => {
   it('never reuses the new-patient key for an existing patient', () => {
     expect(intakeDraftKey('app', 'abc')).not.toBe(NEW_PATIENT_DRAFT_KEY);
     expect(intakeDraftKey('app', 'abc')).toContain('abc');
+  });
+});
+
+
+describe('LINE user draft isolation', () => {
+  it('restores only the same user and pharmacy draft', () => {
+    const key = userNewPatientDraftKey('app', 'user-a');
+    saveDraft(key, { name: 'synthetic' });
+    expect(loadDraft(key)?.data).toEqual({ name: 'synthetic' });
+    expect(loadDraft(userNewPatientDraftKey('app', 'user-b'))).toBeNull();
+    expect(loadDraft(userNewPatientDraftKey('other', 'user-a'))).toBeNull();
+    expect(userNewPatientDraftKey('app:x', 'user')).not.toBe(userNewPatientDraftKey('app', 'x:user'));
+  });
+
+  it('sweeps only unavailable patients belonging to the current user and app', () => {
+    const keep = [userIntakeDraftKey('app', 'a', 'present'), userIntakeDraftKey('app', 'b', 'other'),
+      userIntakeDraftKey('other', 'a', 'other'), intakeDraftKey('app', 'legacy'), legacyIntakeDraftKey('legacy')];
+    for (const key of keep) saveDraft(key, { value: key });
+    const stale = userIntakeDraftKey('app', 'a', 'removed');
+    saveDraft(stale, {});
+    sweepUserIntakeDrafts(new Set(['present']), 'app', 'a');
+    expect(loadDraft(stale)).toBeNull();
+    for (const key of keep) expect(loadDraft(key)?.data).toEqual({ value: key });
+  });
+
+  it('preserves unattributed legacy bytes and new drafts across old-client sweeps', () => {
+    const legacy = [NEW_PATIENT_DRAFT_KEY, newPatientDraftKey('app'), intakeDraftKey('app', 'old')];
+    for (const key of legacy) saveDraft(key, { legacy: true });
+    const before = new Map(store);
+    const key = userIntakeDraftKey('app', 'a', 'present');
+    saveDraft(key, { current: true });
+    sweepUserIntakeDrafts(new Set(['present']), 'app', 'a');
+    for (const [key, value] of before) expect(store.get(key)).toBe(value);
+    sweepIntakeDrafts(new Set(), 'app');
+    expect(loadDraft(key)?.data).toEqual({ current: true });
+    expect(loadDraft(userNewPatientDraftKey('app', 'a'))).toBeNull();
   });
 });

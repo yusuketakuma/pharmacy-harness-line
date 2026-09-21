@@ -17,7 +17,8 @@ export default {
   },
   async getProfile() {
     record('getProfile');
-    return { userId: 'U-e2e', displayName: 'E2E Patient' };
+    const subject = new URL(globalThis.location.href).searchParams.get('syntheticSubject');
+    return { userId: subject ? `U-e2e-${subject}` : 'U-e2e', displayName: 'E2E Patient' };
   },
   getIDToken() {
     record('getIDToken');
