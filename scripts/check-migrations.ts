@@ -99,24 +99,49 @@ const RULES: Rule[] = [
   },
 ];
 
-/**
- * Strip `--` line comments. Block comments (`/* ... *\/`) are rare in
- * D1 migrations and ignored for now; if they appear we still get correct
- * results because the rules match real DDL anyway. Keeping the stripper
- * simple avoids accidentally hiding real code inside `/* ... *\/`.
- */
-function stripLineComments(sql: string): string {
-  return sql
-    .split('\n')
-    .map((line) => {
-      const idx = line.indexOf('--');
-      return idx === -1 ? line : line.slice(0, idx);
-    })
-    .join('\n');
+/** Keep SQL tokens visible while hiding comments and quoted contents from rules. */
+function policySql(sql: string): string | null {
+  let result = '';
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    if (ch === '-' && sql[i + 1] === '-') {
+      while (i + 1 < sql.length && !/[\r\n]/.test(sql[i + 1])) i += 1;
+      result += ' ';
+    } else if (ch === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      i = end + 1;
+      // Comments are SQL whitespace, including between DDL keywords.
+      result += ' ';
+    } else if (ch === "'" || ch === '"' || ch === '`' || ch === '[') {
+      const closing = ch === '[' ? ']' : ch;
+      let closed = false;
+      for (i += 1; i < sql.length; i += 1) {
+        if (sql[i] !== closing) continue;
+        if (closing !== ']' && sql[i + 1] === closing) {
+          i += 1;
+        } else {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) return null;
+      // One opaque token preserves names containing spaces, but cannot supply
+      // policy keywords (e.g. DEFAULT) or statement/column separators.
+      result += '__quoted__';
+    } else {
+      result += ch;
+    }
+  }
+  return result;
 }
 
 export function checkMigration(sql: string): CheckResult {
-  const stripped = stripLineComments(sql).replace(
+  const normalized = policySql(sql);
+  if (normalized === null) {
+    return { ok: false, violation: 'Unterminated SQL quote or block comment' };
+  }
+  const stripped = normalized.replace(
     /\bIS\s+NOT\s+NULL\b/gi,
     'IS NULL',
   );

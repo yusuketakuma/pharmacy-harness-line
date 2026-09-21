@@ -6,6 +6,42 @@ import {
 } from './check-migrations';
 
 describe('checkMigration', () => {
+  it.each([
+    "INSERT INTO logs VALUES ('--'); DROP TABLE friends;",
+    "INSERT INTO logs VALUES ('it''s -- text'); DROP TABLE friends;",
+    'CREATE TABLE "name--with-comment" (id INTEGER); DROP TABLE friends;',
+    'DROP/* explanatory comment */TABLE friends;',
+    'ALTER TABLE friends RENAME/* comment */TO former_friends;',
+    'ALTER TABLE friends ADD COLUMN required TEXT NOT/* comment */NULL;',
+    "ALTER TABLE friends ADD COLUMN required TEXT CHECK(required <> 'DEFAULT') NOT NULL;",
+    'ALTER TABLE "name with spaces" RENAME TO renamed;',
+  ])('blocks destructive or incompatible SQL despite quoting/comments: %s', (sql) => {
+    expect(checkMigration(sql).ok).toBe(false);
+  });
+
+  it.each([
+    "INSERT INTO logs VALUES ('DROP TABLE friends; -- literal');",
+    "INSERT INTO logs VALUES ('it''s /* DROP TABLE */ text');",
+    '/* DROP TABLE friends; */ CREATE TABLE foo (id INTEGER);',
+    'CREATE TABLE "DROP TABLE" ("NOT NULL" TEXT);',
+    'CREATE TABLE `DROP TABLE` ([NOT NULL] TEXT);',
+    'CREATE TABLE "escaped""--quote" (id INTEGER);',
+    "ALTER TABLE foo ADD COLUMN status TEXT NOT NULL DEFAULT 'has,semicolon;';",
+    '-- DROP TABLE friends;\rCREATE TABLE foo (id INTEGER);',
+  ])('allows SQL with policy keywords only in comments or quoted values: %s', (sql) => {
+    expect(checkMigration(sql)).toEqual({ ok: true });
+  });
+
+  it.each([
+    "SELECT 'unterminated",
+    'SELECT "unterminated',
+    'SELECT `unterminated',
+    'SELECT [unterminated',
+    'SELECT 1; /* unterminated',
+  ])('fails closed for malformed quoting/comments: %s', (sql) => {
+    expect(checkMigration(sql)).toMatchObject({ ok: false });
+  });
+
   it('allows additive CREATE TRIGGER migrations supported by the migration splitter', () => {
     expect(checkMigration(
       'CREATE TRIGGER audit AFTER INSERT ON friends BEGIN INSERT INTO logs VALUES (NEW.id); END;',
