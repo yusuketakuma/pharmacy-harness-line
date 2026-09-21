@@ -56,12 +56,20 @@ async function ensureTagAddedScenario(
   messageContent: string,
 ): Promise<void> {
   const existing = (await harness.scenarios.list()).find((s) => s.name === name)
-  if (existing) return
+  if (existing) {
+    // A matching name may be paused, incomplete, or attached to another trigger.
+    // Do not consume the dedup tag or silently reactivate an operator's scenario.
+    if (!existing.isActive || !(existing.stepCount > 0)
+      || existing.triggerType !== 'tag_added' || existing.triggerTagId !== triggerTagId) {
+      throw new Error('Notification scenario is not ready; review its trigger, steps, and active state')
+    }
+    return
+  }
   const scenario = await harness.scenarios.create({
     name,
     triggerType: 'tag_added',
     triggerTagId,
-    isActive: true,
+    isActive: false,
   })
   await harness.scenarios.addStep(scenario.id, {
     stepOrder: 1,
@@ -69,6 +77,7 @@ async function ensureTagAddedScenario(
     messageType: 'text',
     messageContent,
   })
+  await harness.scenarios.update(scenario.id, { isActive: true })
 }
 
 /**
