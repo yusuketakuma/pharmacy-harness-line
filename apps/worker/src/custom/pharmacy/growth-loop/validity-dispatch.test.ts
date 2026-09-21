@@ -1,0 +1,194 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { d1FromSqlite, DB_PACKAGE_ROOT, openTestSqlite } from '../test-sqlite.js';
+
+const push = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const readCredential = vi.hoisted(() => vi.fn());
+vi.mock('../../../services/line-proxy-send.js', async original => ({...await original<typeof import('../../../services/line-proxy-send.js')>(),pushViaHarnessProxy:push}));
+vi.mock('../provisioning/line-credential-store.js', () => ({ readLineCredential: readCredential }));
+vi.mock('../beta-membership/repository.js', async (original) => ({
+  ...await original<typeof import('../beta-membership/repository.js')>(),
+  getPharmacyBetaNotificationBinding: vi.fn().mockResolvedValue(null),
+}));
+import { processDuePrescriptionValidityReminders } from './validity.js';
+import { savePrescriptionValidity } from './repository.js';
+import { sendPharmacyAutomatedPush } from './sender.js';
+
+const NOW = new Date('2026-09-22T00:00:00.000Z');
+const migration = '029_custom_081_pharmacy_validity_notification_queue.sql';
+const { splitSqlStatements } = createRequire(import.meta.url)(
+  join(DB_PACKAGE_ROOT, 'scripts/split-sql-statements.mjs'),
+) as { splitSqlStatements: (sql: string) => string[] };
+
+function setup(legacy = false) {
+  const sqlite = openTestSqlite({ foreignKeys: true });
+  try {
+    if (legacy) {
+      for (const file of readdirSync(join(DB_PACKAGE_ROOT, 'migrations'))
+        .filter(name => name.endsWith('.sql') && name < migration).sort()) {
+        for (const statement of splitSqlStatements(readFileSync(join(DB_PACKAGE_ROOT, 'migrations', file), 'utf8'))) {
+          try {
+            sqlite.exec(statement);
+          } catch (error) {
+            // The bootstrap generator permits these historical idempotent additions.
+            if (!(error instanceof Error) || !/duplicate column name|already exists/i.test(error.message)) throw error;
+          }
+        }
+      }
+    } else {
+      sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
+    }
+ const now='2026-09-22T00:00:00.000Z';
+ for(const x of ['a','b']) {
+ sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name,outbound_messaging_paused_at) VALUES ('tenant-${x}','tenant-${x}','Synthetic',${x==='a'?"'2026-09-21T00:00:00.000Z'":'NULL'});
+ INSERT INTO line_accounts(id,channel_id,name,channel_access_token,channel_secret) VALUES ('account-${x}','channel-${x}','Synthetic','synthetic','synthetic');
+ INSERT INTO tenant_line_accounts(tenant_id,line_account_id) VALUES ('tenant-${x}','account-${x}');
+ UPDATE pharmacy_account_capabilities SET capabilities_json='["prescription_intake"]' WHERE line_account_id='account-${x}';
+ INSERT INTO friends(id,line_user_id,provider_line_user_id,line_account_id,is_following) VALUES ('friend-${x}','user-${x}','provider-${x}','account-${x}',1);
+ INSERT INTO pharmacy_patients(id,line_account_id,owner_friend_id,relationship,name,name_kana,birth_date,created_at,updated_at) VALUES ('patient-${x}','account-${x}','friend-${x}','self','Synthetic','Synthetic','1990-01-01','${now}','${now}');
+ INSERT INTO pharmacy_patient_intake_responses(id,line_account_id,owner_friend_id,patient_id,revision,schema_version,patient_snapshot_json,answers_json,idempotency_key,representative_consent_at,privacy_consent_at,created_at) VALUES ('response-${x}','account-${x}','friend-${x}','patient-${x}',1,1,'{}','{}','synthetic-key','${now}','${now}','${now}');`);
+ }
+ for(let i=0;i<1;i++) {
+ const x=i<50?'a':'b'; const id=String(i).padStart(3,'0');
+ sqlite.exec(`INSERT INTO pharmacy_prescription_submissions(id,line_account_id,friend_id,idempotency_key,status,created_at,updated_at) VALUES ('sub-${id}','account-${x}','friend-${x}','synthetic-${id}','ready','${now}','${now}');
+ INSERT INTO pharmacy_prescription_patients(submission_id,line_account_id,owner_friend_id,patient_id,intake_response_id,created_at) VALUES ('sub-${id}','account-${x}','friend-${x}','patient-${x}','response-${x}','${now}');
+ INSERT INTO pharmacy_prescription_validities(submission_id,line_account_id,issued_on,valid_until,validity_basis,verification_status,verified_by,verified_at,reminder_due_at,created_at,updated_at) VALUES ('sub-${id}','account-${x}','2026-09-21','2026-09-24','default_4_days','verified','synthetic-staff','${now}','2026-09-21T00:00:00.000Z','${now}','${now}');`);
+ }
+
+    sqlite.exec("UPDATE tenants SET outbound_messaging_paused_at=NULL; UPDATE pharmacy_account_capabilities SET beta_enabled=0");
+    return { sqlite, db: d1FromSqlite(sqlite) };
+  } catch (error) {
+    sqlite.close();
+    throw error;
+  }
+}
+
+
+beforeEach(() => {
+  vi.useFakeTimers({toFake:['Date']});
+  vi.setSystemTime(NOW);
+  push.mockReset().mockResolvedValue(undefined);
+  readCredential.mockReset().mockResolvedValue('synthetic-token');
+});
+afterEach(() => vi.useRealTimers());
+
+function process(db: D1Database, now = NOW) {
+  return processDuePrescriptionValidityReminders(db,{proxyBaseUrl:'https://synthetic.invalid',lineCredentialKey:'synthetic',now,limit:1});
+}
+function correctDate(db: D1Database) {
+  return savePrescriptionValidity(db,{
+    lineAccountId:'account-a',submissionId:'sub-000',issuedOn:'2026-09-22',validUntil:'2026-09-25',
+    validityBasis:'default_4_days',verificationStatus:'verified',staffId:'synthetic-staff',
+  });
+}
+function direct(db: D1Database, overrides = {}) {
+  return sendPharmacyAutomatedPush({
+    db,proxyBaseUrl:'https://synthetic.invalid',accessToken:'synthetic',to:'provider-a',
+    lineAccountId:'account-a',friendId:'friend-a',patientId:'patient-a',
+    messageId:'prescription_validity_reminder_v1',category:'transactional_care',
+    vars:{genericDate:'2026-09-24'},retryKey:'prescription-validity:sub-000:2026-09-24',...overrides,
+  });
+}
+
+it.each([false,true])('delivers with the previous caller and schema contract (legacy=%s)',async legacy=>{
+  const {sqlite,db}=setup(legacy);
+  try {
+    expect((await process(db)).sent).toBe(1);
+    expect(push).toHaveBeenCalledOnce();
+    expect(JSON.stringify(push.mock.calls[0][3])).toContain('2026-09-24');
+    expect(sqlite.prepare("SELECT reminder_sent_at FROM pharmacy_prescription_validities WHERE submission_id='sub-000'").get()).toEqual({reminder_sent_at:NOW.toISOString()});
+    expect(await direct(db)).toBe('already_sent');
+    expect(push).toHaveBeenCalledOnce();
+  } finally {sqlite.close();}
+});
+
+it.each(['after_claim','at_final_read'])('does not send an old date corrected %s',async phase=>{
+  const {sqlite,db}=setup();
+  try {
+    if(phase==='after_claim')readCredential.mockImplementationOnce(async()=>{await correctDate(db);return 'synthetic-token';});
+    const intercepted={...db,prepare:(sql:string)=>{
+      const statement=db.prepare(sql);
+      if(!sql.includes('final pharmacy dispatch scope'))return statement;
+      return {bind:(...values:unknown[])=>({first:async()=>{await correctDate(db);return statement.bind(...values).first();}})};
+    }} as D1Database;
+    expect(await process(phase==='at_final_read'?intercepted:db)).toEqual({sent:0,failed:0,skipped:1,expiredReviewRequired:0});
+    expect(push).not.toHaveBeenCalled();
+    expect(sqlite.prepare("SELECT valid_until,reminder_sent_at FROM pharmacy_prescription_validities WHERE submission_id='sub-000'").get()).toEqual({valid_until:'2026-09-25',reminder_sent_at:null});
+    expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  } finally {sqlite.close();}
+});
+
+it.each(['cancelled','closed','unverified','expired','patient_changed'])(
+  'blocks a claimed reminder after %s',async change=>{
+    const {sqlite,db}=setup();
+    try {
+      readCredential.mockImplementationOnce(async()=>{
+        if(change==='cancelled'||change==='closed')sqlite.prepare("UPDATE pharmacy_prescription_submissions SET status=? WHERE id='sub-000'").run(change);
+        if(change==='unverified')await savePrescriptionValidity(db,{lineAccountId:'account-a',submissionId:'sub-000',issuedOn:'2026-09-21',validUntil:'2026-09-24',validityBasis:'default_4_days',verificationStatus:'unverified',staffId:null});
+        if(change==='expired')vi.setSystemTime(new Date('2026-09-24T15:00:00.000Z'));
+        if(change==='patient_changed')sqlite.exec("DELETE FROM pharmacy_prescription_patients WHERE submission_id='sub-000'");
+        return 'synthetic-token';
+      });
+      expect((await process(db)).sent).toBe(0);
+      expect(push).not.toHaveBeenCalled();
+    } finally {sqlite.close();}
+  },
+);
+
+it('retains delivery for legacy submissions without a patient link',async()=>{
+  const {sqlite,db}=setup();
+  try {
+    sqlite.exec("DELETE FROM pharmacy_prescription_patients WHERE submission_id='sub-000'");
+    expect((await process(db)).sent).toBe(1);
+    expect(push).toHaveBeenCalledOnce();
+  } finally {sqlite.close();}
+});
+
+it.each(['missing','foreign_account','wrong_date','wrong_prefix'])(
+  'blocks a %s validity reference',async mismatch=>{
+    const {sqlite,db}=setup();
+    try {
+      sqlite.prepare("UPDATE pharmacy_prescription_validities SET reminder_claimed_at=? WHERE submission_id='sub-000'").run(NOW.toISOString());
+      const overrides=mismatch==='foreign_account'?{lineAccountId:'account-b',friendId:'friend-b',patientId:'patient-b',to:'provider-b'}
+        : mismatch==='wrong_date'?{vars:{genericDate:'2026-09-25'}}
+        : {retryKey:mismatch==='missing'?'prescription-validity:missing:2026-09-24':'unknown:sub-000:2026-09-24'};
+      expect(await direct(db,overrides)).toBe('patient_blocked');
+      expect(push).not.toHaveBeenCalled();
+    } finally {sqlite.close();}
+  },
+);
+
+it('preserves a prior unknown provider result after date correction',async()=>{
+  const {LineHarnessUnknownOutcomeError}=await import('../../../services/line-proxy-send.js');
+  const {sqlite,db}=setup();
+  try {
+    push.mockRejectedValueOnce(new LineHarnessUnknownOutcomeError('synthetic unknown'));
+    expect((await process(db)).failed).toBe(1);
+    await correctDate(db);
+    sqlite.prepare("UPDATE pharmacy_notification_events SET occurred_at=? WHERE idempotency_key='prescription-validity:sub-000:2026-09-24'").run(new Date(NOW.getTime()-16*60000).toISOString());
+    expect(await direct(db)).toBe('patient_blocked');
+    expect(push).toHaveBeenCalledOnce();
+    expect(sqlite.prepare("SELECT outcome FROM pharmacy_notification_events WHERE idempotency_key='prescription-validity:sub-000:2026-09-24'").get()).toEqual({outcome:'attempted'});
+  } finally {sqlite.close();}
+});
+
+it.each([16, 25 * 60])('can deliver after a temporarily unverified validity is verified again after %i minutes',async(minutes)=>{
+  const {sqlite,db}=setup();
+  try {
+    const first=new Date('2026-09-23T00:00:00.000Z');
+    vi.setSystemTime(first);
+    readCredential.mockImplementationOnce(async()=>{
+      await savePrescriptionValidity(db,{lineAccountId:'account-a',submissionId:'sub-000',issuedOn:'2026-09-21',validUntil:'2026-09-24',validityBasis:'default_4_days',verificationStatus:'unverified',staffId:null});
+      return 'synthetic-token';
+    });
+    expect((await process(db,first)).skipped).toBe(1);
+    expect(push).not.toHaveBeenCalled();
+    await savePrescriptionValidity(db,{lineAccountId:'account-a',submissionId:'sub-000',issuedOn:'2026-09-21',validUntil:'2026-09-24',validityBasis:'default_4_days',verificationStatus:'verified',staffId:'synthetic-staff'});
+    const later=new Date(first.getTime()+minutes*60000);
+    vi.setSystemTime(later);
+    expect((await process(db,later)).sent).toBe(1);
+    expect(push).toHaveBeenCalledOnce();
+  } finally {sqlite.close();}
+});

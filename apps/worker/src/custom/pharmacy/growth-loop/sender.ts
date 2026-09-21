@@ -116,7 +116,7 @@ async function getPatientDeliveryState(
   return membership === 'active' ? 'allowed' : membership === 'suspended' ? 'retryable' : 'blocked';
 }
 
-type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'operations_blocked';
+type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'validity_retryable' | 'operations_blocked';
 
 async function medicationFollowUpOperationsReady(
   db: D1Database,
@@ -190,6 +190,13 @@ async function getFinalDispatchState(
   const continuityReminder = input.messageId === 'continuity_reminder_v1';
   const expectationId = continuityReminder && input.retryKey.startsWith('next-intake:')
     ? input.retryKey.slice('next-intake:'.length)
+    : null;
+  const validityReminder = input.messageId === 'prescription_validity_reminder_v1';
+  const validityDate = input.vars?.genericDate ?? null;
+  const validityPrefix = 'prescription-validity:';
+  const validitySubmissionId = validityReminder && validityDate &&
+      input.retryKey.startsWith(validityPrefix) && input.retryKey.endsWith(`:${validityDate}`)
+    ? input.retryKey.slice(validityPrefix.length, -(validityDate.length + 1))
     : null;
   const betaSchema = input.patientId
     ? await getPharmacyBetaSchemaState(input.db)
@@ -288,6 +295,8 @@ async function getFinalDispatchState(
     ? '1 AS followup_operations_enabled'
     : `CASE WHEN ${followUpOperationsReadyPredicate('friend.line_account_id')}
             THEN 1 ELSE 0 END AS followup_operations_enabled`;
+  const dispatchNow = new Date();
+  const dispatchDate = new Date(dispatchNow.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const row = await input.db.prepare(
     `/* final pharmacy dispatch scope */
       SELECT friend.provider_line_user_id AS destination_line_user_id,
@@ -303,6 +312,13 @@ async function getFinalDispatchState(
              ${continuityReminder
                ? 'expectation.status AS expectation_status, obligation.status AS continuity_status'
                : 'NULL AS expectation_status, NULL AS continuity_status'},
+             ${validityReminder ? `CASE WHEN validity.verification_status = 'verified'
+               AND validity_submission.status = 'ready'
+               AND validity.valid_until = ? AND validity.valid_until >= ?
+               AND validity.reminder_due_at <= ?
+               AND validity.reminder_claimed_at IS NOT NULL AND validity.reminder_sent_at IS NULL
+               AND validity_patient.patient_id IS ?
+               THEN 1 ELSE 0 END` : '1'} AS validity_dispatch_allowed,
              ${operationsSelect},
              ${betaMembershipStatus}
         FROM friends AS friend
@@ -326,6 +342,18 @@ async function getFinalDispatchState(
               AND obligation.line_account_id = expectation.line_account_id
               AND obligation.owner_friend_id = expectation.owner_friend_id
               AND obligation.patient_id = expectation.patient_id` : ''}
+        ${validityReminder ? `
+        LEFT JOIN pharmacy_prescription_submissions AS validity_submission
+               ON validity_submission.id = ?
+              AND validity_submission.line_account_id = friend.line_account_id
+              AND validity_submission.friend_id = friend.id
+        LEFT JOIN pharmacy_prescription_validities AS validity
+               ON validity.submission_id = validity_submission.id
+              AND validity.line_account_id = validity_submission.line_account_id
+        LEFT JOIN pharmacy_prescription_patients AS validity_patient
+               ON validity_patient.submission_id = validity_submission.id
+              AND validity_patient.line_account_id = validity_submission.line_account_id
+              AND validity_patient.owner_friend_id = friend.id` : ''}
         LEFT JOIN pharmacy_medication_followups AS followup
                ON followup.id = ?
               AND followup.line_account_id = friend.line_account_id
@@ -337,9 +365,11 @@ async function getFinalDispatchState(
        LIMIT 1`,
   ).bind(
     requiredCapability,
+    ...(validityReminder ? [validityDate, dispatchDate, dispatchNow.toISOString(), input.patientId ?? null] : []),
     ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
     ...(input.patientId ? [input.patientId, new Date().toISOString()] : []),
     ...(continuityReminder ? [expectationId, input.patientId ?? null] : []),
+    ...(validityReminder ? [validitySubmissionId] : []),
     followUpId,
     input.patientId ?? null,
     input.friendId,
@@ -354,6 +384,7 @@ async function getFinalDispatchState(
     capability_enabled: number;
     expectation_status: string | null;
     continuity_status: string | null;
+    validity_dispatch_allowed: number;
     followup_status: string | null;
     followup_operations_enabled: number | null;
     beta_membership_status: 'active' | 'suspended' | 'revoked' | null;
@@ -364,6 +395,8 @@ async function getFinalDispatchState(
       row.capability_enabled !== 1) {
     return 'blocked';
   }
+  // Eligibility can return after staff re-verification; do not permanently consume the retry key.
+  if (validityReminder && row.validity_dispatch_allowed !== 1) return 'validity_retryable';
   if (continuityReminder) {
     if (!['active', 'paused'].includes(row.expectation_status ?? '') ||
         !['active', 'paused'].includes(row.continuity_status ?? '')) return 'blocked';
@@ -548,6 +581,14 @@ export async function sendPharmacyAutomatedPush(
     // Cancellation prevents another send, but cannot determine an earlier provider result.
     if (!reclaimedUnknownAttempt) {
       await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    }
+    return 'patient_blocked';
+  }
+  if (finalDispatchState === 'validity_retryable') {
+    // This attempt never reached the provider; only an earlier unknown attempt
+    // must retain its reconciliation deadline. Staff may re-verify later.
+    if (!reclaimedUnknownAttempt) {
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', finalNow.toISOString());
     }
     return 'patient_blocked';
   }
