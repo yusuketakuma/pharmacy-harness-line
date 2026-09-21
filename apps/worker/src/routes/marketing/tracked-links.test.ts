@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm';
 import { Hono } from 'hono';
 import { describe, expect, test, beforeEach, vi } from 'vitest';
 
@@ -382,5 +383,27 @@ describe('PATCH tracked link ownership before mutation', () => {
       expect(dbMocks.updateTrackedLink).toHaveBeenCalledWith(db, 'link-1', body);
       expect(await res.json()).toMatchObject({ success: true, data: { name: 'updated' } });
     }
+  });
+});
+
+
+describe('app redirect script URL serialization', () => {
+  test.each([
+    'https://youtube.com/watch?v=first&list=second',
+    'https://github.com/example/project?q="quoted"&next=日本語',
+    'https://x.com/example?q=</script><script>globalThis.unexpected=true</script>',
+  ])('preserves URL as data: %s', async (url) => {
+    dbMocks.getTrackedLinkByIdOrShortCode.mockResolvedValue(makeLink({ original_url: url }));
+    const response = await request({ DB: makeDb({}) }, 'Safari');
+    const html = await response.text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gi)];
+    expect(scripts).toHaveLength(1);
+    const window = { location: { href: '' } };
+    runInNewContext(scripts[0][1], { window, navigator: { userAgent: 'Safari' } }, { timeout: 100 });
+    expect(window.location.href).toBe(url);
+    const android = { location: { href: '' } };
+    runInNewContext(scripts[0][1], { window: android, navigator: { userAgent: 'Android' } }, { timeout: 100 });
+    expect(android.location.href).toContain(`S.browser_fallback_url=${encodeURIComponent(url)};end`);
+    expect(android.location.href.startsWith(`intent://${url.replace(/^https?:\/\//, '')}#Intent;`)).toBe(true);
   });
 });

@@ -289,13 +289,18 @@ function getAndroidPackage(url: string): string | null {
 }
 
 function buildAppRedirectHtml(destinationUrl: string): string {
-  const escaped = destinationUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const escaped = destinationUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const androidPackage = getAndroidPackage(destinationUrl);
   // intent://path#Intent;scheme=https;package=com.xxx;S.browser_fallback_url=https://...;end
   const intentUrl = androidPackage
     ? `intent://${destinationUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(destinationUrl)};end`
     : null;
-  const intentEscaped = intentUrl ? intentUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;') : '';
+  // Script contents are raw text, so HTML entities would alter the URL.
+  // Escape '<' as well to keep a URL from terminating the script element.
+  const scriptString = (value: string) => JSON.stringify(value).replace(/</g, '\\u003c');
+  const destinationJson = scriptString(destinationUrl);
+  const intentJson = scriptString(intentUrl ?? '');
 
   return `<!DOCTYPE html>
 <html><head>
@@ -308,10 +313,10 @@ function buildAppRedirectHtml(destinationUrl: string): string {
 <script>
 (function(){
   var isAndroid = /Android/i.test(navigator.userAgent);
-  if(isAndroid && "${intentEscaped}"){
-    window.location.href="${intentEscaped}";
+  if(isAndroid && ${intentJson}){
+    window.location.href=${intentJson};
   } else {
-    window.location.href="${escaped}";
+    window.location.href=${destinationJson};
   }
 })();
 </script>
