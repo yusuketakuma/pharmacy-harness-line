@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../../index.js';
+import { log } from '../../lib/log.js';
 import { clampLimitOffset } from '../../lib/pagination.js';
 import { isPharmacyTenant, pharmacyStaffAccountPredicate } from '../../custom/pharmacy/growth-loop/access.js';
 
@@ -205,9 +206,9 @@ conversations.get('/api/conversations', async (c) => {
     });
 
     return c.json({ success: true, data: { total: countRow?.total ?? 0, items } });
-  } catch (err) {
-    console.error('GET /api/conversations error:', err);
-    return c.json({ success: false, error: String(err) }, 500);
+  } catch {
+    log('conversation_list_failed', {}, 'error');
+    return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
 
@@ -315,9 +316,9 @@ conversations.get('/api/conversations/:friendId', async (c) => {
         messages,
       },
     });
-  } catch (err) {
-    console.error('GET /api/conversations/:friendId error:', err);
-    return c.json({ success: false, error: String(err) }, 500);
+  } catch {
+    log('conversation_detail_failed', {}, 'error');
+    return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
 

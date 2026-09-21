@@ -165,8 +165,8 @@ chats.get('/api/operators', async (c) => {
         updatedAt: o.updated_at,
       })),
     });
-  } catch (err) {
-    console.error('GET /api/operators error:', err);
+  } catch {
+    log('operator_list_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -177,8 +177,8 @@ chats.post('/api/operators', async (c) => {
     if (!body.name || !body.email) return c.json({ success: false, error: 'name and email are required' }, 400);
     const item = await createOperator(c.env.DB, body);
     return c.json({ success: true, data: { id: item.id, name: item.name, email: item.email, role: item.role } }, 201);
-  } catch (err) {
-    console.error('POST /api/operators error:', err);
+  } catch {
+    log('operator_create_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -191,8 +191,8 @@ chats.put('/api/operators/:id', async (c) => {
     const updated = await getOperatorById(c.env.DB, id);
     if (!updated) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, isActive: Boolean(updated.is_active) } });
-  } catch (err) {
-    console.error('PUT /api/operators/:id error:', err);
+  } catch {
+    log('operator_update_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -201,8 +201,8 @@ chats.delete('/api/operators/:id', async (c) => {
   try {
     await deleteOperator(c.env.DB, c.req.param('id'));
     return c.json({ success: true, data: null });
-  } catch (err) {
-    console.error('DELETE /api/operators/:id error:', err);
+  } catch {
+    log('operator_delete_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -445,8 +445,8 @@ chats.get('/api/chats', async (c) => {
     }
 
     return c.json({ success: true, data });
-  } catch (err) {
-    console.error('GET /api/chats error:', err);
+  } catch {
+    log('chat_list_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -528,8 +528,8 @@ chats.get('/api/chats/:id', async (c) => {
         })),
       },
     });
-  } catch (err) {
-    console.error('GET /api/chats/:id error:', err);
+  } catch {
+    log('chat_detail_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -572,8 +572,8 @@ chats.post('/api/chats', async (c) => {
         .bind(body.lineAccountId, item.id).run();
     }
     return c.json({ success: true, data: { id: item.id, friendId: item.friend_id, status: item.status } }, 201);
-  } catch (err) {
-    console.error('POST /api/chats error:', err);
+  } catch {
+    log('chat_create_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -594,8 +594,8 @@ chats.put('/api/chats/:id', async (c) => {
       // 公開 ID は friend_id に統一
       data: { id: updated.friend_id, friendId: updated.friend_id, operatorId: updated.operator_id, status: updated.status, notes: updated.notes },
     });
-  } catch (err) {
-    console.error('PUT /api/chats/:id error:', err);
+  } catch {
+    log('chat_update_failed', {}, 'error');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
