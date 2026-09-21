@@ -923,7 +923,7 @@ describe('POST /webhook — first-contact existing friends', () => {
 });
 
 describe('POST /webhook — referral intro delivery', () => {
-  test('uses tracked push delivery with the scoped request and provider retry key', async () => {
+  test.each([['tenant-referral', 'tenant-referral'], ['tenant-other', 'tenant-other'], [null, null], ['tenant-referral', 'tenant-other']])('scopes referral route %s and template %s', async (routeTenant, templateTenant) => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     const introMessage = { type: 'text', text: 'Referral intro' } as const;
     vi.mocked(buildMessage).mockReturnValue(introMessage);
@@ -949,10 +949,12 @@ describe('POST /webhook — referral intro delivery', () => {
     vi.mocked(getFriendById).mockResolvedValue({ ref_code: 'ref-route' } as never);
     vi.mocked(getEntryRouteByRefCode).mockResolvedValue({
       id: 'route-referral',
+      tenant_id: routeTenant,
       intro_template_id: 'template-referral',
       run_account_friend_add_scenarios: 0,
     } as never);
     vi.mocked(getMessageTemplateById).mockResolvedValue({
+      tenant_id: templateTenant,
       message_type: 'text',
       message_content: 'Referral intro',
     } as never);
@@ -995,6 +997,16 @@ describe('POST /webhook — referral intro delivery', () => {
     }, { ...baseEnv, DB: db }, executionCtx);
     await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
 
+    if (routeTenant !== 'tenant-referral' || templateTenant !== 'tenant-referral') {
+      expect(response.status).toBe(200);
+      expect(deliverTrackedLinePush).not.toHaveBeenCalled();
+      expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
+      if (routeTenant !== 'tenant-referral') {
+        expect(getMessageTemplateById).not.toHaveBeenCalled();
+        expect(getScenariosForAccount).toHaveBeenCalledWith(db, 'account-referral');
+      }
+      return;
+    }
     const operationId = await createBroadcastRetryKey(
       'webhook-referral-intro',
       'tenant-referral',

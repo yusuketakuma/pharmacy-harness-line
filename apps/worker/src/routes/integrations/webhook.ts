@@ -607,9 +607,11 @@ async function handleEvent(
         }
       }
     }
-    const referralRoute: EntryRoute | null = friendRefCode
+    const candidateRoute = friendRefCode
       ? await getEntryRouteByRefCode(db, friendRefCode)
       : null;
+    const referralRoute: EntryRoute | null = candidateRoute?.tenant_id === tenantId
+      ? candidateRoute : null;
     const runAccountScenarios =
       !referralRoute || referralRoute.run_account_friend_add_scenarios !== 0;
 
@@ -664,7 +666,7 @@ async function handleEvent(
       if (referralRoute.intro_template_id) {
         try {
           const template = await getMessageTemplateById(db, referralRoute.intro_template_id);
-          if (template) {
+          if (template?.tenant_id === tenantId) {
             const message = buildMessage(template.message_type, template.message_content);
             const logPayload = messageToLogPayload(message);
             const retryKey = await createBroadcastRetryKey(
