@@ -62,7 +62,12 @@ const ACTIVE_LEGAL_HOLD = `
   dsr.line_account_id = intake.line_account_id
   AND dsr.owner_friend_id = intake.owner_friend_id
   AND dsr.legal_hold = 1
-  AND (dsr.legal_hold_release_at IS NULL OR dsr.legal_hold_release_at > ?)`;
+  AND NOT COALESCE((
+    length(dsr.legal_hold_release_at) = 24
+    AND strftime('%Y-%m-%dT%H:%M:%fZ', dsr.legal_hold_release_at, '+0 seconds')
+      = dsr.legal_hold_release_at
+    AND dsr.legal_hold_release_at <= ?
+  ), 0)`;
 
 /** Calendar-correct so leap days do not shift the boundary. */
 function retentionCutoff(now: Date, days: number): string {
