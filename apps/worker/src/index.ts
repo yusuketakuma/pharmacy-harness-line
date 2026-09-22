@@ -100,6 +100,7 @@ import { instagramEngagement } from './routes/marketing/instagram-engagement.js'
 import adminVersion from './routes/admin/admin-version.js';
 import { mediaInquiries } from './routes/admin/media-inquiries.js';
 import { loginUnconfiguredPage } from './lib/login-unconfigured.js';
+import { appErrorHandler } from './lib/app-error-handler.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
 import { patientTimelineRoutes } from './custom/pharmacy/patient-timeline/routes.js'; // custom:pharmacy-patient-timeline
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
@@ -1028,6 +1029,7 @@ export async function notFoundHandler(
   return assetRes;
 }
 app.notFound(notFoundHandler);
+app.onError(appErrorHandler);
 
 // Scheduled handler for cron triggers — runs for all active LINE accounts
 async function scheduled(
