@@ -246,6 +246,49 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     expect(purgeLog()).toHaveLength(valid ? 1 : 0);
   });
 
+  test.each([
+    ['2026-07-21T12:00:00Z', true],
+    ['2026-07-21T12:00:00.09Z', true],
+    ['2026-07-21T12:00:00.099999Z', true],
+    ['2026-07-21T12:00:00.1Z', false],
+    ['2026-07-21T12:00:00.100Z', false],
+    ['2026-07-21T12:00:00.100000Z', false],
+    ['2026-07-21T12:00:00.100001Z', false],
+  ])('compares the actual instant at the retention cutoff: %s', async (createdAt, expired) => {
+    seedAccount('a', 30);
+    const id = insertIntake('a', createdAt);
+    const now = new Date('2026-08-20T12:00:00.100Z');
+    expect(await purgeEmergencyIntakesPastRetention(db, { now }))
+      .toEqual({ purged: expired ? 1 : 0, failed: 0, skippedFormat: 0, skippedLegalHold: 0 });
+    expect(intakePhi().find((row) => row.id === id)).toMatchObject({
+      encrypted_payload: expired ? '' : 'v1.nonce.ciphertext',
+    });
+    expect(purgeLog()).toHaveLength(expired ? 1 : 0);
+  });
+
+  test('orders valid timestamps by instant before applying the per-account limit', async () => {
+    seedAccount('a', 30);
+    const earlier = insertIntake('a', '2020-01-01T00:00:00.09Z');
+    insertIntake('a', '2020-01-01T00:00:00.099Z');
+    expect((await purgeEmergencyIntakesPastRetention(db, { now: NOW, limit: 1 })).purged).toBe(1);
+    expect(purgeLog().map((row) => row.resource_id)).toEqual([earlier]);
+  });
+
+  test('preserves equal instants with extra zero precision during the final batch recheck', async () => {
+    seedAccount('a', 30);
+    const id = insertIntake('a', '2020-01-01T00:00:00.000Z');
+    const racingDb = { ...db, batch: async (statements: D1PreparedStatement[]) => {
+      sqlite.prepare('UPDATE pharmacy_emergency_intakes SET created_at = ? WHERE id = ?')
+        .run('2026-07-21T12:00:00.0000Z', id);
+      return db.batch(statements);
+    } } as unknown as D1Database;
+    expect((await purgeEmergencyIntakesPastRetention(racingDb, { now: NOW })).purged).toBe(0);
+    expect(intakePhi().find((row) => row.id === id)).toMatchObject({
+      encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
+    });
+    expect(purgeLog()).toEqual([]);
+  });
+
   test('invalid old timestamps cannot starve later valid candidates', async () => {
     seedAccount('a', 30);
     insertIntake('a', '2020-02-30T00:00:00.000Z');

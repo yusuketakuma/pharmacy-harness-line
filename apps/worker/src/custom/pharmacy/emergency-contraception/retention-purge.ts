@@ -73,6 +73,12 @@ const VALID_CREATED_AT = `COALESCE((
   )
 ), 0)`;
 
+// Only use after VALID_CREATED_AT. Removing trailing fraction zeros makes equal
+// instants equal while preserving arbitrarily precise decimal ordering.
+const CREATED_AT_ORDER_KEY = `(substr(intake.created_at, 1, 19) || '.' || rtrim(
+  CASE WHEN length(intake.created_at) = 20 THEN ''
+    ELSE substr(intake.created_at, 21, length(intake.created_at) - 21) END, '0'))`;
+
 const ACTIVE_LEGAL_HOLD = `
   dsr.line_account_id = intake.line_account_id
   AND dsr.owner_friend_id = intake.owner_friend_id
@@ -115,6 +121,7 @@ export async function purgeEmergencyIntakesPastRetention(
   for (const account of accounts.results ?? []) {
     try {
       const cutoff = retentionCutoff(now, account.retention_days);
+      const cutoffOrderKey = cutoff.slice(0, -1).replace(/0+$/u, '');
 
       const formatSkipped = await db.prepare(
         `SELECT COUNT(*) AS n
@@ -138,15 +145,15 @@ export async function purgeEmergencyIntakesPastRetention(
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
             AND ${VALID_CREATED_AT}
-            AND intake.created_at < ?
+            AND ${CREATED_AT_ORDER_KEY} < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
                WHERE purged.resource_type = 'emergency_intake'
                  AND purged.resource_id = intake.id
             )
-          ORDER BY intake.created_at, intake.id
+          ORDER BY ${CREATED_AT_ORDER_KEY}, intake.id
           LIMIT ?`,
-      ).bind(nowIso, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, limit)
+      ).bind(nowIso, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, limit)
         .all<PurgeCandidateRow>();
 
       const rows = due.results ?? [];
@@ -160,7 +167,7 @@ export async function purgeEmergencyIntakesPastRetention(
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
             AND ${VALID_CREATED_AT}
-            AND intake.created_at < ?
+            AND ${CREATED_AT_ORDER_KEY} < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
                WHERE purged.resource_type = 'emergency_intake'
@@ -170,9 +177,9 @@ export async function purgeEmergencyIntakesPastRetention(
               SELECT 1 FROM pharmacy_data_subject_requests dsr
                WHERE ${ACTIVE_LEGAL_HOLD}
             )
-          ORDER BY intake.created_at, intake.id
+          ORDER BY ${CREATED_AT_ORDER_KEY}, intake.id
           LIMIT ?`,
-      ).bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, nowIso, limit)
+      ).bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, nowIso, limit)
         .all<Pick<PurgeCandidateRow, 'id'>>();
       const toPurge = eligible.results ?? [];
       if (toPurge.length === 0) continue;
@@ -188,7 +195,7 @@ export async function purgeEmergencyIntakesPastRetention(
                   intake.created_at, ?, ?
              FROM pharmacy_emergency_intakes AS intake
             WHERE intake.id = ? AND intake.line_account_id = ?
-              AND ${VALID_CREATED_AT} AND intake.created_at < ?
+              AND ${VALID_CREATED_AT} AND ${CREATED_AT_ORDER_KEY} < ?
               AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
               AND NOT EXISTS (
                 SELECT 1 FROM pharmacy_data_subject_requests dsr
@@ -196,7 +203,7 @@ export async function purgeEmergencyIntakesPastRetention(
               )`,
         ).bind(
           crypto.randomUUID(), account.retention_days, nowIso,
-          row.id, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, nowIso,
+          row.id, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoffOrderKey, nowIso,
         ),
         db.prepare(
           `UPDATE pharmacy_emergency_intakes
