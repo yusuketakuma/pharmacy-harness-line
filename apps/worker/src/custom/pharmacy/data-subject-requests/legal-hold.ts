@@ -14,8 +14,8 @@ export const ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL = `NOT (
     OR (
       request.legal_hold = 1
       AND length(request.legal_hold_release_at) = 24
-      AND request.legal_hold_release_at GLOB
-        '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+      AND strftime('%Y-%m-%dT%H:%M:%fZ', request.legal_hold_release_at, '+0 seconds')
+        = request.legal_hold_release_at
       AND request.legal_hold_release_at <= ?
     )
   ), 0)
@@ -52,7 +52,8 @@ export function assessRetention(
 ): RetentionAssessment {
   if (!Number.isFinite(now.getTime()) ||
       !latestPhiAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(latestPhiAt) ||
-      !Number.isFinite(Date.parse(latestPhiAt))) {
+      !Number.isFinite(Date.parse(latestPhiAt)) ||
+      new Date(latestPhiAt).toISOString() !== latestPhiAt) {
     return { status: 'unknown', releaseAt: null };
   }
   const releaseAt = legalHoldReleaseAt(latestPhiAt);
@@ -308,6 +309,7 @@ export async function latestPhiRecordedAt(
     .filter((value): value is string => value !== null);
   if (timestamps.some((value) =>
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) ||
-    !Number.isFinite(Date.parse(value)))) return null;
+    !Number.isFinite(Date.parse(value)) ||
+    new Date(value).toISOString() !== value)) return null;
   return timestamps.sort().at(-1) ?? null;
 }

@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import {
+  ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL,
   assessPatientRetention,
   latestPhiRecordedAt,
 } from '../../../apps/worker/src/custom/pharmacy/data-subject-requests/legal-hold.js';
@@ -79,10 +80,52 @@ it('evaluates every retention source on native D1 while preserving scope and unk
        '{}', '{}', 'synthetic-key', ?, ?, ?)`).bind(NOW.toISOString(), NOW.toISOString(), NOW.toISOString()).run();
     expect(await latest()).toBe(NOW.toISOString());
     expect(await assess()).toEqual({ status: 'held', releaseAt: '2029-08-20T00:00:00.000Z' });
+    await db.prepare("UPDATE messages_log SET created_at = '2020-02-30T00:00:00.000Z' WHERE id = 'own'").run();
+    expect(await latest()).toBeNull();
+    expect(await assess()).toEqual({ status: 'unknown', releaseAt: null });
     await db.prepare("UPDATE messages_log SET created_at = 'invalid-source-date' WHERE id = 'own'").run();
     expect(await latest()).toBeNull();
     expect(await assess()).toEqual({ status: 'unknown', releaseAt: null });
     expect(outbound).toBe(0);
+  } finally {
+    await mf.dispose();
+  }
+}, 30_000);
+
+
+it('evaluates active DSR dates on D1 without accepting invalid calendar dates', async () => {
+  const mf = new Miniflare(convertV4MiniflareOptions({
+    cf: false, modules: true,
+    script: 'export default { fetch() { return new Response("synthetic"); } };',
+    d1Databases: ['DB'],
+    outboundService: () => new Response('blocked', { status: 503 }),
+  }));
+  try {
+    const db = await mf.getD1Database('DB') as D1Database;
+    const cases = [
+      { date: '2020-02-29T00:00:00.000Z', blocked: 0 },
+      { date: NOW.toISOString(), blocked: 0 },
+      { date: '2026-08-20T00:00:00.001Z', blocked: 1 },
+      { date: '2020-02-30T00:00:00.000Z', blocked: 1 },
+      { date: '2021-02-29T00:00:00.000Z', blocked: 1 },
+      { date: '2020-99-99T00:00:00.000Z', blocked: 1 },
+      { date: '2020-01-01T24:00:00.000Z', blocked: 1 },
+      { date: '2020-01-01T00:00:00.000+09:00', blocked: 1 },
+      { date: '2020-01-01', blocked: 1 },
+      { date: null, blocked: 1 },
+    ];
+    for (const { date, blocked } of cases) {
+      const row = await db.prepare(`SELECT ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL} AS blocked
+        FROM (SELECT 'legal_hold_assessed' AS status, 1 AS legal_hold, ? AS legal_hold_release_at) AS request`)
+        .bind(NOW.toISOString(), date).first<{ blocked: number }>();
+      expect(row, String(date)).toEqual({ blocked });
+    }
+    for (const status of ['received', 'identity_verified', 'legal_hold_assessed']) {
+      const row = await db.prepare(`SELECT ${ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL} AS blocked
+        FROM (SELECT ? AS status, 0 AS legal_hold, NULL AS legal_hold_release_at) AS request`)
+        .bind(NOW.toISOString(), status).first<{ blocked: number }>();
+      expect(row).toEqual({ blocked: status === 'legal_hold_assessed' ? 0 : 1 });
+    }
   } finally {
     await mf.dispose();
   }

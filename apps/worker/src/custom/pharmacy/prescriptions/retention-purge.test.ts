@@ -510,6 +510,58 @@ describe('pharmacy PHI retention purge (H-5, 3 years)', () => {
     expect(purgeLog()).toHaveLength(1);
   });
 
+  test.each(['2020-02-30T00:00:00.000Z', '2020-01-01T24:00:00.000Z'])(
+    'keeps the file when its active DSR has a non-existent release date: %s', async (releaseAt) => {
+      insertFile('file-invalid-hold', PURGED_AT);
+      attachPatient('file-invalid-hold', 'patient-invalid-hold', '2019-01-01T00:00:00.000Z');
+      seedLegalHold('patient-invalid-hold', releaseAt);
+      const images = mockImages();
+      await expect(purgePrescriptionFilesPastRetention(db, images, purgeOptions({ now: NOW })))
+        .resolves.toEqual({ purged: 0, failed: 0, skipped: 1 });
+      expect(images.put).not.toHaveBeenCalled();
+      expect(images.delete).not.toHaveBeenCalled();
+      expect(remainingFiles()).toEqual([{ id: 'file-invalid-hold', state: 'ready' }]);
+      expect(purgeLog()).toEqual([]);
+      expect(sqlite.prepare(`SELECT patient_key, status FROM pharmacy_retention_hold_epochs
+        WHERE line_account_id = 'account-a' ORDER BY patient_key`).all()).toEqual([
+        { patient_key: '*', status: 'unknown' }, { patient_key: 'patient-invalid-hold', status: 'unknown' },
+      ]);
+    },
+  );
+
+  test.each([
+    ['2020-02-29T00:00:00.000Z', true],
+    ['2020-02-30T00:00:00.000Z', false],
+    ['2020-99-99T00:00:00.000Z', false],
+  ] as const)('rechecks the DSR calendar date at deletion commit: %s', async (releaseAt, allowed) => {
+    const fileId = 'file-dsr-calendar';
+    const patientId = `patient-${fileId}`;
+    insertReleasedFile(fileId, PURGED_AT);
+    seedLegalHold(patientId, '2020-01-01T00:00:00.000Z');
+    const fence = await prepareRetentionFence(db, {
+      tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a', patientId,
+    }, NOW, EXECUTION);
+    expect(fence.status).toBe('released');
+    const intent = await createDeletionIntent(db, {
+      execution: EXECUTION, tenantId: 'tenant-a', lineAccountId: 'account-a', ownerFriendId: 'friend-a',
+      patientKey: patientId, resourceType: 'prescription_file', resourceId: fileId,
+      r2Key: `custom/pharmacy/prescriptions/tenants/tenant-a/submission-${fileId}/1/${fileId}`,
+      storedSha256: 'a'.repeat(64), ageReferenceAt: PURGED_AT, rowState: 'ready', rowRevision: 1,
+      holdEpoch: fence.epoch, now: NOW.toISOString(),
+    });
+    expect(intent?.status).toBe('CLAIMED');
+    // Keep the released fence unchanged so the final SQL, rather than another
+    // inventory refresh, must reject the malformed timestamp.
+    sqlite.prepare('UPDATE pharmacy_data_subject_requests SET legal_hold_release_at = ? WHERE id = ?')
+      .run(releaseAt, `dsr-${patientId}`);
+    await expect(commitPrescriptionDeletionIntent(db, {
+      intent: intent!, expectedFence: fence, execution: EXECUTION, now: NOW.toISOString(),
+    })).resolves.toBe(allowed);
+    expect(sqlite.prepare('SELECT status FROM pharmacy_retention_deletion_intents WHERE id = ?')
+      .get(intent!.id)).toEqual({ status: allowed ? 'DELETE_COMMITTED' : 'CLAIMED' });
+    expect(remainingFiles()).toEqual([{ id: fileId, state: 'ready' }]);
+  });
+
   test('keeps an old file when a newer prescription event is still retained', async () => {
     insertReleasedFile('file-newer-event', PURGED_AT);
     sqlite.prepare(`INSERT INTO pharmacy_prescription_events

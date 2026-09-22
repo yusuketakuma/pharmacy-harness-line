@@ -22,6 +22,21 @@ describe('retention assessment', () => {
     expect(assessRetention('not-a-timestamp', new Date('invalid')).status).toBe('unknown');
   });
 
+  it.each([
+    '2020-02-30T00:00:00.000Z',
+    '2021-02-29T00:00:00.000Z',
+    '2020-01-01T24:00:00.000Z',
+    '2020-99-99T00:00:00.000Z',
+  ])('keeps the hold unknown for a non-existent canonical date: %s', (timestamp) => {
+    expect(assessRetention(timestamp, new Date('2026-08-20T00:00:00.000Z')))
+      .toEqual({ status: 'unknown', releaseAt: null });
+  });
+
+  it('preserves the existing valid leap-day retention anniversary', () => {
+    expect(assessRetention('2020-02-29T00:00:00.000Z', new Date('2023-02-28T00:00:00.000Z')))
+      .toEqual({ status: 'held', releaseAt: '2023-03-01T00:00:00.000Z' });
+  });
+
   it('maps a source query failure to unknown', async () => {
     const failingDb = {
       prepare: () => ({ bind: () => ({ first: async () => { throw new Error('source unavailable'); } }) }),

@@ -71,7 +71,8 @@ async function activeRequestOverlay(
       if (row.legal_hold !== 0 && row.legal_hold !== 1) return unknownAssessment();
       if (row.legal_hold === 1) {
         if (!row.legal_hold_release_at || !STRICT_UTC_TIMESTAMP.test(row.legal_hold_release_at) ||
-            !Number.isFinite(Date.parse(row.legal_hold_release_at))) {
+            !Number.isFinite(Date.parse(row.legal_hold_release_at)) ||
+            new Date(row.legal_hold_release_at).toISOString() !== row.legal_hold_release_at) {
           return unknownAssessment();
         }
         if (Date.parse(row.legal_hold_release_at) > now.getTime() &&
