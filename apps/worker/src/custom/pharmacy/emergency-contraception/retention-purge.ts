@@ -58,6 +58,21 @@ interface PurgeCandidateRow {
 }
 
 const PURGE_BATCH_LIMIT = 100;
+// Bind date/time GLOB parts. Validate whole seconds separately so valid legacy
+// fractional precision is preserved without SQLite rounding into the next second.
+const VALID_CREATED_AT = `COALESCE((
+  substr(intake.created_at, 1, 10) GLOB ?
+  AND substr(intake.created_at, 11) GLOB ?
+  AND strftime('%Y-%m-%dT%H:%M:%SZ', substr(intake.created_at, 1, 19) || 'Z', '+0 seconds')
+    = substr(intake.created_at, 1, 19) || 'Z'
+  AND (
+    length(intake.created_at) = 20
+    OR (length(intake.created_at) > 21
+      AND substr(intake.created_at, 20, 1) = '.'
+      AND substr(intake.created_at, 21, length(intake.created_at) - 21) NOT GLOB '*[^0-9]*')
+  )
+), 0)`;
+
 const ACTIVE_LEGAL_HOLD = `
   dsr.line_account_id = intake.line_account_id
   AND dsr.owner_friend_id = intake.owner_friend_id
@@ -105,8 +120,7 @@ export async function purgeEmergencyIntakesPastRetention(
         `SELECT COUNT(*) AS n
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND NOT (substr(intake.created_at, 1, 10) GLOB ?
-              AND substr(intake.created_at, 11) GLOB ?)
+            AND NOT (${VALID_CREATED_AT})
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
                WHERE purged.resource_type = 'emergency_intake'
@@ -123,8 +137,7 @@ export async function purgeEmergencyIntakesPastRetention(
                 ) AS on_legal_hold
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND substr(intake.created_at, 1, 10) GLOB ?
-            AND substr(intake.created_at, 11) GLOB ?
+            AND ${VALID_CREATED_AT}
             AND intake.created_at < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
@@ -146,8 +159,7 @@ export async function purgeEmergencyIntakesPastRetention(
         `SELECT intake.id AS id
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND substr(intake.created_at, 1, 10) GLOB ?
-            AND substr(intake.created_at, 11) GLOB ?
+            AND ${VALID_CREATED_AT}
             AND intake.created_at < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
@@ -176,6 +188,7 @@ export async function purgeEmergencyIntakesPastRetention(
                   intake.created_at, ?, ?
              FROM pharmacy_emergency_intakes AS intake
             WHERE intake.id = ? AND intake.line_account_id = ?
+              AND ${VALID_CREATED_AT} AND intake.created_at < ?
               AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
               AND NOT EXISTS (
                 SELECT 1 FROM pharmacy_data_subject_requests dsr
@@ -183,7 +196,7 @@ export async function purgeEmergencyIntakesPastRetention(
               )`,
         ).bind(
           crypto.randomUUID(), account.retention_days, nowIso,
-          row.id, account.line_account_id, nowIso,
+          row.id, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, nowIso,
         ),
         db.prepare(
           `UPDATE pharmacy_emergency_intakes

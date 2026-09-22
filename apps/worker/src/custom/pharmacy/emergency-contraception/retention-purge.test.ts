@@ -223,6 +223,55 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
     expect(intakePhi().find((r) => r.id === badId)).toMatchObject({ encrypted_payload: 'v1.nonce.ciphertext' });
   });
 
+  test.each([
+    ['2020-02-29T00:00:00.000Z', true],
+    ['2020-02-29T00:00:00Z', true],
+    ['2020-02-29T00:00:00.1Z', true],
+    ['2020-02-29T00:00:00.999999Z', true],
+    ['2020-02-30T00:00:00.000Z', false],
+    ['2020-01-01T24:00:00.000Z', false],
+    ['2020-13-01T00:00:00.000Z', false],
+    ['2020-01-01T00:00:00.xyzZ', false],
+    ['2020-01-01T00:00:00.Z', false],
+  ])('validates calendar and fractional seconds in created_at %s', async (createdAt, valid) => {
+    seedAccount('a', 30);
+    const id = insertIntake('a', createdAt);
+    const result = await purgeEmergencyIntakesPastRetention(db, { now: NOW });
+    expect(result).toEqual({ purged: valid ? 1 : 0, failed: 0,
+      skippedFormat: valid ? 0 : 1, skippedLegalHold: 0 });
+    expect(intakePhi().find((row) => row.id === id)).toMatchObject({
+      encrypted_payload: valid ? '' : 'v1.nonce.ciphertext',
+      risk_flags_json: valid ? '[]' : '["flag_a"]',
+    });
+    expect(purgeLog()).toHaveLength(valid ? 1 : 0);
+  });
+
+  test('invalid old timestamps cannot starve later valid candidates', async () => {
+    seedAccount('a', 30);
+    insertIntake('a', '2020-02-30T00:00:00.000Z');
+    const valid = insertIntake('a', '2021-01-01T00:00:00.000Z');
+    expect(await purgeEmergencyIntakesPastRetention(db, { now: NOW, limit: 1 }))
+      .toEqual({ purged: 1, failed: 0, skippedFormat: 1, skippedLegalHold: 0 });
+    expect(purgeLog().map((row) => row.resource_id)).toEqual([valid]);
+  });
+
+  test.each(['2020-02-30T00:00:00.000Z', '2026-08-20T12:00:00.000Z'])(
+    'rechecks changed created_at %s before writing the purge marker', async (createdAt) => {
+      seedAccount('a', 30);
+      const id = insertIntake('a', '2020-01-01T00:00:00.000Z');
+      const racingDb = { ...db, batch: async (statements: D1PreparedStatement[]) => {
+        sqlite.prepare('UPDATE pharmacy_emergency_intakes SET created_at = ? WHERE id = ?')
+          .run(createdAt, id);
+        return db.batch(statements);
+      } } as unknown as D1Database;
+      expect((await purgeEmergencyIntakesPastRetention(racingDb, { now: NOW })).purged).toBe(0);
+      expect(intakePhi().find((row) => row.id === id)).toMatchObject({
+        encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
+      });
+      expect(purgeLog()).toEqual([]);
+    },
+  );
+
   test('skips and counts a due intake whose patient is under an active legal hold', async () => {
     seedAccount('a', 30);
     insertLegalHold('a', 'friend-a', null);
