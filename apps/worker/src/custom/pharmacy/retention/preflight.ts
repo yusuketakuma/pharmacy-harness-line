@@ -4,6 +4,8 @@ import { RETENTION_SOURCE_INVENTORY } from '../data-subject-requests/legal-hold.
 const MAX_INVENTORY_ROWS = 10_000;
 const UTC_TIMESTAMP_GLOB =
   '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
+// D1 limits each GLOB pattern to 50 bytes; retain the legacy shape in two parts.
+const [UTC_DATE_GLOB, UTC_TIME_GLOB] = UTC_TIMESTAMP_GLOB.split(/(?=T)/u);
 const REQUIRED_TABLES = [
   'messages_log',
   'pharmacy_data_subject_requests',
@@ -84,7 +86,8 @@ export async function buildRetentionPreflight(
                ON mapping.line_account_id = submission.line_account_id
               AND mapping.tenant_id = ?
       WHERE submission.line_account_id = ?
-        AND file.created_at GLOB ? AND file.created_at < ?
+        AND substr(file.created_at, 1, 10) GLOB ?
+        AND substr(file.created_at, 11) GLOB ? AND file.created_at < ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_retention_deletion_intents AS finalized
            WHERE finalized.resource_type = 'prescription_file'
@@ -93,7 +96,7 @@ export async function buildRetentionPreflight(
         )
       ORDER BY file.created_at, file.id LIMIT ?`,
   ).bind(
-    input.scope.tenantId, input.scope.lineAccountId, UTC_TIMESTAMP_GLOB, cutoff,
+    input.scope.tenantId, input.scope.lineAccountId, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff,
     MAX_INVENTORY_ROWS + 1,
   ).all<Record<string, unknown>>();
   const incoming = await db.prepare(

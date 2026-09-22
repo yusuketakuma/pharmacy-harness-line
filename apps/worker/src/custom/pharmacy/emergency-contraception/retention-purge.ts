@@ -37,6 +37,8 @@
 // is gone, and age_band's CHECK constraint has no "redacted" member to move to.
 
 import { UTC_TIMESTAMP_GLOB } from '../prescriptions/retention-purge.js';
+// D1 limits each GLOB pattern to 50 bytes; retain the legacy shape in two parts.
+const [UTC_DATE_GLOB, UTC_TIME_GLOB] = UTC_TIMESTAMP_GLOB.split(/(?=T)/u);
 
 export interface EmergencyRetentionPurgeOptions {
   now?: Date;
@@ -98,13 +100,14 @@ export async function purgeEmergencyIntakesPastRetention(
         `SELECT COUNT(*) AS n
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND intake.created_at NOT GLOB ?
+            AND NOT (substr(intake.created_at, 1, 10) GLOB ?
+              AND substr(intake.created_at, 11) GLOB ?)
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
                WHERE purged.resource_type = 'emergency_intake'
                  AND purged.resource_id = intake.id
             )`,
-      ).bind(account.line_account_id, UTC_TIMESTAMP_GLOB).first<{ n: number }>();
+      ).bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB).first<{ n: number }>();
       result.skippedFormat += formatSkipped?.n ?? 0;
 
       const due = await db.prepare(
@@ -115,7 +118,8 @@ export async function purgeEmergencyIntakesPastRetention(
                 ) AS on_legal_hold
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND intake.created_at GLOB ?
+            AND substr(intake.created_at, 1, 10) GLOB ?
+            AND substr(intake.created_at, 11) GLOB ?
             AND intake.created_at < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
@@ -124,7 +128,7 @@ export async function purgeEmergencyIntakesPastRetention(
             )
           ORDER BY intake.created_at, intake.id
           LIMIT ?`,
-      ).bind(nowIso, account.line_account_id, UTC_TIMESTAMP_GLOB, cutoff, limit)
+      ).bind(nowIso, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, limit)
         .all<PurgeCandidateRow>();
 
       const rows = due.results ?? [];
@@ -137,7 +141,8 @@ export async function purgeEmergencyIntakesPastRetention(
         `SELECT intake.id AS id
            FROM pharmacy_emergency_intakes intake
           WHERE intake.line_account_id = ?
-            AND intake.created_at GLOB ?
+            AND substr(intake.created_at, 1, 10) GLOB ?
+            AND substr(intake.created_at, 11) GLOB ?
             AND intake.created_at < ?
             AND NOT EXISTS (
               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
@@ -150,7 +155,7 @@ export async function purgeEmergencyIntakesPastRetention(
             )
           ORDER BY intake.created_at, intake.id
           LIMIT ?`,
-      ).bind(account.line_account_id, UTC_TIMESTAMP_GLOB, cutoff, nowIso, limit)
+      ).bind(account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, nowIso, limit)
         .all<Pick<PurgeCandidateRow, 'id'>>();
       const toPurge = eligible.results ?? [];
       if (toPurge.length === 0) continue;

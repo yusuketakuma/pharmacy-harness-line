@@ -6,6 +6,7 @@ import {
   assessPatientRetention,
   latestPhiRecordedAt,
 } from '../../../apps/worker/src/custom/pharmacy/data-subject-requests/legal-hold.js';
+import { buildRetentionPreflight } from '../../../apps/worker/src/custom/pharmacy/retention/preflight.js';
 import { splitSqlStatements } from '../scripts/split-sql-statements.mjs';
 
 // Use the D1 engine shipped with this workspace's Wrangler. Ordinary SQLite
@@ -126,6 +127,71 @@ it('evaluates active DSR dates on D1 without accepting invalid calendar dates', 
         .bind(NOW.toISOString(), status).first<{ blocked: number }>();
       expect(row).toEqual({ blocked: status === 'legal_hold_assessed' ? 0 : 1 });
     }
+  } finally {
+    await mf.dispose();
+  }
+}, 30_000);
+
+
+it('builds retention preflight on native D1 with legacy timestamp shapes and account scope', async () => {
+  let outbound = 0;
+  const mf = new Miniflare(convertV4MiniflareOptions({
+    cf: false, modules: true,
+    script: 'export default { fetch() { return new Response("synthetic"); } };',
+    d1Databases: ['DB'],
+    outboundService: () => { outbound++; return new Response('blocked', { status: 503 }); },
+  }));
+  try {
+    const db = await mf.getD1Database('DB') as D1Database;
+    const schema = splitSqlStatements(readFileSync(new URL('../bootstrap.sql', import.meta.url), 'utf8'));
+    for (let i = 0; i < schema.length; i += 50) {
+      await db.batch(schema.slice(i, i + 50).map((sql: string) => db.prepare(sql)));
+    }
+    for (const suffix of ['a', 'b']) {
+      await db.batch([
+        db.prepare("INSERT INTO tenants(id, tenant_code, display_name) VALUES (?, ?, 'Synthetic')")
+          .bind(`tenant-${suffix}`, `tenant-${suffix}`),
+        db.prepare(`INSERT INTO line_accounts(id, channel_id, name, channel_access_token, channel_secret)
+          VALUES (?, ?, 'Synthetic', 'synthetic', 'synthetic')`).bind(`account-${suffix}`, `channel-${suffix}`),
+        db.prepare('INSERT INTO tenant_line_accounts(tenant_id, line_account_id) VALUES (?, ?)')
+          .bind(`tenant-${suffix}`, `account-${suffix}`),
+        db.prepare(`INSERT INTO friends(id, line_user_id, line_account_id, is_following)
+          VALUES (?, ?, ?, 1)`).bind(`friend-${suffix}`, `user-${suffix}`, `account-${suffix}`),
+        db.prepare(`INSERT INTO pharmacy_prescription_submissions
+          (id, line_account_id, friend_id, idempotency_key, status, active_revision, upload_revision, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'closed', 1, 1, ?, ?)`)
+          .bind(`submission-${suffix}`, `account-${suffix}`, `friend-${suffix}`, `idem-${suffix}`, OLD, OLD),
+      ]);
+    }
+    await db.prepare(`INSERT INTO pharmacy_recovery_backup_generations
+      (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
+       expected_row_count, expected_object_count, verified_at, created_at)
+      VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 0, 0, ?, ?)`)
+      .bind('a'.repeat(64), NOW.toISOString(), NOW.toISOString()).run();
+    const dates = [OLD, '2019-01-01T00:00:00Z', '2019-01-01T00:00:00+09:00',
+      NOW.toISOString()];
+    for (const suffix of ['a', 'b']) {
+      for (const [index, date] of dates.entries()) {
+        await db.prepare(`INSERT INTO pharmacy_prescription_files
+          (id, submission_id, revision, position, r2_key, content_type, byte_size, sha256, state, created_at, updated_at)
+          VALUES (?, ?, 1, ?, ?, 'image/jpeg', 1, ?, 'ready', ?, ?)`)
+          .bind(`file-${suffix}-${index}`, `submission-${suffix}`, index + 1,
+            `custom/pharmacy/prescriptions/synthetic/${suffix}/${index}`, 'b'.repeat(64), date, date).run();
+      }
+    }
+    const input = {
+      scope: { tenantId: 'tenant-a', lineAccountId: 'account-a', environment: 'test' },
+      backupGenerationId: 'backup-a', operationCreatedAt: NOW.toISOString(),
+    };
+    const first = await buildRetentionPreflight(db, input);
+    // Legacy shape includes second-only UTC; offsets, invalid shapes, recent and foreign rows stay out.
+    expect(first).toMatchObject({ expectedRowCount: 2, expectedObjectCount: 0, coverageTotal: 2,
+      stopPolicy: 'stop-on-drift', rollbackPolicy: 'reconcile-only-no-blind-retry' });
+    await db.prepare("UPDATE pharmacy_prescription_files SET revision = 2 WHERE id = 'file-b-0'").run();
+    expect((await buildRetentionPreflight(db, input)).rowDigest).toBe(first.rowDigest);
+    await db.prepare("UPDATE pharmacy_prescription_files SET revision = 2 WHERE id = 'file-a-0'").run();
+    expect((await buildRetentionPreflight(db, input)).rowDigest).not.toBe(first.rowDigest);
+    expect(outbound).toBe(0);
   } finally {
     await mf.dispose();
   }

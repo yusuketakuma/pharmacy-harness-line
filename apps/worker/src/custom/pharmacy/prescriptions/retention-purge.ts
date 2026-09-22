@@ -91,6 +91,8 @@ const PURGE_BATCH_LIMIT = 50;
  */
 export const UTC_TIMESTAMP_GLOB =
   '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z';
+// D1 limits each GLOB pattern to 50 bytes; retain the legacy shape in two parts.
+const [UTC_DATE_GLOB, UTC_TIME_GLOB] = UTC_TIMESTAMP_GLOB.split(/(?=T)/u);
 const STRICT_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 
 /** Calendar-correct so leap days do not shift the boundary. */
@@ -384,7 +386,8 @@ export async function purgePrescriptionFilesPastRetention(
        INNER JOIN pharmacy_prescription_submissions AS s ON s.id = f.submission_id
        INNER JOIN tenant_line_accounts AS mapping
                ON mapping.line_account_id = s.line_account_id AND mapping.tenant_id = ?
-      WHERE s.line_account_id = ? AND f.created_at GLOB ? AND f.created_at < ?
+      WHERE s.line_account_id = ? AND substr(f.created_at, 1, 10) GLOB ?
+            AND substr(f.created_at, 11) GLOB ? AND f.created_at < ?
         AND NOT EXISTS (
           SELECT 1 FROM pharmacy_retention_deletion_intents AS finalized
            WHERE finalized.resource_type = 'prescription_file'
@@ -400,7 +403,7 @@ export async function purgePrescriptionFilesPastRetention(
       ORDER BY f.created_at, f.id
       LIMIT ?`,
   ).bind(
-    execution.tenantId, execution.lineAccountId, UTC_TIMESTAMP_GLOB, cutoff,
+    execution.tenantId, execution.lineAccountId, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff,
     execution.operationId, limit,
   ).all<PurgeCandidate>();
 
