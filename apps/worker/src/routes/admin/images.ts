@@ -127,8 +127,8 @@ images.post('/api/images', async (c) => {
       success: true,
       data: { id, key, url, mimeType, size: data.byteLength },
     }, 201);
-  } catch (err) {
-    console.error('POST /api/images error:', err);
+  } catch {
+    console.error('POST /api/images failed');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
@@ -164,8 +164,8 @@ images.delete('/api/images/:key{.+}', async (c) => {
     }
     await c.env.IMAGES.delete(key);
     return c.json({ success: true, data: null });
-  } catch (err) {
-    console.error('DELETE /api/images/:key error:', err);
+  } catch {
+    console.error('DELETE /api/images/:key failed');
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });

@@ -222,3 +222,44 @@ describe('tenant-scoped image storage', () => {
     expect(r2.get).toHaveBeenCalledWith(body.data.key);
   });
 });
+
+
+describe('image route error privacy', () => {
+  it.each(['json', 'database', 'upload', 'delete'] as const)(
+    'keeps %s failure details out of diagnostics and the response', async (phase) => {
+      const sentinel = 'PHI_TEST';
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const database = db(phase === 'database');
+        if (phase === 'database') {
+          const prepare = database.prepare.bind(database);
+          database.prepare = (sql) => {
+            const statement = prepare(sql);
+            statement.run = async () => { throw new Error(sentinel); };
+            return statement;
+          };
+        }
+        if (phase === 'upload') r2.put.mockRejectedValueOnce(new Error(sentinel));
+        if (phase === 'delete') r2.delete.mockRejectedValueOnce(new Error(sentinel));
+        const deleting = phase === 'delete';
+        const response = await app().request(deleting
+          ? '/api/images/tenants/tenant-a/uploads/550e8400-e29b-41d4-a716-446655440000.png'
+          : '/api/images?line_account_id=account-a', {
+          method: deleting ? 'DELETE' : 'POST',
+          headers: { 'Content-Type': phase === 'json' ? 'application/json' : 'image/png' },
+          ...(deleting ? {} : { body: phase === 'json' ? sentinel : new Uint8Array([1]) }),
+        }, { DB: database, IMAGES: r2 as unknown as R2Bucket });
+        expect(response.status).toBe(500);
+        expect(await response.json()).toEqual({ success: false, error: 'Internal server error' });
+        expect(log.mock.calls).toEqual([[deleting
+          ? 'DELETE /api/images/:key failed'
+          : 'POST /api/images failed']]);
+        if (phase === 'json' || phase === 'database') expect(r2.put).not.toHaveBeenCalled();
+        if (phase === 'upload') expect(r2.put).toHaveBeenCalledTimes(1);
+        if (deleting) expect(r2.delete).toHaveBeenCalledTimes(1);
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
+});
