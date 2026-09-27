@@ -11,7 +11,12 @@ export default function Done() {
     // LINE 内なら liff.closeWindow が動く
     const liffGlobal = (window as unknown as { liff?: { closeWindow?: () => void } }).liff;
     if (liffGlobal?.closeWindow) {
-      try { liffGlobal.closeWindow(); return; } catch { /* fallback */ }
+      try {
+        liffGlobal.closeWindow();
+        return;
+      } catch {
+        /* fallback */
+      }
     }
     window.close();
   }

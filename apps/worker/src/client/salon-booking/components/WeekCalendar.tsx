@@ -7,7 +7,7 @@ import { addDays, formatJp } from '../lib/datetime.js';
 
 export interface WeekCalendarProps {
   byDate: Record<string, string[]>; // 'YYYY-MM-DD' → ['10:00', '10:30', ...]
-  weekStart: string;                  // 表示開始日 (YYYY-MM-DD JST)
+  weekStart: string; // 表示開始日 (YYYY-MM-DD JST)
   onPick: (slot: { date: string; start: string }) => void;
   selectedDate?: string;
   selectedStart?: string;
@@ -26,17 +26,8 @@ function fromMin(min: number): string {
 
 const SLOT_MIN = 30;
 
-export default function WeekCalendar({
-  byDate,
-  weekStart,
-  onPick,
-  selectedDate,
-  selectedStart,
-}: WeekCalendarProps) {
-  const dates = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart],
-  );
+export default function WeekCalendar({ byDate, weekStart, onPick, selectedDate, selectedStart }: WeekCalendarProps) {
+  const dates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
   const { rows, hasAny } = useMemo(() => {
     const set = new Set<number>();
@@ -50,11 +41,7 @@ export default function WeekCalendar({
   }, [byDate, dates]);
 
   if (!hasAny) {
-    return (
-      <div className="sb-card text-center text-sm text-gray-500 py-8">
-        この週に空きはありません
-      </div>
-    );
+    return <div className="sb-card text-center text-sm text-gray-500 py-8">この週に空きはありません</div>;
   }
 
   const todayJst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
@@ -78,14 +65,8 @@ export default function WeekCalendar({
           const isToday = d === todayJst;
           const tone = dow === 0 ? '#ef4444' : dow === 6 ? '#3b82f6' : '#374151';
           return (
-            <div
-              key={d}
-              className="bg-gray-50 border-b border-gray-200 py-2 px-1"
-              style={{ color: tone }}
-            >
-              <div className="text-[10px] leading-none font-medium">
-                {'日月火水木金土'[dow]}
-              </div>
+            <div key={d} className="bg-gray-50 border-b border-gray-200 py-2 px-1" style={{ color: tone }}>
+              <div className="text-[10px] leading-none font-medium">{'日月火水木金土'[dow]}</div>
               <div
                 className="text-sm font-bold mt-1 leading-none"
                 style={
@@ -127,8 +108,7 @@ export default function WeekCalendar({
               {dates.map((d) => {
                 const slots = byDate[d] ?? [];
                 const available = slots.includes(t);
-                const isSelected =
-                  available && selectedDate === d && selectedStart === t;
+                const isSelected = available && selectedDate === d && selectedStart === t;
                 return (
                   <div
                     key={`${d}-${t}`}

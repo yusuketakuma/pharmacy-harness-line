@@ -7,11 +7,7 @@ export interface ApiCallResult {
   hint?: string;
 }
 
-function isMissingRoute(
-  response: Response,
-  path: string,
-  data: unknown,
-): boolean {
+function isMissingRoute(response: Response, path: string, data: unknown): boolean {
   if (response.status !== 404 || typeof data !== 'object' || data === null) {
     return false;
   }
@@ -20,15 +16,10 @@ function isMissingRoute(
   }
   // Older bundles do not send the header. A top-level collection cannot be
   // a missing resource, so its exact fallback body is still unambiguous.
-  return /^\/api\/[^/]+$/.test(path)
-    && (data as { error?: unknown }).error === 'Not found';
+  return /^\/api\/[^/]+$/.test(path) && (data as { error?: unknown }).error === 'Not found';
 }
 
-export async function apiCall(
-  path: string,
-  method = 'GET',
-  body?: unknown,
-): Promise<ApiCallResult> {
+export async function apiCall(path: string, method = 'GET', body?: unknown): Promise<ApiCallResult> {
   const { apiUrl } = getHarnessApiConfig();
   const response = await fetch(`${apiUrl}${path}`, {
     method,
@@ -66,9 +57,10 @@ export async function apiCall(
 }
 
 export function toToolResult(result: ApiCallResult) {
-  const data = result.hint && typeof result.data === 'object' && result.data !== null
-    ? { ...result.data, _hint: result.hint }
-    : result.data;
+  const data =
+    result.hint && typeof result.data === 'object' && result.data !== null
+      ? { ...result.data, _hint: result.hint }
+      : result.data;
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
     ...(result.ok ? {} : { isError: true as const }),

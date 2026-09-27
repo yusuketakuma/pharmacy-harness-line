@@ -6,7 +6,10 @@ export default function MenuList({ onSelect }: { onSelect: (m: MenuItem) => void
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.menus().then((r) => setMenus(r.menus)).catch((e) => setError(String(e)));
+    api
+      .menus()
+      .then((r) => setMenus(r.menus))
+      .catch((e) => setError(String(e)));
   }, []);
 
   if (error) return <p className="text-red-600">{error}</p>;

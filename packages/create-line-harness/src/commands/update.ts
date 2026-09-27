@@ -1,8 +1,8 @@
-import * as p from "@clack/prompts";
-import pc from "picocolors";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
+import * as p from '@clack/prompts';
+import pc from 'picocolors';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { Readable } from 'node:stream';
 import {
   fetchManifest,
   detectFork,
@@ -24,20 +24,20 @@ import {
   type ParsedBundle,
   type ReleaseEntry,
   type WorkerBinding,
-} from "@line-harness/update-engine";
-import { configureAdminAuth } from "../steps/admin-auth.js";
-import { ensureWorkersDevSubdomain } from "../steps/ensure-subdomain.js";
-import { subdomainFromWorkersDevUrl } from "../lib/subdomain-name.js";
+} from '@line-harness/update-engine';
+import { configureAdminAuth } from '../steps/admin-auth.js';
+import { ensureWorkersDevSubdomain } from '../steps/ensure-subdomain.js';
+import { subdomainFromWorkersDevUrl } from '../lib/subdomain-name.js';
 import {
   isGeneratedInstalledWranglerToml,
   renderInstalledWranglerToml,
   resolveInstalledWranglerConfig,
   type SavedInstallConfig,
-} from "../lib/installed-wrangler.js";
+} from '../lib/installed-wrangler.js';
 
 /** Must mirror apps/worker/wrangler.toml — the script upload API replaces
  *  metadata wholesale, so omitting this would strip nodejs_compat. */
-const WORKER_COMPATIBILITY_FLAGS = ["nodejs_compat"];
+const WORKER_COMPATIBILITY_FLAGS = ['nodejs_compat'];
 
 /**
  * Shape of `.line-harness-config.json` written by `setup.ts` after
@@ -67,13 +67,13 @@ interface SetupState {
 }
 
 const DEFAULT_MANIFEST_URL =
-  "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json";
+  'https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json';
 
 export function loadState(repoDir: string): SetupState | null {
-  const configPath = join(repoDir, ".line-harness-config.json");
+  const configPath = join(repoDir, '.line-harness-config.json');
   if (!existsSync(configPath)) return null;
   try {
-    return JSON.parse(readFileSync(configPath, "utf-8")) as SetupState;
+    return JSON.parse(readFileSync(configPath, 'utf-8')) as SetupState;
   } catch {
     return null;
   }
@@ -89,22 +89,16 @@ export function loadState(repoDir: string): SetupState | null {
  * prompt on the next run. Best-effort: on failure the next run simply
  * re-detects the mismatch.
  */
-function persistWorkerPublicUrl(
-  configPath: string,
-  oldUrl: string,
-  newUrl: string,
-): void {
+function persistWorkerPublicUrl(configPath: string, oldUrl: string, newUrl: string): void {
   try {
-    const config = JSON.parse(readFileSync(configPath, "utf-8")) as SetupState;
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as SetupState;
     config.workerPublicUrl = newUrl;
     if (config.workerUrl !== undefined) config.workerUrl = newUrl;
     if (config.liffPublicUrl === oldUrl) config.liffPublicUrl = newUrl;
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
     p.log.success(`設定を保存しました: ${configPath}`);
   } catch (e) {
-    p.log.warn(
-      `Worker URL の設定保存に失敗: ${e instanceof Error ? e.message : String(e)} — 続行します`,
-    );
+    p.log.warn(`Worker URL の設定保存に失敗: ${e instanceof Error ? e.message : String(e)} — 続行します`);
   }
 }
 
@@ -151,36 +145,33 @@ export function resolveState(
   const missing: string[] = [];
 
   const workerName = state.workerName ?? state.projectName;
-  if (!workerName) missing.push("workerName");
+  if (!workerName) missing.push('workerName');
 
   const cfAccountId = state.cfAccountId ?? state.accountId;
-  if (!cfAccountId) missing.push("cfAccountId");
+  if (!cfAccountId) missing.push('cfAccountId');
 
   const cfApiToken = state.cfApiToken ?? envApiToken;
-  if (!cfApiToken) missing.push("cfApiToken (set CLOUDFLARE_API_TOKEN env)");
+  if (!cfApiToken) missing.push('cfApiToken (set CLOUDFLARE_API_TOKEN env)');
 
-  if (!state.d1DatabaseId) missing.push("d1DatabaseId");
+  if (!state.d1DatabaseId) missing.push('d1DatabaseId');
 
   // Derive adminProject from legacy adminUrl if needed.
   let adminProject = state.adminProject;
-  if (!adminProject && typeof state.adminUrl === "string") {
+  if (!adminProject && typeof state.adminUrl === 'string') {
     try {
-      adminProject = new URL(state.adminUrl).hostname.replace(
-        /\.pages\.dev$/,
-        "",
-      );
+      adminProject = new URL(state.adminUrl).hostname.replace(/\.pages\.dev$/, '');
     } catch {
       /* ignore */
     }
   }
-  if (!adminProject) missing.push("adminProject");
+  if (!adminProject) missing.push('adminProject');
 
   // Worker public URL — prefer explicit, else legacy workerUrl.
   const workerPublicUrl = state.workerPublicUrl ?? state.workerUrl;
-  if (!workerPublicUrl) missing.push("workerPublicUrl");
+  if (!workerPublicUrl) missing.push('workerPublicUrl');
 
   const adminPublicUrl = state.adminPublicUrl ?? state.adminUrl;
-  if (!adminPublicUrl) missing.push("adminPublicUrl");
+  if (!adminPublicUrl) missing.push('adminPublicUrl');
 
   // LIFF topology resolution. '' (empty string) is a valid persisted value
   // meaning "no LIFF Pages project".
@@ -188,15 +179,15 @@ export function resolveState(
   if (liffProject === undefined) {
     if (!state.liffPublicUrl || state.liffPublicUrl === workerPublicUrl) {
       // Worker-assets install: LIFF is served by the Worker itself.
-      liffProject = "";
+      liffProject = '';
     } else {
       // A separate LIFF URL exists but its Pages project name is unknown —
       // legacy 3-artifact install with an incomplete config. Prompt.
-      missing.push("liffProject");
+      missing.push('liffProject');
     }
   }
-  const liffPublicUrl = liffProject ? state.liffPublicUrl : "";
-  if (liffProject && !state.liffPublicUrl) missing.push("liffPublicUrl");
+  const liffPublicUrl = liffProject ? state.liffPublicUrl : '';
+  if (liffProject && !state.liffPublicUrl) missing.push('liffPublicUrl');
 
   if (missing.length > 0) {
     return { ok: false, missing };
@@ -214,7 +205,7 @@ export function resolveState(
       manifestUrl: state.manifestUrl ?? DEFAULT_MANIFEST_URL,
       workerPublicUrl: workerPublicUrl!,
       adminPublicUrl: adminPublicUrl!,
-      liffPublicUrl: liffPublicUrl ?? "",
+      liffPublicUrl: liffPublicUrl ?? '',
     },
   };
 }
@@ -235,201 +226,184 @@ export function resolveState(
  * env because secrets don't belong in `.line-harness-config.json` (which
  * gets committed by some operators).
  */
-async function promptForMissingFields(
-  state: SetupState,
-  configPath: string,
-  missing: string[],
-): Promise<SetupState> {
+async function promptForMissingFields(state: SetupState, configPath: string, missing: string[]): Promise<SetupState> {
   // Exclude cfApiToken from prompt — it has to be env-supplied.
-  const promptable = missing.filter((m) => !m.startsWith("cfApiToken"));
+  const promptable = missing.filter((m) => !m.startsWith('cfApiToken'));
   if (promptable.length === 0) {
     return state;
   }
 
   p.log.warn(
     [
-      "`.line-harness-config.json` に不足フィールドがあります。",
-      "v0.1.19 以前にセットアップした環境では新しいフィールドが書き込まれていません。",
-      "値を入力すると設定ファイルに保存され、次回以降は聞かれません。",
-    ].join("\n"),
+      '`.line-harness-config.json` に不足フィールドがあります。',
+      'v0.1.19 以前にセットアップした環境では新しいフィールドが書き込まれていません。',
+      '値を入力すると設定ファイルに保存され、次回以降は聞かれません。',
+    ].join('\n'),
   );
 
   const updated: SetupState = { ...state };
 
   for (const field of promptable) {
     switch (field) {
-      case "workerName": {
+      case 'workerName': {
         const v = await p.text({
-          message: "Worker 名 (例: line-harness — wrangler.toml の name)",
+          message: 'Worker 名 (例: line-harness — wrangler.toml の name)',
           validate(value) {
-            if (!value) return "必須";
+            if (!value) return '必須';
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
         updated.workerName = (v as string).trim();
         break;
       }
-      case "cfAccountId": {
+      case 'cfAccountId': {
         const v = await p.text({
-          message:
-            "Cloudflare Account ID (wrangler.toml の account_id、または CF ダッシュボード右下)",
+          message: 'Cloudflare Account ID (wrangler.toml の account_id、または CF ダッシュボード右下)',
           validate(value) {
             if (!value || !/^[a-f0-9]{32}$/i.test(value.trim())) {
-              return "32 桁の16進文字列です";
+              return '32 桁の16進文字列です';
             }
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
         updated.cfAccountId = (v as string).trim();
         break;
       }
-      case "d1DatabaseId": {
+      case 'd1DatabaseId': {
         const v = await p.text({
-          message:
-            "D1 Database ID (`npx wrangler d1 list` で確認、wrangler.toml の database_id)",
+          message: 'D1 Database ID (`npx wrangler d1 list` で確認、wrangler.toml の database_id)',
           validate(value) {
-            if (!value) return "必須";
+            if (!value) return '必須';
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
         updated.d1DatabaseId = (v as string).trim();
         break;
       }
-      case "adminProject": {
+      case 'adminProject': {
         // Try to derive from existing adminUrl first; otherwise prompt.
         let derived: string | undefined;
-        if (typeof updated.adminUrl === "string") {
+        if (typeof updated.adminUrl === 'string') {
           try {
-            derived = new URL(updated.adminUrl).hostname.replace(
-              /\.pages\.dev$/,
-              "",
-            );
+            derived = new URL(updated.adminUrl).hostname.replace(/\.pages\.dev$/, '');
           } catch {
             /* ignore */
           }
         }
         const v = await p.text({
-          message:
-            "Admin Pages プロジェクト名 (CF ダッシュボード → Pages、例: line-harness-admin-xxxxxxxx)",
+          message: 'Admin Pages プロジェクト名 (CF ダッシュボード → Pages、例: line-harness-admin-xxxxxxxx)',
           placeholder: derived,
           defaultValue: derived,
           validate(value) {
-            if (!value && !derived) return "必須";
+            if (!value && !derived) return '必須';
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
-        updated.adminProject = ((v as string) || derived || "").trim();
+        updated.adminProject = ((v as string) || derived || '').trim();
         break;
       }
-      case "liffProject": {
+      case 'liffProject': {
         const v = await p.text({
           message:
-            "LIFF Pages プロジェクト名 (例: lh-liff-abc123 — CF ダッシュボードで確認。LIFF Pages を使っていない場合は空 Enter でスキップ)",
-          defaultValue: "",
+            'LIFF Pages プロジェクト名 (例: lh-liff-abc123 — CF ダッシュボードで確認。LIFF Pages を使っていない場合は空 Enter でスキップ)',
+          defaultValue: '',
           validate(value) {
             if (value && !/^[a-z0-9][a-z0-9-]*$/i.test(value.trim())) {
-              return "英数字とハイフンのみ";
+              return '英数字とハイフンのみ';
             }
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
         // '' is persisted intentionally: it means "no LIFF Pages project"
         // (worker-assets install) and stops future prompts.
-        updated.liffProject = ((v as string) || "").trim();
+        updated.liffProject = ((v as string) || '').trim();
         break;
       }
-      case "workerPublicUrl": {
+      case 'workerPublicUrl': {
         // Try to derive from workerName.
-        const derived = updated.workerName
-          ? `https://${updated.workerName}.workers.dev`
-          : undefined;
+        const derived = updated.workerName ? `https://${updated.workerName}.workers.dev` : undefined;
         const v = await p.text({
-          message: "Worker public URL (例: https://line-harness.workers.dev)",
+          message: 'Worker public URL (例: https://line-harness.workers.dev)',
           placeholder: derived,
           defaultValue: derived,
           validate(value) {
-            const s = (value || derived || "").trim();
-            if (!s) return "必須";
+            const s = (value || derived || '').trim();
+            if (!s) return '必須';
             try {
               new URL(s);
             } catch {
-              return "有効な URL を入力してください";
+              return '有効な URL を入力してください';
             }
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
-        updated.workerPublicUrl = ((v as string) || derived || "").trim();
+        updated.workerPublicUrl = ((v as string) || derived || '').trim();
         break;
       }
-      case "adminPublicUrl": {
+      case 'adminPublicUrl': {
         const derived =
-          (typeof updated.adminUrl === "string" && updated.adminUrl) ||
-          (updated.adminProject
-            ? `https://${updated.adminProject}.pages.dev`
-            : undefined);
+          (typeof updated.adminUrl === 'string' && updated.adminUrl) ||
+          (updated.adminProject ? `https://${updated.adminProject}.pages.dev` : undefined);
         const v = await p.text({
-          message:
-            "Admin public URL (例: https://line-harness-admin-xxxxxxxx.pages.dev)",
+          message: 'Admin public URL (例: https://line-harness-admin-xxxxxxxx.pages.dev)',
           placeholder: derived,
           defaultValue: derived,
           validate(value) {
-            const s = (value || derived || "").trim();
-            if (!s) return "必須";
+            const s = (value || derived || '').trim();
+            if (!s) return '必須';
             try {
               new URL(s);
             } catch {
-              return "有効な URL を入力してください";
+              return '有効な URL を入力してください';
             }
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
-        updated.adminPublicUrl = ((v as string) || derived || "").trim();
+        updated.adminPublicUrl = ((v as string) || derived || '').trim();
         break;
       }
-      case "liffPublicUrl": {
-        const derived = updated.liffProject
-          ? `https://${updated.liffProject}.pages.dev`
-          : undefined;
+      case 'liffPublicUrl': {
+        const derived = updated.liffProject ? `https://${updated.liffProject}.pages.dev` : undefined;
         const v = await p.text({
-          message: "LIFF public URL (例: https://lh-liff-abc123.pages.dev)",
+          message: 'LIFF public URL (例: https://lh-liff-abc123.pages.dev)',
           placeholder: derived,
           defaultValue: derived,
           validate(value) {
-            const s = (value || derived || "").trim();
-            if (!s) return "必須";
+            const s = (value || derived || '').trim();
+            if (!s) return '必須';
             try {
               new URL(s);
             } catch {
-              return "有効な URL を入力してください";
+              return '有効な URL を入力してください';
             }
           },
         });
         if (p.isCancel(v)) {
-          p.cancel("aborted");
+          p.cancel('aborted');
           process.exit(0);
         }
-        updated.liffPublicUrl = ((v as string) || derived || "").trim();
+        updated.liffPublicUrl = ((v as string) || derived || '').trim();
         break;
       }
       default:
@@ -441,7 +415,7 @@ async function promptForMissingFields(
 
   // Persist merged config back to disk so the next run is non-interactive.
   try {
-    writeFileSync(configPath, JSON.stringify(updated, null, 2) + "\n");
+    writeFileSync(configPath, JSON.stringify(updated, null, 2) + '\n');
     p.log.success(`設定を保存しました: ${configPath}`);
   } catch (e) {
     p.log.warn(
@@ -461,18 +435,13 @@ export interface RunUpdateOptions {
   repairAdmin?: boolean;
 }
 
-export async function runUpdate(
-  repoDir: string,
-  options: RunUpdateOptions = {},
-): Promise<void> {
-  p.intro(pc.bgCyan(pc.black(" LINE Harness アップデート ")));
+export async function runUpdate(repoDir: string, options: RunUpdateOptions = {}): Promise<void> {
+  p.intro(pc.bgCyan(pc.black(' LINE Harness アップデート ')));
 
-  const configPath = join(repoDir, ".line-harness-config.json");
+  const configPath = join(repoDir, '.line-harness-config.json');
   let state = loadState(repoDir);
   if (!state) {
-    p.cancel(
-      ".line-harness-config.json が見つかりません。先に `npx create-line-harness` でセットアップしてください。",
-    );
+    p.cancel('.line-harness-config.json が見つかりません。先に `npx create-line-harness` でセットアップしてください。');
     process.exit(1);
   }
 
@@ -482,16 +451,16 @@ export async function runUpdate(
     state = await promptForMissingFields(state, configPath, resolved.missing);
     resolved = resolveState(state, process.env.CLOUDFLARE_API_TOKEN);
     if (!resolved.ok) {
-      p.log.error(pc.red("入力後も以下のフィールドが解決できません:"));
+      p.log.error(pc.red('入力後も以下のフィールドが解決できません:'));
       for (const m of resolved.missing) {
         p.log.error(`  - ${m}`);
       }
-      if (resolved.missing.some((m) => m.startsWith("cfApiToken"))) {
+      if (resolved.missing.some((m) => m.startsWith('cfApiToken'))) {
         p.log.info(
-          "CLOUDFLARE_API_TOKEN は config に保存しません。`export CLOUDFLARE_API_TOKEN=...` してから再実行してください。",
+          'CLOUDFLARE_API_TOKEN は config に保存しません。`export CLOUDFLARE_API_TOKEN=...` してから再実行してください。',
         );
       }
-      p.cancel("セットアップを完了させてから再実行してください。");
+      p.cancel('セットアップを完了させてから再実行してください。');
       process.exit(1);
     }
   }
@@ -503,8 +472,8 @@ export async function runUpdate(
   const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
   if (!ADMIN_API_KEY) {
     p.log.warn(
-      "ADMIN_API_KEY 環境変数が未設定です。/admin/version は現在パブリックなので続行しますが、" +
-        "Worker が将来この認証を要求する場合は `export ADMIN_API_KEY=...` が必要になります。",
+      'ADMIN_API_KEY 環境変数が未設定です。/admin/version は現在パブリックなので続行しますが、' +
+        'Worker が将来この認証を要求する場合は `export ADMIN_API_KEY=...` が必要になります。',
     );
   }
 
@@ -528,7 +497,7 @@ export async function runUpdate(
     if (ensured.subdomain && ensured.subdomain !== expectedSubdomain) {
       // Registered/found under a different name — the saved Worker URL's
       // hostname is dead. Point config + this run at the new one.
-      const workerLabel = new URL(cfg.workerPublicUrl).hostname.split(".")[0];
+      const workerLabel = new URL(cfg.workerPublicUrl).hostname.split('.')[0];
       const newUrl = `https://${workerLabel}.${ensured.subdomain}.workers.dev`;
       p.log.warn(`Worker URL を更新します: ${cfg.workerPublicUrl} → ${newUrl}`);
       persistWorkerPublicUrl(configPath, cfg.workerPublicUrl, newUrl);
@@ -539,12 +508,12 @@ export async function runUpdate(
 
   // 1) Fetch current version from deployed Worker
   const s = p.spinner();
-  s.start("現在バージョン取得中");
-  const workerVersionUrl = `${cfg.workerPublicUrl.replace(/\/$/, "")}/admin/version`;
+  s.start('現在バージョン取得中');
+  const workerVersionUrl = `${cfg.workerPublicUrl.replace(/\/$/, '')}/admin/version`;
   let current: CurrentVersion;
   try {
     const headers: Record<string, string> = {};
-    if (ADMIN_API_KEY) headers["x-admin-api-key"] = ADMIN_API_KEY;
+    if (ADMIN_API_KEY) headers['x-admin-api-key'] = ADMIN_API_KEY;
     const r = await fetch(workerVersionUrl, { headers });
     if (!r.ok) {
       throw new Error(`HTTP ${r.status}`);
@@ -555,15 +524,15 @@ export async function runUpdate(
     s.stop(pc.red(`Worker /admin/version 取得失敗: ${msg}`));
     p.cancel(
       subdomainRegisteredNow
-        ? "workers.dev サブドメイン登録直後のため DNS 反映待ちの可能性があります。数分待ってから同じコマンドを再実行してください。"
-        : "Worker が応答していません。デプロイ状態を確認してください。",
+        ? 'workers.dev サブドメイン登録直後のため DNS 反映待ちの可能性があります。数分待ってから同じコマンドを再実行してください。'
+        : 'Worker が応答していません。デプロイ状態を確認してください。',
     );
     process.exit(1);
   }
   s.stop(`現在: v${current.version}`);
 
   // 2) Fetch manifest
-  s.start("最新マニフェスト取得中");
+  s.start('最新マニフェスト取得中');
   let manifest;
   try {
     manifest = await fetchManifest(cfg.manifestUrl);
@@ -584,8 +553,8 @@ export async function runUpdate(
   //   - hash mismatch on a KNOWN version: a genuinely modified build.
   //     Never auto-update; point to the manual guide.
   const fork = detectFork(current, manifest);
-  if (fork.kind === "fork") {
-    if (fork.reason.startsWith("unknown version")) {
+  if (fork.kind === 'fork') {
+    if (fork.reason.startsWith('unknown version')) {
       await runAdoption({ repoDir, cfg, manifest, current, subdomainRegisteredNow });
       return;
     }
@@ -593,7 +562,7 @@ export async function runUpdate(
     p.log.info(
       `カスタマイズされたインストールを上書きしないよう、自動アップデートは適用しません。\nそのままご利用いただけます。更新したい場合は手動アップデートガイドをご覧ください:\n  https://github.com/Shudesu/line-harness-oss/blob/main/docs/wiki/26-Manual-Update.md`,
     );
-    p.outro(pc.yellow("自動アップデートをスキップしました (インストールはそのまま動作します)"));
+    p.outro(pc.yellow('自動アップデートをスキップしました (インストールはそのまま動作します)'));
     process.exit(0);
   }
 
@@ -610,9 +579,7 @@ export async function runUpdate(
       process.exit(1);
     }
 
-    p.log.info(
-      `復旧モード: Worker / D1 は変更せず、Admin UI v${release.version} のみ再デプロイします。`,
-    );
+    p.log.info(`復旧モード: Worker / D1 は変更せず、Admin UI v${release.version} のみ再デプロイします。`);
     const creds: CfApiCreds = {
       accountId: cfg.cfAccountId,
       apiToken: cfg.cfApiToken,
@@ -636,9 +603,7 @@ export async function runUpdate(
   // 4) Find upgrade target
   const upgrade = findLatestUpgrade(manifest, current.version);
   if (!upgrade) {
-    const currentRelease = manifest.releases.find(
-      (release) => release.version === current.version,
-    );
+    const currentRelease = manifest.releases.find((release) => release.version === current.version);
     if (workerUrlRenamed || currentRelease?.worker_assets_hash) {
       // Reconcile the complete current release even when the Worker already
       // carries the latest version stamp. A previous CLI run can fail after
@@ -666,7 +631,7 @@ export async function runUpdate(
         `min_from_version 違反: v${upgrade.version} は v${upgrade.min_from_version} 以降からのアップグレードが必要です。\n\n先に v${upgrade.min_from_version} にアップデートしてください。`,
       ),
     );
-    p.cancel("アップデート中止");
+    p.cancel('アップデート中止');
     process.exit(1);
   }
 
@@ -677,7 +642,7 @@ export async function runUpdate(
     initialValue: true,
   });
   if (p.isCancel(confirm) || !confirm) {
-    p.cancel("aborted");
+    p.cancel('aborted');
     process.exit(0);
   }
 
@@ -709,7 +674,7 @@ export async function runUpdate(
   if (cfg.liffProject) {
     await deployLiffFromBundle(creds, cfg, bundle, s);
   } else {
-    p.log.info("LIFF は Worker アセット配信のためスキップ（Worker 更新に含まれています）");
+    p.log.info('LIFF は Worker アセット配信のためスキップ（Worker 更新に含まれています）');
   }
 
   // 12) Ensure cookie-based admin auth is configured. Installs created before
@@ -726,8 +691,8 @@ export async function runUpdate(
     cfg.workerPublicUrl,
     s,
     subdomainRegisteredNow
-      ? "アップデート自体は完了しています。workers.dev サブドメイン登録直後は DNS 反映に数分かかるため、数分待ってから同じコマンドを再実行してください"
-      : "アップデート自体は完了しています",
+      ? 'アップデート自体は完了しています。workers.dev サブドメイン登録直後は DNS 反映に数分かかるため、数分待ってから同じコマンドを再実行してください'
+      : 'アップデート自体は完了しています',
   );
 
   // 14) Refresh the local release artifact + record bundle mode so a later
@@ -744,10 +709,7 @@ export async function runUpdate(
  * Repair must never silently choose manifest.latest: doing so could deploy
  * an Admin that expects APIs the current Worker does not have.
  */
-export function findReleaseForAdminRepair(
-  releases: ReleaseEntry[],
-  currentVersion: string,
-): ReleaseEntry | undefined {
+export function findReleaseForAdminRepair(releases: ReleaseEntry[], currentVersion: string): ReleaseEntry | undefined {
   return releases.find((release) => release.version === currentVersion);
 }
 
@@ -764,18 +726,12 @@ type Spinner = ReturnType<typeof p.spinner>;
  * has provably booted. Only network errors and 5xx are reported, with
  * `doneNote` clarifying that the update itself still completed.
  */
-export async function checkWorkerHealth(
-  workerPublicUrl: string,
-  s: Spinner,
-  doneNote: string,
-): Promise<void> {
-  s.start("Health チェック中");
+export async function checkWorkerHealth(workerPublicUrl: string, s: Spinner, doneNote: string): Promise<void> {
+  s.start('Health チェック中');
   try {
-    const hRes = await fetch(
-      `${workerPublicUrl.replace(/\/$/, "")}/api/health`,
-    );
+    const hRes = await fetch(`${workerPublicUrl.replace(/\/$/, '')}/api/health`);
     if (hRes.status >= 500) throw new Error(`HTTP ${hRes.status}`);
-    s.stop("Health OK");
+    s.stop('Health OK');
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.yellow(`Health 確認失敗: ${msg} (${doneNote})`));
@@ -792,37 +748,30 @@ function assertReleaseDeployable(release: ReleaseEntry): void {
   p.log.error(
     [
       `リリース v${release.version} はこのアップデーターに対応していません`,
-      "（bundle にデプロイ可能な Worker が含まれていない旧形式のリリースです）。",
-      "対応済みリリースの公開をお待ちください。",
-    ].join("\n"),
+      '（bundle にデプロイ可能な Worker が含まれていない旧形式のリリースです）。',
+      '対応済みリリースの公開をお待ちください。',
+    ].join('\n'),
   );
-  p.cancel("アップデート中止（インストールはそのまま動作します）");
+  p.cancel('アップデート中止（インストールはそのまま動作します）');
   process.exit(1);
 }
 
-async function downloadAndVerifyBundle(
-  release: ReleaseEntry,
-  s: Spinner,
-): Promise<ParsedBundle> {
+async function downloadAndVerifyBundle(release: ReleaseEntry, s: Spinner): Promise<ParsedBundle> {
   assertReleaseDeployable(release);
-  s.start(
-    `Bundle ダウンロード中 (${(release.bundle_size_bytes / 1024 / 1024).toFixed(1)} MB)`,
-  );
+  s.start(`Bundle ダウンロード中 (${(release.bundle_size_bytes / 1024 / 1024).toFixed(1)} MB)`);
   try {
     const bRes = await fetch(release.bundle_url);
     if (!bRes.ok) throw new Error(`bundle fetch HTTP ${bRes.status}`);
-    if (!bRes.body) throw new Error("bundle response has no body");
-    const bundle = await parseBundleStream(
-      Readable.fromWeb(bRes.body as Parameters<typeof Readable.fromWeb>[0]),
-    );
+    if (!bRes.body) throw new Error('bundle response has no body');
+    const bundle = await parseBundleStream(Readable.fromWeb(bRes.body as Parameters<typeof Readable.fromWeb>[0]));
     const hashes = verifyBundleHashes(bundle);
     verifyBundleIntegrity(hashes, release);
-    s.stop("Bundle 取得 + ハッシュ検証 OK");
+    s.stop('Bundle 取得 + ハッシュ検証 OK');
     return bundle;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`Bundle 検証失敗: ${msg}`));
-    p.cancel("bundle が壊れているか、改ざんされている可能性があります。");
+    p.cancel('bundle が壊れているか、改ざんされている可能性があります。');
     process.exit(1);
   }
 }
@@ -879,9 +828,7 @@ async function applyMigrations(opts: {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`Migration 失敗: ${msg}`));
-    p.cancel(
-      "Worker/Pages はまだ更新されていません。DBを確認してから同じコマンドを再実行できます。",
-    );
+    p.cancel('Worker/Pages はまだ更新されていません。DBを確認してから同じコマンドを再実行できます。');
     process.exit(1);
   }
 }
@@ -904,9 +851,9 @@ export function normalizeInstallBindings(
   opts: { liffProject: string; workerPublicUrl: string },
 ): WorkerBinding[] {
   return bindings.map((b) => {
-    if (b.type !== "plain_text") return b;
-    if (b.name === "LIFF_PAGES_PROJECT") return { ...b, text: opts.liffProject };
-    if (b.name === "WORKER_PUBLIC_URL") return { ...b, text: opts.workerPublicUrl };
+    if (b.type !== 'plain_text') return b;
+    if (b.name === 'LIFF_PAGES_PROJECT') return { ...b, text: opts.liffProject };
+    if (b.name === 'WORKER_PUBLIC_URL') return { ...b, text: opts.workerPublicUrl };
     return b;
   });
 }
@@ -917,24 +864,23 @@ async function deployWorkerFromBundle(
   bundle: ParsedBundle,
   s: Spinner,
 ): Promise<void> {
-  s.start("Worker デプロイ中");
+  s.start('Worker デプロイ中');
   try {
     const bindings = await listWorkerBindings({
       creds,
       scriptName: cfg.workerName,
     });
     if (bundle.workerAssetFiles.size === 0 && !cfg.liffProject) {
-      throw new Error(
-        "release bundle に Worker Assets がないため、安全に更新できません",
-      );
+      throw new Error('release bundle に Worker Assets がないため、安全に更新できません');
     }
-    const assetsJwt = bundle.workerAssetFiles.size > 0
-      ? await uploadWorkerAssets({
-          creds,
-          scriptName: cfg.workerName,
-          files: bundle.workerAssetFiles,
-        })
-      : null;
+    const assetsJwt =
+      bundle.workerAssetFiles.size > 0
+        ? await uploadWorkerAssets({
+            creds,
+            scriptName: cfg.workerName,
+            files: bundle.workerAssetFiles,
+          })
+        : null;
     await putWorkerScript({
       creds,
       scriptName: cfg.workerName,
@@ -948,19 +894,17 @@ async function deployWorkerFromBundle(
         ? {
             assets: {
               jwt: assetsJwt,
-              binding: "ASSETS",
+              binding: 'ASSETS',
               runWorkerFirst: true,
             },
           }
         : { keepAssets: true }),
     });
-    s.stop("Worker デプロイ完了");
+    s.stop('Worker デプロイ完了');
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`Worker デプロイ失敗: ${msg}`));
-    p.cancel(
-      "migration は適用されています。手動で Worker を rollback してください。",
-    );
+    p.cancel('migration は適用されています。手動で Worker を rollback してください。');
     process.exit(1);
   }
 }
@@ -971,7 +915,7 @@ async function deployAdminFromBundle(
   bundle: ParsedBundle,
   s: Spinner,
 ): Promise<void> {
-  s.start("Admin Pages デプロイ中");
+  s.start('Admin Pages デプロイ中');
   try {
     // The release admin build points at https://__LH_WORKER_URL__ —
     // rewrite it to this install's Worker before uploading.
@@ -986,15 +930,13 @@ async function deployAdminFromBundle(
     s.stop(`Admin デプロイ完了 (${r.deploymentId.slice(0, 8)})`);
     if (residual.length > 0) {
       p.log.warn(
-        `未知のプレースホルダーが残っています（動作に影響する可能性）: ${residual.slice(0, 5).join(", ")}${residual.length > 5 ? " …" : ""}`,
+        `未知のプレースホルダーが残っています（動作に影響する可能性）: ${residual.slice(0, 5).join(', ')}${residual.length > 5 ? ' …' : ''}`,
       );
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`Admin デプロイ失敗: ${msg}`));
-    p.cancel(
-      "Worker は新バージョンが動いていますが、Admin は前バージョンのままです。",
-    );
+    p.cancel('Worker は新バージョンが動いていますが、Admin は前バージョンのままです。');
     process.exit(1);
   }
 }
@@ -1005,7 +947,7 @@ async function deployLiffFromBundle(
   bundle: ParsedBundle,
   s: Spinner,
 ): Promise<void> {
-  s.start("LIFF Pages デプロイ中");
+  s.start('LIFF Pages デプロイ中');
   try {
     const r = await deployPagesProject({
       creds,
@@ -1017,9 +959,7 @@ async function deployLiffFromBundle(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`LIFF デプロイ失敗: ${msg}`));
-    p.cancel(
-      "Worker + Admin は新バージョンですが、LIFF は前バージョンのままです。",
-    );
+    p.cancel('Worker + Admin は新バージョンですが、LIFF は前バージョンのままです。');
     process.exit(1);
   }
 }
@@ -1032,20 +972,17 @@ async function deployLiffFromBundle(
  * config directory (no clone), in which case this is a silent no-op.
  */
 function writeLocalWorkerArtifacts(repoDir: string, bundle: ParsedBundle): void {
-  const workerDir = join(repoDir, "apps/worker");
+  const workerDir = join(repoDir, 'apps/worker');
   if (!existsSync(workerDir)) return;
   try {
-    const artifactPath = join(workerDir, "dist/release/index.js");
+    const artifactPath = join(workerDir, 'dist/release/index.js');
     mkdirSync(dirname(artifactPath), { recursive: true });
     writeFileSync(artifactPath, bundle.workerJs);
     if (bundle.workerAssetFiles.size > 0) {
-      const clientDir = join(workerDir, "dist/client");
+      const clientDir = join(workerDir, 'dist/client');
       rmSync(clientDir, { recursive: true, force: true });
       for (const [relativePath, content] of bundle.workerAssetFiles) {
-        if (
-          relativePath.startsWith("/") ||
-          relativePath.split(/[\\/]/).includes("..")
-        ) {
+        if (relativePath.startsWith('/') || relativePath.split(/[\\/]/).includes('..')) {
           throw new Error(`unsafe Worker Asset path: ${relativePath}`);
         }
         const outputPath = join(clientDir, relativePath);
@@ -1068,25 +1005,20 @@ function writeLocalWorkerArtifacts(repoDir: string, bundle: ParsedBundle): void 
  * redeploy an unstamped source build, undoing the adoption. Best-effort.
  */
 function persistBundleMode(repoDir: string, version: string): void {
-  const configPath = join(repoDir, ".line-harness-config.json");
+  const configPath = join(repoDir, '.line-harness-config.json');
   if (!existsSync(configPath)) return;
   try {
-    const config = JSON.parse(
-      readFileSync(configPath, "utf-8"),
-    ) as SavedInstallConfig & Record<string, unknown>;
-    config.workerDeployMode = "bundle";
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as SavedInstallConfig & Record<string, unknown>;
+    config.workerDeployMode = 'bundle';
     config.installedVersion = version;
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 
     // Re-render the clone's wrangler.toml only when it is CLI-generated
     // (or absent) — never clobber a hand-edited config.
-    const workerDir = join(repoDir, "apps/worker");
-    const tomlPath = join(workerDir, "wrangler.toml");
+    const workerDir = join(repoDir, 'apps/worker');
+    const tomlPath = join(workerDir, 'wrangler.toml');
     if (!existsSync(workerDir)) return;
-    if (
-      existsSync(tomlPath) &&
-      !isGeneratedInstalledWranglerToml(readFileSync(tomlPath, "utf-8"))
-    ) {
+    if (existsSync(tomlPath) && !isGeneratedInstalledWranglerToml(readFileSync(tomlPath, 'utf-8'))) {
       return;
     }
     const resolved = resolveInstalledWranglerConfig(config);
@@ -1118,9 +1050,9 @@ async function redeployCurrentBundle(opts: {
     p.log.warn(
       [
         `現行バージョン v${current.version} の再デプロイ可能なリリースが見つからないため、`,
-        "Worker 内部と管理画面には旧 URL が残っている可能性があります。",
-        "次回のアップデート適用時に新 URL で自動的に再デプロイされます。",
-      ].join("\n"),
+        'Worker 内部と管理画面には旧 URL が残っている可能性があります。',
+        '次回のアップデート適用時に新 URL で自動的に再デプロイされます。',
+      ].join('\n'),
     );
     return;
   }
@@ -1145,7 +1077,7 @@ async function redeployCurrentBundle(opts: {
   await checkWorkerHealth(
     cfg.workerPublicUrl,
     s,
-    "再デプロイ自体は完了しています。workers.dev サブドメイン登録直後は DNS 反映に数分かかるため、数分待ってから同じコマンドを再実行してください",
+    '再デプロイ自体は完了しています。workers.dev サブドメイン登録直後は DNS 反映に数分かかるため、数分待ってから同じコマンドを再実行してください',
   );
 
   writeLocalWorkerArtifacts(repoDir, bundle);
@@ -1181,24 +1113,22 @@ async function runAdoption(opts: {
 
   const target = manifest.releases.find((r) => r.version === manifest.latest);
   if (!target) {
-    p.cancel(
-      `manifest が壊れています (latest=${manifest.latest} が releases にありません)`,
-    );
+    p.cancel(`manifest が壊れています (latest=${manifest.latest} が releases にありません)`);
     process.exit(1);
   }
 
   p.log.warn(
     [
       `バージョン未スタンプのインストールを検出しました (現在: v${current.version})。`,
-      "旧バージョンの CLI でセットアップした環境は、公式リリースと同一でもバージョン情報が",
-      "埋め込まれておらず、自動アップデートが適用できない状態です。",
-      "",
+      '旧バージョンの CLI でセットアップした環境は、公式リリースと同一でもバージョン情報が',
+      '埋め込まれておらず、自動アップデートが適用できない状態です。',
+      '',
       `公式リリース v${target.version} を導入すると、以後の自動アップデートが使えるようになります。`,
-      "",
-      pc.bold("注意: Worker / 管理画面をソースコードレベルでカスタマイズしている場合、"),
-      pc.bold("この操作でカスタマイズは上書きされ失われます。"),
-      "（管理画面上の設定・DB データ・シークレットはそのまま残ります）",
-    ].join("\n"),
+      '',
+      pc.bold('注意: Worker / 管理画面をソースコードレベルでカスタマイズしている場合、'),
+      pc.bold('この操作でカスタマイズは上書きされ失われます。'),
+      '（管理画面上の設定・DB データ・シークレットはそのまま残ります）',
+    ].join('\n'),
   );
 
   const confirm = await p.confirm({
@@ -1209,7 +1139,7 @@ async function runAdoption(opts: {
     p.log.info(
       `そのままご利用いただけます。手動での更新手順:\n  https://github.com/Shudesu/line-harness-oss/blob/main/docs/wiki/26-Manual-Update.md`,
     );
-    p.outro(pc.yellow("導入をスキップしました (インストールはそのまま動作します)"));
+    p.outro(pc.yellow('導入をスキップしました (インストールはそのまま動作します)'));
     process.exit(0);
   }
 
@@ -1221,9 +1151,7 @@ async function runAdoption(opts: {
   // Replay every migration in the bundle, oldest first. Duplicates are
   // skipped via the benign-error policy inside applyMigrations.
   const allMigrations = Array.from(bundle.migrations.keys()).sort();
-  p.log.info(
-    `全 ${allMigrations.length} migration を確認します（適用済みはスキップされます）`,
-  );
+  p.log.info(`全 ${allMigrations.length} migration を確認します（適用済みはスキップされます）`);
   await applyMigrations({
     creds,
     d1DatabaseId: cfg.d1DatabaseId,
@@ -1237,7 +1165,7 @@ async function runAdoption(opts: {
   if (cfg.liffProject) {
     await deployLiffFromBundle(creds, cfg, bundle, s);
   } else {
-    p.log.info("LIFF は Worker アセット配信のためスキップ（Worker 更新に含まれています）");
+    p.log.info('LIFF は Worker アセット配信のためスキップ（Worker 更新に含まれています）');
   }
 
   // Older installs may pre-date cookie-based admin auth — same step the
@@ -1252,8 +1180,8 @@ async function runAdoption(opts: {
     cfg.workerPublicUrl,
     s,
     subdomainRegisteredNow
-      ? "導入自体は完了しています。workers.dev サブドメイン登録直後は DNS 反映に数分かかるため、数分待ってから同じコマンドを再実行してください"
-      : "導入自体は完了しています",
+      ? '導入自体は完了しています。workers.dev サブドメイン登録直後は DNS 反映に数分かかるため、数分待ってから同じコマンドを再実行してください'
+      : '導入自体は完了しています',
   );
 
   writeLocalWorkerArtifacts(repoDir, bundle);

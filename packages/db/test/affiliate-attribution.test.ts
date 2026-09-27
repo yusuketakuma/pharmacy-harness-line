@@ -4,10 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  resolveAffiliateAttribution,
-  ATTRIBUTION_WINDOW_DAYS,
-} from '../src/affiliate-attribution.js';
+import { resolveAffiliateAttribution, ATTRIBUTION_WINDOW_DAYS } from '../src/affiliate-attribution.js';
 import { trackConversion, type ConversionEvent } from '../src/conversions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,15 +75,17 @@ function insertFriend(sqlite: Database.Database, id: string): void {
       `INSERT INTO friends (id, line_user_id, display_name, created_at, updated_at)
        VALUES (?, ?, 'Test User', '2024-01-01T00:00:00.000+09:00', '2024-01-01T00:00:00.000+09:00')`,
     )
-    .run(id, `U${id.replace(/[^0-9a-f]/gi, '').padEnd(32, '0').slice(0, 32)}`);
+    .run(
+      id,
+      `U${id
+        .replace(/[^0-9a-f]/gi, '')
+        .padEnd(32, '0')
+        .slice(0, 32)}`,
+    );
 }
 
 let affiliateSeq = 0;
-function insertAffiliate(
-  sqlite: Database.Database,
-  id: string,
-  opts: { friendId?: string | null } = {},
-): void {
+function insertAffiliate(sqlite: Database.Database, id: string, opts: { friendId?: string | null } = {}): void {
   affiliateSeq++;
   sqlite
     .prepare(

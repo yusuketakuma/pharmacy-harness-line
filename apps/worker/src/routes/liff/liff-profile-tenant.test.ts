@@ -50,27 +50,27 @@ describe('POST /api/liff/profile tenant boundary', () => {
     const app = new Hono<Env>();
     app.route('/', liffRoutes);
 
-    const response = await app.request('/api/liff/profile', {
-      method: 'POST',
-      headers: { authorization: 'Bearer synthetic-token' },
-    }, { DB: {} as D1Database } as Env['Bindings']);
+    const response = await app.request(
+      '/api/liff/profile',
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer synthetic-token' },
+      },
+      { DB: {} as D1Database } as Env['Bindings'],
+    );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       data: { id: 'friend-a', displayName: 'Tenant A patient', userId: 'patient-a' },
     });
-    expect(mocks.getScopedFriend).toHaveBeenCalledWith(
-      expect.anything(),
-      'U-shared',
-      'account-a',
-    );
+    expect(mocks.getScopedFriend).toHaveBeenCalledWith(expect.anything(), 'U-shared', 'account-a');
     expect(mocks.getGlobalFriend).not.toHaveBeenCalled();
   });
 
   it('does not fall back to a shared environment account for an unknown LIFF ID', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ basicId: '@wrong-tenant' }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ basicId: '@wrong-tenant' }), { status: 200 }));
     const db = {
       prepare: () => ({
         bind: () => ({ first: async () => null, all: async () => ({ results: [] }) }),

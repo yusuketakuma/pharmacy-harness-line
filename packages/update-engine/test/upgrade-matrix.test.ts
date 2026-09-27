@@ -33,8 +33,11 @@ const MIGRATION_MANIFEST = [
   '022_booking_idempotency_scoped.sql',
   '023_meet_reminder_delivery_id.sql',
   '024_stripe_effect_completion.sql',
-'025_friend_link_scope_triggers.sql',
+  '025_friend_link_scope_triggers.sql',
   '026_custom_078_pharmacy_chat_templates.sql',
+  '027_custom_079_pharmacy_followup_notification_queue.sql',
+  '028_custom_080_pharmacy_continuity_notification_queue.sql',
+  '029_custom_081_pharmacy_validity_notification_queue.sql',
 ] as const;
 const BASELINE = MIGRATION_MANIFEST[0];
 const baseline = readFileSync(join(MIGRATIONS_DIR, BASELINE));
@@ -72,9 +75,7 @@ describe('v0.33 migration epoch', () => {
 
   it('treats the full setup-created v0.33 checksum ledger as a no-op', async () => {
     const db = new Database(':memory:');
-    const migrations = new Map(
-      MIGRATION_MANIFEST.map((name) => [name, readFileSync(join(MIGRATIONS_DIR, name))]),
-    );
+    const migrations = new Map(MIGRATION_MANIFEST.map((name) => [name, readFileSync(join(MIGRATIONS_DIR, name))]));
     db.exec(baseline.toString('utf8'));
     db.exec(buildMigrationLedgerSql([...MIGRATION_MANIFEST], migrations));
 

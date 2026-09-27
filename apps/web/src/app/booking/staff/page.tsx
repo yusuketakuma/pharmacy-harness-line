@@ -1,11 +1,11 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import ImageUploader from '@/components/shared/image-uploader'
-import { bookingApi, type BookingStaff } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import ImageUploader from '@/components/shared/image-uploader';
+import { bookingApi, type BookingStaff } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
 
 const EMPTY: Partial<BookingStaff> = {
   name: '',
@@ -16,51 +16,51 @@ const EMPTY: Partial<BookingStaff> = {
   sort_order: 0,
   is_designation_optional: 0,
   is_active: 1,
-}
+};
 
 export default function BookingStaffPage() {
-  const { selectedAccountId } = useAccount()
-  const [items, setItems] = useState<BookingStaff[]>([])
-  const [editing, setEditing] = useState<Partial<BookingStaff> | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { selectedAccountId } = useAccount();
+  const [items, setItems] = useState<BookingStaff[]>([]);
+  const [editing, setEditing] = useState<Partial<BookingStaff> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!selectedAccountId) return
-    setLoading(true)
-    setError(null)
+    if (!selectedAccountId) return;
+    setLoading(true);
+    setError(null);
     // アカウント切替時の stale state 防止（cross-account 表示/操作の事故防止）。
-    setItems([])
+    setItems([]);
     try {
-      const r = await bookingApi.listStaff(selectedAccountId)
-      setItems(r.staff)
+      const r = await bookingApi.listStaff(selectedAccountId);
+      setItems(r.staff);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    load()
-  }, [load])
+    load();
+  }, [load]);
 
   async function save(s: Partial<BookingStaff>) {
-    if (!selectedAccountId) return
+    if (!selectedAccountId) return;
     if (s.id) {
-      await bookingApi.updateStaff(selectedAccountId, s.id, s)
+      await bookingApi.updateStaff(selectedAccountId, s.id, s);
     } else {
-      await bookingApi.createStaff(selectedAccountId, s)
+      await bookingApi.createStaff(selectedAccountId, s);
     }
-    setEditing(null)
-    await load()
+    setEditing(null);
+    await load();
   }
 
   async function remove(id: string) {
-    if (!selectedAccountId) return
-    if (!confirm('このスタッフを削除しますか？（既存予約は維持されます）')) return
-    await bookingApi.deleteStaff(selectedAccountId, id)
-    await load()
+    if (!selectedAccountId) return;
+    if (!confirm('このスタッフを削除しますか？（既存予約は維持されます）')) return;
+    await bookingApi.deleteStaff(selectedAccountId, id);
+    await load();
   }
 
   return (
@@ -80,11 +80,7 @@ export default function BookingStaffPage() {
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {!selectedAccountId ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center text-sm text-gray-500">
@@ -130,16 +126,16 @@ export default function BookingStaffPage() {
                         )}
                         <div>
                           <div className="font-medium">{s.display_name}</div>
-                          {s.name !== s.display_name && (
-                            <div className="text-xs text-gray-400">{s.name}</div>
-                          )}
+                          {s.name !== s.display_name && <div className="text-xs text-gray-400">{s.name}</div>}
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{s.role ?? '-'}</td>
                     <td className="px-4 py-3 text-center">
                       {s.is_designation_optional ? (
-                        <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-xs">指名なし</span>
+                        <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-xs">
+                          指名なし
+                        </span>
                       ) : (
                         <span className="text-xs text-gray-300">-</span>
                       )}
@@ -154,11 +150,15 @@ export default function BookingStaffPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex gap-2 text-xs">
-                        <button onClick={() => setEditing(s)} className="text-blue-600 hover:underline">編集</button>
+                        <button onClick={() => setEditing(s)} className="text-blue-600 hover:underline">
+                          編集
+                        </button>
                         <Link href={`/booking/staff/shifts?staff_id=${s.id}`} className="text-blue-600 hover:underline">
                           シフト
                         </Link>
-                        <button onClick={() => remove(s.id)} className="text-red-600 hover:underline">削除</button>
+                        <button onClick={() => remove(s.id)} className="text-red-600 hover:underline">
+                          削除
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -171,7 +171,7 @@ export default function BookingStaffPage() {
 
       {editing && <Modal staff={editing} onSave={save} onClose={() => setEditing(null)} />}
     </div>
-  )
+  );
 }
 
 function Modal({
@@ -179,27 +179,27 @@ function Modal({
   onSave,
   onClose,
 }: {
-  staff: Partial<BookingStaff>
-  onSave: (s: Partial<BookingStaff>) => Promise<void>
-  onClose: () => void
+  staff: Partial<BookingStaff>;
+  onSave: (s: Partial<BookingStaff>) => Promise<void>;
+  onClose: () => void;
 }) {
-  const [form, setForm] = useState<Partial<BookingStaff>>(staff)
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [form, setForm] = useState<Partial<BookingStaff>>(staff);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   function set<K extends keyof BookingStaff>(k: K, v: BookingStaff[K]) {
-    setForm((prev) => ({ ...prev, [k]: v }))
+    setForm((prev) => ({ ...prev, [k]: v }));
   }
 
   async function submit() {
-    setSaving(true)
-    setErr(null)
+    setSaving(true);
+    setErr(null);
     try {
-      await onSave(form)
+      await onSave(form);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
@@ -297,7 +297,7 @@ function Modal({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -309,5 +309,5 @@ function Field({ label, required, children }: { label: string; required?: boolea
       </span>
       {children}
     </label>
-  )
+  );
 }

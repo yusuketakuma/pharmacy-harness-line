@@ -8,12 +8,7 @@ describe('retired tenant admin bootstrap CLI', () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>();
 
-    const exitCode = await runTenantAdminBootstrap(
-      args,
-      {},
-      fetcher,
-      (line) => output.push(line),
-    );
+    const exitCode = await runTenantAdminBootstrap(args, {}, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
@@ -24,12 +19,7 @@ describe('retired tenant admin bootstrap CLI', () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>();
 
-    const exitCode = await runTenantAdminBootstrap(
-      ['--help'],
-      {},
-      fetcher,
-      (line) => output.push(line),
-    );
+    const exitCode = await runTenantAdminBootstrap(['--help'], {}, fetcher, (line) => output.push(line));
 
     expect(exitCode).toBe(0);
     expect(fetcher).not.toHaveBeenCalled();

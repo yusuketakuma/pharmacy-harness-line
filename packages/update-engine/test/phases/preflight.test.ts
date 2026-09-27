@@ -1,13 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { runPreflight } from '../../src/phases/preflight.js';
 import { createEventEmitter } from '../../src/events.js';
-import type {
-  UpdateContext,
-  UpdateEvent,
-  ReleaseEntry,
-  CurrentVersion,
-  CfApiCreds,
-} from '../../src/types.js';
+import type { UpdateContext, UpdateEvent, ReleaseEntry, CurrentVersion, CfApiCreds } from '../../src/types.js';
 
 const ACCOUNT_ID = 'acct123';
 const API_TOKEN = 'tok_abc';
@@ -61,9 +55,7 @@ const sampleCtx = (overrides: Partial<UpdateContext> = {}): UpdateContext => ({
  * Response-shaped object (only the fields preflight inspects: ok + status,
  * plus a json() callback for completeness).
  */
-function makeRouter(
-  routes: Record<string, { ok: boolean; status: number; body?: unknown }>,
-): ReturnType<typeof vi.fn> {
+function makeRouter(routes: Record<string, { ok: boolean; status: number; body?: unknown }>): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: string) => {
     for (const [key, resp] of Object.entries(routes)) {
       if (url.includes(key)) {
@@ -71,8 +63,7 @@ function makeRouter(
           ok: resp.ok,
           status: resp.status,
           json: async () => resp.body ?? {},
-          text: async () =>
-            resp.body === undefined ? '' : JSON.stringify(resp.body),
+          text: async () => (resp.body === undefined ? '' : JSON.stringify(resp.body)),
         } as unknown as Response;
       }
     }
@@ -136,9 +127,7 @@ describe('runPreflight', () => {
     });
 
     const { events, emitter } = collectEvents();
-    await expect(runPreflight(ctx, emitter)).rejects.toThrow(
-      /min_from_version 0\.6\.0 not satisfied.*0\.5\.0/,
-    );
+    await expect(runPreflight(ctx, emitter)).rejects.toThrow(/min_from_version 0\.6\.0 not satisfied.*0\.5\.0/);
 
     // running emitted, but not done
     expect(events.some((e) => e.status === 'running')).toBe(true);
@@ -147,13 +136,15 @@ describe('runPreflight', () => {
 
   it('throws when token verify returns 403', async () => {
     globalThis.fetch = makeRouter({
-      '/user/tokens/verify': { ok: false, status: 403, body: { errors: [{ message: 'invalid token' }] } },
+      '/user/tokens/verify': {
+        ok: false,
+        status: 403,
+        body: { errors: [{ message: 'invalid token' }] },
+      },
     }) as unknown as typeof fetch;
 
     const { events, emitter } = collectEvents();
-    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(
-      /token verify failed.*403/i,
-    );
+    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(/token verify failed.*403/i);
 
     expect(events.some((e) => e.status === 'running')).toBe(true);
     expect(events.some((e) => e.status === 'done')).toBe(false);
@@ -166,9 +157,7 @@ describe('runPreflight', () => {
     }) as unknown as typeof fetch;
 
     const { events, emitter } = collectEvents();
-    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(
-      new RegExp(WORKER_NAME),
-    );
+    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(new RegExp(WORKER_NAME));
 
     expect(events.some((e) => e.status === 'running')).toBe(true);
     expect(events.some((e) => e.status === 'done')).toBe(false);
@@ -182,9 +171,7 @@ describe('runPreflight', () => {
     }) as unknown as typeof fetch;
 
     const { events, emitter } = collectEvents();
-    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(
-      new RegExp(ADMIN_PROJECT),
-    );
+    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(new RegExp(ADMIN_PROJECT));
 
     expect(events.some((e) => e.status === 'done')).toBe(false);
   });
@@ -198,9 +185,7 @@ describe('runPreflight', () => {
     }) as unknown as typeof fetch;
 
     const { events, emitter } = collectEvents();
-    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(
-      new RegExp(LIFF_PROJECT),
-    );
+    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(new RegExp(LIFF_PROJECT));
 
     expect(events.some((e) => e.status === 'done')).toBe(false);
   });
@@ -211,13 +196,15 @@ describe('runPreflight', () => {
       [`/workers/scripts/${WORKER_NAME}`]: { ok: true, status: 200 },
       [`/pages/projects/${ADMIN_PROJECT}`]: { ok: true, status: 200 },
       [`/pages/projects/${LIFF_PROJECT}`]: { ok: true, status: 200 },
-      [`/d1/database/${D1_ID}/query`]: { ok: false, status: 500, body: { errors: [{ message: 'down' }] } },
+      [`/d1/database/${D1_ID}/query`]: {
+        ok: false,
+        status: 500,
+        body: { errors: [{ message: 'down' }] },
+      },
     }) as unknown as typeof fetch;
 
     const { events, emitter } = collectEvents();
-    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(
-      new RegExp(D1_ID),
-    );
+    await expect(runPreflight(sampleCtx(), emitter)).rejects.toThrow(new RegExp(D1_ID));
 
     expect(events.some((e) => e.status === 'done')).toBe(false);
   });
@@ -245,10 +232,7 @@ describe('runPreflight', () => {
     await runPreflight(ctx, emitter);
 
     const requiresEvent = events.find(
-      (e) =>
-        e.step === 'preflight' &&
-        e.status === 'running' &&
-        e.name?.startsWith('requires_secrets:'),
+      (e) => e.step === 'preflight' && e.status === 'running' && e.name?.startsWith('requires_secrets:'),
     );
     expect(requiresEvent).toBeDefined();
     expect(requiresEvent!.name).toBe('requires_secrets:STRIPE_KEY,OPENAI_KEY');
@@ -276,9 +260,7 @@ describe('runPreflight', () => {
     const { events, emitter } = collectEvents();
     await runPreflight(sampleCtx(), emitter);
 
-    const requiresEvent = events.find((e) =>
-      e.name?.startsWith('requires_secrets:'),
-    );
+    const requiresEvent = events.find((e) => e.name?.startsWith('requires_secrets:'));
     expect(requiresEvent).toBeUndefined();
   });
 
@@ -300,13 +282,8 @@ describe('runPreflight', () => {
     await runPreflight(sampleCtx(), emitter);
 
     // First call must be the token verify with Bearer auth.
-    const [verifyUrl, verifyInit] = fetchMock.mock.calls[0] as [
-      string,
-      RequestInit,
-    ];
-    expect(verifyUrl).toBe(
-      'https://api.cloudflare.com/client/v4/user/tokens/verify',
-    );
+    const [verifyUrl, verifyInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(verifyUrl).toBe('https://api.cloudflare.com/client/v4/user/tokens/verify');
     const headers = verifyInit.headers as Record<string, string>;
     expect(headers['Authorization']).toBe(`Bearer ${API_TOKEN}`);
   });

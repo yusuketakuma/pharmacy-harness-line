@@ -37,12 +37,14 @@ import { processReminderDeliveries } from './reminder-delivery.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getDue.mockResolvedValue([{
-    id: 'friend-reminder-1',
-    friend_id: 'friend-1',
-    reminder_id: 'reminder-1',
-    steps: [{ id: 'step-1', message_type: 'text', message_content: 'generic reminder' }],
-  }]);
+  mocks.getDue.mockResolvedValue([
+    {
+      id: 'friend-reminder-1',
+      friend_id: 'friend-1',
+      reminder_id: 'reminder-1',
+      steps: [{ id: 'step-1', message_type: 'text', message_content: 'generic reminder' }],
+    },
+  ]);
   mocks.getFriend.mockResolvedValue({
     id: 'friend-1',
     line_user_id: 'U-friend',
@@ -62,10 +64,7 @@ beforeEach(() => {
 describe('generic reminder exclusion for pharmacy accounts', () => {
   it('does not send or complete a due generic reminder', async () => {
     const pushMessage = vi.fn();
-    await processReminderDeliveries(
-      { prepare: vi.fn() } as unknown as D1Database,
-      { pushMessage } as never,
-    );
+    await processReminderDeliveries({ prepare: vi.fn() } as unknown as D1Database, { pushMessage } as never);
 
     expect(pushMessage).not.toHaveBeenCalled();
     expect(mocks.complete).not.toHaveBeenCalled();
@@ -77,10 +76,7 @@ describe('generic reminder exclusion for pharmacy accounts', () => {
     const prepare = vi.fn();
 
     const pushMessage = vi.fn();
-    await processReminderDeliveries(
-      { prepare } as unknown as D1Database,
-      { pushMessage } as never,
-    );
+    await processReminderDeliveries({ prepare } as unknown as D1Database, { pushMessage } as never);
 
     expect(mocks.tenantId).toHaveBeenCalledWith(expect.anything(), 'account-pharmacy');
     expect(prepare).not.toHaveBeenCalled();
@@ -116,12 +112,14 @@ describe('generic reminder exclusion for pharmacy accounts', () => {
     const firstRetryKey = mocks.linePush.mock.calls[0]?.[2];
     expect(firstRetryKey).toMatch(/^[0-9a-f-]{36}$/u);
     expect(mocks.linePush.mock.calls[1]?.[2]).toBe(firstRetryKey);
-    expect(mocks.deliver).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: 'tenant-generic',
-      lineAccountId: 'account-generic',
-      friendId: 'friend-1',
-      source: 'reminder',
-    }));
+    expect(mocks.deliver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-generic',
+        lineAccountId: 'account-generic',
+        friendId: 'friend-1',
+        source: 'reminder',
+      }),
+    );
     expect(sql.filter((statement) => statement.includes('INSERT INTO messages_log'))).toEqual([]);
   });
 
@@ -163,10 +161,7 @@ describe('generic reminder exclusion for pharmacy accounts', () => {
     });
     mocks.account.mockResolvedValue(null);
 
-    await processReminderDeliveries(
-      { prepare: vi.fn() } as unknown as D1Database,
-      { pushMessage: vi.fn() } as never,
-    );
+    await processReminderDeliveries({ prepare: vi.fn() } as unknown as D1Database, { pushMessage: vi.fn() } as never);
 
     expect(mocks.deliver).not.toHaveBeenCalled();
     expect(mocks.linePush).not.toHaveBeenCalled();

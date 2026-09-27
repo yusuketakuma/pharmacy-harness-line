@@ -49,14 +49,16 @@ interface D1SchemaRow {
 
 export function fingerprintD1Schema(rows: D1SchemaRow[]): string {
   if (rows.length === 0) throw new Error('D1 schema evidence is empty');
-  const canonical = rows.map(({ type, name, tableName, sql }) => {
-    if (![type, name, tableName, sql].every((value) => typeof value === 'string' && value)) {
-      throw new Error('invalid D1 schema evidence');
-    }
-    return { type, name, tableName, sql };
-  }).sort((a, b) =>
-    a.type.localeCompare(b.type) || a.name.localeCompare(b.name) || a.tableName.localeCompare(b.tableName),
-  );
+  const canonical = rows
+    .map(({ type, name, tableName, sql }) => {
+      if (![type, name, tableName, sql].every((value) => typeof value === 'string' && value)) {
+        throw new Error('invalid D1 schema evidence');
+      }
+      return { type, name, tableName, sql };
+    })
+    .sort(
+      (a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name) || a.tableName.localeCompare(b.tableName),
+    );
   return `sha256:${createHash('sha256').update(JSON.stringify(canonical)).digest('hex')}`;
 }
 
@@ -127,8 +129,7 @@ export function buildReleaseEvidence(input: EvidenceInput): ReleaseEvidence {
     newAdminDeploymentId: input.after.adminDeploymentId,
     smokeResults: { worker: 'passed', admin: 'passed' },
     updateClass: input.updateClass,
-    rollbackEligible:
-      input.updateClass === 'compatible' && input.appliedNames.length === 0,
+    rollbackEligible: input.updateClass === 'compatible' && input.appliedNames.length === 0,
   };
 }
 
@@ -170,11 +171,11 @@ async function main(): Promise<void> {
   };
   const vendorFile = '.line-harness-vendor.json';
   const vendor = existsSync(vendorFile)
-    ? JSON.parse(readFileSync(vendorFile, 'utf8')) as {
+    ? (JSON.parse(readFileSync(vendorFile, 'utf8')) as {
         commit: string;
         version: string;
         release: { customer_source_update?: { update_class?: string } };
-      }
+      })
     : null;
   const before = JSON.parse(required('BEFORE_STATE')) as EvidenceInput['before'];
   const after = JSON.parse(required('AFTER_STATE')) as EvidenceInput['after'];
@@ -201,10 +202,7 @@ async function main(): Promise<void> {
       admin: artifact.adminHash,
       liff: artifact.liffHash,
     },
-    updateClass:
-      vendor?.release.customer_source_update?.update_class === 'compatible'
-        ? 'compatible'
-        : 'manual',
+    updateClass: vendor?.release.customer_source_update?.update_class === 'compatible' ? 'compatible' : 'manual',
     before,
     after,
     migrations: migration.migrations,

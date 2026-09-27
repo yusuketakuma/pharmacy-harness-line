@@ -1,0 +1,2872 @@
+{
+  "MIT": [
+    {
+      "name": "@clack/core",
+      "versions": [
+        "1.4.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@clack+core@1.4.3/node_modules/@clack/core"
+      ],
+      "license": "MIT",
+      "author": "Nate Moore",
+      "homepage": "https://github.com/bombshell-dev/clack/tree/main/packages/core#readme"
+    },
+    {
+      "name": "@clack/prompts",
+      "versions": [
+        "1.7.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@clack+prompts@1.7.0/node_modules/@clack/prompts"
+      ],
+      "license": "MIT",
+      "author": "Nate Moore",
+      "homepage": "https://github.com/bombshell-dev/clack/tree/main/packages/prompts#readme"
+    },
+    {
+      "name": "@dnd-kit/accessibility",
+      "versions": [
+        "3.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@dnd-kit+accessibility@3.1.1_react@19.2.8/node_modules/@dnd-kit/accessibility"
+      ],
+      "license": "MIT",
+      "author": "Claudéric Demers",
+      "homepage": "https://github.com/clauderic/dnd-kit#readme",
+      "description": "A generic toolkit to help with accessibility"
+    },
+    {
+      "name": "@dnd-kit/core",
+      "versions": [
+        "6.3.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@dnd-kit+core@6.3.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/@dnd-kit/core"
+      ],
+      "license": "MIT",
+      "author": "Claudéric Demers",
+      "homepage": "https://github.com/clauderic/dnd-kit#readme",
+      "description": "dnd kit – a lightweight React library for building performant and accessible drag and drop experiences"
+    },
+    {
+      "name": "@dnd-kit/sortable",
+      "versions": [
+        "10.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@dnd-kit+sortable@10.0.0_@dnd-kit+core@6.3.1_react-dom@19.2.8_react@19.2.8__react@19.2.8__react@19.2.8/node_modules/@dnd-kit/sortable"
+      ],
+      "license": "MIT",
+      "author": "Claudéric Demers",
+      "homepage": "https://github.com/clauderic/dnd-kit#readme",
+      "description": "Official sortable preset and sensors for dnd kit"
+    },
+    {
+      "name": "@dnd-kit/utilities",
+      "versions": [
+        "3.2.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@dnd-kit+utilities@3.2.2_react@19.2.8/node_modules/@dnd-kit/utilities"
+      ],
+      "license": "MIT",
+      "author": "Claudéric Demers",
+      "homepage": "https://github.com/clauderic/dnd-kit#readme",
+      "description": "Internal utilities to bee shared between `@dnd-kit` packages"
+    },
+    {
+      "name": "@hono/node-server",
+      "versions": [
+        "2.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@hono+node-server@2.1.1_hono@4.13.5/node_modules/@hono/node-server"
+      ],
+      "license": "MIT",
+      "author": "Yusuke Wada",
+      "homepage": "https://github.com/honojs/node-server",
+      "description": "Node.js Adapter for Hono"
+    },
+    {
+      "name": "@img/colour",
+      "versions": [
+        "1.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@img+colour@1.1.0/node_modules/@img/colour"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/lovell/colour#readme",
+      "description": "The ESM-only 'color' package made compatible for use with CommonJS runtimes"
+    },
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "versions": [
+        "1.30.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_supports-color@10.2.2_zod@4.5.4/node_modules/@modelcontextprotocol/sdk"
+      ],
+      "license": "MIT",
+      "author": "Anthropic, PBC",
+      "homepage": "https://modelcontextprotocol.io",
+      "description": "Model Context Protocol implementation for TypeScript"
+    },
+    {
+      "name": "@next/env",
+      "versions": [
+        "16.3.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@next+env@16.3.4/node_modules/@next/env"
+      ],
+      "license": "MIT",
+      "author": "Next.js Team",
+      "homepage": "https://github.com/vercel/next.js#readme",
+      "description": "Next.js dotenv file loading"
+    },
+    {
+      "name": "@next/swc-darwin-arm64",
+      "versions": [
+        "16.3.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@next+swc-darwin-arm64@16.3.4/node_modules/@next/swc-darwin-arm64"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/vercel/next.js#readme"
+    },
+    {
+      "name": "@noble/hashes",
+      "versions": [
+        "2.4.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes"
+      ],
+      "license": "MIT",
+      "author": "Paul Miller",
+      "homepage": "https://paulmillr.com/noble/",
+      "description": "Audited & minimal 0-dependency JS implementation of SHA, RIPEMD, BLAKE, HMAC, HKDF, PBKDF & Scrypt"
+    },
+    {
+      "name": "@sec-ant/readable-stream",
+      "versions": [
+        "0.4.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@sec-ant+readable-stream@0.4.1/node_modules/@sec-ant/readable-stream"
+      ],
+      "license": "MIT",
+      "author": "Ze-Zheng Wu",
+      "homepage": "https://github.com/Sec-ant/readable-stream",
+      "description": "A tiny, zero-dependency yet spec-compliant asynchronous iterator polyfill/ponyfill for ReadableStreams."
+    },
+    {
+      "name": "@sindresorhus/merge-streams",
+      "versions": [
+        "4.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@sindresorhus+merge-streams@4.0.0/node_modules/@sindresorhus/merge-streams"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/merge-streams#readme",
+      "description": "Merge multiple streams into a unified stream"
+    },
+    {
+      "name": "@types/node",
+      "versions": [
+        "24.13.3",
+        "26.4.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@types+node@24.13.3/node_modules/@types/node",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@types+node@26.4.1/node_modules/@types/node"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/node",
+      "description": "TypeScript definitions for node"
+    },
+    {
+      "name": "accepts",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/accepts@2.0.0/node_modules/accepts"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/accepts#readme",
+      "description": "Higher-level content negotiation"
+    },
+    {
+      "name": "agent-base",
+      "versions": [
+        "6.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/agent-base@6.0.2_supports-color@10.2.2/node_modules/agent-base"
+      ],
+      "license": "MIT",
+      "author": "Nathan Rajlich",
+      "homepage": "https://github.com/TooTallNate/node-agent-base#readme",
+      "description": "Turn a function into an `http.Agent` instance"
+    },
+    {
+      "name": "ajv",
+      "versions": [
+        "8.20.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/ajv@8.20.0/node_modules/ajv"
+      ],
+      "license": "MIT",
+      "author": "Evgeny Poberezkin",
+      "homepage": "https://ajv.js.org",
+      "description": "Another JSON Schema Validator"
+    },
+    {
+      "name": "ajv-formats",
+      "versions": [
+        "3.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats"
+      ],
+      "license": "MIT",
+      "author": "Evgeny Poberezkin",
+      "homepage": "https://github.com/ajv-validator/ajv-formats#readme",
+      "description": "Format validation for Ajv v7+"
+    },
+    {
+      "name": "asynckit",
+      "versions": [
+        "0.4.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/asynckit@0.4.0/node_modules/asynckit"
+      ],
+      "license": "MIT",
+      "author": "Alex Indigo",
+      "homepage": "https://github.com/alexindigo/asynckit#readme",
+      "description": "Minimal async jobs utility library, with streams support"
+    },
+    {
+      "name": "axios",
+      "versions": [
+        "1.20.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/axios@1.20.0_debug@4.4.3_supports-color@10.2.2__supports-color@10.2.2/node_modules/axios"
+      ],
+      "license": "MIT",
+      "author": "Matt Zabriskie",
+      "homepage": "https://axios-http.com",
+      "description": "Promise based HTTP client for the browser and node.js"
+    },
+    {
+      "name": "body-parser",
+      "versions": [
+        "2.3.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/body-parser@2.3.0_supports-color@10.2.2/node_modules/body-parser"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/expressjs/body-parser#readme",
+      "description": "Node.js body parsing middleware"
+    },
+    {
+      "name": "bytes",
+      "versions": [
+        "3.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/bytes@3.1.2/node_modules/bytes"
+      ],
+      "license": "MIT",
+      "author": "TJ Holowaychuk",
+      "homepage": "https://github.com/visionmedia/bytes.js#readme",
+      "description": "Utility to parse a string bytes to bytes and vice-versa"
+    },
+    {
+      "name": "call-bind-apply-helpers",
+      "versions": [
+        "1.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/call-bind-apply-helpers@1.0.2/node_modules/call-bind-apply-helpers"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/call-bind-apply-helpers#readme",
+      "description": "Helper functions around Function call/apply/bind, for use in `call-bind`"
+    },
+    {
+      "name": "call-bound",
+      "versions": [
+        "1.0.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/call-bound@1.0.4/node_modules/call-bound"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/call-bound#readme",
+      "description": "Robust call-bound JavaScript intrinsics, using `call-bind` and `get-intrinsic`."
+    },
+    {
+      "name": "client-only",
+      "versions": [
+        "0.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/client-only@0.0.1/node_modules/client-only"
+      ],
+      "license": "MIT",
+      "homepage": "https://reactjs.org/",
+      "description": "This is a marker package to indicate that a module can only be used in Client Components."
+    },
+    {
+      "name": "combined-stream",
+      "versions": [
+        "1.0.8"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/combined-stream@1.0.8/node_modules/combined-stream"
+      ],
+      "license": "MIT",
+      "author": "Felix Geisendörfer",
+      "homepage": "https://github.com/felixge/node-combined-stream",
+      "description": "A stream that emits multiple other streams one after another."
+    },
+    {
+      "name": "content-disposition",
+      "versions": [
+        "1.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/content-disposition@1.1.0/node_modules/content-disposition"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/jshttp/content-disposition#readme",
+      "description": "Create and parse Content-Disposition header"
+    },
+    {
+      "name": "content-type",
+      "versions": [
+        "1.0.5",
+        "2.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/content-type@1.0.5/node_modules/content-type",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/content-type@2.1.0/node_modules/content-type"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/jshttp/content-type#readme",
+      "description": "Create and parse HTTP Content-Type header"
+    },
+    {
+      "name": "cookie",
+      "versions": [
+        "0.7.2",
+        "1.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/cookie@0.7.2/node_modules/cookie",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/cookie@1.1.1/node_modules/cookie"
+      ],
+      "license": "MIT",
+      "author": "Roman Shtylman",
+      "homepage": "https://github.com/jshttp/cookie#readme",
+      "description": "HTTP server cookie parsing and serialization"
+    },
+    {
+      "name": "cookie-signature",
+      "versions": [
+        "1.2.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/cookie-signature@1.2.2/node_modules/cookie-signature"
+      ],
+      "license": "MIT",
+      "author": "TJ Holowaychuk",
+      "homepage": "https://github.com/visionmedia/node-cookie-signature#readme",
+      "description": "Sign and unsign cookies"
+    },
+    {
+      "name": "cors",
+      "versions": [
+        "2.8.6"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/cors@2.8.6/node_modules/cors"
+      ],
+      "license": "MIT",
+      "author": "Troy Goode",
+      "homepage": "https://github.com/expressjs/cors#readme",
+      "description": "Node.js CORS middleware"
+    },
+    {
+      "name": "cross-spawn",
+      "versions": [
+        "7.0.6"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/cross-spawn@7.0.6/node_modules/cross-spawn"
+      ],
+      "license": "MIT",
+      "author": "André Cruz",
+      "homepage": "https://github.com/moxystudio/node-cross-spawn",
+      "description": "Cross platform child_process#spawn and child_process#spawnSync"
+    },
+    {
+      "name": "debug",
+      "versions": [
+        "4.4.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/debug@4.4.3_supports-color@10.2.2/node_modules/debug"
+      ],
+      "license": "MIT",
+      "author": "Josh Junon",
+      "homepage": "https://github.com/debug-js/debug#readme",
+      "description": "Lightweight debugging utility for Node.js and the browser"
+    },
+    {
+      "name": "delayed-stream",
+      "versions": [
+        "1.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/delayed-stream@1.0.0/node_modules/delayed-stream"
+      ],
+      "license": "MIT",
+      "author": "Felix Geisendörfer",
+      "homepage": "https://github.com/felixge/node-delayed-stream",
+      "description": "Buffers events from a stream until you are ready to handle them."
+    },
+    {
+      "name": "depd",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/depd@2.0.0/node_modules/depd"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/dougwilson/nodejs-depd#readme",
+      "description": "Deprecate all the things"
+    },
+    {
+      "name": "dunder-proto",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/dunder-proto@1.0.1/node_modules/dunder-proto"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/es-shims/dunder-proto#readme",
+      "description": "If available, the `Object.prototype.__proto__` accessor and mutator, call-bound"
+    },
+    {
+      "name": "ee-first",
+      "versions": [
+        "1.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/ee-first@1.1.1/node_modules/ee-first"
+      ],
+      "license": "MIT",
+      "author": "Jonathan Ong",
+      "homepage": "https://github.com/jonathanong/ee-first#readme",
+      "description": "return the first event in a set of ee/event pairs"
+    },
+    {
+      "name": "encodeurl",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/encodeurl@2.0.0/node_modules/encodeurl"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/pillarjs/encodeurl#readme",
+      "description": "Encode a URL to a percent-encoded form, excluding already-encoded sequences"
+    },
+    {
+      "name": "es-define-property",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/es-define-property@1.0.1/node_modules/es-define-property"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/es-define-property#readme",
+      "description": "`Object.defineProperty`, but not IE 8's broken one."
+    },
+    {
+      "name": "es-errors",
+      "versions": [
+        "1.3.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/es-errors@1.3.0/node_modules/es-errors"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/es-errors#readme",
+      "description": "A simple cache for a few of the JS Error constructors."
+    },
+    {
+      "name": "es-object-atoms",
+      "versions": [
+        "1.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/es-object-atoms@1.1.2/node_modules/es-object-atoms"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/es-object-atoms#readme",
+      "description": "ES Object-related atoms: Object, ToObject, RequireObjectCoercible"
+    },
+    {
+      "name": "es-set-tostringtag",
+      "versions": [
+        "2.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/es-set-tostringtag@2.1.0/node_modules/es-set-tostringtag"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/es-shims/es-set-tostringtag#readme",
+      "description": "A helper to optimistically set Symbol.toStringTag, when possible."
+    },
+    {
+      "name": "escape-html",
+      "versions": [
+        "1.0.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/escape-html@1.0.3/node_modules/escape-html"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/component/escape-html#readme",
+      "description": "Escape string for use in HTML"
+    },
+    {
+      "name": "etag",
+      "versions": [
+        "1.8.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/etag@1.8.1/node_modules/etag"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/etag#readme",
+      "description": "Create simple HTTP ETags"
+    },
+    {
+      "name": "eventsource",
+      "versions": [
+        "3.0.7"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/eventsource@3.0.7/node_modules/eventsource"
+      ],
+      "license": "MIT",
+      "author": "Espen Hovlandsdal",
+      "homepage": "https://github.com/EventSource/eventsource#readme",
+      "description": "WhatWG/W3C compliant EventSource client for Node.js and browsers"
+    },
+    {
+      "name": "eventsource-parser",
+      "versions": [
+        "3.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/eventsource-parser@3.1.1/node_modules/eventsource-parser"
+      ],
+      "license": "MIT",
+      "author": "Espen Hovlandsdal",
+      "homepage": "https://github.com/rexxars/eventsource-parser#readme",
+      "description": "Streaming, source-agnostic EventSource/Server-Sent Events parser"
+    },
+    {
+      "name": "execa",
+      "versions": [
+        "10.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/execa@10.0.1/node_modules/execa"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/execa#readme",
+      "description": "Process execution for humans"
+    },
+    {
+      "name": "express",
+      "versions": [
+        "5.2.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/express@5.2.1_supports-color@10.2.2/node_modules/express"
+      ],
+      "license": "MIT",
+      "author": "TJ Holowaychuk",
+      "homepage": "https://expressjs.com/",
+      "description": "Fast, unopinionated, minimalist web framework"
+    },
+    {
+      "name": "express-rate-limit",
+      "versions": [
+        "8.7.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/express-rate-limit@8.7.0_express@5.2.1_supports-color@10.2.2__supports-color@10.2.2/node_modules/express-rate-limit"
+      ],
+      "license": "MIT",
+      "author": "Nathan Friedly",
+      "homepage": "https://github.com/express-rate-limit/express-rate-limit",
+      "description": "Basic IP rate-limiting middleware for Express. Use to limit repeated requests to public APIs and/or endpoints such as password reset."
+    },
+    {
+      "name": "fast-deep-equal",
+      "versions": [
+        "3.1.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal"
+      ],
+      "license": "MIT",
+      "author": "Evgeny Poberezkin",
+      "homepage": "https://github.com/epoberezkin/fast-deep-equal#readme",
+      "description": "Fast deep equal"
+    },
+    {
+      "name": "fast-fifo",
+      "versions": [
+        "1.3.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fast-fifo@1.3.2/node_modules/fast-fifo"
+      ],
+      "license": "MIT",
+      "author": "Mathias Buus",
+      "homepage": "https://github.com/mafintosh/fast-fifo",
+      "description": "A fast fifo implementation similar to the one powering nextTick in Node.js core"
+    },
+    {
+      "name": "fast-string-truncated-width",
+      "versions": [
+        "3.0.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fast-string-truncated-width@3.0.3/node_modules/fast-string-truncated-width"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/fabiospampinato/fast-string-truncated-width#readme",
+      "description": "A fast function for calculating where a string should be truncated, given an optional width limit and an ellipsis string."
+    },
+    {
+      "name": "fast-string-width",
+      "versions": [
+        "3.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fast-string-width@3.0.2/node_modules/fast-string-width"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/fabiospampinato/fast-string-width#readme",
+      "description": "A fast function for calculating the visual width of a string once printed to the terminal."
+    },
+    {
+      "name": "fast-wrap-ansi",
+      "versions": [
+        "0.2.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fast-wrap-ansi@0.2.2/node_modules/fast-wrap-ansi"
+      ],
+      "license": "MIT",
+      "author": "James Garbutt",
+      "homepage": "https://github.com/43081j/fast-wrap-ansi#readme",
+      "description": "A tiny and fast text wrap library which takes ANSI escapes into account."
+    },
+    {
+      "name": "figures",
+      "versions": [
+        "6.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/figures@6.1.0/node_modules/figures"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/figures#readme",
+      "description": "Unicode symbols with fallbacks for older terminals"
+    },
+    {
+      "name": "finalhandler",
+      "versions": [
+        "2.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/finalhandler@2.1.1_supports-color@10.2.2/node_modules/finalhandler"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/pillarjs/finalhandler#readme",
+      "description": "Node.js final http responder"
+    },
+    {
+      "name": "follow-redirects",
+      "versions": [
+        "1.16.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/follow-redirects@1.16.0_debug@4.4.3_supports-color@10.2.2_/node_modules/follow-redirects"
+      ],
+      "license": "MIT",
+      "author": "Ruben Verborgh",
+      "homepage": "https://github.com/follow-redirects/follow-redirects",
+      "description": "HTTP and HTTPS modules that follow redirects."
+    },
+    {
+      "name": "form-data",
+      "versions": [
+        "4.0.6"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/form-data@4.0.6/node_modules/form-data"
+      ],
+      "license": "MIT",
+      "author": "Felix Geisendörfer",
+      "homepage": "https://github.com/form-data/form-data#readme",
+      "description": "A library to create readable \"multipart/form-data\" streams. Can be used to submit forms and file uploads to other web applications."
+    },
+    {
+      "name": "forwarded",
+      "versions": [
+        "0.2.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/forwarded@0.2.0/node_modules/forwarded"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/forwarded#readme",
+      "description": "Parse HTTP X-Forwarded-For header"
+    },
+    {
+      "name": "fresh",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fresh@2.0.0/node_modules/fresh"
+      ],
+      "license": "MIT",
+      "author": "TJ Holowaychuk",
+      "homepage": "https://github.com/jshttp/fresh#readme",
+      "description": "HTTP response freshness testing"
+    },
+    {
+      "name": "fsevents",
+      "versions": [
+        "2.3.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fsevents@2.3.2/node_modules/fsevents"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/fsevents/fsevents",
+      "description": "Native Access to MacOS FSEvents"
+    },
+    {
+      "name": "function-bind",
+      "versions": [
+        "1.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/function-bind@1.1.2/node_modules/function-bind"
+      ],
+      "license": "MIT",
+      "author": "Raynos",
+      "homepage": "https://github.com/Raynos/function-bind",
+      "description": "Implementation of Function.prototype.bind"
+    },
+    {
+      "name": "get-intrinsic",
+      "versions": [
+        "1.3.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/get-intrinsic@1.3.0/node_modules/get-intrinsic"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/get-intrinsic#readme",
+      "description": "Get and robustly cache all JS language-level intrinsics at first require time"
+    },
+    {
+      "name": "get-proto",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/get-proto@1.0.1/node_modules/get-proto"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/get-proto#readme",
+      "description": "Robustly get the [[Prototype]] of an object"
+    },
+    {
+      "name": "get-stream",
+      "versions": [
+        "9.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/get-stream@9.0.1/node_modules/get-stream"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/get-stream#readme",
+      "description": "Get a stream as a string, Buffer, ArrayBuffer or array"
+    },
+    {
+      "name": "gopd",
+      "versions": [
+        "1.2.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/gopd@1.2.0/node_modules/gopd"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/gopd#readme",
+      "description": "`Object.getOwnPropertyDescriptor`, but accounts for IE's broken implementation."
+    },
+    {
+      "name": "has-symbols",
+      "versions": [
+        "1.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/has-symbols@1.1.0/node_modules/has-symbols"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/has-symbols#readme",
+      "description": "Determine if the JS environment has Symbol support. Supports spec, or shams."
+    },
+    {
+      "name": "has-tostringtag",
+      "versions": [
+        "1.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/has-tostringtag@1.0.2/node_modules/has-tostringtag"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/inspect-js/has-tostringtag#readme",
+      "description": "Determine if the JS environment has `Symbol.toStringTag` support. Supports spec, or shams."
+    },
+    {
+      "name": "hasown",
+      "versions": [
+        "2.0.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/hasown@2.0.4/node_modules/hasown"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/inspect-js/hasOwn#readme",
+      "description": "A robust, ES3 compatible, \"has own property\" predicate."
+    },
+    {
+      "name": "hono",
+      "versions": [
+        "4.13.5"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/hono@4.13.5/node_modules/hono"
+      ],
+      "license": "MIT",
+      "author": "Yusuke Wada",
+      "homepage": "https://hono.dev",
+      "description": "Web framework built on Web Standards"
+    },
+    {
+      "name": "http-errors",
+      "versions": [
+        "2.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/http-errors@2.0.1/node_modules/http-errors"
+      ],
+      "license": "MIT",
+      "author": "Jonathan Ong",
+      "homepage": "https://github.com/jshttp/http-errors#readme",
+      "description": "Create HTTP error objects"
+    },
+    {
+      "name": "https-proxy-agent",
+      "versions": [
+        "5.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/https-proxy-agent@5.0.1_supports-color@10.2.2/node_modules/https-proxy-agent"
+      ],
+      "license": "MIT",
+      "author": "Nathan Rajlich",
+      "homepage": "https://github.com/TooTallNate/node-https-proxy-agent#readme",
+      "description": "An HTTP(s) proxy `http.Agent` implementation for HTTPS"
+    },
+    {
+      "name": "iconv-lite",
+      "versions": [
+        "0.7.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/iconv-lite@0.7.3/node_modules/iconv-lite"
+      ],
+      "license": "MIT",
+      "author": "Alexander Shtuchkin",
+      "homepage": "https://github.com/pillarjs/iconv-lite",
+      "description": "Convert character encodings in pure javascript."
+    },
+    {
+      "name": "ip-address",
+      "versions": [
+        "10.7.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/ip-address@10.7.0/node_modules/ip-address"
+      ],
+      "license": "MIT",
+      "author": "Beau Gunderson",
+      "homepage": "https://github.com/beaugunderson/ip-address#readme",
+      "description": "A library for parsing IPv4 and IPv6 IP addresses in node and the browser."
+    },
+    {
+      "name": "ipaddr.js",
+      "versions": [
+        "1.9.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/ipaddr.js@1.9.1/node_modules/ipaddr.js"
+      ],
+      "license": "MIT",
+      "author": "whitequark",
+      "homepage": "https://github.com/whitequark/ipaddr.js#readme",
+      "description": "A library for manipulating IPv4 and IPv6 addresses in JavaScript."
+    },
+    {
+      "name": "is-plain-obj",
+      "versions": [
+        "4.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/is-plain-obj@4.1.0/node_modules/is-plain-obj"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/is-plain-obj#readme",
+      "description": "Check if a value is a plain object"
+    },
+    {
+      "name": "is-promise",
+      "versions": [
+        "4.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/is-promise@4.0.0/node_modules/is-promise"
+      ],
+      "license": "MIT",
+      "author": "ForbesLindesay",
+      "homepage": "https://github.com/then/is-promise#readme",
+      "description": "Test whether an object looks like a promises-a+ promise"
+    },
+    {
+      "name": "is-stream",
+      "versions": [
+        "4.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/is-stream@4.0.1/node_modules/is-stream"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/is-stream#readme",
+      "description": "Check if something is a Node.js stream"
+    },
+    {
+      "name": "is-unicode-supported",
+      "versions": [
+        "2.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/is-unicode-supported@2.1.0/node_modules/is-unicode-supported"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/is-unicode-supported#readme",
+      "description": "Detect whether the terminal supports Unicode"
+    },
+    {
+      "name": "jose",
+      "versions": [
+        "6.2.10"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/jose@6.2.10/node_modules/jose"
+      ],
+      "license": "MIT",
+      "author": "Filip Skokan",
+      "homepage": "https://github.com/panva/jose",
+      "description": "JWA, JWS, JWE, JWT, JWK, JWKS for Node.js, Browser, Cloudflare Workers, Deno, Bun, and other Web-interoperable runtimes"
+    },
+    {
+      "name": "json-schema-traverse",
+      "versions": [
+        "1.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/json-schema-traverse@1.0.0/node_modules/json-schema-traverse"
+      ],
+      "license": "MIT",
+      "author": "Evgeny Poberezkin",
+      "homepage": "https://github.com/epoberezkin/json-schema-traverse#readme",
+      "description": "Traverse JSON Schema passing each schema object to callback"
+    },
+    {
+      "name": "math-intrinsics",
+      "versions": [
+        "1.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/math-intrinsics@1.1.0/node_modules/math-intrinsics"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/es-shims/math-intrinsics#readme",
+      "description": "ES Math-related intrinsics and helpers, robustly cached."
+    },
+    {
+      "name": "media-typer",
+      "versions": [
+        "1.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/media-typer@1.1.1/node_modules/media-typer"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/jshttp/media-typer#readme",
+      "description": "Simple RFC 6838 media type parser and formatter"
+    },
+    {
+      "name": "merge-descriptors",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/merge-descriptors@2.0.0/node_modules/merge-descriptors"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/sindresorhus/merge-descriptors#readme",
+      "description": "Merge objects using their property descriptors"
+    },
+    {
+      "name": "mime-db",
+      "versions": [
+        "1.52.0",
+        "1.54.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/mime-db@1.52.0/node_modules/mime-db",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/mime-db@1.54.0/node_modules/mime-db"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/mime-db#readme",
+      "description": "Media Type Database"
+    },
+    {
+      "name": "mime-types",
+      "versions": [
+        "2.1.35",
+        "3.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/mime-types@2.1.35/node_modules/mime-types",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/mime-types@3.0.2/node_modules/mime-types"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/mime-types#readme",
+      "description": "The ultimate javascript content-type utility."
+    },
+    {
+      "name": "ms",
+      "versions": [
+        "2.1.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/ms@2.1.3/node_modules/ms"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/vercel/ms#readme",
+      "description": "Tiny millisecond conversion utility"
+    },
+    {
+      "name": "nanoid",
+      "versions": [
+        "3.3.18"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/nanoid@3.3.18/node_modules/nanoid"
+      ],
+      "license": "MIT",
+      "author": "Andrey Sitnik",
+      "homepage": "https://github.com/ai/nanoid#readme",
+      "description": "A tiny (116 bytes), secure URL-friendly unique string ID generator"
+    },
+    {
+      "name": "negotiator",
+      "versions": [
+        "1.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/negotiator@1.1.0/node_modules/negotiator"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/negotiator#readme",
+      "description": "HTTP content negotiation"
+    },
+    {
+      "name": "next",
+      "versions": [
+        "16.3.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/next@16.3.4_@playwright+test@1.62.1_@types+node@26.4.1_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next"
+      ],
+      "license": "MIT",
+      "homepage": "https://nextjs.org",
+      "description": "The React Framework"
+    },
+    {
+      "name": "npm-run-path",
+      "versions": [
+        "6.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/npm-run-path@6.0.0/node_modules/npm-run-path"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/npm-run-path#readme",
+      "description": "Get your PATH prepended with locally installed binaries"
+    },
+    {
+      "name": "object-assign",
+      "versions": [
+        "4.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/object-assign@4.1.1/node_modules/object-assign"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/object-assign#readme",
+      "description": "ES2015 `Object.assign()` ponyfill"
+    },
+    {
+      "name": "object-inspect",
+      "versions": [
+        "1.13.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/object-inspect@1.13.4/node_modules/object-inspect"
+      ],
+      "license": "MIT",
+      "author": "James Halliday",
+      "homepage": "https://github.com/inspect-js/object-inspect",
+      "description": "string representations of objects in node and the browser"
+    },
+    {
+      "name": "on-finished",
+      "versions": [
+        "2.4.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/on-finished@2.4.1/node_modules/on-finished"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/on-finished#readme",
+      "description": "Execute a callback when a request closes, finishes, or errors"
+    },
+    {
+      "name": "parse-ms",
+      "versions": [
+        "4.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/parse-ms@4.0.0/node_modules/parse-ms"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/parse-ms#readme",
+      "description": "Parse milliseconds into an object"
+    },
+    {
+      "name": "parseurl",
+      "versions": [
+        "1.3.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/parseurl@1.3.3/node_modules/parseurl"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/pillarjs/parseurl#readme",
+      "description": "parse a url with memoization"
+    },
+    {
+      "name": "path-key",
+      "versions": [
+        "3.1.1",
+        "4.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/path-key@3.1.1/node_modules/path-key",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/path-key@4.0.0/node_modules/path-key"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/path-key#readme",
+      "description": "Get the PATH environment variable key cross-platform"
+    },
+    {
+      "name": "path-to-regexp",
+      "versions": [
+        "8.4.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/pillarjs/path-to-regexp#readme",
+      "description": "Express style path to RegExp utility"
+    },
+    {
+      "name": "pkce-challenge",
+      "versions": [
+        "5.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/pkce-challenge@5.0.1/node_modules/pkce-challenge"
+      ],
+      "license": "MIT",
+      "author": "crouchcd",
+      "homepage": "https://github.com/crouchcd/pkce-challenge#readme",
+      "description": "Generate or verify a Proof Key for Code Exchange (PKCE) challenge pair"
+    },
+    {
+      "name": "postcss",
+      "versions": [
+        "8.5.23"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/postcss@8.5.23/node_modules/postcss"
+      ],
+      "license": "MIT",
+      "author": "Andrey Sitnik",
+      "homepage": "https://postcss.org/",
+      "description": "Tool for transforming styles with JS plugins"
+    },
+    {
+      "name": "pretty-ms",
+      "versions": [
+        "9.3.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/pretty-ms@9.3.1/node_modules/pretty-ms"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/pretty-ms#readme",
+      "description": "Convert milliseconds to a human readable string: `1337000000` → `15d 11h 23m 20s`"
+    },
+    {
+      "name": "proxy-addr",
+      "versions": [
+        "2.0.7"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/proxy-addr@2.0.7/node_modules/proxy-addr"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/jshttp/proxy-addr#readme",
+      "description": "Determine address of proxied request"
+    },
+    {
+      "name": "proxy-from-env",
+      "versions": [
+        "2.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/proxy-from-env@2.1.0/node_modules/proxy-from-env"
+      ],
+      "license": "MIT",
+      "author": "Rob Wu",
+      "homepage": "https://github.com/Rob--W/proxy-from-env#readme",
+      "description": "Offers getProxyForUrl to get the proxy URL for a URL, respecting the *_PROXY (e.g. HTTP_PROXY) and NO_PROXY environment variables."
+    },
+    {
+      "name": "range-parser",
+      "versions": [
+        "1.3.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/range-parser@1.3.0/node_modules/range-parser"
+      ],
+      "license": "MIT",
+      "author": "TJ Holowaychuk",
+      "homepage": "https://github.com/jshttp/range-parser#readme",
+      "description": "Range header field string parser"
+    },
+    {
+      "name": "raw-body",
+      "versions": [
+        "3.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/raw-body@3.0.2/node_modules/raw-body"
+      ],
+      "license": "MIT",
+      "author": "Jonathan Ong",
+      "homepage": "https://github.com/stream-utils/raw-body#readme",
+      "description": "Get and validate the raw body of a readable stream."
+    },
+    {
+      "name": "react",
+      "versions": [
+        "19.2.8"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/react@19.2.8/node_modules/react"
+      ],
+      "license": "MIT",
+      "homepage": "https://react.dev/",
+      "description": "React is a JavaScript library for building user interfaces."
+    },
+    {
+      "name": "react-dom",
+      "versions": [
+        "19.2.8"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom"
+      ],
+      "license": "MIT",
+      "homepage": "https://react.dev/",
+      "description": "React package for working with the DOM."
+    },
+    {
+      "name": "react-router",
+      "versions": [
+        "7.18.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/react-router@7.18.3_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/react-router"
+      ],
+      "license": "MIT",
+      "author": "Remix Software",
+      "homepage": "https://github.com/remix-run/react-router#readme",
+      "description": "Declarative routing for React"
+    },
+    {
+      "name": "react-router-dom",
+      "versions": [
+        "7.18.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/react-router-dom@7.18.3_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/react-router-dom"
+      ],
+      "license": "MIT",
+      "author": "Remix Software",
+      "homepage": "https://github.com/remix-run/react-router#readme",
+      "description": "Declarative routing for React web applications"
+    },
+    {
+      "name": "require-from-string",
+      "versions": [
+        "2.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/require-from-string@2.0.2/node_modules/require-from-string"
+      ],
+      "license": "MIT",
+      "author": "Vsevolod Strukchinsky",
+      "homepage": "https://github.com/floatdrop/require-from-string#readme",
+      "description": "Require module from string"
+    },
+    {
+      "name": "router",
+      "versions": [
+        "2.2.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/router@2.2.0_supports-color@10.2.2/node_modules/router"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/pillarjs/router#readme",
+      "description": "Simple middleware-style router"
+    },
+    {
+      "name": "safer-buffer",
+      "versions": [
+        "2.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/safer-buffer@2.1.2/node_modules/safer-buffer"
+      ],
+      "license": "MIT",
+      "author": "Nikita Skovoroda",
+      "homepage": "https://github.com/ChALkeR/safer-buffer#readme",
+      "description": "Modern Buffer API polyfill without footguns"
+    },
+    {
+      "name": "scheduler",
+      "versions": [
+        "0.27.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler"
+      ],
+      "license": "MIT",
+      "homepage": "https://react.dev/",
+      "description": "Cooperative scheduler for the browser environment."
+    },
+    {
+      "name": "send",
+      "versions": [
+        "1.2.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/send@1.2.1_supports-color@10.2.2/node_modules/send"
+      ],
+      "license": "MIT",
+      "author": "TJ Holowaychuk",
+      "homepage": "https://github.com/pillarjs/send#readme",
+      "description": "Better streaming static file server with Range and conditional-GET support"
+    },
+    {
+      "name": "serve-static",
+      "versions": [
+        "2.2.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/serve-static@2.2.1_supports-color@10.2.2/node_modules/serve-static"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/expressjs/serve-static#readme",
+      "description": "Serve static files"
+    },
+    {
+      "name": "set-cookie-parser",
+      "versions": [
+        "2.7.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/set-cookie-parser@2.7.2/node_modules/set-cookie-parser"
+      ],
+      "license": "MIT",
+      "author": "Nathan Friedly",
+      "homepage": "https://github.com/nfriedly/set-cookie-parser",
+      "description": "Parses set-cookie headers into objects"
+    },
+    {
+      "name": "shebang-command",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/shebang-command@2.0.0/node_modules/shebang-command"
+      ],
+      "license": "MIT",
+      "author": "Kevin Mårtensson",
+      "homepage": "https://github.com/kevva/shebang-command#readme",
+      "description": "Get the command from a shebang"
+    },
+    {
+      "name": "shebang-regex",
+      "versions": [
+        "3.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/shebang-regex@3.0.0/node_modules/shebang-regex"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/shebang-regex#readme",
+      "description": "Regular expression for matching a shebang line"
+    },
+    {
+      "name": "side-channel",
+      "versions": [
+        "1.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/side-channel@1.1.1/node_modules/side-channel"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/side-channel#readme",
+      "description": "Store information about any JS value in a side channel. Uses WeakMap if available."
+    },
+    {
+      "name": "side-channel-list",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/side-channel-list@1.0.1/node_modules/side-channel-list"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/side-channel-list#readme",
+      "description": "Store information about any JS value in a side channel, using a linked list"
+    },
+    {
+      "name": "side-channel-map",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/side-channel-map@1.0.1/node_modules/side-channel-map"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/side-channel-map#readme",
+      "description": "Store information about any JS value in a side channel, using a Map"
+    },
+    {
+      "name": "side-channel-weakmap",
+      "versions": [
+        "1.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/side-channel-weakmap@1.0.2/node_modules/side-channel-weakmap"
+      ],
+      "license": "MIT",
+      "author": "Jordan Harband",
+      "homepage": "https://github.com/ljharb/side-channel-weakmap#readme",
+      "description": "Store information about any JS value in a side channel. Uses WeakMap if available."
+    },
+    {
+      "name": "sisteransi",
+      "versions": [
+        "1.0.5"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/sisteransi@1.0.5/node_modules/sisteransi"
+      ],
+      "license": "MIT",
+      "author": "Terkel Gjervig",
+      "homepage": "https://github.com/terkelg/sisteransi#readme",
+      "description": "ANSI escape codes for some terminal swag"
+    },
+    {
+      "name": "statuses",
+      "versions": [
+        "2.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/statuses@2.0.2/node_modules/statuses"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/statuses#readme",
+      "description": "HTTP status utility"
+    },
+    {
+      "name": "streamx",
+      "versions": [
+        "2.28.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/streamx@2.28.1/node_modules/streamx"
+      ],
+      "license": "MIT",
+      "author": "Mathias Buus",
+      "homepage": "https://github.com/mafintosh/streamx",
+      "description": "An iteration of the Node.js core streams with a series of improvements"
+    },
+    {
+      "name": "strip-final-newline",
+      "versions": [
+        "4.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/strip-final-newline@4.0.0/node_modules/strip-final-newline"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/strip-final-newline#readme",
+      "description": "Strip the final newline character from a string or Uint8Array"
+    },
+    {
+      "name": "styled-jsx",
+      "versions": [
+        "5.1.6"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/styled-jsx@5.1.6_react@19.2.8/node_modules/styled-jsx"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/vercel/styled-jsx#readme",
+      "description": "Full CSS support for JSX without compromises"
+    },
+    {
+      "name": "supports-color",
+      "versions": [
+        "10.2.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/supports-color@10.2.2/node_modules/supports-color"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/chalk/supports-color#readme",
+      "description": "Detect whether a terminal supports color"
+    },
+    {
+      "name": "tar-stream",
+      "versions": [
+        "3.2.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/tar-stream@3.2.1/node_modules/tar-stream"
+      ],
+      "license": "MIT",
+      "author": "Mathias Buus",
+      "homepage": "https://github.com/mafintosh/tar-stream",
+      "description": "tar-stream is a streaming tar parser and generator and nothing else. It operates purely using streams which means you can easily extract/parse tarballs without ever hitting the file system."
+    },
+    {
+      "name": "teex",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/teex@1.0.1/node_modules/teex"
+      ],
+      "license": "MIT",
+      "author": "Mathias Buus",
+      "homepage": "https://github.com/mafintosh/teex",
+      "description": "Turn a readable stream into multiple readable streamx streams"
+    },
+    {
+      "name": "toidentifier",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/toidentifier@1.0.1/node_modules/toidentifier"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/component/toidentifier#readme",
+      "description": "Convert a string of words to a JavaScript identifier"
+    },
+    {
+      "name": "type-is",
+      "versions": [
+        "2.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/type-is@2.1.0/node_modules/type-is"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/jshttp/type-is#readme",
+      "description": "Infer the content-type of a request."
+    },
+    {
+      "name": "undici-types",
+      "versions": [
+        "7.18.2",
+        "8.3.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/undici-types@7.18.2/node_modules/undici-types",
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/undici-types@8.3.0/node_modules/undici-types"
+      ],
+      "license": "MIT",
+      "homepage": "https://undici.nodejs.org",
+      "description": "A stand-alone types package for Undici"
+    },
+    {
+      "name": "unicorn-magic",
+      "versions": [
+        "0.3.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/unicorn-magic@0.3.0/node_modules/unicorn-magic"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/unicorn-magic#readme",
+      "description": "Some useful utilities I often need"
+    },
+    {
+      "name": "unpipe",
+      "versions": [
+        "1.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/unpipe@1.0.0/node_modules/unpipe"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/stream-utils/unpipe#readme",
+      "description": "Unpipe a stream from all destinations"
+    },
+    {
+      "name": "vary",
+      "versions": [
+        "1.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/vary@1.1.2/node_modules/vary"
+      ],
+      "license": "MIT",
+      "author": "Douglas Christopher Wilson",
+      "homepage": "https://github.com/jshttp/vary#readme",
+      "description": "Manipulate the HTTP Vary header"
+    },
+    {
+      "name": "whatwg-fetch",
+      "versions": [
+        "3.6.20"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/whatwg-fetch@3.6.20/node_modules/whatwg-fetch"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/github/fetch#readme",
+      "description": "A window.fetch polyfill."
+    },
+    {
+      "name": "which-command",
+      "versions": [
+        "0.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/which-command@0.1.0/node_modules/which-command"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/which-command#readme",
+      "description": "Find the absolute path to a command's executable, like the Unix `which` command"
+    },
+    {
+      "name": "yoctocolors",
+      "versions": [
+        "2.2.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/yoctocolors@2.2.0/node_modules/yoctocolors"
+      ],
+      "license": "MIT",
+      "author": "Sindre Sorhus",
+      "homepage": "https://github.com/sindresorhus/yoctocolors#readme",
+      "description": "The smallest and fastest command-line coloring package on the internet"
+    },
+    {
+      "name": "zod",
+      "versions": [
+        "4.5.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/zod@4.5.4/node_modules/zod"
+      ],
+      "license": "MIT",
+      "author": "Colin McDonnell",
+      "homepage": "https://zod.dev",
+      "description": "TypeScript-first schema declaration and validation library with static type inference"
+    }
+  ],
+  "Apache-2.0": [
+    {
+      "name": "@img/sharp-darwin-arm64",
+      "versions": [
+        "0.35.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@img+sharp-darwin-arm64@0.35.4/node_modules/@img/sharp-darwin-arm64"
+      ],
+      "license": "Apache-2.0",
+      "author": "Lovell Fuller",
+      "homepage": "https://sharp.pixelplumbing.com",
+      "description": "Prebuilt sharp for use with macOS 64-bit ARM"
+    },
+    {
+      "name": "@line/bot-sdk",
+      "versions": [
+        "10.8.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@line+bot-sdk@10.8.0_debug@4.4.3_supports-color@10.2.2__supports-color@10.2.2/node_modules/@line/bot-sdk"
+      ],
+      "license": "Apache-2.0",
+      "homepage": "https://github.com/line/line-bot-sdk-nodejs",
+      "description": "Node.js SDK for LINE Messaging API"
+    },
+    {
+      "name": "@playwright/test",
+      "versions": [
+        "1.62.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@playwright+test@1.62.1/node_modules/@playwright/test"
+      ],
+      "license": "Apache-2.0",
+      "author": "Microsoft Corporation",
+      "homepage": "https://playwright.dev",
+      "description": "A high-level API to automate web browsers"
+    },
+    {
+      "name": "@swc/helpers",
+      "versions": [
+        "0.5.23"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@swc+helpers@0.5.23/node_modules/@swc/helpers"
+      ],
+      "license": "Apache-2.0",
+      "author": "강동윤",
+      "homepage": "https://swc.rs",
+      "description": "External helpers for the swc project."
+    },
+    {
+      "name": "b4a",
+      "versions": [
+        "1.8.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/b4a@1.8.1/node_modules/b4a"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/b4a#readme",
+      "description": "Bridging the gap between buffers and typed arrays"
+    },
+    {
+      "name": "bare-events",
+      "versions": [
+        "2.9.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/bare-events@2.9.2/node_modules/bare-events"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/bare-events#readme",
+      "description": "Event emitters for JavaScript"
+    },
+    {
+      "name": "bare-fs",
+      "versions": [
+        "4.8.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/bare-fs@4.8.1/node_modules/bare-fs"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/bare-fs#readme",
+      "description": "Native file system operations for Bare"
+    },
+    {
+      "name": "bare-path",
+      "versions": [
+        "3.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/bare-path@3.1.2/node_modules/bare-path"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/bare-path#readme",
+      "description": "Path manipulation library for JavaScript"
+    },
+    {
+      "name": "bare-stream",
+      "versions": [
+        "2.13.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/bare-stream@2.13.4_bare-events@2.9.2/node_modules/bare-stream"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/bare-stream#readme",
+      "description": "Streaming data for JavaScript"
+    },
+    {
+      "name": "bare-url",
+      "versions": [
+        "2.5.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/bare-url@2.5.3/node_modules/bare-url"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/bare-url",
+      "description": "WHATWG URL implementation for JavaScript"
+    },
+    {
+      "name": "baseline-browser-mapping",
+      "versions": [
+        "2.11.20"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/baseline-browser-mapping@2.11.20/node_modules/baseline-browser-mapping"
+      ],
+      "license": "Apache-2.0",
+      "homepage": "https://github.com/web-platform-dx/baseline-browser-mapping#readme",
+      "description": "A library for obtaining browser versions with their maximum supported Baseline feature set and Widely Available status."
+    },
+    {
+      "name": "detect-libc",
+      "versions": [
+        "2.1.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/detect-libc@2.1.2/node_modules/detect-libc"
+      ],
+      "license": "Apache-2.0",
+      "author": "Lovell Fuller",
+      "homepage": "https://github.com/lovell/detect-libc#readme",
+      "description": "Node.js module to detect the C standard library (libc) implementation family and version"
+    },
+    {
+      "name": "events-universal",
+      "versions": [
+        "1.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/events-universal@1.0.1/node_modules/events-universal"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/events-universal#readme",
+      "description": "Universal wrapper for the Node.js events module"
+    },
+    {
+      "name": "hls.js",
+      "versions": [
+        "1.7.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/hls.js@1.7.2/node_modules/hls.js"
+      ],
+      "license": "Apache-2.0",
+      "homepage": "https://github.com/video-dev/hls.js",
+      "description": "JavaScript HLS client using MediaSourceExtension"
+    },
+    {
+      "name": "human-signals",
+      "versions": [
+        "8.0.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/human-signals@8.0.1/node_modules/human-signals"
+      ],
+      "license": "Apache-2.0",
+      "author": "ehmicky",
+      "homepage": "https://www.github.com/ehmicky/human-signals",
+      "description": "Human-friendly process signals"
+    },
+    {
+      "name": "playwright",
+      "versions": [
+        "1.62.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/playwright@1.62.1/node_modules/playwright"
+      ],
+      "license": "Apache-2.0",
+      "author": "Microsoft Corporation",
+      "homepage": "https://playwright.dev",
+      "description": "A high-level API to automate web browsers"
+    },
+    {
+      "name": "playwright-core",
+      "versions": [
+        "1.62.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core"
+      ],
+      "license": "Apache-2.0",
+      "author": "Microsoft Corporation",
+      "homepage": "https://playwright.dev",
+      "description": "A high-level API to automate web browsers"
+    },
+    {
+      "name": "sharp",
+      "versions": [
+        "0.35.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/sharp@0.35.4_@types+node@26.4.1/node_modules/sharp"
+      ],
+      "license": "Apache-2.0",
+      "author": "Lovell Fuller",
+      "homepage": "https://sharp.pixelplumbing.com",
+      "description": "High performance Node.js image processing, the fastest module to resize JPEG, PNG, WebP, GIF, AVIF and TIFF images"
+    },
+    {
+      "name": "text-decoder",
+      "versions": [
+        "1.2.7"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/text-decoder@1.2.7/node_modules/text-decoder"
+      ],
+      "license": "Apache-2.0",
+      "author": "Holepunch",
+      "homepage": "https://github.com/holepunchto/text-decoder#readme",
+      "description": "Streaming text decoder that preserves multibyte Unicode characters"
+    }
+  ],
+  "LGPL-3.0-or-later": [
+    {
+      "name": "@img/sharp-libvips-darwin-arm64",
+      "versions": [
+        "1.3.3"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@img+sharp-libvips-darwin-arm64@1.3.3/node_modules/@img/sharp-libvips-darwin-arm64"
+      ],
+      "license": "LGPL-3.0-or-later",
+      "author": "Lovell Fuller",
+      "homepage": "https://sharp.pixelplumbing.com",
+      "description": "Prebuilt libvips and dependencies for use with sharp on macOS 64-bit ARM"
+    }
+  ],
+  "SEE LICENSE IN README.md": [
+    {
+      "name": "@liff/activity",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+activity@2.31.0_tslib@2.8.1/node_modules/@liff/activity"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/activity"
+    },
+    {
+      "name": "@liff/add-to-home-screen",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+add-to-home-screen@2.31.0_tslib@2.8.1/node_modules/@liff/add-to-home-screen"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/add-to-home-screen"
+    },
+    {
+      "name": "@liff/analytics",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+analytics@2.31.0_tslib@2.8.1/node_modules/@liff/analytics"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/analytics"
+    },
+    {
+      "name": "@liff/calendar",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+calendar@2.31.0_tslib@2.8.1/node_modules/@liff/calendar"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/calendar"
+    },
+    {
+      "name": "@liff/check-availability",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+check-availability@2.31.0_tslib@2.8.1/node_modules/@liff/check-availability"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/check-availability"
+    },
+    {
+      "name": "@liff/close-window",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+close-window@2.31.0_tslib@2.8.1/node_modules/@liff/close-window"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/close-window"
+    },
+    {
+      "name": "@liff/consts",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+consts@2.31.0_tslib@2.8.1/node_modules/@liff/consts"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/consts"
+    },
+    {
+      "name": "@liff/core",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+core@2.31.0_tslib@2.8.1/node_modules/@liff/core"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/core"
+    },
+    {
+      "name": "@liff/create-shortcut-on-home-screen",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+create-shortcut-on-home-screen@2.31.0_tslib@2.8.1/node_modules/@liff/create-shortcut-on-home-screen"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/create-shortcut-on-home-screen"
+    },
+    {
+      "name": "@liff/extensions",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+extensions@2.31.0_tslib@2.8.1/node_modules/@liff/extensions"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/extensions"
+    },
+    {
+      "name": "@liff/get-advertising-id",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-advertising-id@2.31.0_tslib@2.8.1/node_modules/@liff/get-advertising-id"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-advertising-id"
+    },
+    {
+      "name": "@liff/get-app-language",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-app-language@2.31.0_tslib@2.8.1/node_modules/@liff/get-app-language"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-app-language"
+    },
+    {
+      "name": "@liff/get-friendship",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-friendship@2.31.0_tslib@2.8.1/node_modules/@liff/get-friendship"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-friendship"
+    },
+    {
+      "name": "@liff/get-language",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-language@2.31.0_tslib@2.8.1/node_modules/@liff/get-language"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-language"
+    },
+    {
+      "name": "@liff/get-line-version",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-line-version@2.31.0_tslib@2.8.1/node_modules/@liff/get-line-version"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-line-version"
+    },
+    {
+      "name": "@liff/get-origins",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-origins@2.31.0_tslib@2.8.1/node_modules/@liff/get-origins"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-origins"
+    },
+    {
+      "name": "@liff/get-os",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-os@2.31.0_tslib@2.8.1/node_modules/@liff/get-os"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-os"
+    },
+    {
+      "name": "@liff/get-profile",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-profile@2.31.0_tslib@2.8.1/node_modules/@liff/get-profile"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-profile"
+    },
+    {
+      "name": "@liff/get-version",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+get-version@2.31.0_tslib@2.8.1/node_modules/@liff/get-version"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/get-version"
+    },
+    {
+      "name": "@liff/hooks",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+hooks@2.31.0_tslib@2.8.1/node_modules/@liff/hooks"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/hooks"
+    },
+    {
+      "name": "@liff/i18n",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+i18n@2.31.0_tslib@2.8.1/node_modules/@liff/i18n"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/i18n"
+    },
+    {
+      "name": "@liff/iap",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+iap@2.31.0_tslib@2.8.1/node_modules/@liff/iap"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/iap"
+    },
+    {
+      "name": "@liff/init",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+init@2.31.0_tslib@2.8.1/node_modules/@liff/init"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/init"
+    },
+    {
+      "name": "@liff/is-api-available",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+is-api-available@2.31.0_tslib@2.8.1/node_modules/@liff/is-api-available"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/is-api-available"
+    },
+    {
+      "name": "@liff/is-in-client",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+is-in-client@2.31.0_tslib@2.8.1/node_modules/@liff/is-in-client"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/is-in-client"
+    },
+    {
+      "name": "@liff/is-logged-in",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+is-logged-in@2.31.0_tslib@2.8.1/node_modules/@liff/is-logged-in"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/is-logged-in"
+    },
+    {
+      "name": "@liff/is-sub-window",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+is-sub-window@2.31.0_tslib@2.8.1/node_modules/@liff/is-sub-window"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/is-sub-window"
+    },
+    {
+      "name": "@liff/liff-types",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+liff-types@2.31.0_debug@4.4.3_supports-color@10.2.2__supports-color@10.2.2_tslib@2.8.1/node_modules/@liff/liff-types"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/liff-types"
+    },
+    {
+      "name": "@liff/logger",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+logger@2.31.0_tslib@2.8.1/node_modules/@liff/logger"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/logger"
+    },
+    {
+      "name": "@liff/login",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+login@2.31.0_tslib@2.8.1/node_modules/@liff/login"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/login"
+    },
+    {
+      "name": "@liff/logout",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+logout@2.31.0_tslib@2.8.1/node_modules/@liff/logout"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/logout"
+    },
+    {
+      "name": "@liff/message-bus",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+message-bus@2.31.0_tslib@2.8.1/node_modules/@liff/message-bus"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/message-bus"
+    },
+    {
+      "name": "@liff/native-bridge",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+native-bridge@2.31.0_tslib@2.8.1/node_modules/@liff/native-bridge"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/native-bridge"
+    },
+    {
+      "name": "@liff/open-window",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+open-window@2.31.0_tslib@2.8.1/node_modules/@liff/open-window"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/open-window"
+    },
+    {
+      "name": "@liff/permanent-link",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+permanent-link@2.31.0_tslib@2.8.1/node_modules/@liff/permanent-link"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/permanent-link"
+    },
+    {
+      "name": "@liff/permission",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+permission@2.31.0_tslib@2.8.1/node_modules/@liff/permission"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/permission"
+    },
+    {
+      "name": "@liff/ready",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+ready@2.31.0_tslib@2.8.1/node_modules/@liff/ready"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/ready"
+    },
+    {
+      "name": "@liff/request-friendship",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+request-friendship@2.31.0_tslib@2.8.1/node_modules/@liff/request-friendship"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/request-friendship"
+    },
+    {
+      "name": "@liff/scan-code",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+scan-code@2.31.0_tslib@2.8.1/node_modules/@liff/scan-code"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/scan-code"
+    },
+    {
+      "name": "@liff/scan-code-v2",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+scan-code-v2@2.31.0_tslib@2.8.1/node_modules/@liff/scan-code-v2"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/scan-code-v2"
+    },
+    {
+      "name": "@liff/send-messages",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+send-messages@2.31.0_debug@4.4.3_supports-color@10.2.2__supports-color@10.2.2_tslib@2.8.1/node_modules/@liff/send-messages"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/send-messages"
+    },
+    {
+      "name": "@liff/server-api",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+server-api@2.31.0_tslib@2.8.1/node_modules/@liff/server-api"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/server-api"
+    },
+    {
+      "name": "@liff/share-target-picker",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+share-target-picker@2.31.0_debug@4.4.3_supports-color@10.2.2__supports-color@10.2.2_tslib@2.8.1/node_modules/@liff/share-target-picker"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/share-target-picker"
+    },
+    {
+      "name": "@liff/store",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+store@2.31.0_tslib@2.8.1/node_modules/@liff/store"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/store"
+    },
+    {
+      "name": "@liff/sub-window",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+sub-window@2.31.0_tslib@2.8.1/node_modules/@liff/sub-window"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/sub-window"
+    },
+    {
+      "name": "@liff/types",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+types@2.31.0/node_modules/@liff/types"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/types"
+    },
+    {
+      "name": "@liff/use",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+use@2.31.0_tslib@2.8.1/node_modules/@liff/use"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/use"
+    },
+    {
+      "name": "@liff/util",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+util@2.31.0_tslib@2.8.1/node_modules/@liff/util"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/util"
+    },
+    {
+      "name": "@liff/verify-id-token",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+verify-id-token@2.31.0_tslib@2.8.1/node_modules/@liff/verify-id-token"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/verify-id-token"
+    },
+    {
+      "name": "@liff/window-postmessage",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@liff+window-postmessage@2.31.0_tslib@2.8.1/node_modules/@liff/window-postmessage"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "description": "@liff/window-postmessage"
+    },
+    {
+      "name": "@line/liff",
+      "versions": [
+        "2.31.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/@line+liff@2.31.0_debug@4.4.3_supports-color@10.2.2__supports-color@10.2.2/node_modules/@line/liff"
+      ],
+      "license": "SEE LICENSE IN README.md",
+      "homepage": "https://developers.line.biz/en/docs/liff/overview/"
+    }
+  ],
+  "CC-BY-4.0": [
+    {
+      "name": "caniuse-lite",
+      "versions": [
+        "1.0.30001810"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/caniuse-lite@1.0.30001810/node_modules/caniuse-lite"
+      ],
+      "license": "CC-BY-4.0",
+      "author": "Ben Briggs",
+      "homepage": "https://github.com/browserslist/caniuse-lite#readme",
+      "description": "A smaller version of caniuse-db, with only the essentials!"
+    }
+  ],
+  "BSD-3-Clause": [
+    {
+      "name": "fast-uri",
+      "versions": [
+        "3.1.6"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/fast-uri@3.1.6/node_modules/fast-uri"
+      ],
+      "license": "BSD-3-Clause",
+      "author": "Vincent Le Goff",
+      "homepage": "https://github.com/fastify/fast-uri",
+      "description": "Dependency-free RFC 3986 URI toolbox"
+    },
+    {
+      "name": "qs",
+      "versions": [
+        "6.16.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/qs@6.16.0/node_modules/qs"
+      ],
+      "license": "BSD-3-Clause",
+      "homepage": "https://github.com/ljharb/qs",
+      "description": "A querystring parser that supports nesting and arrays, with a depth limit"
+    },
+    {
+      "name": "source-map-js",
+      "versions": [
+        "1.2.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/source-map-js@1.2.1/node_modules/source-map-js"
+      ],
+      "license": "BSD-3-Clause",
+      "author": "Valentin 7rulnik Semirulnik",
+      "homepage": "https://github.com/7rulnik/source-map-js",
+      "description": "Generates and consumes source maps"
+    }
+  ],
+  "ISC": [
+    {
+      "name": "inherits",
+      "versions": [
+        "2.0.4"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/inherits@2.0.4/node_modules/inherits"
+      ],
+      "license": "ISC",
+      "homepage": "https://github.com/isaacs/inherits#readme",
+      "description": "Browser-friendly inheritance fully compatible with standard node.js inherits()"
+    },
+    {
+      "name": "isexe",
+      "versions": [
+        "2.0.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/isexe@2.0.0/node_modules/isexe"
+      ],
+      "license": "ISC",
+      "author": "Isaac Z. Schlueter",
+      "homepage": "https://github.com/isaacs/isexe#readme",
+      "description": "Minimal module to check if a file is executable."
+    },
+    {
+      "name": "once",
+      "versions": [
+        "1.4.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/once@1.4.0/node_modules/once"
+      ],
+      "license": "ISC",
+      "author": "Isaac Z. Schlueter",
+      "homepage": "https://github.com/isaacs/once#readme",
+      "description": "Run a function exactly one time"
+    },
+    {
+      "name": "picocolors",
+      "versions": [
+        "1.1.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/picocolors@1.1.1/node_modules/picocolors"
+      ],
+      "license": "ISC",
+      "author": "Alexey Raspopov",
+      "homepage": "https://github.com/alexeyraspopov/picocolors#readme",
+      "description": "The tiniest and the fastest library for terminal output formatting with ANSI colors"
+    },
+    {
+      "name": "semver",
+      "versions": [
+        "7.8.5"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/semver@7.8.5/node_modules/semver"
+      ],
+      "license": "ISC",
+      "author": "GitHub Inc.",
+      "homepage": "https://github.com/npm/node-semver#readme",
+      "description": "The semantic version parser used by npm."
+    },
+    {
+      "name": "setprototypeof",
+      "versions": [
+        "1.2.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/setprototypeof@1.2.0/node_modules/setprototypeof"
+      ],
+      "license": "ISC",
+      "author": "Wes Todd",
+      "homepage": "https://github.com/wesleytodd/setprototypeof",
+      "description": "A small polyfill for Object.setprototypeof"
+    },
+    {
+      "name": "signal-exit",
+      "versions": [
+        "4.1.0"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/signal-exit@4.1.0/node_modules/signal-exit"
+      ],
+      "license": "ISC",
+      "author": "Ben Coe",
+      "homepage": "https://github.com/tapjs/signal-exit#readme",
+      "description": "when you want to fire an event no matter how a process exits."
+    },
+    {
+      "name": "which",
+      "versions": [
+        "2.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/which@2.0.2/node_modules/which"
+      ],
+      "license": "ISC",
+      "author": "Isaac Z. Schlueter",
+      "homepage": "https://github.com/isaacs/node-which#readme",
+      "description": "Like which(1) unix command. Find the first instance of an executable in the PATH."
+    },
+    {
+      "name": "wrappy",
+      "versions": [
+        "1.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/wrappy@1.0.2/node_modules/wrappy"
+      ],
+      "license": "ISC",
+      "author": "Isaac Z. Schlueter",
+      "homepage": "https://github.com/npm/wrappy",
+      "description": "Callback wrapping utility"
+    },
+    {
+      "name": "zod-to-json-schema",
+      "versions": [
+        "3.25.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@4.5.4/node_modules/zod-to-json-schema"
+      ],
+      "license": "ISC",
+      "author": "Stefan Terdell",
+      "homepage": "https://github.com/StefanTerdell/zod-to-json-schema#readme",
+      "description": "Converts Zod schemas to Json Schemas"
+    }
+  ],
+  "BSD-2-Clause": [
+    {
+      "name": "json-schema-typed",
+      "versions": [
+        "8.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/json-schema-typed@8.0.2/node_modules/json-schema-typed"
+      ],
+      "license": "BSD-2-Clause",
+      "author": "Remy Rylan",
+      "homepage": "https://github.com/RemyRylan/json-schema-typed/tree/main/dist/node",
+      "description": "JSON Schema TypeScript definitions with complete inline documentation."
+    }
+  ],
+  "Public domain": [
+    {
+      "name": "tiny-sha256",
+      "versions": [
+        "1.0.2"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/tiny-sha256@1.0.2/node_modules/tiny-sha256"
+      ],
+      "license": "Public domain",
+      "author": "Geraint Luff",
+      "description": "SHA-256 in 849 bytes (minified)"
+    }
+  ],
+  "0BSD": [
+    {
+      "name": "tslib",
+      "versions": [
+        "2.8.1"
+      ],
+      "paths": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/node_modules/.pnpm/tslib@2.8.1/node_modules/tslib"
+      ],
+      "license": "0BSD",
+      "author": "Microsoft Corp.",
+      "homepage": "https://www.typescriptlang.org/",
+      "description": "Runtime library for TypeScript helper functions"
+    }
+  ]
+}

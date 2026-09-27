@@ -1,5 +1,5 @@
-import { fetchApi, getCsrfToken } from '../../../lib/api'
-import { accountQuery } from '../api'
+import { fetchApi, getCsrfToken } from '../../../lib/api';
+import { accountQuery } from '../api';
 
 export type PrescriptionStatus =
   | 'draft'
@@ -8,188 +8,180 @@ export type PrescriptionStatus =
   | 'accepted'
   | 'ready'
   | 'closed'
-  | 'cancelled'
+  | 'cancelled';
 
-export type PrescriptionAdminAction =
-  | 'accept'
-  | 'request_resubmission'
-  | 'ready'
-  | 'close'
-  | 'cancel'
+export type PrescriptionAdminAction = 'accept' | 'request_resubmission' | 'ready' | 'close' | 'cancel';
 
 export interface PrescriptionQueueItem {
-  id: string
-  friend_id: string
-  patient_display_name: string | null
-  status: PrescriptionStatus
-  desired_pickup_at: string | null
-  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null
-  arrival_reported_at: string | null
-  requested_at: string | null
-  created_at: string
-  updated_at: string
+  id: string;
+  friend_id: string;
+  patient_display_name: string | null;
+  status: PrescriptionStatus;
+  desired_pickup_at: string | null;
+  desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null;
+  arrival_reported_at: string | null;
+  requested_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PrescriptionFile {
-  id: string
-  revision: number
-  position: number
-  content_type: string
-  byte_size: number
-  state: string
-  created_at: string
-  updated_at: string
+  id: string;
+  revision: number;
+  position: number;
+  content_type: string;
+  byte_size: number;
+  state: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PrescriptionEvent {
-  id: string
-  actor_type: string
-  actor_id: string | null
-  event_type: string
-  from_status: PrescriptionStatus | null
-  to_status: PrescriptionStatus | null
-  reason_code: string | null
-  revision: number | null
-  created_at: string
+  id: string;
+  actor_type: string;
+  actor_id: string | null;
+  event_type: string;
+  from_status: PrescriptionStatus | null;
+  to_status: PrescriptionStatus | null;
+  reason_code: string | null;
+  revision: number | null;
+  created_at: string;
 }
 
 export interface PrescriptionDetail {
   submission: PrescriptionQueueItem & {
-    active_revision: number | null
-    upload_revision: number
-    resubmission_reason_code: string | null
-    closed_at: string | null
-  }
-  files: PrescriptionFile[]
-  events: PrescriptionEvent[]
-  source: PrescriptionSource | null
-  validity: PrescriptionValidity | null
+    active_revision: number | null;
+    upload_revision: number;
+    resubmission_reason_code: string | null;
+    closed_at: string | null;
+  };
+  files: PrescriptionFile[];
+  events: PrescriptionEvent[];
+  source: PrescriptionSource | null;
+  validity: PrescriptionValidity | null;
   intake?: {
-    revision: number
-    submitted_at: string
-    latest_revision: number
-    latest_submitted_at: string
-    reviewed_at: string | null
-  } | null
+    revision: number;
+    submitted_at: string;
+    latest_revision: number;
+    latest_submitted_at: string;
+    reviewed_at: string | null;
+  } | null;
 }
 
 export interface PrescriptionSource {
-  source_id: string | null
-  classification: 'primary' | 'other' | 'unknown'
-  display_name: string | null
-  entered_by: string
-  entered_at: string
-  updated_at: string
+  source_id: string | null;
+  classification: 'primary' | 'other' | 'unknown';
+  display_name: string | null;
+  entered_by: string;
+  entered_at: string;
+  updated_at: string;
 }
 
 export interface PrescriptionValidity {
-  issued_on: string | null
-  valid_until: string | null
-  validity_basis: 'default_4_days' | 'prescriber_specified'
-  verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed'
-  verified_by: string | null
-  verified_at: string | null
-  reminder_due_at: string | null
-  reminder_sent_at: string | null
-  updated_at: string
+  issued_on: string | null;
+  valid_until: string | null;
+  validity_basis: 'default_4_days' | 'prescriber_specified';
+  verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
+  verified_by: string | null;
+  verified_at: string | null;
+  reminder_due_at: string | null;
+  reminder_sent_at: string | null;
+  updated_at: string;
 }
 
 export interface MedicalSource {
-  id: string
-  display_name: string
-  classification: 'primary' | 'other'
-  is_active: number
+  id: string;
+  display_name: string;
+  classification: 'primary' | 'other';
+  is_active: number;
 }
 
-export type PrescriptionNotificationStatus = 'sent' | 'already_sent' | 'failed' | 'skipped' | 'superseded'
+export type PrescriptionNotificationStatus = 'sent' | 'already_sent' | 'failed' | 'skipped' | 'superseded';
 
 export interface PrescriptionActionResult {
-  status: PrescriptionStatus
-  statusEventId: string
-  notification: { status: PrescriptionNotificationStatus }
-  continuity?: 'completed' | 'retry_pending'
+  status: PrescriptionStatus;
+  statusEventId: string;
+  notification: { status: PrescriptionNotificationStatus };
+  continuity?: 'completed' | 'retry_pending';
 }
 
 export interface PrescriptionStats {
-  pending_count: number
-  oldest_wait_at: string | null
-  draft_count: number
-  received_count: number
-  needs_resubmission_count: number
-  accepted_count: number
-  ready_count: number
-  closed_count: number
-  cancelled_count: number
-  total_count: number
+  pending_count: number;
+  oldest_wait_at: string | null;
+  draft_count: number;
+  received_count: number;
+  needs_resubmission_count: number;
+  accepted_count: number;
+  ready_count: number;
+  closed_count: number;
+  cancelled_count: number;
+  total_count: number;
 }
 
-export type FulfillmentDecision =
-  | 'fulfillable'
-  | 'conditional'
-  | 'needs_confirmation'
-  | 'not_fulfillable'
+export type FulfillmentDecision = 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
 
 export type FulfillmentStatus =
   | 'CHECKING'
   | 'AVAILABLE'
   | 'PARTIALLY_AVAILABLE'
   | 'UNAVAILABLE'
-  | 'PHARMACIST_REVIEW_REQUIRED'
+  | 'PHARMACIST_REVIEW_REQUIRED';
 
-export type FulfillmentMethod =
-  | 'PICKUP'
-  | 'DELIVERY'
-  | 'HOME_VISIT'
-  | 'FACILITY_DELIVERY'
+export type FulfillmentMethod = 'PICKUP' | 'DELIVERY' | 'HOME_VISIT' | 'FACILITY_DELIVERY';
 
 export interface FulfillmentQuote {
-  id: string
-  submission_id: string
-  line_account_id: string
-  revision: number
-  decision: FulfillmentDecision
-  reasonCodes: string[]
-  requirements: Array<{ code: string; status: 'pending' | 'satisfied' }>
-  status: FulfillmentStatus
-  fulfillmentMethod: FulfillmentMethod | null
-  constraints: string[]
-  reservationExpiresAt: string | null
-  confirmedBy: string | null
-  confirmedAt: string | null
-  estimatedReadyAt: string | null
-  validUntil: string | null
-  created_by: string
-  created_at: string
+  id: string;
+  submission_id: string;
+  line_account_id: string;
+  revision: number;
+  decision: FulfillmentDecision;
+  reasonCodes: string[];
+  requirements: Array<{ code: string; status: 'pending' | 'satisfied' }>;
+  status: FulfillmentStatus;
+  fulfillmentMethod: FulfillmentMethod | null;
+  constraints: string[];
+  reservationExpiresAt: string | null;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  estimatedReadyAt: string | null;
+  validUntil: string | null;
+  created_by: string;
+  created_at: string;
 }
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL
-if (!apiBase) throw new Error('NEXT_PUBLIC_API_URL is not set')
+const apiBase = process.env.NEXT_PUBLIC_API_URL;
+if (!apiBase) throw new Error('NEXT_PUBLIC_API_URL is not set');
 
 export const prescriptionAdminApi = {
-  list: (accountId: string, cursor?: string, status?: PrescriptionStatus) => fetchApi<{
-    items: PrescriptionQueueItem[]
-    nextCursor: string | null
-  }>(
-    `/api/custom/pharmacy/prescriptions?${accountQuery(accountId)}&limit=50${status ? `&status=${encodeURIComponent(status)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
-  ),
-  stats: (accountId: string) => fetchApi<{ stats: PrescriptionStats }>(
-    `/api/custom/pharmacy/prescriptions/stats?${accountQuery(accountId)}`,
-  ),
-  detail: (accountId: string, submissionId: string) => fetchApi<PrescriptionDetail>(
-    `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
-  ),
-  fulfillmentQuote: (accountId: string, submissionId: string) => fetchApi<{ quote: FulfillmentQuote | null }>(
-    `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
-  ),
+  list: (accountId: string, cursor?: string, status?: PrescriptionStatus) =>
+    fetchApi<{
+      items: PrescriptionQueueItem[];
+      nextCursor: string | null;
+    }>(
+      `/api/custom/pharmacy/prescriptions?${accountQuery(accountId)}&limit=50${status ? `&status=${encodeURIComponent(status)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
+  stats: (accountId: string) =>
+    fetchApi<{ stats: PrescriptionStats }>(`/api/custom/pharmacy/prescriptions/stats?${accountQuery(accountId)}`),
+  detail: (accountId: string, submissionId: string) =>
+    fetchApi<PrescriptionDetail>(
+      `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+    ),
+  fulfillmentQuote: (accountId: string, submissionId: string) =>
+    fetchApi<{ quote: FulfillmentQuote | null }>(
+      `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+    ),
   saveFulfillmentQuote: (
     accountId: string,
     submissionId: string,
     body: Pick<FulfillmentQuote, 'decision' | 'reasonCodes' | 'requirements' | 'estimatedReadyAt' | 'validUntil'> &
-      Partial<Pick<FulfillmentQuote, 'status' | 'fulfillmentMethod' | 'constraints' | 'reservationExpiresAt'>> & { expectedRevision?: number },
-  ) => fetchApi<{ quote: FulfillmentQuote }>(
-    `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
-    { method: 'POST', body: JSON.stringify(body) },
-  ),
+      Partial<Pick<FulfillmentQuote, 'status' | 'fulfillmentMethod' | 'constraints' | 'reservationExpiresAt'>> & {
+        expectedRevision?: number;
+      },
+  ) =>
+    fetchApi<{ quote: FulfillmentQuote }>(
+      `/api/custom/pharmacy/fulfillment-quotes/${encodeURIComponent(submissionId)}?${accountQuery(accountId)}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   action: (
     accountId: string,
     submissionId: string,
@@ -197,17 +189,18 @@ export const prescriptionAdminApi = {
     expectedUpdatedAt: string,
     reasonCode?: string,
     operationId?: string,
-  ) => fetchApi<PrescriptionActionResult>(
-    `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/actions/${action}?${accountQuery(accountId)}`,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        expectedUpdatedAt,
-        reasonCode: reasonCode ?? null,
-        operationId: operationId ?? null,
-      }),
-    },
-  ),
+  ) =>
+    fetchApi<PrescriptionActionResult>(
+      `/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/actions/${action}?${accountQuery(accountId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          expectedUpdatedAt,
+          reasonCode: reasonCode ?? null,
+          operationId: operationId ?? null,
+        }),
+      },
+    ),
   image: async (accountId: string, submissionId: string, fileId: string) => {
     const response = await fetch(
       `${apiBase}/api/custom/pharmacy/prescriptions/${encodeURIComponent(submissionId)}/files/${encodeURIComponent(fileId)}?${accountQuery(accountId)}`,
@@ -216,12 +209,14 @@ export const prescriptionAdminApi = {
         headers: { 'X-CSRF-Token': getCsrfToken() },
         cache: 'no-store',
       },
-    )
+    );
     if (!response.ok) {
-      const error = new Error(`Prescription image API ${response.status}`) as Error & { status: number }
-      error.status = response.status
-      throw error
+      const error = new Error(`Prescription image API ${response.status}`) as Error & {
+        status: number;
+      };
+      error.status = response.status;
+      throw error;
     }
-    return response.blob()
+    return response.blob();
   },
-}
+};

@@ -25,8 +25,7 @@ export function generateTemporaryPassword(): string {
 
 export function isValidAdminPassword(password: string): boolean {
   const codePoints = [...password].length;
-  return codePoints >= 15 && codePoints <= 128 && password.trim().length > 0 &&
-    !isCommonAdminPassword(password);
+  return codePoints >= 15 && codePoints <= 128 && password.trim().length > 0 && !isCommonAdminPassword(password);
 }
 
 export async function hashTenantPassword(password: string): Promise<string> {
@@ -43,9 +42,17 @@ export async function verifyTenantPassword(password: string, encoded: string): P
   const iterations = Number.parseInt(iterationsRaw ?? '', 10);
   const salt = saltRaw ? fromBase64Url(saltRaw) : null;
   const expected = hashRaw ? fromBase64Url(hashRaw) : null;
-  if (rest.length > 0 || algorithm !== 'pbkdf2-sha256' ||
-      !Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000 ||
-      !salt || salt.length !== SALT_BYTES || !expected || expected.length !== HASH_BYTES) {
+  if (
+    rest.length > 0 ||
+    algorithm !== 'pbkdf2-sha256' ||
+    !Number.isInteger(iterations) ||
+    iterations < 100_000 ||
+    iterations > 1_000_000 ||
+    !salt ||
+    salt.length !== SALT_BYTES ||
+    !expected ||
+    expected.length !== HASH_BYTES
+  ) {
     return false;
   }
   const actual = await derivePassword(password, salt, iterations);

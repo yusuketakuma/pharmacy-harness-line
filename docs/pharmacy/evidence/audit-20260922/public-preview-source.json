@@ -1,0 +1,9 @@
+{
+  "P": "412c6c958c96b29c179ec64f14b3337d3cdb499f",
+  "paths": {
+    "apps/worker/src/lib/og-html.ts": "07232b5a5b1984d36485caa67914a52c3df2af763e6a8da15813fa66817850f4",
+    "apps/worker/src/lib/og-resolver.ts": "652f45bae5246dc17b54a8fc371d165ec5a9dd62c42f87b186f50ff624e39912",
+    "apps/worker/src/index.ts": "1db32876cbe88643d889dbe669290d98da382db4b2202e158e09a89ff3dc5f23",
+    "apps/worker/src/not-found.test.ts": "f6994176556c8639d187afef19b06d03a59276d47f3bf8f8468da5a04009e3ab"
+  }
+}

@@ -31,8 +31,14 @@ function parseArgs(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') continue;
-    if (argument === '--dry-run') { dryRun = true; continue; }
-    if (argument === '--help' || argument === '-h') { help = true; continue; }
+    if (argument === '--dry-run') {
+      dryRun = true;
+      continue;
+    }
+    if (argument === '--help' || argument === '-h') {
+      help = true;
+      continue;
+    }
     if (!names.has(argument)) throw new Error(`Unknown option: ${argument}`);
     const value = argv[++index];
     if (!value || value.startsWith('--')) throw new Error(`Missing value: ${argument}`);
@@ -42,10 +48,7 @@ function parseArgs(argv: string[]) {
 }
 
 function endpoint(values: Record<string, string>): string {
-  return new URL(
-    '/api/platform/pharmacy/platform-admins',
-    workerOrigin(required(values, 'worker-url')),
-  ).toString();
+  return new URL('/api/platform/pharmacy/platform-admins', workerOrigin(required(values, 'worker-url'))).toString();
 }
 
 export async function runPlatformAdminBootstrap(
@@ -56,7 +59,10 @@ export async function runPlatformAdminBootstrap(
 ): Promise<number> {
   try {
     const parsed = parseArgs(argv);
-    if (parsed.help) { write(HELP); return 0; }
+    if (parsed.help) {
+      write(HELP);
+      return 0;
+    }
     const platformKey = environment.PHARMACY_PLATFORM_ADMIN_KEY?.trim();
     if (!platformKey) throw new Error('PHARMACY_PLATFORM_ADMIN_KEY is required');
     const url = endpoint(parsed.values);
@@ -103,13 +109,15 @@ export async function runPlatformAdminBootstrap(
       write('Platform admin bootstrap failed: network request failed. No credentials were printed.');
       return 1;
     }
-    const payload = await response.json().catch(() => null) as {
+    const payload = (await response.json().catch(() => null)) as {
       success?: boolean;
       error?: unknown;
       data?: { adminLoginId?: unknown; replayed?: unknown };
     } | null;
     if (!response.ok || !payload?.success || !payload.data) {
-      write(`Platform admin bootstrap failed (${response.status}): ${safeText(payload?.error, 'Unknown server error')}`);
+      write(
+        `Platform admin bootstrap failed (${response.status}): ${safeText(payload?.error, 'Unknown server error')}`,
+      );
       return 1;
     }
 
@@ -120,9 +128,11 @@ export async function runPlatformAdminBootstrap(
       // what created the account.
       write('プラットフォーム管理者は既に作成済みです（再実行のため新規発行なし）。');
       write(`管理者ID: ${adminId}`);
-      write(resent
-        ? `仮パスワード（この実行で発行した値）: ${body.temporaryPassword}`
-        : '仮パスワードは作成時の1回だけ表示されます。控えが無い場合は資格情報の再発行手順が必要です。');
+      write(
+        resent
+          ? `仮パスワード（この実行で発行した値）: ${body.temporaryPassword}`
+          : '仮パスワードは作成時の1回だけ表示されます。控えが無い場合は資格情報の再発行手順が必要です。',
+      );
       return 0;
     }
 
@@ -138,6 +148,7 @@ export async function runPlatformAdminBootstrap(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runPlatformAdminBootstrap(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runPlatformAdminBootstrap(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

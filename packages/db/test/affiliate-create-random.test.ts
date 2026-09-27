@@ -4,10 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  createAffiliateWithRandomCode,
-  getAffiliateByCode,
-} from '../src/affiliates.js';
+import { createAffiliateWithRandomCode, getAffiliateByCode } from '../src/affiliates.js';
 import { getAffiliateByFriendId } from '../src/affiliate-links.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -129,8 +126,8 @@ describe('createAffiliateWithRandomCode', () => {
 
     // The friend_id partial UNIQUE index (migration 046) must reject the second
     // affiliate — and it must NOT be swallowed by the code-collision retry loop.
-    await expect(
-      createAffiliateWithRandomCode(db, { name: 'Dave', friendId: 'friend-1' }),
-    ).rejects.toThrow(/UNIQUE constraint failed/i);
+    await expect(createAffiliateWithRandomCode(db, { name: 'Dave', friendId: 'friend-1' })).rejects.toThrow(
+      /UNIQUE constraint failed/i,
+    );
   });
 });

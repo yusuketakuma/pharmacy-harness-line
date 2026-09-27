@@ -1,21 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import {
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-  createReadStream,
-  existsSync,
-} from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, createReadStream, existsSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  parseBundleStream,
-  verifyBundleHashes,
-  assertHashesMatch,
-} from '../src/bundle.js';
+import { parseBundleStream, verifyBundleHashes, assertHashesMatch } from '../src/bundle.js';
 
 // ─── Fixture helpers ──────────────────────────────────────────────────────────
 

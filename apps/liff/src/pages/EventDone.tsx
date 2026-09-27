@@ -15,10 +15,7 @@ export default function EventDone() {
       <div className="text-5xl mb-4">{isPending ? '⏳' : '✅'}</div>
       <h1 className="text-xl font-bold mb-2">{title}</h1>
       <p className="text-sm text-gray-600 mb-6">{desc}</p>
-      <Link
-        to="/events/me"
-        className="inline-block px-6 py-3 bg-blue-600 text-white rounded font-medium"
-      >
+      <Link to="/events/me" className="inline-block px-6 py-3 bg-blue-600 text-white rounded font-medium">
         予約履歴を見る
       </Link>
     </div>

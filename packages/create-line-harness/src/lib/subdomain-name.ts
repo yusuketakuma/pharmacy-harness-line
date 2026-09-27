@@ -18,11 +18,11 @@ export function isValidSubdomainName(name: string): boolean {
 export function sanitizeSubdomainCandidate(source: string): string | null {
   const candidate = source
     .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
     .slice(0, 63)
-    .replace(/-+$/, "");
+    .replace(/-+$/, '');
   return isValidSubdomainName(candidate) ? candidate : null;
 }
 

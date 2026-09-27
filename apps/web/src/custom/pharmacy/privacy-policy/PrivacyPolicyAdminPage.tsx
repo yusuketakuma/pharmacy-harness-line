@@ -1,105 +1,107 @@
-'use client'
+'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useAccount } from '../../../contexts/account-context'
-import Header from '@/components/layout/header'
-import {
-  pharmacyPrivacyPolicyApi,
-  type TenantPrivacyPolicy,
-  type TenantPrivacyPolicyInput,
-} from './api'
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAccount } from '../../../contexts/account-context';
+import Header from '@/components/layout/header';
+import { pharmacyPrivacyPolicyApi, type TenantPrivacyPolicy, type TenantPrivacyPolicyInput } from './api';
 
 const emptyDraft: TenantPrivacyPolicyInput = {
   purposeText: '',
   purposeUrl: '',
   contactPoint: '',
   entrustmentText: '',
-}
+};
 
 export function privacyPolicyIssues(draft: TenantPrivacyPolicyInput): string[] {
   return [
     !draft.purposeText.trim() && '利用目的',
     !draft.contactPoint.trim() && '問い合わせ窓口',
     !draft.entrustmentText.trim() && '委託関係の説明',
-    draft.purposeUrl.trim() !== '' && !/^https:\/\/\S+$/.test(draft.purposeUrl.trim()) &&
+    draft.purposeUrl.trim() !== '' &&
+      !/^https:\/\/\S+$/.test(draft.purposeUrl.trim()) &&
       '利用目的の掲載URL（https://で始まる形式）',
-  ].filter((issue): issue is string => typeof issue === 'string')
+  ].filter((issue): issue is string => typeof issue === 'string');
 }
 
 function draftFromPolicy(policy: TenantPrivacyPolicy | null): TenantPrivacyPolicyInput {
-  if (!policy) return { ...emptyDraft }
+  if (!policy) return { ...emptyDraft };
   return {
     purposeText: policy.purpose_text,
     purposeUrl: policy.purpose_url,
     contactPoint: policy.contact_point,
     entrustmentText: policy.entrustment_text,
-  }
+  };
 }
 
 export default function PrivacyPolicyAdminPage() {
-  const { selectedAccountId } = useAccount()
-  const [policy, setPolicy] = useState<TenantPrivacyPolicy | null>(null)
-  const [draft, setDraft] = useState<TenantPrivacyPolicyInput>(emptyDraft)
-  const [loading, setLoading] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
-  const selectedAccountRef = useRef(selectedAccountId)
-  selectedAccountRef.current = selectedAccountId
+  const { selectedAccountId } = useAccount();
+  const [policy, setPolicy] = useState<TenantPrivacyPolicy | null>(null);
+  const [draft, setDraft] = useState<TenantPrivacyPolicyInput>(emptyDraft);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const selectedAccountRef = useRef(selectedAccountId);
+  selectedAccountRef.current = selectedAccountId;
 
   const load = useCallback(async () => {
-    if (!selectedAccountId) return
-    const accountId = selectedAccountId
-    setLoading(true)
-    setError('')
-    setMessage('')
-    setPolicy(null)
-    setDraft(emptyDraft)
+    if (!selectedAccountId) return;
+    const accountId = selectedAccountId;
+    setLoading(true);
+    setError('');
+    setMessage('');
+    setPolicy(null);
+    setDraft(emptyDraft);
     try {
-      const result = await pharmacyPrivacyPolicyApi.get(accountId)
-      if (selectedAccountRef.current !== accountId) return
-      setPolicy(result.policy)
-      setDraft(draftFromPolicy(result.policy))
+      const result = await pharmacyPrivacyPolicyApi.get(accountId);
+      if (selectedAccountRef.current !== accountId) return;
+      setPolicy(result.policy);
+      setDraft(draftFromPolicy(result.policy));
     } catch {
-      if (selectedAccountRef.current !== accountId) return
-      setError('個人情報の取扱いに関する掲示内容を取得できませんでした。')
+      if (selectedAccountRef.current !== accountId) return;
+      setError('個人情報の取扱いに関する掲示内容を取得できませんでした。');
     } finally {
-      if (selectedAccountRef.current === accountId) setLoading(false)
+      if (selectedAccountRef.current === accountId) setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const issues = privacyPolicyIssues(draft)
+  const issues = privacyPolicyIssues(draft);
 
   async function save() {
-    if (!selectedAccountId || busy || issues.length > 0) return
-    setBusy(true)
-    setError('')
-    setMessage('')
+    if (!selectedAccountId || busy || issues.length > 0) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
     try {
       await pharmacyPrivacyPolicyApi.save(selectedAccountId, {
         purposeText: draft.purposeText.trim(),
         purposeUrl: draft.purposeUrl.trim(),
         contactPoint: draft.contactPoint.trim(),
         entrustmentText: draft.entrustmentText.trim(),
-      })
-      setMessage('掲示内容を保存しました。患者アンケートの同意欄に反映されます。')
-      await load()
+      });
+      setMessage('掲示内容を保存しました。患者アンケートの同意欄に反映されます。');
+      await load();
     } catch {
-      setError('掲示内容を保存できませんでした。入力内容と通信状態を確認してください。')
+      setError('掲示内容を保存できませんでした。入力内容と通信状態を確認してください。');
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   function update<K extends keyof TenantPrivacyPolicyInput>(key: K, value: string) {
-    setDraft((current) => ({ ...current, [key]: value }))
+    setDraft((current) => ({ ...current, [key]: value }));
   }
 
   return (
     <div>
-      <Header title="個人情報の取扱い（患者向け掲示）" description="患者向け画面に掲示する個人情報の取扱い方針を編集します。" />
+      <Header
+        title="個人情報の取扱い（患者向け掲示）"
+        description="患者向け画面に掲示する個人情報の取扱い方針を編集します。"
+      />
 
       <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
         <p className="font-bold">この内容は貴薬局の名義で患者に表示されます。</p>
@@ -110,11 +112,21 @@ export default function PrivacyPolicyAdminPage() {
         </p>
       </div>
 
-      {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {message && <p role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p>}
+      {error && (
+        <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">
+          {message}
+        </p>
+      )}
 
       <div className="rounded-lg border border-gray-200 bg-white p-6 space-y-4">
-        {loading ? <p className="text-sm text-gray-500">読み込み中...</p> : (
+        {loading ? (
+          <p className="text-sm text-gray-500">読み込み中...</p>
+        ) : (
           <>
             <label className="block text-sm font-medium text-gray-700">
               利用目的
@@ -168,9 +180,7 @@ export default function PrivacyPolicyAdminPage() {
               />
             </label>
 
-            {issues.length > 0 && (
-              <p className="text-xs text-amber-700">未入力の項目：{issues.join('、')}</p>
-            )}
+            {issues.length > 0 && <p className="text-xs text-amber-700">未入力の項目：{issues.join('、')}</p>}
 
             <div className="flex items-center gap-4">
               <button
@@ -196,5 +206,5 @@ export default function PrivacyPolicyAdminPage() {
         )}
       </div>
     </div>
-  )
+  );
 }

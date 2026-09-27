@@ -10,13 +10,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // against an in-memory sqlite DB — the mocked routes.test.ts cannot exercise
 // the LIMIT 20 boundary since it mocks ./repository.js entirely.
 const mocks = vi.hoisted(() => ({
-  verify: vi.fn(), resolve: vi.fn(), capability: vi.fn(), betaParticipant: vi.fn(),
+  verify: vi.fn(),
+  resolve: vi.fn(),
+  capability: vi.fn(),
+  betaParticipant: vi.fn(),
   betaSchemaState: vi.fn(),
 }));
 vi.mock('../../../services/liff-auth.js', () => ({ verifyCallerLineIdentity: mocks.verify }));
 vi.mock('../prescriptions/patient.js', () => ({ resolvePrescriptionPatient: mocks.resolve }));
 vi.mock('../growth-loop/access.js', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../growth-loop/access.js')>(),
+  ...(await importOriginal<typeof import('../growth-loop/access.js')>()),
   canAccessPharmacyAccount: vi.fn(),
   hasPharmacyCapability: mocks.capability,
 }));
@@ -27,10 +30,7 @@ vi.mock('../beta-membership/repository.js', () => ({
 
 import { Sqlite, d1FromSqlite } from '../test-sqlite.js';
 import { medicationFollowUpRoutes } from './routes.js';
-import {
-  recordMedicationFollowUpContact,
-  transitionMedicationFollowUp,
-} from './repository.js';
+import { recordMedicationFollowUpContact, transitionMedicationFollowUp } from './repository.js';
 
 // Only the columns the patient-response path touches; the production schema
 // lives in packages/db/migrations/custom_011_pharmacy_medication_followups.sql.
@@ -117,7 +117,9 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
   beforeEach(async () => {
     vi.clearAllMocks();
     mocks.verify.mockResolvedValue({
-      lineUserId: 'U-a', loginChannelId: 'login-a', tenantId: 'tenant-a',
+      lineUserId: 'U-a',
+      loginChannelId: 'login-a',
+      tenantId: 'tenant-a',
       lineAccountId: LINE_ACCOUNT_ID,
     });
     mocks.resolve.mockResolvedValue({ lineAccountId: LINE_ACCOUNT_ID, friendId: FRIEND_ID });
@@ -126,51 +128,78 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
     mocks.betaSchemaState.mockResolvedValue('ready');
 
     ({ db, close } = database());
-    await db.prepare(
-      `INSERT INTO pharmacy_account_capabilities VALUES (?, 'pharmacy', 0)`,
-    ).bind(LINE_ACCOUNT_ID).run();
-    await db.prepare(
-      `INSERT INTO pharmacy_patients (id, line_account_id, owner_friend_id, name)
+    await db.prepare(`INSERT INTO pharmacy_account_capabilities VALUES (?, 'pharmacy', 0)`).bind(LINE_ACCOUNT_ID).run();
+    await db
+      .prepare(
+        `INSERT INTO pharmacy_patients (id, line_account_id, owner_friend_id, name)
        VALUES (?, ?, ?, ?)`,
-    ).bind(PATIENT_ID, LINE_ACCOUNT_ID, FRIEND_ID, '田中 太郎').run();
+      )
+      .bind(PATIENT_ID, LINE_ACCOUNT_ID, FRIEND_ID, '田中 太郎')
+      .run();
     await db.prepare(`INSERT INTO line_accounts (id) VALUES (?)`).bind(LINE_ACCOUNT_ID).run();
-    await db.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES ('tenant-a', ?)`).bind(LINE_ACCOUNT_ID).run();
+    await db
+      .prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES ('tenant-a', ?)`)
+      .bind(LINE_ACCOUNT_ID)
+      .run();
     await db.prepare(`INSERT INTO tenants (id, status) VALUES ('tenant-a', 'active')`).run();
-    await db.prepare(
-      `INSERT INTO staff_members (id, principal_kind, shared_tenant_id) VALUES ('staff-a', 'human', NULL), ('staff-b', 'human', NULL)`,
-    ).run();
-    await db.prepare(
-      `INSERT INTO tenant_staff_memberships (tenant_id, staff_id) VALUES ('tenant-a', 'staff-a'), ('tenant-a', 'staff-b')`,
-    ).run();
-    await db.prepare(
-      `INSERT INTO pharmacy_staff_accounts (line_account_id, staff_id) VALUES (?, 'staff-a')`,
-    ).bind(LINE_ACCOUNT_ID).run();
+    await db
+      .prepare(
+        `INSERT INTO staff_members (id, principal_kind, shared_tenant_id) VALUES ('staff-a', 'human', NULL), ('staff-b', 'human', NULL)`,
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO tenant_staff_memberships (tenant_id, staff_id) VALUES ('tenant-a', 'staff-a'), ('tenant-a', 'staff-b')`,
+      )
+      .run();
+    await db
+      .prepare(`INSERT INTO pharmacy_staff_accounts (line_account_id, staff_id) VALUES (?, 'staff-a')`)
+      .bind(LINE_ACCOUNT_ID)
+      .run();
 
     // The row we will respond to: oldest by created_at, so it sits outside
     // the ORDER BY created_at DESC LIMIT 20 window once 20 newer rows exist.
-    await db.prepare(
-      `INSERT INTO pharmacy_medication_followups
+    await db
+      .prepare(
+        `INSERT INTO pharmacy_medication_followups
         (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
          status, due_at, version, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'delivered', ?, 1, 'staff-a', ?, ?)`,
-    ).bind(
-      TARGET_ID, LINE_ACCOUNT_ID, FRIEND_ID, PATIENT_ID, 'submission-oldest',
-      '2020-01-01T09:00:00.000Z', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z',
-    ).run();
+      )
+      .bind(
+        TARGET_ID,
+        LINE_ACCOUNT_ID,
+        FRIEND_ID,
+        PATIENT_ID,
+        'submission-oldest',
+        '2020-01-01T09:00:00.000Z',
+        '2020-01-01T00:00:00.000Z',
+        '2020-01-01T00:00:00.000Z',
+      )
+      .run();
 
     // 20 more-recently-created rows for the same owner, pushing the target
     // row out of listOwnerMedicationFollowUps's top-20.
     for (let i = 0; i < 20; i += 1) {
       const createdAt = `2026-08-1${String(i).padStart(2, '0')}T00:00:00.000Z`;
-      await db.prepare(
-        `INSERT INTO pharmacy_medication_followups
+      await db
+        .prepare(
+          `INSERT INTO pharmacy_medication_followups
           (id, line_account_id, owner_friend_id, patient_id, source_submission_id,
            status, due_at, version, created_by, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'scheduled', ?, 1, 'staff-a', ?, ?)`,
-      ).bind(
-        `followup-recent-${i}`, LINE_ACCOUNT_ID, FRIEND_ID, PATIENT_ID, `submission-recent-${i}`,
-        '2099-01-01T09:00:00.000Z', createdAt, createdAt,
-      ).run();
+        )
+        .bind(
+          `followup-recent-${i}`,
+          LINE_ACCOUNT_ID,
+          FRIEND_ID,
+          PATIENT_ID,
+          `submission-recent-${i}`,
+          '2099-01-01T09:00:00.000Z',
+          createdAt,
+          createdAt,
+        )
+        .run();
     }
   });
 
@@ -181,7 +210,9 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
         method: 'POST',
         headers: { Authorization: 'Bearer id-token-a', 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          response: 'no_issue', expectedVersion: 1, idempotencyKey: 'response-oldest',
+          response: 'no_issue',
+          expectedVersion: 1,
+          idempotencyKey: 'response-oldest',
         }),
       },
       { DB: db },
@@ -189,7 +220,10 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       followUp: {
-        id: TARGET_ID, patient_name: '田中 太郎', status: 'no_issue', version: 2,
+        id: TARGET_ID,
+        patient_name: '田中 太郎',
+        status: 'no_issue',
+        version: 2,
       },
     });
     close();
@@ -201,7 +235,9 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
       method: 'POST',
       headers: { Authorization: 'Bearer id-token-a', 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        response: 'no_issue', expectedVersion: 1, idempotencyKey: 'response-oldest-replay',
+        response: 'no_issue',
+        expectedVersion: 1,
+        idempotencyKey: 'response-oldest-replay',
       }),
     };
     const first = await app().request(path, init, { DB: db });
@@ -216,9 +252,7 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
   });
 
   it('treats an omitted assignee as null during assigned-transition replay', async () => {
-    await db.prepare(
-      `UPDATE pharmacy_medication_followups SET status = 'concern' WHERE id = ?`,
-    ).bind(TARGET_ID).run();
+    await db.prepare(`UPDATE pharmacy_medication_followups SET status = 'concern' WHERE id = ?`).bind(TARGET_ID).run();
     const input = {
       lineAccountId: LINE_ACCOUNT_ID,
       followUpId: TARGET_ID,
@@ -235,11 +269,15 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
 
     expect(first).toMatchObject({ status: 'assigned', version: 2 });
     expect(replay).toMatchObject({ status: 'assigned', version: 2 });
-    await expect(db.prepare(
-      `SELECT assignee_staff_id FROM pharmacy_medication_followup_events
+    await expect(
+      db
+        .prepare(
+          `SELECT assignee_staff_id FROM pharmacy_medication_followup_events
         WHERE idempotency_key = ?`,
-    ).bind(input.idempotencyKey).first<{ assignee_staff_id: string | null }>())
-      .resolves.toMatchObject({ assignee_staff_id: null });
+        )
+        .bind(input.idempotencyKey)
+        .first<{ assignee_staff_id: string | null }>(),
+    ).resolves.toMatchObject({ assignee_staff_id: null });
     close();
   });
 
@@ -270,34 +308,42 @@ describe('medication follow-up respond confirmation beyond the recent-20 window'
   });
 
   it('does not write a contact when the explicit assignee is not authorized', async () => {
-    await db.prepare(
-      `UPDATE pharmacy_medication_followups SET status = 'concern' WHERE id = ?`,
-    ).bind(TARGET_ID).run();
+    await db.prepare(`UPDATE pharmacy_medication_followups SET status = 'concern' WHERE id = ?`).bind(TARGET_ID).run();
 
-    await expect(transitionMedicationFollowUp(db, {
-      lineAccountId: LINE_ACCOUNT_ID,
-      followUpId: TARGET_ID,
-      toStatus: 'assigned',
-      expectedVersion: 1,
-      actorType: 'staff',
-      actorId: 'staff-a',
-      assigneeStaffId: 'staff-b',
-      idempotencyKey: 'unauthorized-assignee-key',
-      contact: {
-        channel: 'phone', outcomeCode: 'answered', idempotencyKey: 'unauthorized-contact-key',
-      },
-      now: new Date('2026-09-14T00:00:00.000Z'),
-    })).rejects.toThrow('transition conflict');
+    await expect(
+      transitionMedicationFollowUp(db, {
+        lineAccountId: LINE_ACCOUNT_ID,
+        followUpId: TARGET_ID,
+        toStatus: 'assigned',
+        expectedVersion: 1,
+        actorType: 'staff',
+        actorId: 'staff-a',
+        assigneeStaffId: 'staff-b',
+        idempotencyKey: 'unauthorized-assignee-key',
+        contact: {
+          channel: 'phone',
+          outcomeCode: 'answered',
+          idempotencyKey: 'unauthorized-contact-key',
+        },
+        now: new Date('2026-09-14T00:00:00.000Z'),
+      }),
+    ).rejects.toThrow('transition conflict');
 
-    await expect(db.prepare(
-      `SELECT status, version FROM pharmacy_medication_followups WHERE id = ?`,
-    ).bind(TARGET_ID).first<{ status: string; version: number }>())
-      .resolves.toMatchObject({ status: 'concern', version: 1 });
-    await expect(db.prepare(
-      `SELECT COUNT(*) AS count FROM pharmacy_medication_followup_contact_records
+    await expect(
+      db
+        .prepare(`SELECT status, version FROM pharmacy_medication_followups WHERE id = ?`)
+        .bind(TARGET_ID)
+        .first<{ status: string; version: number }>(),
+    ).resolves.toMatchObject({ status: 'concern', version: 1 });
+    await expect(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM pharmacy_medication_followup_contact_records
         WHERE idempotency_key = ?`,
-    ).bind('unauthorized-contact-key').first<{ count: number }>())
-      .resolves.toMatchObject({ count: 0 });
+        )
+        .bind('unauthorized-contact-key')
+        .first<{ count: number }>(),
+    ).resolves.toMatchObject({ count: 0 });
     close();
   });
 });

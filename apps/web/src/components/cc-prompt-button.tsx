@@ -1,18 +1,18 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import PromptModal, { type PromptTemplate } from '@/components/prompt-modal'
-import { useAccount } from '@/contexts/account-context'
+import { useState } from 'react';
+import PromptModal, { type PromptTemplate } from '@/components/prompt-modal';
+import { useAccount } from '@/contexts/account-context';
 
 interface CcPromptButtonProps {
-  prompts: PromptTemplate[]
+  prompts: PromptTemplate[];
 }
 
 export default function CcPromptButton({ prompts }: CcPromptButtonProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const { selectedAccount } = useAccount()
+  const [isOpen, setIsOpen] = useState(false);
+  const { selectedAccount } = useAccount();
   // 薬局スタッフ向け画面では開発者向けの CC 依頼ボタンを出さない。
-  if (selectedAccount?.pharmacyMode) return null
+  if (selectedAccount?.pharmacyMode) return null;
 
   return (
     <>
@@ -25,11 +25,7 @@ export default function CcPromptButton({ prompts }: CcPromptButtonProps) {
         <span className="hidden sm:inline">CCに依頼</span>
       </button>
 
-      <PromptModal
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
-        prompts={prompts}
-      />
+      <PromptModal isOpen={isOpen} onClose={() => setIsOpen(false)} prompts={prompts} />
     </>
-  )
+  );
 }

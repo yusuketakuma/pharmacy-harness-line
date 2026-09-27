@@ -21,17 +21,27 @@ describe('resolveSwitcherActions', () => {
     const groupId = '3a7c2f1d-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
     const pages = [
       {
-        id: 'p1', orderIndex: 0, name: 'p1',
-        imageR2Key: null, imageContentType: null, lineRichMenuId: null,
-        areas: [{
-          bounds: { x: 0, y: 0, width: 100, height: 100 },
-          actionType: 'richmenuswitch' as const,
-          actionData: { targetPageId: 'p2' },
-        }],
+        id: 'p1',
+        orderIndex: 0,
+        name: 'p1',
+        imageR2Key: null,
+        imageContentType: null,
+        lineRichMenuId: null,
+        areas: [
+          {
+            bounds: { x: 0, y: 0, width: 100, height: 100 },
+            actionType: 'richmenuswitch' as const,
+            actionData: { targetPageId: 'p2' },
+          },
+        ],
       },
       {
-        id: 'p2', orderIndex: 1, name: 'p2',
-        imageR2Key: null, imageContentType: null, lineRichMenuId: null,
+        id: 'p2',
+        orderIndex: 1,
+        name: 'p2',
+        imageR2Key: null,
+        imageContentType: null,
+        lineRichMenuId: null,
         areas: [],
       },
     ];
@@ -43,29 +53,51 @@ describe('resolveSwitcherActions', () => {
   });
 
   it('uri/message/postback はそのまま', () => {
-    const pages = [{
-      id: 'p1', orderIndex: 0, name: 'p1',
-      imageR2Key: null, imageContentType: null, lineRichMenuId: null,
-      areas: [
-        { bounds: { x: 0, y: 0, width: 100, height: 100 }, actionType: 'uri' as const, actionData: { uri: 'https://x.example' } },
-        { bounds: { x: 0, y: 0, width: 100, height: 100 }, actionType: 'message' as const, actionData: { text: 'hi' } },
-      ],
-    }];
+    const pages = [
+      {
+        id: 'p1',
+        orderIndex: 0,
+        name: 'p1',
+        imageR2Key: null,
+        imageContentType: null,
+        lineRichMenuId: null,
+        areas: [
+          {
+            bounds: { x: 0, y: 0, width: 100, height: 100 },
+            actionType: 'uri' as const,
+            actionData: { uri: 'https://x.example' },
+          },
+          {
+            bounds: { x: 0, y: 0, width: 100, height: 100 },
+            actionType: 'message' as const,
+            actionData: { text: 'hi' },
+          },
+        ],
+      },
+    ];
     const resolved = resolveSwitcherActions(pages, 'gid12345-aaaa');
     expect(resolved[0].areas[0].actionData).toEqual({ uri: 'https://x.example' });
     expect(resolved[0].areas[1].actionData).toEqual({ text: 'hi' });
   });
 
   it('未知の targetPageId は throw', () => {
-    const pages = [{
-      id: 'p1', orderIndex: 0, name: 'p1',
-      imageR2Key: null, imageContentType: null, lineRichMenuId: null,
-      areas: [{
-        bounds: { x: 0, y: 0, width: 100, height: 100 },
-        actionType: 'richmenuswitch' as const,
-        actionData: { targetPageId: 'nonexistent' },
-      }],
-    }];
+    const pages = [
+      {
+        id: 'p1',
+        orderIndex: 0,
+        name: 'p1',
+        imageR2Key: null,
+        imageContentType: null,
+        lineRichMenuId: null,
+        areas: [
+          {
+            bounds: { x: 0, y: 0, width: 100, height: 100 },
+            actionType: 'richmenuswitch' as const,
+            actionData: { targetPageId: 'nonexistent' },
+          },
+        ],
+      },
+    ];
     expect(() => resolveSwitcherActions(pages, 'gid12345-aaaa')).toThrow(/nonexistent/);
   });
 });
@@ -130,11 +162,22 @@ describe('publishRichMenuGroup', () => {
     const r2 = makeMockR2();
     await publishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'menu', isDefaultForAll: false, selected: false,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.png',
-          imageContentType: 'image/png', lineRichMenuId: null, areas: [],
-        }],
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'menu',
+        isDefaultForAll: false,
+        selected: false,
+        pages: [
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: 'a.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: null,
+            areas: [],
+          },
+        ],
       },
       line,
       r2,
@@ -145,7 +188,11 @@ describe('publishRichMenuGroup', () => {
       },
     );
     expect(line.calls.slice(0, 5)).toEqual([
-      'create', 'remote_created-lm-1', 'upload', 'image_uploaded-lm-1', 'create-alias',
+      'create',
+      'remote_created-lm-1',
+      'upload',
+      'image_uploaded-lm-1',
+      'create-alias',
     ]);
   });
 
@@ -162,28 +209,40 @@ describe('publishRichMenuGroup', () => {
       return { richMenuId: 'lm-pharmacy' };
     });
 
-    await expect(publishRichMenuGroup(
-      {
-        id: 'gid12345-aaaa', size: 'compact', chatBarText: 'menu',
-        isDefaultForAll: false, selected: true,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.jpg',
-          imageContentType: 'image/jpeg', lineRichMenuId: null, areas: [],
-        }],
-      },
-      line,
-      makeMockR2(),
-      {
-        generation: 'confirm1',
-        remoteMenuName: 'pharmacy-gid12345-confirm1',
-        preserveRemoteOnError: true,
-        onProgress: async (phase) => { line.calls.push(`persist-${phase}`); },
-      },
-    )).rejects.toThrow('network result unknown');
+    await expect(
+      publishRichMenuGroup(
+        {
+          id: 'gid12345-aaaa',
+          size: 'compact',
+          chatBarText: 'menu',
+          isDefaultForAll: false,
+          selected: true,
+          pages: [
+            {
+              id: 'p1',
+              orderIndex: 0,
+              name: 'p1',
+              imageR2Key: 'a.jpg',
+              imageContentType: 'image/jpeg',
+              lineRichMenuId: null,
+              areas: [],
+            },
+          ],
+        },
+        line,
+        makeMockR2(),
+        {
+          generation: 'confirm1',
+          remoteMenuName: 'pharmacy-gid12345-confirm1',
+          preserveRemoteOnError: true,
+          onProgress: async (phase) => {
+            line.calls.push(`persist-${phase}`);
+          },
+        },
+      ),
+    ).rejects.toThrow('network result unknown');
 
-    expect(createdPayloads).toEqual([
-      expect.objectContaining({ name: 'pharmacy-gid12345-confirm1' }),
-    ]);
+    expect(createdPayloads).toEqual([expect.objectContaining({ name: 'pharmacy-gid12345-confirm1' })]);
     expect(line.calls).toEqual(['create', 'persist-remote_created', 'upload']);
     expect(line.deleteRichMenu).not.toHaveBeenCalled();
     expect(line.deleteRichMenuAlias).not.toHaveBeenCalled();
@@ -202,10 +261,30 @@ describe('publishRichMenuGroup', () => {
     await expect(
       publishRichMenuGroup(
         {
-          id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
+          id: 'gid12345-aaaa',
+          size: 'large',
+          chatBarText: 'm',
+          isDefaultForAll: false,
+          selected: false,
           pages: [
-            { id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.png', imageContentType: 'image/png', lineRichMenuId: 'old-1', areas: [] },
-            { id: 'p2', orderIndex: 1, name: 'p2', imageR2Key: 'b.png', imageContentType: 'image/png', lineRichMenuId: 'old-2', areas: [] },
+            {
+              id: 'p1',
+              orderIndex: 0,
+              name: 'p1',
+              imageR2Key: 'a.png',
+              imageContentType: 'image/png',
+              lineRichMenuId: 'old-1',
+              areas: [],
+            },
+            {
+              id: 'p2',
+              orderIndex: 1,
+              name: 'p2',
+              imageR2Key: 'b.png',
+              imageContentType: 'image/png',
+              lineRichMenuId: 'old-2',
+              areas: [],
+            },
           ],
         },
         line,
@@ -224,13 +303,22 @@ describe('publishRichMenuGroup', () => {
     const r2 = makeMockR2();
     const result = await publishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'menu', isDefaultForAll: false, selected: false,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1',
-          imageR2Key: 'rich-menus/test/p1.png', imageContentType: 'image/png',
-          lineRichMenuId: 'old-1',
-          areas: [],
-        }],
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'menu',
+        isDefaultForAll: false,
+        selected: false,
+        pages: [
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: 'rich-menus/test/p1.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: 'old-1',
+            areas: [],
+          },
+        ],
       },
       line,
       r2,
@@ -247,10 +335,30 @@ describe('publishRichMenuGroup', () => {
     const r2 = makeMockR2();
     const result = await publishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: false,
+        selected: false,
         pages: [
-          { id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: 'a.png', imageContentType: 'image/png', lineRichMenuId: null, areas: [] },
-          { id: 'p2', orderIndex: 1, name: 'p2', imageR2Key: 'b.png', imageContentType: 'image/png', lineRichMenuId: null, areas: [] },
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: 'a.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: null,
+            areas: [],
+          },
+          {
+            id: 'p2',
+            orderIndex: 1,
+            name: 'p2',
+            imageR2Key: 'b.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: null,
+            areas: [],
+          },
         ],
       },
       line,
@@ -266,12 +374,22 @@ describe('publishRichMenuGroup', () => {
     const r2 = makeMockR2();
     await publishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: true, selected: true,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1',
-          imageR2Key: 'a.png', imageContentType: 'image/png',
-          lineRichMenuId: null, areas: [],
-        }],
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: true,
+        selected: true,
+        pages: [
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: 'a.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: null,
+            areas: [],
+          },
+        ],
       },
       line,
       r2,
@@ -288,12 +406,22 @@ describe('publishRichMenuGroup', () => {
     const r2 = makeMockR2();
     await publishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1',
-          imageR2Key: 'a.png', imageContentType: 'image/png',
-          lineRichMenuId: 'old-1', areas: [],
-        }],
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: false,
+        selected: false,
+        pages: [
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: 'a.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: 'old-1',
+            areas: [],
+          },
+        ],
       },
       line,
       r2,
@@ -309,12 +437,22 @@ describe('publishRichMenuGroup', () => {
     const r2 = makeMockR2();
     await publishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1',
-          imageR2Key: 'a.png', imageContentType: 'image/png',
-          lineRichMenuId: 'old-1', areas: [],
-        }],
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: false,
+        selected: false,
+        pages: [
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: 'a.png',
+            imageContentType: 'image/png',
+            lineRichMenuId: 'old-1',
+            areas: [],
+          },
+        ],
       },
       line,
       r2,
@@ -329,18 +467,30 @@ describe('publishRichMenuGroup', () => {
       throw new Error('LINE 5xx transient');
     });
     const r2 = makeMockR2();
-    await expect(publishRichMenuGroup(
-      {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
-        pages: [{
-          id: 'p1', orderIndex: 0, name: 'p1',
-          imageR2Key: 'a.png', imageContentType: 'image/png',
-          lineRichMenuId: 'old-1', areas: [],
-        }],
-      },
-      line,
-      r2,
-    )).resolves.toBeDefined();
+    await expect(
+      publishRichMenuGroup(
+        {
+          id: 'gid12345-aaaa',
+          size: 'large',
+          chatBarText: 'm',
+          isDefaultForAll: false,
+          selected: false,
+          pages: [
+            {
+              id: 'p1',
+              orderIndex: 0,
+              name: 'p1',
+              imageR2Key: 'a.png',
+              imageContentType: 'image/png',
+              lineRichMenuId: 'old-1',
+              areas: [],
+            },
+          ],
+        },
+        line,
+        r2,
+      ),
+    ).resolves.toBeDefined();
     expect(line.getCurrentDefaultRichMenuId).not.toHaveBeenCalled();
   });
 
@@ -350,12 +500,22 @@ describe('publishRichMenuGroup', () => {
     await expect(
       publishRichMenuGroup(
         {
-          id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
-          pages: [{
-            id: 'p1', orderIndex: 0, name: 'p1',
-            imageR2Key: 'missing.png', imageContentType: 'image/png',
-            lineRichMenuId: null, areas: [],
-          }],
+          id: 'gid12345-aaaa',
+          size: 'large',
+          chatBarText: 'm',
+          isDefaultForAll: false,
+          selected: false,
+          pages: [
+            {
+              id: 'p1',
+              orderIndex: 0,
+              name: 'p1',
+              imageR2Key: 'missing.png',
+              imageContentType: 'image/png',
+              lineRichMenuId: null,
+              areas: [],
+            },
+          ],
         },
         line,
         r2,
@@ -369,12 +529,22 @@ describe('publishRichMenuGroup', () => {
     await expect(
       publishRichMenuGroup(
         {
-          id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
-          pages: [{
-            id: 'p1', orderIndex: 0, name: 'p1',
-            imageR2Key: null, imageContentType: null,
-            lineRichMenuId: null, areas: [],
-          }],
+          id: 'gid12345-aaaa',
+          size: 'large',
+          chatBarText: 'm',
+          isDefaultForAll: false,
+          selected: false,
+          pages: [
+            {
+              id: 'p1',
+              orderIndex: 0,
+              name: 'p1',
+              imageR2Key: null,
+              imageContentType: null,
+              lineRichMenuId: null,
+              areas: [],
+            },
+          ],
         },
         line,
         r2,
@@ -388,10 +558,30 @@ describe('unpublishRichMenuGroup', () => {
     const line = makeMockLineClient({ currentDefault: 'lm-old-1' });
     const result = await unpublishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: true, selected: true,
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: true,
+        selected: true,
         pages: [
-          { id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: null, imageContentType: null, lineRichMenuId: 'lm-old-1', areas: [] },
-          { id: 'p2', orderIndex: 1, name: 'p2', imageR2Key: null, imageContentType: null, lineRichMenuId: 'lm-old-2', areas: [] },
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: null,
+            imageContentType: null,
+            lineRichMenuId: 'lm-old-1',
+            areas: [],
+          },
+          {
+            id: 'p2',
+            orderIndex: 1,
+            name: 'p2',
+            imageR2Key: null,
+            imageContentType: null,
+            lineRichMenuId: 'lm-old-2',
+            areas: [],
+          },
         ],
       },
       line,
@@ -412,9 +602,22 @@ describe('unpublishRichMenuGroup', () => {
     const line = makeMockLineClient({ currentDefault: 'lm-other-group' });
     await unpublishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: false,
+        selected: false,
         pages: [
-          { id: 'p1', aliasId: 'lhx-gid12345-gen12345-0', orderIndex: 0, name: 'p1', imageR2Key: null, imageContentType: null, lineRichMenuId: 'lm-mine', areas: [] },
+          {
+            id: 'p1',
+            aliasId: 'lhx-gid12345-gen12345-0',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: null,
+            imageContentType: null,
+            lineRichMenuId: 'lm-mine',
+            areas: [],
+          },
         ],
       },
       line,
@@ -430,9 +633,21 @@ describe('unpublishRichMenuGroup', () => {
     });
     const result = await unpublishRichMenuGroup(
       {
-        id: 'gid12345-aaaa', size: 'large', chatBarText: 'm', isDefaultForAll: false, selected: false,
+        id: 'gid12345-aaaa',
+        size: 'large',
+        chatBarText: 'm',
+        isDefaultForAll: false,
+        selected: false,
         pages: [
-          { id: 'p1', orderIndex: 0, name: 'p1', imageR2Key: null, imageContentType: null, lineRichMenuId: null, areas: [] },
+          {
+            id: 'p1',
+            orderIndex: 0,
+            name: 'p1',
+            imageR2Key: null,
+            imageContentType: null,
+            lineRichMenuId: null,
+            areas: [],
+          },
         ],
       },
       line,

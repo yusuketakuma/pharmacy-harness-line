@@ -70,8 +70,13 @@ function fail(message: string): never {
 
 function validateMigrationInput(input: LineCredentialMigrationInput): void {
   for (const value of [input.tenantId, input.lineAccountId]) {
-    if (typeof value !== 'string' || value.length === 0 || value.length > 128 ||
-        value.trim() !== value || /[\u0000-\u001F\u007F]/u.test(value)) {
+    if (
+      typeof value !== 'string' ||
+      value.length === 0 ||
+      value.length > 128 ||
+      value.trim() !== value ||
+      /[\u0000-\u001F\u007F]/u.test(value)
+    ) {
       fail(LINE_CREDENTIAL_BACKFILL_ERROR);
     }
   }
@@ -92,7 +97,8 @@ async function readLegacyLineAccount(
   input: LineCredentialMigrationInput,
 ): Promise<LegacyLineAccountRow> {
   try {
-    const result = await db.prepare(`
+    const result = await db
+      .prepare(`
       /* line-credential-backfill:legacy */
       SELECT mapping.tenant_id, mapping.line_account_id,
              account.channel_access_token,
@@ -106,10 +112,15 @@ async function readLegacyLineAccount(
                 ON account.id = mapping.line_account_id
        WHERE mapping.line_account_id = ?
        LIMIT 2
-    `).bind(input.lineAccountId).all<LegacyLineAccountRow>();
+    `)
+      .bind(input.lineAccountId)
+      .all<LegacyLineAccountRow>();
     const rows = result.results ?? [];
-    if (rows.length !== 1 || rows[0]?.tenant_id !== input.tenantId ||
-        rows[0]?.line_account_id !== input.lineAccountId) {
+    if (
+      rows.length !== 1 ||
+      rows[0]?.tenant_id !== input.tenantId ||
+      rows[0]?.line_account_id !== input.lineAccountId
+    ) {
       fail(LINE_CREDENTIAL_BACKFILL_ERROR);
     }
     const row = rows[0]!;
@@ -130,18 +141,24 @@ async function readEncryptedCredentials(
   input: LineCredentialMigrationInput,
 ): Promise<Map<LineCredentialKind, StoredLineCredentialRow>> {
   try {
-    const result = await db.prepare(`
+    const result = await db
+      .prepare(`
       /* line-credential-backfill:encrypted */
       SELECT credential_kind, nonce, ciphertext, key_version, revision, lookup_digest
         FROM pharmacy_line_credentials
        WHERE tenant_id = ? AND line_account_id = ?
-    `).bind(input.tenantId, input.lineAccountId).all<StoredLineCredentialRow>();
+    `)
+      .bind(input.tenantId, input.lineAccountId)
+      .all<StoredLineCredentialRow>();
     const rows = result.results ?? [];
     const byKind = new Map<LineCredentialKind, StoredLineCredentialRow>();
     for (const row of rows) {
-      if (!LEGACY_FIELDS.some((field) => field.kind === row.credential_kind) ||
-          byKind.has(row.credential_kind) ||
-          !Number.isSafeInteger(row.revision) || row.revision < 1) {
+      if (
+        !LEGACY_FIELDS.some((field) => field.kind === row.credential_kind) ||
+        byKind.has(row.credential_kind) ||
+        !Number.isSafeInteger(row.revision) ||
+        row.revision < 1
+      ) {
         fail(LINE_CREDENTIAL_BACKFILL_ERROR);
       }
       byKind.set(row.credential_kind, row);
@@ -215,16 +232,22 @@ async function validateMissingCredentials(
   states: CredentialState[],
 ): Promise<void> {
   try {
-    await Promise.all(states
-      .filter((state): state is CredentialState & { legacy: string; encrypted: null } =>
-        state.legacy !== null && state.encrypted === null)
-      .map((state) => encryptLineCredential({
-        rootSecret,
-        tenantId: input.tenantId,
-        lineAccountId: input.lineAccountId,
-        kind: state.kind,
-        credential: state.legacy,
-      })));
+    await Promise.all(
+      states
+        .filter(
+          (state): state is CredentialState & { legacy: string; encrypted: null } =>
+            state.legacy !== null && state.encrypted === null,
+        )
+        .map((state) =>
+          encryptLineCredential({
+            rootSecret,
+            tenantId: input.tenantId,
+            lineAccountId: input.lineAccountId,
+            kind: state.kind,
+            credential: state.legacy,
+          }),
+        ),
+    );
   } catch {
     fail(LINE_CREDENTIAL_BACKFILL_ERROR);
   }
@@ -246,7 +269,8 @@ async function writeMigratedCredential(
       credential: state.legacy,
     });
     const now = new Date().toISOString();
-    const result = await db.prepare(`
+    const result = await db
+      .prepare(`
       INSERT INTO pharmacy_line_credentials
         (tenant_id, line_account_id, credential_kind, nonce, ciphertext,
          key_version, revision, lookup_digest, created_at, updated_at)
@@ -268,19 +292,21 @@ async function writeMigratedCredential(
         updated_at = excluded.updated_at
        WHERE pharmacy_line_credentials.revision = 0
       RETURNING revision
-    `).bind(
-      input.tenantId,
-      input.lineAccountId,
-      state.kind,
-      encrypted.nonce,
-      encrypted.ciphertext,
-      encrypted.keyVersion,
-      encrypted.lookupDigest,
-      now,
-      now,
-      input.tenantId,
-      input.lineAccountId,
-    ).first<{ revision: number }>();
+    `)
+      .bind(
+        input.tenantId,
+        input.lineAccountId,
+        state.kind,
+        encrypted.nonce,
+        encrypted.ciphertext,
+        encrypted.keyVersion,
+        encrypted.lookupDigest,
+        now,
+        now,
+        input.tenantId,
+        input.lineAccountId,
+      )
+      .first<{ revision: number }>();
     if (!result || !Number.isSafeInteger(result.revision) || result.revision < 1) {
       fail(LINE_CREDENTIAL_BACKFILL_ERROR);
     }
@@ -304,10 +330,15 @@ export async function backfillLineCredentials(
     for (const state of inspected.states) {
       if (state.legacy === null || state.encrypted !== null) continue;
       // Revision 0 is the store's insert-only CAS: a concurrent row is rejected.
-      await writeMigratedCredential(db, validatedRoot, input, state as CredentialState & {
-        legacy: string;
-        encrypted: null;
-      });
+      await writeMigratedCredential(
+        db,
+        validatedRoot,
+        input,
+        state as CredentialState & {
+          legacy: string;
+          encrypted: null;
+        },
+      );
       written += 1;
     }
     return { written, verified: inspected.verified };
@@ -335,8 +366,9 @@ export async function scrubLegacyLineCredentials(
     const token = legacyByKind.get('channel_access_token') ?? null;
     const secret = legacyByKind.get('channel_secret') ?? null;
     const loginSecret = legacyByKind.get('login_channel_secret') ?? null;
-    const needsScrub = [token, secret, loginSecret]
-      .some((value) => value !== null && value !== LEGACY_LINE_CREDENTIAL_SENTINEL);
+    const needsScrub = [token, secret, loginSecret].some(
+      (value) => value !== null && value !== LEGACY_LINE_CREDENTIAL_SENTINEL,
+    );
     if (!needsScrub) return { scrubbed: false, verified: inspected.verified };
 
     const guardValues: unknown[] = [];
@@ -346,7 +378,8 @@ export async function scrubLegacyLineCredentials(
       scrubGuard('login_channel_secret', loginSecret, guardValues),
     ];
     const result = await db.batch([
-      db.prepare(`
+      db
+        .prepare(`
         UPDATE line_accounts AS account
            SET channel_access_token = ?,
                channel_secret = ?,
@@ -370,14 +403,15 @@ export async function scrubLegacyLineCredentials(
                 AND mapping.tenant_id = ?
            )
            AND ${guards.join('\n           AND ')}
-      `).bind(
-        token === null ? null : LEGACY_LINE_CREDENTIAL_SENTINEL,
-        secret === null ? null : LEGACY_LINE_CREDENTIAL_SENTINEL,
-        loginSecret === null ? null : LEGACY_LINE_CREDENTIAL_SENTINEL,
-        input.lineAccountId,
-        input.tenantId,
-        ...guardValues,
-      ),
+      `)
+        .bind(
+          token === null ? null : LEGACY_LINE_CREDENTIAL_SENTINEL,
+          secret === null ? null : LEGACY_LINE_CREDENTIAL_SENTINEL,
+          loginSecret === null ? null : LEGACY_LINE_CREDENTIAL_SENTINEL,
+          input.lineAccountId,
+          input.tenantId,
+          ...guardValues,
+        ),
     ]);
     if (result.length !== 1 || (result[0]?.meta.changes ?? 0) !== 1) {
       fail(LINE_CREDENTIAL_SCRUB_ERROR);
@@ -408,24 +442,27 @@ export async function restoreLegacyLineCredentials(
     const plaintext = new Map<LineCredentialKind, string>();
     for (const state of encryptedStates) {
       if (!state.encrypted) fail(LINE_CREDENTIAL_RESTORE_ERROR);
-      plaintext.set(state.kind, await decryptLineCredential({
-        rootSecret: validatedRoot,
-        tenantId: input.tenantId,
-        lineAccountId: input.lineAccountId,
-        kind: state.kind,
-        keyVersion: state.encrypted.key_version,
-        nonce: state.encrypted.nonce,
-        ciphertext: state.encrypted.ciphertext,
-        lookupDigest: state.encrypted.lookup_digest,
-      }));
+      plaintext.set(
+        state.kind,
+        await decryptLineCredential({
+          rootSecret: validatedRoot,
+          tenantId: input.tenantId,
+          lineAccountId: input.lineAccountId,
+          kind: state.kind,
+          keyVersion: state.encrypted.key_version,
+          nonce: state.encrypted.nonce,
+          ciphertext: state.encrypted.ciphertext,
+          lookupDigest: state.encrypted.lookup_digest,
+        }),
+      );
     }
 
     const current = new Map(inspected.states.map((state) => [state.kind, state.legacy]));
     const guardValues: unknown[] = [];
-    const guards = LEGACY_FIELDS.map((field) =>
-      scrubGuard(field.column, current.get(field.kind) ?? null, guardValues));
+    const guards = LEGACY_FIELDS.map((field) => scrubGuard(field.column, current.get(field.kind) ?? null, guardValues));
     const result = await db.batch([
-      db.prepare(`
+      db
+        .prepare(`
         UPDATE line_accounts AS account
            SET channel_access_token = ?,
                channel_secret = ?,
@@ -449,14 +486,15 @@ export async function restoreLegacyLineCredentials(
                 AND mapping.tenant_id = ?
            )
            AND ${guards.join('\n           AND ')}
-      `).bind(
-        plaintext.get('channel_access_token') ?? null,
-        plaintext.get('channel_secret') ?? null,
-        plaintext.get('login_channel_secret') ?? null,
-        input.lineAccountId,
-        input.tenantId,
-        ...guardValues,
-      ),
+      `)
+        .bind(
+          plaintext.get('channel_access_token') ?? null,
+          plaintext.get('channel_secret') ?? null,
+          plaintext.get('login_channel_secret') ?? null,
+          input.lineAccountId,
+          input.tenantId,
+          ...guardValues,
+        ),
     ]);
     if (result.length !== 1 || (result[0]?.meta.changes ?? 0) !== 1) {
       fail(LINE_CREDENTIAL_RESTORE_ERROR);

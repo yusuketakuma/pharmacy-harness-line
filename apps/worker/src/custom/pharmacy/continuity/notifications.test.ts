@@ -20,45 +20,92 @@ describe('continuity reminder notifications', () => {
     const db = {
       prepare: (sql: string) => {
         queries.push(sql);
-        return ({
+        return {
           bind: () => ({
-          first: async () => sql.includes('final pharmacy dispatch scope')
-            ? { destination_line_user_id: 'U1', is_following: 1, account_active: 1, tenant_status: 'active', outbound_messaging_paused_at: null, capability_enabled: 1, followup_status: null, followup_operations_enabled: null }
-            : sql.includes('pharmacy_account_capabilities')
-              ? { line_account_id: 'account-1', mode: 'pharmacy', capabilities_json: '["continuity"]', proactive_monthly_limit: 1, unfollow_alert_state: 'alert_only', created_at: '', updated_at: '' }
-              : sql.includes('SELECT patient.relationship')
-                ? { relationship: 'self', proxy_expires_at: null, privacy_withdrawn: 0, notifications_stopped: 0, control_version: 0 }
-                : null,
+            first: async () =>
+              sql.includes('final pharmacy dispatch scope')
+                ? {
+                    destination_line_user_id: 'U1',
+                    is_following: 1,
+                    account_active: 1,
+                    tenant_status: 'active',
+                    outbound_messaging_paused_at: null,
+                    capability_enabled: 1,
+                    expectation_status: 'active',
+                    continuity_status: 'active',
+                    followup_status: null,
+                    followup_operations_enabled: null,
+                  }
+                : sql.includes('pharmacy_account_capabilities')
+                  ? {
+                      line_account_id: 'account-1',
+                      mode: 'pharmacy',
+                      capabilities_json: '["continuity"]',
+                      proactive_monthly_limit: 1,
+                      unfollow_alert_state: 'alert_only',
+                      created_at: '',
+                      updated_at: '',
+                    }
+                  : sql.includes('SELECT patient.relationship')
+                    ? {
+                        relationship: 'self',
+                        proxy_expires_at: null,
+                        privacy_withdrawn: 0,
+                        notifications_stopped: 0,
+                        control_version: 0,
+                      }
+                    : null,
             run: async () => ({ meta: { changes: 1 } }),
           }),
-        });
+        };
       },
     } as unknown as D1Database;
-    const result = await deliverContinuityReminder({
-      id: 'expectation-1', obligation_id: 'obligation-1', line_account_id: 'account-1',
-      owner_friend_id: 'friend-1', patient_id: 'patient-1', status: 'active',
-      timing_source: 'manual_window', supply_days: null,
-      expected_from: '2026-09-01', expected_to: '2026-10-31',
-      reminder_at: '2026-09-01T00:00:00Z', reminded_at: null, version: 2,
-      created_by: 'staff-1', created_at: '2026-08-17T00:00:00Z',
-      updated_at: '2026-08-17T00:00:00Z', line_user_id: 'U1', tenant_id: 'tenant-a',
-    }, { db, proxyBaseUrl: 'https://worker.example', lineCredentialKey: CREDENTIAL_KEY });
+    const result = await deliverContinuityReminder(
+      {
+        id: 'expectation-1',
+        obligation_id: 'obligation-1',
+        line_account_id: 'account-1',
+        owner_friend_id: 'friend-1',
+        patient_id: 'patient-1',
+        status: 'active',
+        timing_source: 'manual_window',
+        supply_days: null,
+        expected_from: '2026-09-01',
+        expected_to: '2026-10-31',
+        reminder_at: '2026-09-01T00:00:00Z',
+        reminded_at: null,
+        version: 2,
+        created_by: 'staff-1',
+        created_at: '2026-08-17T00:00:00Z',
+        updated_at: '2026-08-17T00:00:00Z',
+        line_user_id: 'U1',
+        tenant_id: 'tenant-a',
+      },
+      { db, proxyBaseUrl: 'https://worker.example', lineCredentialKey: CREDENTIAL_KEY },
+    );
     expect(result).toBe('sent');
     expect(continuityReminderText()).not.toMatch(/患者|氏名|薬名/);
     expect(push).toHaveBeenCalledWith(
-      'https://worker.example', 'token', 'U1',
+      'https://worker.example',
+      'token',
+      'U1',
       [{ type: 'text', text: continuityReminderText() }],
-      expect.stringMatching(/^[0-9a-f-]{36}$/), undefined,
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+      undefined,
       {
         pharmacyNotificationEventId: expect.any(String),
         lineAccountId: 'account-1',
       },
     );
     expect(markReminded).toHaveBeenCalledWith(db, {
-      lineAccountId: 'account-1', expectationId: 'expectation-1', expectedVersion: 2,
+      lineAccountId: 'account-1',
+      expectationId: 'expectation-1',
+      expectedVersion: 2,
     });
     expect(readCredential).toHaveBeenCalledWith(db, CREDENTIAL_KEY, {
-      tenantId: 'tenant-a', lineAccountId: 'account-1', kind: 'channel_access_token',
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-1',
+      kind: 'channel_access_token',
     });
     expect(queries.filter((sql) => sql.includes('SELECT patient.relationship'))).toHaveLength(3);
   });
@@ -69,20 +116,36 @@ describe('continuity reminder notifications', () => {
     const pushDispatch = vi.fn();
     const db = {} as D1Database;
 
-    await expect(deliverContinuityReminder({
-      id: 'expectation-1', obligation_id: 'obligation-1', line_account_id: 'account-1',
-      owner_friend_id: 'friend-1', patient_id: 'patient-1', status: 'active',
-      timing_source: 'manual_window', supply_days: null,
-      expected_from: '2026-09-01', expected_to: '2026-10-31',
-      reminder_at: '2026-09-01T00:00:00Z', reminded_at: null, version: 2,
-      created_by: 'staff-1', created_at: '2026-08-17T00:00:00Z',
-      updated_at: '2026-08-17T00:00:00Z', line_user_id: 'U1', tenant_id: 'tenant-b',
-    }, {
-      db,
-      proxyBaseUrl: 'https://worker.example',
-      proxyDispatch: pushDispatch,
-      lineCredentialKey: CREDENTIAL_KEY,
-    })).resolves.toBe('skipped');
+    await expect(
+      deliverContinuityReminder(
+        {
+          id: 'expectation-1',
+          obligation_id: 'obligation-1',
+          line_account_id: 'account-1',
+          owner_friend_id: 'friend-1',
+          patient_id: 'patient-1',
+          status: 'active',
+          timing_source: 'manual_window',
+          supply_days: null,
+          expected_from: '2026-09-01',
+          expected_to: '2026-10-31',
+          reminder_at: '2026-09-01T00:00:00Z',
+          reminded_at: null,
+          version: 2,
+          created_by: 'staff-1',
+          created_at: '2026-08-17T00:00:00Z',
+          updated_at: '2026-08-17T00:00:00Z',
+          line_user_id: 'U1',
+          tenant_id: 'tenant-b',
+        },
+        {
+          db,
+          proxyBaseUrl: 'https://worker.example',
+          proxyDispatch: pushDispatch,
+          lineCredentialKey: CREDENTIAL_KEY,
+        },
+      ),
+    ).resolves.toBe('skipped');
     expect(pushDispatch).not.toHaveBeenCalled();
     expect(markReminded).not.toHaveBeenCalled();
   });

@@ -11,7 +11,13 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
   db.prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-    `account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, NOW, NOW,
+    `account-${suffix}`,
+    `channel-${suffix}`,
+    suffix,
+    `token-${suffix}`,
+    `secret-${suffix}`,
+    NOW,
+    NOW,
   );
   db.prepare(`INSERT INTO tenants
     (id, tenant_code, display_name, status, created_at, updated_at)
@@ -22,13 +28,16 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
   db.prepare(`INSERT INTO friends
     (id, line_user_id, provider_line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, ?, 1, ?, ?)`).run(
-    `friend-${suffix}`, `legacy-u-${suffix}`, `U-${suffix}`, `account-${suffix}`, NOW, NOW,
+    `friend-${suffix}`,
+    `legacy-u-${suffix}`,
+    `U-${suffix}`,
+    `account-${suffix}`,
+    NOW,
+    NOW,
   );
   db.prepare(`INSERT INTO staff_members
     (id, name, role, api_key, is_active, created_at, updated_at)
-    VALUES (?, ?, 'admin', ?, 1, ?, ?)`).run(
-    `staff-${suffix}`, `Staff ${suffix}`, `key-${suffix}`, NOW, NOW,
-  );
+    VALUES (?, ?, 'admin', ?, 1, ?, ?)`).run(`staff-${suffix}`, `Staff ${suffix}`, `key-${suffix}`, NOW, NOW);
   db.prepare(`INSERT INTO tenant_staff_memberships
     (tenant_id, staff_id, role, is_active, created_at, updated_at)
     VALUES (?, ?, 'admin', 1, ?, ?)`).run(`tenant-${suffix}`, `staff-${suffix}`, NOW, NOW);
@@ -39,7 +48,13 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
     (id, line_account_id, owner_friend_id, relationship, name, name_kana,
      birth_date, created_at, updated_at)
     VALUES (?, ?, ?, 'self', ?, ?, '1990-01-01', ?, ?)`).run(
-    `patient-${suffix}`, `account-${suffix}`, `friend-${suffix}`, suffix, suffix, NOW, NOW,
+    `patient-${suffix}`,
+    `account-${suffix}`,
+    `friend-${suffix}`,
+    suffix,
+    suffix,
+    NOW,
+    NOW,
   );
 }
 
@@ -54,7 +69,11 @@ function seedReadyService(db: Database.Database, suffix: 'a' | 'b'): void {
             'https://manufacturer.example/check', 'https://pharmacy.example/privacy',
             'privacy@example.test', 'reason', '2026-08-19', 30, 30, 30, 1, 1,
             'https://clinic.example', 'https://support.example', ?, ?, ?)`).run(
-    `account-${suffix}`, `REG-${suffix}`, `staff-${suffix}`, NOW, NOW,
+    `account-${suffix}`,
+    `REG-${suffix}`,
+    `staff-${suffix}`,
+    NOW,
+    NOW,
   );
   db.prepare(`INSERT INTO pharmacy_emergency_pharmacists
     (line_account_id, staff_id, training_registration_number, is_active, created_at, updated_at)
@@ -85,15 +104,29 @@ function insertIntake(
     VALUES (?, ?, ?, ?, ?, ?, 'provisional',
             'v1.nonce.ciphertext', 1, 'adult', 'neutral_line', '2026-08-19',
             '[]', 'norlevo-otc', ?, '2099-08-19T00:00:00.000Z', 1, ?, ?)`).run(
-    id, `REF-${id}`, tenantId, lineAccountId, ownerFriendId, slotId, `idem-${id}`, NOW, NOW,
+    id,
+    `REF-${id}`,
+    tenantId,
+    lineAccountId,
+    ownerFriendId,
+    slotId,
+    `idem-${id}`,
+    NOW,
+    NOW,
   );
 }
 
 function insertSaleRecord(
   db: Database.Database,
   overrides: Partial<{
-    id: string; lineAccountId: string; intakeId: string; ownerFriendId: string;
-    quantity: number; outcome: string; identityCheck: string; inPersonDose: string;
+    id: string;
+    lineAccountId: string;
+    intakeId: string;
+    ownerFriendId: string;
+    quantity: number;
+    outcome: string;
+    identityCheck: string;
+    inPersonDose: string;
     pharmacistStaffId: string;
   }> = {},
 ): void {
@@ -116,9 +149,17 @@ function insertSaleRecord(
      determination_key_version, sold_at, created_at)
     VALUES (?, ?, ?, ?, 'norlevo-otc', 'v1', ?, ?, ?, ?, 1, ?, 'TRAIN-A',
             'v1.nonce.ciphertext', 1, ?, ?)`).run(
-    values.id, values.lineAccountId, values.intakeId, values.ownerFriendId,
-    values.quantity, values.outcome, values.identityCheck, values.inPersonDose,
-    values.pharmacistStaffId, NOW, NOW,
+    values.id,
+    values.lineAccountId,
+    values.intakeId,
+    values.ownerFriendId,
+    values.quantity,
+    values.outcome,
+    values.identityCheck,
+    values.inPersonDose,
+    values.pharmacistStaffId,
+    NOW,
+    NOW,
   );
 }
 
@@ -138,32 +179,47 @@ describe('custom_051 pharmacy emergency counter confirmations and sale records',
   });
 
   it('rejects a counter confirmation for a cross-account intake', () => {
-    expect(() => db.prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
       (line_account_id, intake_id, section, checklist_version, staff_id, confirmed_at)
-      VALUES ('account-a', 'intake-b', 'A', 'v1', 'staff-a', ?)`).run(NOW)).toThrow();
+      VALUES ('account-a', 'intake-b', 'A', 'v1', 'staff-a', ?)`)
+        .run(NOW),
+    ).toThrow();
   });
 
   it('rejects a section value outside A-D', () => {
-    expect(() => db.prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
       (line_account_id, intake_id, section, checklist_version, staff_id, confirmed_at)
-      VALUES ('account-a', 'intake-1', 'E', 'v1', 'staff-a', ?)`).run(NOW)).toThrow();
+      VALUES ('account-a', 'intake-1', 'E', 'v1', 'staff-a', ?)`)
+        .run(NOW),
+    ).toThrow();
   });
 
   it('allows one confirmation row per section, rejecting a duplicate section for the same intake', () => {
     db.prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
       (line_account_id, intake_id, section, checklist_version, staff_id, confirmed_at)
       VALUES ('account-a', 'intake-1', 'A', 'v1', 'staff-a', ?)`).run(NOW);
-    expect(() => db.prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
       (line_account_id, intake_id, section, checklist_version, staff_id, confirmed_at)
-      VALUES ('account-a', 'intake-1', 'A', 'v1', 'staff-a', ?)`).run(NOW)).toThrow();
-    expect(() => db.prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
+      VALUES ('account-a', 'intake-1', 'A', 'v1', 'staff-a', ?)`)
+        .run(NOW),
+    ).toThrow();
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_emergency_counter_confirmations
       (line_account_id, intake_id, section, checklist_version, staff_id, confirmed_at)
-      VALUES ('account-a', 'intake-1', 'B', 'v1', 'staff-a', ?)`).run(NOW)).not.toThrow();
+      VALUES ('account-a', 'intake-1', 'B', 'v1', 'staff-a', ?)`)
+        .run(NOW),
+    ).not.toThrow();
   });
 
   it('rejects a sale record whose owner_friend_id does not match the intake owner', () => {
-    expect(() => insertSaleRecord(db, { ownerFriendId: 'friend-b' }))
-      .toThrow('EMERGENCY_SALE_OWNER_MISMATCH');
+    expect(() => insertSaleRecord(db, { ownerFriendId: 'friend-b' })).toThrow('EMERGENCY_SALE_OWNER_MISMATCH');
   });
 
   it('enforces one sale record per intake, rejecting a second insert', () => {
@@ -189,12 +245,18 @@ describe('custom_051 pharmacy emergency counter confirmations and sale records',
 
   it('aborts UPDATE and DELETE on a sale record (immutable)', () => {
     insertSaleRecord(db);
-    expect(() => db.prepare(`UPDATE pharmacy_emergency_sale_records
-      SET outcome = 'refused' WHERE id = 'sale-1'`).run())
-      .toThrow('EMERGENCY_SALE_RECORD_IMMUTABLE');
-    expect(() => db.prepare(`DELETE FROM pharmacy_emergency_sale_records
-      WHERE id = 'sale-1'`).run())
-      .toThrow('EMERGENCY_SALE_RECORD_IMMUTABLE');
+    expect(() =>
+      db
+        .prepare(`UPDATE pharmacy_emergency_sale_records
+      SET outcome = 'refused' WHERE id = 'sale-1'`)
+        .run(),
+    ).toThrow('EMERGENCY_SALE_RECORD_IMMUTABLE');
+    expect(() =>
+      db
+        .prepare(`DELETE FROM pharmacy_emergency_sale_records
+      WHERE id = 'sale-1'`)
+        .run(),
+    ).toThrow('EMERGENCY_SALE_RECORD_IMMUTABLE');
   });
 
   it('supports the legal-hold join against pharmacy_data_subject_requests by owner_friend_id', () => {
@@ -205,12 +267,14 @@ describe('custom_051 pharmacy emergency counter confirmations and sale records',
       VALUES ('dsr-1', 'tenant-a', 'account-a', 'friend-a', 'patient-a', 'erasure',
               'received', 'requested', ?, 'staff-a', ?, ?)`).run(NOW, NOW, NOW);
 
-    const rows = db.prepare(`SELECT sale.id
+    const rows = db
+      .prepare(`SELECT sale.id
       FROM pharmacy_emergency_sale_records AS sale
       INNER JOIN pharmacy_data_subject_requests AS dsr
         ON dsr.line_account_id = sale.line_account_id
        AND dsr.owner_friend_id = sale.owner_friend_id
-      WHERE sale.id = 'sale-1'`).all();
+      WHERE sale.id = 'sale-1'`)
+      .all();
     expect(rows).toEqual([{ id: 'sale-1' }]);
   });
 });

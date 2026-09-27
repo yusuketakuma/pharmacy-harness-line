@@ -1,11 +1,6 @@
 import type { Context, Next } from 'hono';
 import type { Env } from '../../../index.js';
-import {
-  hasPharmacyCapability,
-  hasPharmacyModeAccount,
-  isPharmacyModeAccount,
-  isPharmacyTenant,
-} from './access.js';
+import { hasPharmacyCapability, hasPharmacyModeAccount, isPharmacyModeAccount, isPharmacyTenant } from './access.js';
 import { findPharmacyAdminApiCoverage } from '../platform-admin/api-coverage.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -79,14 +74,11 @@ function isAllowedPharmacyApi(method: string, path: string): boolean {
   return /^\/api\/friends\/(?!count$|ref-stats$)[^/]+$/.test(path);
 }
 
-export async function pharmacyTenantApiAllowlistGuard(
-  c: Context<Env>,
-  next: Next,
-): Promise<Response | void> {
+export async function pharmacyTenantApiAllowlistGuard(c: Context<Env>, next: Next): Promise<Response | void> {
   const tenantId = c.get('tenantId');
   if (!tenantId) return next();
 
-  if (!await isPharmacyTenant(c.env.DB, tenantId)) return next();
+  if (!(await isPharmacyTenant(c.env.DB, tenantId))) return next();
 
   const path = new URL(c.req.url).pathname;
   if (c.get('platformAdmin') && findPharmacyAdminApiCoverage(c.req.method, path)) {
@@ -120,29 +112,31 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
   if (liffId) {
     const row = await c.env.DB.prepare(
       `SELECT id AS line_account_id FROM line_accounts WHERE liff_id = ? AND is_active = 1`,
-    ).bind(liffId).first<{ line_account_id: string | null }>();
+    )
+      .bind(liffId)
+      .first<{ line_account_id: string | null }>();
     if (row?.line_account_id) return [row.line_account_id];
   }
 
   const broadcast = /^\/api\/broadcasts\/([^/]+)/.exec(path);
   if (broadcast) {
-    const row = await c.env.DB.prepare(
-      `SELECT line_account_id, account_ids FROM broadcasts WHERE id = ?`,
-    ).bind(broadcast[1]).first<{ line_account_id: string | null; account_ids: string | null }>();
+    const row = await c.env.DB.prepare(`SELECT line_account_id, account_ids FROM broadcasts WHERE id = ?`)
+      .bind(broadcast[1])
+      .first<{ line_account_id: string | null; account_ids: string | null }>();
     return row ? [row.line_account_id, ...parseAccountIds(row.account_ids)].filter((id): id is string => !!id) : [];
   }
 
   const scenario = /^\/api\/scenarios\/([^/]+)/.exec(path);
   if (scenario) {
-    const row = await c.env.DB.prepare(
-      `SELECT line_account_id FROM scenarios WHERE id = ?`,
-    ).bind(scenario[1]).first<{ line_account_id: string | null }>();
+    const row = await c.env.DB.prepare(`SELECT line_account_id FROM scenarios WHERE id = ?`)
+      .bind(scenario[1])
+      .first<{ line_account_id: string | null }>();
     const ids = row?.line_account_id ? [row.line_account_id] : [];
     const enrollment = /^\/api\/scenarios\/[^/]+\/enroll\/([^/]+)/.exec(path);
     if (enrollment) {
-      const friend = await c.env.DB.prepare(
-        `SELECT line_account_id FROM friends WHERE id = ?`,
-      ).bind(enrollment[1]).first<{ line_account_id: string | null }>();
+      const friend = await c.env.DB.prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
+        .bind(enrollment[1])
+        .first<{ line_account_id: string | null }>();
       if (friend?.line_account_id) ids.push(friend.line_account_id);
     }
     return ids;
@@ -150,9 +144,9 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
 
   const automation = /^\/api\/automations\/([^/]+)/.exec(path);
   if (automation) {
-    const row = await c.env.DB.prepare(
-      `SELECT line_account_id FROM automations WHERE id = ?`,
-    ).bind(automation[1]).first<{ line_account_id: string | null }>();
+    const row = await c.env.DB.prepare(`SELECT line_account_id FROM automations WHERE id = ?`)
+      .bind(automation[1])
+      .first<{ line_account_id: string | null }>();
     return row?.line_account_id ? [row.line_account_id] : [];
   }
 
@@ -172,9 +166,9 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
 
   const reminderEnrollment = /^\/api\/reminders\/[^/]+\/enroll\/([^/]+)/.exec(path);
   if (reminderEnrollment) {
-    const friend = await c.env.DB.prepare(
-      `SELECT line_account_id FROM friends WHERE id = ?`,
-    ).bind(reminderEnrollment[1]).first<{ line_account_id: string | null }>();
+    const friend = await c.env.DB.prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
+      .bind(reminderEnrollment[1])
+      .first<{ line_account_id: string | null }>();
     return friend?.line_account_id ? [friend.line_account_id] : [];
   }
 
@@ -184,7 +178,9 @@ async function resourceAccountIds(c: Context<Env>, path: string): Promise<string
       `SELECT f.line_account_id
          FROM friend_reminders fr INNER JOIN friends f ON f.id = fr.friend_id
         WHERE fr.id = ?`,
-    ).bind(friendReminder[1]).first<{ line_account_id: string | null }>();
+    )
+      .bind(friendReminder[1])
+      .first<{ line_account_id: string | null }>();
     return row?.line_account_id ? [row.line_account_id] : [];
   }
   return [];
@@ -195,14 +191,15 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   if (path === '/api/tags' && c.get('tenantId') && SAFE_METHODS.has(c.req.method.toUpperCase())) {
     return next();
   }
-  if (!c.get('tenantId') &&
-      PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix)) &&
-      await hasPharmacyModeAccount(c.env.DB)) {
+  if (
+    !c.get('tenantId') &&
+    PHARMACY_UNSCOPED_GLOBAL_API_PREFIXES.some((prefix) => matchesPrefix(path, prefix)) &&
+    (await hasPharmacyModeAccount(c.env.DB))
+  ) {
     return c.json({ success: false, error: 'generic feature disabled for pharmacy install' }, 403);
   }
-  const identityLineUserField = path === '/api/meet-callback'
-    ? 'line_user_id'
-    : path === '/api/liff/send-form-link' ? 'lineUserId' : null;
+  const identityLineUserField =
+    path === '/api/meet-callback' ? 'line_user_id' : path === '/api/liff/send-form-link' ? 'lineUserId' : null;
   const requiresOwnedIdentity = identityLineUserField !== null;
   const accountIds = new Set<string>();
   const friendIds = new Set<string>();
@@ -216,7 +213,10 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   if (!SAFE_METHODS.has(c.req.method.toUpperCase())) {
     // Content-Type is client-controlled; parse a clone so a JSON body marked
     // as text/plain cannot bypass the account resolver.
-    const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
+    const body = (await c.req.raw
+      .clone()
+      .json()
+      .catch(() => null)) as Record<string, unknown> | null;
     if (body) {
       if (identityLineUserField) {
         const lineUserId = body[identityLineUserField];
@@ -237,9 +237,9 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   }
 
   for (const friendId of friendIds) {
-    const friend = await c.env.DB.prepare(
-      `SELECT line_account_id FROM friends WHERE id = ?`,
-    ).bind(friendId).first<{ line_account_id: string | null }>();
+    const friend = await c.env.DB.prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
+      .bind(friendId)
+      .first<{ line_account_id: string | null }>();
     if (friend?.line_account_id) accountIds.add(friend.line_account_id);
   }
   for (const lineUserId of lineUserIds) {
@@ -251,7 +251,9 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
         WHERE f.provider_line_user_id = ? AND f.line_account_id IS NOT NULL
         ORDER BY CASE WHEN capability.mode = 'pharmacy' THEN 0 ELSE 1 END, f.line_account_id
         LIMIT 1`,
-    ).bind(lineUserId).first<{ line_account_id: string }>();
+    )
+      .bind(lineUserId)
+      .first<{ line_account_id: string }>();
     if (friend?.line_account_id) accountIds.add(friend.line_account_id);
   }
 
@@ -265,7 +267,9 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
       `SELECT line_account_id
          FROM tenant_line_accounts
         WHERE tenant_id = ?`,
-    ).bind(tenantId).all<{ line_account_id: string }>();
+    )
+      .bind(tenantId)
+      .all<{ line_account_id: string }>();
     for (const account of tenantAccounts.results) accountIds.add(account.line_account_id);
     if (accountIds.size === 0) {
       return c.json({ success: false, error: 'generic feature account scope required' }, 403);
@@ -273,9 +277,9 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   }
 
   if (accountIds.size === 0 && !requiresOwnedIdentity && !tenantId) {
-    const account = await c.env.DB.prepare(
-      `SELECT id FROM line_accounts WHERE channel_id = ? AND is_active = 1`,
-    ).bind(c.env.LINE_CHANNEL_ID).first<{ id: string }>();
+    const account = await c.env.DB.prepare(`SELECT id FROM line_accounts WHERE channel_id = ? AND is_active = 1`)
+      .bind(c.env.LINE_CHANNEL_ID)
+      .first<{ id: string }>();
     if (account) accountIds.add(account.id);
   }
 
@@ -293,24 +297,25 @@ export async function pharmacyGenericFeatureGuard(c: Context<Env>, next: Next): 
   return next();
 }
 
-export async function pharmacyManualChatMutationGuard(
-  c: Context<Env>,
-  next: Next,
-): Promise<Response | void> {
+export async function pharmacyManualChatMutationGuard(c: Context<Env>, next: Next): Promise<Response | void> {
   const method = c.req.method.toUpperCase();
   if (SAFE_METHODS.has(method)) return next();
 
   const path = c.req.path;
   let resourceId: string | null = null;
   if (method === 'POST' && path === '/api/chats') {
-    const body = await c.req.raw.clone().json().catch(() => null) as Record<string, unknown> | null;
+    const body = (await c.req.raw
+      .clone()
+      .json()
+      .catch(() => null)) as Record<string, unknown> | null;
     resourceId = typeof body?.friendId === 'string' ? body.friendId : null;
   } else if (method === 'PUT') {
     resourceId = /^\/api\/chats\/([^/]+)$/.exec(path)?.[1] ?? null;
   } else if (method === 'POST') {
-    resourceId = /^\/api\/chats\/([^/]+)\/(?:loading|send)$/.exec(path)?.[1]
-      ?? /^\/api\/friends\/([^/]+)\/messages$/.exec(path)?.[1]
-      ?? null;
+    resourceId =
+      /^\/api\/chats\/([^/]+)\/(?:loading|send)$/.exec(path)?.[1] ??
+      /^\/api\/friends\/([^/]+)\/messages$/.exec(path)?.[1] ??
+      null;
   }
   if (!resourceId) {
     return path === '/api/chats' || path.startsWith('/api/chats/') || path.endsWith('/messages')
@@ -329,11 +334,13 @@ export async function pharmacyManualChatMutationGuard(
       WHERE mapping.tenant_id = ?
         AND (friend.id = ? OR chat.id = ?)
       LIMIT 1`,
-  ).bind(tenantId, resourceId, resourceId).first<{ line_account_id: string | null }>();
+  )
+    .bind(tenantId, resourceId, resourceId)
+    .first<{ line_account_id: string | null }>();
   if (!row?.line_account_id) {
     return c.json({ success: false, error: 'pharmacy capability account scope required' }, 403);
   }
-  if (!await isPharmacyModeAccount(c.env.DB, row.line_account_id)) return next();
+  if (!(await isPharmacyModeAccount(c.env.DB, row.line_account_id))) return next();
   if (await hasPharmacyCapability(c.env.DB, row.line_account_id, 'manual_chat')) return next();
   return c.json({ success: false, error: 'pharmacy capability is not enabled' }, 403);
 }

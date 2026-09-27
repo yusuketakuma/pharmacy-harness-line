@@ -67,20 +67,10 @@ export interface CurrentVersion {
   worker_assets_hash?: string;
 }
 
-export type ForkStatus =
-  | { kind: 'vanilla'; matchedRelease: ReleaseEntry }
-  | { kind: 'fork'; reason: string };
+export type ForkStatus = { kind: 'vanilla'; matchedRelease: ReleaseEntry } | { kind: 'fork'; reason: string };
 
 export interface UpdateEvent {
-  step:
-    | 'preflight'
-    | 'migration'
-    | 'worker'
-    | 'admin'
-    | 'liff'
-    | 'verify'
-    | 'rollback'
-    | 'complete';
+  step: 'preflight' | 'migration' | 'worker' | 'admin' | 'liff' | 'verify' | 'rollback' | 'complete';
   status: 'pending' | 'running' | 'done' | 'failed';
   name?: string;
   hash?: string;

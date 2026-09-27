@@ -93,14 +93,12 @@ describe('POST /api/broadcasts/:id/send-segment target persistence', () => {
         return { run: vi.fn().mockResolvedValue({ meta: { changes: 1 } }) };
       }),
     }));
-    dbMocks.getBroadcastById
-      .mockResolvedValueOnce(row)
-      .mockResolvedValueOnce({
-        ...row,
-        target_type: 'segment',
-        segment_conditions: JSON.stringify(conditions),
-        batch_offset: 0,
-      });
+    dbMocks.getBroadcastById.mockResolvedValueOnce(row).mockResolvedValueOnce({
+      ...row,
+      target_type: 'segment',
+      segment_conditions: JSON.stringify(conditions),
+      batch_offset: 0,
+    });
     const app = new Hono<{ Bindings: { DB: D1Database } }>();
     app.use('*', async (c, next) => {
       c.set('tenantId' as never, 'tenant-a' as never);
@@ -122,7 +120,7 @@ describe('POST /api/broadcasts/:id/send-segment target persistence', () => {
     expect(lockSql).toContain("target_type = 'segment'");
     expect(lockSql).toContain('batch_offset = 0');
     expect(lockSql).toContain('segment_conditions = ?');
-    expect((await response.json() as { data: { targetType: string } }).data.targetType).toBe('segment');
+    expect(((await response.json()) as { data: { targetType: string } }).data.targetType).toBe('segment');
   });
 });
 
@@ -140,14 +138,11 @@ describe('GET /api/broadcasts/:id/progress reconciliation', () => {
     });
     app.route('/', broadcasts);
 
-    const response = await app.request(
-      '/api/broadcasts/broadcast-a/progress',
-      {},
-      { DB: {} as D1Database },
-    );
+    const response = await app.request('/api/broadcasts/broadcast-a/progress', {}, { DB: {} as D1Database });
 
     expect(response.status).toBe(200);
-    expect((await response.json() as { data: { failedAccountIds: string[] } }).data.failedAccountIds)
-      .toEqual(['account-a']);
+    expect(((await response.json()) as { data: { failedAccountIds: string[] } }).data.failedAccountIds).toEqual([
+      'account-a',
+    ]);
   });
 });

@@ -12,9 +12,7 @@
 
 import { getActiveTenantLineAccounts, updateLineAccount } from '@line-crm/db';
 import type { LineAccount } from '@line-crm/db';
-import {
-  readLineCredential,
-} from '../custom/pharmacy/provisioning/line-credential-store.js';
+import { readLineCredential } from '../custom/pharmacy/provisioning/line-credential-store.js';
 import { updateEncryptedLineAccount } from '../custom/pharmacy/provisioning/line-account-store.js';
 import { log } from '../lib/log.js';
 
@@ -32,10 +30,7 @@ interface TokenResponse {
   token_type: string;
 }
 
-async function issueNewToken(
-  channelId: string,
-  channelSecret: string,
-): Promise<TokenResponse> {
+async function issueNewToken(channelId: string, channelSecret: string): Promise<TokenResponse> {
   const res = await fetch('https://api.line.me/v2/oauth/accessToken', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  getPharmacyPublicProfile,
-  savePharmacyPublicProfile,
-} from './repository.js';
+import { getPharmacyPublicProfile, savePharmacyPublicProfile } from './repository.js';
 
 const run = vi.fn().mockResolvedValue({ meta: { changes: 1 } });
 const first = vi.fn();
 const db = {
   prepare: vi.fn((sql: string) => ({
-    bind: (...values: unknown[]) => ({ run: () => run(sql, values), first: () => first(sql, values) }),
+    bind: (...values: unknown[]) => ({
+      run: () => run(sql, values),
+      first: () => first(sql, values),
+    }),
   })),
 } as unknown as D1Database;
 
@@ -45,37 +45,46 @@ describe('pharmacy public profile repository', () => {
 
   it('writes normalized public fields under the authorized account and staff', async () => {
     await savePharmacyPublicProfile(db, input);
-    expect(run).toHaveBeenCalledWith(expect.stringContaining('pharmacy_public_profiles'), expect.arrayContaining([
-      'account-a', 'みどり薬局', '03-1234-5678', '03-1234-5679', 'staff-a',
-    ]));
+    expect(run).toHaveBeenCalledWith(
+      expect.stringContaining('pharmacy_public_profiles'),
+      expect.arrayContaining(['account-a', 'みどり薬局', '03-1234-5678', '03-1234-5679', 'staff-a']),
+    );
   });
 
   it.each([
     ['javascript:alert(1)', 'invalid pharmacy public profile'],
     ['https://evil.example/maps', 'invalid pharmacy public profile'],
   ])('rejects a non-Google maps URL: %s', async (googleMapsUrl, message) => {
-    await expect(savePharmacyPublicProfile(db, { ...input, googleMapsUrl }))
-      .rejects.toThrow(message);
+    await expect(savePharmacyPublicProfile(db, { ...input, googleMapsUrl })).rejects.toThrow(message);
     expect(run).not.toHaveBeenCalled();
   });
 
   it('rejects unbounded text and unsafe telephone characters before D1', async () => {
-    await expect(savePharmacyPublicProfile(db, { ...input, businessHours: 'x'.repeat(2001) }))
-      .rejects.toThrow('invalid pharmacy public profile');
-    await expect(savePharmacyPublicProfile(db, { ...input, phone: '03-1234<script>' }))
-      .rejects.toThrow('invalid pharmacy public profile');
-    await expect(savePharmacyPublicProfile(db, { ...input, phone: '(03)1234-5678' }))
-      .rejects.toThrow('invalid pharmacy public profile');
-    await expect(savePharmacyPublicProfile(db, { ...input, faxNumber: '03-1234<script>' }))
-      .rejects.toThrow('invalid pharmacy public profile');
+    await expect(savePharmacyPublicProfile(db, { ...input, businessHours: 'x'.repeat(2001) })).rejects.toThrow(
+      'invalid pharmacy public profile',
+    );
+    await expect(savePharmacyPublicProfile(db, { ...input, phone: '03-1234<script>' })).rejects.toThrow(
+      'invalid pharmacy public profile',
+    );
+    await expect(savePharmacyPublicProfile(db, { ...input, phone: '(03)1234-5678' })).rejects.toThrow(
+      'invalid pharmacy public profile',
+    );
+    await expect(savePharmacyPublicProfile(db, { ...input, faxNumber: '03-1234<script>' })).rejects.toThrow(
+      'invalid pharmacy public profile',
+    );
     expect(run).not.toHaveBeenCalled();
   });
 
   it('rejects an unsafe official website URL before D1', async () => {
-    await expect(savePharmacyPublicProfile(db, { ...input, websiteUrl: 'http://pharmacy.example.test' }))
-      .rejects.toThrow('invalid pharmacy public profile');
-    await expect(savePharmacyPublicProfile(db, { ...input, websiteUrl: 'https://user:pass@pharmacy.example.test' }))
-      .rejects.toThrow('invalid pharmacy public profile');
+    await expect(
+      savePharmacyPublicProfile(db, { ...input, websiteUrl: 'http://pharmacy.example.test' }),
+    ).rejects.toThrow('invalid pharmacy public profile');
+    await expect(
+      savePharmacyPublicProfile(db, {
+        ...input,
+        websiteUrl: 'https://user:pass@pharmacy.example.test',
+      }),
+    ).rejects.toThrow('invalid pharmacy public profile');
     expect(run).not.toHaveBeenCalled();
   });
 });

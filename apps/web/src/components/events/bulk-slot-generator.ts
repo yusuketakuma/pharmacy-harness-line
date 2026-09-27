@@ -6,7 +6,7 @@
 
 export interface BulkSlotInput {
   start_date: string; // YYYY-MM-DD (JST)
-  end_date: string;   // YYYY-MM-DD (JST), inclusive
+  end_date: string; // YYYY-MM-DD (JST), inclusive
   weekdays: number[]; // 0=Sun ... 6=Sat
   time_patterns: Array<{ start: string; end: string }>; // HH:MM JST, start < end
   capacity: number | null;

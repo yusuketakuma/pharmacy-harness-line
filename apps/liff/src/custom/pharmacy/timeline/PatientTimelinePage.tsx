@@ -50,7 +50,7 @@ export function timelineNextActionLabel(nextAction: string): string {
 
 export function safeTimelineDestination(item: { domain: string; detailPath: string }): string {
   const fixed = SAFE_DESTINATIONS[item.domain];
-  return fixed && item.detailPath === fixed ? item.detailPath : fixed ?? '/pharmacy/menu';
+  return fixed && item.detailPath === fixed ? item.detailPath : (fixed ?? '/pharmacy/menu');
 }
 
 function timelineDate(value: string): string {
@@ -88,7 +88,12 @@ export default function PatientTimelinePage() {
     }
     try {
       const result = await patientTimelineApi.load();
-      if (mounted.current) { setItems(result.items); setLoadFailures(0); setErrorMessage(''); setLegacyWorker(false); }
+      if (mounted.current) {
+        setItems(result.items);
+        setLoadFailures(0);
+        setErrorMessage('');
+        setLegacyWorker(false);
+      }
     } catch (caught) {
       if (!mounted.current) return;
       const error = caught as Error;
@@ -108,53 +113,92 @@ export default function PatientTimelinePage() {
   useEffect(() => {
     mounted.current = true;
     void load();
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, [load]);
   useEffect(() => {
     if (errorMessage) errorRef.current?.focus();
   }, [errorMessage]);
 
   if (loading) {
-    return <main className="pharmacy-main mx-auto max-w-md p-4">
-      <PharmacyLoading label="利用状況を読み込み中..." lines={4} />
-    </main>;
+    return (
+      <main className="pharmacy-main mx-auto max-w-md p-4">
+        <PharmacyLoading label="利用状況を読み込み中..." lines={4} />
+      </main>
+    );
   }
 
   if (legacyWorker) {
-    return <main className="pharmacy-main mx-auto max-w-md space-y-4 p-4">
-      <section className="pharmacy-card p-4" aria-labelledby="timeline-legacy-title">
-        <h2 id="timeline-legacy-title" className="font-bold">個別の画面から確認してください</h2>
-        <p className="mt-2 text-base text-gray-700">この環境では、まとめ表示をまだ利用できません。</p>
-        <ul className="mt-3 grid gap-2">
-          {LEGACY_LINKS.map(([label, to]) => <li key={to}>
-            <Link to={pharmacyRoute(to)} className="pharmacy-control pharmacy-focus flex min-h-11 items-center rounded-lg border border-gray-300 px-4 font-bold text-green-800">
-              {label}
-            </Link>
-          </li>)}
-        </ul>
-      </section>
-    </main>;
+    return (
+      <main className="pharmacy-main mx-auto max-w-md space-y-4 p-4">
+        <section className="pharmacy-card p-4" aria-labelledby="timeline-legacy-title">
+          <h2 id="timeline-legacy-title" className="font-bold">
+            個別の画面から確認してください
+          </h2>
+          <p className="mt-2 text-base text-gray-700">この環境では、まとめ表示をまだ利用できません。</p>
+          <ul className="mt-3 grid gap-2">
+            {LEGACY_LINKS.map(([label, to]) => (
+              <li key={to}>
+                <Link
+                  to={pharmacyRoute(to)}
+                  className="pharmacy-control pharmacy-focus flex min-h-11 items-center rounded-lg border border-gray-300 px-4 font-bold text-green-800"
+                >
+                  {label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </main>
+    );
   }
 
-  return <main className="pharmacy-main mx-auto max-w-md space-y-4 p-4">
-    <p className="pharmacy-supplemental">送信やフォローの状態を、最近のものから確認できます。</p>
-    {errorMessage && <div ref={errorRef} tabIndex={-1} className="rounded-xl bg-red-50 p-4 text-base text-red-800 focus:outline-none">
-      <p>{errorMessage}</p>
-      <button type="button" onClick={() => void load()} className="pharmacy-control pharmacy-focus mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 font-bold">再試行</button>
-    </div>}
-    {!errorMessage && items.length === 0 && <p className="pharmacy-card p-6 text-center text-base text-gray-700">まだ利用履歴はありません。</p>}
-    {!errorMessage && items.length > 0 && <ol className="space-y-3" aria-label="利用状況">
-      {items.map((item, index) => <li key={`${item.domain}-${item.occurredAt}-${index}`} className="pharmacy-card p-4">
-        <article>
-          <p className="text-base font-bold text-green-800">{timelineDomainLabel(item.domain)}</p>
-          <h2 className="mt-1 text-lg font-bold text-gray-950">{timelineStatusLabel(item.status)}</h2>
-          <p className="mt-2 text-base text-gray-700">{timelineNextActionLabel(item.nextAction)}</p>
-          <time className="mt-2 block text-base text-gray-600" dateTime={item.occurredAt}>{timelineDate(item.occurredAt)}</time>
-          <Link to={pharmacyRoute(safeTimelineDestination(item))} aria-label={`${timelineDomainLabel(item.domain)}の詳細を確認`} className="pharmacy-control pharmacy-focus mt-3 inline-flex min-h-11 items-center font-bold text-green-800 underline">
-            詳細を確認
-          </Link>
-        </article>
-      </li>)}
-    </ol>}
-  </main>;
+  return (
+    <main className="pharmacy-main mx-auto max-w-md space-y-4 p-4">
+      <p className="pharmacy-supplemental">送信やフォローの状態を、最近のものから確認できます。</p>
+      {errorMessage && (
+        <div
+          ref={errorRef}
+          tabIndex={-1}
+          className="rounded-xl bg-red-50 p-4 text-base text-red-800 focus:outline-none"
+        >
+          <p>{errorMessage}</p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="pharmacy-control pharmacy-focus mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 font-bold"
+          >
+            再試行
+          </button>
+        </div>
+      )}
+      {!errorMessage && items.length === 0 && (
+        <p className="pharmacy-card p-6 text-center text-base text-gray-700">まだ利用履歴はありません。</p>
+      )}
+      {!errorMessage && items.length > 0 && (
+        <ol className="space-y-3" aria-label="利用状況">
+          {items.map((item, index) => (
+            <li key={`${item.domain}-${item.occurredAt}-${index}`} className="pharmacy-card p-4">
+              <article>
+                <p className="text-base font-bold text-green-800">{timelineDomainLabel(item.domain)}</p>
+                <h2 className="mt-1 text-lg font-bold text-gray-950">{timelineStatusLabel(item.status)}</h2>
+                <p className="mt-2 text-base text-gray-700">{timelineNextActionLabel(item.nextAction)}</p>
+                <time className="mt-2 block text-base text-gray-600" dateTime={item.occurredAt}>
+                  {timelineDate(item.occurredAt)}
+                </time>
+                <Link
+                  to={pharmacyRoute(safeTimelineDestination(item))}
+                  aria-label={`${timelineDomainLabel(item.domain)}の詳細を確認`}
+                  className="pharmacy-control pharmacy-focus mt-3 inline-flex min-h-11 items-center font-bold text-green-800 underline"
+                >
+                  詳細を確認
+                </Link>
+              </article>
+            </li>
+          ))}
+        </ol>
+      )}
+    </main>
+  );
 }

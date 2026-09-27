@@ -14,12 +14,17 @@ function d1From(sqlite: Database.Database): D1Database {
   const statement = (sql: string, values: unknown[] = []): RunnableStatement => ({
     bind: (...next: unknown[]) => statement(sql, next),
     first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true,
-      results: sqlite.prepare(sql).all(...values) as T[],
-      meta: {},
-    }) as D1Result<T>,
-    raw: async <T>() => sqlite.prepare(sql).raw().all(...values) as T[],
+    all: async <T>() =>
+      ({
+        success: true,
+        results: sqlite.prepare(sql).all(...values) as T[],
+        meta: {},
+      }) as D1Result<T>,
+    raw: async <T>() =>
+      sqlite
+        .prepare(sql)
+        .raw()
+        .all(...values) as T[],
     run: async () => statement(sql, values).runSync(),
     runSync: () => {
       const info = sqlite.prepare(sql).run(...values);
@@ -28,9 +33,8 @@ function d1From(sqlite: Database.Database): D1Database {
   });
   return {
     prepare: (sql: string) => statement(sql),
-    batch: async <T>(statements: D1PreparedStatement[]) => sqlite.transaction(() =>
-      statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>),
-    )(),
+    batch: async <T>(statements: D1PreparedStatement[]) =>
+      sqlite.transaction(() => statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>))(),
   } as unknown as D1Database;
 }
 
@@ -49,9 +53,9 @@ describe('rich-menu publish state', () => {
 
     const token = await acquirePublishLock(d1From(sqlite), 'group-a');
     expect(token).toEqual(expect.any(String));
-    expect(sqlite.prepare(
-      `SELECT publishing_at FROM rich_menu_groups WHERE id = 'group-a'`,
-    ).get()).not.toEqual({ publishing_at: '2000-01-01T00:00:00.000Z' });
+    expect(sqlite.prepare(`SELECT publishing_at FROM rich_menu_groups WHERE id = 'group-a'`).get()).not.toEqual({
+      publishing_at: '2000-01-01T00:00:00.000Z',
+    });
   });
 
   it('does not steal an active publish lock', async () => {
@@ -67,9 +71,9 @@ describe('rich-menu publish state', () => {
     `);
 
     await expect(acquirePublishLock(d1From(sqlite), 'group-a')).resolves.toBeNull();
-    expect(sqlite.prepare(
-      `SELECT publishing_at FROM rich_menu_groups WHERE id = 'group-a'`,
-    ).get()).toEqual({ publishing_at: '2999-01-01T00:00:00.000Z' });
+    expect(sqlite.prepare(`SELECT publishing_at FROM rich_menu_groups WHERE id = 'group-a'`).get()).toEqual({
+      publishing_at: '2999-01-01T00:00:00.000Z',
+    });
   });
 
   it('serializes account-wide rich-menu operations across groups', async () => {
@@ -89,7 +93,8 @@ describe('rich-menu publish state', () => {
     expect(first).toMatchObject({ groupId: 'group-a', token: expect.any(String) });
     await expect(acquireRichMenuAccountLock(db, 'account-a')).resolves.toBeNull();
     await expect(acquireRichMenuAccountLock(db, 'account-b')).resolves.toMatchObject({
-      groupId: 'group-c', token: expect.any(String),
+      groupId: 'group-c',
+      token: expect.any(String),
     });
   });
 
@@ -119,19 +124,18 @@ describe('rich-menu publish state', () => {
       { pageId: 'page-b', aliasId: 'alias-new-b', lineRichMenuId: 'line-new-b' },
     ]);
 
-    expect(sqlite.prepare(
-      `SELECT id, alias_id, line_richmenu_id FROM rich_menu_pages ORDER BY id`,
-    ).all()).toEqual([
+    expect(sqlite.prepare(`SELECT id, alias_id, line_richmenu_id FROM rich_menu_pages ORDER BY id`).all()).toEqual([
       { id: 'page-a', alias_id: 'alias-new-a', line_richmenu_id: 'line-new-a' },
       { id: 'page-b', alias_id: 'alias-new-b', line_richmenu_id: 'line-new-b' },
     ]);
-    expect(sqlite.prepare(
-      `SELECT status, publishing_at FROM rich_menu_groups WHERE id = 'group-a'`,
-    ).get()).toEqual({ status: 'published', publishing_at: 'locked' });
+    expect(sqlite.prepare(`SELECT status, publishing_at FROM rich_menu_groups WHERE id = 'group-a'`).get()).toEqual({
+      status: 'published',
+      publishing_at: 'locked',
+    });
     await releasePublishLock(d1From(sqlite), 'group-a', 'locked');
-    expect(sqlite.prepare(
-      `SELECT publishing_at FROM rich_menu_groups WHERE id = 'group-a'`,
-    ).get()).toEqual({ publishing_at: null });
+    expect(sqlite.prepare(`SELECT publishing_at FROM rich_menu_groups WHERE id = 'group-a'`).get()).toEqual({
+      publishing_at: null,
+    });
   });
 
   it('does not let a stale worker release or publish over a replacement lock', async () => {
@@ -151,18 +155,26 @@ describe('rich-menu publish state', () => {
     const db = d1From(sqlite);
 
     await releasePublishLock(db, 'group-a', 'stale-token');
-    await expect(markRichMenuGroupPublished(db, 'group-a', 'group-a', 'stale-token', [{
-      pageId: 'page-a', aliasId: 'alias-new', lineRichMenuId: 'line-new',
-    }])).rejects.toThrow('publish lock lost');
-    await expect(markRichMenuGroupUnpublished(
-      db, 'group-a', 'group-a', 'stale-token',
-    )).rejects.toThrow('publish lock lost');
+    await expect(
+      markRichMenuGroupPublished(db, 'group-a', 'group-a', 'stale-token', [
+        {
+          pageId: 'page-a',
+          aliasId: 'alias-new',
+          lineRichMenuId: 'line-new',
+        },
+      ]),
+    ).rejects.toThrow('publish lock lost');
+    await expect(markRichMenuGroupUnpublished(db, 'group-a', 'group-a', 'stale-token')).rejects.toThrow(
+      'publish lock lost',
+    );
 
-    expect(sqlite.prepare(
-      `SELECT status, publishing_at FROM rich_menu_groups WHERE id = 'group-a'`,
-    ).get()).toEqual({ status: 'draft', publishing_at: 'replacement-token' });
-    expect(sqlite.prepare(
-      `SELECT alias_id, line_richmenu_id FROM rich_menu_pages WHERE id = 'page-a'`,
-    ).get()).toEqual({ alias_id: 'alias-old', line_richmenu_id: 'line-old' });
+    expect(sqlite.prepare(`SELECT status, publishing_at FROM rich_menu_groups WHERE id = 'group-a'`).get()).toEqual({
+      status: 'draft',
+      publishing_at: 'replacement-token',
+    });
+    expect(sqlite.prepare(`SELECT alias_id, line_richmenu_id FROM rich_menu_pages WHERE id = 'page-a'`).get()).toEqual({
+      alias_id: 'alias-old',
+      line_richmenu_id: 'line-old',
+    });
   });
 });

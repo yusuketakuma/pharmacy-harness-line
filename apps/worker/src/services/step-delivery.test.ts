@@ -13,11 +13,7 @@ import type { LineClient } from '@line-crm/line-sdk';
 import type { Friend } from '@line-crm/db';
 
 const lineSdkMocks = vi.hoisted(() => {
-  const pushMessage = vi.fn(async (
-    _to: string,
-    _messages: unknown[],
-    _retryKey?: string,
-  ) => ({}));
+  const pushMessage = vi.fn(async (_to: string, _messages: unknown[], _retryKey?: string) => ({}));
   const LineClient = vi.fn().mockImplementation(function () {
     return { pushMessage };
   });
@@ -26,14 +22,16 @@ const lineSdkMocks = vi.hoisted(() => {
 vi.mock('@line-crm/line-sdk', () => ({ LineClient: lineSdkMocks.LineClient }));
 
 const outboundDeliveryMocks = vi.hoisted(() => ({
-  deliverTrackedLinePush: vi.fn(async (params: {
-    request: unknown;
-    operationId: string;
-    send: (request: unknown, retryKey: string) => Promise<void>;
-  }) => {
-    await params.send(params.request, params.operationId);
-    return 'sent' as const;
-  }),
+  deliverTrackedLinePush: vi.fn(
+    async (params: {
+      request: unknown;
+      operationId: string;
+      send: (request: unknown, retryKey: string) => Promise<void>;
+    }) => {
+      await params.send(params.request, params.operationId);
+      return 'sent' as const;
+    },
+  ),
 }));
 vi.mock('./outbound-line-delivery.js', () => outboundDeliveryMocks);
 
@@ -60,9 +58,9 @@ function mockDb(tables: FakeTables): D1Database {
             const userId = tables.friendUserIds?.[friendId] ?? null;
             const hasTag = [...(tables.friendTags ?? [])].some((entry) => {
               const [taggedFriendId, taggedTagId] = entry.split('|');
-              return taggedTagId === tagId && (
-                taggedFriendId === friendId ||
-                (userId !== null && tables.friendUserIds?.[taggedFriendId] === userId)
+              return (
+                taggedTagId === tagId &&
+                (taggedFriendId === friendId || (userId !== null && tables.friendUserIds?.[taggedFriendId] === userId))
               );
             });
             return hasTag ? ({ 1: 1 } as unknown as T) : null;
@@ -102,12 +100,9 @@ describe('isSupportedConditionType', () => {
     }
   });
 
-  it.each(['tag_not_has', 'TAG_EXISTS', '', null, undefined, 42])(
-    'rejects unsupported value %j',
-    (val) => {
-      expect(isSupportedConditionType(val)).toBe(false);
-    },
-  );
+  it.each(['tag_not_has', 'TAG_EXISTS', '', null, undefined, 42])('rejects unsupported value %j', (val) => {
+    expect(isSupportedConditionType(val)).toBe(false);
+  });
 });
 
 describe('evaluateCondition', () => {
@@ -135,36 +130,66 @@ describe('evaluateCondition', () => {
 
   it('returns false (skip) when condition_type is set but condition_value is null', async () => {
     const db = mockDb({});
-    expect(await evaluateCondition(db, 'f1', { condition_type: 'tag_not_exists', condition_value: null })).toBe(false);
+    expect(
+      await evaluateCondition(db, 'f1', {
+        condition_type: 'tag_not_exists',
+        condition_value: null,
+      }),
+    ).toBe(false);
     expect(errorSpy).toHaveBeenCalled();
   });
 
   describe('tag_exists', () => {
     it('returns true when the friend has the tag', async () => {
       const db = mockDb({ friendTags: new Set(['f1|tag-A']) });
-      expect(await evaluateCondition(db, 'f1', { condition_type: 'tag_exists', condition_value: 'tag-A' })).toBe(true);
+      expect(
+        await evaluateCondition(db, 'f1', {
+          condition_type: 'tag_exists',
+          condition_value: 'tag-A',
+        }),
+      ).toBe(true);
     });
     it('returns false when the friend does not have the tag', async () => {
       const db = mockDb({ friendTags: new Set() });
-      expect(await evaluateCondition(db, 'f1', { condition_type: 'tag_exists', condition_value: 'tag-A' })).toBe(false);
+      expect(
+        await evaluateCondition(db, 'f1', {
+          condition_type: 'tag_exists',
+          condition_value: 'tag-A',
+        }),
+      ).toBe(false);
     });
     it('returns true when a UUID-linked friend on another account has the tag', async () => {
       const db = mockDb({
         friendTags: new Set(['f2|tag-A']),
         friendUserIds: { f1: 'user-1', f2: 'user-1' },
       });
-      expect(await evaluateCondition(db, 'f1', { condition_type: 'tag_exists', condition_value: 'tag-A' })).toBe(true);
+      expect(
+        await evaluateCondition(db, 'f1', {
+          condition_type: 'tag_exists',
+          condition_value: 'tag-A',
+        }),
+      ).toBe(true);
     });
   });
 
   describe('tag_not_exists', () => {
     it('returns true when the friend does not have the tag', async () => {
       const db = mockDb({ friendTags: new Set() });
-      expect(await evaluateCondition(db, 'f1', { condition_type: 'tag_not_exists', condition_value: 'tag-A' })).toBe(true);
+      expect(
+        await evaluateCondition(db, 'f1', {
+          condition_type: 'tag_not_exists',
+          condition_value: 'tag-A',
+        }),
+      ).toBe(true);
     });
     it('returns false when the friend has the excluded tag', async () => {
       const db = mockDb({ friendTags: new Set(['f1|tag-A']) });
-      expect(await evaluateCondition(db, 'f1', { condition_type: 'tag_not_exists', condition_value: 'tag-A' })).toBe(false);
+      expect(
+        await evaluateCondition(db, 'f1', {
+          condition_type: 'tag_not_exists',
+          condition_value: 'tag-A',
+        }),
+      ).toBe(false);
     });
   });
 
@@ -357,8 +382,7 @@ describe('resolveScenarioDeliveryFriend', () => {
 });
 
 describe('isPermanentLineDeliveryError', () => {
-  const lineError = (status: number): Error =>
-    new Error(`LINE API error: ${status} Test — {}`);
+  const lineError = (status: number): Error => new Error(`LINE API error: ${status} Test — {}`);
 
   it.each([400, 401, 403, 404, 422])('treats LINE %i as permanent', (status) => {
     expect(isPermanentLineDeliveryError(lineError(status))).toBe(true);
@@ -375,12 +399,12 @@ describe('isPermanentLineDeliveryError', () => {
 
 describe('isDeterministicInvalidReplyToken', () => {
   it('matches only LINE 400 invalid-token responses', () => {
-    expect(isDeterministicInvalidReplyToken(
-      new Error('LINE API error: 400 Bad Request — Invalid reply token'),
-    )).toBe(true);
-    expect(isDeterministicInvalidReplyToken(
-      new Error('LINE API error: 500 Internal Server Error — Invalid reply token'),
-    )).toBe(false);
+    expect(isDeterministicInvalidReplyToken(new Error('LINE API error: 400 Bad Request — Invalid reply token'))).toBe(
+      true,
+    );
+    expect(
+      isDeterministicInvalidReplyToken(new Error('LINE API error: 500 Internal Server Error — Invalid reply token')),
+    ).toBe(false);
     expect(isDeterministicInvalidReplyToken(new Error('Invalid reply token'))).toBe(false);
   });
 });
@@ -457,10 +481,12 @@ describe('condition-false jump (next_step_on_false)', () => {
               return { tenant_id: opts.tenantId ?? 'tenant-1' };
             }
             if (sql.includes('FROM line_accounts')) {
-              return opts.mapped === false ? null : {
-                id: accountId,
-                channel_access_token: 'test-token',
-              };
+              return opts.mapped === false
+                ? null
+                : {
+                    id: accountId,
+                    channel_access_token: 'test-token',
+                  };
             }
             if (sql.includes('FROM friend_tags')) {
               return null; // friend does NOT have tag-X → condition fails
@@ -663,9 +689,7 @@ describe('condition-false jump (next_step_on_false)', () => {
       source: 'scenario',
       scenarioEnrollmentId: 'fs1',
       scenarioStepId: 'step-2',
-      operationId: expect.stringMatching(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
-      ),
+      operationId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u),
     });
     expect(lineSdkMocks.pushMessage).toHaveBeenCalledOnce();
     const retryKey = lineSdkMocks.pushMessage.mock.calls[0][2];
@@ -711,14 +735,16 @@ describe('expandVariables comma cleanup scope', () => {
     it('repairs "[," left by a removed {{#if_ref}} block so the JSON parses', () => {
       // Simulates a Flex contents array whose first element was a conditional
       // block removed for a friend without ref_code: [{{#if_ref}}{...}{{/if_ref}},{...}]
-      const template = '{"contents":[{{#if_ref}}{"type":"text","text":"ref: {{ref}}"}{{/if_ref}},{"type":"text","text":"hello"}]}';
+      const template =
+        '{"contents":[{{#if_ref}}{"type":"text","text":"ref: {{ref}}"}{{/if_ref}},{"type":"text","text":"hello"}]}';
       const out = expandVariables(template, { ...friend, ref_code: null }, undefined, 'flex');
       expect(out).toBe('{"contents":[{"type":"text","text":"hello"}]}');
       expect(() => JSON.parse(out)).not.toThrow();
     });
 
     it('repairs ",]" when the removed block was the last array element', () => {
-      const template = '{"contents":[{"type":"text","text":"hello"},{{#if_metadata.plan}}{"type":"text","text":"{{metadata.plan}}"}{{/if_metadata.plan}}]}';
+      const template =
+        '{"contents":[{"type":"text","text":"hello"},{{#if_metadata.plan}}{"type":"text","text":"{{metadata.plan}}"}{{/if_metadata.plan}}]}';
       const out = expandVariables(template, { ...friend, metadata: {} }, undefined, 'flex');
       expect(out).toBe('{"contents":[{"type":"text","text":"hello"}]}');
       expect(() => JSON.parse(out)).not.toThrow();

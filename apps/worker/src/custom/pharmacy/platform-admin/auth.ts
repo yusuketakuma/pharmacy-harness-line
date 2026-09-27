@@ -3,10 +3,7 @@ import type { Env } from '../../../index.js';
 import { buildCookie } from '../../../middleware/cookie.js';
 import { deny } from '../../../middleware/deny.js';
 import type { AdminSameSite } from '../../../middleware/admin-auth-config.js';
-import {
-  hashTenantAdminSessionToken,
-  isPlatformAdminSessionToken,
-} from '../provisioning/credentials.js';
+import { hashTenantAdminSessionToken, isPlatformAdminSessionToken } from '../provisioning/credentials.js';
 import { sessionIdleCutoff } from '../provisioning/auth-policy.js';
 
 // Deliberately separate from every tenant-admin cookie/table. A platform
@@ -85,19 +82,11 @@ export function platformAdminSessionCookie(
   sameSite: AdminSameSite,
   maxAgeSeconds = 8 * 60 * 60,
 ): string {
-  return buildCookie(
-    PLATFORM_ADMIN_AUTH_COOKIE, token, sameSite, maxAgeSeconds, true, PLATFORM_ADMIN_COOKIE_PATH,
-  );
+  return buildCookie(PLATFORM_ADMIN_AUTH_COOKIE, token, sameSite, maxAgeSeconds, true, PLATFORM_ADMIN_COOKIE_PATH);
 }
 
-export function platformAdminCsrfCookie(
-  token: string,
-  sameSite: AdminSameSite,
-  maxAgeSeconds = 8 * 60 * 60,
-): string {
-  return buildCookie(
-    PLATFORM_ADMIN_CSRF_COOKIE, token, sameSite, maxAgeSeconds, false, PLATFORM_ADMIN_COOKIE_PATH,
-  );
+export function platformAdminCsrfCookie(token: string, sameSite: AdminSameSite, maxAgeSeconds = 8 * 60 * 60): string {
+  return buildCookie(PLATFORM_ADMIN_CSRF_COOKIE, token, sameSite, maxAgeSeconds, false, PLATFORM_ADMIN_COOKIE_PATH);
 }
 
 export function expiredPlatformAdminCookie(name: string, sameSite: AdminSameSite): string {
@@ -119,8 +108,9 @@ export async function resolvePlatformAdminSession(
     const tokenHash = await hashTenantAdminSessionToken(token);
     const currentTime = new Date();
     const now = currentTime.toISOString();
-    const row = await db.prepare(
-      `SELECT credential.staff_id, staff.name,
+    const row = await db
+      .prepare(
+        `SELECT credential.staff_id, staff.name,
               credential.must_change_password, credential.credential_version,
               session.session_kind, session.last_seen_at
          FROM platform_admin_sessions AS session
@@ -138,20 +128,20 @@ export async function resolvePlatformAdminSession(
                (session.session_kind = 'bootstrap' AND session.last_seen_at > ?) OR
                (session.session_kind = 'standard' AND session.last_seen_at > ?))
         LIMIT 1`,
-    ).bind(
-      tokenHash,
-      now,
-      sessionIdleCutoff('bootstrap', currentTime),
-      sessionIdleCutoff('standard', currentTime),
-    ).first<PlatformAdminSessionRow & { last_seen_at: string | null }>();
+      )
+      .bind(tokenHash, now, sessionIdleCutoff('bootstrap', currentTime), sessionIdleCutoff('standard', currentTime))
+      .first<PlatformAdminSessionRow & { last_seen_at: string | null }>();
     if (!row) return null;
     const mustChangePassword = row.must_change_password === 1;
     if ((row.session_kind === 'bootstrap') !== mustChangePassword) return null;
-    await db.prepare(
-      `UPDATE platform_admin_sessions
+    await db
+      .prepare(
+        `UPDATE platform_admin_sessions
           SET last_seen_at = ?
         WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?`,
-    ).bind(now, tokenHash, now).run();
+      )
+      .bind(now, tokenHash, now)
+      .run();
     return {
       admin: { id: row.staff_id, name: row.name },
       mustChangePassword,
@@ -191,10 +181,12 @@ export const platformAdminAuthMiddleware: MiddlewareHandler<Env> = async (c, nex
     }
   }
 
-  if (resolved.mustChangePassword &&
-      path !== '/api/platform-admin/session' &&
-      path !== '/api/platform-admin/change-password' &&
-      path !== '/api/platform-admin/logout') {
+  if (
+    resolved.mustChangePassword &&
+    path !== '/api/platform-admin/session' &&
+    path !== '/api/platform-admin/change-password' &&
+    path !== '/api/platform-admin/logout'
+  ) {
     return deny(c, 403, 'platform_admin_password_change_required', 'Password change required');
   }
 

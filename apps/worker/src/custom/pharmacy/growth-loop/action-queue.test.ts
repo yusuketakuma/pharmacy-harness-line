@@ -33,25 +33,60 @@ describe('pharmacy action queue', () => {
   it('returns a bounded, account-scoped, non-PHI union with deadline categories', async () => {
     const { db, calls } = database({
       pharmacy_prescription_submissions: [
-        { id: 'submission-a', status: 'received', deadline_at: null, activity_at: '2026-09-13T23:00:00.000Z' },
+        {
+          id: 'submission-a',
+          status: 'received',
+          deadline_at: null,
+          activity_at: '2026-09-13T23:00:00.000Z',
+        },
       ],
       pharmacy_myna_handoffs: [
-        { id: 'handoff-a', status: 'EXPIRED', deadline_at: '2026-09-13T12:00:00.000Z', activity_at: '2026-09-13T10:00:00.000Z' },
+        {
+          id: 'handoff-a',
+          status: 'EXPIRED',
+          deadline_at: '2026-09-13T12:00:00.000Z',
+          activity_at: '2026-09-13T10:00:00.000Z',
+        },
       ],
       pharmacy_prescription_patients: [
-        { id: 'submission-b', status: 'unreviewed', deadline_at: null, activity_at: '2026-09-14T00:00:00.000Z' },
+        {
+          id: 'submission-b',
+          status: 'unreviewed',
+          deadline_at: null,
+          activity_at: '2026-09-14T00:00:00.000Z',
+        },
       ],
       pharmacy_continuity_obligations: [
-        { id: 'obligation-a', status: 'active', deadline_at: '2026-09-14T15:00:00.000Z', activity_at: '2026-09-14T00:00:00.000Z' },
+        {
+          id: 'obligation-a',
+          status: 'active',
+          deadline_at: '2026-09-14T15:00:00.000Z',
+          activity_at: '2026-09-14T00:00:00.000Z',
+        },
       ],
       pharmacy_medication_followups: [
-        { id: 'followup-a', status: 'concern', deadline_at: '2026-09-15T00:00:00.000Z', activity_at: '2026-09-14T00:00:00.000Z' },
+        {
+          id: 'followup-a',
+          status: 'concern',
+          deadline_at: '2026-09-15T00:00:00.000Z',
+          activity_at: '2026-09-14T00:00:00.000Z',
+        },
       ],
       pharmacy_emergency_intakes: [
-        { id: 'emergency-a', status: 'provisional', deadline_at: '2026-09-14T05:00:00.000Z', activity_at: '2026-09-14T00:00:00.000Z' },
+        {
+          id: 'emergency-a',
+          status: 'provisional',
+          deadline_at: '2026-09-14T05:00:00.000Z',
+          activity_at: '2026-09-14T00:00:00.000Z',
+        },
       ],
       chats: [
-        { id: 'chat-a', status: 'unread', deadline_at: null, activity_at: '2026-09-14T02:00:00.000Z' },
+        {
+          id: 'chat-a',
+          status: 'unread',
+          deadline_at: null,
+          activity_at: '2026-09-14T02:00:00.000Z',
+        },
       ],
     });
 
@@ -59,13 +94,43 @@ describe('pharmacy action queue', () => {
 
     expect(result).toMatchObject({ accountId: 'account-a', partial: false, truncated: false });
     expect(result.items).toEqual([
-      { domain: 'electronicPrescription', status: 'EXPIRED', deadline: 'overdue', detailHref: '/myna' },
-      { domain: 'emergencyContraception', status: 'provisional', deadline: 'today', detailHref: '/emergency-contraception' },
+      {
+        domain: 'electronicPrescription',
+        status: 'EXPIRED',
+        deadline: 'overdue',
+        detailHref: '/myna',
+      },
+      {
+        domain: 'emergencyContraception',
+        status: 'provisional',
+        deadline: 'today',
+        detailHref: '/emergency-contraception',
+      },
       { domain: 'continuity', status: 'active', deadline: 'upcoming', detailHref: '/continuity' },
-      { domain: 'medicationFollowup', status: 'concern', deadline: 'upcoming', detailHref: '/patient-intakes?followup=attention' },
-      { domain: 'manualChat', status: 'unread', deadline: 'none', detailHref: '/chats?unanswered=1' },
-      { domain: 'patientIntake', status: 'unreviewed', deadline: 'none', detailHref: '/patient-intakes' },
-      { domain: 'prescriptionIntake', status: 'received', deadline: 'none', detailHref: '/prescriptions' },
+      {
+        domain: 'medicationFollowup',
+        status: 'concern',
+        deadline: 'upcoming',
+        detailHref: '/patient-intakes?followup=attention',
+      },
+      {
+        domain: 'manualChat',
+        status: 'unread',
+        deadline: 'none',
+        detailHref: '/chats?unanswered=1',
+      },
+      {
+        domain: 'patientIntake',
+        status: 'unreviewed',
+        deadline: 'none',
+        detailHref: '/patient-intakes',
+      },
+      {
+        domain: 'prescriptionIntake',
+        status: 'received',
+        deadline: 'none',
+        detailHref: '/prescriptions',
+      },
     ]);
     expect(calls).toHaveLength(7);
     expect(calls.every(({ values }) => values[0] === 'account-a')).toBe(true);
@@ -74,17 +139,28 @@ describe('pharmacy action queue', () => {
   });
 
   it('keeps available domains and marks a partial result when one query fails', async () => {
-    const { db } = database({
-      pharmacy_prescription_submissions: [
-        { id: 'submission-a', status: 'received', deadline_at: null, activity_at: '2026-09-14T00:00:00.000Z' },
-      ],
-    }, 'pharmacy_myna_handoffs');
+    const { db } = database(
+      {
+        pharmacy_prescription_submissions: [
+          {
+            id: 'submission-a',
+            status: 'received',
+            deadline_at: null,
+            activity_at: '2026-09-14T00:00:00.000Z',
+          },
+        ],
+      },
+      'pharmacy_myna_handoffs',
+    );
 
     const result = await getPharmacyActionQueue(db, 'account-a', new Date('2026-09-14T03:00:00.000Z'));
 
     expect(result.partial).toBe(true);
     expect(result.items).toContainEqual({
-      domain: 'prescriptionIntake', status: 'received', deadline: 'none', detailHref: '/prescriptions',
+      domain: 'prescriptionIntake',
+      status: 'received',
+      deadline: 'none',
+      detailHref: '/prescriptions',
     });
   });
 

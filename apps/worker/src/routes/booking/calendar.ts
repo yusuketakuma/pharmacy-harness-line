@@ -59,10 +59,19 @@ calendar.post('/api/integrations/google-calendar/connect', async (c) => {
       tenantId,
       staffId: c.get('staff')?.id,
     });
-    return c.json({
-      success: true,
-      data: { id: conn.id, calendarId: conn.calendar_id, authType: conn.auth_type, isActive: Boolean(conn.is_active), createdAt: conn.created_at },
-    }, 201);
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: conn.id,
+          calendarId: conn.calendar_id,
+          authType: conn.auth_type,
+          isActive: Boolean(conn.is_active),
+          createdAt: conn.created_at,
+        },
+      },
+      201,
+    );
   } catch (err) {
     console.error('POST /api/integrations/google-calendar/connect error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -71,11 +80,7 @@ calendar.post('/api/integrations/google-calendar/connect', async (c) => {
 
 calendar.delete('/api/integrations/google-calendar/:id', async (c) => {
   try {
-    if (!await deleteCalendarConnection(
-      c.env.DB,
-      c.req.param('id'),
-      c.get('tenantId') ?? null,
-    )) {
+    if (!(await deleteCalendarConnection(c.env.DB, c.req.param('id'), c.get('tenantId') ?? null))) {
       return c.json({ success: false, error: 'Calendar connection not found' }, 404);
     }
     return c.json({ success: true, data: null });
@@ -100,11 +105,21 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
     }
 
     const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00Z`) : null;
-    if (!day || !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== date
-      || !Number.isSafeInteger(slotMinutes) || slotMinutes < 1 || slotMinutes > 1440
-      || !Number.isInteger(startHour) || startHour < 0 || startHour > 23
-      || !Number.isInteger(endHour) || endHour <= startHour || endHour > 24
-      || Math.ceil((endHour - startHour) * 60 / slotMinutes) > 1440) {
+    if (
+      !day ||
+      !Number.isFinite(day.getTime()) ||
+      day.toISOString().slice(0, 10) !== date ||
+      !Number.isSafeInteger(slotMinutes) ||
+      slotMinutes < 1 ||
+      slotMinutes > 1440 ||
+      !Number.isInteger(startHour) ||
+      startHour < 0 ||
+      startHour > 23 ||
+      !Number.isInteger(endHour) ||
+      endHour <= startHour ||
+      endHour > 24 ||
+      Math.ceil(((endHour - startHour) * 60) / slotMinutes) > 1440
+    ) {
       return c.json({ success: false, error: 'Invalid slot range' }, 400);
     }
 
@@ -118,13 +133,7 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
     const dayEnd = `${date}T${String(endHour).padStart(2, '0')}:00:00+09:00`;
 
     // 既存D1予約を取得
-    const bookings = await getBookingsInRange(
-      c.env.DB,
-      connectionId,
-      dayStart,
-      dayEnd,
-      tenantId,
-    );
+    const bookings = await getBookingsInRange(c.env.DB, connectionId, dayStart, dayEnd, tenantId);
 
     // Google FreeBusy API から busy 区間を取得（access_token がある場合のみ）
     let googleBusyIntervals: { start: string; end: string }[] = [];
@@ -171,7 +180,11 @@ calendar.get('/api/integrations/google-calendar/slots', async (c) => {
         return slotStart.getTime() < gEnd && slotEnd.getTime() > gStart;
       });
 
-      slots.push({ startAt: startStr, endAt: endStr, available: !isBookedInD1 && !isBookedInGoogle });
+      slots.push({
+        startAt: startStr,
+        endAt: endStr,
+        available: !isBookedInD1 && !isBookedInGoogle,
+      });
     }
 
     return c.json({ success: true, data: slots });
@@ -215,7 +228,15 @@ calendar.get('/api/integrations/google-calendar/bookings', async (c) => {
 
 calendar.post('/api/integrations/google-calendar/book', async (c) => {
   try {
-    const body = await c.req.json<{ connectionId: string; friendId?: string; title: string; startAt: string; endAt: string; description?: string; metadata?: Record<string, unknown> }>();
+    const body = await c.req.json<{
+      connectionId: string;
+      friendId?: string;
+      title: string;
+      startAt: string;
+      endAt: string;
+      description?: string;
+      metadata?: Record<string, unknown>;
+    }>();
     if (!body.connectionId || !body.title || !body.startAt || !body.endAt) {
       return c.json({ success: false, error: 'connectionId, title, startAt, endAt are required' }, 400);
     }
@@ -255,20 +276,23 @@ calendar.post('/api/integrations/google-calendar/book', async (c) => {
       }
     }
 
-    return c.json({
-      success: true,
-      data: {
-        id: booking.id,
-        connectionId: booking.connection_id,
-        friendId: booking.friend_id,
-        eventId: booking.event_id,
-        title: booking.title,
-        startAt: booking.start_at,
-        endAt: booking.end_at,
-        status: booking.status,
-        createdAt: booking.created_at,
+    return c.json(
+      {
+        success: true,
+        data: {
+          id: booking.id,
+          connectionId: booking.connection_id,
+          friendId: booking.friend_id,
+          eventId: booking.event_id,
+          title: booking.title,
+          startAt: booking.start_at,
+          endAt: booking.end_at,
+          status: booking.status,
+          createdAt: booking.created_at,
+        },
       },
-    }, 201);
+      201,
+    );
   } catch (err) {
     console.error('POST /api/integrations/google-calendar/book error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -300,7 +324,7 @@ calendar.put('/api/integrations/google-calendar/bookings/:id/status', async (c) 
       }
     }
 
-    if (!await updateCalendarBookingStatus(c.env.DB, id, status, tenantId)) {
+    if (!(await updateCalendarBookingStatus(c.env.DB, id, status, tenantId))) {
       return c.json({ success: false, error: 'Calendar booking not found' }, 404);
     }
     return c.json({ success: true, data: null });

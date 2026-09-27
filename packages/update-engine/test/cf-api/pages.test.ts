@@ -77,15 +77,11 @@ describe('deployPagesProject', () => {
 
     // Step 1 URL
     const [url1] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url1).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/myproj/upload-token',
-    );
+    expect(url1).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/myproj/upload-token');
 
     // Step 3 URL
     const [url3] = fetchMock.mock.calls[1] as [string, RequestInit];
-    expect(url3).toBe(
-      'https://api.cloudflare.com/client/v4/pages/assets/check-missing',
-    );
+    expect(url3).toBe('https://api.cloudflare.com/client/v4/pages/assets/check-missing');
     const [, checkMissingInit] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(JSON.parse(checkMissingInit.body as string)).toEqual({
       hashes: [
@@ -97,15 +93,11 @@ describe('deployPagesProject', () => {
 
     // Step 4 URL
     const [url4] = fetchMock.mock.calls[2] as [string, RequestInit];
-    expect(url4).toBe(
-      'https://api.cloudflare.com/client/v4/pages/assets/upload',
-    );
+    expect(url4).toBe('https://api.cloudflare.com/client/v4/pages/assets/upload');
 
     // Step 5 URL
     const [url5] = fetchMock.mock.calls[3] as [string, RequestInit];
-    expect(url5).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/myproj/deployments',
-    );
+    expect(url5).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/myproj/deployments');
   });
 
   it('skips upload step when no files are missing (3 calls only)', async () => {
@@ -146,9 +138,7 @@ describe('deployPagesProject', () => {
 
     // Third call should be deployment creation, not upload
     const [thirdUrl] = fetchMock.mock.calls[2] as [string, RequestInit];
-    expect(thirdUrl).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/myproj/deployments',
-    );
+    expect(thirdUrl).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/myproj/deployments');
   });
 
   it('base64-encodes file content in upload payload', async () => {
@@ -444,9 +434,7 @@ describe('verifyPagesDeploymentUrl', () => {
         attempts: 3,
         delayMs: 0,
       }),
-    ).rejects.toThrow(
-      'Pages deployment health check failed: HTTP 500 (https://broken.pages.dev/)',
-    );
+    ).rejects.toThrow('Pages deployment health check failed: HTTP 500 (https://broken.pages.dev/)');
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
@@ -499,9 +487,7 @@ describe('getLatestDeployment', () => {
       text: async () => 'server error',
     } as Response);
 
-    await expect(
-      getLatestDeployment({ creds, projectName: 'myproj' }),
-    ).rejects.toThrow(/HTTP 500/);
+    await expect(getLatestDeployment({ creds, projectName: 'myproj' })).rejects.toThrow(/HTTP 500/);
   });
 });
 

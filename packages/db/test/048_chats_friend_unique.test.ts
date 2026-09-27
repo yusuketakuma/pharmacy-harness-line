@@ -71,7 +71,13 @@ function insertFriend(sqlite: Database.Database, id: string): void {
       `INSERT INTO friends (id, line_user_id, display_name, created_at, updated_at)
        VALUES (?, ?, 'Test User', '2024-01-01T00:00:00.000+09:00', '2024-01-01T00:00:00.000+09:00')`,
     )
-    .run(id, `U${id.replace(/[^0-9a-f]/gi, '').padEnd(32, '0').slice(0, 32)}`);
+    .run(
+      id,
+      `U${id
+        .replace(/[^0-9a-f]/gi, '')
+        .padEnd(32, '0')
+        .slice(0, 32)}`,
+    );
 }
 
 function insertChatRow(
@@ -156,8 +162,18 @@ describe('createChat / upsertChatOnMessage single-row guarantee', () => {
   it('getChatByFriendId picks the newest row when legacy duplicates remain', async () => {
     insertFriend(sqlite, 'f-4');
     dropUniqueIndex(sqlite);
-    insertChatRow(sqlite, { id: 'c-old', friendId: 'f-4', status: 'resolved', createdAt: '2024-01-01T00:00:00.000+09:00' });
-    insertChatRow(sqlite, { id: 'c-new', friendId: 'f-4', status: 'unread', createdAt: '2024-12-01T00:00:00.000+09:00' });
+    insertChatRow(sqlite, {
+      id: 'c-old',
+      friendId: 'f-4',
+      status: 'resolved',
+      createdAt: '2024-01-01T00:00:00.000+09:00',
+    });
+    insertChatRow(sqlite, {
+      id: 'c-new',
+      friendId: 'f-4',
+      status: 'unread',
+      createdAt: '2024-12-01T00:00:00.000+09:00',
+    });
 
     const row = await getChatByFriendId(db, 'f-4');
     expect(row?.id).toBe('c-new');

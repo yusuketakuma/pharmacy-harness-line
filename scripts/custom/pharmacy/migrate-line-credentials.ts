@@ -30,10 +30,22 @@ function parseArgs(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') continue;
-    if (argument === '--confirm-scrub') { confirmScrub = true; continue; }
-    if (argument === '--confirm-restore') { confirmRestore = true; continue; }
-    if (argument === '--dry-run') { dryRun = true; continue; }
-    if (argument === '--help' || argument === '-h') { help = true; continue; }
+    if (argument === '--confirm-scrub') {
+      confirmScrub = true;
+      continue;
+    }
+    if (argument === '--confirm-restore') {
+      confirmRestore = true;
+      continue;
+    }
+    if (argument === '--dry-run') {
+      dryRun = true;
+      continue;
+    }
+    if (argument === '--help' || argument === '-h') {
+      help = true;
+      continue;
+    }
     if (!['--worker-url', '--tenant-id', '--line-account-id', '--phase'].includes(argument)) {
       throw new Error(`Unknown option: ${argument}`);
     }
@@ -65,7 +77,10 @@ export async function runLineCredentialMigration(
 ): Promise<number> {
   try {
     const parsed = parseArgs(argv);
-    if (parsed.help) { write(HELP); return 0; }
+    if (parsed.help) {
+      write(HELP);
+      return 0;
+    }
     const phase = required(parsed.values, 'phase');
     if (phase === 'scrub' && !parsed.confirmScrub) {
       throw new Error('scrub requires --confirm-scrub after encrypted credential verification');
@@ -76,7 +91,10 @@ export async function runLineCredentialMigration(
     const platformKey = environment.PHARMACY_PLATFORM_ADMIN_KEY?.trim();
     if (!platformKey) throw new Error('PHARMACY_PLATFORM_ADMIN_KEY is required');
     const url = endpoint(parsed.values);
-    if (parsed.dryRun) { write(`Dry run passed: ${phase}. No request was sent.`); return 0; }
+    if (parsed.dryRun) {
+      write(`Dry run passed: ${phase}. No request was sent.`);
+      return 0;
+    }
 
     const response = await fetcher(url, {
       method: 'POST',
@@ -84,7 +102,7 @@ export async function runLineCredentialMigration(
       signal: AbortSignal.timeout(60_000),
       headers: { Authorization: `Bearer ${platformKey}` },
     });
-    const payload = await response.json().catch(() => null) as {
+    const payload = (await response.json().catch(() => null)) as {
       success?: boolean;
       error?: unknown;
       data?: { written?: number; verified?: number; scrubbed?: boolean; restored?: boolean };
@@ -102,6 +120,7 @@ export async function runLineCredentialMigration(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runLineCredentialMigration(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runLineCredentialMigration(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

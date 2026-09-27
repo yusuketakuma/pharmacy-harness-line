@@ -4,10 +4,7 @@ import { readJsonObject } from '../json.js';
 import type { Env } from '../../../index.js';
 import { verifyCallerLineIdentity } from '../../../services/liff-auth.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
-import {
-  resolvePrescriptionPatient,
-  type PrescriptionPatient,
-} from '../prescriptions/patient.js';
+import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescriptions/patient.js';
 import {
   archivePharmacyPatient,
   createPatientIntakeResponse,
@@ -61,23 +58,30 @@ function auditPhiView(
   action: string,
 ): Promise<void> {
   return recordTenantAudit(c.env.DB, {
-    lineAccountId, actorStaffId: c.get('staff')!.id, action,
-    resourceType: 'pharmacy_patient', resourceId: patientId,
+    lineAccountId,
+    actorStaffId: c.get('staff')!.id,
+    action,
+    resourceType: 'pharmacy_patient',
+    resourceId: patientId,
   });
 }
 
-async function canUseAdminIntake(c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined }, accountId: string): Promise<boolean> {
+async function canUseAdminIntake(
+  c: { env: IntakeBindings; get(name: 'staff'): IntakeEnv['Variables']['staff'] | undefined },
+  accountId: string,
+): Promise<boolean> {
   const staff = c.get('staff');
-  return Boolean(staff && await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID));
+  return Boolean(
+    staff && (await canAccessPharmacyOperationsAccount(c.env.DB, staff, accountId, c.env.LINE_CHANNEL_ID)),
+  );
 }
 pharmacyIntakeRoutes.use('/api/custom/pharmacy/patients', async (c, next) => {
   const staff = c.get('staff');
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   return next();
 });
 pharmacyIntakeRoutes.use('/api/custom/pharmacy/patients/*', async (c, next) => {
@@ -85,27 +89,21 @@ pharmacyIntakeRoutes.use('/api/custom/pharmacy/patients/*', async (c, next) => {
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   return next();
 });
 
 pharmacyIntakeRoutes.use('/api/liff/pharmacy/patients/*', async (c, next) => {
   const identity = await verifyCallerLineIdentity(c.req.header('Authorization'), c.env);
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
-  const patient = await resolvePrescriptionPatient(
-    c.env.DB,
-    c.req.query('liffId') ?? '',
-    identity,
-  );
+  const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
   c.set('pharmacyPatient', patient);
   c.set('pharmacyTenantId', identity.tenantId);
   const controlPath = /\/(?:proxy-grant|privacy-consent|notification-preference|archive)$/.test(c.req.path);
-  if (!controlPath && !(await canUsePharmacyBetaParticipant(
-    c.env.DB, patient.lineAccountId, patient.friendId,
-  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
+  if (!controlPath && !(await canUsePharmacyBetaParticipant(c.env.DB, patient.lineAccountId, patient.friendId)))
+    return c.json({ error: 'Pharmacy beta participation required' }, 403);
   return next();
 });
 
@@ -153,8 +151,7 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
   }
   const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
-  if (['child', 'spouse', 'parent', 'other'].includes(String(body.relationship)) &&
-      body.proxyConsent === undefined) {
+  if (['child', 'spouse', 'parent', 'other'].includes(String(body.relationship)) && body.proxyConsent === undefined) {
     return c.json({ error: 'Family patient access requires an active proxy grant' }, 403);
   }
   try {
@@ -173,22 +170,25 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
       proxyConsent: body.proxyConsent as never,
       registrationIdempotencyKey: body.registrationIdempotencyKey as string | undefined,
     });
-    const access = patient.relationship === 'child'
-      ? await getPatientAccessState(c.env.DB, owner, patient.id)
-      : null;
+    const access = patient.relationship === 'child' ? await getPatientAccessState(c.env.DB, owner, patient.id) : null;
     if (patient.relationship === 'child' && !access?.proxyExpiresAt) {
       throw new Error('patient proxy conflict');
     }
-    return c.json({
-      patient,
-      ...(access?.proxyExpiresAt && { proxyGrant: {
-        permission: 'patient_intake_v1' as const,
-        basis: 'self_attested_guardian' as const,
-        expiresAt: access.proxyExpiresAt,
-        termsVersion: PATIENT_PROXY_TERMS_VERSION,
-        termsHash: PATIENT_PROXY_TERMS_HASH,
-      } }),
-    }, 201);
+    return c.json(
+      {
+        patient,
+        ...(access?.proxyExpiresAt && {
+          proxyGrant: {
+            permission: 'patient_intake_v1' as const,
+            basis: 'self_attested_guardian' as const,
+            expiresAt: access.proxyExpiresAt,
+            termsVersion: PATIENT_PROXY_TERMS_VERSION,
+            termsHash: PATIENT_PROXY_TERMS_HASH,
+          },
+        }),
+      },
+      201,
+    );
   } catch (error) {
     const mapped = parseJsonError(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
@@ -198,9 +198,7 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients', async (c) => {
 
 pharmacyIntakeRoutes.delete('/api/liff/pharmacy/patients/:id/proxy-grant', async (c) => {
   try {
-    return c.json(await revokePatientProxyGrant(
-      c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
-    ));
+    return c.json(await revokePatientProxyGrant(c.env.DB, c.get('pharmacyPatient'), c.req.param('id')));
   } catch (error) {
     const mapped = parseJsonError(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
@@ -209,16 +207,12 @@ pharmacyIntakeRoutes.delete('/api/liff/pharmacy/patients/:id/proxy-grant', async
 });
 
 pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id', async (c) => {
-  const patient = await getPharmacyPatient(
-    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
-  );
+  const patient = await getPharmacyPatient(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'));
   return patient ? c.json({ patient }) : c.json({ error: 'Patient not found' }, 404);
 });
 
 pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/access', async (c) => {
-  const access = await getPatientAccessState(
-    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
-  );
+  const access = await getPatientAccessState(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'));
   return access ? c.json({ access }) : c.json({ error: 'Patient not found' }, 404);
 });
 
@@ -227,8 +221,7 @@ pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
     return c.json({ error: 'Patient intake is not enabled', code: 'FEATURE_DISABLED' }, 409);
   }
   const body = await readJsonObject(c.req);
-  if (!body || typeof body.expectedUpdatedAt !== 'string' ||
-      !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
+  if (!body || typeof body.expectedUpdatedAt !== 'string' || !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
   }
   try {
@@ -256,25 +249,18 @@ pharmacyIntakeRoutes.patch('/api/liff/pharmacy/patients/:id', async (c) => {
 pharmacyIntakeRoutes.get('/api/liff/pharmacy/patients/:id/intake', async (c) => {
   const cryptoScope = resolvePatientIntakeCryptoScope(c.env, c.get('pharmacyTenantId'));
   if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
-  const patient = await getPharmacyPatient(
-    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'),
-  );
+  const patient = await getPharmacyPatient(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'));
   if (!patient) return c.json({ error: 'Patient not found' }, 404);
-  return c.json({ intake: await getLatestPatientIntake(
-    c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), cryptoScope,
-  ) });
+  return c.json({
+    intake: await getLatestPatientIntake(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), cryptoScope),
+  });
 });
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/privacy-consent', async (c) => {
   const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
-    return c.json(await setPatientPrivacyConsent(
-      c.env.DB,
-      c.get('pharmacyPatient'),
-      c.req.param('id'),
-      body as never,
-    ));
+    return c.json(await setPatientPrivacyConsent(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), body as never));
   } catch (error) {
     const mapped = parseJsonError(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
@@ -286,12 +272,9 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/notification-preferen
   const body = await readJsonObject(c.req);
   if (!body) return c.json({ error: 'Invalid JSON' }, 400);
   try {
-    return c.json(await setPatientNotificationPreference(
-      c.env.DB,
-      c.get('pharmacyPatient'),
-      c.req.param('id'),
-      body as never,
-    ));
+    return c.json(
+      await setPatientNotificationPreference(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), body as never),
+    );
   } catch (error) {
     const mapped = parseJsonError(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
@@ -325,17 +308,11 @@ pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/intake', async (c) =>
 
 pharmacyIntakeRoutes.post('/api/liff/pharmacy/patients/:id/archive', async (c) => {
   const body = await readJsonObject(c.req);
-  if (!body || typeof body.expectedUpdatedAt !== 'string' ||
-      !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
+  if (!body || typeof body.expectedUpdatedAt !== 'string' || !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
     return c.json({ error: 'Invalid expectedUpdatedAt' }, 400);
   }
   try {
-    await archivePharmacyPatient(
-      c.env.DB,
-      c.get('pharmacyPatient'),
-      c.req.param('id'),
-      body.expectedUpdatedAt,
-    );
+    await archivePharmacyPatient(c.env.DB, c.get('pharmacyPatient'), c.req.param('id'), body.expectedUpdatedAt);
     return c.json({ status: 'archived' });
   } catch (error) {
     const mapped = parseJsonError(error);
@@ -364,9 +341,7 @@ pharmacyIntakeRoutes.post('/api/custom/pharmacy/patients/:id/binding-suspension'
     return c.json({ error: 'Invalid input' }, 400);
   }
   try {
-    return c.json(await suspendPatientBinding(
-      c.env.DB, lineAccountId, c.req.param('id'), staff.id, body.reasonCode,
-    ));
+    return c.json(await suspendPatientBinding(c.env.DB, lineAccountId, c.req.param('id'), staff.id, body.reasonCode));
   } catch (error) {
     const mapped = parseJsonError(error);
     if (mapped) return c.json({ error: mapped.error }, mapped.status);
@@ -383,9 +358,7 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/history', async (c) 
   }
   const cryptoScope = resolvePatientIntakeCryptoScope(c.env, c.get('tenantId'));
   if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
-  const history = await getAdminPharmacyPatientHistory(
-    c.env.DB, lineAccountId, c.req.param('id'), cryptoScope,
-  );
+  const history = await getAdminPharmacyPatientHistory(c.env.DB, lineAccountId, c.req.param('id'), cryptoScope);
   if (!history) return c.json({ error: 'Patient not found' }, 404);
   await auditPhiView(c, lineAccountId, c.req.param('id'), 'phi.intake_history_viewed');
   return c.json({ history });
@@ -415,9 +388,7 @@ pharmacyIntakeRoutes.get('/api/custom/pharmacy/patients/:id/intake', async (c) =
   if (!patient) return c.json({ error: 'Patient not found' }, 404);
   const cryptoScope = resolvePatientIntakeCryptoScope(c.env, c.get('tenantId'));
   if (!cryptoScope) return c.json({ error: 'Service unavailable' }, 503);
-  const intake = await getLatestAdminPatientIntake(
-    c.env.DB, lineAccountId, c.req.param('id'), cryptoScope,
-  );
+  const intake = await getLatestAdminPatientIntake(c.env.DB, lineAccountId, c.req.param('id'), cryptoScope);
   await auditPhiView(c, lineAccountId, c.req.param('id'), 'phi.intake_viewed');
   return c.json({ intake });
 });

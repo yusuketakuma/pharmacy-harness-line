@@ -99,11 +99,15 @@ describe('friend route hardening (WP-09)', () => {
     const { app, env } = setup();
     mocks.getFriendById.mockResolvedValue({ id: 'friend-1', line_account_id: null });
     mocks.tagBelongsToTenant.mockResolvedValue(false);
-    const response = await app.request('/api/friends/friend-1/tags', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tagId: 'tag-of-tenant-b' }),
-    }, env);
+    const response = await app.request(
+      '/api/friends/friend-1/tags',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId: 'tag-of-tenant-b' }),
+      },
+      env,
+    );
     expect(response.status).toBe(404);
     expect(mocks.tagBelongsToTenant).toHaveBeenCalledWith(expect.anything(), 'tag-of-tenant-b', 'tenant-a');
     expect(mocks.addTagToFriend).not.toHaveBeenCalled();

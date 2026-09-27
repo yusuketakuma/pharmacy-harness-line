@@ -37,9 +37,7 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
  * The private key never enters D1 or the admin browser. Calendar owners only
  * need to share their calendar with the service-account email and save its ID.
  */
-export async function getGoogleServiceAccountToken(
-  credentials: GoogleServiceAccountCredentials,
-): Promise<string> {
+export async function getGoogleServiceAccountToken(credentials: GoogleServiceAccountCredentials): Promise<string> {
   const email = credentials.email?.trim();
   const privateKey = credentials.privateKey?.trim();
   if (!email || !privateKey) {
@@ -67,11 +65,7 @@ export async function getGoogleServiceAccountToken(
     false,
     ['sign'],
   );
-  const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    new TextEncoder().encode(unsigned),
-  );
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
   const assertion = `${unsigned}.${base64Url(new Uint8Array(signature))}`;
 
   const response = await fetch(TOKEN_URL, {

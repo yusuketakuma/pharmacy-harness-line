@@ -60,7 +60,9 @@ describe('buildIntroMessage', () => {
     expect(result.type).toBe('flex');
     if (result.type !== 'flex') throw new Error('unreachable');
     expect(result.altText).toBe('intro flex');
-    const contents = result.contents as { footer: { contents: Array<{ action: { uri: string } }> } };
+    const contents = result.contents as {
+      footer: { contents: Array<{ action: { uri: string } }> };
+    };
     expect(contents.footer.contents[0].action.uri).toBe(formUrl);
   });
 

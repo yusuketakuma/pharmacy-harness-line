@@ -12,10 +12,7 @@ export function textMessage(text: string): Message {
 
 // ── Image Message ───────────────────────────────────────────────────────────
 
-export function imageMessage(
-  originalContentUrl: string,
-  previewImageUrl?: string,
-): Message {
+export function imageMessage(originalContentUrl: string, previewImageUrl?: string): Message {
   return {
     type: 'image',
     originalContentUrl,
@@ -37,10 +34,7 @@ export interface VideoMessage {
   previewImageUrl: string;
 }
 
-export function videoMessage(
-  originalContentUrl: string,
-  previewImageUrl: string,
-): VideoMessage {
+export function videoMessage(originalContentUrl: string, previewImageUrl: string): VideoMessage {
   return { type: 'video', originalContentUrl, previewImageUrl };
 }
 
@@ -129,10 +123,7 @@ export interface CarouselTemplate {
   };
 }
 
-export function carouselTemplate(
-  altText: string,
-  columns: CarouselColumn[],
-): CarouselTemplate {
+export function carouselTemplate(altText: string, columns: CarouselColumn[]): CarouselTemplate {
   return {
     type: 'template',
     altText,
@@ -191,10 +182,7 @@ export function quickReply(items: QuickReplyItem[]): QuickReply {
   return { items };
 }
 
-export function withQuickReply<T extends object>(
-  message: T,
-  reply: QuickReply,
-): T & { quickReply: QuickReply } {
+export function withQuickReply<T extends object>(message: T, reply: QuickReply): T & { quickReply: QuickReply } {
   return { ...message, quickReply: reply };
 }
 
@@ -294,24 +282,15 @@ export function flexBox(
   return { type: 'box', layout, contents, ...opts };
 }
 
-export function flexText(
-  text: string,
-  opts?: Partial<Omit<FlexText, 'type' | 'text'>>,
-): FlexText {
+export function flexText(text: string, opts?: Partial<Omit<FlexText, 'type' | 'text'>>): FlexText {
   return { type: 'text', text, ...opts };
 }
 
-export function flexImage(
-  url: string,
-  opts?: Partial<Omit<FlexImage, 'type' | 'url'>>,
-): FlexImage {
+export function flexImage(url: string, opts?: Partial<Omit<FlexImage, 'type' | 'url'>>): FlexImage {
   return { type: 'image', url, ...opts };
 }
 
-export function flexButton(
-  action: TemplateAction,
-  opts?: Partial<Omit<FlexButton, 'type' | 'action'>>,
-): FlexButton {
+export function flexButton(action: TemplateAction, opts?: Partial<Omit<FlexButton, 'type' | 'action'>>): FlexButton {
   return { type: 'button', action, ...opts };
 }
 
@@ -332,14 +311,13 @@ export function productCard(opts: {
     }),
     body: flexBox('vertical', [
       flexText(opts.name, { weight: 'bold', size: 'lg' }),
-      ...(opts.description ? [flexText(opts.description, { size: 'sm', color: '#999999', wrap: true, margin: 'md' })] : []),
+      ...(opts.description
+        ? [flexText(opts.description, { size: 'sm', color: '#999999', wrap: true, margin: 'md' })]
+        : []),
       flexText(opts.price, { size: 'xl', weight: 'bold', color: '#06C755', margin: 'md' }),
     ]),
     footer: flexBox('vertical', [
-      flexButton(
-        { type: 'uri', label: '詳細を見る', uri: opts.actionUrl },
-        { style: 'primary', color: '#06C755' },
-      ),
+      flexButton({ type: 'uri', label: '詳細を見る', uri: opts.actionUrl }, { style: 'primary', color: '#06C755' }),
     ]),
   });
 }
@@ -363,10 +341,20 @@ export function receiptMessage(opts: {
       { type: 'separator', margin: 'md' },
       flexBox('vertical', itemComponents, { margin: 'md', spacing: 'sm' }),
       { type: 'separator', margin: 'md' },
-      flexBox('horizontal', [
-        flexText('合計', { weight: 'bold', size: 'md', flex: 3 }),
-        flexText(`¥${opts.total.toLocaleString()}`, { weight: 'bold', size: 'md', flex: 2, align: 'end', color: '#06C755' }),
-      ], { margin: 'md' }),
+      flexBox(
+        'horizontal',
+        [
+          flexText('合計', { weight: 'bold', size: 'md', flex: 3 }),
+          flexText(`¥${opts.total.toLocaleString()}`, {
+            weight: 'bold',
+            size: 'md',
+            flex: 2,
+            align: 'end',
+            color: '#06C755',
+          }),
+        ],
+        { margin: 'md' },
+      ),
     ]),
   });
 }

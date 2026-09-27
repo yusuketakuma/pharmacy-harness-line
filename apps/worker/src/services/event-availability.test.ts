@@ -34,7 +34,7 @@ function memDB(state: { slots: SlotRow[]; bookings: BookingRow[] }): D1Database 
           return stmt;
         },
         async first<T>() {
-          if (sql.includes("FROM event_bookings") && sql.includes("COUNT(*) AS cnt")) {
+          if (sql.includes('FROM event_bookings') && sql.includes('COUNT(*) AS cnt')) {
             const [event_id, friend_id, ...statuses] = bound as string[];
             const cnt = state.bookings.filter(
               (b) => b.event_id === event_id && b.friend_id === friend_id && statuses.includes(b.status),
@@ -57,9 +57,7 @@ function memDB(state: { slots: SlotRow[]; bookings: BookingRow[] }): D1Database 
               .filter((s) => (onlyActive ? s.is_active === 1 : true))
               .filter((s) => (onlyFuture ? s.starts_at > nowIso : true))
               .sort((a, b) =>
-                a.sort_order !== b.sort_order
-                  ? a.sort_order - b.sort_order
-                  : a.starts_at.localeCompare(b.starts_at),
+                a.sort_order !== b.sort_order ? a.sort_order - b.sort_order : a.starts_at.localeCompare(b.starts_at),
               );
             return { results: filtered } as { results: T[] };
           }

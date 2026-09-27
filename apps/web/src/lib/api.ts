@@ -1,4 +1,4 @@
-import { loginRedirectPath } from './safe-next-path'
+import { loginRedirectPath } from './safe-next-path';
 import type {
   Friend,
   Tag,
@@ -28,37 +28,37 @@ import type {
   EntryRouteFunnel,
   TrafficPool,
   PoolAccount,
-} from '@line-crm/shared'
+} from '@line-crm/shared';
 
 /** Affiliate offer (案件) as returned by the worker. */
 export type AffiliateOffer = {
-  id: string
-  name: string
-  description: string | null
-  rewardAmount: number | null
-  rewardMiles: number
-  mileageProgramId: string
-  lineAccountId: string | null
-  tagId: string | null
-  scenarioId: string | null
-  isActive: boolean
-  createdAt: string
-}
+  id: string;
+  name: string;
+  description: string | null;
+  rewardAmount: number | null;
+  rewardMiles: number;
+  mileageProgramId: string;
+  lineAccountId: string | null;
+  tagId: string | null;
+  scenarioId: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
 
 /** Approval queue row as returned by /api/conversions/approvals */
 export type ConversionApprovalItem = {
-  eventId: string
-  createdAt: string
-  friendId: string
-  friendName: string | null
-  affiliateId: string
-  affiliateName: string | null
-  offerName: string | null
-  conversionPointName: string | null
-  value: number | null
-  approvalStatus: 'pending' | 'approved' | 'rejected'
-  duplicateFlag: boolean
-}
+  eventId: string;
+  createdAt: string;
+  friendId: string;
+  friendName: string | null;
+  affiliateId: string;
+  affiliateName: string | null;
+  offerName: string | null;
+  conversionPointName: string | null;
+  value: number | null;
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  duplicateFlag: boolean;
+};
 
 /** Broadcast type from API (now camelCase after worker serialization) */
 export type ApiBroadcast = Omit<Broadcast, 'targetType'> & {
@@ -70,56 +70,56 @@ export type ApiBroadcast = Omit<Broadcast, 'targetType'> & {
 };
 
 export type BroadcastInsight = {
-  broadcastId?: string
-  delivered: number | null
-  uniqueImpression: number | null
-  uniqueClick: number | null
-  uniqueMediaPlayed: number | null
-  openRate: number | null
-  clickRate: number | null
-  status?: string
-  fetchedAt?: string | null
-}
+  broadcastId?: string;
+  delivered: number | null;
+  uniqueImpression: number | null;
+  uniqueClick: number | null;
+  uniqueMediaPlayed: number | null;
+  openRate: number | null;
+  clickRate: number | null;
+  status?: string;
+  fetchedAt?: string | null;
+};
 
 export type RichMenuGroupDetail = {
-  id: string
-  accountId: string
-  name: string
-  chatBarText: string
-  size: 'large' | 'compact'
-  defaultPageId: string | null
-  isDefaultForAll: boolean
-  selected: boolean
-  status: 'draft' | 'published'
-  publishingAt: string | null
-  createdAt: string
-  updatedAt: string
+  id: string;
+  accountId: string;
+  name: string;
+  chatBarText: string;
+  size: 'large' | 'compact';
+  defaultPageId: string | null;
+  isDefaultForAll: boolean;
+  selected: boolean;
+  status: 'draft' | 'published';
+  publishingAt: string | null;
+  createdAt: string;
+  updatedAt: string;
   pages: Array<{
-    id: string
-    orderIndex: number
-    name: string
-    aliasId: string
-    lineRichmenuId: string | null
-    imageR2Key: string | null
-    imageContentType: string | null
+    id: string;
+    orderIndex: number;
+    name: string;
+    aliasId: string;
+    lineRichmenuId: string | null;
+    imageR2Key: string | null;
+    imageContentType: string | null;
     areas: Array<{
-      id: string
-      boundsX: number
-      boundsY: number
-      boundsWidth: number
-      boundsHeight: number
-      actionType: 'uri' | 'message' | 'postback' | 'richmenuswitch'
-      actionData: Record<string, unknown>
-    }>
-  }>
-}
+      id: string;
+      boundsX: number;
+      boundsY: number;
+      boundsWidth: number;
+      boundsHeight: number;
+      actionType: 'uri' | 'message' | 'postback' | 'richmenuswitch';
+      actionData: Record<string, unknown>;
+    }>;
+  }>;
+};
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL
+export const API_URL = process.env.NEXT_PUBLIC_API_URL;
 if (!API_URL) {
   throw new Error(
     'NEXT_PUBLIC_API_URL is not set. Build cannot proceed without a valid API URL. ' +
-    'Set it in .env.production (local) or GitHub Secrets (CI).'
-  )
+      'Set it in .env.production (local) or GitHub Secrets (CI).',
+  );
 }
 
 /**
@@ -130,72 +130,75 @@ if (!API_URL) {
  * directly, so the token is delivered in the login/session response body and
  * cached here.
  */
-export const CSRF_STORAGE_KEY = 'lh_csrf'
+export const CSRF_STORAGE_KEY = 'lh_csrf';
 
 export class BrowserStorageUnavailableError extends Error {
   constructor(message = 'Browser storage is unavailable') {
-    super(message)
-    this.name = 'BrowserStorageUnavailableError'
+    super(message);
+    this.name = 'BrowserStorageUnavailableError';
   }
 }
 
 export class SessionStateUnavailableError extends Error {
   constructor(message = 'Safe session state is unavailable') {
-    super(message)
-    this.name = 'SessionStateUnavailableError'
+    super(message);
+    this.name = 'SessionStateUnavailableError';
   }
 }
 
 type StaffSessionData = {
-  id: string
-  name: string
-  role: 'owner' | 'admin' | 'staff'
-  principalKind?: 'human' | 'pharmacy_shared'
-  tenantId: string
-  tenantCode: string
-  tenantName: string
-  mustChangePassword: boolean
-}
+  id: string;
+  name: string;
+  role: 'owner' | 'admin' | 'staff';
+  principalKind?: 'human' | 'pharmacy_shared';
+  tenantId: string;
+  tenantCode: string;
+  tenantName: string;
+  mustChangePassword: boolean;
+};
 
 type StaffSession = {
-  success: true
-  data: StaffSessionData
-  csrfToken: string
-}
+  success: true;
+  data: StaffSessionData;
+  csrfToken: string;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isNonBlankString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function isStaffRole(value: unknown): value is StaffSessionData['role'] {
-  return value === 'owner' || value === 'admin' || value === 'staff'
+  return value === 'owner' || value === 'admin' || value === 'staff';
 }
 
 function isPrincipalKind(value: unknown): value is StaffSessionData['principalKind'] {
-  return value === undefined || value === 'human' || value === 'pharmacy_shared'
+  return value === undefined || value === 'human' || value === 'pharmacy_shared';
 }
 
 function isCsrfToken(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && !/[\s\u0000-\u001F\u007F-\u009F]/u.test(value)
+  return typeof value === 'string' && value.length > 0 && !/[\s\u0000-\u001F\u007F-\u009F]/u.test(value);
 }
 
 function parseStaffSession(session: unknown): StaffSession {
   if (!isRecord(session) || session.success !== true || !isCsrfToken(session.csrfToken) || !isRecord(session.data)) {
-    throw new SessionStateUnavailableError('Authenticated staff session is unavailable')
+    throw new SessionStateUnavailableError('Authenticated staff session is unavailable');
   }
-  const data = session.data
-  if (!isStaffRole(data.role) || !isPrincipalKind(data.principalKind)
-    || !isNonBlankString(data.id)
-    || !isNonBlankString(data.name)
-    || !isNonBlankString(data.tenantId)
-    || !isNonBlankString(data.tenantCode)
-    || !isNonBlankString(data.tenantName)
-    || typeof data.mustChangePassword !== 'boolean') {
-    throw new SessionStateUnavailableError('Authenticated staff session is unavailable')
+  const data = session.data;
+  if (
+    !isStaffRole(data.role) ||
+    !isPrincipalKind(data.principalKind) ||
+    !isNonBlankString(data.id) ||
+    !isNonBlankString(data.name) ||
+    !isNonBlankString(data.tenantId) ||
+    !isNonBlankString(data.tenantCode) ||
+    !isNonBlankString(data.tenantName) ||
+    typeof data.mustChangePassword !== 'boolean'
+  ) {
+    throw new SessionStateUnavailableError('Authenticated staff session is unavailable');
   }
   return {
     success: true,
@@ -210,46 +213,47 @@ function parseStaffSession(session: unknown): StaffSession {
       tenantName: data.tenantName,
       mustChangePassword: data.mustChangePassword,
     },
-  }
+  };
 }
 
 export function getCsrfToken(): string {
-  if (typeof window === 'undefined') throw new SessionStateUnavailableError('CSRF token is unavailable')
+  if (typeof window === 'undefined') throw new SessionStateUnavailableError('CSRF token is unavailable');
   try {
-    const token = localStorage.getItem(CSRF_STORAGE_KEY)
-    if (!isCsrfToken(token)) throw new SessionStateUnavailableError('CSRF token is unavailable')
-    return token
+    const token = localStorage.getItem(CSRF_STORAGE_KEY);
+    if (!isCsrfToken(token)) throw new SessionStateUnavailableError('CSRF token is unavailable');
+    return token;
   } catch (caught) {
-    if (caught instanceof SessionStateUnavailableError) throw caught
-    throw new BrowserStorageUnavailableError()
+    if (caught instanceof SessionStateUnavailableError) throw caught;
+    throw new BrowserStorageUnavailableError();
   }
 }
 
 export function setCsrfToken(token: string | undefined | null): void {
-  if (typeof window === 'undefined' || token === undefined || token === null) return
-  if (!isCsrfToken(token)) throw new SessionStateUnavailableError('CSRF token is unavailable')
+  if (typeof window === 'undefined' || token === undefined || token === null) return;
+  if (!isCsrfToken(token)) throw new SessionStateUnavailableError('CSRF token is unavailable');
   try {
-    localStorage.setItem(CSRF_STORAGE_KEY, token)
+    localStorage.setItem(CSRF_STORAGE_KEY, token);
   } catch {
-    throw new BrowserStorageUnavailableError()
+    throw new BrowserStorageUnavailableError();
   }
 }
 
 export function persistStaffSession(session: unknown): StaffSession {
-  if (typeof window === 'undefined') throw new SessionStateUnavailableError()
-  const validated = parseStaffSession(session)
+  if (typeof window === 'undefined') throw new SessionStateUnavailableError();
+  const validated = parseStaffSession(session);
   try {
-    setCsrfToken(validated.csrfToken)
-    localStorage.setItem('lh_staff_name', validated.data.name)
-    localStorage.setItem('lh_staff_role', validated.data.role)
+    setCsrfToken(validated.csrfToken);
+    localStorage.setItem('lh_staff_name', validated.data.name);
+    localStorage.setItem('lh_staff_role', validated.data.role);
   } catch (caught) {
-    if (caught instanceof BrowserStorageUnavailableError || caught instanceof SessionStateUnavailableError) throw caught
-    throw new BrowserStorageUnavailableError()
+    if (caught instanceof BrowserStorageUnavailableError || caught instanceof SessionStateUnavailableError)
+      throw caught;
+    throw new BrowserStorageUnavailableError();
   }
-  return validated
+  return validated;
 }
 
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
  * Non-2xx API responses. message keeps the legacy `API error: <status>` shape
@@ -257,25 +261,25 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
  * branch on the code without parsing the string.
  */
 export class ApiError extends Error {
-  readonly status: number
-  readonly detail?: string
-  readonly data?: unknown
+  readonly status: number;
+  readonly detail?: string;
+  readonly data?: unknown;
 
   constructor(status: number, detail?: string, data?: unknown) {
-    super(`API error: ${status}`)
-    this.name = 'ApiError'
-    this.status = status
-    this.detail = detail
-    this.data = data
+    super(`API error: ${status}`);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+    this.data = data;
   }
 }
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const method = (options?.method ?? 'GET').toUpperCase()
-  const csrfHeaders: Record<string, string> = {}
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const csrfHeaders: Record<string, string> = {};
   if (MUTATING_METHODS.has(method)) {
-    const token = getCsrfToken()
-    if (token) csrfHeaders['X-CSRF-Token'] = token
+    const token = getCsrfToken();
+    if (token) csrfHeaders['X-CSRF-Token'] = token;
   }
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -286,187 +290,189 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       ...csrfHeaders,
       ...options?.headers,
     },
-  })
+  });
   if (!res.ok) {
     if (res.status === 401 && typeof window !== 'undefined') {
       for (const key of [CSRF_STORAGE_KEY, 'lh_staff_name', 'lh_staff_role', 'lh_selected_account']) {
-        try { localStorage.removeItem(key) } catch { /* storage unavailable */ }
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          /* storage unavailable */
+        }
       }
-      window.location.assign(loginRedirectPath('expired'))
+      window.location.assign(loginRedirectPath('expired'));
     }
-    let detail: string | undefined
-    let data: unknown
+    let detail: string | undefined;
+    let data: unknown;
     try {
-      const body = await res.json() as { error?: unknown; data?: unknown }
-      if (typeof body.error === 'string' && body.error.length <= 500) detail = body.error
-      data = body.data
+      const body = (await res.json()) as { error?: unknown; data?: unknown };
+      if (typeof body.error === 'string' && body.error.length <= 500) detail = body.error;
+      data = body.data;
     } catch {
       // Non-JSON error response.
     }
-    throw new ApiError(res.status, detail, data)
+    throw new ApiError(res.status, detail, data);
   }
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
 }
 
 export type FriendListParams = {
-  offset?: string
-  limit?: string | number
-  tagId?: string
-  accountId?: string
-  search?: string
+  offset?: string;
+  limit?: string | number;
+  tagId?: string;
+  accountId?: string;
+  search?: string;
   /**
    * `false` でタグ enrich をスキップ。autocomplete 等で displayName/picture
    * しか使わない呼び出し向け。デフォルトは true（既存呼び出しの挙動維持）。
    */
-  includeTags?: boolean
+  includeTags?: boolean;
   /**
    * `true` で latestIncomingMessage / latestOutgoingAt / activeScenario /
    * handled を付与。L-step 風友だちリスト UI 用。デフォルトは false。
    */
-  includeChatStatus?: boolean
+  includeChatStatus?: boolean;
   /** 並び替え。`oldest` で created_at ASC、未指定 / `recent` で DESC. */
-  sort?: 'recent' | 'oldest'
+  sort?: 'recent' | 'oldest';
   /** `unhandled` で「最新が未返信の incoming」だけに絞る (サーバ側 SQL filter). */
-  handled?: 'unhandled'
-}
+  handled?: 'unhandled';
+};
 
-export type FriendWithTags = Friend & { tags: Tag[] }
+export type FriendWithTags = Friend & { tags: Tag[] };
 export type FollowerImportState = {
-  version: 1
-  capability: 'unknown' | 'available' | 'unavailable'
-  phase: 'not_started' | 'importing_ids' | 'hydrating_profiles' | 'completed'
-  eligibilityCheckedAt: string | null
-  startedAt: string | null
-  completedAt: string | null
-  updatedAt: string
-  received: number
-  imported: number
-  reactivated: number
-  claimedUnassigned: number
-  alreadyPresent: number
-  conflicts: number
-  invalid: number
-  profilesProcessed: number
-  profilesUpdated: number
-  profileErrors: number
-  lastError: string | null
-}
+  version: 1;
+  capability: 'unknown' | 'available' | 'unavailable';
+  phase: 'not_started' | 'importing_ids' | 'hydrating_profiles' | 'completed';
+  eligibilityCheckedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+  received: number;
+  imported: number;
+  reactivated: number;
+  claimedUnassigned: number;
+  alreadyPresent: number;
+  conflicts: number;
+  invalid: number;
+  profilesProcessed: number;
+  profilesUpdated: number;
+  profileErrors: number;
+  lastError: string | null;
+};
 export type FriendFormSubmission = {
-  id: string
-  formId: string
-  formName: string
-  fields: Array<{ name: string; label: string }>
-  data: Record<string, unknown>
-  createdAt: string
-}
-export type FriendDetail = FriendWithTags & { formSubmissions: FriendFormSubmission[] }
+  id: string;
+  formId: string;
+  formName: string;
+  fields: Array<{ name: string; label: string }>;
+  data: Record<string, unknown>;
+  createdAt: string;
+};
+export type FriendDetail = FriendWithTags & { formSubmissions: FriendFormSubmission[] };
 export type MileageSummary = {
-  programId: string
-  programName: string
-  available: number
-  pending: number
-  lifetimeEarned: number
-  spent: number
-}
+  programId: string;
+  programName: string;
+  available: number;
+  pending: number;
+  lifetimeEarned: number;
+  spent: number;
+};
 export type MileageHistoryItem = {
-  id: string
-  entryType: 'grant' | 'reversal' | 'spend' | 'expiration' | 'adjustment'
-  status: 'pending' | 'available' | 'void'
-  amount: number
-  reason: string
-  source: string
-  sourceEventId: string | null
-  occurredAt: string
-}
+  id: string;
+  entryType: 'grant' | 'reversal' | 'spend' | 'expiration' | 'adjustment';
+  status: 'pending' | 'available' | 'void';
+  amount: number;
+  reason: string;
+  source: string;
+  sourceEventId: string | null;
+  occurredAt: string;
+};
 export type MileageRule = {
-  id: string
-  name: string
-  eventType: string
-  source: string | null
-  amount: number
-  initialStatus: 'pending' | 'available'
+  id: string;
+  name: string;
+  eventType: string;
+  source: string | null;
+  amount: number;
+  initialStatus: 'pending' | 'available';
   conditions: {
-    dailyCapActions?: number
-    uniquePerSubject?: boolean
-    uniquePerSubjectPerDay?: boolean
-    ignoreMultiplier?: boolean
-    beneficiary?: 'actor' | 'referrer'
-    uniquePerReferredFriend?: boolean
-    uniquePerReferredFriendPerSubject?: boolean
-  }
-  isActive: boolean
-  createdAt: string
-  updatedAt: string
-}
+    dailyCapActions?: number;
+    uniquePerSubject?: boolean;
+    uniquePerSubjectPerDay?: boolean;
+    ignoreMultiplier?: boolean;
+    beneficiary?: 'actor' | 'referrer';
+    uniquePerReferredFriend?: boolean;
+    uniquePerReferredFriendPerSubject?: boolean;
+  };
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 export type MileageAdminMember = {
-  identityKey: string
-  primaryFriendId: string
-  displayName: string
-  pictureUrl: string | null
-  accountCount: number
-  accountNames: string[]
-  available: number
-  pending: number
-  lifetimeEarned: number
-  actionCount: number
-  messageCount: number
-  linkClickCount: number
-  formCount: number
-  bookingCount: number
-  webinarCount: number
-  instagramCount: number
-  followingDays: number
-  unfollowCount: number
-  referralMiles: number
-  qualityReferralCount: number
-  lastActivityAt: string | null
-}
+  identityKey: string;
+  primaryFriendId: string;
+  displayName: string;
+  pictureUrl: string | null;
+  accountCount: number;
+  accountNames: string[];
+  available: number;
+  pending: number;
+  lifetimeEarned: number;
+  actionCount: number;
+  messageCount: number;
+  linkClickCount: number;
+  formCount: number;
+  bookingCount: number;
+  webinarCount: number;
+  instagramCount: number;
+  followingDays: number;
+  unfollowCount: number;
+  referralMiles: number;
+  qualityReferralCount: number;
+  lastActivityAt: string | null;
+};
 export type MileageAdminOverview = {
   summary: {
-    totalMembers: number
-    totalAvailable: number
-    activeMembers30d: number
-    totalActions: number
-    queuedEvents: number
-  }
-  members: MileageAdminMember[]
-  pagination: { total: number; limit: number; offset: number }
-}
+    totalMembers: number;
+    totalAvailable: number;
+    activeMembers30d: number;
+    totalActions: number;
+    queuedEvents: number;
+  };
+  members: MileageAdminMember[];
+  pagination: { total: number; limit: number; offset: number };
+};
 /** Friend list items, optionally hydrated with chat status (when ?includeChatStatus=true) */
-export type FriendListItem = FriendWithTags & Partial<{
-  latestIncomingMessage: { content: string; messageType: string; createdAt: string } | null
-  latestOutgoingAt: string | null
-  activeScenario: { name: string; status: string } | null
-  handled: boolean
-}>
+export type FriendListItem = FriendWithTags &
+  Partial<{
+    latestIncomingMessage: { content: string; messageType: string; createdAt: string } | null;
+    latestOutgoingAt: string | null;
+    activeScenario: { name: string; status: string } | null;
+    handled: boolean;
+  }>;
 
 export const api = {
   friends: {
     list: (params?: FriendListParams) => {
-      const query: Record<string, string> = {}
-      if (params?.offset) query.offset = String(params.offset)
-      if (params?.limit) query.limit = String(params.limit)
-      if (params?.tagId) query.tagId = params.tagId
-      if (params?.accountId) query.lineAccountId = params.accountId
-      if (params?.search) query.search = params.search
-      if (params?.includeTags === false) query.includeTags = 'false'
-      if (params?.includeChatStatus) query.includeChatStatus = 'true'
-      if (params?.sort) query.sort = params.sort
-      if (params?.handled) query.handled = params.handled
-      return fetchApi<ApiResponse<PaginatedResponse<FriendListItem>>>(
-        '/api/friends?' + new URLSearchParams(query)
-      )
+      const query: Record<string, string> = {};
+      if (params?.offset) query.offset = String(params.offset);
+      if (params?.limit) query.limit = String(params.limit);
+      if (params?.tagId) query.tagId = params.tagId;
+      if (params?.accountId) query.lineAccountId = params.accountId;
+      if (params?.search) query.search = params.search;
+      if (params?.includeTags === false) query.includeTags = 'false';
+      if (params?.includeChatStatus) query.includeChatStatus = 'true';
+      if (params?.sort) query.sort = params.sort;
+      if (params?.handled) query.handled = params.handled;
+      return fetchApi<ApiResponse<PaginatedResponse<FriendListItem>>>('/api/friends?' + new URLSearchParams(query));
     },
-    get: (id: string) =>
-      fetchApi<ApiResponse<FriendDetail>>(`/api/friends/${id}`),
+    get: (id: string) => fetchApi<ApiResponse<FriendDetail>>(`/api/friends/${id}`),
     mileage: (id: string, limit = 10) =>
       fetchApi<ApiResponse<{ summary: MileageSummary; history: MileageHistoryItem[] }>>(
         `/api/friends/${id}/mileage?limit=${limit}`,
       ),
     count: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + params.accountId : ''
-      return fetchApi<ApiResponse<{ count: number }>>('/api/friends/count' + query)
+      const query = params?.accountId ? '?lineAccountId=' + params.accountId : '';
+      return fetchApi<ApiResponse<{ count: number }>>('/api/friends/count' + query);
     },
     addTag: (friendId: string, tagId: string) =>
       fetchApi<ApiResponse<null>>(`/api/friends/${friendId}/tags`, {
@@ -491,26 +497,27 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    updateMileage: (id: string, data: {
-      rewardMiles: number
-      referralRewardMiles: number
-      multiplierBps: number | null
-      multiplierPriority: number
-    }) =>
+    updateMileage: (
+      id: string,
+      data: {
+        rewardMiles: number;
+        referralRewardMiles: number;
+        multiplierBps: number | null;
+        multiplierPriority: number;
+      },
+    ) =>
       fetchApi<ApiResponse<{ tag: Tag; queued: number }>>(`/api/tags/${id}/mileage`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/tags/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/tags/${id}`, { method: 'DELETE' }),
   },
   scenarios: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + params.accountId : ''
-      return fetchApi<ApiResponse<(Scenario & { stepCount?: number })[]>>('/api/scenarios' + query)
+      const query = params?.accountId ? '?lineAccountId=' + params.accountId : '';
+      return fetchApi<ApiResponse<(Scenario & { stepCount?: number })[]>>('/api/scenarios' + query);
     },
-    get: (id: string) =>
-      fetchApi<ApiResponse<Scenario & { steps: ScenarioStep[] }>>(`/api/scenarios/${id}`),
+    get: (id: string) => fetchApi<ApiResponse<Scenario & { steps: ScenarioStep[] }>>(`/api/scenarios/${id}`),
     create: (data: Omit<Scenario, 'id' | 'createdAt' | 'updatedAt'>) =>
       fetchApi<ApiResponse<Scenario>>('/api/scenarios', {
         method: 'POST',
@@ -521,20 +528,19 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/scenarios/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/scenarios/${id}`, { method: 'DELETE' }),
     addStep: (
       id: string,
       data: {
-        stepOrder: number
-        messageType: ScenarioStep['messageType']
-        messageContent: string
-        delayMinutes?: number
-        offsetDays?: number
-        offsetMinutes?: number
-        deliveryTime?: string
-        templateId?: string | null
-        onReachTagId?: string | null
+        stepOrder: number;
+        messageType: ScenarioStep['messageType'];
+        messageContent: string;
+        delayMinutes?: number;
+        offsetDays?: number;
+        offsetMinutes?: number;
+        deliveryTime?: string;
+        templateId?: string | null;
+        onReachTagId?: string | null;
       },
     ) =>
       fetchApi<ApiResponse<ScenarioStep>>(`/api/scenarios/${id}/steps`, {
@@ -545,15 +551,15 @@ export const api = {
       id: string,
       stepId: string,
       data: {
-        stepOrder?: number
-        messageType?: ScenarioStep['messageType']
-        messageContent?: string
-        delayMinutes?: number
-        offsetDays?: number
-        offsetMinutes?: number
-        deliveryTime?: string
-        templateId?: string | null
-        onReachTagId?: string | null
+        stepOrder?: number;
+        messageType?: ScenarioStep['messageType'];
+        messageContent?: string;
+        delayMinutes?: number;
+        offsetDays?: number;
+        offsetMinutes?: number;
+        deliveryTime?: string;
+        templateId?: string | null;
+        onReachTagId?: string | null;
       },
     ) =>
       fetchApi<ApiResponse<ScenarioStep>>(`/api/scenarios/${id}/steps/${stepId}`, {
@@ -570,85 +576,100 @@ export const api = {
         body: JSON.stringify({ orders }),
       }),
     preview: (id: string, startAt?: string) => {
-      const q = startAt ? `?startAt=${encodeURIComponent(startAt)}` : ''
-      return fetchApi<ApiResponse<{
-        startAt: string
-        steps: Array<{
-          stepOrder: number
-          deliveryAt: string
-          deliveryAtLabel: string
-          messageType: string
-          messageContent: string
+      const q = startAt ? `?startAt=${encodeURIComponent(startAt)}` : '';
+      return fetchApi<
+        ApiResponse<{
+          startAt: string;
+          steps: Array<{
+            stepOrder: number;
+            deliveryAt: string;
+            deliveryAtLabel: string;
+            messageType: string;
+            messageContent: string;
+          }>;
         }>
-      }>>(`/api/scenarios/${id}/preview${q}`)
+      >(`/api/scenarios/${id}/preview${q}`);
     },
     stats: (id: string) =>
-      fetchApi<ApiResponse<{
-        enrolledTotal: number
-        activeNow: number
-        completed: number
-        paused: number
-        steps: Array<{ stepOrder: number; reachedCount: number; reachRate: number }>
-      }>>(`/api/scenarios/${id}/stats`),
+      fetchApi<
+        ApiResponse<{
+          enrolledTotal: number;
+          activeNow: number;
+          completed: number;
+          paused: number;
+          steps: Array<{ stepOrder: number; reachedCount: number; reachRate: number }>;
+        }>
+      >(`/api/scenarios/${id}/stats`),
   },
   broadcasts: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + params.accountId : ''
-      return fetchApi<ApiResponse<ApiBroadcast[]>>('/api/broadcasts' + query)
+      const query = params?.accountId ? '?lineAccountId=' + params.accountId : '';
+      return fetchApi<ApiResponse<ApiBroadcast[]>>('/api/broadcasts' + query);
     },
-    get: (id: string) =>
-      fetchApi<ApiResponse<ApiBroadcast>>(`/api/broadcasts/${id}`),
-    create: (data: {
-      title: string
-      messageType: ApiBroadcast['messageType']
-      messageContent: string
-      targetType: ApiBroadcast['targetType']
-      targetTagId?: string | null
-      scheduledAt?: string | null
-      status?: ApiBroadcast['status']
-      lineAccountId?: string | null
-      accountIds?: string[]
-      dedupPriority?: string[]
-      trackLinks?: boolean
-    }, options?: { idempotencyKey?: string }) =>
+    get: (id: string) => fetchApi<ApiResponse<ApiBroadcast>>(`/api/broadcasts/${id}`),
+    create: (
+      data: {
+        title: string;
+        messageType: ApiBroadcast['messageType'];
+        messageContent: string;
+        targetType: ApiBroadcast['targetType'];
+        targetTagId?: string | null;
+        scheduledAt?: string | null;
+        status?: ApiBroadcast['status'];
+        lineAccountId?: string | null;
+        accountIds?: string[];
+        dedupPriority?: string[];
+        trackLinks?: boolean;
+      },
+      options?: { idempotencyKey?: string },
+    ) =>
       fetchApi<ApiResponse<ApiBroadcast>>('/api/broadcasts', {
         method: 'POST',
-        headers: options?.idempotencyKey
-          ? { 'Idempotency-Key': options.idempotencyKey }
-          : undefined,
+        headers: options?.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : undefined,
         body: JSON.stringify(data),
       }),
     update: (
       id: string,
       data: {
-        title?: string
-        messageType?: ApiBroadcast['messageType']
-        messageContent?: string
-        targetType?: ApiBroadcast['targetType']
-        targetTagId?: string | null
-        scheduledAt?: string | null
-        trackLinks?: boolean
-      }
+        title?: string;
+        messageType?: ApiBroadcast['messageType'];
+        messageContent?: string;
+        targetType?: ApiBroadcast['targetType'];
+        targetTagId?: string | null;
+        scheduledAt?: string | null;
+        trackLinks?: boolean;
+      },
     ) =>
       fetchApi<ApiResponse<ApiBroadcast>>(`/api/broadcasts/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/broadcasts/${id}`, { method: 'DELETE' }),
-    send: (id: string) =>
-      fetchApi<ApiResponse<ApiBroadcast>>(`/api/broadcasts/${id}/send`, { method: 'POST' }),
-    getInsight: (id: string) =>
-      fetchApi<ApiResponse<BroadcastInsight | null>>(`/api/broadcasts/${id}/insight`),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/broadcasts/${id}`, { method: 'DELETE' }),
+    send: (id: string) => fetchApi<ApiResponse<ApiBroadcast>>(`/api/broadcasts/${id}/send`, { method: 'POST' }),
+    getInsight: (id: string) => fetchApi<ApiResponse<BroadcastInsight | null>>(`/api/broadcasts/${id}/insight`),
     fetchInsight: (id: string) =>
-      fetchApi<ApiResponse<BroadcastInsight>>(`/api/broadcasts/${id}/fetch-insight`, { method: 'POST' }),
-    testSend: (id: string, idempotencyKey: string) =>
-      fetchApi<{ success: boolean; sent?: number; failed?: number; error?: string }>(`/api/broadcasts/${id}/test-send`, {
+      fetchApi<ApiResponse<BroadcastInsight>>(`/api/broadcasts/${id}/fetch-insight`, {
         method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
       }),
+    testSend: (id: string, idempotencyKey: string) =>
+      fetchApi<{ success: boolean; sent?: number; failed?: number; error?: string }>(
+        `/api/broadcasts/${id}/test-send`,
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': idempotencyKey },
+        },
+      ),
     getProgress: (id: string) =>
-      fetchApi<{ success: boolean; data?: { status: string; totalCount: number; successCount: number; batchOffset: number; failedAccountIds: string[] | null } }>(`/api/broadcasts/${id}/progress`),
+      fetchApi<{
+        success: boolean;
+        data?: {
+          status: string;
+          totalCount: number;
+          successCount: number;
+          batchOffset: number;
+          failedAccountIds: string[] | null;
+        };
+      }>(`/api/broadcasts/${id}/progress`),
     previewCount: (id: string) =>
       fetchApi<{
         success: boolean;
@@ -709,14 +730,16 @@ export const api = {
 
   accountSettings: {
     getTestRecipients: (accountId: string) =>
-      fetchApi<{ success: boolean; data: Array<{ id: string; displayName: string; pictureUrl: string | null }> }>(`/api/account-settings/test-recipients?accountId=${accountId}`),
+      fetchApi<{
+        success: boolean;
+        data: Array<{ id: string; displayName: string; pictureUrl: string | null }>;
+      }>(`/api/account-settings/test-recipients?accountId=${accountId}`),
     updateTestRecipients: (accountId: string, friendIds: string[]) =>
       fetchApi<{ success: boolean }>('/api/account-settings/test-recipients', {
         method: 'PUT',
         body: JSON.stringify({ accountId, friendIds }),
       }),
-    getLinkBaseUrl: () =>
-      fetchApi<{ success: boolean; data: string | null }>('/api/account-settings/link-base-url'),
+    getLinkBaseUrl: () => fetchApi<{ success: boolean; data: string | null }>('/api/account-settings/link-base-url'),
     updateLinkBaseUrl: (value: string) =>
       fetchApi<{ success: boolean; error?: string }>('/api/account-settings/link-base-url', {
         method: 'PUT',
@@ -733,10 +756,8 @@ export const api = {
 
   // ── Round 2 APIs ─────────────────────────────────────────────────────────
   lineAccounts: {
-    list: () =>
-      fetchApi<ApiResponse<LineAccount[]>>('/api/line-accounts'),
-    get: (id: string) =>
-      fetchApi<ApiResponse<LineAccount>>(`/api/line-accounts/${id}`),
+    list: () => fetchApi<ApiResponse<LineAccount[]>>('/api/line-accounts'),
+    get: (id: string) => fetchApi<ApiResponse<LineAccount>>(`/api/line-accounts/${id}`),
     create: (data: {
       channelId: string;
       name: string;
@@ -782,22 +803,22 @@ export const api = {
         >
       >,
     ) => {
-      const touchesMessagingCredentials =
-        data.channelAccessToken !== undefined || data.channelSecret !== undefined
+      const touchesMessagingCredentials = data.channelAccessToken !== undefined || data.channelSecret !== undefined;
       return fetchApi<ApiResponse<LineAccount>>(`/api/line-accounts/${id}`, {
         method: touchesMessagingCredentials ? 'PUT' : 'PATCH',
         body: JSON.stringify(data),
-      })
+      });
     },
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/line-accounts/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/line-accounts/${id}`, { method: 'DELETE' }),
     connect: (id: string) =>
-      fetchApi<ApiResponse<{
-        lineAccountId: string
-        identityRegistered: boolean
-        webhookConfigured: boolean
-        webhookUrl: string
-      }>>(`/api/line-accounts/${id}/connect`, { method: 'POST' }),
+      fetchApi<
+        ApiResponse<{
+          lineAccountId: string;
+          identityRegistered: boolean;
+          webhookConfigured: boolean;
+          webhookUrl: string;
+        }>
+      >(`/api/line-accounts/${id}/connect`, { method: 'POST' }),
     updateOrder: (ordered: Array<{ id: string; displayOrder: number }>) =>
       fetchApi<{ success: boolean; error?: string }>('/api/line-accounts/order', {
         method: 'PATCH',
@@ -806,15 +827,11 @@ export const api = {
     followerImportState: (id: string) =>
       fetchApi<ApiResponse<FollowerImportState>>(`/api/line-accounts/${id}/follower-import`),
     detectFollowerImport: (id: string) =>
-      fetchApi<ApiResponse<FollowerImportState>>(
-        `/api/line-accounts/${id}/follower-import/detect`,
-        { method: 'POST' },
-      ),
+      fetchApi<ApiResponse<FollowerImportState>>(`/api/line-accounts/${id}/follower-import/detect`, { method: 'POST' }),
     startFollowerImport: (id: string) =>
-      fetchApi<ApiResponse<FollowerImportState>>(
-        `/api/line-accounts/${id}/follower-import/start`,
-        { method: 'POST' },
-      ),
+      fetchApi<ApiResponse<FollowerImportState>>(`/api/line-accounts/${id}/follower-import/start`, {
+        method: 'POST',
+      }),
     stepFollowerImport: (id: string) =>
       fetchApi<ApiResponse<{ state: FollowerImportState; busy: boolean }>>(
         `/api/line-accounts/${id}/follower-import/step`,
@@ -822,75 +839,96 @@ export const api = {
       ),
   },
   conversions: {
-    points: () =>
-      fetchApi<ApiResponse<ConversionPoint[]>>('/api/conversions/points'),
+    points: () => fetchApi<ApiResponse<ConversionPoint[]>>('/api/conversions/points'),
     createPoint: (data: { name: string; eventType: string; value?: number | null }) =>
       fetchApi<ApiResponse<ConversionPoint>>('/api/conversions/points', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    deletePoint: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/conversions/points/${id}`, { method: 'DELETE' }),
-    track: (data: { conversionPointId: string; friendId: string; userId?: string | null; affiliateCode?: string | null; metadata?: Record<string, unknown> | null }) =>
+    deletePoint: (id: string) => fetchApi<ApiResponse<null>>(`/api/conversions/points/${id}`, { method: 'DELETE' }),
+    track: (data: {
+      conversionPointId: string;
+      friendId: string;
+      userId?: string | null;
+      affiliateCode?: string | null;
+      metadata?: Record<string, unknown> | null;
+    }) =>
       fetchApi<ApiResponse<unknown>>('/api/conversions/track', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     report: (params?: { startDate?: string; endDate?: string }) =>
-      fetchApi<ApiResponse<{ conversionPointId: string; conversionPointName: string; eventType: string; totalCount: number; totalValue: number }[]>>(
-        '/api/conversions/report?' + new URLSearchParams(params as Record<string, string>),
-      ),
+      fetchApi<
+        ApiResponse<
+          {
+            conversionPointId: string;
+            conversionPointName: string;
+            eventType: string;
+            totalCount: number;
+            totalValue: number;
+          }[]
+        >
+      >('/api/conversions/report?' + new URLSearchParams(params as Record<string, string>)),
   },
   affiliates: {
-    list: () =>
-      fetchApi<ApiResponse<Affiliate[]>>('/api/affiliates'),
-    get: (id: string) =>
-      fetchApi<ApiResponse<Affiliate>>(`/api/affiliates/${id}`),
+    list: () => fetchApi<ApiResponse<Affiliate[]>>('/api/affiliates'),
+    get: (id: string) => fetchApi<ApiResponse<Affiliate>>(`/api/affiliates/${id}`),
     // Admin-side create. Codes are auto-generated (random) — no manual `code`
     // needed. Pass `friendId` to bind 1:1 to a LINE friend; the response then
     // includes an issued `link` (refCode + url) unless issueInitialLink=false.
     // The legacy explicit `code` form still works for OSS back-compat.
     create: (data: {
-      name?: string
-      code?: string
-      commissionRate?: number
-      friendId?: string
-      issueInitialLink?: boolean
+      name?: string;
+      code?: string;
+      commissionRate?: number;
+      friendId?: string;
+      issueInitialLink?: boolean;
     }) =>
-      fetchApi<ApiResponse<Affiliate> & { link?: { refCode: string; url: string } | null }>(
-        '/api/affiliates',
-        {
-          method: 'POST',
-          body: JSON.stringify(data),
-        },
-      ),
+      fetchApi<ApiResponse<Affiliate> & { link?: { refCode: string; url: string } | null }>('/api/affiliates', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     update: (id: string, data: Partial<Pick<Affiliate, 'name' | 'commissionRate' | 'isActive'>>) =>
       fetchApi<ApiResponse<Affiliate>>(`/api/affiliates/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/affiliates/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/affiliates/${id}`, { method: 'DELETE' }),
     report: (id: string, params?: { startDate?: string; endDate?: string }) =>
-      fetchApi<ApiResponse<{ affiliateId: string; affiliateName: string; code: string; commissionRate: number; totalClicks: number; totalConversions: number; totalRevenue: number }>>(
-        `/api/affiliates/${id}/report?` + new URLSearchParams(params as Record<string, string>),
-      ),
+      fetchApi<
+        ApiResponse<{
+          affiliateId: string;
+          affiliateName: string;
+          code: string;
+          commissionRate: number;
+          totalClicks: number;
+          totalConversions: number;
+          totalRevenue: number;
+        }>
+      >(`/api/affiliates/${id}/report?` + new URLSearchParams(params as Record<string, string>)),
     /** v2 report: clicks, friendAdds, conversionsByPoint, estimatedCommission, duplicateFlags */
     reportV2: (id: string, params?: { startDate?: string; endDate?: string }) =>
-      fetchApi<ApiResponse<{
-        affiliateId: string;
-        affiliateName: string;
-        code: string;
-        commissionRate: number;
-        clicks: number;
-        linkClicks: number;
-        friendAdds: number;
-        conversions: number;
-        conversionsByPoint: Array<{ conversionPointId: string; name: string; count: number; value: number }>;
-        revenue: number;
-        estimatedCommission: number;
-        duplicateFlags: Array<{ friendId: string; identityKey: string }>;
-      }>>(`/api/affiliates/${id}/report?` + new URLSearchParams(params as Record<string, string>)),
+      fetchApi<
+        ApiResponse<{
+          affiliateId: string;
+          affiliateName: string;
+          code: string;
+          commissionRate: number;
+          clicks: number;
+          linkClicks: number;
+          friendAdds: number;
+          conversions: number;
+          conversionsByPoint: Array<{
+            conversionPointId: string;
+            name: string;
+            count: number;
+            value: number;
+          }>;
+          revenue: number;
+          estimatedCommission: number;
+          duplicateFlags: Array<{ friendId: string; identityKey: string }>;
+        }>
+      >(`/api/affiliates/${id}/report?` + new URLSearchParams(params as Record<string, string>)),
     /** Cursor-paginated attributed-friend journey summaries */
     journeys: (id: string, params?: { limit?: number; beforeAt?: string; beforeId?: string }) => {
       const query = new URLSearchParams();
@@ -915,113 +953,162 @@ export const api = {
     },
     /** List ref_code links for an affiliate (loaded on detail expand) */
     links: (id: string) =>
-      fetchApi<ApiResponse<Array<{
-        id: string;
-        affiliate_id: string;
-        ref_code: string;
-        label: string | null;
-        line_account_id: string | null;
-        is_active: number;
-        created_at: string;
-        click_count: number;
-        offer_id: string | null;
-        offer_name: string | null;
-      }>>>(`/api/affiliates/${id}/links`),
+      fetchApi<
+        ApiResponse<
+          Array<{
+            id: string;
+            affiliate_id: string;
+            ref_code: string;
+            label: string | null;
+            line_account_id: string | null;
+            is_active: number;
+            created_at: string;
+            click_count: number;
+            offer_id: string | null;
+            offer_name: string | null;
+          }>
+        >
+      >(`/api/affiliates/${id}/links`),
     /** All-affiliates aggregate report (single-pass, no N+1) */
     allReport: (params?: { startDate?: string; endDate?: string }) =>
-      fetchApi<ApiResponse<Array<{
-        affiliateId: string;
-        affiliateName: string;
-        code: string;
-        commissionRate: number;
-        totalClicks: number;
-        totalConversions: number;
-        totalRevenue: number;
-        linkCount: number;
-        friendAdds: number;
-      }>>>('/api/affiliates-report?' + new URLSearchParams(params as Record<string, string>)),
+      fetchApi<
+        ApiResponse<
+          Array<{
+            affiliateId: string;
+            affiliateName: string;
+            code: string;
+            commissionRate: number;
+            totalClicks: number;
+            totalConversions: number;
+            totalRevenue: number;
+            linkCount: number;
+            friendAdds: number;
+          }>
+        >
+      >('/api/affiliates-report?' + new URLSearchParams(params as Record<string, string>)),
   },
   templates: {
     list: (category?: string) =>
-      fetchApi<ApiResponse<Array<{
-        id: string;
-        name: string;
-        category: string;
-        messageType: string;
-        messageContent: string;
-        usageCount: number;
-        createdAt: string;
-        updatedAt: string;
-      }>>>(
-        '/api/templates' + (category ? '?' + new URLSearchParams({ category }) : ''),
-      ),
+      fetchApi<
+        ApiResponse<
+          Array<{
+            id: string;
+            name: string;
+            category: string;
+            messageType: string;
+            messageContent: string;
+            usageCount: number;
+            createdAt: string;
+            updatedAt: string;
+          }>
+        >
+      >('/api/templates' + (category ? '?' + new URLSearchParams({ category }) : '')),
     get: (id: string) =>
-      fetchApi<ApiResponse<{
-        id: string;
+      fetchApi<
+        ApiResponse<{
+          id: string;
+          name: string;
+          category: string;
+          messageType: string;
+          messageContent: string;
+          usedBy: {
+            autoReplies: Array<{
+              id: string;
+              keyword: string;
+              matchType: 'exact' | 'contains';
+              lineAccountId: string | null;
+            }>;
+            automations: Array<{ id: string; name: string; eventType: string }>;
+          };
+          createdAt: string;
+          updatedAt: string;
+        }>
+      >(`/api/templates/${id}`),
+    create: (data: { name: string; category: string; messageType: string; messageContent: string }) =>
+      fetchApi<
+        ApiResponse<{
+          id: string;
+          name: string;
+          category: string;
+          messageType: string;
+          messageContent: string;
+          createdAt: string;
+          updatedAt: string;
+        }>
+      >('/api/templates', { method: 'POST', body: JSON.stringify(data) }),
+    update: (
+      id: string,
+      data: Partial<{
         name: string;
         category: string;
         messageType: string;
         messageContent: string;
-        usedBy: {
-          autoReplies: Array<{ id: string; keyword: string; matchType: 'exact' | 'contains'; lineAccountId: string | null }>;
-          automations: Array<{ id: string; name: string; eventType: string }>;
-        };
-        createdAt: string;
-        updatedAt: string;
-      }>>(
-        `/api/templates/${id}`,
-      ),
-    create: (data: { name: string; category: string; messageType: string; messageContent: string }) =>
-      fetchApi<ApiResponse<{ id: string; name: string; category: string; messageType: string; messageContent: string; createdAt: string; updatedAt: string }>>(
-        '/api/templates',
-        { method: 'POST', body: JSON.stringify(data) },
-      ),
-    update: (id: string, data: Partial<{ name: string; category: string; messageType: string; messageContent: string }>) =>
-      fetchApi<ApiResponse<{ id: string; name: string; category: string; messageType: string; messageContent: string; createdAt: string; updatedAt: string }>>(
-        `/api/templates/${id}`,
-        { method: 'PUT', body: JSON.stringify(data) },
-      ),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/templates/${id}`, { method: 'DELETE' }),
+      }>,
+    ) =>
+      fetchApi<
+        ApiResponse<{
+          id: string;
+          name: string;
+          category: string;
+          messageType: string;
+          messageContent: string;
+          createdAt: string;
+          updatedAt: string;
+        }>
+      >(`/api/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/templates/${id}`, { method: 'DELETE' }),
     usages: (id: string) =>
-      fetchApi<ApiResponse<{
-        autoReplies: Array<{ id: string; keyword: string; lineAccountId: string | null }>;
-        scenarioSteps: Array<{ scenarioId: string; scenarioName: string; stepId: string; stepOrder: number }>;
-      }>>(`/api/templates/${id}/usages`),
+      fetchApi<
+        ApiResponse<{
+          autoReplies: Array<{ id: string; keyword: string; lineAccountId: string | null }>;
+          scenarioSteps: Array<{
+            scenarioId: string;
+            scenarioName: string;
+            stepId: string;
+            stepOrder: number;
+          }>;
+        }>
+      >(`/api/templates/${id}/usages`),
   },
   autoReplies: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?accountId=' + encodeURIComponent(params.accountId) : ''
-      return fetchApi<ApiResponse<Array<{
-        id: string;
-        keyword: string;
-        matchType: 'exact' | 'contains';
-        responseType: string;
-        responseContent: string;
-        templateId: string | null;
-        lineAccountId: string | null;
-        isActive: boolean;
-        createdAt: string;
-        effectiveAccounts?: Array<{
-          accountId: string;
-          accountName: string;
-          status: 'reply' | 'silent' | 'not_applicable';
-          via: 'inline' | 'automation' | null;
-        }>;
-      }>>>('/api/auto-replies' + query)
+      const query = params?.accountId ? '?accountId=' + encodeURIComponent(params.accountId) : '';
+      return fetchApi<
+        ApiResponse<
+          Array<{
+            id: string;
+            keyword: string;
+            matchType: 'exact' | 'contains';
+            responseType: string;
+            responseContent: string;
+            templateId: string | null;
+            lineAccountId: string | null;
+            isActive: boolean;
+            createdAt: string;
+            effectiveAccounts?: Array<{
+              accountId: string;
+              accountName: string;
+              status: 'reply' | 'silent' | 'not_applicable';
+              via: 'inline' | 'automation' | null;
+            }>;
+          }>
+        >
+      >('/api/auto-replies' + query);
     },
     get: (id: string) =>
-      fetchApi<ApiResponse<{
-        id: string;
-        keyword: string;
-        matchType: 'exact' | 'contains';
-        responseType: string;
-        responseContent: string;
-        templateId: string | null;
-        lineAccountId: string | null;
-        isActive: boolean;
-        createdAt: string;
-      }>>(`/api/auto-replies/${id}`),
+      fetchApi<
+        ApiResponse<{
+          id: string;
+          keyword: string;
+          matchType: 'exact' | 'contains';
+          responseType: string;
+          responseContent: string;
+          templateId: string | null;
+          lineAccountId: string | null;
+          isActive: boolean;
+          createdAt: string;
+        }>
+      >(`/api/auto-replies/${id}`),
     create: (body: {
       keyword: string;
       matchType?: 'exact' | 'contains';
@@ -1034,15 +1121,18 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    update: (id: string, body: {
-      keyword?: string;
-      matchType?: 'exact' | 'contains';
-      responseType?: string;
-      responseContent?: string;
-      templateId?: string | null;
-      lineAccountId?: string | null;
-      isActive?: boolean;
-    }) =>
+    update: (
+      id: string,
+      body: {
+        keyword?: string;
+        matchType?: 'exact' | 'contains';
+        responseType?: string;
+        responseContent?: string;
+        templateId?: string | null;
+        lineAccountId?: string | null;
+        isActive?: boolean;
+      },
+    ) =>
       fetchApi<ApiResponse<{ id: string }>>(`/api/auto-replies/${id}`, {
         method: 'PUT',
         body: JSON.stringify(body),
@@ -1054,55 +1144,66 @@ export const api = {
   },
   automations: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + encodeURIComponent(params.accountId) : ''
-      return fetchApi<ApiResponse<Automation[]>>('/api/automations' + query)
+      const query = params?.accountId ? '?lineAccountId=' + encodeURIComponent(params.accountId) : '';
+      return fetchApi<ApiResponse<Automation[]>>('/api/automations' + query);
     },
-    get: (id: string) =>
-      fetchApi<ApiResponse<Automation & { logs?: AutomationLog[] }>>(`/api/automations/${id}`),
+    get: (id: string) => fetchApi<ApiResponse<Automation & { logs?: AutomationLog[] }>>(`/api/automations/${id}`),
     create: (data: {
-      name: string
-      eventType: Automation['eventType']
-      actions: Automation['actions']
-      description?: string | null
-      conditions?: Record<string, unknown>
-      priority?: number
-      lineAccountId: string
+      name: string;
+      eventType: Automation['eventType'];
+      actions: Automation['actions'];
+      description?: string | null;
+      conditions?: Record<string, unknown>;
+      priority?: number;
+      lineAccountId: string;
     }) =>
       fetchApi<ApiResponse<Automation>>('/api/automations', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: Partial<Pick<Automation, 'name' | 'description' | 'eventType' | 'conditions' | 'actions' | 'isActive' | 'priority'>>) =>
+    update: (
+      id: string,
+      data: Partial<
+        Pick<Automation, 'name' | 'description' | 'eventType' | 'conditions' | 'actions' | 'isActive' | 'priority'>
+      >,
+    ) =>
       fetchApi<ApiResponse<Automation>>(`/api/automations/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/automations/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/automations/${id}`, { method: 'DELETE' }),
     logs: (id: string, limit?: number) =>
-      fetchApi<ApiResponse<AutomationLog[]>>(
-        `/api/automations/${id}/logs` + (limit ? `?limit=${limit}` : ''),
-      ),
+      fetchApi<ApiResponse<AutomationLog[]>>(`/api/automations/${id}/logs` + (limit ? `?limit=${limit}` : '')),
   },
   chats: {
-    list: (params?: { status?: string; operatorId?: string; accountId?: string; unansweredOnly?: boolean; limit?: number; beforeAt?: string; beforeId?: string }) => {
-      const query: Record<string, string> = {}
-      if (params?.status) query.status = params.status
-      if (params?.operatorId) query.operatorId = params.operatorId
-      if (params?.accountId) query.lineAccountId = params.accountId
-      if (params?.unansweredOnly) query.unansweredOnly = '1'
-      if (params?.limit !== undefined) query.limit = String(params.limit)
+    list: (params?: {
+      status?: string;
+      operatorId?: string;
+      accountId?: string;
+      unansweredOnly?: boolean;
+      limit?: number;
+      beforeAt?: string;
+      beforeId?: string;
+    }) => {
+      const query: Record<string, string> = {};
+      if (params?.status) query.status = params.status;
+      if (params?.operatorId) query.operatorId = params.operatorId;
+      if (params?.accountId) query.lineAccountId = params.accountId;
+      if (params?.unansweredOnly) query.unansweredOnly = '1';
+      if (params?.limit !== undefined) query.limit = String(params.limit);
       // カーソルページング: (lastMessageAt, friendId) の複合カーソルより古い行を返す
-      if (params?.beforeAt) query.beforeAt = params.beforeAt
-      if (params?.beforeId) query.beforeId = params.beforeId
-      return fetchApi<ApiResponse<Chat[]>>(
-        '/api/chats?' + new URLSearchParams(query),
-      )
+      if (params?.beforeAt) query.beforeAt = params.beforeAt;
+      if (params?.beforeId) query.beforeId = params.beforeId;
+      return fetchApi<ApiResponse<Chat[]>>('/api/chats?' + new URLSearchParams(query));
     },
     get: (id: string) =>
-      fetchApi<ApiResponse<Chat & { messages?: { id: string; content: string; senderType: string; createdAt: string }[] }>>(
-        `/api/chats/${id}`,
-      ),
+      fetchApi<
+        ApiResponse<
+          Chat & {
+            messages?: { id: string; content: string; senderType: string; createdAt: string }[];
+          }
+        >
+      >(`/api/chats/${id}`),
     create: (data: { friendId: string; operatorId?: string | null }) =>
       fetchApi<ApiResponse<Chat>>('/api/chats', {
         method: 'POST',
@@ -1113,11 +1214,7 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    send: (
-      id: string,
-      data: { content: string; messageType?: string },
-      options: { idempotencyKey: string },
-    ) =>
+    send: (id: string, data: { content: string; messageType?: string }, options: { idempotencyKey: string }) =>
       fetchApi<ApiResponse<unknown>>(`/api/chats/${id}/send`, {
         method: 'POST',
         headers: {
@@ -1129,11 +1226,10 @@ export const api = {
   },
   reminders: {
     list: (params?: { accountId?: string }) => {
-      const query = params?.accountId ? '?lineAccountId=' + encodeURIComponent(params.accountId) : ''
-      return fetchApi<ApiResponse<Reminder[]>>('/api/reminders' + query)
+      const query = params?.accountId ? '?lineAccountId=' + encodeURIComponent(params.accountId) : '';
+      return fetchApi<ApiResponse<Reminder[]>>('/api/reminders' + query);
     },
-    get: (id: string) =>
-      fetchApi<ApiResponse<Reminder & { steps: ReminderStep[] }>>(`/api/reminders/${id}`),
+    get: (id: string) => fetchApi<ApiResponse<Reminder & { steps: ReminderStep[] }>>(`/api/reminders/${id}`),
     create: (data: { name: string; description?: string | null; lineAccountId: string }) =>
       fetchApi<ApiResponse<Reminder>>('/api/reminders', {
         method: 'POST',
@@ -1144,8 +1240,7 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/reminders/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/reminders/${id}`, { method: 'DELETE' }),
     addStep: (id: string, data: { offsetMinutes: number; messageType: string; messageContent: string }) =>
       fetchApi<ApiResponse<ReminderStep>>(`/api/reminders/${id}/steps`, {
         method: 'POST',
@@ -1158,78 +1253,84 @@ export const api = {
   },
   mileage: {
     overview: (params?: { accountId?: string; search?: string; limit?: number; offset?: number }) => {
-      const query = new URLSearchParams()
-      if (params?.accountId) query.set('accountId', params.accountId)
-      if (params?.search) query.set('search', params.search)
-      if (params?.limit !== undefined) query.set('limit', String(params.limit))
-      if (params?.offset !== undefined) query.set('offset', String(params.offset))
-      const suffix = query.toString() ? `?${query.toString()}` : ''
-      return fetchApi<ApiResponse<MileageAdminOverview>>(`/api/mileage/overview${suffix}`)
+      const query = new URLSearchParams();
+      if (params?.accountId) query.set('accountId', params.accountId);
+      if (params?.search) query.set('search', params.search);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      return fetchApi<ApiResponse<MileageAdminOverview>>(`/api/mileage/overview${suffix}`);
     },
     rules: () => fetchApi<ApiResponse<MileageRule[]>>('/api/mileage/rules'),
     createRule: (data: {
-      name: string
-      eventType: string
-      source?: string | null
-      amount: number
-      initialStatus?: 'pending' | 'available'
-      conditions?: MileageRule['conditions'] | null
-    }) => fetchApi<ApiResponse<MileageRule>>('/api/mileage/rules', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-    updateRule: (id: string, data: Partial<Pick<MileageRule,
-      'name' | 'eventType' | 'source' | 'amount' | 'initialStatus' | 'conditions' | 'isActive'
-    >>) => fetchApi<ApiResponse<MileageRule>>(`/api/mileage/rules/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-    deleteRule: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/mileage/rules/${id}`, { method: 'DELETE' }),
+      name: string;
+      eventType: string;
+      source?: string | null;
+      amount: number;
+      initialStatus?: 'pending' | 'available';
+      conditions?: MileageRule['conditions'] | null;
+    }) =>
+      fetchApi<ApiResponse<MileageRule>>('/api/mileage/rules', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateRule: (
+      id: string,
+      data: Partial<
+        Pick<MileageRule, 'name' | 'eventType' | 'source' | 'amount' | 'initialStatus' | 'conditions' | 'isActive'>
+      >,
+    ) =>
+      fetchApi<ApiResponse<MileageRule>>(`/api/mileage/rules/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    deleteRule: (id: string) => fetchApi<ApiResponse<null>>(`/api/mileage/rules/${id}`, { method: 'DELETE' }),
   },
   webhooks: {
     incoming: {
-      list: () =>
-        fetchApi<ApiResponse<IncomingWebhook[]>>('/api/webhooks/incoming'),
+      list: () => fetchApi<ApiResponse<IncomingWebhook[]>>('/api/webhooks/incoming'),
       create: (data: { name: string; sourceType?: string; secret: string }) =>
         fetchApi<ApiResponse<IncomingWebhookCreated>>('/api/webhooks/incoming', {
           method: 'POST',
           body: JSON.stringify(data),
         }),
-      update: (id: string, data: Partial<Pick<IncomingWebhook, 'name' | 'sourceType' | 'isActive'>> & { secret?: string }) =>
+      update: (
+        id: string,
+        data: Partial<Pick<IncomingWebhook, 'name' | 'sourceType' | 'isActive'>> & {
+          secret?: string;
+        },
+      ) =>
         fetchApi<ApiResponse<IncomingWebhook>>(`/api/webhooks/incoming/${id}`, {
           method: 'PUT',
           body: JSON.stringify(data),
         }),
-      delete: (id: string) =>
-        fetchApi<ApiResponse<null>>(`/api/webhooks/incoming/${id}`, { method: 'DELETE' }),
+      delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/webhooks/incoming/${id}`, { method: 'DELETE' }),
     },
     outgoing: {
-      list: () =>
-        fetchApi<ApiResponse<OutgoingWebhook[]>>('/api/webhooks/outgoing'),
+      list: () => fetchApi<ApiResponse<OutgoingWebhook[]>>('/api/webhooks/outgoing'),
       create: (data: { name: string; url: string; eventTypes: string[]; secret: string }) =>
         fetchApi<ApiResponse<OutgoingWebhookCreated>>('/api/webhooks/outgoing', {
           method: 'POST',
           body: JSON.stringify(data),
         }),
-      update: (id: string, data: Partial<Pick<OutgoingWebhook, 'name' | 'url' | 'eventTypes' | 'isActive'>> & { secret?: string }) =>
+      update: (
+        id: string,
+        data: Partial<Pick<OutgoingWebhook, 'name' | 'url' | 'eventTypes' | 'isActive'>> & {
+          secret?: string;
+        },
+      ) =>
         fetchApi<ApiResponse<OutgoingWebhook>>(`/api/webhooks/outgoing/${id}`, {
           method: 'PUT',
           body: JSON.stringify(data),
         }),
-      delete: (id: string) =>
-        fetchApi<ApiResponse<null>>(`/api/webhooks/outgoing/${id}`, { method: 'DELETE' }),
+      delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/webhooks/outgoing/${id}`, { method: 'DELETE' }),
     },
   },
   health: {
-    accounts: () =>
-      fetchApi<ApiResponse<LineAccount[]>>('/api/line-accounts'),
+    accounts: () => fetchApi<ApiResponse<LineAccount[]>>('/api/line-accounts'),
     getHealth: (accountId: string) =>
-      fetchApi<ApiResponse<{ riskLevel: string; logs: AccountHealthLog[] }>>(
-        `/api/accounts/${accountId}/health`,
-      ),
-    migrations: () =>
-      fetchApi<ApiResponse<AccountMigration[]>>('/api/accounts/migrations'),
+      fetchApi<ApiResponse<{ riskLevel: string; logs: AccountHealthLog[] }>>(`/api/accounts/${accountId}/health`),
+    migrations: () => fetchApi<ApiResponse<AccountMigration[]>>('/api/accounts/migrations'),
     migrate: (fromAccountId: string, data: { toAccountId: string }) =>
       fetchApi<ApiResponse<AccountMigration>>(`/api/accounts/${fromAccountId}/migrate`, {
         method: 'POST',
@@ -1255,42 +1356,38 @@ export const api = {
       if (opts?.pageSize) p.set('pageSize', String(opts.pageSize));
       if (opts?.forceRefresh) p.set('refresh', '1');
       const qs = p.toString();
-      return fetchApi<ApiResponse<{
-        total: number;
-        page: number;
-        pageSize: number;
-        computedAt: string;
-        rows: Array<{
-          identityKey: string;
-          identityKeyKind: 'url_token' | 'uid' | 'solo';
-          displayName: string | null;
-          pictureUrl: string | null;
-          accounts: Array<{
-            accountId: string;
-            accountName: string;
-            lineUserId: string;
-            isFollowing: boolean;
-            joinedAt: string;
-            friendId: string;
+      return fetchApi<
+        ApiResponse<{
+          total: number;
+          page: number;
+          pageSize: number;
+          computedAt: string;
+          rows: Array<{
+            identityKey: string;
+            identityKeyKind: 'url_token' | 'uid' | 'solo';
+            displayName: string | null;
+            pictureUrl: string | null;
+            accounts: Array<{
+              accountId: string;
+              accountName: string;
+              lineUserId: string;
+              isFollowing: boolean;
+              joinedAt: string;
+              friendId: string;
+            }>;
+            xUsername: string | null;
+            emails: string[];
+            phones: string[];
+            lastActivityAt: string;
+            isDuplicate: boolean;
           }>;
-          xUsername: string | null;
-          emails: string[];
-          phones: string[];
-          lastActivityAt: string;
-          isDuplicate: boolean;
-        }>;
-      }>>(`/api/users-grouped${qs ? `?${qs}` : ''}`);
+        }>
+      >(`/api/users-grouped${qs ? `?${qs}` : ''}`);
     },
   },
   inbox: {
     unanswered: {
-      list: (opts?: {
-        q?: string;
-        account?: string;
-        minWaitMinutes?: number;
-        page?: number;
-        pageSize?: number;
-      }) => {
+      list: (opts?: { q?: string; account?: string; minWaitMinutes?: number; page?: number; pageSize?: number }) => {
         const p = new URLSearchParams();
         if (opts?.q) p.set('q', opts.q);
         if (opts?.account) p.set('account', opts.account);
@@ -1298,52 +1395,59 @@ export const api = {
         if (opts?.page) p.set('page', String(opts.page));
         if (opts?.pageSize) p.set('pageSize', String(opts.pageSize));
         const qs = p.toString();
-        return fetchApi<ApiResponse<{
-          total: number;
-          page: number;
-          pageSize: number;
-          rows: Array<{
-            friendId: string;
-            displayName: string | null;
-            pictureUrl: string | null;
-            accountId: string;
-            accountName: string;
-            lastIncomingAt: string;
-            lastManualAt: string | null;
-            lastMachineAt: string | null;
-            lastIncomingType: string;
-            lastIncomingContent: string;
-          }>;
-        }>>(`/api/inbox/unanswered${qs ? `?${qs}` : ''}`);
+        return fetchApi<
+          ApiResponse<{
+            total: number;
+            page: number;
+            pageSize: number;
+            rows: Array<{
+              friendId: string;
+              displayName: string | null;
+              pictureUrl: string | null;
+              accountId: string;
+              accountName: string;
+              lastIncomingAt: string;
+              lastManualAt: string | null;
+              lastMachineAt: string | null;
+              lastIncomingType: string;
+              lastIncomingContent: string;
+            }>;
+          }>
+        >(`/api/inbox/unanswered${qs ? `?${qs}` : ''}`);
       },
       count: () =>
-        fetchApi<ApiResponse<{
-          total: number;
-          byAccount: Array<{ accountId: string; accountName: string; count: number }>;
-          oldestWaitMinutes: number | null;
-        }>>('/api/inbox/unanswered/count'),
+        fetchApi<
+          ApiResponse<{
+            total: number;
+            byAccount: Array<{ accountId: string; accountName: string; count: number }>;
+            oldestWaitMinutes: number | null;
+          }>
+        >('/api/inbox/unanswered/count'),
     },
   },
   richMenuGroups: {
     list: (accountId: string) =>
-      fetchApi<ApiResponse<Array<{
-        id: string;
-        accountId: string;
-        name: string;
-        chatBarText: string;
-        size: 'large' | 'compact';
-        defaultPageId: string | null;
-        isDefaultForAll: boolean;
-        selected: boolean;
-        status: 'draft' | 'published';
-        publishingAt: string | null;
-        thumbnailR2Key: string | null;
-        createdAt: string;
-        updatedAt: string;
-      }>>>(`/api/rich-menu-groups?accountId=${encodeURIComponent(accountId)}`),
+      fetchApi<
+        ApiResponse<
+          Array<{
+            id: string;
+            accountId: string;
+            name: string;
+            chatBarText: string;
+            size: 'large' | 'compact';
+            defaultPageId: string | null;
+            isDefaultForAll: boolean;
+            selected: boolean;
+            status: 'draft' | 'published';
+            publishingAt: string | null;
+            thumbnailR2Key: string | null;
+            createdAt: string;
+            updatedAt: string;
+          }>
+        >
+      >(`/api/rich-menu-groups?accountId=${encodeURIComponent(accountId)}`),
 
-    get: (groupId: string) =>
-      fetchApi<ApiResponse<RichMenuGroupDetail>>(`/api/rich-menu-groups/${groupId}`),
+    get: (groupId: string) => fetchApi<ApiResponse<RichMenuGroupDetail>>(`/api/rich-menu-groups/${groupId}`),
 
     getForAccount: (groupId: string, accountId: string) =>
       fetchApi<ApiResponse<RichMenuGroupDetail>>(
@@ -1375,34 +1479,36 @@ export const api = {
         body: JSON.stringify(input),
       }),
 
-    update: (groupId: string, input: {
-      name?: string;
-      chatBarText?: string;
-      selected?: boolean;
-      pages?: Array<{
-        id?: string;
-        name: string;
-        orderIndex: number;
-        areas: Array<{
-          boundsX: number;
-          boundsY: number;
-          boundsWidth: number;
-          boundsHeight: number;
-          actionType: 'uri' | 'message' | 'postback' | 'richmenuswitch';
-          actionData: Record<string, unknown>;
+    update: (
+      groupId: string,
+      input: {
+        name?: string;
+        chatBarText?: string;
+        selected?: boolean;
+        pages?: Array<{
+          id?: string;
+          name: string;
+          orderIndex: number;
+          areas: Array<{
+            boundsX: number;
+            boundsY: number;
+            boundsWidth: number;
+            boundsHeight: number;
+            actionType: 'uri' | 'message' | 'postback' | 'richmenuswitch';
+            actionData: Record<string, unknown>;
+          }>;
         }>;
-      }>;
-    }) =>
+      },
+    ) =>
       fetchApi<ApiResponse<{ id: string }>>(`/api/rich-menu-groups/${groupId}`, {
         method: 'PATCH',
         body: JSON.stringify(input),
       }),
 
     delete: (groupId: string, opts?: { force?: boolean }) =>
-      fetchApi<ApiResponse<null>>(
-        `/api/rich-menu-groups/${groupId}${opts?.force ? '?force=true' : ''}`,
-        { method: 'DELETE' },
-      ),
+      fetchApi<ApiResponse<null>>(`/api/rich-menu-groups/${groupId}${opts?.force ? '?force=true' : ''}`, {
+        method: 'DELETE',
+      }),
 
     publish: (groupId: string) =>
       fetchApi<ApiResponse<{ pages: Array<{ pageId: string; newRichMenuId: string }> }>>(
@@ -1411,31 +1517,35 @@ export const api = {
       ),
 
     unpublish: (groupId: string) =>
-      fetchApi<ApiResponse<{
-        pages: Array<{ pageId: string; clearedRichMenuId: string | null }>;
-        warnings: string[];
-      }>>(`/api/rich-menu-groups/${groupId}/unpublish`, { method: 'POST' }),
+      fetchApi<
+        ApiResponse<{
+          pages: Array<{ pageId: string; clearedRichMenuId: string | null }>;
+          warnings: string[];
+        }>
+      >(`/api/rich-menu-groups/${groupId}/unpublish`, { method: 'POST' }),
 
     external: (accountId: string) =>
-      fetchApi<ApiResponse<{
-        currentDefault: string | null;
-        lineMenus: Array<{
-          richMenuId: string;
-          name: string;
-          chatBarText: string;
-          selected: boolean;
-          size: { width: number; height: number };
-          areasCount: number;
-          isCurrentDefault: boolean;
-          adminManaged: boolean;
-          adminInfo: {
-            groupId: string;
-            groupName: string;
-            pageName: string;
-            groupStatus: 'draft' | 'published';
-          } | null;
-        }>;
-      }>>(`/api/rich-menu-groups/external?accountId=${encodeURIComponent(accountId)}`),
+      fetchApi<
+        ApiResponse<{
+          currentDefault: string | null;
+          lineMenus: Array<{
+            richMenuId: string;
+            name: string;
+            chatBarText: string;
+            selected: boolean;
+            size: { width: number; height: number };
+            areasCount: number;
+            isCurrentDefault: boolean;
+            adminManaged: boolean;
+            adminInfo: {
+              groupId: string;
+              groupName: string;
+              pageName: string;
+              groupStatus: 'draft' | 'published';
+            } | null;
+          }>;
+        }>
+      >(`/api/rich-menu-groups/external?accountId=${encodeURIComponent(accountId)}`),
 
     deleteExternal: (richMenuId: string, accountId: string) =>
       fetchApi<ApiResponse<null>>(
@@ -1492,18 +1602,15 @@ export const api = {
     // 画像 upload は Content-Type を image/* で送るので fetchApi を使わず直接 fetch。
     uploadImage: async (groupId: string, pageId: string, file: File) => {
       const csrf = getCsrfToken();
-      const res = await fetch(
-        `${API_URL}/api/rich-menu-groups/${groupId}/pages/${pageId}/image`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': file.type,
-            ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-          },
-          body: file,
+      const res = await fetch(`${API_URL}/api/rich-menu-groups/${groupId}/pages/${pageId}/image`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': file.type,
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
         },
-      );
+        body: file,
+      });
       const body = (await res.json()) as ApiResponse<{
         imageR2Key: string;
         imageContentType: string;
@@ -1517,19 +1624,22 @@ export const api = {
 
     // <img src> は Authorization ヘッダを送らないが、Worker の管理セッション
     // cookie は対象APIホストへ送られるため、画像API側で通常の認証を行う。
-    imageUrl: (key: string) =>
-      `${API_URL}/api/rich-menu-images/${encodeURIComponent(key)}`,
+    imageUrl: (key: string) => `${API_URL}/api/rich-menu-images/${encodeURIComponent(key)}`,
   },
   messageTemplates: {
     list: () =>
-      fetchApi<ApiResponse<Array<{
-        id: string
-        name: string
-        messageType: string
-        messageContent: string
-        createdAt: string
-        updatedAt: string
-      }>>>('/api/message-templates'),
+      fetchApi<
+        ApiResponse<
+          Array<{
+            id: string;
+            name: string;
+            messageType: string;
+            messageContent: string;
+            createdAt: string;
+            updatedAt: string;
+          }>
+        >
+      >('/api/message-templates'),
   },
   entryRoutes: {
     list: () => fetchApi<ApiResponse<EntryRoute[]>>('/api/entry-routes'),
@@ -1544,10 +1654,8 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/entry-routes/${id}`, { method: 'DELETE' }),
-    funnel: (id: string) =>
-      fetchApi<ApiResponse<EntryRouteFunnel>>(`/api/entry-routes/${id}/funnel`),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/entry-routes/${id}`, { method: 'DELETE' }),
+    funnel: (id: string) => fetchApi<ApiResponse<EntryRouteFunnel>>(`/api/entry-routes/${id}/funnel`),
   },
   // tracked_links は別管理だが /inflow-links 一覧で「(未登録)」誤表示を防ぐため
   // 同ページから参照する。Worker の applyRefAttribution は entry_routes → tracked_links
@@ -1557,18 +1665,18 @@ export const api = {
       fetchApi<
         ApiResponse<
           Array<{
-            id: string
-            name: string
-            originalUrl: string
-            trackingUrl: string
-            tagId: string | null
-            scenarioId: string | null
-            introTemplateId: string | null
-            rewardTemplateId: string | null
-            isActive: boolean
-            clickCount: number
-            createdAt: string
-            updatedAt: string
+            id: string;
+            name: string;
+            originalUrl: string;
+            trackingUrl: string;
+            tagId: string | null;
+            scenarioId: string | null;
+            introTemplateId: string | null;
+            rewardTemplateId: string | null;
+            isActive: boolean;
+            clickCount: number;
+            createdAt: string;
+            updatedAt: string;
           }>
         >
       >('/api/tracked-links'),
@@ -1581,69 +1689,62 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (
-      id: string,
-      data: Partial<{ name: string; activeAccountId: string; isActive: boolean }>,
-    ) =>
+    update: (id: string, data: Partial<{ name: string; activeAccountId: string; isActive: boolean }>) =>
       fetchApi<ApiResponse<TrafficPool>>(`/api/traffic-pools/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: string) =>
-      fetchApi<ApiResponse<null>>(`/api/traffic-pools/${id}`, { method: 'DELETE' }),
+    delete: (id: string) => fetchApi<ApiResponse<null>>(`/api/traffic-pools/${id}`, { method: 'DELETE' }),
     accounts: {
-      list: (poolId: string) =>
-        fetchApi<ApiResponse<PoolAccount[]>>(`/api/traffic-pools/${poolId}/accounts`),
+      list: (poolId: string) => fetchApi<ApiResponse<PoolAccount[]>>(`/api/traffic-pools/${poolId}/accounts`),
       add: (poolId: string, lineAccountId: string) =>
         fetchApi<ApiResponse<PoolAccount>>(`/api/traffic-pools/${poolId}/accounts`, {
           method: 'POST',
           body: JSON.stringify({ lineAccountId }),
         }),
       toggle: (poolId: string, accountId: string, isActive: boolean) =>
-        fetchApi<ApiResponse<PoolAccount>>(
-          `/api/traffic-pools/${poolId}/accounts/${accountId}`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({ isActive }),
-          },
-        ),
+        fetchApi<ApiResponse<PoolAccount>>(`/api/traffic-pools/${poolId}/accounts/${accountId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ isActive }),
+        }),
       remove: (poolId: string, accountId: string) =>
-        fetchApi<ApiResponse<null>>(
-          `/api/traffic-pools/${poolId}/accounts/${accountId}`,
-          { method: 'DELETE' },
-        ),
+        fetchApi<ApiResponse<null>>(`/api/traffic-pools/${poolId}/accounts/${accountId}`, {
+          method: 'DELETE',
+        }),
     },
   },
   affiliateOffers: {
     list: (params?: { activeOnly?: boolean }) => {
-      const qs = params?.activeOnly ? '?activeOnly=true' : ''
-      return fetchApi<{ success: boolean; data: AffiliateOffer[] }>(`/api/affiliate-offers${qs}`)
+      const qs = params?.activeOnly ? '?activeOnly=true' : '';
+      return fetchApi<{ success: boolean; data: AffiliateOffer[] }>(`/api/affiliate-offers${qs}`);
     },
-    get: (id: string) =>
-      fetchApi<{ success: boolean; data: AffiliateOffer }>(`/api/affiliate-offers/${id}`),
+    get: (id: string) => fetchApi<{ success: boolean; data: AffiliateOffer }>(`/api/affiliate-offers/${id}`),
     create: (data: {
-      name: string
-      description?: string | null
-      rewardAmount?: number
-      rewardMiles?: number
-      lineAccountId?: string | null
-      tagId?: string | null
-      scenarioId?: string | null
+      name: string;
+      description?: string | null;
+      rewardAmount?: number;
+      rewardMiles?: number;
+      lineAccountId?: string | null;
+      tagId?: string | null;
+      scenarioId?: string | null;
     }) =>
       fetchApi<{ success: boolean; data: AffiliateOffer }>('/api/affiliate-offers', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: Partial<{
-      name: string
-      description: string | null
-      rewardAmount: number
-      rewardMiles: number
-      lineAccountId: string | null
-      tagId: string | null
-      scenarioId: string | null
-      isActive: boolean
-    }>) =>
+    update: (
+      id: string,
+      data: Partial<{
+        name: string;
+        description: string | null;
+        rewardAmount: number;
+        rewardMiles: number;
+        lineAccountId: string | null;
+        tagId: string | null;
+        scenarioId: string | null;
+        isActive: boolean;
+      }>,
+    ) =>
       fetchApi<{ success: boolean; data: AffiliateOffer }>(`/api/affiliate-offers/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -1651,14 +1752,14 @@ export const api = {
   },
   conversionApprovals: {
     list: (params?: { status?: 'pending' | 'approved' | 'rejected'; limit?: number; offset?: number }) => {
-      const p = new URLSearchParams()
-      if (params?.status) p.set('status', params.status)
-      if (params?.limit !== undefined) p.set('limit', String(params.limit))
-      if (params?.offset !== undefined) p.set('offset', String(params.offset))
-      const qs = p.toString()
+      const p = new URLSearchParams();
+      if (params?.status) p.set('status', params.status);
+      if (params?.limit !== undefined) p.set('limit', String(params.limit));
+      if (params?.offset !== undefined) p.set('offset', String(params.offset));
+      const qs = p.toString();
       return fetchApi<{ success: boolean; data: ConversionApprovalItem[] }>(
         `/api/conversions/approvals${qs ? `?${qs}` : ''}`,
-      )
+      );
     },
     approve: (eventId: string) =>
       fetchApi<{ success: boolean; data?: { id: string; approvalStatus: string }; error?: string }>(
@@ -1673,48 +1774,51 @@ export const api = {
   },
   duplicates: {
     stats: (options?: { forceRefresh?: boolean }) =>
-      fetchApi<ApiResponse<{
-        totalFollowing: number;
-        uniquePeople: number;
-        friendDups: number;
-        duplicateGroups: number;
-        wastedPerBroadcastYen: number;
-        msgUnitYen: number;
-        perAccount: Array<{
-          accountId: string;
-          accountName: string;
-          friends: number;
-          dups: number;
-          dupRate: number;
-        }>;
-        // Optional during rolling deploys when an older worker is live.
-        pairwiseOverlap?: Array<{
-          fromAccountId: string;
-          toAccountId: string;
-          overlap: number;
-        }>;
-        // Optional during rolling deploys when an older worker is live.
-        computedAt?: string;
-      }>>(options?.forceRefresh ? '/api/duplicates/stats?refresh=1' : '/api/duplicates/stats'),
+      fetchApi<
+        ApiResponse<{
+          totalFollowing: number;
+          uniquePeople: number;
+          friendDups: number;
+          duplicateGroups: number;
+          wastedPerBroadcastYen: number;
+          msgUnitYen: number;
+          perAccount: Array<{
+            accountId: string;
+            accountName: string;
+            friends: number;
+            dups: number;
+            dupRate: number;
+          }>;
+          // Optional during rolling deploys when an older worker is live.
+          pairwiseOverlap?: Array<{
+            fromAccountId: string;
+            toAccountId: string;
+            overlap: number;
+          }>;
+          // Optional during rolling deploys when an older worker is live.
+          computedAt?: string;
+        }>
+      >(options?.forceRefresh ? '/api/duplicates/stats?refresh=1' : '/api/duplicates/stats'),
   },
   uploads: {
     /**
      * 既存 /api/images エンドポイントを叩いて画像をアップロードする。
      * 10MB 超 / image/* 以外は 400 で返る。
      */
-    image: async (file: File, lineAccountId?: string): Promise<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>> => {
-      const buf = await file.arrayBuffer()
-      const path = lineAccountId
-        ? `/api/images?line_account_id=${encodeURIComponent(lineAccountId)}`
-        : '/api/images'
+    image: async (
+      file: File,
+      lineAccountId?: string,
+    ): Promise<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>> => {
+      const buf = await file.arrayBuffer();
+      const path = lineAccountId ? `/api/images?line_account_id=${encodeURIComponent(lineAccountId)}` : '/api/images';
       return fetchApi<ApiResponse<{ id: string; key: string; url: string; mimeType: string; size: number }>>(path, {
         method: 'POST',
         headers: { 'Content-Type': file.type || 'application/octet-stream' },
         body: buf,
-      })
+      });
     },
   },
-}
+};
 
 // ----------------------------------------------------------------
 // Booking API client (admin endpoints scoped by ?account_id=)
@@ -1833,9 +1937,7 @@ export const bookingApi = {
     }),
   // staff_menus matrix
   getStaffMenus: (accountId: string, staffId: string) =>
-    fetchApi<{ matrix: StaffMenuMatrix[] }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/menus`, accountId),
-    ),
+    fetchApi<{ matrix: StaffMenuMatrix[] }>(withAccount(`/api/booking/admin/staff/${staffId}/menus`, accountId)),
   putStaffMenus: (
     accountId: string,
     staffId: string,
@@ -1846,29 +1948,26 @@ export const bookingApi = {
       override_price?: number | null;
     }>,
   ) =>
-    fetchApi<{ ok: true }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/menus`, accountId),
-      { method: 'PUT', body: JSON.stringify({ menus }) },
-    ),
+    fetchApi<{ ok: true }>(withAccount(`/api/booking/admin/staff/${staffId}/menus`, accountId), {
+      method: 'PUT',
+      body: JSON.stringify({ menus }),
+    }),
   // Shifts
   getShifts: (accountId: string, staffId: string) =>
-    fetchApi<{ shifts: BookingShift[] }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/shifts`, accountId),
-    ),
+    fetchApi<{ shifts: BookingShift[] }>(withAccount(`/api/booking/admin/staff/${staffId}/shifts`, accountId)),
   putShifts: (
     accountId: string,
     staffId: string,
     shifts: Array<{ work_date: string; start_time: string; end_time: string }>,
   ) =>
-    fetchApi<{ ok: true; count: number }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/shifts`, accountId),
-      { method: 'PUT', body: JSON.stringify({ shifts }) },
-    ),
+    fetchApi<{ ok: true; count: number }>(withAccount(`/api/booking/admin/staff/${staffId}/shifts`, accountId), {
+      method: 'PUT',
+      body: JSON.stringify({ shifts }),
+    }),
   deleteShift: (accountId: string, staffId: string, shiftId: string) =>
-    fetchApi<{ ok: true }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/shifts/${shiftId}`, accountId),
-      { method: 'DELETE' },
-    ),
+    fetchApi<{ ok: true }>(withAccount(`/api/booking/admin/staff/${staffId}/shifts/${shiftId}`, accountId), {
+      method: 'DELETE',
+    }),
   generateShifts: (
     accountId: string,
     staffId: string,
@@ -1878,10 +1977,10 @@ export const bookingApi = {
       weekly_template: Record<string, { start: string; end: string } | null>;
     },
   ) =>
-    fetchApi<{ inserted: number }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/shifts/generate`, accountId),
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
+    fetchApi<{ inserted: number }>(withAccount(`/api/booking/admin/staff/${staffId}/shifts/generate`, accountId), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   getAvailabilityRules: (accountId: string, staffId: string) =>
     fetchApi<{ rules: BookingAvailabilityRule[] }>(
       withAccount(`/api/booking/admin/staff/${staffId}/availability-rules`, accountId),
@@ -1912,24 +2011,17 @@ export const bookingApi = {
       { method: 'PUT', body: JSON.stringify({ calendar_id: calendarId }) },
     ),
   deleteGoogleCalendar: (accountId: string, staffId: string) =>
-    fetchApi<{ ok: true }>(
-      withAccount(`/api/booking/admin/staff/${staffId}/google-calendar`, accountId),
-      { method: 'DELETE' },
-    ),
+    fetchApi<{ ok: true }>(withAccount(`/api/booking/admin/staff/${staffId}/google-calendar`, accountId), {
+      method: 'DELETE',
+    }),
   // Requests
   listRequests: (accountId: string, status: string = 'requested') =>
-    fetchApi<{ requests: BookingRequest[] }>(
-      withAccount(`/api/booking/admin/requests?status=${status}`, accountId),
-    ),
-  decideRequest: (
-    accountId: string,
-    id: string,
-    action: 'approve' | 'reject' | 'cancel' | 'no_show' | 'complete',
-  ) =>
-    fetchApi<{ status: string }>(
-      withAccount(`/api/booking/admin/requests/${id}`, accountId),
-      { method: 'PATCH', body: JSON.stringify({ action }) },
-    ),
+    fetchApi<{ requests: BookingRequest[] }>(withAccount(`/api/booking/admin/requests?status=${status}`, accountId)),
+  decideRequest: (accountId: string, id: string, action: 'approve' | 'reject' | 'cancel' | 'no_show' | 'complete') =>
+    fetchApi<{ status: string }>(withAccount(`/api/booking/admin/requests/${id}`, accountId), {
+      method: 'PATCH',
+      body: JSON.stringify({ action }),
+    }),
   pendingCount: (accountId: string) =>
     fetchApi<{ count: number }>(withAccount('/api/booking/admin/pending-count', accountId)),
 };
@@ -2025,58 +2117,50 @@ export interface EventBookingItem {
 
 export const eventsApi = {
   listEvents: (accountId: string) =>
-    fetchApi<{ items: EventListItem[] }>(
-      withAccount('/api/events/admin/events', accountId),
-    ),
+    fetchApi<{ items: EventListItem[] }>(withAccount('/api/events/admin/events', accountId)),
   getEvent: (accountId: string, id: string) =>
-    fetchApi<EventDetail>(
-      withAccount(`/api/events/admin/events/${id}`, accountId),
-    ),
+    fetchApi<EventDetail>(withAccount(`/api/events/admin/events/${id}`, accountId)),
   createEvent: (accountId: string, body: Partial<EventDetail>) =>
-    fetchApi<EventDetail>(
-      withAccount('/api/events/admin/events', accountId),
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
+    fetchApi<EventDetail>(withAccount('/api/events/admin/events', accountId), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   updateEvent: (accountId: string, id: string, body: Partial<EventDetail>) =>
-    fetchApi<EventDetail>(
-      withAccount(`/api/events/admin/events/${id}`, accountId),
-      { method: 'PUT', body: JSON.stringify(body) },
-    ),
+    fetchApi<EventDetail>(withAccount(`/api/events/admin/events/${id}`, accountId), {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
   deleteEvent: (accountId: string, id: string) =>
-    fetchApi<void>(
-      withAccount(`/api/events/admin/events/${id}`, accountId),
-      { method: 'DELETE' },
-    ),
+    fetchApi<void>(withAccount(`/api/events/admin/events/${id}`, accountId), { method: 'DELETE' }),
 
   listSlots: (accountId: string, eventId: string) =>
-    fetchApi<{ items: EventSlot[] }>(
-      withAccount(`/api/events/admin/events/${eventId}/slots`, accountId),
-    ),
+    fetchApi<{ items: EventSlot[] }>(withAccount(`/api/events/admin/events/${eventId}/slots`, accountId)),
   createSlots: (
     accountId: string,
     eventId: string,
-    slots: Array<{ starts_at: string; ends_at: string; capacity: number | null; is_active?: number; sort_order?: number }>,
+    slots: Array<{
+      starts_at: string;
+      ends_at: string;
+      capacity: number | null;
+      is_active?: number;
+      sort_order?: number;
+    }>,
   ) =>
-    fetchApi<{ items: EventSlot[] }>(
-      withAccount(`/api/events/admin/events/${eventId}/slots`, accountId),
-      { method: 'POST', body: JSON.stringify({ slots }) },
-    ),
+    fetchApi<{ items: EventSlot[] }>(withAccount(`/api/events/admin/events/${eventId}/slots`, accountId), {
+      method: 'POST',
+      body: JSON.stringify({ slots }),
+    }),
   updateSlot: (accountId: string, eventId: string, slotId: string, body: Partial<EventSlot>) =>
-    fetchApi<EventSlot>(
-      withAccount(`/api/events/admin/events/${eventId}/slots/${slotId}`, accountId),
-      { method: 'PUT', body: JSON.stringify(body) },
-    ),
+    fetchApi<EventSlot>(withAccount(`/api/events/admin/events/${eventId}/slots/${slotId}`, accountId), {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
   deleteSlot: (accountId: string, eventId: string, slotId: string) =>
-    fetchApi<void>(
-      withAccount(`/api/events/admin/events/${eventId}/slots/${slotId}`, accountId),
-      { method: 'DELETE' },
-    ),
+    fetchApi<void>(withAccount(`/api/events/admin/events/${eventId}/slots/${slotId}`, accountId), {
+      method: 'DELETE',
+    }),
 
-  listBookings: (
-    accountId: string,
-    eventId: string,
-    filters: { status?: string; slot_id?: string } = {},
-  ) => {
+  listBookings: (accountId: string, eventId: string, filters: { status?: string; slot_id?: string } = {}) => {
     const qs: string[] = [];
     if (filters.status) qs.push(`status=${encodeURIComponent(filters.status)}`);
     if (filters.slot_id) qs.push(`slot_id=${encodeURIComponent(filters.slot_id)}`);
@@ -2097,125 +2181,132 @@ export const eventsApi = {
       { method: 'POST', body: JSON.stringify({ action, reason }) },
     ),
   adminCancelBooking: (accountId: string, eventId: string, bookingId: string) =>
-    fetchApi<{ ok: true }>(
-      withAccount(`/api/events/admin/events/${eventId}/bookings/${bookingId}/cancel`, accountId),
-      { method: 'POST' },
-    ),
+    fetchApi<{ ok: true }>(withAccount(`/api/events/admin/events/${eventId}/bookings/${bookingId}/cancel`, accountId), {
+      method: 'POST',
+    }),
   updateBooking: (
     accountId: string,
     eventId: string,
     bookingId: string,
     body: { internal_note?: string | null; status?: 'attended' | 'no_show' },
   ) =>
-    fetchApi<EventBookingItem>(
-      withAccount(`/api/events/admin/events/${eventId}/bookings/${bookingId}`, accountId),
-      { method: 'PUT', body: JSON.stringify(body) },
-    ),
+    fetchApi<EventBookingItem>(withAccount(`/api/events/admin/events/${eventId}/bookings/${bookingId}`, accountId), {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
 
   pendingCount: (accountId: string) =>
-    fetchApi<{ count: number }>(
-      withAccount('/api/events/admin/events/notifications/pending', accountId),
-    ),
+    fetchApi<{ count: number }>(withAccount('/api/events/admin/events/notifications/pending', accountId)),
 };
 
 // ===== Webinars =====
 
 export type WebinarScheduleRule = {
-  type: 'daily' | 'weekly' | 'once'
-  time?: string
-  days?: number[]
-  at?: string
-}
+  type: 'daily' | 'weekly' | 'once';
+  time?: string;
+  days?: number[];
+  at?: string;
+};
 
 export type Webinar = {
-  id: string
-  accountId: string | null
-  title: string
-  slug: string
-  status: 'draft' | 'active' | 'archived'
-  videoPrefix: string | null
-  durationSeconds: number
-  schedule: WebinarScheduleRule[]
-  cta: { label: string; url: string; showAtSeconds: number } | null
-  tagOnAttend: string | null
-  tagOnCtaClick: string | null
-  createdAt: string
-  updatedAt: string
-}
+  id: string;
+  accountId: string | null;
+  title: string;
+  slug: string;
+  status: 'draft' | 'active' | 'archived';
+  videoPrefix: string | null;
+  durationSeconds: number;
+  schedule: WebinarScheduleRule[];
+  cta: { label: string; url: string; showAtSeconds: number } | null;
+  tagOnAttend: string | null;
+  tagOnCtaClick: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
-export type WebinarInput = Partial<Omit<Webinar, 'id' | 'createdAt' | 'updatedAt'>>
+export type WebinarInput = Partial<Omit<Webinar, 'id' | 'createdAt' | 'updatedAt'>>;
 
-export type WebinarSakuraComment = { id?: string; atSeconds: number; authorName: string; body: string }
+export type WebinarSakuraComment = {
+  id?: string;
+  atSeconds: number;
+  authorName: string;
+  body: string;
+};
 
 export type WebinarAnalytics = {
   summary: {
-    reservations: number
-    viewers: number
-    registeredAndJoined: number
-    watched5m: number
-    watched15m: number
-    completed: number
-    avgWatchedSeconds: number
-    ctaClicks: number
-    formSubmissions: number
-  }
+    reservations: number;
+    viewers: number;
+    registeredAndJoined: number;
+    watched5m: number;
+    watched15m: number;
+    completed: number;
+    avgWatchedSeconds: number;
+    ctaClicks: number;
+    formSubmissions: number;
+  };
   daily: Array<{
-    date: string
-    reservations: number
-    viewers: number
-    ctaClicks: number
-    formSubmissions: number
-  }>
+    date: string;
+    reservations: number;
+    viewers: number;
+    ctaClicks: number;
+    formSubmissions: number;
+  }>;
   participants: Array<{
-    friendId: string
-    friendName: string | null
-    pictureUrl: string | null
-    sessions: number
-    firstJoinedAt: string
-    latestJoinedAt: string
-    latestWatchedSeconds?: number
+    friendId: string;
+    friendName: string | null;
+    pictureUrl: string | null;
+    sessions: number;
+    firstJoinedAt: string;
+    latestJoinedAt: string;
+    latestWatchedSeconds?: number;
     /** 旧Worker/旧管理画面とのローリングデプロイ互換。 */
-    maxWatchedSeconds?: number
-    ctaClickedAt: string | null
-    registered: boolean
-    formSubmittedAt: string | null
-  }>
-  sessions: Array<{ sessionStartAt: number; viewers: number; avgWatchedSeconds: number; ctaClicks: number }>
-  dropoff: Array<{ bucketStart: number; viewers: number }>
+    maxWatchedSeconds?: number;
+    ctaClickedAt: string | null;
+    registered: boolean;
+    formSubmittedAt: string | null;
+  }>;
+  sessions: Array<{
+    sessionStartAt: number;
+    viewers: number;
+    avgWatchedSeconds: number;
+    ctaClicks: number;
+  }>;
+  dropoff: Array<{ bucketStart: number; viewers: number }>;
   formFunnel: {
-    ctaImpressions: number
-    ctaClicks: number
-    formOpens: number
-    formStarts: number
-    submitAttempts: number
-    submitSuccesses: number
-    submitErrors: number
-    fieldCompletions: Array<{ fieldName: string; users: number }>
-  }
-}
+    ctaImpressions: number;
+    ctaClicks: number;
+    formOpens: number;
+    formStarts: number;
+    submitAttempts: number;
+    submitSuccesses: number;
+    submitErrors: number;
+    fieldCompletions: Array<{ fieldName: string; users: number }>;
+  };
+};
 
 export type WebinarUserComment = {
-  id: string
-  friendId: string
-  friendName: string | null
-  pictureUrl: string | null
-  sessionStartAt: number
-  atSeconds: number
-  body: string
-  createdAt: string
-}
+  id: string;
+  friendId: string;
+  friendName: string | null;
+  pictureUrl: string | null;
+  sessionStartAt: number;
+  atSeconds: number;
+  body: string;
+  createdAt: string;
+};
 
 export type WebinarCtaCard = {
-  id?: string
-  atSeconds: number
-  kind: 'form' | 'url'
-  title: string
-  body: string | null
-  buttonLabel: string
-  autoOpen: boolean
-  formId: string | null
-  url: string | null
-}
+  id?: string;
+  atSeconds: number;
+  kind: 'form' | 'url';
+  title: string;
+  body: string | null;
+  buttonLabel: string;
+  autoOpen: boolean;
+  formId: string | null;
+  url: string | null;
+};
 
 export const webinarApi = {
   list: () => fetchApi<{ data: Webinar[] }>('/api/webinars'),
@@ -2223,14 +2314,22 @@ export const webinarApi = {
   create: (input: WebinarInput) =>
     fetchApi<{ data: Webinar }>('/api/webinars', { method: 'POST', body: JSON.stringify(input) }),
   update: (id: string, input: WebinarInput) =>
-    fetchApi<{ data: Webinar }>(`/api/webinars/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+    fetchApi<{ data: Webinar }>(`/api/webinars/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
   remove: (id: string) => fetchApi<{ data: null }>(`/api/webinars/${id}`, { method: 'DELETE' }),
-  comments: (id: string) =>
-    fetchApi<{ data: WebinarSakuraComment[] }>(`/api/webinars/${id}/comments`),
+  comments: (id: string) => fetchApi<{ data: WebinarSakuraComment[] }>(`/api/webinars/${id}/comments`),
   saveComments: (id: string, comments: WebinarSakuraComment[]) =>
     fetchApi<{ data: { count: number } }>(`/api/webinars/${id}/comments`, {
       method: 'PUT',
-      body: JSON.stringify({ comments: comments.map(({ atSeconds, authorName, body }) => ({ atSeconds, authorName, body })) }),
+      body: JSON.stringify({
+        comments: comments.map(({ atSeconds, authorName, body }) => ({
+          atSeconds,
+          authorName,
+          body,
+        })),
+      }),
     }),
   ctas: (id: string) => fetchApi<{ data: WebinarCtaCard[] }>(`/api/webinars/${id}/ctas`),
   saveCtas: (id: string, ctas: WebinarCtaCard[]) =>
@@ -2238,11 +2337,17 @@ export const webinarApi = {
       method: 'PUT',
       body: JSON.stringify({
         ctas: ctas.map(({ atSeconds, kind, title, body, buttonLabel, autoOpen, formId, url }) => ({
-          atSeconds, kind, title, body, buttonLabel, autoOpen, formId, url,
+          atSeconds,
+          kind,
+          title,
+          body,
+          buttonLabel,
+          autoOpen,
+          formId,
+          url,
         })),
       }),
     }),
   analytics: (id: string) => fetchApi<{ data: WebinarAnalytics }>(`/api/webinars/${id}/analytics`),
-  userComments: (id: string) =>
-    fetchApi<{ data: WebinarUserComment[] }>(`/api/webinars/${id}/user-comments`),
-}
+  userComments: (id: string) => fetchApi<{ data: WebinarUserComment[] }>(`/api/webinars/${id}/user-comments`),
+};

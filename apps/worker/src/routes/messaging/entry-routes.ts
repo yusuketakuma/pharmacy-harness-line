@@ -85,19 +85,20 @@ entryRoutes.post('/api/entry-routes', async (c) => {
 entryRoutes.patch('/api/entry-routes/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const body = await c.req.json<
-      Partial<{
-        refCode: string;
-        name: string;
-        tagId: string | null;
-        scenarioId: string | null;
-        redirectUrl: string | null;
-        poolId: string | null;
-        introTemplateId: string | null;
-        runAccountFriendAddScenarios: boolean;
-        isActive: boolean;
-      }>
-    >();
+    const body =
+      await c.req.json<
+        Partial<{
+          refCode: string;
+          name: string;
+          tagId: string | null;
+          scenarioId: string | null;
+          redirectUrl: string | null;
+          poolId: string | null;
+          introTemplateId: string | null;
+          runAccountFriendAddScenarios: boolean;
+          isActive: boolean;
+        }>
+      >();
     const row = await updateEntryRoute(c.env.DB, id, body, c.get('tenantId') ?? null);
     if (!row) return c.json({ success: false, error: 'Not found' }, 404);
     return c.json({ success: true, data: serialize(row) });
@@ -111,7 +112,7 @@ entryRoutes.patch('/api/entry-routes/:id', async (c) => {
 entryRoutes.delete('/api/entry-routes/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    if (!await deleteEntryRoute(c.env.DB, id, c.get('tenantId') ?? null)) {
+    if (!(await deleteEntryRoute(c.env.DB, id, c.get('tenantId') ?? null))) {
       return c.json({ success: false, error: 'Not found' }, 404);
     }
     return c.json({ success: true });

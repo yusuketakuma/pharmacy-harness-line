@@ -53,10 +53,7 @@ export interface EntryRouteFunnel {
   cv_count: number;
 }
 
-export async function getEntryRoutes(
-  db: D1Database,
-  tenantId: string | null = null,
-): Promise<EntryRoute[]> {
+export async function getEntryRoutes(db: D1Database, tenantId: string | null = null): Promise<EntryRoute[]> {
   const result = await db
     .prepare(`SELECT * FROM entry_routes WHERE tenant_id IS ? ORDER BY created_at DESC`)
     .bind(tenantId)
@@ -64,20 +61,14 @@ export async function getEntryRoutes(
   return result.results;
 }
 
-export async function getEntryRouteByRefCode(
-  db: D1Database,
-  refCode: string,
-): Promise<EntryRoute | null> {
+export async function getEntryRouteByRefCode(db: D1Database, refCode: string): Promise<EntryRoute | null> {
   return db
     .prepare(`SELECT * FROM entry_routes WHERE ref_code = ? AND is_active = 1`)
     .bind(refCode)
     .first<EntryRoute>();
 }
 
-export async function createEntryRoute(
-  db: D1Database,
-  input: CreateEntryRouteInput,
-): Promise<EntryRoute> {
+export async function createEntryRoute(db: D1Database, input: CreateEntryRouteInput): Promise<EntryRoute> {
   const id = crypto.randomUUID();
   const now = jstNow();
   const isActive = input.isActive !== false ? 1 : 0;
@@ -151,18 +142,42 @@ export async function updateEntryRoute(
   const fields: string[] = ['updated_at = ?'];
   const values: unknown[] = [now];
 
-  if (input.name !== undefined) { fields.push('name = ?'); values.push(input.name); }
-  if (input.refCode !== undefined) { fields.push('ref_code = ?'); values.push(input.refCode); }
-  if (input.tagId !== undefined) { fields.push('tag_id = ?'); values.push(input.tagId ?? null); }
-  if (input.scenarioId !== undefined) { fields.push('scenario_id = ?'); values.push(input.scenarioId ?? null); }
-  if (input.redirectUrl !== undefined) { fields.push('redirect_url = ?'); values.push(input.redirectUrl ?? null); }
-  if (input.poolId !== undefined) { fields.push('pool_id = ?'); values.push(input.poolId ?? null); }
-  if (input.introTemplateId !== undefined) { fields.push('intro_template_id = ?'); values.push(input.introTemplateId ?? null); }
+  if (input.name !== undefined) {
+    fields.push('name = ?');
+    values.push(input.name);
+  }
+  if (input.refCode !== undefined) {
+    fields.push('ref_code = ?');
+    values.push(input.refCode);
+  }
+  if (input.tagId !== undefined) {
+    fields.push('tag_id = ?');
+    values.push(input.tagId ?? null);
+  }
+  if (input.scenarioId !== undefined) {
+    fields.push('scenario_id = ?');
+    values.push(input.scenarioId ?? null);
+  }
+  if (input.redirectUrl !== undefined) {
+    fields.push('redirect_url = ?');
+    values.push(input.redirectUrl ?? null);
+  }
+  if (input.poolId !== undefined) {
+    fields.push('pool_id = ?');
+    values.push(input.poolId ?? null);
+  }
+  if (input.introTemplateId !== undefined) {
+    fields.push('intro_template_id = ?');
+    values.push(input.introTemplateId ?? null);
+  }
   if (input.runAccountFriendAddScenarios !== undefined) {
     fields.push('run_account_friend_add_scenarios = ?');
     values.push(input.runAccountFriendAddScenarios ? 1 : 0);
   }
-  if (input.isActive !== undefined) { fields.push('is_active = ?'); values.push(input.isActive ? 1 : 0); }
+  if (input.isActive !== undefined) {
+    fields.push('is_active = ?');
+    values.push(input.isActive ? 1 : 0);
+  }
 
   values.push(id, tenantId);
 
@@ -177,15 +192,8 @@ export async function updateEntryRoute(
     .first<EntryRoute>();
 }
 
-export async function deleteEntryRoute(
-  db: D1Database,
-  id: string,
-  tenantId: string | null = null,
-): Promise<boolean> {
-  const result = await db
-    .prepare(`DELETE FROM entry_routes WHERE id = ? AND tenant_id IS ?`)
-    .bind(id, tenantId)
-    .run();
+export async function deleteEntryRoute(db: D1Database, id: string, tenantId: string | null = null): Promise<boolean> {
+  const result = await db.prepare(`DELETE FROM entry_routes WHERE id = ? AND tenant_id IS ?`).bind(id, tenantId).run();
   return (result.meta?.changes ?? 0) > 0;
 }
 
@@ -216,10 +224,7 @@ export async function getEntryRouteById(
  * MIN(created_at) でなく friends.ref_code を使うことで、既存友だちの再訪問を
  * friend_add_count から除外している。
  */
-export async function getEntryRouteFunnel(
-  db: D1Database,
-  entryRouteId: string,
-): Promise<EntryRouteFunnel> {
+export async function getEntryRouteFunnel(db: D1Database, entryRouteId: string): Promise<EntryRouteFunnel> {
   const row = await db
     .prepare(
       `WITH route_scope AS (
@@ -250,9 +255,7 @@ export async function getEntryRouteFunnel(
     )
     .bind(entryRouteId)
     .first<EntryRouteFunnel>();
-  return (
-    row ?? { click_count: 0, friend_add_count: 0, form_submission_count: 0, cv_count: 0 }
-  );
+  return row ?? { click_count: 0, friend_add_count: 0, form_submission_count: 0, cv_count: 0 };
 }
 
 export async function recordRefTracking(
@@ -310,16 +313,10 @@ export async function recordRefTracking(
       .run();
   }
 
-  return (await db
-    .prepare(`SELECT * FROM ref_tracking WHERE id = ?`)
-    .bind(id)
-    .first<RefTracking>())!;
+  return (await db.prepare(`SELECT * FROM ref_tracking WHERE id = ?`).bind(id).first<RefTracking>())!;
 }
 
-export async function getRefTrackingWithClickIds(
-  db: D1Database,
-  friendId: string,
-): Promise<RefTracking | null> {
+export async function getRefTrackingWithClickIds(db: D1Database, friendId: string): Promise<RefTracking | null> {
   return db
     .prepare(
       `SELECT * FROM ref_tracking
@@ -332,10 +329,7 @@ export async function getRefTrackingWithClickIds(
     .first<RefTracking>();
 }
 
-export async function getRefTrackingByFriend(
-  db: D1Database,
-  friendId: string,
-): Promise<RefTracking[]> {
+export async function getRefTrackingByFriend(db: D1Database, friendId: string): Promise<RefTracking[]> {
   const result = await db
     .prepare(`SELECT * FROM ref_tracking WHERE friend_id = ? ORDER BY created_at DESC`)
     .bind(friendId)
@@ -348,9 +342,7 @@ export async function getRefTrackingStats(
   refCode: string,
 ): Promise<{ ref_code: string; count: number }> {
   const row = await db
-    .prepare(
-      `SELECT ref_code, COUNT(*) as count FROM ref_tracking WHERE ref_code = ? GROUP BY ref_code`,
-    )
+    .prepare(`SELECT ref_code, COUNT(*) as count FROM ref_tracking WHERE ref_code = ? GROUP BY ref_code`)
     .bind(refCode)
     .first<{ ref_code: string; count: number }>();
   return row ?? { ref_code: refCode, count: 0 };

@@ -122,9 +122,7 @@ export interface WebinarCreateInput {
 }
 
 export async function getWebinars(db: D1Database): Promise<Webinar[]> {
-  const { results } = await db
-    .prepare('SELECT * FROM webinars ORDER BY created_at DESC')
-    .all<Webinar>();
+  const { results } = await db.prepare('SELECT * FROM webinars ORDER BY created_at DESC').all<Webinar>();
   return results ?? [];
 }
 
@@ -147,10 +145,19 @@ export async function createWebinar(db: D1Database, input: WebinarCreateInput): 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
-      id, input.accountId ?? null, input.title, input.slug, input.status ?? 'draft',
-      input.videoPrefix ?? null, input.durationSeconds ?? 0, input.scheduleJson ?? '[]',
-      input.ctaJson ?? null, input.tagOnAttend ?? null, input.tagOnCtaClick ?? null,
-      now, now,
+      id,
+      input.accountId ?? null,
+      input.title,
+      input.slug,
+      input.status ?? 'draft',
+      input.videoPrefix ?? null,
+      input.durationSeconds ?? 0,
+      input.scheduleJson ?? '[]',
+      input.ctaJson ?? null,
+      input.tagOnAttend ?? null,
+      input.tagOnCtaClick ?? null,
+      now,
+      now,
     )
     .run();
   return (await getWebinarById(db, id))!;
@@ -181,7 +188,8 @@ export async function updateWebinar(
       patch.ctaJson !== undefined ? patch.ctaJson : existing.cta_json,
       patch.tagOnAttend !== undefined ? patch.tagOnAttend : existing.tag_on_attend,
       patch.tagOnCtaClick !== undefined ? patch.tagOnCtaClick : existing.tag_on_cta_click,
-      jstNow(), id,
+      jstNow(),
+      id,
     )
     .run();
   return getWebinarById(db, id);
@@ -199,10 +207,7 @@ export async function deleteWebinar(db: D1Database, id: string): Promise<void> {
   ]);
 }
 
-export async function getWebinarComments(
-  db: D1Database,
-  webinarId: string,
-): Promise<WebinarComment[]> {
+export async function getWebinarComments(db: D1Database, webinarId: string): Promise<WebinarComment[]> {
   const { results } = await db
     .prepare('SELECT * FROM webinar_comments WHERE webinar_id = ? ORDER BY at_seconds ASC')
     .bind(webinarId)
@@ -318,10 +323,7 @@ export async function recordWebinarFunnelEvent(
     .run();
 }
 
-export async function getWebinarFormFunnelStats(
-  db: D1Database,
-  webinarId: string,
-): Promise<WebinarFormFunnelStats> {
+export async function getWebinarFormFunnelStats(db: D1Database, webinarId: string): Promise<WebinarFormFunnelStats> {
   const [summary, fields] = await Promise.all([
     db
       .prepare(
@@ -359,10 +361,7 @@ export async function getWebinarFormFunnelStats(
            (SELECT COUNT(DISTINCT e.friend_id) FROM webinar_funnel_events e
             WHERE e.webinar_id = ? AND e.event_type = 'submit_error') AS submit_errors`,
       )
-      .bind(
-        webinarId, webinarId, webinarId, webinarId, webinarId,
-        webinarId, webinarId, webinarId,
-      )
+      .bind(webinarId, webinarId, webinarId, webinarId, webinarId, webinarId, webinarId, webinarId)
       .first<Omit<WebinarFormFunnelStats, 'field_completions'>>(),
     db
       .prepare(
@@ -404,8 +403,13 @@ export async function insertWebinarUserComment(
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
-      crypto.randomUUID(), input.webinarId, input.friendId, input.sessionStartAt,
-      input.atSeconds, input.body, jstNow(),
+      crypto.randomUUID(),
+      input.webinarId,
+      input.friendId,
+      input.sessionStartAt,
+      input.atSeconds,
+      input.body,
+      jstNow(),
     )
     .run();
 }
@@ -445,10 +449,7 @@ export async function getWebinarUserComments(
   return results ?? [];
 }
 
-export async function getWebinarSessionStats(
-  db: D1Database,
-  webinarId: string,
-): Promise<WebinarSessionStat[]> {
+export async function getWebinarSessionStats(db: D1Database, webinarId: string): Promise<WebinarSessionStat[]> {
   const { results } = await db
     .prepare(
       `SELECT session_start_at,
@@ -577,32 +578,25 @@ export async function getWebinarAnalyticsSummary(
        FROM viewer_rollup vr
        LEFT JOIN form_submitters fs ON fs.friend_id = vr.friend_id`,
     )
-    .bind(
-      webinarId,
-      webinarId,
-      webinarId,
-      webinarId,
-      completionThresholdSeconds,
-    )
+    .bind(webinarId, webinarId, webinarId, webinarId, completionThresholdSeconds)
     .first<WebinarAnalyticsSummaryRow>();
-  return row ?? {
-    reservations: 0,
-    viewers: 0,
-    registered_and_joined: 0,
-    watched_5m: 0,
-    watched_15m: 0,
-    completed: 0,
-    avg_watched_seconds: 0,
-    cta_clicks: 0,
-    form_submissions: 0,
-  };
+  return (
+    row ?? {
+      reservations: 0,
+      viewers: 0,
+      registered_and_joined: 0,
+      watched_5m: 0,
+      watched_15m: 0,
+      completed: 0,
+      avg_watched_seconds: 0,
+      cta_clicks: 0,
+      form_submissions: 0,
+    }
+  );
 }
 
 /** 日別の予約→参加→CTA→フォーム推移。日本時間の保存文字列を日付で集計する。 */
-export async function getWebinarDailyStats(
-  db: D1Database,
-  webinarId: string,
-): Promise<WebinarDailyStat[]> {
+export async function getWebinarDailyStats(db: D1Database, webinarId: string): Promise<WebinarDailyStat[]> {
   const { results } = await db
     .prepare(
       `WITH regs AS (
@@ -656,10 +650,7 @@ export interface WebinarCta {
   updated_at: string;
 }
 
-export async function getWebinarCtas(
-  db: D1Database,
-  webinarId: string,
-): Promise<WebinarCta[]> {
+export async function getWebinarCtas(db: D1Database, webinarId: string): Promise<WebinarCta[]> {
   const { results } = await db
     .prepare('SELECT * FROM webinar_ctas WHERE webinar_id = ? ORDER BY at_seconds ASC')
     .bind(webinarId)
@@ -693,8 +684,18 @@ export async function replaceWebinarCtas(
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
-          crypto.randomUUID(), webinarId, cta.atSeconds, cta.kind, cta.title, cta.body,
-          cta.buttonLabel, cta.autoOpen ? 1 : 0, cta.formId, cta.url, now, now,
+          crypto.randomUUID(),
+          webinarId,
+          cta.atSeconds,
+          cta.kind,
+          cta.title,
+          cta.body,
+          cta.buttonLabel,
+          cta.autoOpen ? 1 : 0,
+          cta.formId,
+          cta.url,
+          now,
+          now,
         ),
     ),
   ];
@@ -773,11 +774,7 @@ export async function getWebinarRegistration(
  * INSERT OR IGNORE anchors the follow-up delay to the first real visit and
  * prevents reloads/re-renders from postponing the follow-up indefinitely.
  */
-export async function recordWebinarPickerOpen(
-  db: D1Database,
-  webinarId: string,
-  friendId: string,
-): Promise<void> {
+export async function recordWebinarPickerOpen(db: D1Database, webinarId: string, friendId: string): Promise<void> {
   await db
     .prepare(
       `INSERT OR IGNORE INTO webinar_picker_opens
@@ -794,7 +791,16 @@ export async function getDueWebinarRegistrations(
   nowEpochSeconds: number,
   leadSeconds: number,
   limit = 100,
-): Promise<Array<WebinarRegistration & { slug: string; title: string; account_id: string | null; duration_seconds: number }>> {
+): Promise<
+  Array<
+    WebinarRegistration & {
+      slug: string;
+      title: string;
+      account_id: string | null;
+      duration_seconds: number;
+    }
+  >
+> {
   const { results } = await db
     .prepare(
       `SELECT r.*, w.slug, w.title, w.account_id, w.duration_seconds
@@ -808,19 +814,21 @@ export async function getDueWebinarRegistrations(
        LIMIT ?`,
     )
     .bind(nowEpochSeconds + leadSeconds, nowEpochSeconds, limit)
-    .all<WebinarRegistration & { slug: string; title: string; account_id: string | null; duration_seconds: number }>();
+    .all<
+      WebinarRegistration & {
+        slug: string;
+        title: string;
+        account_id: string | null;
+        duration_seconds: number;
+      }
+    >();
   return results ?? [];
 }
 
 /** 通知済みマーク。未通知の場合のみ更新し、更新できたら true (二重送信ガード) */
-export async function markWebinarRegistrationNotified(
-  db: D1Database,
-  id: string,
-): Promise<boolean> {
+export async function markWebinarRegistrationNotified(db: D1Database, id: string): Promise<boolean> {
   const res = await db
-    .prepare(
-      `UPDATE webinar_registrations SET notified_at = ? WHERE id = ? AND notified_at IS NULL`,
-    )
+    .prepare(`UPDATE webinar_registrations SET notified_at = ? WHERE id = ? AND notified_at IS NULL`)
     .bind(jstNow(), id)
     .run();
   return (res.meta.changes ?? 0) > 0;

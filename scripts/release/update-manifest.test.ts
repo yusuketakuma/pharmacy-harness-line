@@ -100,9 +100,9 @@ describe('updateManifest', () => {
     };
     writeFileSync(manifestPath, JSON.stringify(existing, null, 2));
 
-    expect(() =>
-      updateManifest({ manifestPath, release: makeEntry('0.8.0') }),
-    ).toThrow(/release 0\.8\.0 already exists in manifest/);
+    expect(() => updateManifest({ manifestPath, release: makeEntry('0.8.0') })).toThrow(
+      /release 0\.8\.0 already exists in manifest/,
+    );
   });
 
   it('writes pretty-printed, parseable JSON output', () => {
@@ -140,10 +140,7 @@ describe('updateManifest', () => {
   });
 
   it('throws on unsupported schema_version', () => {
-    writeFileSync(
-      manifestPath,
-      JSON.stringify({ schema_version: 2, latest: '0.7.0', releases: [] }, null, 2),
-    );
+    writeFileSync(manifestPath, JSON.stringify({ schema_version: 2, latest: '0.7.0', releases: [] }, null, 2));
 
     expect(() => updateManifest({ manifestPath, release: makeEntry('0.8.0') })).toThrow(
       /unsupported manifest schema_version: 2/,
@@ -203,10 +200,7 @@ describe('updateManifest', () => {
         previous_commit: 'c'.repeat(40),
       }),
     } as Partial<ReleaseEntry>);
-    writeFileSync(
-      manifestPath,
-      JSON.stringify({ schema_version: 1, latest: '0.7.0', releases: [existing] }, null, 2),
-    );
+    writeFileSync(manifestPath, JSON.stringify({ schema_version: 1, latest: '0.7.0', releases: [existing] }, null, 2));
     const replay = makeEntry('0.8.0', {
       customer_source_update: customerSourceUpdate({ release_sequence: 8 }),
     } as Partial<ReleaseEntry>);

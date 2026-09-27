@@ -9,14 +9,20 @@ describe('shared pharmacy activity repository', () => {
         statements.push({ sql, values });
         return {
           run: async () => ({ meta: { changes: 1 } }),
-          first: async () => ({ id: 'notification-1', line_account_id: 'account-a', activity_type: 'prescription_received' }),
+          first: async () => ({
+            id: 'notification-1',
+            line_account_id: 'account-a',
+            activity_type: 'prescription_received',
+          }),
           all: async () => ({ results: [] }),
         };
       },
     }));
     const db = { prepare } as unknown as D1Database;
     await createActivityNotification(db, {
-      lineAccountId: 'account-a', activityType: 'prescription_received', idempotencyKey: 'raw-source-id',
+      lineAccountId: 'account-a',
+      activityType: 'prescription_received',
+      idempotencyKey: 'raw-source-id',
     });
     await listActivityNotifications(db, 'account-a', false, 20);
     const insert = statements.find((statement) => statement.sql.includes('INSERT'))!;

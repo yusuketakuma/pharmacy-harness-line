@@ -51,20 +51,25 @@ describe('custom_002_pharmacy_patient_intake.sql', () => {
   });
 
   it('creates family patient, intake revision, and prescription link tables', () => {
-    const names = db.prepare(
-      `SELECT name FROM sqlite_master
+    const names = db
+      .prepare(
+        `SELECT name FROM sqlite_master
        WHERE type = 'table' AND name LIKE 'pharmacy_%'
        ORDER BY name`,
-    ).all() as Array<{ name: string }>;
+      )
+      .all() as Array<{ name: string }>;
 
-    expect(names.map((row) => row.name)).toEqual(expect.arrayContaining([
-      'pharmacy_patients',
-      'pharmacy_patient_intake_responses',
-      'pharmacy_prescription_patients',
-    ]));
-    const column = db.prepare(
-      `PRAGMA table_info(pharmacy_prescription_submissions)`,
-    ).all() as Array<{ name: string; dflt_value: string | null }>;
+    expect(names.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        'pharmacy_patients',
+        'pharmacy_patient_intake_responses',
+        'pharmacy_prescription_patients',
+      ]),
+    );
+    const column = db.prepare(`PRAGMA table_info(pharmacy_prescription_submissions)`).all() as Array<{
+      name: string;
+      dflt_value: string | null;
+    }>;
     expect(column.find((row) => row.name === 'intake_required')?.dflt_value).toBe('0');
   });
 
@@ -87,16 +92,34 @@ describe('custom_002_pharmacy_patient_intake.sql', () => {
           representative_consent_at, privacy_consent_at, created_at)
        VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?)`,
     );
-    expect(() => insert.run(
-      'response-a', 'account-a', 'friend-a', 'patient-self',
-      '{"name":"患者"}', '{"allergies":"none"}', 'valid-key',
-      '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z',
-    )).not.toThrow();
-    expect(() => insert.run(
-      'response-b', 'account-a', 'friend-a', 'patient-self',
-      'not-json', '{"allergies":"none"}', 'valid-key-2',
-      '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z',
-    )).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      insert.run(
+        'response-a',
+        'account-a',
+        'friend-a',
+        'patient-self',
+        '{"name":"患者"}',
+        '{"allergies":"none"}',
+        'valid-key',
+        '2026-08-17T00:00:00Z',
+        '2026-08-17T00:00:00Z',
+        '2026-08-17T00:00:00Z',
+      ),
+    ).not.toThrow();
+    expect(() =>
+      insert.run(
+        'response-b',
+        'account-a',
+        'friend-a',
+        'patient-self',
+        'not-json',
+        '{"allergies":"none"}',
+        'valid-key-2',
+        '2026-08-17T00:00:00Z',
+        '2026-08-17T00:00:00Z',
+        '2026-08-17T00:00:00Z',
+      ),
+    ).toThrow(/CHECK constraint failed/);
   });
 
   it('prevents cross-family prescription links', () => {
@@ -111,10 +134,14 @@ describe('custom_002_pharmacy_patient_intake.sql', () => {
                '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')`,
     );
     response.run();
-    expect(() => db.prepare(
-      `INSERT INTO pharmacy_prescription_patients
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO pharmacy_prescription_patients
          (submission_id, line_account_id, owner_friend_id, patient_id, intake_response_id, created_at)
        VALUES ('missing-submission', 'account-a', 'friend-a', 'patient-self', 'response-a', '2026-08-17T00:00:00Z')`,
-    ).run()).toThrow(/FOREIGN KEY constraint failed/);
+        )
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/);
   });
 });

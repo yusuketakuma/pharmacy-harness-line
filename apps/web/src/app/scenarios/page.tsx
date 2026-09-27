@@ -1,14 +1,14 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import type { Scenario, ScenarioTriggerType, DeliveryMode } from '@line-crm/shared'
-import { api } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
-import Header from '@/components/layout/header'
-import ScenarioList from '@/components/scenarios/scenario-list'
-import ScenarioModePicker from '@/components/scenarios/scenario-mode-picker'
-import CcPromptButton from '@/components/cc-prompt-button'
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import type { Scenario, ScenarioTriggerType, DeliveryMode } from '@line-crm/shared';
+import { api } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
+import Header from '@/components/layout/header';
+import ScenarioList from '@/components/scenarios/scenario-list';
+import ScenarioModePicker from '@/components/scenarios/scenario-mode-picker';
+import CcPromptButton from '@/components/cc-prompt-button';
 
 const ccPrompts = [
   {
@@ -28,67 +28,67 @@ const ccPrompts = [
 3. 改善が必要なシナリオを特定
 具体的な改善案を提示してください。`,
   },
-]
+];
 
-type ScenarioWithCount = Scenario & { stepCount?: number }
+type ScenarioWithCount = Scenario & { stepCount?: number };
 
 export default function ScenariosPage() {
-  const { selectedAccountId, loading: accountLoading } = useAccount()
-  const router = useRouter()
-  const [scenarios, setScenarios] = useState<ScenarioWithCount[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const { selectedAccountId, loading: accountLoading } = useAccount();
+  const router = useRouter();
+  const [scenarios, setScenarios] = useState<ScenarioWithCount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const loadScenarios = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.scenarios.list({ accountId: selectedAccountId || undefined })
+      const res = await api.scenarios.list({ accountId: selectedAccountId || undefined });
       if (res.success) {
-        setScenarios(res.data)
+        setScenarios(res.data);
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('シナリオの読み込みに失敗しました。もう一度お試しください。')
+      setError('シナリオの読み込みに失敗しました。もう一度お試しください。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccountId])
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    if (accountLoading) return
-    let cancelled = false
+    if (accountLoading) return;
+    let cancelled = false;
     const fetchData = async () => {
-      setLoading(true)
-      setError('')
+      setLoading(true);
+      setError('');
       try {
-        const res = await api.scenarios.list({ accountId: selectedAccountId || undefined })
-        if (cancelled) return
+        const res = await api.scenarios.list({ accountId: selectedAccountId || undefined });
+        if (cancelled) return;
         if (res.success) {
-          setScenarios(res.data)
+          setScenarios(res.data);
         } else {
-          setError(res.error)
+          setError(res.error);
         }
       } catch {
-        if (cancelled) return
-        setError('シナリオの読み込みに失敗しました。もう一度お試しください。')
+        if (cancelled) return;
+        setError('シナリオの読み込みに失敗しました。もう一度お試しください。');
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoading(false);
       }
-    }
-    fetchData()
+    };
+    fetchData();
     return () => {
-      cancelled = true
-    }
-  }, [selectedAccountId, accountLoading])
+      cancelled = true;
+    };
+  }, [selectedAccountId, accountLoading]);
 
   const handleCreate = async (input: {
-    name: string
-    triggerType: ScenarioTriggerType
-    triggerTagId: string | null
-    deliveryMode: DeliveryMode
+    name: string;
+    triggerType: ScenarioTriggerType;
+    triggerTagId: string | null;
+    deliveryMode: DeliveryMode;
   }) => {
     const res = await api.scenarios.create({
       name: input.name,
@@ -98,31 +98,31 @@ export default function ScenariosPage() {
       lineAccountId: selectedAccountId,
       isActive: true,
       deliveryMode: input.deliveryMode,
-    })
+    });
     if (res.success) {
-      router.push(`/scenarios/detail?id=${res.data.id}`)
+      router.push(`/scenarios/detail?id=${res.data.id}`);
     } else {
-      throw new Error(res.error)
+      throw new Error(res.error);
     }
-  }
+  };
 
   const handleToggleActive = async (id: string, current: boolean) => {
     try {
-      await api.scenarios.update(id, { isActive: !current })
-      loadScenarios()
+      await api.scenarios.update(id, { isActive: !current });
+      loadScenarios();
     } catch {
-      setError('ステータスの変更に失敗しました')
+      setError('ステータスの変更に失敗しました');
     }
-  }
+  };
 
   const handleDelete = async (id: string) => {
     try {
-      await api.scenarios.delete(id)
-      loadScenarios()
+      await api.scenarios.delete(id);
+      loadScenarios();
     } catch {
-      setError('削除に失敗しました')
+      setError('削除に失敗しました');
     }
-  }
+  };
 
   return (
     <div>
@@ -140,17 +140,9 @@ export default function ScenariosPage() {
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
-      <ScenarioModePicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onCreate={handleCreate}
-      />
+      <ScenarioModePicker open={pickerOpen} onClose={() => setPickerOpen(false)} onCreate={handleCreate} />
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -176,5 +168,5 @@ export default function ScenariosPage() {
 
       <CcPromptButton prompts={ccPrompts} />
     </div>
-  )
+  );
 }

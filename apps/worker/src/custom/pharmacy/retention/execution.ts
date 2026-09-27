@@ -1,7 +1,4 @@
-import {
-  assertRecoveryExecution,
-  type RecoveryExecution,
-} from '../recovery/operations.js';
+import { assertRecoveryExecution, type RecoveryExecution } from '../recovery/operations.js';
 
 /** Execution proof required by every retention deletion mutation. */
 export interface RetentionDeleteExecution {
@@ -15,25 +12,26 @@ export interface RetentionDeleteExecution {
 }
 
 function safeExecutionValue(value: unknown, maximum: number): value is string {
-  return typeof value === 'string' &&
-    value.length > 0 && value.length <= maximum &&
-    !/[\u0000-\u001f\u007f]/u.test(value);
+  return (
+    typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\u0000-\u001f\u007f]/u.test(value)
+  );
 }
 
-function assertRetentionDeleteExecutionShape(
-  value: unknown,
-): asserts value is RetentionDeleteExecution {
+function assertRetentionDeleteExecutionShape(value: unknown): asserts value is RetentionDeleteExecution {
   if (!value || typeof value !== 'object') {
     throw new Error('retention deletion execution proof is required');
   }
   const proof = value as Partial<RetentionDeleteExecution>;
-  if (!safeExecutionValue(proof.operationId, 200) ||
-      !safeExecutionValue(proof.executionId, 200) ||
-      !safeExecutionValue(proof.fenceToken, 240) || proof.fenceToken.length < 32 ||
-      !safeExecutionValue(proof.executorSubject, 200) ||
-      !safeExecutionValue(proof.tenantId, 200) ||
-      !safeExecutionValue(proof.lineAccountId, 200) ||
-      !safeExecutionValue(proof.environment, 80)) {
+  if (
+    !safeExecutionValue(proof.operationId, 200) ||
+    !safeExecutionValue(proof.executionId, 200) ||
+    !safeExecutionValue(proof.fenceToken, 240) ||
+    proof.fenceToken.length < 32 ||
+    !safeExecutionValue(proof.executorSubject, 200) ||
+    !safeExecutionValue(proof.tenantId, 200) ||
+    !safeExecutionValue(proof.lineAccountId, 200) ||
+    !safeExecutionValue(proof.environment, 80)
+  ) {
     throw new Error('retention deletion execution proof is invalid');
   }
 }

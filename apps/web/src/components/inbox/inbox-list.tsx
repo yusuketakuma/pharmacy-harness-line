@@ -1,36 +1,27 @@
-'use client'
+'use client';
 
-import InboxRow, { type InboxRowData } from './inbox-row'
+import InboxRow, { type InboxRowData } from './inbox-row';
 
-const fmt = new Intl.NumberFormat('ja-JP')
+const fmt = new Intl.NumberFormat('ja-JP');
 
 interface Props {
-  rows: InboxRowData[]
-  total: number
-  page: number
-  pageSize: number
-  loading: boolean
-  onPageChange: (page: number) => void
+  rows: InboxRowData[];
+  total: number;
+  page: number;
+  pageSize: number;
+  loading: boolean;
+  onPageChange: (page: number) => void;
 }
 
-export default function InboxList({
-  rows,
-  total,
-  page,
-  pageSize,
-  loading,
-  onPageChange,
-}: Props) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const end = Math.min(total, page * pageSize)
+export default function InboxList({ rows, total, page, pageSize, loading, onPageChange }: Props) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
 
   return (
     <div className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200">
       {rows.length === 0 && !loading ? (
-        <div className="px-4 py-12 text-center text-sm text-gray-400">
-          未対応はありません 🎉
-        </div>
+        <div className="px-4 py-12 text-center text-sm text-gray-400">未対応はありません 🎉</div>
       ) : (
         <div>
           {rows.map((row) => (
@@ -67,5 +58,5 @@ export default function InboxList({
         </div>
       )}
     </div>
-  )
+  );
 }

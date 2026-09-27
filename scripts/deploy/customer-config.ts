@@ -3,10 +3,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { argv } from 'node:process';
-import {
-  listWorkerBindings,
-  type WorkerBinding,
-} from '../../packages/update-engine/src/index.js';
+import { listWorkerBindings, type WorkerBinding } from '../../packages/update-engine/src/index.js';
 
 interface WranglerD1Binding {
   binding: string;
@@ -109,29 +106,27 @@ function bindingValue(binding: WorkerBinding): string | undefined {
 }
 
 function normalizeBindings(bindings: WorkerBinding[]): NormalizedBinding[] {
-  const normalized = bindings.map((binding) => {
-    const type = (binding as { type?: unknown }).type;
-    if (typeof type !== 'string' || !SUPPORTED_BINDING_TYPES.has(type)) {
-      throw new Error(`unsupported customer Worker binding type: ${String(type)}`);
-    }
-    if (!binding.name) throw new Error('customer Worker binding has no name');
-    const value = DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(binding.name)
-      ? '<managed>'
-      : bindingValue(binding);
-    if (
-      (type === 'plain_text' || type === 'd1' || type === 'r2_bucket' || type === 'kv_namespace') &&
-      typeof value !== 'string'
-    ) {
-      throw new Error(`customer Worker binding ${type}:${binding.name} has no value`);
-    }
-    return {
-      type,
-      name: binding.name,
-      ...(value === undefined ? {} : { value }),
-    };
-  }).sort((left, right) =>
-    `${left.type}:${left.name}`.localeCompare(`${right.type}:${right.name}`),
-  );
+  const normalized = bindings
+    .map((binding) => {
+      const type = (binding as { type?: unknown }).type;
+      if (typeof type !== 'string' || !SUPPORTED_BINDING_TYPES.has(type)) {
+        throw new Error(`unsupported customer Worker binding type: ${String(type)}`);
+      }
+      if (!binding.name) throw new Error('customer Worker binding has no name');
+      const value = DEPLOYMENT_MANAGED_TEXT_BINDINGS.has(binding.name) ? '<managed>' : bindingValue(binding);
+      if (
+        (type === 'plain_text' || type === 'd1' || type === 'r2_bucket' || type === 'kv_namespace') &&
+        typeof value !== 'string'
+      ) {
+        throw new Error(`customer Worker binding ${type}:${binding.name} has no value`);
+      }
+      return {
+        type,
+        name: binding.name,
+        ...(value === undefined ? {} : { value }),
+      };
+    })
+    .sort((left, right) => `${left.type}:${left.name}`.localeCompare(`${right.type}:${right.name}`));
 
   const names = normalized.map((binding) => `${binding.type}:${binding.name}`);
   if (new Set(names).size !== names.length) {
@@ -157,12 +152,7 @@ function findBinding(bindings: WorkerBinding[], name: string): WorkerBinding {
   return matches[0];
 }
 
-function assertResource(
-  bindings: WorkerBinding[],
-  type: 'd1' | 'r2_bucket',
-  name: string,
-  expected: string,
-): void {
+function assertResource(bindings: WorkerBinding[], type: 'd1' | 'r2_bucket', name: string, expected: string): void {
   const binding = findBinding(bindings, name);
   const actual = bindingValue(binding);
   const label = type === 'd1' ? 'D1' : 'R2';
@@ -171,10 +161,7 @@ function assertResource(
   }
 }
 
-function assertConfiguredBindingsExist(
-  wrangler: WranglerConfig,
-  liveBindings: WorkerBinding[],
-): void {
+function assertConfiguredBindingsExist(wrangler: WranglerConfig, liveBindings: WorkerBinding[]): void {
   const live = new Set(liveBindings.map((binding) => `${binding.type}:${binding.name}`));
   const liveNames = new Set(liveBindings.map((binding) => binding.name));
   for (const name of Object.keys(wrangler.vars ?? {})) {
@@ -205,15 +192,9 @@ function preserveBindings(
   bindings: WorkerBinding[],
   expected: ExpectedCustomerConfig,
 ): WranglerConfig {
-  const existingD1 = new Map(
-    (wrangler.d1_databases ?? []).map((binding) => [binding.binding, binding]),
-  );
-  const existingR2 = new Map(
-    (wrangler.r2_buckets ?? []).map((binding) => [binding.binding, binding]),
-  );
-  const existingKv = new Map(
-    (wrangler.kv_namespaces ?? []).map((binding) => [binding.binding, binding]),
-  );
+  const existingD1 = new Map((wrangler.d1_databases ?? []).map((binding) => [binding.binding, binding]));
+  const existingR2 = new Map((wrangler.r2_buckets ?? []).map((binding) => [binding.binding, binding]));
+  const existingKv = new Map((wrangler.kv_namespaces ?? []).map((binding) => [binding.binding, binding]));
   const plainText = bindings
     .filter((binding) => binding.type === 'plain_text')
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -337,9 +318,7 @@ function expectedFromEnvironment(): ExpectedCustomerConfig {
     r2BucketName: required('R2_BUCKET_NAME'),
     adminOrigin: required('ADMIN_ORIGIN'),
     workerUrl: required('WORKER_URL'),
-    ...(process.env.LIFF_ORIGIN?.trim()
-      ? { liffOrigin: process.env.LIFF_ORIGIN }
-      : {}),
+    ...(process.env.LIFF_ORIGIN?.trim() ? { liffOrigin: process.env.LIFF_ORIGIN } : {}),
   };
 }
 
@@ -371,9 +350,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const snapshot = JSON.parse(
-    readFileSync(snapshotPath, 'utf8'),
-  ) as CustomerConfigSnapshot;
+  const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8')) as CustomerConfigSnapshot;
   verifyCustomerConfig(snapshot, bindings, expectedFromEnvironment());
   console.log('Customer configuration postflight passed');
 }

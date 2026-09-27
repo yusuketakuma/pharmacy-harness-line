@@ -42,13 +42,21 @@ describe('account health cron tenant boundary', () => {
       expect(query.sql).toContain('line_account_id = ?');
     }
     expect(queries.map(({ values }) => values[0])).toEqual(['account-a', 'account-b']);
-    expect(dbMocks.createAccountHealthLog).toHaveBeenNthCalledWith(1, db, expect.objectContaining({
-      lineAccountId: 'account-a',
-      riskLevel: 'warning',
-    }));
-    expect(dbMocks.createAccountHealthLog).toHaveBeenNthCalledWith(2, db, expect.objectContaining({
-      lineAccountId: 'account-b',
-      riskLevel: 'normal',
-    }));
+    expect(dbMocks.createAccountHealthLog).toHaveBeenNthCalledWith(
+      1,
+      db,
+      expect.objectContaining({
+        lineAccountId: 'account-a',
+        riskLevel: 'warning',
+      }),
+    );
+    expect(dbMocks.createAccountHealthLog).toHaveBeenNthCalledWith(
+      2,
+      db,
+      expect.objectContaining({
+        lineAccountId: 'account-b',
+        riskLevel: 'normal',
+      }),
+    );
   });
 });

@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import {
-  getWorkersSubdomain,
-  putWorkersSubdomain,
-  SubdomainConflictError,
-} from '../../src/cf-api/subdomain.js';
+import { getWorkersSubdomain, putWorkersSubdomain, SubdomainConflictError } from '../../src/cf-api/subdomain.js';
 import type { CfApiCreds } from '../../src/types.js';
 
 const creds: CfApiCreds = {
@@ -33,16 +29,12 @@ describe('getWorkersSubdomain', () => {
 
   it('returns the registered subdomain name', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue(
-      mockResponse(200, { success: true, result: { subdomain: 'example' } }),
-    );
+    fetchMock.mockResolvedValue(mockResponse(200, { success: true, result: { subdomain: 'example' } }));
 
     await expect(getWorkersSubdomain({ creds })).resolves.toBe('example');
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/workers/subdomain',
-    );
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/workers/subdomain');
     expect(init.method).toBe('GET');
     expect(init.headers.Authorization).toBe('Bearer tok_abc');
   });
@@ -62,9 +54,7 @@ describe('getWorkersSubdomain', () => {
 
   it('returns null when the API answers 200 with a null subdomain', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue(
-      mockResponse(200, { success: true, result: { subdomain: null } }),
-    );
+    fetchMock.mockResolvedValue(mockResponse(200, { success: true, result: { subdomain: null } }));
 
     await expect(getWorkersSubdomain({ creds })).resolves.toBeNull();
   });
@@ -103,18 +93,12 @@ describe('putWorkersSubdomain', () => {
 
   it('registers the subdomain with a JSON body', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue(
-      mockResponse(200, { success: true, result: { subdomain: 'example' } }),
-    );
+    fetchMock.mockResolvedValue(mockResponse(200, { success: true, result: { subdomain: 'example' } }));
 
-    await expect(
-      putWorkersSubdomain({ creds, subdomain: 'example' }),
-    ).resolves.toBeUndefined();
+    await expect(putWorkersSubdomain({ creds, subdomain: 'example' })).resolves.toBeUndefined();
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/workers/subdomain',
-    );
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/workers/subdomain');
     expect(init.method).toBe('PUT');
     expect(init.headers['Content-Type']).toBe('application/json');
     expect(JSON.parse(init.body)).toEqual({ subdomain: 'example' });
@@ -129,20 +113,14 @@ describe('putWorkersSubdomain', () => {
       }),
     );
 
-    await expect(
-      putWorkersSubdomain({ creds, subdomain: 'taken' }),
-    ).rejects.toBeInstanceOf(SubdomainConflictError);
+    await expect(putWorkersSubdomain({ creds, subdomain: 'taken' })).rejects.toBeInstanceOf(SubdomainConflictError);
   });
 
   it('throws SubdomainConflictError on HTTP 409', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue(
-      mockResponse(409, { success: false, errors: [{ message: 'conflict' }] }),
-    );
+    fetchMock.mockResolvedValue(mockResponse(409, { success: false, errors: [{ message: 'conflict' }] }));
 
-    await expect(
-      putWorkersSubdomain({ creds, subdomain: 'taken' }),
-    ).rejects.toBeInstanceOf(SubdomainConflictError);
+    await expect(putWorkersSubdomain({ creds, subdomain: 'taken' })).rejects.toBeInstanceOf(SubdomainConflictError);
   });
 
   it('throws a plain Error on other failures (e.g. missing permission)', async () => {
@@ -154,9 +132,7 @@ describe('putWorkersSubdomain', () => {
       }),
     );
 
-    const err = await putWorkersSubdomain({ creds, subdomain: 'x' }).catch(
-      (e) => e,
-    );
+    const err = await putWorkersSubdomain({ creds, subdomain: 'x' }).catch((e) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(SubdomainConflictError);
     expect(err.message).toMatch(/HTTP 403/);

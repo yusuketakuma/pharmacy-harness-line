@@ -33,8 +33,7 @@ import type { Buffer as NodeBuffer } from 'node:buffer';
  */
 function guessContentType(path: string): string {
   if (path.endsWith('.html') || path.endsWith('.htm')) return 'text/html';
-  if (path.endsWith('.js') || path.endsWith('.mjs'))
-    return 'application/javascript';
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'application/javascript';
   if (path.endsWith('.css')) return 'text/css';
   if (path.endsWith('.json')) return 'application/json';
   if (path.endsWith('.map')) return 'application/json';
@@ -58,17 +57,11 @@ function guessContentType(path: string): string {
  * upload steps. The JWT is scoped to the given project and expires
  * quickly, so we don't cache it — every deploy fetches a fresh one.
  */
-async function getUploadToken(
-  creds: CfApiCreds,
-  projectName: string,
-): Promise<string> {
-  const res = await fetch(
-    `${pagesProjectApiBase(creds.accountId, projectName)}/upload-token`,
-    {
-      method: 'GET',
-      headers: authHeader(creds.apiToken),
-    },
-  );
+async function getUploadToken(creds: CfApiCreds, projectName: string): Promise<string> {
+  const res = await fetch(`${pagesProjectApiBase(creds.accountId, projectName)}/upload-token`, {
+    method: 'GET',
+    headers: authHeader(creds.apiToken),
+  });
   if (!res.ok) {
     await throwHttpError('GET pages upload-token failed', res);
   }
@@ -81,21 +74,15 @@ async function getUploadToken(
  * those need to be uploaded in the next step. An empty array means a
  * pure-manifest deploy with no asset uploads.
  */
-async function checkMissingHashes(
-  jwt: string,
-  hashes: string[],
-): Promise<string[]> {
-  const res = await fetch(
-    'https://api.cloudflare.com/client/v4/pages/assets/check-missing',
-    {
-      method: 'POST',
-      headers: {
-        ...authHeader(jwt),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ hashes }),
+async function checkMissingHashes(jwt: string, hashes: string[]): Promise<string[]> {
+  const res = await fetch('https://api.cloudflare.com/client/v4/pages/assets/check-missing', {
+    method: 'POST',
+    headers: {
+      ...authHeader(jwt),
+      'Content-Type': 'application/json',
     },
-  );
+    body: JSON.stringify({ hashes }),
+  });
   if (!res.ok) {
     await throwHttpError('POST pages check-missing failed', res);
   }
@@ -170,31 +157,22 @@ export async function verifyPagesDeploymentUrl(
  * Callers must skip this entirely when the missing-hashes list is
  * empty — the API errors on an empty top-level array.
  */
-async function uploadAssets(
-  jwt: string,
-  entries: UploadEntry[],
-): Promise<void> {
+async function uploadAssets(jwt: string, entries: UploadEntry[]): Promise<void> {
   for (let attempt = 1; attempt <= ASSET_UPLOAD_MAX_ATTEMPTS; attempt++) {
-    const res = await fetch(
-      'https://api.cloudflare.com/client/v4/pages/assets/upload',
-      {
-        method: 'POST',
-        headers: {
-          ...authHeader(jwt),
-          'Content-Type': 'application/json',
-        },
-        // Pages expects the upload entries as the top-level JSON array.
-        // `{ payload: entries }` is not the Direct Upload wire format and can
-        // surface as an opaque HTTP 500 from the assets Worker.
-        body: JSON.stringify(entries),
+    const res = await fetch('https://api.cloudflare.com/client/v4/pages/assets/upload', {
+      method: 'POST',
+      headers: {
+        ...authHeader(jwt),
+        'Content-Type': 'application/json',
       },
-    );
+      // Pages expects the upload entries as the top-level JSON array.
+      // `{ payload: entries }` is not the Direct Upload wire format and can
+      // surface as an opaque HTTP 500 from the assets Worker.
+      body: JSON.stringify(entries),
+    });
     if (res.ok) return;
 
-    if (
-      !isRetryableUploadStatus(res.status) ||
-      attempt === ASSET_UPLOAD_MAX_ATTEMPTS
-    ) {
+    if (!isRetryableUploadStatus(res.status) || attempt === ASSET_UPLOAD_MAX_ATTEMPTS) {
       await throwHttpError('POST pages assets upload failed', res);
     }
 
@@ -228,10 +206,10 @@ export async function deployPagesProject(opts: {
   const { creds, projectName, files, branch } = opts;
 
   if (files.size === 0) {
-    throw new Error("deployPagesProject: files map is empty");
+    throw new Error('deployPagesProject: files map is empty');
   }
   for (const path of files.keys()) {
-    if (path === "" || path.split("/").includes("..")) {
+    if (path === '' || path.split('/').includes('..')) {
       throw new Error(`deployPagesProject: invalid path ${JSON.stringify(path)}`);
     }
   }
@@ -268,9 +246,7 @@ export async function deployPagesProject(opts: {
       const entry = byHash.get(hash);
       if (!entry) {
         // CF returned a hash we didn't send — defensive; should never happen.
-        throw new Error(
-          `pages upload: CF reported missing hash ${hash} not in our file set`,
-        );
+        throw new Error(`pages upload: CF reported missing hash ${hash} not in our file set`);
       }
       entries.push({
         key: hash,
@@ -287,8 +263,7 @@ export async function deployPagesProject(opts: {
       const rawBytes = Math.floor((entry.value.length * 3) / 4) - padding;
       if (
         batch.length > 0 &&
-        (batch.length >= ASSET_UPLOAD_BATCH_SIZE ||
-          batchRawBytes + rawBytes > ASSET_UPLOAD_MAX_RAW_BYTES)
+        (batch.length >= ASSET_UPLOAD_BATCH_SIZE || batchRawBytes + rawBytes > ASSET_UPLOAD_MAX_RAW_BYTES)
       ) {
         await uploadAssets(jwt, batch);
         batch = [];
@@ -334,18 +309,12 @@ export async function deployPagesProject(opts: {
  * evidence uses this list contract; rollback uses the canonical production
  * deployment instead.
  */
-export async function getLatestDeployment(opts: {
-  creds: CfApiCreds;
-  projectName: string;
-}): Promise<{ id: string }> {
+export async function getLatestDeployment(opts: { creds: CfApiCreds; projectName: string }): Promise<{ id: string }> {
   const { creds, projectName } = opts;
-  const res = await fetch(
-    `${pagesProjectApiBase(creds.accountId, projectName)}/deployments?per_page=1`,
-    {
-      method: 'GET',
-      headers: authHeader(creds.apiToken),
-    },
-  );
+  const res = await fetch(`${pagesProjectApiBase(creds.accountId, projectName)}/deployments?per_page=1`, {
+    method: 'GET',
+    headers: authHeader(creds.apiToken),
+  });
   if (!res.ok) {
     await throwHttpError('GET pages deployments failed', res);
   }
@@ -367,13 +336,10 @@ export async function rollbackPagesDeployment(opts: {
   deploymentId: string;
 }): Promise<void> {
   const { creds, projectName, deploymentId } = opts;
-  const res = await fetch(
-    `${pagesProjectApiBase(creds.accountId, projectName)}/deployments/${deploymentId}/rollback`,
-    {
-      method: 'POST',
-      headers: authHeader(creds.apiToken),
-    },
-  );
+  const res = await fetch(`${pagesProjectApiBase(creds.accountId, projectName)}/deployments/${deploymentId}/rollback`, {
+    method: 'POST',
+    headers: authHeader(creds.apiToken),
+  });
   if (!res.ok) {
     await throwHttpError('POST pages rollback failed', res);
   }

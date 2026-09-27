@@ -34,19 +34,26 @@ describe('custom_058 pharmacy incoming image disposition', () => {
        'r2_untracked', 0, ?, ?)`).run(key, NOW, NOW);
     db.prepare(`UPDATE pharmacy_incoming_image_dispositions
       SET status = 'UNKNOWN', reason_code = 'stored_at_unknown' WHERE r2_key = ?`).run(key);
-    expect(db.prepare(
-      `SELECT status, reason_code FROM pharmacy_incoming_image_dispositions WHERE r2_key = ?`,
-    ).get(key)).toEqual({ status: 'UNKNOWN', reason_code: 'stored_at_unknown' });
-    const columns = (db.prepare('PRAGMA table_info(pharmacy_incoming_image_dispositions)')
-      .all() as Array<{ name: string }>).map((column) => column.name);
+    expect(
+      db.prepare(`SELECT status, reason_code FROM pharmacy_incoming_image_dispositions WHERE r2_key = ?`).get(key),
+    ).toEqual({ status: 'UNKNOWN', reason_code: 'stored_at_unknown' });
+    const columns = (
+      db.prepare('PRAGMA table_info(pharmacy_incoming_image_dispositions)').all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
     expect(columns).not.toEqual(expect.arrayContaining(['patient_name', 'raw_content']));
   });
 
   it('rejects an invalid disposition status at the database boundary', () => {
-    expect(() => db.prepare(`INSERT INTO pharmacy_incoming_image_dispositions
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_incoming_image_dispositions
       (r2_key, tenant_id, line_account_id, message_id, status, source, reason_code,
        hold_epoch, created_at, updated_at)
       VALUES ('key', 'tenant-a', 'account-a', 'message', 'DELETE', 'r2_inventory',
-       'bad', 0, ?, ?)`).run(NOW, NOW)).toThrow(/CHECK constraint failed/i);
+       'bad', 0, ?, ?)`)
+        .run(NOW, NOW),
+    ).toThrow(/CHECK constraint failed/i);
   });
 });

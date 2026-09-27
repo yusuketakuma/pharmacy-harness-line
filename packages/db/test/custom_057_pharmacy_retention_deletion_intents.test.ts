@@ -40,36 +40,57 @@ describe('custom_057 pharmacy retention deletion intents', () => {
       VALUES ('intent-a', 'operation-a', 'execution-a', ?, 'executor-a', 'test',
        'tenant-a', 'account-a', 'friend-a', '*', 'prescription_file', 'file-a',
        'custom/pharmacy/prescriptions/file-a', ?, ?, 'ready', 2, 4, 'CLAIMED', ?, ?)`).run(
-      'f'.repeat(32), 'a'.repeat(64), '2023-01-01T00:00:00.000Z', NOW, NOW,
+      'f'.repeat(32),
+      'a'.repeat(64),
+      '2023-01-01T00:00:00.000Z',
+      NOW,
+      NOW,
     );
 
-    const columns = (db.prepare('PRAGMA table_info(pharmacy_retention_deletion_intents)')
-      .all() as Array<{ name: string }>).map((column) => column.name);
-    expect(columns).toEqual(expect.arrayContaining([
-      'operation_id', 'execution_id', 'fence_token', 'executor_subject', 'environment',
-      'hold_epoch', 'age_reference_at', 'status',
-    ]));
+    const columns = (
+      db.prepare('PRAGMA table_info(pharmacy_retention_deletion_intents)').all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+    expect(columns).toEqual(
+      expect.arrayContaining([
+        'operation_id',
+        'execution_id',
+        'fence_token',
+        'executor_subject',
+        'environment',
+        'hold_epoch',
+        'age_reference_at',
+        'status',
+      ]),
+    );
     expect(columns).not.toEqual(expect.arrayContaining(['patient_name', 'message_content']));
-    expect(db.prepare(
-      `SELECT status, epoch FROM pharmacy_retention_hold_epochs`,
-    ).get()).toEqual({ status: 'unknown', epoch: 4 });
+    expect(db.prepare(`SELECT status, epoch FROM pharmacy_retention_hold_epochs`).get()).toEqual({
+      status: 'unknown',
+      epoch: 4,
+    });
   });
 
   it('enforces tenant/account ownership on the retention fence and intent', () => {
-    expect(() => db.prepare(`INSERT INTO pharmacy_retention_hold_epochs
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_retention_hold_epochs
       (tenant_id, line_account_id, owner_friend_id, patient_key, status, updated_at)
-      VALUES ('other-tenant', 'account-a', 'friend-a', '*', 'held', ?)`).run(NOW))
-      .toThrow(/FOREIGN KEY constraint failed/i);
-    expect(() => db.prepare(`INSERT INTO pharmacy_retention_deletion_intents
+      VALUES ('other-tenant', 'account-a', 'friend-a', '*', 'held', ?)`)
+        .run(NOW),
+    ).toThrow(/FOREIGN KEY constraint failed/i);
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_retention_deletion_intents
       (id, operation_id, execution_id, fence_token, executor_subject, environment,
        tenant_id, line_account_id, owner_friend_id, patient_key, resource_type,
        resource_id, r2_key, stored_sha256, age_reference_at, row_state, row_revision,
        hold_epoch, status, created_at, updated_at)
       VALUES ('intent-cross', 'op', 'exec', ?, 'executor', 'test', 'other-tenant',
        'account-a', 'friend-a', '*', 'prescription_file', 'file', 'key', ?, ?,
-       'ready', 1, 0, 'CLAIMED', ?, ?)`).run(
-      'f'.repeat(32), 'a'.repeat(64), NOW, NOW, NOW,
-    )).toThrow(/FOREIGN KEY constraint failed/i);
+       'ready', 1, 0, 'CLAIMED', ?, ?)`)
+        .run('f'.repeat(32), 'a'.repeat(64), NOW, NOW, NOW),
+    ).toThrow(/FOREIGN KEY constraint failed/i);
   });
 
   it('allows a newly approved operation to reconsider a previously cancelled resource', () => {
@@ -81,17 +102,42 @@ describe('custom_057 pharmacy retention deletion intents', () => {
       VALUES (?, ?, ?, ?, 'executor-a', 'test', 'tenant-a', 'account-a', 'friend-a', '*',
        'prescription_file', 'file-a', 'key-a', ?, ?, 'ready', 1, 1, ?, ?, ?)`);
     insert.run(
-      'intent-a', 'operation-a', 'execution-a', 'a'.repeat(32), 'a'.repeat(64),
-      '2023-01-01T00:00:00.000Z', 'CANCELLED_HELD', NOW, NOW,
+      'intent-a',
+      'operation-a',
+      'execution-a',
+      'a'.repeat(32),
+      'a'.repeat(64),
+      '2023-01-01T00:00:00.000Z',
+      'CANCELLED_HELD',
+      NOW,
+      NOW,
     );
 
-    expect(() => insert.run(
-      'intent-b', 'operation-b', 'execution-b', 'b'.repeat(32), 'a'.repeat(64),
-      '2023-01-01T00:00:00.000Z', 'CLAIMED', NOW, NOW,
-    )).not.toThrow();
-    expect(() => insert.run(
-      'intent-duplicate', 'operation-b', 'execution-other', 'c'.repeat(32), 'a'.repeat(64),
-      '2023-01-01T00:00:00.000Z', 'CLAIMED', NOW, NOW,
-    )).toThrow(/UNIQUE constraint failed/i);
+    expect(() =>
+      insert.run(
+        'intent-b',
+        'operation-b',
+        'execution-b',
+        'b'.repeat(32),
+        'a'.repeat(64),
+        '2023-01-01T00:00:00.000Z',
+        'CLAIMED',
+        NOW,
+        NOW,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      insert.run(
+        'intent-duplicate',
+        'operation-b',
+        'execution-other',
+        'c'.repeat(32),
+        'a'.repeat(64),
+        '2023-01-01T00:00:00.000Z',
+        'CLAIMED',
+        NOW,
+        NOW,
+      ),
+    ).toThrow(/UNIQUE constraint failed/i);
   });
 });

@@ -1,20 +1,20 @@
-'use client'
+'use client';
 
-import { useCallback, useRef, useState } from 'react'
-import { api } from '@/lib/api'
+import { useCallback, useRef, useState } from 'react';
+import { api } from '@/lib/api';
 
-export type ImageUploaderMode = 'url' | 'line-image'
+export type ImageUploaderMode = 'url' | 'line-image';
 
 export type ImageUploaderValue =
   | { mode: 'url'; url: string }
-  | { mode: 'line-image'; originalContentUrl: string; previewImageUrl: string }
+  | { mode: 'line-image'; originalContentUrl: string; previewImageUrl: string };
 
 export interface ImageUploaderProps {
-  mode: ImageUploaderMode
-  value: ImageUploaderValue | null
-  onChange: (next: ImageUploaderValue | null) => void
-  label?: string
-  lineAccountId?: string
+  mode: ImageUploaderMode;
+  value: ImageUploaderValue | null;
+  onChange: (next: ImageUploaderValue | null) => void;
+  label?: string;
+  lineAccountId?: string;
 }
 
 /**
@@ -25,83 +25,78 @@ export interface ImageUploaderProps {
  * 初版は preview = original の同 URL。後段で本格 resize が必要になれば worker 側で対応。
  */
 export default function ImageUploader({ mode, value, onChange, label, lineAccountId }: ImageUploaderProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [manualUrlMode, setManualUrlMode] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [manualUrlMode, setManualUrlMode] = useState(false);
 
   const upload = useCallback(
     async (file: File) => {
       if (!file.type.startsWith('image/')) {
-        setError('画像ファイルのみアップロードできます')
-        return
+        setError('画像ファイルのみアップロードできます');
+        return;
       }
       if (mode === 'line-image' && !['image/jpeg', 'image/png'].includes(file.type)) {
-        setError('LINE 送信用は JPEG または PNG のみ対応')
-        return
+        setError('LINE 送信用は JPEG または PNG のみ対応');
+        return;
       }
       if (mode === 'line-image' && file.size > 1024 * 1024) {
-        setError('LINE 送信用は 1MB 以下にしてください (preview サイズ制限)')
-        return
+        setError('LINE 送信用は 1MB 以下にしてください (preview サイズ制限)');
+        return;
       }
       if (file.size > 10 * 1024 * 1024) {
-        setError('10MB 以下にしてください')
-        return
+        setError('10MB 以下にしてください');
+        return;
       }
-      setBusy(true)
-      setError('')
+      setBusy(true);
+      setError('');
       try {
-        const res = await api.uploads.image(file, lineAccountId)
+        const res = await api.uploads.image(file, lineAccountId);
         if (!res.success) {
-          setError(res.error ?? 'アップロード失敗')
-          return
+          setError(res.error ?? 'アップロード失敗');
+          return;
         }
-        const url = res.data.url
+        const url = res.data.url;
         if (mode === 'url') {
-          onChange({ mode: 'url', url })
+          onChange({ mode: 'url', url });
         } else {
-          onChange({ mode: 'line-image', originalContentUrl: url, previewImageUrl: url })
+          onChange({ mode: 'line-image', originalContentUrl: url, previewImageUrl: url });
         }
       } catch {
-        setError('アップロード失敗')
+        setError('アップロード失敗');
       } finally {
-        setBusy(false)
+        setBusy(false);
       }
     },
     [lineAccountId, mode, onChange],
-  )
+  );
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
-      const f = files?.[0]
-      if (f) void upload(f)
+      const f = files?.[0];
+      if (f) void upload(f);
     },
     [upload],
-  )
+  );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault()
-      handleFiles(e.dataTransfer.files)
+      e.preventDefault();
+      handleFiles(e.dataTransfer.files);
     },
     [handleFiles],
-  )
+  );
 
   const onPaste = useCallback(
     (e: React.ClipboardEvent) => {
-      const item = [...e.clipboardData.items].find((i) => i.type.startsWith('image/'))
-      const file = item?.getAsFile()
-      if (file) void upload(file)
+      const item = [...e.clipboardData.items].find((i) => i.type.startsWith('image/'));
+      const file = item?.getAsFile();
+      if (file) void upload(file);
     },
     [upload],
-  )
+  );
 
-  const previewUrl =
-    value === null
-      ? null
-      : value.mode === 'url'
-        ? value.url
-        : value.previewImageUrl
+  const previewUrl = value === null ? null : value.mode === 'url' ? value.url : value.previewImageUrl;
 
   return (
     <div className="space-y-2">
@@ -118,23 +113,17 @@ export default function ImageUploader({ mode, value, onChange, label, lineAccoun
       {manualUrlMode ? (
         <input
           type="url"
-          value={
-            value === null
-              ? ''
-              : value.mode === 'url'
-                ? value.url
-                : value.originalContentUrl
-          }
+          value={value === null ? '' : value.mode === 'url' ? value.url : value.originalContentUrl}
           onChange={(e) => {
-            const url = e.target.value
+            const url = e.target.value;
             if (!url) {
-              onChange(null)
-              return
+              onChange(null);
+              return;
             }
             if (mode === 'url') {
-              onChange({ mode: 'url', url })
+              onChange({ mode: 'url', url });
             } else {
-              onChange({ mode: 'line-image', originalContentUrl: url, previewImageUrl: url })
+              onChange({ mode: 'line-image', originalContentUrl: url, previewImageUrl: url });
             }
           }}
           placeholder="https://... (外部 CDN / R2 URL)"
@@ -193,5 +182,5 @@ export default function ImageUploader({ mode, value, onChange, label, lineAccoun
       )}
       {error && <div className="text-xs text-rose-600">{error}</div>}
     </div>
-  )
+  );
 }

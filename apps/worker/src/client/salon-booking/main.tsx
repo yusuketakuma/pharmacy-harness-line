@@ -45,11 +45,7 @@ function App({ ctx }: { ctx: SalonBookingContext }) {
           {view === 'history' ? (
             <BookingHistory />
           ) : (
-            <Booking
-              peekMode={peekMode}
-              exitPeek={() => setPeekMode(false)}
-              initialMenuId={initialMenuId}
-            />
+            <Booking peekMode={peekMode} exitPeek={() => setPeekMode(false)} initialMenuId={initialMenuId} />
           )}
         </main>
       </div>

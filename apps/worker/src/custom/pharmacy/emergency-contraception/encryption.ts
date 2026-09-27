@@ -21,10 +21,7 @@ function validateContext(context: EmergencyEncryptionContext): void {
 
 async function key(secret: string): Promise<CryptoKey> {
   if (!secret) throw new Error('encryption key is not configured');
-  const material = await crypto.subtle.digest(
-    'SHA-256',
-    encoder.encode(`pharmacy-emergency-intake:v1:${secret}`),
-  );
+  const material = await crypto.subtle.digest('SHA-256', encoder.encode(`pharmacy-emergency-intake:v1:${secret}`));
   return crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 

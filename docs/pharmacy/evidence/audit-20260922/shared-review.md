@@ -1,0 +1,13 @@
+# 共有型・スタンプmodule限定監査
+
+P=W=3be2dbf1bed931fbf98cca4e40f934fce2058ba4、primary/dev。製品変更/commit/patchなし。packages AGENTS適用。src3files/manifest/tsconfig2files全文とsticker直接caller（Worker webhook860–890、Web chats60–100）、sticker3test全文を確認。
+
+REVIEWED範囲: sticker.tsのpure runtime helperとindex re-export。createはcamel/snake idを有限number/非空stringに正規化し固定LINE CDN originへencodeURIComponentで埋める。任意URLをLINE受信payloadから転送する経路ではない。parseは保存JSONのsticker id/url stringを確認して既存urlを保持、不正JSON/null/type不足はnull、fallbackはReact text表示。WebはimgのonErrorで固定/保存fallbackへ切替、dangerouslySetInnerHTMLなし。外部I/Oはこのhelper自体になく、受信側でJSON化保存、表示側で画像取得する。
+
+parse自体はURL host/scheme allowlistではない。保存済み任意URLを信頼済みと証明する関数ではなく、全message書込/画像配信権限の監査済みを主張しない。createのsource型外値/極端なUnicodeを網羅テストしていない。今回確定bugなし。公開exportを削除/変更しない。
+
+types.ts全914行はinterface/type declarationsのみ、runtime validation/serialization/認可を実装しない。AdminUserPublicはpasswordHash除外、Incoming/OutgoingWebhookCreatedはcreate時のみsecret、LineAccount型はsecretfieldsを含みlist省略をコメント。型があることは実HTTP projection保証ではなく、全producer/consumerとschema一致はPARTIAL。MessageType/optionalfieldなど既存互換面に推測の修正を加えない。module分割は呼出負担や欠陥証拠なしで未採択。
+
+検証再利用: 同内容のintegration-F27-verify.logでshared build/typecheck成功、Worker sticker-message3PASS。今回test/buildを反復していない。packageはdist+src公開、prepublishOnlyはbuild、公開rootにdist import/defaultsrc条件。新package配布検証は変更なしのため今回未実施、Node26結果から全Node22/export condition互換を断定しない。
+
+コマンド: rg --files、対象cat/sed、限定caller rg、hashlib/git rev-parse。初回の広いruntime宣言regexがgenerated common-passwords公開辞書に一致し出力切断したため、その出力はreview証拠に使わず、対象typesとsticker callerに分けて再読。secret/.env/実データ参照なし。外部操作なし。hashはshared-review-input.json。全C01/C07/C11/X01はPARTIAL、fresh独立review未実施。

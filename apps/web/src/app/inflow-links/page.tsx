@@ -1,115 +1,114 @@
-'use client'
+'use client';
 
-import { Fragment, useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
-import Link from 'next/link'
-import { api, fetchApi } from '@/lib/api'
-import Header from '@/components/layout/header'
-import { useAccount } from '@/contexts/account-context'
-import type { EntryRoute, TrafficPool, Scenario, Tag } from '@line-crm/shared'
-import EditRouteModal from './_components/edit-route-modal'
+import { Fragment, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { api, fetchApi } from '@/lib/api';
+import Header from '@/components/layout/header';
+import { useAccount } from '@/contexts/account-context';
+import type { EntryRoute, TrafficPool, Scenario, Tag } from '@line-crm/shared';
+import EditRouteModal from './_components/edit-route-modal';
 
 interface MessageTemplate {
-  id: string
-  name: string
-  messageType: string
-  messageContent: string
+  id: string;
+  name: string;
+  messageType: string;
+  messageContent: string;
 }
 
 interface TrackedLinkRow {
-  id: string
-  name: string
-  scenarioId: string | null
-  isActive: boolean
+  id: string;
+  name: string;
+  scenarioId: string | null;
+  isActive: boolean;
 }
 
 interface RefRouteStats {
-  refCode: string
+  refCode: string;
   /** entry_routes に登録された name。未登録なら null。 */
-  name: string | null
-  friendCount: number
-  clickCount: number
-  latestAt: string | null
+  name: string | null;
+  friendCount: number;
+  clickCount: number;
+  latestAt: string | null;
 }
 
 interface RefSummaryData {
-  routes: RefRouteStats[]
-  totalFriends: number
-  friendsWithRef: number
-  friendsWithoutRef: number
+  routes: RefRouteStats[];
+  totalFriends: number;
+  friendsWithRef: number;
+  friendsWithoutRef: number;
 }
 
 interface RefFriend {
-  id: string
-  displayName: string
-  trackedAt: string | null
+  id: string;
+  displayName: string;
+  trackedAt: string | null;
 }
 
 interface RefDetail {
-  refCode: string
-  name: string
-  friends: RefFriend[]
+  refCode: string;
+  name: string;
+  friends: RefFriend[];
 }
 
-const WORKER_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
+const WORKER_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export default function InflowLinksPage() {
-  const { selectedAccountId } = useAccount()
-  const [routes, setRoutes] = useState<EntryRoute[]>([])
-  const [pools, setPools] = useState<TrafficPool[]>([])
-  const [scenarios, setScenarios] = useState<Scenario[]>([])
-  const [templates, setTemplates] = useState<MessageTemplate[]>([])
-  const [trackedLinks, setTrackedLinks] = useState<TrackedLinkRow[]>([])
-  const [tags, setTags] = useState<Tag[]>([])
-  const [summary, setSummary] = useState<RefSummaryData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const { selectedAccountId } = useAccount();
+  const [routes, setRoutes] = useState<EntryRoute[]>([]);
+  const [pools, setPools] = useState<TrafficPool[]>([]);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [trackedLinks, setTrackedLinks] = useState<TrackedLinkRow[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [summary, setSummary] = useState<RefSummaryData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   // editing state:
   //   - null       — modal closed
   //   - 'new'      — blank "create" modal
   //   - EntryRoute — edit existing registered route
   //   - { register: refCode } — "register an unregistered ref" — opens create
   //     modal with refCode pre-locked so the prior inflow stats stay attached.
-  const [editing, setEditing] = useState<
-    EntryRoute | 'new' | { register: string } | null
-  >(null)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [editing, setEditing] = useState<EntryRoute | 'new' | { register: string } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   // Expanded-row state for showing friends acquired through a given ref.
   // Mirrors the legacy /affiliates page UX — click row → load via
   // /api/analytics/ref/:refCode → render friend list inline.
-  const [expandedRef, setExpandedRef] = useState<string | null>(null)
-  const [refDetail, setRefDetail] = useState<RefDetail | null>(null)
-  const [refDetailLoading, setRefDetailLoading] = useState(false)
+  const [expandedRef, setExpandedRef] = useState<string | null>(null);
+  const [refDetail, setRefDetail] = useState<RefDetail | null>(null);
+  const [refDetailLoading, setRefDetailLoading] = useState(false);
   // poolMembers[poolId] = lineAccountId のセット。pool_accounts を真実として
   // 「この pool が選択中アカウントに配信するか」を判定するために使う。
   // pool.activeAccountId はレガシーシングル所属。マルチアカ pool では不十分。
-  const [poolMembers, setPoolMembers] = useState<Record<string, Set<string>>>({})
+  const [poolMembers, setPoolMembers] = useState<Record<string, Set<string>>>({});
 
   const load = async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     // ref-summary は selectedAccountId を渡すと「そのアカで実流入があった
     // ref_code のみ」に絞れる。pool_id NULL のリンクが多い現状ではアカ別の
     // pool 紐付け判定よりも、こちらの実流入ベースの方が運用実態に合う。
-    const summaryQuery = selectedAccountId ? `?lineAccountId=${selectedAccountId}` : ''
+    const summaryQuery = selectedAccountId ? `?lineAccountId=${selectedAccountId}` : '';
     const [r, p, s, t, tagRes, sum, tl] = await Promise.all([
       api.entryRoutes.list(),
       api.pools.list(),
       api.scenarios.list(),
       api.messageTemplates.list(),
       api.tags.list().catch(() => ({ success: false, data: [] as Tag[] })),
-      fetchApi<{ success: boolean; data: RefSummaryData }>(
-        `/api/analytics/ref-summary${summaryQuery}`,
-      ).catch(() => ({ success: false, data: null })),
+      fetchApi<{ success: boolean; data: RefSummaryData }>(`/api/analytics/ref-summary${summaryQuery}`).catch(() => ({
+        success: false,
+        data: null,
+      })),
       api.trackedLinks.list().catch(() => ({ success: false, data: null })),
-    ])
-    if (r.success) setRoutes(r.data)
-    else setError('リファラルリンクの取得に失敗しました')
-    if (p.success) setPools(p.data)
-    if (s.success) setScenarios(s.data)
-    if (t.success) setTemplates(t.data)
-    if (tagRes.success) setTags(tagRes.data)
-    if ('success' in sum && sum.success && sum.data) setSummary(sum.data)
+    ]);
+    if (r.success) setRoutes(r.data);
+    else setError('リファラルリンクの取得に失敗しました');
+    if (p.success) setPools(p.data);
+    if (s.success) setScenarios(s.data);
+    if (t.success) setTemplates(t.data);
+    if (tagRes.success) setTags(tagRes.data);
+    if ('success' in sum && sum.success && sum.data) setSummary(sum.data);
     if (tl.success && tl.data) {
       setTrackedLinks(
         tl.data.map((row) => ({
@@ -118,7 +117,7 @@ export default function InflowLinksPage() {
           scenarioId: row.scenarioId,
           isActive: row.isActive,
         })),
-      )
+      );
     }
 
     // Load pool→accounts mapping after we know the pool list. Done in a 2nd
@@ -128,39 +127,39 @@ export default function InflowLinksPage() {
     if (p.success) {
       const entries = await Promise.all(
         p.data.map(async (pool) => {
-          const res = await api.pools.accounts.list(pool.id)
+          const res = await api.pools.accounts.list(pool.id);
           const ids = res.success
             ? new Set(res.data.filter((a) => a.isActive).map((a) => a.lineAccountId))
-            : new Set<string>()
-          return [pool.id, ids] as const
+            : new Set<string>();
+          return [pool.id, ids] as const;
         }),
-      )
-      setPoolMembers(Object.fromEntries(entries))
+      );
+      setPoolMembers(Object.fromEntries(entries));
     }
-    setLoading(false)
-  }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    load()
+    load();
     // サイドバー側でアカウントを切り替えたら、開きっぱなしの「ref 詳細」も
     // 持ち越さない (アカ A の友だちリストがアカ B の同じ ref 行に残ってしまう
     // クロスアカウントの情報漏れ防止)。stale-response guard だけでは閉じる側を
     // 担保できないので明示的に reset する。
-    setExpandedRef(null)
-    setRefDetail(null)
-    setRefDetailLoading(false)
-  }, [selectedAccountId])
+    setExpandedRef(null);
+    setRefDetail(null);
+    setRefDetailLoading(false);
+  }, [selectedAccountId]);
 
   const onCopy = async (refCode: string, id: string) => {
-    const url = `${WORKER_BASE}/r/${refCode}`
+    const url = `${WORKER_BASE}/r/${refCode}`;
     try {
-      await navigator.clipboard.writeText(url)
-      setCopiedId(id)
-      setTimeout(() => setCopiedId(null), 1200)
+      await navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1200);
     } catch {
       // silent
     }
-  }
+  };
 
   // Toggle the expandable friend list for a row. Loads on first expand,
   // collapses on second click, swaps detail when expanding a different row.
@@ -174,33 +173,33 @@ export default function InflowLinksPage() {
   // the currently-expanded row.
   const toggleExpand = async (refCode: string) => {
     if (expandedRef === refCode) {
-      setExpandedRef(null)
-      setRefDetail(null)
-      setRefDetailLoading(false)
-      return
+      setExpandedRef(null);
+      setRefDetail(null);
+      setRefDetailLoading(false);
+      return;
     }
-    setExpandedRef(refCode)
-    setRefDetail(null)
-    setRefDetailLoading(true)
-    const requestedFor = refCode
-    const accountAtRequest = selectedAccountId
-    const query = accountAtRequest ? `?lineAccountId=${accountAtRequest}` : ''
+    setExpandedRef(refCode);
+    setRefDetail(null);
+    setRefDetailLoading(true);
+    const requestedFor = refCode;
+    const accountAtRequest = selectedAccountId;
+    const query = accountAtRequest ? `?lineAccountId=${accountAtRequest}` : '';
     const res = await fetchApi<{ success: boolean; data: RefDetail }>(
       `/api/analytics/ref/${encodeURIComponent(refCode)}${query}`,
-    ).catch(() => ({ success: false, data: null }))
+    ).catch(() => ({ success: false, data: null }));
     // Skip stale updates: only commit if we are still looking at the same
     // ref AND the sidebar account hasn't changed since the request started.
     setExpandedRef((current) => {
-      if (current !== requestedFor || accountAtRequest !== selectedAccountId) return current
-      if ('success' in res && res.success && res.data) setRefDetail(res.data)
-      setRefDetailLoading(false)
-      return current
-    })
-  }
+      if (current !== requestedFor || accountAtRequest !== selectedAccountId) return current;
+      if ('success' in res && res.success && res.data) setRefDetail(res.data);
+      setRefDetailLoading(false);
+      return current;
+    });
+  };
 
   // Index summary stats by ref_code for cheap lookup per row.
-  const statsByRef = new Map<string, RefRouteStats>()
-  summary?.routes.forEach((r) => statsByRef.set(r.refCode, r))
+  const statsByRef = new Map<string, RefRouteStats>();
+  summary?.routes.forEach((r) => statsByRef.set(r.refCode, r));
 
   // Merge entry_routes (CRUD 対象), tracked_links (modern path), と
   // summary.routes (実流入のあった refs)。優先順位 = worker の applyRefAttribution
@@ -212,19 +211,19 @@ export default function InflowLinksPage() {
   // 表示されるが裏では tracked_links のシナリオが発火している、という UI の嘘
   // になる。
   type Row = {
-    source: 'entry_route' | 'tracked_link' | 'orphan'
+    source: 'entry_route' | 'tracked_link' | 'orphan';
     /** entry_routes に登録があれば id。tracked_link / orphan は null。 */
-    entryRouteId: string | null
-    refCode: string
-    name: string
-    poolId: string | null
-    tagId: string | null
-    scenarioId: string | null
+    entryRouteId: string | null;
+    refCode: string;
+    name: string;
+    poolId: string | null;
+    tagId: string | null;
+    scenarioId: string | null;
     /** entry_route のみ意味を持つ (並走/上書き)。他は null。 */
-    runAccountFriendAddScenarios: boolean | null
-    stats: RefRouteStats | undefined
-  }
-  const rowsByRef = new Map<string, Row>()
+    runAccountFriendAddScenarios: boolean | null;
+    stats: RefRouteStats | undefined;
+  };
+  const rowsByRef = new Map<string, Row>();
   // 「inactive entry_route を譲るべき相手」の refCode 集合。entry_routes と
   // tracked_links の両方に同じ refCode があった場合、worker の
   // getEntryRouteByRefCode は is_active=1 のみ拾うので、inactive な entry_route
@@ -233,15 +232,13 @@ export default function InflowLinksPage() {
   // 有無に依存させると、最初のクリック前は衝突判定が空回りして UI が嘘の
   // entry_route データを見せてしまう (worker は初回クリックでもう tracked_link
   // を使う)。
-  const activeTrackedLinkRefCodes = new Set(
-    trackedLinks.filter((tl) => tl.isActive).map((tl) => tl.id),
-  )
+  const activeTrackedLinkRefCodes = new Set(trackedLinks.filter((tl) => tl.isActive).map((tl) => tl.id));
   for (const r of routes) {
     // Inactive entry_route + active tracked_link が同 refCode に共存する場合、
     // 実際に発火するのは tracked_link。停止中 entry_route の Pool/scenario を
     // 表示すると「設定されてるのに違う挙動」の謎が生まれるのでこのケースだけ
     // 譲る。tracked_link が無ければ inactive でも従来通り表示する。
-    if (!r.isActive && activeTrackedLinkRefCodes.has(r.refCode)) continue
+    if (!r.isActive && activeTrackedLinkRefCodes.has(r.refCode)) continue;
     rowsByRef.set(r.refCode, {
       source: 'entry_route',
       entryRouteId: r.id,
@@ -252,19 +249,19 @@ export default function InflowLinksPage() {
       scenarioId: r.scenarioId,
       runAccountFriendAddScenarios: r.runAccountFriendAddScenarios,
       stats: statsByRef.get(r.refCode),
-    })
+    });
   }
   for (const tl of trackedLinks) {
-    if (rowsByRef.has(tl.id)) continue // entry_routes が優先
+    if (rowsByRef.has(tl.id)) continue; // entry_routes が優先
     // /inflow-links は「友だち獲得経路」のページ。tracked_links は /t/:id クリック
     // 計測用にも大量に作られるので、実際に友だちの ref_code に焼かれたもの
     // (= summary に出現するもの) のみ表示する。それ以外は無関係なノイズ。
-    if (!statsByRef.has(tl.id)) continue
+    if (!statsByRef.has(tl.id)) continue;
     // worker の applyRefAttribution は isActive=false の tracked_link を skip する
     // ので UI も合わせて非表示。これがないと「Tracked Link 登録済み」緑バッジ +
     // シナリオ名が出ているのにシナリオが流れない、という嘘になる。inactive で
     // 実流入だけある ref は orphan 行 (「未登録」アンバー) として正しく表示される。
-    if (!tl.isActive) continue
+    if (!tl.isActive) continue;
     rowsByRef.set(tl.id, {
       source: 'tracked_link',
       entryRouteId: null,
@@ -275,10 +272,10 @@ export default function InflowLinksPage() {
       scenarioId: tl.scenarioId,
       runAccountFriendAddScenarios: null,
       stats: statsByRef.get(tl.id),
-    })
+    });
   }
   for (const s of summary?.routes ?? []) {
-    if (rowsByRef.has(s.refCode)) continue
+    if (rowsByRef.has(s.refCode)) continue;
     rowsByRef.set(s.refCode, {
       source: 'orphan',
       entryRouteId: null,
@@ -289,7 +286,7 @@ export default function InflowLinksPage() {
       scenarioId: null,
       runAccountFriendAddScenarios: null,
       stats: s,
-    })
+    });
   }
 
   // Filter by sidebar's selected account.
@@ -305,41 +302,41 @@ export default function InflowLinksPage() {
   // ルーティングの真実は pool_accounts (worker の getRandomPoolAccount が
   // ここから抽選する) なので、poolMembers を見て所属判定する。
   // マルチアカウント pool でも正しく動く。
-  const allRows = Array.from(rowsByRef.values())
-  const mainPool = pools.find((p) => p.slug === 'main')
+  const allRows = Array.from(rowsByRef.values());
+  const mainPool = pools.find((p) => p.slug === 'main');
   const poolRoutesToAccount = (poolId: string | null, accountId: string): boolean => {
-    const targetPoolId = poolId ?? mainPool?.id
-    if (!targetPoolId) return false
-    return poolMembers[targetPoolId]?.has(accountId) ?? false
-  }
+    const targetPoolId = poolId ?? mainPool?.id;
+    if (!targetPoolId) return false;
+    return poolMembers[targetPoolId]?.has(accountId) ?? false;
+  };
   const accountFilteredRows = selectedAccountId
     ? allRows.filter((r) => {
-        if ((r.stats?.friendCount ?? 0) > 0) return true
-        if (r.source === 'orphan') return false
+        if ((r.stats?.friendCount ?? 0) > 0) return true;
+        if (r.source === 'orphan') return false;
         // entry_route / tracked_link は pool 所属判定にフォールバック
         // (tracked_link は poolId=null なので mainPool 所属チェックになる)
-        return poolRoutesToAccount(r.poolId, selectedAccountId)
+        return poolRoutesToAccount(r.poolId, selectedAccountId);
       })
-    : allRows
+    : allRows;
 
   // Newest "最新追加" first. Routes with no recorded inflow yet sink to the bottom.
   const sortedRows = [...accountFilteredRows].sort((a, b) => {
-    const sa = a.stats?.latestAt ?? ''
-    const sb = b.stats?.latestAt ?? ''
-    if (!sa && !sb) return 0
-    if (!sa) return 1
-    if (!sb) return -1
-    return sb.localeCompare(sa)
-  })
+    const sa = a.stats?.latestAt ?? '';
+    const sb = b.stats?.latestAt ?? '';
+    if (!sa && !sb) return 0;
+    if (!sa) return 1;
+    if (!sb) return -1;
+    return sb.localeCompare(sa);
+  });
 
   const formatDate = (iso: string | null) => {
-    if (!iso) return '—'
+    if (!iso) return '—';
     return new Date(iso).toLocaleDateString('ja-JP', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    })
-  }
+    });
+  };
 
   return (
     <div>
@@ -372,9 +369,7 @@ export default function InflowLinksPage() {
       <div className="flex justify-between items-center mb-4">
         <span className="text-sm text-gray-500">
           {sortedRows.length} リンク
-          {selectedAccountId && allRows.length !== sortedRows.length
-            ? `（全 ${allRows.length} 件中、選択中アカ）`
-            : ''}
+          {selectedAccountId && allRows.length !== sortedRows.length ? `（全 ${allRows.length} 件中、選択中アカ）` : ''}
         </span>
         <button
           onClick={() => setEditing('new')}
@@ -384,16 +379,10 @@ export default function InflowLinksPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm mb-4">
-          {error}
-        </div>
-      )}
+      {error && <div className="p-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm mb-4">{error}</div>}
 
       {loading ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
-          読み込み中...
-        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
       ) : sortedRows.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
           {selectedAccountId
@@ -405,49 +394,27 @@ export default function InflowLinksPage() {
           <table className="w-full min-w-[1080px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  名前
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  ref コード
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  送り先 Pool
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  起動シナリオ
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  自動付与タグ
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  モード
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  友だち数
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  クリック数
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  最新追加
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  URL
-                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">名前</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ref コード</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">送り先 Pool</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">起動シナリオ</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">自動付与タグ</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">モード</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">友だち数</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">クリック数</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">最新追加</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {sortedRows.map((r) => {
-                const pool = pools.find((p) => p.id === r.poolId)
-                const sc = scenarios.find((s) => s.id === r.scenarioId)
-                const tag = tags.find((t) => t.id === r.tagId)
+                const pool = pools.find((p) => p.id === r.poolId);
+                const sc = scenarios.find((s) => s.id === r.scenarioId);
+                const tag = tags.find((t) => t.id === r.tagId);
                 const editTarget =
-                  r.source === 'entry_route'
-                    ? routes.find((e) => e.id === r.entryRouteId) ?? null
-                    : null
-                const isExpanded = expandedRef === r.refCode
+                  r.source === 'entry_route' ? (routes.find((e) => e.id === r.entryRouteId) ?? null) : null;
+                const isExpanded = expandedRef === r.refCode;
                 return (
                   <FragmentRow
                     key={r.refCode}
@@ -488,9 +455,7 @@ export default function InflowLinksPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm font-mono text-blue-600 break-all">
-                      {r.refCode}
-                    </td>
+                    <td className="px-4 py-3 text-sm font-mono text-blue-600 break-all">{r.refCode}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">
                       {pool ? (
                         pool.name
@@ -541,12 +506,8 @@ export default function InflowLinksPage() {
                     <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
                       {r.stats?.friendCount ?? 0}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-600">
-                      {r.stats?.clickCount ?? 0}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {formatDate(r.stats?.latestAt ?? null)}
-                    </td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-600">{r.stats?.clickCount ?? 0}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{formatDate(r.stats?.latestAt ?? null)}</td>
                     <td className="px-4 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => onCopy(r.refCode, r.refCode)}
@@ -581,7 +542,7 @@ export default function InflowLinksPage() {
                       )}
                     </td>
                   </FragmentRow>
-                )
+                );
               })}
             </tbody>
           </table>
@@ -590,15 +551,9 @@ export default function InflowLinksPage() {
 
       {editing && (
         <EditRouteModal
-          route={
-            editing === 'new' || (typeof editing === 'object' && 'register' in editing)
-              ? null
-              : editing
-          }
+          route={editing === 'new' || (typeof editing === 'object' && 'register' in editing) ? null : editing}
           initialRefCode={
-            typeof editing === 'object' && editing !== null && 'register' in editing
-              ? editing.register
-              : undefined
+            typeof editing === 'object' && editing !== null && 'register' in editing ? editing.register : undefined
           }
           pools={pools}
           scenarios={scenarios}
@@ -606,13 +561,13 @@ export default function InflowLinksPage() {
           tags={tags}
           onClose={() => setEditing(null)}
           onSaved={() => {
-            setEditing(null)
-            load()
+            setEditing(null);
+            load();
           }}
         />
       )}
     </div>
-  )
+  );
 }
 
 /**
@@ -629,14 +584,14 @@ function FragmentRow({
   refCode,
   children,
 }: {
-  isExpanded: boolean
-  onToggle: () => void
-  refDetailLoading: boolean
-  refDetail: RefDetail | null
-  refCode: string
-  children: ReactNode
+  isExpanded: boolean;
+  onToggle: () => void;
+  refDetailLoading: boolean;
+  refDetail: RefDetail | null;
+  refCode: string;
+  children: ReactNode;
 }) {
-  const friends = isExpanded && refDetail?.refCode === refCode ? refDetail.friends : null
+  const friends = isExpanded && refDetail?.refCode === refCode ? refDetail.friends : null;
   return (
     <Fragment>
       <tr
@@ -644,8 +599,8 @@ function FragmentRow({
         onClick={onToggle}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onToggle()
+            event.preventDefault();
+            onToggle();
           }
         }}
         tabIndex={0}
@@ -674,9 +629,7 @@ function FragmentRow({
                       href={`/chats?friend=${f.id}`}
                       className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100 hover:border-blue-300"
                     >
-                      <span className="text-sm text-gray-800 font-medium truncate">
-                        {f.displayName}
-                      </span>
+                      <span className="text-sm text-gray-800 font-medium truncate">{f.displayName}</span>
                       <span className="text-xs text-gray-400 ml-2 shrink-0">
                         {f.trackedAt
                           ? new Date(f.trackedAt).toLocaleDateString('ja-JP', {
@@ -695,5 +648,5 @@ function FragmentRow({
         </tr>
       )}
     </Fragment>
-  )
+  );
 }

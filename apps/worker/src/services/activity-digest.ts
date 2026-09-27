@@ -1,7 +1,4 @@
-import {
-  computeUnansweredInbox,
-  type UnansweredInboxResult,
-} from './unanswered-inbox.js';
+import { computeUnansweredInbox, type UnansweredInboxResult } from './unanswered-inbox.js';
 import { pharmacyStaffAccountPredicate } from '../custom/pharmacy/growth-loop/access.js';
 
 const DEFAULT_HOURS = 3;
@@ -112,18 +109,13 @@ function normalizeUtcTimestamp(value: string): string {
 function parseJsonObject(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};
   }
 }
 
-function accountRef(row: {
-  line_account_id: string | null;
-  account_name: string | null;
-}): AccountRef {
+function accountRef(row: { line_account_id: string | null; account_name: string | null }): AccountRef {
   return {
     accountId: row.line_account_id,
     accountName: row.account_name ?? '(未分類)',
@@ -157,22 +149,17 @@ export async function getActivityDigest(
   const staffBindings = staffId ? [staffId] : [];
   const [friendScope, messageScope, bookingScope] = staffId
     ? await Promise.all([
-      pharmacyStaffAccountPredicate(db, 'f.line_account_id', 'tenant_mapping'),
-      pharmacyStaffAccountPredicate(db, 'COALESCE(ml.line_account_id, f.line_account_id)', 'tenant_mapping'),
-      pharmacyStaffAccountPredicate(db, 'b.line_account_id', 'tenant_mapping'),
-    ])
+        pharmacyStaffAccountPredicate(db, 'f.line_account_id', 'tenant_mapping'),
+        pharmacyStaffAccountPredicate(db, 'COALESCE(ml.line_account_id, f.line_account_id)', 'tenant_mapping'),
+        pharmacyStaffAccountPredicate(db, 'b.line_account_id', 'tenant_mapping'),
+      ])
     : ['', '', ''];
 
-  const [
-    friendsResult,
-    messagesResult,
-    formsResult,
-    bookingsResult,
-    eventBookingsResult,
-    unanswered,
-  ] = await Promise.all([
-    db.prepare(
-      `/* activity-digest:friends */
+  const [friendsResult, messagesResult, formsResult, bookingsResult, eventBookingsResult, unanswered] =
+    await Promise.all([
+      db
+        .prepare(
+          `/* activity-digest:friends */
        SELECT f.id, f.display_name, f.line_account_id,
               la.name AS account_name, f.created_at
          FROM friends f
@@ -184,9 +171,12 @@ export async function getActivityDigest(
           AND julianday(f.created_at) >= julianday(?)
         ORDER BY f.created_at DESC
         LIMIT ?`,
-    ).bind(tenantId, ...staffBindings, sinceJst, queryLimit).all<RawFriendRow>(),
-    db.prepare(
-      `/* activity-digest:messages */
+        )
+        .bind(tenantId, ...staffBindings, sinceJst, queryLimit)
+        .all<RawFriendRow>(),
+      db
+        .prepare(
+          `/* activity-digest:messages */
        SELECT ml.id, ml.friend_id, f.display_name,
               COALESCE(ml.line_account_id, f.line_account_id) AS line_account_id,
               la.name AS account_name,
@@ -203,9 +193,12 @@ export async function getActivityDigest(
           AND julianday(ml.created_at) >= julianday(?)
         ORDER BY ml.created_at DESC
         LIMIT ?`,
-    ).bind(tenantId, ...staffBindings, sinceJst, queryLimit).all<RawMessageRow>(),
-    db.prepare(
-      `/* activity-digest:forms */
+        )
+        .bind(tenantId, ...staffBindings, sinceJst, queryLimit)
+        .all<RawMessageRow>(),
+      db
+        .prepare(
+          `/* activity-digest:forms */
        SELECT fs.id, fs.form_id, fm.name AS form_name,
               fs.friend_id, f.display_name, f.line_account_id,
               la.name AS account_name, fs.data, fs.created_at
@@ -220,9 +213,12 @@ export async function getActivityDigest(
           AND julianday(fs.created_at) >= julianday(?)
         ORDER BY fs.created_at DESC
         LIMIT ?`,
-    ).bind(tenantId, ...staffBindings, sinceJst, queryLimit).all<RawFormSubmissionRow>(),
-    db.prepare(
-      `/* activity-digest:bookings */
+        )
+        .bind(tenantId, ...staffBindings, sinceJst, queryLimit)
+        .all<RawFormSubmissionRow>(),
+      db
+        .prepare(
+          `/* activity-digest:bookings */
        SELECT b.id, b.friend_id, f.display_name,
               b.line_account_id, la.name AS account_name,
               m.name AS menu_name, s.display_name AS staff_name,
@@ -239,9 +235,12 @@ export async function getActivityDigest(
           AND julianday(b.requested_at) >= julianday(?)
         ORDER BY b.requested_at DESC
         LIMIT ?`,
-    ).bind(tenantId, ...staffBindings, sinceUtc, queryLimit).all<RawBookingRow>(),
-    db.prepare(
-      `/* activity-digest:event-bookings */
+        )
+        .bind(tenantId, ...staffBindings, sinceUtc, queryLimit)
+        .all<RawBookingRow>(),
+      db
+        .prepare(
+          `/* activity-digest:event-bookings */
        SELECT b.id, b.friend_id, f.display_name,
               b.line_account_id, la.name AS account_name,
               e.name AS event_name, es.starts_at,
@@ -258,59 +257,71 @@ export async function getActivityDigest(
           AND julianday(b.requested_at) >= julianday(?)
         ORDER BY b.requested_at DESC
         LIMIT ?`,
-    ).bind(tenantId, ...staffBindings, sinceUtc, queryLimit).all<RawEventBookingRow>(),
-    unansweredLoader(db, tenantId, { page: 1, pageSize: 2000 }, staffId),
-  ]);
+        )
+        .bind(tenantId, ...staffBindings, sinceUtc, queryLimit)
+        .all<RawEventBookingRow>(),
+      unansweredLoader(db, tenantId, { page: 1, pageSize: 2000 }, staffId),
+    ]);
 
-  const friends = takeCategory((friendsResult.results ?? []).map((row) => ({
-    id: row.id,
-    displayName: row.display_name,
-    ...accountRef(row),
-    occurredAt: normalizeJstTimestamp(row.created_at),
-  })));
-  const incomingMessages = takeCategory((messagesResult.results ?? []).map((row) => ({
-    id: row.id,
-    friendId: row.friend_id,
-    displayName: row.display_name,
-    ...accountRef(row),
-    messageType: row.message_type,
-    content: row.content,
-    source: row.source,
-    occurredAt: normalizeJstTimestamp(row.created_at),
-  })));
-  const formSubmissions = takeCategory((formsResult.results ?? []).map((row) => ({
-    id: row.id,
-    formId: row.form_id,
-    formName: row.form_name,
-    friendId: row.friend_id,
-    displayName: row.display_name,
-    ...accountRef(row),
-    data: parseJsonObject(row.data),
-    occurredAt: normalizeJstTimestamp(row.created_at),
-  })));
-  const bookingRequests = takeCategory((bookingsResult.results ?? []).map((row) => ({
-    id: row.id,
-    friendId: row.friend_id,
-    displayName: row.display_name,
-    ...accountRef(row),
-    menuName: row.menu_name,
-    staffName: row.staff_name,
-    startsAt: normalizeUtcTimestamp(row.starts_at),
-    status: row.status,
-    customerNote: row.customer_note,
-    occurredAt: normalizeUtcTimestamp(row.requested_at),
-  })));
-  const eventBookingRequests = takeCategory((eventBookingsResult.results ?? []).map((row) => ({
-    id: row.id,
-    friendId: row.friend_id,
-    displayName: row.display_name,
-    ...accountRef(row),
-    eventName: row.event_name,
-    startsAt: normalizeUtcTimestamp(row.starts_at),
-    status: row.status,
-    customerNote: row.customer_note,
-    occurredAt: normalizeUtcTimestamp(row.requested_at),
-  })));
+  const friends = takeCategory(
+    (friendsResult.results ?? []).map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      ...accountRef(row),
+      occurredAt: normalizeJstTimestamp(row.created_at),
+    })),
+  );
+  const incomingMessages = takeCategory(
+    (messagesResult.results ?? []).map((row) => ({
+      id: row.id,
+      friendId: row.friend_id,
+      displayName: row.display_name,
+      ...accountRef(row),
+      messageType: row.message_type,
+      content: row.content,
+      source: row.source,
+      occurredAt: normalizeJstTimestamp(row.created_at),
+    })),
+  );
+  const formSubmissions = takeCategory(
+    (formsResult.results ?? []).map((row) => ({
+      id: row.id,
+      formId: row.form_id,
+      formName: row.form_name,
+      friendId: row.friend_id,
+      displayName: row.display_name,
+      ...accountRef(row),
+      data: parseJsonObject(row.data),
+      occurredAt: normalizeJstTimestamp(row.created_at),
+    })),
+  );
+  const bookingRequests = takeCategory(
+    (bookingsResult.results ?? []).map((row) => ({
+      id: row.id,
+      friendId: row.friend_id,
+      displayName: row.display_name,
+      ...accountRef(row),
+      menuName: row.menu_name,
+      staffName: row.staff_name,
+      startsAt: normalizeUtcTimestamp(row.starts_at),
+      status: row.status,
+      customerNote: row.customer_note,
+      occurredAt: normalizeUtcTimestamp(row.requested_at),
+    })),
+  );
+  const eventBookingRequests = takeCategory(
+    (eventBookingsResult.results ?? []).map((row) => ({
+      id: row.id,
+      friendId: row.friend_id,
+      displayName: row.display_name,
+      ...accountRef(row),
+      eventName: row.event_name,
+      startsAt: normalizeUtcTimestamp(row.starts_at),
+      status: row.status,
+      customerNote: row.customer_note,
+      occurredAt: normalizeUtcTimestamp(row.requested_at),
+    })),
+  );
 
   const actionGroups = [
     friends.items,
@@ -324,11 +335,12 @@ export async function getActivityDigest(
     const key = item.accountId ?? '__unassigned__';
     const current = byAccountMap.get(key);
     if (current) current.count += 1;
-    else byAccountMap.set(key, {
-      accountId: item.accountId,
-      accountName: item.accountName,
-      count: 1,
-    });
+    else
+      byAccountMap.set(key, {
+        accountId: item.accountId,
+        accountName: item.accountName,
+        count: 1,
+      });
   }
 
   const unansweredByAccount = new Map<string, { accountId: string; accountName: string; count: number }>();
@@ -336,11 +348,12 @@ export async function getActivityDigest(
   for (const row of unanswered.rows) {
     const current = unansweredByAccount.get(row.accountId);
     if (current) current.count += 1;
-    else unansweredByAccount.set(row.accountId, {
-      accountId: row.accountId,
-      accountName: row.accountName,
-      count: 1,
-    });
+    else
+      unansweredByAccount.set(row.accountId, {
+        accountId: row.accountId,
+        accountName: row.accountName,
+        count: 1,
+      });
     if (oldestUnansweredAt === null || row.lastIncomingAt < oldestUnansweredAt) {
       oldestUnansweredAt = row.lastIncomingAt;
     }
@@ -375,9 +388,10 @@ export async function getActivityDigest(
       rows: unanswered.rows,
       truncated: unanswered.rows.length < unanswered.total,
       byAccount: [...unansweredByAccount.values()].sort((a, b) => b.count - a.count),
-      oldestWaitMinutes: oldestUnansweredAt === null
-        ? null
-        : Math.max(0, Math.floor((now.getTime() - new Date(oldestUnansweredAt).getTime()) / 60_000)),
+      oldestWaitMinutes:
+        oldestUnansweredAt === null
+          ? null
+          : Math.max(0, Math.floor((now.getTime() - new Date(oldestUnansweredAt).getTime()) / 60_000)),
     },
   };
 }

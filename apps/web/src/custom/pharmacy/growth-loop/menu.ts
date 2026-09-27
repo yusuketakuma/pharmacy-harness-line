@@ -24,8 +24,8 @@ const PHARMACY_MENU_PATHS = new Set([
   '/rich-menus',
   '/staff',
   '/accounts',
-])
+]);
 
 export function isPharmacyMenuPath(path: string): boolean {
-  return PHARMACY_MENU_PATHS.has(path)
+  return PHARMACY_MENU_PATHS.has(path);
 }

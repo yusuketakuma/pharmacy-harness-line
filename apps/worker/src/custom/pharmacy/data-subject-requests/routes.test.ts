@@ -35,9 +35,12 @@ function app(role: 'owner' | 'admin' | 'staff' = 'admin', accountId: string | nu
   return root;
 }
 
-const post = (path: string, body: unknown, role?: 'owner' | 'admin' | 'staff') => app(role).request(
-  path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env,
-);
+const post = (path: string, body: unknown, role?: 'owner' | 'admin' | 'staff') =>
+  app(role).request(
+    path,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    env,
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -45,7 +48,10 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ id: 'request-1', status: 'received', version: 1 });
   mocks.verify.mockResolvedValue({ id: 'request-1', status: 'identity_verified', version: 2 });
   mocks.assess.mockResolvedValue({
-    id: 'request-1', status: 'legal_hold_assessed', version: 3, legal_hold: 1,
+    id: 'request-1',
+    status: 'legal_hold_assessed',
+    version: 3,
+    legal_hold: 1,
     legal_hold_release_at: '2027-08-20T00:00:00.000Z',
   });
   mocks.resolve.mockResolvedValue({ id: 'request-1', status: 'resolved', version: 4 });
@@ -83,12 +89,18 @@ describe('pharmacy data subject request routes', () => {
 
   it('creates a request with the server-resolved tenant and account', async () => {
     const response = await post(PATH, {
-      patientId: 'patient-a', requestType: 'erasure', reason: '本人から消去の申し出',
+      patientId: 'patient-a',
+      requestType: 'erasure',
+      reason: '本人から消去の申し出',
     });
     expect(response.status).toBe(201);
     expect(mocks.create).toHaveBeenCalledWith(env.DB, {
-      lineAccountId: 'account-a', tenantId: 'tenant-a', patientId: 'patient-a',
-      requestType: 'erasure', reason: '本人から消去の申し出', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      tenantId: 'tenant-a',
+      patientId: 'patient-a',
+      requestType: 'erasure',
+      reason: '本人から消去の申し出',
+      staffId: 'staff-a',
     });
   });
 
@@ -101,7 +113,10 @@ describe('pharmacy data subject request routes', () => {
   it('marks identity verification and the legal hold assessment', async () => {
     expect((await post(`${PATH}/request-1/identity-verification`, { expectedVersion: 1 })).status).toBe(200);
     expect(mocks.verify).toHaveBeenCalledWith(env.DB, {
-      lineAccountId: 'account-a', requestId: 'request-1', expectedVersion: 1, staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      requestId: 'request-1',
+      expectedVersion: 1,
+      staffId: 'staff-a',
     });
 
     const assessed = await post(`${PATH}/request-1/legal-hold-assessment`, { expectedVersion: 2 });
@@ -114,7 +129,9 @@ describe('pharmacy data subject request routes', () => {
   it('reports a legal hold refusal as a conflict the staff can explain', async () => {
     mocks.resolve.mockRejectedValue(new Error('legal hold blocks this data subject request'));
     const response = await post(`${PATH}/request-1/resolution`, {
-      expectedVersion: 3, decision: 'resolved', outcomeNote: '消去した',
+      expectedVersion: 3,
+      decision: 'resolved',
+      outcomeNote: '消去した',
     });
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ status: 'legal_hold' });
@@ -122,18 +139,32 @@ describe('pharmacy data subject request routes', () => {
 
   it('resolves a request with an outcome note', async () => {
     const response = await post(`${PATH}/request-1/resolution`, {
-      expectedVersion: 3, decision: 'rejected', outcomeNote: '法定保存期間中のため応じられない旨を説明',
+      expectedVersion: 3,
+      decision: 'rejected',
+      outcomeNote: '法定保存期間中のため応じられない旨を説明',
     });
     expect(response.status).toBe(200);
     expect(mocks.resolve).toHaveBeenCalledWith(env.DB, {
-      lineAccountId: 'account-a', requestId: 'request-1', expectedVersion: 3,
-      decision: 'rejected', outcomeNote: '法定保存期間中のため応じられない旨を説明', staffId: 'staff-a',
+      lineAccountId: 'account-a',
+      requestId: 'request-1',
+      expectedVersion: 3,
+      decision: 'rejected',
+      outcomeNote: '法定保存期間中のため応じられない旨を説明',
+      staffId: 'staff-a',
     });
   });
 
   it('requires a decision and an outcome note to close a request', async () => {
     expect((await post(`${PATH}/request-1/resolution`, { expectedVersion: 3, decision: 'resolved' })).status).toBe(400);
-    expect((await post(`${PATH}/request-1/resolution`, { expectedVersion: 3, decision: 'archived', outcomeNote: 'x' })).status).toBe(400);
+    expect(
+      (
+        await post(`${PATH}/request-1/resolution`, {
+          expectedVersion: 3,
+          decision: 'archived',
+          outcomeNote: 'x',
+        })
+      ).status,
+    ).toBe(400);
     expect(mocks.resolve).not.toHaveBeenCalled();
   });
 

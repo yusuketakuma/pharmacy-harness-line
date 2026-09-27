@@ -1,0 +1,14 @@
+{
+  "P": "fa43ab1e53a60e6154ad528a7ee2453e0774cbf4",
+  "existing": {
+    "apps/worker/src/custom/pharmacy/growth-loop/sender.ts": "f8887313996f274de4bc2f7676b954955fe6c2b3f8dfe3ac7286c98820bb4d3f"
+  },
+  "new": [
+    "apps/worker/src/custom/pharmacy/growth-loop/validity-dispatch.test.ts"
+  ],
+  "W": {
+    "apps/worker/src/custom/pharmacy/growth-loop/sender.ts": "d317db2f2e1a94e5398a01f5eaf63b01212c1df9ad4269077bfe9fd94edb6d07",
+    "apps/worker/src/custom/pharmacy/growth-loop/validity-dispatch.test.ts": "3ecd91910b56ab62f14f503dcf102e027cdf1208e2507f79762221b68f238bc2"
+  },
+  "patchReplay": "PASS both paths"
+}

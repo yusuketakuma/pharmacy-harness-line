@@ -1,0 +1,22 @@
+{
+  "head": "3158e7c337a3d43022b1db6fd0a4ce0fc4877257",
+  "branch": "dev",
+  "previous_turn_classification": "progress: F35 integrated",
+  "this_turn_classification": "progress: F36/F37 integrated; DSR/retention runtime and race evidence expanded",
+  "goal": "active, not complete",
+  "coverage": "C01-C12 / applicable X01-X08 remain PARTIAL",
+  "preserved_unstaged": [
+    "PLANS.md"
+  ],
+  "untracked_evidence": "docs/pharmacy/evidence/audit-20260922/",
+  "required_remaining": [
+    "global module/contract coverage",
+    "F-DIST-01 trusted legacy migration hashes unknown",
+    "fresh-context final independent review",
+    "CI Node22 runtime checks",
+    "malformed calendar/SQL retention timestamp candidate needs concrete validation"
+  ],
+  "next": "Validate malformed timestamps against existing fail-closed contracts with synthetic fixtures; preserve retention period semantics. Continue uncovered module queue.",
+  "child": "audit_db reused, review records read and hashes checked; no close API, no fresh final review",
+  "external_mutations": false
+}

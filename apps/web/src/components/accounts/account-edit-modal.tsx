@@ -1,25 +1,21 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
-import {
-  AccountFormSections,
-  emptyAccountFormState,
-  type AccountFormState,
-} from './account-form-fields'
-import AccountSetupUrls from './account-setup-urls'
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { AccountFormSections, emptyAccountFormState, type AccountFormState } from './account-form-fields';
+import AccountSetupUrls from './account-setup-urls';
 
 interface Props {
-  accountId: string
-  initialName: string
-  initialChannelId: string
-  initialLoginChannelId: string | null
-  initialLiffId: string | null
-  initialOgSiteName?: string | null
-  initialOgDefaultDescription?: string | null
-  initialOgDefaultImageUrl?: string | null
-  onClose: () => void
-  onSaved: () => void
+  accountId: string;
+  initialName: string;
+  initialChannelId: string;
+  initialLoginChannelId: string | null;
+  initialLiffId: string | null;
+  initialOgSiteName?: string | null;
+  initialOgDefaultDescription?: string | null;
+  initialOgDefaultImageUrl?: string | null;
+  onClose: () => void;
+  onSaved: () => void;
 }
 
 // Edit modal — reads current secrets from the secrets-allowed GET endpoint
@@ -48,99 +44,93 @@ export default function AccountEditModal({
     ogSiteName: initialOgSiteName,
     ogDefaultDescription: initialOgDefaultDescription,
     ogDefaultImageUrl: initialOgDefaultImageUrl,
-  })
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   // Lock background scroll while modal open. Restore on unmount so navigation
   // away mid-edit doesn't leave the page in a non-scrollable state.
   useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     return () => {
-      document.body.style.overflow = prev
-    }
-  }, [])
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
-  const update = (partial: Partial<AccountFormState>) =>
-    setState((s) => ({ ...s, ...partial }))
+  const update = (partial: Partial<AccountFormState>) => setState((s) => ({ ...s, ...partial }));
 
   const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
+    e.preventDefault();
+    setSaving(true);
+    setError('');
 
     // Only send fields the user actually changed. Empty string for password-
     // like fields means "no change", not "clear it" — there's no UI affordance
     // to clear credentials, and accidentally clearing them would break prod.
-    const payload: Parameters<typeof api.lineAccounts.update>[1] = {}
-    if (state.name !== initialName) payload.name = state.name
+    const payload: Parameters<typeof api.lineAccounts.update>[1] = {};
+    if (state.name !== initialName) payload.name = state.name;
     if (state.channelAccessToken.trim() !== '') {
-      payload.channelAccessToken = state.channelAccessToken.trim()
+      payload.channelAccessToken = state.channelAccessToken.trim();
     }
     if (state.channelSecret.trim() !== '') {
-      payload.channelSecret = state.channelSecret.trim()
+      payload.channelSecret = state.channelSecret.trim();
     }
     // Login/LIFF: empty string means "clear" (set null) — these are
     // configured per-account and clearing is a legitimate operation
     // (e.g. removing a deprecated LIFF). Send the current value as-is.
-    const loginIdNext = state.loginChannelId.trim() || null
-    const loginIdChanged = loginIdNext !== (initialLoginChannelId ?? null)
-    if (loginIdChanged) payload.loginChannelId = loginIdNext
+    const loginIdNext = state.loginChannelId.trim() || null;
+    const loginIdChanged = loginIdNext !== (initialLoginChannelId ?? null);
+    if (loginIdChanged) payload.loginChannelId = loginIdNext;
 
     if (state.loginChannelSecret.trim() !== '') {
-      payload.loginChannelSecret = state.loginChannelSecret.trim()
+      payload.loginChannelSecret = state.loginChannelSecret.trim();
     } else if (loginIdNext === null && initialLoginChannelId !== null) {
       // User cleared the Login Channel ID. Pair with secret-clear so the
       // server's pair-validator doesn't reject the request (it would see
       // id=null + kept-old-secret as inconsistent). Pair-clear is the
       // intended "disable LINE Login on this account" action.
-      payload.loginChannelSecret = null
+      payload.loginChannelSecret = null;
     }
 
     if ((state.liffId.trim() || null) !== (initialLiffId ?? null)) {
-      payload.liffId = state.liffId.trim() || null
+      payload.liffId = state.liffId.trim() || null;
     }
 
     // OGP brand settings: always send when they differ from initial values
     if (state.ogSiteName !== initialOgSiteName) {
-      payload.ogSiteName = state.ogSiteName
+      payload.ogSiteName = state.ogSiteName;
     }
     if (state.ogDefaultDescription !== initialOgDefaultDescription) {
-      payload.ogDefaultDescription = state.ogDefaultDescription
+      payload.ogDefaultDescription = state.ogDefaultDescription;
     }
     if (state.ogDefaultImageUrl !== initialOgDefaultImageUrl) {
-      payload.ogDefaultImageUrl = state.ogDefaultImageUrl
+      payload.ogDefaultImageUrl = state.ogDefaultImageUrl;
     }
 
     if (Object.keys(payload).length === 0) {
-      onClose()
-      return
+      onClose();
+      return;
     }
 
     try {
-      const res = await api.lineAccounts.update(accountId, payload)
+      const res = await api.lineAccounts.update(accountId, payload);
       if (res.success) {
-        onSaved()
-        onClose()
+        onSaved();
+        onClose();
       } else {
-        setError(res.error || '保存に失敗しました')
+        setError(res.error || '保存に失敗しました');
       }
     } catch {
-      setError('保存に失敗しました')
+      setError('保存に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-start sm:items-center justify-center p-4 overflow-y-auto"
-    >
-      <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-2xl my-8"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl my-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-base font-bold text-gray-900">アカウント編集</h2>
           <button
@@ -185,11 +175,7 @@ export default function AccountEditModal({
             heading="このアカで使う URL（LINE Developers Console に貼る）"
           />
 
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
-              {error}
-            </div>
-          )}
+          {error && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-xs">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
             <button
@@ -211,5 +197,5 @@ export default function AccountEditModal({
         </form>
       </div>
     </div>
-  )
+  );
 }

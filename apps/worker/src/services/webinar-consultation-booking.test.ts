@@ -22,11 +22,9 @@ vi.mock('./meet-consultation-reminders.js', () => ({
 }));
 vi.mock('./line-proxy-send.js', () => ({ pushViaHarnessProxy: mocks.pushViaHarnessProxy }));
 
-const {
-  bookWebinarConsultation,
-  getWebinarConsultationAvailability,
-  WebinarConsultationError,
-} = await import('./webinar-consultation-booking.js');
+const { bookWebinarConsultation, getWebinarConsultationAvailability, WebinarConsultationError } = await import(
+  './webinar-consultation-booking.js'
+);
 
 interface DbOptions {
   existing?: {
@@ -48,8 +46,13 @@ function fakeDb(options: DbOptions = {}): D1Database {
         if (sql.includes('FROM form_submissions fs')) return { ok: 1 };
         if (sql.includes('FROM menus m') && sql.includes('INNER JOIN staff_menus')) {
           return {
-            menu_id: 'menu-1', menu_name: '個別相談', duration_minutes: 15,
-            buffer_after_minutes: 0, price: 0, staff_id: 'staff-1', staff_name: '野田',
+            menu_id: 'menu-1',
+            menu_name: '個別相談',
+            duration_minutes: 15,
+            buffer_after_minutes: 0,
+            price: 0,
+            staff_id: 'staff-1',
+            staff_name: '野田',
           };
         }
         if (sql.includes('FROM bookings b') && sql.includes('LEFT JOIN meet_consultations')) {
@@ -82,13 +85,19 @@ const base = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getStaffCalendarConnection.mockResolvedValue({
-    id: 'connection-1', calendar_id: 'primary', auth_type: 'service_account', access_token: null,
+    id: 'connection-1',
+    calendar_id: 'primary',
+    auth_type: 'service_account',
+    access_token: null,
   });
   mocks.getAvailability.mockResolvedValue({
-    by_staff: [{
-      staff_id: 'staff-1', display_name: '野田',
-      slots: [{ date: '2026-08-20', start: '10:00', end: '10:15' }],
-    }],
+    by_staff: [
+      {
+        staff_id: 'staff-1',
+        display_name: '野田',
+        slots: [{ date: '2026-08-20', start: '10:00', end: '10:15' }],
+      },
+    ],
   });
   mocks.syncConfirmedBookingToGoogle.mockResolvedValue({
     synced: true,
@@ -108,9 +117,13 @@ describe('getWebinarConsultationAvailability', () => {
     expect(result).toMatchObject({
       calendarReady: true,
       menu: { id: 'menu-1', durationMinutes: 15 },
-      slots: [{
-        date: '2026-08-20', start: '10:00', startsAt: '2026-08-20T01:00:00.000Z',
-      }],
+      slots: [
+        {
+          date: '2026-08-20',
+          start: '10:00',
+          startsAt: '2026-08-20T01:00:00.000Z',
+        },
+      ],
     });
   });
 
@@ -136,44 +149,52 @@ describe('bookWebinarConsultation', () => {
       externalEventId: 'event-1',
       created: true,
     });
-    expect(mocks.syncConfirmedBookingToGoogle).toHaveBeenCalledWith(
-      db, base.credentials, expect.any(String), { addGoogleMeet: true },
-    );
+    expect(mocks.syncConfirmedBookingToGoogle).toHaveBeenCalledWith(db, base.credentials, expect.any(String), {
+      addGoogleMeet: true,
+    });
     expect(mocks.registerMeetConsultation).toHaveBeenCalledWith(
       db,
       expect.objectContaining({
-        externalEventId: 'event-1', friendId: 'friend-1',
+        externalEventId: 'event-1',
+        friendId: 'friend-1',
         meetUrl: 'https://meet.google.com/abc-defg-hij',
       }),
       base.accountId,
       base.now,
     );
     expect(mocks.pushViaHarnessProxy).toHaveBeenCalledWith(
-      'https://worker.example.com', 'line-token', 'U123',
+      'https://worker.example.com',
+      'line-token',
+      'U123',
       expect.arrayContaining([expect.objectContaining({ type: 'text' })]),
-      expect.any(String), undefined,
+      expect.any(String),
+      undefined,
     );
   });
 
   test('Googleカレンダー未接続なら内部予約を作らない', async () => {
     mocks.getStaffCalendarConnection.mockResolvedValue(null);
     const db = fakeDb();
-    await expect(bookWebinarConsultation(db, {
-      ...base,
-      startsAt: '2026-08-20T01:00:00.000Z',
-      proxyBaseUrl: 'https://worker.example.com',
-    })).rejects.toMatchObject({ code: 'calendar_not_configured', status: 503 });
+    await expect(
+      bookWebinarConsultation(db, {
+        ...base,
+        startsAt: '2026-08-20T01:00:00.000Z',
+        proxyBaseUrl: 'https://worker.example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'calendar_not_configured', status: 503 });
     expect(mocks.syncConfirmedBookingToGoogle).not.toHaveBeenCalled();
   });
 
   test('Meet発行に失敗した予約はcancelledへ戻す', async () => {
     mocks.syncConfirmedBookingToGoogle.mockRejectedValue(new Error('google down'));
     const db = fakeDb();
-    await expect(bookWebinarConsultation(db, {
-      ...base,
-      startsAt: '2026-08-20T01:00:00.000Z',
-      proxyBaseUrl: 'https://worker.example.com',
-    })).rejects.toBeInstanceOf(WebinarConsultationError);
+    await expect(
+      bookWebinarConsultation(db, {
+        ...base,
+        startsAt: '2026-08-20T01:00:00.000Z',
+        proxyBaseUrl: 'https://worker.example.com',
+      }),
+    ).rejects.toBeInstanceOf(WebinarConsultationError);
     const prepare = db.prepare as unknown as ReturnType<typeof vi.fn>;
     expect(prepare.mock.calls.some(([sql]) => String(sql).includes("status='cancelled'"))).toBe(true);
     expect(mocks.pushViaHarnessProxy).not.toHaveBeenCalled();
@@ -182,11 +203,13 @@ describe('bookWebinarConsultation', () => {
   test('LINE通知だけ失敗してもMeet付き確定予約は取り消さない', async () => {
     mocks.pushViaHarnessProxy.mockRejectedValue(new Error('LINE unavailable'));
     const db = fakeDb();
-    await expect(bookWebinarConsultation(db, {
-      ...base,
-      startsAt: '2026-08-20T01:00:00.000Z',
-      proxyBaseUrl: 'https://worker.example.com',
-    })).resolves.toMatchObject({ status: 'confirmed', created: true });
+    await expect(
+      bookWebinarConsultation(db, {
+        ...base,
+        startsAt: '2026-08-20T01:00:00.000Z',
+        proxyBaseUrl: 'https://worker.example.com',
+      }),
+    ).resolves.toMatchObject({ status: 'confirmed', created: true });
     expect(mocks.removeBookingFromGoogle).not.toHaveBeenCalled();
   });
 });

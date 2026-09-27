@@ -10,7 +10,7 @@ import './index.css';
   const root = document.getElementById('root')!;
   root.dataset.pharmacyLiffBuild = PHARMACY_LIFF_BUILD_MARKER;
   try {
-    if (!await initLiff()) {
+    if (!(await initLiff())) {
       root.textContent = 'LINEログインへ移動しています…';
       return;
     }

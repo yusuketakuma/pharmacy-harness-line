@@ -1,0 +1,67 @@
+[
+  {
+    "value": "2020-02-29T00:00:00.000Z",
+    "js": {
+      "status": "released",
+      "releaseAt": "2023-03-01T00:00:00.000Z"
+    },
+    "sql": {
+      "error": "Error: D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR"
+    },
+    "normalized": {
+      "normalized": "2020-02-29T00:00:00.000Z"
+    }
+  },
+  {
+    "value": "2020-02-30T00:00:00.000Z",
+    "js": {
+      "status": "released",
+      "releaseAt": "2023-03-01T00:00:00.000Z"
+    },
+    "sql": {
+      "error": "Error: D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR"
+    },
+    "normalized": {
+      "normalized": "2020-03-01T00:00:00.000Z"
+    }
+  },
+  {
+    "value": "2020-99-99T00:00:00.000Z",
+    "js": {
+      "status": "unknown",
+      "releaseAt": null
+    },
+    "sql": {
+      "error": "Error: D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR"
+    },
+    "normalized": {
+      "normalized": null
+    }
+  },
+  {
+    "value": "2020-01-01T24:00:00.000Z",
+    "js": {
+      "status": "released",
+      "releaseAt": "2023-01-02T00:00:00.000Z"
+    },
+    "sql": {
+      "error": "Error: D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR"
+    },
+    "normalized": {
+      "normalized": "2020-01-02T00:00:00.000Z"
+    }
+  },
+  {
+    "value": "invalid",
+    "js": {
+      "status": "unknown",
+      "releaseAt": null
+    },
+    "sql": {
+      "error": "Error: D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR"
+    },
+    "normalized": {
+      "normalized": null
+    }
+  }
+]

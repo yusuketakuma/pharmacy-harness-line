@@ -26,7 +26,10 @@ const IDENTITY_KEY_SQL = `
 `;
 
 function execSafe(db: Database.Database, sql: string): void {
-  for (const stmt of sql.split(/;\s*(?:\r?\n|$)/).map((s) => s.trim()).filter(Boolean)) {
+  for (const stmt of sql
+    .split(/;\s*(?:\r?\n|$)/)
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     try {
       db.exec(stmt);
     } catch (err) {
@@ -145,22 +148,45 @@ describe('getConversionApprovalQueue', () => {
     insertFriend(sqlite, 'f1', { displayName: 'Alice', userId: 'uid-a' });
     insertAffiliate(sqlite, 'aff1');
     insertPoint(sqlite, 'p1', 800);
-    insertOfferAndLink(sqlite, { offerId: 'off1', offerName: '案件A', affiliateId: 'aff1', refCode: 'rc1' });
+    insertOfferAndLink(sqlite, {
+      offerId: 'off1',
+      offerName: '案件A',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+    });
     insertConversion(sqlite, {
-      id: 'cv1', pointId: 'p1', friendId: 'f1', affiliateId: 'aff1', refCode: 'rc1',
-      approvalStatus: 'pending', createdAt: '2026-02-01T00:00:00.000+09:00',
+      id: 'cv1',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+      approvalStatus: 'pending',
+      createdAt: '2026-02-01T00:00:00.000+09:00',
     });
     // An approved CV and a non-attributed CV that must NOT surface in pending.
     insertConversion(sqlite, {
-      id: 'cv2', pointId: 'p1', friendId: 'f1', affiliateId: 'aff1', refCode: 'rc1',
-      approvalStatus: 'approved', createdAt: '2026-02-02T00:00:00.000+09:00',
+      id: 'cv2',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+      approvalStatus: 'approved',
+      createdAt: '2026-02-02T00:00:00.000+09:00',
     });
     insertConversion(sqlite, {
-      id: 'cv3', pointId: 'p1', friendId: 'f1', affiliateId: null, refCode: null,
-      approvalStatus: null, createdAt: '2026-02-03T00:00:00.000+09:00',
+      id: 'cv3',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: null,
+      refCode: null,
+      approvalStatus: null,
+      createdAt: '2026-02-03T00:00:00.000+09:00',
     });
 
-    const pending = await getConversionApprovalQueue(db, { status: 'pending', identityKeySql: IDENTITY_KEY_SQL });
+    const pending = await getConversionApprovalQueue(db, {
+      status: 'pending',
+      identityKeySql: IDENTITY_KEY_SQL,
+    });
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({
       eventId: 'cv1',
@@ -173,7 +199,10 @@ describe('getConversionApprovalQueue', () => {
       duplicateFlag: false,
     });
 
-    const approved = await getConversionApprovalQueue(db, { status: 'approved', identityKeySql: IDENTITY_KEY_SQL });
+    const approved = await getConversionApprovalQueue(db, {
+      status: 'approved',
+      identityKeySql: IDENTITY_KEY_SQL,
+    });
     expect(approved.map((r) => r.eventId)).toEqual(['cv2']);
   });
 
@@ -185,13 +214,45 @@ describe('getConversionApprovalQueue', () => {
     insertFriend(sqlite, 'f3', { userId: 'lonely-uid' });
     insertAffiliate(sqlite, 'aff1');
     insertPoint(sqlite, 'p1', 100);
-    insertOfferAndLink(sqlite, { offerId: 'off1', offerName: 'O', affiliateId: 'aff1', refCode: 'rc1' });
+    insertOfferAndLink(sqlite, {
+      offerId: 'off1',
+      offerName: 'O',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+    });
 
-    insertConversion(sqlite, { id: 'cv1', pointId: 'p1', friendId: 'f1', affiliateId: 'aff1', refCode: 'rc1', approvalStatus: 'pending', createdAt: '2026-02-01T00:00:00.000+09:00' });
-    insertConversion(sqlite, { id: 'cv2', pointId: 'p1', friendId: 'f2', affiliateId: 'aff1', refCode: 'rc1', approvalStatus: 'pending', createdAt: '2026-02-02T00:00:00.000+09:00' });
-    insertConversion(sqlite, { id: 'cv3', pointId: 'p1', friendId: 'f3', affiliateId: 'aff1', refCode: 'rc1', approvalStatus: 'pending', createdAt: '2026-02-03T00:00:00.000+09:00' });
+    insertConversion(sqlite, {
+      id: 'cv1',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+      approvalStatus: 'pending',
+      createdAt: '2026-02-01T00:00:00.000+09:00',
+    });
+    insertConversion(sqlite, {
+      id: 'cv2',
+      pointId: 'p1',
+      friendId: 'f2',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+      approvalStatus: 'pending',
+      createdAt: '2026-02-02T00:00:00.000+09:00',
+    });
+    insertConversion(sqlite, {
+      id: 'cv3',
+      pointId: 'p1',
+      friendId: 'f3',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+      approvalStatus: 'pending',
+      createdAt: '2026-02-03T00:00:00.000+09:00',
+    });
 
-    const rows = await getConversionApprovalQueue(db, { status: 'pending', identityKeySql: IDENTITY_KEY_SQL });
+    const rows = await getConversionApprovalQueue(db, {
+      status: 'pending',
+      identityKeySql: IDENTITY_KEY_SQL,
+    });
     const flagByEvent = new Map(rows.map((r) => [r.eventId, r.duplicateFlag]));
     expect(flagByEvent.get('cv1')).toBe(true);
     expect(flagByEvent.get('cv2')).toBe(true);
@@ -204,13 +265,42 @@ describe('getConversionApprovalQueue', () => {
     insertAffiliate(sqlite, 'aff1');
     insertAffiliate(sqlite, 'aff2');
     insertPoint(sqlite, 'p1', 100);
-    insertOfferAndLink(sqlite, { offerId: 'off1', offerName: 'O1', affiliateId: 'aff1', refCode: 'rc1' });
-    insertOfferAndLink(sqlite, { offerId: 'off2', offerName: 'O2', affiliateId: 'aff2', refCode: 'rc2' });
+    insertOfferAndLink(sqlite, {
+      offerId: 'off1',
+      offerName: 'O1',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+    });
+    insertOfferAndLink(sqlite, {
+      offerId: 'off2',
+      offerName: 'O2',
+      affiliateId: 'aff2',
+      refCode: 'rc2',
+    });
 
-    insertConversion(sqlite, { id: 'cv1', pointId: 'p1', friendId: 'f1', affiliateId: 'aff1', refCode: 'rc1', approvalStatus: 'pending', createdAt: '2026-02-01T00:00:00.000+09:00' });
-    insertConversion(sqlite, { id: 'cv2', pointId: 'p1', friendId: 'f2', affiliateId: 'aff2', refCode: 'rc2', approvalStatus: 'pending', createdAt: '2026-02-02T00:00:00.000+09:00' });
+    insertConversion(sqlite, {
+      id: 'cv1',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: 'aff1',
+      refCode: 'rc1',
+      approvalStatus: 'pending',
+      createdAt: '2026-02-01T00:00:00.000+09:00',
+    });
+    insertConversion(sqlite, {
+      id: 'cv2',
+      pointId: 'p1',
+      friendId: 'f2',
+      affiliateId: 'aff2',
+      refCode: 'rc2',
+      approvalStatus: 'pending',
+      createdAt: '2026-02-02T00:00:00.000+09:00',
+    });
 
-    const rows = await getConversionApprovalQueue(db, { status: 'pending', identityKeySql: IDENTITY_KEY_SQL });
+    const rows = await getConversionApprovalQueue(db, {
+      status: 'pending',
+      identityKeySql: IDENTITY_KEY_SQL,
+    });
     expect(rows.every((r) => r.duplicateFlag === false)).toBe(true);
   });
 });
@@ -220,11 +310,29 @@ describe('setConversionApproval', () => {
     insertFriend(sqlite, 'f1', { userId: 'u' });
     insertAffiliate(sqlite, 'aff1');
     insertPoint(sqlite, 'p1', 100);
-    insertConversion(sqlite, { id: 'cv1', pointId: 'p1', friendId: 'f1', affiliateId: 'aff1', refCode: null, approvalStatus: 'pending', createdAt: '2026-02-01T00:00:00.000+09:00' });
-    insertConversion(sqlite, { id: 'cv2', pointId: 'p1', friendId: 'f1', affiliateId: null, refCode: null, approvalStatus: null, createdAt: '2026-02-02T00:00:00.000+09:00' });
+    insertConversion(sqlite, {
+      id: 'cv1',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: 'aff1',
+      refCode: null,
+      approvalStatus: 'pending',
+      createdAt: '2026-02-01T00:00:00.000+09:00',
+    });
+    insertConversion(sqlite, {
+      id: 'cv2',
+      pointId: 'p1',
+      friendId: 'f1',
+      affiliateId: null,
+      refCode: null,
+      approvalStatus: null,
+      createdAt: '2026-02-02T00:00:00.000+09:00',
+    });
 
     expect(await setConversionApproval(db, 'cv1', 'approved')).toBe(true);
-    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = 'cv1'`).get() as { approval_status: string };
+    const row = sqlite.prepare(`SELECT approval_status FROM conversion_events WHERE id = 'cv1'`).get() as {
+      approval_status: string;
+    };
     expect(row.approval_status).toBe('approved');
 
     // Non-attributed CV → no update.

@@ -7,20 +7,14 @@ const request = vi.hoisted(() => vi.fn());
 vi.mock('./request.js', () => ({ requestPharmacyJson: request }));
 vi.mock('../../lib/liff-auth.js', () => ({ getLiffId: () => 'liff-a' }));
 
-import {
-  loadPharmacyAccess,
-  PharmacyShellHeader,
-  pharmacyLiffVersion,
-} from './PharmacyShell.js';
+import { loadPharmacyAccess, PharmacyShellHeader, pharmacyLiffVersion } from './PharmacyShell.js';
 
 describe('pharmacy LIFF common shell', () => {
   it('shows the pharmacy, screen, package version, and tenant-preserving back link', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter><PharmacyShellHeader
-        accountName="みどり薬局"
-        screenTitle="受付状況"
-        liffId="2000000000-AbCdEfGh"
-      /></MemoryRouter>,
+      <MemoryRouter>
+        <PharmacyShellHeader accountName="みどり薬局" screenTitle="受付状況" liffId="2000000000-AbCdEfGh" />
+      </MemoryRouter>,
     );
     expect(html).toContain('みどり薬局');
     expect(html).toContain('break-words');
@@ -43,24 +37,36 @@ describe('pharmacy LIFF common shell', () => {
   });
 
   it('keeps enabled features usable when the authenticated history projection fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: {
-        accountName: 'みどり薬局', enabledFeatures: ['pharmacy_info'],
-      } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            accountName: 'みどり薬局',
+            enabledFeatures: ['pharmacy_info'],
+          },
+        }),
+      }),
+    );
     request.mockRejectedValueOnce(new Error('temporary'));
     await expect(loadPharmacyAccess()).resolves.toEqual({
-      accountName: 'みどり薬局', enabledFeatures: ['pharmacy_info'], existingFeatures: [],
+      accountName: 'みどり薬局',
+      enabledFeatures: ['pharmacy_info'],
+      existingFeatures: [],
       existingError: '利用中の機能を確認できませんでした。',
     });
   });
 
   it('fails closed on config errors and keeps retry single-flight and keyboard reachable', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({ success: false }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ success: false }),
+      }),
+    );
     await expect(loadPharmacyAccess()).rejects.toThrow('invalid LIFF config');
     const source = readFileSync(new URL('./PharmacyShell.tsx', import.meta.url), 'utf8');
     expect(source).toContain('if (loadingRef.current) return;');

@@ -39,8 +39,9 @@ describe('V033 isolation evidence inventory', () => {
   });
 
   it('keeps every storage and patient boundary attached to its declared source', () => {
-    for (const row of buildV033IsolationInventory(repoRoot)
-      .filter(({ kind }) => kind === 'storage' || kind === 'patient')) {
+    for (const row of buildV033IsolationInventory(repoRoot).filter(
+      ({ kind }) => kind === 'storage' || kind === 'patient',
+    )) {
       const source = readFileSync(join(repoRoot, row.source), 'utf8');
       expect(source, `${row.id} ${row.sourceToken}`).toContain(row.sourceToken);
     }

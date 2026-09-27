@@ -1,0 +1,10 @@
+# 下書きのLINE利用者境界
+P=W=362737be415b11577535486a6d68f7d67edd728b、primary/dev。C-UI-03をブラウザで追加検証。実製品コード変更なし。
+
+CONFIRMED_BUG/P1（条件: 同一origin/LIFF ID/storageを共有して別LINE利用者が開く）。newPatientDraftKeyはliffIdのみ、PatientIntakePageはloadPatients空のときloadNewPatientDraftで復元。new-patient-scope-run.pyは一時Vite envDirとLIFF mockのgetProfile.userIdをURL合成subject A/Bへ切替、API patientsは両者空。A画面で氏名入力→localStorage保存確認→同じbrowser/pageでBとして起動するとAの未送信氏名を表示。new-patient-scope-browser-red.logはplaywright exit1/1FAIL、wrapper自体exit0（ログ採取正常）。画像new-patient-scope-browser.pngに合成入力がB画面へ復元された状態、親が閲覧確認。実LINEアカウント切替のUI/実WebView storage構成を検証した主張ではない。実PHI/PII不使用、API/LIFFは合成mock。
+
+追加静的懸念: sweepIntakeDraftsはliffId全体のintake keysから現在listにないpatientIdを削除する。別利用者Bの患者一覧でAの下書きを消す形。既存患者のdraft readはserver返却listのIDを使うため任意患者IDの読取りとは異なる。実削除のbrowser再現は未実施。
+
+F27採択案: 新規患者/既存患者下書きとsweepをliffId+認証初期化済みgetLineUserIdで区切る。getLineUserIdはlocal storage区分のみでserver認可代替にしない。新キーは旧sweep prefixと衝突しない別prefixにし、旧key/valueは勝手に削除しない。所有情報のない旧新規患者draftをfirst-claimで移すのは安全でない。旧患者draftの権限と書いた利用者は別であり、移行の根拠を精査する。旧形式を破壊せず保持し、根拠なく別利用者へ復元しない。必要な永久browser回帰は同主体reload復元、別主体分離、Aへ戻った復元、別LIFF分離、B一覧がA下書きを消さない、旧未帰属key保全、storage不可時の編集維持。新しい外部依存/認可API追加は不要。
+
+読み取り: LIFF AGENTS、draftStorage全文、liff-auth全文、PatientIntakePage helper/list/sweep/save、関連draftStorage test/既存browserfixture/Vite/Playwright設定。既存F04UI回帰は再利用可能だが修正後は影響分再実行。temp testcaseは保存byte照合後削除、runner管理server終了/tempdircleanup。fix/全verify/新独立reviewは未実施。

@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), capability: vi.fn(), prepare: vi.fn(), claim: vi.fn(), acknowledge: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  access: vi.fn(),
+  capability: vi.fn(),
+  prepare: vi.fn(),
+  claim: vi.fn(),
+  acknowledge: vi.fn(),
+}));
 vi.mock('../operations-access.js', () => ({ canAccessPharmacyOperationsAccount: mocks.access }));
 vi.mock('../growth-loop/access.js', () => ({ hasPharmacyCapability: mocks.capability }));
 vi.mock('./repository.js', () => ({
@@ -37,7 +43,8 @@ describe('pharmacy web print routes', () => {
     mocks.access.mockResolvedValue(false);
     const response = await app().request(
       '/api/custom/pharmacy/print/submissions/submission-a/prepare?line_account_id=account-b',
-      { method: 'POST' }, env,
+      { method: 'POST' },
+      env,
     );
     expect(response.status).toBe(403);
     expect(mocks.prepare).not.toHaveBeenCalled();
@@ -46,7 +53,11 @@ describe('pharmacy web print routes', () => {
   it('claims before printing and binds the browser operation id server-side', async () => {
     const response = await app().request(
       '/api/custom/pharmacy/print/tasks/task-1/claim?line_account_id=account-a',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operationId: 'session-a' }) },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operationId: 'session-a' }),
+      },
       env,
     );
     expect(response.status).toBe(200);
@@ -57,7 +68,11 @@ describe('pharmacy web print routes', () => {
     mocks.claim.mockResolvedValue(null);
     const response = await app().request(
       '/api/custom/pharmacy/print/tasks/task-1/claim?line_account_id=account-a',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operationId: 'session-b' }) },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operationId: 'session-b' }),
+      },
       env,
     );
     expect(response.status).toBe(409);

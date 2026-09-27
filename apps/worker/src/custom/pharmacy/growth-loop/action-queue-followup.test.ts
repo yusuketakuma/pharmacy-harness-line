@@ -31,14 +31,24 @@ describe('pharmacy action queue medication follow-up deadlines', () => {
     const sqlite = followUpSchema(true);
     try {
       const result = await getPharmacyActionQueue(
-        d1FromSqlite(sqlite), 'account-a', new Date('2026-09-14T03:00:00.000Z'),
+        d1FromSqlite(sqlite),
+        'account-a',
+        new Date('2026-09-14T03:00:00.000Z'),
       );
       const items = result.items.filter((item) => item.domain === 'medicationFollowup');
       expect(items).toEqual([
-        { domain: 'medicationFollowup', status: 'concern', deadline: 'overdue',
-          detailHref: '/patient-intakes?followup=attention' },
-        { domain: 'medicationFollowup', status: 'delivered', deadline: 'upcoming',
-          detailHref: '/patient-intakes?followup=attention' },
+        {
+          domain: 'medicationFollowup',
+          status: 'concern',
+          deadline: 'overdue',
+          detailHref: '/patient-intakes?followup=attention',
+        },
+        {
+          domain: 'medicationFollowup',
+          status: 'delivered',
+          deadline: 'upcoming',
+          detailHref: '/patient-intakes?followup=attention',
+        },
       ]);
     } finally {
       sqlite.close();
@@ -49,14 +59,24 @@ describe('pharmacy action queue medication follow-up deadlines', () => {
     const sqlite = followUpSchema(false);
     try {
       const result = await getPharmacyActionQueue(
-        d1FromSqlite(sqlite), 'account-a', new Date('2026-09-14T03:00:00.000Z'),
+        d1FromSqlite(sqlite),
+        'account-a',
+        new Date('2026-09-14T03:00:00.000Z'),
       );
       const items = result.items.filter((item) => item.domain === 'medicationFollowup');
       expect(items).toEqual([
-        { domain: 'medicationFollowup', status: 'concern', deadline: 'upcoming',
-          detailHref: '/patient-intakes?followup=attention' },
-        { domain: 'medicationFollowup', status: 'delivered', deadline: 'upcoming',
-          detailHref: '/patient-intakes?followup=attention' },
+        {
+          domain: 'medicationFollowup',
+          status: 'concern',
+          deadline: 'upcoming',
+          detailHref: '/patient-intakes?followup=attention',
+        },
+        {
+          domain: 'medicationFollowup',
+          status: 'delivered',
+          deadline: 'upcoming',
+          detailHref: '/patient-intakes?followup=attention',
+        },
       ]);
     } finally {
       sqlite.close();

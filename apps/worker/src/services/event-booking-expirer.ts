@@ -17,9 +17,7 @@ export async function runEventBookingExpirer(
   db: D1Database,
   params: RunEventBookingExpirerParams,
 ): Promise<{ expired: number; idempotencyPurged: number }> {
-  const cutoff = new Date(
-    params.now.getTime() - REQUESTED_EXPIRE_HOURS * 3600_000,
-  ).toISOString();
+  const cutoff = new Date(params.now.getTime() - REQUESTED_EXPIRE_HOURS * 3600_000).toISOString();
   const stale = await db
     .prepare(
       `SELECT b.id

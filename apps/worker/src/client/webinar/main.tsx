@@ -190,7 +190,11 @@ async function apiPost<T>(path: string, body: unknown, ctx: WebinarContext): Pro
 
 function formatJp(epoch: number): string {
   return new Date(epoch * 1000).toLocaleString('ja-JP', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
   });
 }
 
@@ -221,42 +225,53 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
   rateRef.current = rate;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const t0Ref = useRef(0);            // state 受信時の performance.now()
-  const waitT0Ref = useRef(0);        // 待機ルーム受信時の Date.now()
-  const baseOffsetRef = useRef(0);    // state.offsetSeconds
-  const commentIdxRef = useRef(0);    // 次に表示するサクラコメント index
-  const ctaIdxRef = useRef(0);        // 次に表示する CTA カード index
+  const t0Ref = useRef(0); // state 受信時の performance.now()
+  const waitT0Ref = useRef(0); // 待機ルーム受信時の Date.now()
+  const baseOffsetRef = useRef(0); // state.offsetSeconds
+  const commentIdxRef = useRef(0); // 次に表示するサクラコメント index
+  const ctaIdxRef = useRef(0); // 次に表示する CTA カード index
   const openCtaRef = useRef<(card: WebinarCtaCard) => void>(() => undefined);
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
   const stateRef = useRef<WebinarState | null>(null);
   stateRef.current = state;
 
-  const trackFunnelEvent = useCallback((
-    eventType: 'cta_impression' | 'form_open' | 'form_start' | 'field_complete' |
-      'submit_attempt' | 'submit_success' | 'submit_error',
-    card: WebinarCtaCard,
-    fieldName = '',
-  ) => {
-    const current = stateRef.current;
-    if (IS_PREVIEW || !current?.live || current.sessionStartAt === null) return;
-    void apiPost(`/api/liff/webinars/${encodeURIComponent(slug)}/funnel-event`, {
-      sessionStartAt: current.sessionStartAt,
-      eventType,
-      ctaId: card.id,
-      formId: card.formId,
-      fieldName,
-    }, ctx).catch(() => undefined);
-  }, [slug, ctx]);
-
-  const expectedPosition = useCallback(
-    () => baseOffsetRef.current + (performance.now() - t0Ref.current) / 1000,
-    [],
+  const trackFunnelEvent = useCallback(
+    (
+      eventType:
+        | 'cta_impression'
+        | 'form_open'
+        | 'form_start'
+        | 'field_complete'
+        | 'submit_attempt'
+        | 'submit_success'
+        | 'submit_error',
+      card: WebinarCtaCard,
+      fieldName = '',
+    ) => {
+      const current = stateRef.current;
+      if (IS_PREVIEW || !current?.live || current.sessionStartAt === null) return;
+      void apiPost(
+        `/api/liff/webinars/${encodeURIComponent(slug)}/funnel-event`,
+        {
+          sessionStartAt: current.sessionStartAt,
+          eventType,
+          ctaId: card.id,
+          formId: card.formId,
+          fieldName,
+        },
+        ctx,
+      ).catch(() => undefined);
+    },
+    [slug, ctx],
   );
+
+  const expectedPosition = useCallback(() => baseOffsetRef.current + (performance.now() - t0Ref.current) / 1000, []);
 
   const load = useCallback(async () => {
     try {
       const admissionSession = new URLSearchParams(window.location.search).get('sessionStartAt');
-      const path = `/api/liff/webinars/${encodeURIComponent(slug)}` +
+      const path =
+        `/api/liff/webinars/${encodeURIComponent(slug)}` +
         (admissionSession ? `?sessionStartAt=${encodeURIComponent(admissionSession)}` : '');
       const s = await apiGet<WebinarState>(path, ctx);
       if (s.live) {
@@ -314,9 +329,7 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
       const h = Math.floor(remain / 3600);
       const m = Math.floor((remain % 3600) / 60);
       const s = remain % 60;
-      setCountdown(
-        h > 0 ? `${h}時間${String(m).padStart(2, '0')}分` : `${m}分${String(s).padStart(2, '0')}秒`,
-      );
+      setCountdown(h > 0 ? `${h}時間${String(m).padStart(2, '0')}分` : `${m}分${String(s).padStart(2, '0')}秒`);
     }, 1000);
     return () => clearInterval(timer);
   }, [state, load]);
@@ -357,7 +370,9 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
       if (IS_PREVIEW) v.controls = true;
       const seekAndPlay = () => {
         v.currentTime = IS_PREVIEW || src.replay ? 0 : expectedPosition();
-        v.play().then(() => setNeedsTap(true)).catch(() => setNeedsTap(true));
+        v.play()
+          .then(() => setNeedsTap(true))
+          .catch(() => setNeedsTap(true));
       };
       if (v.readyState >= 1) seekAndPlay();
       else v.addEventListener('loadedmetadata', seekAndPlay, { once: true });
@@ -431,19 +446,13 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
       }
       // readyState >= 1 (metadata あり) から補正する。iOS で初期シークが
       // 巻き戻された場合も、この 1 秒 tick が毎回ライブ位置へ戻す。
-      if (
-        !IS_PREVIEW &&
-        video && video.readyState >= 1 && Math.abs(video.currentTime - pos) >= DRIFT_TOLERANCE
-      ) {
+      if (!IS_PREVIEW && video && video.readyState >= 1 && Math.abs(video.currentTime - pos) >= DRIFT_TOLERANCE) {
         video.currentTime = pos;
       }
       // サクラコメント流し込み
       const comments = src.comments;
       const items: ChatItem[] = [];
-      while (
-        commentIdxRef.current < comments.length &&
-        comments[commentIdxRef.current].atSeconds <= pos
-      ) {
+      while (commentIdxRef.current < comments.length && comments[commentIdxRef.current].atSeconds <= pos) {
         const cm: WebinarSakuraComment = comments[commentIdxRef.current];
         items.push({
           key: `s-${commentIdxRef.current}`,
@@ -483,10 +492,7 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
       const pos = baseOffsetRef.current + (Date.now() - waitT0Ref.current) / 1000;
       const comments = src.comments;
       const items: ChatItem[] = [];
-      while (
-        commentIdxRef.current < comments.length &&
-        comments[commentIdxRef.current].atSeconds <= pos
-      ) {
+      while (commentIdxRef.current < comments.length && comments[commentIdxRef.current].atSeconds <= pos) {
         const cm = comments[commentIdxRef.current];
         items.push({ key: `w-${commentIdxRef.current}`, authorName: cm.authorName, body: cm.body });
         commentIdxRef.current += 1;
@@ -505,7 +511,14 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
   useEffect(() => {
     const onVisible = () => {
       const video = videoRef.current;
-      if (!IS_PREVIEW && document.visibilityState === 'visible' && video && stateRef.current?.live && joinedRef.current && !ended) {
+      if (
+        !IS_PREVIEW &&
+        document.visibilityState === 'visible' &&
+        video &&
+        stateRef.current?.live &&
+        joinedRef.current &&
+        !ended
+      ) {
         video.currentTime = expectedPosition();
         // バックグラウンド復帰でブラウザが muted に戻すことがあるので状態を同期
         void video.play().catch(() => undefined);
@@ -522,10 +535,14 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
     const src = state;
     const timer = setInterval(() => {
       const pos = Math.min(Math.floor(expectedPosition()), src.durationSeconds);
-      void apiPost(`/api/liff/webinars/${encodeURIComponent(slug)}/heartbeat`, {
-        sessionStartAt: src.sessionStartAt,
-        positionSeconds: pos,
-      }, ctx).catch(() => undefined);
+      void apiPost(
+        `/api/liff/webinars/${encodeURIComponent(slug)}/heartbeat`,
+        {
+          sessionStartAt: src.sessionStartAt,
+          positionSeconds: pos,
+        },
+        ctx,
+      ).catch(() => undefined);
     }, HEARTBEAT_MS);
     return () => clearInterval(timer);
   }, [state, joined, slug, ctx, expectedPosition, ended]);
@@ -547,16 +564,17 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
     const text = input.trim();
     if (!text) return;
     setInput('');
-    setChat((prev) => [
-      ...prev,
-      { key: `u-${Date.now()}`, authorName: 'あなた', body: text, mine: true },
-    ]);
+    setChat((prev) => [...prev, { key: `u-${Date.now()}`, authorName: 'あなた', body: text, mine: true }]);
     try {
-      await apiPost(`/api/liff/webinars/${encodeURIComponent(slug)}/comments`, {
-        sessionStartAt,
-        atSeconds,
-        body: text,
-      }, ctx);
+      await apiPost(
+        `/api/liff/webinars/${encodeURIComponent(slug)}/comments`,
+        {
+          sessionStartAt,
+          atSeconds,
+          body: text,
+        },
+        ctx,
+      );
     } catch (err) {
       console.warn('comment post failed:', err);
     }
@@ -566,10 +584,14 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
     if (!state?.live) return;
     // クリック記録 (fire-and-forget、プレビューでは送らない)
     if (!IS_PREVIEW) {
-      void apiPost(`/api/liff/webinars/${encodeURIComponent(slug)}/cta-click`, {
-        sessionStartAt: state.sessionStartAt,
-        ctaId: card.id,
-      }, ctx).catch(() => undefined);
+      void apiPost(
+        `/api/liff/webinars/${encodeURIComponent(slug)}/cta-click`,
+        {
+          sessionStartAt: state.sessionStartAt,
+          ctaId: card.id,
+        },
+        ctx,
+      ).catch(() => undefined);
     }
     if (card.kind === 'url' && card.url) {
       if (typeof liff !== 'undefined' && liff.isInClient()) {
@@ -606,7 +628,8 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
           setFormSheet((prev) =>
             prev && prev.phase === 'loading' && prev.cta.id === card.id
               ? {
-                  cta: card, phase: 'error',
+                  cta: card,
+                  phase: 'error',
                   message: 'フォームを読み込めませんでした。もう一度お試しください。',
                 }
               : prev,
@@ -628,9 +651,13 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
 
   const clickCta = () => {
     if (!state?.live || !state.cta) return;
-    void apiPost(`/api/liff/webinars/${encodeURIComponent(slug)}/cta-click`, {
-      sessionStartAt: state.sessionStartAt,
-    }, ctx).catch(() => undefined);
+    void apiPost(
+      `/api/liff/webinars/${encodeURIComponent(slug)}/cta-click`,
+      {
+        sessionStartAt: state.sessionStartAt,
+      },
+      ctx,
+    ).catch(() => undefined);
     const url = state.cta.url;
     if (typeof liff !== 'undefined' && liff.isInClient()) {
       liff.openWindow({ url, external: true });
@@ -742,14 +769,10 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
               disabled={registering}
               onClick={() => void registerSession(t)}
               className={`rounded-full py-3 text-center font-bold active:opacity-80 disabled:opacity-50 ${
-                registered === t
-                  ? 'bg-[#06C755] text-white'
-                  : 'bg-gray-800 text-gray-100'
+                registered === t ? 'bg-[#06C755] text-white' : 'bg-gray-800 text-gray-100'
               }`}
             >
-              {t <= Math.floor(Date.now() / 1000)
-                ? `${formatJp(t)} の回（今すぐ途中参加）`
-                : `${formatJp(t)} の回`}
+              {t <= Math.floor(Date.now() / 1000) ? `${formatJp(t)} の回（今すぐ途中参加）` : `${formatJp(t)} の回`}
               {registered === t ? ' ✅' : ''}
             </button>
           ))}
@@ -807,9 +830,7 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
         {upcoming.length > 0 && (
           <>
             <p className="mt-6 text-sm text-gray-300">
-              {registered !== null
-                ? `✅ ${formatJp(registered)} の回を予約済み`
-                : '次の回を最初から予約する'}
+              {registered !== null ? `✅ ${formatJp(registered)} の回を予約済み` : '次の回を最初から予約する'}
             </p>
             <div className="mt-3 flex w-full max-w-sm flex-col gap-2">
               {visibleUpcoming.map((t) => (
@@ -835,9 +856,7 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
               )}
             </div>
             {registered !== null && (
-              <p className="mt-3 text-xs text-gray-500">
-                開始5分前にLINEでお知らせします。このページは閉じてOKです
-              </p>
+              <p className="mt-3 text-xs text-gray-500">開始5分前にLINEでお知らせします。このページは閉じてOKです</p>
             )}
           </>
         )}
@@ -852,144 +871,138 @@ function WebinarApp({ ctx, slug }: { ctx: WebinarContext; slug: string }) {
   return (
     <div className="flex h-dvh justify-center bg-gray-900 text-white">
       <div className="flex h-full w-full max-w-md flex-col">
-      <div className="relative shrink-0">
-        <video ref={videoRef} className="w-full" playsInline />
-        {!ended && (
-          <span className={`absolute left-2 top-2 rounded px-2 py-0.5 text-xs font-bold ${IS_PREVIEW || state.replay ? 'bg-gray-600' : 'bg-red-600'}`}>
-            {IS_PREVIEW ? 'PREVIEW' : state.replay ? 'REPLAY' : '● LIVE'}
-          </span>
-        )}
-        {!ended && (
-          <button
-            className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1.5 text-lg leading-none"
-            onClick={toggleMute}
-            aria-label={muted ? '音声をONにする' : '音声をOFFにする'}
-          >
-            {muted ? '🔇' : '🔊'}
-          </button>
-        )}
-        {needsTap && muted && !ended && (
-          <button
-            className="absolute inset-0 flex items-center justify-center bg-black/60"
-            onClick={() => {
-              const v = videoRef.current;
-              if (v) {
-                v.muted = false;
-                setMuted(false);
-                void v.play().catch(() => undefined);
-              }
-              setNeedsTap(false);
-            }}
-          >
-            <span className="rounded-full bg-white px-6 py-3 font-bold text-gray-900">
-              タップして音声をON
+        <div className="relative shrink-0">
+          <video ref={videoRef} className="w-full" playsInline />
+          {!ended && (
+            <span
+              className={`absolute left-2 top-2 rounded px-2 py-0.5 text-xs font-bold ${IS_PREVIEW || state.replay ? 'bg-gray-600' : 'bg-red-600'}`}
+            >
+              {IS_PREVIEW ? 'PREVIEW' : state.replay ? 'REPLAY' : '● LIVE'}
             </span>
-          </button>
-        )}
-        {ended && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
-            <p className="text-lg font-bold">配信は終了しました</p>
-            <p className="mt-2 text-sm text-gray-300">ご視聴ありがとうございました</p>
-          </div>
-        )}
-      </div>
-
-      {IS_PREVIEW && (
-        <div className="flex items-center gap-2 border-b border-gray-700 px-3 py-1.5 text-xs">
-          <span className="text-gray-400">速度</span>
-          {PREVIEW_RATES.map((r) => (
+          )}
+          {!ended && (
             <button
-              key={r}
+              className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1.5 text-lg leading-none"
+              onClick={toggleMute}
+              aria-label={muted ? '音声をONにする' : '音声をOFFにする'}
+            >
+              {muted ? '🔇' : '🔊'}
+            </button>
+          )}
+          {needsTap && muted && !ended && (
+            <button
+              className="absolute inset-0 flex items-center justify-center bg-black/60"
               onClick={() => {
                 const v = videoRef.current;
-                if (v) v.playbackRate = r;
-                setRate(r);
+                if (v) {
+                  v.muted = false;
+                  setMuted(false);
+                  void v.play().catch(() => undefined);
+                }
+                setNeedsTap(false);
               }}
-              className={`rounded-full px-2.5 py-1 font-bold ${rate === r ? 'bg-white text-gray-900' : 'bg-gray-800 text-gray-400'}`}
             >
-              {r}x
+              <span className="rounded-full bg-white px-6 py-3 font-bold text-gray-900">タップして音声をON</span>
             </button>
-          ))}
+          )}
+          {ended && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
+              <p className="text-lg font-bold">配信は終了しました</p>
+              <p className="mt-2 text-sm text-gray-300">ご視聴ありがとうございました</p>
+            </div>
+          )}
         </div>
-      )}
 
-      <div ref={chatBoxRef} className="flex-1 overflow-y-auto p-3 text-sm">
-        {chat.map((item) =>
-          item.ctaCard ? (
-            <div
-              key={item.key}
-              className="cta-card wb-card mb-3 p-4"
-            >
-              <p className="text-base font-bold text-gray-900">{item.ctaCard.title}</p>
-              {item.ctaCard.body && (
-                <p className="mt-1 text-sm leading-relaxed text-gray-600">{item.ctaCard.body}</p>
-              )}
+        {IS_PREVIEW && (
+          <div className="flex items-center gap-2 border-b border-gray-700 px-3 py-1.5 text-xs">
+            <span className="text-gray-400">速度</span>
+            {PREVIEW_RATES.map((r) => (
               <button
-                onClick={() => openCta(item.ctaCard!)}
-                className="mt-3 w-full rounded-full bg-[#06C755] py-3 text-center text-base font-bold text-white active:opacity-80"
+                key={r}
+                onClick={() => {
+                  const v = videoRef.current;
+                  if (v) v.playbackRate = r;
+                  setRate(r);
+                }}
+                className={`rounded-full px-2.5 py-1 font-bold ${rate === r ? 'bg-white text-gray-900' : 'bg-gray-800 text-gray-400'}`}
               >
-                {item.ctaCard.buttonLabel}
+                {r}x
               </button>
-            </div>
-          ) : (
-            <div key={item.key} className="mb-2">
-              <span className={item.mine ? 'font-medium text-[#06C755]' : 'font-medium text-gray-400'}>
-                {item.authorName}
-              </span>{' '}
-              <span className="text-gray-100">{item.body}</span>
-            </div>
-          ),
+            ))}
+          </div>
         )}
-      </div>
 
-      {activeCta ? (
-        <button
-          onClick={() => openCta(activeCta)}
-          className="mx-3 mb-2 rounded-full bg-[#06C755] py-3 text-center font-bold text-white active:opacity-80"
-        >
-          {activeCta.buttonLabel}
-        </button>
-      ) : ctaVisible && state.cta ? (
-        <button
-          onClick={clickCta}
-          className="mx-3 mb-2 rounded-full bg-[#06C755] py-3 text-center font-bold text-white active:opacity-80"
-        >
-          {state.cta.label}
-        </button>
-      ) : null}
-
-      {!ended && !state.replay && (
-        <div className="flex gap-2 border-t border-gray-700 p-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void sendComment();
-            }}
-            placeholder="コメントを入力..."
-            maxLength={500}
-            className="flex-1 rounded-full bg-gray-800 px-4 py-2 text-base text-white placeholder-gray-500"
-          />
-          <button
-            onClick={() => void sendComment()}
-            className="rounded-full bg-[#06C755] px-4 py-2 text-sm font-bold active:opacity-80"
-          >
-            送信
-          </button>
+        <div ref={chatBoxRef} className="flex-1 overflow-y-auto p-3 text-sm">
+          {chat.map((item) =>
+            item.ctaCard ? (
+              <div key={item.key} className="cta-card wb-card mb-3 p-4">
+                <p className="text-base font-bold text-gray-900">{item.ctaCard.title}</p>
+                {item.ctaCard.body && <p className="mt-1 text-sm leading-relaxed text-gray-600">{item.ctaCard.body}</p>}
+                <button
+                  onClick={() => openCta(item.ctaCard!)}
+                  className="mt-3 w-full rounded-full bg-[#06C755] py-3 text-center text-base font-bold text-white active:opacity-80"
+                >
+                  {item.ctaCard.buttonLabel}
+                </button>
+              </div>
+            ) : (
+              <div key={item.key} className="mb-2">
+                <span className={item.mine ? 'font-medium text-[#06C755]' : 'font-medium text-gray-400'}>
+                  {item.authorName}
+                </span>{' '}
+                <span className="text-gray-100">{item.body}</span>
+              </div>
+            ),
+          )}
         </div>
-      )}
 
-      {formSheet && (
-        <FormSheet
-          sheet={formSheet}
-          ctx={ctx}
-          slug={slug}
-          onFunnelEvent={(eventType, fieldName) =>
-            trackFunnelEvent(eventType, formSheet.cta, fieldName)}
-          onClose={() => setFormSheet(null)}
-          onSubmitted={(def) => setFormSheet({ cta: formSheet.cta, phase: 'done', def })}
-        />
-      )}
+        {activeCta ? (
+          <button
+            onClick={() => openCta(activeCta)}
+            className="mx-3 mb-2 rounded-full bg-[#06C755] py-3 text-center font-bold text-white active:opacity-80"
+          >
+            {activeCta.buttonLabel}
+          </button>
+        ) : ctaVisible && state.cta ? (
+          <button
+            onClick={clickCta}
+            className="mx-3 mb-2 rounded-full bg-[#06C755] py-3 text-center font-bold text-white active:opacity-80"
+          >
+            {state.cta.label}
+          </button>
+        ) : null}
+
+        {!ended && !state.replay && (
+          <div className="flex gap-2 border-t border-gray-700 p-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void sendComment();
+              }}
+              placeholder="コメントを入力..."
+              maxLength={500}
+              className="flex-1 rounded-full bg-gray-800 px-4 py-2 text-base text-white placeholder-gray-500"
+            />
+            <button
+              onClick={() => void sendComment()}
+              className="rounded-full bg-[#06C755] px-4 py-2 text-sm font-bold active:opacity-80"
+            >
+              送信
+            </button>
+          </div>
+        )}
+
+        {formSheet && (
+          <FormSheet
+            sheet={formSheet}
+            ctx={ctx}
+            slug={slug}
+            onFunnelEvent={(eventType, fieldName) => trackFunnelEvent(eventType, formSheet.cta, fieldName)}
+            onClose={() => setFormSheet(null)}
+            onSubmitted={(def) => setFormSheet({ cta: formSheet.cta, phase: 'done', def })}
+          />
+        )}
       </div>
     </div>
   );
@@ -1016,8 +1029,7 @@ function FormSheet({
   ctx: WebinarContext;
   slug: string;
   onFunnelEvent: (
-    eventType: 'form_start' | 'field_complete' | 'submit_attempt' |
-      'submit_success' | 'submit_error',
+    eventType: 'form_start' | 'field_complete' | 'submit_attempt' | 'submit_success' | 'submit_error',
     fieldName?: string,
   ) => void;
   onClose: () => void;
@@ -1037,9 +1049,7 @@ function FormSheet({
   const hasValue = (value: string | string[] | undefined) =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== '';
 
-  const requiredFields = sheet.phase === 'form'
-    ? sheet.def.fields.filter((field) => field.required)
-    : [];
+  const requiredFields = sheet.phase === 'form' ? sheet.def.fields.filter((field) => field.required) : [];
   const completedRequiredCount = requiredFields.filter((field) => hasValue(values[field.name])).length;
   const remainingRequiredCount = requiredFields.length - completedRequiredCount;
   const canSubmit = sheet.phase === 'form' && remainingRequiredCount === 0;
@@ -1094,14 +1104,12 @@ function FormSheet({
     }
   };
 
-  const inputCls =
-    'w-full min-w-0 rounded border border-gray-300 bg-white px-3 py-2 text-base text-gray-900';
+  const inputCls = 'w-full min-w-0 rounded border border-gray-300 bg-white px-3 py-2 text-base text-gray-900';
   const todayJst = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
   const meetingDateOptions = buildMeetingDateOptions(todayJst);
 
-  const completionUrl = sheet.phase === 'done'
-    ? sheet.def.onSubmitMessageContent?.match(/https?:\/\/[^\s]+/)?.[0] ?? null
-    : null;
+  const completionUrl =
+    sheet.phase === 'done' ? (sheet.def.onSubmitMessageContent?.match(/https?:\/\/[^\s]+/)?.[0] ?? null) : null;
 
   useEffect(() => {
     if (sheet.phase !== 'done') return;
@@ -1174,40 +1182,36 @@ function FormSheet({
     }
   };
 
-  const groupedSlots = consultation?.slots.reduce<Record<string, ConsultationSlot[]>>(
-    (groups, slot) => {
+  const groupedSlots =
+    consultation?.slots.reduce<Record<string, ConsultationSlot[]>>((groups, slot) => {
       (groups[slot.date] ??= []).push(slot);
       return groups;
-    },
-    {},
-  ) ?? {};
+    }, {}) ?? {};
 
-  const formatConsultationDate = (startsAt: string) => new Date(startsAt).toLocaleString('ja-JP', {
-    timeZone: 'Asia/Tokyo',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const formatConsultationDate = (startsAt: string) =>
+    new Date(startsAt).toLocaleString('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
-  const formatSlotDate = (date: string) => new Date(`${date}T00:00:00+09:00`).toLocaleDateString(
-    'ja-JP',
-    { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', weekday: 'short' },
-  );
+  const formatSlotDate = (date: string) =>
+    new Date(`${date}T00:00:00+09:00`).toLocaleDateString('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      month: 'numeric',
+      day: 'numeric',
+      weekday: 'short',
+    });
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <button
-        aria-label="閉じる"
-        className="flex-1 bg-black/40"
-        onClick={onClose}
-      />
+      <button aria-label="閉じる" className="flex-1 bg-black/40" onClick={onClose} />
       <div className="mx-auto flex w-full max-w-md max-h-[75vh] flex-col overflow-hidden rounded-t-2xl bg-white p-5 text-gray-900">
         <div className="mx-auto mb-3 h-1 w-10 rounded bg-gray-300" />
-        {sheet.phase === 'loading' && (
-          <p className="py-8 text-center text-gray-500">読み込み中...</p>
-        )}
+        {sheet.phase === 'loading' && <p className="py-8 text-center text-gray-500">読み込み中...</p>}
         {sheet.phase === 'error' && (
           <div className="py-6 text-center">
             <p className="text-gray-700">{sheet.message}</p>
@@ -1262,39 +1266,35 @@ function FormSheet({
                     <p className="rounded-xl bg-gray-50 p-4 text-center text-sm text-gray-500">
                       現在、選べる枠がありません。
                     </p>
-                  ) : Object.entries(groupedSlots).map(([date, slots]) => (
-                    <section key={date}>
-                      <h3 className="mb-2 text-left text-sm font-bold text-gray-700">
-                        {formatSlotDate(date)}
-                      </h3>
-                      <div className="grid grid-cols-3 gap-2">
-                        {slots.map((slot) => (
-                          <button
-                            key={slot.startsAt}
-                            onClick={() => void bookSlot(slot)}
-                            disabled={bookingStartsAt !== null}
-                            className="rounded-lg border border-[#06C755] bg-white py-2.5 text-sm font-bold text-[#049f45] active:bg-green-50 disabled:opacity-50"
-                          >
-                            {bookingStartsAt === slot.startsAt ? '確定中...' : slot.start}
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
+                  ) : (
+                    Object.entries(groupedSlots).map(([date, slots]) => (
+                      <section key={date}>
+                        <h3 className="mb-2 text-left text-sm font-bold text-gray-700">{formatSlotDate(date)}</h3>
+                        <div className="grid grid-cols-3 gap-2">
+                          {slots.map((slot) => (
+                            <button
+                              key={slot.startsAt}
+                              onClick={() => void bookSlot(slot)}
+                              disabled={bookingStartsAt !== null}
+                              className="rounded-lg border border-[#06C755] bg-white py-2.5 text-sm font-bold text-[#049f45] active:bg-green-50 disabled:opacity-50"
+                            >
+                              {bookingStartsAt === slot.startsAt ? '確定中...' : slot.start}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    ))
+                  )}
                 </div>
                 {consultationError && (
-                  <p className="mt-2 shrink-0 text-center text-sm font-bold text-red-600">
-                    {consultationError}
-                  </p>
+                  <p className="mt-2 shrink-0 text-center text-sm font-bold text-red-600">{consultationError}</p>
                 )}
               </>
             ) : (
               <div className="py-6 text-center">
                 <p className="text-2xl">🎉</p>
                 <p className="mt-2 text-lg font-bold">回答を送信しました</p>
-                <p className="mt-1 text-sm text-gray-500">
-                  空いている15分枠を1つ選んでください。
-                </p>
+                <p className="mt-1 text-sm text-gray-500">空いている15分枠を1つ選んでください。</p>
                 {(consultation?.fallbackUrl || completionUrl) && (
                   <button
                     onClick={() => {
@@ -1306,9 +1306,7 @@ function FormSheet({
                     予約カレンダーを開く
                   </button>
                 )}
-                {consultationError && (
-                  <p className="mt-3 text-sm text-red-600">{consultationError}</p>
-                )}
+                {consultationError && <p className="mt-3 text-sm text-red-600">{consultationError}</p>}
                 <button
                   onClick={onClose}
                   className="mt-4 rounded-full border border-gray-300 px-8 py-2.5 font-bold text-gray-600 active:opacity-80"
@@ -1323,153 +1321,149 @@ function FormSheet({
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto pb-4">
               <h2 className="text-lg font-bold">{sheet.def.name}</h2>
-              {sheet.def.description && (
-                <p className="mt-1 text-sm text-gray-500">{sheet.def.description}</p>
-              )}
+              {sheet.def.description && <p className="mt-1 text-sm text-gray-500">{sheet.def.description}</p>}
               <div className="mt-4 space-y-4 pb-2">
                 {sheet.def.fields.map((f) => {
-                const dateMatch = /^meeting_date_(\d+)$/.exec(f.name);
-                const timeMatch = /^meeting_time_(\d+)$/.exec(f.name);
-                if (
-                  timeMatch &&
-                  sheet.def.fields.some((candidate) => candidate.name === `meeting_date_${timeMatch[1]}`)
-                ) {
-                  return null;
-                }
-                if (dateMatch) {
-                  const order = dateMatch[1];
-                  const timeField = sheet.def.fields.find(
-                    (candidate) => candidate.name === `meeting_time_${order}`,
-                  );
-                  if (timeField) {
-                    return (
-                      <fieldset key={f.name} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                        <legend className="px-1 text-sm font-bold text-gray-700">
-                          第{order}希望
-                          {(f.required || timeField.required) && (
-                            <span className="ml-1 text-red-500">*</span>
-                          )}
-                        </legend>
-                        <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-2">
-                          <label className="block text-xs font-medium text-gray-600">
-                            日付
-                            <select
-                              value={(values[f.name] as string) ?? ''}
-                              onChange={(e) => {
-                                setValue(f.name, e.target.value);
-                                markFieldComplete(f.name, e.target.value);
-                              }}
-                              className={`mt-1 ${inputCls}`}
-                            >
-                              <option value="">日付を選択</option>
-                              {meetingDateOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="block text-xs font-medium text-gray-600">
-                            開始時刻
-                            <select
-                              value={(values[timeField.name] as string) ?? ''}
-                              onChange={(e) => {
-                                setValue(timeField.name, e.target.value);
-                                markFieldComplete(timeField.name, e.target.value);
-                              }}
-                              className={`mt-1 ${inputCls}`}
-                            >
-                              <option value="">選択</option>
-                              {(timeField.options ?? []).map((option) => (
-                                <option key={option} value={option}>{option}</option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-                      </fieldset>
-                    );
+                  const dateMatch = /^meeting_date_(\d+)$/.exec(f.name);
+                  const timeMatch = /^meeting_time_(\d+)$/.exec(f.name);
+                  if (
+                    timeMatch &&
+                    sheet.def.fields.some((candidate) => candidate.name === `meeting_date_${timeMatch[1]}`)
+                  ) {
+                    return null;
                   }
-                }
-                return (
-                <label key={f.name} className="block text-sm">
-                  <span className="font-medium">
-                    {f.label}
-                    {f.required && <span className="ml-1 text-red-500">*</span>}
-                  </span>
-                  {f.type === 'textarea' ? (
-                    <textarea
-                      rows={3}
-                      placeholder={f.placeholder}
-                      value={(values[f.name] as string) ?? ''}
-                      onChange={(e) => setValue(f.name, e.target.value)}
-                      onBlur={(e) => markFieldComplete(f.name, e.target.value)}
-                      className={`mt-1 ${inputCls}`}
-                    />
-                  ) : f.type === 'select' ? (
-                    <select
-                      value={(values[f.name] as string) ?? ''}
-                      onChange={(e) => {
-                        setValue(f.name, e.target.value);
-                        markFieldComplete(f.name, e.target.value);
-                      }}
-                      className={`mt-1 ${inputCls}`}
-                    >
-                      <option value="">選択してください</option>
-                      {(f.options ?? []).map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                  ) : f.type === 'radio' ? (
-                    <div className="mt-1 space-y-1.5">
-                      {(f.options ?? []).map((o) => (
-                        <label key={o} className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name={f.name}
-                            checked={values[f.name] === o}
-                            onChange={() => {
-                              setValue(f.name, o);
-                              markFieldComplete(f.name, o);
-                            }}
-                          />
-                          <span>{o}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : f.type === 'checkbox' ? (
-                    <div className="mt-1 space-y-1.5">
-                      {(f.options ?? []).map((o) => {
-                        const cur = (values[f.name] as string[]) ?? [];
-                        return (
-                          <label key={o} className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={cur.includes(o)}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...cur, o]
-                                  : cur.filter((x) => x !== o);
-                                setValue(f.name, next);
-                                markFieldComplete(f.name, next);
-                              }}
-                            />
-                            <span>{o}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <input
-                      type={f.type}
-                      placeholder={f.placeholder}
-                      value={(values[f.name] as string) ?? ''}
-                      onChange={(e) => setValue(f.name, e.target.value)}
-                      onBlur={(e) => markFieldComplete(f.name, e.target.value)}
-                      className={`mt-1 ${inputCls}`}
-                    />
-                  )}
-                </label>
-                );
+                  if (dateMatch) {
+                    const order = dateMatch[1];
+                    const timeField = sheet.def.fields.find((candidate) => candidate.name === `meeting_time_${order}`);
+                    if (timeField) {
+                      return (
+                        <fieldset key={f.name} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                          <legend className="px-1 text-sm font-bold text-gray-700">
+                            第{order}希望
+                            {(f.required || timeField.required) && <span className="ml-1 text-red-500">*</span>}
+                          </legend>
+                          <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-2">
+                            <label className="block text-xs font-medium text-gray-600">
+                              日付
+                              <select
+                                value={(values[f.name] as string) ?? ''}
+                                onChange={(e) => {
+                                  setValue(f.name, e.target.value);
+                                  markFieldComplete(f.name, e.target.value);
+                                }}
+                                className={`mt-1 ${inputCls}`}
+                              >
+                                <option value="">日付を選択</option>
+                                {meetingDateOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="block text-xs font-medium text-gray-600">
+                              開始時刻
+                              <select
+                                value={(values[timeField.name] as string) ?? ''}
+                                onChange={(e) => {
+                                  setValue(timeField.name, e.target.value);
+                                  markFieldComplete(timeField.name, e.target.value);
+                                }}
+                                className={`mt-1 ${inputCls}`}
+                              >
+                                <option value="">選択</option>
+                                {(timeField.options ?? []).map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        </fieldset>
+                      );
+                    }
+                  }
+                  return (
+                    <label key={f.name} className="block text-sm">
+                      <span className="font-medium">
+                        {f.label}
+                        {f.required && <span className="ml-1 text-red-500">*</span>}
+                      </span>
+                      {f.type === 'textarea' ? (
+                        <textarea
+                          rows={3}
+                          placeholder={f.placeholder}
+                          value={(values[f.name] as string) ?? ''}
+                          onChange={(e) => setValue(f.name, e.target.value)}
+                          onBlur={(e) => markFieldComplete(f.name, e.target.value)}
+                          className={`mt-1 ${inputCls}`}
+                        />
+                      ) : f.type === 'select' ? (
+                        <select
+                          value={(values[f.name] as string) ?? ''}
+                          onChange={(e) => {
+                            setValue(f.name, e.target.value);
+                            markFieldComplete(f.name, e.target.value);
+                          }}
+                          className={`mt-1 ${inputCls}`}
+                        >
+                          <option value="">選択してください</option>
+                          {(f.options ?? []).map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : f.type === 'radio' ? (
+                        <div className="mt-1 space-y-1.5">
+                          {(f.options ?? []).map((o) => (
+                            <label key={o} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={f.name}
+                                checked={values[f.name] === o}
+                                onChange={() => {
+                                  setValue(f.name, o);
+                                  markFieldComplete(f.name, o);
+                                }}
+                              />
+                              <span>{o}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : f.type === 'checkbox' ? (
+                        <div className="mt-1 space-y-1.5">
+                          {(f.options ?? []).map((o) => {
+                            const cur = (values[f.name] as string[]) ?? [];
+                            return (
+                              <label key={o} className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={cur.includes(o)}
+                                  onChange={(e) => {
+                                    const next = e.target.checked ? [...cur, o] : cur.filter((x) => x !== o);
+                                    setValue(f.name, next);
+                                    markFieldComplete(f.name, next);
+                                  }}
+                                />
+                                <span>{o}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <input
+                          type={f.type}
+                          placeholder={f.placeholder}
+                          value={(values[f.name] as string) ?? ''}
+                          onChange={(e) => setValue(f.name, e.target.value)}
+                          onBlur={(e) => markFieldComplete(f.name, e.target.value)}
+                          className={`mt-1 ${inputCls}`}
+                        />
+                      )}
+                    </label>
+                  );
                 })}
               </div>
               {error && <p className="mt-2 text-sm font-bold text-red-600">{error}</p>}
@@ -1491,9 +1485,7 @@ function FormSheet({
                     ? '回答を送信して相談日時を選ぶ'
                     : `あと${remainingRequiredCount}項目を選択`}
               </button>
-              <p className="mt-2 text-center text-xs text-gray-500">
-                送信後、空いている15分枠を選べます
-              </p>
+              <p className="mt-2 text-center text-xs text-gray-500">送信後、空いている15分枠を選べます</p>
             </div>
           </div>
         )}

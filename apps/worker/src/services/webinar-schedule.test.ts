@@ -68,9 +68,7 @@ describe('resolveSession weekly / once', () => {
   });
 
   test('複数ルール重複時は最新開始が勝つ', () => {
-    const r = parseScheduleRules(
-      '[{"type":"daily","time":"20:00"},{"type":"daily","time":"21:00"}]',
-    );
+    const r = parseScheduleRules('[{"type":"daily","time":"20:00"},{"type":"daily","time":"21:00"}]');
     const s = resolveSession(r, DUR, jst(2026, 7, 29, 21, 30));
     expect(s.sessionStartAt).toBe(jst(2026, 7, 29, 21, 0));
   });
@@ -81,13 +79,16 @@ describe('parseScheduleRules', () => {
     expect(parseScheduleRules('not json')).toEqual([]);
   });
   test('不正ルール(時刻形式ミス・未知type)は除外', () => {
-    const r = parseScheduleRules(
-      '[{"type":"daily","time":"25:99"},{"type":"nope"},{"type":"daily","time":"20:00"}]',
-    );
+    const r = parseScheduleRules('[{"type":"daily","time":"25:99"},{"type":"nope"},{"type":"daily","time":"20:00"}]');
     expect(r).toHaveLength(1);
   });
   test('スケジュール空なら常に待機・next null', () => {
     const s = resolveSession([], DUR, jst(2026, 7, 29, 20, 0));
-    expect(s).toEqual({ live: false, sessionStartAt: null, offsetSeconds: null, nextSessionAt: null });
+    expect(s).toEqual({
+      live: false,
+      sessionStartAt: null,
+      offsetSeconds: null,
+      nextSessionAt: null,
+    });
   });
 });

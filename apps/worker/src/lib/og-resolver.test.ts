@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  resolveOgForTrackedLink,
-  resolveOgForEvent,
-  resolveOgForForm,
-  resolveOgForAccount,
-} from './og-resolver';
+import { resolveOgForTrackedLink, resolveOgForEvent, resolveOgForForm, resolveOgForAccount } from './og-resolver';
 
 const account = {
   id: 'a1',
@@ -32,7 +27,13 @@ describe('resolveOgForTrackedLink', () => {
   });
 
   it('falls back to link.name for title when og_title is null', () => {
-    const link = { id: 'l1', name: 'リンク名', og_title: null, og_description: null, og_image_url: null } as any;
+    const link = {
+      id: 'l1',
+      name: 'リンク名',
+      og_title: null,
+      og_description: null,
+      og_image_url: null,
+    } as any;
     const og = resolveOgForTrackedLink(link, account, 'https://e.com/t/l1');
     expect(og.title).toBe('リンク名');
     expect(og.description).toBe('AAA の説明');
@@ -40,7 +41,13 @@ describe('resolveOgForTrackedLink', () => {
   });
 
   it('uses account display_name when og_site_name is null', () => {
-    const link = { id: 'l1', name: 'n', og_title: null, og_description: null, og_image_url: null } as any;
+    const link = {
+      id: 'l1',
+      name: 'n',
+      og_title: null,
+      og_description: null,
+      og_image_url: null,
+    } as any;
     const og = resolveOgForTrackedLink(link, { ...account, og_site_name: null }, 'https://e.com/');
     expect(og.siteName).toBe('AAA 表示名');
   });

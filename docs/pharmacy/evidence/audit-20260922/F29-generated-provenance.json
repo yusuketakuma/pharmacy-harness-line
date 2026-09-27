@@ -1,0 +1,20 @@
+{
+  "P": "797a7cbc56e857a63b104a68cb2bf343bdb8f93d",
+  "command": "pnpm build:mcp",
+  "exit": 0,
+  "sameInstalledDependencies": true,
+  "trackedP": {
+    "sha256": "1a437bc07a447a28413378c6de0e8d738b710565c2d2cac630ccc23b937a2cc2",
+    "bytes": 737017
+  },
+  "regeneratedP": {
+    "sha256": "57f957eb99422f5d65bf6e6965ae2af3ef39eda93c48c4406cbe9a5cd00714f7",
+    "bytes": 1338355
+  },
+  "regeneratedW": {
+    "sha256": "a21cba6068f6807aae9421ef4749ce4111c8f9ab8df04d25d4cfe2d218f17ffa",
+    "bytes": 1338574
+  },
+  "sourceDeltaLines": 43,
+  "lockfileSha256": "2c1a892fa439f08e76fddc1e2f06fe4fe5a450de3cc7f123ce8688db58d3ac86"
+}

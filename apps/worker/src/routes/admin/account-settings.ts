@@ -1,10 +1,5 @@
 import { Hono } from 'hono';
-import {
-  getLinkBaseUrl,
-  setLinkBaseUrl,
-  getTrackedLinkBaseUrl,
-  setTrackedLinkBaseUrl,
-} from '@line-crm/db';
+import { getLinkBaseUrl, setLinkBaseUrl, getTrackedLinkBaseUrl, setTrackedLinkBaseUrl } from '@line-crm/db';
 import type { Env } from '../../index.js';
 
 const accountSettings = new Hono<Env>();
@@ -15,8 +10,10 @@ accountSettings.get('/api/account-settings/test-recipients', async (c) => {
   if (!accountId) return c.json({ success: false, error: 'accountId required' }, 400);
 
   const row = await c.env.DB.prepare(
-    `SELECT value FROM account_settings WHERE line_account_id = ? AND key = 'test_recipients'`
-  ).bind(accountId).first<{ value: string }>();
+    `SELECT value FROM account_settings WHERE line_account_id = ? AND key = 'test_recipients'`,
+  )
+    .bind(accountId)
+    .first<{ value: string }>();
 
   const friendIds: string[] = row ? JSON.parse(row.value) : [];
 
@@ -27,12 +24,14 @@ accountSettings.get('/api/account-settings/test-recipients', async (c) => {
   const friends = await c.env.DB.prepare(
     `SELECT id, display_name, picture_url
        FROM friends
-      WHERE line_account_id = ? AND id IN (${placeholders})`
-  ).bind(accountId, ...friendIds).all<{ id: string; display_name: string; picture_url: string | null }>();
+      WHERE line_account_id = ? AND id IN (${placeholders})`,
+  )
+    .bind(accountId, ...friendIds)
+    .all<{ id: string; display_name: string; picture_url: string | null }>();
 
   return c.json({
     success: true,
-    data: friends.results.map(f => ({
+    data: friends.results.map((f) => ({
       id: f.id,
       displayName: f.display_name,
       pictureUrl: f.picture_url,
@@ -54,7 +53,9 @@ accountSettings.put('/api/account-settings/test-recipients', async (c) => {
       `SELECT COUNT(*) AS count
          FROM friends
         WHERE line_account_id = ? AND id IN (${placeholders})`,
-    ).bind(body.accountId, ...friendIds).first<{ count: number }>();
+    )
+      .bind(body.accountId, ...friendIds)
+      .first<{ count: number }>();
     if ((owned?.count ?? 0) !== friendIds.length) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
@@ -66,11 +67,10 @@ accountSettings.put('/api/account-settings/test-recipients', async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO account_settings (id, line_account_id, key, value, created_at, updated_at)
      VALUES (?, ?, 'test_recipients', ?, ?, ?)
-     ON CONFLICT (line_account_id, key) DO UPDATE SET value = ?, updated_at = ?`
-  ).bind(
-    id, body.accountId, JSON.stringify(friendIds), now, now,
-    JSON.stringify(friendIds), now,
-  ).run();
+     ON CONFLICT (line_account_id, key) DO UPDATE SET value = ?, updated_at = ?`,
+  )
+    .bind(id, body.accountId, JSON.stringify(friendIds), now, now, JSON.stringify(friendIds), now)
+    .run();
 
   return c.json({ success: true });
 });
@@ -94,9 +94,7 @@ accountSettings.get('/api/account-settings/link-base-url', async (c) => {
  * - Trailing slash is stripped before saving.
  */
 accountSettings.put('/api/account-settings/link-base-url', async (c) => {
-  const body = await c.req
-    .json<{ value?: string }>()
-    .catch((): { value?: string } => ({}));
+  const body = await c.req.json<{ value?: string }>().catch((): { value?: string } => ({}));
   const value = typeof body.value === 'string' ? body.value : '';
 
   try {
@@ -118,9 +116,7 @@ accountSettings.get('/api/account-settings/tracked-link-base-url', async (c) => 
 });
 
 accountSettings.put('/api/account-settings/tracked-link-base-url', async (c) => {
-  const body = await c.req
-    .json<{ value?: string }>()
-    .catch((): { value?: string } => ({}));
+  const body = await c.req.json<{ value?: string }>().catch((): { value?: string } => ({}));
   const value = typeof body.value === 'string' ? body.value : '';
 
   try {

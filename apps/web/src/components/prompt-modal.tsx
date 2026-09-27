@@ -1,45 +1,45 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
+import { useState } from 'react';
 
 export interface PromptTemplate {
-  title: string
-  prompt: string
+  title: string;
+  prompt: string;
 }
 
 interface PromptModalProps {
-  isOpen: boolean
-  onClose: () => void
-  prompts: PromptTemplate[]
+  isOpen: boolean;
+  onClose: () => void;
+  prompts: PromptTemplate[];
 }
 
 export default function PromptModal({ isOpen, onClose, prompts }: PromptModalProps) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   const handleCopy = async (text: string, index: number) => {
     try {
-      await navigator.clipboard.writeText(text)
-      setCopiedIndex(index)
-      setTimeout(() => setCopiedIndex(null), 2000)
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
     } catch {
       // Fallback for older browsers
-      const textarea = document.createElement('textarea')
-      textarea.value = text
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-      setCopiedIndex(index)
-      setTimeout(() => setCopiedIndex(null), 2000)
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
     }
-  }
+  };
 
   const toggleExpand = (index: number) => {
-    setExpandedIndex(expandedIndex === index ? null : index)
-  }
+    setExpandedIndex(expandedIndex === index ? null : index);
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -73,7 +73,9 @@ export default function PromptModal({ isOpen, onClose, prompts }: PromptModalPro
                 <span className="text-sm font-medium text-gray-800">{p.title}</span>
                 <svg
                   className={`w-4 h-4 text-gray-400 transition-transform ${expandedIndex === i ? 'rotate-180' : ''}`}
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
@@ -103,8 +105,12 @@ export default function PromptModal({ isOpen, onClose, prompts }: PromptModalPro
                     ) : (
                       <>
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
                         </svg>
                         コピー
                       </>
@@ -122,5 +128,5 @@ export default function PromptModal({ isOpen, onClose, prompts }: PromptModalPro
         </div>
       </div>
     </div>
-  )
+  );
 }

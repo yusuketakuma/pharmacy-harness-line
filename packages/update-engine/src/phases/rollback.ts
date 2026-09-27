@@ -1,10 +1,6 @@
 import type { UpdateContext } from '../types.js';
 import type { EventEmitter } from '../events.js';
-import {
-  deployWorkerVersion,
-  listWorkerBindings,
-  putWorkerScript,
-} from '../cf-api/workers.js';
+import { deployWorkerVersion, listWorkerBindings, putWorkerScript } from '../cf-api/workers.js';
 import { rollbackPagesDeployment } from '../cf-api/pages.js';
 
 /**
@@ -24,10 +20,7 @@ export interface RollbackSnapshot {
 
 const WORKER_SNAPSHOT_PREFIX = 'line-harness-worker-snapshot:v1:';
 
-export function encodeWorkerSnapshot(opts: {
-  bundleUrl: string;
-  versionId: string;
-}): string {
+export function encodeWorkerSnapshot(opts: { bundleUrl: string; versionId: string }): string {
   return WORKER_SNAPSHOT_PREFIX + encodeURIComponent(JSON.stringify(opts));
 }
 
@@ -37,9 +30,10 @@ export function decodeWorkerSnapshot(value: string): {
 } {
   if (!value.startsWith(WORKER_SNAPSHOT_PREFIX)) return { bundleUrl: value };
   try {
-    const parsed = JSON.parse(
-      decodeURIComponent(value.slice(WORKER_SNAPSHOT_PREFIX.length)),
-    ) as { bundleUrl?: unknown; versionId?: unknown };
+    const parsed = JSON.parse(decodeURIComponent(value.slice(WORKER_SNAPSHOT_PREFIX.length))) as {
+      bundleUrl?: unknown;
+      versionId?: unknown;
+    };
     if (typeof parsed.bundleUrl !== 'string' || typeof parsed.versionId !== 'string') {
       throw new Error('missing fields');
     }
@@ -87,11 +81,7 @@ async function readBodyExcerpt(res: Response): Promise<string> {
  * the operator can see exactly which step left the system in a degraded
  * state.
  */
-export async function runRollback(
-  ctx: UpdateContext,
-  snap: RollbackSnapshot,
-  ev: EventEmitter,
-): Promise<void> {
+export async function runRollback(ctx: UpdateContext, snap: RollbackSnapshot, ev: EventEmitter): Promise<void> {
   await ev.emit({ step: 'rollback', status: 'running' });
 
   const workerSnapshot = decodeWorkerSnapshot(snap.snapshotWorkerBundleUrl);

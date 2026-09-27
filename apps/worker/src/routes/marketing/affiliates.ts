@@ -24,7 +24,15 @@ import type { Env } from '../../index.js';
 
 const affiliates = new Hono<Env>();
 
-function serializeAffiliate(row: { id: string; name: string; code: string; commission_rate: number; is_active: number; created_at: string; friend_id?: string | null }) {
+function serializeAffiliate(row: {
+  id: string;
+  name: string;
+  code: string;
+  commission_rate: number;
+  is_active: number;
+  created_at: string;
+  friend_id?: string | null;
+}) {
   return {
     id: row.id,
     name: row.name,
@@ -90,10 +98,7 @@ affiliates.post('/api/affiliates', async (c) => {
 
     // Require at least one of name / code / friendId to identify the affiliate.
     if (!name && !code && !friendId) {
-      return c.json(
-        { success: false, error: 'name, code, or friendId is required' },
-        400,
-      );
+      return c.json({ success: false, error: 'name, code, or friendId is required' }, 400);
     }
 
     // Resolve the friend (if binding) up front: 404 on unknown friend, and use
@@ -134,10 +139,7 @@ affiliates.post('/api/affiliates', async (c) => {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/UNIQUE constraint failed/i.test(msg) && /affiliates\.code/i.test(msg)) {
-          return c.json(
-            { success: false, error: 'このコードは既に使われています' },
-            409,
-          );
+          return c.json({ success: false, error: 'このコードは既に使われています' }, 409);
         }
         throw err;
       }
@@ -162,20 +164,14 @@ affiliates.post('/api/affiliates', async (c) => {
       if (friendId && /UNIQUE constraint failed/i.test(msg)) {
         const existing = await getAffiliateByFriendId(c.env.DB, friendId);
         if (existing) {
-          return c.json(
-            { success: false, error: 'この友だちは既にアフィリエイターです' },
-            409,
-          );
+          return c.json({ success: false, error: 'この友だちは既にアフィリエイターです' }, 409);
         }
       }
       throw err;
     }
 
     // Issue an initial link. Defaults to true when a friend is bound.
-    const shouldIssueLink =
-      body.issueInitialLink !== undefined
-        ? body.issueInitialLink
-        : Boolean(friendId);
+    const shouldIssueLink = body.issueInitialLink !== undefined ? body.issueInitialLink : Boolean(friendId);
 
     let link: { refCode: string; url: string } | undefined;
     if (shouldIssueLink) {
@@ -184,10 +180,7 @@ affiliates.post('/api/affiliates', async (c) => {
       link = { refCode: created.ref_code, url: `${baseUrl}/${created.ref_code}` };
     }
 
-    return c.json(
-      { success: true, data: serializeAffiliate(item), link: link ?? null },
-      201,
-    );
+    return c.json({ success: true, data: serializeAffiliate(item), link: link ?? null }, 201);
   } catch (err) {
     console.error('POST /api/affiliates error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);

@@ -19,17 +19,15 @@ describe('008 custom_065 session rotation family', () => {
 
     db.exec(readFileSync(MIGRATION, 'utf8'));
 
-    expect(db.prepare(
-      `SELECT session_family_hash FROM tenant_admin_sessions`,
-    ).get()).toEqual({ session_family_hash: null });
-    expect(db.prepare(
-      `SELECT session_family_hash FROM platform_admin_sessions`,
-    ).get()).toEqual({ session_family_hash: null });
-    expect(() => db.prepare(
-      `UPDATE tenant_admin_sessions SET session_family_hash = 'short'`,
-    ).run()).toThrow();
-    expect(() => db.prepare(
-      `UPDATE platform_admin_sessions SET session_family_hash = ?`,
-    ).run('A'.repeat(64))).toThrow();
+    expect(db.prepare(`SELECT session_family_hash FROM tenant_admin_sessions`).get()).toEqual({
+      session_family_hash: null,
+    });
+    expect(db.prepare(`SELECT session_family_hash FROM platform_admin_sessions`).get()).toEqual({
+      session_family_hash: null,
+    });
+    expect(() => db.prepare(`UPDATE tenant_admin_sessions SET session_family_hash = 'short'`).run()).toThrow();
+    expect(() =>
+      db.prepare(`UPDATE platform_admin_sessions SET session_family_hash = ?`).run('A'.repeat(64)),
+    ).toThrow();
   });
 });

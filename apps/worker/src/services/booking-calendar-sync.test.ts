@@ -37,11 +37,7 @@ describe('syncConfirmedBookingToGoogle', () => {
       }),
     );
 
-    await syncConfirmedBookingToGoogle(
-      db,
-      {},
-      '01234567-89ab-cdef-0123-456789abcdef',
-    );
+    await syncConfirmedBookingToGoogle(db, {}, '01234567-89ab-cdef-0123-456789abcdef');
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as Record<string, unknown>;
     expect(body).toMatchObject({

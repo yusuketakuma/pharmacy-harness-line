@@ -19,16 +19,14 @@ export async function claimLoginAttempt(
   db: D1Database,
   key: LoginThrottleKey,
   now = new Date(),
-): Promise<
-  { allowed: false } |
-  { allowed: true; failureCount: number; lockedUntil: string | null }
-> {
+): Promise<{ allowed: false } | { allowed: true; failureCount: number; lockedUntil: string | null }> {
   const normalized = normalizedKey(key);
   const nowIso = now.toISOString();
   const windowCutoff = new Date(now.getTime() - WINDOW_MS).toISOString();
   const plus = (milliseconds: number) => new Date(now.getTime() + milliseconds).toISOString();
-  const row = await db.prepare(
-    `INSERT INTO admin_login_throttles
+  const row = await db
+    .prepare(
+      `INSERT INTO admin_login_throttles
        (realm, authority_id, login_id_normalized, failure_count,
         window_started_at, next_allowed_at, locked_until, updated_at)
      VALUES (?, ?, ?, 1, ?, ?, NULL, ?)
@@ -62,37 +60,39 @@ export async function claimLoginAttempt(
             OR admin_login_throttles.locked_until <= ?)
        AND admin_login_throttles.next_allowed_at <= ?
      RETURNING failure_count, locked_until`,
-  ).bind(
-    normalized.realm,
-    normalized.authorityId,
-    normalized.loginId,
-    nowIso,
-    nowIso,
-    nowIso,
-    windowCutoff,
-    windowCutoff,
-    windowCutoff,
-    plus(1000),
-    plus(2000),
-    plus(4000),
-    plus(LOCK_MS),
-    windowCutoff,
-    plus(LOCK_MS),
-    nowIso,
-    nowIso,
-  ).first<{ failure_count: number; locked_until: string | null }>();
+    )
+    .bind(
+      normalized.realm,
+      normalized.authorityId,
+      normalized.loginId,
+      nowIso,
+      nowIso,
+      nowIso,
+      windowCutoff,
+      windowCutoff,
+      windowCutoff,
+      plus(1000),
+      plus(2000),
+      plus(4000),
+      plus(LOCK_MS),
+      windowCutoff,
+      plus(LOCK_MS),
+      nowIso,
+      nowIso,
+    )
+    .first<{ failure_count: number; locked_until: string | null }>();
 
-  return row
-    ? { allowed: true, failureCount: row.failure_count, lockedUntil: row.locked_until }
-    : { allowed: false };
+  return row ? { allowed: true, failureCount: row.failure_count, lockedUntil: row.locked_until } : { allowed: false };
 }
 
 export function clearLoginThrottleStatement(db: D1Database, key: LoginThrottleKey) {
   const normalized = normalizedKey(key);
-  return db.prepare(
-    `DELETE FROM admin_login_throttles
+  return db
+    .prepare(
+      `DELETE FROM admin_login_throttles
       WHERE realm = ? AND authority_id = ? AND login_id_normalized = ?`,
-  ).bind(normalized.realm, normalized.authorityId, normalized.loginId);
+    )
+    .bind(normalized.realm, normalized.authorityId, normalized.loginId);
 }
 
 export async function clearLoginThrottle(db: D1Database, key: LoginThrottleKey): Promise<void> {

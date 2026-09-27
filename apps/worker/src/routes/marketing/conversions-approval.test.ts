@@ -43,8 +43,10 @@ const tenantDb = {
           return { id: 'tenant-generic', tenant_code: 'generic', display_name: 'Generic' };
         }
         if (sql.includes('FROM tenant_staff_memberships')) return { role: 'owner' };
-        if (sql.includes('FROM friends AS friend') ||
-            (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities'))) {
+        if (
+          sql.includes('FROM friends AS friend') ||
+          (sql.includes('FROM tenant_line_accounts') && !sql.includes('pharmacy_account_capabilities'))
+        ) {
           return { ok: 1 };
         }
         return null;
@@ -161,16 +163,8 @@ describe('PATCH /api/conversions/events/:id/approval', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { approvalStatus: string } };
     expect(body.data.approvalStatus).toBe('approved');
-    expect(dbMocks.setConversionApproval).toHaveBeenCalledWith(
-      expect.anything(),
-      'ev-1',
-      'approved',
-    );
-    expect(dbMocks.syncAffiliateConversionMileage).toHaveBeenCalledWith(
-      expect.anything(),
-      'ev-1',
-      'approved',
-    );
+    expect(dbMocks.setConversionApproval).toHaveBeenCalledWith(expect.anything(), 'ev-1', 'approved');
+    expect(dbMocks.syncAffiliateConversionMileage).toHaveBeenCalledWith(expect.anything(), 'ev-1', 'approved');
   });
 
   it('notifies the affiliate on approval', async () => {
@@ -240,11 +234,7 @@ describe('PATCH /api/conversions/events/:id/approval', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { approvalStatus: string } };
     expect(body.data.approvalStatus).toBe('approved');
-    expect(dbMocks.syncAffiliateConversionMileage).toHaveBeenCalledWith(
-      expect.anything(),
-      'ev-dup',
-      'approved',
-    );
+    expect(dbMocks.syncAffiliateConversionMileage).toHaveBeenCalledWith(expect.anything(), 'ev-dup', 'approved');
     // Critical: notify must NOT be called for an idempotent no-op
     expect(notifyAffiliateApproval).not.toHaveBeenCalled();
     expect(dbMocks.getConversionApprovalNotifyInfo).not.toHaveBeenCalled();

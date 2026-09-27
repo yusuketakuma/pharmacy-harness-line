@@ -6,15 +6,12 @@ const cryptoMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./encryption.js', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./encryption.js')>(),
+  ...(await importOriginal<typeof import('./encryption.js')>()),
   openPatientIntakeField: cryptoMocks.open,
   sealPatientIntakeField: cryptoMocks.seal,
 }));
 
-import {
-  preparePatientIntakeEnvelopeStatements,
-  resolvePatientIntakeCryptoScope,
-} from './envelopes.js';
+import { preparePatientIntakeEnvelopeStatements, resolvePatientIntakeCryptoScope } from './envelopes.js';
 
 describe('patient intake envelope statements', () => {
   it('activates v2 only when both the separate key and explicit version are valid', () => {
@@ -29,13 +26,19 @@ describe('patient intake envelope statements', () => {
       rootSecretV2: bindings.PHARMACY_PHI_KEY_V2,
       activeKeyVersion: 2,
     });
-    expect(resolvePatientIntakeCryptoScope({ ...bindings, PHARMACY_PHI_KEY_V2: 'short' }, 'tenant-a'))
-      .toBeNull();
-    expect(resolvePatientIntakeCryptoScope({
-      ...bindings, PHARMACY_PHI_KEY_V2: bindings.PHARMACY_PHI_KEY_V1,
-    }, 'tenant-a')).toBeNull();
-    expect(resolvePatientIntakeCryptoScope({ ...bindings, PHARMACY_PHI_ACTIVE_KEY_VERSION: '3' }, 'tenant-a'))
-      .toBeNull();
+    expect(resolvePatientIntakeCryptoScope({ ...bindings, PHARMACY_PHI_KEY_V2: 'short' }, 'tenant-a')).toBeNull();
+    expect(
+      resolvePatientIntakeCryptoScope(
+        {
+          ...bindings,
+          PHARMACY_PHI_KEY_V2: bindings.PHARMACY_PHI_KEY_V1,
+        },
+        'tenant-a',
+      ),
+    ).toBeNull();
+    expect(
+      resolvePatientIntakeCryptoScope({ ...bindings, PHARMACY_PHI_ACTIVE_KEY_VERSION: '3' }, 'tenant-a'),
+    ).toBeNull();
   });
 
   it('optionally verifies every sealed field before preparing the inserts', async () => {
@@ -46,7 +49,8 @@ describe('patient intake envelope statements', () => {
       ciphertext: `cipher:${plaintext}`,
     }));
     cryptoMocks.open.mockImplementation(async (envelope: { ciphertext: string }) =>
-      envelope.ciphertext.slice('cipher:'.length));
+      envelope.ciphertext.slice('cipher:'.length),
+    );
     const bind = vi.fn((...values: unknown[]) => ({ values }));
     const db = { prepare: vi.fn(() => ({ bind })) } as unknown as D1Database;
 
@@ -83,22 +87,24 @@ describe('patient intake envelope statements', () => {
     const prepare = vi.fn();
     const db = { prepare } as unknown as D1Database;
 
-    await expect(preparePatientIntakeEnvelopeStatements(
-      db,
-      {
-        id: 'response-a',
-        line_account_id: 'account-a',
-        owner_friend_id: 'friend-a',
-        patient_id: 'patient-a',
-        revision: 2,
-        schema_version: 1,
-        patient_snapshot_json: '{"name":"synthetic"}',
-        answers_json: '{"allergiesStatus":"none"}',
-      },
-      { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
-      '2026-08-22T00:00:00.000Z',
-      true,
-    )).rejects.toThrow('byte mismatch');
+    await expect(
+      preparePatientIntakeEnvelopeStatements(
+        db,
+        {
+          id: 'response-a',
+          line_account_id: 'account-a',
+          owner_friend_id: 'friend-a',
+          patient_id: 'patient-a',
+          revision: 2,
+          schema_version: 1,
+          patient_snapshot_json: '{"name":"synthetic"}',
+          answers_json: '{"allergiesStatus":"none"}',
+        },
+        { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
+        '2026-08-22T00:00:00.000Z',
+        true,
+      ),
+    ).rejects.toThrow('byte mismatch');
 
     expect(prepare).not.toHaveBeenCalled();
   });

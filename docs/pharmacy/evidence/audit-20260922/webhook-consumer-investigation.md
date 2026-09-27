@@ -1,0 +1,21 @@
+# WEBHOOK-CONSUMER-20260922-01
+
+P/W=385bd61f1d352c2fceff30bd8e20cbda4a00ab82、primary、read-only調査。製品変更・新test実行・外部操作・commit/patchなし。PLANS/evidence既存差分保全。前回F15で1–532の入口/inboxを読取り、今回はwebhook.ts524–末尾、medication-followup/webhook.ts全体、repository861–1008/456–504/586–728、outbound-line-delivery110–240/450–499/626–789を確認。全module/全consumerレビューと同一視しない。
+
+確認した経路:
+- 署名検証済みaccount/tenantがhandleEventへ渡される。followはaccount付きupsertFriendとfollowEventId/occurredAt。pharmacy mode判定後は汎用scenario/紹介push/イベントバスに進まない。unfollowは同account+event時刻/id付き更新。
+- postbackはaccount付きfriend解決、tenant/account/webhookEventId由来の固定messages_log ID。薬局modeでは服薬postbackへ渡しgeneric auto-reply/fireEventは非実行。薬局textも保存/unread更新で終了しcross-account導線へ進まない。
+- 非text画像はdeterministic R2keyのconsumerを呼び、保存成功時にaccount/tenant/messageIdのtrackingをINSERT OR IGNORE。tracking失敗はinbox再試行へ伝播。画像保存helperの内部全経路は今回未確認。
+- generic cross-account送信は同user_id、別account、following、active account/tenant、同tenant JOIN+JS照合。宛先のprovider_line_user_idとそのaccountの復号済tokenを使用。retryKeyは送信元/宛先account+tenant+webhookEventId由来。各target送信結果がsent/already_sentの場合だけ確認返信へ進む。
+- 送信前エラーは再試行に戻す。確認replyが実際に試行された後のエラーはinbox側でtokenを盲目的に再利用しない。outbound ledgerはprepare_token/attempt_count/CASでreply所有権を絞り、attempt後の不明結果はretired/reconciliationに分離。pushは保存済requestと固定retry_keyを再利用し、acceptedはalready_sent。prepare後payload読取りはoperationId単独だが、先行row読取りでtenant/accountを検査する。書込みや公開boundaryの新規越境を断定する根拠なし。
+- 服薬postback parser→respondToMedicationFollowUpはaccount/friend/patient owner一致、非archiveとpatientAuthorityPredicateを確認。再送keyはwebhook:eventId。新回答はdelivered+expectedVersionでtransitionへ。event INSERTと状態UPDATEの双方に患者所有者/authority predicateとversion条件があり、事前読取りだけの認可ではない。staff/contactの全遷移は今回対象外。
+
+既存証拠を再利用: integration-F15-verify.logのwebhook-durable-inbox16tests、outbound-line-delivery35tests、pharmacy-lifecycle7/mode7が同sourceでPASS。durable-inbox307–340の後続失敗→再実行でmessages_log/engagement/mileage各1件、528–561の同event重複抑止/他tenant分離assertを実際に読取った。generic再試行fixtureはpharmacy capability CHECKを一時無効化してgeneric状態をseedするため、これ単独で本番pharmacy経路を証明しない。テスト総数だけで完了にしない。
+
+残る確認:
+- incoming-image内部/R2 tombstoneとinbox再試行、紹介ref_code→route/template/scenarioの所属契約、event-bus全side effectsは未完。
+- pushはreplyと異なりprepare時刻を後続attempt条件にも使う。長いDB遅延中にprovider retry horizonを越えるケースは未再現のEVIDENCE_BASED_CONCERN。現実の上限/遅延条件未確認、盲目的なtimeout変更なし。
+- JSON nullはenvelope shape確認時にproperty accessが投げる可能性を静的に確認したが、このturnでは再現/期待応答契約を詰めていない。次の入口異常系候補。
+- inbox leaseはsettlement所有権をguardするが全side-effectを同transactionにできない。各consumer固有idempotencyが必要。全side effect exactly-onceとは主張しない。
+
+新確定欠陥なし、C02/C03/C05/C07/C10/X04の限定証拠追加。全体Goal/独立レビューは未完。次は上記未確認consumerの具体的経路を照合する。

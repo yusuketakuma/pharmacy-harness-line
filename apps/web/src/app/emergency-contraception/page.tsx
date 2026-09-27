@@ -1,1 +1,1 @@
-export { default } from '@/custom/pharmacy/emergency-contraception/EmergencyContraceptionAdminPage'
+export { default } from '@/custom/pharmacy/emergency-contraception/EmergencyContraceptionAdminPage';

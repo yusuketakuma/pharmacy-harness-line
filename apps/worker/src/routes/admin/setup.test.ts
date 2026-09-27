@@ -6,8 +6,10 @@ function app(pharmacyInstall: boolean) {
   const root = new Hono<{ Bindings: { DB: D1Database } }>();
   root.route('/', setup);
   const statement = {
-    bind() { return this; },
-    first: async <T>() => (pharmacyInstall ? { ok: 1 } as T : null),
+    bind() {
+      return this;
+    },
+    first: async <T>() => (pharmacyInstall ? ({ ok: 1 } as T) : null),
   };
   return {
     root,

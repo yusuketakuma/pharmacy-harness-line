@@ -27,15 +27,23 @@ const readyService: EmergencyServiceOverview = {
     retention_days: 90,
     privacy_policy_url: 'https://example.com/privacy',
     privacy_contact: 'privacy@example.com',
-    text_v2: '申告内容は来局時に薬剤師が対面で再確認し、最終的な判断は店頭で薬剤師が行います。'
-      + '申告内容の保存期間は90日間です。薬剤師が作成する販売記録は法令により3年間保存され、'
-      + '申告内容とは別に扱われます。服用から3週間後を目安に、検査薬または受診で結果をご確認いただくご案内をお送りします。',
+    text_v2:
+      '申告内容は来局時に薬剤師が対面で再確認し、最終的な判断は店頭で薬剤師が行います。' +
+      '申告内容の保存期間は90日間です。薬剤師が作成する販売記録は法令により3年間保存され、' +
+      '申告内容とは別に扱われます。服用から3週間後を目安に、検査薬または受診で結果をご確認いただくご案内をお送りします。',
     content_hash: 'test-content-hash',
   },
   manufacturer_check_url: 'https://example.com/self-check',
   partner_clinic_url: null,
   support_center_url: null,
-  slots: [{ id: 'slot-1', starts_at: '2026-08-18T10:00:00+09:00', ends_at: '2026-08-18T10:30:00+09:00', remaining: 1 }],
+  slots: [
+    {
+      id: 'slot-1',
+      starts_at: '2026-08-18T10:00:00+09:00',
+      ends_at: '2026-08-18T10:30:00+09:00',
+      remaining: 1,
+    },
+  ],
 };
 
 const completeDraft: EmergencyIntakeDraft = {
@@ -75,19 +83,27 @@ describe('emergency contraception patient page', () => {
     expect(canSubmitEmergencyIntake({ ...consented, safeContactMode: '' })).toBe(false);
     expect(canSubmitEmergencyIntake({ ...consented, age: '15.5' })).toBe(false);
     expect(canSubmitEmergencyIntake({ ...consented, intercourseAt: '' })).toBe(false);
-    expect(canSubmitEmergencyIntake({ ...consented, intercourseTimeUnknown: true, intercourseAt: '2026-08-18' })).toBe(true);
+    expect(
+      canSubmitEmergencyIntake({
+        ...consented,
+        intercourseTimeUnknown: true,
+        intercourseAt: '2026-08-18',
+      }),
+    ).toBe(true);
   });
 
   it('sends local form time as explicit JST instead of the device timezone', () => {
-    expect(toIntercourseAtPayload({ intercourseAt: '2026-08-18T10:00', intercourseTimeUnknown: false }))
-      .toBe('2026-08-18T10:00:00+09:00');
-    expect(toIntercourseAtPayload({ intercourseAt: '2026-08-18', intercourseTimeUnknown: true }))
-      .toBe('2026-08-18');
+    expect(toIntercourseAtPayload({ intercourseAt: '2026-08-18T10:00', intercourseTimeUnknown: false })).toBe(
+      '2026-08-18T10:00:00+09:00',
+    );
+    expect(toIntercourseAtPayload({ intercourseAt: '2026-08-18', intercourseTimeUnknown: true })).toBe('2026-08-18');
   });
 
   it('communicates a provisional, no-guarantee flow with external alternatives', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter><EmergencyContraceptionPage /></MemoryRouter>,
+      <MemoryRouter>
+        <EmergencyContraceptionPage />
+      </MemoryRouter>,
     );
     expect(html).toContain('緊急避妊薬');
     expect(html).toContain('仮受付');
@@ -98,18 +114,22 @@ describe('emergency contraception patient page', () => {
   });
 
   it('keeps the mounted intake form content-neutral about the drug, intercourse, and pregnancy', () => {
-    const renderForm = (draft: EmergencyIntakeDraft) => renderToStaticMarkup(
-      <EmergencyIntakeForm
-        draft={draft}
-        service={readyService}
-        busy={null}
-        onDraftChange={() => {}}
-        onSubmit={async () => {}}
-      />,
-    );
+    const renderForm = (draft: EmergencyIntakeDraft) =>
+      renderToStaticMarkup(
+        <EmergencyIntakeForm
+          draft={draft}
+          service={readyService}
+          busy={null}
+          onDraftChange={() => {}}
+          onSubmit={async () => {}}
+        />,
+      );
     const withTime = renderForm({ ...completeDraft, consentAccepted: true });
     const dateOnly = renderForm({
-      ...completeDraft, consentAccepted: true, intercourseTimeUnknown: true, intercourseAt: '2026-08-18',
+      ...completeDraft,
+      consentAccepted: true,
+      intercourseTimeUnknown: true,
+      intercourseAt: '2026-08-18',
     });
 
     expect(withTime).toContain('対象となる出来事の日時');
@@ -119,8 +139,9 @@ describe('emergency contraception patient page', () => {
       expect(html).not.toMatch(/性交|妊娠|緊急避妊/);
     }
 
-    expect(() => toIntercourseAtPayload({ intercourseAt: '', intercourseTimeUnknown: false }))
-      .toThrow(/^対象となる出来事の日時/);
+    expect(() => toIntercourseAtPayload({ intercourseAt: '', intercourseTimeUnknown: false })).toThrow(
+      /^対象となる出来事の日時/,
+    );
   });
 
   it('renders the v2 consent text with the 3-year sale record notice and stays content-neutral', () => {
@@ -151,21 +172,27 @@ describe('emergency contraception patient page', () => {
     expect(source).not.toContain('setInterval');
     expect(source).toContain('pharmacyUuid()');
     expect(source).toContain('retainEmergencyCreateOperation');
-    expect(source).toContain('typeof status === \'number\'');
-    expect(app).toContain("const DeferredEmergencyContraceptionPage = lazy(() => import('./custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js')); // custom:pharmacy-emergency-contraception");
-    expect(app).toContain('fallback={<p role="status"');
+    expect(source).toContain("typeof status === 'number'");
+    expect(app).toMatch(
+      /const DeferredEmergencyContraceptionPage = lazy\(\s*\(\) => import\('\.\/custom\/pharmacy\/emergency-contraception\/EmergencyContraceptionPage\.js'\),?\s*\);\s*\/\/ custom:pharmacy-emergency-contraception/,
+    );
+    expect(app).toMatch(/fallback=\{\s*<p role="status"/);
     expect(app).toContain('画面を読み込んでいます…');
-    expect(app).not.toContain("import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'");
-    expect(app).toContain('<Route path="/pharmacy/emergency-contraception" element={<PharmacyPage screenTitle="緊急避妊薬" capability="emergency_contraception" allowExisting><EmergencyContraceptionPage /></PharmacyPage>} /> {/* custom:pharmacy-emergency-contraception */}');
+    expect(app).not.toContain(
+      "import EmergencyContraceptionPage from './custom/pharmacy/emergency-contraception/EmergencyContraceptionPage.js'",
+    );
+    expect(app).toMatch(
+      /path="\/pharmacy\/emergency-contraception"[\s\S]*?<EmergencyContraceptionPage \/>[\s\S]*?custom:pharmacy-emergency-contraception/,
+    );
   });
 
   it('shows a server-timed status card with the next patient action', () => {
-    expect(emergencyNextAction('provisional')).toContain('薬剤師の確認')
-    expect(emergencyNextAction('reviewed')).toContain('本人が来局')
-    expect(emergencyNextAction('expired')).toContain('新しい対応枠')
+    expect(emergencyNextAction('provisional')).toContain('薬剤師の確認');
+    expect(emergencyNextAction('reviewed')).toContain('本人が来局');
+    expect(emergencyNextAction('expired')).toContain('新しい対応枠');
     const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('サーバー確認時刻')
-    expect(source).toContain('serverNow')
+    expect(source).toContain('サーバー確認時刻');
+    expect(source).toContain('serverNow');
   });
 
   it('keeps the freshest list read authoritative and drops a dead confirm step', () => {
@@ -182,14 +209,29 @@ describe('emergency contraception patient page', () => {
 
 describe('emergency intake idempotent operations', () => {
   const payload: CreateEmergencyIntakeInput = {
-    slotId: 'slot-1', intercourseAt: '2026-08-18T10:00:00+09:00', intercourseTimeUnknown: false,
-    age: 20, recentPurchaseCount: 0, patientWillVisit: true, acceptsInPersonDose: true,
-    lngAllergy: false, liverDisease: false, currentlyPregnant: false, breastfeeding: false,
-    underMedicalTreatment: false, drugAllergyHistory: false, heartKidneyGiDisease: false,
-    stJohnsWort: false, lastMenstruationDate: null,
+    slotId: 'slot-1',
+    intercourseAt: '2026-08-18T10:00:00+09:00',
+    intercourseTimeUnknown: false,
+    age: 20,
+    recentPurchaseCount: 0,
+    patientWillVisit: true,
+    acceptsInPersonDose: true,
+    lngAllergy: false,
+    liverDisease: false,
+    currentlyPregnant: false,
+    breastfeeding: false,
+    underMedicalTreatment: false,
+    drugAllergyHistory: false,
+    heartKidneyGiDisease: false,
+    stJohnsWort: false,
+    lastMenstruationDate: null,
     menstruationSignals: { ...EMPTY_EMERGENCY_DRAFT.menstruationSignals, noneApply: true },
-    idDocumentAvailable: null, safeContactMode: 'neutral_line', consentVersion: 'v1',
-    consentContentHash: 'hash', manufacturerCheckAcknowledged: true, idempotencyKey: '',
+    idDocumentAvailable: null,
+    safeContactMode: 'neutral_line',
+    consentVersion: 'v1',
+    consentContentHash: 'hash',
+    manufacturerCheckAcknowledged: true,
+    idempotencyKey: '',
   };
 
   it('reuses the same key and frozen payload only for the same create attempt', () => {
@@ -296,8 +338,12 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     expect(EMPTY_EMERGENCY_DRAFT.currentlyPregnant).toBe(false);
     expect(EMPTY_EMERGENCY_DRAFT.breastfeeding).toBe(false);
     const draft = {
-      ...completeDraft, consentAccepted: true,
-      lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
+      ...completeDraft,
+      consentAccepted: true,
+      lngAllergy: true,
+      liverDisease: true,
+      currentlyPregnant: true,
+      breastfeeding: true,
     };
     expect(canSubmitEmergencyIntake(draft)).toBe(true);
     expect(emergencyIntakeFieldErrors(draft)).toEqual({});
@@ -305,11 +351,21 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
 
   it('renders neutral-wording checkboxes for the flags without the banned vocabulary', () => {
     const draft = {
-      ...completeDraft, consentAccepted: true,
-      lngAllergy: true, liverDisease: true, currentlyPregnant: true, breastfeeding: true,
+      ...completeDraft,
+      consentAccepted: true,
+      lngAllergy: true,
+      liverDisease: true,
+      currentlyPregnant: true,
+      breastfeeding: true,
     };
     const html = renderToStaticMarkup(
-      <EmergencyIntakeForm draft={draft} service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+      <EmergencyIntakeForm
+        draft={draft}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
     );
     expect(html).toContain('レボノルゲストレルを含む薬でアレルギー症状が出たことがある');
     expect(html).toContain('肝臓病の診断を受けている');
@@ -322,7 +378,10 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     const flagged = renderToStaticMarkup(
       <EmergencyIntakeForm
         draft={{ ...completeDraft, consentAccepted: true, lngAllergy: true }}
-        service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
       />,
     );
     expect(flagged).toContain('産婦人科');
@@ -331,7 +390,10 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     const unflagged = renderToStaticMarkup(
       <EmergencyIntakeForm
         draft={{ ...completeDraft, consentAccepted: true }}
-        service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
       />,
     );
     expect(unflagged).not.toContain('産婦人科');
@@ -340,7 +402,13 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
   it('shows a dosing deadline preview computed client-side from the event time', () => {
     const draft = { ...completeDraft, consentAccepted: true, intercourseAt: '2026-08-18T10:00' };
     const html = renderToStaticMarkup(
-      <EmergencyIntakeForm draft={draft} service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+      <EmergencyIntakeForm
+        draft={draft}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
     );
     expect(html).toMatch(/服用期限[:：].*残り約\d+時間/);
   });
@@ -349,13 +417,34 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     const lateService: EmergencyServiceOverview = {
       ...readyService,
       slots: [
-        { id: 'slot-ok', starts_at: '2026-08-18T11:00:00+09:00', ends_at: '2026-08-18T11:30:00+09:00', remaining: 1 },
-        { id: 'slot-late', starts_at: '2026-08-22T09:00:00+09:00', ends_at: '2026-08-22T09:30:00+09:00', remaining: 1 },
+        {
+          id: 'slot-ok',
+          starts_at: '2026-08-18T11:00:00+09:00',
+          ends_at: '2026-08-18T11:30:00+09:00',
+          remaining: 1,
+        },
+        {
+          id: 'slot-late',
+          starts_at: '2026-08-22T09:00:00+09:00',
+          ends_at: '2026-08-22T09:30:00+09:00',
+          remaining: 1,
+        },
       ],
     };
-    const draft = { ...completeDraft, consentAccepted: true, intercourseAt: '2026-08-18T10:00', slotId: 'slot-ok' };
+    const draft = {
+      ...completeDraft,
+      consentAccepted: true,
+      intercourseAt: '2026-08-18T10:00',
+      slotId: 'slot-ok',
+    };
     const html = renderToStaticMarkup(
-      <EmergencyIntakeForm draft={draft} service={lateService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+      <EmergencyIntakeForm
+        draft={draft}
+        service={lateService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
     );
     expect(html).toContain('期限超過');
     expect(html).toMatch(/<option[^>]*value="slot-late"[^>]*disabled=""/);
@@ -366,7 +455,10 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
     const html = renderToStaticMarkup(
       <EmergencyIntakeForm
         draft={{ ...completeDraft, consentAccepted: true }}
-        service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
       />,
     );
     expect(html).toContain('回数によって受付をお断りするものではありません。安全のための確認です。');
@@ -384,7 +476,7 @@ describe('emergency contraception phase A flags (ECF-3)', () => {
 
   it('keeps the support center link at the minimum tap target', () => {
     const source = readFileSync(new URL('./EmergencyContraceptionPage.tsx', import.meta.url), 'utf8');
-    expect(source).toMatch(/supportCenterUrl && <a[^>]*pharmacy-control/);
+    expect(source).toMatch(/supportCenterUrl &&\s*\(\s*<a[^>]*pharmacy-control/);
   });
 });
 
@@ -411,8 +503,12 @@ describe('emergency contraception phase B fields (ECF-6)', () => {
 
   it('never blocks submission based on B/C/D3 answers', () => {
     const draft = {
-      ...completeDraft, consentAccepted: true,
-      underMedicalTreatment: true, drugAllergyHistory: true, heartKidneyGiDisease: true, stJohnsWort: true,
+      ...completeDraft,
+      consentAccepted: true,
+      underMedicalTreatment: true,
+      drugAllergyHistory: true,
+      heartKidneyGiDisease: true,
+      stJohnsWort: true,
       lastMenstruationDateUnknown: true,
       menstruationSignals: { ...noSignals, unknown: true },
       idDocumentAvailable: 'no' as const,
@@ -423,14 +519,16 @@ describe('emergency contraception phase B fields (ECF-6)', () => {
 
   it('flags a C2 exclusivity conflict without blocking other fields', () => {
     const conflicted = {
-      ...completeDraft, consentAccepted: true,
+      ...completeDraft,
+      consentAccepted: true,
       menstruationSignals: { ...noSignals, noneApply: true, overOneMonthNoPeriod: true },
     };
     expect(emergencyIntakeFieldErrors(conflicted).menstruationSignals).toBeTruthy();
     expect(canSubmitEmergencyIntake(conflicted)).toBe(false);
 
     const clean = {
-      ...completeDraft, consentAccepted: true,
+      ...completeDraft,
+      consentAccepted: true,
       menstruationSignals: { ...noSignals, overOneMonthNoPeriod: true },
     };
     expect(emergencyIntakeFieldErrors(clean).menstruationSignals).toBeUndefined();
@@ -438,12 +536,22 @@ describe('emergency contraception phase B fields (ECF-6)', () => {
 
   it('renders B/C/D3 sections with neutral wording and no banned vocabulary', () => {
     const draft = {
-      ...completeDraft, consentAccepted: true,
-      underMedicalTreatment: true, drugAllergyHistory: true, heartKidneyGiDisease: true, stJohnsWort: true,
+      ...completeDraft,
+      consentAccepted: true,
+      underMedicalTreatment: true,
+      drugAllergyHistory: true,
+      heartKidneyGiDisease: true,
+      stJohnsWort: true,
       menstruationSignals: { ...noSignals, earlierConcernOver3Weeks: true },
     };
     const html = renderToStaticMarkup(
-      <EmergencyIntakeForm draft={draft} service={readyService} busy={null} onDraftChange={() => {}} onSubmit={async () => {}} />,
+      <EmergencyIntakeForm
+        draft={draft}
+        service={readyService}
+        busy={null}
+        onDraftChange={() => {}}
+        onSubmit={async () => {}}
+      />,
     );
     expect(html).toContain('医師の治療を受けている');
     expect(html).toContain('薬でアレルギー症状が出たことがある');

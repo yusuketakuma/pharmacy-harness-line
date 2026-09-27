@@ -1591,7 +1591,8 @@ CREATE TABLE pharmacy_medication_followups (
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL, question_set_version INTEGER NOT NULL DEFAULT 1 CHECK (question_set_version >= 1), response_deadline_at TEXT CHECK (
     response_deadline_at IS NULL OR unixepoch(response_deadline_at) IS NOT NULL
-  ),
+  ), notification_checked_at TEXT
+  CHECK (notification_checked_at IS NULL OR unixepoch(notification_checked_at) IS NOT NULL),
   UNIQUE (id, line_account_id),
   UNIQUE (line_account_id, source_submission_id),
   FOREIGN KEY (patient_id, line_account_id, owner_friend_id)
@@ -1732,7 +1733,8 @@ CREATE TABLE pharmacy_next_intake_expectations (
   version            INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
   created_by         TEXT NOT NULL,
   created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL, notification_checked_at TEXT
+  CHECK (notification_checked_at IS NULL OR unixepoch(notification_checked_at) IS NOT NULL),
   UNIQUE (obligation_id),
   UNIQUE (id, line_account_id),
   CHECK (expected_to >= expected_from),
@@ -2092,7 +2094,8 @@ CREATE TABLE pharmacy_prescription_validities (
   reminder_claimed_at TEXT,
   reminder_sent_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL, notification_checked_at TEXT
+  CHECK (notification_checked_at IS NULL OR unixepoch(notification_checked_at) IS NOT NULL),
   CHECK (valid_until IS NULL OR issued_on IS NULL OR valid_until >= issued_on),
   CHECK (verification_status = 'unverified' OR
     (issued_on IS NOT NULL AND valid_until IS NOT NULL AND
@@ -3315,6 +3318,10 @@ CREATE INDEX idx_pharmacy_continuity_due
 CREATE INDEX idx_pharmacy_continuity_events_obligation
   ON pharmacy_continuity_events (line_account_id, obligation_id, created_at, id);
 
+CREATE INDEX idx_pharmacy_continuity_notification_queue
+  ON pharmacy_next_intake_expectations (COALESCE(notification_checked_at, reminder_at), reminder_at, id)
+  WHERE status IN ('accepted', 'active');
+
 CREATE UNIQUE INDEX idx_pharmacy_continuity_open_patient
   ON pharmacy_continuity_obligations (line_account_id, patient_id)
   WHERE status IN ('active','linked');
@@ -3361,6 +3368,10 @@ CREATE INDEX idx_pharmacy_emergency_sale_records_sold_at
 
 CREATE INDEX idx_pharmacy_emergency_slots_available
   ON pharmacy_emergency_slots (line_account_id, status, starts_at, id);
+
+CREATE INDEX idx_pharmacy_followup_notification_queue
+  ON pharmacy_medication_followups (COALESCE(notification_checked_at, due_at), due_at, id)
+  WHERE status IN ('scheduled', 'due');
 
 CREATE INDEX idx_pharmacy_fulfillment_quotes_decision
   ON pharmacy_fulfillment_quotes (line_account_id, decision, created_at DESC);
@@ -3565,6 +3576,10 @@ CREATE INDEX idx_pharmacy_submission_sources_account
 
 CREATE INDEX idx_pharmacy_tenant_provisioning_tenant
   ON pharmacy_tenant_provisioning_requests (tenant_id, created_at);
+
+CREATE INDEX idx_pharmacy_validity_notification_queue
+  ON pharmacy_prescription_validities (COALESCE(notification_checked_at, reminder_due_at), reminder_due_at, submission_id)
+  WHERE verification_status = 'verified' AND reminder_sent_at IS NULL;
 
 CREATE INDEX idx_pharmacy_webhook_event_receipts_received
   ON pharmacy_webhook_event_receipts (received_at);

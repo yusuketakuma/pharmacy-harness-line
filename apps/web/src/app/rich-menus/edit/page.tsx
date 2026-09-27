@@ -1,42 +1,42 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import { api } from '@/lib/api'
-import { CanvasEditor, type Area } from '@/components/rich-menus/canvas-editor'
-import { AreaProperties } from '@/components/rich-menus/area-properties'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import { api } from '@/lib/api';
+import { CanvasEditor, type Area } from '@/components/rich-menus/canvas-editor';
+import { AreaProperties } from '@/components/rich-menus/area-properties';
 
 type Page = {
-  id: string
-  orderIndex: number
-  name: string
-  aliasId: string
-  lineRichmenuId: string | null
-  imageR2Key: string | null
-  imageContentType: string | null
-  areas: Area[]
-}
+  id: string;
+  orderIndex: number;
+  name: string;
+  aliasId: string;
+  lineRichmenuId: string | null;
+  imageR2Key: string | null;
+  imageContentType: string | null;
+  areas: Area[];
+};
 
 type Group = {
-  id: string
-  accountId: string
-  name: string
-  chatBarText: string
-  size: 'large' | 'compact'
-  defaultPageId: string | null
-  isDefaultForAll: boolean
-  selected: boolean
-  status: 'draft' | 'published'
-  publishingAt: string | null
-  pages: Page[]
-}
+  id: string;
+  accountId: string;
+  name: string;
+  chatBarText: string;
+  size: 'large' | 'compact';
+  defaultPageId: string | null;
+  isDefaultForAll: boolean;
+  selected: boolean;
+  status: 'draft' | 'published';
+  publishingAt: string | null;
+  pages: Page[];
+};
 
 const SIZE_LABEL: Record<Group['size'], string> = {
   large: '2500×1686',
   compact: '2500×843',
-}
+};
 
 export default function RichMenuEditPage() {
   return (
@@ -49,13 +49,13 @@ export default function RichMenuEditPage() {
     >
       <RichMenuEditPageInner />
     </Suspense>
-  )
+  );
 }
 
 function RichMenuEditPageInner() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const groupId = searchParams.get('id') ?? ''
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const groupId = searchParams.get('id') ?? '';
 
   if (!groupId) {
     return (
@@ -65,72 +65,63 @@ function RichMenuEditPageInner() {
           ← 一覧に戻る
         </Link>
       </main>
-    )
+    );
   }
-  return <Editor groupId={groupId} router={router} />
+  return <Editor groupId={groupId} router={router} />;
 }
 
-function Editor({
-  groupId,
-  router,
-}: {
-  groupId: string
-  router: ReturnType<typeof useRouter>
-}) {
-  const [group, setGroup] = useState<Group | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [activePageId, setActivePageId] = useState<string | null>(null)
+function Editor({ groupId, router }: { groupId: string; router: ReturnType<typeof useRouter> }) {
+  const [group, setGroup] = useState<Group | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activePageId, setActivePageId] = useState<string | null>(null);
 
   // フォーム編集用 (group が読めたら反映)
-  const [name, setName] = useState('')
-  const [chatBarText, setChatBarText] = useState('')
-  const [pages, setPages] = useState<Page[]>([])
-  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null)
-  const [preview, setPreview] = useState(false)
-  const [selected, setSelected] = useState(false)
+  const [name, setName] = useState('');
+  const [chatBarText, setChatBarText] = useState('');
+  const [pages, setPages] = useState<Page[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
+  const [selected, setSelected] = useState(false);
 
-  const [saving, setSaving] = useState(false)
-  const [publishing, setPublishing] = useState(false)
-  const [unpublishing, setUnpublishing] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [imageVersion, setImageVersion] = useState(0)
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [imageVersion, setImageVersion] = useState(0);
 
-  const fileInput = useRef<HTMLInputElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const res = await api.richMenuGroups.get(groupId)
-      if (!res.success) throw new Error(res.error ?? '取得失敗')
-      const g = res.data as Group
-      setGroup(g)
-      setName(g.name)
-      setChatBarText(g.chatBarText)
-      setSelected(g.selected)
-      setPages(g.pages)
-      setActivePageId((prev) =>
-        prev && g.pages.some((p) => p.id === prev) ? prev : (g.pages[0]?.id ?? null),
-      )
-      setSelectedAreaId(null)
+      const res = await api.richMenuGroups.get(groupId);
+      if (!res.success) throw new Error(res.error ?? '取得失敗');
+      const g = res.data as Group;
+      setGroup(g);
+      setName(g.name);
+      setChatBarText(g.chatBarText);
+      setSelected(g.selected);
+      setPages(g.pages);
+      setActivePageId((prev) => (prev && g.pages.some((p) => p.id === prev) ? prev : (g.pages[0]?.id ?? null)));
+      setSelectedAreaId(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [groupId])
+  }, [groupId]);
 
   useEffect(() => {
-    reload()
-  }, [reload])
+    reload();
+  }, [reload]);
 
-  const activePage = pages.find((p) => p.id === activePageId) ?? pages[0] ?? null
-  const selectedArea =
-    activePage?.areas.find((a) => a.id === selectedAreaId) ?? null
+  const activePage = pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
+  const selectedArea = activePage?.areas.find((a) => a.id === selectedAreaId) ?? null;
 
   function updatePage(pageId: string, patch: Partial<Page>) {
-    setPages((prev) => prev.map((p) => (p.id === pageId ? { ...p, ...patch } : p)))
+    setPages((prev) => prev.map((p) => (p.id === pageId ? { ...p, ...patch } : p)));
   }
 
   function updateArea(pageId: string, areaId: string, patch: Partial<Area>) {
@@ -143,27 +134,23 @@ function Editor({
             }
           : p,
       ),
-    )
+    );
   }
 
   function addArea(pageId: string, area: Area) {
-    setPages((prev) =>
-      prev.map((p) => (p.id === pageId ? { ...p, areas: [...p.areas, area] } : p)),
-    )
-    setSelectedAreaId(area.id)
+    setPages((prev) => prev.map((p) => (p.id === pageId ? { ...p, areas: [...p.areas, area] } : p)));
+    setSelectedAreaId(area.id);
   }
 
   function deleteArea(pageId: string, areaId: string) {
     setPages((prev) =>
-      prev.map((p) =>
-        p.id === pageId ? { ...p, areas: p.areas.filter((a) => a.id !== areaId) } : p,
-      ),
-    )
-    setSelectedAreaId(null)
+      prev.map((p) => (p.id === pageId ? { ...p, areas: p.areas.filter((a) => a.id !== areaId) } : p)),
+    );
+    setSelectedAreaId(null);
   }
 
   function addPage() {
-    const nextOrder = pages.length
+    const nextOrder = pages.length;
     const newPage: Page = {
       id: `tmp-${Math.random().toString(36).slice(2, 10)}`,
       orderIndex: nextOrder,
@@ -173,16 +160,16 @@ function Editor({
       imageR2Key: null,
       imageContentType: null,
       areas: [],
-    }
-    setPages([...pages, newPage])
-    setActivePageId(newPage.id)
-    setSelectedAreaId(null)
+    };
+    setPages([...pages, newPage]);
+    setActivePageId(newPage.id);
+    setSelectedAreaId(null);
   }
 
   function removePage(pageId: string) {
     if (pages.length <= 1) {
-      alert('最低 1 ページは必要です。')
-      return
+      alert('最低 1 ページは必要です。');
+      return;
     }
     // 削除しようとしているページが他 page の richmenuswitch から参照されてないか確認。
     // 参照ありで削除すると publish 時に `target page not found` で失敗する。
@@ -191,25 +178,22 @@ function Editor({
       .filter((p) =>
         p.areas.some(
           (a) =>
-            a.actionType === 'richmenuswitch' &&
-            (a.actionData as { targetPageId?: string }).targetPageId === pageId,
+            a.actionType === 'richmenuswitch' && (a.actionData as { targetPageId?: string }).targetPageId === pageId,
         ),
-      )
+      );
     if (referrers.length > 0) {
       alert(
         `このページは ${referrers.map((p) => `「${p.name}」`).join(', ')} のタブ切替アクションから参照されています。先に各 area の遷移先を変更してから削除してください。`,
-      )
-      return
+      );
+      return;
     }
-    if (!confirm('このページを削除しますか？')) return
-    const remaining = pages
-      .filter((p) => p.id !== pageId)
-      .map((p, i) => ({ ...p, orderIndex: i }))
-    setPages(remaining)
+    if (!confirm('このページを削除しますか？')) return;
+    const remaining = pages.filter((p) => p.id !== pageId).map((p, i) => ({ ...p, orderIndex: i }));
+    setPages(remaining);
     if (activePageId === pageId) {
-      setActivePageId(remaining[0]?.id ?? null)
+      setActivePageId(remaining[0]?.id ?? null);
     }
-    setSelectedAreaId(null)
+    setSelectedAreaId(null);
   }
 
   async function persistDraft(): Promise<void> {
@@ -232,116 +216,121 @@ function Editor({
           actionData: a.actionData,
         })),
       })),
-    })
-    if (!res.success) throw new Error(res.error ?? '保存失敗')
+    });
+    if (!res.success) throw new Error(res.error ?? '保存失敗');
   }
 
   async function handleSave() {
-    setSaving(true)
-    setError(null)
+    setSaving(true);
+    setError(null);
     try {
-      await persistDraft()
-      await reload()
+      await persistDraft();
+      await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   async function handlePublish() {
-    if (!confirm(
-      'このリッチメニューを LINE 公式アカウントに登録します。\n\n' +
-        '※ この操作だけでは友だちのトーク画面にはまだ表示されません。\n' +
-        '友だちに見せるには、登録後に一覧画面の「友だちに表示」を実行してください。\n\n' +
-        '続行しますか？',
-    )) return
-    setPublishing(true)
-    setError(null)
+    if (
+      !confirm(
+        'このリッチメニューを LINE 公式アカウントに登録します。\n\n' +
+          '※ この操作だけでは友だちのトーク画面にはまだ表示されません。\n' +
+          '友だちに見せるには、登録後に一覧画面の「友だちに表示」を実行してください。\n\n' +
+          '続行しますか？',
+      )
+    )
+      return;
+    setPublishing(true);
+    setError(null);
     try {
-      await persistDraft()
-      const res = await api.richMenuGroups.publish(groupId)
-      if (!res.success) throw new Error(res.error ?? 'LINE 登録失敗')
-      alert('LINE への登録が完了しました。\n\n友だちに表示するには、一覧画面の「友だちに表示」を実行してください。')
-      await reload()
+      await persistDraft();
+      const res = await api.richMenuGroups.publish(groupId);
+      if (!res.success) throw new Error(res.error ?? 'LINE 登録失敗');
+      alert('LINE への登録が完了しました。\n\n友だちに表示するには、一覧画面の「友だちに表示」を実行してください。');
+      await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setPublishing(false)
+      setPublishing(false);
     }
   }
 
   async function handleUnpublish() {
-    if (!confirm(
-      'このリッチメニューを LINE から取り下げます。\n\n' +
-        '・LINE 公式アカウント上のメニュー登録 (alias / richmenu) をすべて削除\n' +
-        '・現在このメニューを見ている友だちのトーク画面からも消えます\n\n' +
-        '取り下げ後はもう一度「LINE に登録」すれば再公開できます。\n\n続行しますか？',
-    )) return
-    setUnpublishing(true)
-    setError(null)
+    if (
+      !confirm(
+        'このリッチメニューを LINE から取り下げます。\n\n' +
+          '・LINE 公式アカウント上のメニュー登録 (alias / richmenu) をすべて削除\n' +
+          '・現在このメニューを見ている友だちのトーク画面からも消えます\n\n' +
+          '取り下げ後はもう一度「LINE に登録」すれば再公開できます。\n\n続行しますか？',
+      )
+    )
+      return;
+    setUnpublishing(true);
+    setError(null);
     try {
-      const res = await api.richMenuGroups.unpublish(groupId)
-      if (!res.success) throw new Error(res.error ?? '取り下げ失敗')
-      const warnings = res.data?.warnings ?? []
+      const res = await api.richMenuGroups.unpublish(groupId);
+      if (!res.success) throw new Error(res.error ?? '取り下げ失敗');
+      const warnings = res.data?.warnings ?? [];
       if (warnings.length > 0) {
-        alert(`取り下げ完了 (一部 warnings あり):\n\n${warnings.join('\n')}`)
+        alert(`取り下げ完了 (一部 warnings あり):\n\n${warnings.join('\n')}`);
       } else {
-        alert('LINE 上のメニュー登録を取り下げました。')
+        alert('LINE 上のメニュー登録を取り下げました。');
       }
-      await reload()
+      await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setUnpublishing(false)
+      setUnpublishing(false);
     }
   }
 
   async function handleDelete() {
-    if (!group) return
+    if (!group) return;
     if (group.status === 'published') {
       alert(
-        'このリッチメニューは LINE に登録中です。\n\n' +
-          '先に「LINE から取り下げ」を実行してから削除してください。',
-      )
-      return
+        'このリッチメニューは LINE に登録中です。\n\n' + '先に「LINE から取り下げ」を実行してから削除してください。',
+      );
+      return;
     }
     // 二重確認: メニュー名を入力してもらう
     const typed = prompt(
       `この操作は元に戻せません。\n\n削除を確定するには、リッチメニュー名「${group.name}」を入力してください。`,
-    )
-    if (typed === null) return
+    );
+    if (typed === null) return;
     if (typed !== group.name) {
-      alert('入力が一致しませんでした。削除をキャンセルしました。')
-      return
+      alert('入力が一致しませんでした。削除をキャンセルしました。');
+      return;
     }
     try {
-      const res = await api.richMenuGroups.delete(groupId)
-      if (!res.success) throw new Error(res.error ?? '削除失敗')
-      router.push('/rich-menus')
+      const res = await api.richMenuGroups.delete(groupId);
+      if (!res.success) throw new Error(res.error ?? '削除失敗');
+      router.push('/rich-menus');
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+      alert(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function handleImageUpload(pageId: string, file: File) {
     if (pageId.startsWith('tmp-')) {
-      alert('まず Save Draft でページを保存してから画像を upload してください。')
-      return
+      alert('まず Save Draft でページを保存してから画像を upload してください。');
+      return;
     }
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      const res = await api.richMenuGroups.uploadImage(groupId, pageId, file)
+      const res = await api.richMenuGroups.uploadImage(groupId, pageId, file);
       updatePage(pageId, {
         imageR2Key: res.data.imageR2Key,
         imageContentType: res.data.imageContentType,
-      })
-      setImageVersion((v) => v + 1)
+      });
+      setImageVersion((v) => v + 1);
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+      alert(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -350,7 +339,7 @@ function Editor({
       <main className="p-6 max-w-7xl mx-auto">
         <p className="text-sm text-gray-500">読み込み中...</p>
       </main>
-    )
+    );
   }
   if (!group) {
     return (
@@ -360,19 +349,17 @@ function Editor({
           ← 一覧に戻る
         </Link>
       </main>
-    )
+    );
   }
 
   // richmenuswitch の遷移先候補は「保存済み page (UUID) のみ」に絞る。
   // 未保存 page (tmp-*) は persistDraft 時に id が新 UUID に置き換わるので、
   // ここで targetPageId に出してしまうと publish で `target page not found`
   // で失敗する。
-  const pagesForSelect = pages
-    .filter((p) => !p.id.startsWith('tmp-'))
-    .map((p) => ({ id: p.id, name: p.name }))
+  const pagesForSelect = pages.filter((p) => !p.id.startsWith('tmp-')).map((p) => ({ id: p.id, name: p.name }));
   const imageUrl = activePage?.imageR2Key
     ? `${api.richMenuGroups.imageUrl(activePage.imageR2Key)}?v=${imageVersion}`
-    : null
+    : null;
 
   return (
     <main className="p-6 max-w-7xl mx-auto">
@@ -382,11 +369,7 @@ function Editor({
         action={
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-sm text-gray-600 mr-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={preview}
-                onChange={(e) => setPreview(e.target.checked)}
-              />
+              <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
               プレビュー
             </label>
             <button
@@ -402,53 +385,38 @@ function Editor({
               className="px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-opacity hover:opacity-90"
               style={{ backgroundColor: '#06C755' }}
             >
-              {publishing
-                ? 'LINE 登録中...'
-                : group.status === 'published'
-                  ? 'LINE に再登録'
-                  : 'LINE に登録'}
+              {publishing ? 'LINE 登録中...' : group.status === 'published' ? 'LINE に再登録' : 'LINE に登録'}
             </button>
           </div>
         }
       />
 
-      <Link
-        href="/rich-menus"
-        className="text-sm text-gray-500 hover:underline mb-4 inline-block"
-      >
+      <Link href="/rich-menus" className="text-sm text-gray-500 hover:underline mb-4 inline-block">
         ← 一覧に戻る
       </Link>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded mb-4">
-          {error}
-        </div>
-      )}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded mb-4">{error}</div>}
 
       {/* タブバー */}
       <div className="flex items-center gap-1.5 mb-5 flex-wrap">
         {pages.map((p) => {
-          const active = p.id === activePageId
+          const active = p.id === activePageId;
           return (
             <button
               key={p.id}
               onClick={() => {
-                setActivePageId(p.id)
-                setSelectedAreaId(null)
+                setActivePageId(p.id);
+                setSelectedAreaId(null);
               }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                active
-                  ? 'text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                active ? 'text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
               style={active ? { backgroundColor: '#06C755' } : undefined}
             >
               {p.name}
-              {p.id.startsWith('tmp-') && (
-                <span className="ml-1 text-xs opacity-70">(未保存)</span>
-              )}
+              {p.id.startsWith('tmp-') && <span className="ml-1 text-xs opacity-70">(未保存)</span>}
             </button>
-          )
+          );
         })}
         <button
           onClick={addPage}
@@ -474,16 +442,16 @@ function Editor({
               preview={preview}
               onPreviewAction={(area) => {
                 if (area.actionType === 'uri') {
-                  const uri = (area.actionData as { uri?: string }).uri
-                  if (uri) window.open(uri, '_blank')
+                  const uri = (area.actionData as { uri?: string }).uri;
+                  if (uri) window.open(uri, '_blank');
                 } else if (area.actionType === 'richmenuswitch') {
-                  const targetId = (area.actionData as { targetPageId?: string }).targetPageId
+                  const targetId = (area.actionData as { targetPageId?: string }).targetPageId;
                   if (targetId && pages.some((p) => p.id === targetId)) {
-                    setActivePageId(targetId)
-                    setSelectedAreaId(null)
+                    setActivePageId(targetId);
+                    setSelectedAreaId(null);
                   }
                 } else {
-                  alert(`action: ${area.actionType}\n${JSON.stringify(area.actionData)}`)
+                  alert(`action: ${area.actionType}\n${JSON.stringify(area.actionData)}`);
                 }
               }}
             />
@@ -524,9 +492,7 @@ function Editor({
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-xs font-medium text-gray-700">
-                  トークを開いたときにメニューを表示する
-                </span>
+                <span className="block text-xs font-medium text-gray-700">トークを開いたときにメニューを表示する</span>
                 <span className="block mt-1 text-[11px] text-gray-500">
                   変更後は「LINE に登録」をやり直すと反映されます。
                 </span>
@@ -542,9 +508,7 @@ function Editor({
                 <span className="text-xs font-medium text-gray-600">ページ名</span>
                 <input
                   value={activePage.name}
-                  onChange={(e) =>
-                    updatePage(activePage.id, { name: e.target.value })
-                  }
+                  onChange={(e) => updatePage(activePage.id, { name: e.target.value })}
                   className="mt-1 block w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </label>
@@ -561,9 +525,9 @@ function Editor({
                   accept="image/png,image/jpeg"
                   className="hidden"
                   onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleImageUpload(activePage.id, file)
-                    e.target.value = ''
+                    const file = e.target.files?.[0];
+                    if (file) handleImageUpload(activePage.id, file);
+                    e.target.value = '';
                   }}
                 />
                 <button
@@ -573,9 +537,7 @@ function Editor({
                 >
                   {activePage.imageR2Key ? '画像を差し替え' : '画像を選択'}
                 </button>
-                <p className="mt-1.5 text-[11px] text-gray-500">
-                  PNG / JPEG, {SIZE_LABEL[group.size]}, 1MB 以下
-                </p>
+                <p className="mt-1.5 text-[11px] text-gray-500">PNG / JPEG, {SIZE_LABEL[group.size]}, 1MB 以下</p>
                 {activePage.id.startsWith('tmp-') && (
                   <p className="mt-1 text-[11px] text-amber-600">
                     新規ページは「下書き保存」してから画像をアップロードしてください
@@ -594,9 +556,7 @@ function Editor({
               <AreaProperties
                 area={selectedArea}
                 pages={pagesForSelect}
-                onUpdate={(patch) =>
-                  updateArea(activePage.id, selectedArea.id, patch)
-                }
+                onUpdate={(patch) => updateArea(activePage.id, selectedArea.id, patch)}
                 onDelete={() => deleteArea(activePage.id, selectedArea.id)}
               />
             </section>
@@ -632,9 +592,7 @@ function Editor({
           {activePage && pages.length > 1 && (
             <div className="flex items-start justify-between gap-4 bg-white border border-red-200 rounded-lg p-4">
               <div className="flex-1">
-                <div className="text-sm font-medium text-gray-900">
-                  ページ「{activePage.name}」を削除
-                </div>
+                <div className="text-sm font-medium text-gray-900">ページ「{activePage.name}」を削除</div>
                 <div className="text-xs text-gray-600 mt-0.5">
                   現在表示中のページを削除します。他のページから「タブ切替」でこのページを参照している場合は事前に解除が必要です。
                 </div>
@@ -649,9 +607,7 @@ function Editor({
           )}
           <div className="flex items-start justify-between gap-4 bg-white border border-red-300 rounded-lg p-4">
             <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">
-                このリッチメニュー全体を削除
-              </div>
+              <div className="text-sm font-medium text-gray-900">このリッチメニュー全体を削除</div>
               <div className="text-xs text-gray-600 mt-0.5">
                 {group.status === 'published'
                   ? '⚠ 先に「LINE から取り下げ」を実行してください。LINE 上のメニューが残ったままだと友だちに表示され続けます。'
@@ -669,5 +625,5 @@ function Editor({
         </div>
       </section>
     </main>
-  )
+  );
 }

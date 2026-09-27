@@ -19,10 +19,7 @@ export const MANAGEMENT_PHARMACY_CAPABILITIES = [
   'pharmacy_dashboard',
 ] as const;
 
-export const PHARMACY_CAPABILITIES = [
-  ...PATIENT_PHARMACY_CAPABILITIES,
-  ...MANAGEMENT_PHARMACY_CAPABILITIES,
-] as const;
+export const PHARMACY_CAPABILITIES = [...PATIENT_PHARMACY_CAPABILITIES, ...MANAGEMENT_PHARMACY_CAPABILITIES] as const;
 
 export const DEFAULT_PHARMACY_CAPABILITIES = PHARMACY_CAPABILITIES.filter(
   (capability) => capability !== 'electronic_prescription',
@@ -34,11 +31,14 @@ export type PharmacyStaff = Pick<AuthenticatedStaff, 'id' | 'role' | 'principalK
 
 async function pharmacyCapabilityTableDeployed(db: D1Database): Promise<boolean> {
   try {
-    const row = await db.prepare(
-      `SELECT name FROM sqlite_master
+    const row = await db
+      .prepare(
+        `SELECT name FROM sqlite_master
         WHERE type = 'table' AND name = 'pharmacy_account_capabilities'
         LIMIT 1`,
-    ).bind().first<{ name: string }>();
+      )
+      .bind()
+      .first<{ name: string }>();
     return row?.name === 'pharmacy_account_capabilities';
   } catch {
     // A metadata read failure must not reopen generic delivery paths.
@@ -51,9 +51,7 @@ const sharedStaffSchemaByDb = new WeakMap<object, true>();
 async function pharmacySharedStaffSchemaDeployed(db: D1Database): Promise<boolean> {
   if (sharedStaffSchemaByDb.has(db as object)) return true;
   try {
-    const result = await db.prepare(
-      `PRAGMA table_info(staff_members)`,
-    ).all<{ name: string }>();
+    const result = await db.prepare(`PRAGMA table_info(staff_members)`).all<{ name: string }>();
     const columns = new Set((result.results ?? []).map((column) => column.name));
     const deployed = columns.has('principal_kind') && columns.has('shared_tenant_id');
     if (deployed) sharedStaffSchemaByDb.set(db as object, true);
@@ -65,11 +63,7 @@ async function pharmacySharedStaffSchemaDeployed(db: D1Database): Promise<boolea
   }
 }
 
-function staffAccountPredicateSql(
-  accountColumn: string,
-  mappingAlias: string,
-  supportsSharedStaff: boolean,
-): string {
+function staffAccountPredicateSql(accountColumn: string, mappingAlias: string, supportsSharedStaff: boolean): string {
   const identityScope = supportsSharedStaff
     ? `(assignment.staff_id IS NOT NULL OR
             (staff.principal_kind = 'pharmacy_shared' AND
@@ -98,20 +92,11 @@ export async function pharmacyStaffAccountPredicate(
   accountColumn: string,
   mappingAlias = 'mapping',
 ): Promise<string> {
-  return staffAccountPredicateSql(
-    accountColumn,
-    mappingAlias,
-    await pharmacySharedStaffSchemaDeployed(db),
-  );
+  return staffAccountPredicateSql(accountColumn, mappingAlias, await pharmacySharedStaffSchemaDeployed(db));
 }
 
-export async function pharmacyHumanStaffPredicate(
-  db: D1Database,
-  staffAlias = 'staff',
-): Promise<string> {
-  return (await pharmacySharedStaffSchemaDeployed(db))
-    ? `${staffAlias}.principal_kind = 'human'`
-    : '1 = 1';
+export async function pharmacyHumanStaffPredicate(db: D1Database, staffAlias = 'staff'): Promise<string> {
+  return (await pharmacySharedStaffSchemaDeployed(db)) ? `${staffAlias}.principal_kind = 'human'` : '1 = 1';
 }
 
 export interface PharmacyCapabilityConfig {
@@ -130,8 +115,9 @@ export function parsePharmacyCapabilities(raw: string | null | undefined): Pharm
   try {
     const value = JSON.parse(raw) as unknown;
     if (!Array.isArray(value)) return [];
-    return value.filter((item): item is PharmacyCapability =>
-      typeof item === 'string' && (PHARMACY_CAPABILITIES as readonly string[]).includes(item),
+    return value.filter(
+      (item): item is PharmacyCapability =>
+        typeof item === 'string' && (PHARMACY_CAPABILITIES as readonly string[]).includes(item),
     );
   } catch {
     return [];
@@ -154,8 +140,9 @@ export async function resolveAccessiblePharmacyTenant(
       : 'assignment.staff_id IS NOT NULL';
     // Keep the mapping, active tenant, membership, and account assignment in
     // one statement. Splitting these checks permits a remap between reads.
-    const account = await db.prepare(
-      `SELECT mapping.tenant_id
+    const account = await db
+      .prepare(
+        `SELECT mapping.tenant_id
          FROM tenant_line_accounts AS mapping
          INNER JOIN line_accounts AS account
                  ON account.id = mapping.line_account_id
@@ -175,7 +162,9 @@ export async function resolveAccessiblePharmacyTenant(
          WHERE account.id = ? AND account.is_active = 1
           AND ${identityScope}
         LIMIT 1`,
-    ).bind(staff.id, lineAccountId).first<{ tenant_id: string }>();
+      )
+      .bind(staff.id, lineAccountId)
+      .first<{ tenant_id: string }>();
     return account?.tenant_id ?? null;
   } catch {
     return null;
@@ -196,10 +185,13 @@ export async function hasPharmacyCapability(
   capability: PharmacyCapability,
 ): Promise<boolean> {
   try {
-    const row = await db.prepare(
-      `SELECT mode, capabilities_json FROM pharmacy_account_capabilities
+    const row = await db
+      .prepare(
+        `SELECT mode, capabilities_json FROM pharmacy_account_capabilities
         WHERE line_account_id = ?`,
-    ).bind(lineAccountId).first<{ mode: string; capabilities_json: string }>();
+      )
+      .bind(lineAccountId)
+      .first<{ mode: string; capabilities_json: string }>();
     return row?.mode === 'pharmacy' && parsePharmacyCapabilities(row.capabilities_json).includes(capability);
   } catch {
     return false;
@@ -212,14 +204,14 @@ export async function isPharmacyModeAccount(
 ): Promise<boolean> {
   if (!lineAccountId) return false;
   try {
-    const capability = await db.prepare(
-      `SELECT mode FROM pharmacy_account_capabilities WHERE line_account_id = ?`,
-    ).bind(lineAccountId).first<{ mode: string }>();
+    const capability = await db
+      .prepare(`SELECT mode FROM pharmacy_account_capabilities WHERE line_account_id = ?`)
+      .bind(lineAccountId)
+      .first<{ mode: string }>();
     // The capability row is the explicit product-mode switch. A tenant
     // mapping alone is not enough: generic CRM tenants may still be mapped
     // for ordinary account scoping.
-    return capability?.mode === 'pharmacy'
-      || (!capability && await pharmacyCapabilityTableDeployed(db));
+    return capability?.mode === 'pharmacy' || (!capability && (await pharmacyCapabilityTableDeployed(db)));
   } catch {
     // A storage error must not reopen generic delivery paths.
     return true;
@@ -228,16 +220,18 @@ export async function isPharmacyModeAccount(
 
 export async function isPharmacyTenant(db: D1Database, tenantId: string): Promise<boolean> {
   try {
-    const capability = await db.prepare(
-      `SELECT 1 AS pharmacy_install
+    const capability = await db
+      .prepare(
+        `SELECT 1 AS pharmacy_install
          FROM tenant_line_accounts AS mapping
          INNER JOIN pharmacy_account_capabilities AS capability
                  ON capability.line_account_id = mapping.line_account_id
         WHERE mapping.tenant_id = ? AND capability.mode = 'pharmacy'
         LIMIT 1`,
-    ).bind(tenantId).first<{ pharmacy_install: number }>();
-    return capability?.pharmacy_install === 1
-      || (!capability && await pharmacyCapabilityTableDeployed(db));
+      )
+      .bind(tenantId)
+      .first<{ pharmacy_install: number }>();
+    return capability?.pharmacy_install === 1 || (!capability && (await pharmacyCapabilityTableDeployed(db)));
   } catch {
     // A storage error must not reopen generic delivery paths.
     return true;
@@ -246,11 +240,11 @@ export async function isPharmacyTenant(db: D1Database, tenantId: string): Promis
 
 export async function hasPharmacyModeAccount(db: D1Database): Promise<boolean> {
   try {
-    const capability = await db.prepare(
-      `SELECT 1 AS ok FROM pharmacy_account_capabilities WHERE mode = ? LIMIT 1`,
-    ).bind('pharmacy').first<{ ok: number }>();
-    return capability?.ok === 1
-      || (!capability && await pharmacyCapabilityTableDeployed(db));
+    const capability = await db
+      .prepare(`SELECT 1 AS ok FROM pharmacy_account_capabilities WHERE mode = ? LIMIT 1`)
+      .bind('pharmacy')
+      .first<{ ok: number }>();
+    return capability?.ok === 1 || (!capability && (await pharmacyCapabilityTableDeployed(db)));
   } catch {
     // A storage error must not reopen generic delivery paths.
     return true;

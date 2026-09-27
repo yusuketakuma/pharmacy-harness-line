@@ -48,11 +48,13 @@ export async function verifyCallerLineIdentity(
                  ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
         WHERE account.login_channel_id = ? AND account.is_active = 1
         LIMIT 2`,
-    ).bind(audience).all<{
-      id: string;
-      tenant_id: string;
-      login_channel_id: string;
-    }>();
+    )
+      .bind(audience)
+      .all<{
+        id: string;
+        tenant_id: string;
+        login_channel_id: string;
+      }>();
     if (accounts.results.length !== 1) return null;
     const account = accounts.results[0];
     const res = await fetch('https://api.line.me/oauth2/v2.1/verify', {
@@ -74,9 +76,6 @@ export async function verifyCallerLineIdentity(
   }
 }
 
-export async function verifyCallerLineUserId(
-  authHeader: string | undefined,
-  env: VerifyEnv,
-): Promise<string | null> {
+export async function verifyCallerLineUserId(authHeader: string | undefined, env: VerifyEnv): Promise<string | null> {
   return (await verifyCallerLineIdentity(authHeader, env))?.lineUserId ?? null;
 }

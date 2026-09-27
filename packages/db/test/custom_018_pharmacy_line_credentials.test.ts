@@ -29,8 +29,16 @@ describe('custom_018_pharmacy_line_credentials.sql', () => {
       name: string;
     }>;
     expect(columns.map((column) => column.name)).toEqual([
-      'tenant_id', 'line_account_id', 'credential_kind', 'nonce', 'ciphertext',
-      'key_version', 'revision', 'lookup_digest', 'created_at', 'updated_at',
+      'tenant_id',
+      'line_account_id',
+      'credential_kind',
+      'nonce',
+      'ciphertext',
+      'key_version',
+      'revision',
+      'lookup_digest',
+      'created_at',
+      'updated_at',
     ]);
     expect(columns.map((column) => column.name)).not.toContain('credential');
 
@@ -43,14 +51,12 @@ describe('custom_018_pharmacy_line_credentials.sql', () => {
       ['channel_secret', null],
       ['login_channel_secret', null],
     ] as const) {
-      expect(() => insert.run(
-        'tenant-a', 'account-a', kind, 'AAAAAAAAAAAAAAAA', 'ciphertext', digest,
-      )).not.toThrow();
+      expect(() => insert.run('tenant-a', 'account-a', kind, 'AAAAAAAAAAAAAAAA', 'ciphertext', digest)).not.toThrow();
     }
 
-    expect(() => insert.run(
-      'tenant-a', 'account-a', 'unsupported', 'AAAAAAAAAAAAAAAA', 'ciphertext', null,
-    )).toThrow(/CHECK constraint failed/i);
+    expect(() => insert.run('tenant-a', 'account-a', 'unsupported', 'AAAAAAAAAAAAAAAA', 'ciphertext', null)).toThrow(
+      /CHECK constraint failed/i,
+    );
   });
 
   it('requires the access-token digest only for channel access tokens', () => {
@@ -75,5 +81,4 @@ describe('custom_018_pharmacy_line_credentials.sql', () => {
     expect(() => insert.run('missing-tenant', 'account-a')).toThrow(/FOREIGN KEY constraint failed/i);
     expect(() => insert.run('tenant-a', 'missing-account')).toThrow(/FOREIGN KEY constraint failed/i);
   });
-
 });

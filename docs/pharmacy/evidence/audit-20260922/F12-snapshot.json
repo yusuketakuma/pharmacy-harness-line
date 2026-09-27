@@ -1,0 +1,18 @@
+{
+  "P": "dabec0034837607330729392f35189fd584ed68c",
+  "files": {
+    "apps/worker/src/services/meet-consultation-reminders.ts": {
+      "sha256": "972a49bfabd819a3d01f278acad2bca4575ac6cfae2ce34549e537842051ae8f",
+      "bytes": 18569
+    },
+    "apps/worker/src/services/meet-consultation-reminders.test.ts": {
+      "sha256": "0f863f272e7735f8b96ad869307ab3a3e555bd38d8f079f8bf0044d11ec1c192",
+      "bytes": 31273
+    }
+  },
+  "checks": {
+    "focusedTests": 34,
+    "workerTypecheck": 0,
+    "diffCheck": 0
+  }
+}

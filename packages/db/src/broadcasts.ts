@@ -51,16 +51,17 @@ LEFT JOIN broadcast_insights bi ON b.id = bi.broadcast_id
     params.push(accountId, accountId);
   }
   sql += ` ORDER BY COALESCE(b.sent_at, b.scheduled_at, b.created_at) DESC`;
-  const result = params.length > 0
-    ? await db.prepare(sql).bind(...params).all<Broadcast>()
-    : await db.prepare(sql).all<Broadcast>();
+  const result =
+    params.length > 0
+      ? await db
+          .prepare(sql)
+          .bind(...params)
+          .all<Broadcast>()
+      : await db.prepare(sql).all<Broadcast>();
   return result.results;
 }
 
-export async function getBroadcastById(
-  db: D1Database,
-  id: string,
-): Promise<Broadcast | null> {
+export async function getBroadcastById(db: D1Database, id: string): Promise<Broadcast | null> {
   return db
     .prepare(
       `SELECT b.*,
@@ -92,10 +93,7 @@ export interface CreateBroadcastInput {
   altText?: string | null;
 }
 
-export async function createBroadcast(
-  db: D1Database,
-  input: CreateBroadcastInput,
-): Promise<Broadcast> {
+export async function createBroadcast(db: D1Database, input: CreateBroadcastInput): Promise<Broadcast> {
   const id = input.id ?? crypto.randomUUID();
   const now = jstNow();
 
@@ -198,10 +196,7 @@ export async function deleteBroadcast(db: D1Database, id: string): Promise<void>
   await db.prepare(`DELETE FROM broadcasts WHERE id = ?`).bind(id).run();
 }
 
-export async function createBroadcastInsight(
-  db: D1Database,
-  broadcastId: string,
-): Promise<void> {
+export async function createBroadcastInsight(db: D1Database, broadcastId: string): Promise<void> {
   // Idempotent: dedup broadcast の resume 時など、この関数が同じ broadcastId に
   // 対して複数回呼ばれうる。broadcast_insights.broadcast_id に UNIQUE 制約がない
   // ため `INSERT` 単体だと重複行が生まれ、getBroadcastById の LEFT JOIN や
@@ -215,9 +210,7 @@ export async function createBroadcastInsight(
 
   const id = crypto.randomUUID();
   await db
-    .prepare(
-      `INSERT INTO broadcast_insights (id, broadcast_id, status) VALUES (?, ?, 'pending')`,
-    )
+    .prepare(`INSERT INTO broadcast_insights (id, broadcast_id, status) VALUES (?, ?, 'pending')`)
     .bind(id, broadcastId)
     .run();
 }
@@ -229,16 +222,12 @@ export async function updateBroadcastLineRequestId(
   aggregationUnit: string | null,
 ): Promise<void> {
   await db
-    .prepare(
-      `UPDATE broadcasts SET line_request_id = ?, aggregation_unit = ? WHERE id = ?`,
-    )
+    .prepare(`UPDATE broadcasts SET line_request_id = ?, aggregation_unit = ? WHERE id = ?`)
     .bind(lineRequestId, aggregationUnit, broadcastId)
     .run();
 }
 
-export async function getPendingInsights(
-  db: D1Database,
-): Promise<
+export async function getPendingInsights(db: D1Database): Promise<
   Array<{
     insightId: string;
     broadcastId: string;
@@ -302,14 +291,8 @@ export async function updateInsightResult(
     rawResponse: string;
   },
 ): Promise<void> {
-  const openRate =
-    result.delivered && result.uniqueImpression
-      ? result.uniqueImpression / result.delivered
-      : null;
-  const clickRate =
-    result.delivered && result.uniqueClick
-      ? result.uniqueClick / result.delivered
-      : null;
+  const openRate = result.delivered && result.uniqueImpression ? result.uniqueImpression / result.delivered : null;
+  const clickRate = result.delivered && result.uniqueClick ? result.uniqueClick / result.delivered : null;
   const now = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString();
   await db
     .prepare(
@@ -333,16 +316,10 @@ export async function updateInsightResult(
     .run();
 }
 
-export async function markInsightFailed(
-  db: D1Database,
-  insightId: string,
-  retryCount: number,
-): Promise<void> {
+export async function markInsightFailed(db: D1Database, insightId: string, retryCount: number): Promise<void> {
   const newStatus = retryCount >= 2 ? 'failed' : 'pending';
   await db
-    .prepare(
-      `UPDATE broadcast_insights SET retry_count = ?, status = ? WHERE id = ?`,
-    )
+    .prepare(`UPDATE broadcast_insights SET retry_count = ?, status = ? WHERE id = ?`)
     .bind(retryCount + 1, newStatus, insightId)
     .run();
 }
@@ -444,9 +421,7 @@ export async function updateBroadcastBatchProgress(
   additionalSuccess: number,
 ): Promise<void> {
   await db
-    .prepare(
-      `UPDATE broadcasts SET batch_offset = ?, success_count = success_count + ? WHERE id = ?`,
-    )
+    .prepare(`UPDATE broadcasts SET batch_offset = ?, success_count = success_count + ? WHERE id = ?`)
     .bind(batchOffset, additionalSuccess, id)
     .run();
 }
@@ -504,7 +479,8 @@ export async function updateBroadcastFailedAccountIds(
   broadcastId: string,
   failedAccountIds: string[],
 ): Promise<void> {
-  await db.prepare(`UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`)
+  await db
+    .prepare(`UPDATE broadcasts SET failed_account_ids = ? WHERE id = ?`)
     .bind(JSON.stringify(failedAccountIds), broadcastId)
     .run();
 }

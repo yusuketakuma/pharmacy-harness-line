@@ -129,11 +129,7 @@ export interface PostbackEvent extends BaseEvent {
   };
 }
 
-export type WebhookEvent =
-  | MessageEvent
-  | FollowEvent
-  | UnfollowEvent
-  | PostbackEvent;
+export type WebhookEvent = MessageEvent | FollowEvent | UnfollowEvent | PostbackEvent;
 
 export interface WebhookRequestBody {
   destination: string;
@@ -190,13 +186,7 @@ export interface ImageMapMessageType {
   actions: Record<string, unknown>[];
 }
 
-export type Message =
-  | TextMessage
-  | ImageMessage
-  | FlexMessage
-  | VideoMessage
-  | TemplateMessage
-  | ImageMapMessageType;
+export type Message = TextMessage | ImageMessage | FlexMessage | VideoMessage | TemplateMessage | ImageMapMessageType;
 
 // ─── Rich Menu types ──────────────────────────────────────────────────────────
 

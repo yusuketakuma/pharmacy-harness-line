@@ -39,31 +39,49 @@ describe('custom_059 pharmacy staff invariants', () => {
   it('serializes concurrent owner removal at the database write boundary', () => {
     const db = database();
 
-    expect(db.prepare(`UPDATE tenant_staff_memberships
-      SET is_active = 0 WHERE tenant_id = 'tenant-a' AND staff_id = 'owner-a'`).run().changes)
-      .toBe(1);
-    expect(() => db.prepare(`UPDATE tenant_staff_memberships
-      SET role = 'admin' WHERE tenant_id = 'tenant-a' AND staff_id = 'owner-b'`).run())
-      .toThrow(/PHARMACY_LAST_ACTIVE_OWNER/);
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM tenant_staff_memberships
-      WHERE tenant_id = 'tenant-a' AND role = 'owner' AND is_active = 1`).get())
-      .toEqual({ count: 1 });
+    expect(
+      db
+        .prepare(`UPDATE tenant_staff_memberships
+      SET is_active = 0 WHERE tenant_id = 'tenant-a' AND staff_id = 'owner-a'`)
+        .run().changes,
+    ).toBe(1);
+    expect(() =>
+      db
+        .prepare(`UPDATE tenant_staff_memberships
+      SET role = 'admin' WHERE tenant_id = 'tenant-a' AND staff_id = 'owner-b'`)
+        .run(),
+    ).toThrow(/PHARMACY_LAST_ACTIVE_OWNER/);
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM tenant_staff_memberships
+      WHERE tenant_id = 'tenant-a' AND role = 'owner' AND is_active = 1`)
+        .get(),
+    ).toEqual({ count: 1 });
   });
 
   it('serializes concurrent account-assignee removal at the database write boundary', () => {
     const db = database();
 
-    expect(db.prepare(`UPDATE pharmacy_staff_accounts
-      SET is_active = 0 WHERE line_account_id = 'account-a' AND staff_id = 'staff-a'`).run().changes)
-      .toBe(1);
-    expect(() => db.prepare(`UPDATE pharmacy_staff_accounts
-      SET is_active = 0 WHERE line_account_id = 'account-a' AND staff_id = 'staff-b'`).run())
-      .toThrow(/PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE/);
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM pharmacy_staff_accounts AS assignment
+    expect(
+      db
+        .prepare(`UPDATE pharmacy_staff_accounts
+      SET is_active = 0 WHERE line_account_id = 'account-a' AND staff_id = 'staff-a'`)
+        .run().changes,
+    ).toBe(1);
+    expect(() =>
+      db
+        .prepare(`UPDATE pharmacy_staff_accounts
+      SET is_active = 0 WHERE line_account_id = 'account-a' AND staff_id = 'staff-b'`)
+        .run(),
+    ).toThrow(/PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE/);
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count FROM pharmacy_staff_accounts AS assignment
       INNER JOIN tenant_staff_memberships AS membership ON membership.staff_id = assignment.staff_id
       WHERE assignment.line_account_id = 'account-a'
-        AND assignment.is_active = 1 AND membership.is_active = 1`).get())
-      .toEqual({ count: 1 });
+        AND assignment.is_active = 1 AND membership.is_active = 1`)
+        .get(),
+    ).toEqual({ count: 1 });
   });
 
   it('rejects deactivating the sole active assignee through the membership row', () => {
@@ -71,8 +89,11 @@ describe('custom_059 pharmacy staff invariants', () => {
     db.prepare(`UPDATE pharmacy_staff_accounts SET is_active = 0
       WHERE line_account_id = 'account-a' AND staff_id = 'staff-b'`).run();
 
-    expect(() => db.prepare(`UPDATE tenant_staff_memberships
-      SET is_active = 0 WHERE tenant_id = 'tenant-a' AND staff_id = 'staff-a'`).run())
-      .toThrow(/PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE/);
+    expect(() =>
+      db
+        .prepare(`UPDATE tenant_staff_memberships
+      SET is_active = 0 WHERE tenant_id = 'tenant-a' AND staff_id = 'staff-a'`)
+        .run(),
+    ).toThrow(/PHARMACY_LAST_ACTIVE_ACCOUNT_ASSIGNEE/);
   });
 });

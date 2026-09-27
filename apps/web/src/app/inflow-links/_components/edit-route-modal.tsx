@@ -1,32 +1,26 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
-import type {
-  EntryRoute,
-  CreateEntryRouteInput,
-  TrafficPool,
-  Scenario,
-  Tag,
-} from '@line-crm/shared'
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import type { EntryRoute, CreateEntryRouteInput, TrafficPool, Scenario, Tag } from '@line-crm/shared';
 
 interface MessageTemplate {
-  id: string
-  name: string
-  messageType: string
-  messageContent: string
+  id: string;
+  name: string;
+  messageType: string;
+  messageContent: string;
 }
 
 interface Props {
-  route: EntryRoute | null
-  pools: TrafficPool[]
-  scenarios: Scenario[]
-  templates: MessageTemplate[]
-  tags: Tag[]
+  route: EntryRoute | null;
+  pools: TrafficPool[];
+  scenarios: Scenario[];
+  templates: MessageTemplate[];
+  tags: Tag[];
   /** Pre-filled ref_code for "register an unregistered inflow ref" flow. */
-  initialRefCode?: string
-  onClose: () => void
-  onSaved: () => void
+  initialRefCode?: string;
+  onClose: () => void;
+  onSaved: () => void;
 }
 
 export default function EditRouteModal({
@@ -41,29 +35,29 @@ export default function EditRouteModal({
 }: Props) {
   // Per-pool member account names, loaded lazily so the dropdown can show
   // "Pool 名 — アカA, アカB" instead of just the pool name.
-  const [poolMembers, setPoolMembers] = useState<Record<string, string[]>>({})
+  const [poolMembers, setPoolMembers] = useState<Record<string, string[]>>({});
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
+    let cancelled = false;
+    (async () => {
       const entries = await Promise.all(
         pools.map(async (p) => {
-          const res = await api.pools.accounts.list(p.id)
-          const names = res.success ? res.data.map((m) => m.accountName ?? '—') : []
-          return [p.id, names] as const
+          const res = await api.pools.accounts.list(p.id);
+          const names = res.success ? res.data.map((m) => m.accountName ?? '—') : [];
+          return [p.id, names] as const;
         }),
-      )
-      if (!cancelled) setPoolMembers(Object.fromEntries(entries))
-    })()
+      );
+      if (!cancelled) setPoolMembers(Object.fromEntries(entries));
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [pools])
-  const isNew = !route
-  const mainPool = pools.find((p) => p.slug === 'main')
+      cancelled = true;
+    };
+  }, [pools]);
+  const isNew = !route;
+  const mainPool = pools.find((p) => p.slug === 'main');
   // Unregistered-ref registration flow: refCode is fixed (the actual ref code
   // that has already been seen in inflow), so we lock the input to prevent
   // the user from accidentally renaming the ref and orphaning the prior stats.
-  const refCodeLocked = isNew && !!initialRefCode
+  const refCodeLocked = isNew && !!initialRefCode;
   const [form, setForm] = useState<CreateEntryRouteInput>(() => ({
     refCode: route?.refCode ?? initialRefCode ?? '',
     name: route?.name ?? '',
@@ -74,54 +68,45 @@ export default function EditRouteModal({
     runAccountFriendAddScenarios: route?.runAccountFriendAddScenarios ?? true,
     redirectUrl: route?.redirectUrl ?? null,
     isActive: route?.isActive ?? true,
-  }))
-  const [submitting, setSubmitting] = useState(false)
-  const [warning, setWarning] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  }));
+  const [submitting, setSubmitting] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   const validateBeforeSave = () => {
-    const nothingDelivers =
-      !form.runAccountFriendAddScenarios && !form.scenarioId && !form.introTemplateId
+    const nothingDelivers = !form.runAccountFriendAddScenarios && !form.scenarioId && !form.introTemplateId;
     if (nothingDelivers) {
       setWarning(
         '上書きモードかつ起動シナリオも即時 push も未設定です。このリンクで友だち追加した人には何も届きません。続行しますか?',
-      )
-      return false
+      );
+      return false;
     }
-    return true
-  }
+    return true;
+  };
 
   const doSave = async () => {
-    setSubmitting(true)
-    setError('')
-    const res = isNew
-      ? await api.entryRoutes.create(form)
-      : await api.entryRoutes.update(route!.id, form)
-    setSubmitting(false)
-    if (res.success) onSaved()
-    else setError(res.error ?? '保存に失敗しました')
-  }
+    setSubmitting(true);
+    setError('');
+    const res = isNew ? await api.entryRoutes.create(form) : await api.entryRoutes.update(route!.id, form);
+    setSubmitting(false);
+    if (res.success) onSaved();
+    else setError(res.error ?? '保存に失敗しました');
+  };
 
   const onSubmit = async () => {
     // If validation produced a warning, only the explicit "それでも保存"
     // button (which calls doSave directly) may bypass it. The main save
     // button must not be a second-click escape hatch.
-    if (!validateBeforeSave()) return
-    await doSave()
-  }
+    if (!validateBeforeSave()) return;
+    await doSave();
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg w-full max-w-lg p-6 space-y-3 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-medium">
-          {isNew ? '新規リファラルリンク' : 'リファラルリンク編集'}
-        </h2>
+        <h2 className="text-lg font-medium">{isNew ? '新規リファラルリンク' : 'リファラルリンク編集'}</h2>
 
-        {error && (
-          <div className="p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">
-            {error}
-          </div>
-        )}
+        {error && <div className="p-2 rounded bg-red-50 border border-red-200 text-red-700 text-xs">{error}</div>}
 
         <Field label="名前（運用用ラベル）">
           <input
@@ -172,17 +157,14 @@ export default function EditRouteModal({
             className="w-full border border-gray-200 rounded px-3 py-2 text-sm"
           >
             {pools.map((p) => {
-              const members = poolMembers[p.id] ?? []
-              const memberText =
-                members.length === 0
-                  ? '（アカウント未所属）'
-                  : `— ${members.join(', ')}`
+              const members = poolMembers[p.id] ?? [];
+              const memberText = members.length === 0 ? '（アカウント未所属）' : `— ${members.join(', ')}`;
               return (
                 <option key={p.id} value={p.id}>
                   {p.name}
                   {p.slug === 'main' ? '（既定）' : ''} {memberText}
                 </option>
-              )
+              );
             })}
           </select>
         </Field>
@@ -225,8 +207,8 @@ export default function EditRouteModal({
               setForm({
                 ...form,
                 runAccountFriendAddScenarios: e.target.checked,
-              })
-              setWarning(null)
+              });
+              setWarning(null);
             }}
             className="mt-0.5"
           />
@@ -267,7 +249,7 @@ export default function EditRouteModal({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -276,5 +258,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
       {children}
     </div>
-  )
+  );
 }

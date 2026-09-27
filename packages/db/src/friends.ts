@@ -44,10 +44,7 @@ export interface GetFriendsOptions {
   tagId?: string;
 }
 
-export async function getFriends(
-  db: D1Database,
-  opts: GetFriendsOptions = {},
-): Promise<Friend[]> {
+export async function getFriends(db: D1Database, opts: GetFriendsOptions = {}): Promise<Friend[]> {
   const { limit = 50, offset = 0, tagId } = opts;
 
   if (tagId) {
@@ -133,10 +130,7 @@ export async function getFriendByLineUserIdForAccount(
   return getFriendByLineUserId(db, lineUserId);
 }
 
-export async function getFriendByLineUserId(
-  db: D1Database,
-  lineUserId: string,
-): Promise<Friend | null> {
+export async function getFriendByLineUserId(db: D1Database, lineUserId: string): Promise<Friend | null> {
   return db
     .prepare(`SELECT ${FRIEND_SELECT_COLUMNS}
                 FROM friends f
@@ -145,14 +139,8 @@ export async function getFriendByLineUserId(
     .first<Friend>();
 }
 
-export async function getFriendById(
-  db: D1Database,
-  id: string,
-): Promise<Friend | null> {
-  return db
-    .prepare(`SELECT ${FRIEND_SELECT_COLUMNS} FROM friends f WHERE f.id = ?`)
-    .bind(id)
-    .first<Friend>();
+export async function getFriendById(db: D1Database, id: string): Promise<Friend | null> {
+  return db.prepare(`SELECT ${FRIEND_SELECT_COLUMNS} FROM friends f WHERE f.id = ?`).bind(id).first<Friend>();
 }
 
 export async function getFriendByUserIdForAccount(
@@ -204,7 +192,10 @@ export interface UpsertFriendInput {
   followEventId?: string;
 }
 
-function normalizeFollowEvent(occurredAt?: string, eventId?: string): {
+function normalizeFollowEvent(
+  occurredAt?: string,
+  eventId?: string,
+): {
   occurredAt: string;
   eventId: string;
 } {
@@ -227,7 +218,8 @@ async function updateFriendFollowStatusLegacy(
     : 'provider_line_user_id = ? AND line_account_id IS NULL';
   const scopeValues = lineAccountId ? [lineUserId, lineAccountId] : [lineUserId];
   if (isFollowing) {
-    await db.prepare(`UPDATE friends
+    await db
+      .prepare(`UPDATE friends
       SET first_followed_at = COALESCE(first_followed_at, created_at),
           current_follow_started_at = CASE
             WHEN is_following = 0 OR current_follow_started_at IS NULL THEN ?
@@ -236,22 +228,22 @@ async function updateFriendFollowStatusLegacy(
           last_followed_at = CASE WHEN is_following = 0 THEN ? ELSE last_followed_at END,
           is_following = 1, updated_at = ?
       WHERE ${scope}`)
-      .bind(now, now, now, ...scopeValues).run();
+      .bind(now, now, now, ...scopeValues)
+      .run();
     return;
   }
-  await db.prepare(`UPDATE friends
+  await db
+    .prepare(`UPDATE friends
     SET is_following = 0, current_follow_started_at = NULL,
         last_unfollowed_at = CASE WHEN is_following = 1 THEN ? ELSE last_unfollowed_at END,
         unfollow_count = unfollow_count + CASE WHEN is_following = 1 THEN 1 ELSE 0 END,
         updated_at = ?
     WHERE ${scope}`)
-    .bind(now, now, ...scopeValues).run();
+    .bind(now, now, ...scopeValues)
+    .run();
 }
 
-export async function upsertFriend(
-  db: D1Database,
-  input: UpsertFriendInput,
-): Promise<Friend> {
+export async function upsertFriend(db: D1Database, input: UpsertFriendInput): Promise<Friend> {
   const now = jstNow();
   const followEvent = normalizeFollowEvent(input.followEventAt, input.followEventId);
   const requestedAccountId = input.lineAccountId ?? null;
@@ -285,13 +277,7 @@ export async function upsertFriend(
     if (result.meta.changes === 0) {
       throw new Error('FRIEND_ACCOUNT_CONFLICT');
     }
-    await updateFriendFollowStatus(
-      db,
-      input.lineUserId,
-      true,
-      requestedAccountId,
-      followEvent,
-    );
+    await updateFriendFollowStatus(db, input.lineUserId, true, requestedAccountId, followEvent);
     const updated = requestedAccountId
       ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
       : await getFriendById(db, existing.id);
@@ -325,25 +311,13 @@ export async function upsertFriend(
         now,
       )
       .run();
-    await updateFriendFollowStatus(
-      db,
-      input.lineUserId,
-      true,
-      requestedAccountId,
-      followEvent,
-    );
+    await updateFriendFollowStatus(db, input.lineUserId, true, requestedAccountId, followEvent);
   } catch (error) {
     const raced = requestedAccountId
       ? await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId)
       : await getFriendByLineUserId(db, input.lineUserId);
     if (raced) {
-      await updateFriendFollowStatus(
-        db,
-        input.lineUserId,
-        true,
-        requestedAccountId,
-        followEvent,
-      );
+      await updateFriendFollowStatus(db, input.lineUserId, true, requestedAccountId, followEvent);
       return requestedAccountId
         ? (await getFriendByLineUserIdForAccount(db, input.lineUserId, requestedAccountId))!
         : (await getFriendById(db, raced.id))!;
@@ -437,10 +411,7 @@ export async function updateFriendFollowStatus(
 }
 
 /** Get merged metadata across all friend records sharing the same user_id (UUID). */
-export async function getMergedMetadataByUserId(
-  db: D1Database,
-  userId: string,
-): Promise<Record<string, unknown>> {
+export async function getMergedMetadataByUserId(db: D1Database, userId: string): Promise<Record<string, unknown>> {
   const result = await db
     .prepare(
       `SELECT metadata FROM friends
@@ -458,14 +429,14 @@ export async function getMergedMetadataByUserId(
           merged[k] = v;
         }
       }
-    } catch { /* skip invalid JSON */ }
+    } catch {
+      /* skip invalid JSON */
+    }
   }
   return merged;
 }
 
 export async function getFriendCount(db: D1Database): Promise<number> {
-  const row = await db
-    .prepare(`SELECT COUNT(*) as count FROM friends`)
-    .first<{ count: number }>();
+  const row = await db.prepare(`SELECT COUNT(*) as count FROM friends`).first<{ count: number }>();
   return row?.count ?? 0;
 }

@@ -13,10 +13,7 @@ beforeEach(() => {
 describe('emergency contraception patient API', () => {
   it('lists the verified owner service and provisional intakes', async () => {
     await emergencyContraceptionApi.list();
-    expect(request).toHaveBeenCalledWith(
-      '/api/liff/pharmacy/emergency-contraception',
-      undefined,
-    );
+    expect(request).toHaveBeenCalledWith('/api/liff/pharmacy/emergency-contraception', undefined);
   });
 
   it('sends only the Phase 1 minimum intake fields', async () => {
@@ -38,8 +35,12 @@ describe('emergency contraception patient API', () => {
       stJohnsWort: false,
       lastMenstruationDate: null,
       menstruationSignals: {
-        noneApply: false, unknown: false, overOneMonthNoPeriod: false,
-        notRecoveredAfterBirth: false, lastPeriodDifferent: false, earlierConcernOver3Weeks: false,
+        noneApply: false,
+        unknown: false,
+        overOneMonthNoPeriod: false,
+        notRecoveredAfterBirth: false,
+        lastPeriodDifferent: false,
+        earlierConcernOver3Weeks: false,
       },
       idDocumentAvailable: null,
       safeContactMode: 'neutral_line' as const,

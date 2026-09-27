@@ -1,17 +1,16 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const outboundDeliveryMocks = vi.hoisted(() => ({
-  deliverTrackedLinePush: vi.fn(async (params: {
-    operationId: string;
-    request: { to: string; messages: unknown[] };
-    send: (
-      request: { to: string; messages: unknown[] },
-      retryKey: string,
-    ) => Promise<void>;
-  }) => {
-    await params.send(params.request, params.operationId);
-    return 'sent';
-  }),
+  deliverTrackedLinePush: vi.fn(
+    async (params: {
+      operationId: string;
+      request: { to: string; messages: unknown[] };
+      send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+    }) => {
+      await params.send(params.request, params.operationId);
+      return 'sent';
+    },
+  ),
 }));
 const pushMessage = vi.hoisted(() => vi.fn());
 
@@ -40,12 +39,14 @@ test('retry key が無い通知は LINE call 前に拒否する', async () => {
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 
-  await expect(sendBookingNotification({
-    channelAccessToken: 'token',
-    toLineUserId: 'U1',
-    kind: 'requested',
-    ctx,
-  } as never)).rejects.toThrow('LINE retry key required');
+  await expect(
+    sendBookingNotification({
+      channelAccessToken: 'token',
+      toLineUserId: 'U1',
+      kind: 'requested',
+      ctx,
+    } as never),
+  ).rejects.toThrow('LINE retry key required');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -76,11 +77,7 @@ test('account-scoped booking notification is persisted before the LINE push', as
       request: expect.objectContaining({ to: 'U1' }),
     }),
   );
-  expect(pushMessage).toHaveBeenCalledWith(
-    'U1',
-    expect.any(Array),
-    'operation-1',
-  );
+  expect(pushMessage).toHaveBeenCalledWith('U1', expect.any(Array), 'operation-1');
 });
 
 describe('renderNotificationText', () => {

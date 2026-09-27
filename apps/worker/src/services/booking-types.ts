@@ -1,23 +1,11 @@
 // Booking feature shared types & constants.
 // IDs are TEXT (UUID/nanoid) to follow line-harness schema.sql conventions.
 
-export type BookingStatus =
-  | 'requested'
-  | 'confirmed'
-  | 'rejected'
-  | 'expired'
-  | 'cancelled'
-  | 'completed'
-  | 'no_show';
+export type BookingStatus = 'requested' | 'confirmed' | 'rejected' | 'expired' | 'cancelled' | 'completed' | 'no_show';
 
 export type ReminderKind = 'day_before' | 'hours_before';
 
-export type ReminderStatus =
-  | 'pending'
-  | 'sent'
-  | 'failed'
-  | 'failed_permanent'
-  | 'cancelled';
+export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'failed_permanent' | 'cancelled';
 
 export interface MenuRow {
   id: string;
@@ -58,9 +46,9 @@ export interface StaffMenuRow {
 export interface ShiftRow {
   id: string;
   staff_id: string;
-  work_date: string;  // YYYY-MM-DD JST
+  work_date: string; // YYYY-MM-DD JST
   start_time: string; // HH:MM JST
-  end_time: string;   // HH:MM JST
+  end_time: string; // HH:MM JST
 }
 
 export interface BookingRow {
@@ -69,7 +57,7 @@ export interface BookingRow {
   friend_id: string;
   staff_id: string;
   menu_id: string;
-  starts_at: string;       // UTC ISO8601 (Z)
+  starts_at: string; // UTC ISO8601 (Z)
   ends_at: string;
   block_ends_at: string;
   status: BookingStatus;
@@ -82,9 +70,9 @@ export interface BookingRow {
 }
 
 export interface AvailabilitySlot {
-  date: string;  // YYYY-MM-DD JST
+  date: string; // YYYY-MM-DD JST
   start: string; // HH:MM JST
-  end: string;   // HH:MM JST
+  end: string; // HH:MM JST
 }
 
 export interface AvailabilityByStaff {

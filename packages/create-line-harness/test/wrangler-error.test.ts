@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  WranglerError,
-  setAccountId,
-  workersOnboardingUrl,
-} from '../src/lib/wrangler.js';
+import { WranglerError, setAccountId, workersOnboardingUrl } from '../src/lib/wrangler.js';
 
 const ACCOUNT_ID = 'a'.repeat(32);
 const SUBDOMAIN_ERROR =
@@ -11,15 +7,11 @@ const SUBDOMAIN_ERROR =
 
 describe('workersOnboardingUrl', () => {
   it('embeds the account ID when available', () => {
-    expect(workersOnboardingUrl(ACCOUNT_ID)).toBe(
-      `https://dash.cloudflare.com/${ACCOUNT_ID}/workers/onboarding`,
-    );
+    expect(workersOnboardingUrl(ACCOUNT_ID)).toBe(`https://dash.cloudflare.com/${ACCOUNT_ID}/workers/onboarding`);
   });
 
   it('falls back to the account-resolving deep link without an account ID', () => {
-    expect(workersOnboardingUrl(undefined)).toBe(
-      'https://dash.cloudflare.com/?to=/:account/workers/onboarding',
-    );
+    expect(workersOnboardingUrl(undefined)).toBe('https://dash.cloudflare.com/?to=/:account/workers/onboarding');
   });
 });
 
@@ -48,16 +40,12 @@ describe('WranglerError.getHelp — workers.dev subdomain registration', () => {
   it('embeds the account ID in the onboarding URL once setAccountId was called', () => {
     setAccountId(ACCOUNT_ID);
     const help = new WranglerError(SUBDOMAIN_ERROR, '').getHelp();
-    expect(help).toContain(
-      `https://dash.cloudflare.com/${ACCOUNT_ID}/workers/onboarding`,
-    );
+    expect(help).toContain(`https://dash.cloudflare.com/${ACCOUNT_ID}/workers/onboarding`);
   });
 
   it('links the generic dashboard deep link when no account ID is known', () => {
     const help = new WranglerError(SUBDOMAIN_ERROR, '').getHelp();
-    expect(help).toContain(
-      'https://dash.cloudflare.com/?to=/:account/workers/onboarding',
-    );
+    expect(help).toContain('https://dash.cloudflare.com/?to=/:account/workers/onboarding');
   });
 
   it('suppresses the non-interactive "CLI bug" hint for the subdomain case', () => {
@@ -80,10 +68,7 @@ describe('WranglerError.getHelp — workers.dev subdomain registration', () => {
   });
 
   it('returns null for unrelated errors', () => {
-    const help = new WranglerError(
-      'wrangler deploy failed: something else entirely',
-      '',
-    ).getHelp();
+    const help = new WranglerError('wrangler deploy failed: something else entirely', '').getHelp();
     expect(help).toBeNull();
   });
 });

@@ -29,7 +29,9 @@ function db(options: { first?: unknown[]; changes?: number[] } = {}) {
 
 describe('pharmacy web print repository', () => {
   it('prepares one revision task using only a server-resolved account-scoped submission', async () => {
-    const fake = db({ first: [{ id: 'task-1', line_account_id: 'account-a', revision: 2, status: 'pending' }] });
+    const fake = db({
+      first: [{ id: 'task-1', line_account_id: 'account-a', revision: 2, status: 'pending' }],
+    });
     await preparePrescriptionPrintTask(fake.value, 'account-a', 'submission-a');
     expect(fake.sql.join('\n')).toContain('s.line_account_id = ?');
     expect(fake.sql.join('\n')).toContain('s.active_revision');

@@ -1,163 +1,158 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useCallback } from 'react'
-import Link from 'next/link'
-import Header from '@/components/layout/header'
-import { useAccount } from '@/contexts/account-context'
-import { api } from '@/lib/api'
-import { ApplyToTagModal } from '@/components/rich-menus/apply-to-tag-modal'
-import { PharmacyRichMenuLayoutPanel } from '@/custom/pharmacy/rich-menu/PharmacyRichMenuLayoutPanel'
+import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
+import Header from '@/components/layout/header';
+import { useAccount } from '@/contexts/account-context';
+import { api } from '@/lib/api';
+import { ApplyToTagModal } from '@/components/rich-menus/apply-to-tag-modal';
+import { PharmacyRichMenuLayoutPanel } from '@/custom/pharmacy/rich-menu/PharmacyRichMenuLayoutPanel';
 
 type RichMenuGroupListItem = {
-  id: string
-  name: string
-  chatBarText: string
-  size: 'large' | 'compact'
-  status: 'draft' | 'published'
-  isDefaultForAll: boolean
-  selected: boolean
-  thumbnailR2Key: string | null
-  updatedAt: string
-}
+  id: string;
+  name: string;
+  chatBarText: string;
+  size: 'large' | 'compact';
+  status: 'draft' | 'published';
+  isDefaultForAll: boolean;
+  selected: boolean;
+  thumbnailR2Key: string | null;
+  updatedAt: string;
+};
 
 function StatusBadge({ status }: { status: 'draft' | 'published' }) {
-  const cls =
-    status === 'published'
-      ? 'bg-green-100 text-green-800'
-      : 'bg-gray-100 text-gray-700'
+  const cls = status === 'published' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700';
   return (
-    <span className={`text-xs px-2 py-0.5 rounded ${cls}`}>
-      {status === 'published' ? 'LINE 登録済み' : '下書き'}
-    </span>
-  )
+    <span className={`text-xs px-2 py-0.5 rounded ${cls}`}>{status === 'published' ? 'LINE 登録済み' : '下書き'}</span>
+  );
 }
 
 type LineMenu = {
-  richMenuId: string
-  name: string
-  chatBarText: string
-  selected: boolean
-  size: { width: number; height: number }
-  areasCount: number
-  isCurrentDefault: boolean
-  adminManaged: boolean
+  richMenuId: string;
+  name: string;
+  chatBarText: string;
+  selected: boolean;
+  size: { width: number; height: number };
+  areasCount: number;
+  isCurrentDefault: boolean;
+  adminManaged: boolean;
   adminInfo: {
-    groupId: string
-    groupName: string
-    pageName: string
-    groupStatus: 'draft' | 'published'
-  } | null
-}
+    groupId: string;
+    groupName: string;
+    pageName: string;
+    groupStatus: 'draft' | 'published';
+  } | null;
+};
 
 export default function RichMenusListPage() {
-  const { selectedAccount } = useAccount()
-  const [groups, setGroups] = useState<RichMenuGroupListItem[]>([])
+  const { selectedAccount } = useAccount();
+  const [groups, setGroups] = useState<RichMenuGroupListItem[]>([]);
   const [external, setExternal] = useState<{
-    currentDefault: string | null
-    lineMenus: LineMenu[]
-  } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [externalError, setExternalError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [applyTo, setApplyTo] = useState<RichMenuGroupListItem | null>(null)
-  const [initialTarget, setInitialTarget] = useState<RichMenuGroupListItem | null>(null)
+    currentDefault: string | null;
+    lineMenus: LineMenu[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [externalError, setExternalError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [applyTo, setApplyTo] = useState<RichMenuGroupListItem | null>(null);
+  const [initialTarget, setInitialTarget] = useState<RichMenuGroupListItem | null>(null);
 
   const reload = useCallback(async () => {
-    if (!selectedAccount?.id) return
+    if (!selectedAccount?.id) return;
     if (selectedAccount.pharmacyMode) {
-      setLoading(false)
-      return
+      setLoading(false);
+      return;
     }
-    setLoading(true)
-    setError(null)
-    setExternalError(null)
+    setLoading(true);
+    setError(null);
+    setExternalError(null);
     try {
       // 並列に: D1 管理 group の一覧と、LINE 上の現状
       const [groupsRes, externalRes] = await Promise.allSettled([
         api.richMenuGroups.list(selectedAccount.id),
         api.richMenuGroups.external(selectedAccount.id),
-      ])
+      ]);
       if (groupsRes.status === 'fulfilled') {
-        if (!groupsRes.value.success) throw new Error(groupsRes.value.error ?? '取得失敗')
-        setGroups(groupsRes.value.data)
+        if (!groupsRes.value.success) throw new Error(groupsRes.value.error ?? '取得失敗');
+        setGroups(groupsRes.value.data);
       } else {
-        throw groupsRes.reason
+        throw groupsRes.reason;
       }
       if (externalRes.status === 'fulfilled') {
-        const v = externalRes.value
+        const v = externalRes.value;
         if (v.success) {
-          setExternal(v.data)
+          setExternal(v.data);
         } else {
-          setExternalError('LINE上のリッチメニューを取得できませんでした。再度お試しください。')
-          setExternal(null)
+          setExternalError('LINE上のリッチメニューを取得できませんでした。再度お試しください。');
+          setExternal(null);
         }
       } else {
-        setExternalError('LINE上のリッチメニューを取得できませんでした。再度お試しください。')
-        setExternal(null)
+        setExternalError('LINE上のリッチメニューを取得できませんでした。再度お試しください。');
+        setExternal(null);
       }
     } catch {
-      setError('リッチメニューを取得できませんでした。再度お試しください。')
+      setError('リッチメニューを取得できませんでした。再度お試しください。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedAccount?.id, selectedAccount?.pharmacyMode])
+  }, [selectedAccount?.id, selectedAccount?.pharmacyMode]);
 
   useEffect(() => {
-    reload()
-  }, [reload])
+    reload();
+  }, [reload]);
 
   async function handleDelete(group: RichMenuGroupListItem) {
     if (group.status === 'published') {
       alert(
         `「${group.name}」は LINE に登録されています。\n\n` +
           '編集画面の「危険な操作」から「LINE から取り下げ」を実行してから、改めて削除してください。',
-      )
-      return
+      );
+      return;
     }
-    if (!confirm(`「${group.name}」を削除します。元には戻せません。`)) return
+    if (!confirm(`「${group.name}」を削除します。元には戻せません。`)) return;
     try {
-      const res = await api.richMenuGroups.delete(group.id)
-      if (!res.success) throw new Error(res.error ?? '削除失敗')
-      await reload()
+      const res = await api.richMenuGroups.delete(group.id);
+      if (!res.success) throw new Error(res.error ?? '削除失敗');
+      await reload();
     } catch {
-      alert('リッチメニューを削除できませんでした。再度お試しください。')
+      alert('リッチメニューを削除できませんでした。再度お試しください。');
     }
   }
 
   async function handleDeleteExternal(menu: LineMenu) {
-    if (!selectedAccount?.id) return
+    if (!selectedAccount?.id) return;
     if (
       !confirm(
         `LINE 上のリッチメニュー「${menu.name}」(richMenuId: ${menu.richMenuId.slice(0, 14)}...) を削除します。\n\n` +
           'この管理画面外で作成されたメニューを LINE 公式アカウントから消します。元に戻せません。\n\n続行しますか？',
       )
     )
-      return
+      return;
     try {
-      const res = await api.richMenuGroups.deleteExternal(menu.richMenuId, selectedAccount.id)
-      if (!res.success) throw new Error(res.error ?? '削除失敗')
-      await reload()
+      const res = await api.richMenuGroups.deleteExternal(menu.richMenuId, selectedAccount.id);
+      if (!res.success) throw new Error(res.error ?? '削除失敗');
+      await reload();
     } catch {
-      alert('LINE上のリッチメニューを削除できませんでした。再度お試しください。')
+      alert('LINE上のリッチメニューを削除できませんでした。再度お試しください。');
     }
   }
 
   async function handleImport(menu: LineMenu) {
-    if (!selectedAccount?.id) return
+    if (!selectedAccount?.id) return;
     if (
       !confirm(
         `「${menu.name}」を管理画面に取り込みます。\n\n` +
           '取り込み後は「管理画面で作成・編集するメニュー」セクションに表示され、編集や友だちへの再適用が可能になります。\n\n続行しますか？',
       )
     )
-      return
+      return;
     try {
-      const res = await api.richMenuGroups.importFromLine(menu.richMenuId, selectedAccount.id)
-      if (!res.success) throw new Error(res.error ?? '取り込み失敗')
-      alert(`取り込みました: ${res.data?.name ?? menu.name}`)
-      await reload()
+      const res = await api.richMenuGroups.importFromLine(menu.richMenuId, selectedAccount.id);
+      if (!res.success) throw new Error(res.error ?? '取り込み失敗');
+      alert(`取り込みました: ${res.data?.name ?? menu.name}`);
+      await reload();
     } catch {
-      alert('リッチメニューを取り込めませんでした。再度お試しください。')
+      alert('リッチメニューを取り込めませんでした。再度お試しください。');
     }
   }
 
@@ -166,33 +161,29 @@ export default function RichMenusListPage() {
       <Header
         title="リッチメニュー"
         description="LINE トーク画面下に表示されるメニュー。タブ切替対応。"
-        action={!selectedAccount?.pharmacyMode ? (
-          <Link
-            href="/rich-menus/new"
-            className="inline-flex items-center gap-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
-            style={{ backgroundColor: '#06C755' }}
-          >
-            <span className="text-lg leading-none">+</span> 新規作成
-          </Link>
-        ) : undefined}
+        action={
+          !selectedAccount?.pharmacyMode ? (
+            <Link
+              href="/rich-menus/new"
+              className="inline-flex items-center gap-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
+              style={{ backgroundColor: '#06C755' }}
+            >
+              <span className="text-lg leading-none">+</span> 新規作成
+            </Link>
+          ) : undefined
+        }
       />
 
       {selectedAccount?.pharmacyMode && <PharmacyRichMenuLayoutPanel accountId={selectedAccount.id} />}
 
-      {!selectedAccount && (
-        <div className="text-sm text-gray-500">
-          アカウントを選択してください。
-        </div>
-      )}
+      {!selectedAccount && <div className="text-sm text-gray-500">アカウントを選択してください。</div>}
 
       {selectedAccount && !selectedAccount.pharmacyMode && loading && (
         <div className="text-sm text-gray-500">読み込み中...</div>
       )}
 
       {selectedAccount && !selectedAccount.pharmacyMode && !loading && error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded mb-4">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded mb-4">{error}</div>
       )}
 
       {/* LINE 公式アカウントの現状 (admin 管理外の rich menu も含む) */}
@@ -215,15 +206,15 @@ export default function RichMenusListPage() {
       {selectedAccount && !selectedAccount.pharmacyMode && !loading && !error && (
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-gray-700">保存済みリッチメニュー画像</h2>
-          <p className="mt-1 text-xs text-gray-500">画像付きメニューを複数保存し、LINE登録済みの画像へ切り替えられます。</p>
+          <p className="mt-1 text-xs text-gray-500">
+            画像付きメニューを複数保存し、LINE登録済みの画像へ切り替えられます。
+          </p>
         </div>
       )}
 
       {selectedAccount && !selectedAccount.pharmacyMode && !loading && !error && groups.length === 0 && (
         <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-12 text-center">
-          <p className="text-gray-500 mb-4">
-            まだリッチメニューが作成されていません。
-          </p>
+          <p className="text-gray-500 mb-4">まだリッチメニューが作成されていません。</p>
           <Link
             href="/rich-menus/new"
             className="inline-flex items-center gap-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
@@ -275,9 +266,7 @@ export default function RichMenusListPage() {
                   </p>
                   <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
                     <span>サイズ: {g.size === 'large' ? '2500×1686' : '2500×843'}</span>
-                    {g.isDefaultForAll && (
-                      <span className="text-blue-600 font-medium">★ 初期表示: 全員</span>
-                    )}
+                    {g.isDefaultForAll && <span className="text-blue-600 font-medium">★ 初期表示: 全員</span>}
                     <span>{g.selected ? '開いた直後: 展開' : '開いた直後: 閉じる'}</span>
                   </div>
                 </div>
@@ -301,10 +290,7 @@ export default function RichMenusListPage() {
                     </button>
                   </>
                 )}
-                <Link
-                  href={`/rich-menus/edit?id=${g.id}`}
-                  className="text-gray-600 hover:underline"
-                >
+                <Link href={`/rich-menus/edit?id=${g.id}`} className="text-gray-600 hover:underline">
                   編集
                 </Link>
                 <button
@@ -321,11 +307,7 @@ export default function RichMenusListPage() {
       )}
 
       {!selectedAccount?.pharmacyMode && applyTo && (
-        <ApplyToTagModal
-          groupId={applyTo.id}
-          groupName={applyTo.name}
-          onClose={() => setApplyTo(null)}
-        />
+        <ApplyToTagModal groupId={applyTo.id} groupName={applyTo.name} onClose={() => setApplyTo(null)} />
       )}
       {!selectedAccount?.pharmacyMode && initialTarget && (
         <ApplyToTagModal
@@ -334,13 +316,13 @@ export default function RichMenusListPage() {
           initialMode="set-default"
           initialDefaultEnabled={!initialTarget.isDefaultForAll}
           onClose={() => {
-            setInitialTarget(null)
-            reload()
+            setInitialTarget(null);
+            reload();
           }}
         />
       )}
     </main>
-  )
+  );
 }
 
 function ExternalSection({
@@ -350,46 +332,38 @@ function ExternalSection({
   onDeleteExternal,
   onImport,
 }: {
-  accountId: string
-  accountName: string
-  external: { currentDefault: string | null; lineMenus: LineMenu[] }
-  onDeleteExternal: (menu: LineMenu) => void
-  onImport: (menu: LineMenu) => void
+  accountId: string;
+  accountName: string;
+  external: { currentDefault: string | null; lineMenus: LineMenu[] };
+  onDeleteExternal: (menu: LineMenu) => void;
+  onImport: (menu: LineMenu) => void;
 }) {
-  const { currentDefault, lineMenus } = external
+  const { currentDefault, lineMenus } = external;
   const sortedMenus = [...lineMenus].sort((a, b) => {
     // 現在のデフォルトを先頭、次に admin 管理外、最後に admin 管理
-    if (a.isCurrentDefault) return -1
-    if (b.isCurrentDefault) return 1
-    if (a.adminManaged !== b.adminManaged) return a.adminManaged ? 1 : -1
-    return a.name.localeCompare(b.name)
-  })
-  const currentDefaultMenu = lineMenus.find((m) => m.isCurrentDefault) ?? null
-  const unmanagedCount = lineMenus.filter((m) => !m.adminManaged).length
+    if (a.isCurrentDefault) return -1;
+    if (b.isCurrentDefault) return 1;
+    if (a.adminManaged !== b.adminManaged) return a.adminManaged ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+  const currentDefaultMenu = lineMenus.find((m) => m.isCurrentDefault) ?? null;
+  const unmanagedCount = lineMenus.filter((m) => !m.adminManaged).length;
 
   return (
     <section className="mb-8 bg-white border border-gray-200 rounded-lg shadow-sm p-5">
       <div className="flex items-baseline justify-between gap-3 mb-3">
-        <h2 className="text-sm font-semibold text-gray-900">
-          LINE 公式アカウントの現状
-        </h2>
+        <h2 className="text-sm font-semibold text-gray-900">LINE 公式アカウントの現状</h2>
         <span className="text-xs text-gray-500 truncate">{accountName}</span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-sm">
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div className="text-xs text-blue-700 font-medium mb-0.5">
-            現在の「全員のデフォルト」
-          </div>
+          <div className="text-xs text-blue-700 font-medium mb-0.5">現在の「全員のデフォルト」</div>
           {currentDefaultMenu ? (
             <div>
-              <div className="font-medium text-gray-900 truncate">
-                {currentDefaultMenu.name}
-              </div>
+              <div className="font-medium text-gray-900 truncate">{currentDefaultMenu.name}</div>
               {currentDefaultMenu.adminInfo ? (
-                <div className="text-xs text-gray-600 truncate">
-                  管理画面: {currentDefaultMenu.adminInfo.groupName}
-                </div>
+                <div className="text-xs text-gray-600 truncate">管理画面: {currentDefaultMenu.adminInfo.groupName}</div>
               ) : (
                 <div className="text-xs text-amber-700">管理画面外で設定</div>
               )}
@@ -397,29 +371,17 @@ function ExternalSection({
           ) : (
             <div className="text-gray-500 text-xs">設定なし</div>
           )}
-          {currentDefault && (
-            <div className="text-[10px] text-gray-400 font-mono mt-1 truncate">
-              {currentDefault}
-            </div>
-          )}
+          {currentDefault && <div className="text-[10px] text-gray-400 font-mono mt-1 truncate">{currentDefault}</div>}
         </div>
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-          <div className="text-xs text-gray-700 font-medium mb-0.5">
-            LINE 上に登録されているメニュー
-          </div>
+          <div className="text-xs text-gray-700 font-medium mb-0.5">LINE 上に登録されているメニュー</div>
           <div className="font-medium text-gray-900">{lineMenus.length} 個</div>
-          {unmanagedCount > 0 && (
-            <div className="text-xs text-amber-700">
-              うち {unmanagedCount} 個が管理画面外
-            </div>
-          )}
+          {unmanagedCount > 0 && <div className="text-xs text-amber-700">うち {unmanagedCount} 個が管理画面外</div>}
         </div>
       </div>
 
       {lineMenus.length === 0 ? (
-        <div className="text-xs text-gray-500 py-3">
-          LINE 公式アカウントにはまだ rich menu が登録されていません。
-        </div>
+        <div className="text-xs text-gray-500 py-3">LINE 公式アカウントにはまだ rich menu が登録されていません。</div>
       ) : (
         <div className="border border-gray-200 rounded-lg overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -468,12 +430,8 @@ function ExternalSection({
                       )}
                       <span className="font-medium truncate max-w-[180px]">{m.name}</span>
                     </div>
-                    <div className="text-[11px] text-gray-500 truncate max-w-[200px]">
-                      {m.chatBarText}
-                    </div>
-                    <div className="text-[10px] text-gray-400 font-mono truncate max-w-[280px]">
-                      {m.richMenuId}
-                    </div>
+                    <div className="text-[11px] text-gray-500 truncate max-w-[200px]">{m.chatBarText}</div>
+                    <div className="text-[10px] text-gray-400 font-mono truncate max-w-[280px]">{m.richMenuId}</div>
                   </td>
                   <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
                     {m.size.width}×{m.size.height}
@@ -525,5 +483,5 @@ function ExternalSection({
         </div>
       )}
     </section>
-  )
+  );
 }

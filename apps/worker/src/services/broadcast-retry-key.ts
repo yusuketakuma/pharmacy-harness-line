@@ -31,7 +31,5 @@ export function createFormLinkRetryKey(params: {
   gate: string;
   xh: string;
 }): Promise<string> {
-  return createBroadcastRetryKey(
-    'liff-form-link', params.friendId, params.formId, params.ref, params.gate, params.xh,
-  );
+  return createBroadcastRetryKey('liff-form-link', params.friendId, params.formId, params.ref, params.gate, params.xh);
 }

@@ -2,18 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  DB_PACKAGE_ROOT,
-  Sqlite,
-  d1FromSqlite,
-  type TestSqliteDatabase,
-} from '../test-sqlite.js';
+import { DB_PACKAGE_ROOT, Sqlite, d1FromSqlite, type TestSqliteDatabase } from '../test-sqlite.js';
 import { toJstString } from '@line-crm/db';
 import type { Env } from '../../../index.js';
-import {
-  generatePlatformAdminSessionToken,
-  hashTenantAdminSessionToken,
-} from '../provisioning/credentials.js';
+import { generatePlatformAdminSessionToken, hashTenantAdminSessionToken } from '../provisioning/credentials.js';
 import { platformAdminAuthMiddleware } from './auth.js';
 import { platformAdminDashboardRoutes } from './dashboard-routes.js';
 
@@ -57,19 +49,25 @@ function fresh(foreignKeys: 'ON' | 'OFF'): Sqlite3Database {
  */
 async function seedPlatformAdmin(sqlite: Sqlite3Database): Promise<string> {
   const now = utcAgo(0);
-  sqlite.prepare(
-    `INSERT INTO staff_members (id, name, email, role, api_key, is_active, created_at, updated_at)
+  sqlite
+    .prepare(
+      `INSERT INTO staff_members (id, name, email, role, api_key, is_active, created_at, updated_at)
      VALUES (?, ?, NULL, 'owner', ?, 1, ?, ?)`,
-  ).run('staff-platform', 'Platform Owner', 'api-key-platform', now, now);
-  sqlite.prepare(
-    `INSERT INTO platform_admins (staff_id, granted_by, is_active, created_at, updated_at)
+    )
+    .run('staff-platform', 'Platform Owner', 'api-key-platform', now, now);
+  sqlite
+    .prepare(
+      `INSERT INTO platform_admins (staff_id, granted_by, is_active, created_at, updated_at)
      VALUES (?, NULL, 1, ?, ?)`,
-  ).run('staff-platform', now, now);
-  sqlite.prepare(
-    `INSERT INTO platform_admin_credentials
+    )
+    .run('staff-platform', now, now);
+  sqlite
+    .prepare(
+      `INSERT INTO platform_admin_credentials
        (staff_id, login_id, password_hash, must_change_password, credential_version, created_at, updated_at)
      VALUES (?, ?, ?, 0, 1, ?, ?)`,
-  ).run('staff-platform', 'platform-admin', 'unused-on-the-session-path', now, now);
+    )
+    .run('staff-platform', 'platform-admin', 'unused-on-the-session-path', now, now);
   const token = generatePlatformAdminSessionToken();
   const session = sqlite.prepare(
     `INSERT INTO platform_admin_sessions
@@ -83,23 +81,29 @@ async function seedPlatformAdmin(sqlite: Sqlite3Database): Promise<string> {
 
 function seedTenant(sqlite: Sqlite3Database, id: string, code: string, status: string): void {
   const now = utcAgo(0);
-  sqlite.prepare(
-    `INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
+  sqlite
+    .prepare(
+      `INSERT INTO tenants (id, tenant_code, display_name, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(id, code, `Pharmacy ${code}`, status, now, now);
+    )
+    .run(id, code, `Pharmacy ${code}`, status, now, now);
 }
 
 function seedAccount(sqlite: Sqlite3Database, tenantId: string, id: string, isActive: number): void {
   const now = utcAgo(0);
-  sqlite.prepare(
-    `INSERT INTO line_accounts
+  sqlite
+    .prepare(
+      `INSERT INTO line_accounts
        (id, channel_id, name, channel_access_token, channel_secret, is_active, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, `channel-${id}`, `Account ${id}`, `token-${id}`, `secret-${id}`, isActive, now, now);
-  sqlite.prepare(
-    `INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
+    )
+    .run(id, `channel-${id}`, `Account ${id}`, `token-${id}`, `secret-${id}`, isActive, now, now);
+  sqlite
+    .prepare(
+      `INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
      VALUES (?, ?, ?, ?)`,
-  ).run(tenantId, id, now, now);
+    )
+    .run(tenantId, id, now, now);
 }
 
 function seedReceipt(
@@ -111,23 +115,29 @@ function seedReceipt(
   status: string,
   deadLetteredAt: string | null = null,
 ): void {
-  sqlite.prepare(
-    `INSERT INTO pharmacy_webhook_event_receipts
+  sqlite
+    .prepare(
+      `INSERT INTO pharmacy_webhook_event_receipts
        (tenant_id, line_account_id, webhook_event_id, received_at, payload, status, retry_count, dead_lettered_at)
      VALUES (?, ?, ?, ?, NULL, ?, 0, ?)`,
-  ).run(tenantId, accountId, eventId, receivedAt, status, deadLetteredAt);
+    )
+    .run(tenantId, accountId, eventId, receivedAt, status, deadLetteredAt);
 }
 
 function seedMembership(sqlite: Sqlite3Database, tenantId: string, staffId: string, isActive: number): void {
   const now = utcAgo(0);
-  sqlite.prepare(
-    `INSERT OR IGNORE INTO staff_members (id, name, email, role, api_key, is_active, created_at, updated_at)
+  sqlite
+    .prepare(
+      `INSERT OR IGNORE INTO staff_members (id, name, email, role, api_key, is_active, created_at, updated_at)
      VALUES (?, ?, NULL, 'staff', ?, 1, ?, ?)`,
-  ).run(staffId, staffId, `api-key-${staffId}`, now, now);
-  sqlite.prepare(
-    `INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active, created_at, updated_at)
+    )
+    .run(staffId, staffId, `api-key-${staffId}`, now, now);
+  sqlite
+    .prepare(
+      `INSERT INTO tenant_staff_memberships (tenant_id, staff_id, role, is_active, created_at, updated_at)
      VALUES (?, ?, 'staff', ?, ?, ?)`,
-  ).run(tenantId, staffId, isActive, now, now);
+    )
+    .run(tenantId, staffId, isActive, now, now);
 }
 
 function seedTenantSession(
@@ -139,17 +149,21 @@ function seedTenantSession(
   expiresAt: string,
   revokedAt: string | null = null,
 ): void {
-  sqlite.prepare(
-    `INSERT OR IGNORE INTO tenant_admin_credentials
+  sqlite
+    .prepare(
+      `INSERT OR IGNORE INTO tenant_admin_credentials
        (tenant_id, staff_id, login_id, password_hash, must_change_password,
         credential_version, created_at, updated_at)
      VALUES (?, ?, ?, 'unused-on-the-session-path', 0, 1, ?, ?)`,
-  ).run(tenantId, staffId, `login-${staffId}`, createdAt, createdAt);
-  sqlite.prepare(
-    `INSERT INTO tenant_admin_sessions
+    )
+    .run(tenantId, staffId, `login-${staffId}`, createdAt, createdAt);
+  sqlite
+    .prepare(
+      `INSERT INTO tenant_admin_sessions
        (token_hash, tenant_id, staff_id, credential_version, session_kind, expires_at, revoked_at, created_at)
      VALUES (?, ?, ?, 1, 'standard', ?, ?, ?)`,
-  ).run(tokenSuffix.padStart(64, '0'), tenantId, staffId, expiresAt, revokedAt, createdAt);
+    )
+    .run(tokenSuffix.padStart(64, '0'), tenantId, staffId, expiresAt, revokedAt, createdAt);
 }
 
 function seedGrant(
@@ -160,31 +174,36 @@ function seedGrant(
   revokedAt: string | null = null,
 ): void {
   const now = utcAgo(0);
-  sqlite.prepare(
-    `INSERT INTO platform_admin_access_grants
+  sqlite
+    .prepare(
+      `INSERT INTO platform_admin_access_grants
        (id, platform_admin_id, tenant_id, scopes, reason, ticket_reference,
         reauth_verified_at, issued_at, expires_at, revoked_at, revoked_by, session_token_hash)
      VALUES (?, 'staff-platform', ?, '["phi:read"]', 'support', NULL, ?, ?, ?, ?, NULL, ?)`,
-  ).run(id, tenantId, now, now, expiresAt, revokedAt, 'a'.repeat(64));
+    )
+    .run(id, tenantId, now, now, expiresAt, revokedAt, 'a'.repeat(64));
 }
 
 function accessEvents(sqlite: Sqlite3Database) {
-  return sqlite.prepare(
-    `SELECT platform_admin_id, tenant_id, action, resource_type, resource_id, detail_json
+  return sqlite
+    .prepare(
+      `SELECT platform_admin_id, tenant_id, action, resource_type, resource_id, detail_json
        FROM platform_admin_access_events ORDER BY created_at, rowid`,
-  ).all() as Array<Record<string, unknown>>;
+    )
+    .all() as Array<Record<string, unknown>>;
 }
 
 // Mirrors the audit-coverage guard in routes.test.ts: a route added to this
 // router without an access event is a compliance regression, so a new route
 // must fail here until it is given one (and a test above proving it).
 it('registers only routes whose access events are asserted in this file', () => {
-  expect(new Set(platformAdminDashboardRoutes.routes.map((route) => `${route.method} ${route.path}`)))
-    .toEqual(new Set([
+  expect(new Set(platformAdminDashboardRoutes.routes.map((route) => `${route.method} ${route.path}`))).toEqual(
+    new Set([
       'GET /api/platform-admin/dashboard',
       'GET /api/platform-admin/tenants/:id/health',
       'GET /api/platform-admin/integrity',
-    ]));
+    ]),
+  );
 });
 
 describe('platform admin dashboard aggregate', () => {
@@ -196,7 +215,8 @@ describe('platform admin dashboard aggregate', () => {
     sqlite = fresh('ON');
     cookie = await seedPlatformAdmin(sqlite);
     testEnv = {
-      DB: d1From(sqlite), PHARMACY_SELLER_RELEASE: 'pharmacy-v0.30.0-dev',
+      DB: d1From(sqlite),
+      PHARMACY_SELLER_RELEASE: 'pharmacy-v0.30.0-dev',
     } as unknown as Env['Bindings'];
 
     seedTenant(sqlite, 'tenant-a', 'pharmacy-a', 'active');
@@ -238,7 +258,7 @@ describe('platform admin dashboard aggregate', () => {
   it('counts tenants, webhook health, grants and stale tenants', async () => {
     const response = await app().request('/api/platform-admin/dashboard', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
-    const body = await response.json() as { success: boolean; data: Record<string, unknown> };
+    const body = (await response.json()) as { success: boolean; data: Record<string, unknown> };
     expect(body).toMatchObject({
       success: true,
       data: {
@@ -252,12 +272,16 @@ describe('platform admin dashboard aggregate', () => {
         pharmacyReadiness: {
           statusCounts: { READY: 0, BLOCKED: 6, UNVERIFIED: 0 },
           tenants: [
-            { tenantId: 'tenant-a', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 }, accounts: [
-              { accountId: 'account-a', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 } },
-            ] },
-            { tenantId: 'tenant-b', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 }, accounts: [
-              { accountId: 'account-b', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 } },
-            ] },
+            {
+              tenantId: 'tenant-a',
+              statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 },
+              accounts: [{ accountId: 'account-a', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 } }],
+            },
+            {
+              tenantId: 'tenant-b',
+              statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 },
+              accounts: [{ accountId: 'account-b', statusCounts: { READY: 0, BLOCKED: 3, UNVERIFIED: 0 } }],
+            },
           ],
         },
         versions: {
@@ -269,19 +293,23 @@ describe('platform admin dashboard aggregate', () => {
       },
     });
     expect(String((body.data.pharmacyReadiness as { checkedAt: string }).checkedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(JSON.stringify(body.data)).not.toMatch(/patient|friend|prescriptionCount|activeCase|token|secret|credential/iu);
+    expect(JSON.stringify(body.data)).not.toMatch(
+      /patient|friend|prescriptionCount|activeCase|token|secret|credential/iu,
+    );
   });
 
   it('records one list_dashboard access event with no tenant', async () => {
     await app().request('/api/platform-admin/dashboard', { headers: { cookie } }, testEnv);
-    expect(accessEvents(sqlite)).toEqual([{
-      platform_admin_id: 'staff-platform',
-      tenant_id: null,
-      action: 'list_dashboard',
-      resource_type: null,
-      resource_id: null,
-      detail_json: null,
-    }]);
+    expect(accessEvents(sqlite)).toEqual([
+      {
+        platform_admin_id: 'staff-platform',
+        tenant_id: null,
+        action: 'list_dashboard',
+        resource_type: null,
+        resource_id: null,
+        detail_json: null,
+      },
+    ]);
   });
 
   it('requires a platform admin session', async () => {
@@ -304,10 +332,12 @@ describe('platform admin tenant health', () => {
     seedTenant(sqlite, 'tenant-a', 'pharmacy-a', 'active');
     seedAccount(sqlite, 'tenant-a', 'account-a', 1);
     seedAccount(sqlite, 'tenant-a', 'account-idle', 0);
-    sqlite.prepare(
-      `INSERT INTO pharmacy_line_channel_identities (line_account_id, bot_user_id, created_at)
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_line_channel_identities (line_account_id, bot_user_id, created_at)
        VALUES ('account-a', 'bot-a', ?)`,
-    ).run(utcAgo(0));
+      )
+      .run(utcAgo(0));
 
     seedReceipt(sqlite, 'tenant-a', 'account-a', 'ok-1', jstAgo(2 * HOUR_MS), 'completed');
     seedReceipt(sqlite, 'tenant-a', 'account-a', 'ok-2', jstAgo(30 * 60 * 1000), 'completed');
@@ -324,7 +354,9 @@ describe('platform admin tenant health', () => {
 
   it('reports per-account identity and last webhook plus tenant-wide counts', async () => {
     const response = await app().request(
-      '/api/platform-admin/tenants/tenant-a/health', { headers: { cookie } }, testEnv,
+      '/api/platform-admin/tenants/tenant-a/health',
+      { headers: { cookie } },
+      testEnv,
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -353,19 +385,23 @@ describe('platform admin tenant health', () => {
         lastAdminLoginAt: utcAgo(HOUR_MS),
       },
     });
-    expect(accessEvents(sqlite)).toEqual([{
-      platform_admin_id: 'staff-platform',
-      tenant_id: 'tenant-a',
-      action: 'view_tenant_health',
-      resource_type: 'tenant',
-      resource_id: 'tenant-a',
-      detail_json: null,
-    }]);
+    expect(accessEvents(sqlite)).toEqual([
+      {
+        platform_admin_id: 'staff-platform',
+        tenant_id: 'tenant-a',
+        action: 'view_tenant_health',
+        resource_type: 'tenant',
+        resource_id: 'tenant-a',
+        detail_json: null,
+      },
+    ]);
   });
 
   it('404s an unknown tenant without recording an access event', async () => {
     const response = await app().request(
-      '/api/platform-admin/tenants/tenant-zz/health', { headers: { cookie } }, testEnv,
+      '/api/platform-admin/tenants/tenant-zz/health',
+      { headers: { cookie } },
+      testEnv,
     );
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ success: false, error: 'Tenant not found' });
@@ -399,12 +435,11 @@ describe('platform admin integrity checks', () => {
   async function run(): Promise<IntegrityCheck[]> {
     const response = await app().request('/api/platform-admin/integrity', { headers: { cookie } }, testEnv);
     expect(response.status).toBe(200);
-    const body = await response.json() as { success: true; data: IntegrityCheck[] };
+    const body = (await response.json()) as { success: true; data: IntegrityCheck[] };
     return body.data;
   }
 
-  const byName = (checks: IntegrityCheck[], name: string) =>
-    checks.find((check) => check.name === name);
+  const byName = (checks: IntegrityCheck[], name: string) => checks.find((check) => check.name === name);
 
   it('reports ok for every check on a clean database', async () => {
     const checks = await run();
@@ -421,21 +456,25 @@ describe('platform admin integrity checks', () => {
 
   it('records exactly one run_integrity_check event for the whole call', async () => {
     await run();
-    expect(accessEvents(sqlite)).toEqual([{
-      platform_admin_id: 'staff-platform',
-      tenant_id: null,
-      action: 'run_integrity_check',
-      resource_type: null,
-      resource_id: null,
-      detail_json: JSON.stringify({ failing: [] }),
-    }]);
+    expect(accessEvents(sqlite)).toEqual([
+      {
+        platform_admin_id: 'staff-platform',
+        tenant_id: null,
+        action: 'run_integrity_check',
+        resource_type: null,
+        resource_id: null,
+        detail_json: JSON.stringify({ failing: [] }),
+      },
+    ]);
   });
 
   it('flags a tenant_line_accounts row pointing at a deleted line account as critical', async () => {
-    sqlite.prepare(
-      `INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
+    sqlite
+      .prepare(
+        `INSERT INTO tenant_line_accounts (tenant_id, line_account_id, created_at, updated_at)
        VALUES ('tenant-a', 'account-ghost', ?, ?)`,
-    ).run(utcAgo(0), utcAgo(0));
+      )
+      .run(utcAgo(0), utcAgo(0));
     expect(byName(await run(), 'orphaned_tenant_line_accounts')).toEqual({
       name: 'orphaned_tenant_line_accounts',
       status: 'critical',
@@ -457,19 +496,23 @@ describe('platform admin integrity checks', () => {
 
   function seedUnmappedPatients(count: number): void {
     const now = utcAgo(0);
-    sqlite.prepare(
-      `INSERT INTO line_accounts
+    sqlite
+      .prepare(
+        `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret, is_active, created_at, updated_at)
        VALUES ('account-unmapped', 'channel-unmapped', 'Unmapped', 't', 's', 1, ?, ?)`,
-    ).run(now, now);
+      )
+      .run(now, now);
     for (let index = 0; index < count; index += 1) {
-      sqlite.prepare(
-        `INSERT INTO pharmacy_patients
+      sqlite
+        .prepare(
+          `INSERT INTO pharmacy_patients
            (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date,
             sex, contact_phone, archived_at, created_at, updated_at)
          VALUES (?, 'account-unmapped', 'friend-1', 'other', '患者', 'カンジャ', '1990-01-01',
                  NULL, NULL, NULL, ?, ?)`,
-      ).run(`patient-${index}`, now, now);
+        )
+        .run(`patient-${index}`, now, now);
     }
   }
 
@@ -490,10 +533,14 @@ describe('platform admin integrity checks', () => {
     seedUnmappedPatients(1);
     seedReceipt(sqlite, 'tenant-a', 'account-a', 'stuck', jstAgo(2 * HOUR_MS), 'pending');
     const checks = await run();
-    expect(byName(checks, 'patients_without_active_account_mapping'))
-      .toMatchObject({ affectedCount: 1, sampleIds: [] });
-    expect(byName(checks, 'stale_pending_webhook_events'))
-      .toMatchObject({ affectedCount: 1, sampleIds: ['stuck'] });
+    expect(byName(checks, 'patients_without_active_account_mapping')).toMatchObject({
+      affectedCount: 1,
+      sampleIds: [],
+    });
+    expect(byName(checks, 'stale_pending_webhook_events')).toMatchObject({
+      affectedCount: 1,
+      sampleIds: ['stuck'],
+    });
   });
 
   it('warns on pending webhook rows the sweep should already have picked up', async () => {
@@ -512,19 +559,24 @@ describe('platform admin integrity checks', () => {
     // from before that trigger — drop it to reproduce that historical state.
     sqlite.exec('DROP TRIGGER pharmacy_prescription_submissions_source_handoff_scope_insert');
     const now = utcAgo(0);
-    const submission = (id: string, handoffId: string) => sqlite.prepare(
-      `INSERT INTO pharmacy_prescription_submissions
+    const submission = (id: string, handoffId: string) =>
+      sqlite
+        .prepare(
+          `INSERT INTO pharmacy_prescription_submissions
          (id, line_account_id, friend_id, idempotency_key, status, upload_revision,
           source_handoff_id, created_at, updated_at)
        VALUES (?, 'account-a', 'friend-1', ?, 'draft', 1, ?, ?, ?)`,
-    ).run(id, id, handoffId, now, now);
-    sqlite.prepare(
-      `INSERT INTO pharmacy_myna_handoffs
+        )
+        .run(id, id, handoffId, now, now);
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_myna_handoffs
          (id, line_account_id, friend_id, patient_id, expectation_id, method, status, source,
           correlation_id, expires_at, created_at, updated_at)
        VALUES ('handoff-other', 'account-other', 'friend-1', NULL, NULL, 'PAPER', 'CREATED',
                'LIFF', 'corr-1', ?, ?, ?)`,
-    ).run(utcAhead(DAY_MS), now, now);
+      )
+      .run(utcAhead(DAY_MS), now, now);
     submission('sub-missing', 'handoff-gone');
     submission('sub-cross-account', 'handoff-other');
 
@@ -536,7 +588,6 @@ describe('platform admin integrity checks', () => {
   it('names every failing check in the access event detail', async () => {
     seedReceipt(sqlite, 'tenant-a', 'account-a', 'stuck', jstAgo(2 * HOUR_MS), 'pending');
     await run();
-    expect(accessEvents(sqlite)[0]?.detail_json)
-      .toBe(JSON.stringify({ failing: ['stale_pending_webhook_events'] }));
+    expect(accessEvents(sqlite)[0]?.detail_json).toBe(JSON.stringify({ failing: ['stale_pending_webhook_events'] }));
   });
 });

@@ -4,10 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  createTrackedLink,
-  getOrCreateAutoTrackedLink,
-} from '../src/tracked-links.js';
+import { createTrackedLink, getOrCreateAutoTrackedLink } from '../src/tracked-links.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, '..');
@@ -106,9 +103,9 @@ function insertLegacyAutoLink(
 }
 
 function countRows(sqlite: Database.Database, url: string): number {
-  const row = sqlite
-    .prepare(`SELECT COUNT(*) AS c FROM tracked_links WHERE original_url = ?`)
-    .get(url) as { c: number };
+  const row = sqlite.prepare(`SELECT COUNT(*) AS c FROM tracked_links WHERE original_url = ?`).get(url) as {
+    c: number;
+  };
   return row.c;
 }
 
@@ -144,7 +141,10 @@ describe('getOrCreateAutoTrackedLink', () => {
     const acc1 = await getOrCreateAutoTrackedLink(db, { originalUrl: url, lineAccountId: 'acc-1' });
     const acc2 = await getOrCreateAutoTrackedLink(db, { originalUrl: url, lineAccountId: 'acc-2' });
     const noAcc = await getOrCreateAutoTrackedLink(db, { originalUrl: url });
-    const noAccAgain = await getOrCreateAutoTrackedLink(db, { originalUrl: url, lineAccountId: null });
+    const noAccAgain = await getOrCreateAutoTrackedLink(db, {
+      originalUrl: url,
+      lineAccountId: null,
+    });
 
     expect(new Set([acc1.id, acc2.id, noAcc.id]).size).toBe(3);
     expect(noAccAgain.id).toBe(noAcc.id);
@@ -174,9 +174,9 @@ describe('getOrCreateAutoTrackedLink', () => {
     const reused = await getOrCreateAutoTrackedLink(db, { originalUrl: url });
     expect(reused.id).toBe(link.id);
     expect(reused.is_active).toBe(1);
-    const row = sqlite
-      .prepare(`SELECT is_active FROM tracked_links WHERE id = ?`)
-      .get(link.id) as { is_active: number };
+    const row = sqlite.prepare(`SELECT is_active FROM tracked_links WHERE id = ?`).get(link.id) as {
+      is_active: number;
+    };
     expect(row.is_active).toBe(1);
   });
 
@@ -212,9 +212,9 @@ describe('getOrCreateAutoTrackedLink', () => {
 
     const link = await getOrCreateAutoTrackedLink(raced, { originalUrl: url });
     expect(countRows(sqlite, url)).toBe(1);
-    const row = sqlite
-      .prepare(`SELECT id FROM tracked_links WHERE original_url = ?`)
-      .get(url) as { id: string };
+    const row = sqlite.prepare(`SELECT id FROM tracked_links WHERE original_url = ?`).get(url) as {
+      id: string;
+    };
     expect(link.id).toBe(row.id);
   });
 });

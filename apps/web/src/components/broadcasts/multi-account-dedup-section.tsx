@@ -1,6 +1,6 @@
-'use client'
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -9,51 +9,53 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-} from '@dnd-kit/core'
+} from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { api } from '@/lib/api'
-import { useAccount } from '@/contexts/account-context'
-import { countryFlag } from '@/lib/country-flag'
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { api } from '@/lib/api';
+import { useAccount } from '@/contexts/account-context';
+import { countryFlag } from '@/lib/country-flag';
 
 interface PreviewData {
-  totalSelected: number
-  uniqueRecipients: number
-  reduction: number
-  reductionRate: number
+  totalSelected: number;
+  uniqueRecipients: number;
+  reduction: number;
+  reductionRate: number;
   perAccount: Array<{
-    accountId: string
-    accountName: string
-    accountCountry: string | null
-    selectedCount: number
-    sendCount: number
-    excludedToHigherPriority: number
-  }>
+    accountId: string;
+    accountName: string;
+    accountCountry: string | null;
+    selectedCount: number;
+    sendCount: number;
+    excludedToHigherPriority: number;
+  }>;
 }
 
 interface Props {
-  accountIds: string[]
-  dedupPriority: string[]
-  targetTagId: string | null
-  tags: Array<{ id: string; name: string }>
-  onAccountIdsChange: (ids: string[]) => void
-  onDedupPriorityChange: (ids: string[]) => void
-  onTargetTagIdChange: (id: string | null) => void
+  accountIds: string[];
+  dedupPriority: string[];
+  targetTagId: string | null;
+  tags: Array<{ id: string; name: string }>;
+  onAccountIdsChange: (ids: string[]) => void;
+  onDedupPriorityChange: (ids: string[]) => void;
+  onTargetTagIdChange: (id: string | null) => void;
 }
 
 function PriorityRow({ id, label, flag, ordinal }: { id: string; label: string; flag: string; ordinal: number }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-  }
+  };
   return (
     <div
       ref={setNodeRef}
@@ -67,7 +69,7 @@ function PriorityRow({ id, label, flag, ordinal }: { id: string; label: string; 
       {flag && <span>{flag}</span>}
       <span>{label}</span>
     </div>
-  )
+  );
 }
 
 export default function MultiAccountDedupSection({
@@ -79,11 +81,11 @@ export default function MultiAccountDedupSection({
   onDedupPriorityChange,
   onTargetTagIdChange,
 }: Props) {
-  const { accounts } = useAccount()
-  const [preview, setPreview] = useState<PreviewData | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [previewError, setPreviewError] = useState('')
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { accounts } = useAccount();
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initialize on mount: select all active accounts, priority follows displayOrder.
   useEffect(() => {
@@ -91,74 +93,71 @@ export default function MultiAccountDedupSection({
       const activeIds = accounts
         .filter((a) => a.isActive)
         .sort((a, b) => a.displayOrder - b.displayOrder)
-        .map((a) => a.id)
-      onAccountIdsChange(activeIds)
-      onDedupPriorityChange(activeIds)
+        .map((a) => a.id);
+      onAccountIdsChange(activeIds);
+      onDedupPriorityChange(activeIds);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts.length])
+  }, [accounts.length]);
 
   // Keep dedupPriority in sync with accountIds.
   useEffect(() => {
-    const filtered = dedupPriority.filter((id) => accountIds.includes(id))
+    const filtered = dedupPriority.filter((id) => accountIds.includes(id));
     if (filtered.length !== dedupPriority.length) {
-      onDedupPriorityChange(filtered)
+      onDedupPriorityChange(filtered);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountIds.join(',')])
+  }, [accountIds.join(',')]);
 
   // Debounced preview fetch.
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     if (accountIds.length === 0) {
-      setPreview(null)
-      return
+      setPreview(null);
+      return;
     }
     debounceRef.current = setTimeout(async () => {
-      setPreviewLoading(true)
-      setPreviewError('')
+      setPreviewLoading(true);
+      setPreviewError('');
       try {
         const res = await api.broadcasts.dedupPreview({
           accountIds,
           dedupPriority,
           targetTagId: targetTagId || null,
-        })
+        });
         if (res.success && res.data) {
-          setPreview(res.data)
+          setPreview(res.data);
         } else {
-          setPreviewError(res.error || 'プレビュー取得失敗')
+          setPreviewError(res.error || 'プレビュー取得失敗');
         }
       } catch {
-        setPreviewError('プレビュー取得失敗')
+        setPreviewError('プレビュー取得失敗');
       } finally {
-        setPreviewLoading(false)
+        setPreviewLoading(false);
       }
-    }, 500)
+    }, 500);
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
-  }, [accountIds.join(','), dedupPriority.join(','), targetTagId])
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [accountIds.join(','), dedupPriority.join(','), targetTagId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
+  );
 
   const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    const oldIndex = dedupPriority.indexOf(String(active.id))
-    const newIndex = dedupPriority.indexOf(String(over.id))
-    onDedupPriorityChange(arrayMove(dedupPriority, oldIndex, newIndex))
-  }
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = dedupPriority.indexOf(String(active.id));
+    const newIndex = dedupPriority.indexOf(String(over.id));
+    onDedupPriorityChange(arrayMove(dedupPriority, oldIndex, newIndex));
+  };
 
-  const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
-  const isSingleAccount = accountIds.length === 1
-  const showDedupUI = accountIds.length >= 2
-  const sortedAccounts = useMemo(
-    () => [...accounts].sort((a, b) => a.displayOrder - b.displayOrder),
-    [accounts],
-  )
+  const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+  const isSingleAccount = accountIds.length === 1;
+  const showDedupUI = accountIds.length >= 2;
+  const sortedAccounts = useMemo(() => [...accounts].sort((a, b) => a.displayOrder - b.displayOrder), [accounts]);
 
   return (
     <div className="space-y-4 mt-3 p-4 bg-gray-50 rounded-lg">
@@ -172,9 +171,9 @@ export default function MultiAccountDedupSection({
                 checked={accountIds.includes(a.id)}
                 onChange={(e) => {
                   if (e.target.checked) {
-                    onAccountIdsChange([...accountIds, a.id])
+                    onAccountIdsChange([...accountIds, a.id]);
                   } else {
-                    onAccountIdsChange(accountIds.filter((id) => id !== a.id))
+                    onAccountIdsChange(accountIds.filter((id) => id !== a.id));
                   }
                 }}
               />
@@ -202,7 +201,9 @@ export default function MultiAccountDedupSection({
         >
           <option value="">タグ絞込なし (選択アカの全友達)</option>
           {tags.map((tag) => (
-            <option key={tag.id} value={tag.id}>{tag.name}</option>
+            <option key={tag.id} value={tag.id}>
+              {tag.name}
+            </option>
           ))}
         </select>
         <p className="mt-1 text-[11px] text-gray-500">
@@ -217,8 +218,8 @@ export default function MultiAccountDedupSection({
             <SortableContext items={dedupPriority} strategy={verticalListSortingStrategy}>
               <div className="space-y-1">
                 {dedupPriority.map((id, idx) => {
-                  const a = accountById.get(id)
-                  if (!a) return null
+                  const a = accountById.get(id);
+                  if (!a) return null;
                   return (
                     <PriorityRow
                       key={id}
@@ -227,7 +228,7 @@ export default function MultiAccountDedupSection({
                       flag={countryFlag(a.country)}
                       ordinal={idx + 1}
                     />
-                  )
+                  );
                 })}
               </div>
             </SortableContext>
@@ -241,9 +242,7 @@ export default function MultiAccountDedupSection({
           <p className="text-xs font-bold text-gray-700">プレビュー</p>
           {previewLoading && <span className="text-xs text-gray-400">更新中...</span>}
         </div>
-        {previewError && (
-          <p className="text-xs text-red-600 mb-2">{previewError}（前回の値を表示中）</p>
-        )}
+        {previewError && <p className="text-xs text-red-600 mb-2">{previewError}（前回の値を表示中）</p>}
         {preview ? (
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
@@ -256,20 +255,23 @@ export default function MultiAccountDedupSection({
             </div>
             <div className="flex justify-between text-green-700">
               <span>削減</span>
-              <span>{preview.reduction.toLocaleString()} 通 ({(preview.reductionRate * 100).toFixed(1)}%)</span>
+              <span>
+                {preview.reduction.toLocaleString()} 通 ({(preview.reductionRate * 100).toFixed(1)}
+                %)
+              </span>
             </div>
             <div className="border-t border-gray-100 pt-2 mt-2">
               <p className="text-xs font-medium text-gray-600 mb-1">送信内訳</p>
               {preview.perAccount.map((p) => {
-                const flag = countryFlag(p.accountCountry)
-                const ordinal = dedupPriority.indexOf(p.accountId)
+                const flag = countryFlag(p.accountCountry);
+                const ordinal = dedupPriority.indexOf(p.accountId);
                 // Prefer the LINE-fetched bot displayName (held in account-context)
                 // over the operator-set DB `name` returned by the dedup API. The
                 // sidebar already uses displayName, so the broadcast preview
                 // matching it avoids the "why does this say a different name?"
                 // surprise the operator hit on the test environment.
-                const ctxAccount = accounts.find((a) => a.id === p.accountId)
-                const renderedName = ctxAccount?.displayName || ctxAccount?.name || p.accountName
+                const ctxAccount = accounts.find((a) => a.id === p.accountId);
+                const renderedName = ctxAccount?.displayName || ctxAccount?.name || p.accountName;
                 return (
                   <div key={p.accountId} className="flex justify-between text-xs py-0.5">
                     <span className="text-gray-700">
@@ -284,7 +286,7 @@ export default function MultiAccountDedupSection({
                       )}
                     </span>
                   </div>
-                )
+                );
               })}
             </div>
             <p className="text-xs text-gray-400 mt-2">
@@ -296,5 +298,5 @@ export default function MultiAccountDedupSection({
         )}
       </div>
     </div>
-  )
+  );
 }

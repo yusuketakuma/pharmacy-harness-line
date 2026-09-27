@@ -2,11 +2,7 @@ import { Hono } from 'hono';
 import { applyMileageRulesForEvent } from '@line-crm/db';
 import type { Env } from '../../index.js';
 
-const ALLOWED_EVENTS = new Set([
-  'instagram_dm_received',
-  'instagram_comment_created',
-  'instagram_story_mentioned',
-]);
+const ALLOWED_EVENTS = new Set(['instagram_dm_received', 'instagram_comment_created', 'instagram_story_mentioned']);
 
 const instagramEngagement = new Hono<Env>();
 
@@ -28,9 +24,10 @@ instagramEngagement.post('/api/integrations/ig-harness/engagement', async (c) =>
   const eventType = typeof body.eventType === 'string' ? body.eventType : '';
   const sourceEventId = typeof body.sourceEventId === 'string' ? body.sourceEventId.trim() : '';
   const subjectKey = typeof body.subjectKey === 'string' ? body.subjectKey.slice(0, 256) : null;
-  const metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
-    ? body.metadata as Record<string, unknown>
-    : {};
+  const metadata =
+    body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+      ? (body.metadata as Record<string, unknown>)
+      : {};
 
   if (!friendId || friendId.length > 128 || !sourceEventId || sourceEventId.length > 256) {
     return c.json({ success: false, error: 'invalid_identity' }, 422);

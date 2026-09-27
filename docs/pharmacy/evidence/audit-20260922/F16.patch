@@ -1,0 +1,69 @@
+diff --git a/apps/worker/src/routes/integrations/webhook.test.ts b/apps/worker/src/routes/integrations/webhook.test.ts
+index d72558c..3d549bd 100644
+--- a/apps/worker/src/routes/integrations/webhook.test.ts
++++ b/apps/worker/src/routes/integrations/webhook.test.ts
+@@ -923,7 +923,7 @@ describe('POST /webhook — first-contact existing friends', () => {
+ });
+ 
+ describe('POST /webhook — referral intro delivery', () => {
+-  test('uses tracked push delivery with the scoped request and provider retry key', async () => {
++  test.each([['tenant-referral', 'tenant-referral'], ['tenant-other', 'tenant-other'], [null, null], ['tenant-referral', 'tenant-other']])('scopes referral route %s and template %s', async (routeTenant, templateTenant) => {
+     vi.mocked(verifySignature).mockResolvedValue(true);
+     const introMessage = { type: 'text', text: 'Referral intro' } as const;
+     vi.mocked(buildMessage).mockReturnValue(introMessage);
+@@ -949,10 +949,12 @@ describe('POST /webhook — referral intro delivery', () => {
+     vi.mocked(getFriendById).mockResolvedValue({ ref_code: 'ref-route' } as never);
+     vi.mocked(getEntryRouteByRefCode).mockResolvedValue({
+       id: 'route-referral',
++      tenant_id: routeTenant,
+       intro_template_id: 'template-referral',
+       run_account_friend_add_scenarios: 0,
+     } as never);
+     vi.mocked(getMessageTemplateById).mockResolvedValue({
++      tenant_id: templateTenant,
+       message_type: 'text',
+       message_content: 'Referral intro',
+     } as never);
+@@ -995,6 +997,16 @@ describe('POST /webhook — referral intro delivery', () => {
+     }, { ...baseEnv, DB: db }, executionCtx);
+     await (vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>);
+ 
++    if (routeTenant !== 'tenant-referral' || templateTenant !== 'tenant-referral') {
++      expect(response.status).toBe(200);
++      expect(deliverTrackedLinePush).not.toHaveBeenCalled();
++      expect(lineClientMocks.pushMessage).not.toHaveBeenCalled();
++      if (routeTenant !== 'tenant-referral') {
++        expect(getMessageTemplateById).not.toHaveBeenCalled();
++        expect(getScenariosForAccount).toHaveBeenCalledWith(db, 'account-referral');
++      }
++      return;
++    }
+     const operationId = await createBroadcastRetryKey(
+       'webhook-referral-intro',
+       'tenant-referral',
+diff --git a/apps/worker/src/routes/integrations/webhook.ts b/apps/worker/src/routes/integrations/webhook.ts
+index cd4eb98..a4858ea 100644
+--- a/apps/worker/src/routes/integrations/webhook.ts
++++ b/apps/worker/src/routes/integrations/webhook.ts
+@@ -607,9 +607,11 @@ async function handleEvent(
+         }
+       }
+     }
+-    const referralRoute: EntryRoute | null = friendRefCode
++    const candidateRoute = friendRefCode
+       ? await getEntryRouteByRefCode(db, friendRefCode)
+       : null;
++    const referralRoute: EntryRoute | null = candidateRoute?.tenant_id === tenantId
++      ? candidateRoute : null;
+     const runAccountScenarios =
+       !referralRoute || referralRoute.run_account_friend_add_scenarios !== 0;
+ 
+@@ -664,7 +666,7 @@ async function handleEvent(
+       if (referralRoute.intro_template_id) {
+         try {
+           const template = await getMessageTemplateById(db, referralRoute.intro_template_id);
+-          if (template) {
++          if (template?.tenant_id === tenantId) {
+             const message = buildMessage(template.message_type, template.message_content);
+             const logPayload = messageToLogPayload(message);
+             const retryKey = await createBroadcastRetryKey(

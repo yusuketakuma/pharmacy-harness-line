@@ -1,0 +1,4052 @@
+{
+  "status": "PASS",
+  "exit": 0,
+  "sourceCount": 33,
+  "publicExports": [
+    "ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL",
+    "LEGAL_HOLD_BASIS",
+    "PHI_RETENTION_YEARS",
+    "RETENTION_SOURCE_INVENTORY",
+    "assessPatientRetention",
+    "assessRetention",
+    "isRetentionBlockedRequestType",
+    "latestPhiRecordedAt",
+    "legalHoldReleaseAt"
+  ],
+  "inventoryUnchanged": true,
+  "artifacts": {
+    "P": {
+      "bytes": 13074,
+      "sha256": "aa1bbcefcc8c96d2fd530012eb2da80c529b54a959af03dc44229833b78d7fc9"
+    },
+    "W": {
+      "bytes": 13150,
+      "sha256": "be7b118b8b87f457a09fd65bd031b512de5af8a9006441f66c0f6818ebf28c5d"
+    }
+  },
+  "results": [
+    {
+      "rows": 50,
+      "medianMs": {
+        "P": 0.20045900000000927,
+        "W": 0.22016699999998934
+      },
+      "limitMs": 15.20045900000001,
+      "pass": true,
+      "samples": {
+        "P": [
+          0.20137500000001296,
+          0.20733300000000554,
+          0.20391700000000412,
+          0.20045900000000927,
+          0.1938340000000096,
+          0.1869999999999976,
+          0.19666599999999335,
+          0.18479200000000162,
+          0.24012500000000614
+        ],
+        "W": [
+          0.22016699999998934,
+          0.2411249999999967,
+          0.21579100000001006,
+          0.21049999999999613,
+          0.22291699999999537,
+          0.213957999999991,
+          0.22666700000000617,
+          0.2132920000000098,
+          0.22262500000000784
+        ]
+      },
+      "queryCount": 1,
+      "bindings": 66,
+      "queryBytes": {
+        "P": 7289,
+        "W": 7289
+      },
+      "plans": {
+        "P": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 9,
+            "parent": 6,
+            "notused": 61,
+            "detail": "SEARCH pharmacy_patient_intake_responses USING INDEX idx_pharmacy_intake_responses_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 21,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 23,
+            "parent": 21,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_prescription_patients USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 34,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 38,
+            "parent": 34,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 46,
+            "parent": 34,
+            "notused": 46,
+            "detail": "SEARCH s USING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 58,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 64,
+            "parent": 58,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 72,
+            "parent": 58,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 79,
+            "parent": 58,
+            "notused": 62,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_prescription_files_revision (submission_id=?)"
+          },
+          {
+            "id": 93,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 97,
+            "parent": 93,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 105,
+            "parent": 93,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 112,
+            "parent": 93,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_events_submission (submission_id=?)"
+          },
+          {
+            "id": 125,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 126,
+            "parent": 125,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 127,
+            "parent": 126,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 130,
+            "parent": 127,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 138,
+            "parent": 127,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_view_events_submission (submission_id=?)"
+          },
+          {
+            "id": 147,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 151,
+            "parent": 147,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 159,
+            "parent": 147,
+            "notused": 46,
+            "detail": "SEARCH v USING INDEX sqlite_autoindex_pharmacy_prescription_validities_1 (submission_id=?)"
+          },
+          {
+            "id": 172,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 176,
+            "parent": 172,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 184,
+            "parent": 172,
+            "notused": 46,
+            "detail": "SEARCH source USING INDEX sqlite_autoindex_pharmacy_submission_sources_1 (submission_id=?)"
+          },
+          {
+            "id": 197,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 201,
+            "parent": 197,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 209,
+            "parent": 197,
+            "notused": 46,
+            "detail": "SEARCH a USING INDEX sqlite_autoindex_pharmacy_submission_attributes_1 (submission_id=?)"
+          },
+          {
+            "id": 222,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 226,
+            "parent": 222,
+            "notused": 54,
+            "detail": "SEARCH q USING COVERING INDEX idx_pharmacy_fulfillment_quotes_submission (line_account_id=?)"
+          },
+          {
+            "id": 231,
+            "parent": 222,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 243,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 244,
+            "parent": 243,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 245,
+            "parent": 244,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 250,
+            "parent": 245,
+            "notused": 62,
+            "detail": "SEARCH task USING INDEX idx_pharmacy_print_tasks_open (line_account_id=?)"
+          },
+          {
+            "id": 256,
+            "parent": 245,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 268,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 270,
+            "parent": 268,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_continuity_obligations USING COVERING INDEX idx_pharmacy_continuity_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 281,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 285,
+            "parent": 281,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_continuity_events_obligation (line_account_id=?)"
+          },
+          {
+            "id": 290,
+            "parent": 281,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX idx_pharmacy_continuity_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 304,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 307,
+            "parent": 304,
+            "notused": 39,
+            "detail": "SEARCH pharmacy_patients USING INDEX sqlite_autoindex_pharmacy_patients_1 (id=?)"
+          },
+          {
+            "id": 318,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 321,
+            "parent": 318,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_myna_handoffs USING INDEX idx_pharmacy_myna_handoffs_queue (line_account_id=?)"
+          },
+          {
+            "id": 333,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 334,
+            "parent": 333,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 335,
+            "parent": 334,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 340,
+            "parent": 335,
+            "notused": 62,
+            "detail": "SEARCH v USING INDEX idx_pharmacy_myna_verifications_handoff (line_account_id=?)"
+          },
+          {
+            "id": 346,
+            "parent": 335,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 360,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 364,
+            "parent": 360,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_myna_events_handoff (line_account_id=?)"
+          },
+          {
+            "id": 369,
+            "parent": 360,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 383,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 386,
+            "parent": 383,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_prescription_expectations USING INDEX idx_pharmacy_prescription_expectations_queue (line_account_id=?)"
+          },
+          {
+            "id": 398,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 400,
+            "parent": 398,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_next_intake_expectations USING COVERING INDEX idx_pharmacy_next_intake_expectations_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 411,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 415,
+            "parent": 411,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_next_intake_expectation_events_item (line_account_id=?)"
+          },
+          {
+            "id": 420,
+            "parent": 411,
+            "notused": 46,
+            "detail": "SEARCH x USING INDEX sqlite_autoindex_pharmacy_next_intake_expectations_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 434,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 435,
+            "parent": 434,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 436,
+            "parent": 435,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 438,
+            "parent": 436,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_medication_followups USING COVERING INDEX idx_pharmacy_medication_followups_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 449,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 453,
+            "parent": 449,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_medication_followup_events_followup (line_account_id=?)"
+          },
+          {
+            "id": 458,
+            "parent": 449,
+            "notused": 46,
+            "detail": "SEARCH f USING INDEX sqlite_autoindex_pharmacy_medication_followups_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 472,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 475,
+            "parent": 472,
+            "notused": 39,
+            "detail": "SEARCH friends USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 486,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 490,
+            "parent": 486,
+            "notused": 46,
+            "detail": "SEARCH c USING INDEX idx_chats_friend_unique (friend_id=?)"
+          },
+          {
+            "id": 497,
+            "parent": 486,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 509,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 512,
+            "parent": 509,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 520,
+            "parent": 509,
+            "notused": 54,
+            "detail": "SEARCH m USING COVERING INDEX idx_messages_log_friend_direction_created (friend_id=?)"
+          },
+          {
+            "id": 530,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 531,
+            "parent": 530,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 532,
+            "parent": 531,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 533,
+            "parent": 532,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 534,
+            "parent": 533,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 536,
+            "parent": 534,
+            "notused": 55,
+            "detail": "SEARCH pharmacy_notification_events USING COVERING INDEX idx_pharmacy_notification_events_exposure (line_account_id=? AND friend_id=?)"
+          },
+          {
+            "id": 547,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 552,
+            "parent": 547,
+            "notused": 62,
+            "detail": "SEARCH object USING INDEX idx_pharmacy_incoming_image_objects_account (line_account_id=?)"
+          },
+          {
+            "id": 559,
+            "parent": 547,
+            "notused": 46,
+            "detail": "SEARCH message USING INDEX sqlite_autoindex_messages_log_1 (id=?)"
+          },
+          {
+            "id": 569,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 571,
+            "parent": 569,
+            "notused": 53,
+            "detail": "SEARCH pharmacy_emergency_intakes USING COVERING INDEX idx_pharmacy_emergency_intakes_owner (line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 582,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 586,
+            "parent": 582,
+            "notused": 55,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_events_intake (line_account_id=?)"
+          },
+          {
+            "id": 591,
+            "parent": 582,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 605,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 609,
+            "parent": 605,
+            "notused": 56,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_access_intake (line_account_id=?)"
+          },
+          {
+            "id": 614,
+            "parent": 605,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 628,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 629,
+            "parent": 628,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 630,
+            "parent": 629,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 635,
+            "parent": 630,
+            "notused": 62,
+            "detail": "SEARCH confirmation USING INDEX sqlite_autoindex_pharmacy_emergency_counter_confirmations_1 (line_account_id=?)"
+          },
+          {
+            "id": 641,
+            "parent": 630,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 655,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 658,
+            "parent": 655,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_emergency_sale_records USING INDEX idx_pharmacy_emergency_sale_records_sold_at (line_account_id=?)"
+          },
+          {
+            "id": 670,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 675,
+            "parent": 670,
+            "notused": 62,
+            "detail": "SEARCH reminder USING INDEX sqlite_autoindex_pharmacy_emergency_reminders_3 (line_account_id=?)"
+          },
+          {
+            "id": 681,
+            "parent": 670,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          }
+        ],
+        "W": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 9,
+            "parent": 6,
+            "notused": 61,
+            "detail": "SEARCH pharmacy_patient_intake_responses USING INDEX idx_pharmacy_intake_responses_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 21,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 23,
+            "parent": 21,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_prescription_patients USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 34,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 38,
+            "parent": 34,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 46,
+            "parent": 34,
+            "notused": 46,
+            "detail": "SEARCH s USING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 58,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 64,
+            "parent": 58,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 72,
+            "parent": 58,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 79,
+            "parent": 58,
+            "notused": 62,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_prescription_files_revision (submission_id=?)"
+          },
+          {
+            "id": 93,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 97,
+            "parent": 93,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 105,
+            "parent": 93,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 112,
+            "parent": 93,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_events_submission (submission_id=?)"
+          },
+          {
+            "id": 125,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 126,
+            "parent": 125,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 127,
+            "parent": 126,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 130,
+            "parent": 127,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 138,
+            "parent": 127,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_view_events_submission (submission_id=?)"
+          },
+          {
+            "id": 147,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 151,
+            "parent": 147,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 159,
+            "parent": 147,
+            "notused": 46,
+            "detail": "SEARCH v USING INDEX sqlite_autoindex_pharmacy_prescription_validities_1 (submission_id=?)"
+          },
+          {
+            "id": 172,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 176,
+            "parent": 172,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 184,
+            "parent": 172,
+            "notused": 46,
+            "detail": "SEARCH source USING INDEX sqlite_autoindex_pharmacy_submission_sources_1 (submission_id=?)"
+          },
+          {
+            "id": 197,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 201,
+            "parent": 197,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 209,
+            "parent": 197,
+            "notused": 46,
+            "detail": "SEARCH a USING INDEX sqlite_autoindex_pharmacy_submission_attributes_1 (submission_id=?)"
+          },
+          {
+            "id": 222,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 226,
+            "parent": 222,
+            "notused": 54,
+            "detail": "SEARCH q USING COVERING INDEX idx_pharmacy_fulfillment_quotes_submission (line_account_id=?)"
+          },
+          {
+            "id": 231,
+            "parent": 222,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 243,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 244,
+            "parent": 243,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 245,
+            "parent": 244,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 250,
+            "parent": 245,
+            "notused": 62,
+            "detail": "SEARCH task USING INDEX idx_pharmacy_print_tasks_open (line_account_id=?)"
+          },
+          {
+            "id": 256,
+            "parent": 245,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 268,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 270,
+            "parent": 268,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_continuity_obligations USING COVERING INDEX idx_pharmacy_continuity_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 281,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 285,
+            "parent": 281,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_continuity_events_obligation (line_account_id=?)"
+          },
+          {
+            "id": 290,
+            "parent": 281,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX idx_pharmacy_continuity_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 304,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 307,
+            "parent": 304,
+            "notused": 39,
+            "detail": "SEARCH pharmacy_patients USING INDEX sqlite_autoindex_pharmacy_patients_1 (id=?)"
+          },
+          {
+            "id": 318,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 321,
+            "parent": 318,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_myna_handoffs USING INDEX idx_pharmacy_myna_handoffs_queue (line_account_id=?)"
+          },
+          {
+            "id": 333,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 334,
+            "parent": 333,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 335,
+            "parent": 334,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 340,
+            "parent": 335,
+            "notused": 62,
+            "detail": "SEARCH v USING INDEX idx_pharmacy_myna_verifications_handoff (line_account_id=?)"
+          },
+          {
+            "id": 346,
+            "parent": 335,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 360,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 364,
+            "parent": 360,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_myna_events_handoff (line_account_id=?)"
+          },
+          {
+            "id": 369,
+            "parent": 360,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 383,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 386,
+            "parent": 383,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_prescription_expectations USING INDEX idx_pharmacy_prescription_expectations_queue (line_account_id=?)"
+          },
+          {
+            "id": 398,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 400,
+            "parent": 398,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_next_intake_expectations USING COVERING INDEX idx_pharmacy_next_intake_expectations_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 411,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 415,
+            "parent": 411,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_next_intake_expectation_events_item (line_account_id=?)"
+          },
+          {
+            "id": 420,
+            "parent": 411,
+            "notused": 46,
+            "detail": "SEARCH x USING INDEX sqlite_autoindex_pharmacy_next_intake_expectations_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 434,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 435,
+            "parent": 434,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 436,
+            "parent": 435,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 438,
+            "parent": 436,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_medication_followups USING COVERING INDEX idx_pharmacy_medication_followups_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 449,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 453,
+            "parent": 449,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_medication_followup_events_followup (line_account_id=?)"
+          },
+          {
+            "id": 458,
+            "parent": 449,
+            "notused": 46,
+            "detail": "SEARCH f USING INDEX sqlite_autoindex_pharmacy_medication_followups_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 472,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 475,
+            "parent": 472,
+            "notused": 39,
+            "detail": "SEARCH friends USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 486,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 490,
+            "parent": 486,
+            "notused": 46,
+            "detail": "SEARCH c USING INDEX idx_chats_friend_unique (friend_id=?)"
+          },
+          {
+            "id": 497,
+            "parent": 486,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 509,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 512,
+            "parent": 509,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 520,
+            "parent": 509,
+            "notused": 54,
+            "detail": "SEARCH m USING COVERING INDEX idx_messages_log_friend_direction_created (friend_id=?)"
+          },
+          {
+            "id": 530,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 531,
+            "parent": 530,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 532,
+            "parent": 531,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 533,
+            "parent": 532,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 534,
+            "parent": 533,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 536,
+            "parent": 534,
+            "notused": 55,
+            "detail": "SEARCH pharmacy_notification_events USING COVERING INDEX idx_pharmacy_notification_events_exposure (line_account_id=? AND friend_id=?)"
+          },
+          {
+            "id": 547,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 552,
+            "parent": 547,
+            "notused": 62,
+            "detail": "SEARCH object USING INDEX idx_pharmacy_incoming_image_objects_account (line_account_id=?)"
+          },
+          {
+            "id": 559,
+            "parent": 547,
+            "notused": 46,
+            "detail": "SEARCH message USING INDEX sqlite_autoindex_messages_log_1 (id=?)"
+          },
+          {
+            "id": 569,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 571,
+            "parent": 569,
+            "notused": 53,
+            "detail": "SEARCH pharmacy_emergency_intakes USING COVERING INDEX idx_pharmacy_emergency_intakes_owner (line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 582,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 586,
+            "parent": 582,
+            "notused": 55,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_events_intake (line_account_id=?)"
+          },
+          {
+            "id": 591,
+            "parent": 582,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 605,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 609,
+            "parent": 605,
+            "notused": 56,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_access_intake (line_account_id=?)"
+          },
+          {
+            "id": 614,
+            "parent": 605,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 628,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 629,
+            "parent": 628,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 630,
+            "parent": 629,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 635,
+            "parent": 630,
+            "notused": 62,
+            "detail": "SEARCH confirmation USING INDEX sqlite_autoindex_pharmacy_emergency_counter_confirmations_1 (line_account_id=?)"
+          },
+          {
+            "id": 641,
+            "parent": 630,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 655,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 658,
+            "parent": 655,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_emergency_sale_records USING INDEX idx_pharmacy_emergency_sale_records_sold_at (line_account_id=?)"
+          },
+          {
+            "id": 670,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 675,
+            "parent": 670,
+            "notused": 62,
+            "detail": "SEARCH reminder USING INDEX sqlite_autoindex_pharmacy_emergency_reminders_3 (line_account_id=?)"
+          },
+          {
+            "id": 681,
+            "parent": 670,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          }
+        ]
+      }
+    },
+    {
+      "rows": 500,
+      "medianMs": {
+        "P": 0.2933750000000117,
+        "W": 0.5070419999999984
+      },
+      "limitMs": 15.293375000000012,
+      "pass": true,
+      "samples": {
+        "P": [
+          0.2920000000000016,
+          0.3056669999999997,
+          0.3034580000000062,
+          0.2933750000000117,
+          0.394999999999996,
+          0.2802910000000054,
+          0.28125,
+          0.2852089999999947,
+          0.30587500000000034
+        ],
+        "W": [
+          0.5180409999999966,
+          0.5123329999999982,
+          0.509167000000005,
+          0.5102920000000069,
+          0.49508300000000816,
+          0.4933330000000069,
+          0.4934999999999974,
+          0.49354099999999335,
+          0.5070419999999984
+        ]
+      },
+      "queryCount": 1,
+      "bindings": 66,
+      "queryBytes": {
+        "P": 7289,
+        "W": 7289
+      },
+      "plans": {
+        "P": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 9,
+            "parent": 6,
+            "notused": 61,
+            "detail": "SEARCH pharmacy_patient_intake_responses USING INDEX idx_pharmacy_intake_responses_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 21,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 23,
+            "parent": 21,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_prescription_patients USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 34,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 38,
+            "parent": 34,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 46,
+            "parent": 34,
+            "notused": 46,
+            "detail": "SEARCH s USING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 58,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 64,
+            "parent": 58,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 72,
+            "parent": 58,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 79,
+            "parent": 58,
+            "notused": 62,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_prescription_files_revision (submission_id=?)"
+          },
+          {
+            "id": 93,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 97,
+            "parent": 93,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 105,
+            "parent": 93,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 112,
+            "parent": 93,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_events_submission (submission_id=?)"
+          },
+          {
+            "id": 125,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 126,
+            "parent": 125,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 127,
+            "parent": 126,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 130,
+            "parent": 127,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 138,
+            "parent": 127,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_view_events_submission (submission_id=?)"
+          },
+          {
+            "id": 147,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 151,
+            "parent": 147,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 159,
+            "parent": 147,
+            "notused": 46,
+            "detail": "SEARCH v USING INDEX sqlite_autoindex_pharmacy_prescription_validities_1 (submission_id=?)"
+          },
+          {
+            "id": 172,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 176,
+            "parent": 172,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 184,
+            "parent": 172,
+            "notused": 46,
+            "detail": "SEARCH source USING INDEX sqlite_autoindex_pharmacy_submission_sources_1 (submission_id=?)"
+          },
+          {
+            "id": 197,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 201,
+            "parent": 197,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 209,
+            "parent": 197,
+            "notused": 46,
+            "detail": "SEARCH a USING INDEX sqlite_autoindex_pharmacy_submission_attributes_1 (submission_id=?)"
+          },
+          {
+            "id": 222,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 226,
+            "parent": 222,
+            "notused": 54,
+            "detail": "SEARCH q USING COVERING INDEX idx_pharmacy_fulfillment_quotes_submission (line_account_id=?)"
+          },
+          {
+            "id": 231,
+            "parent": 222,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 243,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 244,
+            "parent": 243,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 245,
+            "parent": 244,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 250,
+            "parent": 245,
+            "notused": 62,
+            "detail": "SEARCH task USING INDEX idx_pharmacy_print_tasks_open (line_account_id=?)"
+          },
+          {
+            "id": 256,
+            "parent": 245,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 268,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 270,
+            "parent": 268,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_continuity_obligations USING COVERING INDEX idx_pharmacy_continuity_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 281,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 285,
+            "parent": 281,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_continuity_events_obligation (line_account_id=?)"
+          },
+          {
+            "id": 290,
+            "parent": 281,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX idx_pharmacy_continuity_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 304,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 307,
+            "parent": 304,
+            "notused": 39,
+            "detail": "SEARCH pharmacy_patients USING INDEX sqlite_autoindex_pharmacy_patients_1 (id=?)"
+          },
+          {
+            "id": 318,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 321,
+            "parent": 318,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_myna_handoffs USING INDEX idx_pharmacy_myna_handoffs_queue (line_account_id=?)"
+          },
+          {
+            "id": 333,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 334,
+            "parent": 333,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 335,
+            "parent": 334,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 340,
+            "parent": 335,
+            "notused": 62,
+            "detail": "SEARCH v USING INDEX idx_pharmacy_myna_verifications_handoff (line_account_id=?)"
+          },
+          {
+            "id": 346,
+            "parent": 335,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 360,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 364,
+            "parent": 360,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_myna_events_handoff (line_account_id=?)"
+          },
+          {
+            "id": 369,
+            "parent": 360,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 383,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 386,
+            "parent": 383,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_prescription_expectations USING INDEX idx_pharmacy_prescription_expectations_queue (line_account_id=?)"
+          },
+          {
+            "id": 398,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 400,
+            "parent": 398,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_next_intake_expectations USING COVERING INDEX idx_pharmacy_next_intake_expectations_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 411,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 415,
+            "parent": 411,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_next_intake_expectation_events_item (line_account_id=?)"
+          },
+          {
+            "id": 420,
+            "parent": 411,
+            "notused": 46,
+            "detail": "SEARCH x USING INDEX sqlite_autoindex_pharmacy_next_intake_expectations_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 434,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 435,
+            "parent": 434,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 436,
+            "parent": 435,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 438,
+            "parent": 436,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_medication_followups USING COVERING INDEX idx_pharmacy_medication_followups_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 449,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 453,
+            "parent": 449,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_medication_followup_events_followup (line_account_id=?)"
+          },
+          {
+            "id": 458,
+            "parent": 449,
+            "notused": 46,
+            "detail": "SEARCH f USING INDEX sqlite_autoindex_pharmacy_medication_followups_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 472,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 475,
+            "parent": 472,
+            "notused": 39,
+            "detail": "SEARCH friends USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 486,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 490,
+            "parent": 486,
+            "notused": 46,
+            "detail": "SEARCH c USING INDEX idx_chats_friend_unique (friend_id=?)"
+          },
+          {
+            "id": 497,
+            "parent": 486,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 509,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 512,
+            "parent": 509,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 520,
+            "parent": 509,
+            "notused": 54,
+            "detail": "SEARCH m USING COVERING INDEX idx_messages_log_friend_direction_created (friend_id=?)"
+          },
+          {
+            "id": 530,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 531,
+            "parent": 530,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 532,
+            "parent": 531,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 533,
+            "parent": 532,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 534,
+            "parent": 533,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 536,
+            "parent": 534,
+            "notused": 55,
+            "detail": "SEARCH pharmacy_notification_events USING COVERING INDEX idx_pharmacy_notification_events_exposure (line_account_id=? AND friend_id=?)"
+          },
+          {
+            "id": 547,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 552,
+            "parent": 547,
+            "notused": 62,
+            "detail": "SEARCH object USING INDEX idx_pharmacy_incoming_image_objects_account (line_account_id=?)"
+          },
+          {
+            "id": 559,
+            "parent": 547,
+            "notused": 46,
+            "detail": "SEARCH message USING INDEX sqlite_autoindex_messages_log_1 (id=?)"
+          },
+          {
+            "id": 569,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 571,
+            "parent": 569,
+            "notused": 53,
+            "detail": "SEARCH pharmacy_emergency_intakes USING COVERING INDEX idx_pharmacy_emergency_intakes_owner (line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 582,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 586,
+            "parent": 582,
+            "notused": 55,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_events_intake (line_account_id=?)"
+          },
+          {
+            "id": 591,
+            "parent": 582,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 605,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 609,
+            "parent": 605,
+            "notused": 56,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_access_intake (line_account_id=?)"
+          },
+          {
+            "id": 614,
+            "parent": 605,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 628,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 629,
+            "parent": 628,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 630,
+            "parent": 629,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 635,
+            "parent": 630,
+            "notused": 62,
+            "detail": "SEARCH confirmation USING INDEX sqlite_autoindex_pharmacy_emergency_counter_confirmations_1 (line_account_id=?)"
+          },
+          {
+            "id": 641,
+            "parent": 630,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 655,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 658,
+            "parent": 655,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_emergency_sale_records USING INDEX idx_pharmacy_emergency_sale_records_sold_at (line_account_id=?)"
+          },
+          {
+            "id": 670,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 675,
+            "parent": 670,
+            "notused": 62,
+            "detail": "SEARCH reminder USING INDEX sqlite_autoindex_pharmacy_emergency_reminders_3 (line_account_id=?)"
+          },
+          {
+            "id": 681,
+            "parent": 670,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          }
+        ],
+        "W": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 9,
+            "parent": 6,
+            "notused": 61,
+            "detail": "SEARCH pharmacy_patient_intake_responses USING INDEX idx_pharmacy_intake_responses_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 21,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 23,
+            "parent": 21,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_prescription_patients USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 34,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 38,
+            "parent": 34,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 46,
+            "parent": 34,
+            "notused": 46,
+            "detail": "SEARCH s USING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 58,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 64,
+            "parent": 58,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 72,
+            "parent": 58,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 79,
+            "parent": 58,
+            "notused": 62,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_prescription_files_revision (submission_id=?)"
+          },
+          {
+            "id": 93,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 97,
+            "parent": 93,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 105,
+            "parent": 93,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 112,
+            "parent": 93,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_events_submission (submission_id=?)"
+          },
+          {
+            "id": 125,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 126,
+            "parent": 125,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 127,
+            "parent": 126,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 130,
+            "parent": 127,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 138,
+            "parent": 127,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_view_events_submission (submission_id=?)"
+          },
+          {
+            "id": 147,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 151,
+            "parent": 147,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 159,
+            "parent": 147,
+            "notused": 46,
+            "detail": "SEARCH v USING INDEX sqlite_autoindex_pharmacy_prescription_validities_1 (submission_id=?)"
+          },
+          {
+            "id": 172,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 176,
+            "parent": 172,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 184,
+            "parent": 172,
+            "notused": 46,
+            "detail": "SEARCH source USING INDEX sqlite_autoindex_pharmacy_submission_sources_1 (submission_id=?)"
+          },
+          {
+            "id": 197,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 201,
+            "parent": 197,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 209,
+            "parent": 197,
+            "notused": 46,
+            "detail": "SEARCH a USING INDEX sqlite_autoindex_pharmacy_submission_attributes_1 (submission_id=?)"
+          },
+          {
+            "id": 222,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 226,
+            "parent": 222,
+            "notused": 54,
+            "detail": "SEARCH q USING COVERING INDEX idx_pharmacy_fulfillment_quotes_submission (line_account_id=?)"
+          },
+          {
+            "id": 231,
+            "parent": 222,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 243,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 244,
+            "parent": 243,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 245,
+            "parent": 244,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 250,
+            "parent": 245,
+            "notused": 62,
+            "detail": "SEARCH task USING INDEX idx_pharmacy_print_tasks_open (line_account_id=?)"
+          },
+          {
+            "id": 256,
+            "parent": 245,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 268,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 270,
+            "parent": 268,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_continuity_obligations USING COVERING INDEX idx_pharmacy_continuity_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 281,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 285,
+            "parent": 281,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_continuity_events_obligation (line_account_id=?)"
+          },
+          {
+            "id": 290,
+            "parent": 281,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX idx_pharmacy_continuity_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 304,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 307,
+            "parent": 304,
+            "notused": 39,
+            "detail": "SEARCH pharmacy_patients USING INDEX sqlite_autoindex_pharmacy_patients_1 (id=?)"
+          },
+          {
+            "id": 318,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 321,
+            "parent": 318,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_myna_handoffs USING INDEX idx_pharmacy_myna_handoffs_queue (line_account_id=?)"
+          },
+          {
+            "id": 333,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 334,
+            "parent": 333,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 335,
+            "parent": 334,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 340,
+            "parent": 335,
+            "notused": 62,
+            "detail": "SEARCH v USING INDEX idx_pharmacy_myna_verifications_handoff (line_account_id=?)"
+          },
+          {
+            "id": 346,
+            "parent": 335,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 360,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 364,
+            "parent": 360,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_myna_events_handoff (line_account_id=?)"
+          },
+          {
+            "id": 369,
+            "parent": 360,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 383,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 386,
+            "parent": 383,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_prescription_expectations USING INDEX idx_pharmacy_prescription_expectations_queue (line_account_id=?)"
+          },
+          {
+            "id": 398,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 400,
+            "parent": 398,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_next_intake_expectations USING COVERING INDEX idx_pharmacy_next_intake_expectations_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 411,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 415,
+            "parent": 411,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_next_intake_expectation_events_item (line_account_id=?)"
+          },
+          {
+            "id": 420,
+            "parent": 411,
+            "notused": 46,
+            "detail": "SEARCH x USING INDEX sqlite_autoindex_pharmacy_next_intake_expectations_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 434,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 435,
+            "parent": 434,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 436,
+            "parent": 435,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 438,
+            "parent": 436,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_medication_followups USING COVERING INDEX idx_pharmacy_medication_followups_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 449,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 453,
+            "parent": 449,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_medication_followup_events_followup (line_account_id=?)"
+          },
+          {
+            "id": 458,
+            "parent": 449,
+            "notused": 46,
+            "detail": "SEARCH f USING INDEX sqlite_autoindex_pharmacy_medication_followups_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 472,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 475,
+            "parent": 472,
+            "notused": 39,
+            "detail": "SEARCH friends USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 486,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 490,
+            "parent": 486,
+            "notused": 46,
+            "detail": "SEARCH c USING INDEX idx_chats_friend_unique (friend_id=?)"
+          },
+          {
+            "id": 497,
+            "parent": 486,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 509,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 512,
+            "parent": 509,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 520,
+            "parent": 509,
+            "notused": 54,
+            "detail": "SEARCH m USING COVERING INDEX idx_messages_log_friend_direction_created (friend_id=?)"
+          },
+          {
+            "id": 530,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 531,
+            "parent": 530,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 532,
+            "parent": 531,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 533,
+            "parent": 532,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 534,
+            "parent": 533,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 536,
+            "parent": 534,
+            "notused": 55,
+            "detail": "SEARCH pharmacy_notification_events USING COVERING INDEX idx_pharmacy_notification_events_exposure (line_account_id=? AND friend_id=?)"
+          },
+          {
+            "id": 547,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 552,
+            "parent": 547,
+            "notused": 62,
+            "detail": "SEARCH object USING INDEX idx_pharmacy_incoming_image_objects_account (line_account_id=?)"
+          },
+          {
+            "id": 559,
+            "parent": 547,
+            "notused": 46,
+            "detail": "SEARCH message USING INDEX sqlite_autoindex_messages_log_1 (id=?)"
+          },
+          {
+            "id": 569,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 571,
+            "parent": 569,
+            "notused": 53,
+            "detail": "SEARCH pharmacy_emergency_intakes USING COVERING INDEX idx_pharmacy_emergency_intakes_owner (line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 582,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 586,
+            "parent": 582,
+            "notused": 55,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_events_intake (line_account_id=?)"
+          },
+          {
+            "id": 591,
+            "parent": 582,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 605,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 609,
+            "parent": 605,
+            "notused": 56,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_access_intake (line_account_id=?)"
+          },
+          {
+            "id": 614,
+            "parent": 605,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 628,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 629,
+            "parent": 628,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 630,
+            "parent": 629,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 635,
+            "parent": 630,
+            "notused": 62,
+            "detail": "SEARCH confirmation USING INDEX sqlite_autoindex_pharmacy_emergency_counter_confirmations_1 (line_account_id=?)"
+          },
+          {
+            "id": 641,
+            "parent": 630,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 655,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 658,
+            "parent": 655,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_emergency_sale_records USING INDEX idx_pharmacy_emergency_sale_records_sold_at (line_account_id=?)"
+          },
+          {
+            "id": 670,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 675,
+            "parent": 670,
+            "notused": 62,
+            "detail": "SEARCH reminder USING INDEX sqlite_autoindex_pharmacy_emergency_reminders_3 (line_account_id=?)"
+          },
+          {
+            "id": 681,
+            "parent": 670,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          }
+        ]
+      }
+    },
+    {
+      "rows": 5000,
+      "medianMs": {
+        "P": 1.4473749999999939,
+        "W": 3.681416999999982
+      },
+      "limitMs": 16.447374999999994,
+      "pass": true,
+      "samples": {
+        "P": [
+          1.5499579999999753,
+          1.5112499999999898,
+          1.4473749999999939,
+          1.5296670000000177,
+          1.3321669999999983,
+          1.5372500000000002,
+          1.3875830000000065,
+          1.3233749999999986,
+          1.2740840000000162
+        ],
+        "W": [
+          3.765958000000012,
+          3.5271669999999915,
+          3.5927499999999952,
+          3.828666999999996,
+          3.966750000000019,
+          3.7548749999999984,
+          3.5500419999999906,
+          3.6092079999999953,
+          3.681416999999982
+        ]
+      },
+      "queryCount": 1,
+      "bindings": 66,
+      "queryBytes": {
+        "P": 7289,
+        "W": 7289
+      },
+      "plans": {
+        "P": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 9,
+            "parent": 6,
+            "notused": 61,
+            "detail": "SEARCH pharmacy_patient_intake_responses USING INDEX idx_pharmacy_intake_responses_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 21,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 23,
+            "parent": 21,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_prescription_patients USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 34,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 38,
+            "parent": 34,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 46,
+            "parent": 34,
+            "notused": 46,
+            "detail": "SEARCH s USING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 58,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 64,
+            "parent": 58,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 72,
+            "parent": 58,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 79,
+            "parent": 58,
+            "notused": 62,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_prescription_files_revision (submission_id=?)"
+          },
+          {
+            "id": 93,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 97,
+            "parent": 93,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 105,
+            "parent": 93,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 112,
+            "parent": 93,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_events_submission (submission_id=?)"
+          },
+          {
+            "id": 125,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 126,
+            "parent": 125,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 127,
+            "parent": 126,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 130,
+            "parent": 127,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 138,
+            "parent": 127,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_view_events_submission (submission_id=?)"
+          },
+          {
+            "id": 147,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 151,
+            "parent": 147,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 159,
+            "parent": 147,
+            "notused": 46,
+            "detail": "SEARCH v USING INDEX sqlite_autoindex_pharmacy_prescription_validities_1 (submission_id=?)"
+          },
+          {
+            "id": 172,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 176,
+            "parent": 172,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 184,
+            "parent": 172,
+            "notused": 46,
+            "detail": "SEARCH source USING INDEX sqlite_autoindex_pharmacy_submission_sources_1 (submission_id=?)"
+          },
+          {
+            "id": 197,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 201,
+            "parent": 197,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 209,
+            "parent": 197,
+            "notused": 46,
+            "detail": "SEARCH a USING INDEX sqlite_autoindex_pharmacy_submission_attributes_1 (submission_id=?)"
+          },
+          {
+            "id": 222,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 226,
+            "parent": 222,
+            "notused": 54,
+            "detail": "SEARCH q USING COVERING INDEX idx_pharmacy_fulfillment_quotes_submission (line_account_id=?)"
+          },
+          {
+            "id": 231,
+            "parent": 222,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 243,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 244,
+            "parent": 243,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 245,
+            "parent": 244,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 250,
+            "parent": 245,
+            "notused": 62,
+            "detail": "SEARCH task USING INDEX idx_pharmacy_print_tasks_open (line_account_id=?)"
+          },
+          {
+            "id": 256,
+            "parent": 245,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 268,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 270,
+            "parent": 268,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_continuity_obligations USING COVERING INDEX idx_pharmacy_continuity_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 281,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 285,
+            "parent": 281,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_continuity_events_obligation (line_account_id=?)"
+          },
+          {
+            "id": 290,
+            "parent": 281,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX idx_pharmacy_continuity_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 304,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 307,
+            "parent": 304,
+            "notused": 39,
+            "detail": "SEARCH pharmacy_patients USING INDEX sqlite_autoindex_pharmacy_patients_1 (id=?)"
+          },
+          {
+            "id": 318,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 321,
+            "parent": 318,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_myna_handoffs USING INDEX idx_pharmacy_myna_handoffs_queue (line_account_id=?)"
+          },
+          {
+            "id": 333,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 334,
+            "parent": 333,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 335,
+            "parent": 334,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 340,
+            "parent": 335,
+            "notused": 62,
+            "detail": "SEARCH v USING INDEX idx_pharmacy_myna_verifications_handoff (line_account_id=?)"
+          },
+          {
+            "id": 346,
+            "parent": 335,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 360,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 364,
+            "parent": 360,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_myna_events_handoff (line_account_id=?)"
+          },
+          {
+            "id": 369,
+            "parent": 360,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 383,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 386,
+            "parent": 383,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_prescription_expectations USING INDEX idx_pharmacy_prescription_expectations_queue (line_account_id=?)"
+          },
+          {
+            "id": 398,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 400,
+            "parent": 398,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_next_intake_expectations USING COVERING INDEX idx_pharmacy_next_intake_expectations_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 411,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 415,
+            "parent": 411,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_next_intake_expectation_events_item (line_account_id=?)"
+          },
+          {
+            "id": 420,
+            "parent": 411,
+            "notused": 46,
+            "detail": "SEARCH x USING INDEX sqlite_autoindex_pharmacy_next_intake_expectations_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 434,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 435,
+            "parent": 434,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 436,
+            "parent": 435,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 438,
+            "parent": 436,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_medication_followups USING COVERING INDEX idx_pharmacy_medication_followups_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 449,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 453,
+            "parent": 449,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_medication_followup_events_followup (line_account_id=?)"
+          },
+          {
+            "id": 458,
+            "parent": 449,
+            "notused": 46,
+            "detail": "SEARCH f USING INDEX sqlite_autoindex_pharmacy_medication_followups_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 472,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 475,
+            "parent": 472,
+            "notused": 39,
+            "detail": "SEARCH friends USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 486,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 490,
+            "parent": 486,
+            "notused": 46,
+            "detail": "SEARCH c USING INDEX idx_chats_friend_unique (friend_id=?)"
+          },
+          {
+            "id": 497,
+            "parent": 486,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 509,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 512,
+            "parent": 509,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 520,
+            "parent": 509,
+            "notused": 54,
+            "detail": "SEARCH m USING COVERING INDEX idx_messages_log_friend_direction_created (friend_id=?)"
+          },
+          {
+            "id": 530,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 531,
+            "parent": 530,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 532,
+            "parent": 531,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 533,
+            "parent": 532,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 534,
+            "parent": 533,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 536,
+            "parent": 534,
+            "notused": 55,
+            "detail": "SEARCH pharmacy_notification_events USING COVERING INDEX idx_pharmacy_notification_events_exposure (line_account_id=? AND friend_id=?)"
+          },
+          {
+            "id": 547,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 552,
+            "parent": 547,
+            "notused": 62,
+            "detail": "SEARCH object USING INDEX idx_pharmacy_incoming_image_objects_account (line_account_id=?)"
+          },
+          {
+            "id": 559,
+            "parent": 547,
+            "notused": 46,
+            "detail": "SEARCH message USING INDEX sqlite_autoindex_messages_log_1 (id=?)"
+          },
+          {
+            "id": 569,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 571,
+            "parent": 569,
+            "notused": 53,
+            "detail": "SEARCH pharmacy_emergency_intakes USING COVERING INDEX idx_pharmacy_emergency_intakes_owner (line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 582,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 586,
+            "parent": 582,
+            "notused": 55,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_events_intake (line_account_id=?)"
+          },
+          {
+            "id": 591,
+            "parent": 582,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 605,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 609,
+            "parent": 605,
+            "notused": 56,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_access_intake (line_account_id=?)"
+          },
+          {
+            "id": 614,
+            "parent": 605,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 628,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 629,
+            "parent": 628,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 630,
+            "parent": 629,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 635,
+            "parent": 630,
+            "notused": 62,
+            "detail": "SEARCH confirmation USING INDEX sqlite_autoindex_pharmacy_emergency_counter_confirmations_1 (line_account_id=?)"
+          },
+          {
+            "id": 641,
+            "parent": 630,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 655,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 658,
+            "parent": 655,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_emergency_sale_records USING INDEX idx_pharmacy_emergency_sale_records_sold_at (line_account_id=?)"
+          },
+          {
+            "id": 670,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 675,
+            "parent": 670,
+            "notused": 62,
+            "detail": "SEARCH reminder USING INDEX sqlite_autoindex_pharmacy_emergency_reminders_3 (line_account_id=?)"
+          },
+          {
+            "id": 681,
+            "parent": 670,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          }
+        ],
+        "W": [
+          {
+            "id": 1,
+            "parent": 0,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 2,
+            "parent": 1,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 3,
+            "parent": 2,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 4,
+            "parent": 3,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 5,
+            "parent": 4,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 6,
+            "parent": 5,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 9,
+            "parent": 6,
+            "notused": 61,
+            "detail": "SEARCH pharmacy_patient_intake_responses USING INDEX idx_pharmacy_intake_responses_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 21,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 23,
+            "parent": 21,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_prescription_patients USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 34,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 38,
+            "parent": 34,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 46,
+            "parent": 34,
+            "notused": 46,
+            "detail": "SEARCH s USING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 58,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 64,
+            "parent": 58,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 72,
+            "parent": 58,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 79,
+            "parent": 58,
+            "notused": 62,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_prescription_files_revision (submission_id=?)"
+          },
+          {
+            "id": 93,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 97,
+            "parent": 93,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 105,
+            "parent": 93,
+            "notused": 44,
+            "detail": "SEARCH s USING COVERING INDEX idx_pharmacy_prescription_submissions_id_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 112,
+            "parent": 93,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_events_submission (submission_id=?)"
+          },
+          {
+            "id": 125,
+            "parent": 5,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 126,
+            "parent": 125,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 127,
+            "parent": 126,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 130,
+            "parent": 127,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 138,
+            "parent": 127,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_prescription_view_events_submission (submission_id=?)"
+          },
+          {
+            "id": 147,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 151,
+            "parent": 147,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 159,
+            "parent": 147,
+            "notused": 46,
+            "detail": "SEARCH v USING INDEX sqlite_autoindex_pharmacy_prescription_validities_1 (submission_id=?)"
+          },
+          {
+            "id": 172,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 176,
+            "parent": 172,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 184,
+            "parent": 172,
+            "notused": 46,
+            "detail": "SEARCH source USING INDEX sqlite_autoindex_pharmacy_submission_sources_1 (submission_id=?)"
+          },
+          {
+            "id": 197,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 201,
+            "parent": 197,
+            "notused": 54,
+            "detail": "SEARCH p USING COVERING INDEX idx_pharmacy_prescription_patients_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 209,
+            "parent": 197,
+            "notused": 46,
+            "detail": "SEARCH a USING INDEX sqlite_autoindex_pharmacy_submission_attributes_1 (submission_id=?)"
+          },
+          {
+            "id": 222,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 226,
+            "parent": 222,
+            "notused": 54,
+            "detail": "SEARCH q USING COVERING INDEX idx_pharmacy_fulfillment_quotes_submission (line_account_id=?)"
+          },
+          {
+            "id": 231,
+            "parent": 222,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 243,
+            "parent": 126,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 244,
+            "parent": 243,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 245,
+            "parent": 244,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 250,
+            "parent": 245,
+            "notused": 62,
+            "detail": "SEARCH task USING INDEX idx_pharmacy_print_tasks_open (line_account_id=?)"
+          },
+          {
+            "id": 256,
+            "parent": 245,
+            "notused": 46,
+            "detail": "SEARCH p USING INDEX sqlite_autoindex_pharmacy_prescription_patients_1 (submission_id=?)"
+          },
+          {
+            "id": 268,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 270,
+            "parent": 268,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_continuity_obligations USING COVERING INDEX idx_pharmacy_continuity_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 281,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 285,
+            "parent": 281,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_continuity_events_obligation (line_account_id=?)"
+          },
+          {
+            "id": 290,
+            "parent": 281,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX idx_pharmacy_continuity_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 304,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 307,
+            "parent": 304,
+            "notused": 39,
+            "detail": "SEARCH pharmacy_patients USING INDEX sqlite_autoindex_pharmacy_patients_1 (id=?)"
+          },
+          {
+            "id": 318,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 321,
+            "parent": 318,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_myna_handoffs USING INDEX idx_pharmacy_myna_handoffs_queue (line_account_id=?)"
+          },
+          {
+            "id": 333,
+            "parent": 244,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 334,
+            "parent": 333,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 335,
+            "parent": 334,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 340,
+            "parent": 335,
+            "notused": 62,
+            "detail": "SEARCH v USING INDEX idx_pharmacy_myna_verifications_handoff (line_account_id=?)"
+          },
+          {
+            "id": 346,
+            "parent": 335,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 360,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 364,
+            "parent": 360,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_myna_events_handoff (line_account_id=?)"
+          },
+          {
+            "id": 369,
+            "parent": 360,
+            "notused": 46,
+            "detail": "SEARCH h USING INDEX sqlite_autoindex_pharmacy_myna_handoffs_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 383,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 386,
+            "parent": 383,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_prescription_expectations USING INDEX idx_pharmacy_prescription_expectations_queue (line_account_id=?)"
+          },
+          {
+            "id": 398,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 400,
+            "parent": 398,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_next_intake_expectations USING COVERING INDEX idx_pharmacy_next_intake_expectations_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 411,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 415,
+            "parent": 411,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_next_intake_expectation_events_item (line_account_id=?)"
+          },
+          {
+            "id": 420,
+            "parent": 411,
+            "notused": 46,
+            "detail": "SEARCH x USING INDEX sqlite_autoindex_pharmacy_next_intake_expectations_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 434,
+            "parent": 334,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 435,
+            "parent": 434,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 436,
+            "parent": 435,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 438,
+            "parent": 436,
+            "notused": 54,
+            "detail": "SEARCH pharmacy_medication_followups USING COVERING INDEX idx_pharmacy_medication_followups_patient (line_account_id=? AND patient_id=?)"
+          },
+          {
+            "id": 449,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 453,
+            "parent": 449,
+            "notused": 55,
+            "detail": "SEARCH e USING COVERING INDEX idx_pharmacy_medication_followup_events_followup (line_account_id=?)"
+          },
+          {
+            "id": 458,
+            "parent": 449,
+            "notused": 46,
+            "detail": "SEARCH f USING INDEX sqlite_autoindex_pharmacy_medication_followups_2 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 472,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 475,
+            "parent": 472,
+            "notused": 39,
+            "detail": "SEARCH friends USING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 486,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 490,
+            "parent": 486,
+            "notused": 46,
+            "detail": "SEARCH c USING INDEX idx_chats_friend_unique (friend_id=?)"
+          },
+          {
+            "id": 497,
+            "parent": 486,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 509,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 512,
+            "parent": 509,
+            "notused": 44,
+            "detail": "SEARCH f USING COVERING INDEX idx_friends_id_line_account (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 520,
+            "parent": 509,
+            "notused": 54,
+            "detail": "SEARCH m USING COVERING INDEX idx_messages_log_friend_direction_created (friend_id=?)"
+          },
+          {
+            "id": 530,
+            "parent": 435,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 531,
+            "parent": 530,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 532,
+            "parent": 531,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 533,
+            "parent": 532,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 534,
+            "parent": 533,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 536,
+            "parent": 534,
+            "notused": 55,
+            "detail": "SEARCH pharmacy_notification_events USING COVERING INDEX idx_pharmacy_notification_events_exposure (line_account_id=? AND friend_id=?)"
+          },
+          {
+            "id": 547,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 552,
+            "parent": 547,
+            "notused": 62,
+            "detail": "SEARCH object USING INDEX idx_pharmacy_incoming_image_objects_account (line_account_id=?)"
+          },
+          {
+            "id": 559,
+            "parent": 547,
+            "notused": 46,
+            "detail": "SEARCH message USING INDEX sqlite_autoindex_messages_log_1 (id=?)"
+          },
+          {
+            "id": 569,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 571,
+            "parent": 569,
+            "notused": 53,
+            "detail": "SEARCH pharmacy_emergency_intakes USING COVERING INDEX idx_pharmacy_emergency_intakes_owner (line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 582,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 586,
+            "parent": 582,
+            "notused": 55,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_events_intake (line_account_id=?)"
+          },
+          {
+            "id": 591,
+            "parent": 582,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 605,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 609,
+            "parent": 605,
+            "notused": 56,
+            "detail": "SEARCH event USING COVERING INDEX idx_pharmacy_emergency_access_intake (line_account_id=?)"
+          },
+          {
+            "id": 614,
+            "parent": 605,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 628,
+            "parent": 533,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 629,
+            "parent": 628,
+            "notused": 0,
+            "detail": "COMPOUND QUERY"
+          },
+          {
+            "id": 630,
+            "parent": 629,
+            "notused": 0,
+            "detail": "LEFT-MOST SUBQUERY"
+          },
+          {
+            "id": 635,
+            "parent": 630,
+            "notused": 62,
+            "detail": "SEARCH confirmation USING INDEX sqlite_autoindex_pharmacy_emergency_counter_confirmations_1 (line_account_id=?)"
+          },
+          {
+            "id": 641,
+            "parent": 630,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          },
+          {
+            "id": 655,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 658,
+            "parent": 655,
+            "notused": 62,
+            "detail": "SEARCH pharmacy_emergency_sale_records USING INDEX idx_pharmacy_emergency_sale_records_sold_at (line_account_id=?)"
+          },
+          {
+            "id": 670,
+            "parent": 629,
+            "notused": 0,
+            "detail": "UNION ALL"
+          },
+          {
+            "id": 675,
+            "parent": 670,
+            "notused": 62,
+            "detail": "SEARCH reminder USING INDEX sqlite_autoindex_pharmacy_emergency_reminders_3 (line_account_id=?)"
+          },
+          {
+            "id": 681,
+            "parent": 670,
+            "notused": 46,
+            "detail": "SEARCH intake USING INDEX sqlite_autoindex_pharmacy_emergency_intakes_3 (id=? AND line_account_id=?)"
+          }
+        ]
+      }
+    }
+  ]
+}

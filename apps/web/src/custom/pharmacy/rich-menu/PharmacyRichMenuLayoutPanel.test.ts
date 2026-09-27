@@ -12,9 +12,7 @@ import {
 } from './PharmacyRichMenuLayoutPanel';
 import { richMenuAreaStyle } from './preview-geometry';
 
-const ORDER = [
-  'prescription-send', 'prescription-history', 'medication-followup', 'manual-chat', 'pharmacy-info',
-];
+const ORDER = ['prescription-send', 'prescription-history', 'medication-followup', 'manual-chat', 'pharmacy-info'];
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('pharmacy rich-menu layout panel', () => {
@@ -37,7 +35,11 @@ describe('pharmacy rich-menu layout panel', () => {
 
   it('moves one tile without dropping or duplicating another tile', () => {
     expect(movePharmacyRichMenuAction(ORDER, 'medication-followup', -1)).toEqual([
-      'prescription-send', 'medication-followup', 'prescription-history', 'manual-chat', 'pharmacy-info',
+      'prescription-send',
+      'medication-followup',
+      'prescription-history',
+      'manual-chat',
+      'pharmacy-info',
     ]);
     expect(movePharmacyRichMenuAction(ORDER, 'prescription-send', -1)).toEqual(ORDER);
     expect(movePharmacyRichMenuAction(ORDER, 'pharmacy-info', 1)).toEqual(ORDER);
@@ -55,27 +57,39 @@ describe('pharmacy rich-menu layout panel', () => {
   });
 
   it('maps saved LINE pixel bounds onto compact and large previews', () => {
-    expect(richMenuAreaStyle({
-      boundsX: 0, boundsY: 0, boundsWidth: 1250, boundsHeight: 843,
-    }, 'large')).toEqual({ left: '0%', top: '0%', width: '50%', height: '50%' });
-    expect(richMenuAreaStyle({
-      boundsX: 1250, boundsY: 0, boundsWidth: 1250, boundsHeight: 843,
-    }, 'compact')).toEqual({ left: '50%', top: '0%', width: '50%', height: '100%' });
+    expect(
+      richMenuAreaStyle(
+        {
+          boundsX: 0,
+          boundsY: 0,
+          boundsWidth: 1250,
+          boundsHeight: 843,
+        },
+        'large',
+      ),
+    ).toEqual({ left: '0%', top: '0%', width: '50%', height: '50%' });
+    expect(
+      richMenuAreaStyle(
+        {
+          boundsX: 1250,
+          boundsY: 0,
+          boundsWidth: 1250,
+          boundsHeight: 843,
+        },
+        'compact',
+      ),
+    ).toEqual({ left: '50%', top: '0%', width: '50%', height: '100%' });
   });
 
   it('describes every public-to-draft diff for screen readers', () => {
-    expect(pharmacyRichMenuDiffLabel({ kind: 'same', currentIndex: 0, draftIndex: 0 }))
-      .toBe('枠1: 同一');
-    expect(pharmacyRichMenuDiffLabel({ kind: 'moved', currentIndex: 2, draftIndex: 0 }))
-      .toBe('枠1: 枠3から移動');
-    expect(pharmacyRichMenuDiffLabel({ kind: 'added', currentIndex: null, draftIndex: 1 }))
-      .toBe('枠2: 追加');
-    expect(pharmacyRichMenuDiffLabel({ kind: 'removed', currentIndex: 1, draftIndex: null }))
-      .toBe('枠2: 削除');
-    expect(pharmacyRichMenuDiffLabel({ kind: 'action_changed', currentIndex: 1, draftIndex: 1 }))
-      .toBe('枠2: action変更');
-    expect(pharmacyRichMenuDiffLabel({ kind: 'image_changed', currentIndex: 1, draftIndex: 1 }))
-      .toBe('枠2: 画像変更');
+    expect(pharmacyRichMenuDiffLabel({ kind: 'same', currentIndex: 0, draftIndex: 0 })).toBe('枠1: 同一');
+    expect(pharmacyRichMenuDiffLabel({ kind: 'moved', currentIndex: 2, draftIndex: 0 })).toBe('枠1: 枠3から移動');
+    expect(pharmacyRichMenuDiffLabel({ kind: 'added', currentIndex: null, draftIndex: 1 })).toBe('枠2: 追加');
+    expect(pharmacyRichMenuDiffLabel({ kind: 'removed', currentIndex: 1, draftIndex: null })).toBe('枠2: 削除');
+    expect(pharmacyRichMenuDiffLabel({ kind: 'action_changed', currentIndex: 1, draftIndex: 1 })).toBe(
+      '枠2: action変更',
+    );
+    expect(pharmacyRichMenuDiffLabel({ kind: 'image_changed', currentIndex: 1, draftIndex: 1 })).toBe('枠2: 画像変更');
   });
 
   it('uses the pharmacy layout API and exposes keyboard-operable move controls', () => {

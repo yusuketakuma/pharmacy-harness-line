@@ -39,10 +39,7 @@ export interface CreateAffiliateOfferInput {
   scenarioId?: string | null;
 }
 
-export async function createAffiliateOffer(
-  db: D1Database,
-  input: CreateAffiliateOfferInput,
-): Promise<AffiliateOffer> {
+export async function createAffiliateOffer(db: D1Database, input: CreateAffiliateOfferInput): Promise<AffiliateOffer> {
   const id = crypto.randomUUID();
   const now = jstNow();
   if (!input.mileageProgramId || input.mileageProgramId === 'default') {
@@ -73,14 +70,8 @@ export async function createAffiliateOffer(
   return (await getAffiliateOfferById(db, id))!;
 }
 
-export async function getAffiliateOfferById(
-  db: D1Database,
-  id: string,
-): Promise<AffiliateOffer | null> {
-  return db
-    .prepare(`SELECT * FROM affiliate_offers WHERE id = ?`)
-    .bind(id)
-    .first<AffiliateOffer>();
+export async function getAffiliateOfferById(db: D1Database, id: string): Promise<AffiliateOffer | null> {
+  return db.prepare(`SELECT * FROM affiliate_offers WHERE id = ?`).bind(id).first<AffiliateOffer>();
 }
 
 export async function listAffiliateOffers(
@@ -189,11 +180,7 @@ export async function enrollAffiliateInOffer(
   return { link: created, existing: false };
 }
 
-async function findOfferLink(
-  db: D1Database,
-  affiliateId: string,
-  offerId: string,
-): Promise<AffiliateLink | null> {
+async function findOfferLink(db: D1Database, affiliateId: string, offerId: string): Promise<AffiliateLink | null> {
   return db
     .prepare(
       `SELECT * FROM affiliate_links
@@ -242,9 +229,7 @@ export async function setConversionApproval(
 
   // Distinguish no-op (same status already set) from truly missing/non-attributed.
   const existing = await db
-    .prepare(
-      `SELECT 1 FROM conversion_events WHERE id = ? AND affiliate_id IS NOT NULL AND approval_status = ?`,
-    )
+    .prepare(`SELECT 1 FROM conversion_events WHERE id = ? AND affiliate_id IS NOT NULL AND approval_status = ?`)
     .bind(eventId, status)
     .first<{ 1: number }>();
   return existing ? 'already_set' : false;

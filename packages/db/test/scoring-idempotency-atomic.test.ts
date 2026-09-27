@@ -26,7 +26,11 @@ beforeEach(() => {
       },
       run: async () => {
         const info = sqlite.prepare(sql).run(...(values as never[]));
-        return { success: true, meta: { changes: info.changes }, results: [] } as unknown as D1Result;
+        return {
+          success: true,
+          meta: { changes: info.changes },
+          results: [],
+        } as unknown as D1Result;
       },
       first: async <T>() => (sqlite.prepare(sql).get(...(values as never[])) as T) ?? null,
       all: async <T>() => ({
@@ -57,19 +61,27 @@ beforeEach(() => {
 
 describe('addScore ledger/cache atomicity', () => {
   it('keeps friends.score in sync with the ledger and dedupes keyed retries', async () => {
-    expect(await addScore(db, {
-      friendId: 'friend-a', scoreChange: 10, reason: 'first', idempotencyKey: 'evt-1',
-    })).toBe(true);
+    expect(
+      await addScore(db, {
+        friendId: 'friend-a',
+        scoreChange: 10,
+        reason: 'first',
+        idempotencyKey: 'evt-1',
+      }),
+    ).toBe(true);
     expect(await getFriendScore(db, 'friend-a')).toBe(10);
 
     // Keyed retry: ledger insert is ignored and the score must not move.
-    expect(await addScore(db, {
-      friendId: 'friend-a', scoreChange: 10, reason: 'retry', idempotencyKey: 'evt-1',
-    })).toBe(false);
-    expect(await getFriendScore(db, 'friend-a')).toBe(10);
     expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c,
-    ).toBe(1);
+      await addScore(db, {
+        friendId: 'friend-a',
+        scoreChange: 10,
+        reason: 'retry',
+        idempotencyKey: 'evt-1',
+      }),
+    ).toBe(false);
+    expect(await getFriendScore(db, 'friend-a')).toBe(10);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS c FROM friend_scores`).get() as { c: number }).c).toBe(1);
 
     // Unkeyed callers keep the historical always-apply behavior.
     expect(await addScore(db, { friendId: 'friend-a', scoreChange: 3, reason: 'unkeyed' })).toBe(true);
@@ -80,15 +92,16 @@ describe('addScore ledger/cache atomicity', () => {
 describe('recordLinkClick', () => {
   it('keeps click_count consistent with link_clicks rows', async () => {
     const link = await createTrackedLink(db, {
-      name: 'campaign', originalUrl: 'https://example.com/lp',
+      name: 'campaign',
+      originalUrl: 'https://example.com/lp',
     });
     await recordLinkClick(db, link.id, 'friend-a');
     await recordLinkClick(db, link.id, null);
     const stored = await getTrackedLinkById(db, link.id);
     expect(stored!.click_count).toBe(2);
     expect(
-      (sqlite.prepare(`SELECT COUNT(*) AS c FROM link_clicks WHERE tracked_link_id = ?`)
-        .get(link.id) as { c: number }).c,
+      (sqlite.prepare(`SELECT COUNT(*) AS c FROM link_clicks WHERE tracked_link_id = ?`).get(link.id) as { c: number })
+        .c,
     ).toBe(2);
   });
 });

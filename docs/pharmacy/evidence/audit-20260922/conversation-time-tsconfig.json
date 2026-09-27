@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@line-crm/db": [
+        "/Users/yusuke/workspace/pharmacy-harness-line/packages/db/src/index.ts"
+      ]
+    }
+  }
+}

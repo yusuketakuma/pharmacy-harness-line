@@ -16,10 +16,7 @@ vi.mock('../beta-membership/repository.js', () => ({
   getPharmacyBetaNotificationBinding: mocks.betaBinding,
 }));
 
-import {
-  processExpiredMynaHandoffNotifications,
-  sendMynaHandoffStatusNotification,
-} from './notifications.js';
+import { processExpiredMynaHandoffNotifications, sendMynaHandoffStatusNotification } from './notifications.js';
 
 const baseHandoff = {
   id: 'handoff-a',
@@ -41,11 +38,12 @@ function fakeDb(
     prepare: vi.fn((sql: string) => ({
       bind: () => ({
         all: async () => ({
-          results: alreadySentIds.size > 0
-            ? sql.includes('NOT EXISTS')
-              ? handoffs.filter((row) => !alreadySentIds.has((row as { id: string }).id))
-              : handoffs.slice(0, 1)
-            : handoffs,
+          results:
+            alreadySentIds.size > 0
+              ? sql.includes('NOT EXISTS')
+                ? handoffs.filter((row) => !alreadySentIds.has((row as { id: string }).id))
+                : handoffs.slice(0, 1)
+              : handoffs,
         }),
         first: async () => recipient,
       }),
@@ -67,23 +65,24 @@ beforeEach(() => {
 
 describe('sendMynaHandoffStatusNotification', () => {
   it('sends the approved status push with a deterministic retry key', async () => {
-    const result = await sendMynaHandoffStatusNotification(
-      fakeDb([]), options, baseHandoff,
-    );
+    const result = await sendMynaHandoffStatusNotification(fakeDb([]), options, baseHandoff);
     expect(result).toBe('sent');
-    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
-      messageId: 'myna_handoff_status_v1',
-      vars: { handoffStatus: 'EXPIRED' },
-      retryKey: 'myna-status:handoff-a:EXPIRED',
-      to: 'U-a',
-      betaMembershipId: 'membership-a',
-    }));
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: 'myna_handoff_status_v1',
+        vars: { handoffStatus: 'EXPIRED' },
+        retryKey: 'myna-status:handoff-a:EXPIRED',
+        to: 'U-a',
+        betaMembershipId: 'membership-a',
+      }),
+    );
   });
 
   it('skips statuses that are not notified', async () => {
-    const result = await sendMynaHandoffStatusNotification(
-      fakeDb([]), options, { ...baseHandoff, status: 'WAITING' as never },
-    );
+    const result = await sendMynaHandoffStatusNotification(fakeDb([]), options, {
+      ...baseHandoff,
+      status: 'WAITING' as never,
+    });
     expect(result).toBe('skipped');
     expect(mocks.send).not.toHaveBeenCalled();
   });
@@ -91,11 +90,11 @@ describe('sendMynaHandoffStatusNotification', () => {
   it('skips when the friend has no LINE user id or the credential is missing', async () => {
     mocks.readCredential.mockResolvedValue(null);
     const noUser = await sendMynaHandoffStatusNotification(
-      fakeDb([], { line_user_id: null, tenant_id: 'tenant-a' }), options, baseHandoff,
+      fakeDb([], { line_user_id: null, tenant_id: 'tenant-a' }),
+      options,
+      baseHandoff,
     );
-    const noToken = await sendMynaHandoffStatusNotification(
-      fakeDb([]), options, baseHandoff,
-    );
+    const noToken = await sendMynaHandoffStatusNotification(fakeDb([]), options, baseHandoff);
     expect(noUser).toBe('skipped');
     expect(noToken).toBe('skipped');
     expect(mocks.send).not.toHaveBeenCalled();
@@ -109,37 +108,46 @@ describe('processExpiredMynaHandoffNotifications', () => {
       sqlite.pragma('foreign_keys = ON');
       sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
       for (const account of ['a', 'b']) {
-        sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name) VALUES (?, ?, 'Synthetic')`)
+        sqlite
+          .prepare(`INSERT INTO tenants (id, tenant_code, display_name) VALUES (?, ?, 'Synthetic')`)
           .run(`tenant-${account}`, `tenant-${account}`);
-        sqlite.prepare(`INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret)
+        sqlite
+          .prepare(`INSERT INTO line_accounts (id, channel_id, name, channel_access_token, channel_secret)
           VALUES (?, ?, 'Synthetic', 'synthetic-token', 'synthetic-secret')`)
           .run(`account-${account}`, `channel-${account}`);
-        sqlite.prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES (?, ?)`)
+        sqlite
+          .prepare(`INSERT INTO tenant_line_accounts (tenant_id, line_account_id) VALUES (?, ?)`)
           .run(`tenant-${account}`, `account-${account}`);
-        sqlite.prepare(`INSERT INTO friends (id, line_user_id, provider_line_user_id, line_account_id)
-          VALUES (?, ?, ?, ?)`).run(`friend-${account}`, `line-${account}`, `U-${account}`, `account-${account}`);
+        sqlite
+          .prepare(`INSERT INTO friends (id, line_user_id, provider_line_user_id, line_account_id)
+          VALUES (?, ?, ?, ?)`)
+          .run(`friend-${account}`, `line-${account}`, `U-${account}`, `account-${account}`);
       }
       for (const id of ['a', 'b', 'c']) {
-        sqlite.prepare(`INSERT INTO pharmacy_myna_handoffs
+        sqlite
+          .prepare(`INSERT INTO pharmacy_myna_handoffs
           (id, line_account_id, friend_id, method, status, source, correlation_id,
            expires_at, created_at, updated_at)
           VALUES (?, 'account-a', 'friend-a', 'PAPER', 'EXPIRED', 'LIFF', ?,
                   '2026-08-20T22:00:00.000Z', '2026-08-20T22:00:00.000Z', '2026-08-20T22:00:00.000Z')`)
           .run(`handoff-${id}`, `correlation-${id}`);
       }
-      const recordOutcome = (
-        id: string,
-        outcome: 'attempted' | 'sent' | 'blocked' | 'failed',
-        account = 'a',
-      ) => sqlite.prepare(`INSERT INTO pharmacy_notification_events
+      const recordOutcome = (id: string, outcome: 'attempted' | 'sent' | 'blocked' | 'failed', account = 'a') =>
+        sqlite
+          .prepare(`INSERT INTO pharmacy_notification_events
         (id, line_account_id, friend_id, message_id, category, outcome,
          occurred_at, idempotency_key, created_at)
         VALUES (?, ?, ?, 'myna_handoff_status_v1', 'transactional_care', ?,
                 '2026-08-20T23:00:00.000Z', ?, '2026-08-20T23:00:00.000Z')
         ON CONFLICT (line_account_id, idempotency_key)
         DO UPDATE SET outcome = excluded.outcome`)
-        .run(`notice-${account}-${outcome}-${id}`, `account-${account}`, `friend-${account}`,
-          outcome, `myna-status:handoff-${id}:EXPIRED`);
+          .run(
+            `notice-${account}-${outcome}-${id}`,
+            `account-${account}`,
+            `friend-${account}`,
+            outcome,
+            `myna-status:handoff-${id}:EXPIRED`,
+          );
       recordOutcome('a', 'sent');
       recordOutcome('b', 'failed'); // A failed/attempted row must not suppress the handoff.
       recordOutcome('c', 'sent', 'b'); // Another account's same retry key cannot suppress account-a.
@@ -153,7 +161,8 @@ describe('processExpiredMynaHandoffNotifications', () => {
       expect(await tick()).toEqual({ sent: 1, failed: 0, skipped: 0 });
       expect(await tick()).toEqual({ sent: 0, failed: 0, skipped: 0 });
       expect(mocks.send.mock.calls.map(([call]) => call.retryKey)).toEqual([
-        'myna-status:handoff-b:EXPIRED', 'myna-status:handoff-c:EXPIRED',
+        'myna-status:handoff-b:EXPIRED',
+        'myna-status:handoff-c:EXPIRED',
       ]);
     } finally {
       sqlite.close();
@@ -180,27 +189,27 @@ describe('processExpiredMynaHandoffNotifications', () => {
 
   it('counts send failures without PHI in the result', async () => {
     mocks.send.mockRejectedValue(new Error('provider down'));
-    const result = await processExpiredMynaHandoffNotifications(
-      fakeDb([baseHandoff]), { ...options, now },
-    );
+    const result = await processExpiredMynaHandoffNotifications(fakeDb([baseHandoff]), {
+      ...options,
+      now,
+    });
     expect(result).toEqual({ sent: 0, failed: 1, skipped: 0 });
   });
 
   it('excludes already-sent rows before LIMIT so a later handoff is reached', async () => {
     mocks.send.mockImplementation(async ({ retryKey }: { retryKey: string }) =>
-      retryKey.includes('handoff-a') ? 'already_sent' : 'sent');
+      retryKey.includes('handoff-a') ? 'already_sent' : 'sent',
+    );
     const result = await processExpiredMynaHandoffNotifications(
-      fakeDb(
-        [baseHandoff, { ...baseHandoff, id: 'handoff-b' }],
-        undefined,
-        new Set(['handoff-a']),
-      ),
+      fakeDb([baseHandoff, { ...baseHandoff, id: 'handoff-b' }], undefined, new Set(['handoff-a'])),
       { ...options, now, limit: 1 },
     );
     expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
     expect(mocks.send).toHaveBeenCalledTimes(1);
-    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
-      retryKey: 'myna-status:handoff-b:EXPIRED',
-    }));
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryKey: 'myna-status:handoff-b:EXPIRED',
+      }),
+    );
   });
 });

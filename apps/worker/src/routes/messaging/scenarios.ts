@@ -93,7 +93,10 @@ function validateStepCondition(
   // 数値・オブジェクトが SQL バインドに乗って 0件マッチ → tag_not_exists が全友だちに当たる、
   // のような OSS issue #120 と同じ over-delivery を再現してしまう。
   if (typeof conditionValue !== 'string' || conditionValue === '') {
-    return { ok: false, error: 'conditionValue must be a non-empty string when conditionType is set' };
+    return {
+      ok: false,
+      error: 'conditionValue must be a non-empty string when conditionType is set',
+    };
   }
   if (conditionType === 'metadata_equals' || conditionType === 'metadata_not_equals') {
     try {
@@ -105,7 +108,10 @@ function validateStepCondition(
         typeof (parsed as { key?: unknown }).key !== 'string' ||
         !('value' in (parsed as Record<string, unknown>))
       ) {
-        return { ok: false, error: 'conditionValue for metadata_* must be JSON {"key": "...", "value": ...}' };
+        return {
+          ok: false,
+          error: 'conditionValue for metadata_* must be JSON {"key": "...", "value": ...}',
+        };
       }
     } catch {
       return { ok: false, error: 'conditionValue for metadata_* must be valid JSON' };
@@ -122,10 +128,7 @@ interface StepScheduleBody {
 }
 
 /** delivery_mode に応じてスケジュールフィールドを検証する。 */
-function validateStepSchedule(
-  mode: DeliveryMode,
-  body: StepScheduleBody,
-): { ok: true } | { ok: false; error: string } {
+function validateStepSchedule(mode: DeliveryMode, body: StepScheduleBody): { ok: true } | { ok: false; error: string } {
   if (mode === 'relative') {
     if (body.offsetDays != null || body.offsetMinutes != null || body.deliveryTime != null) {
       return { ok: false, error: 'relative mode: only delayMinutes is allowed' };
@@ -242,7 +245,7 @@ scenarios.post('/api/scenarios', async (c) => {
       return c.json({ success: false, error: 'invalid deliveryMode' }, 400);
     }
 
-    let scenario = await createScenario(c.env.DB, {
+    const scenario = await createScenario(c.env.DB, {
       name: body.name,
       description: body.description ?? null,
       triggerType: body.triggerType,
@@ -250,19 +253,9 @@ scenarios.post('/api/scenarios', async (c) => {
       deliveryMode: deliveryMode as DeliveryMode,
       // Account-unassigned scenarios only fire inside their own tenant (M-1).
       tenantId: c.get('tenantId') ?? null,
+      lineAccountId: body.lineAccountId || null,
+      isActive: body.isActive !== false,
     });
-
-    // Save line_account_id if provided
-    if (body.lineAccountId) {
-      await c.env.DB.prepare(`UPDATE scenarios SET line_account_id = ? WHERE id = ?`)
-        .bind(body.lineAccountId, scenario.id).run();
-    }
-
-    // createScenario() always sets is_active=1; override if the caller requested inactive
-    if (body.isActive === false) {
-      const updated = await updateScenario(c.env.DB, scenario.id, { is_active: 0 });
-      if (updated) scenario = updated;
-    }
 
     return c.json({ success: true, data: serializeScenario(scenario) }, 201);
   } catch (err) {
@@ -340,14 +333,10 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
     }>();
 
     if (body.stepOrder === undefined || !body.messageType || !body.messageContent) {
-      return c.json(
-        { success: false, error: 'stepOrder, messageType, and messageContent are required' },
-        400,
-      );
+      return c.json({ success: false, error: 'stepOrder, messageType, and messageContent are required' }, 400);
     }
 
-    const scenarioRow = await c.env.DB
-      .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ? AND tenant_id IS ?`)
+    const scenarioRow = await c.env.DB.prepare(`SELECT delivery_mode FROM scenarios WHERE id = ? AND tenant_id IS ?`)
       .bind(scenarioId, tenantId)
       .first<{ delivery_mode: DeliveryMode }>();
     if (!scenarioRow) {
@@ -362,15 +351,13 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
 
     // templateId / onReachTagId 参照整合性チェック
     if (body.templateId != null) {
-      const tpl = await c.env.DB
-        .prepare(`SELECT id FROM templates WHERE id = ? AND tenant_id IS ?`)
+      const tpl = await c.env.DB.prepare(`SELECT id FROM templates WHERE id = ? AND tenant_id IS ?`)
         .bind(body.templateId, tenantId)
         .first<{ id: string }>();
       if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
     }
     if (body.onReachTagId != null) {
-      const tag = await c.env.DB
-        .prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
+      const tag = await c.env.DB.prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
         .bind(body.onReachTagId, tenantId)
         .first<{ id: string }>();
       if (!tag) return c.json({ success: false, error: 'onReachTagId not found' }, 400);
@@ -426,8 +413,9 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
     // これにより「type だけ flipping、value は既存」のような partial 更新を壊さずに、
     // 未知 type や JSON 異形を確実に弾ける。
     if (body.conditionType !== undefined || body.conditionValue !== undefined) {
-      const existingCond = await c.env.DB
-        .prepare(`SELECT condition_type, condition_value FROM scenario_steps WHERE id = ? AND scenario_id = ?`)
+      const existingCond = await c.env.DB.prepare(
+        `SELECT condition_type, condition_value FROM scenario_steps WHERE id = ? AND scenario_id = ?`,
+      )
         .bind(stepId, scenarioId)
         .first<{ condition_type: string | null; condition_value: string | null }>();
       if (!existingCond) {
@@ -443,16 +431,16 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
     // templateId が指定された場合は内容も取得して snapshot 更新に使う。
     let templateSnapshot: { message_type: string; message_content: string } | null = null;
     if (body.templateId !== undefined && body.templateId !== null) {
-      const tpl = await c.env.DB
-        .prepare(`SELECT id, message_type, message_content FROM templates WHERE id = ? AND tenant_id IS ?`)
+      const tpl = await c.env.DB.prepare(
+        `SELECT id, message_type, message_content FROM templates WHERE id = ? AND tenant_id IS ?`,
+      )
         .bind(body.templateId, tenantId)
         .first<{ id: string; message_type: string; message_content: string }>();
       if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
       templateSnapshot = { message_type: tpl.message_type, message_content: tpl.message_content };
     }
     if (body.onReachTagId !== undefined && body.onReachTagId !== null) {
-      const tag = await c.env.DB
-        .prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
+      const tag = await c.env.DB.prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
         .bind(body.onReachTagId, tenantId)
         .first<{ id: string }>();
       if (!tag) return c.json({ success: false, error: 'onReachTagId not found' }, 400);
@@ -463,23 +451,18 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
     // (1 フィールドだけ更新するケース、例: elapsed step の offsetMinutes だけ変更、
     //  absolute_time step の deliveryTime だけ変更 を許可するため)
     const scheduleTouched =
-      body.delayMinutes != null ||
-      body.offsetDays != null ||
-      body.offsetMinutes != null ||
-      body.deliveryTime != null;
+      body.delayMinutes != null || body.offsetDays != null || body.offsetMinutes != null || body.deliveryTime != null;
     if (scheduleTouched) {
-      const scenarioRow = await c.env.DB
-        .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ? AND tenant_id IS ?`)
+      const scenarioRow = await c.env.DB.prepare(`SELECT delivery_mode FROM scenarios WHERE id = ? AND tenant_id IS ?`)
         .bind(scenarioId, tenantId)
         .first<{ delivery_mode: DeliveryMode }>();
       if (!scenarioRow) {
         return c.json({ success: false, error: 'Scenario not found' }, 404);
       }
-      const existingStep = await c.env.DB
-        .prepare(
-          `SELECT delay_minutes, offset_days, offset_minutes, delivery_time
+      const existingStep = await c.env.DB.prepare(
+        `SELECT delay_minutes, offset_days, offset_minutes, delivery_time
            FROM scenario_steps WHERE id = ? AND scenario_id = ?`,
-        )
+      )
         .bind(stepId, scenarioId)
         .first<{
           delay_minutes: number;
@@ -535,24 +518,27 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
     const effectiveMessageType = templateSnapshot
       ? ((templateSnapshot.message_type === 'carousel' ? 'flex' : templateSnapshot.message_type) as MessageType)
       : body.messageType;
-    const effectiveMessageContent = templateSnapshot
-      ? templateSnapshot.message_content
-      : body.messageContent;
+    const effectiveMessageContent = templateSnapshot ? templateSnapshot.message_content : body.messageContent;
 
-    const updated = await updateScenarioStep(c.env.DB, stepId, {
-      step_order: body.stepOrder,
-      delay_minutes: body.delayMinutes,
-      message_type: effectiveMessageType,
-      message_content: effectiveMessageContent,
-      condition_type: body.conditionType,
-      condition_value: body.conditionValue,
-      next_step_on_false: body.nextStepOnFalse,
-      offset_days: body.offsetDays,
-      offset_minutes: body.offsetMinutes,
-      delivery_time: body.deliveryTime,
-      template_id: body.templateId,
-      on_reach_tag_id: body.onReachTagId,
-    });
+    const updated = await updateScenarioStep(
+      c.env.DB,
+      stepId,
+      {
+        step_order: body.stepOrder,
+        delay_minutes: body.delayMinutes,
+        message_type: effectiveMessageType,
+        message_content: effectiveMessageContent,
+        condition_type: body.conditionType,
+        condition_value: body.conditionValue,
+        next_step_on_false: body.nextStepOnFalse,
+        offset_days: body.offsetDays,
+        offset_minutes: body.offsetMinutes,
+        delivery_time: body.deliveryTime,
+        template_id: body.templateId,
+        on_reach_tag_id: body.onReachTagId,
+      },
+      { scenarioId, tenantId },
+    );
 
     if (!updated) {
       return c.json({ success: false, error: 'Step not found' }, 404);
@@ -569,7 +555,10 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
 scenarios.delete('/api/scenarios/:id/steps/:stepId', async (c) => {
   try {
     const stepId = c.req.param('stepId');
-    await deleteScenarioStep(c.env.DB, stepId);
+    await deleteScenarioStep(c.env.DB, stepId, {
+      scenarioId: c.req.param('id'),
+      tenantId: c.get('tenantId') ?? null,
+    });
     return c.json({ success: true, data: null });
   } catch (err) {
     console.error('DELETE /api/scenarios/:id/steps/:stepId error:', err);
@@ -596,8 +585,7 @@ scenarios.post('/api/scenarios/:id/steps/reorder', async (c) => {
     // 旧 step_order → 新 step_order のマップを構築する。
     // 既存の branching (next_step_on_false) を保つには、移動する step の旧→新 step_order マップで
     // 各 step の next_step_on_false 値を書き換える必要がある。
-    const existing = await c.env.DB
-      .prepare(`SELECT id, step_order FROM scenario_steps WHERE scenario_id = ?`)
+    const existing = await c.env.DB.prepare(`SELECT id, step_order FROM scenario_steps WHERE scenario_id = ?`)
       .bind(scenarioId)
       .all<{ id: string; step_order: number }>();
     const oldOrderById = new Map(existing.results.map((r) => [r.id, r.step_order]));
@@ -614,34 +602,34 @@ scenarios.post('/api/scenarios/:id/steps/reorder', async (c) => {
 
     // UNIQUE(scenario_id, step_order) 衝突回避: 一旦負数空間に逃がしてから最終値に再代入する2フェーズ。
     const phase1 = body.orders.map((o, i) =>
-      c.env.DB
-        .prepare(`UPDATE scenario_steps SET step_order = ? WHERE id = ? AND scenario_id = ?`)
-        .bind(-1 - i, o.stepId, scenarioId),
+      c.env.DB.prepare(`UPDATE scenario_steps SET step_order = ? WHERE id = ? AND scenario_id = ?`).bind(
+        -1 - i,
+        o.stepId,
+        scenarioId,
+      ),
     );
     const phase2 = body.orders.map((o) =>
-      c.env.DB
-        .prepare(`UPDATE scenario_steps SET step_order = ? WHERE id = ? AND scenario_id = ?`)
-        .bind(o.stepOrder, o.stepId, scenarioId),
+      c.env.DB.prepare(`UPDATE scenario_steps SET step_order = ? WHERE id = ? AND scenario_id = ?`).bind(
+        o.stepOrder,
+        o.stepId,
+        scenarioId,
+      ),
     );
     // phase3: branching ターゲット (next_step_on_false) も同様に2フェーズで書き換える。
     // 入れ替え (A 旧2→新4, B 旧4→新2) のケースで一発 UPDATE すると後続が前の結果を上書きするため、
     // 一旦負数 sentinel に逃がしてから新値に書く。
     const oldToNewArr = Array.from(oldToNew.entries());
     const phase3a = oldToNewArr.map(([oldOrder], i) =>
-      c.env.DB
-        .prepare(
-          `UPDATE scenario_steps SET next_step_on_false = ?
+      c.env.DB.prepare(
+        `UPDATE scenario_steps SET next_step_on_false = ?
            WHERE scenario_id = ? AND next_step_on_false = ?`,
-        )
-        .bind(-1000 - i, scenarioId, oldOrder),
+      ).bind(-1000 - i, scenarioId, oldOrder),
     );
     const phase3b = oldToNewArr.map(([, newOrder], i) =>
-      c.env.DB
-        .prepare(
-          `UPDATE scenario_steps SET next_step_on_false = ?
+      c.env.DB.prepare(
+        `UPDATE scenario_steps SET next_step_on_false = ?
            WHERE scenario_id = ? AND next_step_on_false = ?`,
-        )
-        .bind(newOrder, scenarioId, -1000 - i),
+      ).bind(newOrder, scenarioId, -1000 - i),
     );
     await c.env.DB.batch([...phase1, ...phase2, ...phase3a, ...phase3b]);
 
@@ -658,18 +646,16 @@ const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const;
 scenarios.get('/api/scenarios/:id/preview', async (c) => {
   try {
     const scenarioId = c.req.param('id');
-    const scenarioRow = await c.env.DB
-      .prepare(`SELECT delivery_mode FROM scenarios WHERE id = ?`)
+    const scenarioRow = await c.env.DB.prepare(`SELECT delivery_mode FROM scenarios WHERE id = ?`)
       .bind(scenarioId)
       .first<{ delivery_mode: DeliveryMode }>();
     if (!scenarioRow) return c.json({ success: false, error: 'Scenario not found' }, 404);
 
-    const stepsResult = await c.env.DB
-      .prepare(
-        `SELECT id, step_order, delay_minutes, offset_days, offset_minutes, delivery_time,
+    const stepsResult = await c.env.DB.prepare(
+      `SELECT id, step_order, delay_minutes, offset_days, offset_minutes, delivery_time,
                 template_id, message_type, message_content
          FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC`,
-      )
+    )
       .bind(scenarioId)
       .all<{
         id: string;
@@ -710,15 +696,13 @@ scenarios.get('/api/scenarios/:id/preview', async (c) => {
     );
     let prev = startAt;
     const timeline = resolvedSteps.map(({ step, resolved }) => {
-      const at = computeNextDeliveryAt(
-        { delivery_mode: scenarioRow.delivery_mode },
-        step,
-        { enrolledAt: startAt, previousDeliveredAt: prev, now: startAt },
-      );
+      const at = computeNextDeliveryAt({ delivery_mode: scenarioRow.delivery_mode }, step, {
+        enrolledAt: startAt,
+        previousDeliveredAt: prev,
+        now: startAt,
+      });
       prev = at;
-      const atEpochDay = Math.floor(
-        Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()) / 86_400_000,
-      );
+      const atEpochDay = Math.floor(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()) / 86_400_000);
       const day = atEpochDay - startEpochDay;
       const hh = String(at.getHours()).padStart(2, '0');
       const mm = String(at.getMinutes()).padStart(2, '0');
@@ -749,8 +733,7 @@ scenarios.get('/api/scenarios/:id/preview', async (c) => {
 scenarios.get('/api/scenarios/:id/stats', async (c) => {
   try {
     const scenarioId = c.req.param('id');
-    const scenario = await c.env.DB
-      .prepare(`SELECT id FROM scenarios WHERE id = ?`)
+    const scenario = await c.env.DB.prepare(`SELECT id FROM scenarios WHERE id = ?`)
       .bind(scenarioId)
       .first<{ id: string }>();
     if (!scenario) {
@@ -772,10 +755,7 @@ scenarios.post('/api/scenarios/:id/enroll/:friendId', async (c) => {
     const db = c.env.DB;
 
     // Verify both exist
-    const [scenario, friend] = await Promise.all([
-      getScenarioById(db, scenarioId),
-      getFriendById(db, friendId),
-    ]);
+    const [scenario, friend] = await Promise.all([getScenarioById(db, scenarioId), getFriendById(db, friendId)]);
 
     if (!scenario) {
       return c.json({ success: false, error: 'Scenario not found' }, 404);

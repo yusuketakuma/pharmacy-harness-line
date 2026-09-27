@@ -1,4 +1,10 @@
-import { getFriendById, getScenariosForAccount, enrollFriendInScenario, jstNow, enqueueMileageEvent } from '@line-crm/db';
+import {
+  getFriendById,
+  getScenariosForAccount,
+  enrollFriendInScenario,
+  jstNow,
+  enqueueMileageEvent,
+} from '@line-crm/db';
 import { fireEvent } from './event-bus.js';
 import { pushImmediateFirstStep, type ImmediatePushContext } from './immediate-first-step.js';
 
@@ -49,11 +55,7 @@ export async function attachTagAndFireSideEffects(
   const friend = await getFriendById(db, friendId);
   const scenarios = await getScenariosForAccount(db, friend?.line_account_id ?? null);
   for (const scenario of scenarios) {
-    if (
-      scenario.trigger_type === 'tag_added' &&
-      scenario.is_active &&
-      scenario.trigger_tag_id === tagId
-    ) {
+    if (scenario.trigger_type === 'tag_added' && scenario.is_active && scenario.trigger_tag_id === tagId) {
       const existing = await db
         .prepare(`SELECT id FROM friend_scenarios WHERE friend_id = ? AND scenario_id = ?`)
         .bind(friendId, scenario.id)

@@ -1,0 +1,65 @@
+[
+  {
+    "count": 2,
+    "pass": true,
+    "rows": 2
+  },
+  {
+    "count": 5,
+    "pass": true,
+    "rows": 5
+  },
+  {
+    "count": 10,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "count": 11,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "count": 20,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "count": 23,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "count": 30,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "count": 31,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "count": 34,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  },
+  {
+    "groups": 2,
+    "termsPerGroup": 5,
+    "pass": true,
+    "rows": 10
+  },
+  {
+    "groups": 4,
+    "termsPerGroup": 5,
+    "pass": true,
+    "rows": 20
+  },
+  {
+    "groups": 7,
+    "termsPerGroup": 5,
+    "pass": false,
+    "error": "Error: D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR"
+  }
+]

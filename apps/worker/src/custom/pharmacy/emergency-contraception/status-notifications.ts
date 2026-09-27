@@ -66,8 +66,9 @@ export async function processEmergencyIntakeStatusNotifications(
 
   const lookback = new Date(now.getTime() - LOOKBACK_MS).toISOString();
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit ?? 50)));
-  const rows = await db.prepare(
-    `SELECT event.id AS event_id, event.event_type AS intake_status,
+  const rows = await db
+    .prepare(
+      `SELECT event.id AS event_id, event.event_type AS intake_status,
             intake.tenant_id, intake.line_account_id,
             intake.owner_friend_id AS friend_id, intake.safe_contact_mode,
             friend.provider_line_user_id AS line_user_id, friend.is_following,
@@ -102,23 +103,30 @@ export async function processEmergencyIntakeStatusNotifications(
         )
       ORDER BY event.occurred_at ASC, event.id ASC
       LIMIT ?`,
-  ).bind(lookback, limit).all<StatusNotificationRow>();
+    )
+    .bind(lookback, limit)
+    .all<StatusNotificationRow>();
 
   for (const row of rows.results ?? []) {
-    if (row.control_state !== 'active' || row.account_active !== 1 ||
-        row.tenant_status !== 'active' || row.feature_enabled !== 1 ||
-        row.capability_enabled !== 1 ||
-        row.safe_contact_mode !== 'neutral_line' ||
-        row.is_following !== 1 || !row.line_user_id) {
+    if (
+      row.control_state !== 'active' ||
+      row.account_active !== 1 ||
+      row.tenant_status !== 'active' ||
+      row.feature_enabled !== 1 ||
+      row.capability_enabled !== 1 ||
+      row.safe_contact_mode !== 'neutral_line' ||
+      row.is_following !== 1 ||
+      !row.line_user_id
+    ) {
       result.skipped += 1;
       continue;
     }
     const accessToken = options.lineCredentialKey
       ? await readLineCredential(db, options.lineCredentialKey, {
-        tenantId: row.tenant_id,
-        lineAccountId: row.line_account_id,
-        kind: 'channel_access_token',
-      }).catch(() => null)
+          tenantId: row.tenant_id,
+          lineAccountId: row.line_account_id,
+          kind: 'channel_access_token',
+        }).catch(() => null)
       : null;
     if (!accessToken) {
       result.skipped += 1;

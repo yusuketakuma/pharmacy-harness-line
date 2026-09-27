@@ -46,11 +46,10 @@ const env = {
 } as unknown as import('../../index.js').Env['Bindings'];
 
 function call(path: string, init?: RequestInit) {
-  return worker.fetch(
-    new Request(`https://worker.example.com${path}`, init),
-    env,
-    { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
-  );
+  return worker.fetch(new Request(`https://worker.example.com${path}`, init), env, {
+    waitUntil() {},
+    passThroughOnException() {},
+  } as unknown as ExecutionContext);
 }
 
 const TOKEN_TO_USER: Record<string, string> = { 'tok-alice': 'U-alice' };

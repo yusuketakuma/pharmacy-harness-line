@@ -1,26 +1,16 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { getClient } from "../client.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { getClient } from '../client.js';
 
 export function registerListCrmObjects(server: McpServer): void {
   server.tool(
-    "list_crm_objects",
-    "List all CRM objects of a specific type: scenarios, forms, tags, rich menus, tracked links, or broadcasts.",
+    'list_crm_objects',
+    'List all CRM objects of a specific type: scenarios, forms, tags, rich menus, tracked links, or broadcasts.',
     {
       objectType: z
-        .enum([
-          "scenarios",
-          "forms",
-          "tags",
-          "rich_menus",
-          "tracked_links",
-          "broadcasts",
-        ])
-        .describe("Type of CRM object to list"),
-      accountId: z
-        .string()
-        .optional()
-        .describe("LINE account ID (uses default if omitted)"),
+        .enum(['scenarios', 'forms', 'tags', 'rich_menus', 'tracked_links', 'broadcasts'])
+        .describe('Type of CRM object to list'),
+      accountId: z.string().optional().describe('LINE account ID (uses default if omitted)'),
     },
     async ({ objectType, accountId }) => {
       try {
@@ -28,22 +18,22 @@ export function registerListCrmObjects(server: McpServer): void {
         let items: unknown;
 
         switch (objectType) {
-          case "scenarios":
+          case 'scenarios':
             items = await client.scenarios.list({ accountId });
             break;
-          case "forms":
+          case 'forms':
             items = await client.forms.list();
             break;
-          case "tags":
+          case 'tags':
             items = await client.tags.list();
             break;
-          case "rich_menus":
+          case 'rich_menus':
             items = await client.richMenus.list();
             break;
-          case "tracked_links":
+          case 'tracked_links':
             items = await client.trackedLinks.list();
             break;
-          case "broadcasts":
+          case 'broadcasts':
             items = await client.broadcasts.list({ accountId });
             break;
         }
@@ -51,12 +41,8 @@ export function registerListCrmObjects(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: true, objectType, items },
-                null,
-                2,
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: true, objectType, items }, null, 2),
             },
           ],
         };
@@ -64,12 +50,8 @@ export function registerListCrmObjects(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: false, error: String(error) },
-                null,
-                2,
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: false, error: String(error) }, null, 2),
             },
           ],
           isError: true,

@@ -40,7 +40,7 @@ describe('GET /api/capabilities', () => {
     const app = setupApp('owner');
     const res = await app.request('/api/capabilities');
     expect(res.status).toBe(200);
-    const body = await res.json() as CapabilitiesResponse;
+    const body = (await res.json()) as CapabilitiesResponse;
     expect(body.success).toBe(true);
     expect(body.data.harness_kind).toBe('line');
     expect(body.data.harness_version).toMatch(/^\d+\.\d+\.\d+$/);
@@ -80,7 +80,7 @@ describe('GET /api/capabilities', () => {
     } as unknown as D1Database;
 
     const res = await app.request('/api/capabilities', {}, { DB: db });
-    const body = await res.json() as CapabilitiesResponse;
+    const body = (await res.json()) as CapabilitiesResponse;
 
     expect(res.status).toBe(200);
     expect(body.data.features).toEqual(expect.arrayContaining(['prescription_intake', 'manual_chat']));

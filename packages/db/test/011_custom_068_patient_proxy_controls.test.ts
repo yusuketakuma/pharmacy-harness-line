@@ -10,10 +10,13 @@ const MIGRATION = '011_custom_068_patient_proxy_controls.sql';
 function loadPreMigrationDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
-  for (const file of readdirSync(join(ROOT, 'migrations')).filter((name) =>
-    name.endsWith('.sql') && name < MIGRATION).sort()) {
+  for (const file of readdirSync(join(ROOT, 'migrations'))
+    .filter((name) => name.endsWith('.sql') && name < MIGRATION)
+    .sort()) {
     for (const statement of readFileSync(join(ROOT, 'migrations', file), 'utf8')
-      .split(/;\s*(?:\r?\n|$)/).map((sql) => sql.trim()).filter(Boolean)) {
+      .split(/;\s*(?:\r?\n|$)/)
+      .map((sql) => sql.trim())
+      .filter(Boolean)) {
       try {
         db.exec(statement);
       } catch (error) {
@@ -45,39 +48,61 @@ describe('011 custom_068 patient proxy controls', () => {
               '2018-01-01', '2026-09-01', '2026-09-01');
     `);
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_patient_proxy_grants
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_patient_proxy_grants
       (id, line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
        terms_version, terms_hash, granted_at, expires_at, version, created_at, updated_at)
       VALUES ('grant-a', 'account-a', 'patient-a', 'friend-a', 'patient_intake_v1',
               'self_attested', 1, ?, '2026-09-01T00:00:00.000Z',
               '2026-12-01T00:00:00.000Z', 1, '2026-09-01T00:00:00.000Z',
-              '2026-09-01T00:00:00.000Z')`).run('a'.repeat(64))).not.toThrow();
+              '2026-09-01T00:00:00.000Z')`)
+        .run('a'.repeat(64)),
+    ).not.toThrow();
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_patient_proxy_grants
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_patient_proxy_grants
       (id, line_account_id, patient_id, actor_friend_id, permission_code, basis_code,
        terms_version, terms_hash, granted_at, expires_at, version, created_at, updated_at)
       VALUES ('cross-owner', 'account-a', 'patient-a', 'friend-b', 'patient_intake_v1',
               'self_attested', 1, ?, '2026-09-01T00:00:00.000Z',
               '2026-12-01T00:00:00.000Z', 1, '2026-09-01T00:00:00.000Z',
-              '2026-09-01T00:00:00.000Z')`).run('b'.repeat(64))).toThrow(/FOREIGN KEY/);
+              '2026-09-01T00:00:00.000Z')`)
+        .run('b'.repeat(64)),
+    ).toThrow(/FOREIGN KEY/);
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_patient_owner_controls
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_patient_owner_controls
       (line_account_id, patient_id, owner_friend_id, version, updated_at)
-      VALUES ('account-a', 'patient-a', 'friend-b', 1, '2026-09-01T00:00:00.000Z')`).run())
-      .toThrow(/FOREIGN KEY/);
+      VALUES ('account-a', 'patient-a', 'friend-b', 1, '2026-09-01T00:00:00.000Z')`)
+        .run(),
+    ).toThrow(/FOREIGN KEY/);
 
-    expect(db.prepare(`PRAGMA table_info(pharmacy_patient_intake_responses)`).all()
-      .some((row) => (row as { name: string }).name === 'proxy_grant_id')).toBe(true);
+    expect(
+      db
+        .prepare(`PRAGMA table_info(pharmacy_patient_intake_responses)`)
+        .all()
+        .some((row) => (row as { name: string }).name === 'proxy_grant_id'),
+    ).toBe(true);
 
-    expect(() => db.prepare(`INSERT INTO pharmacy_patient_intake_responses
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_patient_intake_responses
       (id, line_account_id, owner_friend_id, patient_id, revision, schema_version,
        patient_snapshot_json, answers_json, idempotency_key,
        representative_consent_at, privacy_consent_at, created_at)
       VALUES ('legacy-response', 'account-a', 'friend-a', 'patient-a', 1, 2,
               '{}', '{}', 'legacy-key', '2026-09-01T00:00:00.000Z',
-              '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`).run())
-      .not.toThrow();
-    expect(db.prepare(`SELECT proxy_grant_id FROM pharmacy_patient_intake_responses
-      WHERE id = 'legacy-response'`).get()).toEqual({ proxy_grant_id: null });
+              '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`)
+        .run(),
+    ).not.toThrow();
+    expect(
+      db
+        .prepare(`SELECT proxy_grant_id FROM pharmacy_patient_intake_responses
+      WHERE id = 'legacy-response'`)
+        .get(),
+    ).toEqual({ proxy_grant_id: null });
   });
 });

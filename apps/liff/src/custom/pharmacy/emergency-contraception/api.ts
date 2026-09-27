@@ -1,14 +1,15 @@
 import { requestPharmacyJson } from '../request.js';
 
-export type EmergencyIntakeStatus =
-  | 'provisional' | 'reviewed' | 'completed' | 'cancelled' | 'expired';
+export type EmergencyIntakeStatus = 'provisional' | 'reviewed' | 'completed' | 'cancelled' | 'expired';
 
-export type EmergencySafeContactMode =
-  | 'neutral_line' | 'no_notification' | 'phone' | 'none';
+export type EmergencySafeContactMode = 'neutral_line' | 'no_notification' | 'phone' | 'none';
 
 export type EmergencyServiceReason =
-  | 'not_configured' | 'paused' | 'requirements_incomplete'
-  | 'out_of_stock' | 'no_slots';
+  | 'not_configured'
+  | 'paused'
+  | 'requirements_incomplete'
+  | 'out_of_stock'
+  | 'no_slots';
 
 export interface EmergencyServiceOverview {
   ready: boolean;
@@ -97,15 +98,15 @@ function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const emergencyContraceptionApi = {
-  list: () => request<{
-    service: EmergencyServiceOverview;
-    intakes: EmergencyIntake[];
-    server_now: string;
-  }>('/api/liff/pharmacy/emergency-contraception'),
+  list: () =>
+    request<{
+      service: EmergencyServiceOverview;
+      intakes: EmergencyIntake[];
+      server_now: string;
+    }>('/api/liff/pharmacy/emergency-contraception'),
 
-  create: (body: CreateEmergencyIntakeInput) => post<{ intake: EmergencyIntake }>(
-    '/api/liff/pharmacy/emergency-contraception/intakes', body,
-  ),
+  create: (body: CreateEmergencyIntakeInput) =>
+    post<{ intake: EmergencyIntake }>('/api/liff/pharmacy/emergency-contraception/intakes', body),
 
   cancel: (intakeId: string, expectedVersion: number, idempotencyKey: string) =>
     post<{ intake: EmergencyIntake }>(

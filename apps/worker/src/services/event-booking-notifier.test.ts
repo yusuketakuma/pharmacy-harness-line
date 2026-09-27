@@ -1,17 +1,16 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const outboundDeliveryMocks = vi.hoisted(() => ({
-  deliverTrackedLinePush: vi.fn(async (params: {
-    operationId: string;
-    request: { to: string; messages: unknown[] };
-    send: (
-      request: { to: string; messages: unknown[] },
-      retryKey: string,
-    ) => Promise<void>;
-  }) => {
-    await params.send(params.request, params.operationId);
-    return 'sent';
-  }),
+  deliverTrackedLinePush: vi.fn(
+    async (params: {
+      operationId: string;
+      request: { to: string; messages: unknown[] };
+      send: (request: { to: string; messages: unknown[] }, retryKey: string) => Promise<void>;
+    }) => {
+      await params.send(params.request, params.operationId);
+      return 'sent';
+    },
+  ),
 }));
 const pushMessage = vi.hoisted(() => vi.fn());
 
@@ -21,10 +20,7 @@ vi.mock('@line-crm/line-sdk', () => ({
     pushMessage = pushMessage;
   },
 }));
-import {
-  renderEventNotificationText,
-  sendEventBookingNotification,
-} from './event-booking-notifier.js';
+import { renderEventNotificationText, sendEventBookingNotification } from './event-booking-notifier.js';
 
 const baseCtx = {
   eventName: 'AAA説明会',
@@ -42,12 +38,14 @@ test('retry key が無い通知は LINE call 前に拒否する', async () => {
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 
-  await expect(sendEventBookingNotification({
-    channelAccessToken: 'token',
-    toLineUserId: 'U1',
-    kind: 'received_pending',
-    ctx: baseCtx,
-  } as never)).rejects.toThrow('LINE retry key required');
+  await expect(
+    sendEventBookingNotification({
+      channelAccessToken: 'token',
+      toLineUserId: 'U1',
+      kind: 'received_pending',
+      ctx: baseCtx,
+    } as never),
+  ).rejects.toThrow('LINE retry key required');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -82,34 +80,38 @@ test('account-scoped event notification is persisted before the LINE push', asyn
 test('already_sent is treated as a successful event notification', async () => {
   outboundDeliveryMocks.deliverTrackedLinePush.mockResolvedValueOnce('already_sent');
 
-  await expect(sendEventBookingNotification({
-    db: {} as D1Database,
-    tenantId: 'tenant-1',
-    lineAccountId: 'account-1',
-    friendId: 'friend-1',
-    channelAccessToken: 'token',
-    toLineUserId: 'U1',
-    retryKey: 'operation-1',
-    kind: 'received_pending',
-    ctx: baseCtx,
-  })).resolves.toBeUndefined();
+  await expect(
+    sendEventBookingNotification({
+      db: {} as D1Database,
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+      channelAccessToken: 'token',
+      toLineUserId: 'U1',
+      retryKey: 'operation-1',
+      kind: 'received_pending',
+      ctx: baseCtx,
+    }),
+  ).resolves.toBeUndefined();
   expect(pushMessage).not.toHaveBeenCalled();
 });
 
 test('unresolved event delivery does not report success', async () => {
   outboundDeliveryMocks.deliverTrackedLinePush.mockResolvedValueOnce('reconciliation_required');
 
-  await expect(sendEventBookingNotification({
-    db: {} as D1Database,
-    tenantId: 'tenant-1',
-    lineAccountId: 'account-1',
-    friendId: 'friend-1',
-    channelAccessToken: 'token',
-    toLineUserId: 'U1',
-    retryKey: 'operation-1',
-    kind: 'received_pending',
-    ctx: baseCtx,
-  })).rejects.toThrow('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
+  await expect(
+    sendEventBookingNotification({
+      db: {} as D1Database,
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
+      friendId: 'friend-1',
+      channelAccessToken: 'token',
+      toLineUserId: 'U1',
+      retryKey: 'operation-1',
+      kind: 'received_pending',
+      ctx: baseCtx,
+    }),
+  ).rejects.toThrow('OUTBOUND_LINE_RECONCILIATION_REQUIRED');
 });
 
 describe('renderEventNotificationText', () => {
@@ -210,8 +212,14 @@ describe('renderEventNotificationText — custom extra append', () => {
   });
 
   test('rejected / cancelled_by_admin にも confirmationExtra を追記しない', () => {
-    const rj = renderEventNotificationText('rejected', { ...baseCtx, confirmationExtra: extraConf });
-    const ca = renderEventNotificationText('cancelled_by_admin', { ...baseCtx, confirmationExtra: extraConf });
+    const rj = renderEventNotificationText('rejected', {
+      ...baseCtx,
+      confirmationExtra: extraConf,
+    });
+    const ca = renderEventNotificationText('cancelled_by_admin', {
+      ...baseCtx,
+      confirmationExtra: extraConf,
+    });
     expect(rj).not.toContain(extraConf.trim());
     expect(ca).not.toContain(extraConf.trim());
   });

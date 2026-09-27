@@ -54,11 +54,10 @@ const unconfiguredEnv = {
 } as unknown as import('../../index.js').Env['Bindings'];
 
 function get(path: string) {
-  return worker.fetch(
-    new Request(`https://worker.example.com${path}`),
-    unconfiguredEnv,
-    { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
-  );
+  return worker.fetch(new Request(`https://worker.example.com${path}`), unconfiguredEnv, {
+    waitUntil() {},
+    passThroughOnException() {},
+  } as unknown as ExecutionContext);
 }
 
 async function expectSetupGuidance(response: Response) {
@@ -76,7 +75,10 @@ beforeEach(() => {
   dbMocks.getEntryRouteByRefCode.mockResolvedValue(null);
   dbMocks.getAffiliateLinkByRefCode.mockResolvedValue(null);
   dbMocks.getTrafficPoolBySlug.mockResolvedValue(null);
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('unexpected external fetch', { status: 500 })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('unexpected external fetch', { status: 500 })),
+  );
 });
 
 describe('LINE Login/LIFF unconfigured guard', () => {
@@ -90,9 +92,7 @@ describe('LINE Login/LIFF unconfigured guard', () => {
 
   it('returns guidance before /auth/callback exchanges a token', async () => {
     const state = btoa(JSON.stringify({ ref: '' }));
-    await expectSetupGuidance(
-      await get(`/auth/callback?code=abc&state=${encodeURIComponent(state)}`),
-    );
+    await expectSetupGuidance(await get(`/auth/callback?code=abc&state=${encodeURIComponent(state)}`));
     expect(fetch).not.toHaveBeenCalled();
   });
 

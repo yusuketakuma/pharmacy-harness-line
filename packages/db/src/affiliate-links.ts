@@ -100,10 +100,7 @@ export async function createAffiliateLink(
         .run();
 
       // Insert succeeded — fetch and return the row
-      return (await db
-        .prepare(`SELECT * FROM affiliate_links WHERE id = ?`)
-        .bind(id)
-        .first<AffiliateLink>())!;
+      return (await db.prepare(`SELECT * FROM affiliate_links WHERE id = ?`).bind(id).first<AffiliateLink>())!;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/UNIQUE constraint failed/i.test(msg)) {
@@ -117,26 +114,15 @@ export async function createAffiliateLink(
 
 // ── getAffiliateLinkByRefCode ────────────────────────────────────────────────
 
-export async function getAffiliateLinkByRefCode(
-  db: D1Database,
-  refCode: string,
-): Promise<AffiliateLink | null> {
-  return db
-    .prepare(`SELECT * FROM affiliate_links WHERE ref_code = ?`)
-    .bind(refCode)
-    .first<AffiliateLink>();
+export async function getAffiliateLinkByRefCode(db: D1Database, refCode: string): Promise<AffiliateLink | null> {
+  return db.prepare(`SELECT * FROM affiliate_links WHERE ref_code = ?`).bind(refCode).first<AffiliateLink>();
 }
 
 // ── listAffiliateLinks ───────────────────────────────────────────────────────
 
-export async function listAffiliateLinks(
-  db: D1Database,
-  affiliateId: string,
-): Promise<AffiliateLink[]> {
+export async function listAffiliateLinks(db: D1Database, affiliateId: string): Promise<AffiliateLink[]> {
   const result = await db
-    .prepare(
-      `SELECT * FROM affiliate_links WHERE affiliate_id = ? ORDER BY created_at DESC`,
-    )
+    .prepare(`SELECT * FROM affiliate_links WHERE affiliate_id = ? ORDER BY created_at DESC`)
     .bind(affiliateId)
     .all<AffiliateLink>();
   return result.results;
@@ -144,10 +130,7 @@ export async function listAffiliateLinks(
 
 // ── countAffiliateLinks ──────────────────────────────────────────────────────
 
-export async function countAffiliateLinks(
-  db: D1Database,
-  affiliateId: string,
-): Promise<number> {
+export async function countAffiliateLinks(db: D1Database, affiliateId: string): Promise<number> {
   const row = await db
     .prepare(`SELECT COUNT(*) AS cnt FROM affiliate_links WHERE affiliate_id = ?`)
     .bind(affiliateId)
@@ -157,26 +140,12 @@ export async function countAffiliateLinks(
 
 // ── incrementAffiliateLinkClick ──────────────────────────────────────────────
 
-export async function incrementAffiliateLinkClick(
-  db: D1Database,
-  refCode: string,
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE affiliate_links SET click_count = click_count + 1 WHERE ref_code = ?`,
-    )
-    .bind(refCode)
-    .run();
+export async function incrementAffiliateLinkClick(db: D1Database, refCode: string): Promise<void> {
+  await db.prepare(`UPDATE affiliate_links SET click_count = click_count + 1 WHERE ref_code = ?`).bind(refCode).run();
 }
 
 // ── getAffiliateByFriendId ───────────────────────────────────────────────────
 
-export async function getAffiliateByFriendId(
-  db: D1Database,
-  friendId: string,
-): Promise<Affiliate | null> {
-  return db
-    .prepare(`SELECT * FROM affiliates WHERE friend_id = ?`)
-    .bind(friendId)
-    .first<Affiliate>();
+export async function getAffiliateByFriendId(db: D1Database, friendId: string): Promise<Affiliate | null> {
+  return db.prepare(`SELECT * FROM affiliates WHERE friend_id = ?`).bind(friendId).first<Affiliate>();
 }

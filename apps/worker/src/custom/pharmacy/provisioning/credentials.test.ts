@@ -25,7 +25,9 @@ describe('tenant admin credentials', () => {
   it('issues a high-entropy temporary password without persisting it', () => {
     vi.spyOn(crypto, 'getRandomValues').mockImplementation((array) => {
       const bytes = array as Uint8Array;
-      bytes.forEach((_, index) => { bytes[index] = index + 1; });
+      bytes.forEach((_, index) => {
+        bytes[index] = index + 1;
+      });
       return array;
     });
 

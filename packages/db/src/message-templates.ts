@@ -10,10 +10,7 @@ export interface MessageTemplate {
   updated_at: string;
 }
 
-export async function listMessageTemplates(
-  db: D1Database,
-  tenantId: string | null = null,
-): Promise<MessageTemplate[]> {
+export async function listMessageTemplates(db: D1Database, tenantId: string | null = null): Promise<MessageTemplate[]> {
   const result = await db
     .prepare('SELECT * FROM message_templates WHERE tenant_id IS ? ORDER BY name ASC')
     .bind(tenantId)

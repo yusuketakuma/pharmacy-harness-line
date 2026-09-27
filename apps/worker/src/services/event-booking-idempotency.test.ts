@@ -37,7 +37,12 @@ function memDB(): { db: D1Database; rows: Map<string, Row> } {
         async run() {
           if (sql.startsWith('INSERT')) {
             const [key, accountId, friendId, status, body, expiresAt] = bound as [
-              string, string, string, number, string, string,
+              string,
+              string,
+              string,
+              number,
+              string,
+              string,
             ];
             if (!rows.has(key)) {
               rows.set(key, {

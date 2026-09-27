@@ -14,8 +14,8 @@ export const ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL = `NOT (
     OR (
       request.legal_hold = 1
       AND length(request.legal_hold_release_at) = 24
-      AND request.legal_hold_release_at GLOB
-        '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+      AND strftime('%Y-%m-%dT%H:%M:%fZ', request.legal_hold_release_at, '+0 seconds')
+        = request.legal_hold_release_at
       AND request.legal_hold_release_at <= ?
     )
   ), 0)
@@ -46,13 +46,14 @@ export function legalHoldReleaseAt(latestPhiAt: string): string {
   return at.toISOString();
 }
 
-export function assessRetention(
-  latestPhiAt: string | null,
-  now: Date,
-): RetentionAssessment {
-  if (!Number.isFinite(now.getTime()) ||
-      !latestPhiAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(latestPhiAt) ||
-      !Number.isFinite(Date.parse(latestPhiAt))) {
+export function assessRetention(latestPhiAt: string | null, now: Date): RetentionAssessment {
+  if (
+    !Number.isFinite(now.getTime()) ||
+    !latestPhiAt ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(latestPhiAt) ||
+    !Number.isFinite(Date.parse(latestPhiAt)) ||
+    new Date(latestPhiAt).toISOString() !== latestPhiAt
+  ) {
     return { status: 'unknown', releaseAt: null };
   }
   const releaseAt = legalHoldReleaseAt(latestPhiAt);
@@ -73,26 +74,30 @@ export async function assessPatientRetention(
   now: Date,
 ): Promise<RetentionAssessment> {
   try {
-    const tenant = await db.prepare(
-      `SELECT COUNT(*) AS count
+    const tenant = await db
+      .prepare(
+        `SELECT COUNT(*) AS count
          FROM tenant_line_accounts AS mapping
          INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id
         WHERE mapping.tenant_id = ? AND mapping.line_account_id = ?
           AND tenant.status = 'active'`,
-    ).bind(scope.tenantId, scope.lineAccountId).first<{ count: number }>();
+      )
+      .bind(scope.tenantId, scope.lineAccountId)
+      .first<{ count: number }>();
     if ((tenant?.count ?? 0) !== 1) return { status: 'unknown', releaseAt: null };
 
-    const patient = await db.prepare(
-      `SELECT COUNT(*) AS count
+    const patient = await db
+      .prepare(
+        `SELECT COUNT(*) AS count
          FROM pharmacy_patients
         WHERE id = ? AND line_account_id = ? AND owner_friend_id = ?`,
-    ).bind(scope.patientId, scope.lineAccountId, scope.ownerFriendId).first<{ count: number }>();
+      )
+      .bind(scope.patientId, scope.lineAccountId, scope.ownerFriendId)
+      .first<{ count: number }>();
     if ((patient?.count ?? 0) !== 1) return { status: 'unknown', releaseAt: null };
 
     return assessRetention(
-      await latestPhiRecordedAt(
-        db, scope.lineAccountId, scope.patientId, scope.ownerFriendId,
-      ),
+      await latestPhiRecordedAt(db, scope.lineAccountId, scope.patientId, scope.ownerFriendId),
       now,
     );
   } catch {
@@ -115,152 +120,217 @@ export async function assessPatientRetention(
  * retention readinessを独立にBLOCKEDへ固定し、ここで基礎PHIの起算日にはしない。
  */
 const PATIENT_PHI_RECORDED_AT_SOURCES = [
-  ['pharmacy_patient_intake_responses.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_patient_intake_responses
+  [
+    'pharmacy_patient_intake_responses.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_patient_intake_responses
      WHERE line_account_id = ? AND patient_id = ?`,
   ],
-  ['pharmacy_prescription_patients.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_prescription_patients
-     WHERE line_account_id = ? AND patient_id = ?`],
-  ['pharmacy_prescription_submissions.created_at',
-   `SELECT s.created_at AS recorded_at FROM pharmacy_prescription_submissions s
+  [
+    'pharmacy_prescription_patients.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_prescription_patients
+     WHERE line_account_id = ? AND patient_id = ?`,
+  ],
+  [
+    'pharmacy_prescription_submissions.created_at',
+    `SELECT s.created_at AS recorded_at FROM pharmacy_prescription_submissions s
      JOIN pharmacy_prescription_patients p ON p.submission_id = s.id
        AND p.line_account_id = s.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_prescription_files.created_at',
-   `SELECT f.created_at AS recorded_at FROM pharmacy_prescription_files f
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_prescription_files.created_at',
+    `SELECT f.created_at AS recorded_at FROM pharmacy_prescription_files f
      JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
      JOIN pharmacy_prescription_patients p ON p.submission_id = s.id
        AND p.line_account_id = s.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_prescription_events.created_at',
-   `SELECT e.created_at AS recorded_at FROM pharmacy_prescription_events e
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_prescription_events.created_at',
+    `SELECT e.created_at AS recorded_at FROM pharmacy_prescription_events e
      JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
      JOIN pharmacy_prescription_patients p ON p.submission_id = s.id
        AND p.line_account_id = s.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_prescription_view_events.viewed_at',
-   `SELECT e.viewed_at AS recorded_at FROM pharmacy_prescription_view_events e
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_prescription_view_events.viewed_at',
+    `SELECT e.viewed_at AS recorded_at FROM pharmacy_prescription_view_events e
      JOIN pharmacy_prescription_patients p ON p.submission_id = e.submission_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_prescription_validities.created_at',
-   `SELECT v.created_at AS recorded_at FROM pharmacy_prescription_validities v
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_prescription_validities.created_at',
+    `SELECT v.created_at AS recorded_at FROM pharmacy_prescription_validities v
      JOIN pharmacy_prescription_patients p ON p.submission_id = v.submission_id
        AND p.line_account_id = v.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_submission_sources.entered_at',
-   `SELECT source.entered_at AS recorded_at FROM pharmacy_submission_sources source
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_submission_sources.entered_at',
+    `SELECT source.entered_at AS recorded_at FROM pharmacy_submission_sources source
      JOIN pharmacy_prescription_patients p ON p.submission_id = source.submission_id
        AND p.line_account_id = source.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_submission_attributes.created_at',
-   `SELECT a.created_at AS recorded_at FROM pharmacy_submission_attributes a
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_submission_attributes.created_at',
+    `SELECT a.created_at AS recorded_at FROM pharmacy_submission_attributes a
      JOIN pharmacy_prescription_patients p ON p.submission_id = a.submission_id
        AND p.line_account_id = a.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_fulfillment_quotes.created_at',
-   `SELECT q.created_at AS recorded_at FROM pharmacy_fulfillment_quotes q
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_fulfillment_quotes.created_at',
+    `SELECT q.created_at AS recorded_at FROM pharmacy_fulfillment_quotes q
      JOIN pharmacy_prescription_patients p ON p.submission_id = q.submission_id
        AND p.line_account_id = q.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_print_tasks.created_at',
-   `SELECT task.created_at AS recorded_at FROM pharmacy_print_tasks task
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_print_tasks.created_at',
+    `SELECT task.created_at AS recorded_at FROM pharmacy_print_tasks task
      JOIN pharmacy_prescription_patients p ON p.submission_id = task.submission_id
        AND p.line_account_id = task.line_account_id
-     WHERE p.line_account_id = ? AND p.patient_id = ?`],
-  ['pharmacy_continuity_obligations.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_continuity_obligations
-     WHERE line_account_id = ? AND patient_id = ?`],
-  ['pharmacy_continuity_events.created_at',
-   `SELECT e.created_at AS recorded_at FROM pharmacy_continuity_events e
+     WHERE p.line_account_id = ? AND p.patient_id = ?`,
+  ],
+  [
+    'pharmacy_continuity_obligations.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_continuity_obligations
+     WHERE line_account_id = ? AND patient_id = ?`,
+  ],
+  [
+    'pharmacy_continuity_events.created_at',
+    `SELECT e.created_at AS recorded_at FROM pharmacy_continuity_events e
      JOIN pharmacy_continuity_obligations o ON o.id = e.obligation_id
        AND o.line_account_id = e.line_account_id
-     WHERE o.line_account_id = ? AND o.patient_id = ?`],
+     WHERE o.line_account_id = ? AND o.patient_id = ?`,
+  ],
   // 患者本体。患者IDは patient_id ではなく id 列。archived_at は論理削除なので起算に使わない。
-  ['pharmacy_patients.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_patients
-     WHERE line_account_id = ? AND id = ?`],
-  ['pharmacy_myna_handoffs.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_myna_handoffs
-     WHERE line_account_id = ? AND patient_id = ?`],
+  [
+    'pharmacy_patients.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_patients
+     WHERE line_account_id = ? AND id = ?`,
+  ],
+  [
+    'pharmacy_myna_handoffs.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_myna_handoffs
+     WHERE line_account_id = ? AND patient_id = ?`,
+  ],
   // 検証・イベントは patient_id を持たず handoff 経由でのみ患者に紐づく。
-  ['pharmacy_myna_verifications.created_at',
-   `SELECT v.created_at AS recorded_at FROM pharmacy_myna_verifications v
+  [
+    'pharmacy_myna_verifications.created_at',
+    `SELECT v.created_at AS recorded_at FROM pharmacy_myna_verifications v
      JOIN pharmacy_myna_handoffs h
        ON h.id = v.handoff_id AND h.line_account_id = v.line_account_id
-     WHERE h.line_account_id = ? AND h.patient_id = ?`],
-  ['pharmacy_myna_events.occurred_at',
-   `SELECT e.occurred_at AS recorded_at FROM pharmacy_myna_events e
+     WHERE h.line_account_id = ? AND h.patient_id = ?`,
+  ],
+  [
+    'pharmacy_myna_events.occurred_at',
+    `SELECT e.occurred_at AS recorded_at FROM pharmacy_myna_events e
      JOIN pharmacy_myna_handoffs h
        ON h.id = e.handoff_id AND h.line_account_id = e.line_account_id
-     WHERE h.line_account_id = ? AND h.patient_id = ?`],
-  ['pharmacy_prescription_expectations.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_prescription_expectations
-     WHERE line_account_id = ? AND patient_id = ?`],
-  ['pharmacy_next_intake_expectations.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_next_intake_expectations
-     WHERE line_account_id = ? AND patient_id = ?`],
-  ['pharmacy_next_intake_expectation_events.occurred_at',
-   `SELECT e.occurred_at AS recorded_at FROM pharmacy_next_intake_expectation_events e
+     WHERE h.line_account_id = ? AND h.patient_id = ?`,
+  ],
+  [
+    'pharmacy_prescription_expectations.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_prescription_expectations
+     WHERE line_account_id = ? AND patient_id = ?`,
+  ],
+  [
+    'pharmacy_next_intake_expectations.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_next_intake_expectations
+     WHERE line_account_id = ? AND patient_id = ?`,
+  ],
+  [
+    'pharmacy_next_intake_expectation_events.occurred_at',
+    `SELECT e.occurred_at AS recorded_at FROM pharmacy_next_intake_expectation_events e
      JOIN pharmacy_next_intake_expectations x
        ON x.id = e.expectation_id AND x.line_account_id = e.line_account_id
-     WHERE x.line_account_id = ? AND x.patient_id = ?`],
-  ['pharmacy_medication_followups.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_medication_followups
-     WHERE line_account_id = ? AND patient_id = ?`],
-  ['pharmacy_medication_followup_events.occurred_at',
-   `SELECT e.occurred_at AS recorded_at FROM pharmacy_medication_followup_events e
+     WHERE x.line_account_id = ? AND x.patient_id = ?`,
+  ],
+  [
+    'pharmacy_medication_followups.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_medication_followups
+     WHERE line_account_id = ? AND patient_id = ?`,
+  ],
+  [
+    'pharmacy_medication_followup_events.occurred_at',
+    `SELECT e.occurred_at AS recorded_at FROM pharmacy_medication_followup_events e
      JOIN pharmacy_medication_followups f
        ON f.id = e.followup_id AND f.line_account_id = e.line_account_id
-     WHERE f.line_account_id = ? AND f.patient_id = ?`],
+     WHERE f.line_account_id = ? AND f.patient_id = ?`,
+  ],
 ] as const;
 
 const OWNER_PHI_RECORDED_AT_SOURCES = [
-  ['friends.created_at',
-   `SELECT created_at AS recorded_at FROM friends
-     WHERE line_account_id = ? AND id = ?`],
-  ['chats.created_at',
-   `SELECT c.created_at AS recorded_at FROM chats c
+  [
+    'friends.created_at',
+    `SELECT created_at AS recorded_at FROM friends
+     WHERE line_account_id = ? AND id = ?`,
+  ],
+  [
+    'chats.created_at',
+    `SELECT c.created_at AS recorded_at FROM chats c
      JOIN friends f ON f.id = c.friend_id
-     WHERE f.line_account_id = ? AND f.id = ?`],
-  ['messages_log.created_at',
-   `SELECT m.created_at AS recorded_at FROM messages_log m
+     WHERE f.line_account_id = ? AND f.id = ?`,
+  ],
+  [
+    'messages_log.created_at',
+    `SELECT m.created_at AS recorded_at FROM messages_log m
      JOIN friends f ON f.id = m.friend_id
-     WHERE f.line_account_id = ? AND f.id = ?`],
-  ['pharmacy_notification_events.occurred_at',
-   `SELECT occurred_at AS recorded_at FROM pharmacy_notification_events
-     WHERE line_account_id = ? AND friend_id = ?`],
-  ['pharmacy_incoming_image_objects.stored_at',
-   `SELECT object.stored_at AS recorded_at FROM pharmacy_incoming_image_objects object
+     WHERE f.line_account_id = ? AND f.id = ?`,
+  ],
+  [
+    'pharmacy_notification_events.occurred_at',
+    `SELECT occurred_at AS recorded_at FROM pharmacy_notification_events
+     WHERE line_account_id = ? AND friend_id = ?`,
+  ],
+  [
+    'pharmacy_incoming_image_objects.stored_at',
+    `SELECT object.stored_at AS recorded_at FROM pharmacy_incoming_image_objects object
      JOIN messages_log message ON message.id = object.message_id
-     WHERE object.line_account_id = ? AND message.friend_id = ?`],
-  ['pharmacy_emergency_intakes.created_at',
-   `SELECT created_at AS recorded_at FROM pharmacy_emergency_intakes
-     WHERE line_account_id = ? AND owner_friend_id = ?`],
-  ['pharmacy_emergency_intake_events.occurred_at',
-   `SELECT event.occurred_at AS recorded_at FROM pharmacy_emergency_intake_events event
+     WHERE object.line_account_id = ? AND message.friend_id = ?`,
+  ],
+  [
+    'pharmacy_emergency_intakes.created_at',
+    `SELECT created_at AS recorded_at FROM pharmacy_emergency_intakes
+     WHERE line_account_id = ? AND owner_friend_id = ?`,
+  ],
+  [
+    'pharmacy_emergency_intake_events.occurred_at',
+    `SELECT event.occurred_at AS recorded_at FROM pharmacy_emergency_intake_events event
      JOIN pharmacy_emergency_intakes intake ON intake.id = event.intake_id
        AND intake.line_account_id = event.line_account_id
-     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`],
-  ['pharmacy_emergency_intake_access_events.accessed_at',
-   `SELECT event.accessed_at AS recorded_at FROM pharmacy_emergency_intake_access_events event
+     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`,
+  ],
+  [
+    'pharmacy_emergency_intake_access_events.accessed_at',
+    `SELECT event.accessed_at AS recorded_at FROM pharmacy_emergency_intake_access_events event
      JOIN pharmacy_emergency_intakes intake ON intake.id = event.intake_id
        AND intake.line_account_id = event.line_account_id
-     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`],
-  ['pharmacy_emergency_counter_confirmations.confirmed_at',
-   `SELECT confirmation.confirmed_at AS recorded_at
+     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`,
+  ],
+  [
+    'pharmacy_emergency_counter_confirmations.confirmed_at',
+    `SELECT confirmation.confirmed_at AS recorded_at
       FROM pharmacy_emergency_counter_confirmations confirmation
       JOIN pharmacy_emergency_intakes intake ON intake.id = confirmation.intake_id
        AND intake.line_account_id = confirmation.line_account_id
-     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`],
-  ['pharmacy_emergency_sale_records.sold_at',
-   `SELECT sold_at AS recorded_at FROM pharmacy_emergency_sale_records
-     WHERE line_account_id = ? AND owner_friend_id = ?`],
-  ['pharmacy_emergency_reminders.created_at',
-   `SELECT reminder.created_at AS recorded_at FROM pharmacy_emergency_reminders reminder
+     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`,
+  ],
+  [
+    'pharmacy_emergency_sale_records.sold_at',
+    `SELECT sold_at AS recorded_at FROM pharmacy_emergency_sale_records
+     WHERE line_account_id = ? AND owner_friend_id = ?`,
+  ],
+  [
+    'pharmacy_emergency_reminders.created_at',
+    `SELECT reminder.created_at AS recorded_at FROM pharmacy_emergency_reminders reminder
      JOIN pharmacy_emergency_intakes intake ON intake.id = reminder.intake_id
        AND intake.line_account_id = reminder.line_account_id
-     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`],
+     WHERE intake.line_account_id = ? AND intake.owner_friend_id = ?`,
+  ],
 ] as const;
 
 export const RETENTION_SOURCE_INVENTORY = [
@@ -268,11 +338,22 @@ export const RETENTION_SOURCE_INVENTORY = [
   ...OWNER_PHI_RECORDED_AT_SOURCES.map(([field]) => field),
 ] as const;
 
-const LATEST_PHI_SQL =
-  `SELECT recorded_at FROM (${[
-    ...PATIENT_PHI_RECORDED_AT_SOURCES,
-    ...OWNER_PHI_RECORDED_AT_SOURCES,
-  ].map(([, sql]) => sql).join('\n UNION ALL ')}) AS source_dates`;
+// D1 accepts only small compound SELECTs. Group UNION ALL terms recursively
+// within one statement, preserving the snapshot and every null/invalid source.
+function retentionSourceQuery(queries: string[]): string {
+  while (queries.length > 5) {
+    const groups: string[] = [];
+    for (let i = 0; i < queries.length; i += 5) {
+      groups.push(`SELECT recorded_at FROM (${queries.slice(i, i + 5).join('\n UNION ALL ')})`);
+    }
+    queries = groups;
+  }
+  return queries.join('\n UNION ALL ');
+}
+
+const LATEST_PHI_SQL = `SELECT recorded_at FROM (${retentionSourceQuery(
+  [...PATIENT_PHI_RECORDED_AT_SOURCES, ...OWNER_PHI_RECORDED_AT_SOURCES].map(([, sql]) => sql),
+)}) AS source_dates`;
 
 /**
  * 患者に紐づくPHI記録のうち最新のものの記録時刻。
@@ -284,7 +365,8 @@ export async function latestPhiRecordedAt(
   patientId: string,
   ownerFriendId: string,
 ): Promise<string | null> {
-  const rows = await db.prepare(LATEST_PHI_SQL)
+  const rows = await db
+    .prepare(LATEST_PHI_SQL)
     .bind(
       ...PATIENT_PHI_RECORDED_AT_SOURCES.flatMap(() => [lineAccountId, patientId]),
       ...OWNER_PHI_RECORDED_AT_SOURCES.flatMap(() => [lineAccountId, ownerFriendId]),
@@ -292,10 +374,15 @@ export async function latestPhiRecordedAt(
     .all<{ recorded_at: string | null }>();
   const sourceDates = (rows.results ?? []).map((row) => row.recorded_at);
   if (sourceDates.some((value) => value === null)) return null;
-  const timestamps = sourceDates
-    .filter((value): value is string => value !== null);
-  if (timestamps.some((value) =>
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) ||
-    !Number.isFinite(Date.parse(value)))) return null;
+  const timestamps = sourceDates.filter((value): value is string => value !== null);
+  if (
+    timestamps.some(
+      (value) =>
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) ||
+        !Number.isFinite(Date.parse(value)) ||
+        new Date(value).toISOString() !== value,
+    )
+  )
+    return null;
   return timestamps.sort().at(-1) ?? null;
 }

@@ -1,0 +1,437 @@
+[
+  {
+    "count": 50,
+    "pair": [
+      {
+        "legacy": true,
+        "elapsed": [
+          1.0387920000000008,
+          0.3765000000000214,
+          0.3529590000000553
+        ],
+        "medianMs": 0.3765000000000214,
+        "writes": [
+          0,
+          0,
+          0
+        ],
+        "plan": [
+          {
+            "id": 21,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 35,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 39,
+            "parent": 35,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 54,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 65,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 71,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 78,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_medication_followups_due (line_account_id=? AND status=? AND due_at<?)"
+          },
+          {
+            "id": 150,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      {
+        "legacy": false,
+        "elapsed": [
+          1.8784580000000233,
+          1.3864169999999945,
+          1.3748330000000237
+        ],
+        "medianMs": 1.3864169999999945,
+        "writes": [
+          50,
+          50,
+          50
+        ],
+        "plan": [
+          {
+            "id": 21,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 35,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 39,
+            "parent": 35,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 54,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 65,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 71,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 78,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_medication_followups_due (line_account_id=? AND status=? AND due_at<?)"
+          },
+          {
+            "id": 154,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "count": 500,
+    "pair": [
+      {
+        "legacy": true,
+        "elapsed": [
+          0.47504199999997354,
+          0.31008400000001757,
+          0.2867919999999913
+        ],
+        "medianMs": 0.31008400000001757,
+        "writes": [
+          0,
+          0,
+          0
+        ],
+        "plan": [
+          {
+            "id": 21,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 35,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 39,
+            "parent": 35,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 54,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 65,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 71,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 78,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_medication_followups_due (line_account_id=? AND status=? AND due_at<?)"
+          },
+          {
+            "id": 150,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      {
+        "legacy": false,
+        "elapsed": [
+          1.633041999999989,
+          1.5317919999999958,
+          1.4909999999999854
+        ],
+        "medianMs": 1.5317919999999958,
+        "writes": [
+          50,
+          50,
+          50
+        ],
+        "plan": [
+          {
+            "id": 21,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 35,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 39,
+            "parent": 35,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 54,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 65,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 71,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 78,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_medication_followups_due (line_account_id=? AND status=? AND due_at<?)"
+          },
+          {
+            "id": 154,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "count": 5000,
+    "pair": [
+      {
+        "legacy": true,
+        "elapsed": [
+          0.5612499999999727,
+          0.2999169999999367,
+          0.24179100000003473
+        ],
+        "medianMs": 0.2999169999999367,
+        "writes": [
+          0,
+          0,
+          0
+        ],
+        "plan": [
+          {
+            "id": 21,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 35,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 39,
+            "parent": 35,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 54,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 65,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 71,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 78,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_medication_followups_due (line_account_id=? AND status=? AND due_at<?)"
+          },
+          {
+            "id": 150,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      {
+        "legacy": false,
+        "elapsed": [
+          3.612040999999863,
+          4.52475000000004,
+          5.536249999999882
+        ],
+        "medianMs": 4.52475000000004,
+        "writes": [
+          50,
+          50,
+          50
+        ],
+        "plan": [
+          {
+            "id": 21,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 26,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 35,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 39,
+            "parent": 35,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 54,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 65,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 71,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 78,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH f USING INDEX idx_pharmacy_medication_followups_due (line_account_id=? AND status=? AND due_at<?)"
+          },
+          {
+            "id": 154,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      }
+    ]
+  }
+]

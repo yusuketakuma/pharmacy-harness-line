@@ -1,25 +1,25 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import type { DeliveryMode, ScenarioTriggerType, Tag } from '@line-crm/shared'
-import { api } from '@/lib/api'
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import type { DeliveryMode, ScenarioTriggerType, Tag } from '@line-crm/shared';
+import { api } from '@/lib/api';
 
 interface Props {
-  open: boolean
-  onClose: () => void
+  open: boolean;
+  onClose: () => void;
   onCreate: (input: {
-    name: string
-    triggerType: ScenarioTriggerType
-    triggerTagId: string | null
-    deliveryMode: DeliveryMode
-  }) => Promise<void>
+    name: string;
+    triggerType: ScenarioTriggerType;
+    triggerTagId: string | null;
+    deliveryMode: DeliveryMode;
+  }) => Promise<void>;
 }
 
 const triggerOptions: Array<{
-  value: ScenarioTriggerType
-  label: string
-  description: string
+  value: ScenarioTriggerType;
+  label: string;
+  description: string;
 }> = [
   {
     value: 'friend_add',
@@ -36,96 +36,90 @@ const triggerOptions: Array<{
     label: '手動',
     description: '管理画面 / API から明示的に開始するときだけ流れる',
   },
-]
+];
 
 export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
-  const [stage, setStage] = useState<'pick' | 'name'>('pick')
-  const [mode, setMode] = useState<DeliveryMode>('elapsed')
-  const [name, setName] = useState('')
-  const [triggerType, setTriggerType] = useState<ScenarioTriggerType>('friend_add')
-  const [triggerTagId, setTriggerTagId] = useState<string>('')
-  const [tags, setTags] = useState<Tag[]>([])
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [tagsState, setTagsState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [stage, setStage] = useState<'pick' | 'name'>('pick');
+  const [mode, setMode] = useState<DeliveryMode>('elapsed');
+  const [name, setName] = useState('');
+  const [triggerType, setTriggerType] = useState<ScenarioTriggerType>('friend_add');
+  const [triggerTagId, setTriggerTagId] = useState<string>('');
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [tagsState, setTagsState] = useState<'loading' | 'ready' | 'failed'>('loading');
 
   // tags 一覧を取得 (tag_added 選択時のドロップダウン用)
   useEffect(() => {
-    if (!open) return
-    setTagsState('loading')
+    if (!open) return;
+    setTagsState('loading');
     api.tags
       .list()
       .then((res) => {
         if (res.success) {
-          setTags(res.data)
-          setTagsState('ready')
+          setTags(res.data);
+          setTagsState('ready');
         } else {
-          setTagsState('failed')
+          setTagsState('failed');
         }
       })
-      .catch(() => setTagsState('failed'))
-  }, [open])
+      .catch(() => setTagsState('failed'));
+  }, [open]);
 
-  if (!open) return null
+  if (!open) return null;
 
   const reset = () => {
-    setStage('pick')
-    setName('')
-    setMode('elapsed')
-    setTriggerType('friend_add')
-    setTriggerTagId('')
-    setError('')
-  }
+    setStage('pick');
+    setName('');
+    setMode('elapsed');
+    setTriggerType('friend_add');
+    setTriggerTagId('');
+    setError('');
+  };
 
   const handleClose = () => {
-    reset()
-    onClose()
-  }
+    reset();
+    onClose();
+  };
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      setError('シナリオ名を入力してください')
-      return
+      setError('シナリオ名を入力してください');
+      return;
     }
     if (triggerType === 'tag_added' && !triggerTagId) {
-      setError('トリガータグを選択してください')
-      return
+      setError('トリガータグを選択してください');
+      return;
     }
-    setSubmitting(true)
-    setError('')
+    setSubmitting(true);
+    setError('');
     try {
       await onCreate({
         name,
         triggerType,
         triggerTagId: triggerType === 'tag_added' ? triggerTagId : null,
         deliveryMode: mode,
-      })
-      reset()
-      onClose()
+      });
+      reset();
+      onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '作成に失敗しました')
+      setError(e instanceof Error ? e.message : '作成に失敗しました');
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={handleClose}
-    >
-      <div
-        className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={handleClose}>
+      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6" onClick={(e) => e.stopPropagation()}>
         {stage === 'pick' && (
           <>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">配信方式を選択</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
                 onClick={() => {
-                  setMode('absolute_time')
-                  setStage('name')
+                  setMode('absolute_time');
+                  setStage('name');
                 }}
                 className="text-left border border-gray-200 rounded-lg p-5 hover:border-amber-500 hover:bg-amber-50 transition-colors"
               >
@@ -136,8 +130,8 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
               </button>
               <button
                 onClick={() => {
-                  setMode('elapsed')
-                  setStage('name')
+                  setMode('elapsed');
+                  setStage('name');
                 }}
                 className="text-left border border-gray-200 rounded-lg p-5 hover:border-blue-500 hover:bg-blue-50 transition-colors"
               >
@@ -150,8 +144,8 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
             <div className="mt-4 text-center">
               <button
                 onClick={() => {
-                  setMode('relative')
-                  setStage('name')
+                  setMode('relative');
+                  setStage('name');
                 }}
                 className="text-xs text-gray-400 hover:text-gray-600 underline"
               >
@@ -159,10 +153,7 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
               </button>
             </div>
             <div className="mt-4 flex justify-end">
-              <button
-                onClick={handleClose}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-              >
+              <button onClick={handleClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
                 キャンセル
               </button>
             </div>
@@ -195,7 +186,7 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && triggerType !== 'tag_added' && !submitting) handleCreate()
+                    if (e.key === 'Enter' && triggerType !== 'tag_added' && !submitting) handleCreate();
                   }}
                 />
               </div>
@@ -230,12 +221,7 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
               </div>
 
               {triggerType === 'tag_added' && (
-                <TriggerTagField
-                  tagsState={tagsState}
-                  tags={tags}
-                  value={triggerTagId}
-                  onChange={setTriggerTagId}
-                />
+                <TriggerTagField tagsState={tagsState} tags={tags} value={triggerTagId} onChange={setTriggerTagId} />
               )}
             </div>
 
@@ -262,7 +248,7 @@ export default function ScenarioModePicker({ open, onClose, onCreate }: Props) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 export function TriggerTagField({
@@ -271,10 +257,10 @@ export function TriggerTagField({
   value,
   onChange,
 }: {
-  tagsState: 'loading' | 'ready' | 'failed'
-  tags: Tag[]
-  value: string
-  onChange: (tagId: string) => void
+  tagsState: 'loading' | 'ready' | 'failed';
+  tags: Tag[];
+  value: string;
+  onChange: (tagId: string) => void;
 }) {
   return (
     <div>
@@ -305,18 +291,16 @@ export function TriggerTagField({
       {tagsState === 'ready' && tags.length === 0 ? (
         <p className="text-xs text-amber-600 mt-1">
           タグがまだ1つもありません。先に
-          <Link href="/tags" className="underline font-medium mx-1">タグ管理</Link>
+          <Link href="/tags" className="underline font-medium mx-1">
+            タグ管理
+          </Link>
           でタグを作ってください。
         </p>
       ) : tagsState === 'failed' ? (
-        <p className="text-xs text-red-600 mt-1">
-          タグ一覧を取得できませんでした。ページを再読み込みしてください。
-        </p>
+        <p className="text-xs text-red-600 mt-1">タグ一覧を取得できませんでした。ページを再読み込みしてください。</p>
       ) : (
-        <p className="text-xs text-gray-400 mt-0.5">
-          このタグが友だちに付与されたら、自動でこのシナリオを開始します
-        </p>
+        <p className="text-xs text-gray-400 mt-0.5">このタグが友だちに付与されたら、自動でこのシナリオを開始します</p>
       )}
     </div>
-  )
+  );
 }

@@ -45,6 +45,7 @@ pnpm install
 |---|---|
 | `LINE_HARNESS_API_URL` | Your LINE Harness API base URL |
 | `LINE_HARNESS_API_KEY` | API key for LINE Harness (set as secret) |
+| `LINE_HARNESS_TENANT_ID` | Required LINE Harness tenant ID |
 | `EXTERNAL_API_KEY` | API key for the external service (set as secret) |
 | `LINE_ACCOUNT_ID` | (Optional) LINE account ID for multi-account setups |
 
@@ -76,6 +77,18 @@ pnpm dev
 pnpm deploy
 ```
 
+### Recovering Notification Setup
+
+Notification scenarios are created inactive, populated with a message step, and
+then activated. Trigger tags are attached only after setup succeeds. If setup
+fails, the next run leaves the incomplete scenario unchanged and stops before
+attaching notification tags. It also stops for a paused scenario or a mismatched
+trigger, rather than reactivating or rewriting it.
+
+Review the scenario in the admin UI, confirm its trigger tag and message steps,
+and activate it when ready. A later cron run can then resume. Existing message
+steps are preserved; notification tags already attached to friends are not reset.
+
 ## MCP Server Setup
 
 The MCP server lets AI agents (Claude, etc.) interact with your plugin via natural language.
@@ -97,6 +110,7 @@ pnpm build:mcp
       "env": {
         "LINE_HARNESS_API_URL": "https://your-line-harness.example.com",
         "LINE_HARNESS_API_KEY": "your-api-key",
+        "LINE_HARNESS_TENANT_ID": "your-tenant-id",
         "EXTERNAL_API_KEY": "your-external-api-key"
       }
     }

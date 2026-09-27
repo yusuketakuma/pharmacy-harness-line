@@ -1,1 +1,1 @@
-export { default } from '@/custom/pharmacy/data-subject-requests/DataSubjectRequestAdminPage'
+export { default } from '@/custom/pharmacy/data-subject-requests/DataSubjectRequestAdminPage';

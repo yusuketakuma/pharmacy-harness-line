@@ -21,10 +21,11 @@ const path = (accountId: string) => `/api/custom/pharmacy/activity-notifications
 
 export const pharmacyActivityApi = {
   list: (accountId: string) => fetchApi<{ notifications: PharmacyActivityNotification[] }>(path(accountId)),
-  acknowledge: (accountId: string, id: string) => fetchApi<{ notification: PharmacyActivityNotification }>(
-    `/api/custom/pharmacy/activity-notifications/${encodeURIComponent(id)}/ack?${accountQuery(accountId)}`,
-    { method: 'POST' },
-  ),
+  acknowledge: (accountId: string, id: string) =>
+    fetchApi<{ notification: PharmacyActivityNotification }>(
+      `/api/custom/pharmacy/activity-notifications/${encodeURIComponent(id)}/ack?${accountQuery(accountId)}`,
+      { method: 'POST' },
+    ),
 };
 
 export const activityTypeLabel: Record<PharmacyActivityType, string> = {

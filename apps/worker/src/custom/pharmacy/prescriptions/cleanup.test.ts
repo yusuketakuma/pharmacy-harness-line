@@ -16,7 +16,10 @@ describe('prescription image cleanup (I19-R2 fail-closed)', () => {
     } as unknown as R2Bucket;
 
     await expect(
-      cleanupPrescriptionImages(db, images, { now: new Date('2026-09-17T00:00:00.000Z'), limit: 25 }),
+      cleanupPrescriptionImages(db, images, {
+        now: new Date('2026-09-17T00:00:00.000Z'),
+        limit: 25,
+      }),
     ).resolves.toEqual({ claimed: 0, deleted: 0, failed: 0, skipped: 0 });
     expect(db.prepare).not.toHaveBeenCalled();
     expect(images.delete).not.toHaveBeenCalled();

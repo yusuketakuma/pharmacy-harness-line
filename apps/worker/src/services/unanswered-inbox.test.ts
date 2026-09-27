@@ -56,10 +56,7 @@ function stubDB(canned: {
       content: r.last_incoming_content ?? '',
       created_at: r.last_incoming,
     }));
-  incomings.sort(
-    (a, b) =>
-      a.friend_id.localeCompare(b.friend_id) || b.created_at.localeCompare(a.created_at),
-  );
+  incomings.sort((a, b) => a.friend_id.localeCompare(b.friend_id) || b.created_at.localeCompare(a.created_at));
 
   const silentRules = (canned.autoReplies ?? []).map((ar) => ({
     ...ar,
@@ -74,11 +71,9 @@ function stubDB(canned: {
       // 候補 friend クエリ (CANDIDATES_SQL): "FROM friends f" を含み、JOIN agg
       const isCandidates = sql.includes('FROM friends f') && sql.includes('JOIN agg');
       // auto_reply outgoing クエリ: source='auto_reply' を WHERE に含む
-      const isAutoReplyOutgoings =
-        sql.includes("source='auto_reply'") && sql.includes('outgoing');
+      const isAutoReplyOutgoings = sql.includes("source='auto_reply'") && sql.includes('outgoing');
       // それ以外で messages_log を見るのは incomings クエリ
-      const isRecentIncomings =
-        sql.includes('messages_log') && !isAutoReplyOutgoings && !isCandidates;
+      const isRecentIncomings = sql.includes('messages_log') && !isAutoReplyOutgoings && !isCandidates;
       return {
         all: async () => {
           if (isAutoReplies) return { results: silentRules };
@@ -165,18 +160,28 @@ describe('computeUnansweredInbox', () => {
     const db = stubDB({
       rows: [
         {
-          friend_id: 'f1', display_name: 'A', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f1',
+          display_name: 'A',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: '2026-05-08T09:00:00+09:00',
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'msg1',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg1',
         },
         {
-          friend_id: 'f2', display_name: 'B', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f2',
+          display_name: 'B',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: '2026-05-08T10:00:00+09:00',
-          last_manual: null, last_machine: '2026-05-08T10:01:00+09:00',
-          last_incoming_type: 'text', last_incoming_content: 'msg2',
+          last_manual: null,
+          last_machine: '2026-05-08T10:01:00+09:00',
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg2',
         },
       ],
       total: 2,
@@ -197,15 +202,21 @@ describe('computeUnansweredInbox', () => {
     const db = stubDB({
       rows: [
         {
-          friend_id: 'f1', display_name: 'A', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f1',
+          display_name: 'A',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: '2026-05-08T10:00:00+09:00',
           last_manual: null,
           last_machine: '2026-05-08T10:00:30+09:00',
-          last_incoming_type: 'text', last_incoming_content: 'help',
+          last_incoming_type: 'text',
+          last_incoming_content: 'help',
         },
       ],
-      total: 1, byAccount: [], oldestWait: null,
+      total: 1,
+      byAccount: [],
+      oldestWait: null,
     });
 
     const result = await computeUnansweredInbox(db, 'tenant-a');
@@ -221,21 +232,33 @@ describe('computeUnansweredInbox', () => {
     const db = stubDB({
       rows: [
         {
-          friend_id: 'f1', display_name: '山田', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f1',
+          display_name: '山田',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: tenMinAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'こんにちは',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'こんにちは',
         },
         {
-          friend_id: 'f2', display_name: '佐藤', picture_url: null,
-          line_account_id: 'a2', account_name: 'L ②',
+          friend_id: 'f2',
+          display_name: '佐藤',
+          picture_url: null,
+          line_account_id: 'a2',
+          account_name: 'L ②',
           last_incoming: twoHoursAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: '料金教えて',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: '料金教えて',
         },
       ],
-      total: 2, byAccount: [], oldestWait: null,
+      total: 2,
+      byAccount: [],
+      oldestWait: null,
     });
 
     expect((await computeUnansweredInbox(db, 'tenant-a', { account: 'a1' })).total).toBe(1);
@@ -255,40 +278,65 @@ describe('countUnanswered', () => {
       rows: [
         // a1 に 3 人
         {
-          friend_id: 'f1', display_name: 'A', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f1',
+          display_name: 'A',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: oneHourAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'msg1',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg1',
         },
         {
-          friend_id: 'f2', display_name: 'B', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f2',
+          display_name: 'B',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: tenMinAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'msg2',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg2',
         },
         {
-          friend_id: 'f3', display_name: 'C', picture_url: null,
-          line_account_id: 'a1', account_name: 'L ①',
+          friend_id: 'f3',
+          display_name: 'C',
+          picture_url: null,
+          line_account_id: 'a1',
+          account_name: 'L ①',
           last_incoming: tenMinAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'msg3',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg3',
         },
         // a2 に 2 人
         {
-          friend_id: 'f4', display_name: 'D', picture_url: null,
-          line_account_id: 'a2', account_name: 'L ②',
+          friend_id: 'f4',
+          display_name: 'D',
+          picture_url: null,
+          line_account_id: 'a2',
+          account_name: 'L ②',
           last_incoming: tenMinAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'msg4',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg4',
         },
         {
-          friend_id: 'f5', display_name: 'E', picture_url: null,
-          line_account_id: 'a2', account_name: 'L ②',
+          friend_id: 'f5',
+          display_name: 'E',
+          picture_url: null,
+          line_account_id: 'a2',
+          account_name: 'L ②',
           last_incoming: tenMinAgo,
-          last_manual: null, last_machine: null,
-          last_incoming_type: 'text', last_incoming_content: 'msg5',
+          last_manual: null,
+          last_machine: null,
+          last_incoming_type: 'text',
+          last_incoming_content: 'msg5',
         },
       ],
     });
@@ -333,9 +381,7 @@ describe('auto_reply マッチ除外', () => {
         baseRow({ friend_id: 'f1', last_incoming_content: '導入相談' }),
         baseRow({ friend_id: 'f2', last_incoming_content: 'こんにちはお元気ですか' }),
       ],
-      autoReplies: [
-        { keyword: '導入相談', match_type: 'exact', line_account_id: null },
-      ],
+      autoReplies: [{ keyword: '導入相談', match_type: 'exact', line_account_id: null }],
     });
 
     const result = await computeUnansweredInbox(db, 'tenant-a');
@@ -349,9 +395,7 @@ describe('auto_reply マッチ除外', () => {
         baseRow({ friend_id: 'f1', last_incoming_content: '料金教えてください' }),
         baseRow({ friend_id: 'f2', last_incoming_content: '昨日は楽しかった' }),
       ],
-      autoReplies: [
-        { keyword: '料金', match_type: 'contains', line_account_id: null },
-      ],
+      autoReplies: [{ keyword: '料金', match_type: 'contains', line_account_id: null }],
     });
 
     const result = await computeUnansweredInbox(db, 'tenant-a');
@@ -367,7 +411,12 @@ describe('auto_reply マッチ除外', () => {
     const db = stubDB({
       rows: [
         baseRow({ friend_id: 'f1', line_account_id: 'a1', last_incoming_content: '導入相談' }),
-        baseRow({ friend_id: 'f2', line_account_id: 'a2', account_name: 'L ②', last_incoming_content: '導入相談' }),
+        baseRow({
+          friend_id: 'f2',
+          line_account_id: 'a2',
+          account_name: 'L ②',
+          last_incoming_content: '導入相談',
+        }),
       ],
       autoReplies: [
         // a1 専用ルールでも、a2 の同 keyword incoming にも適用する
@@ -402,9 +451,7 @@ describe('auto_reply マッチ除外', () => {
   test('質問 → 後 button タップ: 自由記述 incoming は preview として残る', async () => {
     // last_manual なし、incoming 2件: 古い自由記述 + 新しい button タップ (auto_reply マッチ)
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:05:00+09:00' }),
-      ],
+      rows: [baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:05:00+09:00' })],
       recentIncomings: [
         // f1 の最新 = button タップ (マッチ)、その前 = 自由記述
         {
@@ -420,9 +467,7 @@ describe('auto_reply マッチ除外', () => {
           created_at: '2026-05-08T10:00:00+09:00',
         },
       ],
-      autoReplies: [
-        { keyword: '導入相談', match_type: 'exact', line_account_id: null },
-      ],
+      autoReplies: [{ keyword: '導入相談', match_type: 'exact', line_account_id: null }],
     });
 
     const result = await computeUnansweredInbox(db, 'tenant-a');
@@ -434,9 +479,7 @@ describe('auto_reply マッチ除外', () => {
 
   test('全 incoming がマッチした thread は除外される', async () => {
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:05:00+09:00' }),
-      ],
+      rows: [baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:05:00+09:00' })],
       recentIncomings: [
         {
           friend_id: 'f1',
@@ -467,9 +510,7 @@ describe('auto_reply マッチ除外', () => {
     // 現実的には button label / FAQ keyword は安定運用なので、現在の active
     // キーワードが一致したら歴史問わず構造化メッセと判定する。
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:00+09:00' }),
-      ],
+      rows: [baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:00+09:00' })],
       recentIncomings: [
         {
           friend_id: 'f1',
@@ -496,9 +537,7 @@ describe('auto_reply マッチ除外', () => {
   test('応答ありルール: outgoing auto_reply 証拠で除外 (rule edit に左右されない)', async () => {
     // ルール定義は無いが、実際に auto_reply outgoing が記録されている場合 → 除外
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:00+09:00' }),
-      ],
+      rows: [baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:00+09:00' })],
       recentIncomings: [
         {
           friend_id: 'f1',
@@ -520,9 +559,7 @@ describe('auto_reply マッチ除外', () => {
 
   test('応答ありルール: outgoing が遠すぎ (5秒超) なら証拠扱いしない', async () => {
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:00+09:00' }),
-      ],
+      rows: [baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:00+09:00' })],
       recentIncomings: [
         {
           friend_id: 'f1',
@@ -545,9 +582,7 @@ describe('auto_reply マッチ除外', () => {
     // 友だちが free-form A → keyword B と短時間で 2 連投。auto_reply は B にだけ反応。
     // 古い A は消費されない outgoing 無しなので "non-matching" として残るべき。
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:02+09:00' }),
-      ],
+      rows: [baseRow({ friend_id: 'f1', last_incoming: '2026-05-08T10:00:02+09:00' })],
       recentIncomings: [
         // f1 で 2 件、新しい順
         {
@@ -582,9 +617,7 @@ describe('auto_reply マッチ除外', () => {
         baseRow({ friend_id: 'f1', last_incoming_content: '導入相談' }),
         baseRow({ friend_id: 'f2', last_incoming_content: 'free message' }),
       ],
-      autoReplies: [
-        { keyword: '導入相談', match_type: 'exact', line_account_id: null },
-      ],
+      autoReplies: [{ keyword: '導入相談', match_type: 'exact', line_account_id: null }],
     });
 
     const c = await countUnanswered(db, 'tenant-a');
@@ -619,10 +652,7 @@ describe('auto_reply マッチ除外', () => {
 
   test('getUnansweredFriendIds は未対応 friend の Set を返す', async () => {
     const db = stubDB({
-      rows: [
-        baseRow({ friend_id: 'f_un1' }),
-        baseRow({ friend_id: 'f_un2' }),
-      ],
+      rows: [baseRow({ friend_id: 'f_un1' }), baseRow({ friend_id: 'f_un2' })],
     });
 
     const { getUnansweredFriendIds } = await import('./unanswered-inbox.js');
@@ -639,9 +669,7 @@ describe('auto_reply マッチ除外', () => {
         baseRow({ friend_id: 'f_keep', last_incoming_content: '通常メッセ' }),
         baseRow({ friend_id: 'f_drop', last_incoming_content: '導入相談' }),
       ],
-      autoReplies: [
-        { keyword: '導入相談', match_type: 'exact', line_account_id: null },
-      ],
+      autoReplies: [{ keyword: '導入相談', match_type: 'exact', line_account_id: null }],
     });
 
     const { getUnansweredFriendIds } = await import('./unanswered-inbox.js');

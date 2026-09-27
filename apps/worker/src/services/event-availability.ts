@@ -1,10 +1,7 @@
 // Event availability: slot listing with remaining capacity, and per-friend
 // active booking count. Kept thin so memDB tests can stub two simple SELECTs.
 
-import {
-  ACTIVE_BOOKING_STATUSES,
-  type EventBookingStatus,
-} from './event-booking-types.js';
+import { ACTIVE_BOOKING_STATUSES, type EventBookingStatus } from './event-booking-types.js';
 
 export interface SlotWithRemaining {
   id: string;
@@ -78,10 +75,7 @@ export async function getSlotsWithRemaining(
   });
 }
 
-export async function getActiveBookingCountsBySlot(
-  db: D1Database,
-  slot_ids: string[],
-): Promise<Map<string, number>> {
+export async function getActiveBookingCountsBySlot(db: D1Database, slot_ids: string[]): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   if (slot_ids.length === 0) return result;
   const statusList = ACTIVE_BOOKING_STATUSES;

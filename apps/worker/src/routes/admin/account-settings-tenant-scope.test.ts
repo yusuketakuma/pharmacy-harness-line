@@ -21,8 +21,13 @@ describe('account test-recipient scope', () => {
       prepare(sql: string) {
         const statement = {
           params: [] as unknown[],
-          bind(...params: unknown[]) { statement.params = params; return statement; },
-          async first() { return { value: JSON.stringify(['friend-a', 'friend-b']) }; },
+          bind(...params: unknown[]) {
+            statement.params = params;
+            return statement;
+          },
+          async first() {
+            return { value: JSON.stringify(['friend-a', 'friend-b']) };
+          },
           async all() {
             queries.push({ sql, params: statement.params });
             return { results: [] };
@@ -33,11 +38,7 @@ describe('account test-recipient scope', () => {
     } as unknown as D1Database;
     const { app, env } = mount(db);
 
-    const response = await app.request(
-      '/api/account-settings/test-recipients?accountId=account-a',
-      {},
-      env,
-    );
+    const response = await app.request('/api/account-settings/test-recipients?accountId=account-a', {}, env);
 
     expect(response.status).toBe(200);
     expect(queries[0]?.sql).toContain('line_account_id = ?');
@@ -49,20 +50,31 @@ describe('account test-recipient scope', () => {
     const db = {
       prepare(sql: string) {
         const statement = {
-          bind() { return statement; },
-          async first() { return { count: 1 }; },
-          async run() { writes.push(sql); return { meta: { changes: 1 } }; },
+          bind() {
+            return statement;
+          },
+          async first() {
+            return { count: 1 };
+          },
+          async run() {
+            writes.push(sql);
+            return { meta: { changes: 1 } };
+          },
         };
         return statement;
       },
     } as unknown as D1Database;
     const { app, env } = mount(db);
 
-    const response = await app.request('/api/account-settings/test-recipients', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accountId: 'account-a', friendIds: ['friend-a', 'friend-b'] }),
-    }, env);
+    const response = await app.request(
+      '/api/account-settings/test-recipients',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: 'account-a', friendIds: ['friend-a', 'friend-b'] }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(403);
     expect(writes).toEqual([]);

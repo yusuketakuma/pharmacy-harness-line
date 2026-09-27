@@ -15,13 +15,7 @@ export async function ensureDefaultMileageProgram(db: D1Database): Promise<void>
          (id, code, name, status, created_at, updated_at)
        VALUES (?, ?, ?, 'active', ?, ?)`,
     )
-    .bind(
-      DEFAULT_MILEAGE_PROGRAM_ID,
-      DEFAULT_MILEAGE_PROGRAM_ID,
-      'Harnessマイル',
-      now,
-      now,
-    )
+    .bind(DEFAULT_MILEAGE_PROGRAM_ID, DEFAULT_MILEAGE_PROGRAM_ID, 'Harnessマイル', now, now)
     .run();
 }
 
@@ -31,12 +25,7 @@ async function ensureBuiltInProgram(db: D1Database, programId: string): Promise<
   }
 }
 
-export type MileageEntryType =
-  | 'grant'
-  | 'reversal'
-  | 'spend'
-  | 'expiration'
-  | 'adjustment';
+export type MileageEntryType = 'grant' | 'reversal' | 'spend' | 'expiration' | 'adjustment';
 export type MileageEntryStatus = 'pending' | 'available' | 'void';
 
 export interface EngagementEvent {
@@ -158,10 +147,7 @@ export interface EnqueueMileageEventInput {
 }
 
 /** Record an action and enqueue its mileage projection without blocking it. */
-export async function enqueueMileageEvent(
-  db: D1Database,
-  input: EnqueueMileageEventInput,
-): Promise<EngagementEvent> {
+export async function enqueueMileageEvent(db: D1Database, input: EnqueueMileageEventInput): Promise<EngagementEvent> {
   const friend = await db
     .prepare(`SELECT id, user_id FROM friends WHERE id = ?`)
     .bind(input.friendId)
@@ -213,10 +199,7 @@ export interface PostMileageEntryInput {
 }
 
 /** Add one immutable ledger entry exactly once. Existing entries are returned. */
-export async function postMileageEntry(
-  db: D1Database,
-  input: PostMileageEntryInput,
-): Promise<MileageLedgerEntry> {
+export async function postMileageEntry(db: D1Database, input: PostMileageEntryInput): Promise<MileageLedgerEntry> {
   if (!Number.isInteger(input.amount) || input.amount === 0) {
     throw new Error('Mileage amount must be a non-zero integer');
   }
@@ -602,12 +585,7 @@ export async function getMileageEarningOpportunitiesForFriend(
 ): Promise<MileageEarningOpportunity[]> {
   const limit = Math.min(10, Math.max(1, options.limit ?? 10));
   const now = options.now ?? jstNow();
-  const eventTypes = [
-    'webinar_watch_5m',
-    'webinar_watch_15m',
-    'webinar_completed',
-    'webinar_cta_clicked',
-  ] as const;
+  const eventTypes = ['webinar_watch_5m', 'webinar_watch_15m', 'webinar_completed', 'webinar_cta_clicked'] as const;
 
   const [rulesResult, webinarsResult, accountsResult, multiplier] = await Promise.all([
     db
@@ -623,13 +601,13 @@ export async function getMileageEarningOpportunitiesForFriend(
             AND (valid_until IS NULL OR valid_until >= ?)
           ORDER BY created_at ASC, id ASC`,
       )
-      .bind(
-        DEFAULT_MILEAGE_PROGRAM_ID,
-        ...eventTypes,
-        now,
-        now,
-      )
-      .all<{ event_type: string; source: string | null; amount: number; conditions: string | null }>(),
+      .bind(DEFAULT_MILEAGE_PROGRAM_ID, ...eventTypes, now, now)
+      .all<{
+        event_type: string;
+        source: string | null;
+        amount: number;
+        conditions: string | null;
+      }>(),
     db
       .prepare(
         `WITH identity AS (
@@ -741,13 +719,18 @@ export async function getMileageEarningOpportunitiesForFriend(
 
   const amounts = new Map<string, number>();
   for (const rule of rulesResult.results) {
-    const sourceMatches = rule.event_type === 'friend_registered'
-      ? rule.source === null || rule.source === 'line_relationship'
-      : rule.source === null || rule.source === 'webinar';
+    const sourceMatches =
+      rule.event_type === 'friend_registered'
+        ? rule.source === null || rule.source === 'line_relationship'
+        : rule.source === null || rule.source === 'webinar';
     if (!sourceMatches) continue;
     let conditions: MileageRuleConditions = {};
     if (rule.conditions) {
-      try { conditions = JSON.parse(rule.conditions) as MileageRuleConditions; } catch { conditions = {}; }
+      try {
+        conditions = JSON.parse(rule.conditions) as MileageRuleConditions;
+      } catch {
+        conditions = {};
+      }
     }
     const adjustedAmount = conditions.ignoreMultiplier
       ? Number(rule.amount)
@@ -806,19 +789,19 @@ export async function getMileageEarningOpportunitiesForFriend(
         ? [{ seconds: 900, amount: amounts.get('webinar_watch_15m')!, label: '15分視聴' }]
         : []),
       ...((amounts.get('webinar_completed') ?? 0) > 0
-        ? [{
-            seconds: Math.max(1, Math.floor(duration * 0.9)),
-            amount: amounts.get('webinar_completed')!,
-            label: '90%視聴完了',
-          }]
+        ? [
+            {
+              seconds: Math.max(1, Math.floor(duration * 0.9)),
+              amount: amounts.get('webinar_completed')!,
+              label: '90%視聴完了',
+            },
+          ]
         : []),
     ]
       .filter((milestone) => position < milestone.seconds)
       .sort((a, b) => a.seconds - b.seconds);
 
-    const ctaReward = webinar.has_cta && !webinar.cta_clicked
-      ? (amounts.get('webinar_cta_clicked') ?? 0)
-      : 0;
+    const ctaReward = webinar.has_cta && !webinar.cta_clicked ? (amounts.get('webinar_cta_clicked') ?? 0) : 0;
     const rewardMiles = milestones.reduce((sum, milestone) => sum + milestone.amount, 0) + ctaReward;
     if (rewardMiles <= 0) continue;
 
@@ -898,10 +881,7 @@ export async function getMileageRules(
   return result.results;
 }
 
-export async function getMileageRuleById(
-  db: D1Database,
-  id: string,
-): Promise<MileageRuleRow | null> {
+export async function getMileageRuleById(db: D1Database, id: string): Promise<MileageRuleRow | null> {
   return db.prepare(`SELECT * FROM mileage_rules WHERE id = ?`).bind(id).first<MileageRuleRow>();
 }
 
@@ -964,20 +944,41 @@ export async function updateMileageRule(
   }
   const sets: string[] = [];
   const values: unknown[] = [];
-  if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
-  if (updates.eventType !== undefined) { sets.push('event_type = ?'); values.push(updates.eventType); }
-  if (updates.source !== undefined) { sets.push('source = ?'); values.push(updates.source); }
-  if (updates.amount !== undefined) { sets.push('amount = ?'); values.push(updates.amount); }
-  if (updates.initialStatus !== undefined) { sets.push('initial_status = ?'); values.push(updates.initialStatus); }
+  if (updates.name !== undefined) {
+    sets.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.eventType !== undefined) {
+    sets.push('event_type = ?');
+    values.push(updates.eventType);
+  }
+  if (updates.source !== undefined) {
+    sets.push('source = ?');
+    values.push(updates.source);
+  }
+  if (updates.amount !== undefined) {
+    sets.push('amount = ?');
+    values.push(updates.amount);
+  }
+  if (updates.initialStatus !== undefined) {
+    sets.push('initial_status = ?');
+    values.push(updates.initialStatus);
+  }
   if (updates.conditions !== undefined) {
     sets.push('conditions = ?');
     values.push(updates.conditions ? JSON.stringify(updates.conditions) : null);
   }
-  if (updates.isActive !== undefined) { sets.push('is_active = ?'); values.push(updates.isActive ? 1 : 0); }
+  if (updates.isActive !== undefined) {
+    sets.push('is_active = ?');
+    values.push(updates.isActive ? 1 : 0);
+  }
   if (sets.length === 0) return getMileageRuleById(db, id);
   sets.push('updated_at = ?');
   values.push(jstNow(), id);
-  await db.prepare(`UPDATE mileage_rules SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+  await db
+    .prepare(`UPDATE mileage_rules SET ${sets.join(', ')} WHERE id = ?`)
+    .bind(...values)
+    .run();
   return getMileageRuleById(db, id);
 }
 
@@ -1145,9 +1146,7 @@ async function applyMileageRulesImmediately(
 
   if (input.eventType === 'tag_added' && input.subjectKey) {
     const tag = await db
-      .prepare(
-        `SELECT id, name, mileage_reward, referral_mileage_reward FROM tags WHERE id = ?`,
-      )
+      .prepare(`SELECT id, name, mileage_reward, referral_mileage_reward FROM tags WHERE id = ?`)
       .bind(input.subjectKey)
       .first<{
         id: string;
@@ -1175,9 +1174,7 @@ async function applyMileageRulesImmediately(
     if (tag && Number(tag.referral_mileage_reward) > 0) {
       const referrer = await getReferralBeneficiary();
       if (referrer) {
-        const referrerIdentityKey = referrer.userId
-          ? `user:${referrer.userId}`
-          : `friend:${referrer.friendId}`;
+        const referrerIdentityKey = referrer.userId ? `user:${referrer.userId}` : `friend:${referrer.friendId}`;
         const referralEntry = await postMileageEntry(db, {
           beneficiaryUserId: referrer.userId,
           beneficiaryFriendId: referrer.friendId,
@@ -1208,31 +1205,33 @@ async function applyMileageRulesImmediately(
   for (const rule of rulesResult.results) {
     let conditions: MileageRuleConditions = {};
     if (rule.conditions) {
-      try { conditions = JSON.parse(rule.conditions) as MileageRuleConditions; } catch { conditions = {}; }
+      try {
+        conditions = JSON.parse(rule.conditions) as MileageRuleConditions;
+      } catch {
+        conditions = {};
+      }
     }
 
-    const referrer = conditions.beneficiary === 'referrer'
-      ? await getReferralBeneficiary()
-      : null;
+    const referrer = conditions.beneficiary === 'referrer' ? await getReferralBeneficiary() : null;
     if (conditions.beneficiary === 'referrer' && !referrer) continue;
     const beneficiaryFriendId = referrer?.friendId ?? friend.id;
     const beneficiaryUserId = referrer?.userId ?? friend.user_id;
-    const beneficiaryIdentityKey = beneficiaryUserId
-      ? `user:${beneficiaryUserId}`
-      : `friend:${beneficiaryFriendId}`;
-    const multiplier = conditions.beneficiary === 'referrer'
-      ? await resolveMileageMultiplier(db, beneficiaryFriendId, occurredAt)
-      : actorMultiplier;
+    const beneficiaryIdentityKey = beneficiaryUserId ? `user:${beneficiaryUserId}` : `friend:${beneficiaryFriendId}`;
+    const multiplier =
+      conditions.beneficiary === 'referrer'
+        ? await resolveMileageMultiplier(db, beneficiaryFriendId, occurredAt)
+        : actorMultiplier;
 
-    const idempotencyKey = conditions.uniquePerReferredFriendPerSubject && input.subjectKey
-      ? `rule:${rule.id}:referrer:${beneficiaryIdentityKey}:referred:${identityKey}:subject:${input.subjectKey}`
-      : conditions.uniquePerReferredFriend
-        ? `rule:${rule.id}:referrer:${beneficiaryIdentityKey}:referred:${identityKey}`
-        : conditions.uniquePerSubject && input.subjectKey
-          ? `rule:${rule.id}:identity:${beneficiaryIdentityKey}:subject:${input.subjectKey}`
-          : conditions.uniquePerSubjectPerDay && input.subjectKey
-            ? `rule:${rule.id}:identity:${beneficiaryIdentityKey}:day:${occurredAt.slice(0, 10)}:subject:${input.subjectKey}`
-            : `rule:${rule.id}:event:${event.id}`;
+    const idempotencyKey =
+      conditions.uniquePerReferredFriendPerSubject && input.subjectKey
+        ? `rule:${rule.id}:referrer:${beneficiaryIdentityKey}:referred:${identityKey}:subject:${input.subjectKey}`
+        : conditions.uniquePerReferredFriend
+          ? `rule:${rule.id}:referrer:${beneficiaryIdentityKey}:referred:${identityKey}`
+          : conditions.uniquePerSubject && input.subjectKey
+            ? `rule:${rule.id}:identity:${beneficiaryIdentityKey}:subject:${input.subjectKey}`
+            : conditions.uniquePerSubjectPerDay && input.subjectKey
+              ? `rule:${rule.id}:identity:${beneficiaryIdentityKey}:day:${occurredAt.slice(0, 10)}:subject:${input.subjectKey}`
+              : `rule:${rule.id}:event:${event.id}`;
     const entryInput: PostMileageEntryInput = {
       programId: rule.program_id,
       beneficiaryUserId,
@@ -1257,23 +1256,26 @@ async function applyMileageRulesImmediately(
         multiplierTagId: multiplier.tagId,
         multiplierTagName: multiplier.tagName,
         beneficiaryType: conditions.beneficiary ?? 'actor',
-        ...(referrer ? {
-          affiliateId: referrer.affiliateId,
-          refCode: referrer.refCode,
-          referredFriendId: friend.id,
-          referredUserId: friend.user_id,
-        } : {}),
+        ...(referrer
+          ? {
+              affiliateId: referrer.affiliateId,
+              refCode: referrer.refCode,
+              referredFriendId: friend.id,
+              referredUserId: friend.user_id,
+            }
+          : {}),
       },
       occurredAt,
     };
     // The daily cap is enforced inside the INSERT so two processors draining the
     // queue concurrently cannot both observe a count below the cap.
-    const entry = conditions.dailyCapActions && conditions.dailyCapActions > 0
-      ? await postMileageEntryIfUnderDailyCap(db, {
-        ...entryInput,
-        dailyCapActions: conditions.dailyCapActions,
-      })
-      : await postMileageEntry(db, entryInput);
+    const entry =
+      conditions.dailyCapActions && conditions.dailyCapActions > 0
+        ? await postMileageEntryIfUnderDailyCap(db, {
+            ...entryInput,
+            dailyCapActions: conditions.dailyCapActions,
+          })
+        : await postMileageEntry(db, entryInput);
     if (entry) granted.push(entry);
   }
   return { event, granted };
@@ -1301,7 +1303,11 @@ export interface MileageQueueResult {
 /** Drain a bounded batch. Safe for retries and overlapping cron invocations. */
 export async function processPendingMileageEvents(
   db: D1Database,
-  options: { limit?: number; now?: string; canProcessFriend?: (friendId: string) => Promise<boolean> } = {},
+  options: {
+    limit?: number;
+    now?: string;
+    canProcessFriend?: (friendId: string) => Promise<boolean>;
+  } = {},
 ): Promise<MileageQueueResult> {
   const limit = Math.min(250, Math.max(1, options.limit ?? 100));
   const now = options.now ?? jstNow();
@@ -1365,7 +1371,11 @@ export async function processPendingMileageEvents(
       }
       let metadata: Record<string, unknown> = {};
       if (event.metadata) {
-        try { metadata = JSON.parse(event.metadata) as Record<string, unknown>; } catch { metadata = {}; }
+        try {
+          metadata = JSON.parse(event.metadata) as Record<string, unknown>;
+        } catch {
+          metadata = {};
+        }
       }
       const projection = await applyMileageRulesImmediately(db, {
         eventType: event.event_type,
@@ -1434,14 +1444,14 @@ export async function enqueueFollowingMileageMilestones(
 
   for (const milestone of FOLLOWING_MILESTONES) {
     const anchorSql = milestone.days === 0 ? 'f.first_followed_at' : 'f.current_follow_started_at';
-    const earnedAtSql = milestone.days === 0
-      ? 'f.first_followed_at'
-      : `datetime(f.current_follow_started_at, '+${milestone.days} days')`;
+    const earnedAtSql =
+      milestone.days === 0 ? 'f.first_followed_at' : `datetime(f.current_follow_started_at, '+${milestone.days} days')`;
     const eventIdSql = `'loyalty:${milestone.eventType}:' || f.id || ':' || ${anchorSql}`;
     const sourceIdSql = `f.id || ':${milestone.eventType}:' || ${anchorSql}`;
-    const eligibilitySql = milestone.days === 0
-      ? 'f.first_followed_at IS NOT NULL'
-      : `f.current_follow_started_at IS NOT NULL
+    const eligibilitySql =
+      milestone.days === 0
+        ? 'f.first_followed_at IS NOT NULL'
+        : `f.current_follow_started_at IS NOT NULL
          AND julianday(?) - julianday(f.current_follow_started_at) >= ${milestone.days}`;
     const insertBinds = milestone.days === 0 ? [now, limit] : [now, now, limit];
 
@@ -1826,9 +1836,7 @@ export async function syncAffiliateConversionMileage(
       entryType: 'grant',
       status: 'available',
       amount: rewardMiles,
-      reason: context.offer_name
-        ? `${context.offer_name}の紹介成果承認`
-        : '紹介成果承認',
+      reason: context.offer_name ? `${context.offer_name}の紹介成果承認` : '紹介成果承認',
       source: 'affiliate_conversion',
       sourceEventId: eventId,
       idempotencyKey: `affiliate-conversion-grant:${eventId}:${decisionVersion}`,

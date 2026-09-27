@@ -33,10 +33,13 @@ describe('custom_053 outgoing webhook deliveries', () => {
       '020_custom_077_pharmacy_beta_notification_bindings.sql',
       '021_calendar_bookings_overlap_index.sql',
       '022_booking_idempotency_scoped.sql',
-    '023_meet_reminder_delivery_id.sql',
-    '024_stripe_effect_completion.sql',
-    '025_friend_link_scope_triggers.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
       '026_custom_078_pharmacy_chat_templates.sql',
+      '027_custom_079_pharmacy_followup_notification_queue.sql',
+      '028_custom_080_pharmacy_continuity_notification_queue.sql',
+      '029_custom_081_pharmacy_validity_notification_queue.sql',
     ]);
   });
 
@@ -64,7 +67,8 @@ describe('custom_053 outgoing webhook deliveries', () => {
     insert.run('delivery-a', 'tenant-a', 'account-a');
     expect(() => insert.run('delivery-a', 'tenant-a', 'account-a')).toThrow();
     expect(() => insert.run('delivery-b', 'tenant-a', 'account-b')).toThrow();
-    expect(() => db.prepare(`UPDATE outgoing_webhook_deliveries SET outcome = 'unknown' WHERE id = ?`)
-      .run('delivery-a')).toThrow();
+    expect(() =>
+      db.prepare(`UPDATE outgoing_webhook_deliveries SET outcome = 'unknown' WHERE id = ?`).run('delivery-a'),
+    ).toThrow();
   });
 });

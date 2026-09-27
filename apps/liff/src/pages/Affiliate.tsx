@@ -90,7 +90,12 @@ interface MileageOpportunity {
 type State =
   | { phase: 'loading' }
   | { phase: 'not_registered' }
-  | { phase: 'registered'; affiliate: AffiliateData; links: AffiliateLinkData[]; offers: OfferData[] }
+  | {
+      phase: 'registered';
+      affiliate: AffiliateData;
+      links: AffiliateLinkData[];
+      offers: OfferData[];
+    }
   | { phase: 'error'; message: string };
 
 async function getAccessToken(): Promise<string> {
@@ -100,8 +105,7 @@ async function getAccessToken(): Promise<string> {
 }
 
 async function fetchMe(): Promise<
-  | { registered: true; affiliate: AffiliateData; links: AffiliateLinkData[] }
-  | { registered: false }
+  { registered: true; affiliate: AffiliateData; links: AffiliateLinkData[] } | { registered: false }
 > {
   const token = await getAccessToken();
   const url = `${BASE}/api/liff/affiliate/me?lineAccessToken=${encodeURIComponent(token)}`;
@@ -134,7 +138,11 @@ async function postAddLink(label: string | null, offerId: string | null): Promis
   const res = await fetch(`${BASE}/api/liff/affiliate/links`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lineAccessToken: token, label: label || null, offerId: offerId || null }),
+    body: JSON.stringify({
+      lineAccessToken: token,
+      label: label || null,
+      offerId: offerId || null,
+    }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -246,9 +254,7 @@ function CopyButton({ url, urlRef }: { url: string; urlRef: React.RefObject<HTML
       </button>
       {manualCopy && (
         <div className="w-full space-y-1">
-          <p className="text-xs text-gray-500">
-            自動コピーできませんでした。下のURLを選択してコピーしてください。
-          </p>
+          <p className="text-xs text-gray-500">自動コピーできませんでした。下のURLを選択してコピーしてください。</p>
           <input
             ref={urlRef}
             type="text"
@@ -263,8 +269,7 @@ function CopyButton({ url, urlRef }: { url: string; urlRef: React.RefObject<HTML
   );
 }
 
-const rewardText = (amount: number) =>
-  amount > 0 ? `1件 ¥${amount.toLocaleString()}` : '報酬未設定';
+const rewardText = (amount: number) => (amount > 0 ? `1件 ¥${amount.toLocaleString()}` : '報酬未設定');
 
 function formatMileageDate(value: string): string {
   const parsed = new Date(value.includes('T') ? value : value.replace(' ', 'T'));
@@ -315,10 +320,22 @@ function MileageSummaryCard({ wallet }: { wallet: MileageWalletData }) {
       </div>
 
       <div className="af-mileage-grid">
-        <div><span>累計獲得</span><strong>{mileage.lifetimeEarned.toLocaleString()}</strong></div>
-        <div><span>紹介で獲得</span><strong>{insights.referralMiles.toLocaleString()}</strong></div>
-        <div><span>利用済み</span><strong>{mileage.spent.toLocaleString()}</strong></div>
-        <div><span>良質な紹介</span><strong>{insights.qualityReferralCount.toLocaleString()}人</strong></div>
+        <div>
+          <span>累計獲得</span>
+          <strong>{mileage.lifetimeEarned.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>紹介で獲得</span>
+          <strong>{insights.referralMiles.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>利用済み</span>
+          <strong>{mileage.spent.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>良質な紹介</span>
+          <strong>{insights.qualityReferralCount.toLocaleString()}人</strong>
+        </div>
       </div>
 
       {insights.accountCount > 1 && (
@@ -349,9 +366,7 @@ function MileageHistoryAccordion({ wallet }: { wallet: MileageWalletData }) {
 
       <div className="af-history-content">
         {history.length === 0 ? (
-          <div className="af-mileage-empty">
-            LINEやウェビナーで行動すると、ここにマイル履歴が表示されます
-          </div>
+          <div className="af-mileage-empty">LINEやウェビナーで行動すると、ここにマイル履歴が表示されます</div>
         ) : (
           <div className="af-history-list">
             {history.map((item) => (
@@ -366,7 +381,8 @@ function MileageHistoryAccordion({ wallet }: { wallet: MileageWalletData }) {
                   </div>
                 </div>
                 <strong className={`af-history-amount ${item.amount < 0 ? 'is-minus' : ''}`}>
-                  {item.amount > 0 ? '+' : ''}{item.amount.toLocaleString()}
+                  {item.amount > 0 ? '+' : ''}
+                  {item.amount.toLocaleString()}
                   <small> mile</small>
                 </strong>
               </div>
@@ -394,7 +410,9 @@ function MileageOpportunities({ items }: { items: MileageOpportunity[] }) {
               <h2 className="text-sm font-bold text-gray-900">LINEアカウント登録マイル</h2>
               <p className="text-[11px] text-gray-400 mt-0.5">4アカウントの登録状況とマイル反映状況</p>
             </div>
-            <span className="af-opportunity-live">{registeredCount}/{accountItems.length} 登録済み</span>
+            <span className="af-opportunity-live">
+              {registeredCount}/{accountItems.length} 登録済み
+            </span>
           </div>
           {accountItems.map((item) => (
             <article key={item.id} className={`af-opportunity-card ${item.completed ? 'is-completed' : ''}`}>
@@ -415,10 +433,13 @@ function MileageOpportunities({ items }: { items: MileageOpportunity[] }) {
               </div>
               <p className="mt-2 text-xs font-semibold text-amber-800">{item.description}</p>
               {item.completed ? (
-                <div className="af-opportunity-completed"><span aria-hidden="true">✓</span> 登録済み</div>
+                <div className="af-opportunity-completed">
+                  <span aria-hidden="true">✓</span> 登録済み
+                </div>
               ) : (
                 <a href={item.url} className="af-opportunity-btn">
-                  {item.ctaLabel}<span aria-hidden="true"> →</span>
+                  {item.ctaLabel}
+                  <span aria-hidden="true"> →</span>
                 </a>
               )}
             </article>
@@ -448,7 +469,8 @@ function MileageOpportunities({ items }: { items: MileageOpportunity[] }) {
               {item.progressPercent > 0 && (
                 <div className="mt-3">
                   <div className="mb-1 flex justify-between text-[10px] text-gray-400">
-                    <span>現在の視聴進捗</span><span>{item.progressPercent}%</span>
+                    <span>現在の視聴進捗</span>
+                    <span>{item.progressPercent}%</span>
                   </div>
                   <div className="af-opportunity-progress">
                     <span style={{ width: `${item.progressPercent}%` }} />
@@ -456,7 +478,8 @@ function MileageOpportunities({ items }: { items: MileageOpportunity[] }) {
                 </div>
               )}
               <a href={item.url} className="af-opportunity-btn">
-                {item.ctaLabel}<span aria-hidden="true"> →</span>
+                {item.ctaLabel}
+                <span aria-hidden="true"> →</span>
               </a>
             </article>
           ))}
@@ -485,9 +508,18 @@ function ReferralSummary({ links }: { links: AffiliateLinkData[] }) {
         </p>
       </div>
       <div className="af-referral-grid">
-        <div><strong>{totals.clicks.toLocaleString()}</strong><span>クリック</span></div>
-        <div><strong>{totals.friendAdds.toLocaleString()}</strong><span>友だち追加</span></div>
-        <div><strong>{totals.approved.toLocaleString()}</strong><span>承認成果</span></div>
+        <div>
+          <strong>{totals.clicks.toLocaleString()}</strong>
+          <span>クリック</span>
+        </div>
+        <div>
+          <strong>{totals.friendAdds.toLocaleString()}</strong>
+          <span>友だち追加</span>
+        </div>
+        <div>
+          <strong>{totals.approved.toLocaleString()}</strong>
+          <span>承認成果</span>
+        </div>
       </div>
     </section>
   );
@@ -514,9 +546,15 @@ function LinkRow({ link }: { link: AffiliateLinkData }) {
         <CopyButton url={link.url} urlRef={urlRef} />
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
-        <span>クリック <strong className="af-line-green-text">{link.clickCount}</strong></span>
-        <span>友だち追加 <strong className="af-line-green-text">{link.friendAdds}</strong></span>
-        <span>CV承認済み <strong className="af-line-green-text">{link.conversionsApproved}</strong></span>
+        <span>
+          クリック <strong className="af-line-green-text">{link.clickCount}</strong>
+        </span>
+        <span>
+          友だち追加 <strong className="af-line-green-text">{link.friendAdds}</strong>
+        </span>
+        <span>
+          CV承認済み <strong className="af-line-green-text">{link.conversionsApproved}</strong>
+        </span>
         <span className="text-gray-400">審査中 {link.conversionsPending}</span>
       </div>
     </div>
@@ -641,9 +679,7 @@ function OfferCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-base font-bold text-gray-900">{offer.name}</div>
-          {offer.description && (
-            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{offer.description}</p>
-          )}
+          {offer.description && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{offer.description}</p>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className="af-badge" style={{ background: '#ecfdf5', color: '#06c755' }}>
@@ -662,9 +698,7 @@ function OfferCard({
           {offerLinks.length > 0 ? (
             offerLinks.map((l) => <LinkRow key={l.refCode} link={l} />)
           ) : (
-            <div className="text-xs text-gray-400 py-1">
-              リンクを追加すると紹介を始められます
-            </div>
+            <div className="text-xs text-gray-400 py-1">リンクを追加すると紹介を始められます</div>
           )}
           <AddOfferLinkForm offerId={offer.id} atLimit={atLimit} onAdded={onLinkAdded} />
         </div>
@@ -801,9 +835,7 @@ export default function Affiliate() {
     setState((prev) => {
       if (prev.phase !== 'registered') return prev;
       const updatedOffers = prev.offers.map((o) =>
-        o.id === newLink.offerId
-          ? { ...o, enrolled: true, refCode: newLink.refCode, url: newLink.url }
-          : o,
+        o.id === newLink.offerId ? { ...o, enrolled: true, refCode: newLink.refCode, url: newLink.url } : o,
       );
       return { ...prev, links: [...prev.links, newLink], offers: updatedOffers };
     });
@@ -817,7 +849,10 @@ export default function Affiliate() {
   }
 
   return (
-    <div className="af-fade-in max-w-md mx-auto p-4 pb-12 space-y-5" style={{ background: '#f7f8fa', minHeight: '100vh' }}>
+    <div
+      className="af-fade-in max-w-md mx-auto p-4 pb-12 space-y-5"
+      style={{ background: '#f7f8fa', minHeight: '100vh' }}
+    >
       <div>
         <h1 className="text-lg font-bold text-gray-900">マイル・紹介</h1>
         <p className="text-xs text-gray-500 mt-1">あなたの活動と紹介成果をまとめて確認できます</p>
@@ -832,9 +867,7 @@ export default function Affiliate() {
       {/* 参加中の案件 — 案件ごとにリンクをまとめる */}
       {enrolledOffers.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">
-            参加中の案件
-          </h2>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">参加中の案件</h2>
           {enrolledOffers.map((offer) => (
             <OfferCard
               key={offer.id}
@@ -851,9 +884,7 @@ export default function Affiliate() {
       {/* 参加できる案件 */}
       {availableOffers.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">
-            参加できる案件
-          </h2>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">参加できる案件</h2>
           {availableOffers.map((offer) => (
             <OfferCard
               key={offer.id}
@@ -870,9 +901,7 @@ export default function Affiliate() {
       {/* その他のリンク — 案件に紐づかない既存の汎用リンクのみ表示（新規発行 UI なし） */}
       {genericLinks.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">
-            その他のリンク
-          </h2>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">その他のリンク</h2>
           <div className="af-card space-y-2">
             {genericLinks.map((link) => (
               <LinkRow key={link.refCode} link={link} />
@@ -882,9 +911,7 @@ export default function Affiliate() {
       )}
 
       {offers.length === 0 && genericLinks.length === 0 && (
-        <div className="af-card text-center text-sm text-gray-500">
-          現在参加できる案件はありません
-        </div>
+        <div className="af-card text-center text-sm text-gray-500">現在参加できる案件はありません</div>
       )}
 
       {wallet && <MileageHistoryAccordion wallet={wallet} />}

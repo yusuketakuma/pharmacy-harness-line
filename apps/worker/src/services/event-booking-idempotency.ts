@@ -21,10 +21,7 @@ export interface SaveEventIdempotencyParams {
   now: Date;
 }
 
-export async function saveEventIdempotencyResponse(
-  db: D1Database,
-  params: SaveEventIdempotencyParams,
-): Promise<void> {
+export async function saveEventIdempotencyResponse(db: D1Database, params: SaveEventIdempotencyParams): Promise<void> {
   const expires = new Date(params.now.getTime() + params.ttlMinutes * 60_000).toISOString();
   await db
     .prepare(
@@ -33,14 +30,7 @@ export async function saveEventIdempotencyResponse(
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO NOTHING`,
     )
-    .bind(
-      params.key,
-      params.lineAccountId,
-      params.friendId,
-      params.status,
-      JSON.stringify(params.body),
-      expires,
-    )
+    .bind(params.key, params.lineAccountId, params.friendId, params.status, JSON.stringify(params.body), expires)
     .run();
 }
 

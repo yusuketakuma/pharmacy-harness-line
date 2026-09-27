@@ -1,0 +1,473 @@
+[
+  {
+    "count": 50,
+    "pair": [
+      {
+        "legacy": true,
+        "elapsed": [
+          1.140625,
+          0.42754100000001927,
+          0.3671669999999949
+        ],
+        "medianMs": 0.42754100000001927,
+        "writes": [
+          0,
+          0,
+          0
+        ],
+        "plan": [
+          {
+            "id": 24,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 38,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 42,
+            "parent": 38,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 57,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 66,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 73,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 81,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH e USING INDEX idx_pharmacy_next_intake_expectations_due (line_account_id=? AND status=? AND reminder_at<?)"
+          },
+          {
+            "id": 122,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX sqlite_autoindex_pharmacy_continuity_obligations_2 (id=? AND line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 170,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      {
+        "legacy": false,
+        "elapsed": [
+          1.738958000000025,
+          1.404875000000004,
+          1.336041000000023
+        ],
+        "medianMs": 1.404875000000004,
+        "writes": [
+          50,
+          50,
+          50
+        ],
+        "plan": [
+          {
+            "id": 24,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 38,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 42,
+            "parent": 38,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 57,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 66,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 73,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 81,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH e USING INDEX idx_pharmacy_next_intake_expectations_due (line_account_id=? AND status=? AND reminder_at<?)"
+          },
+          {
+            "id": 122,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX sqlite_autoindex_pharmacy_continuity_obligations_2 (id=? AND line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 173,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "count": 500,
+    "pair": [
+      {
+        "legacy": true,
+        "elapsed": [
+          0.8270409999999515,
+          0.5892920000000004,
+          0.515041999999994
+        ],
+        "medianMs": 0.5892920000000004,
+        "writes": [
+          0,
+          0,
+          0
+        ],
+        "plan": [
+          {
+            "id": 24,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 38,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 42,
+            "parent": 38,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 57,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 66,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 73,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 81,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH e USING INDEX idx_pharmacy_next_intake_expectations_due (line_account_id=? AND status=? AND reminder_at<?)"
+          },
+          {
+            "id": 122,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX sqlite_autoindex_pharmacy_continuity_obligations_2 (id=? AND line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 170,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      {
+        "legacy": false,
+        "elapsed": [
+          1.961416999999983,
+          1.7619999999999436,
+          2.026292000000012
+        ],
+        "medianMs": 1.961416999999983,
+        "writes": [
+          50,
+          50,
+          50
+        ],
+        "plan": [
+          {
+            "id": 24,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 38,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 42,
+            "parent": 38,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 57,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 66,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 73,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 81,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH e USING INDEX idx_pharmacy_next_intake_expectations_due (line_account_id=? AND status=? AND reminder_at<?)"
+          },
+          {
+            "id": 122,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX sqlite_autoindex_pharmacy_continuity_obligations_2 (id=? AND line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 173,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "count": 5000,
+    "pair": [
+      {
+        "legacy": true,
+        "elapsed": [
+          3.0107080000000224,
+          2.654792000000043,
+          2.525709000000006
+        ],
+        "medianMs": 2.654792000000043,
+        "writes": [
+          0,
+          0,
+          0
+        ],
+        "plan": [
+          {
+            "id": 24,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 38,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 42,
+            "parent": 38,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 57,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 66,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 73,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 81,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH e USING INDEX idx_pharmacy_next_intake_expectations_due (line_account_id=? AND status=? AND reminder_at<?)"
+          },
+          {
+            "id": 122,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX sqlite_autoindex_pharmacy_continuity_obligations_2 (id=? AND line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 170,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      },
+      {
+        "legacy": false,
+        "elapsed": [
+          4.1655000000000655,
+          3.881167000000005,
+          3.7512910000000375
+        ],
+        "medianMs": 3.881167000000005,
+        "writes": [
+          50,
+          50,
+          50
+        ],
+        "plan": [
+          {
+            "id": 24,
+            "parent": 0,
+            "notused": 61,
+            "detail": "SEARCH friend USING INDEX idx_friends_follow_tenure (is_following=?)"
+          },
+          {
+            "id": 29,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH capability USING INDEX sqlite_autoindex_pharmacy_account_capabilities_1 (line_account_id=?)"
+          },
+          {
+            "id": 38,
+            "parent": 0,
+            "notused": 0,
+            "detail": "CORRELATED SCALAR SUBQUERY 1"
+          },
+          {
+            "id": 42,
+            "parent": 38,
+            "notused": 0,
+            "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+          },
+          {
+            "id": 57,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH mapping USING INDEX sqlite_autoindex_tenant_line_accounts_1 (line_account_id=?)"
+          },
+          {
+            "id": 66,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH tenant USING INDEX sqlite_autoindex_tenants_1 (id=?)"
+          },
+          {
+            "id": 73,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH account USING INDEX sqlite_autoindex_line_accounts_1 (id=?)"
+          },
+          {
+            "id": 81,
+            "parent": 0,
+            "notused": 60,
+            "detail": "SEARCH e USING INDEX idx_pharmacy_next_intake_expectations_due (line_account_id=? AND status=? AND reminder_at<?)"
+          },
+          {
+            "id": 122,
+            "parent": 0,
+            "notused": 46,
+            "detail": "SEARCH o USING INDEX sqlite_autoindex_pharmacy_continuity_obligations_2 (id=? AND line_account_id=? AND owner_friend_id=?)"
+          },
+          {
+            "id": 173,
+            "parent": 0,
+            "notused": 0,
+            "detail": "USE TEMP B-TREE FOR ORDER BY"
+          }
+        ]
+      }
+    ]
+  }
+]

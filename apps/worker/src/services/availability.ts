@@ -10,7 +10,7 @@ import type { GoogleCalendarCredentials } from './google-oauth.js';
 
 export interface Interval {
   start: string; // HH:MM
-  end: string;   // HH:MM
+  end: string; // HH:MM
 }
 
 export interface ComputeSlotsInput {
@@ -114,10 +114,7 @@ function weekdayForDate(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
-function googleBusyForJstDate(
-  intervals: Array<{ start: string; end: string }>,
-  date: string,
-): Interval[] {
+function googleBusyForJstDate(intervals: Array<{ start: string; end: string }>, date: string): Interval[] {
   const dayStart = new Date(`${date}T00:00:00+09:00`).getTime();
   const dayEnd = dayStart + 24 * 60 * 60_000;
   return intervals.flatMap((interval) => {
@@ -257,8 +254,7 @@ export async function getAvailability(
   for (const s of staffRows.results) {
     const slots: AvailabilityByStaff['slots'] = [];
     const hasWorkingHours =
-      shifts.results.some((row) => row.staff_id === s.id) ||
-      rules.results.some((row) => row.staff_id === s.id);
+      shifts.results.some((row) => row.staff_id === s.id) || rules.results.some((row) => row.staff_id === s.id);
     const syncState = calendarSync.find((state) => state.staff_id === s.id);
     if (syncState?.configured && !syncState.ok) {
       by_staff.push({
@@ -271,9 +267,7 @@ export async function getAvailability(
     }
     for (const date of dates) {
       const shift = shifts.results.find((r) => r.staff_id === s.id && r.work_date === date);
-      const rule = rules.results.find(
-        (r) => r.staff_id === s.id && r.weekday === weekdayForDate(date),
-      );
+      const rule = rules.results.find((r) => r.staff_id === s.id && r.weekday === weekdayForDate(date));
       const working = shift ?? rule;
       if (!working) continue;
       const dayBookings = bookings.results

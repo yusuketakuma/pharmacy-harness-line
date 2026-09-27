@@ -32,10 +32,7 @@ export function migrationChecksum(source: Buffer): string {
   return `sha256:${createHash('sha256').update(source).digest('hex')}`;
 }
 
-export function buildMigrationLedgerSql(
-  names: string[],
-  migrations: Map<string, Buffer>,
-): string {
+export function buildMigrationLedgerSql(names: string[], migrations: Map<string, Buffer>): string {
   const rows = names.map((name) => {
     const source = migrations.get(name);
     if (!source) throw new Error(`migration ${name} missing while building checksum ledger`);
@@ -66,17 +63,11 @@ export function buildMigrationLedgerSql(
  */
 export function splitSqlStatements(sql: string): string[] {
   const uncommented = stripSqlComments(sql);
-  if (
-    /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(uncommented)
-    && /\bCASE\b/i.test(uncommented)
-  ) {
+  if (/\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(uncommented) && /\bCASE\b/i.test(uncommented)) {
     // ponytail: add a real SQL parser only when a CASE-bearing trigger is required.
     throw new Error('CASE-bearing CREATE TRIGGER requires a full SQL parser');
   }
-  if (
-    /\bDROP\s+(?:TABLE|COLUMN)\b/i.test(uncommented) ||
-    /\bRENAME\s+(?:TO|COLUMN)\b/i.test(uncommented)
-  ) {
+  if (/\bDROP\s+(?:TABLE|COLUMN)\b/i.test(uncommented) || /\bRENAME\s+(?:TO|COLUMN)\b/i.test(uncommented)) {
     throw new Error('destructive schema changes are not supported by safe D1 updates');
   }
 
@@ -171,9 +162,7 @@ export function splitSqlStatements(sql: string): string[] {
  * A missing ledger is never inferred from schema shape; setup must establish
  * the trusted baseline.
  */
-export async function applyD1Migrations(
-  opts: ApplyD1MigrationsOptions,
-): Promise<MigrationApplyResult[]> {
+export async function applyD1Migrations(opts: ApplyD1MigrationsOptions): Promise<MigrationApplyResult[]> {
   const raw = opts.execute ?? executeD1Query;
   // A `success: false` envelope is a failure whichever executor produced it.
   const execute: D1Executor = async (args) => assertD1Success(await raw(args));
@@ -198,9 +187,7 @@ export async function applyD1Migrations(
     sql: "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?)",
     params: [MIGRATION_STATE_TABLE, LEGACY_BASELINE_MARKER],
   });
-  const ledgerTables = new Set<string>(
-    (ledger.result?.[0]?.results ?? []).map((row: any) => row.name),
-  );
+  const ledgerTables = new Set<string>((ledger.result?.[0]?.results ?? []).map((row: any) => row.name));
   const ledgerMissing = !ledgerTables.has(MIGRATION_STATE_TABLE);
   const legacyMarkerPresent = ledgerTables.has(LEGACY_BASELINE_MARKER);
   const legacyBaseline = ledgerMissing || legacyMarkerPresent;
@@ -210,15 +197,10 @@ export async function applyD1Migrations(
   const recordedNames = new Set<string>();
   if (ledgerMissing) {
     if (opts.requireChecksumLedger) {
-      throw new Error(
-        'migration checksum ledger missing; run trusted setup/baseline initialization before deployment',
-      );
+      throw new Error('migration checksum ledger missing; run trusted setup/baseline initialization before deployment');
     }
     for (const name of opts.names) {
-      parsedStatements.set(
-        name,
-        splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
-      );
+      parsedStatements.set(name, splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')));
     }
     await execute({
       ...base,
@@ -232,8 +214,7 @@ export async function applyD1Migrations(
     // Complete every checksum read and pending SQL safety check before the
     // first migration write. Historical bytes are trusted only by exact
     // ledger checksum and are never reinterpreted under newer SQL policy.
-    const v033Epoch = !legacyBaseline &&
-      opts.requireChecksumLedger && opts.names[0] === '001_v033_baseline.sql';
+    const v033Epoch = !legacyBaseline && opts.requireChecksumLedger && opts.names[0] === '001_v033_baseline.sql';
     if (v033Epoch) {
       const stored = await execute({
         ...base,
@@ -260,9 +241,7 @@ export async function applyD1Migrations(
         }
         const checksum = checksums.get(name) as string;
         if (priorChecksum !== checksum) {
-          throw new Error(
-            `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
-          );
+          throw new Error(`migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`);
         }
         recordedNames.add(name);
       }
@@ -270,10 +249,7 @@ export async function applyD1Migrations(
     for (const name of opts.names) {
       if (v033Epoch) {
         if (!recordedNames.has(name)) {
-          parsedStatements.set(
-            name,
-            splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
-          );
+          parsedStatements.set(name, splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')));
         }
         continue;
       }
@@ -286,16 +262,11 @@ export async function applyD1Migrations(
       const checksum = checksums.get(name) as string;
       if (typeof priorChecksum === 'string') {
         if (priorChecksum !== checksum) {
-          throw new Error(
-            `migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`,
-          );
+          throw new Error(`migration ${name} changed after it was applied (${priorChecksum} != ${checksum})`);
         }
         recordedNames.add(name);
       } else {
-        parsedStatements.set(
-          name,
-          splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')),
-        );
+        parsedStatements.set(name, splitSqlStatements((opts.migrations.get(name) as Buffer).toString('utf8')));
       }
     }
   }
@@ -311,13 +282,9 @@ export async function applyD1Migrations(
         const droppedTrigger = dropTriggerName(bare);
         if (droppedTrigger) droppedTriggers.add(droppedTrigger.toLowerCase());
         const createdTrigger = createTriggerName(bare);
-        const isReplacement = createdTrigger
-          ? droppedTriggers.delete(createdTrigger.toLowerCase())
-          : false;
-        if (createdTrigger && !isReplacement && await triggerAlreadyMatches(execute, base, name, statement)) {
-          throw new Error(
-            `migration ${name}: preexisting trigger without ledger entry`,
-          );
+        const isReplacement = createdTrigger ? droppedTriggers.delete(createdTrigger.toLowerCase()) : false;
+        if (createdTrigger && !isReplacement && (await triggerAlreadyMatches(execute, base, name, statement))) {
+          throw new Error(`migration ${name}: preexisting trigger without ledger entry`);
         }
         atomicStatements.push(strictCreateTrigger(statement));
       }
@@ -377,9 +344,9 @@ export async function applyD1Migrations(
       continue;
     }
     const ledgerInsert =
-        `INSERT INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) ` +
-        `VALUES (${sqlLiteral(name)}, ${sqlLiteral(checksum)}, ` +
-        "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
+      `INSERT INTO ${MIGRATION_STATE_TABLE} (name, checksum, applied_at) ` +
+      `VALUES (${sqlLiteral(name)}, ${sqlLiteral(checksum)}, ` +
+      "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
     const atomicStatements = atomicStatementsByMigration.get(name) as string[];
     const skippedStatements = 0;
     const atomicSql = [...atomicStatements, ledgerInsert]
@@ -397,9 +364,7 @@ export async function applyD1Migrations(
       if (reconciledChecksum !== checksum) {
         const message = error instanceof Error ? error.message : String(error);
         if (typeof reconciledChecksum === 'string') {
-          throw new Error(
-            `migration ${name} changed after it was applied (${reconciledChecksum} != ${checksum})`,
-          );
+          throw new Error(`migration ${name} changed after it was applied (${reconciledChecksum} != ${checksum})`);
         }
         throw new Error(`migration ${name} failed atomically: ${message}`, { cause: error });
       }
@@ -465,10 +430,7 @@ async function triggerAlreadyMatches(
 function strictCreateTrigger(statement: string): string {
   const bare = stripSqlComments(statement).trim();
   if (!createTriggerName(bare)) return statement;
-  return bare.replace(
-    /^(CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER)\s+IF\s+NOT\s+EXISTS\s+/i,
-    '$1 ',
-  );
+  return bare.replace(/^(CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER)\s+IF\s+NOT\s+EXISTS\s+/i, '$1 ');
 }
 
 function sqlLiteral(value: string): string {
@@ -551,10 +513,7 @@ function dropTriggerName(statement: string): string | null {
   return match[1] ?? match[2] ?? match[3] ?? match[4] ?? null;
 }
 
-function firstResultValue(
-  response: { result: any[] },
-  key: string,
-): unknown {
+function firstResultValue(response: { result: any[] }, key: string): unknown {
   const first = response.result?.[0];
   const rows = first && typeof first === 'object' ? first.results : undefined;
   return Array.isArray(rows) && rows.length > 0 ? rows[0]?.[key] : undefined;

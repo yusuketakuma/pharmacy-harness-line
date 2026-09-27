@@ -4,7 +4,7 @@ export class LineHarnessError extends Error {
     public readonly status: number,
     public readonly endpoint: string,
   ) {
-    super(message)
-    this.name = 'LineHarnessError'
+    super(message);
+    this.name = 'LineHarnessError';
   }
 }

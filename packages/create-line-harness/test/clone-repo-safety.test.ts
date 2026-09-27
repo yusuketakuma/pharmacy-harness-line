@@ -11,10 +11,7 @@ const { execaMock, repoPnpmMock } = vi.hoisted(() => ({
 vi.mock('execa', () => ({ execa: execaMock }));
 vi.mock('../src/lib/pnpm.js', () => ({ repoPnpm: repoPnpmMock }));
 
-import {
-  ensureRepo,
-  pinRepoToTag,
-} from '../src/steps/clone-repo.js';
+import { ensureRepo, pinRepoToTag } from '../src/steps/clone-repo.js';
 import { renderInstalledWranglerToml } from '../src/lib/installed-wrangler.js';
 
 const originalCwd = process.cwd();
@@ -55,7 +52,8 @@ describe('clone-repo safety', () => {
     await pinRepoToTag(repo, '1.2.3');
 
     expect(execaMock.mock.calls.map(([file, args]) => [file, args])).not.toContainEqual([
-      'git', ['checkout', '--', 'apps/worker/wrangler.toml'],
+      'git',
+      ['checkout', '--', 'apps/worker/wrangler.toml'],
     ]);
     expect(readFileSync(wranglerPath, 'utf8')).toBe(customToml);
   });
@@ -68,7 +66,8 @@ describe('clone-repo safety', () => {
     await expect(ensureRepo(null)).resolves.toBe(repo);
 
     expect(execaMock.mock.calls.map(([file, args]) => [file, args])).not.toContainEqual([
-      'git', ['checkout', '--', 'apps/worker/wrangler.toml'],
+      'git',
+      ['checkout', '--', 'apps/worker/wrangler.toml'],
     ]);
     expect(readFileSync(join(repo, 'apps/worker/wrangler.toml'), 'utf8')).toBe(toml);
   });
@@ -87,11 +86,17 @@ describe('clone-repo safety', () => {
       workerDeployMode: 'source',
     };
     const toml = renderInstalledWranglerToml({
-      workerName: 'line-harness', accountId: 'account', d1DatabaseName: 'line-harness',
-      d1DatabaseId: 'database-id', r2BucketName: 'line-harness-images',
-      workerPublicUrl: 'https://worker.example', adminPagesProject: 'admin',
-      adminPublicUrl: 'https://admin.pages.dev', liffPagesProject: '',
-      liffPublicUrl: 'https://worker.example', manifestUrl: 'https://example/manifest.json',
+      workerName: 'line-harness',
+      accountId: 'account',
+      d1DatabaseName: 'line-harness',
+      d1DatabaseId: 'database-id',
+      r2BucketName: 'line-harness-images',
+      workerPublicUrl: 'https://worker.example',
+      adminPagesProject: 'admin',
+      adminPublicUrl: 'https://admin.pages.dev',
+      liffPagesProject: '',
+      liffPublicUrl: 'https://worker.example',
+      manifestUrl: 'https://example/manifest.json',
       workerDeployMode: 'source',
     });
     const repo = setupHome(toml, config);
@@ -105,25 +110,38 @@ describe('clone-repo safety', () => {
     await expect(ensureRepo(null)).resolves.toBe(repo);
 
     expect(execaMock.mock.calls.map(([file, args]) => [file, args])).not.toContainEqual([
-      'git', ['checkout', '--', 'apps/worker/wrangler.toml'],
+      'git',
+      ['checkout', '--', 'apps/worker/wrangler.toml'],
     ]);
     expect(readFileSync(join(repo, 'apps/worker/wrangler.toml'), 'utf8')).toBe(toml);
   });
 
   it('keeps the canonical setup path able to restore an exact unstaged generated config', async () => {
     const config = {
-      projectName: 'line-harness', workerName: 'line-harness', accountId: 'account',
-      d1DatabaseId: 'database-id', d1DatabaseName: 'line-harness',
-      r2BucketName: 'line-harness-images', workerPublicUrl: 'https://worker.example',
-      adminProject: 'admin', adminPublicUrl: 'https://admin.pages.dev',
-      manifestUrl: 'https://example/manifest.json', workerDeployMode: 'source',
+      projectName: 'line-harness',
+      workerName: 'line-harness',
+      accountId: 'account',
+      d1DatabaseId: 'database-id',
+      d1DatabaseName: 'line-harness',
+      r2BucketName: 'line-harness-images',
+      workerPublicUrl: 'https://worker.example',
+      adminProject: 'admin',
+      adminPublicUrl: 'https://admin.pages.dev',
+      manifestUrl: 'https://example/manifest.json',
+      workerDeployMode: 'source',
     };
     const toml = renderInstalledWranglerToml({
-      workerName: 'line-harness', accountId: 'account', d1DatabaseName: 'line-harness',
-      d1DatabaseId: 'database-id', r2BucketName: 'line-harness-images',
-      workerPublicUrl: 'https://worker.example', adminPagesProject: 'admin',
-      adminPublicUrl: 'https://admin.pages.dev', liffPagesProject: '',
-      liffPublicUrl: 'https://worker.example', manifestUrl: 'https://example/manifest.json',
+      workerName: 'line-harness',
+      accountId: 'account',
+      d1DatabaseName: 'line-harness',
+      d1DatabaseId: 'database-id',
+      r2BucketName: 'line-harness-images',
+      workerPublicUrl: 'https://worker.example',
+      adminPagesProject: 'admin',
+      adminPublicUrl: 'https://admin.pages.dev',
+      liffPagesProject: '',
+      liffPublicUrl: 'https://worker.example',
+      manifestUrl: 'https://example/manifest.json',
       workerDeployMode: 'source',
     });
     const repo = setupHome(toml, config);
@@ -132,10 +150,12 @@ describe('clone-repo safety', () => {
     await expect(ensureRepo(null)).resolves.toBe(repo);
 
     expect(execaMock.mock.calls.map(([file, args]) => [file, args])).toContainEqual([
-      'git', ['diff', '--cached', '--quiet', '--', 'apps/worker/wrangler.toml'],
+      'git',
+      ['diff', '--cached', '--quiet', '--', 'apps/worker/wrangler.toml'],
     ]);
     expect(execaMock.mock.calls.map(([file, args]) => [file, args])).toContainEqual([
-      'git', ['checkout', '--', 'apps/worker/wrangler.toml'],
+      'git',
+      ['checkout', '--', 'apps/worker/wrangler.toml'],
     ]);
   });
 });

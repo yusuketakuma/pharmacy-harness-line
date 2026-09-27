@@ -50,9 +50,8 @@ continuityRoutes.use('/api/custom/pharmacy/continuity/*', async (c, next) => {
   const account = getPharmacyAccountId(c);
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, account, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, account, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   return next();
 });
 
@@ -61,9 +60,8 @@ continuityRoutes.use('/api/liff/pharmacy/continuity/*', async (c, next) => {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
-  if (!(await canUsePharmacyBetaParticipant(
-    c.env.DB, patient.lineAccountId, patient.friendId,
-  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
+  if (!(await canUsePharmacyBetaParticipant(c.env.DB, patient.lineAccountId, patient.friendId)))
+    return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('continuityPatient', patient);
   return next();
 });
@@ -80,8 +78,7 @@ continuityRoutes.get('/api/liff/pharmacy/continuity', async (c) => {
 continuityRoutes.post('/api/liff/pharmacy/continuity/expectations/:id/respond', async (c) => {
   const patient = c.get('continuityPatient');
   const body = await readJsonObject(c.req);
-  if (!body || (body.response !== 'accepted' && body.response !== 'ended') ||
-      typeof body.idempotencyKey !== 'string') {
+  if (!body || (body.response !== 'accepted' && body.response !== 'ended') || typeof body.idempotencyKey !== 'string') {
     return c.json({ error: 'Invalid response' }, 400);
   }
   try {
@@ -95,8 +92,7 @@ continuityRoutes.post('/api/liff/pharmacy/continuity/expectations/:id/respond', 
     return c.json({ expectation: expectationView(expectation) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    return c.json({ error: '次回事前送信のお知らせを変更できませんでした' },
-      /conflict/i.test(message) ? 409 : 400);
+    return c.json({ error: '次回事前送信のお知らせを変更できませんでした' }, /conflict/i.test(message) ? 409 : 400);
   }
 });
 
@@ -136,18 +132,22 @@ continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations', async 
   if (!body || typeof body.idempotencyKey !== 'string') {
     return c.json({ error: 'Invalid next-intake offer' }, 400);
   }
-  const timing = body.timingSource === 'manual_supply_days' &&
-      typeof body.supplyDays === 'number' && Number.isInteger(body.supplyDays)
-    ? { source: 'manual_supply_days' as const, supplyDays: body.supplyDays }
-    : body.timingSource === 'manual_window' && typeof body.expectedFrom === 'string' &&
-        typeof body.expectedTo === 'string' && typeof body.reminderAt === 'string'
-      ? {
-        source: 'manual_window' as const,
-        expectedFrom: body.expectedFrom,
-        expectedTo: body.expectedTo,
-        reminderAt: body.reminderAt,
-      }
-      : null;
+  const timing =
+    body.timingSource === 'manual_supply_days' &&
+    typeof body.supplyDays === 'number' &&
+    Number.isInteger(body.supplyDays)
+      ? { source: 'manual_supply_days' as const, supplyDays: body.supplyDays }
+      : body.timingSource === 'manual_window' &&
+          typeof body.expectedFrom === 'string' &&
+          typeof body.expectedTo === 'string' &&
+          typeof body.reminderAt === 'string'
+        ? {
+            source: 'manual_window' as const,
+            expectedFrom: body.expectedFrom,
+            expectedTo: body.expectedTo,
+            reminderAt: body.reminderAt,
+          }
+        : null;
   if (!timing) return c.json({ error: 'Invalid next-intake timing' }, 400);
   try {
     const expectation = await offerNextIntakeExpectation(c.env.DB, {
@@ -160,8 +160,10 @@ continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations', async 
     return c.json({ expectation: expectationView(expectation) }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    return c.json({ error: '次回事前送信のお知らせを登録できませんでした' },
-      /already|conflict/i.test(message) ? 409 : 400);
+    return c.json(
+      { error: '次回事前送信のお知らせを登録できませんでした' },
+      /already|conflict/i.test(message) ? 409 : 400,
+    );
   }
 });
 
@@ -171,8 +173,12 @@ continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations/:expecta
   const account = getPharmacyAccountId(c);
   if (!account) return c.json({ error: 'line_account_id is required' }, 400);
   const body = await readJsonObject(c.req);
-  if (!body || typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion) ||
-      typeof body.idempotencyKey !== 'string') {
+  if (
+    !body ||
+    typeof body.expectedVersion !== 'number' ||
+    !Number.isInteger(body.expectedVersion) ||
+    typeof body.idempotencyKey !== 'string'
+  ) {
     return c.json({ error: 'expectedVersion and idempotencyKey are required' }, 400);
   }
   try {
@@ -186,7 +192,6 @@ continuityRoutes.post('/api/custom/pharmacy/continuity/:id/expectations/:expecta
     return c.json({ expectation: expectationView(expectation) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    return c.json({ error: '次回事前送信のお知らせを取り消せませんでした' },
-      /conflict/i.test(message) ? 409 : 400);
+    return c.json({ error: '次回事前送信のお知らせを取り消せませんでした' }, /conflict/i.test(message) ? 409 : 400);
   }
 });

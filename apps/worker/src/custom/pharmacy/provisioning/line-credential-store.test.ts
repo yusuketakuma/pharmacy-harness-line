@@ -2,9 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { DB_PACKAGE_ROOT, Sqlite } from '../test-sqlite.js';
-import {
-  computeLineAccessTokenLookupDigest,
-} from './line-credentials.js';
+import { computeLineAccessTokenLookupDigest } from './line-credentials.js';
 import {
   deleteLineCredential,
   findLineCredentialByAccessToken,
@@ -68,14 +66,23 @@ function memoryDb(options: { mappingActive?: boolean; dbError?: string } = {}) {
               if (sql.includes('INSERT INTO pharmacy_line_credentials')) {
                 const [tenantId, lineAccountId, kind, nonce, ciphertext, keyVersion, lookupDigest] = values;
                 const expectedRevision = values[11] as number | null;
-                if (!mappingActive ||
-                    (expectedRevision !== null && expectedRevision !== 0 &&
-                      !rows.some((row) => row.tenant_id === tenantId &&
-                        row.line_account_id === lineAccountId && row.credential_kind === kind))) {
+                if (
+                  !mappingActive ||
+                  (expectedRevision !== null &&
+                    expectedRevision !== 0 &&
+                    !rows.some(
+                      (row) =>
+                        row.tenant_id === tenantId &&
+                        row.line_account_id === lineAccountId &&
+                        row.credential_kind === kind,
+                    ))
+                ) {
                   return null;
                 }
-                const existing = rows.find((row) => row.tenant_id === tenantId &&
-                  row.line_account_id === lineAccountId && row.credential_kind === kind);
+                const existing = rows.find(
+                  (row) =>
+                    row.tenant_id === tenantId && row.line_account_id === lineAccountId && row.credential_kind === kind,
+                );
                 if (existing) {
                   if (expectedRevision !== null && existing.revision !== expectedRevision) return null;
                   existing.nonce = String(nonce);
@@ -99,21 +106,28 @@ function memoryDb(options: { mappingActive?: boolean; dbError?: string } = {}) {
                 return { revision: created.revision } as T;
               }
               if (sql.includes('DELETE FROM pharmacy_line_credentials')) {
-                const index = rows.findIndex((candidate) => mappingActive &&
-                  candidate.tenant_id === values[0] && candidate.line_account_id === values[1] &&
-                  candidate.credential_kind === values[2]);
+                const index = rows.findIndex(
+                  (candidate) =>
+                    mappingActive &&
+                    candidate.tenant_id === values[0] &&
+                    candidate.line_account_id === values[1] &&
+                    candidate.credential_kind === values[2],
+                );
                 if (index < 0) return null;
                 const [deleted] = rows.splice(index, 1);
                 return { tenant_id: deleted!.tenant_id } as T;
               }
               if (sql.includes('lookup_digest = ?')) {
-                const row = rows.find((candidate) => mappingActive &&
-                  candidate.lookup_digest === values[0]);
+                const row = rows.find((candidate) => mappingActive && candidate.lookup_digest === values[0]);
                 return (row ?? null) as T;
               }
-              const row = rows.find((candidate) => mappingActive &&
-                candidate.tenant_id === values[0] && candidate.line_account_id === values[1] &&
-                candidate.credential_kind === values[2]);
+              const row = rows.find(
+                (candidate) =>
+                  mappingActive &&
+                  candidate.tenant_id === values[0] &&
+                  candidate.line_account_id === values[1] &&
+                  candidate.credential_kind === values[2],
+              );
               return (row ?? null) as T;
             },
             async all<T>() {
@@ -121,8 +135,9 @@ function memoryDb(options: { mappingActive?: boolean; dbError?: string } = {}) {
               calls.push({ sql, values });
               if (sql.includes('lookup_digest = ?')) {
                 return {
-                  results: rows.filter((candidate) => mappingActive &&
-                    candidate.lookup_digest === values[0]).slice(0, 2),
+                  results: rows
+                    .filter((candidate) => mappingActive && candidate.lookup_digest === values[0])
+                    .slice(0, 2),
                 } as D1Result<T>;
               }
               return { results: [] } as unknown as D1Result<T>;
@@ -142,8 +157,12 @@ function memoryDb(options: { mappingActive?: boolean; dbError?: string } = {}) {
     db,
     calls,
     rows,
-    setMappingActive(value: boolean) { mappingActive = value; },
-    setDbError(value: string | null) { dbError = value; },
+    setMappingActive(value: boolean) {
+      mappingActive = value;
+    },
+    setDbError(value: string | null) {
+      dbError = value;
+    },
   };
 }
 
@@ -168,16 +187,18 @@ function sqliteDb() {
       return statement(sql, next);
     },
     first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true,
-      results: sqlite.prepare(sql).all(...values) as T[],
-      meta: {},
-    }) as D1Result<T>,
-    run: async () => ({
-      success: true,
-      meta: { changes: sqlite.prepare(sql).run(...values).changes },
-      results: [],
-    }) as unknown as D1Result,
+    all: async <T>() =>
+      ({
+        success: true,
+        results: sqlite.prepare(sql).all(...values) as T[],
+        meta: {},
+      }) as D1Result<T>,
+    run: async () =>
+      ({
+        success: true,
+        meta: { changes: sqlite.prepare(sql).run(...values).changes },
+        results: [],
+      }) as unknown as D1Result,
   });
   return {
     db: { prepare: (sql: string) => statement(sql) } as unknown as D1Database,
@@ -190,24 +211,41 @@ describe('tenant-scoped LINE credential store', () => {
     const fake = sqliteDb();
     try {
       const first = await writeLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-        kind: 'channel_access_token', credential: ACCESS_TOKEN_A,
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_access_token',
+        credential: ACCESS_TOKEN_A,
       });
-      await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-        kind: 'channel_access_token', credential: ACCESS_TOKEN_B,
-        expectedRevision: first.revision,
-      })).resolves.toEqual({ revision: 2 });
-      await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a',
-        kind: 'channel_access_token', credential: ACCESS_TOKEN_C,
-        expectedRevision: first.revision,
-      })).rejects.toThrow(LINE_CREDENTIAL_CONFLICT_ERROR);
-      await expect(readLineCredential(fake.db, ROOT_SECRET, {
-        tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
-      })).resolves.toBe(ACCESS_TOKEN_B);
-      await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_B))
-        .resolves.toMatchObject({ tenantId: 'tenant-a', lineAccountId: 'account-a', revision: 2 });
+      await expect(
+        writeLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          kind: 'channel_access_token',
+          credential: ACCESS_TOKEN_B,
+          expectedRevision: first.revision,
+        }),
+      ).resolves.toEqual({ revision: 2 });
+      await expect(
+        writeLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          kind: 'channel_access_token',
+          credential: ACCESS_TOKEN_C,
+          expectedRevision: first.revision,
+        }),
+      ).rejects.toThrow(LINE_CREDENTIAL_CONFLICT_ERROR);
+      await expect(
+        readLineCredential(fake.db, ROOT_SECRET, {
+          tenantId: 'tenant-a',
+          lineAccountId: 'account-a',
+          kind: 'channel_access_token',
+        }),
+      ).resolves.toBe(ACCESS_TOKEN_B);
+      await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_B)).resolves.toMatchObject({
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        revision: 2,
+      });
     } finally {
       fake.close();
     }
@@ -236,118 +274,186 @@ describe('tenant-scoped LINE credential store', () => {
     expect(write.sql).toContain('account.is_active = 1');
     expect(write.values).not.toContain(ACCESS_TOKEN_A);
 
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
-    })).resolves.toBe(ACCESS_TOKEN_A);
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_access_token',
+      }),
+    ).resolves.toBe(ACCESS_TOKEN_A);
 
     fake.setMappingActive(false);
-    await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_secret', credential: CHANNEL_SECRET,
-    })).rejects.toThrow(LINE_CREDENTIAL_CONFLICT_ERROR);
+    await expect(
+      writeLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+        credential: CHANNEL_SECRET,
+      }),
+    ).rejects.toThrow(LINE_CREDENTIAL_CONFLICT_ERROR);
   });
 
   it('fails closed for missing, corrupt, wrong-tenant, and legacy plaintext data', async () => {
     const fake = memoryDb();
     await writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_secret', credential: CHANNEL_SECRET,
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_secret',
+      credential: CHANNEL_SECRET,
     });
 
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-b', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBeNull();
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'missing', kind: 'channel_secret',
-    })).resolves.toBeNull();
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-b',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'missing',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBeNull();
 
     fake.rows[0]!.ciphertext = 'corrupt';
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBeNull();
-    expect(fake.calls.every((call) => !call.sql.includes('channel_access_token') &&
-      !call.sql.includes('channel_secret FROM line_accounts'))).toBe(true);
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBeNull();
+    expect(
+      fake.calls.every(
+        (call) => !call.sql.includes('channel_access_token') && !call.sql.includes('channel_secret FROM line_accounts'),
+      ),
+    ).toBe(true);
   });
 
   it('looks up access tokens by keyed digest and only returns active mapped accounts', async () => {
     const fake = memoryDb();
     await writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_A,
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
+      credential: ACCESS_TOKEN_A,
     });
     const digest = await computeLineAccessTokenLookupDigest(ROOT_SECRET, ACCESS_TOKEN_A);
     const found = await findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A);
 
     expect(found).toMatchObject({
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_A, revision: 1,
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
+      credential: ACCESS_TOKEN_A,
+      revision: 1,
     });
     const lookup = fake.calls.find((call) => call.sql.includes('lookup_digest = ?'))!;
     expect(lookup.values).toEqual([digest]);
     expect(lookup.values).not.toContain(ACCESS_TOKEN_A);
 
     fake.setMappingActive(false);
-    await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A))
-      .resolves.toBeNull();
+    await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A)).resolves.toBeNull();
   });
 
   it('fails closed when one access token matches more than one active account', async () => {
     const fake = memoryDb();
     await writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_A,
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_access_token',
+      credential: ACCESS_TOKEN_A,
     });
     await writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-b', lineAccountId: 'account-b',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_A,
+      tenantId: 'tenant-b',
+      lineAccountId: 'account-b',
+      kind: 'channel_access_token',
+      credential: ACCESS_TOKEN_A,
     });
 
-    await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A))
-      .resolves.toBeNull();
+    await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A)).resolves.toBeNull();
     expect(fake.calls.find((call) => call.sql.includes('LIMIT 2'))).toBeTruthy();
   });
 
   it('uses revision CAS for rotation and preserves the current value after a stale write', async () => {
     const fake = memoryDb();
-    await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_A,
-    })).resolves.toEqual({ revision: 1 });
-    await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_B, expectedRevision: 1,
-    })).resolves.toEqual({ revision: 2 });
+    await expect(
+      writeLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_access_token',
+        credential: ACCESS_TOKEN_A,
+      }),
+    ).resolves.toEqual({ revision: 1 });
+    await expect(
+      writeLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_access_token',
+        credential: ACCESS_TOKEN_B,
+        expectedRevision: 1,
+      }),
+    ).resolves.toEqual({ revision: 2 });
 
-    await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_access_token', credential: ACCESS_TOKEN_C, expectedRevision: 1,
-    })).rejects.toThrow(LINE_CREDENTIAL_CONFLICT_ERROR);
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_access_token',
-    })).resolves.toBe(ACCESS_TOKEN_B);
+    await expect(
+      writeLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_access_token',
+        credential: ACCESS_TOKEN_C,
+        expectedRevision: 1,
+      }),
+    ).rejects.toThrow(LINE_CREDENTIAL_CONFLICT_ERROR);
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_access_token',
+      }),
+    ).resolves.toBe(ACCESS_TOKEN_B);
     expect(fake.rows[0]?.revision).toBe(2);
   });
 
   it('deletes only the mapped tenant/account credential', async () => {
     const fake = memoryDb();
     await writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_secret', credential: CHANNEL_SECRET,
+      tenantId: 'tenant-a',
+      lineAccountId: 'account-a',
+      kind: 'channel_secret',
+      credential: CHANNEL_SECRET,
     });
 
-    await expect(deleteLineCredential(fake.db, {
-      tenantId: 'tenant-b', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBe(false);
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBe(CHANNEL_SECRET);
+    await expect(
+      deleteLineCredential(fake.db, {
+        tenantId: 'tenant-b',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBe(CHANNEL_SECRET);
 
-    await expect(deleteLineCredential(fake.db, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBe(true);
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBeNull();
+    await expect(
+      deleteLineCredential(fake.db, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBeNull();
     const deletion = fake.calls.find((call) => call.sql.includes('DELETE FROM pharmacy_line_credentials'))!;
     expect(deletion.sql).toContain('tenant_line_accounts');
   });
@@ -356,15 +462,22 @@ describe('tenant-scoped LINE credential store', () => {
     const fake = memoryDb({ dbError: 'database failed with token secret' });
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    await expect(writeLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a',
-      kind: 'channel_secret', credential: CHANNEL_SECRET,
-    })).rejects.toThrow(LINE_CREDENTIAL_STORE_ERROR);
-    await expect(readLineCredential(fake.db, ROOT_SECRET, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'channel_secret',
-    })).resolves.toBeNull();
-    await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A))
-      .resolves.toBeNull();
+    await expect(
+      writeLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+        credential: CHANNEL_SECRET,
+      }),
+    ).rejects.toThrow(LINE_CREDENTIAL_STORE_ERROR);
+    await expect(
+      readLineCredential(fake.db, ROOT_SECRET, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'channel_secret',
+      }),
+    ).resolves.toBeNull();
+    await expect(findLineCredentialByAccessToken(fake.db, ROOT_SECRET, ACCESS_TOKEN_A)).resolves.toBeNull();
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
@@ -372,8 +485,12 @@ describe('tenant-scoped LINE credential store', () => {
   it('distinguishes a credential delete failure from an absent row', async () => {
     const fake = memoryDb({ dbError: 'delete failed' });
 
-    await expect(deleteLineCredential(fake.db, {
-      tenantId: 'tenant-a', lineAccountId: 'account-a', kind: 'login_channel_secret',
-    })).rejects.toThrow(LINE_CREDENTIAL_STORE_ERROR);
+    await expect(
+      deleteLineCredential(fake.db, {
+        tenantId: 'tenant-a',
+        lineAccountId: 'account-a',
+        kind: 'login_channel_secret',
+      }),
+    ).rejects.toThrow(LINE_CREDENTIAL_STORE_ERROR);
   });
 });

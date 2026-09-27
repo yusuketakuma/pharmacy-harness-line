@@ -22,9 +22,9 @@
  * web page for the details instead.
  */
 
-import { LineHarness } from '@line-harness/sdk'
-import { MyServiceClient } from './external-api.js'
-import type { Env } from './index.js'
+import { LineHarness } from '@line-harness/sdk';
+import { MyServiceClient } from './external-api.js';
+import type { Env } from './index.js';
 
 /**
  * Check conditions in MyService and send relevant notifications.
@@ -35,14 +35,14 @@ export async function checkAndNotify(env: Env): Promise<void> {
     apiKey: env.LINE_HARNESS_API_KEY,
     tenantId: env.LINE_HARNESS_TENANT_ID,
     lineAccountId: env.LINE_ACCOUNT_ID,
-  })
-  const myService = new MyServiceClient(env.EXTERNAL_API_KEY)
+  });
+  const myService = new MyServiceClient(env.EXTERNAL_API_KEY);
 
   // Example 1: Send appointment reminders
-  await sendAppointmentReminders(harness, myService)
+  await sendAppointmentReminders(harness, myService);
 
   // Example 2: Notify about expiring memberships
-  await notifyExpiringMemberships(harness, myService)
+  await notifyExpiringMemberships(harness, myService);
 }
 
 /**
@@ -55,20 +55,33 @@ async function ensureTagAddedScenario(
   triggerTagId: string,
   messageContent: string,
 ): Promise<void> {
-  const existing = (await harness.scenarios.list()).find((s) => s.name === name)
-  if (existing) return
+  const existing = (await harness.scenarios.list()).find((s) => s.name === name);
+  if (existing) {
+    // A matching name may be paused, incomplete, or attached to another trigger.
+    // Do not consume the dedup tag or silently reactivate an operator's scenario.
+    if (
+      !existing.isActive ||
+      !(existing.stepCount > 0) ||
+      existing.triggerType !== 'tag_added' ||
+      existing.triggerTagId !== triggerTagId
+    ) {
+      throw new Error('Notification scenario is not ready; review its trigger, steps, and active state');
+    }
+    return;
+  }
   const scenario = await harness.scenarios.create({
     name,
     triggerType: 'tag_added',
     triggerTagId,
-    isActive: true,
-  })
+    isActive: false,
+  });
   await harness.scenarios.addStep(scenario.id, {
     stepOrder: 1,
     delayMinutes: 0,
     messageType: 'text',
     messageContent,
-  })
+  });
+  await harness.scenarios.update(scenario.id, { isActive: true });
 }
 
 /**
@@ -79,41 +92,38 @@ async function ensureTagAddedScenario(
  * Friends keep the trigger tag, which also prevents re-notification — remove
  * it when the appointment passes so a future appointment can re-trigger.
  */
-async function sendAppointmentReminders(
-  harness: LineHarness,
-  myService: MyServiceClient,
-): Promise<void> {
-  const upcoming = await myService.getUpcomingAppointments(24) // next 24 hours
+async function sendAppointmentReminders(harness: LineHarness, myService: MyServiceClient): Promise<void> {
+  const upcoming = await myService.getUpcomingAppointments(24); // next 24 hours
 
-  const allTags = await harness.tags.list()
-  let triggerTag = allTags.find((t) => t.name === 'myservice:appt-reminder')
+  const allTags = await harness.tags.list();
+  let triggerTag = allTags.find((t) => t.name === 'myservice:appt-reminder');
   if (!triggerTag) {
-    triggerTag = await harness.tags.create({ name: 'myservice:appt-reminder', color: '#6B7280' })
+    triggerTag = await harness.tags.create({ name: 'myservice:appt-reminder', color: '#6B7280' });
   }
   await ensureTagAddedScenario(
     harness,
     'MyService appointment reminder',
     triggerTag.id,
     'Reminder: you have an appointment coming up.\n\nPlease check your booking page for the time and location.',
-  )
+  );
 
   for (const appointment of upcoming) {
-    if (!appointment.lineHarnessFriendId) continue
+    if (!appointment.lineHarnessFriendId) continue;
 
     try {
-      const friend = await harness.friends.get(appointment.lineHarnessFriendId)
+      const friend = await harness.friends.get(appointment.lineHarnessFriendId);
       if (friend.tags.some((t) => t.id === triggerTag.id)) {
-        console.log(`[Notify] Skipping (reminder already triggered): ${appointment.lineHarnessFriendId}`)
-        continue
+        console.log(`[Notify] Skipping (reminder already triggered): ${appointment.lineHarnessFriendId}`);
+        continue;
       }
 
       // Attaching the trigger tag enrolls the friend in the scenario, which
       // performs the actual send — do NOT call sendTextToFriend here.
-      await harness.friends.addTag(appointment.lineHarnessFriendId, triggerTag.id)
+      await harness.friends.addTag(appointment.lineHarnessFriendId, triggerTag.id);
 
-      console.log(`[Notify] Reminder scenario triggered for ${appointment.lineHarnessFriendId}`)
+      console.log(`[Notify] Reminder scenario triggered for ${appointment.lineHarnessFriendId}`);
     } catch (error) {
-      console.error(`[Notify] Failed to trigger reminder:`, error)
+      console.error(`[Notify] Failed to trigger reminder:`, error);
     }
   }
 }
@@ -125,39 +135,39 @@ async function sendAppointmentReminders(
  * To send a Flex Message instead of text, create the scenario step with
  * messageType 'flex' and the Flex JSON in messageContent.
  */
-async function notifyExpiringMemberships(
-  harness: LineHarness,
-  myService: MyServiceClient,
-): Promise<void> {
-  const expiring = await myService.getExpiringMemberships(7) // next 7 days
+async function notifyExpiringMemberships(harness: LineHarness, myService: MyServiceClient): Promise<void> {
+  const expiring = await myService.getExpiringMemberships(7); // next 7 days
 
-  const allTags = await harness.tags.list()
-  let triggerTag = allTags.find((t) => t.name === 'myservice:renewal-reminder')
+  const allTags = await harness.tags.list();
+  let triggerTag = allTags.find((t) => t.name === 'myservice:renewal-reminder');
   if (!triggerTag) {
-    triggerTag = await harness.tags.create({ name: 'myservice:renewal-reminder', color: '#F59E0B' })
+    triggerTag = await harness.tags.create({
+      name: 'myservice:renewal-reminder',
+      color: '#F59E0B',
+    });
   }
   await ensureTagAddedScenario(
     harness,
     'MyService renewal reminder',
     triggerTag.id,
     'Your membership is expiring soon.\n\nPlease renew from your account page to keep your benefits.',
-  )
+  );
 
   for (const membership of expiring) {
-    if (!membership.lineHarnessFriendId) continue
+    if (!membership.lineHarnessFriendId) continue;
 
     try {
-      const friend = await harness.friends.get(membership.lineHarnessFriendId)
+      const friend = await harness.friends.get(membership.lineHarnessFriendId);
       if (friend.tags.some((t) => t.id === triggerTag.id)) {
-        console.log(`[Notify] Skipping (already notified): ${membership.lineHarnessFriendId}`)
-        continue
+        console.log(`[Notify] Skipping (already notified): ${membership.lineHarnessFriendId}`);
+        continue;
       }
 
-      await harness.friends.addTag(membership.lineHarnessFriendId, triggerTag.id)
+      await harness.friends.addTag(membership.lineHarnessFriendId, triggerTag.id);
 
-      console.log(`[Notify] Renewal scenario triggered for ${membership.lineHarnessFriendId}`)
+      console.log(`[Notify] Renewal scenario triggered for ${membership.lineHarnessFriendId}`);
     } catch (error) {
-      console.error(`[Notify] Failed to trigger renewal reminder:`, error)
+      console.error(`[Notify] Failed to trigger renewal reminder:`, error);
     }
   }
 }

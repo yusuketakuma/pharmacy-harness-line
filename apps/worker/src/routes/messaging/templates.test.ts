@@ -44,7 +44,11 @@ describe('template tenant boundary', () => {
   it('lists and reads only through the server tenant scope', async () => {
     dbMocks.getTemplatesWithUsageCount.mockResolvedValue([row]);
     dbMocks.getTemplateById.mockResolvedValue(row);
-    dbMocks.getTemplateUsage.mockResolvedValue({ autoReplies: [], automations: [], scenarioSteps: [] });
+    dbMocks.getTemplateUsage.mockResolvedValue({
+      autoReplies: [],
+      automations: [],
+      scenarioSteps: [],
+    });
     const { root, env } = app();
 
     const list = await root.request('/api/templates?category=general', {}, env);
@@ -74,38 +78,48 @@ describe('template tenant boundary', () => {
     dbMocks.updateTemplate.mockResolvedValue(true);
     dbMocks.getTemplateById.mockResolvedValue(row);
     dbMocks.deleteTemplate.mockResolvedValue(true);
-    dbMocks.getTemplateUsage.mockResolvedValue({ autoReplies: [], automations: [], scenarioSteps: [] });
+    dbMocks.getTemplateUsage.mockResolvedValue({
+      autoReplies: [],
+      automations: [],
+      scenarioSteps: [],
+    });
     const { root, env } = app();
 
-    const create = await root.request('/api/templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Template A',
-        category: 'general',
-        messageType: 'text',
-        messageContent: 'hello',
-        tenantId: 'tenant-b',
-      }),
-    }, env);
-    const update = await root.request('/api/templates/template-a', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Updated', tenantId: 'tenant-b' }),
-    }, env);
+    const create = await root.request(
+      '/api/templates',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Template A',
+          category: 'general',
+          messageType: 'text',
+          messageContent: 'hello',
+          tenantId: 'tenant-b',
+        }),
+      },
+      env,
+    );
+    const update = await root.request(
+      '/api/templates/template-a',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Updated', tenantId: 'tenant-b' }),
+      },
+      env,
+    );
     const remove = await root.request('/api/templates/template-a', { method: 'DELETE' }, env);
 
     expect([create.status, update.status, remove.status]).toEqual([201, 200, 200]);
-    expect(dbMocks.createTemplate).toHaveBeenCalledWith(env.DB, expect.objectContaining({
-      name: 'Template A',
-      tenantId: 'tenant-a',
-    }));
-    expect(dbMocks.updateTemplate).toHaveBeenCalledWith(
+    expect(dbMocks.createTemplate).toHaveBeenCalledWith(
       env.DB,
-      'template-a',
-      { name: 'Updated' },
-      'tenant-a',
+      expect.objectContaining({
+        name: 'Template A',
+        tenantId: 'tenant-a',
+      }),
     );
+    expect(dbMocks.updateTemplate).toHaveBeenCalledWith(env.DB, 'template-a', { name: 'Updated' }, 'tenant-a');
     expect(dbMocks.deleteTemplate).toHaveBeenCalledWith(env.DB, 'template-a', 'tenant-a');
   });
 });

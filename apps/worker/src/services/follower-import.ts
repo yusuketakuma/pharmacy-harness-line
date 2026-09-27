@@ -7,7 +7,10 @@ const PROFILE_BATCH_SIZE = 25;
 export const FOLLOWER_IMPORT_STATE_KEY = 'follower_import_v1';
 
 export interface FollowerImportClient {
-  getFollowerIds(limit: number, start?: string): Promise<{
+  getFollowerIds(
+    limit: number,
+    start?: string,
+  ): Promise<{
     userIds: string[];
     next?: string;
   }>;
@@ -19,11 +22,7 @@ export interface FollowerImportClient {
 }
 
 export type FollowerImportCapability = 'unknown' | 'available' | 'unavailable';
-export type FollowerImportPhase =
-  | 'not_started'
-  | 'importing_ids'
-  | 'hydrating_profiles'
-  | 'completed';
+export type FollowerImportPhase = 'not_started' | 'importing_ids' | 'hydrating_profiles' | 'completed';
 
 export interface FollowerImportState {
   version: 1;
@@ -87,10 +86,7 @@ export function emptyFollowerImportState(): FollowerImportState {
   };
 }
 
-export async function getFollowerImportState(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<FollowerImportState> {
+export async function getFollowerImportState(db: D1Database, lineAccountId: string): Promise<FollowerImportState> {
   const raw = await getAccountSetting(db, lineAccountId, FOLLOWER_IMPORT_STATE_KEY);
   if (!raw) return emptyFollowerImportState();
   try {
@@ -100,18 +96,9 @@ export async function getFollowerImportState(
   }
 }
 
-async function saveState(
-  db: D1Database,
-  lineAccountId: string,
-  state: FollowerImportState,
-): Promise<void> {
+async function saveState(db: D1Database, lineAccountId: string, state: FollowerImportState): Promise<void> {
   state.updatedAt = jstNow();
-  await setAccountSetting(
-    db,
-    lineAccountId,
-    FOLLOWER_IMPORT_STATE_KEY,
-    JSON.stringify(state),
-  );
+  await setAccountSetting(db, lineAccountId, FOLLOWER_IMPORT_STATE_KEY, JSON.stringify(state));
 }
 
 /**
@@ -144,10 +131,7 @@ export async function detectFollowerImportCapability(
 }
 
 /** Start once or resume an interrupted migration. Completed jobs stay closed. */
-export async function startFollowerImport(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<FollowerImportState> {
+export async function startFollowerImport(db: D1Database, lineAccountId: string): Promise<FollowerImportState> {
   const state = await getFollowerImportState(db, lineAccountId);
   if (state.capability !== 'available') {
     throw new Error('FOLLOWER_IMPORT_NOT_AVAILABLE');
@@ -210,10 +194,12 @@ async function importIdPage(
 
   const now = jstNow();
   for (const group of chunks(writableIds, WRITE_CHUNK_SIZE)) {
-    await db.batch(group.map((lineUserId) => {
-      const id = crypto.randomUUID();
-      return db.prepare(
-        `INSERT INTO friends
+    await db.batch(
+      group.map((lineUserId) => {
+        const id = crypto.randomUUID();
+        return db
+          .prepare(
+            `INSERT INTO friends
            (id, line_user_id, provider_line_user_id, display_name, picture_url,
             status_message, is_following, line_account_id, created_at, updated_at)
          VALUES (?, ?, ?, NULL, NULL, NULL, 1, ?, ?, ?)
@@ -223,8 +209,10 @@ async function importIdPage(
            is_following = 1,
            updated_at = excluded.updated_at
          WHERE friends.is_following != 1`,
-      ).bind(id, `friend-key:${id}`, lineUserId, lineAccountId, now, now);
-    }));
+          )
+          .bind(id, `friend-key:${id}`, lineUserId, lineAccountId, now, now);
+      }),
+    );
   }
 
   state.received += receivedIds.length;
@@ -239,8 +227,9 @@ async function hydrateProfilePage(
   lineAccountId: string,
   state: FollowerImportState,
 ): Promise<void> {
-  const rows = await db.prepare(
-    `SELECT id, provider_line_user_id AS line_user_id
+  const rows = await db
+    .prepare(
+      `SELECT id, provider_line_user_id AS line_user_id
        FROM friends
       WHERE line_account_id = ?
         AND is_following = 1
@@ -248,31 +237,37 @@ async function hydrateProfilePage(
         AND id > ?
       ORDER BY id
       LIMIT ?`,
-  ).bind(lineAccountId, state.profileCursor ?? '', PROFILE_BATCH_SIZE)
+    )
+    .bind(lineAccountId, state.profileCursor ?? '', PROFILE_BATCH_SIZE)
     .all<{ id: string; line_user_id: string }>();
   const batch = rows.results ?? [];
 
   for (const group of chunks(batch, 5)) {
-    await Promise.all(group.map(async (row) => {
-      try {
-        const profile = await client.getProfile(row.line_user_id);
-        await db.prepare(
-          `UPDATE friends
+    await Promise.all(
+      group.map(async (row) => {
+        try {
+          const profile = await client.getProfile(row.line_user_id);
+          await db
+            .prepare(
+              `UPDATE friends
               SET display_name = ?, picture_url = ?, status_message = ?, updated_at = ?
             WHERE id = ?`,
-        ).bind(
-          profile.displayName ?? null,
-          profile.pictureUrl ?? null,
-          profile.statusMessage ?? null,
-          jstNow(),
-          row.id,
-        ).run();
-        state.profilesUpdated += 1;
-      } catch {
-        state.profileErrors += 1;
-      }
-      state.profilesProcessed += 1;
-    }));
+            )
+            .bind(
+              profile.displayName ?? null,
+              profile.pictureUrl ?? null,
+              profile.statusMessage ?? null,
+              jstNow(),
+              row.id,
+            )
+            .run();
+          state.profilesUpdated += 1;
+        } catch {
+          state.profileErrors += 1;
+        }
+        state.profilesProcessed += 1;
+      }),
+    );
   }
 
   if (batch.length > 0) state.profileCursor = batch[batch.length - 1].id;
@@ -311,14 +306,14 @@ export async function processFollowerImportStep(
   const oldRaw = await getAccountSetting(db, lineAccountId, FOLLOWER_IMPORT_STATE_KEY);
   if (!oldRaw) return { state, busy: true };
   const locked = { ...state, lockToken, lockUntil, updatedAt: jstNow() };
-  const claim = await db.prepare(
-    `UPDATE account_settings
+  const claim = await db
+    .prepare(
+      `UPDATE account_settings
         SET value = ?, updated_at = ?
       WHERE line_account_id = ? AND key = ? AND value = ?`,
-  ).bind(
-    JSON.stringify(locked), locked.updatedAt, lineAccountId,
-    FOLLOWER_IMPORT_STATE_KEY, oldRaw,
-  ).run();
+    )
+    .bind(JSON.stringify(locked), locked.updatedAt, lineAccountId, FOLLOWER_IMPORT_STATE_KEY, oldRaw)
+    .run();
   if ((claim.meta.changes ?? 0) === 0) return { state, busy: true };
   state = locked;
 

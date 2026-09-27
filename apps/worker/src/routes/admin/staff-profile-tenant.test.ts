@@ -49,11 +49,15 @@ describe('PATCH /api/staff/:id profile tenant safety', () => {
     } as unknown as D1Database;
     const { app, env } = mount(db);
 
-    const response = await app.request('/api/staff/staff-a', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Tenant A Name' }),
-    }, env);
+    const response = await app.request(
+      '/api/staff/staff-a',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Tenant A Name' }),
+      },
+      env,
+    );
 
     expect(response.status).toBe(409);
     expect(writes).toHaveLength(1);

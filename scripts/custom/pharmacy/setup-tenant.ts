@@ -43,7 +43,11 @@ Options:
   --dry-run
   --help`;
 
-function parseArgs(argv: string[]): { values: Record<string, string>; dryRun: boolean; help: boolean } {
+function parseArgs(argv: string[]): {
+  values: Record<string, string>;
+  dryRun: boolean;
+  help: boolean;
+} {
   const values: Record<string, string> = {};
   let dryRun = false;
   let help = false;
@@ -161,7 +165,7 @@ export async function runTenantSetup(
       return 1;
     }
 
-    const payload = await response.json().catch(() => null) as {
+    const payload = (await response.json().catch(() => null)) as {
       success?: boolean;
       error?: unknown;
       data?: {
@@ -204,6 +208,7 @@ export async function runTenantSetup(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runTenantSetup(process.argv.slice(2), process.env)
-    .then((exitCode) => { process.exitCode = exitCode; });
+  void runTenantSetup(process.argv.slice(2), process.env).then((exitCode) => {
+    process.exitCode = exitCode;
+  });
 }

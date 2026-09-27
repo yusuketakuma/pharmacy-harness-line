@@ -1,9 +1,6 @@
 import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js';
 import { createLineRetryKey } from '../../../services/broadcast-retry-key.js';
-import {
-  LineHarnessUnknownOutcomeError,
-  pushViaHarnessProxy,
-} from '../../../services/line-proxy-send.js';
+import { LineHarnessUnknownOutcomeError, pushViaHarnessProxy } from '../../../services/line-proxy-send.js';
 import { getPharmacyCapabilityConfig } from './repository.js';
 import { getPatientAccessState } from '../intake/repository.js';
 import {
@@ -63,43 +60,62 @@ async function markOutcome(
   retryKey: string,
   outcome: 'sent' | 'failed' | 'blocked',
   occurredAt: string,
+  claimedAt: string,
 ): Promise<void> {
-  await db.prepare(
-    `UPDATE pharmacy_notification_events
+  await db
+    .prepare(
+      `UPDATE pharmacy_notification_events
         SET outcome = ?, occurred_at = ?
-      WHERE line_account_id = ? AND idempotency_key = ? AND outcome <> 'sent'`,
-  ).bind(outcome, occurredAt, lineAccountId, retryKey).run();
+      WHERE line_account_id = ? AND idempotency_key = ?
+        AND outcome = 'attempted' AND occurred_at = ?`,
+    )
+    .bind(outcome, occurredAt, lineAccountId, retryKey, claimedAt)
+    .run();
 }
 
 async function recordBlocked(input: AutomatedPushInput, occurredAt: string): Promise<void> {
-  await input.db.prepare(
-    `INSERT OR IGNORE INTO pharmacy_notification_events
+  await input.db
+    .prepare(
+      `INSERT OR IGNORE INTO pharmacy_notification_events
       (id, line_account_id, friend_id, message_id, category, outcome,
        schema_version, occurred_at, idempotency_key, created_at)
      VALUES (?, ?, ?, ?, ?, 'blocked', 1, ?, ?, ?)`,
-  ).bind(
-    crypto.randomUUID(), input.lineAccountId, input.friendId, input.messageId,
-    input.category, occurredAt, input.retryKey, occurredAt,
-  ).run();
-  await input.db.prepare(
-    `UPDATE pharmacy_notification_events
+    )
+    .bind(
+      crypto.randomUUID(),
+      input.lineAccountId,
+      input.friendId,
+      input.messageId,
+      input.category,
+      occurredAt,
+      input.retryKey,
+      occurredAt,
+    )
+    .run();
+  // A prior attempt may have reached LINE; stopping delivery cannot resolve its outcome.
+  await input.db
+    .prepare(
+      `UPDATE pharmacy_notification_events
         SET outcome = 'blocked', occurred_at = ?
       WHERE line_account_id = ? AND idempotency_key = ?
-        AND outcome IN ('attempted','failed')`,
-  ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
+        AND outcome = 'failed'`,
+    )
+    .bind(occurredAt, input.lineAccountId, input.retryKey)
+    .run();
 }
 
 type PatientDeliveryState = 'allowed' | 'retryable' | 'blocked';
 
-async function getPatientDeliveryState(
-  input: AutomatedPushInput,
-  now = new Date(),
-): Promise<PatientDeliveryState> {
+async function getPatientDeliveryState(input: AutomatedPushInput, now = new Date()): Promise<PatientDeliveryState> {
   if (!input.patientId) return 'allowed';
-  const access = await getPatientAccessState(input.db, {
-    lineAccountId: input.lineAccountId,
-    friendId: input.friendId,
-  }, input.patientId);
+  const access = await getPatientAccessState(
+    input.db,
+    {
+      lineAccountId: input.lineAccountId,
+      friendId: input.friendId,
+    },
+    input.patientId,
+  );
   if (access?.privacy !== 'active' || access.notifications !== 'enabled') return 'blocked';
   const betaEnabled = await getPharmacyBetaEnabled(input.db, input.lineAccountId);
   if (betaEnabled === null) return 'blocked';
@@ -117,13 +133,11 @@ async function getPatientDeliveryState(
 
 type FinalDispatchState = 'ok' | 'paused' | 'blocked' | 'patient_retryable' | 'operations_blocked';
 
-async function medicationFollowUpOperationsReady(
-  db: D1Database,
-  lineAccountId: string,
-): Promise<boolean> {
+async function medicationFollowUpOperationsReady(db: D1Database, lineAccountId: string): Promise<boolean> {
   try {
-    const row = await db.prepare(
-      `SELECT operations.enabled
+    const row = await db
+      .prepare(
+        `SELECT operations.enabled
          FROM pharmacy_medication_followup_operations AS operations
         WHERE operations.line_account_id = ? AND operations.enabled = 1
           AND ${activeHumanFollowUpStaffPredicate('operations.line_account_id', 'operations.primary_staff_id')}
@@ -132,7 +146,9 @@ async function medicationFollowUpOperationsReady(
             OR ${activeHumanFollowUpStaffPredicate('operations.line_account_id', 'operations.backup_staff_id')}
           )
         LIMIT 1`,
-    ).bind(lineAccountId).first<{ enabled: number }>();
+      )
+      .bind(lineAccountId)
+      .first<{ enabled: number }>();
     return row?.enabled === 1;
   } catch {
     return false;
@@ -183,12 +199,23 @@ async function getFinalDispatchState(
   input: AutomatedPushInput,
   requiredCapability: string,
 ): Promise<FinalDispatchState> {
-  const followUpId = input.messageId === 'medication_followup_v1'
-    ? input.vars?.followUpId ?? null
-    : null;
-  const betaSchema = input.patientId
-    ? await getPharmacyBetaSchemaState(input.db)
-    : 'legacy';
+  const followUpId = input.messageId === 'medication_followup_v1' ? (input.vars?.followUpId ?? null) : null;
+  const continuityReminder = input.messageId === 'continuity_reminder_v1';
+  const expectationId =
+    continuityReminder && input.retryKey.startsWith('next-intake:')
+      ? input.retryKey.slice('next-intake:'.length)
+      : null;
+  const validityReminder = input.messageId === 'prescription_validity_reminder_v1';
+  const validityDate = input.vars?.genericDate ?? null;
+  const validityPrefix = 'prescription-validity:';
+  const validitySubmissionId =
+    validityReminder &&
+    validityDate &&
+    input.retryKey.startsWith(validityPrefix) &&
+    input.retryKey.endsWith(`:${validityDate}`)
+      ? input.retryKey.slice(validityPrefix.length, -(validityDate.length + 1))
+      : null;
+  const betaSchema = input.patientId ? await getPharmacyBetaSchemaState(input.db) : 'legacy';
   if (betaSchema === 'unavailable') return 'blocked';
   const patientJoin = input.patientId
     ? `
@@ -238,8 +265,9 @@ async function getFinalDispatchState(
          )
        )`
     : '';
-  const betaScope = input.patientId && betaSchema === 'ready'
-    ? `
+  const betaScope =
+    input.patientId && betaSchema === 'ready'
+      ? `
        AND (
          NOT EXISTS (
            SELECT 1 FROM pharmacy_account_capabilities AS beta_capability
@@ -258,9 +286,10 @@ async function getFinalDispatchState(
               AND unixepoch(beta_membership.expires_at) > unixepoch('now')
          )
        )`
-    : '';
-  const betaMembershipStatus = input.patientId && betaSchema === 'ready'
-    ? `(
+      : '';
+  const betaMembershipStatus =
+    input.patientId && betaSchema === 'ready'
+      ? `(
          SELECT beta_membership.status
            FROM pharmacy_beta_memberships AS beta_membership
           WHERE beta_membership.line_account_id = friend.line_account_id
@@ -278,13 +307,17 @@ async function getFinalDispatchState(
                    beta_membership.updated_at DESC, beta_membership.id DESC
           LIMIT 1
        ) AS beta_membership_status`
-    : 'NULL AS beta_membership_status';
-  const operationsSelect = followUpId === null
-    ? '1 AS followup_operations_enabled'
-    : `CASE WHEN ${followUpOperationsReadyPredicate('friend.line_account_id')}
+      : 'NULL AS beta_membership_status';
+  const operationsSelect =
+    followUpId === null
+      ? '1 AS followup_operations_enabled'
+      : `CASE WHEN ${followUpOperationsReadyPredicate('friend.line_account_id')}
             THEN 1 ELSE 0 END AS followup_operations_enabled`;
-  const row = await input.db.prepare(
-    `/* final pharmacy dispatch scope */
+  const dispatchNow = new Date();
+  const dispatchDate = new Date(dispatchNow.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const row = await input.db
+    .prepare(
+      `/* final pharmacy dispatch scope */
       SELECT friend.provider_line_user_id AS destination_line_user_id,
              friend.is_following,
              account.is_active AS account_active,
@@ -295,6 +328,22 @@ async function getFinalDispatchState(
                 WHERE json_each.value = ?
              ) THEN 1 ELSE 0 END AS capability_enabled,
              followup.status AS followup_status,
+             ${
+               continuityReminder
+                 ? 'expectation.status AS expectation_status, obligation.status AS continuity_status'
+                 : 'NULL AS expectation_status, NULL AS continuity_status'
+             },
+             ${
+               validityReminder
+                 ? `CASE WHEN validity.verification_status = 'verified'
+               AND validity_submission.status = 'ready'
+               AND validity.valid_until = ? AND validity.valid_until >= ?
+               AND validity.reminder_due_at <= ?
+               AND validity.reminder_claimed_at IS NOT NULL AND validity.reminder_sent_at IS NULL
+               AND validity_patient.patient_id IS ?
+               THEN 1 ELSE 0 END`
+                 : '1'
+             } AS validity_dispatch_allowed,
              ${operationsSelect},
              ${betaMembershipStatus}
         FROM friends AS friend
@@ -307,6 +356,37 @@ async function getFinalDispatchState(
         INNER JOIN pharmacy_account_capabilities AS capability
                 ON capability.line_account_id = friend.line_account_id
         ${patientJoin}
+        ${
+          continuityReminder
+            ? `
+        LEFT JOIN pharmacy_next_intake_expectations AS expectation
+               ON expectation.id = ?
+              AND expectation.line_account_id = friend.line_account_id
+              AND expectation.owner_friend_id = friend.id
+              AND expectation.patient_id = ?
+        LEFT JOIN pharmacy_continuity_obligations AS obligation
+               ON obligation.id = expectation.obligation_id
+              AND obligation.line_account_id = expectation.line_account_id
+              AND obligation.owner_friend_id = expectation.owner_friend_id
+              AND obligation.patient_id = expectation.patient_id`
+            : ''
+        }
+        ${
+          validityReminder
+            ? `
+        LEFT JOIN pharmacy_prescription_submissions AS validity_submission
+               ON validity_submission.id = ?
+              AND validity_submission.line_account_id = friend.line_account_id
+              AND validity_submission.friend_id = friend.id
+        LEFT JOIN pharmacy_prescription_validities AS validity
+               ON validity.submission_id = validity_submission.id
+              AND validity.line_account_id = validity_submission.line_account_id
+        LEFT JOIN pharmacy_prescription_patients AS validity_patient
+               ON validity_patient.submission_id = validity_submission.id
+              AND validity_patient.line_account_id = validity_submission.line_account_id
+              AND validity_patient.owner_friend_id = friend.id`
+            : ''
+        }
         LEFT JOIN pharmacy_medication_followups AS followup
                ON followup.id = ?
               AND followup.line_account_id = friend.line_account_id
@@ -316,35 +396,58 @@ async function getFinalDispatchState(
          ${patientScope}
          ${betaScope}
        LIMIT 1`,
-  ).bind(
-    requiredCapability,
-    ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
-    ...(input.patientId ? [input.patientId, new Date().toISOString()] : []),
-    followUpId,
-    input.patientId ?? null,
-    input.friendId,
-    input.lineAccountId,
-    ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
-  ).first<{
-    destination_line_user_id: string | null;
-    is_following: number;
-    account_active: number;
-    tenant_status: string;
-    outbound_messaging_paused_at: string | null;
-    capability_enabled: number;
-    followup_status: string | null;
-    followup_operations_enabled: number | null;
-    beta_membership_status: 'active' | 'suspended' | 'revoked' | null;
-  }>();
+    )
+    .bind(
+      requiredCapability,
+      ...(validityReminder ? [validityDate, dispatchDate, dispatchNow.toISOString(), input.patientId ?? null] : []),
+      ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
+      ...(input.patientId ? [input.patientId, new Date().toISOString()] : []),
+      ...(continuityReminder ? [expectationId, input.patientId ?? null] : []),
+      ...(validityReminder ? [validitySubmissionId] : []),
+      followUpId,
+      input.patientId ?? null,
+      input.friendId,
+      input.lineAccountId,
+      ...(input.patientId && betaSchema === 'ready' ? [input.betaMembershipId ?? ''] : []),
+    )
+    .first<{
+      destination_line_user_id: string | null;
+      is_following: number;
+      account_active: number;
+      tenant_status: string;
+      outbound_messaging_paused_at: string | null;
+      capability_enabled: number;
+      expectation_status: string | null;
+      continuity_status: string | null;
+      validity_dispatch_allowed: number;
+      followup_status: string | null;
+      followup_operations_enabled: number | null;
+      beta_membership_status: 'active' | 'suspended' | 'revoked' | null;
+    }>();
 
-  if (!row || row.destination_line_user_id !== input.to || row.is_following !== 1 ||
-      row.account_active !== 1 || row.tenant_status !== 'active' ||
-      row.capability_enabled !== 1) {
+  if (
+    !row ||
+    row.destination_line_user_id !== input.to ||
+    row.is_following !== 1 ||
+    row.account_active !== 1 ||
+    row.tenant_status !== 'active' ||
+    row.capability_enabled !== 1
+  ) {
     return 'blocked';
   }
+  // Eligibility can return after staff re-verification; do not permanently consume the retry key.
+  if (validityReminder && row.validity_dispatch_allowed !== 1) return 'patient_retryable';
+  if (continuityReminder) {
+    if (
+      !['active', 'paused'].includes(row.expectation_status ?? '') ||
+      !['active', 'paused'].includes(row.continuity_status ?? '')
+    )
+      return 'blocked';
+    // A pause can be lifted; preserve the existing attempt for a later retry.
+    if (row.expectation_status === 'paused' || row.continuity_status === 'paused') return 'patient_retryable';
+  }
   if (row.beta_membership_status === 'suspended') return 'patient_retryable';
-  if (followUpId !== null &&
-      row.followup_status !== 'due') {
+  if (followUpId !== null && row.followup_status !== 'due') {
     return 'blocked';
   }
   if (followUpId !== null && row.followup_operations_enabled !== 1) {
@@ -353,28 +456,27 @@ async function getFinalDispatchState(
   return row.outbound_messaging_paused_at ? 'paused' : 'ok';
 }
 
-export async function sendPharmacyAutomatedPush(
-  input: AutomatedPushInput,
-): Promise<PharmacyPushResult> {
+export async function sendPharmacyAutomatedPush(input: AutomatedPushInput): Promise<PharmacyPushResult> {
   if (!input.db || !input.lineAccountId || !input.friendId) {
     throw new Error('pharmacy notification account context is required');
   }
 
   const message = buildApprovedPharmacyMessage(input.messageId, input.vars);
   const accountConfig = await getPharmacyCapabilityConfig(input.db, input.lineAccountId);
-  const requiredCapability = input.messageId === 'continuity_reminder_v1'
-    ? 'continuity'
-    : input.messageId === 'medication_followup_v1'
-      ? 'medication_followup'
-      : input.messageId === 'myna_handoff_status_v1'
-        ? 'electronic_prescription'
-      : input.messageId === 'emergency_intake_status_v1'
-        ? 'emergency_contraception'
-      : input.messageId === 'appointment_reminder_v1'
-        ? 'emergency_contraception'
-      : input.messageId === 'meet_consultation_v1'
-        ? 'meet_consultation'
-      : 'prescription_intake';
+  const requiredCapability =
+    input.messageId === 'continuity_reminder_v1'
+      ? 'continuity'
+      : input.messageId === 'medication_followup_v1'
+        ? 'medication_followup'
+        : input.messageId === 'myna_handoff_status_v1'
+          ? 'electronic_prescription'
+          : input.messageId === 'emergency_intake_status_v1'
+            ? 'emergency_contraception'
+            : input.messageId === 'appointment_reminder_v1'
+              ? 'emergency_contraception'
+              : input.messageId === 'meet_consultation_v1'
+                ? 'meet_consultation'
+                : 'prescription_intake';
   if (!accountConfig || !accountConfig.capabilities.includes(requiredCapability)) {
     throw new Error('pharmacy notification capability is not enabled');
   }
@@ -385,22 +487,27 @@ export async function sendPharmacyAutomatedPush(
   // so the same message can still go out once the tenant is unpaused.
   // Inbound webhook processing is deliberately unaffected — a paused tenant
   // still receives and stores everything.
-  const pausedRow = await input.db.prepare(
-    `SELECT tenant.outbound_messaging_paused_at
+  const pausedRow = await input.db
+    .prepare(
+      `SELECT tenant.outbound_messaging_paused_at
        FROM tenant_line_accounts AS mapping
        INNER JOIN tenants AS tenant ON tenant.id = mapping.tenant_id
       WHERE mapping.line_account_id = ?
       LIMIT 1`,
-  ).bind(input.lineAccountId).first<{ outbound_messaging_paused_at: string | null }>();
+    )
+    .bind(input.lineAccountId)
+    .first<{ outbound_messaging_paused_at: string | null }>();
   if (pausedRow?.outbound_messaging_paused_at) {
     console.log(
       `[pharmacy-notification] skipped, not sent — outbound messaging paused since ${pausedRow.outbound_messaging_paused_at} ` +
-      `(line_account=${input.lineAccountId} message=${input.messageId})`,
+        `(line_account=${input.lineAccountId} message=${input.messageId})`,
     );
     return 'paused';
   }
-  if (input.messageId === 'medication_followup_v1' &&
-      !(await medicationFollowUpOperationsReady(input.db, input.lineAccountId))) {
+  if (
+    input.messageId === 'medication_followup_v1' &&
+    !(await medicationFollowUpOperationsReady(input.db, input.lineAccountId))
+  ) {
     return 'operations_blocked';
   }
 
@@ -411,13 +518,15 @@ export async function sendPharmacyAutomatedPush(
   const month = jstMonthBounds(now);
   const notificationEventId = crypto.randomUUID();
   let dispatchEventId = notificationEventId;
+  let reclaimedUnknownAttempt = false;
   const initialPatientState = await getPatientDeliveryState(input, now);
   if (initialPatientState !== 'allowed') {
     if (initialPatientState === 'blocked') await recordBlocked(input, occurredAt);
     return 'patient_blocked';
   }
-  const claim = await input.db.prepare(
-    `INSERT OR IGNORE INTO pharmacy_notification_events
+  const claim = await input.db
+    .prepare(
+      `INSERT OR IGNORE INTO pharmacy_notification_events
       (id, line_account_id, friend_id, message_id, category, outcome,
        schema_version, occurred_at, idempotency_key, created_at)
      SELECT ?, ?, ?, ?, ?, 'attempted', 1, ?, ?, ?
@@ -428,20 +537,38 @@ export async function sendPharmacyAutomatedPush(
            AND outcome IN ('attempted','sent')
            AND occurred_at >= ? AND occurred_at < ?
       ) < ?`,
-  ).bind(
-    notificationEventId, input.lineAccountId, input.friendId, input.messageId,
-    input.category, occurredAt, input.retryKey, occurredAt,
-    input.category, input.lineAccountId, input.friendId, month.from, month.to,
-    accountConfig.proactive_monthly_limit,
-  ).run();
+    )
+    .bind(
+      notificationEventId,
+      input.lineAccountId,
+      input.friendId,
+      input.messageId,
+      input.category,
+      occurredAt,
+      input.retryKey,
+      occurredAt,
+      input.category,
+      input.lineAccountId,
+      input.friendId,
+      month.from,
+      month.to,
+      accountConfig.proactive_monthly_limit,
+    )
+    .run();
 
   if ((claim.meta?.changes ?? 0) !== 1) {
-    const existing = await input.db.prepare(
-      `SELECT id, outcome, occurred_at, created_at FROM pharmacy_notification_events
+    const existing = await input.db
+      .prepare(
+        `SELECT id, outcome, occurred_at, created_at FROM pharmacy_notification_events
         WHERE line_account_id = ? AND idempotency_key = ?`,
-    ).bind(input.lineAccountId, input.retryKey).first<{
-      id: string; outcome: string; occurred_at: string; created_at?: string;
-    }>();
+      )
+      .bind(input.lineAccountId, input.retryKey)
+      .first<{
+        id: string;
+        outcome: string;
+        occurred_at: string;
+        created_at?: string;
+      }>();
     if (existing?.outcome === 'sent') return 'already_sent';
     if (existing?.outcome === 'blocked') {
       throw new Error('pharmacy proactive frequency cap reached');
@@ -451,17 +578,22 @@ export async function sendPharmacyAutomatedPush(
         return 'reconciliation_required';
       }
       if (existing.occurred_at >= staleAttemptAt) return 'in_progress';
-      const reclaimed = await input.db.prepare(
-        `UPDATE pharmacy_notification_events
+      const reclaimed = await input.db
+        .prepare(
+          `UPDATE pharmacy_notification_events
             SET occurred_at = ?
           WHERE line_account_id = ? AND idempotency_key = ?
             AND outcome = 'attempted' AND occurred_at < ?`,
-      ).bind(occurredAt, input.lineAccountId, input.retryKey, staleAttemptAt).run();
+        )
+        .bind(occurredAt, input.lineAccountId, input.retryKey, staleAttemptAt)
+        .run();
       if ((reclaimed.meta?.changes ?? 0) !== 1) return 'in_progress';
       dispatchEventId = existing.id;
+      reclaimedUnknownAttempt = true;
     } else if (existing?.outcome === 'failed') {
-      const reclaimed = await input.db.prepare(
-        `UPDATE pharmacy_notification_events
+      const reclaimed = await input.db
+        .prepare(
+          `UPDATE pharmacy_notification_events
             SET outcome = 'attempted', occurred_at = ?
           WHERE line_account_id = ? AND idempotency_key = ? AND outcome = 'failed'
             AND (? <> 'proactive_noncare' OR (
@@ -471,16 +603,27 @@ export async function sendPharmacyAutomatedPush(
                  AND outcome IN ('attempted','sent')
                  AND occurred_at >= ? AND occurred_at < ?
             ) < ?)`,
-      ).bind(
-        occurredAt, input.lineAccountId, input.retryKey, input.category,
-        input.lineAccountId, input.friendId, month.from, month.to,
-        accountConfig.proactive_monthly_limit,
-      ).run();
+        )
+        .bind(
+          occurredAt,
+          input.lineAccountId,
+          input.retryKey,
+          input.category,
+          input.lineAccountId,
+          input.friendId,
+          month.from,
+          month.to,
+          accountConfig.proactive_monthly_limit,
+        )
+        .run();
       if ((reclaimed.meta?.changes ?? 0) !== 1) {
-        await input.db.prepare(
-          `UPDATE pharmacy_notification_events SET outcome = 'blocked', occurred_at = ?
+        await input.db
+          .prepare(
+            `UPDATE pharmacy_notification_events SET outcome = 'blocked', occurred_at = ?
             WHERE line_account_id = ? AND idempotency_key = ? AND outcome = 'failed'`,
-        ).bind(occurredAt, input.lineAccountId, input.retryKey).run();
+          )
+          .bind(occurredAt, input.lineAccountId, input.retryKey)
+          .run();
         throw new Error('pharmacy proactive frequency cap reached');
       }
       dispatchEventId = existing.id;
@@ -492,30 +635,50 @@ export async function sendPharmacyAutomatedPush(
 
   const postClaimPatientState = await getPatientDeliveryState(input, now);
   if (postClaimPatientState !== 'allowed') {
-    if (postClaimPatientState === 'blocked') {
-      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', new Date().toISOString());
+    if (!reclaimedUnknownAttempt) {
+      await markOutcome(
+        input.db,
+        input.lineAccountId,
+        input.retryKey,
+        postClaimPatientState === 'blocked' ? 'blocked' : 'failed',
+        new Date().toISOString(),
+        occurredAt,
+      );
     }
-    // No provider call has happened. Preserve an attempted row so a
-    // suspended membership or a transient gate can be retried safely.
+    // A known-unsent transient gate can retry; preserve any earlier unknown attempt.
     return 'patient_blocked';
   }
 
   const finalNow = new Date();
   const finalPatientState = await getPatientDeliveryState(input, finalNow);
   if (finalPatientState !== 'allowed') {
-    if (finalPatientState === 'blocked') {
-      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    if (!reclaimedUnknownAttempt) {
+      await markOutcome(
+        input.db,
+        input.lineAccountId,
+        input.retryKey,
+        finalPatientState === 'blocked' ? 'blocked' : 'failed',
+        finalNow.toISOString(),
+        occurredAt,
+      );
     }
-    // The external proxy has not been called yet; do not erase result-unknown
-    // semantics by converting the attempt to failed.
+    // Do not erase an earlier result-unknown attempt when stopping this call.
     return 'patient_blocked';
   }
   const finalDispatchState = await getFinalDispatchState(input, requiredCapability);
+  if (['paused', 'patient_retryable', 'operations_blocked'].includes(finalDispatchState) && !reclaimedUnknownAttempt) {
+    // This attempt has not reached the provider. It can resume beyond the
+    // reconciliation horizon reserved for genuinely unknown provider results.
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', finalNow.toISOString(), occurredAt);
+  }
   if (finalDispatchState === 'paused') {
     return 'paused';
   }
   if (finalDispatchState === 'blocked') {
-    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString());
+    // Cancellation prevents another send, but cannot determine an earlier provider result.
+    if (!reclaimedUnknownAttempt) {
+      await markOutcome(input.db, input.lineAccountId, input.retryKey, 'blocked', finalNow.toISOString(), occurredAt);
+    }
     return 'patient_blocked';
   }
   if (finalDispatchState === 'patient_retryable') {
@@ -540,12 +703,12 @@ export async function sendPharmacyAutomatedPush(
     );
   } catch (error) {
     if (error instanceof LineHarnessUnknownOutcomeError) throw error;
-    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', new Date().toISOString());
+    await markOutcome(input.db, input.lineAccountId, input.retryKey, 'failed', new Date().toISOString(), occurredAt);
     throw error;
   }
 
   // LINE accepted the stable retry key. If this D1 finalization fails, leave
   // the row attempted so the stale retry reconciles with that same key.
-  await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString());
+  await markOutcome(input.db, input.lineAccountId, input.retryKey, 'sent', new Date().toISOString(), occurredAt);
   return 'sent';
 }

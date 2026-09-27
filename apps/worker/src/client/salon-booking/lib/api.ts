@@ -79,7 +79,11 @@ async function post<T>(
   if (!res.ok) {
     const text = await res.text();
     let parsed: unknown = null;
-    try { parsed = JSON.parse(text); } catch { /* keep raw */ }
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* keep raw */
+    }
     const err = new Error(`API ${res.status}`) as Error & { status: number; body: unknown };
     err.status = res.status;
     err.body = parsed ?? text;
@@ -91,14 +95,8 @@ async function post<T>(
 export function createApi(ctx: SalonBookingContext) {
   return {
     menus: () => get<{ menus: MenuItem[] }>('/api/liff/booking/menus', ctx),
-    staffOf: (menuId: string) =>
-      get<{ staff: StaffItem[] }>(`/api/liff/booking/menus/${menuId}/staff`, ctx),
-    availability: (
-      menuId: string,
-      staffId: string | undefined,
-      from: string,
-      to: string,
-    ) => {
+    staffOf: (menuId: string) => get<{ staff: StaffItem[] }>(`/api/liff/booking/menus/${menuId}/staff`, ctx),
+    availability: (menuId: string, staffId: string | undefined, from: string, to: string) => {
       const qs = new URLSearchParams({ menu_id: menuId, from, to });
       if (staffId) qs.set('staff_id', staffId);
       return get<AvailabilityResponse>(`/api/liff/booking/availability?${qs}`, ctx);
@@ -107,16 +105,9 @@ export function createApi(ctx: SalonBookingContext) {
       body: { menu_id: string; staff_id: string; starts_at: string; customer_note?: string },
       idempotencyKey: string,
     ) =>
-      post<{ booking_id: string; status: string }>(
-        '/api/liff/booking/requests',
-        body,
-        ctx,
-        { 'Idempotency-Key': idempotencyKey },
-      ),
-    me: () =>
-      get<{ upcoming: BookingHistoryItem[]; past: BookingHistoryItem[] }>(
-        '/api/liff/booking/me',
-        ctx,
-      ),
+      post<{ booking_id: string; status: string }>('/api/liff/booking/requests', body, ctx, {
+        'Idempotency-Key': idempotencyKey,
+      }),
+    me: () => get<{ upcoming: BookingHistoryItem[]; past: BookingHistoryItem[] }>('/api/liff/booking/me', ctx),
   };
 }

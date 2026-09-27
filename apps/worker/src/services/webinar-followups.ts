@@ -53,17 +53,11 @@ type JourneyFollowupRow = {
 };
 
 function formUrl(liffId: string, formId: string): string {
-  return (
-    `https://liff.line.me/${liffId}/?page=form&id=${encodeURIComponent(formId)}` +
-    `&liffId=${liffId}`
-  );
+  return `https://liff.line.me/${liffId}/?page=form&id=${encodeURIComponent(formId)}` + `&liffId=${liffId}`;
 }
 
 function webinarPickerUrl(liffId: string, slug: string): string {
-  return (
-    `https://liff.line.me/${liffId}/?page=webinar&slug=${encodeURIComponent(slug)}` +
-    `&liffId=${liffId}`
-  );
+  return `https://liff.line.me/${liffId}/?page=webinar&slug=${encodeURIComponent(slug)}` + `&liffId=${liffId}`;
 }
 
 export function buildJourneyFollowupText(
@@ -110,14 +104,11 @@ function buildCtaFollowupText(kind: FollowupKind, url: string): string {
     : `昨日のライブでご案内した「あなたの会社へのAI導入相談」は、まだ入力途中でも続きから進められます。\n\n年商・予算感・改善したいことの3項目を送ると、相談日時を選べます👇\n${url}\n\n※こちらが最後のご案内です。`;
 }
 
-async function candidates(
-  db: D1Database,
-  kind: FollowupKind,
-  cutoff: string,
-): Promise<Candidate[]> {
+async function candidates(db: D1Database, kind: FollowupKind, cutoff: string): Promise<Candidate[]> {
   const delayColumn = kind === 'after_30m' ? 'first_delay_minutes' : 'second_delay_minutes';
-  const { results } = await db.prepare(
-    `WITH clicks AS (
+  const { results } = await db
+    .prepare(
+      `WITH clicks AS (
        SELECT v.webinar_id, v.friend_id, MIN(v.cta_clicked_at) AS cta_clicked_at
        FROM webinar_viewers v
        JOIN webinar_followup_configs click_cfg
@@ -161,37 +152,42 @@ async function candidates(
        )
      ORDER BY datetime(c.cta_clicked_at) ASC
      LIMIT 50`,
-  ).bind(cutoff, kind).all<Candidate>();
+    )
+    .bind(cutoff, kind)
+    .all<Candidate>();
   return results ?? [];
 }
 
-async function getOrCreateFollowup(
-  db: D1Database,
-  candidate: Candidate,
-  kind: FollowupKind,
-): Promise<FollowupRow> {
-  const existing = await db.prepare(
-    `SELECT id, retry_key, status FROM webinar_followups
+async function getOrCreateFollowup(db: D1Database, candidate: Candidate, kind: FollowupKind): Promise<FollowupRow> {
+  const existing = await db
+    .prepare(
+      `SELECT id, retry_key, status FROM webinar_followups
      WHERE webinar_id = ? AND friend_id = ? AND kind = ?`,
-  ).bind(candidate.webinar_id, candidate.friend_id, kind).first<FollowupRow>();
+    )
+    .bind(candidate.webinar_id, candidate.friend_id, kind)
+    .first<FollowupRow>();
   if (existing) return existing;
   const row: FollowupRow = {
-    id: crypto.randomUUID(), retry_key: crypto.randomUUID(), status: 'pending',
+    id: crypto.randomUUID(),
+    retry_key: crypto.randomUUID(),
+    status: 'pending',
   };
   const now = jstNow();
-  await db.prepare(
-    `INSERT OR IGNORE INTO webinar_followups
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO webinar_followups
        (id, webinar_id, friend_id, kind, retry_key, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
-  ).bind(
-    row.id, candidate.webinar_id, candidate.friend_id, kind, row.retry_key, now, now,
-  ).run();
-  return (
-    await db.prepare(
+    )
+    .bind(row.id, candidate.webinar_id, candidate.friend_id, kind, row.retry_key, now, now)
+    .run();
+  return (await db
+    .prepare(
       `SELECT id, retry_key, status FROM webinar_followups
        WHERE webinar_id = ? AND friend_id = ? AND kind = ?`,
-    ).bind(candidate.webinar_id, candidate.friend_id, kind).first<FollowupRow>()
-  )!;
+    )
+    .bind(candidate.webinar_id, candidate.friend_id, kind)
+    .first<FollowupRow>())!;
 }
 
 async function journeyCandidates(
@@ -200,8 +196,9 @@ async function journeyCandidates(
   cutoff: string,
 ): Promise<JourneyCandidate[]> {
   if (kind === 'picker_no_registration') {
-    const { results } = await db.prepare(
-      `SELECT w.id AS webinar_id, w.account_id, p.friend_id, w.slug, w.title,
+    const { results } = await db
+      .prepare(
+        `SELECT w.id AS webinar_id, w.account_id, p.friend_id, w.slug, w.title,
               cfg.booking_url, p.opened_at AS source_at
        FROM webinar_picker_opens p
        JOIN webinars w ON w.id = p.webinar_id
@@ -233,13 +230,16 @@ async function journeyCandidates(
          )
        ORDER BY datetime(p.opened_at) ASC
        LIMIT 50`,
-    ).bind(cutoff, kind).all<JourneyCandidate>();
+      )
+      .bind(cutoff, kind)
+      .all<JourneyCandidate>();
     return results ?? [];
   }
 
   if (kind === 'registered_no_show') {
-    const { results } = await db.prepare(
-      `WITH missed AS (
+    const { results } = await db
+      .prepare(
+        `WITH missed AS (
          SELECT r.webinar_id, r.friend_id, MAX(r.session_start_at) AS missed_session_at
          FROM webinar_registrations r
          JOIN webinar_followup_configs cfg
@@ -290,22 +290,24 @@ async function journeyCandidates(
          )
        ORDER BY m.missed_session_at ASC
        LIMIT 50`,
-    ).bind(cutoff, cutoff, kind).all<JourneyCandidate>();
+      )
+      .bind(cutoff, cutoff, kind)
+      .all<JourneyCandidate>();
     return results ?? [];
   }
 
-  const delayColumn = kind === 'submitted_no_booking_30m'
-    ? 'booking_delay_minutes'
-    : 'booking_second_delay_minutes';
-  const needsFirstFollowup = kind === 'submitted_no_booking_24h'
-    ? `AND EXISTS (
+  const delayColumn = kind === 'submitted_no_booking_30m' ? 'booking_delay_minutes' : 'booking_second_delay_minutes';
+  const needsFirstFollowup =
+    kind === 'submitted_no_booking_24h'
+      ? `AND EXISTS (
          SELECT 1 FROM webinar_journey_followups first_jf
          WHERE first_jf.webinar_id = s.webinar_id AND first_jf.friend_id = s.friend_id
            AND first_jf.kind = 'submitted_no_booking_30m' AND first_jf.status = 'sent'
        )`
-    : '';
-  const { results } = await db.prepare(
-    `WITH submissions AS (
+      : '';
+  const { results } = await db
+    .prepare(
+      `WITH submissions AS (
        SELECT wc.webinar_id, fs.friend_id, MIN(fs.created_at) AS submitted_at
        FROM form_submissions fs
        JOIN webinar_ctas wc ON wc.form_id = fs.form_id
@@ -351,7 +353,9 @@ async function journeyCandidates(
        ${needsFirstFollowup}
      ORDER BY datetime(s.submitted_at) ASC
      LIMIT 50`,
-  ).bind(cutoff, kind).all<JourneyCandidate>();
+    )
+    .bind(cutoff, kind)
+    .all<JourneyCandidate>();
   return results ?? [];
 }
 
@@ -360,10 +364,13 @@ async function getOrCreateJourneyFollowup(
   candidate: JourneyCandidate,
   kind: WebinarJourneyFollowupKind,
 ): Promise<JourneyFollowupRow> {
-  const existing = await db.prepare(
-    `SELECT id, retry_key, status FROM webinar_journey_followups
+  const existing = await db
+    .prepare(
+      `SELECT id, retry_key, status FROM webinar_journey_followups
      WHERE webinar_id = ? AND friend_id = ? AND kind = ?`,
-  ).bind(candidate.webinar_id, candidate.friend_id, kind).first<JourneyFollowupRow>();
+    )
+    .bind(candidate.webinar_id, candidate.friend_id, kind)
+    .first<JourneyFollowupRow>();
   if (existing) return existing;
   const now = jstNow();
   const row: JourneyFollowupRow = {
@@ -371,19 +378,21 @@ async function getOrCreateJourneyFollowup(
     retry_key: crypto.randomUUID(),
     status: 'pending',
   };
-  await db.prepare(
-    `INSERT OR IGNORE INTO webinar_journey_followups
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO webinar_journey_followups
        (id, webinar_id, friend_id, kind, retry_key, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
-  ).bind(
-    row.id, candidate.webinar_id, candidate.friend_id, kind, row.retry_key, now, now,
-  ).run();
-  return (
-    await db.prepare(
+    )
+    .bind(row.id, candidate.webinar_id, candidate.friend_id, kind, row.retry_key, now, now)
+    .run();
+  return (await db
+    .prepare(
       `SELECT id, retry_key, status FROM webinar_journey_followups
        WHERE webinar_id = ? AND friend_id = ? AND kind = ?`,
-    ).bind(candidate.webinar_id, candidate.friend_id, kind).first<JourneyFollowupRow>()
-  )!;
+    )
+    .bind(candidate.webinar_id, candidate.friend_id, kind)
+    .first<JourneyFollowupRow>())!;
 }
 
 async function deliveryConfig(
@@ -410,8 +419,9 @@ async function isActiveMappedAccount(
 ): Promise<boolean> {
   if (!accountId || !friendId) return false;
   try {
-    const row = await db.prepare(
-      `SELECT 1 AS ok
+    const row = await db
+      .prepare(
+        `SELECT 1 AS ok
          FROM tenant_line_accounts AS mapping
          INNER JOIN line_accounts AS account
                  ON account.id = mapping.line_account_id
@@ -421,7 +431,9 @@ async function isActiveMappedAccount(
                  ON f.id = ? AND f.line_account_id = account.id
         WHERE mapping.line_account_id = ? AND account.is_active = 1
         LIMIT 1`,
-    ).bind(friendId, accountId).first<{ ok: number }>();
+      )
+      .bind(friendId, accountId)
+      .first<{ ok: number }>();
     return Boolean(row);
   } catch {
     return false;
@@ -434,21 +446,31 @@ export async function processWebinarFollowups(
 ): Promise<{ sent: number; failed: number }> {
   const now = jstNow();
   const due = [
-    ...(await candidates(db, 'after_30m', now)).map((candidate) => ({ candidate, kind: 'after_30m' as const })),
-    ...(await candidates(db, 'after_24h', now)).map((candidate) => ({ candidate, kind: 'after_24h' as const })),
+    ...(await candidates(db, 'after_30m', now)).map((candidate) => ({
+      candidate,
+      kind: 'after_30m' as const,
+    })),
+    ...(await candidates(db, 'after_24h', now)).map((candidate) => ({
+      candidate,
+      kind: 'after_24h' as const,
+    })),
   ];
   const journeyDue = [
     ...(await journeyCandidates(db, 'picker_no_registration', now)).map((candidate) => ({
-      candidate, kind: 'picker_no_registration' as const,
+      candidate,
+      kind: 'picker_no_registration' as const,
     })),
     ...(await journeyCandidates(db, 'registered_no_show', now)).map((candidate) => ({
-      candidate, kind: 'registered_no_show' as const,
+      candidate,
+      kind: 'registered_no_show' as const,
     })),
     ...(await journeyCandidates(db, 'submitted_no_booking_30m', now)).map((candidate) => ({
-      candidate, kind: 'submitted_no_booking_30m' as const,
+      candidate,
+      kind: 'submitted_no_booking_30m' as const,
     })),
     ...(await journeyCandidates(db, 'submitted_no_booking_24h', now)).map((candidate) => ({
-      candidate, kind: 'submitted_no_booking_24h' as const,
+      candidate,
+      kind: 'submitted_no_booking_24h' as const,
     })),
   ];
   let sent = 0;
@@ -467,10 +489,13 @@ export async function processWebinarFollowups(
         // non-delivery instead of leaving it pending forever. If they follow
         // again later, candidates() can select this failed row for a retry.
         const skippedAt = jstNow();
-        await db.prepare(
-          `UPDATE webinar_followups
+        await db
+          .prepare(
+            `UPDATE webinar_followups
            SET status = 'failed', last_error = 'not_following', updated_at = ? WHERE id = ?`,
-        ).bind(skippedAt, followup.id).run();
+          )
+          .bind(skippedAt, followup.id)
+          .run();
         continue;
       }
       const delivery = await deliveryConfig(db, candidate.account_id, options);
@@ -485,17 +510,23 @@ export async function processWebinarFollowups(
         followup.retry_key,
         options.proxyDispatch,
       );
-      await db.prepare(
-        `UPDATE webinar_followups
+      await db
+        .prepare(
+          `UPDATE webinar_followups
          SET status = 'sent', sent_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
-      ).bind(jstNow(), jstNow(), followup.id).run();
+        )
+        .bind(jstNow(), jstNow(), followup.id)
+        .run();
       sent++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await db.prepare(
-        `UPDATE webinar_followups
+      await db
+        .prepare(
+          `UPDATE webinar_followups
          SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`,
-      ).bind(message.slice(0, 500), jstNow(), followup.id).run();
+        )
+        .bind(message.slice(0, 500), jstNow(), followup.id)
+        .run();
       console.error('webinar followup error:', kind, err);
       failed++;
     }
@@ -510,18 +541,19 @@ export async function processWebinarFollowups(
     try {
       const friend = await getFriendById(db, candidate.friend_id);
       if (!friend?.is_following) {
-        await db.prepare(
-          `UPDATE webinar_journey_followups
+        await db
+          .prepare(
+            `UPDATE webinar_journey_followups
            SET status = 'skipped', last_error = 'not_following', updated_at = ? WHERE id = ?`,
-        ).bind(jstNow(), followup.id).run();
+          )
+          .bind(jstNow(), followup.id)
+          .run();
         continue;
       }
       const delivery = await deliveryConfig(db, candidate.account_id, options);
       if (!delivery.liffId) throw new Error('LIFF ID not configured');
       const pickerUrl = webinarPickerUrl(delivery.liffId, candidate.slug);
-      const text = buildJourneyFollowupText(
-        kind, candidate.title, pickerUrl, candidate.booking_url,
-      );
+      const text = buildJourneyFollowupText(kind, candidate.title, pickerUrl, candidate.booking_url);
       await pushViaHarnessProxy(
         options.proxyBaseUrl,
         delivery.accessToken,
@@ -531,24 +563,24 @@ export async function processWebinarFollowups(
         options.proxyDispatch,
       );
       const sentAt = jstNow();
-      await db.prepare(
-        `UPDATE webinar_journey_followups
+      await db
+        .prepare(
+          `UPDATE webinar_journey_followups
          SET status = 'sent', sent_at = ?, last_error = NULL, updated_at = ? WHERE id = ?`,
-      ).bind(sentAt, sentAt, followup.id).run();
+        )
+        .bind(sentAt, sentAt, followup.id)
+        .run();
       sent++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await db.prepare(
-        `UPDATE webinar_journey_followups
+      await db
+        .prepare(
+          `UPDATE webinar_journey_followups
          SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`,
-      ).bind(message.slice(0, 500), jstNow(), followup.id).run();
-      console.error(
-        'webinar journey followup error:',
-        candidate.webinar_id,
-        candidate.friend_id,
-        kind,
-        err,
-      );
+        )
+        .bind(message.slice(0, 500), jstNow(), followup.id)
+        .run();
+      console.error('webinar journey followup error:', candidate.webinar_id, kind, err);
       failed++;
     }
   }

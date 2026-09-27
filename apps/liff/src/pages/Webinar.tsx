@@ -20,7 +20,11 @@ interface ChatItem {
 
 function formatJp(epoch: number): string {
   return new Date(epoch * 1000).toLocaleString('ja-JP', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
   });
 }
 
@@ -36,17 +40,14 @@ export default function Webinar() {
   const [ctaVisible, setCtaVisible] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const t0Ref = useRef(0);            // state 受信時の performance.now()
-  const baseOffsetRef = useRef(0);    // state.offsetSeconds
-  const commentIdxRef = useRef(0);    // 次に表示するサクラコメント index
+  const t0Ref = useRef(0); // state 受信時の performance.now()
+  const baseOffsetRef = useRef(0); // state.offsetSeconds
+  const commentIdxRef = useRef(0); // 次に表示するサクラコメント index
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
   const stateRef = useRef<WebinarState | null>(null);
   stateRef.current = state;
 
-  const expectedPosition = useCallback(
-    () => baseOffsetRef.current + (performance.now() - t0Ref.current) / 1000,
-    [],
-  );
+  const expectedPosition = useCallback(() => baseOffsetRef.current + (performance.now() - t0Ref.current) / 1000, []);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -86,9 +87,7 @@ export default function Webinar() {
       const h = Math.floor(remain / 3600);
       const m = Math.floor((remain % 3600) / 60);
       const s = remain % 60;
-      setCountdown(
-        h > 0 ? `${h}時間${String(m).padStart(2, '0')}分` : `${m}分${String(s).padStart(2, '0')}秒`,
-      );
+      setCountdown(h > 0 ? `${h}時間${String(m).padStart(2, '0')}分` : `${m}分${String(s).padStart(2, '0')}秒`);
     }, 1000);
     return () => clearInterval(timer);
   }, [state, load]);
@@ -121,7 +120,9 @@ export default function Webinar() {
       v.muted = true;
       const seekAndPlay = () => {
         v.currentTime = expectedPosition();
-        v.play().then(() => setNeedsTap(true)).catch(() => setNeedsTap(true));
+        v.play()
+          .then(() => setNeedsTap(true))
+          .catch(() => setNeedsTap(true));
       };
       if (v.readyState >= 1) seekAndPlay();
       else v.addEventListener('loadedmetadata', seekAndPlay, { once: true });
@@ -152,10 +153,7 @@ export default function Webinar() {
       // サクラコメント流し込み
       const comments = src.comments;
       const items: ChatItem[] = [];
-      while (
-        commentIdxRef.current < comments.length &&
-        comments[commentIdxRef.current].atSeconds <= pos
-      ) {
+      while (commentIdxRef.current < comments.length && comments[commentIdxRef.current].atSeconds <= pos) {
         const cm: WebinarSakuraComment = comments[commentIdxRef.current];
         items.push({
           key: `s-${commentIdxRef.current}`,
@@ -204,10 +202,7 @@ export default function Webinar() {
     const text = input.trim();
     if (!text) return;
     setInput('');
-    setChat((prev) => [
-      ...prev,
-      { key: `u-${Date.now()}`, authorName: 'あなた', body: text, mine: true },
-    ]);
+    setChat((prev) => [...prev, { key: `u-${Date.now()}`, authorName: 'あなた', body: text, mine: true }]);
     try {
       await api.webinarComment(slug, state.sessionStartAt, Math.floor(expectedPosition()), text);
     } catch (err) {
@@ -251,9 +246,7 @@ export default function Webinar() {
       <div className="relative">
         <video ref={videoRef} className="w-full" playsInline />
         {!ended && (
-          <span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-0.5 text-xs font-bold">
-            ● LIVE
-          </span>
+          <span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-0.5 text-xs font-bold">● LIVE</span>
         )}
         {needsTap && videoRef.current?.muted && !ended && (
           <button
@@ -267,9 +260,7 @@ export default function Webinar() {
               setNeedsTap(false);
             }}
           >
-            <span className="rounded-full bg-white px-6 py-3 font-bold text-gray-900">
-              タップして音声をON
-            </span>
+            <span className="rounded-full bg-white px-6 py-3 font-bold text-gray-900">タップして音声をON</span>
           </button>
         )}
         {ended && (
@@ -312,10 +303,7 @@ export default function Webinar() {
             maxLength={500}
             className="flex-1 rounded bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500"
           />
-          <button
-            onClick={() => void sendComment()}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-bold"
-          >
+          <button onClick={() => void sendComment()} className="rounded bg-blue-600 px-4 py-2 text-sm font-bold">
             送信
           </button>
         </div>

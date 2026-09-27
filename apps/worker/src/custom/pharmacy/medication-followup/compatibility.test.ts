@@ -126,17 +126,22 @@ function oldSchemaDb(): { db: D1Database; close: () => void } {
         async all<T>() {
           return { success: true, results: statement.all() as T[], meta: {} };
         },
-        first<T>() { return Promise.resolve((statement.get() as T | undefined) ?? null); },
+        first<T>() {
+          return Promise.resolve((statement.get() as T | undefined) ?? null);
+        },
         run() {
           const result = statement.run();
           return Promise.resolve({ success: true, results: [], meta: { changes: result.changes } });
         },
-        bind(...values: unknown[]) { return bound(values); },
+        bind(...values: unknown[]) {
+          return bound(values);
+        },
       };
     },
     batch: async (statements: Array<{ execute?: () => unknown }>) =>
-      sqlite.transaction((items: Array<{ execute?: () => unknown }>) =>
-        items.map((item) => item.execute?.()))(statements),
+      sqlite.transaction((items: Array<{ execute?: () => unknown }>) => items.map((item) => item.execute?.()))(
+        statements,
+      ),
   } as unknown as D1Database;
   return { db, close: () => sqlite.close() };
 }
@@ -189,18 +194,21 @@ describe('medication follow-up additive schema compatibility', () => {
   it('stops response-record transitions until the closure migration is applied', async () => {
     const { db, close } = oldSchemaDb();
     try {
-      await db.prepare(
-        `UPDATE pharmacy_medication_followups SET status = 'assigned', version = 2 WHERE id = ?`,
-      ).bind('followup-old').run();
-      await expect(transitionMedicationFollowUp(db, {
-        lineAccountId: 'account-a',
-        followUpId: 'followup-old',
-        toStatus: 'responded',
-        expectedVersion: 2,
-        actorType: 'system',
-        actorId: 'legacy-cron',
-        idempotencyKey: 'legacy-responded',
-      })).rejects.toThrow('closure unavailable');
+      await db
+        .prepare(`UPDATE pharmacy_medication_followups SET status = 'assigned', version = 2 WHERE id = ?`)
+        .bind('followup-old')
+        .run();
+      await expect(
+        transitionMedicationFollowUp(db, {
+          lineAccountId: 'account-a',
+          followUpId: 'followup-old',
+          toStatus: 'responded',
+          expectedVersion: 2,
+          actorType: 'system',
+          actorId: 'legacy-cron',
+          idempotencyKey: 'legacy-responded',
+        }),
+      ).rejects.toThrow('closure unavailable');
     } finally {
       close();
     }

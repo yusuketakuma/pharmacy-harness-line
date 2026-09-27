@@ -37,23 +37,30 @@ describe('custom_056 pharmacy recovery operations', () => {
       '020_custom_077_pharmacy_beta_notification_bindings.sql',
       '021_calendar_bookings_overlap_index.sql',
       '022_booking_idempotency_scoped.sql',
-    '023_meet_reminder_delivery_id.sql',
-    '024_stripe_effect_completion.sql',
-    '025_friend_link_scope_triggers.sql',
+      '023_meet_reminder_delivery_id.sql',
+      '024_stripe_effect_completion.sql',
+      '025_friend_link_scope_triggers.sql',
       '026_custom_078_pharmacy_chat_templates.sql',
+      '027_custom_079_pharmacy_followup_notification_queue.sql',
+      '028_custom_080_pharmacy_continuity_notification_queue.sql',
+      '029_custom_081_pharmacy_validity_notification_queue.sql',
     ]);
 
-    const tableNames = db.prepare(`SELECT name FROM sqlite_master
+    const tableNames = db
+      .prepare(`SELECT name FROM sqlite_master
       WHERE type = 'table' AND name LIKE 'pharmacy_recovery_%'
-      ORDER BY name`).all() as Array<{ name: string }>;
+      ORDER BY name`)
+      .all() as Array<{ name: string }>;
     expect(tableNames.map((row) => row.name)).toEqual([
       'pharmacy_recovery_backup_generations',
       'pharmacy_recovery_execution_fences',
       'pharmacy_recovery_operations',
     ]);
 
-    const operationSql = db.prepare(`SELECT sql FROM sqlite_master
-      WHERE type = 'table' AND name = 'pharmacy_recovery_operations'`).get() as { sql: string };
+    const operationSql = db
+      .prepare(`SELECT sql FROM sqlite_master
+      WHERE type = 'table' AND name = 'pharmacy_recovery_operations'`)
+      .get() as { sql: string };
     expect(operationSql.sql).toContain("'fle_backfill'");
     expect(operationSql.sql).toContain("'plaintext_scrub'");
     expect(operationSql.sql).toContain("'plaintext_restore'");
@@ -81,19 +88,22 @@ describe('custom_056 pharmacy recovery operations', () => {
     db.prepare(`INSERT INTO pharmacy_recovery_backup_generations
       (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
        expected_row_count, expected_object_count, verified_at, created_at)
-      VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 1, 0, ?, ?)`).run(
-      'a'.repeat(64), now, now,
-    );
-    expect(() => db.prepare(`INSERT INTO pharmacy_recovery_backup_generations
+      VALUES ('backup-a', 'tenant-a', 'account-a', 'test', 'verified', ?, 1, 0, ?, ?)`).run('a'.repeat(64), now, now);
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_recovery_backup_generations
       (generation_id, tenant_id, line_account_id, environment, status, manifest_digest,
        expected_row_count, expected_object_count, verified_at, created_at)
-      VALUES ('backup-a', 'tenant-a', 'account-a', 'production', 'verified', ?, 1, 0, ?, ?)`).run(
-      'b'.repeat(64), now, now,
-    )).not.toThrow();
-    expect(db.prepare(`SELECT COUNT(*) AS count
+      VALUES ('backup-a', 'tenant-a', 'account-a', 'production', 'verified', ?, 1, 0, ?, ?)`)
+        .run('b'.repeat(64), now, now),
+    ).not.toThrow();
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
       FROM pharmacy_recovery_backup_generations
-      WHERE generation_id = 'backup-a' AND environment = 'test' AND status = 'verified'`).get())
-      .toEqual({ count: 1 });
+      WHERE generation_id = 'backup-a' AND environment = 'test' AND status = 'verified'`)
+        .get(),
+    ).toEqual({ count: 1 });
 
     db.prepare(`INSERT INTO pharmacy_recovery_operations
       (id, tenant_id, line_account_id, environment, operation, status,
@@ -101,15 +111,19 @@ describe('custom_056 pharmacy recovery operations', () => {
        idempotency_key, created_at, updated_at)
       VALUES ('operation-a', 'tenant-a', 'account-a', 'test', 'retention_delete',
         'approved', 'platform-admin', 'admin-a', ?, 'job-a', 'idempotency-a', ?, ?)`).run(
-      '2026-08-25T00:00:00.000Z', now, now,
+      '2026-08-25T00:00:00.000Z',
+      now,
+      now,
     );
-    expect(() => db.prepare(`INSERT INTO pharmacy_recovery_execution_fences
+    expect(() =>
+      db
+        .prepare(`INSERT INTO pharmacy_recovery_execution_fences
       (fence_id, operation_id, tenant_id, line_account_id, environment,
        execution_id, fence_token, owner_issuer, owner_subject, status,
        expires_at, created_at)
       VALUES ('fence-a', 'operation-a', 'tenant-a', 'account-a', 'production',
-        'execution-a', ?, 'platform-admin', 'admin-b', 'active', ?, ?)`).run(
-      'f'.repeat(32), '2026-08-25T00:00:00.000Z', now,
-    )).toThrow();
+        'execution-a', ?, 'platform-admin', 'admin-b', 'active', ?, ?)`)
+        .run('f'.repeat(32), '2026-08-25T00:00:00.000Z', now),
+    ).toThrow();
   });
 });

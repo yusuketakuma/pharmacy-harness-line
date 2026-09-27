@@ -1,16 +1,16 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import type { Tag } from '@line-crm/shared'
-import type { FriendListItem } from '@/lib/api'
-import { api } from '@/lib/api'
-import FriendListRow from './friend-list-row'
-import TagBadge from './tag-badge'
+import { useState } from 'react';
+import type { Tag } from '@line-crm/shared';
+import type { FriendListItem } from '@/lib/api';
+import { api } from '@/lib/api';
+import FriendListRow from './friend-list-row';
+import TagBadge from './tag-badge';
 
 interface Props {
-  friends: FriendListItem[]
-  allTags: Tag[]
-  onRefresh: () => void
+  friends: FriendListItem[];
+  allTags: Tag[];
+  onRefresh: () => void;
 }
 
 export default function FriendListTable({ friends, allTags, onRefresh }: Props) {
@@ -19,63 +19,59 @@ export default function FriendListTable({ friends, allTags, onRefresh }: Props) 
   // the chats page's FriendInfoSidebar currently only displays tags (no
   // add/remove). Without this expander operators would lose the only path
   // to mutate friend tags from the admin UI.
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [addingTagForFriend, setAddingTagForFriend] = useState<string | null>(null)
-  const [selectedTagId, setSelectedTagId] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [addingTagForFriend, setAddingTagForFriend] = useState<string | null>(null);
+  const [selectedTagId, setSelectedTagId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id)
-    setAddingTagForFriend(null)
-    setSelectedTagId('')
-    setError('')
-  }
+    setExpandedId(expandedId === id ? null : id);
+    setAddingTagForFriend(null);
+    setSelectedTagId('');
+    setError('');
+  };
 
   const handleAddTag = async (friendId: string) => {
-    if (!selectedTagId) return
-    setLoading(true)
-    setError('')
+    if (!selectedTagId) return;
+    setLoading(true);
+    setError('');
     try {
-      await api.friends.addTag(friendId, selectedTagId)
-      setAddingTagForFriend(null)
-      setSelectedTagId('')
-      onRefresh()
+      await api.friends.addTag(friendId, selectedTagId);
+      setAddingTagForFriend(null);
+      setSelectedTagId('');
+      onRefresh();
     } catch {
-      setError('タグの追加に失敗しました')
+      setError('タグの追加に失敗しました');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleRemoveTag = async (friendId: string, tagId: string) => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      await api.friends.removeTag(friendId, tagId)
-      onRefresh()
+      await api.friends.removeTag(friendId, tagId);
+      onRefresh();
     } catch {
-      setError('タグの削除に失敗しました')
+      setError('タグの削除に失敗しました');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   if (friends.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
         <p className="text-gray-500">友だちが見つかりません</p>
       </div>
-    )
+    );
   }
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      {error && (
-        <div className="px-4 py-3 bg-red-50 border-b border-red-100 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="px-4 py-3 bg-red-50 border-b border-red-100 text-red-700 text-sm">{error}</div>}
 
       {/* Header sits inside the same overflow container as the body so the
           column labels stay aligned with their values when the user scrolls
@@ -91,18 +87,13 @@ export default function FriendListTable({ friends, allTags, onRefresh }: Props) 
             <div>★つきタグ・友だち情報</div>
           </div>
           {friends.map((friend) => {
-            const isExpanded = expandedId === friend.id
-            const isAddingTag = addingTagForFriend === friend.id
-            const availableTags = allTags.filter(
-              (t) => !friend.tags.some((ft) => ft.id === t.id),
-            )
+            const isExpanded = expandedId === friend.id;
+            const isAddingTag = addingTagForFriend === friend.id;
+            const availableTags = allTags.filter((t) => !friend.tags.some((ft) => ft.id === t.id));
 
             return (
               <div key={friend.id}>
-                <FriendListRow
-                  friend={friend}
-                  onTagEditClick={() => toggleExpand(friend.id)}
-                />
+                <FriendListRow friend={friend} onTagEditClick={() => toggleExpand(friend.id)} />
 
                 {isExpanded && (
                   <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 space-y-3">
@@ -113,11 +104,7 @@ export default function FriendListTable({ friends, allTags, onRefresh }: Props) 
                     <p className="text-xs font-semibold text-gray-500 mb-2">タグ管理</p>
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {friend.tags.map((tag) => (
-                        <TagBadge
-                          key={tag.id}
-                          tag={tag}
-                          onRemove={() => handleRemoveTag(friend.id, tag.id)}
-                        />
+                        <TagBadge key={tag.id} tag={tag} onRemove={() => handleRemoveTag(friend.id, tag.id)} />
                       ))}
                     </div>
 
@@ -130,7 +117,9 @@ export default function FriendListTable({ friends, allTags, onRefresh }: Props) 
                         >
                           <option value="">タグを選択...</option>
                           {availableTags.map((tag) => (
-                            <option key={tag.id} value={tag.id}>{tag.name}</option>
+                            <option key={tag.id} value={tag.id}>
+                              {tag.name}
+                            </option>
                           ))}
                         </select>
                         <button
@@ -142,7 +131,10 @@ export default function FriendListTable({ friends, allTags, onRefresh }: Props) 
                           追加
                         </button>
                         <button
-                          onClick={() => { setAddingTagForFriend(null); setSelectedTagId('') }}
+                          onClick={() => {
+                            setAddingTagForFriend(null);
+                            setSelectedTagId('');
+                          }}
                           className="px-3 py-1 text-xs font-medium rounded-md text-gray-600 bg-gray-200 hover:bg-gray-300 transition-colors"
                         >
                           キャンセル
@@ -164,10 +156,10 @@ export default function FriendListTable({ friends, allTags, onRefresh }: Props) 
                   </div>
                 )}
               </div>
-            )
+            );
           })}
         </div>
       </div>
     </div>
-  )
+  );
 }

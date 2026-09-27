@@ -1,0 +1,32 @@
+{
+  "head": "07f131c3b65b59d746bca7a33635ba1c3a128610",
+  "inventorySnapshot": "f6a88eedd15094ea52162ac168856647de0aedc8",
+  "moduleCount": 125,
+  "trackedPaths": 1268,
+  "assignedPaths": 1268,
+  "missing": [],
+  "obsolete": [],
+  "duplicates": 0,
+  "changedSinceInventory": [
+    "apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.test.ts",
+    "apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts",
+    "apps/worker/src/custom/pharmacy/prescriptions/retention-purge.ts",
+    "apps/worker/src/custom/pharmacy/retention/preflight.ts",
+    "packages/db/test/retention-d1.test.ts"
+  ],
+  "packetRecords": {
+    "F39": "F39-result.md",
+    "F40": "F40-result.md",
+    "F41": "F41-result.md",
+    "F42": "F42-result.md"
+  },
+  "affectedModules": [
+    "apps/worker/src/custom/pharmacy/emergency-contraception",
+    "apps/worker/src/custom/pharmacy/prescriptions",
+    "apps/worker/src/custom/pharmacy/retention",
+    "packages/db"
+  ],
+  "coverageStatus": "PARTIAL",
+  "reason": "Inventory completeness verified only. Prior REVIEWED subpaths plus packet evidence do not prove whole modules reviewed. No semantic status promoted.",
+  "next": "F43 image-route exception privacy; other finite work remains"
+}

@@ -1,4 +1,6 @@
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+import { readBoundedBody } from '../../../lib/read-bounded-body.js';
+
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const signatures: Record<string, number[]> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
@@ -20,8 +22,11 @@ export async function inspectPrescriptionImage(
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer);
   return {
     byteSize: bytes.byteLength,
-    sha256: [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join(''),
+    sha256: [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
   };
+}
+
+/** Read at most the accepted image size; null means the body exceeded it. */
+export function readPrescriptionImageBody(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array | null> {
+  return readBoundedBody(body, MAX_IMAGE_BYTES);
 }

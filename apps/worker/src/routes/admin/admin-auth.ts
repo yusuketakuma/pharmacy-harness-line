@@ -11,10 +11,7 @@ import {
   expiredCookie,
   tenantSessionCookie,
 } from '../../middleware/auth.js';
-import {
-  isAllowedAdminRequestOrigin,
-  resolveAdminAuthConfig,
-} from '../../middleware/admin-auth-config.js';
+import { isAllowedAdminRequestOrigin, resolveAdminAuthConfig } from '../../middleware/admin-auth-config.js';
 import {
   generateTenantAdminSessionToken,
   hashTenantAdminSessionToken,
@@ -30,10 +27,7 @@ import {
   sessionMaxAgeSeconds,
   type AdminSessionKind,
 } from '../../custom/pharmacy/provisioning/auth-policy.js';
-import {
-  claimLoginAttempt,
-  clearLoginThrottleStatement,
-} from '../../custom/pharmacy/provisioning/auth-throttle.js';
+import { claimLoginAttempt, clearLoginThrottleStatement } from '../../custom/pharmacy/provisioning/auth-throttle.js';
 
 export const adminAuth = new Hono<Env>();
 adminAuth.use('/api/auth/*', async (c, next) => {
@@ -55,22 +49,28 @@ type PharmacyAuthAudit = {
 };
 
 function pharmacyAuthAuditStatement(db: D1Database, event: PharmacyAuthAudit): D1PreparedStatement {
-  return db.prepare(
-    `INSERT INTO pharmacy_auth_audit_events
+  return db
+    .prepare(
+      `INSERT INTO pharmacy_auth_audit_events
        (id, actor_kind, actor_staff_id, target_tenant_id, target_staff_id,
         action, outcome, reason_code, request_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    crypto.randomUUID(), event.actorKind, event.actorStaffId ?? null,
-    event.targetTenantId ?? null, event.targetStaffId ?? null, event.action,
-    event.outcome, event.reasonCode, event.requestId, new Date().toISOString(),
-  );
+    )
+    .bind(
+      crypto.randomUUID(),
+      event.actorKind,
+      event.actorStaffId ?? null,
+      event.targetTenantId ?? null,
+      event.targetStaffId ?? null,
+      event.action,
+      event.outcome,
+      event.reasonCode,
+      event.requestId,
+      new Date().toISOString(),
+    );
 }
 
-async function recordPharmacyAuthAudit(
-  db: D1Database,
-  event: PharmacyAuthAudit,
-): Promise<boolean> {
+async function recordPharmacyAuthAudit(db: D1Database, event: PharmacyAuthAudit): Promise<boolean> {
   try {
     await pharmacyAuthAuditStatement(db, event).run();
     return true;
@@ -116,16 +116,15 @@ adminAuth.post('/api/auth/login', async (c) => {
   }
 
   const parsedBody = await c.req.json().catch(() => null);
-  const body = parsedBody !== null && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
-    ? parsedBody as Record<string, unknown>
-    : {};
+  const body =
+    parsedBody !== null && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+      ? (parsedBody as Record<string, unknown>)
+      : {};
   // NFKC folds full-width ０-９ to ASCII. Pharmacy codes are digits and a Japanese IME
   // left in full-width mode produces ００４８２１, which would otherwise never match.
   // The pharmacy code is the only identifier. Individual staff login IDs are
   // historical data and are deliberately not accepted by this endpoint.
-  const pharmacyCode = typeof body?.pharmacyCode === 'string'
-    ? body.pharmacyCode.normalize('NFKC').trim()
-    : '';
+  const pharmacyCode = typeof body?.pharmacyCode === 'string' ? body.pharmacyCode.normalize('NFKC').trim() : '';
   const password = typeof body?.password === 'string' ? body.password : '';
   if ('loginId' in body || 'apiKey' in body || !pharmacyCode || !password) {
     return c.json({ success: false, error: 'Pharmacy code and password are required' }, 400);
@@ -153,39 +152,46 @@ adminAuth.post('/api/auth/login', async (c) => {
         AND credential.login_id = tenant.tenant_code COLLATE NOCASE
         AND credential.auth_enabled = 1
       LIMIT 1`,
-  ).bind(pharmacyCode).first<{
-    id: string;
-    tenant_code: string;
-    display_name: string;
-    staff_id: string;
-    login_id: string;
-    password_hash: string;
-    must_change_password: number;
-    credential_version: number;
-    name: string;
-    principal_kind: 'human' | 'pharmacy_shared';
-    role: 'owner' | 'admin' | 'staff';
-  }>();
-  const throttleKey = row ? {
-    realm: 'tenant' as const,
-    authorityId: row.id,
-    loginId: pharmacyCode,
-  } : null;
+  )
+    .bind(pharmacyCode)
+    .first<{
+      id: string;
+      tenant_code: string;
+      display_name: string;
+      staff_id: string;
+      login_id: string;
+      password_hash: string;
+      must_change_password: number;
+      credential_version: number;
+      name: string;
+      principal_kind: 'human' | 'pharmacy_shared';
+      role: 'owner' | 'admin' | 'staff';
+    }>();
+  const throttleKey = row
+    ? {
+        realm: 'tenant' as const,
+        authorityId: row.id,
+        loginId: pharmacyCode,
+      }
+    : null;
   let attemptAllowed = false;
   if (throttleKey) {
     try {
       attemptAllowed = (await claimLoginAttempt(c.env.DB, throttleKey)).allowed;
     } catch {
-      log('auth.login_failed', {
-        realm: 'tenant', tenant_id: throttleKey.authorityId, reason: 'throttle_unavailable',
-      }, 'error');
+      log(
+        'auth.login_failed',
+        {
+          realm: 'tenant',
+          tenant_id: throttleKey.authorityId,
+          reason: 'throttle_unavailable',
+        },
+        'error',
+      );
       return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
     }
   }
-  const passwordValid = await verifyTenantPassword(
-    password,
-    row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH,
-  );
+  const passwordValid = await verifyTenantPassword(password, row?.password_hash ?? UNKNOWN_LOGIN_PASSWORD_HASH);
   if (!row || !throttleKey || !attemptAllowed || !passwordValid) {
     const auditSaved = await recordPharmacyAuthAudit(c.env.DB, {
       actorKind: 'unauthenticated',
@@ -196,12 +202,16 @@ adminAuth.post('/api/auth/login', async (c) => {
       reasonCode: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_pharmacy_code',
       requestId,
     });
-    log('auth.login_failed', {
-      realm: 'tenant',
-      ip: c.req.header('cf-connecting-ip'),
-      reason: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_pharmacy_code',
-      tenant_id: row?.id,
-    }, 'warn');
+    log(
+      'auth.login_failed',
+      {
+        realm: 'tenant',
+        ip: c.req.header('cf-connecting-ip'),
+        reason: row ? (attemptAllowed ? 'bad_password' : 'throttled') : 'unknown_pharmacy_code',
+        tenant_id: row?.id,
+      },
+      'warn',
+    );
     if (!auditSaved) {
       return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
     }
@@ -219,8 +229,14 @@ adminAuth.post('/api/auth/login', async (c) => {
            expires_at, last_seen_at, revoked_at, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
       ).bind(
-        session.tokenHash, row.id, row.staff_id, row.credential_version,
-        session.kind, session.expiresAt, session.issuedAt, session.issuedAt,
+        session.tokenHash,
+        row.id,
+        row.staff_id,
+        row.credential_version,
+        session.kind,
+        session.expiresAt,
+        session.issuedAt,
+        session.issuedAt,
       ),
       pharmacyAuthAuditStatement(c.env.DB, {
         actorKind: 'pharmacy_shared',
@@ -237,20 +253,24 @@ adminAuth.post('/api/auth/login', async (c) => {
       throw new Error('login persistence conflict');
     }
   } catch {
-    log('auth.login_failed', {
-      realm: 'tenant', tenant_id: row.id, reason: 'session_persistence_failed',
-    }, 'error');
+    log(
+      'auth.login_failed',
+      {
+        realm: 'tenant',
+        tenant_id: row.id,
+        reason: 'session_persistence_failed',
+      },
+      'error',
+    );
     return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
   }
-  c.header('Set-Cookie', adminSessionCookie(
-    session.token, config.sameSite, session.maxAgeSeconds,
-  ), { append: true });
-  c.header('Set-Cookie', tenantSessionCookie(
-    row.id, config.sameSite, session.maxAgeSeconds,
-  ), { append: true });
-  c.header('Set-Cookie', csrfCookie(
-    csrfToken, config.sameSite, session.maxAgeSeconds,
-  ), { append: true });
+  c.header('Set-Cookie', adminSessionCookie(session.token, config.sameSite, session.maxAgeSeconds), { append: true });
+  c.header('Set-Cookie', tenantSessionCookie(row.id, config.sameSite, session.maxAgeSeconds), {
+    append: true,
+  });
+  c.header('Set-Cookie', csrfCookie(csrfToken, config.sameSite, session.maxAgeSeconds), {
+    append: true,
+  });
   return c.json({
     success: true,
     data: {
@@ -282,10 +302,13 @@ adminAuth.post('/api/auth/change-password', async (c) => {
   const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : '';
   const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
   if (!isValidAdminPassword(newPassword)) {
-    return c.json({
-      success: false,
-      error: 'New password must be 15 to 128 characters and not commonly compromised',
-    }, 400);
+    return c.json(
+      {
+        success: false,
+        error: 'New password must be 15 to 128 characters and not commonly compromised',
+      },
+      400,
+    );
   }
 
   const tenantId = c.get('tenantId');
@@ -307,10 +330,12 @@ adminAuth.post('/api/auth/change-password', async (c) => {
         AND credential.credential_version = ?
         AND credential.auth_enabled = 1
       LIMIT 1`,
-  ).bind(tenantId, staffId, credentialVersion).first<{
-    password_hash: string;
-    credential_version: number;
-  }>();
+  )
+    .bind(tenantId, staffId, credentialVersion)
+    .first<{
+      password_hash: string;
+      credential_version: number;
+    }>();
   if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
     const auditSaved = await recordPharmacyAuthAudit(c.env.DB, {
       actorKind: 'unauthenticated',
@@ -321,9 +346,16 @@ adminAuth.post('/api/auth/change-password', async (c) => {
       reasonCode: 'bad_current_password',
       requestId: crypto.randomUUID(),
     });
-    log('auth.password_change_failed', {
-      realm: 'tenant', tenant_id: tenantId, staff_id: staffId, reason: 'bad_current_password',
-    }, 'warn');
+    log(
+      'auth.password_change_failed',
+      {
+        realm: 'tenant',
+        tenant_id: tenantId,
+        staff_id: staffId,
+        reason: 'bad_current_password',
+      },
+      'warn',
+    );
     if (!auditSaved) {
       return c.json({ success: false, error: 'Authentication temporarily unavailable' }, 503);
     }
@@ -368,9 +400,21 @@ adminAuth.post('/api/auth/change-password', async (c) => {
                  AND current_session.expires_at > ?
             )`,
       ).bind(
-        passwordHash, now, tenantId, staffId, credentialVersion,
-        tenantId, staffId, tenantId, tenantId, staffId,
-        sessionTokenHash, tenantId, staffId, credentialVersion, now,
+        passwordHash,
+        now,
+        tenantId,
+        staffId,
+        credentialVersion,
+        tenantId,
+        staffId,
+        tenantId,
+        tenantId,
+        staffId,
+        sessionTokenHash,
+        tenantId,
+        staffId,
+        credentialVersion,
+        now,
       ),
       // `changes()` is evaluated immediately after the credential UPDATE.
       // A NULL outcome violates NOT NULL when the CAS matched zero rows, so
@@ -392,16 +436,26 @@ adminAuth.post('/api/auth/change-password', async (c) => {
       }),
     ]);
   } catch (error) {
-    log('auth.password_change_failed', {
-      realm: 'tenant', tenant_id: tenantId, staff_id: staffId, reason: 'persistence_failed',
-    }, 'error');
+    log(
+      'auth.password_change_failed',
+      {
+        realm: 'tenant',
+        tenant_id: tenantId,
+        staff_id: staffId,
+        reason: 'persistence_failed',
+      },
+      'error',
+    );
     const message = error instanceof Error ? error.message : String(error);
-    return c.json({
-      success: false,
-      error: /constraint|concurrent|PHARMACY_/iu.test(message)
-        ? 'Credential changed concurrently'
-        : 'Authentication temporarily unavailable',
-    }, /constraint|concurrent|PHARMACY_/iu.test(message) ? 409 : 503);
+    return c.json(
+      {
+        success: false,
+        error: /constraint|concurrent|PHARMACY_/iu.test(message)
+          ? 'Credential changed concurrently'
+          : 'Authentication temporarily unavailable',
+      },
+      /constraint|concurrent|PHARMACY_/iu.test(message) ? 409 : 503,
+    );
   }
   log('auth.password_changed', { realm: 'tenant', tenant_id: tenantId, staff_id: staffId });
 
@@ -433,18 +487,14 @@ adminAuth.get('/api/auth/sessions', async (c) => {
         AND revoked_at IS NULL AND expires_at > ?
         AND credential_version = ?
       ORDER BY created_at DESC`,
-  ).bind(
-    currentTokenHash,
-    c.get('tenantId'),
-    c.get('staff').id,
-    now,
-    c.get('credentialVersion'),
-  ).all<{
-    session_kind: 'bootstrap' | 'standard';
-    expires_at: string;
-    created_at: string;
-    is_current: number;
-  }>();
+  )
+    .bind(currentTokenHash, c.get('tenantId'), c.get('staff').id, now, c.get('credentialVersion'))
+    .all<{
+      session_kind: 'bootstrap' | 'standard';
+      expires_at: string;
+      created_at: string;
+      is_current: number;
+    }>();
   return c.json({
     success: true,
     data: {
@@ -475,7 +525,9 @@ adminAuth.post('/api/auth/sessions/revoke-others', async (c) => {
     `SELECT password_hash FROM tenant_admin_credentials
       WHERE tenant_id = ? AND staff_id = ? AND credential_version = ?
       LIMIT 1`,
-  ).bind(tenantId, staffId, credentialVersion).first<{ password_hash: string }>();
+  )
+    .bind(tenantId, staffId, credentialVersion)
+    .first<{ password_hash: string }>();
   if (!credential || !(await verifyTenantPassword(currentPassword, credential.password_hash))) {
     return c.json({ success: false, error: 'Current password is incorrect' }, 403);
   }
@@ -498,8 +550,17 @@ adminAuth.post('/api/auth/sessions/revoke-others', async (c) => {
                AND current_session.expires_at > ?
           )`,
     ).bind(
-      now, tenantId, staffId, currentTokenHash, now, credentialVersion,
-      currentTokenHash, tenantId, staffId, credentialVersion, now,
+      now,
+      tenantId,
+      staffId,
+      currentTokenHash,
+      now,
+      credentialVersion,
+      currentTokenHash,
+      tenantId,
+      staffId,
+      credentialVersion,
+      now,
     ),
     c.env.DB.prepare(
       `INSERT INTO tenant_admin_audit_events
@@ -515,7 +576,8 @@ adminAuth.post('/api/auth/sessions/revoke-others', async (c) => {
         WHERE token_hash = ? AND tenant_id = ? AND staff_id = ?
           AND credential_version = ? AND revoked_at IS NULL AND expires_at > ?
         LIMIT 1`,
-    ).bind(currentTokenHash, tenantId, staffId, credentialVersion, now)
+    )
+      .bind(currentTokenHash, tenantId, staffId, credentialVersion, now)
       .first<{ present: number }>();
     if (!caller) {
       return c.json({ success: false, error: 'Session changed concurrently' }, 409);
@@ -549,7 +611,9 @@ adminAuth.post('/api/auth/logout', async (c) => {
              WHERE current_session.token_hash = ?
           )
             AND revoked_at IS NULL`,
-      ).bind(new Date().toISOString(), tokenHash).run();
+      )
+        .bind(new Date().toISOString(), tokenHash)
+        .run();
     } catch {
       revokeFailed = true;
       log('auth.logout_failed', { realm: 'tenant', reason: 'session_revoke_failed' }, 'error');

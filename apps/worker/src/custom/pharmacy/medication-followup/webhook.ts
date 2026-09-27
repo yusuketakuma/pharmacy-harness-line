@@ -1,7 +1,4 @@
-import {
-  parseMedicationFollowUpPostback,
-  recordMedicationFollowUpPatientResponse,
-} from './repository.js';
+import { parseMedicationFollowUpPostback, recordMedicationFollowUpPatientResponse } from './repository.js';
 
 export async function handleMedicationFollowUpPostback(
   db: D1Database,

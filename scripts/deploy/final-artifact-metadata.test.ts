@@ -15,7 +15,10 @@ describe('finalArtifactMetadata', () => {
       mkdirSync(assetsDir);
       const configPath = join(workerDir, 'wrangler.json');
       const workerPath = join(workerDir, 'index.js');
-      writeFileSync(configPath, JSON.stringify({ main: 'index.js', no_bundle: true, assets: { directory: '../client' } }));
+      writeFileSync(
+        configPath,
+        JSON.stringify({ main: 'index.js', no_bundle: true, assets: { directory: '../client' } }),
+      );
       writeFileSync(workerPath, 'first build');
       writeFileSync(join(assetsDir, 'index.html'), 'first assets');
       const before = {

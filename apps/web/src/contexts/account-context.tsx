@@ -1,112 +1,123 @@
-'use client'
+'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import type { ReactNode } from 'react'
-import { api } from '@/lib/api'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
+import { api } from '@/lib/api';
 
-const STORAGE_KEY = 'lh_selected_account'
+const STORAGE_KEY = 'lh_selected_account';
 
 export interface AccountWithStats {
-  id: string
-  channelId: string
-  name: string
-  displayName?: string
-  pictureUrl?: string
-  basicId?: string
-  isActive: boolean
-  country: string | null
-  role: string | null
-  displayOrder: number
-  liffId?: string | null
-  pharmacyMode?: boolean
-  outboundMessagingPausedAt?: string | null
+  id: string;
+  channelId: string;
+  name: string;
+  displayName?: string;
+  pictureUrl?: string;
+  basicId?: string;
+  isActive: boolean;
+  country: string | null;
+  role: string | null;
+  displayOrder: number;
+  liffId?: string | null;
+  pharmacyMode?: boolean;
+  outboundMessagingPausedAt?: string | null;
   stats?: {
-    friendCount: number
-    activeScenarios: number
-    messagesThisMonth: number
-  }
+    friendCount: number;
+    activeScenarios: number;
+    messagesThisMonth: number;
+  };
 }
 
 interface AccountContextValue {
-  accounts: AccountWithStats[]
-  selectedAccountId: string | null
-  selectedAccount: AccountWithStats | null
-  setSelectedAccountId: (id: string) => void
-  refreshAccounts: () => Promise<void>
-  loading: boolean
+  accounts: AccountWithStats[];
+  selectedAccountId: string | null;
+  selectedAccount: AccountWithStats | null;
+  setSelectedAccountId: (id: string) => void;
+  refreshAccounts: () => Promise<void>;
+  loading: boolean;
 }
 
-const AccountContext = createContext<AccountContextValue | null>(null)
+const AccountContext = createContext<AccountContextValue | null>(null);
 
 export function AccountProvider({ children }: { children: ReactNode }) {
-  const [accounts, setAccounts] = useState<AccountWithStats[]>([])
-  const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [accounts, setAccounts] = useState<AccountWithStats[]>([]);
+  const [selectedAccountId, setSelectedAccountIdState] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const setSelectedAccountId = useCallback((id: string) => {
-    setSelectedAccountIdState(id)
+    setSelectedAccountIdState(id);
     try {
-      localStorage.setItem(STORAGE_KEY, id)
+      localStorage.setItem(STORAGE_KEY, id);
     } catch {
       // localStorage unavailable
     }
-  }, [])
+  }, []);
 
   const refreshAccounts = useCallback(async () => {
-    setError('')
+    setError('');
     try {
-      const res = await api.lineAccounts.list()
+      const res = await api.lineAccounts.list();
       if (!res.success) {
-        setError('LINEアカウント情報を取得できませんでした。再読み込みしてください。')
-        return
+        setError('LINEアカウント情報を取得できませんでした。再読み込みしてください。');
+        return;
       }
       if (res.data.length > 0) {
-        const list = res.data as AccountWithStats[]
-        setAccounts(list)
+        const list = res.data as AccountWithStats[];
+        setAccounts(list);
 
         // If current selection is invalid (e.g. deleted), fall back to first
         setSelectedAccountIdState((prev) => {
-          if (prev && list.some((a) => a.id === prev)) return prev
+          if (prev && list.some((a) => a.id === prev)) return prev;
           // Restore from localStorage or default to first
-          let stored: string | null = null
+          let stored: string | null = null;
           try {
-            stored = localStorage.getItem(STORAGE_KEY)
+            stored = localStorage.getItem(STORAGE_KEY);
           } catch {
             // localStorage unavailable
           }
-          const valid = stored && list.some((a) => a.id === stored)
-          return valid ? stored : list[0].id
-        })
+          const valid = stored && list.some((a) => a.id === stored);
+          return valid ? stored : list[0].id;
+        });
       } else {
-        setAccounts([])
-        setSelectedAccountIdState(null)
+        setAccounts([]);
+        setSelectedAccountIdState(null);
       }
     } catch {
-      setError('LINEアカウント情報を取得できませんでした。再読み込みしてください。')
+      setError('LINEアカウント情報を取得できませんでした。再読み込みしてください。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    refreshAccounts()
-  }, [refreshAccounts])
+    refreshAccounts();
+  }, [refreshAccounts]);
 
-  const selectedAccount = accounts.find((a) => a.id === selectedAccountId) ?? null
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId) ?? null;
 
   return (
     <AccountContext.Provider
-      value={{ accounts, selectedAccountId, selectedAccount, setSelectedAccountId, refreshAccounts, loading }}
+      value={{
+        accounts,
+        selectedAccountId,
+        selectedAccount,
+        setSelectedAccountId,
+        refreshAccounts,
+        loading,
+      }}
     >
-      {error && <div role="alert" className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {error && (
+        <div role="alert" className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
       {children}
     </AccountContext.Provider>
-  )
+  );
 }
 
 export function useAccount(): AccountContextValue {
-  const ctx = useContext(AccountContext)
-  if (!ctx) throw new Error('useAccount must be used within AccountProvider')
-  return ctx
+  const ctx = useContext(AccountContext);
+  if (!ctx) throw new Error('useAccount must be used within AccountProvider');
+  return ctx;
 }

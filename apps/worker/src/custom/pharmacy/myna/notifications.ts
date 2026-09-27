@@ -5,9 +5,7 @@ import { readLineCredential } from '../provisioning/line-credential-store.js';
 import type { MynaHandoff } from './repository.js';
 import type { MynaHandoffStatus } from './state.js';
 
-const NOTIFIED_STATUSES = new Set<MynaHandoffStatus>([
-  'SUPPORT_NEEDED', 'PAPER_FALLBACK', 'EXPIRED',
-]);
+const NOTIFIED_STATUSES = new Set<MynaHandoffStatus>(['SUPPORT_NEEDED', 'PAPER_FALLBACK', 'EXPIRED']);
 
 const HOUR_MS = 60 * 60 * 1000;
 const JST_OFFSET_MS = 9 * HOUR_MS;
@@ -23,10 +21,7 @@ export interface MynaNotificationOptions {
   lineCredentialKey?: string;
 }
 
-type NotifiableHandoff = Pick<
-  MynaHandoff,
-  'id' | 'line_account_id' | 'friend_id' | 'patient_id' | 'status'
->;
+type NotifiableHandoff = Pick<MynaHandoff, 'id' | 'line_account_id' | 'friend_id' | 'patient_id' | 'status'>;
 
 /**
  * Patient-initiated handoffs notify on `transactional_care` — the standard
@@ -40,33 +35,36 @@ export async function sendMynaHandoffStatusNotification(
   handoff: NotifiableHandoff,
 ): Promise<'sent' | 'failed' | 'skipped'> {
   if (!NOTIFIED_STATUSES.has(handoff.status)) return 'skipped';
-  const recipient = await db.prepare(
-    `SELECT friend.provider_line_user_id AS line_user_id,
+  const recipient = await db
+    .prepare(
+      `SELECT friend.provider_line_user_id AS line_user_id,
             mapping.tenant_id AS tenant_id
        FROM friends AS friend
        INNER JOIN tenant_line_accounts AS mapping
                ON mapping.line_account_id = friend.line_account_id
       WHERE friend.id = ? AND friend.line_account_id = ?
       LIMIT 1`,
-  ).bind(handoff.friend_id, handoff.line_account_id)
+    )
+    .bind(handoff.friend_id, handoff.line_account_id)
     .first<{ line_user_id: string | null; tenant_id: string }>();
-  const accessToken = options.lineCredentialKey && recipient
-    ? await readLineCredential(db, options.lineCredentialKey, {
-      tenantId: recipient.tenant_id,
-      lineAccountId: handoff.line_account_id,
-      kind: 'channel_access_token',
-    }).catch(() => null)
-    : null;
+  const accessToken =
+    options.lineCredentialKey && recipient
+      ? await readLineCredential(db, options.lineCredentialKey, {
+          tenantId: recipient.tenant_id,
+          lineAccountId: handoff.line_account_id,
+          kind: 'channel_access_token',
+        }).catch(() => null)
+      : null;
   if (!recipient?.line_user_id || !accessToken) return 'skipped';
   const retryKey = `myna-status:${handoff.id}:${handoff.status}`;
   try {
     const betaMembershipId = handoff.patient_id
       ? await getPharmacyBetaNotificationBinding(db, {
-        lineAccountId: handoff.line_account_id,
-        retryKey,
-        participantFriendId: handoff.friend_id,
-        subjectPatientId: handoff.patient_id,
-      })
+          lineAccountId: handoff.line_account_id,
+          retryKey,
+          participantFriendId: handoff.friend_id,
+          subjectPatientId: handoff.patient_id,
+        })
       : null;
     const outcome = await sendPharmacyAutomatedPush({
       db,
@@ -110,8 +108,9 @@ export async function processExpiredMynaHandoffNotifications(
   if (isQuietHours(now)) return result;
   const lookback = new Date(now.getTime() - 72 * HOUR_MS).toISOString();
   const limit = Math.min(50, Math.max(1, Math.floor(options.limit ?? 50)));
-  const rows = await db.prepare(
-    `SELECT handoff.id, handoff.line_account_id, handoff.friend_id, handoff.patient_id, handoff.status
+  const rows = await db
+    .prepare(
+      `SELECT handoff.id, handoff.line_account_id, handoff.friend_id, handoff.patient_id, handoff.status
        FROM pharmacy_myna_handoffs AS handoff
       WHERE handoff.status = 'EXPIRED' AND handoff.updated_at >= ?
         AND NOT EXISTS (
@@ -122,7 +121,9 @@ export async function processExpiredMynaHandoffNotifications(
         )
       ORDER BY handoff.updated_at ASC, handoff.id ASC
       LIMIT ?`,
-  ).bind(lookback, limit).all<NotifiableHandoff>();
+    )
+    .bind(lookback, limit)
+    .all<NotifiableHandoff>();
   for (const handoff of rows.results ?? []) {
     result[await sendMynaHandoffStatusNotification(db, options, handoff)] += 1;
   }

@@ -29,10 +29,7 @@ export default function Event() {
       try {
         // GET 系はパブリック（liffId 経由のアカウント解決のみ）。これらは
         // 失敗するとイベント詳細が出せないので全体失敗扱い。
-        const [e, s] = await Promise.all([
-          api.getEvent(id!),
-          api.getEventSlots(id!),
-        ]);
+        const [e, s] = await Promise.all([api.getEvent(id!), api.getEventSlots(id!)]);
         if (cancelled) return;
         setEvent(e);
         setSlots(s.items);
@@ -42,17 +39,10 @@ export default function Event() {
         // な要因で 401 になる可能性がある。バッジ表示が落ちるだけなので
         // best-effort にして本画面は描画を続ける。
         try {
-          const [upcoming, past] = await Promise.all([
-            api.myEventBookings('upcoming'),
-            api.myEventBookings('past'),
-          ]);
+          const [upcoming, past] = await Promise.all([api.myEventBookings('upcoming'), api.myEventBookings('past')]);
           if (cancelled) return;
           const all = [...upcoming.items, ...past.items];
-          setMyActive(
-            all.filter(
-              (b) => b.event_id === e.id && (b.status === 'requested' || b.status === 'confirmed'),
-            ),
-          );
+          setMyActive(all.filter((b) => b.event_id === e.id && (b.status === 'requested' || b.status === 'confirmed')));
         } catch (authErr) {
           // 認証なし → 自分の予約数バッジを出さずに通常表示で続行。
           console.warn('[event] me bookings unavailable:', authErr);
@@ -86,9 +76,7 @@ export default function Event() {
       )}
       <div className="p-4">
         <h1 className="text-xl font-bold mb-2">{event.name}</h1>
-        {event.venue_name && (
-          <div className="text-sm text-gray-700 mb-1">📍 {event.venue_name}</div>
-        )}
+        {event.venue_name && <div className="text-sm text-gray-700 mb-1">📍 {event.venue_name}</div>}
         {event.venue_url && (
           <a
             href={event.venue_url}
@@ -100,9 +88,7 @@ export default function Event() {
           </a>
         )}
         {event.description && (
-          <div
-            className={`mt-3 text-sm whitespace-pre-wrap ${event.description_centered === 1 ? 'text-center' : ''}`}
-          >
+          <div className={`mt-3 text-sm whitespace-pre-wrap ${event.description_centered === 1 ? 'text-center' : ''}`}>
             {event.description}
           </div>
         )}
@@ -132,11 +118,7 @@ export default function Event() {
                   >
                     <span className="text-sm">{formatJp(s.starts_at)}</span>
                     <span className="text-xs">
-                      {full
-                        ? '満員'
-                        : s.capacity == null
-                        ? '定員なし'
-                        : `残 ${s.remaining}`}
+                      {full ? '満員' : s.capacity == null ? '定員なし' : `残 ${s.remaining}`}
                     </span>
                   </button>
                 </li>
@@ -145,16 +127,11 @@ export default function Event() {
           </ul>
         )}
         {overLimit && (
-          <div className="mt-3 text-xs text-red-600">
-            このイベントへの予約上限（{max}）に達しています。
-          </div>
+          <div className="mt-3 text-xs text-red-600">このイベントへの予約上限（{max}）に達しています。</div>
         )}
 
         <div className="mt-6 text-center">
-          <button
-            onClick={() => navigate('/events/me')}
-            className="text-sm text-blue-600 underline"
-          >
+          <button onClick={() => navigate('/events/me')} className="text-sm text-blue-600 underline">
             予約履歴を見る
           </button>
         </div>

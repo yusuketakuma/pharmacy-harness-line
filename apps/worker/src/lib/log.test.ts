@@ -19,7 +19,12 @@ describe('structured log helper', () => {
       answers: { q1: 'x' },
     });
     const line = lastLine(out);
-    expect(line).toMatchObject({ level: 'info', event: 'auth.login_failed', realm: 'tenant', ip: '203.0.113.1' });
+    expect(line).toMatchObject({
+      level: 'info',
+      event: 'auth.login_failed',
+      realm: 'tenant',
+      ip: '203.0.113.1',
+    });
     expect(typeof line.ts).toBe('string');
     for (const key of ['loginId', 'password', 'line_user_id', 'answers']) {
       expect(line).not.toHaveProperty(key);

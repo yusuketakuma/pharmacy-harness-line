@@ -1,0 +1,29 @@
+[
+  {
+    "messages": 50,
+    "medianMs": {
+      "P": 1.611958,
+      "W": 1.704042
+    },
+    "ceilingMs": 16.611958,
+    "pass": true
+  },
+  {
+    "messages": 500,
+    "medianMs": {
+      "P": 3.882459,
+      "W": 5.211333
+    },
+    "ceilingMs": 18.882459,
+    "pass": true
+  },
+  {
+    "messages": 5000,
+    "medianMs": {
+      "P": 12.473792,
+      "W": 12.63825
+    },
+    "ceilingMs": 27.473792,
+    "pass": true
+  }
+]

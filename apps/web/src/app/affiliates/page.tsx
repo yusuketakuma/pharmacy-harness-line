@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import Header from '@/components/layout/header'
-import { api, type AffiliateOffer, type ConversionApprovalItem } from '@/lib/api'
-import type { Tag, Scenario, LineAccount } from '@line-crm/shared'
+import { useState, useEffect, useCallback, useRef } from 'react';
+import Header from '@/components/layout/header';
+import { api, type AffiliateOffer, type ConversionApprovalItem } from '@/lib/api';
+import type { Tag, Scenario, LineAccount } from '@line-crm/shared';
 
-const WORKER_BASE = process.env.NEXT_PUBLIC_API_URL
+const WORKER_BASE = process.env.NEXT_PUBLIC_API_URL;
 if (!WORKER_BASE) {
-  throw new Error('NEXT_PUBLIC_API_URL is not set. Build cannot proceed.')
+  throw new Error('NEXT_PUBLIC_API_URL is not set. Build cannot proceed.');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,86 +15,91 @@ if (!WORKER_BASE) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AffiliateItem {
-  id: string
-  name: string
-  code: string
-  commissionRate: number
-  isActive: boolean
-  createdAt: string
-  friendId: string | null
+  id: string;
+  name: string;
+  code: string;
+  commissionRate: number;
+  isActive: boolean;
+  createdAt: string;
+  friendId: string | null;
 }
 
 interface AffiliateReportRow {
-  affiliateId: string
-  affiliateName: string
-  code: string
-  commissionRate: number
-  totalClicks: number
-  totalConversions: number
-  totalRevenue: number
-  linkCount: number
-  friendAdds: number
+  affiliateId: string;
+  affiliateName: string;
+  code: string;
+  commissionRate: number;
+  totalClicks: number;
+  totalConversions: number;
+  totalRevenue: number;
+  linkCount: number;
+  friendAdds: number;
 }
 
 /** Merged for the list view */
 interface AffiliateListRow extends AffiliateItem {
-  totalClicks: number
-  totalConversions: number
-  totalRevenue: number
-  estimatedCommission: number
-  linkCount: number
-  friendAdds: number
+  totalClicks: number;
+  totalConversions: number;
+  totalRevenue: number;
+  estimatedCommission: number;
+  linkCount: number;
+  friendAdds: number;
 }
 
 interface AffiliateLink {
-  id: string
-  affiliate_id: string
-  ref_code: string
-  label: string | null
-  line_account_id: string | null
-  is_active: number
-  created_at: string
-  click_count: number
-  offer_id: string | null
-  offer_name: string | null
+  id: string;
+  affiliate_id: string;
+  ref_code: string;
+  label: string | null;
+  line_account_id: string | null;
+  is_active: number;
+  created_at: string;
+  click_count: number;
+  offer_id: string | null;
+  offer_name: string | null;
 }
 
 interface ReportV2 {
-  affiliateId: string
-  affiliateName: string
-  code: string
-  commissionRate: number
-  clicks: number
-  linkClicks: number
-  friendAdds: number
-  conversions: number
-  conversionsPending: number
-  conversionsApproved: number
-  conversionsRejected: number
-  conversionsByPoint: Array<{ conversionPointId: string; name: string; count: number; value: number }>
-  revenue: number
-  estimatedCommission: number
-  confirmedReward: number
+  affiliateId: string;
+  affiliateName: string;
+  code: string;
+  commissionRate: number;
+  clicks: number;
+  linkClicks: number;
+  friendAdds: number;
+  conversions: number;
+  conversionsPending: number;
+  conversionsApproved: number;
+  conversionsRejected: number;
+  conversionsByPoint: Array<{
+    conversionPointId: string;
+    name: string;
+    count: number;
+    value: number;
+  }>;
+  revenue: number;
+  estimatedCommission: number;
+  confirmedReward: number;
   byOffer: Array<{
-    offerId: string
-    offerName: string
-    rewardAmount: number
-    conversionsApproved: number
-    conversionsPending: number
-    confirmedReward: number
-  }>
-  duplicateFlags: Array<{ friendId: string; identityKey: string }>
+    offerId: string;
+    offerName: string;
+    rewardAmount: number;
+    conversionsApproved: number;
+    conversionsPending: number;
+    confirmedReward: number;
+  }>;
+  duplicateFlags: Array<{ friendId: string; identityKey: string }>;
 }
 
 interface JourneySummary {
-  friendId: string
-  displayName: string | null
-  addedAt: string
-  refCode: string | null
-  touchCount: number
-  formCount: number
-  conversionCount: number
-  lastEventAt: string
+  friendId: string;
+  displayName: string | null;
+  addedAt: string;
+  refCode: string | null;
+  touchCount: number;
+  formCount: number;
+  conversionCount: number;
+  lastEventAt: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,60 +107,61 @@ interface JourneySummary {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 }
 
 function formatYen(n: number): string {
-  return `¥${Math.round(n).toLocaleString('ja-JP')}`
+  return `¥${Math.round(n).toLocaleString('ja-JP')}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────────────────────
 
-const JOURNEY_PAGE_SIZE = 30
+const JOURNEY_PAGE_SIZE = 30;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Page shell — 3 tabs (affiliators / offers / approvals) with ?tab= persistence
 // ─────────────────────────────────────────────────────────────────────────────
 
-type PageTab = 'affiliates' | 'offers' | 'approvals'
+type PageTab = 'affiliates' | 'offers' | 'approvals';
 
 const TAB_LABELS: Record<PageTab, string> = {
   affiliates: 'アフィリエイター',
   offers: '案件',
   approvals: '成果承認',
-}
+};
 
 function parseTab(raw: string | null): PageTab {
-  return raw === 'offers' || raw === 'approvals' ? raw : 'affiliates'
+  return raw === 'offers' || raw === 'approvals' ? raw : 'affiliates';
 }
 
 export default function AffiliatesPage() {
   // ?tab= で選択タブを保持（リロードで維持）。chats ページの unanswered=1 と同じく
   // useSearchParams (Suspense 要) を避け、window.location + history.replaceState で扱う。
   const [tab, setTab] = useState<PageTab>(() => {
-    if (typeof window === 'undefined') return 'affiliates'
-    return parseTab(new URLSearchParams(window.location.search).get('tab'))
-  })
+    if (typeof window === 'undefined') return 'affiliates';
+    return parseTab(new URLSearchParams(window.location.search).get('tab'));
+  });
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const urlParams = new URLSearchParams(window.location.search)
-    if (tab === 'affiliates') urlParams.delete('tab')
-    else urlParams.set('tab', tab)
-    const qs = urlParams.toString()
-    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname
-    window.history.replaceState(null, '', url)
-  }, [tab])
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (tab === 'affiliates') urlParams.delete('tab');
+    else urlParams.set('tab', tab);
+    const qs = urlParams.toString();
+    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, '', url);
+  }, [tab]);
 
   return (
     <div>
-      <Header
-        title="アフィリエイト"
-        description="アフィリエイター管理・ASP 案件・成果承認"
-      />
+      <Header title="アフィリエイト" description="アフィリエイター管理・ASP 案件・成果承認" />
 
       {/* Tab switcher */}
       <div className="mb-4 flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
@@ -164,9 +170,7 @@ export default function AffiliatesPage() {
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              tab === t
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+              tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             {TAB_LABELS[t]}
@@ -178,7 +182,7 @@ export default function AffiliatesPage() {
       {tab === 'offers' && <OffersTab />}
       {tab === 'approvals' && <ApprovalQueue />}
     </div>
-  )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,46 +191,43 @@ export default function AffiliatesPage() {
 
 function AffiliatorsTab() {
   // ── list ───────────────────────────────────────────────────────────────────
-  const [rows, setRows] = useState<AffiliateListRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [rows, setRows] = useState<AffiliateListRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // ── selected affiliate (detail panel) ─────────────────────────────────────
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [report, setReport] = useState<ReportV2 | null>(null)
-  const [links, setLinks] = useState<AffiliateLink[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [report, setReport] = useState<ReportV2 | null>(null);
+  const [links, setLinks] = useState<AffiliateLink[]>([]);
 
   // ── create modal ────────────────────────────────────────────────────────────
-  const [createOpen, setCreateOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false);
 
   // ── journeys (cursor-paginated) ────────────────────────────────────────────
-  const [journeys, setJourneys] = useState<JourneySummary[]>([])
-  const [journeyLoading, setJourneyLoading] = useState(false)
-  const [journeyMore, setJourneyMore] = useState(false)
-  const [journeyLoadingMore, setJourneyLoadingMore] = useState(false)
-  const journeyCursorRef = useRef<{ beforeAt: string; beforeId: string } | null>(null)
+  const [journeys, setJourneys] = useState<JourneySummary[]>([]);
+  const [journeyLoading, setJourneyLoading] = useState(false);
+  const [journeyMore, setJourneyMore] = useState(false);
+  const [journeyLoadingMore, setJourneyLoadingMore] = useState(false);
+  const journeyCursorRef = useRef<{ beforeAt: string; beforeId: string } | null>(null);
 
   // ── load list ──────────────────────────────────────────────────────────────
   const loadList = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const [affiliatesRes, reportRes] = await Promise.all([
-        api.affiliates.list(),
-        api.affiliates.allReport(),
-      ])
-      if (!affiliatesRes.success) throw new Error('affiliates fetch failed')
-      if (!reportRes.success) throw new Error('report fetch failed')
+      const [affiliatesRes, reportRes] = await Promise.all([api.affiliates.list(), api.affiliates.allReport()]);
+      if (!affiliatesRes.success) throw new Error('affiliates fetch failed');
+      if (!reportRes.success) throw new Error('report fetch failed');
 
-      const affiliates = affiliatesRes.data as unknown as AffiliateItem[]
-      const reportMap = new Map<string, AffiliateReportRow>()
-      for (const r of (reportRes.data as unknown as AffiliateReportRow[])) {
-        reportMap.set(r.affiliateId, r)
+      const affiliates = affiliatesRes.data as unknown as AffiliateItem[];
+      const reportMap = new Map<string, AffiliateReportRow>();
+      for (const r of reportRes.data as unknown as AffiliateReportRow[]) {
+        reportMap.set(r.affiliateId, r);
       }
 
       const merged: AffiliateListRow[] = affiliates.map((a) => {
-        const rep = reportMap.get(a.id)
+        const rep = reportMap.get(a.id);
         return {
           ...a,
           totalClicks: rep?.totalClicks ?? 0,
@@ -235,85 +236,99 @@ function AffiliatorsTab() {
           estimatedCommission: ((rep?.totalRevenue ?? 0) * a.commissionRate) / 100,
           linkCount: rep?.linkCount ?? 0,
           friendAdds: rep?.friendAdds ?? 0,
-        }
-      })
-      setRows(merged)
+        };
+      });
+      setRows(merged);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '読み込みエラー')
+      setError(e instanceof Error ? e.message : '読み込みエラー');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
-  useEffect(() => { void loadList() }, [loadList])
+  useEffect(() => {
+    void loadList();
+  }, [loadList]);
 
   // ── load detail (report v2 + links) ────────────────────────────────────────
   const loadDetail = useCallback(async (id: string) => {
-    setDetailLoading(true)
-    setReport(null)
-    setLinks([])
-    setJourneys([])
-    setJourneyMore(false)
-    journeyCursorRef.current = null
+    setDetailLoading(true);
+    setReport(null);
+    setLinks([]);
+    setJourneys([]);
+    setJourneyMore(false);
+    journeyCursorRef.current = null;
     try {
-      const [reportRes, linksRes] = await Promise.all([
-        api.affiliates.reportV2(id),
-        api.affiliates.links(id),
-      ])
-      if (reportRes.success) setReport(reportRes.data as unknown as ReportV2)
-      if (linksRes.success) setLinks(linksRes.data as unknown as AffiliateLink[])
-    } catch { /* silent — detail is optional */ }
-    setDetailLoading(false)
-  }, [])
+      const [reportRes, linksRes] = await Promise.all([api.affiliates.reportV2(id), api.affiliates.links(id)]);
+      if (reportRes.success) setReport(reportRes.data as unknown as ReportV2);
+      if (linksRes.success) setLinks(linksRes.data as unknown as AffiliateLink[]);
+    } catch {
+      /* silent — detail is optional */
+    }
+    setDetailLoading(false);
+  }, []);
 
   // ── load first page of journeys ────────────────────────────────────────────
   const loadJourneys = useCallback(async (id: string) => {
-    setJourneyLoading(true)
+    setJourneyLoading(true);
     try {
-      const res = await api.affiliates.journeys(id, { limit: JOURNEY_PAGE_SIZE })
+      const res = await api.affiliates.journeys(id, { limit: JOURNEY_PAGE_SIZE });
       if (res.success) {
-        setJourneys(res.data)
-        journeyCursorRef.current = res.nextCursor ?? null
-        setJourneyMore(Boolean(res.nextCursor))
+        setJourneys(res.data);
+        journeyCursorRef.current = res.nextCursor ?? null;
+        setJourneyMore(Boolean(res.nextCursor));
       }
-    } catch { /* silent */ }
-    setJourneyLoading(false)
-  }, [])
+    } catch {
+      /* silent */
+    }
+    setJourneyLoading(false);
+  }, []);
 
   // ── load more journeys ─────────────────────────────────────────────────────
-  const loadMoreJourneys = useCallback(async (id: string) => {
-    if (journeyLoadingMore) return
-    const cursor = journeyCursorRef.current
-    if (!cursor) { setJourneyMore(false); return }
-    setJourneyLoadingMore(true)
-    try {
-      const res = await api.affiliates.journeys(id, {
-        limit: JOURNEY_PAGE_SIZE,
-        beforeAt: cursor.beforeAt,
-        beforeId: cursor.beforeId,
-      })
-      if (res.success) {
-        setJourneys((prev) => {
-          const seen = new Set(prev.map((j) => j.friendId))
-          return [...prev, ...res.data.filter((j) => !seen.has(j.friendId))]
-        })
-        journeyCursorRef.current = res.nextCursor ?? null
-        setJourneyMore(Boolean(res.nextCursor))
+  const loadMoreJourneys = useCallback(
+    async (id: string) => {
+      if (journeyLoadingMore) return;
+      const cursor = journeyCursorRef.current;
+      if (!cursor) {
+        setJourneyMore(false);
+        return;
       }
-    } catch { /* silent */ }
-    setJourneyLoadingMore(false)
-  }, [journeyLoadingMore])
+      setJourneyLoadingMore(true);
+      try {
+        const res = await api.affiliates.journeys(id, {
+          limit: JOURNEY_PAGE_SIZE,
+          beforeAt: cursor.beforeAt,
+          beforeId: cursor.beforeId,
+        });
+        if (res.success) {
+          setJourneys((prev) => {
+            const seen = new Set(prev.map((j) => j.friendId));
+            return [...prev, ...res.data.filter((j) => !seen.has(j.friendId))];
+          });
+          journeyCursorRef.current = res.nextCursor ?? null;
+          setJourneyMore(Boolean(res.nextCursor));
+        }
+      } catch {
+        /* silent */
+      }
+      setJourneyLoadingMore(false);
+    },
+    [journeyLoadingMore],
+  );
 
   // ── row click ──────────────────────────────────────────────────────────────
-  const handleRowClick = useCallback((id: string) => {
-    if (selectedId === id) {
-      setSelectedId(null)
-      return
-    }
-    setSelectedId(id)
-    void loadDetail(id)
-    void loadJourneys(id)
-  }, [selectedId, loadDetail, loadJourneys])
+  const handleRowClick = useCallback(
+    (id: string) => {
+      if (selectedId === id) {
+        setSelectedId(null);
+        return;
+      }
+      setSelectedId(id);
+      void loadDetail(id);
+      void loadJourneys(id);
+    },
+    [selectedId, loadDetail, loadJourneys],
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // Render
@@ -333,20 +348,16 @@ function AffiliatorsTab() {
       {createOpen && (
         <CreateAffiliateModal
           onClose={() => setCreateOpen(false)}
-          onCreated={() => { void loadList() }}
+          onCreated={() => {
+            void loadList();
+          }}
         />
       )}
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {loading ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
-          読み込み中...
-        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
       ) : rows.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
           アフィリエイターがまだ登録されていません
@@ -371,7 +382,7 @@ function AffiliatorsTab() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {rows.map((row) => {
-                const isExpanded = selectedId === row.id
+                const isExpanded = selectedId === row.id;
                 return (
                   <>
                     <tr
@@ -382,23 +393,39 @@ function AffiliatorsTab() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.name}</td>
                       <td className="px-4 py-3 text-sm font-mono text-blue-600">{row.code}</td>
                       <td className="px-4 py-3 text-sm text-center">
-                        {row.friendId
-                          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">あり</span>
-                          : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">なし</span>
-                        }
+                        {row.friendId ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                            あり
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                            なし
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-700">{row.linkCount.toLocaleString()}</td>
                       <td className="px-4 py-3 text-sm text-right text-gray-700">{row.totalClicks.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-blue-600">{row.friendAdds.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">{row.totalConversions.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-blue-600">
+                        {row.friendAdds.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
+                        {row.totalConversions.toLocaleString()}
+                      </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-700">{formatYen(row.totalRevenue)}</td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-emerald-600">{formatYen(row.estimatedCommission)}</td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-emerald-600">
+                        {formatYen(row.estimatedCommission)}
+                      </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-500">{row.commissionRate}%</td>
                       <td className="px-4 py-3 text-sm">
-                        {row.isActive
-                          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">有効</span>
-                          : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">無効</span>
-                        }
+                        {row.isActive ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                            有効
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                            無効
+                          </span>
+                        )}
                       </td>
                     </tr>
 
@@ -410,27 +437,36 @@ function AffiliatorsTab() {
                             <p className="text-sm text-gray-400">読み込み中...</p>
                           ) : (
                             <div className="space-y-6">
-
                               {/* v2 summary cards */}
                               {report && (
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                   <div className="bg-white rounded-lg p-4 border border-gray-100">
                                     <p className="text-xs text-gray-500">クリック (ref_tracking)</p>
-                                    <p className="text-2xl font-bold text-gray-900 mt-1">{report.clicks.toLocaleString()}</p>
+                                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                                      {report.clicks.toLocaleString()}
+                                    </p>
                                   </div>
                                   <div className="bg-white rounded-lg p-4 border border-gray-100">
                                     <p className="text-xs text-gray-500">友だち追加</p>
-                                    <p className="text-2xl font-bold text-blue-600 mt-1">{report.friendAdds.toLocaleString()}</p>
+                                    <p className="text-2xl font-bold text-blue-600 mt-1">
+                                      {report.friendAdds.toLocaleString()}
+                                    </p>
                                   </div>
                                   <div className="bg-white rounded-lg p-4 border border-gray-100">
                                     <p className="text-xs text-gray-500">CV 件数（却下除く）</p>
-                                    <p className="text-2xl font-bold text-gray-900 mt-1">{report.conversions.toLocaleString()}</p>
+                                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                                      {report.conversions.toLocaleString()}
+                                    </p>
                                   </div>
                                   <div className="bg-white rounded-lg p-4 border border-emerald-100 bg-emerald-50/40">
                                     <p className="text-xs text-gray-500">確定報酬</p>
-                                    <p className="text-2xl font-bold text-emerald-600 mt-1">{formatYen(report.confirmedReward)}</p>
+                                    <p className="text-2xl font-bold text-emerald-600 mt-1">
+                                      {formatYen(report.confirmedReward)}
+                                    </p>
                                     <p className="text-[11px] text-gray-500 mt-1">
-                                      承認済み {report.conversionsApproved.toLocaleString()}件 / 審査中 {report.conversionsPending.toLocaleString()}件 / 却下 {report.conversionsRejected.toLocaleString()}件
+                                      承認済み {report.conversionsApproved.toLocaleString()}件 / 審査中{' '}
+                                      {report.conversionsPending.toLocaleString()}件 / 却下{' '}
+                                      {report.conversionsRejected.toLocaleString()}件
                                     </p>
                                   </div>
                                 </div>
@@ -455,10 +491,18 @@ function AffiliatorsTab() {
                                         {report.byOffer.map((o) => (
                                           <tr key={o.offerId}>
                                             <td className="py-1 pr-4 text-gray-700">{o.offerName}</td>
-                                            <td className="py-1 pr-4 text-right text-gray-500">{formatYen(o.rewardAmount)}</td>
-                                            <td className="py-1 pr-4 text-right font-semibold text-gray-900">{o.conversionsApproved.toLocaleString()}</td>
-                                            <td className="py-1 pr-4 text-right text-gray-500">{o.conversionsPending.toLocaleString()}</td>
-                                            <td className="py-1 text-right font-semibold text-emerald-600">{formatYen(o.confirmedReward)}</td>
+                                            <td className="py-1 pr-4 text-right text-gray-500">
+                                              {formatYen(o.rewardAmount)}
+                                            </td>
+                                            <td className="py-1 pr-4 text-right font-semibold text-gray-900">
+                                              {o.conversionsApproved.toLocaleString()}
+                                            </td>
+                                            <td className="py-1 pr-4 text-right text-gray-500">
+                                              {o.conversionsPending.toLocaleString()}
+                                            </td>
+                                            <td className="py-1 text-right font-semibold text-emerald-600">
+                                              {formatYen(o.confirmedReward)}
+                                            </td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -489,7 +533,9 @@ function AffiliatorsTab() {
                               {/* CV by point */}
                               {report && report.conversionsByPoint.length > 0 && (
                                 <div>
-                                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">CV ポイント別内訳</p>
+                                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                                    CV ポイント別内訳
+                                  </p>
                                   <div className="overflow-x-auto">
                                     <table className="min-w-[400px] text-sm">
                                       <thead>
@@ -503,7 +549,9 @@ function AffiliatorsTab() {
                                         {report.conversionsByPoint.map((p) => (
                                           <tr key={p.conversionPointId}>
                                             <td className="py-1 pr-4 text-gray-700">{p.name}</td>
-                                            <td className="py-1 pr-4 text-right font-semibold text-gray-900">{p.count}</td>
+                                            <td className="py-1 pr-4 text-right font-semibold text-gray-900">
+                                              {p.count}
+                                            </td>
                                             <td className="py-1 text-right text-gray-700">{formatYen(p.value)}</td>
                                           </tr>
                                         ))}
@@ -540,14 +588,19 @@ function AffiliatorsTab() {
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                                                   {link.offer_name}
                                                 </span>
-                                              ) : <span className="text-gray-400">—</span>}
+                                              ) : (
+                                                <span className="text-gray-400">—</span>
+                                              )}
                                             </td>
-                                            <td className="py-1 pr-4 text-right font-semibold text-gray-900">{link.click_count.toLocaleString()}</td>
+                                            <td className="py-1 pr-4 text-right font-semibold text-gray-900">
+                                              {link.click_count.toLocaleString()}
+                                            </td>
                                             <td className="py-1">
-                                              {link.is_active
-                                                ? <span className="text-xs text-green-600">有効</span>
-                                                : <span className="text-xs text-gray-400">無効</span>
-                                              }
+                                              {link.is_active ? (
+                                                <span className="text-xs text-green-600">有効</span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">無効</span>
+                                              )}
                                             </td>
                                           </tr>
                                         ))}
@@ -583,7 +636,7 @@ function AffiliatorsTab() {
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                           {journeys.map((j) => {
-                                            const isDup = report?.duplicateFlags.some((f) => f.friendId === j.friendId)
+                                            const isDup = report?.duplicateFlags.some((f) => f.friendId === j.friendId);
                                             return (
                                               <tr key={j.friendId} className={isDup ? 'bg-amber-50' : ''}>
                                                 <td className="py-1 pr-4 text-gray-800">
@@ -591,20 +644,28 @@ function AffiliatorsTab() {
                                                   {j.displayName ?? <span className="text-gray-400 italic">不明</span>}
                                                 </td>
                                                 <td className="py-1 pr-4 text-gray-500">{formatDate(j.addedAt)}</td>
-                                                <td className="py-1 pr-4 font-mono text-xs text-blue-500">{j.refCode ?? '—'}</td>
+                                                <td className="py-1 pr-4 font-mono text-xs text-blue-500">
+                                                  {j.refCode ?? '—'}
+                                                </td>
                                                 <td className="py-1 pr-4 text-right text-gray-700">{j.touchCount}</td>
                                                 <td className="py-1 pr-4 text-right text-gray-700">{j.formCount}</td>
-                                                <td className="py-1 pr-4 text-right font-semibold text-gray-900">{j.conversionCount}</td>
-                                                <td className="py-1 text-gray-400 text-xs">{formatDate(j.lastEventAt)}</td>
+                                                <td className="py-1 pr-4 text-right font-semibold text-gray-900">
+                                                  {j.conversionCount}
+                                                </td>
+                                                <td className="py-1 text-gray-400 text-xs">
+                                                  {formatDate(j.lastEventAt)}
+                                                </td>
                                               </tr>
-                                            )
+                                            );
                                           })}
                                         </tbody>
                                       </table>
                                     </div>
                                     {journeyMore && (
                                       <button
-                                        onClick={() => { void loadMoreJourneys(row.id) }}
+                                        onClick={() => {
+                                          void loadMoreJourneys(row.id);
+                                        }}
                                         disabled={journeyLoadingMore}
                                         className="mt-3 px-4 py-2 text-sm text-blue-700 hover:bg-blue-100 disabled:opacity-50 rounded-md border border-blue-200"
                                       >
@@ -614,21 +675,20 @@ function AffiliatorsTab() {
                                   </>
                                 )}
                               </div>
-
                             </div>
                           )}
                         </td>
                       </tr>
                     )}
                   </>
-                )
+                );
               })}
             </tbody>
           </table>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -636,114 +696,107 @@ function AffiliatorsTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface FriendOption {
-  id: string
-  displayName: string | null
+  id: string;
+  displayName: string | null;
 }
 
-function CreateAffiliateModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [search, setSearch] = useState('')
-  const [options, setOptions] = useState<FriendOption[]>([])
-  const [searching, setSearching] = useState(false)
-  const [selected, setSelected] = useState<FriendOption | null>(null)
-  const [commissionRate, setCommissionRate] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [issuedUrl, setIssuedUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+function CreateAffiliateModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [search, setSearch] = useState('');
+  const [options, setOptions] = useState<FriendOption[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState<FriendOption | null>(null);
+  const [commissionRate, setCommissionRate] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [issuedUrl, setIssuedUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Incremental friend search (debounced). Skipped once a friend is selected.
   useEffect(() => {
-    if (selected) return
-    const term = search.trim()
-    if (!term) { setOptions([]); return }
-    let cancelled = false
-    setSearching(true)
+    if (selected) return;
+    const term = search.trim();
+    if (!term) {
+      setOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
     const t = setTimeout(async () => {
       try {
-        const res = await api.friends.list({ search: term, limit: 20, includeTags: false })
-        if (cancelled) return
+        const res = await api.friends.list({ search: term, limit: 20, includeTags: false });
+        if (cancelled) return;
         if (res.success) {
-          setOptions(
-            res.data.items.map((f) => ({ id: f.id, displayName: f.displayName })),
-          )
+          setOptions(res.data.items.map((f) => ({ id: f.id, displayName: f.displayName })));
         }
-      } catch { /* silent */ }
-      finally { if (!cancelled) setSearching(false) }
-    }, 250)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [search, selected])
+      } catch {
+        /* silent */
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [search, selected]);
 
   const handleSubmit = useCallback(async () => {
-    if (submitting) return
-    setFormError(null)
+    if (submitting) return;
+    setFormError(null);
     if (!selected) {
-      setFormError('友だちを選択してください')
-      return
+      setFormError('友だちを選択してください');
+      return;
     }
-    const rate = commissionRate.trim() === '' ? undefined : Number(commissionRate)
+    const rate = commissionRate.trim() === '' ? undefined : Number(commissionRate);
     if (rate !== undefined && (Number.isNaN(rate) || rate < 0)) {
-      setFormError('報酬率は0以上の数値で入力してください')
-      return
+      setFormError('報酬率は0以上の数値で入力してください');
+      return;
     }
-    setSubmitting(true)
+    setSubmitting(true);
     try {
       const res = await api.affiliates.create({
         friendId: selected.id,
         commissionRate: rate,
-      })
+      });
       if (!res.success) {
         // 409 → friend already an affiliate; surface the server message.
-        setFormError(res.error ?? '作成に失敗しました')
-        setSubmitting(false)
-        return
+        setFormError(res.error ?? '作成に失敗しました');
+        setSubmitting(false);
+        return;
       }
-      onCreated()
+      onCreated();
       if (res.link?.url) {
-        setIssuedUrl(res.link.url)
+        setIssuedUrl(res.link.url);
       } else {
-        onClose()
+        onClose();
       }
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : '作成に失敗しました')
+      setFormError(e instanceof Error ? e.message : '作成に失敗しました');
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }, [submitting, selected, commissionRate, onCreated, onClose])
+  }, [submitting, selected, commissionRate, onCreated, onClose]);
 
   const handleCopy = useCallback(async () => {
-    if (!issuedUrl) return
+    if (!issuedUrl) return;
     try {
-      await navigator.clipboard.writeText(issuedUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch { /* clipboard unavailable — user can select manually */ }
-  }, [issuedUrl])
+      await navigator.clipboard.writeText(issuedUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — user can select manually */
+    }
+  }, [issuedUrl]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md bg-white rounded-lg shadow-xl p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          アフィリエイター新規作成
-        </h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-6" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">アフィリエイター新規作成</h2>
 
         {issuedUrl ? (
           // ── Success state: show issued link with a copy button ────────────
           <div className="space-y-4">
-            <p className="text-sm text-gray-700">
-              アフィリエイターを作成し、初期リンクを発行しました。
-            </p>
+            <p className="text-sm text-gray-700">アフィリエイターを作成し、初期リンクを発行しました。</p>
             <div className="flex items-stretch gap-2">
               <input
                 readOnly
@@ -751,7 +804,9 @@ function CreateAffiliateModal({
                 className="flex-1 px-3 py-2 text-sm font-mono border border-gray-300 rounded-md bg-gray-50 text-gray-800"
               />
               <button
-                onClick={() => { void handleCopy() }}
+                onClick={() => {
+                  void handleCopy();
+                }}
                 className="px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md whitespace-nowrap"
               >
                 {copied ? 'コピー済' : 'コピー'}
@@ -780,7 +835,10 @@ function CreateAffiliateModal({
                     {selected.displayName ?? <span className="text-gray-400 italic">不明</span>}
                   </span>
                   <button
-                    onClick={() => { setSelected(null); setSearch('') }}
+                    onClick={() => {
+                      setSelected(null);
+                      setSearch('');
+                    }}
                     className="text-xs text-blue-600 hover:underline"
                   >
                     変更
@@ -804,7 +862,10 @@ function CreateAffiliateModal({
                         options.map((f) => (
                           <button
                             key={f.id}
-                            onClick={() => { setSelected(f); setOptions([]) }}
+                            onClick={() => {
+                              setSelected(f);
+                              setOptions([]);
+                            }}
                             className="block w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-blue-50"
                           >
                             {f.displayName ?? <span className="text-gray-400 italic">不明</span>}
@@ -819,9 +880,7 @@ function CreateAffiliateModal({
 
             {/* Commission rate */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                報酬率（%・省略可）
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">報酬率（%・省略可）</label>
               <div className="relative">
                 <input
                   type="number"
@@ -842,9 +901,7 @@ function CreateAffiliateModal({
             </p>
 
             {formError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
-                {formError}
-              </div>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{formError}</div>
             )}
 
             <div className="flex justify-end gap-2 pt-2">
@@ -855,7 +912,9 @@ function CreateAffiliateModal({
                 キャンセル
               </button>
               <button
-                onClick={() => { void handleSubmit() }}
+                onClick={() => {
+                  void handleSubmit();
+                }}
                 disabled={submitting || !selected}
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-md"
               >
@@ -866,7 +925,7 @@ function CreateAffiliateModal({
         )}
       </div>
     </div>
-  )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -874,71 +933,64 @@ function CreateAffiliateModal({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '—';
   return new Date(iso).toLocaleDateString('ja-JP', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  })
+  });
 }
 
 function formatYenNullable(n: number | null): string {
-  if (n === null) return '—'
-  return `¥${Math.round(n).toLocaleString('ja-JP')}`
+  if (n === null) return '—';
+  return `¥${Math.round(n).toLocaleString('ja-JP')}`;
 }
 
 // ── Offer form modal ─────────────────────────────────────────────────────────
 
 interface OfferFormProps {
-  initial?: AffiliateOffer | null
-  accounts: LineAccount[]
-  tags: Tag[]
-  scenarios: (Scenario & { stepCount?: number })[]
-  onClose: () => void
-  onSaved: () => void
+  initial?: AffiliateOffer | null;
+  accounts: LineAccount[];
+  tags: Tag[];
+  scenarios: (Scenario & { stepCount?: number })[];
+  onClose: () => void;
+  onSaved: () => void;
 }
 
 function OfferFormModal({ initial, accounts, tags, scenarios, onClose, onSaved }: OfferFormProps) {
-  const isEdit = Boolean(initial)
-  const [name, setName] = useState(initial?.name ?? '')
-  const [description, setDescription] = useState(initial?.description ?? '')
-  const [rewardAmount, setRewardAmount] = useState(
-    initial?.rewardAmount != null ? String(initial.rewardAmount) : '',
-  )
-  const [rewardMiles, setRewardMiles] = useState(
-    initial?.rewardMiles != null ? String(initial.rewardMiles) : '',
-  )
-  const [lineAccountId, setLineAccountId] = useState(initial?.lineAccountId ?? '')
-  const [tagId, setTagId] = useState(initial?.tagId ?? '')
-  const [scenarioId, setScenarioId] = useState(initial?.scenarioId ?? '')
-  const [isActive, setIsActive] = useState(initial?.isActive ?? true)
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
+  const isEdit = Boolean(initial);
+  const [name, setName] = useState(initial?.name ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const [rewardAmount, setRewardAmount] = useState(initial?.rewardAmount != null ? String(initial.rewardAmount) : '');
+  const [rewardMiles, setRewardMiles] = useState(initial?.rewardMiles != null ? String(initial.rewardMiles) : '');
+  const [lineAccountId, setLineAccountId] = useState(initial?.lineAccountId ?? '');
+  const [tagId, setTagId] = useState(initial?.tagId ?? '');
+  const [scenarioId, setScenarioId] = useState(initial?.scenarioId ?? '');
+  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleSubmit = useCallback(async () => {
-    if (submitting) return
-    setFormError(null)
+    if (submitting) return;
+    setFormError(null);
     if (!name.trim()) {
-      setFormError('案件名は必須です')
-      return
+      setFormError('案件名は必須です');
+      return;
     }
-    const reward =
-      rewardAmount.trim() === ''
-        ? undefined
-        : Number(rewardAmount)
+    const reward = rewardAmount.trim() === '' ? undefined : Number(rewardAmount);
     if (reward !== undefined && (!Number.isInteger(reward) || reward < 0)) {
-      setFormError('報酬額は0以上の整数で入力してください')
-      return
+      setFormError('報酬額は0以上の整数で入力してください');
+      return;
     }
-    const miles = rewardMiles.trim() === '' ? undefined : Number(rewardMiles)
+    const miles = rewardMiles.trim() === '' ? undefined : Number(rewardMiles);
     if (miles !== undefined && (!Number.isInteger(miles) || miles < 0)) {
-      setFormError('付与マイルは0以上の整数で入力してください')
-      return
+      setFormError('付与マイルは0以上の整数で入力してください');
+      return;
     }
 
-    setSubmitting(true)
+    setSubmitting(true);
     try {
       if (isEdit && initial) {
         const res = await api.affiliateOffers.update(initial.id, {
@@ -950,11 +1002,11 @@ function OfferFormModal({ initial, accounts, tags, scenarios, onClose, onSaved }
           tagId: tagId || null,
           scenarioId: scenarioId || null,
           isActive,
-        })
+        });
         if (!res.success) {
-          setFormError('更新に失敗しました')
-          setSubmitting(false)
-          return
+          setFormError('更新に失敗しました');
+          setSubmitting(false);
+          return;
         }
       } else {
         const res = await api.affiliateOffers.create({
@@ -965,34 +1017,42 @@ function OfferFormModal({ initial, accounts, tags, scenarios, onClose, onSaved }
           lineAccountId: lineAccountId || null,
           tagId: tagId || null,
           scenarioId: scenarioId || null,
-        })
+        });
         if (!res.success) {
-          setFormError('作成に失敗しました')
-          setSubmitting(false)
-          return
+          setFormError('作成に失敗しました');
+          setSubmitting(false);
+          return;
         }
       }
-      onSaved()
-      onClose()
+      onSaved();
+      onClose();
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : '保存に失敗しました')
+      setFormError(e instanceof Error ? e.message : '保存に失敗しました');
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }, [submitting, name, description, rewardAmount, rewardMiles, lineAccountId, tagId, scenarioId, isActive, isEdit, initial, onSaved, onClose])
+  }, [
+    submitting,
+    name,
+    description,
+    rewardAmount,
+    rewardMiles,
+    lineAccountId,
+    tagId,
+    scenarioId,
+    isActive,
+    isEdit,
+    initial,
+    onSaved,
+    onClose,
+  ]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">
-            {isEdit ? '案件を編集' : '案件を新規作成'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            aria-label="閉じる"
-          >
+          <h2 className="text-base font-semibold text-gray-900">{isEdit ? '案件を編集' : '案件を新規作成'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors" aria-label="閉じる">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -1001,9 +1061,7 @@ function OfferFormModal({ initial, accounts, tags, scenarios, onClose, onSaved }
 
         <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
           {formError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {formError}
-            </div>
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>
           )}
 
           <div>
@@ -1133,7 +1191,9 @@ function OfferFormModal({ initial, accounts, tags, scenarios, onClose, onSaved }
             キャンセル
           </button>
           <button
-            onClick={() => { void handleSubmit() }}
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={submitting}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
           >
@@ -1142,72 +1202,80 @@ function OfferFormModal({ initial, accounts, tags, scenarios, onClose, onSaved }
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Approval queue ───────────────────────────────────────────────────────────
 
-type ApprovalStatus = 'pending' | 'approved' | 'rejected'
+type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 function ApprovalQueue() {
-  const [status, setStatus] = useState<ApprovalStatus>('pending')
-  const [items, setItems] = useState<ConversionApprovalItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [actioning, setActioning] = useState<string | null>(null)
+  const [status, setStatus] = useState<ApprovalStatus>('pending');
+  const [items, setItems] = useState<ConversionApprovalItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actioning, setActioning] = useState<string | null>(null);
 
   const loadItems = useCallback(async (s: ApprovalStatus) => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const res = await api.conversionApprovals.list({ status: s, limit: 200 })
+      const res = await api.conversionApprovals.list({ status: s, limit: 200 });
       if (res.success) {
-        setItems(res.data)
+        setItems(res.data);
       } else {
-        setError('読み込みに失敗しました')
+        setError('読み込みに失敗しました');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '読み込みエラー')
+      setError(e instanceof Error ? e.message : '読み込みエラー');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
-  useEffect(() => { void loadItems(status) }, [status, loadItems])
+  useEffect(() => {
+    void loadItems(status);
+  }, [status, loadItems]);
 
-  const handleApprove = useCallback(async (eventId: string) => {
-    if (actioning) return
-    setActioning(eventId)
-    setError(null)
-    try {
-      const res = await api.conversionApprovals.approve(eventId)
-      if (res.success) {
-        setItems((prev) => prev.filter((i) => i.eventId !== eventId))
-      } else {
-        setError(res.error ?? '承認に失敗しました')
+  const handleApprove = useCallback(
+    async (eventId: string) => {
+      if (actioning) return;
+      setActioning(eventId);
+      setError(null);
+      try {
+        const res = await api.conversionApprovals.approve(eventId);
+        if (res.success) {
+          setItems((prev) => prev.filter((i) => i.eventId !== eventId));
+        } else {
+          setError(res.error ?? '承認に失敗しました');
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '承認に失敗しました');
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '承認に失敗しました')
-    }
-    setActioning(null)
-  }, [actioning])
+      setActioning(null);
+    },
+    [actioning],
+  );
 
-  const handleReject = useCallback(async (eventId: string) => {
-    if (actioning) return
-    setActioning(eventId)
-    setError(null)
-    try {
-      const res = await api.conversionApprovals.reject(eventId)
-      if (res.success) {
-        setItems((prev) => prev.filter((i) => i.eventId !== eventId))
-      } else {
-        setError(res.error ?? '却下に失敗しました')
+  const handleReject = useCallback(
+    async (eventId: string) => {
+      if (actioning) return;
+      setActioning(eventId);
+      setError(null);
+      try {
+        const res = await api.conversionApprovals.reject(eventId);
+        if (res.success) {
+          setItems((prev) => prev.filter((i) => i.eventId !== eventId));
+        } else {
+          setError(res.error ?? '却下に失敗しました');
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '却下に失敗しました');
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '却下に失敗しました')
-    }
-    setActioning(null)
-  }, [actioning])
+      setActioning(null);
+    },
+    [actioning],
+  );
 
   return (
     <div>
@@ -1218,9 +1286,7 @@ function ApprovalQueue() {
             key={s}
             onClick={() => setStatus(s)}
             className={`px-4 py-1.5 text-sm rounded-full font-medium transition-colors ${
-              status === s
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              status === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
             {s === 'pending' ? '承認待ち' : s === 'approved' ? '承認済み' : '却下済み'}
@@ -1228,19 +1294,15 @@ function ApprovalQueue() {
         ))}
       </div>
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {loading ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
-          読み込み中...
-        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
       ) : items.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
-          {status === 'pending' ? '承認待ちの成果がありません' : `${status === 'approved' ? '承認済み' : '却下済み'}の成果がありません`}
+          {status === 'pending'
+            ? '承認待ちの成果がありません'
+            : `${status === 'approved' ? '承認済み' : '却下済み'}の成果がありません`}
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
@@ -1269,9 +1331,7 @@ function ApprovalQueue() {
                     {item.friendName ?? <span className="text-gray-400 italic">不明</span>}
                     <span className="block text-xs font-mono text-gray-400">{item.friendId.slice(0, 8)}…</span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
-                    {item.affiliateName ?? '—'}
-                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{item.affiliateName ?? '—'}</td>
                   <td className="px-4 py-3 text-sm">
                     {item.offerName ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
@@ -1281,15 +1341,15 @@ function ApprovalQueue() {
                       <span className="text-gray-400">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
-                    {item.conversionPointName ?? '—'}
-                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{item.conversionPointName ?? '—'}</td>
                   <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
                     {formatYenNullable(item.value)}
                   </td>
                   <td className="px-4 py-3 text-center">
                     {item.duplicateFlag ? (
-                      <span className="text-amber-500 text-base" title="重複 identity_key 検出">⚠</span>
+                      <span className="text-amber-500 text-base" title="重複 identity_key 検出">
+                        ⚠
+                      </span>
                     ) : (
                       <span className="text-gray-300">—</span>
                     )}
@@ -1298,14 +1358,18 @@ function ApprovalQueue() {
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
-                          onClick={() => { void handleApprove(item.eventId) }}
+                          onClick={() => {
+                            void handleApprove(item.eventId);
+                          }}
                           disabled={actioning === item.eventId}
                           className="px-3 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-md"
                         >
                           承認
                         </button>
                         <button
-                          onClick={() => { void handleReject(item.eventId) }}
+                          onClick={() => {
+                            void handleReject(item.eventId);
+                          }}
                           disabled={actioning === item.eventId}
                           className="px-3 py-1 text-xs font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 rounded-md"
                         >
@@ -1321,7 +1385,7 @@ function ApprovalQueue() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ── Offers list ──────────────────────────────────────────────────────────────
@@ -1336,31 +1400,25 @@ function OffersList({
   onEdit,
   onRefresh,
 }: {
-  offers: AffiliateOffer[]
-  accounts: LineAccount[]
-  tags: Tag[]
-  scenarios: (Scenario & { stepCount?: number })[]
-  loading: boolean
-  error: string | null
-  onEdit: (offer: AffiliateOffer) => void
-  onRefresh: () => void
+  offers: AffiliateOffer[];
+  accounts: LineAccount[];
+  tags: Tag[];
+  scenarios: (Scenario & { stepCount?: number })[];
+  loading: boolean;
+  error: string | null;
+  onEdit: (offer: AffiliateOffer) => void;
+  onRefresh: () => void;
 }) {
-  const accountMap = new Map(accounts.map((a) => [a.id, a.name]))
-  const tagMap = new Map(tags.map((t) => [t.id, t.name]))
-  const scenarioMap = new Map(scenarios.map((s) => [s.id, s.name]))
+  const accountMap = new Map(accounts.map((a) => [a.id, a.name]));
+  const tagMap = new Map(tags.map((t) => [t.id, t.name]));
+  const scenarioMap = new Map(scenarios.map((s) => [s.id, s.name]));
 
   return (
     <div>
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {loading ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
-          読み込み中...
-        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">読み込み中...</div>
       ) : offers.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-400">
           案件がまだ登録されていません。右上の「+ 新規案件」から作成してください。
@@ -1395,23 +1453,29 @@ function OffersList({
                     {offer.rewardMiles.toLocaleString()} mile
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">
-                    {offer.lineAccountId ? accountMap.get(offer.lineAccountId) ?? offer.lineAccountId : '—'}
+                    {offer.lineAccountId ? (accountMap.get(offer.lineAccountId) ?? offer.lineAccountId) : '—'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">
                     {offer.tagId ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
                         {tagMap.get(offer.tagId) ?? offer.tagId}
                       </span>
-                    ) : '—'}
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">
-                    {offer.scenarioId ? scenarioMap.get(offer.scenarioId) ?? offer.scenarioId : '—'}
+                    {offer.scenarioId ? (scenarioMap.get(offer.scenarioId) ?? offer.scenarioId) : '—'}
                   </td>
                   <td className="px-4 py-3 text-center">
                     {offer.isActive ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">有効</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                        有効
+                      </span>
                     ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">無効</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                        無効
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-center">
@@ -1429,47 +1493,44 @@ function OffersList({
         </div>
       )}
       <div className="mt-2 text-right">
-        <button
-          onClick={onRefresh}
-          className="text-xs text-gray-400 hover:text-gray-600"
-        >
+        <button onClick={onRefresh} className="text-xs text-gray-400 hover:text-gray-600">
           更新
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Offers tab — list + create/edit modal wiring ─────────────────────────────
 
 function OffersTab() {
-  const [offers, setOffers] = useState<AffiliateOffer[]>([])
-  const [offersLoading, setOffersLoading] = useState(true)
-  const [offersError, setOffersError] = useState<string | null>(null)
+  const [offers, setOffers] = useState<AffiliateOffer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(true);
+  const [offersError, setOffersError] = useState<string | null>(null);
 
-  const [accounts, setAccounts] = useState<LineAccount[]>([])
-  const [tags, setTags] = useState<Tag[]>([])
-  const [scenarios, setScenarios] = useState<(Scenario & { stepCount?: number })[]>([])
+  const [accounts, setAccounts] = useState<LineAccount[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [scenarios, setScenarios] = useState<(Scenario & { stepCount?: number })[]>([]);
 
-  const [formOpen, setFormOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<AffiliateOffer | null>(null)
+  const [formOpen, setFormOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<AffiliateOffer | null>(null);
 
   const loadOffers = useCallback(async () => {
-    setOffersLoading(true)
-    setOffersError(null)
+    setOffersLoading(true);
+    setOffersError(null);
     try {
-      const res = await api.affiliateOffers.list()
+      const res = await api.affiliateOffers.list();
       if (res.success) {
-        setOffers(res.data)
+        setOffers(res.data);
       } else {
-        setOffersError('案件の読み込みに失敗しました')
+        setOffersError('案件の読み込みに失敗しました');
       }
     } catch (e) {
-      setOffersError(e instanceof Error ? e.message : '読み込みエラー')
+      setOffersError(e instanceof Error ? e.message : '読み込みエラー');
     } finally {
-      setOffersLoading(false)
+      setOffersLoading(false);
     }
-  }, [])
+  }, []);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -1477,27 +1538,29 @@ function OffersTab() {
         api.lineAccounts.list(),
         api.tags.list(),
         api.scenarios.list(),
-      ])
-      if (accountsRes.success) setAccounts(accountsRes.data as unknown as LineAccount[])
-      if (tagsRes.success) setTags(tagsRes.data as unknown as Tag[])
-      if (scenariosRes.success) setScenarios(scenariosRes.data as unknown as (Scenario & { stepCount?: number })[])
-    } catch { /* silent */ }
-  }, [])
+      ]);
+      if (accountsRes.success) setAccounts(accountsRes.data as unknown as LineAccount[]);
+      if (tagsRes.success) setTags(tagsRes.data as unknown as Tag[]);
+      if (scenariosRes.success) setScenarios(scenariosRes.data as unknown as (Scenario & { stepCount?: number })[]);
+    } catch {
+      /* silent */
+    }
+  }, []);
 
   useEffect(() => {
-    void loadOffers()
-    void loadOptions()
-  }, [loadOffers, loadOptions])
+    void loadOffers();
+    void loadOptions();
+  }, [loadOffers, loadOptions]);
 
   const handleOpenCreate = () => {
-    setEditTarget(null)
-    setFormOpen(true)
-  }
+    setEditTarget(null);
+    setFormOpen(true);
+  };
 
   const handleEdit = (offer: AffiliateOffer) => {
-    setEditTarget(offer)
-    setFormOpen(true)
-  }
+    setEditTarget(offer);
+    setFormOpen(true);
+  };
 
   return (
     <div>
@@ -1528,9 +1591,11 @@ function OffersTab() {
           tags={tags}
           scenarios={scenarios}
           onClose={() => setFormOpen(false)}
-          onSaved={() => { void loadOffers() }}
+          onSaved={() => {
+            void loadOffers();
+          }}
         />
       )}
     </div>
-  )
+  );
 }

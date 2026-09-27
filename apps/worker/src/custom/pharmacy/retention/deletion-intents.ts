@@ -1,7 +1,4 @@
-import {
-  assertRetentionDeleteExecution,
-  RetentionDeleteExecution,
-} from './execution.js';
+import { assertRetentionDeleteExecution, RetentionDeleteExecution } from './execution.js';
 import { ACTIVE_DSR_DELETION_BLOCK_PREDICATE_SQL } from '../data-subject-requests/legal-hold.js';
 
 export type DeletionIntentStatus =
@@ -70,16 +67,24 @@ export async function readRetentionFence(
   input: { tenantId: string; lineAccountId: string; ownerFriendId: string; patientKey: string },
 ): Promise<RetentionFence> {
   try {
-    const row = await db.prepare(
-      `SELECT COUNT(*) AS count, MAX(epoch) AS epoch,
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS count, MAX(epoch) AS epoch,
               MAX(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END) AS has_unknown,
               MAX(CASE WHEN status = 'held' THEN 1 ELSE 0 END) AS has_held,
               MAX(CASE WHEN status = 'released' THEN 1 ELSE 0 END) AS has_released
          FROM pharmacy_retention_hold_epochs
         WHERE tenant_id = ? AND line_account_id = ? AND owner_friend_id = ?
           AND patient_key IN (?, '*')`,
-    ).bind(input.tenantId, input.lineAccountId, input.ownerFriendId, input.patientKey)
-      .first<{ count: number; epoch: number | null; has_unknown: number; has_held: number; has_released: number }>();
+      )
+      .bind(input.tenantId, input.lineAccountId, input.ownerFriendId, input.patientKey)
+      .first<{
+        count: number;
+        epoch: number | null;
+        has_unknown: number;
+        has_held: number;
+        has_released: number;
+      }>();
     if ((row?.count ?? 0) < 1) return { status: 'unknown', epoch: 0 };
     if (row?.has_unknown === 1) return { status: 'unknown', epoch: row.epoch ?? 0 };
     if (row?.has_held === 1) return { status: 'held', epoch: row.epoch ?? 0 };
@@ -90,13 +95,11 @@ export async function readRetentionFence(
   }
 }
 
-export async function readDeletionIntent(
-  db: D1Database,
-  id: string,
-): Promise<DeletionIntent | null> {
-  return db.prepare(
-    `SELECT ${INTENT_COLUMNS} FROM pharmacy_retention_deletion_intents WHERE id = ?`,
-  ).bind(id).first<DeletionIntent>();
+export async function readDeletionIntent(db: D1Database, id: string): Promise<DeletionIntent | null> {
+  return db
+    .prepare(`SELECT ${INTENT_COLUMNS} FROM pharmacy_retention_deletion_intents WHERE id = ?`)
+    .bind(id)
+    .first<DeletionIntent>();
 }
 
 /** Insert one durable claim. The unique generation key makes a second worker a no-op. */
@@ -110,9 +113,11 @@ export async function createDeletionIntent(
   }
   const id = crypto.randomUUID();
   await assertRetentionDeleteExecution(db, input.execution);
-  const result = input.resourceType === 'prescription_file'
-    ? await db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_retention_deletion_intents
+  const result =
+    input.resourceType === 'prescription_file'
+      ? await db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_retention_deletion_intents
         (id, operation_id, execution_id, fence_token, executor_subject, environment,
          tenant_id, line_account_id, owner_friend_id, patient_key, resource_type,
          resource_id, r2_key, stored_sha256, age_reference_at, row_state, row_revision, hold_epoch,
@@ -148,40 +153,85 @@ export async function createDeletionIntent(
               )
             )
           )`,
-    ).bind(
-      id, input.execution.operationId, input.execution.executionId, input.execution.fenceToken,
-      input.execution.executorSubject, input.execution.environment, input.tenantId,
-      input.lineAccountId, input.ownerFriendId, input.patientKey, input.resourceId,
-      input.r2Key, input.storedSha256, input.ageReferenceAt, input.rowState, input.rowRevision,
-      input.holdEpoch, input.now, input.now, input.lineAccountId, input.ownerFriendId,
-      input.resourceId, input.r2Key, input.storedSha256, input.ageReferenceAt, input.rowState,
-      input.rowRevision, input.tenantId, input.lineAccountId, input.patientKey,
-      input.lineAccountId, input.patientKey, input.lineAccountId, input.lineAccountId,
-      input.patientKey,
-    ).run()
-    : await db.prepare(
-      `INSERT OR IGNORE INTO pharmacy_retention_deletion_intents
+          )
+          .bind(
+            id,
+            input.execution.operationId,
+            input.execution.executionId,
+            input.execution.fenceToken,
+            input.execution.executorSubject,
+            input.execution.environment,
+            input.tenantId,
+            input.lineAccountId,
+            input.ownerFriendId,
+            input.patientKey,
+            input.resourceId,
+            input.r2Key,
+            input.storedSha256,
+            input.ageReferenceAt,
+            input.rowState,
+            input.rowRevision,
+            input.holdEpoch,
+            input.now,
+            input.now,
+            input.lineAccountId,
+            input.ownerFriendId,
+            input.resourceId,
+            input.r2Key,
+            input.storedSha256,
+            input.ageReferenceAt,
+            input.rowState,
+            input.rowRevision,
+            input.tenantId,
+            input.lineAccountId,
+            input.patientKey,
+            input.lineAccountId,
+            input.patientKey,
+            input.lineAccountId,
+            input.lineAccountId,
+            input.patientKey,
+          )
+          .run()
+      : await db
+          .prepare(
+            `INSERT OR IGNORE INTO pharmacy_retention_deletion_intents
         (id, operation_id, execution_id, fence_token, executor_subject, environment,
          tenant_id, line_account_id, owner_friend_id, patient_key, resource_type,
          resource_id, r2_key, stored_sha256, age_reference_at, row_state, row_revision, hold_epoch,
          status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLAIMED', ?, ?)`,
-    ).bind(
-      id, input.execution.operationId, input.execution.executionId, input.execution.fenceToken,
-      input.execution.executorSubject, input.execution.environment, input.tenantId,
-      input.lineAccountId, input.ownerFriendId, input.patientKey, input.resourceType,
-      input.resourceId, input.r2Key, input.storedSha256, input.ageReferenceAt,
-      input.rowState, input.rowRevision, input.holdEpoch, input.now, input.now,
-    ).run();
+          )
+          .bind(
+            id,
+            input.execution.operationId,
+            input.execution.executionId,
+            input.execution.fenceToken,
+            input.execution.executorSubject,
+            input.execution.environment,
+            input.tenantId,
+            input.lineAccountId,
+            input.ownerFriendId,
+            input.patientKey,
+            input.resourceType,
+            input.resourceId,
+            input.r2Key,
+            input.storedSha256,
+            input.ageReferenceAt,
+            input.rowState,
+            input.rowRevision,
+            input.holdEpoch,
+            input.now,
+            input.now,
+          )
+          .run();
   if ((result.meta?.changes ?? 0) === 1) return readDeletionIntent(db, id);
-  return db.prepare(
-    `SELECT ${INTENT_COLUMNS} FROM pharmacy_retention_deletion_intents
+  return db
+    .prepare(
+      `SELECT ${INTENT_COLUMNS} FROM pharmacy_retention_deletion_intents
       WHERE operation_id = ? AND resource_type = ? AND resource_id = ?
         AND r2_key = ? AND stored_sha256 = ?`,
-  ).bind(
-    input.execution.operationId, input.resourceType, input.resourceId,
-    input.r2Key, input.storedSha256,
-  )
+    )
+    .bind(input.execution.operationId, input.resourceType, input.resourceId, input.r2Key, input.storedSha256)
     .first<DeletionIntent>();
 }
 
@@ -197,19 +247,30 @@ export async function cancelDeletionIntent(
   },
 ): Promise<boolean> {
   await assertRetentionDeleteExecution(db, input.execution);
-  const result = await db.prepare(
-    `UPDATE pharmacy_retention_deletion_intents
+  const result = await db
+    .prepare(
+      `UPDATE pharmacy_retention_deletion_intents
         SET status = ?, last_error_code = ?, updated_at = ?
       WHERE id = ? AND status = ?
         AND operation_id = ? AND execution_id = ? AND fence_token = ?
         AND executor_subject = ? AND environment = ?
         AND tenant_id = ? AND line_account_id = ?`,
-  ).bind(
-    input.status, input.reasonCode, input.now, input.id, input.expectedStatus ?? 'CLAIMED',
-    input.execution.operationId, input.execution.executionId, input.execution.fenceToken,
-    input.execution.executorSubject, input.execution.environment,
-    input.execution.tenantId, input.execution.lineAccountId,
-  ).run();
+    )
+    .bind(
+      input.status,
+      input.reasonCode,
+      input.now,
+      input.id,
+      input.expectedStatus ?? 'CLAIMED',
+      input.execution.operationId,
+      input.execution.executionId,
+      input.execution.fenceToken,
+      input.execution.executorSubject,
+      input.execution.environment,
+      input.execution.tenantId,
+      input.execution.lineAccountId,
+    )
+    .run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
@@ -229,17 +290,21 @@ export async function commitPrescriptionDeletionIntent(
 ): Promise<boolean> {
   const { intent, expectedFence, execution } = input;
   await assertRetentionDeleteExecution(db, execution);
-  if (execution.operationId !== intent.operation_id ||
-      execution.executionId !== intent.execution_id ||
-      execution.fenceToken !== intent.fence_token ||
-      execution.executorSubject !== intent.executor_subject ||
-      execution.environment !== intent.environment ||
-      execution.tenantId !== intent.tenant_id ||
-      execution.lineAccountId !== intent.line_account_id) return false;
+  if (
+    execution.operationId !== intent.operation_id ||
+    execution.executionId !== intent.execution_id ||
+    execution.fenceToken !== intent.fence_token ||
+    execution.executorSubject !== intent.executor_subject ||
+    execution.environment !== intent.environment ||
+    execution.tenantId !== intent.tenant_id ||
+    execution.lineAccountId !== intent.line_account_id
+  )
+    return false;
   const previousHoldEpoch = input.previousHoldEpoch ?? intent.hold_epoch;
-  if (expectedFence.status !== 'released' || expectedFence.epoch < 1 ||
-      previousHoldEpoch !== intent.hold_epoch) return false;
-  const result = await db.prepare(
+  if (expectedFence.status !== 'released' || expectedFence.epoch < 1 || previousHoldEpoch !== intent.hold_epoch)
+    return false;
+  const result = await db
+    .prepare(
       `UPDATE pharmacy_retention_deletion_intents AS intent
           SET hold_epoch = ?, status = 'DELETE_COMMITTED', updated_at = ?
         WHERE intent.id = ? AND intent.status = 'CLAIMED'
@@ -304,12 +369,23 @@ export async function commitPrescriptionDeletionIntent(
                 AND patient.patient_id = intent.patient_key)
             )
         )`,
-    ).bind(
-      expectedFence.epoch, input.now, intent.id, previousHoldEpoch,
-      execution.operationId, execution.executionId, execution.fenceToken,
-      execution.executorSubject, execution.environment,
-      execution.tenantId, execution.lineAccountId, expectedFence.epoch, input.now,
-    ).run();
+    )
+    .bind(
+      expectedFence.epoch,
+      input.now,
+      intent.id,
+      previousHoldEpoch,
+      execution.operationId,
+      execution.executionId,
+      execution.fenceToken,
+      execution.executorSubject,
+      execution.environment,
+      execution.tenantId,
+      execution.lineAccountId,
+      expectedFence.epoch,
+      input.now,
+    )
+    .run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
@@ -324,18 +400,28 @@ export async function markDeletionOutcomeUnknown(
   },
 ): Promise<boolean> {
   await assertRetentionDeleteExecution(db, input.execution);
-  const result = await db.prepare(
-    `UPDATE pharmacy_retention_deletion_intents
+  const result = await db
+    .prepare(
+      `UPDATE pharmacy_retention_deletion_intents
         SET status = 'OUTCOME_UNKNOWN', last_error_code = ?, updated_at = ?
       WHERE id = ? AND status = ?
         AND operation_id = ? AND execution_id = ? AND fence_token = ?
         AND executor_subject = ? AND environment = ?
         AND tenant_id = ? AND line_account_id = ?`,
-  ).bind(
-    input.reasonCode, input.now, input.id, input.expectedStatus ?? 'DELETE_COMMITTED',
-    input.execution.operationId, input.execution.executionId, input.execution.fenceToken,
-    input.execution.executorSubject, input.execution.environment,
-    input.execution.tenantId, input.execution.lineAccountId,
-  ).run();
+    )
+    .bind(
+      input.reasonCode,
+      input.now,
+      input.id,
+      input.expectedStatus ?? 'DELETE_COMMITTED',
+      input.execution.operationId,
+      input.execution.executionId,
+      input.execution.fenceToken,
+      input.execution.executorSubject,
+      input.execution.environment,
+      input.execution.tenantId,
+      input.execution.lineAccountId,
+    )
+    .run();
   return (result.meta?.changes ?? 0) === 1;
 }

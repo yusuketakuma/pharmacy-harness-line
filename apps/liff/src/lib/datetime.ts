@@ -3,7 +3,9 @@
 
 const JST_OFFSET_MS = 9 * 3600_000;
 const TOKYO_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('ja-JP', {
-  timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short',
+  timeZone: 'Asia/Tokyo',
+  dateStyle: 'medium',
+  timeStyle: 'short',
 });
 
 export function jstToday(): string {

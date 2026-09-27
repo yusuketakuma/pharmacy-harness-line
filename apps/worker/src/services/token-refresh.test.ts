@@ -26,22 +26,32 @@ describe('refreshLineAccessTokens', () => {
   });
 
   it('refreshes only accounts returned by the active tenant account query', async () => {
-    db.getActiveTenantLineAccounts.mockResolvedValue([{
-      id: 'account-a',
-      tenant_id: 'tenant-a',
-      pharmacy_mode: 0,
-      name: 'Pharmacy A',
-      channel_id: 'channel-a',
-      channel_secret: 'secret-a',
-      is_active: 1,
-      token_expires_at: null,
-      updated_at: '2026-08-18T00:00:00.000Z',
-    }]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      access_token: 'new-token',
-      expires_in: 2_592_000,
-      token_type: 'Bearer',
-    }), { status: 200 })));
+    db.getActiveTenantLineAccounts.mockResolvedValue([
+      {
+        id: 'account-a',
+        tenant_id: 'tenant-a',
+        pharmacy_mode: 0,
+        name: 'Pharmacy A',
+        channel_id: 'channel-a',
+        channel_secret: 'secret-a',
+        is_active: 1,
+        token_expires_at: null,
+        updated_at: '2026-08-18T00:00:00.000Z',
+      },
+    ]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            access_token: 'new-token',
+            expires_in: 2_592_000,
+            token_type: 'Bearer',
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
 
     await refreshLineAccessTokens({} as D1Database);
 
@@ -54,23 +64,33 @@ describe('refreshLineAccessTokens', () => {
   });
 
   it('refreshes pharmacy tokens only through the encrypted tenant credential store', async () => {
-    db.getActiveTenantLineAccounts.mockResolvedValue([{
-      id: 'account-a',
-      tenant_id: 'tenant-a',
-      pharmacy_mode: 1,
-      name: 'Pharmacy A',
-      channel_id: 'channel-a',
-      channel_secret: 'encrypted:v1',
-      is_active: 1,
-      token_expires_at: null,
-      updated_at: '2026-08-18T00:00:00.000Z',
-    }]);
+    db.getActiveTenantLineAccounts.mockResolvedValue([
+      {
+        id: 'account-a',
+        tenant_id: 'tenant-a',
+        pharmacy_mode: 1,
+        name: 'Pharmacy A',
+        channel_id: 'channel-a',
+        channel_secret: 'encrypted:v1',
+        is_active: 1,
+        token_expires_at: null,
+        updated_at: '2026-08-18T00:00:00.000Z',
+      },
+    ]);
     credentials.readLineCredential.mockResolvedValue('tenant-channel-secret');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      access_token: 'new-tenant-token',
-      expires_in: 2_592_000,
-      token_type: 'Bearer',
-    }), { status: 200 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            access_token: 'new-tenant-token',
+            expires_in: 2_592_000,
+            token_type: 'Bearer',
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
 
     await refreshLineAccessTokens({} as D1Database, {
       lineCredentialKey: 'synthetic-line-credential-root-key-v1',
@@ -97,16 +117,18 @@ describe('refreshLineAccessTokens', () => {
   });
 
   it('does not fall back to a plaintext pharmacy secret when the root key is unavailable', async () => {
-    db.getActiveTenantLineAccounts.mockResolvedValue([{
-      id: 'account-a',
-      tenant_id: 'tenant-a',
-      pharmacy_mode: 1,
-      name: 'Pharmacy A',
-      channel_id: 'channel-a',
-      channel_secret: 'legacy-plaintext-must-not-be-used',
-      is_active: 1,
-      token_expires_at: null,
-    }]);
+    db.getActiveTenantLineAccounts.mockResolvedValue([
+      {
+        id: 'account-a',
+        tenant_id: 'tenant-a',
+        pharmacy_mode: 1,
+        name: 'Pharmacy A',
+        channel_id: 'channel-a',
+        channel_secret: 'legacy-plaintext-must-not-be-used',
+        is_active: 1,
+        token_expires_at: null,
+      },
+    ]);
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
@@ -120,21 +142,31 @@ describe('refreshLineAccessTokens', () => {
   it('stores the token expiry as UTC', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-18T12:00:00.000Z'));
-    db.getActiveTenantLineAccounts.mockResolvedValue([{
-      id: 'account-a',
-      tenant_id: 'tenant-a',
-      pharmacy_mode: 0,
-      name: 'Pharmacy A',
-      channel_id: 'channel-a',
-      channel_secret: 'secret-a',
-      is_active: 1,
-      token_expires_at: null,
-    }]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      access_token: 'new-token',
-      expires_in: 3_600,
-      token_type: 'Bearer',
-    }), { status: 200 })));
+    db.getActiveTenantLineAccounts.mockResolvedValue([
+      {
+        id: 'account-a',
+        tenant_id: 'tenant-a',
+        pharmacy_mode: 0,
+        name: 'Pharmacy A',
+        channel_id: 'channel-a',
+        channel_secret: 'secret-a',
+        is_active: 1,
+        token_expires_at: null,
+      },
+    ]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            access_token: 'new-token',
+            expires_in: 3_600,
+            token_type: 'Bearer',
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
 
     await refreshLineAccessTokens({} as D1Database);
 
@@ -146,19 +178,19 @@ describe('refreshLineAccessTokens', () => {
   });
 
   it('does not log the upstream response body or account name when token issue fails', async () => {
-    db.getActiveTenantLineAccounts.mockResolvedValue([{
-      id: 'account-a',
-      tenant_id: 'tenant-a',
-      pharmacy_mode: 0,
-      name: 'Sensitive Pharmacy Name',
-      channel_id: 'channel-a',
-      channel_secret: 'secret-a',
-      is_active: 1,
-      token_expires_at: null,
-    }]);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response('sensitive-upstream-detail', { status: 401 }),
-    ));
+    db.getActiveTenantLineAccounts.mockResolvedValue([
+      {
+        id: 'account-a',
+        tenant_id: 'tenant-a',
+        pharmacy_mode: 0,
+        name: 'Sensitive Pharmacy Name',
+        channel_id: 'channel-a',
+        channel_secret: 'secret-a',
+        is_active: 1,
+        token_expires_at: null,
+      },
+    ]);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('sensitive-upstream-detail', { status: 401 })));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     await refreshLineAccessTokens({} as D1Database);

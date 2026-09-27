@@ -1,7 +1,7 @@
-'use client'
+'use client';
 
-import React, { useState, type ReactNode } from 'react'
-import OgEditor from '@/components/shared/og-editor'
+import React, { useState, type ReactNode } from 'react';
+import OgEditor from '@/components/shared/og-editor';
 
 // Shared form field building blocks for the LINE account create / edit flows.
 // Kept as primitives (not a full form) so the create page (single submit) and
@@ -9,17 +9,17 @@ import OgEditor from '@/components/shared/og-editor'
 // same submit semantics.
 
 export interface AccountFormState {
-  name: string
-  channelId: string
-  channelAccessToken: string
-  channelSecret: string
-  loginChannelId: string
-  loginChannelSecret: string
-  liffId: string
+  name: string;
+  channelId: string;
+  channelAccessToken: string;
+  channelSecret: string;
+  loginChannelId: string;
+  loginChannelSecret: string;
+  liffId: string;
   // OGP brand settings (optional — only present/sent when the user edits them)
-  ogSiteName: string | null
-  ogDefaultDescription: string | null
-  ogDefaultImageUrl: string | null
+  ogSiteName: string | null;
+  ogDefaultDescription: string | null;
+  ogDefaultImageUrl: string | null;
 }
 
 export const emptyAccountFormState: AccountFormState = {
@@ -33,7 +33,7 @@ export const emptyAccountFormState: AccountFormState = {
   ogSiteName: null,
   ogDefaultDescription: null,
   ogDefaultImageUrl: null,
-}
+};
 
 // Section: collapsible group of fields. Future "Provider" / "Rich Menu Default"
 // sections can be added without touching the page layout, just by rendering
@@ -44,12 +44,12 @@ export function FormSection({
   defaultOpen = true,
   children,
 }: {
-  title: string
-  description?: string
-  defaultOpen?: boolean
-  children: ReactNode
+  title: string;
+  description?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
       <button
@@ -65,7 +65,7 @@ export function FormSection({
       </button>
       {open && <div className="p-4 space-y-3 bg-white">{children}</div>}
     </div>
-  )
+  );
 }
 
 export function TextField({
@@ -77,13 +77,13 @@ export function TextField({
   type = 'text',
   hint,
 }: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  required?: boolean
-  type?: 'text' | 'password'
-  hint?: string
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  type?: 'text' | 'password';
+  hint?: string;
 }) {
   return (
     <div>
@@ -101,7 +101,7 @@ export function TextField({
       />
       {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
     </div>
-  )
+  );
 }
 
 // Renders the three sections used by both create and edit. Caller provides
@@ -114,23 +114,23 @@ export function AccountFormSections({
   channelIdEditable = true,
   defaultOpen,
 }: {
-  state: AccountFormState
-  update: (partial: Partial<AccountFormState>) => void
+  state: AccountFormState;
+  update: (partial: Partial<AccountFormState>) => void;
   // create form: messaging fields are required (new account needs them).
   // edit modal: not required (user may only be editing Login/LIFF; passing
   // empty messaging fields means "leave unchanged").
-  showMessagingRequired: boolean
+  showMessagingRequired: boolean;
   // pharmacy create flow: LINE Login and LIFF are required for the patient
   // intake/rich-menu path. Edit flow leaves this false so existing secrets can
   // be retained without re-entry.
-  showLoginRequired?: boolean
+  showLoginRequired?: boolean;
   // Channel ID is the immutable identifier of a Messaging API channel on
   // LINE's side — it's never re-issued for the same official account, and
   // the worker has no UPDATE path for `channel_id`. Render it read-only on
   // edit so users don't think they can fix a typo here (they'd need to
   // delete + recreate the row to change Channel ID).
-  channelIdEditable?: boolean
-  defaultOpen?: { messaging?: boolean; login?: boolean; liff?: boolean; ogp?: boolean }
+  channelIdEditable?: boolean;
+  defaultOpen?: { messaging?: boolean; login?: boolean; liff?: boolean; ogp?: boolean };
 }) {
   return (
     <div className="space-y-3">
@@ -156,9 +156,7 @@ export function AccountFormSections({
               disabled
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50 text-gray-500 cursor-not-allowed"
             />
-            <p className="text-[11px] text-gray-400 mt-1">
-              Channel ID は変更できません（LINE 側で固定の識別子）
-            </p>
+            <p className="text-[11px] text-gray-400 mt-1">Channel ID は変更できません（LINE 側で固定の識別子）</p>
           </div>
         )}
         <TextField
@@ -167,11 +165,7 @@ export function AccountFormSections({
           onChange={(v) => update({ channelAccessToken: v })}
           required={showMessagingRequired}
           type="password"
-          hint={
-            showMessagingRequired
-              ? undefined
-              : '空欄なら現在の値を維持。再発行した場合のみ入力'
-          }
+          hint={showMessagingRequired ? undefined : '空欄なら現在の値を維持。再発行した場合のみ入力'}
         />
         <TextField
           label="Channel Secret"
@@ -185,9 +179,11 @@ export function AccountFormSections({
 
       <FormSection
         title={showLoginRequired ? 'LINE Login（必須）' : 'LINE Login（任意）'}
-        description={showLoginRequired
-          ? '患者向けLIFFと友だち追加 OAuth に使う（新規薬局では必須）'
-          : '友だち追加 OAuth 導線で使う。既存値は保持'}
+        description={
+          showLoginRequired
+            ? '患者向けLIFFと友だち追加 OAuth に使う（新規薬局では必須）'
+            : '友だち追加 OAuth 導線で使う。既存値は保持'
+        }
         defaultOpen={defaultOpen?.login ?? false}
       >
         <TextField
@@ -209,9 +205,11 @@ export function AccountFormSections({
 
       <FormSection
         title={showLoginRequired ? 'LIFF（必須）' : 'LIFF（任意）'}
-        description={showLoginRequired
-          ? '患者向け受付画面の入口。LINE Login channel に属するIDが必要'
-          : 'LIFF page を開くときの ?liffId= で識別。既存値は保持'}
+        description={
+          showLoginRequired
+            ? '患者向け受付画面の入口。LINE Login channel に属するIDが必要'
+            : 'LIFF page を開くときの ?liffId= で識別。既存値は保持'
+        }
         defaultOpen={defaultOpen?.liff ?? false}
       >
         <TextField
@@ -230,9 +228,7 @@ export function AccountFormSections({
         defaultOpen={defaultOpen?.ogp ?? false}
       >
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            サイト名（og:site_name）
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">サイト名（og:site_name）</label>
           <input
             type="text"
             value={state.ogSiteName ?? ''}
@@ -240,9 +236,7 @@ export function AccountFormSections({
             onChange={(e) => update({ ogSiteName: e.target.value || null })}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
           />
-          <p className="text-[11px] text-gray-400 mt-1">
-            リンクプレビューでブランド名として表示されます。
-          </p>
+          <p className="text-[11px] text-gray-400 mt-1">リンクプレビューでブランド名として表示されます。</p>
         </div>
         <OgEditor
           hideTitle
@@ -260,5 +254,5 @@ export function AccountFormSections({
         />
       </FormSection>
     </div>
-  )
+  );
 }

@@ -1,17 +1,8 @@
 type Credentials = { accountId: string; apiToken: string };
 type D1Response = { success: boolean; result: Array<{ results?: unknown[] }> };
-type Executor = (input: {
-  creds: Credentials;
-  databaseId: string;
-  sql: string;
-}) => Promise<D1Response>;
+type Executor = (input: { creds: Credentials; databaseId: string; sql: string }) => Promise<D1Response>;
 
-const EXPECTED_CHECKS = new Set([
-  'login_channel_id',
-  'liff_id',
-  'account_line_user',
-  'unowned_line_user',
-]);
+const EXPECTED_CHECKS = new Set(['login_channel_id', 'liff_id', 'account_line_user', 'unowned_line_user']);
 
 const PREFLIGHT_SQL = `
 SELECT 'login_channel_id' AS check_name, COUNT(*) AS duplicate_groups
@@ -54,8 +45,12 @@ export async function runMultitenantDataPreflight(
   const seen = new Set<string>();
   for (const value of rows) {
     const row = value as { check_name?: unknown; duplicate_groups?: unknown };
-    if (typeof row.check_name !== 'string' || !EXPECTED_CHECKS.has(row.check_name) ||
-        seen.has(row.check_name) || row.duplicate_groups !== 0) {
+    if (
+      typeof row.check_name !== 'string' ||
+      !EXPECTED_CHECKS.has(row.check_name) ||
+      seen.has(row.check_name) ||
+      row.duplicate_groups !== 0
+    ) {
       throw new Error('multi-tenant migration preflight failed: duplicate selector');
     }
     seen.add(row.check_name);

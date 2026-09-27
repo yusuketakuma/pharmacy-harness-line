@@ -1,0 +1,115 @@
+diff --git a/apps/worker/src/index.ts b/apps/worker/src/index.ts
+index 85a7682..50fc17d 100644
+--- a/apps/worker/src/index.ts
++++ b/apps/worker/src/index.ts
+@@ -1112,10 +1112,12 @@ async function scheduled(
+       console.error('event-booking-reminders error:', e);
+     }
+ 
+-  // 外部Google Calendarで確定したMeet個別相談。前日・1時間前のLINE通知を
+-  // D1で管理し、送信は必ずLINE Harness Proxyを通す。
+-    try {
+-      const result = await processDueMeetConsultationReminders(env.DB, {
++  }
++
++  // Meet reminders also serve pharmacy accounts through the approved sender.
++  // Keep them outside the generic-only gate, after credential refresh.
++  try {
++    const result = await processDueMeetConsultationReminders(env.DB, {
+       now: new Date(),
+       proxyBaseUrl:
+         env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+@@ -1125,10 +1127,11 @@ async function scheduled(
+     if (result.sent + result.failed > 0) {
+       console.log(`[meet-consultation-reminders] sent=${result.sent} failed=${result.failed}`);
+     }
+-    } catch (e) {
+-      console.error('meet-consultation-reminders error:', e);
+-    }
++  } catch (e) {
++    console.error('meet-consultation-reminders error:', e);
++  }
+ 
++  if (runGenericCron) {
+   // ウェビナー予約リマインド (セッション選択メニュー)。時刻厳守・軽量なので
+   // booking 系リマインドと同じく重いジョブより先に実行する。
+     try {
+diff --git a/apps/worker/src/scheduled-meet-reminders.test.ts b/apps/worker/src/scheduled-meet-reminders.test.ts
+new file mode 100644
+index 0000000..e22902f
+--- /dev/null
++++ b/apps/worker/src/scheduled-meet-reminders.test.ts
+@@ -0,0 +1,73 @@
++import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
++
++const calls = vi.hoisted(() => ({
++  refresh: vi.fn(), meet: vi.fn(), medication: vi.fn(), generic: vi.fn(),
++}));
++vi.mock('@line-crm/db', async (original) => ({
++  ...await original<typeof import('@line-crm/db')>(),
++  getActiveTenantLineAccounts: vi.fn().mockResolvedValue([{ id: 'pharmacy-a', is_active: 1 }]),
++}));
++vi.mock('./custom/pharmacy/cron-access.js', () => ({ shouldRunGenericCron: vi.fn().mockResolvedValue(false) }));
++vi.mock('./services/token-refresh.js', () => ({ refreshLineAccessTokens: calls.refresh }));
++vi.mock('./services/meet-consultation-reminders.js', async (original) => ({
++  ...await original<typeof import('./services/meet-consultation-reminders.js')>(),
++  processDueMeetConsultationReminders: calls.meet,
++}));
++vi.mock('./services/booking-reminders.js', () => ({ processDueReminders: calls.generic }));
++vi.mock('./custom/pharmacy/medication-followup/notifications.js', async (original) => ({
++  ...await original<typeof import('./custom/pharmacy/medication-followup/notifications.js')>(),
++  processDueMedicationFollowUps: calls.medication,
++}));
++import worker, { type Env } from './index.js';
++
++// Other minute jobs see an empty synthetic database. No credentials, patient
++// data, or outgoing provider calls are available in this entrypoint test.
++const db = {
++  prepare: () => {
++    const statement = {
++      bind: () => statement,
++      first: async () => null,
++      all: async () => ({ results: [] }),
++      run: async () => ({ meta: { changes: 0 } }),
++    };
++    return statement;
++  },
++  batch: async () => [],
++} as unknown as D1Database;
++const env = {
++  DB: db, LINE_CHANNEL_ACCESS_TOKEN: 'synthetic', LINE_CREDENTIAL_KEY_V1: 'synthetic-key',
++  WORKER_PUBLIC_URL: 'https://worker.example.test',
++} as Env['Bindings'];
++const tick = { cron: '* * * * *', scheduledTime: Date.UTC(2026, 8, 22, 0, 1) } as ScheduledEvent;
++const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  calls.refresh.mockResolvedValue(undefined);
++  calls.meet.mockResolvedValue({ sent: 0, failed: 0 });
++  calls.medication.mockResolvedValue({ sent: 0, failed: 0, skipped: 0 });
++  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('External fetch forbidden')));
++});
++afterEach(() => vi.unstubAllGlobals());
++
++describe('pharmacy scheduled Meet reminders', () => {
++  it('runs the reminder processor after credential refresh while generic jobs stay disabled', async () => {
++    await worker.scheduled(tick, env, ctx);
++    expect(calls.meet).toHaveBeenCalledExactlyOnceWith(db, expect.objectContaining({
++      now: expect.any(Date), proxyBaseUrl: env.WORKER_PUBLIC_URL,
++      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1, proxyDispatch: expect.any(Function),
++    }));
++    expect(calls.refresh.mock.invocationCallOrder[0]).toBeLessThan(calls.meet.mock.invocationCallOrder[0]);
++    expect(calls.generic).not.toHaveBeenCalled();
++    expect(calls.medication).toHaveBeenCalledOnce();
++    expect(fetch).not.toHaveBeenCalled();
++  });
++  it('continues pharmacy jobs when Meet processing fails', async () => {
++    calls.meet.mockRejectedValueOnce(new Error('synthetic processor failure'));
++    await worker.scheduled(tick, env, ctx);
++    expect(calls.meet).toHaveBeenCalledOnce();
++    expect(calls.medication).toHaveBeenCalledOnce();
++    expect(calls.generic).not.toHaveBeenCalled();
++    expect(fetch).not.toHaveBeenCalled();
++  });
++});

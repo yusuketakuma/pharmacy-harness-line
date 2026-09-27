@@ -1,0 +1,13 @@
+{
+  "nearExit": 0,
+  "migrationExit": 0,
+  "queueFinalExit": 0,
+  "performanceExit": 0,
+  "verifyExit": 0,
+  "verifyLog": "integration-F20-final3-verify.log",
+  "artifactBuildExit": 0,
+  "artifactRuntimeExit": 0,
+  "patchReplay": "PASS",
+  "independentReview": "NOT_RUN",
+  "commit": "d595215010ac956d5f697b7cc8083c26f3966787"
+}

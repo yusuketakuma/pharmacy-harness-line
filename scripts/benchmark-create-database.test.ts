@@ -22,7 +22,11 @@ afterEach(() => {
 
 function createOwned(id = 'created-id', name = 'bench-db') {
   createDatabaseForBenchmarkMock.mockImplementationOnce(
-    async (_repo: string, _databaseName: string, onCreated: (receipt: { databaseId: string; databaseName: string }) => void) => {
+    async (
+      _repo: string,
+      _databaseName: string,
+      onCreated: (receipt: { databaseId: string; databaseName: string }) => void,
+    ) => {
       onCreated({ databaseId: id, databaseName: name });
       return { databaseId: id, databaseName: name };
     },
@@ -46,7 +50,11 @@ describe('benchmark database ownership', () => {
 
   it('deletes only a newly created database after a schema failure', async () => {
     createDatabaseForBenchmarkMock.mockImplementationOnce(
-      async (_repo: string, _databaseName: string, onCreated: (receipt: { databaseId: string; databaseName: string }) => void) => {
+      async (
+        _repo: string,
+        _databaseName: string,
+        onCreated: (receipt: { databaseId: string; databaseName: string }) => void,
+      ) => {
         onCreated({ databaseId: 'created-id', databaseName: 'bench-db' });
         throw new Error('schema failed');
       },
@@ -71,7 +79,11 @@ describe('benchmark database ownership', () => {
   it('reports cleanup failure without hiding the operation failure', async () => {
     const operationError = new Error('schema failed');
     createDatabaseForBenchmarkMock.mockImplementationOnce(
-      async (_repo: string, _databaseName: string, onCreated: (receipt: { databaseId: string; databaseName: string }) => void) => {
+      async (
+        _repo: string,
+        _databaseName: string,
+        onCreated: (receipt: { databaseId: string; databaseName: string }) => void,
+      ) => {
         onCreated({ databaseId: 'created-id', databaseName: 'bench-db' });
         throw operationError;
       },

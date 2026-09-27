@@ -72,9 +72,7 @@ vi.mock('../../services/outbound-line-delivery.js', async (importOriginal) => ({
 }));
 
 const pharmacyAccessMocks = vi.hoisted(() => ({
-  isPharmacyModeAccount: vi.fn(
-    async (_db: D1Database, _lineAccountId: string | null | undefined) => false,
-  ),
+  isPharmacyModeAccount: vi.fn(async (_db: D1Database, _lineAccountId: string | null | undefined) => false),
   hasPharmacyModeAccount: vi.fn(async (_db: D1Database) => false),
 }));
 vi.mock('../../custom/pharmacy/growth-loop/access.js', async (importOriginal) => ({
@@ -129,10 +127,9 @@ function installFetchMock() {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url === 'https://api.line.me/oauth2/v2.1/token') {
-        return new Response(
-          JSON.stringify({ access_token: 'at', id_token: 'idt', token_type: 'Bearer' }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ access_token: 'at', id_token: 'idt', token_type: 'Bearer' }), {
+          status: 200,
+        });
       }
       if (url === 'https://api.line.me/oauth2/v2.1/verify') {
         return new Response(JSON.stringify({ sub: 'U-login', name: 'Tester' }), {
@@ -153,18 +150,15 @@ function installFetchMock() {
   );
 }
 
-function callback(
-  stateValue: Record<string, string> = {},
-  bindings: import('../../index.js').Env['Bindings'] = env,
-) {
+function callback(stateValue: Record<string, string> = {}, bindings: import('../../index.js').Env['Bindings'] = env) {
   const state = btoa(JSON.stringify(stateValue));
   return worker.fetch(
-    new Request(
-      `https://worker.example.com/auth/callback?code=abc&state=${encodeURIComponent(state)}`,
-    ),
+    new Request(`https://worker.example.com/auth/callback?code=abc&state=${encodeURIComponent(state)}`),
     bindings,
     {
-      waitUntil(task: Promise<unknown>) { waitUntilTasks.push(task); },
+      waitUntil(task: Promise<unknown>) {
+        waitUntilTasks.push(task);
+      },
       passThroughOnException() {},
     } as unknown as ExecutionContext,
   );
@@ -179,7 +173,9 @@ function sendFormLink(lineUserId = 'U-login') {
     }),
     env,
     {
-      waitUntil(task: Promise<unknown>) { waitUntilTasks.push(task); },
+      waitUntil(task: Promise<unknown>) {
+        waitUntilTasks.push(task);
+      },
       passThroughOnException() {},
     } as unknown as ExecutionContext,
   );
@@ -229,11 +225,7 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
 
     await callback();
 
-    expect(dbMocks.enrollFriendInScenario).toHaveBeenCalledWith(
-      expect.anything(),
-      'F-1',
-      'SC-1',
-    );
+    expect(dbMocks.enrollFriendInScenario).toHaveBeenCalledWith(expect.anything(), 'F-1', 'SC-1');
   });
 
   it('does NOT enroll an existing friend with a prior enrollment on OAuth re-login', async () => {
@@ -267,11 +259,7 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
 
     await callback();
 
-    expect(dbMocks.enrollFriendInScenario).toHaveBeenCalledWith(
-      expect.anything(),
-      'F-1',
-      'SC-1',
-    );
+    expect(dbMocks.enrollFriendInScenario).toHaveBeenCalledWith(expect.anything(), 'F-1', 'SC-1');
   });
 
   it('does not send a generic form link for a pharmacy account', async () => {
@@ -289,9 +277,7 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
     await callback({ form: 'form-1', account: 'CH-pharmacy' });
 
     expect(
-      vi.mocked(fetch).mock.calls.some(
-        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
-      ),
+      vi.mocked(fetch).mock.calls.some(([input]) => String(input) === 'https://api.line.me/v2/bot/message/push'),
     ).toBe(false);
   });
 
@@ -309,9 +295,7 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
     await callback({ form: 'form-1', account: 'CH-generic' });
 
     expect(
-      vi.mocked(fetch).mock.calls.some(
-        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
-      ),
+      vi.mocked(fetch).mock.calls.some(([input]) => String(input) === 'https://api.line.me/v2/bot/message/push'),
     ).toBe(false);
   });
 
@@ -343,17 +327,17 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
     expect(deliveryMocks.deliverPush).toHaveBeenCalledTimes(2);
     const first = deliveryMocks.deliverPush.mock.calls[0][0];
     const replay = deliveryMocks.deliverPush.mock.calls[1][0];
-    expect(first).toEqual(expect.objectContaining({
-      tenantId: 'tenant-generic',
-      lineAccountId: account.id,
-      friendId: 'F-1',
-      source: 'form',
-    }));
+    expect(first).toEqual(
+      expect.objectContaining({
+        tenantId: 'tenant-generic',
+        lineAccountId: account.id,
+        friendId: 'F-1',
+        source: 'form',
+      }),
+    );
     expect(replay.operationId).toBe(first.operationId);
     expect(
-      vi.mocked(fetch).mock.calls.filter(
-        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
-      ),
+      vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === 'https://api.line.me/v2/bot/message/push'),
     ).toHaveLength(1);
   });
 
@@ -370,9 +354,7 @@ describe('GET /auth/callback — friend_add scenario auto-enroll gating', () => 
 
     expect(deliveryMocks.deliverPush).not.toHaveBeenCalled();
     expect(
-      vi.mocked(fetch).mock.calls.some(
-        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
-      ),
+      vi.mocked(fetch).mock.calls.some(([input]) => String(input) === 'https://api.line.me/v2/bot/message/push'),
     ).toBe(false);
   });
 });
@@ -381,12 +363,16 @@ describe('POST /api/liff/send-form-link — durable account scope', () => {
   it('replays the same account-owned form operation without a second LINE call', async () => {
     dbMocks.getLineAccounts.mockResolvedValue([{ id: 'generic-a', login_channel_id: '2000000000' }]);
     const friend = {
-      id: 'F-1', line_user_id: 'U-login', line_account_id: 'generic-a',
+      id: 'F-1',
+      line_user_id: 'U-login',
+      line_account_id: 'generic-a',
     };
     dbMocks.getFriendByLineUserId.mockResolvedValue(null);
     dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(friend);
     dbMocks.getLineAccountById.mockResolvedValue({
-      id: 'generic-a', channel_access_token: 'generic-token', liff_id: '1000000002-Generic',
+      id: 'generic-a',
+      channel_access_token: 'generic-token',
+      liff_id: '1000000002-Generic',
     });
     deliveryMocks.deliverPush
       .mockImplementationOnce(async (params) => {
@@ -403,17 +389,17 @@ describe('POST /api/liff/send-form-link — durable account scope', () => {
     expect(deliveryMocks.deliverPush).toHaveBeenCalledTimes(2);
     const first = deliveryMocks.deliverPush.mock.calls[0][0];
     const replay = deliveryMocks.deliverPush.mock.calls[1][0];
-    expect(first).toEqual(expect.objectContaining({
-      tenantId: 'tenant-generic',
-      lineAccountId: 'generic-a',
-      friendId: 'F-1',
-      source: 'form',
-    }));
+    expect(first).toEqual(
+      expect.objectContaining({
+        tenantId: 'tenant-generic',
+        lineAccountId: 'generic-a',
+        friendId: 'F-1',
+        source: 'form',
+      }),
+    );
     expect(replay.operationId).toBe(first.operationId);
     expect(
-      vi.mocked(fetch).mock.calls.filter(
-        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
-      ),
+      vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === 'https://api.line.me/v2/bot/message/push'),
     ).toHaveLength(1);
   });
 
@@ -428,11 +414,7 @@ describe('POST /api/liff/send-form-link — durable account scope', () => {
     const response = await sendFormLink();
 
     expect(response.status).toBe(404);
-    expect(dbMocks.getFriendByLineUserIdForAccount).toHaveBeenCalledWith(
-      expect.anything(),
-      'U-login',
-      'generic-a',
-    );
+    expect(dbMocks.getFriendByLineUserIdForAccount).toHaveBeenCalledWith(expect.anything(), 'U-login', 'generic-a');
     expect(dbMocks.getFriendByLineUserId).not.toHaveBeenCalled();
     expect(deliveryMocks.deliverPush).not.toHaveBeenCalled();
   });
@@ -440,7 +422,9 @@ describe('POST /api/liff/send-form-link — durable account scope', () => {
   it('rejects an accountless friend without using the environment token', async () => {
     dbMocks.getLineAccounts.mockResolvedValue([{ id: 'generic-a', login_channel_id: '2000000000' }]);
     dbMocks.getFriendByLineUserId.mockResolvedValue({
-      id: 'F-1', line_user_id: 'U-login', line_account_id: null,
+      id: 'F-1',
+      line_user_id: 'U-login',
+      line_account_id: null,
     });
     dbMocks.getFriendByLineUserIdForAccount.mockResolvedValue(null);
 
@@ -450,9 +434,7 @@ describe('POST /api/liff/send-form-link — durable account scope', () => {
     expect(dbMocks.getFriendByLineUserId).not.toHaveBeenCalled();
     expect(deliveryMocks.deliverPush).not.toHaveBeenCalled();
     expect(
-      vi.mocked(fetch).mock.calls.some(
-        ([input]) => String(input) === 'https://api.line.me/v2/bot/message/push',
-      ),
+      vi.mocked(fetch).mock.calls.some(([input]) => String(input) === 'https://api.line.me/v2/bot/message/push'),
     ).toBe(false);
   });
 });
@@ -460,7 +442,10 @@ describe('POST /api/liff/send-form-link — durable account scope', () => {
 describe('GET /auth/callback — redirect + logging hardening', () => {
   it('logs only status on token exchange failure, never the upstream body', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"UPSTREAM-BODY"}', { status: 400 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"error":"UPSTREAM-BODY"}', { status: 400 })),
+    );
 
     await callback();
 
@@ -473,9 +458,12 @@ describe('GET /auth/callback — redirect + logging hardening', () => {
 
   it('does not log raw token transport errors', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      throw new Error('TRANSPORT-SECRET');
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('TRANSPORT-SECRET');
+      }),
+    );
 
     await callback();
 
@@ -488,19 +476,25 @@ describe('GET /auth/callback — redirect + logging hardening', () => {
   it('does not log an IG Harness response body', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const lineFetch = vi.mocked(fetch);
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === 'https://ig.example.com/api/followers/link-line') {
-        return new Response('{"error":"IG-UPSTREAM-SECRET"}', { status: 502 });
-      }
-      return lineFetch(input, init);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === 'https://ig.example.com/api/followers/link-line') {
+          return new Response('{"error":"IG-UPSTREAM-SECRET"}', { status: 502 });
+        }
+        return lineFetch(input, init);
+      }),
+    );
     igLinkChanges = 1;
 
-    await callback({ ig: 'IGSID-1' }, {
-      ...env,
-      IG_HARNESS_URL: 'https://ig.example.com',
-      IG_HARNESS_LINK_SECRET: 'link-secret',
-    });
+    await callback(
+      { ig: 'IGSID-1' },
+      {
+        ...env,
+        IG_HARNESS_URL: 'https://ig.example.com',
+        IG_HARNESS_LINK_SECRET: 'link-secret',
+      },
+    );
     await Promise.all(waitUntilTasks);
 
     const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
@@ -513,19 +507,25 @@ describe('GET /auth/callback — redirect + logging hardening', () => {
   it('does not log a raw IG Harness transport error', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const lineFetch = vi.mocked(fetch);
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === 'https://ig.example.com/api/followers/link-line') {
-        throw new Error('IG-TRANSPORT-SECRET');
-      }
-      return lineFetch(input, init);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === 'https://ig.example.com/api/followers/link-line') {
+          throw new Error('IG-TRANSPORT-SECRET');
+        }
+        return lineFetch(input, init);
+      }),
+    );
     igLinkChanges = 1;
 
-    await callback({ ig: 'IGSID-1' }, {
-      ...env,
-      IG_HARNESS_URL: 'https://ig.example.com',
-      IG_HARNESS_LINK_SECRET: 'link-secret',
-    });
+    await callback(
+      { ig: 'IGSID-1' },
+      {
+        ...env,
+        IG_HARNESS_URL: 'https://ig.example.com',
+        IG_HARNESS_LINK_SECRET: 'link-secret',
+      },
+    );
     await Promise.all(waitUntilTasks);
 
     const logged = errorSpy.mock.calls.map((call) => call.map(String).join(' ')).join('\n');
@@ -560,7 +560,12 @@ describe('GET /auth/callback — redirect + logging hardening', () => {
   });
 
   it('pharmacy mode: only allowlisted origins are honoured for ?redirect=', async () => {
-    dbMocks.upsertFriend.mockResolvedValue({ id: 'F-1', line_user_id: 'U-login', line_account_id: 'pharmacy-a', user_id: null });
+    dbMocks.upsertFriend.mockResolvedValue({
+      id: 'F-1',
+      line_user_id: 'U-login',
+      line_account_id: 'pharmacy-a',
+      user_id: null,
+    });
     pharmacyAccessMocks.isPharmacyModeAccount.mockImplementation(async (_db, id) => id === 'pharmacy-a');
 
     const evil = await callback({ redirect: 'https://evil.example.net/phish' });

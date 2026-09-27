@@ -30,10 +30,7 @@ export interface TagWithCount extends Tag {
   friend_count: number;
 }
 
-export async function getTagsWithCounts(
-  db: D1Database,
-  tenantId: string | null = null,
-): Promise<TagWithCount[]> {
+export async function getTagsWithCounts(db: D1Database, tenantId: string | null = null): Promise<TagWithCount[]> {
   const result = await db
     .prepare(
       `SELECT t.*, COUNT(ft.friend_id) AS friend_count
@@ -54,10 +51,7 @@ export interface CreateTagInput {
   tenantId?: string | null;
 }
 
-export async function createTag(
-  db: D1Database,
-  input: CreateTagInput,
-): Promise<Tag> {
+export async function createTag(db: D1Database, input: CreateTagInput): Promise<Tag> {
   const id = crypto.randomUUID();
   const now = jstNow();
   const color = input.color ?? '#3B82F6';
@@ -76,20 +70,12 @@ export async function createTag(
     .first<Tag>())!;
 }
 
-export async function deleteTag(
-  db: D1Database,
-  id: string,
-  tenantId: string | null = null,
-): Promise<boolean> {
+export async function deleteTag(db: D1Database, id: string, tenantId: string | null = null): Promise<boolean> {
   const result = await db.prepare(`DELETE FROM tags WHERE id = ? AND tenant_id IS ?`).bind(id, tenantId).run();
   return (result.meta?.changes ?? 0) > 0;
 }
 
-export async function addTagToFriend(
-  db: D1Database,
-  friendId: string,
-  tagId: string,
-): Promise<boolean> {
+export async function addTagToFriend(db: D1Database, friendId: string, tagId: string): Promise<boolean> {
   const now = jstNow();
   const result = await db
     .prepare(
@@ -135,14 +121,7 @@ export async function updateTagMileageSettings(
               mileage_multiplier_bps = ?, mileage_multiplier_priority = ?
         WHERE id = ? AND tenant_id IS ?`,
     )
-    .bind(
-      input.rewardMiles,
-      input.referralRewardMiles,
-      input.multiplierBps,
-      input.multiplierPriority,
-      tagId,
-      tenantId,
-    )
+    .bind(input.rewardMiles, input.referralRewardMiles, input.multiplierBps, input.multiplierPriority, tagId, tenantId)
     .run();
   return db.prepare(`SELECT * FROM tags WHERE id = ? AND tenant_id IS ?`).bind(tagId, tenantId).first<Tag>();
 }
@@ -152,10 +131,7 @@ export async function updateTagMileageSettings(
  * historic assignments into the same queue. INSERT OR IGNORE plus ledger
  * idempotency makes repeated saves safe.
  */
-export async function enqueueHistoricTagMileage(
-  db: D1Database,
-  tagId: string,
-): Promise<number> {
+export async function enqueueHistoricTagMileage(db: D1Database, tagId: string): Promise<number> {
   const now = jstNow();
   await db
     .prepare(
@@ -220,23 +196,11 @@ export async function enqueueHistoricTagMileage(
   return (inserted.meta?.changes ?? 0) + (reset.meta?.changes ?? 0);
 }
 
-export async function removeTagFromFriend(
-  db: D1Database,
-  friendId: string,
-  tagId: string,
-): Promise<void> {
-  await db
-    .prepare(
-      `DELETE FROM friend_tags WHERE friend_id = ? AND tag_id = ?`,
-    )
-    .bind(friendId, tagId)
-    .run();
+export async function removeTagFromFriend(db: D1Database, friendId: string, tagId: string): Promise<void> {
+  await db.prepare(`DELETE FROM friend_tags WHERE friend_id = ? AND tag_id = ?`).bind(friendId, tagId).run();
 }
 
-export async function getFriendTags(
-  db: D1Database,
-  friendId: string,
-): Promise<Tag[]> {
+export async function getFriendTags(db: D1Database, friendId: string): Promise<Tag[]> {
   const result = await db
     .prepare(
       `SELECT t.*
@@ -252,11 +216,7 @@ export async function getFriendTags(
 
 import { FRIEND_SELECT_COLUMNS, type Friend } from './friends';
 
-export async function getFriendsByTag(
-  db: D1Database,
-  tagId: string,
-  lineAccountId?: string,
-): Promise<Friend[]> {
+export async function getFriendsByTag(db: D1Database, tagId: string, lineAccountId?: string): Promise<Friend[]> {
   const accountClause = lineAccountId ? ' AND f.line_account_id = ?' : '';
   const result = await db
     .prepare(
@@ -271,11 +231,7 @@ export async function getFriendsByTag(
   return result.results;
 }
 
-export async function tagBelongsToTenant(
-  db: D1Database,
-  tagId: string,
-  tenantId: string | null,
-): Promise<boolean> {
+export async function tagBelongsToTenant(db: D1Database, tagId: string, tenantId: string | null): Promise<boolean> {
   const row = await db
     .prepare(`SELECT id FROM tags WHERE id = ? AND tenant_id IS ?`)
     .bind(tagId, tenantId)

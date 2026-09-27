@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { wranglerMock, WranglerError } = vi.hoisted(() => {
   class TestWranglerError extends Error {
-    constructor(message: string, public readonly stderr: string) {
+    constructor(
+      message: string,
+      public readonly stderr: string,
+    ) {
       super(message);
     }
   }
@@ -58,19 +61,16 @@ describe('migration ledger only records fully applied files', () => {
       return '';
     });
 
-    await expect(
-      createDatabaseForBenchmark(repo, 'bench-db', () => undefined),
-    ).resolves.toEqual({ databaseId: 'created-id', databaseName: 'bench-db' });
+    await expect(createDatabaseForBenchmark(repo, 'bench-db', () => undefined)).resolves.toEqual({
+      databaseId: 'created-id',
+      databaseName: 'bench-db',
+    });
 
     // The partially applied file was replayed per statement before ledgering.
-    const commandCalls = wranglerMock.mock.calls.filter(
-      (call) => (call[0] as string[]).includes('--command'),
+    const commandCalls = wranglerMock.mock.calls.filter((call) => (call[0] as string[]).includes('--command'));
+    expect(commandCalls.some((call) => (call[0] as string[]).some((arg) => arg.includes('CREATE TABLE mig_b')))).toBe(
+      true,
     );
-    expect(
-      commandCalls.some((call) =>
-        (call[0] as string[]).some((arg) => arg.includes('CREATE TABLE mig_b')),
-      ),
-    ).toBe(true);
     expect(ledgerSql).toContain('001_init.sql');
   });
 
@@ -93,13 +93,9 @@ describe('migration ledger only records fully applied files', () => {
       return '';
     });
 
-    await expect(
-      createDatabaseForBenchmark(repo, 'bench-db', () => undefined),
-    ).rejects.toThrow(/mig_b/);
+    await expect(createDatabaseForBenchmark(repo, 'bench-db', () => undefined)).rejects.toThrow(/mig_b/);
 
-    expect(
-      wranglerMock.mock.calls.some((call) => isLedgerFileCall(call[0] as string[])),
-    ).toBe(false);
+    expect(wranglerMock.mock.calls.some((call) => isLedgerFileCall(call[0] as string[]))).toBe(false);
   });
 
   it('falls back to schema + per-migration files when the bootstrap bundle cannot be split', async () => {
@@ -132,25 +128,16 @@ describe('migration ledger only records fully applied files', () => {
       return '';
     });
 
-    await expect(
-      createDatabaseForBenchmark(repo, 'bench-db', () => undefined),
-    ).resolves.toEqual({ databaseId: 'created-id', databaseName: 'bench-db' });
+    await expect(createDatabaseForBenchmark(repo, 'bench-db', () => undefined)).resolves.toEqual({
+      databaseId: 'created-id',
+      databaseName: 'bench-db',
+    });
 
     // schema.sql and the migration file were applied directly instead of
     // crashing inside the bootstrap statement replay.
-    const fileCalls = wranglerMock.mock.calls.filter(
-      (call) => (call[0] as string[]).includes('--file'),
-    );
-    expect(
-      fileCalls.some((call) =>
-        (call[0] as string[]).some((arg) => arg.endsWith('schema.sql')),
-      ),
-    ).toBe(true);
-    expect(
-      fileCalls.some((call) =>
-        (call[0] as string[]).some((arg) => arg.endsWith('001_init.sql')),
-      ),
-    ).toBe(true);
+    const fileCalls = wranglerMock.mock.calls.filter((call) => (call[0] as string[]).includes('--file'));
+    expect(fileCalls.some((call) => (call[0] as string[]).some((arg) => arg.endsWith('schema.sql')))).toBe(true);
+    expect(fileCalls.some((call) => (call[0] as string[]).some((arg) => arg.endsWith('001_init.sql')))).toBe(true);
     expect(ledgerSql).toContain('001_init.sql');
   });
 });

@@ -38,18 +38,18 @@ export interface EmergencyMenstruationSignals {
 // noneApply/unknown are mutually exclusive with each other and with any of the
 // four signals. Returns false when the input violates that exclusivity.
 export function validMenstruationSignals(signals: EmergencyMenstruationSignals): boolean {
-  const anySignal = signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
-    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+  const anySignal =
+    signals.overOneMonthNoPeriod ||
+    signals.notRecoveredAfterBirth ||
+    signals.lastPeriodDifferent ||
+    signals.earlierConcernOver3Weeks;
   if (signals.noneApply && signals.unknown) return false;
   if (signals.noneApply && anySignal) return false;
   if (signals.unknown && anySignal) return false;
   return true;
 }
 
-export type EmergencyBlockingReason =
-  | 'patient_presence_required'
-  | 'in_person_dose_required'
-  | 'outside_72_hours';
+export type EmergencyBlockingReason = 'patient_presence_required' | 'in_person_dose_required' | 'outside_72_hours';
 
 export interface EmergencyPrecheckInput {
   intercourseAt: string;
@@ -104,31 +104,37 @@ function parseIntercourseAt(value: string, timeUnknown: boolean): Date {
   return new Date(Number.NaN);
 }
 
-export function assessEmergencyPrecheck(
-  input: EmergencyPrecheckInput,
-): EmergencyPrecheckAssessment {
+export function assessEmergencyPrecheck(input: EmergencyPrecheckInput): EmergencyPrecheckAssessment {
   const now = input.now ?? new Date();
   const intercourseAt = parseIntercourseAt(input.intercourseAt, input.intercourseTimeUnknown);
-  const slotStartsAt = ISO_WITH_ZONE.test(input.slotStartsAt)
-    ? new Date(input.slotStartsAt)
-    : new Date(Number.NaN);
-  if (!Number.isFinite(now.getTime()) || !Number.isFinite(intercourseAt.getTime()) ||
-      intercourseAt.getTime() > now.getTime()) {
+  const slotStartsAt = ISO_WITH_ZONE.test(input.slotStartsAt) ? new Date(input.slotStartsAt) : new Date(Number.NaN);
+  if (
+    !Number.isFinite(now.getTime()) ||
+    !Number.isFinite(intercourseAt.getTime()) ||
+    intercourseAt.getTime() > now.getTime()
+  ) {
     throw new Error('invalid intercourse time');
   }
-  if (!Number.isFinite(slotStartsAt.getTime()) || slotStartsAt.getTime() < now.getTime() ||
-      !Number.isInteger(input.consultationMinutes) || input.consultationMinutes < 1 ||
-      input.consultationMinutes > 180) {
+  if (
+    !Number.isFinite(slotStartsAt.getTime()) ||
+    slotStartsAt.getTime() < now.getTime() ||
+    !Number.isInteger(input.consultationMinutes) ||
+    input.consultationMinutes < 1 ||
+    input.consultationMinutes > 180
+  ) {
     throw new Error('invalid service slot');
   }
-  if (!Number.isInteger(input.age) || input.age < 0 || input.age > 120 ||
-      !Number.isInteger(input.recentPurchaseCount) || input.recentPurchaseCount < 0) {
+  if (
+    !Number.isInteger(input.age) ||
+    input.age < 0 ||
+    input.age > 120 ||
+    !Number.isInteger(input.recentPurchaseCount) ||
+    input.recentPurchaseCount < 0
+  ) {
     throw new Error('invalid review input');
   }
 
-  const estimatedDoseAt = new Date(
-    slotStartsAt.getTime() + input.consultationMinutes * 60_000,
-  );
+  const estimatedDoseAt = new Date(slotStartsAt.getTime() + input.consultationMinutes * 60_000);
   const deadlineAt = new Date(intercourseAt.getTime() + 72 * HOUR_MS);
   const riskFlags: EmergencyRiskFlag[] = [];
   if (input.intercourseTimeUnknown) riskFlags.push('time_unknown');

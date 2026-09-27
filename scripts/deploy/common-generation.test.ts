@@ -20,15 +20,17 @@ import {
 import { sealPatientIntakeField } from '../../apps/worker/src/custom/pharmacy/intake/encryption.js';
 
 const digest = (char: string) => `sha256:${char.repeat(64)}`;
-const r2Objects = [{
-  key: 'generation/g-1/object',
-  contentSha256: digest('0'),
-  byteLength: 1,
-  embeddedGeneration: 'g-1',
-  embeddedFenceId: 'fence-1',
-  embeddedFenceEpoch: 1,
-  embeddedCutId: 'cut-1',
-}];
+const r2Objects = [
+  {
+    key: 'generation/g-1/object',
+    contentSha256: digest('0'),
+    byteLength: 1,
+    embeddedGeneration: 'g-1',
+    embeddedFenceId: 'fence-1',
+    embeddedFenceEpoch: 1,
+    embeddedCutId: 'cut-1',
+  },
+];
 const r2InventoryCanonical = canonicalizeCommonGeneration(
   r2Objects.map(({ key, contentSha256, byteLength }) => ({ key, contentSha256, byteLength })),
 );
@@ -38,7 +40,11 @@ const payload: CommonGenerationManifest = {
   manifestVersion: 1,
   generation: 'g-1',
   scope: { accountId: 'account-1', tenantId: 'tenant-1', lineAccountId: 'line-account-1' },
-  source: { environmentId: 'source-dev', bindingFingerprint: 'source-fingerprint', production: false },
+  source: {
+    environmentId: 'source-dev',
+    bindingFingerprint: 'source-fingerprint',
+    production: false,
+  },
   fence: {
     id: 'fence-1',
     epoch: 1,
@@ -80,8 +86,20 @@ const payload: CommonGenerationManifest = {
   },
   fle: {
     fieldInventory: [
-      { field: 'pharmacy_patient_intake_responses.patient_snapshot_json', encrypted: true, envelopeVersion: 1, keyVersion: 1, referenceCount: 1 },
-      { field: 'pharmacy_patient_intake_responses.answers_json', encrypted: true, envelopeVersion: 1, keyVersion: 1, referenceCount: 1 },
+      {
+        field: 'pharmacy_patient_intake_responses.patient_snapshot_json',
+        encrypted: true,
+        envelopeVersion: 1,
+        keyVersion: 1,
+        referenceCount: 1,
+      },
+      {
+        field: 'pharmacy_patient_intake_responses.answers_json',
+        encrypted: true,
+        envelopeVersion: 1,
+        keyVersion: 1,
+        referenceCount: 1,
+      },
     ],
     envelopeVersions: [1],
     keyVersions: [1],
@@ -137,14 +155,16 @@ async function captureFixture() {
       embeddedFenceId: payload.fence.id,
       embeddedFenceEpoch: payload.fence.epoch,
       embeddedCutId: payload.fence.cutId,
-      objects: [{
-        key: `${payload.r2.prefix}object`,
-        bytes: objectBytes,
-        embeddedGeneration: payload.generation,
-        embeddedFenceId: payload.fence.id,
-        embeddedFenceEpoch: payload.fence.epoch,
-        embeddedCutId: payload.fence.cutId,
-      }],
+      objects: [
+        {
+          key: `${payload.r2.prefix}object`,
+          bytes: objectBytes,
+          embeddedGeneration: payload.generation,
+          embeddedFenceId: payload.fence.id,
+          embeddedFenceEpoch: payload.fence.epoch,
+          embeddedCutId: payload.fence.cutId,
+        },
+      ],
     },
     fle: payload.fle,
     watermarks: payload.watermarks,
@@ -177,8 +197,10 @@ function schemaFingerprint(sql: string): `sha256:${string}` {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec(sql);
-    const rows = db.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_schema
-      WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name`).all();
+    const rows = db
+      .prepare(`SELECT type, name, tbl_name, sql FROM sqlite_schema
+      WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name`)
+      .all();
     return sha256CommonGeneration(canonicalizeCommonGeneration(rows));
   } finally {
     db.close();
@@ -228,13 +250,29 @@ async function syntheticRestoreFixture(
   const r2Key = `custom/pharmacy/prescriptions/${lineAccountId}/rx-1/1/1`;
   const r2Bytes = new TextEncoder().encode('synthetic prescription image');
   const outboxPending = [
-    { id: 'outbox-2', idempotencyKey: 'retry-2', occurredAt: fence.completedAt, outcome: 'attempted' },
-    { id: 'outbox-3', idempotencyKey: 'retry-3', occurredAt: fence.completedAt, outcome: 'attempted' },
+    {
+      id: 'outbox-2',
+      idempotencyKey: 'retry-2',
+      occurredAt: fence.completedAt,
+      outcome: 'attempted',
+    },
+    {
+      id: 'outbox-3',
+      idempotencyKey: 'retry-3',
+      occurredAt: fence.completedAt,
+      outcome: 'attempted',
+    },
   ];
-  const webhookPending = [{
-    webhookEventId: 'webhook-2', status: 'pending', retryCount: 0, deadLetteredAt: null,
-  }];
-  const watermarkSql = includeWatermarkTables ? `
+  const webhookPending = [
+    {
+      webhookEventId: 'webhook-2',
+      status: 'pending',
+      retryCount: 0,
+      deadLetteredAt: null,
+    },
+  ];
+  const watermarkSql = includeWatermarkTables
+    ? `
     CREATE TABLE pharmacy_notification_events (
       id TEXT PRIMARY KEY,
       line_account_id TEXT NOT NULL,
@@ -260,7 +298,8 @@ async function syntheticRestoreFixture(
     INSERT INTO pharmacy_webhook_event_receipts VALUES
       (${sqlString(tenantId)}, ${sqlString(lineAccountId)}, 'webhook-1', ${sqlString(fence.startedAt)}, 'completed', 0, NULL),
       (${sqlString(tenantId)}, ${sqlString(lineAccountId)}, 'webhook-2', ${sqlString(fence.completedAt)}, 'pending', 0, NULL);
-  ` : '';
+  `
+    : '';
   const sql = `
     PRAGMA foreign_keys = ON;
     CREATE TABLE pharmacy_prescription_submissions (
@@ -331,10 +370,12 @@ async function syntheticRestoreFixture(
     pharmacy_patient_intake_responses: 1,
     pharmacy_patient_intake_envelopes: 2,
     pharmacy_medication_followups: 1,
-    ...(includeWatermarkTables ? {
-      pharmacy_notification_events: 3,
-      pharmacy_webhook_event_receipts: 2,
-    } : {}),
+    ...(includeWatermarkTables
+      ? {
+          pharmacy_notification_events: 3,
+          pharmacy_webhook_event_receipts: 2,
+        }
+      : {}),
   };
   const artifacts: CapturedArtifactsForValidation = {
     d1: {
@@ -357,19 +398,33 @@ async function syntheticRestoreFixture(
       embeddedFenceId: fence.id,
       embeddedFenceEpoch: fence.epoch,
       embeddedCutId: fence.cutId,
-      objects: [{
-        key: r2Key,
-        bytes: r2Bytes,
-        embeddedGeneration: generation,
-        embeddedFenceId: fence.id,
-        embeddedFenceEpoch: fence.epoch,
-        embeddedCutId: fence.cutId,
-      }],
+      objects: [
+        {
+          key: r2Key,
+          bytes: r2Bytes,
+          embeddedGeneration: generation,
+          embeddedFenceId: fence.id,
+          embeddedFenceEpoch: fence.epoch,
+          embeddedCutId: fence.cutId,
+        },
+      ],
     },
     fle: {
       fieldInventory: [
-        { field: 'pharmacy_patient_intake_responses.patient_snapshot_json', encrypted: true, envelopeVersion: 1, keyVersion, referenceCount: 1 },
-        { field: 'pharmacy_patient_intake_responses.answers_json', encrypted: true, envelopeVersion: 1, keyVersion, referenceCount: 1 },
+        {
+          field: 'pharmacy_patient_intake_responses.patient_snapshot_json',
+          encrypted: true,
+          envelopeVersion: 1,
+          keyVersion,
+          referenceCount: 1,
+        },
+        {
+          field: 'pharmacy_patient_intake_responses.answers_json',
+          encrypted: true,
+          envelopeVersion: 1,
+          keyVersion,
+          referenceCount: 1,
+        },
       ],
       envelopeVersions: [1],
       keyVersions: [keyVersion],
@@ -390,7 +445,9 @@ async function syntheticRestoreFixture(
         maxCommitted: fence.completedAt,
         maxProcessed: fence.startedAt,
         pendingCount: webhookPending.length,
-        pendingSetDigest: sha256CommonGeneration(canonicalizeCommonGeneration({ kind: 'webhook', rows: webhookPending })),
+        pendingSetDigest: sha256CommonGeneration(
+          canonicalizeCommonGeneration({ kind: 'webhook', rows: webhookPending }),
+        ),
       },
     },
   };
@@ -398,7 +455,11 @@ async function syntheticRestoreFixture(
     manifestId: 'manifest-restore-1',
     generation,
     scope: { accountId: 'account-1', tenantId, lineAccountId },
-    source: { environmentId: 'source-dev', bindingFingerprint: 'source-binding', production: false },
+    source: {
+      environmentId: 'source-dev',
+      bindingFingerprint: 'source-binding',
+      production: false,
+    },
     fence,
     readers: {
       readFence: () => fence,
@@ -415,20 +476,43 @@ async function syntheticRestoreFixture(
     {
       generation,
       completedAt: fence.completedAt,
-      location: { provider: 'cloudflare-r2', accountId: 'backup-a', container: 'archive-a', failureDomain: 'account-a' },
+      location: {
+        provider: 'cloudflare-r2',
+        accountId: 'backup-a',
+        container: 'archive-a',
+        failureDomain: 'account-a',
+      },
     },
     {
       generation: 'g-restore-2',
       completedAt: new Date(now - 86_400_000).toISOString(),
-      location: { provider: 'cloudflare-r2', accountId: 'backup-a', container: 'archive-a', failureDomain: 'account-a' },
+      location: {
+        provider: 'cloudflare-r2',
+        accountId: 'backup-a',
+        container: 'archive-a',
+        failureDomain: 'account-a',
+      },
     },
     {
       generation: 'g-restore-3',
       completedAt: new Date(now - 172_800_000).toISOString(),
-      location: { provider: 'cloudflare-r2', accountId: 'backup-b', container: 'archive-b', failureDomain: 'account-b' },
+      location: {
+        provider: 'cloudflare-r2',
+        accountId: 'backup-b',
+        container: 'archive-b',
+        failureDomain: 'account-b',
+      },
     },
   ];
-  return { artifacts, fence, manifest, pinnedTrustStore, retainedGenerations, signedManifest, signer };
+  return {
+    artifacts,
+    fence,
+    manifest,
+    pinnedTrustStore,
+    retainedGenerations,
+    signedManifest,
+    signer,
+  };
 }
 
 describe('common-generation signing', () => {
@@ -452,11 +536,18 @@ describe('common-generation signing', () => {
 
     expect(verifyCommonGenerationManifest({ ...signed, algorithm: 'none' } as never, trustStore).valid).toBe(false);
     expect(verifyCommonGenerationManifest({ ...signed, schemaVersion: 2 } as never, trustStore).valid).toBe(false);
-    expect(verifyCommonGenerationManifest({ ...signed, publicKey: signer.publicKey } as never, trustStore).valid).toBe(false);
-    expect(verifyCommonGenerationManifest({
-      ...signed,
-      payload: { ...signed.payload, unexpected: true },
-    } as never, trustStore).valid).toBe(false);
+    expect(verifyCommonGenerationManifest({ ...signed, publicKey: signer.publicKey } as never, trustStore).valid).toBe(
+      false,
+    );
+    expect(
+      verifyCommonGenerationManifest(
+        {
+          ...signed,
+          payload: { ...signed.payload, unexpected: true },
+        } as never,
+        trustStore,
+      ).valid,
+    ).toBe(false);
   });
 
   it('rejects duplicate and non-canonical raw JSON before signature verification', () => {
@@ -527,43 +618,79 @@ describe('common-generation artifact producer and validator', () => {
   });
 
   it.each([
-    ['one-byte D1 export change', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.d1.bytes = Uint8Array.from([1, 2, 4]);
-    }, /D1 export/],
-    ['D1 schema change', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.d1.schema = { ...artifacts.d1.schema, version: 2 };
-    }, /D1 schema/],
-    ['D1 migration change', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.d1.orderedMigrations = [{ ...artifacts.d1.orderedMigrations[0], checksum: digest('9') }];
-    }, /D1 ordered migration/],
-    ['R2 missing object', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.r2.objects = [];
-    }, /R2 inventory/],
-    ['R2 extra object', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.r2.objects.push({
-        key: `${payload.r2.prefix}extra`,
-        bytes: Uint8Array.from([9]),
-        embeddedGeneration: payload.generation,
-        embeddedFenceId: payload.fence.id,
-        embeddedFenceEpoch: payload.fence.epoch,
-        embeddedCutId: payload.fence.cutId,
-      });
-    }, /R2 inventory/],
-    ['R2 modified content', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.r2.objects[0].bytes = Uint8Array.from([4, 9]);
-    }, /R2 inventory/],
-    ['R2 changed key', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.r2.objects[0].key = `${payload.r2.prefix}changed`;
-    }, /R2 inventory/],
-    ['FLE key fingerprint change', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.fle = { ...artifacts.fle, pinnedKeyFingerprint: digest('9') };
-    }, /FLE/],
-    ['watermark change', (artifacts: CapturedArtifactsForValidation) => {
-      artifacts.watermarks = {
-        ...artifacts.watermarks,
-        outbox: { ...artifacts.watermarks.outbox, maxProcessed: 99 },
-      };
-    }, /watermark/],
+    [
+      'one-byte D1 export change',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.d1.bytes = Uint8Array.from([1, 2, 4]);
+      },
+      /D1 export/,
+    ],
+    [
+      'D1 schema change',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.d1.schema = { ...artifacts.d1.schema, version: 2 };
+      },
+      /D1 schema/,
+    ],
+    [
+      'D1 migration change',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.d1.orderedMigrations = [{ ...artifacts.d1.orderedMigrations[0], checksum: digest('9') }];
+      },
+      /D1 ordered migration/,
+    ],
+    [
+      'R2 missing object',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.r2.objects = [];
+      },
+      /R2 inventory/,
+    ],
+    [
+      'R2 extra object',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.r2.objects.push({
+          key: `${payload.r2.prefix}extra`,
+          bytes: Uint8Array.from([9]),
+          embeddedGeneration: payload.generation,
+          embeddedFenceId: payload.fence.id,
+          embeddedFenceEpoch: payload.fence.epoch,
+          embeddedCutId: payload.fence.cutId,
+        });
+      },
+      /R2 inventory/,
+    ],
+    [
+      'R2 modified content',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.r2.objects[0].bytes = Uint8Array.from([4, 9]);
+      },
+      /R2 inventory/,
+    ],
+    [
+      'R2 changed key',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.r2.objects[0].key = `${payload.r2.prefix}changed`;
+      },
+      /R2 inventory/,
+    ],
+    [
+      'FLE key fingerprint change',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.fle = { ...artifacts.fle, pinnedKeyFingerprint: digest('9') };
+      },
+      /FLE/,
+    ],
+    [
+      'watermark change',
+      (artifacts: CapturedArtifactsForValidation) => {
+        artifacts.watermarks = {
+          ...artifacts.watermarks,
+          outbox: { ...artifacts.watermarks.outbox, maxProcessed: 99 },
+        };
+      },
+      /watermark/,
+    ],
   ])('rejects %s', async (_label, mutate, message) => {
     const { manifest, artifacts } = await captureFixture();
     const changed = clone(artifacts);
@@ -574,39 +701,43 @@ describe('common-generation artifact producer and validator', () => {
   it('rejects an artifact from another fence during capture', async () => {
     const { artifacts } = await captureFixture();
     artifacts.r2.objects[0].embeddedFenceEpoch = 2;
-    await expect(captureCommonGeneration({
-      manifestId: payload.manifestId,
-      generation: payload.generation,
-      scope: payload.scope,
-      source: payload.source,
-      fence: payload.fence,
-      readers: {
-        readFence: () => payload.fence,
-        readD1: () => artifacts.d1,
-        readR2: () => artifacts.r2,
-        readFle: () => artifacts.fle,
-        readWatermarks: () => artifacts.watermarks,
-      },
-    })).rejects.toThrow(/common generation fence/);
+    await expect(
+      captureCommonGeneration({
+        manifestId: payload.manifestId,
+        generation: payload.generation,
+        scope: payload.scope,
+        source: payload.source,
+        fence: payload.fence,
+        readers: {
+          readFence: () => payload.fence,
+          readD1: () => artifacts.d1,
+          readR2: () => artifacts.r2,
+          readFle: () => artifacts.fle,
+          readWatermarks: () => artifacts.watermarks,
+        },
+      }),
+    ).rejects.toThrow(/common generation fence/);
   });
 
   it('rejects a fence or active-job change that occurs while artifacts are read', async () => {
     const { artifacts } = await captureFixture();
     let read = 0;
-    await expect(captureCommonGeneration({
-      manifestId: payload.manifestId,
-      generation: payload.generation,
-      scope: payload.scope,
-      source: payload.source,
-      fence: payload.fence,
-      readers: {
-        readFence: () => read++ === 0 ? payload.fence : { ...payload.fence, epoch: payload.fence.epoch + 1 },
-        readD1: () => artifacts.d1,
-        readR2: () => artifacts.r2,
-        readFle: () => artifacts.fle,
-        readWatermarks: () => artifacts.watermarks,
-      },
-    } as never)).rejects.toThrow(/fence|active job/i);
+    await expect(
+      captureCommonGeneration({
+        manifestId: payload.manifestId,
+        generation: payload.generation,
+        scope: payload.scope,
+        source: payload.source,
+        fence: payload.fence,
+        readers: {
+          readFence: () => (read++ === 0 ? payload.fence : { ...payload.fence, epoch: payload.fence.epoch + 1 }),
+          readD1: () => artifacts.d1,
+          readR2: () => artifacts.r2,
+          readFle: () => artifacts.fle,
+          readWatermarks: () => artifacts.watermarks,
+        },
+      } as never),
+    ).rejects.toThrow(/fence|active job/i);
   });
 });
 
@@ -622,76 +753,86 @@ describe('isolated restore rehearsal', () => {
       writeFileSync(d1Path, fixture.artifacts.d1.bytes);
       writeFileSync(objectPath, fixture.artifacts.r2.objects[0].bytes);
 
-      await expect(runIsolatedRestoreRehearsalFromFiles({
-        signedManifestPath: manifestPath,
-        pinnedTrustStore: fixture.pinnedTrustStore,
-        d1ExportPath: d1Path,
-        r2ObjectPaths: {},
-        fleRootSecret: SYNTHETIC_FLE_SECRET,
-        retainedGenerations: fixture.retainedGenerations,
-      })).rejects.toThrow(/mapping|inventory/i);
+      await expect(
+        runIsolatedRestoreRehearsalFromFiles({
+          signedManifestPath: manifestPath,
+          pinnedTrustStore: fixture.pinnedTrustStore,
+          d1ExportPath: d1Path,
+          r2ObjectPaths: {},
+          fleRootSecret: SYNTHETIC_FLE_SECRET,
+          retainedGenerations: fixture.retainedGenerations,
+        }),
+      ).rejects.toThrow(/mapping|inventory/i);
 
-      await expect(runIsolatedRestoreRehearsalFromFiles({
-        signedManifestPath: manifestPath,
-        pinnedTrustStore: fixture.pinnedTrustStore,
-        d1ExportPath: d1Path,
-        r2ObjectPaths: { [fixture.artifacts.r2.objects[0].key]: objectPath },
-        fleRootSecret: SYNTHETIC_FLE_SECRET,
-        retainedGenerations: fixture.retainedGenerations,
-      })).resolves.toMatchObject({
+      await expect(
+        runIsolatedRestoreRehearsalFromFiles({
+          signedManifestPath: manifestPath,
+          pinnedTrustStore: fixture.pinnedTrustStore,
+          d1ExportPath: d1Path,
+          r2ObjectPaths: { [fixture.artifacts.r2.objects[0].key]: objectPath },
+          fleRootSecret: SYNTHETIC_FLE_SECRET,
+          retainedGenerations: fixture.retainedGenerations,
+        }),
+      ).resolves.toMatchObject({
         readbackResult: 'passed',
         outboundAttemptCount: 0,
         productionBindingCount: 0,
       });
 
       writeFileSync(objectPath, 'tampered artifact');
-      await expect(runIsolatedRestoreRehearsalFromFiles({
-        signedManifestPath: manifestPath,
-        pinnedTrustStore: fixture.pinnedTrustStore,
-        d1ExportPath: d1Path,
-        r2ObjectPaths: { [fixture.artifacts.r2.objects[0].key]: objectPath },
-        fleRootSecret: SYNTHETIC_FLE_SECRET,
-        retainedGenerations: fixture.retainedGenerations,
-      })).rejects.toThrow(/R2|SHA|inventory/i);
+      await expect(
+        runIsolatedRestoreRehearsalFromFiles({
+          signedManifestPath: manifestPath,
+          pinnedTrustStore: fixture.pinnedTrustStore,
+          d1ExportPath: d1Path,
+          r2ObjectPaths: { [fixture.artifacts.r2.objects[0].key]: objectPath },
+          fleRootSecret: SYNTHETIC_FLE_SECRET,
+          retainedGenerations: fixture.retainedGenerations,
+        }),
+      ).rejects.toThrow(/R2|SHA|inventory/i);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
   it('restores a fully rewrapped v2 generation with only the v2 root supplied', async () => {
-    const fixture = await syntheticRestoreFixture(
-      Date.now(), true, 2, SYNTHETIC_FLE_SECRET_V2,
-    );
+    const fixture = await syntheticRestoreFixture(Date.now(), true, 2, SYNTHETIC_FLE_SECRET_V2);
 
     expect(fixture.manifest.fle.keyVersions).toEqual([2]);
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/fingerprint|FLE/i);
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET_V2,
-      retainedGenerations: fixture.retainedGenerations,
-    })).resolves.toMatchObject({ fleReadback: true, outboundAttemptCount: 0 });
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/fingerprint|FLE/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET_V2,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).resolves.toMatchObject({ fleReadback: true, outboundAttemptCount: 0 });
   });
   it('fails closed when the restored D1 has no canonical outbox or webhook state to reconcile', async () => {
     const fixture = await syntheticRestoreFixture(Date.now(), false);
 
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/outbox|webhook|watermark/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/outbox|webhook|watermark/i);
   });
 
   it('rejects a restored pending set that differs from the signed watermark', async () => {
@@ -715,14 +856,16 @@ describe('isolated restore rehearsal', () => {
       },
     });
 
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signer.sign(manifest),
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/outbox|watermark/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signer.sign(manifest),
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/outbox|watermark/i);
   });
 
   it('restores real SQL and R2 bytes into an opaque no-send memory target and reads every critical path back', async () => {
@@ -756,37 +899,47 @@ describe('isolated restore rehearsal', () => {
   it('rejects caller-created targets and hidden adapters before any callback can run', async () => {
     const fixture = await syntheticRestoreFixture();
     let sent = false;
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: { environmentId: 'isolated', bindingFingerprint: 'fake', production: false },
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-      d1: { importGeneration: () => { sent = true; } },
-    } as never)).rejects.toThrow(/no-send|unknown field|factory/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: { environmentId: 'isolated', bindingFingerprint: 'fake', production: false },
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+        d1: {
+          importGeneration: () => {
+            sent = true;
+          },
+        },
+      } as never),
+    ).rejects.toThrow(/no-send|unknown field|factory/i);
     expect(sent).toBe(false);
   });
 
   it('decrypts every FLE envelope and fails closed with a wrong key', async () => {
     const fixture = await syntheticRestoreFixture();
     const target = createNoSendIsolatedRestoreTarget();
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target,
-      artifacts: fixture.artifacts,
-      fleRootSecret: `wrong-${'z'.repeat(32)}`,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/FLE|envelope|readback/i);
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target,
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/fresh target/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target,
+        artifacts: fixture.artifacts,
+        fleRootSecret: `wrong-${'z'.repeat(32)}`,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/FLE|envelope|readback/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target,
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/fresh target/i);
   });
 
   it('rejects a signed FLE fingerprint that does not identify the supplied root secret', async () => {
@@ -796,14 +949,16 @@ describe('isolated restore rehearsal', () => {
     manifest.fle.pinnedKeyFingerprint = digest('9');
     artifacts.fle.pinnedKeyFingerprint = digest('9');
 
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signer.sign(manifest),
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/fingerprint|FLE/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signer.sign(manifest),
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/fingerprint|FLE/i);
   });
 
   it('rejects a signed inventory that omits envelopes for restored intake rows', async () => {
@@ -817,7 +972,8 @@ describe('isolated restore rehearsal', () => {
       canonicalizeCommonGeneration(artifacts.d1.logicalInventory.tableCounts),
     );
     artifacts.fle.fieldInventory = artifacts.fle.fieldInventory.map((field) => ({
-      ...field, referenceCount: 0,
+      ...field,
+      referenceCount: 0,
     }));
     artifacts.fle.referenceCounts = Object.fromEntries(
       Object.keys(artifacts.fle.referenceCounts).map((field) => [field, 0]),
@@ -837,14 +993,16 @@ describe('isolated restore rehearsal', () => {
       },
     });
 
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signer.sign(manifest),
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/FLE.*coverage|coverage.*FLE/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signer.sign(manifest),
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/FLE.*coverage|coverage.*FLE/i);
   });
 
   it('rejects a signed schema fingerprint that does not match restored D1', async () => {
@@ -866,14 +1024,16 @@ describe('isolated restore rehearsal', () => {
       },
     });
 
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signer.sign(manifest),
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/schema fingerprint/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signer.sign(manifest),
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/schema fingerprint/i);
   });
 
   it('derives RPO from signed completion time instead of accepting a caller number', async () => {
@@ -883,31 +1043,37 @@ describe('isolated restore rehearsal', () => {
     stale.fence.startedAt = new Date(now - 26 * 3_600_000).toISOString();
     stale.fence.completedAt = new Date(now - 25 * 3_600_000).toISOString();
     const signedManifest = fixture.signer.sign(stale);
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations.map((item) =>
-        item.generation === stale.generation ? { ...item, completedAt: stale.fence.completedAt } : item),
-    })).rejects.toThrow(/RPO/);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations.map((item) =>
+          item.generation === stale.generation ? { ...item, completedAt: stale.fence.completedAt } : item,
+        ),
+      }),
+    ).rejects.toThrow(/RPO/);
   });
 
   it('derives RTO from the actual clock and rejects a rehearsal exceeding four hours', async () => {
     const now = Date.now();
     const fixture = await syntheticRestoreFixture(now);
-    const clock = vi.spyOn(Date, 'now')
+    const clock = vi
+      .spyOn(Date, 'now')
       .mockReturnValueOnce(now)
       .mockReturnValueOnce(now + 5 * 3_600_000);
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/RTO/);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/RTO/);
     clock.mockRestore();
   });
 
@@ -923,14 +1089,16 @@ describe('isolated restore rehearsal', () => {
       },
     }));
 
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target: createNoSendIsolatedRestoreTarget(),
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: sameFailureDomain,
-    })).rejects.toThrow(/independent backup|failure domain/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target: createNoSendIsolatedRestoreTarget(),
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: sameFailureDomain,
+      }),
+    ).rejects.toThrow(/independent backup|failure domain/i);
   });
 
   it('clears a partial import and requires a fresh target after failure', async () => {
@@ -954,21 +1122,25 @@ describe('isolated restore rehearsal', () => {
       },
     });
     const target = createNoSendIsolatedRestoreTarget();
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signer.sign(brokenManifest),
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target,
-      artifacts: brokenArtifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/D1|SQL|syntax/i);
-    await expect(runIsolatedRestoreRehearsal({
-      signedManifest: fixture.signedManifest,
-      pinnedTrustStore: fixture.pinnedTrustStore,
-      target,
-      artifacts: fixture.artifacts,
-      fleRootSecret: SYNTHETIC_FLE_SECRET,
-      retainedGenerations: fixture.retainedGenerations,
-    })).rejects.toThrow(/fresh target/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signer.sign(brokenManifest),
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target,
+        artifacts: brokenArtifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/D1|SQL|syntax/i);
+    await expect(
+      runIsolatedRestoreRehearsal({
+        signedManifest: fixture.signedManifest,
+        pinnedTrustStore: fixture.pinnedTrustStore,
+        target,
+        artifacts: fixture.artifacts,
+        fleRootSecret: SYNTHETIC_FLE_SECRET,
+        retainedGenerations: fixture.retainedGenerations,
+      }),
+    ).rejects.toThrow(/fresh target/i);
   });
 });

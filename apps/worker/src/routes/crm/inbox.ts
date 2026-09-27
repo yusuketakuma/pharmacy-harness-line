@@ -5,10 +5,7 @@ import {
   countUnanswered,
   type UnansweredInboxOptions,
 } from '../../services/unanswered-inbox.js';
-import {
-  getActivityDigest,
-  parseActivityDigestHours,
-} from '../../services/activity-digest.js';
+import { getActivityDigest, parseActivityDigestHours } from '../../services/activity-digest.js';
 import { isPharmacyTenant } from '../../custom/pharmacy/growth-loop/access.js';
 
 export const inbox = new Hono<Env>();
@@ -19,10 +16,13 @@ export const inbox = new Hono<Env>();
 inbox.get('/api/inbox/activity-digest', async (c) => {
   const hours = parseActivityDigestHours(c.req.query('hours'));
   if (hours === null) {
-    return c.json({
-      success: false,
-      error: 'hours must be an integer between 1 and 168',
-    }, 400);
+    return c.json(
+      {
+        success: false,
+        error: 'hours must be an integer between 1 and 168',
+      },
+      400,
+    );
   }
 
   try {
@@ -64,12 +64,7 @@ inbox.get('/api/inbox/unanswered', async (c) => {
       pageSize: pageSizeStr ? Number.parseInt(pageSizeStr, 10) : undefined,
     };
 
-    const result = await computeUnansweredInbox(
-      c.env.DB,
-      tenantId,
-      opts,
-      pharmacyTenant ? staff!.id : undefined,
-    );
+    const result = await computeUnansweredInbox(c.env.DB, tenantId, opts, pharmacyTenant ? staff!.id : undefined);
     return c.json({ success: true, data: result });
   } catch (err) {
     console.error('GET /api/inbox/unanswered error:', err);

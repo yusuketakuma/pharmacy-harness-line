@@ -1,9 +1,6 @@
 import { GoogleCalendarClient, type BusyInterval } from './google-calendar.js';
 import { getGoogleServiceAccountToken } from './google-service-account.js';
-import {
-  refreshGoogleOAuthAccessToken,
-  type GoogleCalendarCredentials,
-} from './google-oauth.js';
+import { refreshGoogleOAuthAccessToken, type GoogleCalendarCredentials } from './google-oauth.js';
 
 export interface StaffCalendarConnection {
   id: string;
@@ -168,12 +165,15 @@ export async function removeBookingFromGoogle(
       refresh_token: string | null;
     }>();
   if (!row?.external_event_id || !row.external_calendar_id || !row.id || !row.auth_type) return;
-  const client = await clientForConnection({
-    id: row.id,
-    calendar_id: row.external_calendar_id,
-    auth_type: row.auth_type,
-    access_token: row.access_token,
-    refresh_token: row.refresh_token,
-  }, credentials);
+  const client = await clientForConnection(
+    {
+      id: row.id,
+      calendar_id: row.external_calendar_id,
+      auth_type: row.auth_type,
+      access_token: row.access_token,
+      refresh_token: row.refresh_token,
+    },
+    credentials,
+  );
   await client.deleteEvent(row.external_event_id);
 }

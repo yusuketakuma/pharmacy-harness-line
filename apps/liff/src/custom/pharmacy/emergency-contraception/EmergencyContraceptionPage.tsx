@@ -11,12 +11,18 @@ import {
   type EmergencyServiceOverview,
 } from './api.js';
 import { pharmacyErrorMessage } from '../request.js';
-import { PharmacyErrorSummary, PharmacyLoading, PharmacySpinner, PharmacyStatusBlock, usePharmacyAutoRetry, usePharmacyOnline } from '../feedback.js';
+import {
+  PharmacyErrorSummary,
+  PharmacyLoading,
+  PharmacySpinner,
+  PharmacyStatusBlock,
+  usePharmacyAutoRetry,
+  usePharmacyOnline,
+} from '../feedback.js';
 import { cloneJsonValue, pharmacyUuid } from '../compat.js';
 import { formatTokyoDateTime as formatTokyo } from '../../../lib/datetime.js';
 
-export const MHLW_EMERGENCY_CONTRACEPTION_URL =
-  'https://www.mhlw.go.jp/stf/kinnkyuuhininnyaku.html';
+export const MHLW_EMERGENCY_CONTRACEPTION_URL = 'https://www.mhlw.go.jp/stf/kinnkyuuhininnyaku.html';
 
 // D3 is optional and tri-state (はい/いいえ/未定); 'undecided' maps to null on submit.
 export type IdDocumentAvailability = 'yes' | 'no' | 'undecided';
@@ -119,8 +125,11 @@ export function retainEmergencyCancelOperation(
 // apps/worker/.../policy.ts — kept local since the LIFF app cannot import
 // worker code across the package boundary).
 function validMenstruationSignalsClient(signals: EmergencyMenstruationSignals): boolean {
-  const anySignal = signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
-    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+  const anySignal =
+    signals.overOneMonthNoPeriod ||
+    signals.notRecoveredAfterBirth ||
+    signals.lastPeriodDifferent ||
+    signals.earlierConcernOver3Weeks;
   if (signals.noneApply && signals.unknown) return false;
   if (signals.noneApply && anySignal) return false;
   if (signals.unknown && anySignal) return false;
@@ -130,9 +139,14 @@ function validMenstruationSignalsClient(signals: EmergencyMenstruationSignals): 
 // C2 must be explicitly answered before submit: noneApply, unknown, or at
 // least one signal. Leaving it untouched is not the same as "none apply".
 function menstruationSignalsAnswered(signals: EmergencyMenstruationSignals): boolean {
-  return signals.noneApply || signals.unknown ||
-    signals.overOneMonthNoPeriod || signals.notRecoveredAfterBirth ||
-    signals.lastPeriodDifferent || signals.earlierConcernOver3Weeks;
+  return (
+    signals.noneApply ||
+    signals.unknown ||
+    signals.overOneMonthNoPeriod ||
+    signals.notRecoveredAfterBirth ||
+    signals.lastPeriodDifferent ||
+    signals.earlierConcernOver3Weeks
+  );
 }
 
 /** Next-steps shown on the completion screen; never includes any computed judgement. */
@@ -203,13 +217,16 @@ function validDateOnly(value: string): boolean {
 function validIntercourseAt(draft: EmergencyIntakeDraft): boolean {
   if (draft.intercourseTimeUnknown) return validDateOnly(draft.intercourseAt);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(draft.intercourseAt)) return false;
-  return Number.isFinite(new Date(`${draft.intercourseAt}${draft.intercourseAt.length === 16 ? ':00' : ''}+09:00`).getTime());
+  return Number.isFinite(
+    new Date(`${draft.intercourseAt}${draft.intercourseAt.length === 16 ? ':00' : ''}+09:00`).getTime(),
+  );
 }
 
 function validInteger(value: string, minimum: number, maximum?: number): boolean {
   const number = Number(value);
-  return value.trim() !== '' && Number.isInteger(number) && number >= minimum &&
-    (maximum === undefined || number <= maximum);
+  return (
+    value.trim() !== '' && Number.isInteger(number) && number >= minimum && (maximum === undefined || number <= maximum)
+  );
 }
 
 export type EmergencyIntakeErrors = Partial<Record<keyof EmergencyIntakeDraft, string>>;
@@ -218,17 +235,21 @@ export type EmergencyIntakeErrors = Partial<Record<keyof EmergencyIntakeDraft, s
 export function emergencyIntakeFieldErrors(draft: EmergencyIntakeDraft): EmergencyIntakeErrors {
   const errors: EmergencyIntakeErrors = {};
   if (!validIntercourseAt(draft)) {
-    errors.intercourseAt = draft.intercourseTimeUnknown ? '出来事があった日を入力してください' : '出来事があった日時を入力してください';
+    errors.intercourseAt = draft.intercourseTimeUnknown
+      ? '出来事があった日を入力してください'
+      : '出来事があった日時を入力してください';
   }
   if (!draft.slotId) errors.slotId = '希望する対応枠を選んでください';
   if (!validInteger(draft.age, 0, 120)) errors.age = '年齢を0〜120の整数で入力してください';
-  if (!validInteger(draft.recentPurchaseCount, 0)) errors.recentPurchaseCount = '過去3か月の利用回数を0以上の整数で入力してください';
+  if (!validInteger(draft.recentPurchaseCount, 0))
+    errors.recentPurchaseCount = '過去3か月の利用回数を0以上の整数で入力してください';
   if (!draft.patientWillVisit) errors.patientWillVisit = '「本人が薬局へ来局します」にチェックしてください';
   if (!draft.acceptsInPersonDose) errors.acceptsInPersonDose = '「薬剤師の面前で服用します」にチェックしてください';
   if (!SAFE_CONTACT_OPTIONS.some((option) => option.value === draft.safeContactMode)) {
     errors.safeContactMode = '連絡方法をどちらか選んでください';
   }
-  if (!draft.manufacturerCheckAcknowledged) errors.manufacturerCheckAcknowledged = 'セルフチェックの確認にチェックしてください';
+  if (!draft.manufacturerCheckAcknowledged)
+    errors.manufacturerCheckAcknowledged = 'セルフチェックの確認にチェックしてください';
   if (!draft.consentAccepted) errors.consentAccepted = '説明と利用目的への同意にチェックしてください';
   if (!validMenstruationSignalsClient(draft.menstruationSignals)) {
     errors.menstruationSignals = '「当てはまるものはない」「わからない」と具体的な項目は同時に選べません';
@@ -238,19 +259,21 @@ export function emergencyIntakeFieldErrors(draft: EmergencyIntakeDraft): Emergen
   return errors;
 }
 
-export function canSubmitEmergencyIntake(
-  draft: EmergencyIntakeDraft,
-): boolean {
+export function canSubmitEmergencyIntake(draft: EmergencyIntakeDraft): boolean {
   return Object.keys(emergencyIntakeFieldErrors(draft)).length === 0;
 }
 
 function FieldError({ id, message }: { id?: string; message?: string }) {
-  return message ? <p id={id} role="alert" className="text-base font-bold text-red-700">{message}</p> : null;
+  return message ? (
+    <p id={id} role="alert" className="text-base font-bold text-red-700">
+      {message}
+    </p>
+  ) : null;
 }
 
-export function toIntercourseAtPayload(draft: Pick<
-  EmergencyIntakeDraft, 'intercourseAt' | 'intercourseTimeUnknown'
->): string {
+export function toIntercourseAtPayload(
+  draft: Pick<EmergencyIntakeDraft, 'intercourseAt' | 'intercourseTimeUnknown'>,
+): string {
   if (draft.intercourseTimeUnknown) return draft.intercourseAt;
   if (!validIntercourseAt({ ...EMPTY_EMERGENCY_DRAFT, ...draft })) {
     throw new Error('対象となる出来事の日時を入力してください。');
@@ -270,36 +293,38 @@ export function emergencyNextAction(status: EmergencyIntakeStatus): string {
   return '期限切れです。受付可能な新しい対応枠を確認してください。';
 }
 
-export function EmergencyAlternativeLinks({
-  service,
-}: {
-  service: EmergencyServiceOverview | null;
-}) {
+export function EmergencyAlternativeLinks({ service }: { service: EmergencyServiceOverview | null }) {
   const partnerClinicUrl = safeExternalUrl(service?.partner_clinic_url ?? null);
   const supportCenterUrl = safeExternalUrl(service?.support_center_url ?? null);
   return (
     <section className="rounded-xl border border-blue-200 bg-blue-50 p-4" aria-labelledby="emergency-alternatives">
-      <h2 id="emergency-alternatives" className="font-bold text-blue-950">受付できない場合の相談先</h2>
+      <h2 id="emergency-alternatives" className="font-bold text-blue-950">
+        受付できない場合の相談先
+      </h2>
       <p className="mt-1 text-base text-blue-900">
         期限や対応枠の都合でこの画面から受付できない場合は、以下の案内をご確認ください。
       </p>
       <div className="mt-3 grid gap-2">
-        {partnerClinicUrl && <a
-          href={partnerClinicUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="min-h-11 rounded-lg border border-blue-300 bg-white px-4 py-3 text-center font-bold text-blue-900"
-        >
-          連携医療機関へ相談（外部サイト）
-        </a>}
-        {supportCenterUrl && <a
-          href={supportCenterUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="min-h-11 rounded-lg border border-blue-300 bg-white px-4 py-3 text-center font-bold text-blue-900"
-        >
-          相談窓口を確認（外部サイト）
-        </a>}
+        {partnerClinicUrl && (
+          <a
+            href={partnerClinicUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="min-h-11 rounded-lg border border-blue-300 bg-white px-4 py-3 text-center font-bold text-blue-900"
+          >
+            連携医療機関へ相談（外部サイト）
+          </a>
+        )}
+        {supportCenterUrl && (
+          <a
+            href={supportCenterUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="min-h-11 rounded-lg border border-blue-300 bg-white px-4 py-3 text-center font-bold text-blue-900"
+          >
+            相談窓口を確認（外部サイト）
+          </a>
+        )}
         <a
           href={MHLW_EMERGENCY_CONTRACEPTION_URL}
           target="_blank"
@@ -327,8 +352,24 @@ function EmergencyCautionAlternatives({ service }: { service: EmergencyServiceOv
       <p className="mt-1">送信は止まりません。来局時に薬剤師が対面で確認します。</p>
       <div className="mt-2 grid gap-2">
         <span className="block">・産婦人科の受診</span>
-        {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900">相談窓口を確認（外部サイト）</a>}
-        <a href={MHLW_EMERGENCY_CONTRACEPTION_URL} target="_blank" rel="noreferrer noopener" className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900">厚生労働省の販売薬局一覧を確認（外部サイト）</a>
+        {supportCenterUrl && (
+          <a
+            href={supportCenterUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900"
+          >
+            相談窓口を確認（外部サイト）
+          </a>
+        )}
+        <a
+          href={MHLW_EMERGENCY_CONTRACEPTION_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="min-h-11 rounded-lg border border-amber-300 bg-white px-4 py-3 text-center font-bold text-amber-900"
+        >
+          厚生労働省の販売薬局一覧を確認（外部サイト）
+        </a>
       </div>
     </div>
   );
@@ -349,32 +390,53 @@ function IntakeList({
 }) {
   return (
     <section className="rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-intakes">
-      <h2 id="emergency-intakes" className="font-bold text-gray-900">これまでの仮受付</h2>
+      <h2 id="emergency-intakes" className="font-bold text-gray-900">
+        これまでの仮受付
+      </h2>
       <p className="mt-1 text-base text-gray-600">サーバー確認時刻：{serverNow ? formatTokyo(serverNow) : '確認中'}</p>
-      {supportCenterUrl && <a href={supportCenterUrl} target="_blank" rel="noreferrer noopener" className="pharmacy-control pharmacy-focus mt-2 inline-flex items-center text-base font-bold text-blue-900 underline">相談窓口を見る（外部サイト）</a>}
-      {intakes.length === 0
-        ? <p className="mt-3 text-base text-gray-600">現在の仮受付はありません。</p>
-        : <ul className="mt-3 space-y-3">{intakes.map((intake) => (
-          <li key={intake.id} className="rounded-lg border border-gray-200 p-3">
-            <p className="font-bold text-gray-900">受付番号：{intake.reference_code}</p>
-            <p className="mt-1 text-base text-gray-700">{STATUS_LABELS[intake.status]}</p>
-            <p className="mt-1 text-base text-gray-700">
-              対応枠：{formatTokyo(intake.slot_starts_at)}〜{formatTokyo(intake.slot_ends_at)}
-            </p>
-            <p className="mt-1 text-base text-gray-700">有効期限：{formatTokyo(intake.expires_at)}</p>
-            <p className="mt-2 rounded-lg bg-green-50 p-2 text-base text-green-900">次にすること：{emergencyNextAction(intake.status)}</p>
-            {intake.status === 'provisional' && <p className="mt-2 text-base text-amber-900">患者申告は薬剤師確認前です。</p>}
-            {canCancel(intake.status) && <button
-              type="button"
-              onClick={() => void onCancel(intake)}
-              disabled={busy !== null}
-              aria-busy={busy === `cancel:${intake.id}`}
-              className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-base font-bold text-red-800 disabled:opacity-50"
-            >
-              {busy === `cancel:${intake.id}` ? <PharmacySpinner label="取消中…" /> : 'この仮受付を取消'}
-            </button>}
-          </li>
-        ))}</ul>}
+      {supportCenterUrl && (
+        <a
+          href={supportCenterUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="pharmacy-control pharmacy-focus mt-2 inline-flex items-center text-base font-bold text-blue-900 underline"
+        >
+          相談窓口を見る（外部サイト）
+        </a>
+      )}
+      {intakes.length === 0 ? (
+        <p className="mt-3 text-base text-gray-600">現在の仮受付はありません。</p>
+      ) : (
+        <ul className="mt-3 space-y-3">
+          {intakes.map((intake) => (
+            <li key={intake.id} className="rounded-lg border border-gray-200 p-3">
+              <p className="font-bold text-gray-900">受付番号：{intake.reference_code}</p>
+              <p className="mt-1 text-base text-gray-700">{STATUS_LABELS[intake.status]}</p>
+              <p className="mt-1 text-base text-gray-700">
+                対応枠：{formatTokyo(intake.slot_starts_at)}〜{formatTokyo(intake.slot_ends_at)}
+              </p>
+              <p className="mt-1 text-base text-gray-700">有効期限：{formatTokyo(intake.expires_at)}</p>
+              <p className="mt-2 rounded-lg bg-green-50 p-2 text-base text-green-900">
+                次にすること：{emergencyNextAction(intake.status)}
+              </p>
+              {intake.status === 'provisional' && (
+                <p className="mt-2 text-base text-amber-900">患者申告は薬剤師確認前です。</p>
+              )}
+              {canCancel(intake.status) && (
+                <button
+                  type="button"
+                  onClick={() => void onCancel(intake)}
+                  disabled={busy !== null}
+                  aria-busy={busy === `cancel:${intake.id}`}
+                  className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-base font-bold text-red-800 disabled:opacity-50"
+                >
+                  {busy === `cancel:${intake.id}` ? <PharmacySpinner label="取消中…" /> : 'この仮受付を取消'}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -392,11 +454,19 @@ export function EmergencyConsentSection({
 }) {
   return (
     <section className="space-y-3 rounded-xl bg-white p-4 shadow-sm" aria-labelledby="emergency-consent">
-      <h2 id="emergency-consent" tabIndex={-1} className="font-bold text-gray-900">説明と同意</h2>
+      <h2 id="emergency-consent" tabIndex={-1} className="font-bold text-gray-900">
+        説明と同意
+      </h2>
       <p className="whitespace-pre-wrap text-base text-gray-700">{consent.text_v2}</p>
       <dl className="space-y-1 text-base text-gray-700">
-        <div><dt className="font-bold">申告の保存期間 / 販売記録</dt><dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd></div>
-        <div><dt className="font-bold">問い合わせ先</dt><dd>{consent.privacy_contact}</dd></div>
+        <div>
+          <dt className="font-bold">申告の保存期間 / 販売記録</dt>
+          <dd>申告の保存期間 {consent.retention_days}日 / 販売記録 3年</dd>
+        </div>
+        <div>
+          <dt className="font-bold">問い合わせ先</dt>
+          <dd>{consent.privacy_contact}</dd>
+        </div>
       </dl>
       <a
         href={safeExternalUrl(consent.privacy_policy_url) ?? undefined}
@@ -455,27 +525,35 @@ export function EmergencyIntakeForm({
   const disabled = busy !== null;
   const errors = showErrors ? emergencyIntakeFieldErrors(draft) : {};
   const invalid = (key: keyof EmergencyIntakeDraft) => (errors[key] ? true : undefined);
-  const fieldClass = 'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base aria-[invalid]:border-red-500';
+  const fieldClass =
+    'min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base aria-[invalid]:border-red-500';
   const deadline = emergencyIntakeDeadline(draft);
-  const remainingHours = deadline ? Math.max(0, Math.round((deadline.getTime() - Date.now()) / (60 * 60 * 1000))) : null;
+  const remainingHours = deadline
+    ? Math.max(0, Math.round((deadline.getTime() - Date.now()) / (60 * 60 * 1000)))
+    : null;
   const showCaution = draft.lngAllergy || draft.liverDisease || draft.currentlyPregnant;
   return (
     <form
       id="emergency-intake-form"
       className="space-y-4 rounded-xl bg-white p-4 shadow-sm"
-      onSubmit={(event) => { event.preventDefault(); void onSubmit(); }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSubmit();
+      }}
     >
       <h2 className="text-base font-bold text-gray-900">来局前の最小確認</h2>
       <p className="text-base text-gray-600">必要な項目だけ入力してください。</p>
-      {showErrors && Object.keys(errors).length > 0 && <PharmacyErrorSummary
-        key={errorNonce}
-        title="入力内容を確認してください"
-        hint="赤く表示された項目を確認してください。"
-        items={Object.entries(errors).map(([key, message]) => ({
-          id: EMERGENCY_ERROR_FIELD_IDS[key as keyof EmergencyIntakeDraft] ?? 'emergency-intake-form',
-          label: message ?? '入力内容を確認してください',
-        }))}
-      />}
+      {showErrors && Object.keys(errors).length > 0 && (
+        <PharmacyErrorSummary
+          key={errorNonce}
+          title="入力内容を確認してください"
+          hint="赤く表示された項目を確認してください。"
+          items={Object.entries(errors).map(([key, message]) => ({
+            id: EMERGENCY_ERROR_FIELD_IDS[key as keyof EmergencyIntakeDraft] ?? 'emergency-intake-form',
+            label: message ?? '入力内容を確認してください',
+          }))}
+        />
+      )}
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">対象となる出来事の日時</legend>
@@ -493,7 +571,11 @@ export function EmergencyIntakeForm({
           className={fieldClass}
         />
         <FieldError message={errors.intercourseAt} />
-        {deadline && <p className="text-base text-gray-700">服用期限：{formatTokyo(deadline.toISOString())}（残り約{remainingHours}時間）</p>}
+        {deadline && (
+          <p className="text-base text-gray-700">
+            服用期限：{formatTokyo(deadline.toISOString())}（残り約{remainingHours}時間）
+          </p>
+        )}
         <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
@@ -520,9 +602,12 @@ export function EmergencyIntakeForm({
           <option value="">対応枠を選択</option>
           {service.slots.map((slot) => {
             const pastDeadline = deadline !== null && new Date(slot.ends_at).getTime() > deadline.getTime();
-            return <option key={slot.id} value={slot.id} disabled={pastDeadline}>
-              {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）{pastDeadline ? '（期限超過）' : ''}
-            </option>;
+            return (
+              <option key={slot.id} value={slot.id} disabled={pastDeadline}>
+                {formatTokyo(slot.starts_at)}〜{formatTokyo(slot.ends_at)}（残り{slot.remaining}）
+                {pastDeadline ? '（期限超過）' : ''}
+              </option>
+            );
           })}
         </select>
         <FieldError message={errors.slotId} />
@@ -562,7 +647,9 @@ export function EmergencyIntakeForm({
             className={fieldClass}
           />
           <FieldError message={errors.recentPurchaseCount} />
-          <p className="text-base text-gray-700">回数によって受付をお断りするものではありません。安全のための確認です。</p>
+          <p className="text-base text-gray-700">
+            回数によって受付をお断りするものではありません。安全のための確認です。
+          </p>
         </label>
       </div>
 
@@ -612,7 +699,9 @@ export function EmergencyIntakeForm({
       </fieldset>
 
       <fieldset className="space-y-2">
-        <legend className="font-bold text-gray-900">あてはまる場合はチェックしてください（お薬手帳の持参案内に使います）</legend>
+        <legend className="font-bold text-gray-900">
+          あてはまる場合はチェックしてください（お薬手帳の持参案内に使います）
+        </legend>
         <label className="flex min-h-11 items-center gap-2 text-base text-gray-800">
           <input
             type="checkbox"
@@ -684,9 +773,12 @@ export function EmergencyIntakeForm({
           <input
             type="checkbox"
             checked={draft.menstruationSignals.overOneMonthNoPeriod}
-            onChange={(event) => onDraftChange('menstruationSignals', {
-              ...draft.menstruationSignals, overOneMonthNoPeriod: event.currentTarget.checked,
-            })}
+            onChange={(event) =>
+              onDraftChange('menstruationSignals', {
+                ...draft.menstruationSignals,
+                overOneMonthNoPeriod: event.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="size-5"
           />
@@ -696,9 +788,12 @@ export function EmergencyIntakeForm({
           <input
             type="checkbox"
             checked={draft.menstruationSignals.notRecoveredAfterBirth}
-            onChange={(event) => onDraftChange('menstruationSignals', {
-              ...draft.menstruationSignals, notRecoveredAfterBirth: event.currentTarget.checked,
-            })}
+            onChange={(event) =>
+              onDraftChange('menstruationSignals', {
+                ...draft.menstruationSignals,
+                notRecoveredAfterBirth: event.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="size-5"
           />
@@ -708,9 +803,12 @@ export function EmergencyIntakeForm({
           <input
             type="checkbox"
             checked={draft.menstruationSignals.lastPeriodDifferent}
-            onChange={(event) => onDraftChange('menstruationSignals', {
-              ...draft.menstruationSignals, lastPeriodDifferent: event.currentTarget.checked,
-            })}
+            onChange={(event) =>
+              onDraftChange('menstruationSignals', {
+                ...draft.menstruationSignals,
+                lastPeriodDifferent: event.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="size-5"
           />
@@ -720,9 +818,12 @@ export function EmergencyIntakeForm({
           <input
             type="checkbox"
             checked={draft.menstruationSignals.earlierConcernOver3Weeks}
-            onChange={(event) => onDraftChange('menstruationSignals', {
-              ...draft.menstruationSignals, earlierConcernOver3Weeks: event.currentTarget.checked,
-            })}
+            onChange={(event) =>
+              onDraftChange('menstruationSignals', {
+                ...draft.menstruationSignals,
+                earlierConcernOver3Weeks: event.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="size-5"
           />
@@ -732,9 +833,12 @@ export function EmergencyIntakeForm({
           <input
             type="checkbox"
             checked={draft.menstruationSignals.noneApply}
-            onChange={(event) => onDraftChange('menstruationSignals', {
-              ...draft.menstruationSignals, noneApply: event.currentTarget.checked,
-            })}
+            onChange={(event) =>
+              onDraftChange('menstruationSignals', {
+                ...draft.menstruationSignals,
+                noneApply: event.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="size-5"
           />
@@ -744,9 +848,12 @@ export function EmergencyIntakeForm({
           <input
             type="checkbox"
             checked={draft.menstruationSignals.unknown}
-            onChange={(event) => onDraftChange('menstruationSignals', {
-              ...draft.menstruationSignals, unknown: event.currentTarget.checked,
-            })}
+            onChange={(event) =>
+              onDraftChange('menstruationSignals', {
+                ...draft.menstruationSignals,
+                unknown: event.currentTarget.checked,
+              })
+            }
             disabled={disabled}
             className="size-5"
           />
@@ -757,20 +864,26 @@ export function EmergencyIntakeForm({
 
       <fieldset className="space-y-2">
         <legend className="font-bold text-gray-900">本人確認書類を持参できる（任意）</legend>
-        {([
-          ['yes', 'はい'], ['no', 'いいえ'], ['undecided', '未定'],
-        ] as const).map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
-          <input
-            type="radio"
-            name="emergency-id-document"
-            value={value}
-            checked={draft.idDocumentAvailable === value}
-            onChange={() => onDraftChange('idDocumentAvailable', value)}
-            disabled={disabled}
-            className="size-5"
-          />
-          {label}
-        </label>)}
+        {(
+          [
+            ['yes', 'はい'],
+            ['no', 'いいえ'],
+            ['undecided', '未定'],
+          ] as const
+        ).map(([value, label]) => (
+          <label key={value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
+            <input
+              type="radio"
+              name="emergency-id-document"
+              value={value}
+              checked={draft.idDocumentAvailable === value}
+              onChange={() => onDraftChange('idDocumentAvailable', value)}
+              disabled={disabled}
+              className="size-5"
+            />
+            {label}
+          </label>
+        ))}
       </fieldset>
 
       <fieldset className="space-y-2" id="emergency-visit-dose" tabIndex={-1}>
@@ -801,45 +914,57 @@ export function EmergencyIntakeForm({
 
       <fieldset className="space-y-2" id="emergency-safe-contact-group" tabIndex={-1}>
         <legend className="font-bold text-gray-900">安全な連絡方法</legend>
-        {SAFE_CONTACT_OPTIONS.map((option) => <label key={option.value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
-          <input
-            type="radio"
-            name="emergency-safe-contact"
-            value={option.value}
-            checked={draft.safeContactMode === option.value}
-            onChange={() => onDraftChange('safeContactMode', option.value)}
-            disabled={disabled}
-            className="size-5"
-          />
-          {option.label}
-        </label>)}
+        {SAFE_CONTACT_OPTIONS.map((option) => (
+          <label key={option.value} className="flex min-h-11 items-center gap-2 text-base text-gray-800">
+            <input
+              type="radio"
+              name="emergency-safe-contact"
+              value={option.value}
+              checked={draft.safeContactMode === option.value}
+              onChange={() => onDraftChange('safeContactMode', option.value)}
+              disabled={disabled}
+              className="size-5"
+            />
+            {option.label}
+          </label>
+        ))}
         <FieldError message={errors.safeContactMode} />
       </fieldset>
 
-      {safeExternalUrl(service.manufacturer_check_url) && <div id="emergency-manufacturer-check" tabIndex={-1} className="rounded-lg border border-green-200 bg-green-50 p-3">
-        <a
-          href={safeExternalUrl(service.manufacturer_check_url) ?? undefined}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="inline-flex min-h-11 items-center font-bold text-green-900 underline"
+      {safeExternalUrl(service.manufacturer_check_url) && (
+        <div
+          id="emergency-manufacturer-check"
+          tabIndex={-1}
+          className="rounded-lg border border-green-200 bg-green-50 p-3"
         >
-          メーカー公式セルフチェック（外部サイト）
-        </a>
-        <p className="mt-2 text-base text-gray-700">画像はLINEへ送らず、来局時に本人の端末で提示してください。</p>
-        <label className="mt-2 flex min-h-11 items-center gap-2 text-base text-gray-800">
-          <input
-            type="checkbox"
-            checked={draft.manufacturerCheckAcknowledged}
-            onChange={(event) => onDraftChange('manufacturerCheckAcknowledged', event.currentTarget.checked)}
-            disabled={disabled}
-            className="size-5"
-          />
-          セルフチェックを確認しました
-        </label>
-        <FieldError message={errors.manufacturerCheckAcknowledged} />
-      </div>}
+          <a
+            href={safeExternalUrl(service.manufacturer_check_url) ?? undefined}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex min-h-11 items-center font-bold text-green-900 underline"
+          >
+            メーカー公式セルフチェック（外部サイト）
+          </a>
+          <p className="mt-2 text-base text-gray-700">画像はLINEへ送らず、来局時に本人の端末で提示してください。</p>
+          <label className="mt-2 flex min-h-11 items-center gap-2 text-base text-gray-800">
+            <input
+              type="checkbox"
+              checked={draft.manufacturerCheckAcknowledged}
+              onChange={(event) => onDraftChange('manufacturerCheckAcknowledged', event.currentTarget.checked)}
+              disabled={disabled}
+              className="size-5"
+            />
+            セルフチェックを確認しました
+          </label>
+          <FieldError message={errors.manufacturerCheckAcknowledged} />
+        </div>
+      )}
 
-      {showErrors && !draft.consentAccepted && <p role="alert" className="text-base font-bold text-amber-900">送信するには、上の「説明と同意」にチェックしてください。</p>}
+      {showErrors && !draft.consentAccepted && (
+        <p role="alert" className="text-base font-bold text-amber-900">
+          送信するには、上の「説明と同意」にチェックしてください。
+        </p>
+      )}
       <button
         type="submit"
         disabled={disabled || !draft.consentAccepted}
@@ -906,8 +1031,7 @@ export default function EmergencyContraceptionPage() {
       const nextFingerprint = result.service?.consent
         ? `${result.service.consent.version}:${result.service.consent.content_hash}`
         : null;
-      if (consentFingerprintRef.current !== null &&
-          nextFingerprint !== consentFingerprintRef.current) {
+      if (consentFingerprintRef.current !== null && nextFingerprint !== consentFingerprintRef.current) {
         // The consent text changed since the patient checked it — require
         // agreement again.
         setDraft((current) => ({ ...current, consentAccepted: false }));
@@ -922,14 +1046,12 @@ export default function EmergencyContraceptionPage() {
       setLoadFailures(0);
       // Only clear the banner this load actually raised — a submit/cancel
       // error must stay visible across a background refresh.
-      setError((current) => current === loadErrorRef.current ? '' : current);
+      setError((current) => (current === loadErrorRef.current ? '' : current));
     } catch (err) {
       if (epoch !== loadEpochRef.current) return;
       if (!quiet) {
         setService(null);
-        const message = pharmacyErrorMessage(
-          err, '受付情報を読み込めませんでした。再読み込みしてください。',
-        );
+        const message = pharmacyErrorMessage(err, '受付情報を読み込めませんでした。再読み込みしてください。');
         loadErrorRef.current = message;
         setError(message);
       }
@@ -942,14 +1064,13 @@ export default function EmergencyContraceptionPage() {
   usePharmacyAutoRetry(loadFailures, () => void load(true));
   usePharmacyOnline(() => void load(true));
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const selectedSlot = service?.slots.find((slot) => slot.id === draft.slotId);
 
-  function changeDraft<K extends keyof EmergencyIntakeDraft>(
-    key: K,
-    value: EmergencyIntakeDraft[K],
-  ) {
+  function changeDraft<K extends keyof EmergencyIntakeDraft>(key: K, value: EmergencyIntakeDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
@@ -1004,7 +1125,7 @@ export default function EmergencyContraceptionPage() {
       drugAllergyHistory: draft.drugAllergyHistory,
       heartKidneyGiDisease: draft.heartKidneyGiDisease,
       stJohnsWort: draft.stJohnsWort,
-      lastMenstruationDate: draft.lastMenstruationDateUnknown ? null : (draft.lastMenstruationDate || null),
+      lastMenstruationDate: draft.lastMenstruationDateUnknown ? null : draft.lastMenstruationDate || null,
       menstruationSignals: draft.menstruationSignals,
       idDocumentAvailable: draft.idDocumentAvailable === 'undecided' ? null : draft.idDocumentAvailable === 'yes',
       safeContactMode: draft.safeContactMode as EmergencySafeContactMode,
@@ -1027,17 +1148,14 @@ export default function EmergencyContraceptionPage() {
       loadEpochRef.current += 1;
       setIntakes((current) => [result.intake, ...current.filter((item) => item.id !== result.intake.id)]);
       setSubmittedAnyPhaseBFlag(
-        draft.underMedicalTreatment || draft.drugAllergyHistory ||
-        draft.heartKidneyGiDisease || draft.stJohnsWort,
+        draft.underMedicalTreatment || draft.drugAllergyHistory || draft.heartKidneyGiDisease || draft.stJohnsWort,
       );
       setDraft(EMPTY_EMERGENCY_DRAFT);
       setSubmittedCode(result.intake.reference_code);
       setSuccess(`仮受付番号 ${result.intake.reference_code} を受け付けました。販売は確定していません。`);
       window.scrollTo(0, 0);
     } catch (err) {
-      setError(pharmacyErrorMessage(
-        err, '仮受付を送信できませんでした。最新の空き状況を確認してください。',
-      ));
+      setError(pharmacyErrorMessage(err, '仮受付を送信できませんでした。最新の空き状況を確認してください。'));
       const status = err instanceof Error ? (err as Error & { status?: unknown }).status : undefined;
       if (typeof status === 'number') {
         if (submitOperationRef.current === operation) submitOperationRef.current = null;
@@ -1055,18 +1173,22 @@ export default function EmergencyContraceptionPage() {
     setSuccess('');
     const operationId = `${intake.id}:${intake.version}`;
     const operation = retainEmergencyCancelOperation(
-      cancelOperationsRef.current.get(operationId) ?? null, intake.id, intake.version,
+      cancelOperationsRef.current.get(operationId) ?? null,
+      intake.id,
+      intake.version,
     );
     cancelOperationsRef.current.set(operationId, operation);
     try {
       const result = await emergencyContraceptionApi.cancel(
-        operation.intakeId, operation.expectedVersion, operation.idempotencyKey,
+        operation.intakeId,
+        operation.expectedVersion,
+        operation.idempotencyKey,
       );
       if (cancelOperationsRef.current.get(operationId) === operation) {
         cancelOperationsRef.current.delete(operationId);
       }
       loadEpochRef.current += 1;
-      setIntakes((current) => current.map((item) => item.id === result.intake.id ? result.intake : item));
+      setIntakes((current) => current.map((item) => (item.id === result.intake.id ? result.intake : item)));
       setSubmittedCode('');
       setSubmittedAnyPhaseBFlag(false);
       setSuccess('仮受付を取消しました。');
@@ -1076,9 +1198,7 @@ export default function EmergencyContraceptionPage() {
         cancelOperationsRef.current.delete(operationId);
       }
       await load();
-      setError(pharmacyErrorMessage(
-        err, '仮受付を取消できませんでした。最新の状態を確認してください。',
-      ));
+      setError(pharmacyErrorMessage(err, '仮受付を取消できませんでした。最新の状態を確認してください。'));
     } finally {
       setBusy(null);
     }
@@ -1088,69 +1208,160 @@ export default function EmergencyContraceptionPage() {
     <main className="pharmacy-main mx-auto max-w-md">
       <div className="space-y-4 p-4">
         <section className="pharmacy-card p-4" aria-labelledby="emergency-summary">
-          <h2 id="emergency-summary" className="font-bold">現在の状態</h2>
-          <p className="mt-1 text-base text-gray-800">{loading ? '受付状況を確認中です。' : service?.ready ? '対応枠を確認して仮受付できます。' : '現在、この画面から受付できません。'}</p>
+          <h2 id="emergency-summary" className="font-bold">
+            現在の状態
+          </h2>
+          <p className="mt-1 text-base text-gray-800">
+            {loading
+              ? '受付状況を確認中です。'
+              : service?.ready
+                ? '対応枠を確認して仮受付できます。'
+                : '現在、この画面から受付できません。'}
+          </p>
           <h2 className="mt-3 font-bold">次の操作</h2>
-          <p className="mt-1 text-base text-gray-800">{loading ? '読み込みが終わるまでお待ちください。' : service?.ready ? '説明と同意を確認し、対応枠を選んでください。' : intakes.length > 0 ? '下の受付状況を確認してください。' : '薬局または相談窓口へお問い合わせください。'}</p>
+          <p className="mt-1 text-base text-gray-800">
+            {loading
+              ? '読み込みが終わるまでお待ちください。'
+              : service?.ready
+                ? '説明と同意を確認し、対応枠を選んでください。'
+                : intakes.length > 0
+                  ? '下の受付状況を確認してください。'
+                  : '薬局または相談窓口へお問い合わせください。'}
+          </p>
         </section>
-        <p className="pharmacy-supplemental">緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付（確定前のお申し込み）できます。</p>
+        <p className="pharmacy-supplemental">
+          緊急避妊薬について、来局前に必要な情報を確認し、薬局の対応枠を仮受付（確定前のお申し込み）できます。
+        </p>
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-base text-amber-950">
           <p className="font-bold">仮受付であり、販売・服用・在庫を保証しません</p>
           <p className="mt-1">最終的な販売可否は、来局時に研修を修了した薬剤師が確認します。</p>
         </section>
-        {error && <div ref={errorRef} tabIndex={-1} className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none">
-          <p>{error}</p>
-          <button type="button" onClick={() => void load()} className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold">再読み込み</button>
-        </div>}
-        {success && <PharmacyStatusBlock tone="success">
-          <p className="font-bold">{success}</p>
-          {submittedCode && <>
-            <p className="mt-2 font-bold">次にすること</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5">
-              {emergencyCompletionNextSteps(submittedAnyPhaseBFlag, submittedCode).map((step) => <li key={step}>{step}</li>)}
-            </ul>
-          </>}
-          {safeExternalUrl(service?.support_center_url ?? null) && <a
-            href={safeExternalUrl(service?.support_center_url ?? null) ?? undefined}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="mt-2 inline-flex min-h-11 items-center font-bold text-green-900 underline"
+        {error && (
+          <div
+            ref={errorRef}
+            tabIndex={-1}
+            className="rounded-lg bg-red-50 p-3 text-base text-red-800 focus:outline-none"
           >
-            相談窓口を見る（外部サイト）
-          </a>}
-          <Link to={pharmacyRoute('/pharmacy/menu')} className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline">すべての機能へ戻る</Link>
-        </PharmacyStatusBlock>}
-        {loading
-          ? <PharmacyLoading label="受付状況を読み込み中..." />
-          : service?.ready && service.consent
-            ? <>
-              <EmergencyConsentSection
-                consent={service.consent}
-                consentAccepted={draft.consentAccepted}
-                busy={busy}
-                onToggle={(checked) => changeDraft('consentAccepted', checked)}
-              />
-              <div className="pharmacy-progress" role="progressbar" aria-valuemin={0} aria-valuemax={2} aria-valuenow={confirming ? 2 : 1} aria-label="仮受付の進み具合">
-                <div className="pharmacy-progress-bar" style={{ width: confirming ? '100%' : '50%' }} />
-              </div>
-              <div key={confirming ? 'confirm' : 'form'} className={confirming ? 'pharmacy-step-next' : 'pharmacy-step-back'}>
-              {confirming
-                ? <section className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm" aria-labelledby="emergency-confirm">
-                  <h2 id="emergency-confirm" ref={confirmHeadingRef} tabIndex={-1} className="font-bold text-gray-900 focus:outline-none">送信内容の確認</h2>
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="pharmacy-control min-h-11 mt-2 rounded-lg border border-red-300 bg-white px-4 py-2 font-bold"
+            >
+              再読み込み
+            </button>
+          </div>
+        )}
+        {success && (
+          <PharmacyStatusBlock tone="success">
+            <p className="font-bold">{success}</p>
+            {submittedCode && (
+              <>
+                <p className="mt-2 font-bold">次にすること</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  {emergencyCompletionNextSteps(submittedAnyPhaseBFlag, submittedCode).map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {safeExternalUrl(service?.support_center_url ?? null) && (
+              <a
+                href={safeExternalUrl(service?.support_center_url ?? null) ?? undefined}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="mt-2 inline-flex min-h-11 items-center font-bold text-green-900 underline"
+              >
+                相談窓口を見る（外部サイト）
+              </a>
+            )}
+            <Link
+              to={pharmacyRoute('/pharmacy/menu')}
+              className="pharmacy-control min-h-11 mt-3 inline-flex items-center font-bold underline"
+            >
+              すべての機能へ戻る
+            </Link>
+          </PharmacyStatusBlock>
+        )}
+        {loading ? (
+          <PharmacyLoading label="受付状況を読み込み中..." />
+        ) : service?.ready && service.consent ? (
+          <>
+            <EmergencyConsentSection
+              consent={service.consent}
+              consentAccepted={draft.consentAccepted}
+              busy={busy}
+              onToggle={(checked) => changeDraft('consentAccepted', checked)}
+            />
+            <div
+              className="pharmacy-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={2}
+              aria-valuenow={confirming ? 2 : 1}
+              aria-label="仮受付の進み具合"
+            >
+              <div className="pharmacy-progress-bar" style={{ width: confirming ? '100%' : '50%' }} />
+            </div>
+            <div
+              key={confirming ? 'confirm' : 'form'}
+              className={confirming ? 'pharmacy-step-next' : 'pharmacy-step-back'}
+            >
+              {confirming ? (
+                <section
+                  className="space-y-3 rounded-xl border-2 border-green-700 bg-white p-4 shadow-sm"
+                  aria-labelledby="emergency-confirm"
+                >
+                  <h2
+                    id="emergency-confirm"
+                    ref={confirmHeadingRef}
+                    tabIndex={-1}
+                    className="font-bold text-gray-900 focus:outline-none"
+                  >
+                    送信内容の確認
+                  </h2>
                   <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-base text-gray-800">
-                    <dt className="text-gray-600">出来事の{draft.intercourseTimeUnknown ? '日' : '日時'}</dt><dd>{draft.intercourseTimeUnknown ? draft.intercourseAt : formatTokyo(toIntercourseAtPayload(draft))}</dd>
-                    <dt className="text-gray-600">希望する対応枠</dt><dd>{selectedSlot ? `${formatTokyo(selectedSlot.starts_at)}〜${formatTokyo(selectedSlot.ends_at)}` : '未選択'}</dd>
-                    <dt className="text-gray-600">年齢</dt><dd>{draft.age}歳</dd>
-                    <dt className="text-gray-600">過去3か月の利用回数</dt><dd>{draft.recentPurchaseCount}回</dd>
-                    <dt className="text-gray-600">来局・服用方法</dt><dd>本人が来局し、薬剤師の面前で服用</dd>
-                    <dt className="text-gray-600">連絡方法</dt><dd>{SAFE_CONTACT_OPTIONS.find((option) => option.value === draft.safeContactMode)?.label ?? '未選択'}</dd>
+                    <dt className="text-gray-600">出来事の{draft.intercourseTimeUnknown ? '日' : '日時'}</dt>
+                    <dd>
+                      {draft.intercourseTimeUnknown ? draft.intercourseAt : formatTokyo(toIntercourseAtPayload(draft))}
+                    </dd>
+                    <dt className="text-gray-600">希望する対応枠</dt>
+                    <dd>
+                      {selectedSlot
+                        ? `${formatTokyo(selectedSlot.starts_at)}〜${formatTokyo(selectedSlot.ends_at)}`
+                        : '未選択'}
+                    </dd>
+                    <dt className="text-gray-600">年齢</dt>
+                    <dd>{draft.age}歳</dd>
+                    <dt className="text-gray-600">過去3か月の利用回数</dt>
+                    <dd>{draft.recentPurchaseCount}回</dd>
+                    <dt className="text-gray-600">来局・服用方法</dt>
+                    <dd>本人が来局し、薬剤師の面前で服用</dd>
+                    <dt className="text-gray-600">連絡方法</dt>
+                    <dd>
+                      {SAFE_CONTACT_OPTIONS.find((option) => option.value === draft.safeContactMode)?.label ?? '未選択'}
+                    </dd>
                   </dl>
-                  <button type="button" onClick={() => void submit()} disabled={busy !== null} aria-busy={busy === 'submit'} className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+                  <button
+                    type="button"
+                    onClick={() => void submit()}
+                    disabled={busy !== null}
+                    aria-busy={busy === 'submit'}
+                    className="min-h-12 w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50"
+                  >
                     {busy === 'submit' ? <PharmacySpinner label="送信中…" /> : 'この内容で送信する'}
                   </button>
-                  <button type="button" onClick={() => setConfirming(false)} disabled={busy !== null} className="min-h-11 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-bold text-gray-700 disabled:opacity-50">修正する</button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(false)}
+                    disabled={busy !== null}
+                    className="min-h-11 w-full rounded-xl border border-gray-300 bg-white px-4 py-2 font-bold text-gray-700 disabled:opacity-50"
+                  >
+                    修正する
+                  </button>
                 </section>
-                : <EmergencyIntakeForm
+              ) : (
+                <EmergencyIntakeForm
                   draft={draft}
                   service={service}
                   busy={busy}
@@ -1158,19 +1369,36 @@ export default function EmergencyContraceptionPage() {
                   errorNonce={summaryNonce}
                   onDraftChange={changeDraft}
                   onSubmit={review}
-                />}
-              </div>
-              <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />
-            </>
-            : <>
-              <section className="rounded-xl bg-white p-4 shadow-sm">
-                <h2 className="font-bold text-gray-900">現在この画面から受付できません</h2>
-                <p className="mt-2 text-base text-gray-700">
-                  {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
-                </p>
-              </section>
-              {intakes.length > 0 && <IntakeList intakes={intakes} serverNow={serverNow} supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)} busy={busy} onCancel={cancel} />}
-            </>}
+                />
+              )}
+            </div>
+            <IntakeList
+              intakes={intakes}
+              serverNow={serverNow}
+              supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)}
+              busy={busy}
+              onCancel={cancel}
+            />
+          </>
+        ) : (
+          <>
+            <section className="rounded-xl bg-white p-4 shadow-sm">
+              <h2 className="font-bold text-gray-900">現在この画面から受付できません</h2>
+              <p className="mt-2 text-base text-gray-700">
+                {service?.reason ? SERVICE_REASON_LABELS[service.reason] : '受付状況を確認できませんでした。'}
+              </p>
+            </section>
+            {intakes.length > 0 && (
+              <IntakeList
+                intakes={intakes}
+                serverNow={serverNow}
+                supportCenterUrl={safeExternalUrl(service?.support_center_url ?? null)}
+                busy={busy}
+                onCancel={cancel}
+              />
+            )}
+          </>
+        )}
         <EmergencyAlternativeLinks service={service} />
       </div>
     </main>

@@ -28,8 +28,10 @@ export async function getTemplates(
     values.push(category);
   }
   const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
-  const result = await db.prepare(`SELECT * FROM templates${where} ORDER BY created_at DESC`)
-    .bind(...values).all<TemplateRow>();
+  const result = await db
+    .prepare(`SELECT * FROM templates${where} ORDER BY created_at DESC`)
+    .bind(...values)
+    .all<TemplateRow>();
   return result.results;
 }
 
@@ -39,7 +41,8 @@ export async function getTemplateById(
   tenantId?: string | null,
 ): Promise<TemplateRow | null> {
   const tenantScope = tenantId === undefined ? '' : ' AND tenant_id IS ?';
-  return db.prepare(`SELECT * FROM templates WHERE id = ?${tenantScope}`)
+  return db
+    .prepare(`SELECT * FROM templates WHERE id = ?${tenantScope}`)
     .bind(...(tenantId === undefined ? [id] : [id, tenantId]))
     .first<TemplateRow>();
 }
@@ -57,8 +60,12 @@ export async function createTemplate(
   const id = crypto.randomUUID();
   const now = jstNow();
   const tenantId = input.tenantId ?? null;
-  await db.prepare(`INSERT INTO templates (id, tenant_id, name, category, message_type, message_content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, tenantId, input.name, input.category ?? 'general', input.messageType, input.messageContent, now, now).run();
+  await db
+    .prepare(
+      `INSERT INTO templates (id, tenant_id, name, category, message_type, message_content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, tenantId, input.name, input.category ?? 'general', input.messageType, input.messageContent, now, now)
+    .run();
   return (await getTemplateById(db, id, tenantId))!;
 }
 
@@ -68,32 +75,44 @@ export async function updateTemplate(
   updates: Partial<{ name: string; category: string; messageType: string; messageContent: string }>,
   tenantId?: string | null,
 ): Promise<boolean> {
-  if (!await getTemplateById(db, id, tenantId)) return false;
+  if (!(await getTemplateById(db, id, tenantId))) return false;
   const sets: string[] = [];
   const values: unknown[] = [];
-  if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
-  if (updates.category !== undefined) { sets.push('category = ?'); values.push(updates.category); }
-  if (updates.messageType !== undefined) { sets.push('message_type = ?'); values.push(updates.messageType); }
-  if (updates.messageContent !== undefined) { sets.push('message_content = ?'); values.push(updates.messageContent); }
+  if (updates.name !== undefined) {
+    sets.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.category !== undefined) {
+    sets.push('category = ?');
+    values.push(updates.category);
+  }
+  if (updates.messageType !== undefined) {
+    sets.push('message_type = ?');
+    values.push(updates.messageType);
+  }
+  if (updates.messageContent !== undefined) {
+    sets.push('message_content = ?');
+    values.push(updates.messageContent);
+  }
   if (sets.length === 0) return true;
   sets.push('updated_at = ?');
   values.push(jstNow());
   values.push(id);
   const tenantScope = tenantId === undefined ? '' : ' AND tenant_id IS ?';
   if (tenantId !== undefined) values.push(tenantId);
-  const updated = await db.prepare(`UPDATE templates SET ${sets.join(', ')} WHERE id = ?${tenantScope}`)
-    .bind(...values).run();
+  const updated = await db
+    .prepare(`UPDATE templates SET ${sets.join(', ')} WHERE id = ?${tenantScope}`)
+    .bind(...values)
+    .run();
   return (updated.meta?.changes ?? 0) === 1;
 }
 
-export async function deleteTemplate(
-  db: D1Database,
-  id: string,
-  tenantId?: string | null,
-): Promise<boolean> {
+export async function deleteTemplate(db: D1Database, id: string, tenantId?: string | null): Promise<boolean> {
   const tenantScope = tenantId === undefined ? '' : ' AND tenant_id IS ?';
-  const deleted = await db.prepare(`DELETE FROM templates WHERE id = ?${tenantScope}`)
-    .bind(...(tenantId === undefined ? [id] : [id, tenantId])).run();
+  const deleted = await db
+    .prepare(`DELETE FROM templates WHERE id = ?${tenantScope}`)
+    .bind(...(tenantId === undefined ? [id] : [id, tenantId]))
+    .run();
   return (deleted.meta?.changes ?? 0) === 1;
 }
 
@@ -128,10 +147,11 @@ export async function getTemplateUsage(
   templateId: string,
   tenantId?: string | null,
 ): Promise<TemplateUsage> {
-  const arSql = tenantId === undefined
-    ? `SELECT id, keyword, match_type, line_account_id
+  const arSql =
+    tenantId === undefined
+      ? `SELECT id, keyword, match_type, line_account_id
          FROM auto_replies WHERE template_id = ? ORDER BY created_at DESC`
-    : `SELECT reply.id, reply.keyword, reply.match_type, reply.line_account_id
+      : `SELECT reply.id, reply.keyword, reply.match_type, reply.line_account_id
          FROM auto_replies AS reply
          LEFT JOIN tenant_line_accounts AS mapping
            ON mapping.line_account_id = reply.line_account_id
@@ -140,14 +160,20 @@ export async function getTemplateUsage(
   const arRes = await db
     .prepare(arSql)
     .bind(...(tenantId === undefined ? [templateId] : [templateId, tenantId]))
-    .all<{ id: string; keyword: string; match_type: 'exact' | 'contains'; line_account_id: string | null }>();
+    .all<{
+      id: string;
+      keyword: string;
+      match_type: 'exact' | 'contains';
+      line_account_id: string | null;
+    }>();
 
   // automations の actions JSON を全件取って JS 側で template_id をマッチさせる。
   // SQL LIKE で "%\"template_id\":\"<id>\"%" を投げると D1 SQLite の
   // "pattern too complex" 上限に当たるので JS 処理にしている。
-  const autSql = tenantId === undefined
-    ? `SELECT id, name, event_type, actions FROM automations ORDER BY created_at DESC`
-    : `SELECT automation.id, automation.name, automation.event_type, automation.actions
+  const autSql =
+    tenantId === undefined
+      ? `SELECT id, name, event_type, actions FROM automations ORDER BY created_at DESC`
+      : `SELECT automation.id, automation.name, automation.event_type, automation.actions
          FROM automations AS automation
          LEFT JOIN tenant_line_accounts AS mapping
            ON mapping.line_account_id = automation.line_account_id
@@ -169,20 +195,22 @@ export async function getTemplateUsage(
     }
   }
 
-  const scenarioSql = tenantId === undefined
-    ? `SELECT step.id AS step_id, step.step_order, step.scenario_id,
+  const scenarioSql =
+    tenantId === undefined
+      ? `SELECT step.id AS step_id, step.step_order, step.scenario_id,
               scenario.name AS scenario_name
          FROM scenario_steps AS step
          INNER JOIN scenarios AS scenario ON scenario.id = step.scenario_id
         WHERE step.template_id = ?
         ORDER BY scenario.name, step.step_order`
-    : `SELECT step.id AS step_id, step.step_order, step.scenario_id,
+      : `SELECT step.id AS step_id, step.step_order, step.scenario_id,
               scenario.name AS scenario_name
          FROM scenario_steps AS step
          INNER JOIN scenarios AS scenario ON scenario.id = step.scenario_id
         WHERE step.template_id = ? AND scenario.tenant_id IS ?
         ORDER BY scenario.name, step.step_order`;
-  const scenarioRes = await db.prepare(scenarioSql)
+  const scenarioRes = await db
+    .prepare(scenarioSql)
     .bind(...(tenantId === undefined ? [templateId] : [templateId, tenantId]))
     .all<{
       step_id: string;
@@ -231,10 +259,11 @@ export async function getTemplatesWithUsageCount(
   const templates = await getTemplates(db, category, tenantId);
 
   // 2. auto_replies の template_id 別カウント (NOT NULL のみ)
-  const autoReplySql = tenantId === undefined
-    ? `SELECT template_id, COUNT(*) AS cnt
+  const autoReplySql =
+    tenantId === undefined
+      ? `SELECT template_id, COUNT(*) AS cnt
          FROM auto_replies WHERE template_id IS NOT NULL GROUP BY template_id`
-    : `SELECT reply.template_id, COUNT(*) AS cnt
+      : `SELECT reply.template_id, COUNT(*) AS cnt
          FROM auto_replies AS reply
          LEFT JOIN tenant_line_accounts AS mapping
            ON mapping.line_account_id = reply.line_account_id
@@ -248,9 +277,10 @@ export async function getTemplatesWithUsageCount(
   for (const r of arRes.results ?? []) autoReplyCount.set(r.template_id, r.cnt);
 
   // 3. automations の actions JSON を取って template_id を抽出
-  const automationSql = tenantId === undefined
-    ? `SELECT actions FROM automations`
-    : `SELECT automation.actions
+  const automationSql =
+    tenantId === undefined
+      ? `SELECT actions FROM automations`
+      : `SELECT automation.actions
          FROM automations AS automation
          LEFT JOIN tenant_line_accounts AS mapping
            ON mapping.line_account_id = automation.line_account_id
@@ -273,10 +303,11 @@ export async function getTemplatesWithUsageCount(
   }
 
   // 4. scenario_steps の template_id 別カウント
-  const scenarioSql = tenantId === undefined
-    ? `SELECT template_id, COUNT(*) AS cnt
+  const scenarioSql =
+    tenantId === undefined
+      ? `SELECT template_id, COUNT(*) AS cnt
          FROM scenario_steps WHERE template_id IS NOT NULL GROUP BY template_id`
-    : `SELECT step.template_id, COUNT(*) AS cnt
+      : `SELECT step.template_id, COUNT(*) AS cnt
          FROM scenario_steps AS step
          INNER JOIN scenarios AS scenario ON scenario.id = step.scenario_id
         WHERE step.template_id IS NOT NULL AND scenario.tenant_id IS ?
@@ -290,6 +321,7 @@ export async function getTemplatesWithUsageCount(
 
   return templates.map((t) => ({
     ...t,
-    usage_count: (autoReplyCount.get(t.id) ?? 0) + (automationCount.get(t.id) ?? 0) + (scenarioStepCount.get(t.id) ?? 0),
+    usage_count:
+      (autoReplyCount.get(t.id) ?? 0) + (automationCount.get(t.id) ?? 0) + (scenarioStepCount.get(t.id) ?? 0),
   }));
 }

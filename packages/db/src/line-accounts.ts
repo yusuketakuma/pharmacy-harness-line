@@ -69,10 +69,7 @@ export interface CreateLineAccountInput {
   ogDefaultDescription?: string | null;
 }
 
-export async function createLineAccount(
-  db: D1Database,
-  input: CreateLineAccountInput,
-): Promise<LineAccount> {
+export async function createLineAccount(db: D1Database, input: CreateLineAccountInput): Promise<LineAccount> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -91,48 +88,46 @@ export async function createLineAccount(
   const displayOrder = orderRow?.next ?? 0;
 
   await db.batch([
-    db.prepare(
-      `INSERT INTO line_accounts
+    db
+      .prepare(
+        `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret,
           login_channel_id, login_channel_secret, liff_id,
           is_active, display_order,
           og_site_name, og_default_image_url, og_default_description,
           created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      id,
-      input.channelId,
-      input.name,
-      input.channelAccessToken,
-      input.channelSecret,
-      input.loginChannelId ?? null,
-      input.loginChannelSecret ?? null,
-      input.liffId ?? null,
-      displayOrder,
-      input.ogSiteName ?? null,
-      input.ogDefaultImageUrl ?? null,
-      input.ogDefaultDescription ?? null,
-      now,
-      now,
-    ),
-    db.prepare(
-      `INSERT INTO tenant_line_accounts
+      )
+      .bind(
+        id,
+        input.channelId,
+        input.name,
+        input.channelAccessToken,
+        input.channelSecret,
+        input.loginChannelId ?? null,
+        input.loginChannelSecret ?? null,
+        input.liffId ?? null,
+        displayOrder,
+        input.ogSiteName ?? null,
+        input.ogDefaultImageUrl ?? null,
+        input.ogDefaultDescription ?? null,
+        now,
+        now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO tenant_line_accounts
          (tenant_id, line_account_id, created_at, updated_at)
        VALUES (?, ?, ?, ?)`,
-    ).bind(input.tenantId, id, now, now),
+      )
+      .bind(input.tenantId, id, now, now),
   ]);
 
   return (await getLineAccountByIdForTenant(db, input.tenantId, id))!;
 }
 
-export async function getLineAccountById(
-  db: D1Database,
-  id: string,
-): Promise<LineAccount | null> {
-  return db
-    .prepare(`SELECT * FROM line_accounts WHERE id = ?`)
-    .bind(id)
-    .first<LineAccount>();
+export async function getLineAccountById(db: D1Database, id: string): Promise<LineAccount | null> {
+  return db.prepare(`SELECT * FROM line_accounts WHERE id = ?`).bind(id).first<LineAccount>();
 }
 
 export async function getLineAccounts(db: D1Database): Promise<LineAccount[]> {
@@ -142,10 +137,7 @@ export async function getLineAccounts(db: D1Database): Promise<LineAccount[]> {
   return result.results;
 }
 
-export async function getLineAccountsForTenant(
-  db: D1Database,
-  tenantId: string,
-): Promise<LineAccount[]> {
+export async function getLineAccountsForTenant(db: D1Database, tenantId: string): Promise<LineAccount[]> {
   const result = await db
     .prepare(
       `SELECT ${TENANT_LINE_ACCOUNT_COLUMNS}
@@ -184,9 +176,7 @@ export async function getLineAccountByIdForTenant(
     .first<LineAccount>();
 }
 
-export async function getActiveTenantLineAccounts(
-  db: D1Database,
-): Promise<ActiveTenantLineAccount[]> {
+export async function getActiveTenantLineAccounts(db: D1Database): Promise<ActiveTenantLineAccount[]> {
   const result = await db
     .prepare(
       `SELECT ${TENANT_LINE_ACCOUNT_COLUMNS}, mapping.tenant_id,
@@ -204,14 +194,8 @@ export async function getActiveTenantLineAccounts(
   return result.results;
 }
 
-export async function getLineAccountByChannelId(
-  db: D1Database,
-  channelId: string,
-): Promise<LineAccount | null> {
-  return db
-    .prepare(`SELECT * FROM line_accounts WHERE channel_id = ?`)
-    .bind(channelId)
-    .first<LineAccount>();
+export async function getLineAccountByChannelId(db: D1Database, channelId: string): Promise<LineAccount | null> {
+  return db.prepare(`SELECT * FROM line_accounts WHERE channel_id = ?`).bind(channelId).first<LineAccount>();
 }
 
 export type UpdateLineAccountInput = Partial<
@@ -298,10 +282,7 @@ export async function updateLineAccount(
   return getLineAccountById(db, id);
 }
 
-export async function deleteLineAccount(
-  db: D1Database,
-  id: string,
-): Promise<void> {
+export async function deleteLineAccount(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM line_accounts WHERE id = ?`).bind(id).run();
 }
 
@@ -386,8 +367,7 @@ export async function updateLineAccountOrder(
 
   const now = jstNow();
   const stmts = ordered.map(({ id, displayOrder }) =>
-    db.prepare(`UPDATE line_accounts SET display_order = ?, updated_at = ? WHERE id = ?`)
-      .bind(displayOrder, now, id),
+    db.prepare(`UPDATE line_accounts SET display_order = ?, updated_at = ? WHERE id = ?`).bind(displayOrder, now, id),
   );
 
   // db.batch is atomic on D1; if any UPDATE fails, none commit.

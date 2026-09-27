@@ -3,11 +3,7 @@ import { patientAuthorityPredicateFor } from '../intake/repository.js';
 import { quoteAllowsAcceptance } from '../fulfillment/repository.js';
 import type { FulfillmentStatus } from '../fulfillment/repository.js';
 import { markPrescriptionValidityExpiredReview } from '../growth-loop/repository.js';
-import {
-  nextPrescriptionStatus,
-  type PrescriptionAction,
-  type PrescriptionStatus,
-} from './state.js';
+import { nextPrescriptionStatus, type PrescriptionAction, type PrescriptionStatus } from './state.js';
 
 function nextIsoTimestamp(expectedUpdatedAt: string): string {
   const now = Date.now();
@@ -15,10 +11,7 @@ function nextIsoTimestamp(expectedUpdatedAt: string): string {
   return new Date(Number.isFinite(expected) && now <= expected ? expected + 1 : now).toISOString();
 }
 
-export async function linkedPatientAuthorityPredicate(
-  db: D1Database,
-  submissionAlias: string,
-): Promise<string> {
+export async function linkedPatientAuthorityPredicate(db: D1Database, submissionAlias: string): Promise<string> {
   const patientAuthorityPredicate = await patientAuthorityPredicateFor(db, 'patient');
   return `
        AND (
@@ -69,15 +62,16 @@ export async function reservePrescriptionDraft(
   if (!/^[A-Za-z0-9._:-]{8,128}$/.test(input.idempotencyKey)) {
     throw new Error('invalid idempotency key');
   }
-  if ((input.patientId && !input.intakeResponseId) ||
-      (!input.patientId && input.intakeResponseId)) {
+  if ((input.patientId && !input.intakeResponseId) || (!input.patientId && input.intakeResponseId)) {
     throw new Error('invalid patient intake link');
   }
   const hasPatientLink = Boolean(input.patientId && input.intakeResponseId);
   const now = new Date().toISOString();
   const submissionId = crypto.randomUUID();
-  const statements = [db.prepare(
-    `INSERT INTO pharmacy_prescription_submissions
+  const statements = [
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_submissions
      (id, line_account_id, friend_id, idempotency_key, status,
         upload_revision, desired_pickup_at, desired_fulfillment_method,
         original_prescription_consent_at,
@@ -95,52 +89,57 @@ export async function reservePrescriptionDraft(
            SELECT 1 FROM pharmacy_patients AS patient
            WHERE patient.id = ? AND patient.line_account_id = ? AND patient.owner_friend_id = ?
               AND patient.archived_at IS NULL
-              ${(await patientAuthorityPredicateFor(db, 'patient'))}
+              ${await patientAuthorityPredicateFor(db, 'patient')}
          )
        )
      ON CONFLICT(line_account_id, friend_id, idempotency_key) DO NOTHING`,
-  ).bind(
-    submissionId,
-    patient.lineAccountId,
-    patient.friendId,
-    input.idempotencyKey,
-    input.desiredPickupAt,
-    input.desiredFulfillmentMethod ?? null,
-    input.originalPrescriptionConsent ? now : null,
-    input.readinessNoticeConsent ? now : null,
-    hasPatientLink ? 1 : 0,
-    now,
-    now,
-    patient.lineAccountId,
-    'prescription_intake',
-    hasPatientLink ? 1 : 0,
-    input.patientId ?? null,
-    patient.lineAccountId,
-    patient.friendId,
-    patient.friendId,
-    now,
-  ), db.prepare(
-    `INSERT INTO pharmacy_prescription_events
+      )
+      .bind(
+        submissionId,
+        patient.lineAccountId,
+        patient.friendId,
+        input.idempotencyKey,
+        input.desiredPickupAt,
+        input.desiredFulfillmentMethod ?? null,
+        input.originalPrescriptionConsent ? now : null,
+        input.readinessNoticeConsent ? now : null,
+        hasPatientLink ? 1 : 0,
+        now,
+        now,
+        patient.lineAccountId,
+        'prescription_intake',
+        hasPatientLink ? 1 : 0,
+        input.patientId ?? null,
+        patient.lineAccountId,
+        patient.friendId,
+        patient.friendId,
+        now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_events
        (id, submission_id, actor_type, actor_id, event_type, revision, created_at)
      SELECT ?, id, 'patient', friend_id, 'revision_reserved', 1, ?
        FROM pharmacy_prescription_submissions
       WHERE id = ? AND line_account_id = ? AND friend_id = ?`,
-  ).bind(
-    crypto.randomUUID(),
-    now,
-    submissionId,
-    patient.lineAccountId,
-    patient.friendId,
-  )];
+      )
+      .bind(crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId),
+  ];
   if (hasPatientLink) {
-    statements.push(db.prepare(
-      `UPDATE pharmacy_prescription_submissions
+    statements.push(
+      db
+        .prepare(
+          `UPDATE pharmacy_prescription_submissions
           SET intake_required = 1
         WHERE idempotency_key = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'draft'`,
-    ).bind(input.idempotencyKey, patient.lineAccountId, patient.friendId));
-    statements.push(db.prepare(
-      `INSERT INTO pharmacy_prescription_patients
+        )
+        .bind(input.idempotencyKey, patient.lineAccountId, patient.friendId),
+    );
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO pharmacy_prescription_patients
          (submission_id, line_account_id, owner_friend_id, patient_id,
           intake_response_id, created_at)
        SELECT s.id, s.line_account_id, s.friend_id, r.patient_id, r.id, ?
@@ -157,35 +156,37 @@ export async function reservePrescriptionDraft(
               AND patient.line_account_id = s.line_account_id
               AND patient.owner_friend_id = s.friend_id
                AND patient.archived_at IS NULL
-               ${(await patientAuthorityPredicateFor(db, 'patient'))}
+               ${await patientAuthorityPredicateFor(db, 'patient')}
           )
        ON CONFLICT(submission_id) DO NOTHING`,
-    ).bind(
-      now,
-      input.intakeResponseId,
-      input.patientId,
-      input.idempotencyKey,
-      patient.lineAccountId,
-      patient.friendId,
-      patient.friendId,
-      now,
-    ));
+        )
+        .bind(
+          now,
+          input.intakeResponseId,
+          input.patientId,
+          input.idempotencyKey,
+          patient.lineAccountId,
+          patient.friendId,
+          patient.friendId,
+          now,
+        ),
+    );
   }
   await db.batch(statements);
 
-  const draft = await db.prepare(
-    `SELECT id, status, upload_revision, updated_at
+  const draft = await db
+    .prepare(
+      `SELECT id, status, upload_revision, updated_at
        FROM pharmacy_prescription_submissions
       WHERE line_account_id = ? AND friend_id = ? AND idempotency_key = ?`,
-  ).bind(
-    patient.lineAccountId,
-    patient.friendId,
-    input.idempotencyKey,
-  ).first<PrescriptionDraft>();
+    )
+    .bind(patient.lineAccountId, patient.friendId, input.idempotencyKey)
+    .first<PrescriptionDraft>();
   if (!draft) throw new Error('FEATURE_DISABLED');
   if (hasPatientLink) {
-    const link = await db.prepare(
-      `SELECT link.patient_id, link.intake_response_id
+    const link = await db
+      .prepare(
+        `SELECT link.patient_id, link.intake_response_id
          FROM pharmacy_prescription_patients AS link
          INNER JOIN pharmacy_patients AS patient
            ON patient.id = link.patient_id
@@ -193,19 +194,14 @@ export async function reservePrescriptionDraft(
           AND patient.owner_friend_id = link.owner_friend_id
         WHERE link.submission_id = ? AND link.line_account_id = ? AND link.owner_friend_id = ?
           AND patient.archived_at IS NULL
-          ${(await patientAuthorityPredicateFor(db, 'patient'))}`,
-    ).bind(
-      draft.id,
-      patient.lineAccountId,
-      patient.friendId,
-      patient.friendId,
-      now,
-    ).first<{
-      patient_id: string;
-      intake_response_id: string;
-    }>();
-    if (!link || link.patient_id !== input.patientId ||
-        link.intake_response_id !== input.intakeResponseId) {
+          ${await patientAuthorityPredicateFor(db, 'patient')}`,
+      )
+      .bind(draft.id, patient.lineAccountId, patient.friendId, patient.friendId, now)
+      .first<{
+        patient_id: string;
+        intake_response_id: string;
+      }>();
+    if (!link || link.patient_id !== input.patientId || link.intake_response_id !== input.intakeResponseId) {
       throw new Error('prescription patient link conflict');
     }
   }
@@ -235,8 +231,9 @@ export async function reservePrescriptionFile(
   }
   const now = new Date().toISOString();
   const fileId = crypto.randomUUID();
-  await db.prepare(
-    `INSERT INTO pharmacy_prescription_files
+  await db
+    .prepare(
+      `INSERT INTO pharmacy_prescription_files
        (id, submission_id, revision, position, r2_key, content_type,
         byte_size, sha256, state, created_at, updated_at)
      SELECT ?, s.id, s.upload_revision, ?,
@@ -250,28 +247,31 @@ export async function reservePrescriptionFile(
                ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
       WHERE s.id = ? AND s.line_account_id = ? AND s.friend_id = ?
         AND s.status IN ('draft','needs_resubmission')
-        ${(await linkedPatientAuthorityPredicate(db, 's'))}
+        ${await linkedPatientAuthorityPredicate(db, 's')}
      ON CONFLICT(submission_id, revision, position) DO NOTHING`,
-  ).bind(
-    fileId,
-    position,
-    fileId,
-    image.contentType,
-    image.byteSize,
-    image.sha256,
-    now,
-    now,
-    submissionId,
-    patient.lineAccountId,
-    patient.friendId,
-    patient.friendId,
-    now,
-  ).run();
+    )
+    .bind(
+      fileId,
+      position,
+      fileId,
+      image.contentType,
+      image.byteSize,
+      image.sha256,
+      now,
+      now,
+      submissionId,
+      patient.lineAccountId,
+      patient.friendId,
+      patient.friendId,
+      now,
+    )
+    .run();
 
   // Refresh the exact owned slot before R2 I/O. This fences retention cleanup:
   // either this touch wins, or cleanup has already claimed the file as deleted.
-  const touch = await db.prepare(
-    `UPDATE pharmacy_prescription_files AS f
+  const touch = await db
+    .prepare(
+      `UPDATE pharmacy_prescription_files AS f
         SET updated_at = ?
       WHERE f.submission_id = ? AND f.position = ?
         AND f.content_type = ? AND f.byte_size = ? AND f.sha256 = ?
@@ -282,43 +282,39 @@ export async function reservePrescriptionFile(
              AND s.line_account_id = ? AND s.friend_id = ?
              AND f.revision = s.upload_revision
              AND s.status IN ('draft','needs_resubmission')
-             ${(await linkedPatientAuthorityPredicate(db, 's'))}
+             ${await linkedPatientAuthorityPredicate(db, 's')}
         )`,
-  ).bind(
-    now,
-    submissionId,
-    position,
-    image.contentType,
-    image.byteSize,
-    image.sha256,
-    patient.lineAccountId,
-    patient.friendId,
-    patient.friendId,
-    now,
-  ).run();
+    )
+    .bind(
+      now,
+      submissionId,
+      position,
+      image.contentType,
+      image.byteSize,
+      image.sha256,
+      patient.lineAccountId,
+      patient.friendId,
+      patient.friendId,
+      now,
+    )
+    .run();
   if ((touch.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription file position conflict');
   }
 
-  const file = await db.prepare(
-    `SELECT f.id, f.r2_key, f.content_type, f.byte_size, f.sha256,
+  const file = await db
+    .prepare(
+      `SELECT f.id, f.r2_key, f.content_type, f.byte_size, f.sha256,
             f.state, f.revision, f.position
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
       WHERE f.submission_id = ? AND s.line_account_id = ? AND s.friend_id = ?
         AND f.revision = s.upload_revision AND f.position = ?`,
-  ).bind(
-    submissionId,
-    patient.lineAccountId,
-    patient.friendId,
-    position,
-  ).first<PrescriptionFile>();
+    )
+    .bind(submissionId, patient.lineAccountId, patient.friendId, position)
+    .first<PrescriptionFile>();
   if (!file) throw new Error('prescription submission not found');
-  if (
-    file.content_type !== image.contentType ||
-    file.byte_size !== image.byteSize ||
-    file.sha256 !== image.sha256
-  ) {
+  if (file.content_type !== image.contentType || file.byte_size !== image.byteSize || file.sha256 !== image.sha256) {
     throw new Error('prescription file position conflict');
   }
   return file;
@@ -332,8 +328,9 @@ export async function markPrescriptionFileReady(
   sha256: string,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const result = await db.prepare(
-    `UPDATE pharmacy_prescription_files AS f
+  const result = await db
+    .prepare(
+      `UPDATE pharmacy_prescription_files AS f
         SET state = 'ready', updated_at = ?
       WHERE f.id = ? AND f.submission_id = ? AND f.sha256 = ? AND f.state = 'pending'
         AND EXISTS (
@@ -341,18 +338,11 @@ export async function markPrescriptionFileReady(
            WHERE s.id = f.submission_id
              AND s.line_account_id = ? AND s.friend_id = ?
              AND f.revision = s.upload_revision
-             ${(await linkedPatientAuthorityPredicate(db, 's'))}
+             ${await linkedPatientAuthorityPredicate(db, 's')}
         )`,
-  ).bind(
-    now,
-    fileId,
-    submissionId,
-    sha256,
-    patient.lineAccountId,
-    patient.friendId,
-    patient.friendId,
-    now,
-  ).run();
+    )
+    .bind(now, fileId, submissionId, sha256, patient.lineAccountId, patient.friendId, patient.friendId, now)
+    .run();
   if ((result.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription file ready conflict');
   }
@@ -363,22 +353,26 @@ export async function submitPrescription(
   patient: PrescriptionPatient,
   submissionId: string,
   input: {
-    expectedUpdatedAt: string
-    desiredPickupAt: string | null
-    desiredFulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null
-    originalPrescriptionConsent: boolean
-    readinessNoticeConsent: boolean
+    expectedUpdatedAt: string;
+    desiredPickupAt: string | null;
+    desiredFulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null;
+    originalPrescriptionConsent: boolean;
+    readinessNoticeConsent: boolean;
   },
 ): Promise<{ statusEventId: string }> {
-  if (!input.originalPrescriptionConsent || !input.readinessNoticeConsent ||
-      (input.desiredPickupAt !== null && !Number.isFinite(Date.parse(input.desiredPickupAt)))) {
+  if (
+    !input.originalPrescriptionConsent ||
+    !input.readinessNoticeConsent ||
+    (input.desiredPickupAt !== null && !Number.isFinite(Date.parse(input.desiredPickupAt)))
+  ) {
     throw new Error('prescription submit conflict');
   }
   const now = nextIsoTimestamp(input.expectedUpdatedAt);
   const statusEventId = crypto.randomUUID();
   const results = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_prescription_submissions AS s
+    db
+      .prepare(
+        `UPDATE pharmacy_prescription_submissions AS s
           SET status = 'received', active_revision = upload_revision,
               desired_pickup_at = ?, desired_fulfillment_method = ?,
               original_prescription_consent_at = ?,
@@ -402,23 +396,25 @@ export async function submitPrescription(
                AND MIN(f.position) = 1
                AND MAX(f.position) = COUNT(*)
           )
-          ${(await linkedPatientAuthorityPredicate(db, 's'))}`,
-    ).bind(
-      input.desiredPickupAt,
-      input.desiredFulfillmentMethod ?? null,
-      now,
-      now,
-      now,
-      now,
-      submissionId,
-      patient.lineAccountId,
-      patient.friendId,
-      input.expectedUpdatedAt,
-      patient.friendId,
-      now,
-    ),
-    db.prepare(
-      `INSERT INTO pharmacy_prescription_events
+          ${await linkedPatientAuthorityPredicate(db, 's')}`,
+      )
+      .bind(
+        input.desiredPickupAt,
+        input.desiredFulfillmentMethod ?? null,
+        now,
+        now,
+        now,
+        now,
+        submissionId,
+        patient.lineAccountId,
+        patient.friendId,
+        input.expectedUpdatedAt,
+        patient.friendId,
+        now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_events
          (id, submission_id, actor_type, actor_id, event_type,
           from_status, to_status, revision, created_at)
        SELECT ?, id, 'patient', friend_id, 'status_changed',
@@ -427,17 +423,10 @@ export async function submitPrescription(
         FROM pharmacy_prescription_submissions
         WHERE changes() = 1 AND id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'received' AND updated_at = ?`,
-    ).bind(
-      statusEventId,
-      now,
-      submissionId,
-      patient.lineAccountId,
-      patient.friendId,
-      now,
-    ),
+      )
+      .bind(statusEventId, now, submissionId, patient.lineAccountId, patient.friendId, now),
   ]);
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription submit conflict');
   }
   return { statusEventId };
@@ -466,8 +455,9 @@ export async function listPrescriptionHistory(
   patient: PrescriptionPatient,
 ): Promise<PrescriptionHistoryItem[]> {
   const now = new Date().toISOString();
-  const result = await db.prepare(
-    `SELECT s.id, s.status, s.active_revision, s.upload_revision, s.desired_pickup_at,
+  const result = await db
+    .prepare(
+      `SELECT s.id, s.status, s.active_revision, s.upload_revision, s.desired_pickup_at,
             s.desired_fulfillment_method, s.arrival_reported_at,
             s.resubmission_reason_code, s.requested_at, s.closed_at, s.created_at, s.updated_at,
             q.estimated_ready_at, q.requirements_json, q.fulfillment_method
@@ -482,14 +472,11 @@ export async function listPrescriptionHistory(
             LIMIT 1
          )
       WHERE s.line_account_id = ? AND s.friend_id = ?
-        ${(await linkedPatientAuthorityPredicate(db, 's'))}
+        ${await linkedPatientAuthorityPredicate(db, 's')}
       ORDER BY s.created_at DESC, s.id DESC`,
-  ).bind(
-    patient.lineAccountId,
-    patient.friendId,
-    patient.friendId,
-    now,
-  ).all<PrescriptionHistoryItem>();
+    )
+    .bind(patient.lineAccountId, patient.friendId, patient.friendId, now)
+    .all<PrescriptionHistoryItem>();
   return result.results;
 }
 
@@ -521,9 +508,7 @@ type RecoveryCandidate = {
   desired_fulfillment_method: 'PICKUP' | 'DELIVERY' | null;
 };
 
-export type PrescriptionRecoverySelector =
-  | { idempotencyKey: string }
-  | { submissionId: string };
+export type PrescriptionRecoverySelector = { idempotencyKey: string } | { submissionId: string };
 
 /** Read-only recovery state used before the LIFF permits a new reserve. */
 export async function getPrescriptionRecovery(
@@ -531,14 +516,12 @@ export async function getPrescriptionRecovery(
   patient: PrescriptionPatient,
   selector?: PrescriptionRecoverySelector,
 ): Promise<PrescriptionRecovery> {
-  const selectorClause = selector && 'idempotencyKey' in selector
-    ? 'AND s.idempotency_key = ?'
-    : selector
-      ? 'AND s.id = ?'
-      : '';
+  const selectorClause =
+    selector && 'idempotencyKey' in selector ? 'AND s.idempotency_key = ?' : selector ? 'AND s.id = ?' : '';
   const now = new Date().toISOString();
-  const candidates = await db.prepare(
-    `SELECT s.id, s.status, s.upload_revision, s.updated_at,
+  const candidates = await db
+    .prepare(
+      `SELECT s.id, s.status, s.upload_revision, s.updated_at,
             s.desired_pickup_at, s.desired_fulfillment_method, p.patient_id
        FROM pharmacy_prescription_submissions s
        LEFT JOIN pharmacy_prescription_patients p
@@ -563,18 +546,20 @@ export async function getPrescriptionRecovery(
                AND target.line_account_id = p.line_account_id
                AND target.owner_friend_id = p.owner_friend_id
                AND target.archived_at IS NULL
-               ${(await patientAuthorityPredicateFor(db, 'target'))}
+               ${await patientAuthorityPredicateFor(db, 'target')}
           )
         )
       ORDER BY s.created_at DESC, s.id DESC
       LIMIT 2`,
-  ).bind(
-    patient.lineAccountId,
-    patient.friendId,
-    ...(selector ? ['idempotencyKey' in selector ? selector.idempotencyKey : selector.submissionId] : []),
-    patient.friendId,
-    now,
-  ).all<RecoveryCandidate>();
+    )
+    .bind(
+      patient.lineAccountId,
+      patient.friendId,
+      ...(selector ? ['idempotencyKey' in selector ? selector.idempotencyKey : selector.submissionId] : []),
+      patient.friendId,
+      now,
+    )
+    .all<RecoveryCandidate>();
 
   if (candidates.results.length === 0) return { state: 'none' };
   if (candidates.results.length > 1) return { state: 'ambiguous', reason: 'multiple' };
@@ -583,8 +568,9 @@ export async function getPrescriptionRecovery(
     return { state: 'ambiguous', reason: 'patient_binding_unavailable' };
   }
 
-  const files = await db.prepare(
-    `SELECT f.position, f.state
+  const files = await db
+    .prepare(
+      `SELECT f.position, f.state
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s
          ON s.id = f.submission_id
@@ -592,12 +578,9 @@ export async function getPrescriptionRecovery(
         AND f.revision = ?
         AND f.state IN ('ready','pending')
       ORDER BY f.position`,
-  ).bind(
-    candidate.id,
-    patient.lineAccountId,
-    patient.friendId,
-    candidate.upload_revision,
-  ).all<{ position: number; state: 'ready' | 'pending' }>();
+    )
+    .bind(candidate.id, patient.lineAccountId, patient.friendId, candidate.upload_revision)
+    .all<{ position: number; state: 'ready' | 'pending' }>();
 
   return {
     state: 'recoverable',
@@ -609,12 +592,8 @@ export async function getPrescriptionRecovery(
       patientId: candidate.patient_id,
       desiredPickupAt: candidate.desired_pickup_at,
       desiredFulfillmentMethod: candidate.desired_fulfillment_method,
-      readyPositions: files.results
-        .filter((file) => file.state === 'ready')
-        .map((file) => file.position),
-      pendingPositions: files.results
-        .filter((file) => file.state === 'pending')
-        .map((file) => file.position),
+      readyPositions: files.results.filter((file) => file.state === 'ready').map((file) => file.position),
+      pendingPositions: files.results.filter((file) => file.state === 'pending').map((file) => file.position),
     },
   };
 }
@@ -632,18 +611,18 @@ export async function cancelPrescription(
 ): Promise<PrescriptionObjectRef[]> {
   const now = nextIsoTimestamp(expectedUpdatedAt);
   const results = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_prescription_submissions AS s
+    db
+      .prepare(
+        `UPDATE pharmacy_prescription_submissions AS s
           SET status = 'cancelled', closed_at = ?, updated_at = ?
         WHERE id = ? AND line_account_id = ? AND friend_id = ?
           AND updated_at = ? AND status IN ('draft','received')
-          ${(await linkedPatientAuthorityPredicate(db, 's'))}`,
-    ).bind(
-      now, now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt,
-      patient.friendId, now,
-    ),
-    db.prepare(
-      `INSERT INTO pharmacy_prescription_events
+          ${await linkedPatientAuthorityPredicate(db, 's')}`,
+      )
+      .bind(now, now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt, patient.friendId, now),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_events
          (id, submission_id, actor_type, actor_id, event_type,
           from_status, to_status, reason_code, created_at)
        SELECT ?, id, 'patient', friend_id, 'status_changed',
@@ -652,22 +631,23 @@ export async function cancelPrescription(
         FROM pharmacy_prescription_submissions
         WHERE changes() = 1 AND id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'cancelled' AND updated_at = ?`,
-    ).bind(
-      crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId, now,
-    ),
+      )
+      .bind(crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId, now),
   ]);
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription cancel conflict');
   }
-  const files = await db.prepare(
-    `SELECT f.id, f.r2_key
+  const files = await db
+    .prepare(
+      `SELECT f.id, f.r2_key
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
       WHERE f.submission_id = ? AND s.line_account_id = ? AND s.friend_id = ?
         AND f.state != 'deleted'
       ORDER BY f.revision, f.position`,
-  ).bind(submissionId, patient.lineAccountId, patient.friendId).all<PrescriptionObjectRef>();
+    )
+    .bind(submissionId, patient.lineAccountId, patient.friendId)
+    .all<PrescriptionObjectRef>();
   return files.results;
 }
 
@@ -679,29 +659,27 @@ export async function reservePrescriptionResubmission(
 ): Promise<void> {
   const now = nextIsoTimestamp(expectedUpdatedAt);
   const results = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_prescription_submissions AS s
+    db
+      .prepare(
+        `UPDATE pharmacy_prescription_submissions AS s
           SET upload_revision = upload_revision + 1, updated_at = ?
         WHERE id = ? AND line_account_id = ? AND friend_id = ?
           AND updated_at = ? AND status = 'needs_resubmission'
-          ${(await linkedPatientAuthorityPredicate(db, 's'))}`,
-    ).bind(
-      now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt,
-      patient.friendId, now,
-    ),
-    db.prepare(
-      `INSERT INTO pharmacy_prescription_events
+          ${await linkedPatientAuthorityPredicate(db, 's')}`,
+      )
+      .bind(now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt, patient.friendId, now),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_events
          (id, submission_id, actor_type, actor_id, event_type, revision, created_at)
        SELECT ?, id, 'patient', friend_id, 'revision_reserved', upload_revision, ?
         FROM pharmacy_prescription_submissions
         WHERE changes() = 1 AND id = ? AND line_account_id = ? AND friend_id = ?
           AND status = 'needs_resubmission' AND updated_at = ?`,
-    ).bind(
-      crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId, now,
-    ),
+      )
+      .bind(crypto.randomUUID(), now, submissionId, patient.lineAccountId, patient.friendId, now),
   ]);
-  if ((results[0]?.meta?.changes ?? 0) !== 1 ||
-      (results[1]?.meta?.changes ?? 0) !== 1) {
+  if ((results[0]?.meta?.changes ?? 0) !== 1 || (results[1]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription resubmission conflict');
   }
 }
@@ -713,17 +691,17 @@ export async function reportPrescriptionArrival(
   expectedUpdatedAt: string,
 ): Promise<{ arrivalReportedAt: string }> {
   const now = nextIsoTimestamp(expectedUpdatedAt);
-  const result = await db.prepare(
-    `UPDATE pharmacy_prescription_submissions AS s
+  const result = await db
+    .prepare(
+      `UPDATE pharmacy_prescription_submissions AS s
         SET arrival_reported_at = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ? AND friend_id = ?
         AND updated_at = ? AND status IN ('accepted','ready')
         AND arrival_reported_at IS NULL
-        ${(await linkedPatientAuthorityPredicate(db, 's'))}`,
-  ).bind(
-    now, now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt,
-    patient.friendId, now,
-  ).run();
+        ${await linkedPatientAuthorityPredicate(db, 's')}`,
+    )
+    .bind(now, now, submissionId, patient.lineAccountId, patient.friendId, expectedUpdatedAt, patient.friendId, now)
+    .run();
   if ((result.meta?.changes ?? 0) !== 1) throw new Error('prescription arrival conflict');
   return { arrivalReportedAt: now };
 }
@@ -736,8 +714,9 @@ export async function markPrescriptionFileDeleted(
 ): Promise<void> {
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_prescription_files AS f
+    db
+      .prepare(
+        `UPDATE pharmacy_prescription_files AS f
           SET state = 'deleted', updated_at = ?
         WHERE f.id = ? AND f.submission_id = ? AND f.state != 'deleted'
           AND EXISTS (
@@ -745,19 +724,19 @@ export async function markPrescriptionFileDeleted(
              WHERE s.id = f.submission_id
                AND s.line_account_id = ? AND s.friend_id = ?
           )`,
-    ).bind(now, fileId, submissionId, patient.lineAccountId, patient.friendId),
-    db.prepare(
-      `INSERT INTO pharmacy_prescription_events
+      )
+      .bind(now, fileId, submissionId, patient.lineAccountId, patient.friendId),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_events
          (id, submission_id, actor_type, event_type, revision, created_at)
        SELECT ?, f.submission_id, 'system', 'file_deleted', f.revision, ?
          FROM pharmacy_prescription_files f
          INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
         WHERE f.id = ? AND f.submission_id = ? AND f.state = 'deleted'
           AND f.updated_at = ? AND s.line_account_id = ? AND s.friend_id = ?`,
-    ).bind(
-      crypto.randomUUID(), now, fileId, submissionId, now,
-      patient.lineAccountId, patient.friendId,
-    ),
+      )
+      .bind(crypto.randomUUID(), now, fileId, submissionId, now, patient.lineAccountId, patient.friendId),
   ]);
 }
 
@@ -791,14 +770,14 @@ export async function listAdminPrescriptionQueue(
   }
   if (options.cursor) {
     conditions.push(
-      '(COALESCE(s.requested_at, s.created_at) > ? OR ' +
-      '(COALESCE(s.requested_at, s.created_at) = ? AND s.id > ?))',
+      '(COALESCE(s.requested_at, s.created_at) > ? OR ' + '(COALESCE(s.requested_at, s.created_at) = ? AND s.id > ?))',
     );
     values.push(options.cursor.requestedAt, options.cursor.requestedAt, options.cursor.id);
   }
   values.push(Math.min(100, Math.max(1, options.limit)));
-  const result = await db.prepare(
-    `SELECT s.id, s.friend_id, f.display_name AS patient_display_name,
+  const result = await db
+    .prepare(
+      `SELECT s.id, s.friend_id, f.display_name AS patient_display_name,
             s.status, s.desired_pickup_at,
             s.desired_fulfillment_method, s.arrival_reported_at,
             s.requested_at, s.created_at, s.updated_at
@@ -808,7 +787,9 @@ export async function listAdminPrescriptionQueue(
       WHERE ${conditions.join(' AND ')}
       ORDER BY COALESCE(s.requested_at, s.created_at), s.id
       LIMIT ?`,
-  ).bind(...values).all<AdminQueueItem>();
+    )
+    .bind(...values)
+    .all<AdminQueueItem>();
   return result.results;
 }
 
@@ -823,13 +804,16 @@ export async function getAdminPrescriptionFile(
   submissionId: string,
   fileId: string,
 ): Promise<AdminPrescriptionFile | null> {
-  return db.prepare(
-    `SELECT f.r2_key, f.content_type
+  return db
+    .prepare(
+      `SELECT f.r2_key, f.content_type
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
       WHERE f.submission_id = ? AND f.id = ? AND s.line_account_id = ?
         AND f.state = 'ready'`,
-  ).bind(submissionId, fileId, lineAccountId).first<AdminPrescriptionFile>();
+    )
+    .bind(submissionId, fileId, lineAccountId)
+    .first<AdminPrescriptionFile>();
 }
 
 export async function recordPrescriptionFileViewed(
@@ -839,18 +823,18 @@ export async function recordPrescriptionFileViewed(
   fileId: string,
   staffId: string,
 ): Promise<void> {
-  await db.prepare(
-    `INSERT INTO pharmacy_prescription_view_events
+  await db
+    .prepare(
+      `INSERT INTO pharmacy_prescription_view_events
        (id, submission_id, file_id, staff_id, viewed_at)
      SELECT ?, f.submission_id, f.id, ?, ?
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
       WHERE f.submission_id = ? AND f.id = ? AND s.line_account_id = ?
         AND f.state = 'ready'`,
-  ).bind(
-    crypto.randomUUID(), staffId, new Date().toISOString(),
-    submissionId, fileId, lineAccountId,
-  ).run();
+    )
+    .bind(crypto.randomUUID(), staffId, new Date().toISOString(), submissionId, fileId, lineAccountId)
+    .run();
 }
 
 export interface AdminPrescriptionStats {
@@ -875,8 +859,10 @@ export async function getAdminPrescriptionStats(
   db: D1Database,
   lineAccountId: string,
 ): Promise<AdminPrescriptionStats> {
-  return (await db.prepare(
-    `SELECT COALESCE(SUM(CASE WHEN status = 'received' THEN 1 ELSE 0 END), 0) AS pending_count,
+  return (
+    (await db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN status = 'received' THEN 1 ELSE 0 END), 0) AS pending_count,
             MIN(CASE WHEN status = 'received' THEN requested_at END) AS oldest_wait_at,
             COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) AS draft_count,
             COALESCE(SUM(CASE WHEN status = 'received' THEN 1 ELSE 0 END), 0) AS received_count,
@@ -888,18 +874,21 @@ export async function getAdminPrescriptionStats(
             COUNT(*) AS total_count
        FROM pharmacy_prescription_submissions
       WHERE line_account_id = ?`,
-  ).bind(lineAccountId).first<AdminPrescriptionStats>()) ?? {
-    pending_count: 0,
-    oldest_wait_at: null,
-    draft_count: 0,
-    received_count: 0,
-    needs_resubmission_count: 0,
-    accepted_count: 0,
-    ready_count: 0,
-    closed_count: 0,
-    cancelled_count: 0,
-    total_count: 0,
-  };
+      )
+      .bind(lineAccountId)
+      .first<AdminPrescriptionStats>()) ?? {
+      pending_count: 0,
+      oldest_wait_at: null,
+      draft_count: 0,
+      received_count: 0,
+      needs_resubmission_count: 0,
+      accepted_count: 0,
+      ready_count: 0,
+      closed_count: 0,
+      cancelled_count: 0,
+      total_count: 0,
+    }
+  );
 }
 
 export async function getAdminPrescriptionDetail(
@@ -912,10 +901,17 @@ export async function getAdminPrescriptionDetail(
   events: Array<Record<string, unknown>>;
   source: Record<string, unknown> | null;
   validity: Record<string, unknown> | null;
-  intake: { revision: number; submitted_at: string; latest_revision: number; latest_submitted_at: string; reviewed_at: string | null } | null;
+  intake: {
+    revision: number;
+    submitted_at: string;
+    latest_revision: number;
+    latest_submitted_at: string;
+    reviewed_at: string | null;
+  } | null;
 } | null> {
-  const submission = await db.prepare(
-    `SELECT s.id, s.friend_id, f.display_name AS patient_display_name,
+  const submission = await db
+    .prepare(
+      `SELECT s.id, s.friend_id, f.display_name AS patient_display_name,
             s.status, s.active_revision, s.upload_revision,
             s.desired_pickup_at, s.desired_fulfillment_method, s.arrival_reported_at,
             s.resubmission_reason_code, s.requested_at,
@@ -923,40 +919,55 @@ export async function getAdminPrescriptionDetail(
        FROM pharmacy_prescription_submissions s
        LEFT JOIN friends f ON f.id = s.friend_id AND f.line_account_id = s.line_account_id
       WHERE s.id = ? AND s.line_account_id = ?`,
-  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
+    )
+    .bind(submissionId, lineAccountId)
+    .first<Record<string, unknown>>();
   if (!submission) return null;
-  const files = await db.prepare(
-    `SELECT f.id, f.revision, f.position, f.content_type, f.byte_size, f.state,
+  const files = await db
+    .prepare(
+      `SELECT f.id, f.revision, f.position, f.content_type, f.byte_size, f.state,
             f.created_at, f.updated_at
        FROM pharmacy_prescription_files f
        INNER JOIN pharmacy_prescription_submissions s ON s.id = f.submission_id
       WHERE f.submission_id = ? AND s.line_account_id = ?
       ORDER BY f.revision DESC, f.position`,
-  ).bind(submissionId, lineAccountId).all<Record<string, unknown>>();
-  const events = await db.prepare(
-    `SELECT e.id, e.actor_type, e.actor_id, e.event_type, e.from_status,
+    )
+    .bind(submissionId, lineAccountId)
+    .all<Record<string, unknown>>();
+  const events = await db
+    .prepare(
+      `SELECT e.id, e.actor_type, e.actor_id, e.event_type, e.from_status,
             e.to_status, e.reason_code, e.revision, e.created_at
        FROM pharmacy_prescription_events e
        INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
       WHERE e.submission_id = ? AND s.line_account_id = ?
       ORDER BY e.created_at, e.id`,
-  ).bind(submissionId, lineAccountId).all<Record<string, unknown>>();
-  const source = await db.prepare(
-    `SELECT ss.source_id, ss.classification, ms.display_name,
+    )
+    .bind(submissionId, lineAccountId)
+    .all<Record<string, unknown>>();
+  const source = await db
+    .prepare(
+      `SELECT ss.source_id, ss.classification, ms.display_name,
             ss.entered_by, ss.entered_at, ss.updated_at
        FROM pharmacy_submission_sources ss
        LEFT JOIN pharmacy_medical_sources ms
          ON ms.id = ss.source_id AND ms.line_account_id = ss.line_account_id
       WHERE ss.submission_id = ? AND ss.line_account_id = ?`,
-  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
-  const validity = await db.prepare(
-    `SELECT issued_on, valid_until, validity_basis, verification_status,
+    )
+    .bind(submissionId, lineAccountId)
+    .first<Record<string, unknown>>();
+  const validity = await db
+    .prepare(
+      `SELECT issued_on, valid_until, validity_basis, verification_status,
             verified_by, verified_at, reminder_due_at, reminder_sent_at, updated_at
        FROM pharmacy_prescription_validities
       WHERE submission_id = ? AND line_account_id = ?`,
-  ).bind(submissionId, lineAccountId).first<Record<string, unknown>>();
-  const intake = await db.prepare(
-    `SELECT linked.revision, linked.created_at AS submitted_at,
+    )
+    .bind(submissionId, lineAccountId)
+    .first<Record<string, unknown>>();
+  const intake = await db
+    .prepare(
+      `SELECT linked.revision, linked.created_at AS submitted_at,
             latest.revision AS latest_revision, latest.created_at AS latest_submitted_at,
             link.reviewed_at
        FROM pharmacy_prescription_patients AS link
@@ -970,15 +981,19 @@ export async function getAdminPrescriptionDetail(
           ORDER BY r.revision DESC, r.id DESC LIMIT 1
        )
       WHERE link.submission_id = ? AND link.line_account_id = ? AND link.owner_friend_id = ?`,
-  ).bind(submissionId, lineAccountId, submission.friend_id).first<{
-    revision: number; submitted_at: string; latest_revision: number; latest_submitted_at: string; reviewed_at: string | null;
-  }>();
+    )
+    .bind(submissionId, lineAccountId, submission.friend_id)
+    .first<{
+      revision: number;
+      submitted_at: string;
+      latest_revision: number;
+      latest_submitted_at: string;
+      reviewed_at: string | null;
+    }>();
   return { submission, files: files.results, events: events.results, source, validity, intake };
 }
 
-const RESUBMISSION_REASONS = new Set([
-  'blurred', 'cropped', 'glare', 'unreadable', 'missing_page',
-]);
+const RESUBMISSION_REASONS = new Set(['blurred', 'cropped', 'glare', 'unreadable', 'missing_page']);
 
 export async function applyAdminPrescriptionAction(
   db: D1Database,
@@ -995,22 +1010,24 @@ export async function applyAdminPrescriptionAction(
   const resolvedOperationId = typeof atOrOperationId === 'string' ? atOrOperationId : operationId;
   const eventId = resolvedOperationId ?? crypto.randomUUID();
   if (resolvedOperationId) {
-    const replay = await db.prepare(
-      `SELECT e.id, e.actor_id, e.from_status, e.to_status, e.reason_code
+    const replay = await db
+      .prepare(
+        `SELECT e.id, e.actor_id, e.from_status, e.to_status, e.reason_code
          FROM pharmacy_prescription_events e
          INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
         WHERE e.id = ? AND e.submission_id = ? AND s.line_account_id = ?
           AND e.event_type = 'status_changed'`,
-    ).bind(resolvedOperationId, submissionId, lineAccountId).first<{
-      id: string;
-      actor_id: string | null;
-      from_status: PrescriptionStatus | null;
-      to_status: PrescriptionStatus | null;
-      reason_code: string | null;
-    }>();
+      )
+      .bind(resolvedOperationId, submissionId, lineAccountId)
+      .first<{
+        id: string;
+        actor_id: string | null;
+        from_status: PrescriptionStatus | null;
+        to_status: PrescriptionStatus | null;
+        reason_code: string | null;
+      }>();
     if (replay) {
-      let replayMatches = replay.actor_id === staffId &&
-        replay.from_status !== null && replay.to_status !== null;
+      let replayMatches = replay.actor_id === staffId && replay.from_status !== null && replay.to_status !== null;
       if (replayMatches && replay.from_status && replay.to_status) {
         try {
           replayMatches = nextPrescriptionStatus(replay.from_status, action) === replay.to_status;
@@ -1018,27 +1035,27 @@ export async function applyAdminPrescriptionAction(
           replayMatches = false;
         }
       }
-      const expectedReason = action === 'admin_request_resubmission'
-        ? reasonCode
-        : action === 'admin_cancel'
-          ? 'admin_cancelled'
-          : null;
+      const expectedReason =
+        action === 'admin_request_resubmission' ? reasonCode : action === 'admin_cancel' ? 'admin_cancelled' : null;
       if (!replayMatches || replay.reason_code !== expectedReason) {
         throw new Error('prescription admin action idempotency conflict');
       }
       return { status: replay.to_status as PrescriptionStatus, statusEventId: replay.id };
     }
   }
-  const current = await db.prepare(
-    `SELECT status, updated_at, intake_required, source_handoff_id
+  const current = await db
+    .prepare(
+      `SELECT status, updated_at, intake_required, source_handoff_id
        FROM pharmacy_prescription_submissions
       WHERE id = ? AND line_account_id = ?`,
-  ).bind(submissionId, lineAccountId).first<{
-    status: PrescriptionStatus;
-    updated_at: string;
-    intake_required?: number;
-    source_handoff_id?: string | null;
-  }>();
+    )
+    .bind(submissionId, lineAccountId)
+    .first<{
+      status: PrescriptionStatus;
+      updated_at: string;
+      intake_required?: number;
+      source_handoff_id?: string | null;
+    }>();
   if (!current || current.updated_at !== expectedUpdatedAt) {
     throw new Error('prescription admin action conflict');
   }
@@ -1057,15 +1074,18 @@ export async function applyAdminPrescriptionAction(
     valid_until: string | null;
   } | null = null;
   if (action === 'admin_accept') {
-    validityAtCheck = await db.prepare(
-      `SELECT updated_at, verification_status, valid_until
+    validityAtCheck = await db
+      .prepare(
+        `SELECT updated_at, verification_status, valid_until
          FROM pharmacy_prescription_validities
         WHERE submission_id = ? AND line_account_id = ?`,
-    ).bind(submissionId, lineAccountId).first<{
-      updated_at: string;
-      verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
-      valid_until: string | null;
-    }>();
+      )
+      .bind(submissionId, lineAccountId)
+      .first<{
+        updated_at: string;
+        verification_status: 'unverified' | 'verified' | 'expired_review_required' | 'expired_confirmed';
+        valid_until: string | null;
+      }>();
     if (!validityAtCheck || validityAtCheck.verification_status !== 'verified' || !validityAtCheck.valid_until) {
       throw new Error('prescription validity verification required');
     }
@@ -1082,20 +1102,23 @@ export async function applyAdminPrescriptionAction(
     }
   }
   if (action === 'admin_accept' && (current.intake_required === 1 || current.source_handoff_id != null)) {
-    quoteAtCheck = await db.prepare(
-      `SELECT id, revision, decision, requirements_json, status, valid_until
+    quoteAtCheck = await db
+      .prepare(
+        `SELECT id, revision, decision, requirements_json, status, valid_until
          FROM pharmacy_fulfillment_quotes
         WHERE submission_id = ? AND line_account_id = ?
         ORDER BY revision DESC, created_at DESC, id DESC
         LIMIT 1`,
-    ).bind(submissionId, lineAccountId).first<{
-      id: string;
-      revision: number;
-      decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
-      requirements_json: string;
-      status: FulfillmentStatus | null;
-      valid_until: string | null;
-    }>();
+      )
+      .bind(submissionId, lineAccountId)
+      .first<{
+        id: string;
+        revision: number;
+        decision: 'fulfillable' | 'conditional' | 'needs_confirmation' | 'not_fulfillable';
+        requirements_json: string;
+        status: FulfillmentStatus | null;
+        valid_until: string | null;
+      }>();
     if (!quoteAtCheck) throw new Error('fulfillment quote required');
     let requirements;
     try {
@@ -1106,35 +1129,38 @@ export async function applyAdminPrescriptionAction(
     } catch {
       throw new Error('fulfillment quote invalid');
     }
-    if (!quoteAllowsAcceptance({
-      decision: quoteAtCheck.decision,
-      requirements,
-      status: quoteAtCheck.status,
-      validUntil: quoteAtCheck.valid_until,
-    }, at)) {
+    if (
+      !quoteAllowsAcceptance(
+        {
+          decision: quoteAtCheck.decision,
+          requirements,
+          status: quoteAtCheck.status,
+          validUntil: quoteAtCheck.valid_until,
+        },
+        at,
+      )
+    ) {
       throw new Error('fulfillment quote not acceptable');
     }
   }
-  if (
-    action === 'admin_request_resubmission' &&
-    (!reasonCode || !RESUBMISSION_REASONS.has(reasonCode))
-  ) {
+  if (action === 'admin_request_resubmission' && (!reasonCode || !RESUBMISSION_REASONS.has(reasonCode))) {
     throw new Error('invalid resubmission reason');
   }
-  const storedReason = action === 'admin_request_resubmission'
-    ? reasonCode
-    : action === 'admin_cancel'
-      ? 'admin_cancelled'
-      : null;
+  const storedReason =
+    action === 'admin_request_resubmission' ? reasonCode : action === 'admin_cancel' ? 'admin_cancelled' : null;
   const now = nextIsoTimestamp(expectedUpdatedAt);
-  const validityPrecondition = action === 'admin_accept' ? `
+  const validityPrecondition =
+    action === 'admin_accept'
+      ? `
           AND EXISTS (
             SELECT 1 FROM pharmacy_prescription_validities v
              WHERE v.submission_id = pharmacy_prescription_submissions.id
                AND v.line_account_id = pharmacy_prescription_submissions.line_account_id
                AND v.updated_at = ? AND v.verification_status = ? AND v.valid_until IS ?
-          )` : '';
-  const quotePrecondition = quoteAtCheck ? `
+          )`
+      : '';
+  const quotePrecondition = quoteAtCheck
+    ? `
           AND EXISTS (
             SELECT 1 FROM pharmacy_fulfillment_quotes q
              WHERE q.id = ? AND q.revision = ? AND q.decision = ?
@@ -1147,38 +1173,56 @@ export async function applyAdminPrescriptionAction(
                     AND latest.line_account_id = pharmacy_prescription_submissions.line_account_id
                   ORDER BY latest.revision DESC, latest.created_at DESC, latest.id DESC LIMIT 1
                )
-          )` : '';
+          )`
+    : '';
   const results = await db.batch([
-    db.prepare(
-      `UPDATE pharmacy_prescription_submissions
+    db
+      .prepare(
+        `UPDATE pharmacy_prescription_submissions
           SET status = ?, resubmission_reason_code = ?,
               closed_at = CASE WHEN ? IN ('closed','cancelled') THEN ? ELSE closed_at END,
               updated_at = ?
         WHERE id = ? AND line_account_id = ? AND status = ? AND updated_at = ?
           ${validityPrecondition}${quotePrecondition}`,
-    ).bind(
-      next, action === 'admin_request_resubmission' ? reasonCode : null,
-      next, now, now, submissionId, lineAccountId, current.status, expectedUpdatedAt,
-      ...(action === 'admin_accept' ? [
-        validityAtCheck?.updated_at ?? null, validityAtCheck?.verification_status ?? null,
-        validityAtCheck?.valid_until ?? null,
-      ] : []),
-      ...(quoteAtCheck ? [
-        quoteAtCheck.id, quoteAtCheck.revision, quoteAtCheck.decision,
-        quoteAtCheck.requirements_json, quoteAtCheck.status, quoteAtCheck.valid_until,
-      ] : []),
-    ),
-    db.prepare(
-      `INSERT INTO pharmacy_prescription_events
+      )
+      .bind(
+        next,
+        action === 'admin_request_resubmission' ? reasonCode : null,
+        next,
+        now,
+        now,
+        submissionId,
+        lineAccountId,
+        current.status,
+        expectedUpdatedAt,
+        ...(action === 'admin_accept'
+          ? [
+              validityAtCheck?.updated_at ?? null,
+              validityAtCheck?.verification_status ?? null,
+              validityAtCheck?.valid_until ?? null,
+            ]
+          : []),
+        ...(quoteAtCheck
+          ? [
+              quoteAtCheck.id,
+              quoteAtCheck.revision,
+              quoteAtCheck.decision,
+              quoteAtCheck.requirements_json,
+              quoteAtCheck.status,
+              quoteAtCheck.valid_until,
+            ]
+          : []),
+      ),
+    db
+      .prepare(
+        `INSERT INTO pharmacy_prescription_events
          (id, submission_id, actor_type, actor_id, event_type,
           from_status, to_status, reason_code, created_at)
        SELECT ?, id, 'staff', ?, 'status_changed', ?, ?, ?, ?
          FROM pharmacy_prescription_submissions
         WHERE changes() = 1 AND id = ? AND line_account_id = ? AND status = ? AND updated_at = ?`,
-    ).bind(
-      eventId, staffId, current.status, next, storedReason, now,
-      submissionId, lineAccountId, next, now,
-    ),
+      )
+      .bind(eventId, staffId, current.status, next, storedReason, now, submissionId, lineAccountId, next, now),
   ]);
   if ((results[0]?.meta?.changes ?? 0) !== 1) {
     throw new Error('prescription admin action conflict');

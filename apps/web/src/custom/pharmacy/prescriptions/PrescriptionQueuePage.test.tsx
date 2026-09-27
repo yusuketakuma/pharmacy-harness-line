@@ -1,122 +1,125 @@
-import React from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
-import { readFileSync } from 'node:fs'
-import { describe, expect, it, vi } from 'vitest'
-import {
-  actionsForStatus,
-  reasonLabel,
-} from './PrescriptionDetailPanel.js'
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
+import { actionsForStatus, reasonLabel } from './PrescriptionDetailPanel.js';
 import {
   actionConfirmationMessage,
   actionNotice,
   loadPrescriptionImage,
   prescriptionActionError,
   shouldConfirmAction,
-} from './PrescriptionQueuePage.js'
-import { ApiError } from '../../../lib/api.js'
-import { PrescriptionImageViewer } from './PrescriptionImageViewer.js'
+} from './PrescriptionQueuePage.js';
+import { ApiError } from '../../../lib/api.js';
+import { PrescriptionImageViewer } from './PrescriptionImageViewer.js';
 import {
   PrescriptionQueueEmptyState,
   PrescriptionQueueOverview,
   filterPrescriptionQueueItems,
   isTemporaryDeploymentError,
   statusLabel,
-} from './PrescriptionQueueOverview.js'
-import {
-  FulfillmentQuoteEditor,
-  fulfillmentStatusLabel,
-  fulfillmentQuoteDraft,
-} from './FulfillmentQuoteEditor.js'
-import { PrescriptionReviewEditor } from './PrescriptionReviewEditor.js'
+} from './PrescriptionQueueOverview.js';
+import { FulfillmentQuoteEditor, fulfillmentStatusLabel, fulfillmentQuoteDraft } from './FulfillmentQuoteEditor.js';
+import { PrescriptionReviewEditor } from './PrescriptionReviewEditor.js';
 import {
   canAcknowledgePrint,
   operationId,
   printAcknowledgementMessage,
   printablePrescriptionFiles,
-} from './PrescriptionPrintPage.js'
+} from './PrescriptionPrintPage.js';
 
 describe('prescription admin UI contract', () => {
   it.each(['loading', 'failed', 'unavailable'])('does not report zero work without a confirmed list (%s)', (state) => {
-    const html = renderToStaticMarkup(<PrescriptionQueueOverview
-      items={[]} stats={{ pending_count: 0, oldest_wait_at: null, total_count: 0 } as never}
-      tab="all" loading={state === 'loading'} temporaryError={state === 'unavailable'}
-      error={state === 'failed' ? '処方せん一覧を取得できませんでした。' : ''}
-      nextCursor={null} onTabChange={() => undefined} onOpenDetail={() => undefined} onLoadMore={() => undefined}
-    />)
-    expect(html).not.toContain('処方せんはありません')
-    expect(html).not.toContain('0件')
-    expect(html).not.toContain('待機なし')
-    expect(html).toContain(state === 'loading' ? '読み込み中' : '未確認')
-  })
+    const html = renderToStaticMarkup(
+      <PrescriptionQueueOverview
+        items={[]}
+        stats={{ pending_count: 0, oldest_wait_at: null, total_count: 0 } as never}
+        tab="all"
+        loading={state === 'loading'}
+        temporaryError={state === 'unavailable'}
+        error={state === 'failed' ? '処方せん一覧を取得できませんでした。' : ''}
+        nextCursor={null}
+        onTabChange={() => undefined}
+        onOpenDetail={() => undefined}
+        onLoadMore={() => undefined}
+      />,
+    );
+    expect(html).not.toContain('処方せんはありません');
+    expect(html).not.toContain('0件');
+    expect(html).not.toContain('待機なし');
+    expect(html).toContain(state === 'loading' ? '読み込み中' : '未確認');
+  });
 
   it('filters the loaded queue by patient name or submission id and scrolls to the detail', () => {
     const items = [
       { id: 'sub-0001', patient_display_name: '山田 太郎', status: 'received' },
       { id: 'sub-0002', patient_display_name: null, status: 'received' },
-    ] as Parameters<typeof filterPrescriptionQueueItems>[0]
-    expect(filterPrescriptionQueueItems(items, '')).toHaveLength(2)
-    expect(filterPrescriptionQueueItems(items, ' 太郎 ')).toEqual([items[0]])
-    expect(filterPrescriptionQueueItems(items, '0002')).toEqual([items[1]])
-    expect(filterPrescriptionQueueItems(items, 'なし')).toEqual([])
-    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
-    expect(page).toContain("document.getElementById('prescription-detail-title')?.scrollIntoView(")
-    const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8')
-    expect(overview).toContain('aria-label="LINE表示名または受付番号で絞り込み"')
-  })
+    ] as Parameters<typeof filterPrescriptionQueueItems>[0];
+    expect(filterPrescriptionQueueItems(items, '')).toHaveLength(2);
+    expect(filterPrescriptionQueueItems(items, ' 太郎 ')).toEqual([items[0]]);
+    expect(filterPrescriptionQueueItems(items, '0002')).toEqual([items[1]]);
+    expect(filterPrescriptionQueueItems(items, 'なし')).toEqual([]);
+    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8');
+    expect(page).toMatch(/document\s*\.\s*getElementById\('prescription-detail-title'\)\s*\?\.\s*scrollIntoView\(/);
+    const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8');
+    expect(overview).toContain('aria-label="LINE表示名または受付番号で絞り込み"');
+  });
 
   it('shows fixed Japanese status and resubmission reason labels', () => {
-    expect(statusLabel('needs_resubmission')).toBe('再送依頼中')
-    expect(reasonLabel('glare')).toBe('光が反射しています')
-    expect(reasonLabel(null)).toBe('なし')
-  })
+    expect(statusLabel('needs_resubmission')).toBe('再送依頼中');
+    expect(reasonLabel('glare')).toBe('光が反射しています');
+    expect(reasonLabel(null)).toBe('なし');
+  });
 
   it('requires confirmation independently from danger styling and explains cancellation effects', () => {
-    const close = actionsForStatus('ready')[0]
-    const cancel = actionsForStatus('ready')[1]
+    const close = actionsForStatus('ready')[0];
+    const cancel = actionsForStatus('ready')[1];
 
-    expect(close).toMatchObject({ confirm: true })
-    expect(close.danger).toBeUndefined()
-    expect(shouldConfirmAction(close)).toBe(true)
-    expect(cancel).toMatchObject({ danger: true, confirm: true })
-    expect(actionConfirmationMessage(cancel)).toContain('LINE通知')
-    expect(actionConfirmationMessage(cancel)).toContain('取り消せません')
-    expect(actionNotice('failed')).toContain('再試行待ち')
-    expect(actionNotice('already_sent')).toContain('通知済み')
-  })
+    expect(close).toMatchObject({ confirm: true });
+    expect(close.danger).toBeUndefined();
+    expect(shouldConfirmAction(close)).toBe(true);
+    expect(cancel).toMatchObject({ danger: true, confirm: true });
+    expect(actionConfirmationMessage(cancel)).toContain('LINE通知');
+    expect(actionConfirmationMessage(cancel)).toContain('取り消せません');
+    expect(actionNotice('failed')).toContain('再試行待ち');
+    expect(actionNotice('already_sent')).toContain('通知済み');
+  });
 
   it('does not misdiagnose every action conflict as another staff update', () => {
     const validity = Object.assign(new ApiError(409), {
       detail: '処方せんの使用期限を確認してください',
-    })
+    });
     const conflict = Object.assign(new ApiError(409), {
       detail: 'Prescription changed or action is invalid',
-    })
+    });
 
-    expect(prescriptionActionError(validity)).toBe('処方せんの使用期限を確認してください')
-    expect(prescriptionActionError(conflict)).toContain('状態が変わったか')
-    expect(prescriptionActionError(conflict)).not.toContain('ほかのスタッフ')
-  })
+    expect(prescriptionActionError(validity)).toBe('処方せんの使用期限を確認してください');
+    expect(prescriptionActionError(conflict)).toContain('状態が変わったか');
+    expect(prescriptionActionError(conflict)).not.toContain('ほかのスタッフ');
+  });
 
   it('offers only state-valid actions', () => {
     expect(actionsForStatus('received').map((action) => action.id)).toEqual([
-      'accept', 'request_resubmission', 'cancel',
-    ])
-    expect(actionsForStatus('ready').map((action) => action.id)).toEqual(['close', 'cancel'])
-    expect(actionsForStatus('closed')).toEqual([])
-  })
+      'accept',
+      'request_resubmission',
+      'cancel',
+    ]);
+    expect(actionsForStatus('ready').map((action) => action.id)).toEqual(['close', 'cancel']);
+    expect(actionsForStatus('closed')).toEqual([]);
+  });
 
   it('distinguishes LINE acceptance from patient delivery and reading', () => {
     for (const status of ['sent', 'already_sent'] as const) {
-      expect(actionNotice(status)).toContain('到達・既読は未確認')
-      expect(actionNotice(status)).toContain('状態を更新')
+      expect(actionNotice(status)).toContain('到達・既読は未確認');
+      expect(actionNotice(status)).toContain('状態を更新');
     }
-  })
+  });
 
   it('treats 404 and 503 as temporary deployment errors', () => {
-    expect(isTemporaryDeploymentError({ status: 404 })).toBe(true)
-    expect(isTemporaryDeploymentError({ status: 503 })).toBe(true)
-    expect(isTemporaryDeploymentError({ status: 500 })).toBe(false)
-  })
+    expect(isTemporaryDeploymentError({ status: 404 })).toBe(true);
+    expect(isTemporaryDeploymentError({ status: 503 })).toBe(true);
+    expect(isTemporaryDeploymentError({ status: 500 })).toBe(false);
+  });
 
   it('maps a saved fulfillment quote into native form values', () => {
     expect(fulfillmentQuoteDraft(null)).toMatchObject({
@@ -124,69 +127,82 @@ describe('prescription admin UI contract', () => {
       readyAt: '',
       validUntil: '',
       method: '',
-    })
-    expect(fulfillmentQuoteDraft({
-      decision: 'fulfillable',
-      reasonCodes: ['stock_check'],
-      requirements: [{ code: 'stock_check', status: 'pending' }],
-      estimatedReadyAt: '2026-08-17T15:30:00.000Z',
-      validUntil: '2026-08-17T16:00:00.000Z',
-      fulfillmentMethod: 'PICKUP',
-    } as never)).toMatchObject({
+    });
+    expect(
+      fulfillmentQuoteDraft({
+        decision: 'fulfillable',
+        reasonCodes: ['stock_check'],
+        requirements: [{ code: 'stock_check', status: 'pending' }],
+        estimatedReadyAt: '2026-08-17T15:30:00.000Z',
+        validUntil: '2026-08-17T16:00:00.000Z',
+        fulfillmentMethod: 'PICKUP',
+      } as never),
+    ).toMatchObject({
       decision: 'fulfillable',
       readyAt: '2026-08-18T00:30',
       validUntil: '2026-08-18T01:00',
       method: 'PICKUP',
-    })
-    expect(fulfillmentQuoteDraft({
-      estimatedReadyAt: '2026-08-17T15:30:00+09:00',
-      validUntil: '2026-08-17T16:00:00+09:00',
-    } as never)).toMatchObject({
+    });
+    expect(
+      fulfillmentQuoteDraft({
+        estimatedReadyAt: '2026-08-17T15:30:00+09:00',
+        validUntil: '2026-08-17T16:00:00+09:00',
+      } as never),
+    ).toMatchObject({
       readyAt: '2026-08-17T15:30',
       validUntil: '2026-08-17T16:00',
-    })
-  })
+    });
+  });
 
   it('renders the fulfillment editor as a controlled form', () => {
-    const html = renderToStaticMarkup(<FulfillmentQuoteEditor
-      quote={null}
-      draft={fulfillmentQuoteDraft(null)}
-      saving={false}
-      onChange={() => undefined}
-      onSave={() => undefined}
-    />)
-    expect(html).toContain('受付回答')
-    expect(html).not.toContain('FulfillmentQuote')
-    expect(html).toContain('type="datetime-local"')
-    expect(html).toContain('受付内容を保存')
-    expect(fulfillmentStatusLabel('PHARMACIST_REVIEW_REQUIRED')).toBe('薬剤師の確認が必要')
-  })
+    const html = renderToStaticMarkup(
+      <FulfillmentQuoteEditor
+        quote={null}
+        draft={fulfillmentQuoteDraft(null)}
+        saving={false}
+        onChange={() => undefined}
+        onSave={() => undefined}
+      />,
+    );
+    expect(html).toContain('受付回答');
+    expect(html).not.toContain('FulfillmentQuote');
+    expect(html).toContain('type="datetime-local"');
+    expect(html).toContain('受付内容を保存');
+    expect(fulfillmentStatusLabel('PHARMACIST_REVIEW_REQUIRED')).toBe('薬剤師の確認が必要');
+  });
 
   it('renders manual source classification and prescription validity controls', () => {
-    const html = renderToStaticMarkup(<PrescriptionReviewEditor
-      accountId="account-1"
-      submissionId="submission-1"
-      source={{ source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' } as never}
-      validity={null}
-      medicalSources={[{
-        id: 'source-1', display_name: 'Clinic A', classification: 'primary', is_active: 1,
-      }]}
-      onSaved={() => undefined}
-    />)
+    const html = renderToStaticMarkup(
+      <PrescriptionReviewEditor
+        accountId="account-1"
+        submissionId="submission-1"
+        source={{ source_id: 'source-1', classification: 'primary', display_name: 'Clinic A' } as never}
+        validity={null}
+        medicalSources={[
+          {
+            id: 'source-1',
+            display_name: 'Clinic A',
+            classification: 'primary',
+            is_active: 1,
+          },
+        ]}
+        onSaved={() => undefined}
+      />,
+    );
 
-    expect(html).toContain('発行元分類')
-    expect(html).toContain('Clinic A')
-    expect(html).toContain('処方せん使用期限')
-    expect(html).toContain('type="date"')
-    expect(html).toContain('交付日を含めて4日')
-  })
+    expect(html).toContain('発行元分類');
+    expect(html).toContain('Clinic A');
+    expect(html).toContain('処方せん使用期限');
+    expect(html).toContain('type="date"');
+    expect(html).toContain('交付日を含めて4日');
+  });
 
   it('renders retry guidance instead of a false empty queue', () => {
-    const html = renderToStaticMarkup(<PrescriptionQueueEmptyState temporaryError />)
-    expect(html).toContain('機能を準備中です')
-    expect(html).toContain('再読み込み')
-    expect(html).not.toContain('処方せんはありません')
-  })
+    const html = renderToStaticMarkup(<PrescriptionQueueEmptyState temporaryError />);
+    expect(html).toContain('機能を準備中です');
+    expect(html).toContain('再読み込み');
+    expect(html).not.toContain('処方せんはありません');
+  });
 
   it('renders semantic viewer controls without a persistent image URL', () => {
     const html = renderToStaticMarkup(
@@ -198,42 +214,42 @@ describe('prescription admin UI contract', () => {
         onPrevious={() => undefined}
         onNext={() => undefined}
       />,
-    )
-    expect(html).toContain('<button')
-    expect(html).toContain('拡大')
-    expect(html).toContain('回転')
-    expect(html).toContain('前の画像')
-    expect(html).toContain('次の画像')
-    expect(html).toContain('aria-modal="true"')
-    expect(html).not.toContain('https://worker.example')
-  })
+    );
+    expect(html).toContain('<button');
+    expect(html).toContain('拡大');
+    expect(html).toContain('回転');
+    expect(html).toContain('前の画像');
+    expect(html).toContain('次の画像');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).not.toContain('https://worker.example');
+  });
 
   it('keeps review drafts, queue notices, counts, and image requests scoped to the current record', () => {
-    const review = readFileSync(new URL('./PrescriptionReviewEditor.tsx', import.meta.url), 'utf8')
-    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
-    const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8')
+    const review = readFileSync(new URL('./PrescriptionReviewEditor.tsx', import.meta.url), 'utf8');
+    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8');
+    const overview = readFileSync(new URL('./PrescriptionQueueOverview.tsx', import.meta.url), 'utf8');
 
-    expect(review).toContain('}, [source, submissionId, reloadVersion])')
-    expect(review).toContain('}, [submissionId, validity, reloadVersion])')
-    expect(page).toContain('const [loading, setLoading] = useState(true)')
-    expect(page).toContain('setActionMessage(\'\')')
-    expect(page).toContain('imageRequestRef.current')
-    expect(page).toContain("searchParams.get('submission')")
-    expect(page).toContain("window.addEventListener('focus'")
-    expect(page).toContain("tab === 'all' ? undefined : tab")
-    expect(page).toContain('}, [selectedAccountId, tab])')
-    expect(overview).toContain('stats.total_count')
-    expect(overview).toContain('patient_display_name')
-  })
+    expect(review).toContain('}, [source, submissionId, reloadVersion])');
+    expect(review).toContain('}, [submissionId, validity, reloadVersion])');
+    expect(page).toContain('const [loading, setLoading] = useState(true)');
+    expect(page).toContain("setActionMessage('')");
+    expect(page).toContain('imageRequestRef.current');
+    expect(page).toContain("searchParams.get('submission')");
+    expect(page).toContain("window.addEventListener('focus'");
+    expect(page).toContain("tab === 'all' ? undefined : tab");
+    expect(page).toMatch(/\},?\s*\[selectedAccountId, tab\],?\s*\)/);
+    expect(overview).toContain('stats.total_count');
+    expect(overview).toContain('patient_display_name');
+  });
 
   it('moves focus into the modal and traps tab navigation', () => {
-    const viewer = readFileSync(new URL('./PrescriptionImageViewer.tsx', import.meta.url), 'utf8')
-    expect(viewer).toContain('previouslyFocused')
-    expect(viewer).toContain("event.key === 'Tab'")
-    expect(viewer).toContain('closeButtonRef.current?.focus()')
-    expect(viewer).toContain('setPointerCapture')
-    expect(viewer).toContain('translate(${pan.x}px, ${pan.y}px)')
-  })
+    const viewer = readFileSync(new URL('./PrescriptionImageViewer.tsx', import.meta.url), 'utf8');
+    expect(viewer).toContain('previouslyFocused');
+    expect(viewer).toContain("event.key === 'Tab'");
+    expect(viewer).toContain('closeButtonRef.current?.focus()');
+    expect(viewer).toContain('setPointerCapture');
+    expect(viewer).toContain('translate(${pan.x}px, ${pan.y}px)');
+  });
 
   it('prints only ready files from the active revision in position order', () => {
     const files = [
@@ -241,85 +257,98 @@ describe('prescription admin UI contract', () => {
       { id: 'old', revision: 1, position: 1, state: 'ready' },
       { id: 'one', revision: 2, position: 1, state: 'ready' },
       { id: 'pending', revision: 2, position: 3, state: 'pending' },
-    ] as never
-    expect(printablePrescriptionFiles(files, 2).map((file) => file.id)).toEqual(['one', 'two'])
-  })
+    ] as never;
+    expect(printablePrescriptionFiles(files, 2).map((file) => file.id)).toEqual(['one', 'two']);
+  });
 
   it('does not allow acknowledgement before the browser print dialog was opened', () => {
-    expect(canAcknowledgePrint(false, false, false)).toBe(false)
-    expect(canAcknowledgePrint(true, false, false)).toBe(true)
-    expect(canAcknowledgePrint(true, true, false)).toBe(false)
-    expect(canAcknowledgePrint(true, false, true)).toBe(false)
-    expect(printAcknowledgementMessage()).toContain('キャンセル')
-    expect(printAcknowledgementMessage()).toContain('記録しない')
-  })
+    expect(canAcknowledgePrint(false, false, false)).toBe(false);
+    expect(canAcknowledgePrint(true, false, false)).toBe(true);
+    expect(canAcknowledgePrint(true, true, false)).toBe(false);
+    expect(canAcknowledgePrint(true, false, true)).toBe(false);
+    expect(printAcknowledgementMessage()).toContain('キャンセル');
+    expect(printAcknowledgementMessage()).toContain('記録しない');
+  });
 
   it('keeps acknowledged prescription images available for reprinting', () => {
-    const page = readFileSync(new URL('./PrescriptionPrintPage.tsx', import.meta.url), 'utf8')
+    const page = readFileSync(new URL('./PrescriptionPrintPage.tsx', import.meta.url), 'utf8');
 
-    expect(page).not.toContain("if (prepared.task.status === 'acknowledged') {\n          if (!disposed) setRecorded(true)\n          return")
-    expect(page).toContain('再印刷できます')
-  })
+    expect(page).not.toContain(
+      "if (prepared.task.status === 'acknowledged') {\n          if (!disposed) setRecorded(true)\n          return",
+    );
+    expect(page).toContain('再印刷できます');
+  });
 
   it('reuses the stored print operation id while session storage works', () => {
-    const store = new Map<string, string>()
+    const store = new Map<string, string>();
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value) },
-    })
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    });
     try {
-      expect(operationId('submission-1')).toBe(operationId('submission-1'))
-      expect(operationId('submission-2')).not.toBe(operationId('submission-1'))
+      expect(operationId('submission-1')).toBe(operationId('submission-1'));
+      expect(operationId('submission-2')).not.toBe(operationId('submission-1'));
     } finally {
-      vi.unstubAllGlobals()
+      vi.unstubAllGlobals();
     }
-  })
+  });
 
   it('falls back to a fresh print operation id when session storage is unavailable', () => {
     vi.stubGlobal('sessionStorage', {
-      getItem: () => { throw new Error('denied') },
-      setItem: () => { throw new Error('denied') },
-    })
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    });
     try {
-      const first = operationId('submission-1')
-      expect(first).toMatch(/^[0-9a-f-]{36}$/)
-      expect(operationId('submission-1')).not.toBe(first)
+      const first = operationId('submission-1');
+      expect(first).toMatch(/^[0-9a-f-]{36}$/);
+      expect(operationId('submission-1')).not.toBe(first);
     } finally {
-      vi.unstubAllGlobals()
+      vi.unstubAllGlobals();
     }
-  })
+  });
 
   it('ignores a stale image request rejection once a newer request has already won', async () => {
     // Request A (image 1) is issued first, is slow, and eventually rejects.
     // Request B (image 2) is issued afterwards, is fast, and resolves first.
     // A's late rejection must not clobber the already-applied result of B.
-    const latestRequestId = { current: 0 }
-    let rejectA: (error: unknown) => void = () => undefined
-    let resolveB: (blob: Blob) => void = () => undefined
+    const latestRequestId = { current: 0 };
+    let rejectA: (error: unknown) => void = () => undefined;
+    let resolveB: (blob: Blob) => void = () => undefined;
 
-    const requestIdA = ++latestRequestId.current
-    const fetchA = () => new Promise<Blob>((_resolve, reject) => { rejectA = reject })
-    const resultA = loadPrescriptionImage(fetchA, requestIdA, latestRequestId)
+    const requestIdA = ++latestRequestId.current;
+    const fetchA = () =>
+      new Promise<Blob>((_resolve, reject) => {
+        rejectA = reject;
+      });
+    const resultA = loadPrescriptionImage(fetchA, requestIdA, latestRequestId);
 
-    const requestIdB = ++latestRequestId.current
-    const blobB = new Blob(['image-b'])
-    const fetchB = () => new Promise<Blob>((resolve) => { resolveB = resolve })
-    const resultB = loadPrescriptionImage(fetchB, requestIdB, latestRequestId)
+    const requestIdB = ++latestRequestId.current;
+    const blobB = new Blob(['image-b']);
+    const fetchB = () =>
+      new Promise<Blob>((resolve) => {
+        resolveB = resolve;
+      });
+    const resultB = loadPrescriptionImage(fetchB, requestIdB, latestRequestId);
 
-    resolveB(blobB)
-    await expect(resultB).resolves.toBe(blobB)
+    resolveB(blobB);
+    await expect(resultB).resolves.toBe(blobB);
 
-    rejectA(new Error('network error'))
-    await expect(resultA).resolves.toBeNull()
-  })
+    rejectA(new Error('network error'));
+    await expect(resultA).resolves.toBeNull();
+  });
 
   it('shows action and image failures beside the open prescription detail', () => {
-    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8')
-    const detail = readFileSync(new URL('./PrescriptionDetailPanel.tsx', import.meta.url), 'utf8')
+    const page = readFileSync(new URL('./PrescriptionQueuePage.tsx', import.meta.url), 'utf8');
+    const detail = readFileSync(new URL('./PrescriptionDetailPanel.tsx', import.meta.url), 'utf8');
 
-    expect(page).toContain('actionError={actionError}')
-    expect(detail).toContain('actionError && <p role="alert"')
-    expect(page).toContain('await loadPrescriptionImage(')
-  })
-
-})
+    expect(page).toContain('actionError={actionError}');
+    expect(detail).toMatch(/actionError &&\s*\(\s*<p role="alert"/);
+    expect(page).toContain('await loadPrescriptionImage(');
+  });
+});

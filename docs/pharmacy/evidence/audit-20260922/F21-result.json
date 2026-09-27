@@ -1,0 +1,34 @@
+{
+  "status": "INTEGRATED",
+  "commit": "24c336a50466d0afd8190576efb5a4ca529a880e",
+  "P": "d595215010ac956d5f697b7cc8083c26f3966787",
+  "paths": [
+    "apps/worker/src/custom/pharmacy/continuity/next-intake.ts",
+    "packages/db/bootstrap-meta.json",
+    "packages/db/bootstrap.sql",
+    "packages/db/test/bootstrap.test.ts",
+    "packages/db/test/custom_001_pharmacy_prescriptions.test.ts",
+    "packages/db/test/custom_048_tenant_admin_audit_events.test.ts",
+    "packages/db/test/custom_052_pharmacy_webhook_inbox_fencing.test.ts",
+    "packages/db/test/custom_053_outgoing_webhook_deliveries.test.ts",
+    "packages/db/test/custom_054_pharmacy_cli_break_glass_sessions.test.ts",
+    "packages/db/test/custom_056_pharmacy_recovery_operations.test.ts",
+    "packages/update-engine/test/upgrade-matrix.test.ts",
+    "apps/worker/src/custom/pharmacy/continuity/notification-queue.test.ts",
+    "packages/db/migrations/028_custom_080_pharmacy_continuity_notification_queue.sql",
+    "packages/db/test/custom_080_pharmacy_continuity_notification_queue.test.ts"
+  ],
+  "near": {
+    "exit": 0,
+    "files": 6,
+    "passed": 38
+  },
+  "verifyCiExit": 0,
+  "buildExit": 0,
+  "compiledRuntimeExit": 0,
+  "performanceExit": 0,
+  "patchReplay": "PASS",
+  "limitedReview": "F21-limited-review.md: no new confirmed bug; static only; existing thread",
+  "freshFinalIndependentReview": "NOT RUN",
+  "production": "NOT ACCESSED / NOT DEPLOYED"
+}

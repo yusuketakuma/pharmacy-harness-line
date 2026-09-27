@@ -40,17 +40,28 @@ function prepareGrowthEvent(
   const occurredAt = input.occurredAt ?? now();
   const condition = options.condition;
   const verb = options.ignoreDuplicate ? 'INSERT OR IGNORE' : 'INSERT';
-  const select = condition ? `SELECT ?, ?, ?, ?, ?, 1, ?, ?, ?, ? WHERE ${condition.sql}` : 'VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)';
-  return db.prepare(
-    `${verb} INTO pharmacy_growth_events
+  const select = condition
+    ? `SELECT ?, ?, ?, ?, ?, 1, ?, ?, ?, ? WHERE ${condition.sql}`
+    : 'VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)';
+  return db
+    .prepare(
+      `${verb} INTO pharmacy_growth_events
       (id, line_account_id, event_type, aggregate_id, subject_key,
        schema_version, occurred_at, idempotency_key, metadata_json, created_at)
      ${select}`,
-  ).bind(
-    crypto.randomUUID(), input.lineAccountId, input.eventType, input.aggregateId,
-    input.subjectKey ?? null, occurredAt, input.idempotencyKey, JSON.stringify(metadata), now(),
-    ...(condition?.bindings ?? []),
-  );
+    )
+    .bind(
+      crypto.randomUUID(),
+      input.lineAccountId,
+      input.eventType,
+      input.aggregateId,
+      input.subjectKey ?? null,
+      occurredAt,
+      input.idempotencyKey,
+      JSON.stringify(metadata),
+      now(),
+      ...(condition?.bindings ?? []),
+    );
 }
 
 async function runAuditedMutation(
@@ -68,7 +79,10 @@ async function runAuditedMutation(
   return (results[1]?.meta?.changes ?? 0) === 1;
 }
 
-function defaultPrescriptionValidUntil(issuedOn: string | null, validityBasis: 'default_4_days' | 'prescriber_specified'): string | null {
+function defaultPrescriptionValidUntil(
+  issuedOn: string | null,
+  validityBasis: 'default_4_days' | 'prescriber_specified',
+): string | null {
   if (!issuedOn || validityBasis !== 'default_4_days') return null;
   const date = new Date(`${issuedOn}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + 3);
@@ -89,8 +103,9 @@ export async function getPharmacyCapabilityConfig(
   db: D1Database,
   lineAccountId: string,
 ): Promise<PharmacyCapabilityConfig | null> {
-  const row = await db.prepare(
-    `SELECT capability.line_account_id, capability.mode, capability.capabilities_json,
+  const row = await db
+    .prepare(
+      `SELECT capability.line_account_id, capability.mode, capability.capabilities_json,
             capability.proactive_monthly_limit, capability.unfollow_alert_state,
             COALESCE(revision.revision, 1) AS revision,
             capability.created_at, capability.updated_at
@@ -98,16 +113,18 @@ export async function getPharmacyCapabilityConfig(
        LEFT JOIN pharmacy_account_capability_revisions AS revision
               ON revision.line_account_id = capability.line_account_id
       WHERE capability.line_account_id = ?`,
-  ).bind(lineAccountId).first<{
-    line_account_id: string;
-    mode: 'pharmacy';
-    capabilities_json: string;
-    proactive_monthly_limit: number;
-    unfollow_alert_state: 'alert_only' | 'auto_pause';
-    revision: number;
-    created_at: string;
-    updated_at: string;
-  }>();
+    )
+    .bind(lineAccountId)
+    .first<{
+      line_account_id: string;
+      mode: 'pharmacy';
+      capabilities_json: string;
+      proactive_monthly_limit: number;
+      unfollow_alert_state: 'alert_only' | 'auto_pause';
+      revision: number;
+      created_at: string;
+      updated_at: string;
+    }>();
   if (!row) return null;
   return {
     line_account_id: row.line_account_id,
@@ -130,8 +147,7 @@ export async function savePharmacyCapabilityConfig(
   actorId: string,
   expectedRevision?: number,
 ): Promise<PharmacyCapabilityConfig> {
-  if (capabilities.some((value) =>
-    !(PATIENT_PHARMACY_CAPABILITIES as readonly string[]).includes(value))) {
+  if (capabilities.some((value) => !(PATIENT_PHARMACY_CAPABILITIES as readonly string[]).includes(value))) {
     throw new Error('unknown pharmacy capability');
   }
   const patientCapabilities = [...new Set(capabilities)] as PharmacyCapability[];
@@ -146,12 +162,13 @@ export async function savePharmacyCapabilityConfig(
   const managementCapabilities = current.capabilities.filter((capability) =>
     (MANAGEMENT_PHARMACY_CAPABILITIES as readonly string[]).includes(capability),
   );
-  const unique = PHARMACY_CAPABILITIES.filter((capability) =>
-    patientCapabilities.includes(capability) || managementCapabilities.includes(capability),
+  const unique = PHARMACY_CAPABILITIES.filter(
+    (capability) => patientCapabilities.includes(capability) || managementCapabilities.includes(capability),
   );
   const timestamp = now();
-  const mutation = db.prepare(
-    `UPDATE pharmacy_account_capabilities
+  const mutation = db
+    .prepare(
+      `UPDATE pharmacy_account_capabilities
         SET capabilities_json = ?, proactive_monthly_limit = ?,
             unfollow_alert_state = ?, updated_at = ?
       WHERE line_account_id = ? AND mode = 'pharmacy'
@@ -160,61 +177,81 @@ export async function savePharmacyCapabilityConfig(
            WHERE revision.line_account_id = pharmacy_account_capabilities.line_account_id
              AND revision.revision = ?
         ))`,
-  ).bind(
-    JSON.stringify(unique), proactiveMonthlyLimit, unfollowAlertState, timestamp,
-    lineAccountId, expectedRevision ?? null, expectedRevision ?? null,
-  );
-  const changed = await runAuditedMutation(db, mutation, {
-    lineAccountId,
-    eventType: 'capability_config_updated',
-    aggregateId: lineAccountId,
-    occurredAt: timestamp,
-    idempotencyKey: `audit:${crypto.randomUUID()}`,
-    metadata: { actor_id: actorId },
-  }, {
-    sql: `EXISTS (SELECT 1 FROM pharmacy_account_capabilities
+    )
+    .bind(
+      JSON.stringify(unique),
+      proactiveMonthlyLimit,
+      unfollowAlertState,
+      timestamp,
+      lineAccountId,
+      expectedRevision ?? null,
+      expectedRevision ?? null,
+    );
+  const changed = await runAuditedMutation(
+    db,
+    mutation,
+    {
+      lineAccountId,
+      eventType: 'capability_config_updated',
+      aggregateId: lineAccountId,
+      occurredAt: timestamp,
+      idempotencyKey: `audit:${crypto.randomUUID()}`,
+      metadata: { actor_id: actorId },
+    },
+    {
+      sql: `EXISTS (SELECT 1 FROM pharmacy_account_capabilities
                   WHERE line_account_id = ? AND updated_at = ?)`,
-    bindings: [lineAccountId, timestamp],
-  });
+      bindings: [lineAccountId, timestamp],
+    },
+  );
   if (!changed) throw new Error('pharmacy capability config was not saved');
   const saved = await getPharmacyCapabilityConfig(db, lineAccountId);
   if (!saved) throw new Error('pharmacy capability config was not saved');
   return saved;
 }
 
-export async function recordGrowthEvent(
-  db: D1Database,
-  input: GrowthEventInput,
-): Promise<boolean> {
+export async function recordGrowthEvent(db: D1Database, input: GrowthEventInput): Promise<boolean> {
   const result = await prepareGrowthEvent(db, input, { ignoreDuplicate: true }).run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
 export async function createMedicalSource(
   db: D1Database,
-  input: { lineAccountId: string; displayName: string; classification: 'primary' | 'other'; staffId: string },
+  input: {
+    lineAccountId: string;
+    displayName: string;
+    classification: 'primary' | 'other';
+    staffId: string;
+  },
 ): Promise<{ id: string; display_name: string; classification: 'primary' | 'other' }> {
   const displayName = input.displayName.trim();
   if (!displayName || displayName.length > 120) throw new Error('invalid medical source name');
   const id = crypto.randomUUID();
   const timestamp = now();
-  const mutation = db.prepare(
-    `INSERT INTO pharmacy_medical_sources
+  const mutation = db
+    .prepare(
+      `INSERT INTO pharmacy_medical_sources
       (id, line_account_id, display_name, classification, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, input.lineAccountId, displayName, input.classification, input.staffId, timestamp, timestamp);
-  const changed = await runAuditedMutation(db, mutation, {
-    lineAccountId: input.lineAccountId,
-    eventType: 'medical_source_created',
-    aggregateId: id,
-    occurredAt: timestamp,
-    idempotencyKey: `audit:${crypto.randomUUID()}`,
-    metadata: { actor_id: input.staffId },
-  }, {
-    sql: `EXISTS (SELECT 1 FROM pharmacy_medical_sources
+    )
+    .bind(id, input.lineAccountId, displayName, input.classification, input.staffId, timestamp, timestamp);
+  const changed = await runAuditedMutation(
+    db,
+    mutation,
+    {
+      lineAccountId: input.lineAccountId,
+      eventType: 'medical_source_created',
+      aggregateId: id,
+      occurredAt: timestamp,
+      idempotencyKey: `audit:${crypto.randomUUID()}`,
+      metadata: { actor_id: input.staffId },
+    },
+    {
+      sql: `EXISTS (SELECT 1 FROM pharmacy_medical_sources
                   WHERE id = ? AND line_account_id = ? AND updated_at = ?)`,
-    bindings: [id, input.lineAccountId, timestamp],
-  });
+      bindings: [id, input.lineAccountId, timestamp],
+    },
+  );
   if (!changed) throw new Error('medical source was not created');
   return { id, display_name: displayName, classification: input.classification };
 }
@@ -227,42 +264,61 @@ export async function setMedicalSourceActive(
   actorId: string,
 ): Promise<void> {
   const timestamp = now();
-  const mutation = db.prepare(
-    `UPDATE pharmacy_medical_sources SET is_active = ?, updated_at = ?
+  const mutation = db
+    .prepare(
+      `UPDATE pharmacy_medical_sources SET is_active = ?, updated_at = ?
       WHERE id = ? AND line_account_id = ?`,
-  ).bind(isActive ? 1 : 0, timestamp, sourceId, lineAccountId);
-  const changed = await runAuditedMutation(db, mutation, {
-    lineAccountId,
-    eventType: 'medical_source_updated',
-    aggregateId: sourceId,
-    occurredAt: timestamp,
-    idempotencyKey: `audit:${crypto.randomUUID()}`,
-    metadata: { actor_id: actorId },
-  }, {
-    sql: `EXISTS (SELECT 1 FROM pharmacy_medical_sources
+    )
+    .bind(isActive ? 1 : 0, timestamp, sourceId, lineAccountId);
+  const changed = await runAuditedMutation(
+    db,
+    mutation,
+    {
+      lineAccountId,
+      eventType: 'medical_source_updated',
+      aggregateId: sourceId,
+      occurredAt: timestamp,
+      idempotencyKey: `audit:${crypto.randomUUID()}`,
+      metadata: { actor_id: actorId },
+    },
+    {
+      sql: `EXISTS (SELECT 1 FROM pharmacy_medical_sources
                   WHERE id = ? AND line_account_id = ? AND updated_at = ?)`,
-    bindings: [sourceId, lineAccountId, timestamp],
-  });
+      bindings: [sourceId, lineAccountId, timestamp],
+    },
+  );
   if (!changed) throw new Error('medical source not found');
 }
 
 export async function classifySubmissionSource(
   db: D1Database,
-  input: { lineAccountId: string; submissionId: string; sourceId: string | null; classification: 'primary' | 'other' | 'unknown'; staffId: string; expectedUpdatedAt?: string | null },
+  input: {
+    lineAccountId: string;
+    submissionId: string;
+    sourceId: string | null;
+    classification: 'primary' | 'other' | 'unknown';
+    staffId: string;
+    expectedUpdatedAt?: string | null;
+  },
 ): Promise<void> {
   if (input.classification !== 'unknown' && !input.sourceId) throw new Error('source is required');
-  if (input.classification === 'unknown' && input.sourceId) throw new Error('unknown source must not reference a source id');
+  if (input.classification === 'unknown' && input.sourceId)
+    throw new Error('unknown source must not reference a source id');
   if (input.sourceId) {
-    const source = await db.prepare(
-      `SELECT id, classification FROM pharmacy_medical_sources
+    const source = await db
+      .prepare(
+        `SELECT id, classification FROM pharmacy_medical_sources
         WHERE id = ? AND line_account_id = ? AND is_active = 1`,
-    ).bind(input.sourceId, input.lineAccountId).first<{ id: string; classification: 'primary' | 'other' }>();
+      )
+      .bind(input.sourceId, input.lineAccountId)
+      .first<{ id: string; classification: 'primary' | 'other' }>();
     if (!source) throw new Error('medical source not found');
     if (source.classification !== input.classification) throw new Error('medical source classification mismatch');
   }
   const timestamp = now();
-  const mutation = db.prepare(
-    `INSERT INTO pharmacy_submission_sources
+  const mutation = db
+    .prepare(
+      `INSERT INTO pharmacy_submission_sources
       (submission_id, line_account_id, source_id, classification, entered_by, entered_at, updated_at)
      SELECT ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (
@@ -278,25 +334,43 @@ export async function classifySubmissionSource(
        updated_at = CASE WHEN excluded.updated_at <= pharmacy_submission_sources.updated_at
          THEN strftime('%Y-%m-%dT%H:%M:%fZ', pharmacy_submission_sources.updated_at, '+0.001 seconds')
          ELSE excluded.updated_at END`,
-  ).bind(
-    input.submissionId, input.lineAccountId, input.sourceId, input.classification,
-    input.staffId, timestamp, timestamp, input.submissionId, input.lineAccountId,
-    input.expectedUpdatedAt === undefined ? 0 : 1, input.submissionId, input.lineAccountId,
-    input.expectedUpdatedAt ?? null,
-  );
-  const changed = await runAuditedMutation(db, mutation, {
-    lineAccountId: input.lineAccountId,
-    eventType: 'submission_source_classified',
-    aggregateId: input.submissionId,
-    occurredAt: timestamp,
-    idempotencyKey: `audit:${crypto.randomUUID()}`,
-    metadata: { actor_id: input.staffId },
-  }, {
-    sql: `changes() = 1 AND EXISTS (SELECT 1 FROM pharmacy_submission_sources
+    )
+    .bind(
+      input.submissionId,
+      input.lineAccountId,
+      input.sourceId,
+      input.classification,
+      input.staffId,
+      timestamp,
+      timestamp,
+      input.submissionId,
+      input.lineAccountId,
+      input.expectedUpdatedAt === undefined ? 0 : 1,
+      input.submissionId,
+      input.lineAccountId,
+      input.expectedUpdatedAt ?? null,
+    );
+  const changed = await runAuditedMutation(
+    db,
+    mutation,
+    {
+      lineAccountId: input.lineAccountId,
+      eventType: 'submission_source_classified',
+      aggregateId: input.submissionId,
+      occurredAt: timestamp,
+      idempotencyKey: `audit:${crypto.randomUUID()}`,
+      metadata: { actor_id: input.staffId },
+    },
+    {
+      sql: `changes() = 1 AND EXISTS (SELECT 1 FROM pharmacy_submission_sources
                   WHERE submission_id = ? AND line_account_id = ?)`,
-    bindings: [input.submissionId, input.lineAccountId],
-  });
-  if (!changed) throw new Error(input.expectedUpdatedAt === undefined ? 'prescription submission not found' : 'stale prescription review');
+      bindings: [input.submissionId, input.lineAccountId],
+    },
+  );
+  if (!changed)
+    throw new Error(
+      input.expectedUpdatedAt === undefined ? 'prescription submission not found' : 'stale prescription review',
+    );
 }
 
 export async function savePrescriptionValidity(
@@ -326,11 +400,10 @@ export async function savePrescriptionValidity(
   }
   const timestamp = now();
   const verifiedAt = input.verificationStatus === 'unverified' ? null : timestamp;
-  const reminderDueAt = input.verificationStatus === 'verified'
-    ? prescriptionReminderDueAt(validUntil)
-    : null;
-  const mutation = db.prepare(
-    `INSERT INTO pharmacy_prescription_validities
+  const reminderDueAt = input.verificationStatus === 'verified' ? prescriptionReminderDueAt(validUntil) : null;
+  const mutation = db
+    .prepare(
+      `INSERT INTO pharmacy_prescription_validities
       (submission_id, line_account_id, issued_on, valid_until, validity_basis,
        verification_status, verified_by, verified_at, reminder_due_at, created_at, updated_at)
      SELECT ?, ?, ?, ?, ?, ?, ?, ?,
@@ -363,27 +436,49 @@ export async function savePrescriptionValidity(
        updated_at = CASE WHEN excluded.updated_at <= pharmacy_prescription_validities.updated_at
          THEN strftime('%Y-%m-%dT%H:%M:%fZ', pharmacy_prescription_validities.updated_at, '+0.001 seconds')
          ELSE excluded.updated_at END`,
-  ).bind(
-    input.submissionId, input.lineAccountId, input.issuedOn, validUntil, input.validityBasis,
-    input.verificationStatus, input.staffId, verifiedAt,
-    reminderDueAt, input.lineAccountId, reminderDueAt,
-    timestamp, timestamp, input.submissionId, input.lineAccountId,
-    input.expectedUpdatedAt === undefined ? 0 : 1, input.submissionId, input.lineAccountId,
-    input.expectedUpdatedAt ?? null,
-  );
-  const changed = await runAuditedMutation(db, mutation, {
-    lineAccountId: input.lineAccountId,
-    eventType: 'prescription_validity_updated',
-    aggregateId: input.submissionId,
-    occurredAt: timestamp,
-    idempotencyKey: `audit:${crypto.randomUUID()}`,
-    metadata: { actor_id: input.staffId },
-  }, {
-    sql: `changes() = 1 AND EXISTS (SELECT 1 FROM pharmacy_prescription_validities
+    )
+    .bind(
+      input.submissionId,
+      input.lineAccountId,
+      input.issuedOn,
+      validUntil,
+      input.validityBasis,
+      input.verificationStatus,
+      input.staffId,
+      verifiedAt,
+      reminderDueAt,
+      input.lineAccountId,
+      reminderDueAt,
+      timestamp,
+      timestamp,
+      input.submissionId,
+      input.lineAccountId,
+      input.expectedUpdatedAt === undefined ? 0 : 1,
+      input.submissionId,
+      input.lineAccountId,
+      input.expectedUpdatedAt ?? null,
+    );
+  const changed = await runAuditedMutation(
+    db,
+    mutation,
+    {
+      lineAccountId: input.lineAccountId,
+      eventType: 'prescription_validity_updated',
+      aggregateId: input.submissionId,
+      occurredAt: timestamp,
+      idempotencyKey: `audit:${crypto.randomUUID()}`,
+      metadata: { actor_id: input.staffId },
+    },
+    {
+      sql: `changes() = 1 AND EXISTS (SELECT 1 FROM pharmacy_prescription_validities
                   WHERE submission_id = ? AND line_account_id = ?)`,
-    bindings: [input.submissionId, input.lineAccountId],
-  });
-  if (!changed) throw new Error(input.expectedUpdatedAt === undefined ? 'prescription submission not found' : 'stale prescription review');
+      bindings: [input.submissionId, input.lineAccountId],
+    },
+  );
+  if (!changed)
+    throw new Error(
+      input.expectedUpdatedAt === undefined ? 'prescription submission not found' : 'stale prescription review',
+    );
 }
 
 export async function markPrescriptionValidityExpiredReview(
@@ -398,8 +493,9 @@ export async function markPrescriptionValidityExpiredReview(
 ): Promise<boolean> {
   if (!isCalendarDate(input.localDate)) throw new Error('invalid local date');
   const timestamp = (input.at ?? new Date()).toISOString();
-  const mutation = db.prepare(
-    `UPDATE pharmacy_prescription_validities
+  const mutation = db
+    .prepare(
+      `UPDATE pharmacy_prescription_validities
         SET verification_status = 'expired_review_required',
             reminder_claimed_at = NULL, updated_at = ?
       WHERE submission_id = ? AND line_account_id = ?
@@ -410,20 +506,26 @@ export async function markPrescriptionValidityExpiredReview(
              AND s.line_account_id = pharmacy_prescription_validities.line_account_id
              AND s.status NOT IN ('closed','cancelled')
         )`,
-  ).bind(timestamp, input.submissionId, input.lineAccountId, input.localDate);
-  return runAuditedMutation(db, mutation, {
-    lineAccountId: input.lineAccountId,
-    eventType: 'prescription_validity_updated',
-    aggregateId: input.submissionId,
-    occurredAt: timestamp,
-    idempotencyKey: `audit:${crypto.randomUUID()}`,
-    metadata: { actor_id: input.actorId },
-  }, {
-    sql: `EXISTS (SELECT 1 FROM pharmacy_prescription_validities
+    )
+    .bind(timestamp, input.submissionId, input.lineAccountId, input.localDate);
+  return runAuditedMutation(
+    db,
+    mutation,
+    {
+      lineAccountId: input.lineAccountId,
+      eventType: 'prescription_validity_updated',
+      aggregateId: input.submissionId,
+      occurredAt: timestamp,
+      idempotencyKey: `audit:${crypto.randomUUID()}`,
+      metadata: { actor_id: input.actorId },
+    },
+    {
+      sql: `EXISTS (SELECT 1 FROM pharmacy_prescription_validities
                   WHERE submission_id = ? AND line_account_id = ?
                     AND verification_status = 'expired_review_required' AND updated_at = ?)`,
-    bindings: [input.submissionId, input.lineAccountId, timestamp],
-  });
+      bindings: [input.submissionId, input.lineAccountId, timestamp],
+    },
+  );
 }
 
 export interface GrowthPromiseRow {
@@ -444,7 +546,10 @@ function percentile(values: number[], p: number): number | null {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
 }
 
-export function summarizePromiseMetrics(rows: GrowthPromiseRow[], graceMinutes = 0): {
+export function summarizePromiseMetrics(
+  rows: GrowthPromiseRow[],
+  graceMinutes = 0,
+): {
   promised: number;
   onTime: number;
   late: number;
@@ -468,11 +573,11 @@ export function summarizePromiseMetrics(rows: GrowthPromiseRow[], graceMinutes =
   const lateness: number[] = [];
   for (const candidates of bySubmission.values()) {
     const readyAt = candidates.find((row) => row.ready_at)?.ready_at ?? null;
-    const eligible = readyAt
-      ? candidates.filter((row) => row.quote_created_at <= readyAt)
-      : candidates;
+    const eligible = readyAt ? candidates.filter((row) => row.quote_created_at <= readyAt) : candidates;
     if (!eligible.length) continue;
-    const quote = [...eligible].sort((a, b) => b.revision - a.revision || b.quote_created_at.localeCompare(a.quote_created_at))[0];
+    const quote = [...eligible].sort(
+      (a, b) => b.revision - a.revision || b.quote_created_at.localeCompare(a.quote_created_at),
+    )[0];
     promiseRevisionCount += eligible.length;
     if (!readyAt) {
       promiseWithoutReady++;
@@ -498,14 +603,13 @@ export function summarizePromiseMetrics(rows: GrowthPromiseRow[], graceMinutes =
   };
 }
 
-export type GrowthEventRow = { event_type: string; subject_key: string | null; occurred_at: string };
+export type GrowthEventRow = {
+  event_type: string;
+  subject_key: string | null;
+  occurred_at: string;
+};
 
-export function summarizeCohorts(
-  rows: GrowthEventRow[],
-  from: string,
-  to: string,
-  observedThrough: string,
-) {
+export function summarizeCohorts(rows: GrowthEventRow[], from: string, to: string, observedThrough: string) {
   const follows = new Map<string, string>();
   const firstFriendSubmissions = new Map<string, string>();
   const firstSubmissions = new Map<string, string>();
@@ -517,9 +621,12 @@ export function summarizeCohorts(
   };
   for (const row of rows) {
     if (!row.subject_key) continue;
-    if (row.event_type === 'first_follow' && inCohort(row.occurred_at)) rememberFirst(follows, row.subject_key, row.occurred_at);
-    if (row.event_type === 'first_friend_submission') rememberFirst(firstFriendSubmissions, row.subject_key, row.occurred_at);
-    if (row.event_type === 'first_submission' && inCohort(row.occurred_at)) rememberFirst(firstSubmissions, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_follow' && inCohort(row.occurred_at))
+      rememberFirst(follows, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_friend_submission')
+      rememberFirst(firstFriendSubmissions, row.subject_key, row.occurred_at);
+    if (row.event_type === 'first_submission' && inCohort(row.occurred_at))
+      rememberFirst(firstSubmissions, row.subject_key, row.occurred_at);
     if (row.event_type === 'second_submission') rememberFirst(secondSubmissions, row.subject_key, row.occurred_at);
   }
   const followCohort = [...follows.entries()].filter(([, occurredAt]) => {
@@ -528,13 +635,22 @@ export function summarizeCohorts(
   });
   const firstSubmissionNumerator = followCohort.filter(([subject, occurredAt]) => {
     const submittedAt = firstFriendSubmissions.get(subject);
-    return !!submittedAt && Date.parse(submittedAt) >= Date.parse(occurredAt) && Date.parse(submittedAt) <= Date.parse(occurredAt) + 30 * 86400000;
+    return (
+      !!submittedAt &&
+      Date.parse(submittedAt) >= Date.parse(occurredAt) &&
+      Date.parse(submittedAt) <= Date.parse(occurredAt) + 30 * 86400000
+    );
   }).length;
-  const firstSubmissionCohort = [...firstSubmissions.entries()].filter(([, occurredAt]) =>
-    Date.parse(occurredAt) + 90 * 86400000 <= Date.parse(observedThrough));
+  const firstSubmissionCohort = [...firstSubmissions.entries()].filter(
+    ([, occurredAt]) => Date.parse(occurredAt) + 90 * 86400000 <= Date.parse(observedThrough),
+  );
   const secondSubmissionNumerator = firstSubmissionCohort.filter(([subject, occurredAt]) => {
     const submittedAt = secondSubmissions.get(subject);
-    return !!submittedAt && Date.parse(submittedAt) >= Date.parse(occurredAt) && Date.parse(submittedAt) <= Date.parse(occurredAt) + 90 * 86400000;
+    return (
+      !!submittedAt &&
+      Date.parse(submittedAt) >= Date.parse(occurredAt) &&
+      Date.parse(submittedAt) <= Date.parse(occurredAt) + 90 * 86400000
+    );
   }).length;
   return {
     measurableFollows: followCohort.length,
@@ -561,20 +677,31 @@ export async function getGrowthDashboard(
   observedThrough = new Date().toISOString(),
 ): Promise<Record<string, unknown>> {
   const bounds = [from, to];
-  const eventObservationEnd = new Date(Math.min(
-    Date.parse(observedThrough),
-    Date.parse(to) + 90 * 86400000,
-  )).toISOString();
-  const notificationRetryHorizon = new Date(
-    Date.parse(observedThrough) - 24 * 60 * 60 * 1000,
+  const eventObservationEnd = new Date(
+    Math.min(Date.parse(observedThrough), Date.parse(to) + 90 * 86400000),
   ).toISOString();
-  const [entryEvents, sourceRows, promiseRows, readyCount, validity, notifications, unfollows, config, messaging, outboundLine] = await Promise.all([
-    db.prepare(`SELECT event_type, subject_key, occurred_at
+  const notificationRetryHorizon = new Date(Date.parse(observedThrough) - 24 * 60 * 60 * 1000).toISOString();
+  const [
+    entryEvents,
+    sourceRows,
+    promiseRows,
+    readyCount,
+    validity,
+    notifications,
+    unfollows,
+    config,
+    messaging,
+    outboundLine,
+  ] = await Promise.all([
+    db
+      .prepare(`SELECT event_type, subject_key, occurred_at
       FROM pharmacy_growth_events
       WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
         AND event_type IN ('first_follow','first_friend_submission','first_submission','second_submission')`)
-      .bind(lineAccountId, from, eventObservationEnd).all<GrowthEventRow>(),
-    db.prepare(`SELECT COALESCE(ss.classification, 'unknown') AS classification, COUNT(DISTINCT s.id) AS count
+      .bind(lineAccountId, from, eventObservationEnd)
+      .all<GrowthEventRow>(),
+    db
+      .prepare(`SELECT COALESCE(ss.classification, 'unknown') AS classification, COUNT(DISTINCT s.id) AS count
       FROM pharmacy_prescription_submissions s
       INNER JOIN pharmacy_prescription_events accepted
         ON accepted.submission_id = s.id AND accepted.event_type = 'status_changed'
@@ -585,8 +712,11 @@ export async function getGrowthDashboard(
         ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
       WHERE s.line_account_id = ? AND accepted.created_at >= ? AND accepted.created_at < ?
         AND COALESCE(attr.is_synthetic, 0) = 0
-      GROUP BY COALESCE(ss.classification, 'unknown')`).bind(lineAccountId, ...bounds).all<{ classification: string; count: number }>(),
-    db.prepare(`WITH first_ready AS (
+      GROUP BY COALESCE(ss.classification, 'unknown')`)
+      .bind(lineAccountId, ...bounds)
+      .all<{ classification: string; count: number }>(),
+    db
+      .prepare(`WITH first_ready AS (
       SELECT s.id AS submission_id, MIN(ready.created_at) AS ready_at
         FROM pharmacy_prescription_submissions s
         INNER JOIN pharmacy_prescription_events ready
@@ -611,8 +741,10 @@ export async function getGrowthDashboard(
          SELECT 1 FROM json_each(q.requirements_json)
           WHERE json_extract(value, '$.status') <> 'satisfied'
        ))`)
-      .bind(lineAccountId, ...bounds, lineAccountId).all<GrowthPromiseRow>(),
-    db.prepare(`SELECT COUNT(DISTINCT e.submission_id) AS count
+      .bind(lineAccountId, ...bounds, lineAccountId)
+      .all<GrowthPromiseRow>(),
+    db
+      .prepare(`SELECT COUNT(DISTINCT e.submission_id) AS count
                   FROM pharmacy_prescription_events e
                   INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id AND s.line_account_id = ?
                   LEFT JOIN pharmacy_submission_attributes attr
@@ -620,8 +752,10 @@ export async function getGrowthDashboard(
                  WHERE e.event_type = 'status_changed' AND e.to_status = 'ready'
                    AND e.created_at >= ? AND e.created_at < ?
                    AND s.status <> 'cancelled' AND COALESCE(attr.is_synthetic, 0) = 0`)
-      .bind(lineAccountId, ...bounds).first<{ count: number }>(),
-    db.prepare(`SELECT
+      .bind(lineAccountId, ...bounds)
+      .first<{ count: number }>(),
+    db
+      .prepare(`SELECT
       SUM(CASE WHEN v.verification_status = 'verified' THEN 1 ELSE 0 END) AS verified_validity,
       SUM(CASE WHEN v.reminder_sent_at IS NOT NULL THEN 1 ELSE 0 END) AS reminder_sent,
       SUM(CASE WHEN v.verification_status = 'expired_review_required' THEN 1 ELSE 0 END) AS expired_review_required,
@@ -635,13 +769,17 @@ export async function getGrowthDashboard(
         ON attr.submission_id = s.id AND attr.line_account_id = s.line_account_id
       WHERE v.line_account_id = ? AND v.created_at >= ? AND v.created_at < ?
         AND COALESCE(attr.is_synthetic, 0) = 0`)
-      .bind(lineAccountId, ...bounds).first<Record<string, number | null>>(),
-    db.prepare(`SELECT category, outcome, COUNT(*) AS count,
+      .bind(lineAccountId, ...bounds)
+      .first<Record<string, number | null>>(),
+    db
+      .prepare(`SELECT category, outcome, COUNT(*) AS count,
       SUM(CASE WHEN outcome = 'attempted' AND created_at <= ? THEN 1 ELSE 0 END) AS stale_count
       FROM pharmacy_notification_events WHERE line_account_id = ? AND occurred_at >= ? AND occurred_at < ?
-      GROUP BY category, outcome`).bind(notificationRetryHorizon, lineAccountId, ...bounds)
+      GROUP BY category, outcome`)
+      .bind(notificationRetryHorizon, lineAccountId, ...bounds)
       .all<{ category: string; outcome: string; count: number; stale_count: number | null }>(),
-    db.prepare(`SELECT
+    db
+      .prepare(`SELECT
       COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND n.friend_id IS NOT NULL THEN n.friend_id END) AS exposed_friends,
       COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND julianday(u.occurred_at) < julianday(n.occurred_at, '+24 hours') THEN u.subject_key END) AS unfollow_24h,
       COUNT(DISTINCT CASE WHEN n.outcome = 'sent' AND julianday(u.occurred_at) < julianday(n.occurred_at, '+72 hours') THEN u.subject_key END) AS unfollow_72h
@@ -653,11 +791,19 @@ export async function getGrowthDashboard(
       WHERE n.line_account_id = ? AND n.outcome = 'sent'
         AND n.occurred_at >= ? AND n.occurred_at < ?
         AND julianday(n.occurred_at, '+72 hours') <= julianday(?)`)
-      .bind(lineAccountId, ...bounds, observedThrough).first<{ exposed_friends: number | null; unfollow_24h: number | null; unfollow_72h: number | null }>(),
-    db.prepare(`SELECT unfollow_alert_state FROM pharmacy_account_capabilities
+      .bind(lineAccountId, ...bounds, observedThrough)
+      .first<{
+        exposed_friends: number | null;
+        unfollow_24h: number | null;
+        unfollow_72h: number | null;
+      }>(),
+    db
+      .prepare(`SELECT unfollow_alert_state FROM pharmacy_account_capabilities
       WHERE line_account_id = ? AND mode = 'pharmacy'`)
-      .bind(lineAccountId).first<{ unfollow_alert_state: 'alert_only' | 'auto_pause' }>(),
-    db.prepare(`SELECT
+      .bind(lineAccountId)
+      .first<{ unfollow_alert_state: 'alert_only' | 'auto_pause' }>(),
+    db
+      .prepare(`SELECT
       COUNT(CASE WHEN direction = 'outgoing'
                   AND (delivery_type IS NULL OR delivery_type <> 'test') THEN 1 END) AS sent,
       COUNT(CASE WHEN direction = 'incoming' THEN 1 END) AS received,
@@ -685,12 +831,20 @@ export async function getGrowthDashboard(
                 THEN created_at
               ELSE created_at || '+09:00'
             END) < julianday(?)`)
-      .bind(lineAccountId, ...bounds).first<{
-        sent: number; received: number; manual: number; automated: number;
-        source_unverified: number; push: number; reply: number;
-        delivery_unverified: number; unique_correspondents: number;
+      .bind(lineAccountId, ...bounds)
+      .first<{
+        sent: number;
+        received: number;
+        manual: number;
+        automated: number;
+        source_unverified: number;
+        push: number;
+        reply: number;
+        delivery_unverified: number;
+        unique_correspondents: number;
       }>(),
-    db.prepare(`SELECT
+    db
+      .prepare(`SELECT
       COUNT(CASE WHEN outcome = 'open' THEN 1 END) AS attempted,
       COUNT(CASE WHEN outcome = 'retired'
                   AND (stop_reason IN ('retry_window_expired', 'reply_outcome_unknown', 'payload_unavailable')
@@ -700,25 +854,36 @@ export async function getGrowthDashboard(
       WHERE line_account_id = ?
         AND COALESCE(first_attempted_at, settled_at) >= ?
         AND COALESCE(first_attempted_at, settled_at) < ?`)
-      .bind(lineAccountId, ...bounds).first<{
-        attempted: number; reconciliation_required: number;
+      .bind(lineAccountId, ...bounds)
+      .first<{
+        attempted: number;
+        reconciliation_required: number;
       }>(),
   ]);
   const events = entryEvents.results ?? [];
   const cohort = summarizeCohorts(events, from, to, observedThrough);
-  const firstTimeFollows = events.filter((row) => row.event_type === 'first_follow' && row.occurred_at >= from && row.occurred_at < to).length;
-  const firstSubmissions = events.filter((row) => row.event_type === 'first_submission' && row.occurred_at >= from && row.occurred_at < to).length;
-  const secondSubmissions = events.filter((row) => row.event_type === 'second_submission' && row.occurred_at >= from && row.occurred_at < to).length;
+  const firstTimeFollows = events.filter(
+    (row) => row.event_type === 'first_follow' && row.occurred_at >= from && row.occurred_at < to,
+  ).length;
+  const firstSubmissions = events.filter(
+    (row) => row.event_type === 'first_submission' && row.occurred_at >= from && row.occurred_at < to,
+  ).length;
+  const secondSubmissions = events.filter(
+    (row) => row.event_type === 'second_submission' && row.occurred_at >= from && row.occurred_at < to,
+  ).length;
   const sourceCounts = Object.fromEntries((sourceRows.results ?? []).map((row) => [row.classification, row.count]));
   const promise = summarizePromiseMetrics(promiseRows.results ?? [], 0);
-  const notificationCounts = Object.fromEntries((notifications.results ?? []).map((row) => [`${row.category}:${row.outcome}`, row.count]));
+  const notificationCounts = Object.fromEntries(
+    (notifications.results ?? []).map((row) => [`${row.category}:${row.outcome}`, row.count]),
+  );
   const primary = sourceCounts.primary ?? 0;
   const other = sourceCounts.other ?? 0;
   const sourceKnown = primary + other;
   const unknown = sourceCounts.unknown ?? 0;
   const sourceTotal = sourceKnown + unknown;
   return {
-    from, to,
+    from,
+    to,
     entry: {
       firstTimeFollows,
       measurableFollows: cohort.measurableFollows,
@@ -735,7 +900,12 @@ export async function getGrowthDashboard(
       knownDenominator: sourceKnown,
       attributionCoverage: sourceTotal ? sourceKnown / sourceTotal : null,
     },
-    promises: { ...promise, readyEvents: readyCount?.count ?? 0, promiseWithoutQuote: Math.max(0, (readyCount?.count ?? 0) - promise.promised), graceMinutes: 0 },
+    promises: {
+      ...promise,
+      readyEvents: readyCount?.count ?? 0,
+      promiseWithoutQuote: Math.max(0, (readyCount?.count ?? 0) - promise.promised),
+      graceMinutes: 0,
+    },
     validity: {
       verified: validity?.verified_validity ?? 0,
       reminderSent: validity?.reminder_sent ?? 0,
@@ -750,8 +920,7 @@ export async function getGrowthDashboard(
       proactiveAttempts: Object.entries(notificationCounts)
         .filter(([key]) => key.startsWith('proactive_noncare:'))
         .reduce((sum, [, count]) => sum + count, 0),
-      reconciliationRequired: (notifications.results ?? [])
-        .reduce((sum, row) => sum + (row.stale_count ?? 0), 0),
+      reconciliationRequired: (notifications.results ?? []).reduce((sum, row) => sum + (row.stale_count ?? 0), 0),
       alertState: config?.unfollow_alert_state ?? 'alert_only',
     },
     messaging: {

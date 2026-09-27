@@ -30,7 +30,8 @@ describe('pharmacy log privacy contract', () => {
 
   it('does not write LINE user identifiers, credentials, or form answers to application logs', () => {
     const offenders = sources.flatMap(({ file, text }) =>
-      PATTERNS.some((pattern) => pattern.test(text)) ? [file] : []);
+      PATTERNS.some((pattern) => pattern.test(text)) ? [file] : [],
+    );
     expect(offenders).toEqual([]);
   });
 });

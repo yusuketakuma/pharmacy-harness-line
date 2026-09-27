@@ -1,0 +1,133 @@
+diff --git a/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.test.ts b/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.test.ts
+index 40b8fdf..d278b65 100644
+--- a/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.test.ts
++++ b/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.test.ts
+@@ -223,6 +223,55 @@ describe('emergency contraception retention purge (NEXT-2)', () => {
+     expect(intakePhi().find((r) => r.id === badId)).toMatchObject({ encrypted_payload: 'v1.nonce.ciphertext' });
+   });
+ 
++  test.each([
++    ['2020-02-29T00:00:00.000Z', true],
++    ['2020-02-29T00:00:00Z', true],
++    ['2020-02-29T00:00:00.1Z', true],
++    ['2020-02-29T00:00:00.999999Z', true],
++    ['2020-02-30T00:00:00.000Z', false],
++    ['2020-01-01T24:00:00.000Z', false],
++    ['2020-13-01T00:00:00.000Z', false],
++    ['2020-01-01T00:00:00.xyzZ', false],
++    ['2020-01-01T00:00:00.Z', false],
++  ])('validates calendar and fractional seconds in created_at %s', async (createdAt, valid) => {
++    seedAccount('a', 30);
++    const id = insertIntake('a', createdAt);
++    const result = await purgeEmergencyIntakesPastRetention(db, { now: NOW });
++    expect(result).toEqual({ purged: valid ? 1 : 0, failed: 0,
++      skippedFormat: valid ? 0 : 1, skippedLegalHold: 0 });
++    expect(intakePhi().find((row) => row.id === id)).toMatchObject({
++      encrypted_payload: valid ? '' : 'v1.nonce.ciphertext',
++      risk_flags_json: valid ? '[]' : '["flag_a"]',
++    });
++    expect(purgeLog()).toHaveLength(valid ? 1 : 0);
++  });
++
++  test('invalid old timestamps cannot starve later valid candidates', async () => {
++    seedAccount('a', 30);
++    insertIntake('a', '2020-02-30T00:00:00.000Z');
++    const valid = insertIntake('a', '2021-01-01T00:00:00.000Z');
++    expect(await purgeEmergencyIntakesPastRetention(db, { now: NOW, limit: 1 }))
++      .toEqual({ purged: 1, failed: 0, skippedFormat: 1, skippedLegalHold: 0 });
++    expect(purgeLog().map((row) => row.resource_id)).toEqual([valid]);
++  });
++
++  test.each(['2020-02-30T00:00:00.000Z', '2026-08-20T12:00:00.000Z'])(
++    'rechecks changed created_at %s before writing the purge marker', async (createdAt) => {
++      seedAccount('a', 30);
++      const id = insertIntake('a', '2020-01-01T00:00:00.000Z');
++      const racingDb = { ...db, batch: async (statements: D1PreparedStatement[]) => {
++        sqlite.prepare('UPDATE pharmacy_emergency_intakes SET created_at = ? WHERE id = ?')
++          .run(createdAt, id);
++        return db.batch(statements);
++      } } as unknown as D1Database;
++      expect((await purgeEmergencyIntakesPastRetention(racingDb, { now: NOW })).purged).toBe(0);
++      expect(intakePhi().find((row) => row.id === id)).toMatchObject({
++        encrypted_payload: 'v1.nonce.ciphertext', risk_flags_json: '["flag_a"]',
++      });
++      expect(purgeLog()).toEqual([]);
++    },
++  );
++
+   test('skips and counts a due intake whose patient is under an active legal hold', async () => {
+     seedAccount('a', 30);
+     insertLegalHold('a', 'friend-a', null);
+diff --git a/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts b/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts
+index d1b7d1f..68f78cb 100644
+--- a/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts
++++ b/apps/worker/src/custom/pharmacy/emergency-contraception/retention-purge.ts
+@@ -58,6 +58,21 @@ interface PurgeCandidateRow {
+ }
+ 
+ const PURGE_BATCH_LIMIT = 100;
++// Bind date/time GLOB parts. Validate whole seconds separately so valid legacy
++// fractional precision is preserved without SQLite rounding into the next second.
++const VALID_CREATED_AT = `COALESCE((
++  substr(intake.created_at, 1, 10) GLOB ?
++  AND substr(intake.created_at, 11) GLOB ?
++  AND strftime('%Y-%m-%dT%H:%M:%SZ', substr(intake.created_at, 1, 19) || 'Z', '+0 seconds')
++    = substr(intake.created_at, 1, 19) || 'Z'
++  AND (
++    length(intake.created_at) = 20
++    OR (length(intake.created_at) > 21
++      AND substr(intake.created_at, 20, 1) = '.'
++      AND substr(intake.created_at, 21, length(intake.created_at) - 21) NOT GLOB '*[^0-9]*')
++  )
++), 0)`;
++
+ const ACTIVE_LEGAL_HOLD = `
+   dsr.line_account_id = intake.line_account_id
+   AND dsr.owner_friend_id = intake.owner_friend_id
+@@ -105,8 +120,7 @@ export async function purgeEmergencyIntakesPastRetention(
+         `SELECT COUNT(*) AS n
+            FROM pharmacy_emergency_intakes intake
+           WHERE intake.line_account_id = ?
+-            AND NOT (substr(intake.created_at, 1, 10) GLOB ?
+-              AND substr(intake.created_at, 11) GLOB ?)
++            AND NOT (${VALID_CREATED_AT})
+             AND NOT EXISTS (
+               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
+                WHERE purged.resource_type = 'emergency_intake'
+@@ -123,8 +137,7 @@ export async function purgeEmergencyIntakesPastRetention(
+                 ) AS on_legal_hold
+            FROM pharmacy_emergency_intakes intake
+           WHERE intake.line_account_id = ?
+-            AND substr(intake.created_at, 1, 10) GLOB ?
+-            AND substr(intake.created_at, 11) GLOB ?
++            AND ${VALID_CREATED_AT}
+             AND intake.created_at < ?
+             AND NOT EXISTS (
+               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
+@@ -146,8 +159,7 @@ export async function purgeEmergencyIntakesPastRetention(
+         `SELECT intake.id AS id
+            FROM pharmacy_emergency_intakes intake
+           WHERE intake.line_account_id = ?
+-            AND substr(intake.created_at, 1, 10) GLOB ?
+-            AND substr(intake.created_at, 11) GLOB ?
++            AND ${VALID_CREATED_AT}
+             AND intake.created_at < ?
+             AND NOT EXISTS (
+               SELECT 1 FROM pharmacy_emergency_retention_purge_log purged
+@@ -176,6 +188,7 @@ export async function purgeEmergencyIntakesPastRetention(
+                   intake.created_at, ?, ?
+              FROM pharmacy_emergency_intakes AS intake
+             WHERE intake.id = ? AND intake.line_account_id = ?
++              AND ${VALID_CREATED_AT} AND intake.created_at < ?
+               AND (intake.encrypted_payload <> '' OR intake.risk_flags_json <> '[]')
+               AND NOT EXISTS (
+                 SELECT 1 FROM pharmacy_data_subject_requests dsr
+@@ -183,7 +196,7 @@ export async function purgeEmergencyIntakesPastRetention(
+               )`,
+         ).bind(
+           crypto.randomUUID(), account.retention_days, nowIso,
+-          row.id, account.line_account_id, nowIso,
++          row.id, account.line_account_id, UTC_DATE_GLOB, UTC_TIME_GLOB, cutoff, nowIso,
+         ),
+         db.prepare(
+           `UPDATE pharmacy_emergency_intakes

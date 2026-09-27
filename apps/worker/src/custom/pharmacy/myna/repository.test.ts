@@ -49,27 +49,44 @@ function fakeDb(rows: {
 }
 
 const handoff = {
-  id: 'handoff-1', line_account_id: 'account-1', friend_id: 'friend-1', patient_id: null,
-  expectation_id: 'expectation-1', method: 'E_PRESCRIPTION', status: 'PATIENT_REPORTED_COMPLETE',
-  source: 'LIFF', correlation_id: 'corr-1', launched_at: '2026-08-17T09:00:00.000Z',
-  patient_reported_at: null, expires_at: '2099-08-18T09:00:00.000Z', closed_at: null,
-  created_at: '2026-08-17T09:00:00.000Z', updated_at: '2026-08-17T09:00:00.000Z',
+  id: 'handoff-1',
+  line_account_id: 'account-1',
+  friend_id: 'friend-1',
+  patient_id: null,
+  expectation_id: 'expectation-1',
+  method: 'E_PRESCRIPTION',
+  status: 'PATIENT_REPORTED_COMPLETE',
+  source: 'LIFF',
+  correlation_id: 'corr-1',
+  launched_at: '2026-08-17T09:00:00.000Z',
+  patient_reported_at: null,
+  expires_at: '2099-08-18T09:00:00.000Z',
+  closed_at: null,
+  created_at: '2026-08-17T09:00:00.000Z',
+  updated_at: '2026-08-17T09:00:00.000Z',
 };
 
 describe('Myna handoff repository', () => {
   it('checks the method capability in the atomic handoff insert', async () => {
     const { db, calls } = fakeDb({ batchChanges: [0, 0, 0] });
-    await expect(createMynaHandoff(db, {
-      lineAccountId: 'account-1', friendId: 'friend-1', method: 'E_PRESCRIPTION',
-      source: 'LIFF', correlationId: 'correlation-1', expiresAt: '2099-08-18T09:00:00.000Z',
-    })).rejects.toThrow('FEATURE_DISABLED');
+    await expect(
+      createMynaHandoff(db, {
+        lineAccountId: 'account-1',
+        friendId: 'friend-1',
+        method: 'E_PRESCRIPTION',
+        source: 'LIFF',
+        correlationId: 'correlation-1',
+        expiresAt: '2099-08-18T09:00:00.000Z',
+      }),
+    ).rejects.toThrow('FEATURE_DISABLED');
     expect(calls.some((call) => call.sql === 'BATCH 3')).toBe(true);
   });
 
   it('finds an active electronic handoff by both account and LINE owner', async () => {
     const { db, calls } = fakeDb({ handoff: { ...handoff, status: 'LAUNCH_REQUESTED' } });
-    await expect(getActivePatientMynaHandoff(db, 'account-1', 'friend-1'))
-      .resolves.toMatchObject({ id: 'handoff-1' });
+    await expect(getActivePatientMynaHandoff(db, 'account-1', 'friend-1')).resolves.toMatchObject({
+      id: 'handoff-1',
+    });
     const lookup = calls.find((call) => call.sql.includes('ORDER BY created_at DESC'));
     expect(lookup?.sql).toContain('line_account_id = ? AND friend_id = ?');
     expect(lookup?.sql).toContain("'PATIENT_REPORTED_COMPLETE'");
@@ -79,9 +96,7 @@ describe('Myna handoff repository', () => {
 
   it('records a patient report without changing official receipt state', async () => {
     const { db, calls } = fakeDb({ handoff });
-    const result = await recordMynaPatientReport(
-      db, 'account-1', 'friend-1', 'handoff-1', 'COMPLETED',
-    );
+    const result = await recordMynaPatientReport(db, 'account-1', 'friend-1', 'handoff-1', 'COMPLETED');
     expect(result.status).toBe('PATIENT_REPORTED_COMPLETE');
     expect(calls.some((call) => call.sql.includes("status = 'RECEIVED'"))).toBe(false);
   });
@@ -90,9 +105,14 @@ describe('Myna handoff repository', () => {
     const { db, calls } = fakeDb({
       handoff,
       expectation: {
-        id: 'expectation-1', handoff_id: 'handoff-1', line_account_id: 'account-1',
-        friend_id: 'friend-1', patient_id: null, method: 'E_PRESCRIPTION',
-        receipt_status: 'EXPECTED', shadow_submission_id: null,
+        id: 'expectation-1',
+        handoff_id: 'handoff-1',
+        line_account_id: 'account-1',
+        friend_id: 'friend-1',
+        patient_id: null,
+        method: 'E_PRESCRIPTION',
+        receipt_status: 'EXPECTED',
+        shadow_submission_id: null,
       },
     });
     const result = await recordMynaVerification(db, {
@@ -114,15 +134,25 @@ describe('Myna handoff repository', () => {
     const { db, calls } = fakeDb({
       handoff: { ...handoff, method: 'PAPER' },
       expectation: {
-        id: 'expectation-1', handoff_id: 'handoff-1', line_account_id: 'account-1',
-        friend_id: 'friend-1', patient_id: null, method: 'PAPER',
-        receipt_status: 'EXPECTED', shadow_submission_id: null,
+        id: 'expectation-1',
+        handoff_id: 'handoff-1',
+        line_account_id: 'account-1',
+        friend_id: 'friend-1',
+        patient_id: null,
+        method: 'PAPER',
+        receipt_status: 'EXPECTED',
+        shadow_submission_id: null,
       },
     });
-    await expect(recordMynaVerification(db, {
-      lineAccountId: 'account-1', handoffId: 'handoff-1', staffId: 'staff-1',
-      status: 'E_PRESCRIPTION_RECEIVED', sourceSystem: 'pharmacy-terminal',
-    })).rejects.toThrow('invalid Myna verification');
+    await expect(
+      recordMynaVerification(db, {
+        lineAccountId: 'account-1',
+        handoffId: 'handoff-1',
+        staffId: 'staff-1',
+        status: 'E_PRESCRIPTION_RECEIVED',
+        sourceSystem: 'pharmacy-terminal',
+      }),
+    ).rejects.toThrow('invalid Myna verification');
     expect(calls.some((call) => call.sql.startsWith('BATCH'))).toBe(false);
   });
 
@@ -146,14 +176,22 @@ describe('Myna handoff repository', () => {
     const { db } = fakeDb({
       handoff,
       expectation: {
-        id: 'expectation-1', handoff_id: 'handoff-1', line_account_id: 'account-1',
-        friend_id: 'friend-1', patient_id: null, method: 'E_PRESCRIPTION',
-        receipt_status: 'EXPECTED', shadow_submission_id: null,
+        id: 'expectation-1',
+        handoff_id: 'handoff-1',
+        line_account_id: 'account-1',
+        friend_id: 'friend-1',
+        patient_id: null,
+        method: 'E_PRESCRIPTION',
+        receipt_status: 'EXPECTED',
+        shadow_submission_id: null,
       },
     });
     const result = await recordMynaVerification(db, {
-      lineAccountId: 'account-1', handoffId: 'handoff-1', staffId: 'staff-1',
-      status: 'PRESCRIPTION_EXPIRED', sourceSystem: 'pharmacy-terminal',
+      lineAccountId: 'account-1',
+      handoffId: 'handoff-1',
+      staffId: 'staff-1',
+      status: 'PRESCRIPTION_EXPIRED',
+      sourceSystem: 'pharmacy-terminal',
     });
     expect(result.receiptStatus).toBe('EXPIRED');
     expect(result.shadowSubmissionId).toBeNull();
@@ -178,12 +216,14 @@ function handoffDb() {
   const sqlite = new Sqlite(':memory:');
   sqlite.exec(HANDOFF_SCHEMA);
   const insert = (id: string, patientId: string, createdAt: string, expiresAt: string, status = 'CREATED') =>
-    sqlite.prepare(
-      `INSERT INTO pharmacy_myna_handoffs
+    sqlite
+      .prepare(
+        `INSERT INTO pharmacy_myna_handoffs
          (id, line_account_id, friend_id, patient_id, expectation_id, method, status,
           source, correlation_id, expires_at, created_at, updated_at)
        VALUES (?, 'account-1', 'friend-1', ?, NULL, 'PAPER', ?, 'LIFF', ?, ?, ?, ?)`,
-    ).run(id, patientId, status, `correlation-${id}`, expiresAt, createdAt, createdAt);
+      )
+      .run(id, patientId, status, `correlation-${id}`, expiresAt, createdAt, createdAt);
   return {
     db: d1FromSqlite(sqlite),
     insert,
@@ -202,8 +242,10 @@ describe('listMynaHandoffs', () => {
       fake.insert('handoff-target', 'patient-x', '2020-01-01T00:00:00.000Z', '2020-01-02T00:00:00.000Z');
       for (let index = 0; index < 120; index += 1) {
         fake.insert(
-          `handoff-${index}`, 'patient-other',
-          new Date(NOISE_BASE + index * 1000).toISOString(), '2099-01-01T00:00:00.000Z',
+          `handoff-${index}`,
+          'patient-other',
+          new Date(NOISE_BASE + index * 1000).toISOString(),
+          '2099-01-01T00:00:00.000Z',
         );
       }
 
@@ -213,8 +255,9 @@ describe('listMynaHandoffs', () => {
 
       const filtered = await listMynaHandoffs(fake.db, 'account-1', undefined, 'patient-x');
       // EXPIRED because the filtered read still runs the expiry sweep first.
-      expect(filtered.map((item) => ({ id: item.id, status: item.status })))
-        .toEqual([{ id: 'handoff-target', status: 'EXPIRED' }]);
+      expect(filtered.map((item) => ({ id: item.id, status: item.status }))).toEqual([
+        { id: 'handoff-target', status: 'EXPIRED' },
+      ]);
     } finally {
       fake.close();
     }
@@ -276,9 +319,11 @@ const CREATE_HANDOFF_SCHEMA = `
 function createHandoffDb() {
   const sqlite = new Sqlite(':memory:');
   sqlite.exec(CREATE_HANDOFF_SCHEMA);
-  sqlite.prepare(`INSERT INTO pharmacy_account_capabilities
+  sqlite
+    .prepare(`INSERT INTO pharmacy_account_capabilities
     (line_account_id, mode, capabilities_json)
-    VALUES ('account-1', 'pharmacy', '["prescription_intake"]')`).run();
+    VALUES ('account-1', 'pharmacy', '["prescription_intake"]')`)
+    .run();
   return {
     db: d1FromSqlite(sqlite),
     close: () => sqlite.close(),

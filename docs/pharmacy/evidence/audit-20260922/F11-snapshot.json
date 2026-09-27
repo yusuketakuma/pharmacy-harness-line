@@ -1,0 +1,24 @@
+{
+  "P": "af9a0822ef17f2f57557512c6fafabd0ea977b70",
+  "files": {
+    "apps/web/src/lib/safe-next-path.ts": {
+      "sha256": "050347be6e55f5efa52313ac19d63f80444ed20d590ae249e008177d42a88e54",
+      "bytes": 1402
+    },
+    "apps/web/src/lib/safe-next-path.test.ts": {
+      "sha256": "3873d496168b48caa23473e39698a77c9795722b34d34704cf9a028e6bbd1e87",
+      "bytes": 1488
+    },
+    "apps/web/e2e/login-next-origin.e2e.ts": {
+      "sha256": "444e620cda379000d6659ae94cda9cf8b177655ba5e3b17d5f1c74a042098b1b",
+      "bytes": 2295
+    }
+  },
+  "checks": {
+    "webTests": 267,
+    "webTypecheck": 0,
+    "build": 0,
+    "browserTests": 3,
+    "diffCheck": 0
+  }
+}

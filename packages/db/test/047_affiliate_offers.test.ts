@@ -42,9 +42,7 @@ describe('047_affiliate_offers', () => {
 
   test('affiliate_offers table and new columns exist', () => {
     const cols = (t: string) =>
-      (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(
-        (r) => r.name,
-      );
+      (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((r) => r.name);
 
     expect(cols('affiliate_offers')).toEqual(
       expect.arrayContaining([
@@ -60,18 +58,14 @@ describe('047_affiliate_offers', () => {
       ]),
     );
     expect(cols('affiliate_links')).toContain('offer_id');
-    expect(cols('conversion_events')).toEqual(
-      expect.arrayContaining(['approval_status', 'approved_at']),
-    );
+    expect(cols('conversion_events')).toEqual(expect.arrayContaining(['approval_status', 'approved_at']));
   });
 
   test('offer index exists', () => {
     const getIndex = (name: string) =>
-      db
-        .prepare(
-          `SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`,
-        )
-        .get(name) as { name: string } | undefined;
+      db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).get(name) as
+        | { name: string }
+        | undefined;
     expect(getIndex('idx_affiliate_links_offer')).toBeDefined();
   });
 
@@ -80,9 +74,10 @@ describe('047_affiliate_offers', () => {
       `INSERT INTO affiliate_offers (id, name, created_at)
        VALUES ('off-1', 'Test Offer', '2024-01-01T00:00:00.000')`,
     );
-    const row = db
-      .prepare(`SELECT reward_amount, is_active FROM affiliate_offers WHERE id = 'off-1'`)
-      .get() as { reward_amount: number; is_active: number };
+    const row = db.prepare(`SELECT reward_amount, is_active FROM affiliate_offers WHERE id = 'off-1'`).get() as {
+      reward_amount: number;
+      is_active: number;
+    };
     expect(row.reward_amount).toBe(0);
     expect(row.is_active).toBe(1);
   });
@@ -132,10 +127,9 @@ describe('047_affiliate_offers', () => {
       `INSERT INTO affiliate_links (id, affiliate_id, ref_code, offer_id, created_at)
        VALUES ('al-1', 'aff-1', 'REF001', 'off-2', '2024-01-01T00:00:00.000')`,
     );
-    const row = db
-      .prepare(`SELECT offer_id FROM affiliate_links WHERE id = 'al-1'`)
-      .get() as { offer_id: string };
+    const row = db.prepare(`SELECT offer_id FROM affiliate_links WHERE id = 'al-1'`).get() as {
+      offer_id: string;
+    };
     expect(row.offer_id).toBe('off-2');
   });
-
 });

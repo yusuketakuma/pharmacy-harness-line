@@ -41,15 +41,13 @@ describe('computeSlots', () => {
 
   test('working の終端でメニューが収まらないと除外', () => {
     const working: Interval[] = [{ start: '10:00', end: '11:00' }];
-    expect(
-      computeSlots({ working, busy: [], menu: MENU_60, granularityMinutes: 30 }),
-    ).toEqual([{ start: '10:00', end: '11:00' }]);
+    expect(computeSlots({ working, busy: [], menu: MENU_60, granularityMinutes: 30 })).toEqual([
+      { start: '10:00', end: '11:00' },
+    ]);
   });
 
   test('working なし → 空配列', () => {
-    expect(
-      computeSlots({ working: [], busy: [], menu: MENU_60, granularityMinutes: 30 }),
-    ).toEqual([]);
+    expect(computeSlots({ working: [], busy: [], menu: MENU_60, granularityMinutes: 30 })).toEqual([]);
   });
 
   test('複数の working 区間（昼休みあり）', () => {
@@ -58,30 +56,19 @@ describe('computeSlots', () => {
       { start: '13:00', end: '15:00' },
     ];
     const slots = computeSlots({ working, busy: [], menu: MENU_60, granularityMinutes: 30 });
-    expect(slots.map((s) => s.start)).toEqual([
-      '10:00',
-      '10:30',
-      '11:00',
-      '13:00',
-      '13:30',
-      '14:00',
-    ]);
+    expect(slots.map((s) => s.start)).toEqual(['10:00', '10:30', '11:00', '13:00', '13:30', '14:00']);
   });
 
   test('busy 完全包含 → working 全部消える', () => {
     const working: Interval[] = [{ start: '10:00', end: '12:00' }];
     const busy: Interval[] = [{ start: '09:00', end: '13:00' }];
-    expect(
-      computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }),
-    ).toEqual([]);
+    expect(computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 })).toEqual([]);
   });
 
   test('busy 完全交差なし → working 全部残る', () => {
     const working: Interval[] = [{ start: '10:00', end: '12:00' }];
     const busy: Interval[] = [{ start: '13:00', end: '14:00' }];
-    expect(
-      computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }),
-    ).toEqual([
+    expect(computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 })).toEqual([
       { start: '10:00', end: '11:00' },
       { start: '10:30', end: '11:30' },
       { start: '11:00', end: '12:00' },
@@ -91,11 +78,12 @@ describe('computeSlots', () => {
   test('busy が working 末尾にかかる', () => {
     const working: Interval[] = [{ start: '10:00', end: '13:00' }];
     const busy: Interval[] = [{ start: '12:30', end: '14:00' }];
-    expect(
-      computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }).map(
-        (s) => s.start,
-      ),
-    ).toEqual(['10:00', '10:30', '11:00', '11:30']);
+    expect(computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }).map((s) => s.start)).toEqual([
+      '10:00',
+      '10:30',
+      '11:00',
+      '11:30',
+    ]);
   });
 
   test('複数 busy が連続', () => {
@@ -104,21 +92,20 @@ describe('computeSlots', () => {
       { start: '11:00', end: '12:00' },
       { start: '12:00', end: '13:00' },
     ];
-    expect(
-      computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }).map(
-        (s) => s.start,
-      ),
-    ).toEqual(['10:00', '13:00', '13:30', '14:00']);
+    expect(computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }).map((s) => s.start)).toEqual([
+      '10:00',
+      '13:00',
+      '13:30',
+      '14:00',
+    ]);
   });
 
   test('30分刻みでない busy にも対応 (10:15-10:45)', () => {
     const working: Interval[] = [{ start: '10:00', end: '12:00' }];
     const busy: Interval[] = [{ start: '10:15', end: '10:45' }];
-    expect(
-      computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }).map(
-        (s) => s.start,
-      ),
-    ).toEqual(['11:00']);
+    expect(computeSlots({ working, busy, menu: MENU_60, granularityMinutes: 30 }).map((s) => s.start)).toEqual([
+      '11:00',
+    ]);
   });
 });
 
@@ -149,7 +136,9 @@ function stubDB(data: StubData): D1Database {
   return {
     prepare(sql: string) {
       return {
-        bind() { return this; },
+        bind() {
+          return this;
+        },
         async first() {
           if (sql.includes('FROM menus')) return data.menu ?? null;
           if (sql.includes('FROM google_calendar_connections')) return data.calendarConnection ?? null;
@@ -170,7 +159,9 @@ function stubDB(data: StubData): D1Database {
           }
           return { results: [] };
         },
-        async run() { return { success: true, meta: {} }; },
+        async run() {
+          return { success: true, meta: {} };
+        },
       };
     },
   } as unknown as D1Database;
@@ -242,7 +233,13 @@ describe('getAvailability', () => {
       staff: [{ id: 'S1', display_name: '山田', is_designation_optional: 0 }],
       shifts: [{ staff_id: 'S1', work_date: '2026-05-09', start_time: '10:00', end_time: '13:00' }],
       // 11:00-12:00 JST = 02:00-03:00 UTC
-      bookings: [{ staff_id: 'S1', starts_at: '2026-05-09T02:00:00Z', block_ends_at: '2026-05-09T03:00:00Z' }],
+      bookings: [
+        {
+          staff_id: 'S1',
+          starts_at: '2026-05-09T02:00:00Z',
+          block_ends_at: '2026-05-09T03:00:00Z',
+        },
+      ],
     });
     const result = await getAvailability(db, {
       lineAccountId: 'A1',
@@ -282,7 +279,12 @@ describe('getAvailability', () => {
 
   test('曜日ルールは有限シフトなしでも将来の日付に適用される', async () => {
     const db = stubDB({
-      menu: { duration_minutes: 60, buffer_after_minutes: 0, override_duration: null, override_price: null },
+      menu: {
+        duration_minutes: 60,
+        buffer_after_minutes: 0,
+        override_duration: null,
+        override_price: null,
+      },
       staff: [{ id: 'S1', display_name: '山田', is_designation_optional: 0 }],
       shifts: [],
       // 2030-01-05 is Saturday. This verifies the rule does not expire.
@@ -290,27 +292,58 @@ describe('getAvailability', () => {
       bookings: [],
     });
     const result = await getAvailability(db, {
-      lineAccountId: 'A1', menuId: 'M1', from: '2030-01-05', to: '2030-01-05',
-      now: new Date('2029-12-01T00:00:00Z'), minLeadTimeMinutes: 0,
+      lineAccountId: 'A1',
+      menuId: 'M1',
+      from: '2030-01-05',
+      to: '2030-01-05',
+      now: new Date('2029-12-01T00:00:00Z'),
+      minLeadTimeMinutes: 0,
     });
     expect(result.by_staff[0].slots.map((slot) => slot.start)).toEqual(['10:00', '10:30', '11:00']);
   });
 
   test('Googleカレンダーのbusy時間を予約候補から除外する', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      calendars: { 'cal@example.com': { busy: [{ start: '2026-05-09T02:00:00Z', end: '2026-05-09T03:00:00Z' }] } },
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              calendars: {
+                'cal@example.com': {
+                  busy: [{ start: '2026-05-09T02:00:00Z', end: '2026-05-09T03:00:00Z' }],
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    );
     try {
       const db = stubDB({
-        menu: { duration_minutes: 60, buffer_after_minutes: 0, override_duration: null, override_price: null },
+        menu: {
+          duration_minutes: 60,
+          buffer_after_minutes: 0,
+          override_duration: null,
+          override_price: null,
+        },
         staff: [{ id: 'S1', display_name: '山田', is_designation_optional: 0 }],
         shifts: [{ staff_id: 'S1', work_date: '2026-05-09', start_time: '10:00', end_time: '13:00' }],
         bookings: [],
-        calendarConnection: { id: 'GC1', calendar_id: 'cal@example.com', auth_type: 'oauth', access_token: 'token' },
+        calendarConnection: {
+          id: 'GC1',
+          calendar_id: 'cal@example.com',
+          auth_type: 'oauth',
+          access_token: 'token',
+        },
       });
       const result = await getAvailability(db, {
-        lineAccountId: 'A1', menuId: 'M1', from: '2026-05-09', to: '2026-05-09',
-        now: new Date('2026-05-08T00:00:00Z'), minLeadTimeMinutes: 0,
+        lineAccountId: 'A1',
+        menuId: 'M1',
+        from: '2026-05-09',
+        to: '2026-05-09',
+        now: new Date('2026-05-08T00:00:00Z'),
+        minLeadTimeMinutes: 0,
       });
       expect(result.by_staff[0].slots.map((slot) => slot.start)).toEqual(['10:00', '12:00']);
     } finally {

@@ -8,10 +8,7 @@ import { canAccessPharmacyOperationsAccount } from '../operations-access.js';
 import { hasPharmacyCapability } from '../growth-loop/access.js';
 import { readJsonObject } from '../json.js';
 import { lineProxy } from '../../../routes/integrations/line-proxy.js';
-import {
-  resolvePrescriptionPatient,
-  type PrescriptionPatient,
-} from '../prescriptions/patient.js';
+import { resolvePrescriptionPatient, type PrescriptionPatient } from '../prescriptions/patient.js';
 import { sendMynaHandoffStatusNotification } from './notifications.js';
 import {
   createMynaHandoff,
@@ -58,24 +55,28 @@ export const mynaRoutes = new Hono<MynaEnv>();
 
 const METHODS = new Set<MynaMethod>(['E_PRESCRIPTION', 'PAPER', 'MEDICAL_INSTITUTION_SENT']);
 const HANDOFF_STATUSES = new Set<MynaHandoffStatus>(MYNA_HANDOFF_STATUSES);
-const PATIENT_REPORTS = new Set<MynaPatientReport>([
-  'COMPLETED', 'NO_PRESCRIPTION_FOUND', 'FAILED', 'SWITCH_TO_PAPER',
-]);
+const PATIENT_REPORTS = new Set<MynaPatientReport>(['COMPLETED', 'NO_PRESCRIPTION_FOUND', 'FAILED', 'SWITCH_TO_PAPER']);
 const VERIFICATIONS = new Set<MynaVerificationStatus>([
-  'E_PRESCRIPTION_RECEIVED', 'CONSENT_ONLY_OR_NO_PRESCRIPTION', 'NO_RECORD_FOUND',
-  'SUBMITTED_TO_OTHER_PHARMACY', 'PRESCRIPTION_EXPIRED', 'PAPER_FALLBACK',
-  'PATIENT_MISMATCH', 'MANUAL_EXCEPTION',
+  'E_PRESCRIPTION_RECEIVED',
+  'CONSENT_ONLY_OR_NO_PRESCRIPTION',
+  'NO_RECORD_FOUND',
+  'SUBMITTED_TO_OTHER_PHARMACY',
+  'PRESCRIPTION_EXPIRED',
+  'PAPER_FALLBACK',
+  'PATIENT_MISMATCH',
+  'MANUAL_EXCEPTION',
 ]);
 const HIGH_RISK_VERIFICATIONS = new Set<MynaVerificationStatus>([
-  'SUBMITTED_TO_OTHER_PHARMACY', 'PRESCRIPTION_EXPIRED', 'PATIENT_MISMATCH', 'MANUAL_EXCEPTION',
+  'SUBMITTED_TO_OTHER_PHARMACY',
+  'PRESCRIPTION_EXPIRED',
+  'PATIENT_MISMATCH',
+  'MANUAL_EXCEPTION',
 ]);
 
 function mynaNotificationOptions(c: { req: { url: string }; env: MynaBindings }) {
   return {
     proxyBaseUrl: c.env.WORKER_PUBLIC_URL ?? new URL(c.req.url).origin,
-    proxyDispatch: (request: Request) => Promise.resolve(
-      lineProxy.fetch(request, c.env as Env['Bindings']),
-    ),
+    proxyDispatch: (request: Request) => Promise.resolve(lineProxy.fetch(request, c.env as Env['Bindings'])),
     lineCredentialKey: c.env.LINE_CREDENTIAL_KEY_V1,
   };
 }
@@ -85,7 +86,10 @@ function encryptionSecret(c: { env: MynaBindings }): string | null {
 }
 
 function allowedHosts(c: { env: MynaBindings }): string[] {
-  return (c.env.MYNA_ALLOWED_HOSTS ?? '').split(',').map((host) => host.trim()).filter(Boolean);
+  return (c.env.MYNA_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
 }
 
 const textEncoder = new TextEncoder();
@@ -103,9 +107,7 @@ const LAUNCH_TOKEN_TTL_MS = 30 * 60_000;
  */
 async function signLaunchToken(secret: string, lineAccountId: string): Promise<string> {
   const payload = `${lineAccountId}|${Date.now() + LAUNCH_TOKEN_TTL_MS}`;
-  const signature = await crypto.subtle.sign(
-    'HMAC', await launchTokenKey(secret), textEncoder.encode(payload),
-  );
+  const signature = await crypto.subtle.sign('HMAC', await launchTokenKey(secret), textEncoder.encode(payload));
   return `${base64UrlEncode(textEncoder.encode(payload))}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
 
@@ -122,7 +124,10 @@ async function verifyLaunchToken(secret: string, token: string): Promise<string 
     return null;
   }
   const valid = await crypto.subtle.verify(
-    'HMAC', await launchTokenKey(secret), signature, textEncoder.encode(payload),
+    'HMAC',
+    await launchTokenKey(secret),
+    signature,
+    textEncoder.encode(payload),
   );
   if (!valid) return null;
   const match = /^(.+)\|(\d+)$/.exec(payload);
@@ -146,9 +151,8 @@ async function patientGate(c: Context<MynaEnv>, next: Next) {
   if (!identity) return c.json({ error: 'Unauthorized' }, 401);
   const patient = await resolvePrescriptionPatient(c.env.DB, c.req.query('liffId') ?? '', identity);
   if (!patient) return c.json({ error: 'Pharmacy account not found' }, 404);
-  if (!(await canUsePharmacyBetaParticipant(
-    c.env.DB, patient.lineAccountId, patient.friendId,
-  ))) return c.json({ error: 'Pharmacy beta participation required' }, 403);
+  if (!(await canUsePharmacyBetaParticipant(c.env.DB, patient.lineAccountId, patient.friendId)))
+    return c.json({ error: 'Pharmacy beta participation required' }, 403);
   c.set('mynaPatient', patient);
   return next();
 }
@@ -158,9 +162,8 @@ async function adminGate(c: Context<MynaEnv>, next: Next) {
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!staff) return c.json({ error: 'Unauthorized' }, 401);
-  if (!(await canAccessPharmacyOperationsAccount(
-    c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID,
-  ))) return c.json({ error: 'Forbidden' }, 403);
+  if (!(await canAccessPharmacyOperationsAccount(c.env.DB, staff, lineAccountId, c.env.LINE_CHANNEL_ID)))
+    return c.json({ error: 'Forbidden' }, 403);
   return next();
 }
 
@@ -175,22 +178,24 @@ mynaRoutes.use('/api/custom/pharmacy/myna-endpoint/*', adminGate);
 mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
   const patient = c.get('mynaPatient');
   const body = await readJsonObject(c.req);
-  if (!body || typeof body.method !== 'string' || !METHODS.has(body.method as MynaMethod) ||
-      typeof body.correlationId !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(body.correlationId) ||
-      (body.patientId !== undefined && typeof body.patientId !== 'string')) {
+  if (
+    !body ||
+    typeof body.method !== 'string' ||
+    !METHODS.has(body.method as MynaMethod) ||
+    typeof body.correlationId !== 'string' ||
+    !/^[A-Za-z0-9._:-]{8,128}$/.test(body.correlationId) ||
+    (body.patientId !== undefined && typeof body.patientId !== 'string')
+  ) {
     return c.json({ error: 'Invalid Myna handoff' }, 400);
   }
   const method = body.method as MynaMethod;
-  const capability = method === 'E_PRESCRIPTION'
-    ? 'electronic_prescription'
-    : 'prescription_intake';
+  const capability = method === 'E_PRESCRIPTION' ? 'electronic_prescription' : 'prescription_intake';
   if (!(await hasPharmacyCapability(c.env.DB, patient.lineAccountId, capability))) {
     return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
   }
   const secret = encryptionSecret(c);
-  const endpoint = method === 'E_PRESCRIPTION' && secret
-    ? await getActiveMynaEndpoint(c.env.DB, patient.lineAccountId, secret)
-    : null;
+  const endpoint =
+    method === 'E_PRESCRIPTION' && secret ? await getActiveMynaEndpoint(c.env.DB, patient.lineAccountId, secret) : null;
   if (method === 'E_PRESCRIPTION' && !endpoint) {
     return c.json({ error: 'Myna受付URLが設定されていません' }, 503);
   }
@@ -204,11 +209,14 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
       correlationId: body.correlationId,
       expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
     });
-    return c.json({
-      handoff: result.handoff,
-      expectation: result.expectation,
-      launchUrl: endpoint ? await launchUrl(c, endpoint.line_account_id) : null,
-    }, 201);
+    return c.json(
+      {
+        handoff: result.handoff,
+        expectation: result.expectation,
+        launchUrl: endpoint ? await launchUrl(c, endpoint.line_account_id) : null,
+      },
+      201,
+    );
   } catch (error) {
     return mapMynaError(c, error);
   }
@@ -216,9 +224,7 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs', async (c) => {
 
 mynaRoutes.get('/api/liff/pharmacy/myna-handoffs/active', async (c) => {
   const patient = c.get('mynaPatient');
-  const handoff = await getActivePatientMynaHandoff(
-    c.env.DB, patient.lineAccountId, patient.friendId,
-  );
+  const handoff = await getActivePatientMynaHandoff(c.env.DB, patient.lineAccountId, patient.friendId);
   return c.json({ handoff }, 200, { 'Cache-Control': 'no-store' });
 });
 
@@ -228,13 +234,13 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/launch', async (c) => {
   if (!secret) return c.json({ error: 'Myna受付URLが設定されていません' }, 503);
   try {
     const current = await getAdminMynaHandoff(c.env.DB, patient.lineAccountId, c.req.param('id'));
-    if (!current || current.handoff.friend_id !== patient.friendId) return c.json({ error: 'Myna handoff not found' }, 404);
-    if (current.handoff.method !== 'E_PRESCRIPTION') return c.json({ error: 'This handoff does not use Myna受付' }, 400);
+    if (!current || current.handoff.friend_id !== patient.friendId)
+      return c.json({ error: 'Myna handoff not found' }, 404);
+    if (current.handoff.method !== 'E_PRESCRIPTION')
+      return c.json({ error: 'This handoff does not use Myna受付' }, 400);
     const endpoint = await getActiveMynaEndpoint(c.env.DB, patient.lineAccountId, secret);
     if (!endpoint) return c.json({ error: 'Myna受付URLが設定されていません' }, 503);
-    const handoff = await markMynaLaunchRequested(
-      c.env.DB, patient.lineAccountId, patient.friendId, c.req.param('id'),
-    );
+    const handoff = await markMynaLaunchRequested(c.env.DB, patient.lineAccountId, patient.friendId, c.req.param('id'));
     return c.json({ handoff, launchUrl: await launchUrl(c, endpoint.line_account_id) }, 200, {
       'Cache-Control': 'no-store',
     });
@@ -251,12 +257,14 @@ mynaRoutes.post('/api/liff/pharmacy/myna-handoffs/:id/patient-report', async (c)
   }
   try {
     const handoff = await recordMynaPatientReport(
-      c.env.DB, patient.lineAccountId, patient.friendId, c.req.param('id'), body.result as MynaPatientReport,
+      c.env.DB,
+      patient.lineAccountId,
+      patient.friendId,
+      c.req.param('id'),
+      body.result as MynaPatientReport,
     );
     try {
-      await sendMynaHandoffStatusNotification(
-        c.env.DB, mynaNotificationOptions(c), handoff,
-      );
+      await sendMynaHandoffStatusNotification(c.env.DB, mynaNotificationOptions(c), handoff);
     } catch {
       console.error('[pharmacy-myna] status notification unavailable');
     }
@@ -325,11 +333,16 @@ mynaRoutes.post('/api/custom/pharmacy/myna-handoffs/:id/verifications', async (c
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const body = await readJsonObject(c.req);
   const status = body?.status as MynaVerificationStatus | undefined;
-  if (!body || !status || !VERIFICATIONS.has(status) || typeof body.sourceSystem !== 'string' ||
-      !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sourceSystem) ||
-      (body.reasonCode !== undefined && body.reasonCode !== null && typeof body.reasonCode !== 'string') ||
-      (body.sourceReference !== undefined && body.sourceReference !== null && typeof body.sourceReference !== 'string') ||
-      (body.note !== undefined && body.note !== null)) {
+  if (
+    !body ||
+    !status ||
+    !VERIFICATIONS.has(status) ||
+    typeof body.sourceSystem !== 'string' ||
+    !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sourceSystem) ||
+    (body.reasonCode !== undefined && body.reasonCode !== null && typeof body.reasonCode !== 'string') ||
+    (body.sourceReference !== undefined && body.sourceReference !== null && typeof body.sourceReference !== 'string') ||
+    (body.note !== undefined && body.note !== null)
+  ) {
     return c.json({ error: 'Invalid Myna verification' }, 400);
   }
   if (HIGH_RISK_VERIFICATIONS.has(status) && staff.role === 'staff') {
@@ -347,16 +360,16 @@ mynaRoutes.post('/api/custom/pharmacy/myna-handoffs/:id/verifications', async (c
     });
     try {
       await enqueueActivityForAccount(
-        c.env.DB, lineAccountId, 'myna_handoff_received',
+        c.env.DB,
+        lineAccountId,
+        'myna_handoff_received',
         `myna-verification:${c.req.param('id')}:${status}`,
       );
     } catch {
       console.error('[pharmacy-myna] activity notification unavailable');
     }
     try {
-      await sendMynaHandoffStatusNotification(
-        c.env.DB, mynaNotificationOptions(c), result.handoff,
-      );
+      await sendMynaHandoffStatusNotification(c.env.DB, mynaNotificationOptions(c), result.handoff);
     } catch {
       console.error('[pharmacy-myna] status notification unavailable');
     }
@@ -388,8 +401,13 @@ mynaRoutes.put('/api/custom/pharmacy/myna-endpoint', async (c) => {
   const body = await readJsonObject(c.req);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!secret) return c.json({ error: 'Myna endpoint encryption is not configured' }, 503);
-  if (!body || typeof body.tenantAlias !== 'string' || typeof body.endpointUrl !== 'string' ||
-      typeof body.enabled !== 'boolean') return c.json({ error: 'Invalid Myna endpoint config' }, 400);
+  if (
+    !body ||
+    typeof body.tenantAlias !== 'string' ||
+    typeof body.endpointUrl !== 'string' ||
+    typeof body.enabled !== 'boolean'
+  )
+    return c.json({ error: 'Invalid Myna endpoint config' }, 400);
   try {
     const endpoint = await saveMynaEndpoint(c.env.DB, {
       lineAccountId,
@@ -415,15 +433,26 @@ mynaRoutes.patch('/api/custom/pharmacy/myna-endpoint', async (c) => {
   const body = await readJsonObject(c.req);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   if (!secret) return c.json({ error: 'Myna endpoint encryption is not configured' }, 503);
-  if (!body || typeof body.enabled !== 'boolean' || !Number.isInteger(body.expectedRevision) ||
-      Number(body.expectedRevision) < 1 ||
-      Object.keys(body).some((key) => key !== 'enabled' && key !== 'expectedRevision')) {
+  if (
+    !body ||
+    typeof body.enabled !== 'boolean' ||
+    !Number.isInteger(body.expectedRevision) ||
+    Number(body.expectedRevision) < 1 ||
+    Object.keys(body).some((key) => key !== 'enabled' && key !== 'expectedRevision')
+  ) {
     return c.json({ error: 'enabled and expectedRevision are required' }, 400);
   }
   try {
-    return c.json({ endpoint: await setMynaEndpointEnabled(
-      c.env.DB, lineAccountId, body.enabled, Number(body.expectedRevision), staff.id, secret,
-    ) });
+    return c.json({
+      endpoint: await setMynaEndpointEnabled(
+        c.env.DB,
+        lineAccountId,
+        body.enabled,
+        Number(body.expectedRevision),
+        staff.id,
+        secret,
+      ),
+    });
   } catch (error) {
     if (String(error).includes('stale Myna endpoint revision')) {
       return c.json({ error: 'Myna endpoint configuration changed' }, 409);
@@ -442,14 +471,18 @@ mynaRoutes.post('/api/custom/pharmacy/myna-endpoint/verification', async (c) => 
   const lineAccountId = getPharmacyAccountId(c);
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const body = await readJsonObject(c.req);
-  if (!body || !Number.isInteger(body.expectedRevision) || Number(body.expectedRevision) < 1 ||
-      Object.keys(body).some((key) => key !== 'expectedRevision')) {
+  if (
+    !body ||
+    !Number.isInteger(body.expectedRevision) ||
+    Number(body.expectedRevision) < 1 ||
+    Object.keys(body).some((key) => key !== 'expectedRevision')
+  ) {
     return c.json({ error: 'expectedRevision is required' }, 400);
   }
   try {
-    return c.json({ checkedAt: await markMynaEndpointVerified(
-      c.env.DB, lineAccountId, Number(body.expectedRevision),
-    ) });
+    return c.json({
+      checkedAt: await markMynaEndpointVerified(c.env.DB, lineAccountId, Number(body.expectedRevision)),
+    });
   } catch (error) {
     if (String(error).includes('stale Myna endpoint revision')) {
       return c.json({ error: 'Myna endpoint configuration changed' }, 409);
@@ -463,14 +496,19 @@ function mapMynaError(c: Context<MynaEnv>, error: unknown): Response {
   if (message === 'FEATURE_DISABLED') {
     return c.json({ error: 'この受付は現在利用できません', code: 'FEATURE_DISABLED' }, 409);
   }
-  if (message === 'Myna handoff not found' || message === 'Myna expectation not found' || message === 'patient not found') {
+  if (
+    message === 'Myna handoff not found' ||
+    message === 'Myna expectation not found' ||
+    message === 'patient not found'
+  ) {
     return c.json({ error: message === 'patient not found' ? 'Patient not found' : 'Myna handoff not found' }, 404);
   }
   if (message.includes('expired') || message.includes('conflict') || message.includes('closed')) {
     return c.json({ error: 'Myna受付の状態が変わりました。最新状態を確認してください。' }, 409);
   }
   if (message.includes('invalid Myna')) return c.json({ error: 'Invalid Myna input' }, 400);
-  if (message.includes('integrity') || message.includes('encrypted')) return c.json({ error: 'Myna endpoint configuration is invalid' }, 503);
+  if (message.includes('integrity') || message.includes('encrypted'))
+    return c.json({ error: 'Myna endpoint configuration is invalid' }, 503);
   if (message.includes('UNIQUE')) return c.json({ error: 'Myna endpoint configuration already exists' }, 409);
   throw error;
 }

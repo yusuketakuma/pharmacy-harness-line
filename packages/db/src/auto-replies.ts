@@ -17,11 +17,7 @@ export interface AutoReply {
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
-export async function getAutoReplies(
-  db: D1Database,
-  lineAccountId?: string,
-  tenantId?: string,
-): Promise<AutoReply[]> {
+export async function getAutoReplies(db: D1Database, lineAccountId?: string, tenantId?: string): Promise<AutoReply[]> {
   if (tenantId !== undefined) {
     const accountFilter = lineAccountId ? ' AND reply.line_account_id = ?' : '';
     const binds = lineAccountId ? [tenantId, lineAccountId] : [tenantId];
@@ -47,22 +43,18 @@ export async function getAutoReplies(
   }
   if (lineAccountId) {
     const result = await db
-      .prepare(`SELECT * FROM auto_replies WHERE (line_account_id IS NULL OR line_account_id = ?) ORDER BY created_at DESC`)
+      .prepare(
+        `SELECT * FROM auto_replies WHERE (line_account_id IS NULL OR line_account_id = ?) ORDER BY created_at DESC`,
+      )
       .bind(lineAccountId)
       .all<AutoReply>();
     return result.results;
   }
-  const result = await db
-    .prepare(`SELECT * FROM auto_replies ORDER BY created_at DESC`)
-    .all<AutoReply>();
+  const result = await db.prepare(`SELECT * FROM auto_replies ORDER BY created_at DESC`).all<AutoReply>();
   return result.results;
 }
 
-export async function getAutoReplyById(
-  db: D1Database,
-  id: string,
-  tenantId?: string,
-): Promise<AutoReply | null> {
+export async function getAutoReplyById(db: D1Database, id: string, tenantId?: string): Promise<AutoReply | null> {
   if (tenantId !== undefined) {
     return db
       .prepare(`
@@ -83,10 +75,7 @@ export async function getAutoReplyById(
       .bind(id, tenantId)
       .first<AutoReply>();
   }
-  return db
-    .prepare(`SELECT * FROM auto_replies WHERE id = ?`)
-    .bind(id)
-    .first<AutoReply>();
+  return db.prepare(`SELECT * FROM auto_replies WHERE id = ?`).bind(id).first<AutoReply>();
 }
 
 export interface CreateAutoReplyInput {
@@ -99,10 +88,7 @@ export interface CreateAutoReplyInput {
   tenantId?: string;
 }
 
-export async function createAutoReply(
-  db: D1Database,
-  input: CreateAutoReplyInput,
-): Promise<AutoReply | null> {
+export async function createAutoReply(db: D1Database, input: CreateAutoReplyInput): Promise<AutoReply | null> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -184,7 +170,10 @@ export async function updateAutoReply(
   if (!existing) return null;
 
   const now = jstNow();
-  const tenantScope = tenantId === undefined ? '' : `
+  const tenantScope =
+    tenantId === undefined
+      ? ''
+      : `
        AND auto_replies.line_account_id IS NOT NULL
        AND EXISTS (
          SELECT 1
@@ -218,9 +207,7 @@ export async function updateAutoReply(
       input.responseType ?? existing.response_type,
       input.responseContent ?? existing.response_content,
       'templateId' in input ? (input.templateId ?? null) : existing.template_id,
-      tenantId === undefined && 'lineAccountId' in input
-        ? (input.lineAccountId ?? null)
-        : existing.line_account_id,
+      tenantId === undefined && 'lineAccountId' in input ? (input.lineAccountId ?? null) : existing.line_account_id,
       'isActive' in input ? (input.isActive ? 1 : 0) : existing.is_active,
       existing.created_at,
       id,
@@ -232,7 +219,10 @@ export async function updateAutoReply(
 }
 
 export async function deleteAutoReply(db: D1Database, id: string, tenantId?: string): Promise<boolean> {
-  const tenantScope = tenantId === undefined ? '' : `
+  const tenantScope =
+    tenantId === undefined
+      ? ''
+      : `
        AND auto_replies.line_account_id IS NOT NULL
        AND EXISTS (
          SELECT 1

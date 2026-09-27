@@ -1,52 +1,57 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import { api } from '@/lib/api'
-import Header from '@/components/layout/header'
-import FlexPreviewComponent from '@/components/flex-preview'
-import CcPromptButton from '@/components/cc-prompt-button'
-import ImageUploader from '@/components/shared/image-uploader'
+import { useState, useEffect, useCallback } from 'react';
+import { api } from '@/lib/api';
+import Header from '@/components/layout/header';
+import FlexPreviewComponent from '@/components/flex-preview';
+import CcPromptButton from '@/components/cc-prompt-button';
+import ImageUploader from '@/components/shared/image-uploader';
 
 interface Template {
-  id: string
-  name: string
-  category: string
-  messageType: string
-  messageContent: string
-  usageCount: number
-  createdAt: string
-  updatedAt: string
+  id: string;
+  name: string;
+  category: string;
+  messageType: string;
+  messageContent: string;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface TemplateDetail {
-  id: string
-  name: string
-  category: string
-  messageType: string
-  messageContent: string
+  id: string;
+  name: string;
+  category: string;
+  messageType: string;
+  messageContent: string;
   usedBy: {
-    autoReplies: Array<{ id: string; keyword: string; matchType: 'exact' | 'contains'; lineAccountId: string | null }>
-    automations: Array<{ id: string; name: string; eventType: string }>
-  }
-  createdAt: string
-  updatedAt: string
+    autoReplies: Array<{
+      id: string;
+      keyword: string;
+      matchType: 'exact' | 'contains';
+      lineAccountId: string | null;
+    }>;
+    automations: Array<{ id: string; name: string; eventType: string }>;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
-type TypeFilter = 'all' | 'text' | 'flex' | 'image' | 'unused'
+type TypeFilter = 'all' | 'text' | 'flex' | 'image' | 'unused';
 
 const messageTypeLabels: Record<string, string> = {
   text: 'テキスト',
   image: '画像',
   flex: 'Flex',
   carousel: 'Carousel',
-}
+};
 
 const typeBadgeColor: Record<string, string> = {
   text: 'bg-gray-100 text-gray-700',
   flex: 'bg-purple-100 text-purple-700',
   image: 'bg-blue-100 text-blue-700',
   carousel: 'bg-amber-100 text-amber-700',
-}
+};
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', {
@@ -55,7 +60,7 @@ function formatDate(iso: string): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  })
+  });
 }
 
 const ccPrompts = [
@@ -67,153 +72,183 @@ const ccPrompts = [
 3. カテゴリ分類と命名規則のベストプラクティス
 手順を示してください。`,
   },
-]
+];
 
 export default function TemplatesPage() {
-  const [templates, setTemplates] = useState<Template[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [showCreate, setShowCreate] = useState(false)
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
-  const [form, setForm] = useState({ name: '', category: 'general', messageType: 'text', messageContent: '' })
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [form, setForm] = useState({
+    name: '',
+    category: 'general',
+    messageType: 'text',
+    messageContent: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // Drawer
-  const [drawerId, setDrawerId] = useState<string | null>(null)
-  const [drawerData, setDrawerData] = useState<TemplateDetail | null>(null)
-  const [scenarioStepUsages, setScenarioStepUsages] = useState<Array<{
-    scenarioId: string
-    scenarioName: string
-    stepId: string
-    stepOrder: number
-  }>>([])
-  const [drawerLoading, setDrawerLoading] = useState(false)
-  const [drawerError, setDrawerError] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState<string | null>(null)
-  const [editName, setEditName] = useState<string | null>(null)
-  const [savingEdit, setSavingEdit] = useState(false)
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [drawerData, setDrawerData] = useState<TemplateDetail | null>(null);
+  const [scenarioStepUsages, setScenarioStepUsages] = useState<
+    Array<{
+      scenarioId: string;
+      scenarioName: string;
+      stepId: string;
+      stepOrder: number;
+    }>
+  >([]);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  const [drawerError, setDrawerError] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState<string | null>(null);
+  const [editName, setEditName] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.templates.list()
+      const res = await api.templates.list();
       if (res.success) {
-        setTemplates(res.data)
+        setTemplates(res.data);
       } else {
-        setError(res.error)
+        setError(res.error);
       }
     } catch {
-      setError('テンプレートの読み込みに失敗しました。')
+      setError('テンプレートの読み込みに失敗しました。');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Drawer fetch
   useEffect(() => {
-    if (!drawerId) { setDrawerData(null); setDrawerError(null); setScenarioStepUsages([]); return }
-    let cancelled = false
-    setDrawerLoading(true)
-    setDrawerError(null)
-    setDrawerData(null)
-    setScenarioStepUsages([])
-    Promise.all([
-      api.templates.get(drawerId),
-      api.templates.usages(drawerId).catch(() => null),
-    ]).then(([detailRes, usagesRes]) => {
-      if (cancelled) return
-      if (detailRes.success && detailRes.data) {
-        setDrawerData(detailRes.data)
-      } else {
-        setDrawerError((detailRes as { error?: string }).error ?? '読み込みに失敗しました')
-      }
-      if (usagesRes && usagesRes.success) {
-        setScenarioStepUsages(usagesRes.data.scenarioSteps)
-      }
-    }).catch((err) => {
-      if (cancelled) return
-      setDrawerError(err instanceof Error ? err.message : String(err))
-    }).finally(() => {
-      if (!cancelled) setDrawerLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [drawerId])
+    if (!drawerId) {
+      setDrawerData(null);
+      setDrawerError(null);
+      setScenarioStepUsages([]);
+      return;
+    }
+    let cancelled = false;
+    setDrawerLoading(true);
+    setDrawerError(null);
+    setDrawerData(null);
+    setScenarioStepUsages([]);
+    Promise.all([api.templates.get(drawerId), api.templates.usages(drawerId).catch(() => null)])
+      .then(([detailRes, usagesRes]) => {
+        if (cancelled) return;
+        if (detailRes.success && detailRes.data) {
+          setDrawerData(detailRes.data);
+        } else {
+          setDrawerError((detailRes as { error?: string }).error ?? '読み込みに失敗しました');
+        }
+        if (usagesRes && usagesRes.success) {
+          setScenarioStepUsages(usagesRes.data.scenarioSteps);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDrawerError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setDrawerLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drawerId]);
 
   // reset edits when drawer changes
-  useEffect(() => { setEditContent(null); setEditName(null) }, [drawerId])
+  useEffect(() => {
+    setEditContent(null);
+    setEditName(null);
+  }, [drawerId]);
 
   const filteredTemplates = templates.filter((t) => {
-    if (typeFilter === 'all') return true
-    if (typeFilter === 'unused') return t.usageCount === 0
-    return t.messageType === typeFilter
-  })
+    if (typeFilter === 'all') return true;
+    if (typeFilter === 'unused') return t.usageCount === 0;
+    return t.messageType === typeFilter;
+  });
 
   const handleCreate = async () => {
-    if (!form.name.trim()) { setFormError('テンプレート名を入力してください'); return }
-    if (!form.messageContent.trim()) { setFormError('メッセージ内容を入力してください'); return }
-    setSaving(true)
-    setFormError('')
+    if (!form.name.trim()) {
+      setFormError('テンプレート名を入力してください');
+      return;
+    }
+    if (!form.messageContent.trim()) {
+      setFormError('メッセージ内容を入力してください');
+      return;
+    }
+    setSaving(true);
+    setFormError('');
     try {
-      const res = await api.templates.create(form)
+      const res = await api.templates.create(form);
       if (res.success) {
-        setShowCreate(false)
-        setForm({ name: '', category: 'general', messageType: 'text', messageContent: '' })
-        load()
+        setShowCreate(false);
+        setForm({ name: '', category: 'general', messageType: 'text', messageContent: '' });
+        load();
       } else {
-        setFormError(res.error)
+        setFormError(res.error);
       }
     } catch {
-      setFormError('作成に失敗しました')
+      setFormError('作成に失敗しました');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const handleSaveEdit = async () => {
-    if (!drawerData) return
+    if (!drawerData) return;
     if (editContent !== null && !editContent.trim()) {
-      setError('内容を空にはできません')
-      return
+      setError('内容を空にはできません');
+      return;
     }
     if (editName !== null && !editName.trim()) {
-      setError('名前を空にはできません')
-      return
+      setError('名前を空にはできません');
+      return;
     }
-    setSavingEdit(true)
+    setSavingEdit(true);
     try {
-      const updates: Record<string, string> = {}
-      if (editContent !== null) updates.messageContent = editContent
-      if (editName !== null) updates.name = editName
-      await api.templates.update(drawerData.id, updates)
-      const r = await api.templates.get(drawerData.id)
-      if (r.success && r.data) setDrawerData(r.data)
-      setEditContent(null)
-      setEditName(null)
-      load()
+      const updates: Record<string, string> = {};
+      if (editContent !== null) updates.messageContent = editContent;
+      if (editName !== null) updates.name = editName;
+      await api.templates.update(drawerData.id, updates);
+      const r = await api.templates.get(drawerData.id);
+      if (r.success && r.data) setDrawerData(r.data);
+      setEditContent(null);
+      setEditName(null);
+      load();
     } catch {
-      setError('更新に失敗しました')
+      setError('更新に失敗しました');
     }
-    setSavingEdit(false)
-  }
+    setSavingEdit(false);
+  };
 
   const handleDelete = async (id: string, usageCount: number) => {
     if (usageCount > 0) {
-      if (!confirm(`このテンプレートは ${usageCount} 箇所で使用されています。削除すると参照がクリアされます。続行しますか？`)) return
+      if (
+        !confirm(
+          `このテンプレートは ${usageCount} 箇所で使用されています。削除すると参照がクリアされます。続行しますか？`,
+        )
+      )
+        return;
     } else {
-      if (!confirm('このテンプレートを削除しますか？')) return
+      if (!confirm('このテンプレートを削除しますか？')) return;
     }
     try {
-      await api.templates.delete(id)
-      if (drawerId === id) setDrawerId(null)
-      load()
+      await api.templates.delete(id);
+      if (drawerId === id) setDrawerId(null);
+      load();
     } catch {
-      setError('削除に失敗しました')
+      setError('削除に失敗しました');
     }
-  }
+  };
 
   return (
     <div>
@@ -231,21 +266,19 @@ export default function TemplatesPage() {
         }
       />
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       {/* Type filter */}
       <div className="mb-4 flex flex-wrap gap-2">
-        {([
-          { key: 'all', label: '全て' },
-          { key: 'text', label: 'テキスト' },
-          { key: 'flex', label: 'Flex' },
-          { key: 'image', label: '画像' },
-          { key: 'unused', label: '未使用' },
-        ] as const).map(({ key, label }) => (
+        {(
+          [
+            { key: 'all', label: '全て' },
+            { key: 'text', label: 'テキスト' },
+            { key: 'flex', label: 'Flex' },
+            { key: 'image', label: '画像' },
+            { key: 'unused', label: '未使用' },
+          ] as const
+        ).map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setTypeFilter(key)}
@@ -265,7 +298,9 @@ export default function TemplatesPage() {
           <h2 className="text-sm font-semibold text-gray-800 mb-4">新規テンプレートを作成</h2>
           <div className="space-y-4 max-w-lg">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">名前 <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                名前 <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -297,31 +332,41 @@ export default function TemplatesPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">内容 / JSON <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                内容 / JSON <span className="text-red-500">*</span>
+              </label>
               {form.messageType === 'image' ? (
                 <ImageUploader
                   mode="line-image"
                   value={(() => {
                     try {
-                      const parsed = JSON.parse(form.messageContent) as { originalContentUrl?: string; previewImageUrl?: string }
+                      const parsed = JSON.parse(form.messageContent) as {
+                        originalContentUrl?: string;
+                        previewImageUrl?: string;
+                      };
                       if (parsed.originalContentUrl) {
                         return {
                           mode: 'line-image' as const,
                           originalContentUrl: parsed.originalContentUrl,
                           previewImageUrl: parsed.previewImageUrl ?? parsed.originalContentUrl,
-                        }
+                        };
                       }
-                    } catch { /* ignore */ }
-                    return null
+                    } catch {
+                      /* ignore */
+                    }
+                    return null;
                   })()}
                   onChange={(v) => {
                     if (v?.mode === 'line-image') {
-                      setForm((prev) => ({ ...prev, messageContent: JSON.stringify({
-                        originalContentUrl: v.originalContentUrl,
-                        previewImageUrl: v.previewImageUrl,
-                      }) }))
+                      setForm((prev) => ({
+                        ...prev,
+                        messageContent: JSON.stringify({
+                          originalContentUrl: v.originalContentUrl,
+                          previewImageUrl: v.previewImageUrl,
+                        }),
+                      }));
                     } else {
-                      setForm((prev) => ({ ...prev, messageContent: '' }))
+                      setForm((prev) => ({ ...prev, messageContent: '' }));
                     }
                   }}
                   label="テンプレート画像"
@@ -349,7 +394,10 @@ export default function TemplatesPage() {
                 {saving ? '作成中...' : '作成'}
               </button>
               <button
-                onClick={() => { setShowCreate(false); setFormError('') }}
+                onClick={() => {
+                  setShowCreate(false);
+                  setFormError('');
+                }}
                 className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg"
               >
                 キャンセル
@@ -400,14 +448,17 @@ export default function TemplatesPage() {
                     className={`hover:bg-gray-50 cursor-pointer transition-colors ${drawerId === t.id ? 'bg-green-50' : ''}`}
                   >
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${typeBadgeColor[t.messageType] ?? 'bg-gray-100 text-gray-700'}`}>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${typeBadgeColor[t.messageType] ?? 'bg-gray-100 text-gray-700'}`}
+                      >
                         {messageTypeLabels[t.messageType] ?? t.messageType}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-sm font-medium text-gray-900">{t.name}</p>
                       <p className="text-[11px] text-gray-400 mt-0.5 truncate max-w-md">
-                        {t.messageContent.slice(0, 60)}{t.messageContent.length > 60 ? '...' : ''}
+                        {t.messageContent.slice(0, 60)}
+                        {t.messageContent.length > 60 ? '...' : ''}
                       </p>
                     </td>
                     <td className="px-4 py-3">
@@ -423,7 +474,10 @@ export default function TemplatesPage() {
                     <td className="px-4 py-3 text-xs text-gray-500">{formatDate(t.updatedAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(t.id, t.usageCount) }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(t.id, t.usageCount);
+                        }}
                         className="px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-md"
                       >
                         削除
@@ -440,10 +494,7 @@ export default function TemplatesPage() {
       {/* Drawer */}
       {drawerId && (
         <>
-          <div
-            className="fixed inset-0 bg-black/30 z-30 lg:hidden"
-            onClick={() => setDrawerId(null)}
-          />
+          <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setDrawerId(null)} />
           <div className="fixed inset-y-0 right-0 w-full lg:w-[480px] bg-white shadow-xl border-l border-gray-200 z-40 overflow-y-auto">
             <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -483,15 +534,15 @@ export default function TemplatesPage() {
             ) : !drawerData ? null : (
               <div className="p-4 space-y-5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${typeBadgeColor[drawerData.messageType] ?? 'bg-gray-100 text-gray-700'}`}>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${typeBadgeColor[drawerData.messageType] ?? 'bg-gray-100 text-gray-700'}`}
+                  >
                     {messageTypeLabels[drawerData.messageType] ?? drawerData.messageType}
                   </span>
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700">
                     {drawerData.category}
                   </span>
-                  <span className="text-[10px] text-gray-400">
-                    更新: {formatDate(drawerData.updatedAt)}
-                  </span>
+                  <span className="text-[10px] text-gray-400">更新: {formatDate(drawerData.updatedAt)}</span>
                 </div>
 
                 {/* Preview */}
@@ -501,18 +552,24 @@ export default function TemplatesPage() {
                     {drawerData.messageType === 'flex' ? (
                       (() => {
                         try {
-                          return <FlexPreviewComponent content={drawerData.messageContent} maxWidth={420} />
+                          return <FlexPreviewComponent content={drawerData.messageContent} maxWidth={420} />;
                         } catch {
-                          return <p className="text-xs text-red-500">Flex JSON parse 失敗</p>
+                          return <p className="text-xs text-red-500">Flex JSON parse 失敗</p>;
                         }
                       })()
                     ) : drawerData.messageType === 'image' ? (
                       (() => {
                         try {
-                          const parsed = JSON.parse(drawerData.messageContent)
-                          return <img src={parsed.originalContentUrl || parsed.previewImageUrl} alt="" className="max-w-full rounded" />
+                          const parsed = JSON.parse(drawerData.messageContent);
+                          return (
+                            <img
+                              src={parsed.originalContentUrl || parsed.previewImageUrl}
+                              alt=""
+                              className="max-w-full rounded"
+                            />
+                          );
                         } catch {
-                          return <pre className="text-xs whitespace-pre-wrap">{drawerData.messageContent}</pre>
+                          return <pre className="text-xs whitespace-pre-wrap">{drawerData.messageContent}</pre>;
                         }
                       })()
                     ) : (
@@ -523,7 +580,9 @@ export default function TemplatesPage() {
 
                 {/* Edit JSON / content */}
                 <div>
-                  <h4 className="text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">内容 / JSON 編集</h4>
+                  <h4 className="text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">
+                    内容 / JSON 編集
+                  </h4>
                   <textarea
                     rows={drawerData.messageType === 'flex' ? 12 : 4}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
@@ -543,7 +602,10 @@ export default function TemplatesPage() {
                       {savingEdit ? '保存中...' : '保存'}
                     </button>
                     <button
-                      onClick={() => { setEditContent(null); setEditName(null) }}
+                      onClick={() => {
+                        setEditContent(null);
+                        setEditName(null);
+                      }}
                       className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md"
                     >
                       キャンセル
@@ -554,9 +616,15 @@ export default function TemplatesPage() {
                 {/* Used by */}
                 <div>
                   <h4 className="text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">
-                    使用箇所 ({drawerData.usedBy.autoReplies.length + drawerData.usedBy.automations.length + scenarioStepUsages.length})
+                    使用箇所 (
+                    {drawerData.usedBy.autoReplies.length +
+                      drawerData.usedBy.automations.length +
+                      scenarioStepUsages.length}
+                    )
                   </h4>
-                  {(drawerData.usedBy.autoReplies.length === 0 && drawerData.usedBy.automations.length === 0 && scenarioStepUsages.length === 0) ? (
+                  {drawerData.usedBy.autoReplies.length === 0 &&
+                  drawerData.usedBy.automations.length === 0 &&
+                  scenarioStepUsages.length === 0 ? (
                     <p className="text-[11px] text-gray-400 italic">どこからも使用されていません</p>
                   ) : (
                     <>
@@ -599,5 +667,5 @@ export default function TemplatesPage() {
 
       <CcPromptButton prompts={ccPrompts} />
     </div>
-  )
+  );
 }

@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { WorkerBinding } from '../../packages/update-engine/src/index.js';
-import {
-  prepareCustomerConfig,
-  verifyCustomerConfig,
-} from './customer-config.js';
+import { prepareCustomerConfig, verifyCustomerConfig } from './customer-config.js';
 
 const liveBindings: WorkerBinding[] = [
   { type: 'plain_text', name: 'WORKER_NAME', text: 'customer-worker' },
@@ -23,9 +20,7 @@ const wrangler = {
     ADMIN_ORIGIN: 'https://admin.example.test',
     WORKER_URL: 'https://worker.example.test',
   },
-  d1_databases: [
-    { binding: 'DB', database_name: 'customer-db', database_id: 'customer-d1' },
-  ],
+  d1_databases: [{ binding: 'DB', database_name: 'customer-db', database_id: 'customer-d1' }],
   r2_buckets: [{ binding: 'IMAGES', bucket_name: 'customer-images' }],
   assets: { binding: 'ASSETS', directory: '../client' },
 };
@@ -55,12 +50,8 @@ describe('customer deployment configuration protection', () => {
     expect(prepared.wrangler.d1_databases).toEqual([
       { binding: 'DB', database_name: 'customer-db', database_id: 'customer-d1' },
     ]);
-    expect(prepared.wrangler.r2_buckets).toEqual([
-      { binding: 'IMAGES', bucket_name: 'customer-images' },
-    ]);
-    expect(prepared.wrangler.kv_namespaces).toEqual([
-      { binding: 'CACHE', id: 'customer-kv' },
-    ]);
+    expect(prepared.wrangler.r2_buckets).toEqual([{ binding: 'IMAGES', bucket_name: 'customer-images' }]);
+    expect(prepared.wrangler.kv_namespaces).toEqual([{ binding: 'CACHE', id: 'customer-kv' }]);
     expect(JSON.stringify(prepared.snapshot)).not.toContain('customer-worker');
     expect(() => verifyCustomerConfig(prepared.snapshot, liveBindings)).not.toThrow();
   });
@@ -128,10 +119,12 @@ describe('customer deployment configuration protection', () => {
     });
 
     expect(prepared.wrangler.vars).toMatchObject({ LIFF_ORIGIN: liffOrigin });
-    expect(() => verifyCustomerConfig(prepared.snapshot, [
-      ...liveBindings,
-      { type: 'plain_text', name: 'LIFF_ORIGIN', text: liffOrigin },
-    ])).not.toThrow();
+    expect(() =>
+      verifyCustomerConfig(prepared.snapshot, [
+        ...liveBindings,
+        { type: 'plain_text', name: 'LIFF_ORIGIN', text: liffOrigin },
+      ]),
+    ).not.toThrow();
   });
 
   test('does not require the legacy LIFF Pages variable for Worker Assets installs', () => {
@@ -165,11 +158,7 @@ describe('customer deployment configuration protection', () => {
       expected,
     });
 
-    for (const name of [
-      'D1_DATABASE_ID',
-      'MANIFEST_URL',
-      'CF_ACCOUNT_ID',
-    ]) {
+    for (const name of ['D1_DATABASE_ID', 'MANIFEST_URL', 'CF_ACCOUNT_ID']) {
       expect(prepared.wrangler.vars).not.toHaveProperty(name);
     }
     expect(prepared.wrangler.vars).toMatchObject({
@@ -180,40 +169,37 @@ describe('customer deployment configuration protection', () => {
   });
 
   test('stops before deployment when D1 or R2 differs', () => {
-    expect(() => prepareCustomerConfig({
-      wrangler,
-      liveBindings,
-      expected: { ...expected, d1DatabaseId: 'other-d1' },
-    })).toThrow(/D1 binding DB/);
-    expect(() => prepareCustomerConfig({
-      wrangler,
-      liveBindings,
-      expected: { ...expected, r2BucketName: 'other-images' },
-    })).toThrow(/R2 binding IMAGES/);
+    expect(() =>
+      prepareCustomerConfig({
+        wrangler,
+        liveBindings,
+        expected: { ...expected, d1DatabaseId: 'other-d1' },
+      }),
+    ).toThrow(/D1 binding DB/);
+    expect(() =>
+      prepareCustomerConfig({
+        wrangler,
+        liveBindings,
+        expected: { ...expected, r2BucketName: 'other-images' },
+      }),
+    ).toThrow(/R2 binding IMAGES/);
   });
 
   test('detects removal or changes after deployment without exposing values', () => {
     const { snapshot } = prepareCustomerConfig({ wrangler, liveBindings, expected });
     const removed = liveBindings.filter((binding) => binding.name !== 'LINE_CHANNEL_SECRET');
     const changed = liveBindings.map((binding) =>
-      binding.name === 'CACHE'
-        ? { ...binding, namespace_id: 'changed-kv' }
-        : binding,
+      binding.name === 'CACHE' ? { ...binding, namespace_id: 'changed-kv' } : binding,
     );
 
-    expect(() => verifyCustomerConfig(snapshot, removed)).toThrow(
-      /customer Worker bindings changed during deployment/,
-    );
-    expect(() => verifyCustomerConfig(snapshot, changed)).toThrow(
-      /customer Worker bindings changed during deployment/,
-    );
+    expect(() => verifyCustomerConfig(snapshot, removed)).toThrow(/customer Worker bindings changed during deployment/);
+    expect(() => verifyCustomerConfig(snapshot, changed)).toThrow(/customer Worker bindings changed during deployment/);
   });
 
   test('postflight rejects a stale public topology binding', () => {
     const liffOrigin = 'https://liff.example.test';
     const topologyBindings: WorkerBinding[] = [
-      ...liveBindings.filter((binding) =>
-        binding.name !== 'ADMIN_ORIGIN' && binding.name !== 'WORKER_URL'),
+      ...liveBindings.filter((binding) => binding.name !== 'ADMIN_ORIGIN' && binding.name !== 'WORKER_URL'),
       { type: 'plain_text', name: 'ADMIN_ORIGIN', text: expected.adminOrigin },
       { type: 'plain_text', name: 'WORKER_URL', text: expected.workerUrl },
       { type: 'plain_text', name: 'WORKER_PUBLIC_URL', text: expected.workerUrl },
@@ -227,10 +213,8 @@ describe('customer deployment configuration protection', () => {
       expected: { ...expected, liffOrigin },
     });
 
-    expect(() => verifyCustomerConfig(
-      prepared.snapshot,
-      topologyBindings,
-      { ...expected, liffOrigin },
-    )).toThrow(/LIFF_PUBLIC_URL/);
+    expect(() => verifyCustomerConfig(prepared.snapshot, topologyBindings, { ...expected, liffOrigin })).toThrow(
+      /LIFF_PUBLIC_URL/,
+    );
   });
 });

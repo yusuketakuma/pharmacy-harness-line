@@ -1,0 +1,10 @@
+{
+  "P": "3158e7c337a3d43022b1db6fd0a4ce0fc4877257",
+  "work": "/Users/yusuke/workspace/pharmacy-harness-line/docs/pharmacy/evidence/audit-20260922/.F38-red-qybr5clq",
+  "exit": {
+    "worker": 1,
+    "native": 1
+  },
+  "native_corrected_exit": 1,
+  "initial_native_failure": "Missing root tsconfig in isolated source copy; corrected before using native RED evidence"
+}

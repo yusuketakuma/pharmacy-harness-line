@@ -95,9 +95,9 @@ describe('executeD1Query', () => {
       }),
     } as unknown as Response);
 
-    await expect(
-      executeD1Query({ creds, databaseId: 'db123', sql: 'CREATE TRIGER t ...' }),
-    ).rejects.toThrow(/D1 query failed.*7500.*syntax error/s);
+    await expect(executeD1Query({ creds, databaseId: 'db123', sql: 'CREATE TRIGER t ...' })).rejects.toThrow(
+      /D1 query failed.*7500.*syntax error/s,
+    );
   });
 
   it('throws when one statement of a multi-statement response failed', async () => {
@@ -178,9 +178,7 @@ describe('executeD1Query', () => {
     });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/d1/database/db_xyz/query',
-    );
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/d1/database/db_xyz/query');
     expect(init.method).toBe('POST');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer tok_abc');
@@ -204,13 +202,9 @@ describe('getD1Bookmark', () => {
     } as Response);
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(getD1Bookmark({ creds, databaseId: 'db123' })).resolves.toBe(
-      'bookmark-123',
-    );
+    await expect(getD1Bookmark({ creds, databaseId: 'db123' })).resolves.toBe('bookmark-123');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/acct123/d1/database/db123/time_travel/bookmark',
-    );
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/d1/database/db123/time_travel/bookmark');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok_abc');
   });
 
@@ -221,8 +215,6 @@ describe('getD1Bookmark', () => {
       json: async () => ({ success: true, result: {} }),
     } as Response) as unknown as typeof fetch;
 
-    await expect(getD1Bookmark({ creds, databaseId: 'db123' })).rejects.toThrow(
-      /missing bookmark/,
-    );
+    await expect(getD1Bookmark({ creds, databaseId: 'db123' })).rejects.toThrow(/missing bookmark/);
   });
 });

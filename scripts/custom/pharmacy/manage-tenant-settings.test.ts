@@ -8,10 +8,7 @@ import {
   findPharmacyAdminApiDeferred,
 } from '../../../apps/worker/src/custom/pharmacy/platform-admin/api-coverage.js';
 
-const baseArgs = [
-  '--worker-url', 'https://api.example.test',
-  '--tenant-id', 'tenant-a',
-];
+const baseArgs = ['--worker-url', 'https://api.example.test', '--tenant-id', 'tenant-a'];
 const environment = {
   PHARMACY_PLATFORM_ADMIN_LOGIN_ID: 'platform-owner',
   PHARMACY_PLATFORM_ADMIN_PASSWORD: 'platform-password-value',
@@ -27,23 +24,26 @@ function loginResponse(): Response {
   const headers = new Headers({ 'content-type': 'application/json' });
   headers.append('set-cookie', `lh_platform_admin_session=${platformSession}; Path=/api/platform-admin; HttpOnly`);
   headers.append('set-cookie', 'lh_platform_admin_csrf=csrf-value; Path=/api/platform-admin');
-  return new Response(JSON.stringify({
-    success: true,
-    data: { id: 'platform-admin-1', mustChangePassword: false },
-    csrfToken: 'csrf-value',
-  }), { status: 200, headers });
+  return new Response(
+    JSON.stringify({
+      success: true,
+      data: { id: 'platform-admin-1', mustChangePassword: false },
+      csrfToken: 'csrf-value',
+    }),
+    { status: 200, headers },
+  );
 }
 
-const logoutResponse = () => new Response(JSON.stringify({ success: true }), {
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-});
+const logoutResponse = () =>
+  new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 
 describe('tenant settings CLI', () => {
   it('declares the required non-PHI API coverage and mutation gates', () => {
-    const covered = (method: string, path: string) => PHARMACY_ADMIN_API_COVERAGE.some(
-      (entry) => entry.method === method && entry.path.test(path),
-    );
+    const covered = (method: string, path: string) =>
+      PHARMACY_ADMIN_API_COVERAGE.some((entry) => entry.method === method && entry.path.test(path));
 
     expect(covered('GET', '/api/custom/pharmacy/readiness')).toBe(true);
     expect(covered('PUT', '/api/custom/pharmacy/growth/config')).toBe(true);
@@ -80,40 +80,64 @@ describe('tenant settings CLI', () => {
     expect(covered('POST', '/api/line-accounts/account-a/connect')).toBe(true);
     expect(covered('PATCH', '/api/line-accounts/order')).toBe(true);
     expect(PHARMACY_ADMIN_API_COVERAGE.every((entry) => entry.safeOutput)).toBe(true);
-    expect(PHARMACY_ADMIN_API_COVERAGE.find((entry) =>
-      entry.path.test('/api/rich-menu-groups/group-a/publish'))?.mutationGate,
+    expect(
+      PHARMACY_ADMIN_API_COVERAGE.find((entry) => entry.path.test('/api/rich-menu-groups/group-a/publish'))
+        ?.mutationGate,
     ).toBe('confirmation');
   });
 
   it('reports missing configuration with stable doctor reason codes and exit code 2', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: [{
-        id: 'account-a', liffIdConfigured: false, loginChannelConfigured: true,
-        messagingCredentialsReady: false, loginCredentialReady: true,
-        expectedLiffEndpoint: null,
-        liffEndpointEvidence: { status: 'UNVERIFIED' },
-        readiness: {
-          electronicPrescription: { status: 'BLOCKED', capabilityEnabled: true },
-          emergencyContraception: { status: 'READY', capabilityEnabled: true },
-          richMenu: { status: 'BLOCKED', capabilityEnabled: true },
-        },
-        configurationDoctor: {
-          accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z', status: 'BLOCKED',
-          reasonCodes: [
-            'LIFF_ID_MISSING', 'MESSAGING_CREDENTIAL_MISSING',
-            'ELECTRONIC_ENDPOINT_MISSING', 'RICH_MENU_LAYOUT_MISSING',
-          ],
-          checks: [],
-        },
-      }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: [
+              {
+                id: 'account-a',
+                liffIdConfigured: false,
+                loginChannelConfigured: true,
+                messagingCredentialsReady: false,
+                loginCredentialReady: true,
+                expectedLiffEndpoint: null,
+                liffEndpointEvidence: { status: 'UNVERIFIED' },
+                readiness: {
+                  electronicPrescription: { status: 'BLOCKED', capabilityEnabled: true },
+                  emergencyContraception: { status: 'READY', capabilityEnabled: true },
+                  richMenu: { status: 'BLOCKED', capabilityEnabled: true },
+                },
+                configurationDoctor: {
+                  accountId: 'account-a',
+                  checkedAt: '2026-08-21T00:00:00.000Z',
+                  status: 'BLOCKED',
+                  reasonCodes: [
+                    'LIFF_ID_MISSING',
+                    'MESSAGING_CREDENTIAL_MISSING',
+                    'ELECTRONIC_ENDPOINT_MISSING',
+                    'RICH_MENU_LAYOUT_MISSING',
+                  ],
+                  checks: [],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
-    await expect(runTenantSettings(
-      [...baseArgs, '--account-id', 'account-a', '--doctor'], environment, fetcher,
-      async () => Buffer.alloc(0), (line) => output.push(line),
-    )).resolves.toBe(2);
+    await expect(
+      runTenantSettings(
+        [...baseArgs, '--account-id', 'account-a', '--doctor'],
+        environment,
+        fetcher,
+        async () => Buffer.alloc(0),
+        (line) => output.push(line),
+      ),
+    ).resolves.toBe(2);
     expect(JSON.parse(output.join('\n'))).toMatchObject({
       status: 'BLOCKED',
       localCredentials: { loginIdConfigured: true, passwordConfigured: true },
@@ -130,64 +154,115 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('{}', { status: 401 }));
 
-    await expect(runTenantSettings(
-      [...baseArgs, '--account-id', 'account-a', '--doctor'], environment, fetcher,
-      async () => Buffer.alloc(0), (line) => output.push(line),
-    )).resolves.toBe(3);
+    await expect(
+      runTenantSettings(
+        [...baseArgs, '--account-id', 'account-a', '--doctor'],
+        environment,
+        fetcher,
+        async () => Buffer.alloc(0),
+        (line) => output.push(line),
+      ),
+    ).resolves.toBe(3);
     expect(output.join('\n')).not.toContain(environment.PHARMACY_PLATFORM_ADMIN_PASSWORD);
   });
 
   it('does not block preflight when optional pharmacy capabilities are OFF', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: [{
-        id: 'account-a', liffIdConfigured: true, loginChannelConfigured: true,
-        messagingCredentialsReady: true, loginCredentialReady: true,
-        expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
-        liffEndpointEvidence: { status: 'READY' },
-        readiness: {
-          electronicPrescription: { status: 'BLOCKED', capabilityEnabled: false },
-          emergencyContraception: { status: 'BLOCKED', capabilityEnabled: false },
-          richMenu: { status: 'BLOCKED', capabilityEnabled: false },
-        },
-        configurationDoctor: {
-          accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z',
-          status: 'READY', reasonCodes: [], checks: [],
-        },
-      }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: [
+              {
+                id: 'account-a',
+                liffIdConfigured: true,
+                loginChannelConfigured: true,
+                messagingCredentialsReady: true,
+                loginCredentialReady: true,
+                expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
+                liffEndpointEvidence: { status: 'READY' },
+                readiness: {
+                  electronicPrescription: { status: 'BLOCKED', capabilityEnabled: false },
+                  emergencyContraception: { status: 'BLOCKED', capabilityEnabled: false },
+                  richMenu: { status: 'BLOCKED', capabilityEnabled: false },
+                },
+                configurationDoctor: {
+                  accountId: 'account-a',
+                  checkedAt: '2026-08-21T00:00:00.000Z',
+                  status: 'READY',
+                  reasonCodes: [],
+                  checks: [],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
-    await expect(runTenantSettings(
-      [...baseArgs, '--account-id', 'account-a', '--preflight'], environment, fetcher,
-      async () => Buffer.alloc(0), (line) => output.push(line),
-    )).resolves.toBe(0);
+    await expect(
+      runTenantSettings(
+        [...baseArgs, '--account-id', 'account-a', '--preflight'],
+        environment,
+        fetcher,
+        async () => Buffer.alloc(0),
+        (line) => output.push(line),
+      ),
+    ).resolves.toBe(0);
     expect(output.join('\n')).toContain('"status": "READY"');
   });
 
   it('runs an account-scoped read-only preflight and stops activation on UNVERIFIED', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: [{
-        id: 'account-a', liffIdConfigured: true, loginChannelConfigured: true,
-        messagingCredentialsReady: true, loginCredentialReady: true,
-        expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
-        liffEndpointEvidence: { status: 'UNVERIFIED', source: 'manual_console', checkedAt: null },
-        readiness: {
-          electronicPrescription: { status: 'UNVERIFIED' },
-          emergencyContraception: { status: 'READY' },
-        },
-        configurationDoctor: {
-          accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z',
-          status: 'UNVERIFIED', reasonCodes: ['LIFF_ENDPOINT_UNVERIFIED'], checks: [],
-        },
-      }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: [
+              {
+                id: 'account-a',
+                liffIdConfigured: true,
+                loginChannelConfigured: true,
+                messagingCredentialsReady: true,
+                loginCredentialReady: true,
+                expectedLiffEndpoint: 'https://liff.example.test/?liffId=liff-a',
+                liffEndpointEvidence: {
+                  status: 'UNVERIFIED',
+                  source: 'manual_console',
+                  checkedAt: null,
+                },
+                readiness: {
+                  electronicPrescription: { status: 'UNVERIFIED' },
+                  emergencyContraception: { status: 'READY' },
+                },
+                configurationDoctor: {
+                  accountId: 'account-a',
+                  checkedAt: '2026-08-21T00:00:00.000Z',
+                  status: 'UNVERIFIED',
+                  reasonCodes: ['LIFF_ENDPOINT_UNVERIFIED'],
+                  checks: [],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--preflight'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(1);
@@ -199,20 +274,39 @@ describe('tenant settings CLI', () => {
 
   it('uses the canonical doctor projection instead of re-deriving legacy flags', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: [{
-        id: 'account-a', liffIdConfigured: false, messagingCredentialsReady: false,
-        configurationDoctor: {
-          accountId: 'account-a', checkedAt: '2026-08-21T00:00:00.000Z',
-          status: 'READY', reasonCodes: [], checks: [],
-        },
-      }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: [
+              {
+                id: 'account-a',
+                liffIdConfigured: false,
+                messagingCredentialsReady: false,
+                configurationDoctor: {
+                  accountId: 'account-a',
+                  checkedAt: '2026-08-21T00:00:00.000Z',
+                  status: 'READY',
+                  reasonCodes: [],
+                  checks: [],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--doctor'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(0);
@@ -227,7 +321,10 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--preflight', '--apply'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
     expect(exitCode).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
@@ -247,12 +344,18 @@ describe('tenant settings CLI', () => {
 
   it('reads a tenant-scoped admin API with a platform-admin session', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { value: 'https://example.test' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { value: 'https://example.test' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -284,18 +387,27 @@ describe('tenant settings CLI', () => {
   });
 
   it('pins a generic pharmacy API request to the explicit account', async () => {
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true, data: { variantKey: 'v4-empty' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { variantKey: 'v4-empty' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [
         ...baseArgs,
-        '--account-id', 'account-a',
-        '--path', '/api/custom/pharmacy/rich-menus/layout?accountId=account-a',
+        '--account-id',
+        'account-a',
+        '--path',
+        '/api/custom/pharmacy/rich-menus/layout?accountId=account-a',
       ],
       environment,
       fetcher,
@@ -316,8 +428,10 @@ describe('tenant settings CLI', () => {
     const exitCode = await runTenantSettings(
       [
         ...baseArgs,
-        '--account-id', 'account-a',
-        '--path', '/api/custom/pharmacy/rich-menus/layout?accountId=account-b',
+        '--account-id',
+        'account-a',
+        '--path',
+        '/api/custom/pharmacy/rich-menus/layout?accountId=account-b',
       ],
       environment,
       fetcher,
@@ -336,7 +450,10 @@ describe('tenant settings CLI', () => {
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--path', '/api/custom/pharmacy/readiness?line_account_id=account-a'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(1);
@@ -349,7 +466,10 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--path', '/api/line-accounts/account-b'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
     expect(exitCode).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
@@ -361,10 +481,20 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const exitCode = await runTenantSettings(
       [
-        ...baseArgs, '--account-id', 'account-a', '--method', 'POST',
-        '--path', '/api/line-accounts/account-b/connect', '--input', 'settings.json',
+        ...baseArgs,
+        '--account-id',
+        'account-a',
+        '--method',
+        'POST',
+        '--path',
+        '/api/line-accounts/account-b/connect',
+        '--input',
+        'settings.json',
       ],
-      environment, fetcher, async () => Buffer.from('{}'), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.from('{}'),
+      (line) => output.push(line),
     );
     expect(exitCode).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
@@ -376,11 +506,18 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const exitCode = await runTenantSettings(
       [
-        ...baseArgs, '--account-id', 'account-a', '--method', 'PUT',
-        '--path', '/api/custom/pharmacy/growth/config?line_account_id=account-a',
-        '--input', 'settings.json',
+        ...baseArgs,
+        '--account-id',
+        'account-a',
+        '--method',
+        'PUT',
+        '--path',
+        '/api/custom/pharmacy/growth/config?line_account_id=account-a',
+        '--input',
+        'settings.json',
       ],
-      environment, fetcher,
+      environment,
+      fetcher,
       async () => Buffer.from('{"line_account_id":"account-b","expectedRevision":1}'),
       (line) => output.push(line),
     );
@@ -394,11 +531,20 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const exitCode = await runTenantSettings(
       [
-        ...baseArgs, '--account-id', 'account-a', '--method', 'POST',
-        '--path', '/api/rich-menu-groups/group-a/publish?accountId=account-a',
-        '--input', 'settings.json', '--apply',
+        ...baseArgs,
+        '--account-id',
+        'account-a',
+        '--method',
+        'POST',
+        '--path',
+        '/api/rich-menu-groups/group-a/publish?accountId=account-a',
+        '--input',
+        'settings.json',
+        '--apply',
       ],
-      environment, fetcher, async () => Buffer.from('{"dryRun":false}'),
+      environment,
+      fetcher,
+      async () => Buffer.from('{"dryRun":false}'),
       (line) => output.push(line),
     );
     expect(exitCode).toBe(1);
@@ -411,7 +557,10 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
     const exitCode = await runTenantSettings(
       [...baseArgs, '--path', '/api/account-settings/link-base-url', '--apply'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
     expect(exitCode).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
@@ -430,7 +579,10 @@ describe('tenant settings CLI', () => {
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--path', path],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(1);
@@ -440,14 +592,18 @@ describe('tenant settings CLI', () => {
 
   it('refuses to print a non-JSON GET response from a covered path', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
       .mockResolvedValueOnce(new Response('unexpected body', { status: 200 }))
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--path', '/api/account-settings/link-base-url'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(1);
@@ -456,12 +612,15 @@ describe('tenant settings CLI', () => {
   });
 
   it('uses stored credentials when environment variables are absent', async () => {
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: {} }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -470,7 +629,7 @@ describe('tenant settings CLI', () => {
       fetcher,
       async () => Buffer.alloc(0),
       () => undefined,
-      (service) => service === 'ph-id' ? 'platform-owner' : 'platform-password-value',
+      (service) => (service === 'ph-id' ? 'platform-owner' : 'platform-password-value'),
     );
 
     expect(exitCode).toBe(0);
@@ -481,19 +640,25 @@ describe('tenant settings CLI', () => {
   });
 
   it('accepts the deployed tenant:id format', async () => {
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: {} }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [
-        '--worker-url', 'https://api.example.test',
-        '--tenant-id', 'tenant:pharmacy-a',
-        '--path', '/api/account-settings/link-base-url',
+        '--worker-url',
+        'https://api.example.test',
+        '--tenant-id',
+        'tenant:pharmacy-a',
+        '--path',
+        '/api/account-settings/link-base-url',
       ],
       environment,
       fetcher,
@@ -527,15 +692,32 @@ describe('tenant settings CLI', () => {
 
   it('applies a JSON mutation without printing its body or key', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
-      [...baseArgs, '--account-id', 'account-a', '--method', 'PATCH', '--path', '/api/line-accounts/account-a', '--input', 'settings.json', '--apply'],
+      [
+        ...baseArgs,
+        '--account-id',
+        'account-a',
+        '--method',
+        'PATCH',
+        '--path',
+        '/api/line-accounts/account-a',
+        '--input',
+        'settings.json',
+        '--apply',
+      ],
       environment,
       fetcher,
       async () => Buffer.from('{"channelAccessToken":"line-secret"}'),
@@ -557,12 +739,15 @@ describe('tenant settings CLI', () => {
     ['PUT', '/api/staff/staff-a/accounts', '{"accountIds":["account-a"]}'],
   ])('applies a tenant-scoped staff authority change: %s %s', async (method, path, input) => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -582,12 +767,15 @@ describe('tenant settings CLI', () => {
 
   it('applies a tenant-scoped staff deletion', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: null }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: null }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -605,20 +793,35 @@ describe('tenant settings CLI', () => {
 
   it('reports a stale revision without printing the response body or credentials', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: false, error: 'stale expectedRevision secret-detail',
-      }), { status: 409, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: false,
+            error: 'stale expectedRevision secret-detail',
+          }),
+          { status: 409, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [
-        ...baseArgs, '--account-id', 'account-a', '--method', 'PUT',
-        '--path', '/api/custom/pharmacy/growth/config?line_account_id=account-a',
-        '--input', 'settings.json', '--apply',
+        ...baseArgs,
+        '--account-id',
+        'account-a',
+        '--method',
+        'PUT',
+        '--path',
+        '/api/custom/pharmacy/growth/config?line_account_id=account-a',
+        '--input',
+        'settings.json',
+        '--apply',
       ],
-      environment, fetcher,
+      environment,
+      fetcher,
       async () => Buffer.from('{"expectedRevision":1,"capabilities":[],"proactiveMonthlyLimit":0}'),
       (line) => output.push(line),
     );
@@ -631,12 +834,18 @@ describe('tenant settings CLI', () => {
 
   it('reads the tenant-scoped tag settings added to the shared coverage', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: [{ id: 'tag-a', name: 'priority' }],
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: [{ id: 'tag-a', name: 'priority' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -654,16 +863,27 @@ describe('tenant settings CLI', () => {
 
   it('sets a rich menu as default through the confirmation-token flow', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { dryRun: true, confirmationToken: 'confirmation-secret' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { mode: 'set-default', enabled: true },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { dryRun: true, confirmationToken: 'confirmation-secret' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { mode: 'set-default', enabled: true },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -686,10 +906,15 @@ describe('tenant settings CLI', () => {
       });
     }
     expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
-      mode: 'set-default', enabled: true, dryRun: true,
+      mode: 'set-default',
+      enabled: true,
+      dryRun: true,
     });
     expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual({
-      mode: 'set-default', enabled: true, dryRun: false, confirmationToken: 'confirmation-secret',
+      mode: 'set-default',
+      enabled: true,
+      dryRun: false,
+      confirmationToken: 'confirmation-secret',
     });
     expect(output.join('\n')).toContain('Default rich menu updated');
     expect(output.join('\n')).not.toContain('confirmation-secret');
@@ -697,19 +922,32 @@ describe('tenant settings CLI', () => {
 
   it('publishes a saved rich-menu version through its confirmation-token API', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true, data: { dryRun: true, confirmationToken: 'publish-confirmation' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { pages: [] } }), {
-        status: 200, headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { dryRun: true, confirmationToken: 'publish-confirmation' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { pages: [] } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--rich-menu-publish', 'group-a', '--apply'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(0);
@@ -718,7 +956,8 @@ describe('tenant settings CLI', () => {
     );
     expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ dryRun: true });
     expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual({
-      dryRun: false, confirmationToken: 'publish-confirmation',
+      dryRun: false,
+      confirmationToken: 'publish-confirmation',
     });
     expect(output.join('\n')).toContain('Rich menu version published');
     expect(output.join('\n')).not.toContain('publish-confirmation');
@@ -726,27 +965,46 @@ describe('tenant settings CLI', () => {
 
   it('rolls back to a known-good rich menu through a fresh confirmation token', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true, data: { dryRun: true, confirmationToken: 'rollback-confirmation' },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: {} }), {
-        status: 200, headers: { 'content-type': 'application/json' },
-      }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { dryRun: true, confirmationToken: 'rollback-confirmation' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
       [...baseArgs, '--account-id', 'account-a', '--rich-menu-rollback', 'group-a', '--apply'],
-      environment, fetcher, async () => Buffer.alloc(0), (line) => output.push(line),
+      environment,
+      fetcher,
+      async () => Buffer.alloc(0),
+      (line) => output.push(line),
     );
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({
-      mode: 'set-default', enabled: true, intent: 'rollback', dryRun: true,
+      mode: 'set-default',
+      enabled: true,
+      intent: 'rollback',
+      dryRun: true,
     });
     expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual({
-      mode: 'set-default', enabled: true, intent: 'rollback', dryRun: false,
+      mode: 'set-default',
+      enabled: true,
+      intent: 'rollback',
+      dryRun: false,
       confirmationToken: 'rollback-confirmation',
     });
     expect(output.join('\n')).toContain('rolled back');
@@ -772,12 +1030,18 @@ describe('tenant settings CLI', () => {
 
   it('stops when the rich menu preview does not return a confirmation token', async () => {
     const output: string[] = [];
-    const fetcher = vi.fn<typeof fetch>()
+    const fetcher = vi
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(loginResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        data: { dryRun: true },
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { dryRun: true },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
       .mockResolvedValueOnce(logoutResponse());
 
     const exitCode = await runTenantSettings(
@@ -819,7 +1083,16 @@ describe('tenant settings CLI', () => {
     const output: string[] = [];
 
     const exitCode = await runTenantSettings(
-      [...baseArgs, '--method', 'PUT', '--path', '/api/account-settings/link-base-url', '--input', 'settings.json', '--apply'],
+      [
+        ...baseArgs,
+        '--method',
+        'PUT',
+        '--path',
+        '/api/account-settings/link-base-url',
+        '--input',
+        'settings.json',
+        '--apply',
+      ],
       environment,
       fetcher,
       async () => Buffer.from('{invalid'),

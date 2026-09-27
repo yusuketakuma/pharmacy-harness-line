@@ -23,20 +23,31 @@ describe('patient timeline UI', () => {
   });
 
   it('accepts only the fixed relative destination for each known domain', () => {
-    expect(safeTimelineDestination({
-      domain: 'prescription', detailPath: '/prescriptions?view=history',
-    })).toBe('/prescriptions?view=history');
-    expect(safeTimelineDestination({
-      domain: 'prescription', detailPath: 'https://evil.example/steal',
-    })).toBe('/prescriptions?view=history');
-    expect(safeTimelineDestination({
-      domain: 'future_domain', detailPath: '/admin',
-    })).toBe('/pharmacy/menu');
+    expect(
+      safeTimelineDestination({
+        domain: 'prescription',
+        detailPath: '/prescriptions?view=history',
+      }),
+    ).toBe('/prescriptions?view=history');
+    expect(
+      safeTimelineDestination({
+        domain: 'prescription',
+        detailPath: 'https://evil.example/steal',
+      }),
+    ).toBe('/prescriptions?view=history');
+    expect(
+      safeTimelineDestination({
+        domain: 'future_domain',
+        detailPath: '/admin',
+      }),
+    ).toBe('/pharmacy/menu');
   });
 
   it('renders an announced loading state and mounts the existing PharmacyShell route', () => {
     const html = renderToStaticMarkup(
-      <MemoryRouter><PatientTimelinePage /></MemoryRouter>,
+      <MemoryRouter>
+        <PatientTimelinePage />
+      </MemoryRouter>,
     );
     expect(html).toContain('role="status"');
     expect(html).toContain('利用状況を読み込み中');
@@ -46,14 +57,14 @@ describe('patient timeline UI', () => {
 
   it('distinguishes an unsupported Worker from empty data and current failures', () => {
     expect(source).toContain('isUnsupportedPharmacyFeature(error)');
-    expect(source).not.toContain("error.status === 404");
+    expect(source).not.toContain('error.status === 404');
     expect(source).toContain("pharmacyErrorMessage(caught, '利用状況を読み込めませんでした。')");
     expect(source).not.toContain("error.message || '利用状況を読み込めませんでした。'");
     expect(source).toContain('この環境では、まとめ表示をまだ利用できません');
     expect(source).toContain('まだ利用履歴はありません');
     // The error block announces via focus (errorRef + tabIndex), not via a
     // live-region role on the same node.
-    expect(source).toContain('ref={errorRef} tabIndex={-1}');
+    expect(source).toMatch(/ref=\{errorRef\}\s*tabIndex=\{-1\}/);
     expect(source).toContain('再試行');
     expect(source).toContain('aria-label={`${timelineDomainLabel(item.domain)}の詳細を確認`}');
   });

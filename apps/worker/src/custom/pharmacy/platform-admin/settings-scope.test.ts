@@ -64,11 +64,12 @@ describe('platform tenant settings scope', () => {
     expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
   });
 
-  it.each([
-    ['DELETE', '/api/line-accounts/account-a'],
-  ])('rejects destructive operations outside the staff lifecycle: %s %s', (method, path) => {
-    expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
-  });
+  it.each([['DELETE', '/api/line-accounts/account-a']])(
+    'rejects destructive operations outside the staff lifecycle: %s %s',
+    (method, path) => {
+      expect(isPlatformTenantSettingsPath(method, path)).toBe(false);
+    },
+  );
 
   it.each([
     ['POST', '/api/rich-menu-groups/import'],
@@ -91,8 +92,6 @@ describe('platform tenant settings scope', () => {
     ['PUT', '/api/staff/staff-a/accounts'],
     ['GET', '/api/automations/automation-a'],
   ])('uses the CLI coverage manifest as the server authority: %s %s', (method, path) => {
-    expect(isPlatformTenantSettingsPath(method, path)).toBe(
-      Boolean(findPharmacyAdminApiCoverage(method, path)),
-    );
+    expect(isPlatformTenantSettingsPath(method, path)).toBe(Boolean(findPharmacyAdminApiCoverage(method, path)));
   });
 });

@@ -10,9 +10,8 @@ function app() {
   a.post('/api/auth/login', (c) => c.json({ success: true }));
   a.post('/api/platform/pharmacy/tenants', (c) => c.json({ success: true }));
   a.post('/api/platform/pharmacy/tenants/:tenantId/admin-bootstrap', (c) => c.json({ success: true }));
-  a.post(
-    '/api/platform/pharmacy/tenants/:tenantId/line-accounts/:lineAccountId/credentials/scrub',
-    (c) => c.json({ success: true }),
+  a.post('/api/platform/pharmacy/tenants/:tenantId/line-accounts/:lineAccountId/credentials/scrub', (c) =>
+    c.json({ success: true }),
   );
   a.get('/api/liff/pharmacy/patients', (c) => c.json({ success: true }));
   a.get('/r/myna/:token', (c) => c.json({ success: true }));
@@ -33,22 +32,30 @@ describe('rate-limit IP ceiling (pre-auth token rotation)', () => {
       const ip = path.includes('platform') ? '203.0.113.201' : '203.0.113.202';
       const a = app();
       for (let attempt = 0; attempt < 10; attempt += 1) {
-        const response = await a.request(path, {
+        const response = await a.request(
+          path,
+          {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': ip,
+              Authorization: `Bearer rotated-${attempt}`,
+            },
+          },
+          env,
+        );
+        expect(response.status).toBe(200);
+      }
+      const blocked = await a.request(
+        path,
+        {
           method: 'POST',
           headers: {
             'cf-connecting-ip': ip,
-            Authorization: `Bearer rotated-${attempt}`,
+            Authorization: 'Bearer another-value',
           },
-        }, env);
-        expect(response.status).toBe(200);
-      }
-      const blocked = await a.request(path, {
-        method: 'POST',
-        headers: {
-          'cf-connecting-ip': ip,
-          Authorization: 'Bearer another-value',
         },
-      }, env);
+        env,
+      );
       expect(blocked.status).toBe(429);
     },
   );
@@ -62,12 +69,16 @@ describe('rate-limit IP ceiling (pre-auth token rotation)', () => {
     let saw429 = false;
 
     for (let i = 0; i < 3001; i++) {
-      const res = await a.request('/api/protected', {
-        headers: {
-          'cf-connecting-ip': ip,
-          Cookie: `lh_admin_session=bogus-${i}`,
+      const res = await a.request(
+        '/api/protected',
+        {
+          headers: {
+            'cf-connecting-ip': ip,
+            Cookie: `lh_admin_session=bogus-${i}`,
+          },
         },
-      }, env);
+        env,
+      );
       if (res.status === 429) {
         saw429 = true;
         break;
@@ -82,9 +93,13 @@ describe('rate-limit IP ceiling (pre-auth token rotation)', () => {
     const a = app();
     // Well under both AUTHENTICATED_MAX and the IP ceiling.
     for (let i = 0; i < 50; i++) {
-      const res = await a.request('/api/protected', {
-        headers: { 'cf-connecting-ip': ip, Cookie: 'lh_admin_session=stable-token' },
-      }, env);
+      const res = await a.request(
+        '/api/protected',
+        {
+          headers: { 'cf-connecting-ip': ip, Cookie: 'lh_admin_session=stable-token' },
+        },
+        env,
+      );
       expect(res.status).toBe(200);
     }
   });
@@ -100,21 +115,33 @@ describe('rate-limit token bucket key (H-1: shared-prefix JWT collision)', () =>
 
     // Exhaust token A's own bucket (AUTHENTICATED_MAX = 1000).
     for (let i = 0; i < 1000; i++) {
-      const res = await a.request('/api/protected', {
-        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${tokenA}` },
-      }, env);
+      const res = await a.request(
+        '/api/protected',
+        {
+          headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${tokenA}` },
+        },
+        env,
+      );
       expect(res.status).toBe(200);
     }
-    const blockedA = await a.request('/api/protected', {
-      headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${tokenA}` },
-    }, env);
+    const blockedA = await a.request(
+      '/api/protected',
+      {
+        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${tokenA}` },
+      },
+      env,
+    );
     expect(blockedA.status).toBe(429);
 
     // Token B shares the first 16 chars with token A but is otherwise
     // distinct — it must land in its own, still-fresh bucket.
-    const resB = await a.request('/api/protected', {
-      headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${tokenB}` },
-    }, env);
+    const resB = await a.request(
+      '/api/protected',
+      {
+        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${tokenB}` },
+      },
+      env,
+    );
     expect(resB.status).toBe(200);
   });
 
@@ -125,12 +152,16 @@ describe('rate-limit token bucket key (H-1: shared-prefix JWT collision)', () =>
     // An unauthenticated attacker can send any syntactically Bearer-shaped
     // value — no valid token required, since rate limiting runs before auth.
     for (let i = 0; i < 50; i++) {
-      const res = await a.request('/api/protected', {
-        headers: {
-          'cf-connecting-ip': ip,
-          Authorization: `Bearer ${JWT_HEADER_PREFIX}.attacker${i}.sig${i}`,
+      const res = await a.request(
+        '/api/protected',
+        {
+          headers: {
+            'cf-connecting-ip': ip,
+            Authorization: `Bearer ${JWT_HEADER_PREFIX}.attacker${i}.sig${i}`,
+          },
         },
-      }, env);
+        env,
+      );
       expect(res.status).toBe(200);
     }
 
@@ -139,14 +170,22 @@ describe('rate-limit token bucket key (H-1: shared-prefix JWT collision)', () =>
     // attacker request above.
     const legitToken = `${JWT_HEADER_PREFIX}.legit-payload.legit-sig`;
     for (let i = 0; i < 1000; i++) {
-      const res = await a.request('/api/protected', {
-        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${legitToken}` },
-      }, env);
+      const res = await a.request(
+        '/api/protected',
+        {
+          headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${legitToken}` },
+        },
+        env,
+      );
       expect(res.status).toBe(200);
     }
-    const blocked = await a.request('/api/protected', {
-      headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${legitToken}` },
-    }, env);
+    const blocked = await a.request(
+      '/api/protected',
+      {
+        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${legitToken}` },
+      },
+      env,
+    );
     expect(blocked.status).toBe(429);
   });
 });
@@ -160,14 +199,25 @@ describe('rate-limit unauthenticated classification (H-1: pharmacy LIFF)', () =>
     // (1000) instead — so this proves the pharmacy LIFF prefix is classified
     // as unauthenticated regardless of an attached Bearer token.
     for (let i = 0; i < 100; i++) {
-      const res = await a.request('/api/liff/pharmacy/patients', {
-        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${JWT_HEADER_PREFIX}.p${i}.s${i}` },
-      }, env);
+      const res = await a.request(
+        '/api/liff/pharmacy/patients',
+        {
+          headers: {
+            'cf-connecting-ip': ip,
+            Authorization: `Bearer ${JWT_HEADER_PREFIX}.p${i}.s${i}`,
+          },
+        },
+        env,
+      );
       expect(res.status).toBe(200);
     }
-    const blocked = await a.request('/api/liff/pharmacy/patients', {
-      headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${JWT_HEADER_PREFIX}.over.sig` },
-    }, env);
+    const blocked = await a.request(
+      '/api/liff/pharmacy/patients',
+      {
+        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer ${JWT_HEADER_PREFIX}.over.sig` },
+      },
+      env,
+    );
     expect(blocked.status).toBe(429);
   });
 });
@@ -201,16 +251,24 @@ describe('rate-limit SENSITIVE_PATHS (L-8: platform pharmacy tenant sub-paths)',
     const ip = ipByPath[path];
     const a = app();
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const response = await a.request(path, {
-        method: 'POST',
-        headers: { 'cf-connecting-ip': ip },
-      }, env);
+      const response = await a.request(
+        path,
+        {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip },
+        },
+        env,
+      );
       expect(response.status).toBe(200);
     }
-    const blocked = await a.request(path, {
-      method: 'POST',
-      headers: { 'cf-connecting-ip': ip },
-    }, env);
+    const blocked = await a.request(
+      path,
+      {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': ip },
+      },
+      env,
+    );
     expect(blocked.status).toBe(429);
   });
 });
@@ -221,14 +279,24 @@ describe('rate-limit SENSITIVE_PATHS (percent-encoded path bypass)', () => {
     a.post('/api/platform-admin/login', (c) => c.json({ success: true }));
     const encoded = '/api/platform-admin/log%69n';
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const response = await a.request(encoded, {
-        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.50' },
-      }, env);
+      const response = await a.request(
+        encoded,
+        {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': '203.0.113.50' },
+        },
+        env,
+      );
       expect(response.status).toBe(200);
     }
-    const blocked = await a.request(encoded, {
-      method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.50' },
-    }, env);
+    const blocked = await a.request(
+      encoded,
+      {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '203.0.113.50' },
+      },
+      env,
+    );
     expect(blocked.status).toBe(429);
   });
 });
@@ -240,23 +308,38 @@ describe('rate-limit lifecycle (isolate boundary and window recovery)', () => {
       const ip = '203.0.113.61';
       const a = app();
       for (let i = 0; i < 10; i++) {
-        const res = await a.request('/api/auth/login', {
-          method: 'POST', headers: { 'cf-connecting-ip': ip },
-        }, env);
+        const res = await a.request(
+          '/api/auth/login',
+          {
+            method: 'POST',
+            headers: { 'cf-connecting-ip': ip },
+          },
+          env,
+        );
         expect(res.status).toBe(200);
       }
-      const blocked = await a.request('/api/auth/login', {
-        method: 'POST', headers: { 'cf-connecting-ip': ip },
-      }, env);
+      const blocked = await a.request(
+        '/api/auth/login',
+        {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip },
+        },
+        env,
+      );
       expect(blocked.status).toBe(429);
       expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0);
 
       // No explicit unlock exists: the sliding window self-heals once the
       // oldest attempt ages out. There is no persisted counter to restore.
       vi.setSystemTime(Date.now() + 61_000);
-      const recovered = await a.request('/api/auth/login', {
-        method: 'POST', headers: { 'cf-connecting-ip': ip },
-      }, env);
+      const recovered = await a.request(
+        '/api/auth/login',
+        {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip },
+        },
+        env,
+      );
       expect(recovered.status).toBe(200);
     } finally {
       vi.useRealTimers();
@@ -267,14 +350,24 @@ describe('rate-limit lifecycle (isolate boundary and window recovery)', () => {
     const ip = '203.0.113.62';
     const a = app();
     for (let i = 0; i < 10; i++) {
-      const res = await a.request('/api/auth/login', {
-        method: 'POST', headers: { 'cf-connecting-ip': ip },
-      }, env);
+      const res = await a.request(
+        '/api/auth/login',
+        {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip },
+        },
+        env,
+      );
       expect(res.status).toBe(200);
     }
-    const blocked = await a.request('/api/auth/login', {
-      method: 'POST', headers: { 'cf-connecting-ip': ip },
-    }, env);
+    const blocked = await a.request(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': ip },
+      },
+      env,
+    );
     expect(blocked.status).toBe(429);
 
     // A cold start re-imports the module with an empty in-memory store. This
@@ -285,9 +378,14 @@ describe('rate-limit lifecycle (isolate boundary and window recovery)', () => {
     const fresh = new Hono<Env>();
     fresh.use('*', freshMiddleware);
     fresh.post('/api/auth/login', (c) => c.json({ success: true }));
-    const afterReload = await fresh.request('/api/auth/login', {
-      method: 'POST', headers: { 'cf-connecting-ip': ip },
-    }, env);
+    const afterReload = await fresh.request(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': ip },
+      },
+      env,
+    );
     expect(afterReload.status).toBe(200);
   });
 });
@@ -304,16 +402,24 @@ describe('rate-limit SENSITIVE_PATHS (AUTH-2: platform-admin login / password ch
     const a = app();
     a.post(path, (c) => c.json({ success: true }));
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const response = await a.request(path, {
-        method: 'POST',
-        headers: { 'cf-connecting-ip': ip, Authorization: `Bearer rotated-${attempt}` },
-      }, env);
+      const response = await a.request(
+        path,
+        {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip, Authorization: `Bearer rotated-${attempt}` },
+        },
+        env,
+      );
       expect(response.status).toBe(200);
     }
-    const blocked = await a.request(path, {
-      method: 'POST',
-      headers: { 'cf-connecting-ip': ip, Authorization: 'Bearer another-value' },
-    }, env);
+    const blocked = await a.request(
+      path,
+      {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': ip, Authorization: 'Bearer another-value' },
+      },
+      env,
+    );
     expect(blocked.status).toBe(429);
   });
 });

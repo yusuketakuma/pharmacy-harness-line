@@ -1,161 +1,175 @@
-'use client'
+'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { useAccount } from '../../../contexts/account-context'
-import { prescriptionAdminApi, type PrescriptionFile } from './api'
-import { pharmacyPrintApi } from '../print/api'
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useAccount } from '../../../contexts/account-context';
+import { prescriptionAdminApi, type PrescriptionFile } from './api';
+import { pharmacyPrintApi } from '../print/api';
 
 export function printablePrescriptionFiles(
   files: PrescriptionFile[],
   activeRevision: number | null,
 ): PrescriptionFile[] {
-  if (activeRevision === null) return []
+  if (activeRevision === null) return [];
   return files
     .filter((file) => file.state === 'ready' && file.revision === activeRevision)
-    .sort((left, right) => left.position - right.position)
+    .sort((left, right) => left.position - right.position);
 }
 
-export function canAcknowledgePrint(
-  printInvoked: boolean,
-  recording: boolean,
-  recorded: boolean,
-): boolean {
-  return printInvoked && !recording && !recorded
+export function canAcknowledgePrint(printInvoked: boolean, recording: boolean, recorded: boolean): boolean {
+  return printInvoked && !recording && !recorded;
 }
 
 export function printAcknowledgementMessage(): string {
-  return '印刷またはPDF保存が完了しましたか？ 印刷ダイアログをキャンセルした場合は記録しないでください。'
+  return '印刷またはPDF保存が完了しましたか？ 印刷ダイアログをキャンセルした場合は記録しないでください。';
 }
 
 export function operationId(submissionId: string): string {
-  const key = `pharmacy-print:${submissionId}`
+  const key = `pharmacy-print:${submissionId}`;
   try {
-    const existing = sessionStorage.getItem(key)
-    if (existing) return existing
-    const created = crypto.randomUUID()
-    sessionStorage.setItem(key, created)
-    return created
+    const existing = sessionStorage.getItem(key);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    sessionStorage.setItem(key, created);
+    return created;
   } catch {
-    return crypto.randomUUID()
+    return crypto.randomUUID();
   }
 }
 
 export default function PrescriptionPrintPage() {
-  const params = useSearchParams()
-  const { selectedAccountId, loading: accountLoading } = useAccount()
-  const submissionId = params.get('submission_id')
-  const [images, setImages] = useState<string[]>([])
-  const [loadedImages, setLoadedImages] = useState(0)
-  const [claim, setClaim] = useState<{ taskId: string; operationId: string } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [recordError, setRecordError] = useState('')
-  const [recording, setRecording] = useState(false)
-  const [recorded, setRecorded] = useState(false)
-  const [printInvoked, setPrintInvoked] = useState(false)
-  const requestRef = useRef(0)
-  const recordingRef = useRef(false)
+  const params = useSearchParams();
+  const { selectedAccountId, loading: accountLoading } = useAccount();
+  const submissionId = params.get('submission_id');
+  const [images, setImages] = useState<string[]>([]);
+  const [loadedImages, setLoadedImages] = useState(0);
+  const [claim, setClaim] = useState<{ taskId: string; operationId: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [recordError, setRecordError] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [recorded, setRecorded] = useState(false);
+  const [printInvoked, setPrintInvoked] = useState(false);
+  const requestRef = useRef(0);
+  const recordingRef = useRef(false);
 
   useEffect(() => {
-    requestRef.current += 1
-    let disposed = false
-    const urls: string[] = []
+    requestRef.current += 1;
+    let disposed = false;
+    const urls: string[] = [];
     if (!selectedAccountId || !submissionId) {
-      setLoading(false)
-      return () => undefined
+      setLoading(false);
+      return () => undefined;
     }
-    setLoading(true)
-    setError('')
-    setRecordError('')
-    setImages([])
-    setLoadedImages(0)
-    setClaim(null)
-    setRecorded(false)
-    setPrintInvoked(false)
+    setLoading(true);
+    setError('');
+    setRecordError('');
+    setImages([]);
+    setLoadedImages(0);
+    setClaim(null);
+    setRecorded(false);
+    setPrintInvoked(false);
     void (async () => {
       try {
-        const prepared = await pharmacyPrintApi.prepare(selectedAccountId, submissionId)
-        let revision = prepared.task.revision
-        let nextClaim: { taskId: string; operationId: string } | null = null
+        const prepared = await pharmacyPrintApi.prepare(selectedAccountId, submissionId);
+        let revision = prepared.task.revision;
+        let nextClaim: { taskId: string; operationId: string } | null = null;
         if (prepared.task.status === 'acknowledged') {
-          if (!disposed) setRecorded(true)
+          if (!disposed) setRecorded(true);
         } else {
-          const id = operationId(submissionId)
-          const claimed = await pharmacyPrintApi.claim(selectedAccountId, prepared.task.id, id)
-          revision = claimed.task.revision
-          nextClaim = { taskId: claimed.task.id, operationId: id }
+          const id = operationId(submissionId);
+          const claimed = await pharmacyPrintApi.claim(selectedAccountId, prepared.task.id, id);
+          revision = claimed.task.revision;
+          nextClaim = { taskId: claimed.task.id, operationId: id };
         }
-        const detail = await prescriptionAdminApi.detail(selectedAccountId, submissionId)
+        const detail = await prescriptionAdminApi.detail(selectedAccountId, submissionId);
         if (detail.submission.active_revision !== revision) {
-          throw new Error('stale prescription revision')
+          throw new Error('stale prescription revision');
         }
-        const files = printablePrescriptionFiles(detail.files, revision)
-        if (files.length === 0) throw new Error('no printable files')
-        const blobs = await Promise.all(files.map((file) =>
-          prescriptionAdminApi.image(selectedAccountId, submissionId, file.id),
-        ))
-        if (disposed) return
-        for (const blob of blobs) urls.push(URL.createObjectURL(blob))
-        setClaim(nextClaim)
-        setImages(urls)
+        const files = printablePrescriptionFiles(detail.files, revision);
+        if (files.length === 0) throw new Error('no printable files');
+        const blobs = await Promise.all(
+          files.map((file) => prescriptionAdminApi.image(selectedAccountId, submissionId, file.id)),
+        );
+        if (disposed) return;
+        for (const blob of blobs) urls.push(URL.createObjectURL(blob));
+        setClaim(nextClaim);
+        setImages(urls);
       } catch {
-        for (const url of urls) URL.revokeObjectURL(url)
-        if (!disposed) setError('印刷タスクを開始できませんでした。別の画面で操作中でないか確認してください。')
+        for (const url of urls) URL.revokeObjectURL(url);
+        if (!disposed) setError('印刷タスクを開始できませんでした。別の画面で操作中でないか確認してください。');
       } finally {
-        if (!disposed) setLoading(false)
+        if (!disposed) setLoading(false);
       }
-    })()
+    })();
     return () => {
-      disposed = true
-      requestRef.current += 1
-      for (const url of urls) URL.revokeObjectURL(url)
-    }
-  }, [selectedAccountId, submissionId])
+      disposed = true;
+      requestRef.current += 1;
+      for (const url of urls) URL.revokeObjectURL(url);
+    };
+  }, [selectedAccountId, submissionId]);
 
   const print = useCallback(() => {
-    window.print()
-    setPrintInvoked(true)
-  }, [])
+    window.print();
+    setPrintInvoked(true);
+  }, []);
 
   useEffect(() => {
-    if (images.length > 0 && loadedImages === images.length && !printInvoked && !recorded) print()
-  }, [images, loadedImages, print, printInvoked, recorded])
+    if (images.length > 0 && loadedImages === images.length && !printInvoked && !recorded) print();
+  }, [images, loadedImages, print, printInvoked, recorded]);
 
   const recordPrinted = useCallback(async () => {
-    if (!selectedAccountId || !claim || recordingRef.current || !canAcknowledgePrint(printInvoked, recording, recorded)) return
-    if (!window.confirm(printAcknowledgementMessage())) return
-    const request = requestRef.current
-    recordingRef.current = true
-    setRecording(true)
-    setRecordError('')
+    if (!selectedAccountId || !claim || recordingRef.current || !canAcknowledgePrint(printInvoked, recording, recorded))
+      return;
+    if (!window.confirm(printAcknowledgementMessage())) return;
+    const request = requestRef.current;
+    recordingRef.current = true;
+    setRecording(true);
+    setRecordError('');
     try {
-      await pharmacyPrintApi.acknowledge(selectedAccountId, claim.taskId, claim.operationId)
-      if (request !== requestRef.current) return
-      setClaim(null)
-      setRecorded(true)
+      await pharmacyPrintApi.acknowledge(selectedAccountId, claim.taskId, claim.operationId);
+      if (request !== requestRef.current) return;
+      setClaim(null);
+      setRecorded(true);
     } catch {
-      if (request === requestRef.current) setRecordError('印刷操作済みの記録を保存できませんでした。印刷結果を確認してから、同じ記録操作を再試行してください。')
+      if (request === requestRef.current)
+        setRecordError(
+          '印刷操作済みの記録を保存できませんでした。印刷結果を確認してから、同じ記録操作を再試行してください。',
+        );
     } finally {
-      recordingRef.current = false
-      setRecording(false)
+      recordingRef.current = false;
+      setRecording(false);
     }
-  }, [claim, printInvoked, recorded, recording, selectedAccountId])
+  }, [claim, printInvoked, recorded, recording, selectedAccountId]);
 
-  if (accountLoading || loading) return <p className="p-8 text-center text-gray-500">印刷画像を準備中...</p>
-  if (!selectedAccountId || !submissionId) return <p className="p-8 text-center text-gray-500">印刷対象が指定されていません。</p>
-  if (error) return <p role="alert" className="p-8 text-center text-red-600">{error}</p>
-  if (images.length === 0) return <p className="p-8 text-center text-gray-500">印刷できる画像がありません。</p>
+  if (accountLoading || loading) return <p className="p-8 text-center text-gray-500">印刷画像を準備中...</p>;
+  if (!selectedAccountId || !submissionId)
+    return <p className="p-8 text-center text-gray-500">印刷対象が指定されていません。</p>;
+  if (error)
+    return (
+      <p role="alert" className="p-8 text-center text-red-600">
+        {error}
+      </p>
+    );
+  if (images.length === 0) return <p className="p-8 text-center text-gray-500">印刷できる画像がありません。</p>;
 
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-xl font-bold text-gray-900">処方せん画像を印刷</h1>
-          <p className="text-sm text-gray-500">{recorded ? 'この改訂は記録済みです。必要なら再印刷できます。' : '印刷画面を開きます。印刷後に操作済みとして記録してください。'}</p>
+          <p className="text-sm text-gray-500">
+            {recorded
+              ? 'この改訂は記録済みです。必要なら再印刷できます。'
+              : '印刷画面を開きます。印刷後に操作済みとして記録してください。'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={print} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">
+          <button
+            type="button"
+            onClick={print}
+            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white"
+          >
             {recorded ? '再印刷' : '印刷画面を開く'}
           </button>
           <button
@@ -168,7 +182,11 @@ export default function PrescriptionPrintPage() {
           </button>
         </div>
       </div>
-      {recordError && <p role="alert" className="text-sm text-red-700 print:hidden">{recordError}</p>}
+      {recordError && (
+        <p role="alert" className="text-sm text-red-700 print:hidden">
+          {recordError}
+        </p>
+      )}
       <section className="space-y-4" aria-label="処方せん画像">
         {images.map((src, index) => (
           <img
@@ -189,5 +207,5 @@ export default function PrescriptionPrintPage() {
         }
       `}</style>
     </main>
-  )
+  );
 }

@@ -62,13 +62,7 @@ export type AdminAuthEnv = {
  * therefore cross-site to each other. Not a full PSL — just the suffixes this
  * deployment topology actually uses.
  */
-const MULTI_TENANT_SUFFIXES = [
-  'pages.dev',
-  'workers.dev',
-  'github.io',
-  'vercel.app',
-  'netlify.app',
-];
+const MULTI_TENANT_SUFFIXES = ['pages.dev', 'workers.dev', 'github.io', 'vercel.app', 'netlify.app'];
 
 export function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
@@ -90,9 +84,7 @@ export function normalizeOrigin(value: string | undefined | null): string | null
   if (!value) return null;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-      ? parsed.origin
-      : null;
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : null;
   } catch {
     return null;
   }
@@ -143,7 +135,8 @@ function parseSameSite(value: string | undefined): AdminSameSite | null {
 
 function parseOriginList(value: string | undefined): string[] {
   if (!value) return [];
-  return value.split(',')
+  return value
+    .split(',')
     .map((value) => normalizeOrigin(value.trim()))
     .filter((value): value is string => Boolean(value));
 }
@@ -160,15 +153,14 @@ export function isAllowedAdminOrigin(origin: string, allowedOrigin: string): boo
   return normalizedOrigin !== null && normalizedOrigin === normalizedAllowed;
 }
 
-export function resolveAdminAuthConfig(
-  env: AdminAuthEnv,
-  opts: { requestOrigin?: string } = {},
-): AdminAuthConfig {
+export function resolveAdminAuthConfig(env: AdminAuthEnv, opts: { requestOrigin?: string } = {}): AdminAuthConfig {
   const allowedOrigins = parseAllowedOrigins(env);
-  const configuredOrigins = env.ADMIN_ORIGIN?.split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean) ?? [];
-  const hasInvalidAdminOrigin = Boolean(env.ADMIN_ORIGIN?.trim()) &&
+  const configuredOrigins =
+    env.ADMIN_ORIGIN?.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
+  const hasInvalidAdminOrigin =
+    Boolean(env.ADMIN_ORIGIN?.trim()) &&
     (configuredOrigins.length === 0 || configuredOrigins.some((origin) => !normalizeOrigin(origin)));
   // WORKER_URL is the source of truth, but the installer doesn't always set it.
   // Fall back to the request origin (which IS the Worker's own origin when an
@@ -186,8 +178,7 @@ export function resolveAdminAuthConfig(
 
   // Opting into cross-site cookies means SameSite=None (the only value a
   // browser sends cross-site). An explicit override always wins.
-  const sameSite: AdminSameSite =
-    explicit ?? (allowCrossSite ? 'None' : 'Lax');
+  const sameSite: AdminSameSite = explicit ?? (allowCrossSite ? 'None' : 'Lax');
 
   let misconfigured: string | null = null;
   if (hasInvalidAdminOrigin) {
@@ -226,11 +217,7 @@ function isLiffApiRequest(requestUrl: string): boolean {
  * facing LIFF compromise would otherwise inherit the administrator's browser
  * cookies and could recover the CSRF token from `/api/auth/session`.
  */
-export function resolveCorsOrigin(
-  env: AdminAuthEnv,
-  origin: string | null | undefined,
-  requestUrl: string,
-): string {
+export function resolveCorsOrigin(env: AdminAuthEnv, origin: string | null | undefined, requestUrl: string): string {
   let requestOrigin = '';
   try {
     requestOrigin = new URL(requestUrl).origin;
@@ -261,14 +248,9 @@ export function resolveCorsOrigin(
     return normalizedOrigin;
   }
 
-  const isAllowedAdmin = allowedOrigins.some((allowedOrigin) =>
-    isAllowedAdminOrigin(normalizedOrigin, allowedOrigin),
-  );
-  const isAllowedLiff =
-    isLiffApiRequest(requestUrl) && liffOrigins.includes(normalizedOrigin);
-  return isAllowedAdmin || isAllowedLiff
-    ? normalizedOrigin
-    : '';
+  const isAllowedAdmin = allowedOrigins.some((allowedOrigin) => isAllowedAdminOrigin(normalizedOrigin, allowedOrigin));
+  const isAllowedLiff = isLiffApiRequest(requestUrl) && liffOrigins.includes(normalizedOrigin);
+  return isAllowedAdmin || isAllowedLiff ? normalizedOrigin : '';
 }
 
 /** CORS response headers do not stop a simple cross-origin login POST from executing. */
@@ -279,6 +261,5 @@ export function isAllowedAdminRequestOrigin(
 ): boolean {
   if (!origin) return true;
   const normalizedOrigin = normalizeOrigin(origin);
-  return normalizedOrigin !== null &&
-    resolveCorsOrigin(env, normalizedOrigin, requestUrl) === normalizedOrigin;
+  return normalizedOrigin !== null && resolveCorsOrigin(env, normalizedOrigin, requestUrl) === normalizedOrigin;
 }

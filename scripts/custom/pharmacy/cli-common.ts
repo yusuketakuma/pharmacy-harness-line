@@ -23,15 +23,18 @@ export function temporaryPassword(): string {
 
 export function workerOrigin(raw: string): string {
   const worker = new URL(raw);
-  if ((worker.protocol !== 'https:' && worker.hostname !== 'localhost') ||
-      worker.username || worker.password || worker.search || worker.hash) {
+  if (
+    (worker.protocol !== 'https:' && worker.hostname !== 'localhost') ||
+    worker.username ||
+    worker.password ||
+    worker.search ||
+    worker.hash
+  ) {
     throw new Error('--worker-url must be an HTTPS origin');
   }
   return worker.origin;
 }
 
 export function safeText(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value
-    ? value.replace(/[\u0000-\u001F\u007F]/gu, ' ').slice(0, 300)
-    : fallback;
+  return typeof value === 'string' && value ? value.replace(/[\u0000-\u001F\u007F]/gu, ' ').slice(0, 300) : fallback;
 }

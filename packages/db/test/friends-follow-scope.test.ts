@@ -3,10 +3,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  getFriendByLineUserIdForAccount,
-  updateFriendFollowStatus,
-} from '../src/friends.js';
+import { getFriendByLineUserIdForAccount, updateFriendFollowStatus } from '../src/friends.js';
 import { getFriendsByTag } from '../src/tags.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,7 +15,12 @@ describe('friend follow status account scope', () => {
     const db = {
       prepare(statement: string) {
         sql = statement;
-        return { bind(...bound: unknown[]) { values = bound; return { run: async () => ({ meta: { changes: 1 } }) }; } };
+        return {
+          bind(...bound: unknown[]) {
+            values = bound;
+            return { run: async () => ({ meta: { changes: 1 } }) };
+          },
+        };
       },
     } as unknown as D1Database;
 
@@ -42,9 +44,7 @@ describe('friend follow status account scope', () => {
       },
     } as unknown as D1Database;
 
-    await expect(
-      getFriendByLineUserIdForAccount(db, 'U-patient', 'account-a'),
-    ).resolves.toBeNull();
+    await expect(getFriendByLineUserIdForAccount(db, 'U-patient', 'account-a')).resolves.toBeNull();
     expect(statements).toHaveLength(1);
     expect(statements[0]).toContain('provider_line_user_id = ? AND line_account_id = ?');
   });
@@ -74,12 +74,16 @@ describe('friend follow status account scope', () => {
     const sqlite = new Database(':memory:');
     sqlite.pragma('foreign_keys = ON');
     sqlite.exec(readFileSync(join(ROOT, 'bootstrap.sql'), 'utf8'));
-    sqlite.prepare(`INSERT INTO line_accounts
+    sqlite
+      .prepare(`INSERT INTO line_accounts
       (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
-      VALUES ('account-a', 'channel-a', 'A', 'token-a', 'secret-a', '2026-09-14', '2026-09-14')`).run();
-    sqlite.prepare(`INSERT INTO friends
+      VALUES ('account-a', 'channel-a', 'A', 'token-a', 'secret-a', '2026-09-14', '2026-09-14')`)
+      .run();
+    sqlite
+      .prepare(`INSERT INTO friends
       (id, line_user_id, provider_line_user_id, line_account_id, is_following, created_at, updated_at)
-      VALUES ('friend-a', 'friend-key-a', 'U-a', 'account-a', 1, '2026-09-14', '2026-09-14')`).run();
+      VALUES ('friend-a', 'friend-key-a', 'U-a', 'account-a', 1, '2026-09-14', '2026-09-14')`)
+      .run();
     const db = {
       prepare(statement: string) {
         return {
@@ -104,8 +108,10 @@ describe('friend follow status account scope', () => {
       eventId: 'follow-event-old',
     });
 
-    expect(sqlite.prepare(`SELECT is_following, unfollow_count FROM friends WHERE id = 'friend-a'`).get())
-      .toEqual({ is_following: 0, unfollow_count: 1 });
+    expect(sqlite.prepare(`SELECT is_following, unfollow_count FROM friends WHERE id = 'friend-a'`).get()).toEqual({
+      is_following: 0,
+      unfollow_count: 1,
+    });
 
     sqlite.close();
   });

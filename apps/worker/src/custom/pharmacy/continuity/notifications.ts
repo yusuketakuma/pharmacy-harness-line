@@ -2,10 +2,7 @@ import type { HarnessProxyDispatch } from '../../../services/line-proxy-send.js'
 import { sendPharmacyAutomatedPush } from '../growth-loop/sender.js';
 import { getPharmacyBetaNotificationBinding } from '../beta-membership/repository.js';
 import { readLineCredential } from '../provisioning/line-credential-store.js';
-import {
-  markNextIntakeExpectationReminded,
-  type DueNextIntakeExpectation,
-} from './next-intake.js';
+import { markNextIntakeExpectationReminded, type DueNextIntakeExpectation } from './next-intake.js';
 
 export interface ContinuityNotificationOptions {
   db: D1Database;
@@ -24,10 +21,10 @@ export async function deliverContinuityReminder(
 ): Promise<'sent' | 'failed' | 'skipped'> {
   const accessToken = options.lineCredentialKey
     ? await readLineCredential(options.db, options.lineCredentialKey, {
-      tenantId: reminder.tenant_id,
-      lineAccountId: reminder.line_account_id,
-      kind: 'channel_access_token',
-    }).catch(() => null)
+        tenantId: reminder.tenant_id,
+        lineAccountId: reminder.line_account_id,
+        kind: 'channel_access_token',
+      }).catch(() => null)
     : null;
   if (!reminder.line_user_id || !accessToken) return 'skipped';
   const retryKey = `next-intake:${reminder.id}`;

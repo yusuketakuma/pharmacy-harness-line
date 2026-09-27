@@ -19,10 +19,13 @@ type ChatTemplateEnv = {
 
 export const chatTemplateRoutes = new Hono<ChatTemplateEnv>();
 
-async function scope(c: Context<ChatTemplateEnv>): Promise<{
-  lineAccountId: string;
-  staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
-} | Response> {
+async function scope(c: Context<ChatTemplateEnv>): Promise<
+  | {
+      lineAccountId: string;
+      staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
+    }
+  | Response
+> {
   const lineAccountId = c.req.query('line_account_id');
   if (!lineAccountId) return c.json({ error: 'line_account_id is required' }, 400);
   const staff = c.get('staff');
@@ -88,11 +91,12 @@ chatTemplateRoutes.get('/api/custom/pharmacy/chat-templates', async (c) => {
   }
   try {
     const rows = await listChatTemplates(c.env.DB, account.lineAccountId);
-    const filtered = status === 'approved' || status === 'draft' || status === 'archived'
-      ? rows.filter((row) => row.status === status)
-      : status === 'all'
-        ? rows
-        : rows.filter((row) => row.status !== 'archived');
+    const filtered =
+      status === 'approved' || status === 'draft' || status === 'archived'
+        ? rows.filter((row) => row.status === status)
+        : status === 'all'
+          ? rows
+          : rows.filter((row) => row.status !== 'archived');
     return c.json({ templates: filtered.map(projection) });
   } catch (error) {
     return templateError(c, error);
@@ -123,8 +127,12 @@ chatTemplateRoutes.post('/api/custom/pharmacy/chat-templates', async (c) => {
 });
 
 function parseVersionedMutation(body: Record<string, unknown> | null): number | null {
-  if (!body || typeof body.expectedVersion !== 'number' ||
-      !Number.isInteger(body.expectedVersion) || body.expectedVersion < 1) {
+  if (
+    !body ||
+    typeof body.expectedVersion !== 'number' ||
+    !Number.isInteger(body.expectedVersion) ||
+    body.expectedVersion < 1
+  ) {
     return null;
   }
   return body.expectedVersion;
@@ -137,8 +145,7 @@ chatTemplateRoutes.put('/api/custom/pharmacy/chat-templates/:id', async (c) => {
   if (disabled) return disabled;
   const body = await readJsonObject(c.req);
   const expectedVersion = parseVersionedMutation(body);
-  if (expectedVersion === null || typeof body?.title !== 'string' ||
-      typeof body?.body !== 'string') {
+  if (expectedVersion === null || typeof body?.title !== 'string' || typeof body?.body !== 'string') {
     return c.json({ error: 'title、body、expectedVersionは必須です' }, 400);
   }
   try {

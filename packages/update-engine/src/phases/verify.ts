@@ -49,11 +49,7 @@ const RETRY_DELAY_MS = 3000;
  * event + rollback policy. We intentionally do not catch + emit here so
  * the error message naming the failing URL surfaces unmodified upstream.
  */
-export async function runVerify(
-  ctx: UpdateContext,
-  urls: VerifyUrls,
-  ev: EventEmitter,
-): Promise<void> {
+export async function runVerify(ctx: UpdateContext, urls: VerifyUrls, ev: EventEmitter): Promise<void> {
   await ev.emit({ step: 'verify', status: 'running' });
 
   // 1. Worker /health — most common failure mode (new bundle crashed on

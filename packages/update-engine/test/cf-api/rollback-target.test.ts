@@ -11,17 +11,27 @@ const canonical = {
 
 describe('getRollbackPagesDeployment', () => {
   const originalFetch = globalThis.fetch;
-  beforeEach(() => { globalThis.fetch = vi.fn() as unknown as typeof fetch; });
-  afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
 
   it('uses the canonical production deployment instead of a newer list entry', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({
-      success: true, result: { canonical_deployment: canonical },
-    }) } as Response);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        result: { canonical_deployment: canonical },
+      }),
+    } as Response);
 
-    await expect(getRollbackPagesDeployment({ creds, projectName: 'admin-project' }))
-      .resolves.toEqual({ id: 'production-deployment' });
+    await expect(getRollbackPagesDeployment({ creds, projectName: 'admin-project' })).resolves.toEqual({
+      id: 'production-deployment',
+    });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct123/pages/projects/admin-project');
     expect(init).toMatchObject({ method: 'GET', headers: { Authorization: 'Bearer tok_abc' } });
@@ -36,17 +46,25 @@ describe('getRollbackPagesDeployment', () => {
     ['missing id', { ...canonical, id: '' }],
   ])('fails closed for %s', async (_case, deployment) => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({
-      success: true, result: { canonical_deployment: deployment },
-    }) } as Response);
-    await expect(getRollbackPagesDeployment({ creds, projectName: 'admin-project' }))
-      .rejects.toThrow(/rollback target is unavailable or unhealthy/);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        result: { canonical_deployment: deployment },
+      }),
+    } as Response);
+    await expect(getRollbackPagesDeployment({ creds, projectName: 'admin-project' })).rejects.toThrow(
+      /rollback target is unavailable or unhealthy/,
+    );
   });
 
   it('rejects a failed project API response', async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => 'server error' } as Response);
-    await expect(getRollbackPagesDeployment({ creds, projectName: 'admin-project' }))
-      .rejects.toThrow(/HTTP 500/);
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => 'server error',
+    } as Response);
+    await expect(getRollbackPagesDeployment({ creds, projectName: 'admin-project' })).rejects.toThrow(/HTTP 500/);
   });
 });

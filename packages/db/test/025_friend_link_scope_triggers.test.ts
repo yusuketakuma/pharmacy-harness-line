@@ -24,9 +24,7 @@ function addFriend(id: string, accountId: string | null): void {
 }
 
 function addTenant(id: string): void {
-  sqlite
-    .prepare(`INSERT INTO tenants (id, tenant_code, display_name) VALUES (?, ?, ?)`)
-    .run(id, `code-${id}`, id);
+  sqlite.prepare(`INSERT INTO tenants (id, tenant_code, display_name) VALUES (?, ?, ?)`).run(id, `code-${id}`, id);
 }
 
 function mapAccount(accountId: string, tenantId: string): void {
@@ -36,9 +34,7 @@ function mapAccount(accountId: string, tenantId: string): void {
 }
 
 function addTag(id: string, tenantId: string | null): void {
-  sqlite
-    .prepare(`INSERT INTO tags (id, name, tenant_id) VALUES (?, ?, ?)`)
-    .run(id, `tag-${id}`, tenantId);
+  sqlite.prepare(`INSERT INTO tags (id, name, tenant_id) VALUES (?, ?, ?)`).run(id, `tag-${id}`, tenantId);
 }
 
 function addScenario(id: string, accountId: string | null, tenantId: string | null): void {
@@ -61,7 +57,7 @@ beforeEach(() => {
 });
 
 describe('friend_tags tenant scope trigger', () => {
-  it('rejects attaching another tenant\'s tag to a mapped friend', () => {
+  it("rejects attaching another tenant's tag to a mapped friend", () => {
     addFriend('friend-a', 'account-a');
     addTag('tag-b', 'tenant-b');
     expect(() =>
@@ -74,9 +70,7 @@ describe('friend_tags tenant scope trigger', () => {
     addFriend('friend-legacy', null);
     addTag('tag-a', 'tenant-a');
     addTag('tag-global', null);
-    const insert = sqlite.prepare(
-      `INSERT INTO friend_tags (friend_id, tag_id) VALUES (?, ?)`,
-    );
+    const insert = sqlite.prepare(`INSERT INTO friend_tags (friend_id, tag_id) VALUES (?, ?)`);
     expect(() => insert.run('friend-a', 'tag-a')).not.toThrow();
     expect(() => insert.run('friend-a', 'tag-global')).not.toThrow();
     expect(() => insert.run('friend-legacy', 'tag-a')).not.toThrow();
@@ -84,23 +78,23 @@ describe('friend_tags tenant scope trigger', () => {
 });
 
 describe('friend_scenarios scope trigger', () => {
-  it('rejects enrolling a friend into another account\'s scenario', () => {
+  it("rejects enrolling a friend into another account's scenario", () => {
     addFriend('friend-a', 'account-a');
     addScenario('scn-b', 'account-b', null);
     expect(() =>
-      sqlite.prepare(
-        `INSERT INTO friend_scenarios (id, friend_id, scenario_id) VALUES ('fs-1', 'friend-a', 'scn-b')`,
-      ).run(),
+      sqlite
+        .prepare(`INSERT INTO friend_scenarios (id, friend_id, scenario_id) VALUES ('fs-1', 'friend-a', 'scn-b')`)
+        .run(),
     ).toThrow(/FRIEND_SCENARIO_SCOPE_MISMATCH/);
   });
 
-  it('rejects enrolling a mapped friend into another tenant\'s account-less scenario', () => {
+  it("rejects enrolling a mapped friend into another tenant's account-less scenario", () => {
     addFriend('friend-a', 'account-a');
     addScenario('scn-tb', null, 'tenant-b');
     expect(() =>
-      sqlite.prepare(
-        `INSERT INTO friend_scenarios (id, friend_id, scenario_id) VALUES ('fs-2', 'friend-a', 'scn-tb')`,
-      ).run(),
+      sqlite
+        .prepare(`INSERT INTO friend_scenarios (id, friend_id, scenario_id) VALUES ('fs-2', 'friend-a', 'scn-tb')`)
+        .run(),
     ).toThrow(/FRIEND_SCENARIO_SCOPE_MISMATCH/);
   });
 
@@ -110,9 +104,7 @@ describe('friend_scenarios scope trigger', () => {
     addScenario('scn-a', 'account-a', null);
     addScenario('scn-ta', null, 'tenant-a');
     addScenario('scn-global', null, null);
-    const insert = sqlite.prepare(
-      `INSERT INTO friend_scenarios (id, friend_id, scenario_id) VALUES (?, ?, ?)`,
-    );
+    const insert = sqlite.prepare(`INSERT INTO friend_scenarios (id, friend_id, scenario_id) VALUES (?, ?, ?)`);
     expect(() => insert.run('fs-a', 'friend-a', 'scn-a')).not.toThrow();
     expect(() => insert.run('fs-b', 'friend-a', 'scn-ta')).not.toThrow();
     expect(() => insert.run('fs-c', 'friend-a', 'scn-global')).not.toThrow();

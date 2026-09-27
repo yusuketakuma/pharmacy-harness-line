@@ -35,16 +35,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const continuityApi = {
-  list: () => request<{
-    obligations: ContinuityObligation[];
-    expectations: NextIntakeExpectation[];
-  }>('/api/liff/pharmacy/continuity'),
-  pause: (id: string) => request<{ status: 'paused' }>(`/api/liff/pharmacy/continuity/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
-  respond: (id: string, response: 'accepted' | 'ended') => request<{
-    expectation: NextIntakeExpectation;
-  }>(`/api/liff/pharmacy/continuity/expectations/${encodeURIComponent(id)}/respond`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ response, idempotencyKey: pharmacyUuid() }),
-  }),
+  list: () =>
+    request<{
+      obligations: ContinuityObligation[];
+      expectations: NextIntakeExpectation[];
+    }>('/api/liff/pharmacy/continuity'),
+  pause: (id: string) =>
+    request<{ status: 'paused' }>(`/api/liff/pharmacy/continuity/${encodeURIComponent(id)}/pause`, {
+      method: 'POST',
+    }),
+  respond: (id: string, response: 'accepted' | 'ended') =>
+    request<{
+      expectation: NextIntakeExpectation;
+    }>(`/api/liff/pharmacy/continuity/expectations/${encodeURIComponent(id)}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response, idempotencyKey: pharmacyUuid() }),
+    }),
 };

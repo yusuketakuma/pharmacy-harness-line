@@ -26,9 +26,7 @@ export function buildOgHtml(params: OgParams): string {
   const url = escapeHtml(params.url);
   const type = params.type ?? 'website';
 
-  const description = params.description?.trim()
-    ? escapeHtml(truncate(params.description.trim(), 200))
-    : null;
+  const description = params.description?.trim() ? escapeHtml(truncate(params.description.trim(), 200)) : null;
   const imageUrl = params.imageUrl?.trim() ? escapeHtml(params.imageUrl.trim()) : null;
 
   const descLines = description
@@ -38,10 +36,7 @@ export function buildOgHtml(params: OgParams): string {
       ]
     : [];
   const imgLines = imageUrl
-    ? [
-        `<meta property="og:image" content="${imageUrl}">`,
-        `<meta name="twitter:card" content="summary_large_image">`,
-      ]
+    ? [`<meta property="og:image" content="${imageUrl}">`, `<meta name="twitter:card" content="summary_large_image">`]
     : [`<meta name="twitter:card" content="summary">`];
 
   return `<!DOCTYPE html>

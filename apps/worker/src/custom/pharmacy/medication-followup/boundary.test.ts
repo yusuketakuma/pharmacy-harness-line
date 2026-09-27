@@ -3,17 +3,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const source = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '../../../index.ts'),
-  'utf8',
-);
+const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../index.ts'), 'utf8');
 const webhookSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../../routes/integrations/webhook.ts'),
   'utf8',
 );
 
 describe('medication follow-up custom boundary', () => {
-  it('mounts the staff API and the bounded minute processor from custom/pharmacy', () => {
+  it('mounts the staff API and the bounded scheduled processor from custom/pharmacy', () => {
     expect(source).toContain(
       "import { medicationFollowUpRoutes } from './custom/pharmacy/medication-followup/routes.js'; // custom:pharmacy-medication-followup",
     );
@@ -22,7 +19,7 @@ describe('medication follow-up custom boundary', () => {
     );
     expect(source).toContain("app.route('/', medicationFollowUpRoutes); // custom:pharmacy-medication-followup");
     expect(source).toContain('processDueMedicationFollowUps(env.DB');
-    expect(source).toContain("event.cron === '* * * * *'");
+    expect(source).toContain("event.cron === '*/5 * * * *'");
   });
 
   it('handles the fixed response only inside the pharmacy postback branch', () => {

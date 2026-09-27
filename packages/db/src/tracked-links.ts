@@ -33,20 +33,12 @@ export interface LinkClick {
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
 export async function getTrackedLinks(db: D1Database): Promise<TrackedLink[]> {
-  const result = await db
-    .prepare(`SELECT * FROM tracked_links ORDER BY created_at DESC`)
-    .all<TrackedLink>();
+  const result = await db.prepare(`SELECT * FROM tracked_links ORDER BY created_at DESC`).all<TrackedLink>();
   return result.results;
 }
 
-export async function getTrackedLinkById(
-  db: D1Database,
-  id: string,
-): Promise<TrackedLink | null> {
-  return db
-    .prepare(`SELECT * FROM tracked_links WHERE id = ?`)
-    .bind(id)
-    .first<TrackedLink>();
+export async function getTrackedLinkById(db: D1Database, id: string): Promise<TrackedLink | null> {
+  return db.prepare(`SELECT * FROM tracked_links WHERE id = ?`).bind(id).first<TrackedLink>();
 }
 
 /**
@@ -55,30 +47,20 @@ export async function getTrackedLinkById(
  * collide; try the cheap discriminator first, then fall back to the other
  * column to be safe against unexpected identifier shapes.
  */
-export async function getTrackedLinkByIdOrShortCode(
-  db: D1Database,
-  idOrCode: string,
-): Promise<TrackedLink | null> {
+export async function getTrackedLinkByIdOrShortCode(db: D1Database, idOrCode: string): Promise<TrackedLink | null> {
   const looksLikeUuid = idOrCode.length === 36 && idOrCode.includes('-');
   const first = looksLikeUuid
     ? await getTrackedLinkById(db, idOrCode)
-    : await db
-        .prepare(`SELECT * FROM tracked_links WHERE short_code = ?`)
-        .bind(idOrCode)
-        .first<TrackedLink>();
+    : await db.prepare(`SELECT * FROM tracked_links WHERE short_code = ?`).bind(idOrCode).first<TrackedLink>();
   if (first) return first;
   return looksLikeUuid
-    ? db
-        .prepare(`SELECT * FROM tracked_links WHERE short_code = ?`)
-        .bind(idOrCode)
-        .first<TrackedLink>()
+    ? db.prepare(`SELECT * FROM tracked_links WHERE short_code = ?`).bind(idOrCode).first<TrackedLink>()
     : getTrackedLinkById(db, idOrCode);
 }
 
 // Base62 alphabet — no ambiguity issues matter here (codes are copy-pasted,
 // not hand-typed), so keep the full 62-char space: 62^7 ≈ 3.5 trillion.
-const SHORT_CODE_ALPHABET =
-  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const SHORT_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const SHORT_CODE_LENGTH = 7;
 
 export function generateShortCode(): string {
@@ -106,10 +88,7 @@ export interface CreateTrackedLinkInput {
   ogImageUrl?: string | null;
 }
 
-export async function createTrackedLink(
-  db: D1Database,
-  input: CreateTrackedLinkInput,
-): Promise<TrackedLink> {
+export async function createTrackedLink(db: D1Database, input: CreateTrackedLinkInput): Promise<TrackedLink> {
   const id = crypto.randomUUID();
   const now = jstNow();
 
@@ -164,14 +143,8 @@ function autoTrackedLinkDedupKey(input: AutoTrackedLinkInput): string {
   return `${input.lineAccountId ?? ''}|${input.originalUrl}`;
 }
 
-async function getTrackedLinkByDedupKey(
-  db: D1Database,
-  dedupKey: string,
-): Promise<TrackedLink | null> {
-  return db
-    .prepare(`SELECT * FROM tracked_links WHERE dedup_key = ?`)
-    .bind(dedupKey)
-    .first<TrackedLink>();
+async function getTrackedLinkByDedupKey(db: D1Database, dedupKey: string): Promise<TrackedLink | null> {
+  return db.prepare(`SELECT * FROM tracked_links WHERE dedup_key = ?`).bind(dedupKey).first<TrackedLink>();
 }
 
 /**
@@ -182,10 +155,7 @@ async function getTrackedLinkByDedupKey(
  * one row, enforced by the UNIQUE index on dedup_key. Manually created links
  * have no dedup_key and are never touched.
  */
-export async function getOrCreateAutoTrackedLink(
-  db: D1Database,
-  input: AutoTrackedLinkInput,
-): Promise<TrackedLink> {
+export async function getOrCreateAutoTrackedLink(db: D1Database, input: AutoTrackedLinkInput): Promise<TrackedLink> {
   const dedupKey = autoTrackedLinkDedupKey(input);
   const existing = await getTrackedLinkByDedupKey(db, dedupKey);
   if (existing) return reactivateIfNeeded(db, existing);
@@ -214,16 +184,10 @@ export async function getOrCreateAutoTrackedLink(
  * link on every send, so reviving a deactivated auto link matches what
  * recipients always got.
  */
-async function reactivateIfNeeded(
-  db: D1Database,
-  link: TrackedLink,
-): Promise<TrackedLink> {
+async function reactivateIfNeeded(db: D1Database, link: TrackedLink): Promise<TrackedLink> {
   if (link.is_active) return link;
   const now = jstNow();
-  await db
-    .prepare(`UPDATE tracked_links SET is_active = 1, updated_at = ? WHERE id = ?`)
-    .bind(now, link.id)
-    .run();
+  await db.prepare(`UPDATE tracked_links SET is_active = 1, updated_at = ? WHERE id = ?`).bind(now, link.id).run();
   return { ...link, is_active: 1, updated_at: now };
 }
 
@@ -252,18 +216,13 @@ export async function updateTrackedLink(
   const name = input.name ?? existing.name;
   const tagId = input.tagId === undefined ? existing.tag_id : input.tagId;
   const scenarioId = input.scenarioId === undefined ? existing.scenario_id : input.scenarioId;
-  const introTemplateId =
-    input.introTemplateId === undefined ? existing.intro_template_id : input.introTemplateId;
-  const rewardTemplateId =
-    input.rewardTemplateId === undefined ? existing.reward_template_id : input.rewardTemplateId;
-  const lineAccountId =
-    input.lineAccountId === undefined ? existing.line_account_id : input.lineAccountId;
-  const isActive = input.isActive === undefined ? existing.is_active : (input.isActive ? 1 : 0);
+  const introTemplateId = input.introTemplateId === undefined ? existing.intro_template_id : input.introTemplateId;
+  const rewardTemplateId = input.rewardTemplateId === undefined ? existing.reward_template_id : input.rewardTemplateId;
+  const lineAccountId = input.lineAccountId === undefined ? existing.line_account_id : input.lineAccountId;
+  const isActive = input.isActive === undefined ? existing.is_active : input.isActive ? 1 : 0;
   const ogTitle = input.ogTitle === undefined ? existing.og_title : input.ogTitle;
-  const ogDescription =
-    input.ogDescription === undefined ? existing.og_description : input.ogDescription;
-  const ogImageUrl =
-    input.ogImageUrl === undefined ? existing.og_image_url : input.ogImageUrl;
+  const ogDescription = input.ogDescription === undefined ? existing.og_description : input.ogDescription;
+  const ogImageUrl = input.ogImageUrl === undefined ? existing.og_image_url : input.ogImageUrl;
 
   await db
     .prepare(
@@ -271,7 +230,20 @@ export async function updateTrackedLink(
          SET name = ?, tag_id = ?, scenario_id = ?, intro_template_id = ?, reward_template_id = ?, line_account_id = ?, is_active = ?, og_title = ?, og_description = ?, og_image_url = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .bind(name, tagId, scenarioId, introTemplateId, rewardTemplateId, lineAccountId, isActive, ogTitle, ogDescription, ogImageUrl, now, id)
+    .bind(
+      name,
+      tagId,
+      scenarioId,
+      introTemplateId,
+      rewardTemplateId,
+      lineAccountId,
+      isActive,
+      ogTitle,
+      ogDescription,
+      ogImageUrl,
+      now,
+      id,
+    )
     .run();
 
   return getTrackedLinkById(db, id);
@@ -301,26 +273,18 @@ export async function recordLinkClick(
       )
       .bind(id, trackedLinkId, friendId ?? null, now),
     db
-      .prepare(
-        `UPDATE tracked_links SET click_count = click_count + 1, updated_at = ? WHERE id = ?`,
-      )
+      .prepare(`UPDATE tracked_links SET click_count = click_count + 1, updated_at = ? WHERE id = ?`)
       .bind(now, trackedLinkId),
   ]);
 
-  return (await db
-    .prepare(`SELECT * FROM link_clicks WHERE id = ?`)
-    .bind(id)
-    .first<LinkClick>())!;
+  return (await db.prepare(`SELECT * FROM link_clicks WHERE id = ?`).bind(id).first<LinkClick>())!;
 }
 
 export interface LinkClickWithFriend extends LinkClick {
   friend_display_name: string | null;
 }
 
-export async function getLinkClicks(
-  db: D1Database,
-  trackedLinkId: string,
-): Promise<LinkClickWithFriend[]> {
+export async function getLinkClicks(db: D1Database, trackedLinkId: string): Promise<LinkClickWithFriend[]> {
   const result = await db
     .prepare(
       `SELECT lc.*, f.display_name as friend_display_name
@@ -333,4 +297,3 @@ export async function getLinkClicks(
     .all<LinkClickWithFriend>();
   return result.results;
 }
-

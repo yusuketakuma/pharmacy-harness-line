@@ -1,35 +1,23 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { getClient } from "../client.js";
-import { pinnedAccountId, requireConfirmation } from "../custom/pharmacy/rich-menu/guard.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { getClient } from '../client.js';
+import { pinnedAccountId, requireConfirmation } from '../custom/pharmacy/rich-menu/guard.js';
 
 export function registerCreateRichMenu(server: McpServer): void {
   server.tool(
-    "create_rich_menu",
-    "Create a LINE rich menu with optional image upload. Provide imageData (base64) to attach the menu image in one step.",
+    'create_rich_menu',
+    'Create a LINE rich menu with optional image upload. Provide imageData (base64) to attach the menu image in one step.',
     {
-      name: z.string().describe("Rich menu name"),
-      chatBarText: z
-        .string()
-        .default("\u30E1\u30CB\u30E5\u30FC")
-        .describe("Text shown on the chat bar button"),
+      name: z.string().describe('Rich menu name'),
+      chatBarText: z.string().default('\u30E1\u30CB\u30E5\u30FC').describe('Text shown on the chat bar button'),
       size: z
         .object({
-          width: z
-            .number()
-            .default(2500)
-            .describe("Menu width in pixels (2500 for full-width)"),
-          height: z
-            .number()
-            .default(1686)
-            .describe("Menu height: 1686 for full, 843 for half"),
+          width: z.number().default(2500).describe('Menu width in pixels (2500 for full-width)'),
+          height: z.number().default(1686).describe('Menu height: 1686 for full, 843 for half'),
         })
         .default({ width: 2500, height: 1686 })
-        .describe("Menu size in pixels"),
-      selected: z
-        .boolean()
-        .default(false)
-        .describe("Whether the rich menu is displayed by default"),
+        .describe('Menu size in pixels'),
+      selected: z.boolean().default(false).describe('Whether the rich menu is displayed by default'),
       areas: z
         .string()
         .describe(
@@ -38,47 +26,65 @@ export function registerCreateRichMenu(server: McpServer): void {
       imageData: z
         .string()
         .optional()
-        .describe("Base64-encoded image data for the rich menu (PNG or JPEG, 2500x1686 or 2500x843)"),
-      imageContentType: z
-        .enum(["image/png", "image/jpeg"])
-        .default("image/jpeg")
-        .describe("Image MIME type"),
-      setAsDefault: z
-        .boolean()
-        .default(false)
-        .describe("Set this as the default rich menu for all friends"),
-      accountId: z.string().optional().describe("Must match LINE_HARNESS_ACCOUNT_ID"),
-      dryRun: z.boolean().default(true).describe("Preview without changing LINE"),
-      confirm: z.boolean().default(false).describe("Required for live creation"),
+        .describe('Base64-encoded image data for the rich menu (PNG or JPEG, 2500x1686 or 2500x843)'),
+      imageContentType: z.enum(['image/png', 'image/jpeg']).default('image/jpeg').describe('Image MIME type'),
+      setAsDefault: z.boolean().default(false).describe('Set this as the default rich menu for all friends'),
+      accountId: z.string().optional().describe('Must match LINE_HARNESS_ACCOUNT_ID'),
+      dryRun: z.boolean().default(true).describe('Preview without changing LINE'),
+      confirm: z.boolean().default(false).describe('Required for live creation'),
     },
-    async ({ name, chatBarText, size, selected, areas, imageData, imageContentType, setAsDefault, accountId, dryRun, confirm }) => {
+    async ({
+      name,
+      chatBarText,
+      size,
+      selected,
+      areas,
+      imageData,
+      imageContentType,
+      setAsDefault,
+      accountId,
+      dryRun,
+      confirm,
+    }) => {
       try {
         const resolvedAccountId = pinnedAccountId(accountId);
         const parsedAreas = JSON.parse(areas);
-        requireConfirmation(dryRun, confirm, "create_rich_menu");
+        requireConfirmation(dryRun, confirm, 'create_rich_menu');
         if (dryRun) {
           return {
-            content: [{ type: "text" as const, text: JSON.stringify({
-              success: true,
-              dryRun: true,
-              requiresConfirmation: true,
-              accountId: resolvedAccountId,
-              name,
-              size,
-              areaCount: Array.isArray(parsedAreas) ? parsedAreas.length : 0,
-              imageAttached: !!imageData,
-              setAsDefault,
-            }, null, 2) }],
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    dryRun: true,
+                    requiresConfirmation: true,
+                    accountId: resolvedAccountId,
+                    name,
+                    size,
+                    areaCount: Array.isArray(parsedAreas) ? parsedAreas.length : 0,
+                    imageAttached: !!imageData,
+                    setAsDefault,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
           };
         }
         const client = getClient();
-        const menu = await client.richMenus.create({
-          name,
-          chatBarText,
-          size,
-          selected,
-          areas: parsedAreas,
-        }, resolvedAccountId);
+        const menu = await client.richMenus.create(
+          {
+            name,
+            chatBarText,
+            size,
+            selected,
+            areas: parsedAreas,
+          },
+          resolvedAccountId,
+        );
 
         if (imageData) {
           await client.richMenus.uploadImage(menu.richMenuId, imageData, imageContentType, resolvedAccountId);
@@ -91,7 +97,7 @@ export function registerCreateRichMenu(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify(
                 {
                   success: true,
@@ -109,12 +115,8 @@ export function registerCreateRichMenu(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: false, error: String(error) },
-                null,
-                2,
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: false, error: String(error) }, null, 2),
             },
           ],
           isError: true,

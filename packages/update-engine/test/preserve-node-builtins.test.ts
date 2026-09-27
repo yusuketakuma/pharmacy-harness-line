@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  findBareNodeBuiltinSpecifiers,
-  preserveNodeBuiltinSpecifiers,
-} from '../scripts/preserve-node-builtins.mjs';
+import { findBareNodeBuiltinSpecifiers, preserveNodeBuiltinSpecifiers } from '../scripts/preserve-node-builtins.mjs';
 
 describe('preserveNodeBuiltinSpecifiers', () => {
   it('rewrites bare Node built-in specifiers to node: specifiers', () => {

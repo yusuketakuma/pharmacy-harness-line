@@ -1,0 +1,19 @@
+# Token refresh consumer監査
+
+P=W=fb6ab3452d047befd539c6c965187ab0f7425b70 primary/dev。前ターンF19は修復/検証/commitを完了したprogress。本ターンはservices/token-refresh.ts全体、db/line-accounts.ts187–207、provisioning/line-account-store.ts144–end、line-credentials.ts85–107、関連testのpharmacy/collision/privacy assertionを照合。製品変更なし。
+
+入口: active tenant/accountに限定したgetActiveTenantLineAccountsは現行SQLでpharmacy_mode=1固定。mockのgeneric=0を現行DBの生成可能状態と混同しない。refreshは各accountを直列、欠落root key/secretなら発行しない。発行URLは固定、非2xx本文は読まずstatusのみError、catchは固定eventとaccount IDのみlog。tokenやaccount nameをlogに含めない。成功レスポンスは型assertのみだが、薬局保存のencrypt境界はstring/長さ/control/UTF8 byte数を検証する。expires_in不正時はtoISOString等で失敗し保存前停止するケースがあるが、全不正レスポンスを検証済みとはしない。
+
+保存: account.updated_atをsnapshotとして渡し、credential UPSERTとmetadata UPDATEはtenant active/mapping/同じupdated_atをSQL条件に含む。同一batch内で暗号化credentialと期限を更新し、metadata updated_atを少なくともexpected+1msに進める。最後のchanges!=1はconflict。credentialはplaintext bindされず旧列にencrypted markerのみ。既存SQLite rotation/stale testは初回tokenを復号確認後、旧updated_atでの再更新拒否とtoken不変をassertしている。
+
+証拠再利用: integration-F19-verify.log token-refresh5/line-account-store9tests PASS、関連source/config変更なし。新規実行なし。全schemaでのtrigger race/cron同時実行を新規実証したという意味ではない。provider token発行の旧token有効性/失効規約は今回外部資料未確認、保存CAS成功だけでprovider側結果も保証しない。
+
+未確認候補: issueNewTokenのfetchとresponse.jsonに明示timeoutなし、全account直列。scheduledはこのrefreshをawaitしてからMeet/薬局jobへ進む。長いprovider応答待ちが後続全体を遅らせ得る具体的依存は確認したが、実測/障害注入と許容期限は未確定。EVIDENCE_BASED_CONCERN、次は合成pending fetchを有限時間で制御し、後続遅延を測る。実ネットワーク停止/本番SLO違反とは未断定。新しい設定やtimeout値を根拠なしに追加しない。全cron/暗号moduleはPARTIAL、最終独立レビュー未完。commit/patch非該当、外部通信なし。
+
+## 有限障害注入（同HEAD）
+
+前ターンは保存CAS/非漏洩の確認と待機仮説を具体化したprogress。本ターンはtoken-refresh実関数をsynthetic2accountsで実行し、最初のfetch promiseを100msだけ保留。token-refresh-delay-case.txt（実行時はservices/audit-token-delay.test.ts、一時file削除済）、token-refresh-delay.log exit0、result.json参照。観測100.702msで未完了/requests1/writes0/signalなし、解放後111.587msで全完了/requests2。外部request0。credential read/updateはstub、plaintext実secretを使用せず。
+
+結論: account間の直列待機とabort signal欠如を実測で確認。scheduledはawait refresh後にMeet等へ進むので後続もこの待機に依存（今回scheduled全体の同時測定ではない）。100ms保留自体は正常な直列処理であり、本番の無期限stallやSLO違反の証明ではない。必要な応答時間の一次資料/運用閾値が未確定のため、現段階で恣意的timeoutを導入しない。懸念はEVIDENCE_BASED_CONCERNのまま、修復packetへ未採択。
+
+調査範囲内OPERATION_GUIDEにtoken-refresh timeout値は見つからず、OPERATIONS_RUNBOOK.mdは不存在（その文書の確認済みとはしない）。同じ合成待機を増やしても新たな証拠にならないので反復せず、次は医療通知consumerのscope/retry/停止条件へ進む。全Goal/必須独立レビュー未完。今回製品変更/commit/patch非該当、既存差分を保全。

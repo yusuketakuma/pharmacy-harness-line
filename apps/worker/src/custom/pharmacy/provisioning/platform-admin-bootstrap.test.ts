@@ -2,10 +2,7 @@ import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../index.js';
 import { authMiddleware } from '../../../middleware/auth.js';
-import {
-  generatePlatformAdminSessionToken,
-  hashTenantAdminSessionToken,
-} from './credentials.js';
+import { generatePlatformAdminSessionToken, hashTenantAdminSessionToken } from './credentials.js';
 import { hashTenantPassword } from './credentials.js';
 import { tenantProvisioningRoutes } from './routes.js';
 
@@ -21,10 +18,17 @@ type Statement = { sql: string; values: unknown[]; run(): Promise<{ meta: { chan
  */
 function fakeDb(activeSession?: { staffId: string; name: string; tokenHash: string }) {
   const inserted: Record<string, unknown[]> = {};
-  let credential: { staff_id: string; login_id: string; password_hash: string; must_change_password: number } | null = null;
+  let credential: {
+    staff_id: string;
+    login_id: string;
+    password_hash: string;
+    must_change_password: number;
+  } | null = null;
   let keyBootstrapped = false;
   return {
-    get credential() { return credential; },
+    get credential() {
+      return credential;
+    },
     inserted,
     db: {
       prepare(sql: string) {
@@ -33,10 +37,13 @@ function fakeDb(activeSession?: { staffId: string; name: string; tokenHash: stri
           sql,
           values,
           first: async <T>() => {
-            if (sql.includes('FROM platform_admin_credentials AS credential') &&
-              !sql.includes('FROM platform_admin_sessions')) {
+            if (
+              sql.includes('FROM platform_admin_credentials AS credential') &&
+              !sql.includes('FROM platform_admin_sessions')
+            ) {
               return credential && String(values[0]).toLowerCase() === credential.login_id.toLowerCase()
-                ? credential as T : null;
+                ? (credential as T)
+                : null;
             }
             if (sql.includes('FROM platform_admins WHERE is_active')) {
               return (activeSession ? { ok: 1 } : null) as T;
@@ -74,9 +81,7 @@ function fakeDb(activeSession?: { staffId: string; name: string; tokenHash: stri
         const admin = statements.find(({ sql }) => sql.includes('INSERT INTO platform_admins'));
         if (admin && admin.values[1] === 'platform-admin-key') {
           if (keyBootstrapped) {
-            throw new Error(
-              'UNIQUE constraint failed: index idx_platform_admins_one_key_bootstrap',
-            );
+            throw new Error('UNIQUE constraint failed: index idx_platform_admins_one_key_bootstrap');
           }
           keyBootstrapped = true;
         }
@@ -157,8 +162,11 @@ describe('platform admin bootstrap route', () => {
     });
     // The route must never echo the credential back.
     expect(body).not.toContain('Temporary pass 42');
-    expect(Object.keys(store.inserted).sort())
-      .toEqual(['platform_admin_credentials', 'platform_admins', 'staff_members']);
+    expect(Object.keys(store.inserted).sort()).toEqual([
+      'platform_admin_credentials',
+      'platform_admins',
+      'staff_members',
+    ]);
     // The staff row must never carry a usable Bearer key.
     expect(String(store.inserted.staff_members[3])).toMatch(/^disabled:/);
     expect(store.credential?.must_change_password).toBe(1);
@@ -169,10 +177,14 @@ describe('platform admin bootstrap route', () => {
     expect((await app().request(PATH, request({ key: null }), testEnv)).status).toBe(401);
     expect((await app().request(PATH, request({ key: 'wrong-key' }), testEnv)).status).toBe(401);
 
-    const fromBrowser = await app().request(PATH, {
-      ...request(),
-      headers: { ...request().headers, origin: 'https://admin.example.test' },
-    }, testEnv);
+    const fromBrowser = await app().request(
+      PATH,
+      {
+        ...request(),
+        headers: { ...request().headers, origin: 'https://admin.example.test' },
+      },
+      testEnv,
+    );
     expect(fromBrowser.status).toBe(403);
   });
 
@@ -234,9 +246,7 @@ describe('platform admin bootstrap route', () => {
 
   it('refuses to mint a second platform admin on PLATFORM_ADMIN_KEY alone once one already exists', async () => {
     const store = fakeDb({ staffId: 'staff-1', name: 'Existing Admin', tokenHash: 'irrelevant' });
-    const response = await app().request(
-      PATH, request({ loginId: 'second-admin' }), env(store.db),
-    );
+    const response = await app().request(PATH, request({ loginId: 'second-admin' }), env(store.db));
     expect(response.status).toBe(403);
     expect(Object.keys(store.inserted)).toEqual([]);
   });
@@ -246,10 +256,14 @@ describe('platform admin bootstrap route', () => {
     const tokenHash = await hashTenantAdminSessionToken(token);
     const store = fakeDb({ staffId: 'staff-1', name: 'Existing Admin', tokenHash });
     const req = request({ loginId: 'second-admin' });
-    const response = await app().request(PATH, {
-      ...req,
-      headers: { ...req.headers, cookie: `lh_platform_admin_session=${token}` },
-    }, env(store.db));
+    const response = await app().request(
+      PATH,
+      {
+        ...req,
+        headers: { ...req.headers, cookie: `lh_platform_admin_session=${token}` },
+      },
+      env(store.db),
+    );
     expect(response.status).toBe(201);
     expect(store.inserted.platform_admins[1]).toBe('staff-1');
   });

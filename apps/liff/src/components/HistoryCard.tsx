@@ -16,11 +16,7 @@ export default function HistoryCard({ booking }: { booking: BookingHistoryItem }
   return (
     <li className="border rounded p-3 flex gap-3 items-start">
       {booking.profile_image_url ? (
-        <img
-          src={booking.profile_image_url}
-          alt={booking.staff_name}
-          className="w-12 h-12 rounded-full object-cover"
-        />
+        <img src={booking.profile_image_url} alt={booking.staff_name} className="w-12 h-12 rounded-full object-cover" />
       ) : (
         <div className="w-12 h-12 rounded-full bg-gray-200" />
       )}

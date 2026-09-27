@@ -32,8 +32,7 @@ function makeD1Adapter(db: Database.Database): D1Like {
     prepare: (sql: string) => ({
       bind: (...args: any[]) => ({
         run: async () => db.prepare(sql).run(...args),
-        first: async <T>() =>
-          (db.prepare(sql).get(...args) as T | undefined) ?? null,
+        first: async <T>() => (db.prepare(sql).get(...args) as T | undefined) ?? null,
         all: async <T>() => ({
           results: db.prepare(sql).all(...args) as T[],
         }),
@@ -246,9 +245,7 @@ describe('snapshot CRUD', () => {
         });
         ids.push(id);
         // Force distinct started_at values, increasing.
-        rawDb
-          .prepare('UPDATE update_history SET started_at = ? WHERE id = ?')
-          .run(1000 + i, id);
+        rawDb.prepare('UPDATE update_history SET started_at = ? WHERE id = ?').run(1000 + i, id);
       }
 
       const rows = await listRecent(d1);

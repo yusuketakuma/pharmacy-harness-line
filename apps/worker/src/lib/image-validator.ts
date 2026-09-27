@@ -14,9 +14,7 @@ export type ImageMeta = {
 
 export type RichMenuSize = 'large' | 'compact';
 
-export type ValidationResult =
-  | { ok: true; size: RichMenuSize; format: 'png' | 'jpeg' }
-  | { ok: false; error: string };
+export type ValidationResult = { ok: true; size: RichMenuSize; format: 'png' | 'jpeg' } | { ok: false; error: string };
 
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -28,12 +26,7 @@ const VALID_DIMENSIONS: Record<RichMenuSize, { width: number; height: number }> 
 const MAX_FILE_BYTES = 1024 * 1024;
 
 function readUint32BE(bytes: Uint8Array, offset: number): number {
-  return (
-    (bytes[offset] << 24) |
-    (bytes[offset + 1] << 16) |
-    (bytes[offset + 2] << 8) |
-    bytes[offset + 3]
-  ) >>> 0;
+  return ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
 }
 
 function readUint16BE(bytes: Uint8Array, offset: number): number {

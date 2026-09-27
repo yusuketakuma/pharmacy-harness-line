@@ -1,11 +1,5 @@
 import { Hono, type Context } from 'hono';
-import {
-  getBroadcasts,
-  getBroadcastById,
-  createBroadcast,
-  updateBroadcast,
-  deleteBroadcast,
-} from '@line-crm/db';
+import { getBroadcasts, getBroadcastById, createBroadcast, updateBroadcast, deleteBroadcast } from '@line-crm/db';
 import type { Broadcast as DbBroadcast, BroadcastMessageType, BroadcastTargetType } from '@line-crm/db';
 import { LineClient } from '@line-crm/line-sdk';
 import { processBroadcastSend, buildMessage, processQueuedBroadcasts } from '../../services/broadcast.js';
@@ -44,14 +38,12 @@ function unsupportedVariablesError(content: string): string | null {
 function parseJsonArray(s: unknown): string[] | null {
   if (!s) return null;
   if (Array.isArray(s)) {
-    return s.every((item) => typeof item === 'string') ? s as string[] : null;
+    return s.every((item) => typeof item === 'string') ? (s as string[]) : null;
   }
   if (typeof s !== 'string') return null;
   try {
     const parsed = JSON.parse(s);
-    return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')
-      ? parsed as string[]
-      : null;
+    return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string') ? (parsed as string[]) : null;
   } catch {
     return null;
   }
@@ -74,17 +66,19 @@ type CreateBroadcastBody = {
 function sameCreateRequest(existing: DbBroadcast, body: CreateBroadcastBody): boolean {
   const existingAccountIds = parseJsonArray(existing.account_ids) ?? [];
   const existingPriority = parseJsonArray(existing.dedup_priority) ?? [];
-  return existing.title === body.title
-    && existing.message_type === body.messageType
-    && existing.message_content === body.messageContent
-    && existing.target_type === body.targetType
-    && existing.target_tag_id === (body.targetTagId ?? null)
-    && existing.scheduled_at === (body.scheduledAt ?? null)
-    && (existing.line_account_id ?? null) === (body.lineAccountId ?? null)
-    && (existing.alt_text ?? null) === (body.altText ?? null)
-    && JSON.stringify(existingAccountIds) === JSON.stringify(body.accountIds ?? [])
-    && JSON.stringify(existingPriority) === JSON.stringify(body.dedupPriority ?? [])
-    && existing.track_links === (body.trackLinks === false ? 0 : 1);
+  return (
+    existing.title === body.title &&
+    existing.message_type === body.messageType &&
+    existing.message_content === body.messageContent &&
+    existing.target_type === body.targetType &&
+    existing.target_tag_id === (body.targetTagId ?? null) &&
+    existing.scheduled_at === (body.scheduledAt ?? null) &&
+    (existing.line_account_id ?? null) === (body.lineAccountId ?? null) &&
+    (existing.alt_text ?? null) === (body.altText ?? null) &&
+    JSON.stringify(existingAccountIds) === JSON.stringify(body.accountIds ?? []) &&
+    JSON.stringify(existingPriority) === JSON.stringify(body.dedupPriority ?? []) &&
+    existing.track_links === (body.trackLinks === false ? 0 : 1)
+  );
 }
 
 function serializeBroadcast(row: DbBroadcast) {
@@ -121,19 +115,17 @@ async function broadcastOwnedByStaff(c: Context<Env>, broadcast: DbBroadcast): P
   if (rawLineAccountId !== null && rawLineAccountId !== undefined && typeof rawLineAccountId !== 'string') {
     return false;
   }
-  const multiAccountIds = broadcast.target_type === 'multi-account-dedup'
-    ? parseJsonArray(raw.account_ids)
-    : null;
+  const multiAccountIds = broadcast.target_type === 'multi-account-dedup' ? parseJsonArray(raw.account_ids) : null;
   if (broadcast.target_type === 'multi-account-dedup' && !multiAccountIds?.length) return false;
-  const accountIds = broadcast.target_type === 'multi-account-dedup'
-    ? [
-        ...(multiAccountIds ?? []),
-        ...(typeof rawLineAccountId === 'string' ? [rawLineAccountId] : []),
-      ]
-    : typeof rawLineAccountId === 'string' ? [rawLineAccountId] : [];
+  const accountIds =
+    broadcast.target_type === 'multi-account-dedup'
+      ? [...(multiAccountIds ?? []), ...(typeof rawLineAccountId === 'string' ? [rawLineAccountId] : [])]
+      : typeof rawLineAccountId === 'string'
+        ? [rawLineAccountId]
+        : [];
   if (accountIds.length === 0) return false;
   for (const accountId of new Set(accountIds)) {
-    if (!await accountResourceOwnedByStaff(c, tenantId, accountId)) return false;
+    if (!(await accountResourceOwnedByStaff(c, tenantId, accountId))) return false;
   }
   return true;
 }
@@ -143,14 +135,14 @@ broadcasts.get('/api/broadcasts', async (c) => {
   try {
     const lineAccountId = c.req.query('lineAccountId')?.trim() || undefined;
     const tenantId = c.get('tenantId');
-    if (tenantId && lineAccountId && !await accountResourceOwnedByStaff(c, tenantId, lineAccountId)) {
+    if (tenantId && lineAccountId && !(await accountResourceOwnedByStaff(c, tenantId, lineAccountId))) {
       return c.json({ success: false, error: 'Forbidden' }, 403);
     }
     const items = await getBroadcasts(c.env.DB, lineAccountId || undefined);
     const visibleItems: DbBroadcast[] = [];
     // Keep the route-local check until the DB helper can enforce all multi-account ownership in one query.
     for (const item of items) {
-      if (!tenantId || await broadcastOwnedByStaff(c, item)) visibleItems.push(item);
+      if (!tenantId || (await broadcastOwnedByStaff(c, item))) visibleItems.push(item);
     }
     return c.json({ success: true, data: visibleItems.map(serializeBroadcast) });
   } catch (err) {
@@ -173,7 +165,7 @@ broadcasts.get('/api/broadcasts/:id', async (c) => {
     // generic-CRM table, out of scope for a full tenant-scoping migration
     // here). When a tenant context is present, confirm the broadcast's
     // account is actually owned by that tenant before returning it.
-    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, broadcast)) {
+    if (c.get('tenantId') && !(await broadcastOwnedByStaff(c, broadcast))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -195,7 +187,7 @@ broadcasts.get('/api/broadcasts/:id/preview-count', async (c) => {
     if (!broadcast) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
-    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, broadcast)) {
+    if (c.get('tenantId') && !(await broadcastOwnedByStaff(c, broadcast))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -235,11 +227,13 @@ broadcasts.get('/api/broadcasts/:id/preview-count', async (c) => {
            WHERE ft.tag_id = ?
              AND f.is_following = 1
              AND (? IS NULL OR f.line_account_id = ?)`,
-      ).bind(
-        broadcast.target_tag_id,
-        (raw.line_account_id as string | null) ?? null,
-        (raw.line_account_id as string | null) ?? null,
-      ).first<{ cnt: number }>();
+      )
+        .bind(
+          broadcast.target_tag_id,
+          (raw.line_account_id as string | null) ?? null,
+          (raw.line_account_id as string | null) ?? null,
+        )
+        .first<{ cnt: number }>();
       count = row?.cnt ?? 0;
     } else if (broadcast.target_type === 'all') {
       const accountId = (raw.line_account_id as string | null) || null;
@@ -247,7 +241,9 @@ broadcasts.get('/api/broadcasts/:id/preview-count', async (c) => {
         ? `SELECT COUNT(*) AS cnt FROM friends WHERE is_following = 1 AND line_account_id = ?`
         : `SELECT COUNT(*) AS cnt FROM friends WHERE is_following = 1`;
       const binds: unknown[] = accountId ? [accountId] : [];
-      const row = await c.env.DB.prepare(sql).bind(...binds).first<{ cnt: number }>();
+      const row = await c.env.DB.prepare(sql)
+        .bind(...binds)
+        .first<{ cnt: number }>();
       count = row?.cnt ?? 0;
     }
 
@@ -291,7 +287,7 @@ broadcasts.get('/api/broadcasts/:id/per-account-stats', async (c) => {
       accountIds = single ? [single] : [];
     }
 
-    if (!await broadcastOwnedByStaff(c, broadcast)) {
+    if (!(await broadcastOwnedByStaff(c, broadcast))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -305,14 +301,16 @@ broadcasts.get('/api/broadcasts/:id/per-account-stats', async (c) => {
          AND COALESCE(ml.delivery_type, '') != 'test'
          AND ml.line_account_id IN (${placeholders})
        GROUP BY ml.line_account_id`,
-    ).bind(id, ...accountIds).all<{ account_id: string; sent: number }>();
+    )
+      .bind(id, ...accountIds)
+      .all<{ account_id: string; sent: number }>();
     const sentMap = new Map<string, number>();
     for (const r of sentRes.results ?? []) sentMap.set(r.account_id, r.sent);
 
     // アカウント名
-    const metaRes = await c.env.DB.prepare(
-      `SELECT id, name FROM line_accounts WHERE id IN (${placeholders})`,
-    ).bind(...accountIds).all<{ id: string; name: string }>();
+    const metaRes = await c.env.DB.prepare(`SELECT id, name FROM line_accounts WHERE id IN (${placeholders})`)
+      .bind(...accountIds)
+      .all<{ id: string; name: string }>();
     const nameMap = new Map<string, string>();
     for (const r of metaRes.results ?? []) nameMap.set(r.id, r.name);
 
@@ -329,7 +327,10 @@ broadcasts.get('/api/broadcasts/:id/per-account-stats', async (c) => {
           if (!account) return;
           try {
             const client = new LineClient(account.channel_access_token);
-            const response = await client.getUnitInsight(aggregationUnit, sentDate, sentDate) as Record<string, unknown>;
+            const response = (await client.getUnitInsight(aggregationUnit, sentDate, sentDate)) as Record<
+              string,
+              unknown
+            >;
             const messages = response.messages as Array<Record<string, unknown>> | undefined;
             const overview = messages?.[0] || {};
             insightMap.set(aid, {
@@ -370,7 +371,10 @@ broadcasts.post('/api/broadcasts', async (c) => {
 
     if (!body.title || !body.messageType || !body.messageContent || !body.targetType) {
       return c.json(
-        { success: false, error: 'title, messageType, messageContent, and targetType are required' },
+        {
+          success: false,
+          error: 'title, messageType, messageContent, and targetType are required',
+        },
         400,
       );
     }
@@ -385,10 +389,7 @@ broadcasts.post('/api/broadcasts', async (c) => {
     }
 
     if (body.targetType === 'tag' && !body.targetTagId) {
-      return c.json(
-        { success: false, error: 'targetTagId is required when targetType is "tag"' },
-        400,
-      );
+      return c.json({ success: false, error: 'targetTagId is required when targetType is "tag"' }, 400);
     }
 
     if (body.targetType === 'multi-account-dedup') {
@@ -396,29 +397,36 @@ broadcasts.post('/api/broadcasts', async (c) => {
         return c.json({ success: false, error: 'accountIds (length >= 1) required for multi-account-dedup' }, 400);
       }
       if (!Array.isArray(body.dedupPriority)) {
-        return c.json({ success: false, error: 'dedupPriority (array, may be empty) required for multi-account-dedup' }, 400);
+        return c.json(
+          {
+            success: false,
+            error: 'dedupPriority (array, may be empty) required for multi-account-dedup',
+          },
+          400,
+        );
       }
       // Defense in depth: drop priority entries not in accountIds before persisting.
-      body.dedupPriority = body.dedupPriority.filter((id: unknown) =>
-        typeof id === 'string' && body.accountIds!.includes(id));
+      body.dedupPriority = body.dedupPriority.filter(
+        (id: unknown) => typeof id === 'string' && body.accountIds!.includes(id),
+      );
     }
 
     const tenantId = c.get('tenantId');
     if (tenantId) {
-      const accountIds = body.targetType === 'multi-account-dedup'
-        ? [
-            ...(body.accountIds ?? []),
-            ...(body.lineAccountId == null ? [] : [body.lineAccountId]),
-          ]
-        : body.lineAccountId ? [body.lineAccountId] : [];
+      const accountIds =
+        body.targetType === 'multi-account-dedup'
+          ? [...(body.accountIds ?? []), ...(body.lineAccountId == null ? [] : [body.lineAccountId])]
+          : body.lineAccountId
+            ? [body.lineAccountId]
+            : [];
       if (
-        accountIds.length === 0
-        || accountIds.some((accountId) => typeof accountId !== 'string' || !accountId.trim())
+        accountIds.length === 0 ||
+        accountIds.some((accountId) => typeof accountId !== 'string' || !accountId.trim())
       ) {
         return c.json({ success: false, error: 'Broadcast account scope required' }, 403);
       }
       for (const accountId of new Set(accountIds)) {
-        if (!await accountResourceOwnedByStaff(c, tenantId, accountId)) {
+        if (!(await accountResourceOwnedByStaff(c, tenantId, accountId))) {
           return c.json({ success: false, error: 'Forbidden' }, 403);
         }
       }
@@ -454,9 +462,7 @@ broadcasts.post('/api/broadcasts', async (c) => {
     } catch (createError) {
       // Concurrent retries may both pass the SELECT above. The primary key makes
       // only one INSERT win; the loser is returned as an idempotent replay.
-      const existing = idempotencyKey
-        ? await getBroadcastById(c.env.DB, idempotencyKey)
-        : null;
+      const existing = idempotencyKey ? await getBroadcastById(c.env.DB, idempotencyKey) : null;
       if (!existing) throw createError;
       if (!sameCreateRequest(existing, body)) {
         return c.json({ success: false, error: 'Idempotency-Key was already used with a different request' }, 409);
@@ -481,7 +487,7 @@ broadcasts.put('/api/broadcasts/:id', async (c) => {
     if (!existing) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
-    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, existing)) {
+    if (c.get('tenantId') && !(await broadcastOwnedByStaff(c, existing))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
@@ -548,14 +554,14 @@ broadcasts.put('/api/broadcasts/:id', async (c) => {
          aggregation_unit = NULL,
          line_request_id = NULL
        WHERE id = ?`,
-    ).bind(id).run();
+    )
+      .bind(id)
+      .run();
 
     // 過去 send の insight 行を削除する。createBroadcastInsight は idempotent で
     // 既存行があれば skip する設計のため、削除しないと再送時に新しい pending
     // insight が作られず getPendingInsights / GET /insight が古い metrics を返し続ける。
-    await c.env.DB.prepare(
-      `DELETE FROM broadcast_insights WHERE broadcast_id = ?`,
-    ).bind(id).run();
+    await c.env.DB.prepare(`DELETE FROM broadcast_insights WHERE broadcast_id = ?`).bind(id).run();
 
     return c.json({ success: true, data: updated ? serializeBroadcast(updated) : null });
   } catch (err) {
@@ -571,7 +577,7 @@ broadcasts.delete('/api/broadcasts/:id', async (c) => {
     const tenantId = c.get('tenantId');
     if (tenantId) {
       const existing = await getBroadcastById(c.env.DB, id);
-      if (!existing || !await broadcastOwnedByStaff(c, existing)) {
+      if (!existing || !(await broadcastOwnedByStaff(c, existing))) {
         return c.json({ success: false, error: 'Broadcast not found' }, 404);
       }
     }
@@ -598,7 +604,7 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
     if (!existing) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
-    if (!await broadcastOwnedByStaff(c, existing)) {
+    if (!(await broadcastOwnedByStaff(c, existing))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
     if ((existing as unknown as { target_type: string }).target_type === 'segment') {
@@ -613,8 +619,7 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
     // LINE's multicast/broadcast endpoints accept one shared Message object;
     // recipient-name variables therefore require per-friend push delivery.
     // Queue these even for a small audience so they run within Worker limits.
-    if (hasRecipientVariables(existing.message_content)
-      && existing.target_type !== 'multi-account-dedup') {
+    if (hasRecipientVariables(existing.message_content) && existing.target_type !== 'multi-account-dedup') {
       const rawExisting = existing as unknown as Record<string, unknown>;
       const accountId = rawExisting.line_account_id as string | null;
       const where: string[] = ['f.is_following = 1'];
@@ -636,27 +641,38 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
                 SUM(CASE WHEN f.display_name IS NULL OR trim(f.display_name) = '' THEN 1 ELSE 0 END) AS missing_name
            FROM friends f
           WHERE ${where.join(' AND ')}`,
-      ).bind(...binds).first<{ total: number; missing_name: number | null }>();
+      )
+        .bind(...binds)
+        .first<{ total: number; missing_name: number | null }>();
       const total = Number(audience?.total ?? 0);
       const missingName = Number(audience?.missing_name ?? 0);
       if (missingName > 0) {
-        return c.json({
-          success: false,
-          error: `Cannot personalize broadcast: ${missingName} recipient(s) have no display name`,
-        }, 400);
+        return c.json(
+          {
+            success: false,
+            error: `Cannot personalize broadcast: ${missingName} recipient(s) have no display name`,
+          },
+          400,
+        );
       }
 
-      const conditions: SegmentCondition = existing.target_type === 'tag'
-        ? { operator: 'AND', rules: [
-            { type: 'is_following', value: true },
-            { type: 'tag_exists', value: existing.target_tag_id! },
-          ] }
-        : { operator: 'AND', rules: [{ type: 'is_following', value: true }] };
+      const conditions: SegmentCondition =
+        existing.target_type === 'tag'
+          ? {
+              operator: 'AND',
+              rules: [
+                { type: 'is_following', value: true },
+                { type: 'tag_exists', value: existing.target_tag_id! },
+              ],
+            }
+          : { operator: 'AND', rules: [{ type: 'is_following', value: true }] };
       const lockResult = await c.env.DB.prepare(
         `UPDATE broadcasts
             SET status = 'sending', batch_offset = 0, total_count = ?, segment_conditions = ?
           WHERE id = ? AND status IN ('draft','scheduled')`,
-      ).bind(total, JSON.stringify(conditions), id).run();
+      )
+        .bind(total, JSON.stringify(conditions), id)
+        .run();
       if (!lockResult.meta.changes) {
         return c.json({ success: false, error: 'Broadcast is already sent or sending' }, 409);
       }
@@ -673,12 +689,15 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
         console.warn('[personalized-broadcast] waitUntil unavailable, falling back to cron:', kickErr);
       }
 
-      return c.json({
-        success: true,
-        data: { id, status: 'sending', totalCount: total },
-        queued: true,
-        message: 'Personalized broadcast queued for per-recipient delivery',
-      }, 202);
+      return c.json(
+        {
+          success: true,
+          data: { id, status: 'sending', totalCount: total },
+          queued: true,
+          message: 'Personalized broadcast queued for per-recipient delivery',
+        },
+        202,
+      );
     }
 
     // multi-account-dedup は常にキュー方式 — Worker の30秒制限を超えるため
@@ -716,15 +735,20 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
         }
       }
       if (hasRecipientVariables(existing.message_content) && missingDisplayNames > 0) {
-        return c.json({
-          success: false,
-          error: `Cannot personalize broadcast: ${missingDisplayNames} recipient(s) have no display name`,
-        }, 400);
+        return c.json(
+          {
+            success: false,
+            error: `Cannot personalize broadcast: ${missingDisplayNames} recipient(s) have no display name`,
+          },
+          400,
+        );
       }
 
       const lockResult = await c.env.DB.prepare(
-        `UPDATE broadcasts SET status = 'sending', batch_offset = 0, total_count = ? WHERE id = ? AND status IN ('draft','scheduled')`
-      ).bind(projectedTotal, id).run();
+        `UPDATE broadcasts SET status = 'sending', batch_offset = 0, total_count = ? WHERE id = ? AND status IN ('draft','scheduled')`,
+      )
+        .bind(projectedTotal, id)
+        .run();
       if (!lockResult.meta.changes) {
         return c.json({ success: false, error: 'Broadcast is already sent or sending' }, 409);
       }
@@ -746,12 +770,15 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
         console.warn('[multi-account-dedup] waitUntil unavailable, falling back to cron:', kickErr);
       }
 
-      return c.json({
-        success: true,
-        data: { id, status: 'sending', totalCount: projectedTotal },
-        queued: true,
-        message: 'Broadcast queued for immediate background processing',
-      }, 202);
+      return c.json(
+        {
+          success: true,
+          data: { id, status: 'sending', totalCount: projectedTotal },
+          queued: true,
+          message: 'Broadcast queued for immediate background processing',
+        },
+        202,
+      );
     }
 
     // target_type='tag' で対象が多い場合はキュー方式
@@ -763,19 +790,32 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
         existing.target_tag_id,
         (rawExisting.line_account_id as string | null) ?? undefined,
       );
-      const followingCount = friends.filter(f => f.is_following).length;
+      const followingCount = friends.filter((f) => f.is_following).length;
 
       if (followingCount > 500) {
         // Atomic lock: status='draft'|'scheduled' のときだけ status='sending' に遷移
-        const tagMarker = JSON.stringify({ operator: 'AND', rules: [{ type: 'tag_exists', value: existing.target_tag_id }] });
+        const tagMarker = JSON.stringify({
+          operator: 'AND',
+          rules: [{ type: 'tag_exists', value: existing.target_tag_id }],
+        });
         const lockResult = await c.env.DB.prepare(
-          `UPDATE broadcasts SET status = 'sending', batch_offset = 0, segment_conditions = ? WHERE id = ? AND status IN ('draft','scheduled')`
-        ).bind(tagMarker, id).run();
+          `UPDATE broadcasts SET status = 'sending', batch_offset = 0, segment_conditions = ? WHERE id = ? AND status IN ('draft','scheduled')`,
+        )
+          .bind(tagMarker, id)
+          .run();
         if (!lockResult.meta.changes) {
           return c.json({ success: false, error: 'Broadcast is already sent or sending' }, 409);
         }
         const result = await getBroadcastById(c.env.DB, id);
-        return c.json({ success: true, data: result ? serializeBroadcast(result) : null, queued: true, message: 'Broadcast queued for batch processing by Cron' }, 202);
+        return c.json(
+          {
+            success: true,
+            data: result ? serializeBroadcast(result) : null,
+            queued: true,
+            message: 'Broadcast queued for batch processing by Cron',
+          },
+          202,
+        );
       }
     }
 
@@ -797,14 +837,18 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
     // 一意に確定する (rollback 時の status 復元に使用)。
     let claimedStatus: 'draft' | 'scheduled' | null = null;
     const draftClaim = await c.env.DB.prepare(
-      `UPDATE broadcasts SET status = 'sending' WHERE id = ? AND status = 'draft'`
-    ).bind(id).run();
+      `UPDATE broadcasts SET status = 'sending' WHERE id = ? AND status = 'draft'`,
+    )
+      .bind(id)
+      .run();
     if (draftClaim.meta.changes) {
       claimedStatus = 'draft';
     } else {
       const schedClaim = await c.env.DB.prepare(
-        `UPDATE broadcasts SET status = 'sending' WHERE id = ? AND status = 'scheduled'`
-      ).bind(id).run();
+        `UPDATE broadcasts SET status = 'sending' WHERE id = ? AND status = 'scheduled'`,
+      )
+        .bind(id)
+        .run();
       if (schedClaim.meta.changes) {
         claimedStatus = 'scheduled';
       }
@@ -828,17 +872,20 @@ broadcasts.post('/api/broadcasts/:id/send', async (c) => {
         } catch (kickErr) {
           console.warn('[broadcast] waitUntil unavailable, falling back to cron:', kickErr);
         }
-        return c.json({
-          success: true,
-          data: serializeBroadcast(processed),
-          queued: true,
-          message: 'Broadcast queued for immediate background processing',
-        }, 202);
+        return c.json(
+          {
+            success: true,
+            data: serializeBroadcast(processed),
+            queued: true,
+            message: 'Broadcast queued for immediate background processing',
+          },
+          202,
+        );
       }
     } catch (err) {
-      await c.env.DB.prepare(
-        `UPDATE broadcasts SET status = ? WHERE id = ? AND status = 'sending'`
-      ).bind(claimedStatus, id).run();
+      await c.env.DB.prepare(`UPDATE broadcasts SET status = ? WHERE id = ? AND status = 'sending'`)
+        .bind(claimedStatus, id)
+        .run();
       throw err;
     }
 
@@ -859,17 +906,14 @@ broadcasts.post('/api/broadcasts/:id/send-segment', async (c) => {
     if (!existing) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
-    if (!await broadcastOwnedByStaff(c, existing)) {
+    if (!(await broadcastOwnedByStaff(c, existing))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
 
     const body = await c.req.json<{ conditions: SegmentCondition }>();
 
     if (!body.conditions || !body.conditions.operator || !Array.isArray(body.conditions.rules)) {
-      return c.json(
-        { success: false, error: 'conditions with operator and rules array is required' },
-        400,
-      );
+      return c.json({ success: false, error: 'conditions with operator and rules array is required' }, 400);
     }
 
     const variableError = unsupportedVariablesError(existing.message_content);
@@ -895,23 +939,36 @@ broadcasts.post('/api/broadcasts/:id/send-segment', async (c) => {
         .bind(...audienceBindings)
         .first<{ total: number; missing_name: number | null }>();
       if (Number(audience?.missing_name ?? 0) > 0) {
-        return c.json({
-          success: false,
-          error: `Cannot personalize broadcast: ${audience!.missing_name} recipient(s) have no display name`,
-        }, 400);
+        return c.json(
+          {
+            success: false,
+            error: `Cannot personalize broadcast: ${audience!.missing_name} recipient(s) have no display name`,
+          },
+          400,
+        );
       }
     }
 
     // Atomic lock: status='draft'|'scheduled' のときだけ status='sending' に遷移
     const lockResult = await c.env.DB.prepare(
-      `UPDATE broadcasts SET status = 'sending', target_type = 'segment', batch_offset = 0, segment_conditions = ? WHERE id = ? AND status IN ('draft','scheduled')`
-    ).bind(JSON.stringify(body.conditions), id).run();
+      `UPDATE broadcasts SET status = 'sending', target_type = 'segment', batch_offset = 0, segment_conditions = ? WHERE id = ? AND status IN ('draft','scheduled')`,
+    )
+      .bind(JSON.stringify(body.conditions), id)
+      .run();
     if (!lockResult.meta.changes) {
       return c.json({ success: false, error: 'Broadcast is already sent or sending' }, 409);
     }
 
     const result = await getBroadcastById(c.env.DB, id);
-    return c.json({ success: true, data: result ? serializeBroadcast(result) : null, queued: true, message: 'Broadcast queued for batch processing by Cron' }, 202);
+    return c.json(
+      {
+        success: true,
+        data: result ? serializeBroadcast(result) : null,
+        queued: true,
+        message: 'Broadcast queued for batch processing by Cron',
+      },
+      202,
+    );
   } catch (err) {
     console.error('POST /api/broadcasts/:id/send-segment error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -925,13 +982,15 @@ broadcasts.get('/api/broadcasts/:id/insight', async (c) => {
     const tenantId = c.get('tenantId');
     if (tenantId) {
       const broadcast = await getBroadcastById(c.env.DB, id);
-      if (!broadcast || !await broadcastOwnedByStaff(c, broadcast)) {
+      if (!broadcast || !(await broadcastOwnedByStaff(c, broadcast))) {
         return c.json({ success: false, error: 'Broadcast not found' }, 404);
       }
     }
     const insight = await c.env.DB.prepare(
-      'SELECT * FROM broadcast_insights WHERE broadcast_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).bind(id).first<Record<string, unknown>>();
+      'SELECT * FROM broadcast_insights WHERE broadcast_id = ? ORDER BY created_at DESC LIMIT 1',
+    )
+      .bind(id)
+      .first<Record<string, unknown>>();
 
     if (!insight) {
       return c.json({ success: true, data: null, message: 'Insight not yet available' });
@@ -965,7 +1024,7 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
     if (!broadcast) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
-    if (c.get('tenantId') && !await broadcastOwnedByStaff(c, broadcast)) {
+    if (c.get('tenantId') && !(await broadcastOwnedByStaff(c, broadcast))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
     if (broadcast.status !== 'sent') {
@@ -975,13 +1034,21 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
     // DBから直接取得してline_request_id/aggregation_unit/account_ids/failed_account_idsを確実に読む
     const rawBroadcast = await c.env.DB.prepare(
       'SELECT line_request_id, aggregation_unit, line_account_id, target_type, account_ids, failed_account_ids FROM broadcasts WHERE id = ?',
-    ).bind(id).first<Record<string, string | null>>();
+    )
+      .bind(id)
+      .first<Record<string, string | null>>();
     const lineRequestId = rawBroadcast?.line_request_id || null;
     const aggregationUnit = rawBroadcast?.aggregation_unit || null;
     const targetType = rawBroadcast?.target_type || null;
 
     if (!lineRequestId && !aggregationUnit) {
-      return c.json({ success: false, error: 'No line_request_id or aggregation_unit available for this broadcast' }, 400);
+      return c.json(
+        {
+          success: false,
+          error: 'No line_request_id or aggregation_unit available for this broadcast',
+        },
+        400,
+      );
     }
 
     let delivered: number | null = null;
@@ -1002,7 +1069,7 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
         if (account) accessToken = account.channel_access_token;
       }
       const lineClient = new LineClient(accessToken);
-      const response = await lineClient.getMessageEventInsight(lineRequestId) as Record<string, unknown>;
+      const response = (await lineClient.getMessageEventInsight(lineRequestId)) as Record<string, unknown>;
       const overview = response.overview as Record<string, unknown> | undefined;
       delivered = (overview?.delivered as number) ?? null;
       uniqueImpression = (overview?.uniqueImpression as number) ?? null;
@@ -1035,7 +1102,10 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
         if (!account) continue;
         const client = new LineClient(account.channel_access_token);
         try {
-          const response = await client.getUnitInsight(aggregationUnit, sentDate, sentDate) as Record<string, unknown>;
+          const response = (await client.getUnitInsight(aggregationUnit, sentDate, sentDate)) as Record<
+            string,
+            unknown
+          >;
           responses.push({ accountId: aid, data: response });
           allCallsFailed = false;
           const messages = response.messages as Array<Record<string, unknown>> | undefined;
@@ -1053,10 +1123,13 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
       if (allCallsFailed && accountIds.length > 0) {
         // 全アカウントの API 呼び出しが失敗した場合、blank insight を保存して
         // retry ボタンを潰さないように 502 を返す (ユーザーが再試行できる状態)。
-        return c.json({
-          success: false,
-          error: 'All account insight fetches failed; please retry later',
-        }, 502);
+        return c.json(
+          {
+            success: false,
+            error: 'All account insight fetches failed; please retry later',
+          },
+          502,
+        );
       }
 
       if (hasAnyData) {
@@ -1078,7 +1151,10 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
         if (account) accessToken = account.channel_access_token;
       }
       const lineClient = new LineClient(accessToken);
-      const response = await lineClient.getUnitInsight(aggregationUnit, sentDate, sentDate) as Record<string, unknown>;
+      const response = (await lineClient.getUnitInsight(aggregationUnit, sentDate, sentDate)) as Record<
+        string,
+        unknown
+      >;
       const messages = response.messages as Array<Record<string, unknown>> | undefined;
       const overview = messages?.[0] || {};
       uniqueImpression = (overview.uniqueImpression as number) ?? null;
@@ -1087,8 +1163,8 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
       rawResponse = JSON.stringify(response);
     }
 
-    const openRate = (delivered && uniqueImpression) ? uniqueImpression / delivered : null;
-    const clickRate = (delivered && uniqueClick) ? uniqueClick / delivered : null;
+    const openRate = delivered && uniqueImpression ? uniqueImpression / delivered : null;
+    const clickRate = delivered && uniqueClick ? uniqueClick / delivered : null;
 
     // 旧コードの `ON CONFLICT(broadcast_id)` は broadcast_insights.broadcast_id に
     // UNIQUE 制約がないため D1 が `SQLITE_ERROR: ON CONFLICT clause does not match
@@ -1098,7 +1174,9 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
     const now = jstNow();
     const existing = await c.env.DB.prepare(
       'SELECT id FROM broadcast_insights WHERE broadcast_id = ? ORDER BY created_at DESC LIMIT 1',
-    ).bind(id).first<{ id: string }>();
+    )
+      .bind(id)
+      .first<{ id: string }>();
 
     if (existing) {
       await c.env.DB.prepare(
@@ -1106,13 +1184,39 @@ broadcasts.post('/api/broadcasts/:id/fetch-insight', async (c) => {
            delivered = ?, unique_impression = ?, unique_click = ?, unique_media_played = ?,
            open_rate = ?, click_rate = ?, raw_response = ?, status = 'ready', fetched_at = ?
          WHERE id = ?`,
-      ).bind(delivered, uniqueImpression, uniqueClick, uniqueMediaPlayed, openRate, clickRate, rawResponse, now, existing.id).run();
+      )
+        .bind(
+          delivered,
+          uniqueImpression,
+          uniqueClick,
+          uniqueMediaPlayed,
+          openRate,
+          clickRate,
+          rawResponse,
+          now,
+          existing.id,
+        )
+        .run();
     } else {
       const insightId = crypto.randomUUID();
       await c.env.DB.prepare(
         `INSERT INTO broadcast_insights (id, broadcast_id, delivered, unique_impression, unique_click, unique_media_played, open_rate, click_rate, raw_response, status, fetched_at, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
-      ).bind(insightId, id, delivered, uniqueImpression, uniqueClick, uniqueMediaPlayed, openRate, clickRate, rawResponse, now, now).run();
+      )
+        .bind(
+          insightId,
+          id,
+          delivered,
+          uniqueImpression,
+          uniqueClick,
+          uniqueMediaPlayed,
+          openRate,
+          clickRate,
+          rawResponse,
+          now,
+          now,
+        )
+        .run();
     }
 
     return c.json({
@@ -1135,7 +1239,7 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
     }
     const broadcast = await getBroadcastById(c.env.DB, id);
     if (!broadcast) return c.json({ success: false, error: 'Broadcast not found' }, 404);
-    if (!await broadcastOwnedByStaff(c, broadcast)) {
+    if (!(await broadcastOwnedByStaff(c, broadcast))) {
       return c.json({ success: false, error: 'Broadcast not found' }, 404);
     }
     const raw = broadcast as unknown as Record<string, unknown>;
@@ -1150,8 +1254,10 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
 
     // Get test recipients
     const setting = await c.env.DB.prepare(
-      `SELECT value FROM account_settings WHERE line_account_id = ? AND key = 'test_recipients'`
-    ).bind(accountId).first<{ value: string }>();
+      `SELECT value FROM account_settings WHERE line_account_id = ? AND key = 'test_recipients'`,
+    )
+      .bind(accountId)
+      .first<{ value: string }>();
     if (!setting) return c.json({ success: false, error: 'No test recipients configured' }, 400);
 
     const friendIds: string[] = JSON.parse(setting.value);
@@ -1161,8 +1267,10 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
     const friends = await c.env.DB.prepare(
       `SELECT id, provider_line_user_id AS line_user_id, display_name
          FROM friends
-        WHERE id IN (${placeholders}) AND line_account_id = ?`
-    ).bind(...friendIds, accountId).all<{ id: string; line_user_id: string; display_name: string | null }>();
+        WHERE id IN (${placeholders}) AND line_account_id = ?`,
+    )
+      .bind(...friendIds, accountId)
+      .all<{ id: string; line_user_id: string; display_name: string | null }>();
 
     const account = await getLineAccountById(c.env.DB, accountId);
     if (!account) return c.json({ success: false, error: 'LINE account not found' }, 400);
@@ -1196,8 +1304,9 @@ broadcasts.post('/api/broadcasts/:id/test-send', async (c) => {
           displayName: friend.display_name,
         });
         assertNoUnresolvedBroadcastVariables(renderedContent);
-        const altText = raw.alt_text as string
-          || (tracked.messageType === 'flex' ? extractFlexAltText(renderedContent) : undefined);
+        const altText =
+          (raw.alt_text as string) ||
+          (tracked.messageType === 'flex' ? extractFlexAltText(renderedContent) : undefined);
         const message = buildMessage(tracked.messageType, renderedContent, altText);
         const operationId = await createBroadcastRetryKey(
           'broadcast-test-send-v1',
@@ -1243,7 +1352,7 @@ broadcasts.get('/api/broadcasts/:id/progress', async (c) => {
   const id = c.req.param('id');
   const broadcast = await getBroadcastById(c.env.DB, id);
   if (!broadcast) return c.json({ success: false, error: 'Not found' }, 404);
-  if (!await broadcastOwnedByStaff(c, broadcast)) {
+  if (!(await broadcastOwnedByStaff(c, broadcast))) {
     return c.json({ success: false, error: 'Not found' }, 404);
   }
 
@@ -1275,7 +1384,9 @@ broadcasts.post('/api/segments/count', async (c) => {
     }
 
     const countSql = accountSql.replace(/^SELECT .+ FROM/, 'SELECT COUNT(*) as count FROM');
-    const result = await c.env.DB.prepare(countSql).bind(...accountBindings).first<{ count: number }>();
+    const result = await c.env.DB.prepare(countSql)
+      .bind(...accountBindings)
+      .first<{ count: number }>();
 
     return c.json({ success: true, count: result?.count ?? 0 });
   } catch (err) {

@@ -43,17 +43,20 @@ export function tenantAuditStatement(
     event.detail ? JSON.stringify(event.detail) : null,
     new Date().toISOString(),
   ];
-  return db.prepare(guard
-    ? `INSERT INTO tenant_admin_audit_events
+  return db
+    .prepare(
+      guard
+        ? `INSERT INTO tenant_admin_audit_events
          (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
           detail_json, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE ${guard.sql}`
-    : `INSERT INTO tenant_admin_audit_events
+        : `INSERT INTO tenant_admin_audit_events
          (id, tenant_id, line_account_id, actor_staff_id, action, resource_type, resource_id,
           detail_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(...values, ...(guard?.bindings ?? []));
+    )
+    .bind(...values, ...(guard?.bindings ?? []));
 }
 
 /** Standalone insert for reads (PHI views) that have no mutation batch to join. */

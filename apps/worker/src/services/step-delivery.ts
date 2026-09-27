@@ -37,7 +37,13 @@ import { log } from '../lib/log.js';
  */
 export function expandVariables(
   content: string,
-  friend: { id: string; display_name: string | null; user_id: string | null; ref_code?: string | null; metadata?: Record<string, unknown> | string | null },
+  friend: {
+    id: string;
+    display_name: string | null;
+    user_id: string | null;
+    ref_code?: string | null;
+    metadata?: Record<string, unknown> | string | null;
+  },
   apiOrigin?: string,
   messageType?: string,
 ): string {
@@ -54,7 +60,9 @@ export function expandVariables(
   }
   // Metadata variables: {{metadata.KEY}} → value from friend's metadata
   const meta = friend.metadata
-    ? (typeof friend.metadata === 'string' ? JSON.parse(friend.metadata) as Record<string, unknown> : friend.metadata)
+    ? typeof friend.metadata === 'string'
+      ? (JSON.parse(friend.metadata) as Record<string, unknown>)
+      : friend.metadata
     : {};
   // Conditional block: {{#if_metadata.KEY}}...{{/if_metadata.KEY}} — only shown if metadata key has a value
   // When inside JSON arrays, removes the element and fixes trailing/leading commas
@@ -101,7 +109,11 @@ export async function resolveMetadata(
   }
   // Fallback: parse own metadata
   if (friend.metadata) {
-    try { return JSON.parse(friend.metadata); } catch { return {}; }
+    try {
+      return JSON.parse(friend.metadata);
+    } catch {
+      return {};
+    }
   }
   return {};
 }
@@ -114,8 +126,9 @@ export async function getActiveMappedAccountTenantId(
   accountId: string | null | undefined,
 ): Promise<string | null> {
   if (!accountId) return null;
-  const row = await db.prepare(
-    `SELECT mapping.tenant_id
+  const row = await db
+    .prepare(
+      `SELECT mapping.tenant_id
        FROM tenant_line_accounts AS mapping
        INNER JOIN line_accounts AS account
                ON account.id = mapping.line_account_id
@@ -123,7 +136,9 @@ export async function getActiveMappedAccountTenantId(
                ON tenant.id = mapping.tenant_id AND tenant.status = 'active'
       WHERE mapping.line_account_id = ? AND account.is_active = 1
       LIMIT 1`,
-  ).bind(accountId).first<{ tenant_id: string }>();
+    )
+    .bind(accountId)
+    .first<{ tenant_id: string }>();
   return row?.tenant_id ?? null;
 }
 
@@ -134,9 +149,9 @@ export function getLineApiErrorStatus(err: unknown): number | null {
 }
 
 export function isDeterministicInvalidReplyToken(error: unknown): boolean {
-  return error instanceof Error
-    && getLineApiErrorStatus(error) === 400
-    && /\bInvalid reply token\b/iu.test(error.message);
+  return (
+    error instanceof Error && getLineApiErrorStatus(error) === 400 && /\bInvalid reply token\b/iu.test(error.message)
+  );
 }
 
 export function isPermanentLineDeliveryError(err: unknown): boolean {
@@ -144,11 +159,7 @@ export function isPermanentLineDeliveryError(err: unknown): boolean {
   return status !== null && status >= 400 && status < 500 && ![408, 409, 429].includes(status);
 }
 
-export async function processStepDeliveries(
-  db: D1Database,
-  lineClient: LineClient,
-  workerUrl?: string,
-): Promise<void> {
+export async function processStepDeliveries(db: D1Database, lineClient: LineClient, workerUrl?: string): Promise<void> {
   // Crash recovery: a claim (active→delivering) that never got released means
   // the worker died mid-delivery — without this, the enrollment is stranded
   // forever because the due query only picks up 'active' rows. Reclaim after
@@ -205,11 +216,7 @@ export async function resolveScenarioDeliveryFriend(
   }
 
   if (enrolledFriend.user_id) {
-    const linked = await getFriendByUserIdForAccount(
-      db,
-      enrolledFriend.user_id,
-      scenarioAccountId,
-    );
+    const linked = await getFriendByUserIdForAccount(db, enrolledFriend.user_id, scenarioAccountId);
     if (linked) return linked.is_following ? linked : null;
   }
 
@@ -252,11 +259,7 @@ async function processSingleDelivery(
     return false;
   }
 
-  const friend = await resolveScenarioDeliveryFriend(
-    db,
-    enrolledFriend,
-    scenarioRow.line_account_id,
-  );
+  const friend = await resolveScenarioDeliveryFriend(db, enrolledFriend, scenarioRow.line_account_id);
   if (!friend) {
     await pauseFriendScenarioDelivery(db, fs.id, claimToken);
     console.warn(
@@ -273,9 +276,7 @@ async function processSingleDelivery(
   const deliveryTenantId = await getActiveMappedAccountTenantId(db, deliveryAccountId);
   if (!deliveryTenantId) {
     await pauseFriendScenarioDelivery(db, fs.id, claimToken);
-    console.warn(
-      `[step-delivery] paused enrollment=${fs.id}: inactive or unmapped account=${deliveryAccountId}`,
-    );
+    console.warn(`[step-delivery] paused enrollment: inactive or unmapped account=${deliveryAccountId}`);
     return false;
   }
   if (await isPharmacyModeAccount(db, deliveryAccountId)) {
@@ -300,12 +301,17 @@ async function processSingleDelivery(
   // +9h ずらして JST clock-time 表現に揃える必要がある。
   const enrolledAtDate = new Date(new Date(fs.started_at).getTime() + 9 * 60 * 60_000);
   const nowJstDate = new Date(Date.now() + 9 * 60 * 60_000);
-  const nextDeliveryFor = (step: { delay_minutes: number; offset_days: number | null; offset_minutes: number | null; delivery_time: string | null }): Date =>
-    computeNextDeliveryAt(
-      { delivery_mode: scenarioRow.delivery_mode },
-      step,
-      { enrolledAt: enrolledAtDate, previousDeliveredAt: nowJstDate, now: nowJstDate },
-    );
+  const nextDeliveryFor = (step: {
+    delay_minutes: number;
+    offset_days: number | null;
+    offset_minutes: number | null;
+    delivery_time: string | null;
+  }): Date =>
+    computeNextDeliveryAt({ delivery_mode: scenarioRow.delivery_mode }, step, {
+      enrolledAt: enrolledAtDate,
+      previousDeliveredAt: nowJstDate,
+      now: nowJstDate,
+    });
 
   // Steps are sorted by step_order but may not be contiguous (e.g., 1, 3, 5 after deletions).
   // Find the next step whose step_order > current_step_order.
@@ -360,7 +366,10 @@ async function processSingleDelivery(
   const resolved = await resolveStepContent(db, currentStep);
 
   // Expand template variables ({{name}}, {{uid}}, {{auth_url:CHANNEL_ID}}, {{metadata.KEY}}, etc.)
-  const resolvedMeta = await resolveMetadata(db, { user_id: (friend as unknown as Record<string, string | null>).user_id, metadata: (friend as unknown as Record<string, string | null>).metadata });
+  const resolvedMeta = await resolveMetadata(db, {
+    user_id: (friend as unknown as Record<string, string | null>).user_id,
+    metadata: (friend as unknown as Record<string, string | null>).metadata,
+  });
   const friendWithMeta = { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1];
   const expandedContent = expandVariables(resolved.messageContent, friendWithMeta, workerUrl, resolved.messageType);
   // Auto-wrap URLs with tracking links + bake f=<friendId> into /t links —
@@ -376,16 +385,12 @@ async function processSingleDelivery(
   const account = await getLineAccountById(db, deliveryAccountId);
   if (!account) {
     await pauseFriendScenarioDelivery(db, fs.id, claimToken);
-    console.warn(
-      `[step-delivery] paused enrollment=${fs.id}: missing LINE account=${deliveryAccountId}`,
-    );
+    console.warn(`[step-delivery] paused enrollment: missing LINE account=${deliveryAccountId}`);
     return false;
   }
   const { LineClient: LC } = await import('@line-crm/line-sdk');
   const deliveryClient = new LC(account.channel_access_token);
-  const retryKey = await createBroadcastRetryKey(
-    'scenario', fs.id, currentStep.id, String(currentStep.step_order),
-  );
+  const retryKey = await createBroadcastRetryKey('scenario', fs.id, currentStep.id, String(currentStep.step_order));
   if (!(await markFriendScenarioDeliveryAttempt(db, fs.id, claimToken))) return false;
   const logPayload = messageToLogPayload(message);
   try {
@@ -414,9 +419,7 @@ async function processSingleDelivery(
   } catch (err) {
     if (isPermanentLineDeliveryError(err)) {
       await pauseFriendScenarioDelivery(db, fs.id, claimToken);
-      console.warn(
-        `[step-delivery] paused enrollment=${fs.id} after permanent LINE ${getLineApiErrorStatus(err)}`,
-      );
+      console.warn(`[step-delivery] paused enrollment after permanent LINE ${getLineApiErrorStatus(err)}`);
       return false;
     }
     throw err;
@@ -428,13 +431,16 @@ async function processSingleDelivery(
 
   if (nextStep) {
     const jitteredDate = jitterDeliveryTime(nextDeliveryFor(nextStep));
-    if (!(await advanceFriendScenario(
-      db,
-      fs.id,
-      currentStep.step_order,
-      jitteredDate.toISOString().slice(0, -1) + '+09:00',
-      claim,
-    ))) return false;
+    if (
+      !(await advanceFriendScenario(
+        db,
+        fs.id,
+        currentStep.step_order,
+        jitteredDate.toISOString().slice(0, -1) + '+09:00',
+        claim,
+      ))
+    )
+      return false;
   } else {
     // This was the last step
     if (!(await completeFriendScenario(db, fs.id, claim))) return false;
@@ -564,13 +570,10 @@ export async function evaluateCondition(
         metadata: friend?.metadata ?? null,
       });
       const actual = metadata[parsed.key];
-      return step.condition_type === 'metadata_equals'
-        ? actual === parsed.value
-        : actual !== parsed.value;
+      return step.condition_type === 'metadata_equals' ? actual === parsed.value : actual !== parsed.value;
     }
   }
 }
-
 
 /** Remove empty text nodes and boxes with empty text from Flex JSON */
 function cleanEmptyNodes(obj: unknown): void {
@@ -593,10 +596,10 @@ function cleanEmptyNodes(obj: unknown): void {
       }
       // Remove box nodes where any text child is empty (metadata rows with no value)
       if (child.type === 'box' && Array.isArray(child.contents)) {
-        const texts = (child.contents as Array<Record<string, unknown>>).filter(t => t.type === 'text');
+        const texts = (child.contents as Array<Record<string, unknown>>).filter((t) => t.type === 'text');
         if (texts.length >= 2) {
           // horizontal box with label + value — remove if value is empty
-          const hasEmptyText = texts.some(t => typeof t.text === 'string' && t.text.trim() === '');
+          const hasEmptyText = texts.some((t) => typeof t.text === 'string' && t.text.trim() === '');
           if (hasEmptyText) return false;
         }
       }

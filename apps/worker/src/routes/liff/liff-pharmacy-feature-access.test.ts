@@ -32,15 +32,22 @@ describe('LIFF pharmacy feature-access boundary', () => {
   const request = () => {
     const app = new Hono<Env>();
     app.route('/', liffRoutes);
-    return app.request('/api/liff/pharmacy/feature-access?liffId=liff-1', {
-      headers: { Authorization: 'Bearer token' },
-    }, env as Env['Bindings']);
+    return app.request(
+      '/api/liff/pharmacy/feature-access?liffId=liff-1',
+      {
+        headers: { Authorization: 'Bearer token' },
+      },
+      env as Env['Bindings'],
+    );
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.verify.mockResolvedValue({
-      lineUserId: 'U1', loginChannelId: 'login-1', tenantId: 'tenant-1', lineAccountId: 'account-1',
+      lineUserId: 'U1',
+      loginChannelId: 'login-1',
+      tenantId: 'tenant-1',
+      lineAccountId: 'account-1',
     });
     mocks.resolvePatient.mockResolvedValue(owner);
     mocks.betaParticipant.mockResolvedValue(true);

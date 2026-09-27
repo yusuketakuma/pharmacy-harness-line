@@ -30,9 +30,10 @@ function database(): Database.Database {
 function d1From(sqlite: Database.Database): D1Database {
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...next: unknown[]) => statement(sql, next),
-    run: async () => ({
-      meta: { changes: sqlite.prepare(sql).run(...values).changes },
-    }) as D1Result,
+    run: async () =>
+      ({
+        meta: { changes: sqlite.prepare(sql).run(...values).changes },
+      }) as D1Result,
   });
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 }
@@ -41,18 +42,25 @@ describe('custom_019_pharmacy_tenant_admin_bootstrap.sql', () => {
   it('permits only one bootstrap owner per tenant', () => {
     const db = database();
 
-    expect(db.prepare(
-      'SELECT tenant_id, staff_id FROM pharmacy_tenant_admin_bootstraps ORDER BY tenant_id',
-    ).all()).toEqual([{ tenant_id: 'tenant-a', staff_id: 'staff-a' }]);
-    expect(() => db.prepare(
-      `INSERT INTO pharmacy_tenant_admin_bootstraps (tenant_id, staff_id, created_at)
+    expect(
+      db.prepare('SELECT tenant_id, staff_id FROM pharmacy_tenant_admin_bootstraps ORDER BY tenant_id').all(),
+    ).toEqual([{ tenant_id: 'tenant-a', staff_id: 'staff-a' }]);
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO pharmacy_tenant_admin_bootstraps (tenant_id, staff_id, created_at)
        VALUES ('tenant-a', 'staff-a', '2026-08-18T00:00:00.000Z')`,
-    ).run()).toThrow(/UNIQUE constraint failed/i);
-    expect(() => db.prepare(
-      `INSERT INTO pharmacy_tenant_admin_bootstraps (tenant_id, staff_id, created_at)
+        )
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/i);
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO pharmacy_tenant_admin_bootstraps (tenant_id, staff_id, created_at)
        VALUES ('tenant-b', 'staff-b', '2026-08-18T00:00:00.000Z')`,
-    ).run()).not.toThrow();
-
+        )
+        .run(),
+    ).not.toThrow();
   });
 
   it('fails closed instead of physically deleting a staff lifecycle record', async () => {
@@ -61,11 +69,11 @@ describe('custom_019_pharmacy_tenant_admin_bootstrap.sql', () => {
     await expect(deleteStaffMember(d1From(db), 'staff-a')).rejects.toThrow(
       'Physical staff deletion is disabled; deactivate the tenant membership instead',
     );
-    expect(db.prepare(
-      'SELECT staff_id FROM pharmacy_tenant_admin_bootstraps WHERE tenant_id = \'tenant-a\'',
-    ).get()).toEqual({ staff_id: 'staff-a' });
-    expect(db.prepare(
-      'SELECT id FROM staff_members WHERE id = \'staff-a\'',
-    ).get()).toEqual({ id: 'staff-a' });
+    expect(
+      db.prepare("SELECT staff_id FROM pharmacy_tenant_admin_bootstraps WHERE tenant_id = 'tenant-a'").get(),
+    ).toEqual({ staff_id: 'staff-a' });
+    expect(db.prepare("SELECT id FROM staff_members WHERE id = 'staff-a'").get()).toEqual({
+      id: 'staff-a',
+    });
   });
 });

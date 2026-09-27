@@ -14,21 +14,23 @@ describe('GoogleCalendarClient.getFreeBusy', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      return new Response(JSON.stringify({
-        items: [{
-          status: 'confirmed',
-          transparency: 'transparent',
-          start: { date: '2026-08-28' },
-          end: { date: '2026-08-29' },
-        }],
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              status: 'confirmed',
+              transparency: 'transparent',
+              start: { date: '2026-08-28' },
+              end: { date: '2026-08-29' },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
     });
     const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
 
-    await expect(client.getFreeBusy(
-      '2026-08-27T15:00:00.000Z',
-      '2026-08-28T15:00:00.000Z',
-    )).resolves.toEqual([
+    await expect(client.getFreeBusy('2026-08-27T15:00:00.000Z', '2026-08-28T15:00:00.000Z')).resolves.toEqual([
       { start: '2026-08-27T15:00:00.000Z', end: '2026-08-28T15:00:00.000Z' },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -52,19 +54,20 @@ describe('GoogleCalendarClient.getFreeBusy', () => {
     await client.getFreeBusy('2026-08-27T15:00:00.000Z', '2026-08-28T15:00:00.000Z');
 
     const eventsUrl = new URL(String(fetchMock.mock.calls[1][0]));
-    expect(eventsUrl.searchParams.get('fields')).toBe(
-      'items(status,eventType,start,end),nextPageToken',
-    );
+    expect(eventsUrl.searchParams.get('fields')).toBe('items(status,eventType,start,end),nextPageToken');
   });
 });
 
 describe('GoogleCalendarClient.createEvent', () => {
   test('Google Meetを要求し、返されたMeet URLを返す', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({
-        id: 'event-1',
-        hangoutLink: 'https://meet.google.com/abc-defg-hij',
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      new Response(
+        JSON.stringify({
+          id: 'event-1',
+          hangoutLink: 'https://meet.google.com/abc-defg-hij',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
     const client = new GoogleCalendarClient({
       calendarId: 'primary@example.com',
@@ -95,20 +98,28 @@ describe('GoogleCalendarClient.createEvent', () => {
   });
 
   test('同じexternalIdが既にあれば既存イベントを再取得し二重作成しない', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('already exists', { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        id: '0123456789abcdef0123456789abcdef',
-        hangoutLink: 'https://meet.google.com/existing-room',
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: '0123456789abcdef0123456789abcdef',
+            hangoutLink: 'https://meet.google.com/existing-room',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
     const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
-    await expect(client.createEvent({
-      summary: '個別相談',
-      start: '2026-08-20T02:00:00.000Z',
-      end: '2026-08-20T02:15:00.000Z',
-      addGoogleMeet: true,
-      externalId: '0123456789abcdef0123456789abcdef',
-    })).resolves.toEqual({
+    await expect(
+      client.createEvent({
+        summary: '個別相談',
+        start: '2026-08-20T02:00:00.000Z',
+        end: '2026-08-20T02:15:00.000Z',
+        addGoogleMeet: true,
+        externalId: '0123456789abcdef0123456789abcdef',
+      }),
+    ).resolves.toEqual({
       eventId: '0123456789abcdef0123456789abcdef',
       meetUrl: 'https://meet.google.com/existing-room',
     });
@@ -126,25 +137,27 @@ describe('GoogleCalendarClient.createEvent', () => {
       }),
     );
     const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
-    await expect(client.createEvent({
-      summary: '個別相談',
-      start: '2026-08-20T02:00:00.000Z',
-      end: '2026-08-20T02:15:00.000Z',
-      addGoogleMeet: true,
-    })).rejects.toThrow('response missing Google Meet URL');
+    await expect(
+      client.createEvent({
+        summary: '個別相談',
+        start: '2026-08-20T02:00:00.000Z',
+        end: '2026-08-20T02:15:00.000Z',
+        addGoogleMeet: true,
+      }),
+    ).rejects.toThrow('response missing Google Meet URL');
   });
 
   test('upstream response body を Error へ含めない', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('sensitive-upstream-detail', { status: 503 }),
-    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('sensitive-upstream-detail', { status: 503 }));
     const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
 
-    const error = await client.createEvent({
-      summary: '個別相談',
-      start: '2026-08-20T02:00:00.000Z',
-      end: '2026-08-20T02:15:00.000Z',
-    }).catch((caught: unknown) => caught);
+    const error = await client
+      .createEvent({
+        summary: '個別相談',
+        start: '2026-08-20T02:00:00.000Z',
+        end: '2026-08-20T02:15:00.000Z',
+      })
+      .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('503');
@@ -159,11 +172,13 @@ describe('GoogleCalendarClient.createEvent', () => {
       }),
     );
     const client = new GoogleCalendarClient({ calendarId: 'primary', accessToken: 'token' });
-    await expect(client.createEvent({
-      summary: '通常予約',
-      start: '2026-08-20T02:00:00.000Z',
-      end: '2026-08-20T02:15:00.000Z',
-    })).resolves.toEqual({ eventId: 'event-2', meetUrl: undefined });
+    await expect(
+      client.createEvent({
+        summary: '通常予約',
+        start: '2026-08-20T02:00:00.000Z',
+        end: '2026-08-20T02:15:00.000Z',
+      }),
+    ).resolves.toEqual({ eventId: 'event-2', meetUrl: undefined });
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).not.toContain('conferenceDataVersion');
     expect(JSON.parse(String(init?.body))).not.toHaveProperty('conferenceData');

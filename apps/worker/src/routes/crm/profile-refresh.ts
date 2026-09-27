@@ -42,9 +42,7 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
   `;
 
   const stmt = db.prepare(baseQuery);
-  const bound = accountIdFilter
-    ? stmt.bind(accountIdFilter, limit, offset)
-    : stmt.bind(limit, offset);
+  const bound = accountIdFilter ? stmt.bind(accountIdFilter, limit, offset) : stmt.bind(limit, offset);
 
   const batch = await bound.all<{
     id: string;
@@ -68,40 +66,37 @@ profileRefresh.post('/api/admin/refresh-profiles', async (c) => {
 
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     const chunk = rows.slice(i, i + CONCURRENCY);
-    await Promise.all(chunk.map(async (row) => {
-      const token = row.channel_access_token ?? defaultToken;
-      const client = new LineClient(token);
-      try {
-        const profile = await client.getProfile(row.line_user_id);
-        await db
-          .prepare(
-            `UPDATE friends
+    await Promise.all(
+      chunk.map(async (row) => {
+        const token = row.channel_access_token ?? defaultToken;
+        const client = new LineClient(token);
+        try {
+          const profile = await client.getProfile(row.line_user_id);
+          await db
+            .prepare(
+              `UPDATE friends
                SET display_name    = ?,
                    picture_url     = ?,
                    status_message  = ?,
                    updated_at      = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours') || '+09:00'
              WHERE id = ?`,
-          )
-          .bind(
-            profile.displayName ?? null,
-            profile.pictureUrl ?? null,
-            profile.statusMessage ?? null,
-            row.id,
-          )
-          .run();
-        updated += 1;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('404') || msg.includes('403')) {
-          notFound += 1;
-        } else {
-          otherErrors += 1;
-          console.error('refresh-profile failed:', msg);
+            )
+            .bind(profile.displayName ?? null, profile.pictureUrl ?? null, profile.statusMessage ?? null, row.id)
+            .run();
+          updated += 1;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes('404') || msg.includes('403')) {
+            notFound += 1;
+          } else {
+            otherErrors += 1;
+            console.error('refresh-profile failed:', msg);
+          }
+        } finally {
+          processed += 1;
         }
-      } finally {
-        processed += 1;
-      }
-    }));
+      }),
+    );
   }
 
   // hasMore: 今回 limit 件取れていれば次がある可能性。0 件 or limit 未満なら終わり。
@@ -142,10 +137,13 @@ profileRefresh.post('/api/admin/broadcasts/:id/reset-to-draft', async (c) => {
     return c.json({ success: false, error: 'broadcast not found or query failed' }, 404);
   }
   if (logged.cnt > 0) {
-    return c.json({
-      success: false,
-      error: `messages_log has ${logged.cnt} entries — refusing to reset (would lose send trace)`,
-    }, 409);
+    return c.json(
+      {
+        success: false,
+        error: `messages_log has ${logged.cnt} entries — refusing to reset (would lose send trace)`,
+      },
+      409,
+    );
   }
 
   const result = await db
@@ -212,11 +210,14 @@ profileRefresh.post('/api/admin/tag-leak-check', async (c) => {
       (SELECT COUNT(*) FROM b) AS unique_b,
       (SELECT COUNT(*) FROM a WHERE ident_key IN (SELECT ident_key FROM b)) AS leaked
   `;
-  const row = await db.prepare(sql).bind(...body.tagsA, ...body.tagsB).first<{
-    unique_a: number;
-    unique_b: number;
-    leaked: number;
-  }>();
+  const row = await db
+    .prepare(sql)
+    .bind(...body.tagsA, ...body.tagsB)
+    .first<{
+      unique_a: number;
+      unique_b: number;
+      leaked: number;
+    }>();
 
   return c.json({
     success: true,
@@ -314,7 +315,12 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
   const perAccount = await db
     .prepare(perAccountSql)
     .bind('%' + body.contentSubstring + '%')
-    .all<{ account_id: string; account_name: string; friends_total: number; friends_received: number }>();
+    .all<{
+      account_id: string;
+      account_name: string;
+      friends_total: number;
+      friends_received: number;
+    }>();
 
   // 2. 人物単位 (ident_key) の集計
   const personSql = `
@@ -372,7 +378,13 @@ profileRefresh.post('/api/admin/broadcast-coverage', async (c) => {
   const tagLeakBreakdown = await db
     .prepare(tagLeakSql)
     .bind(body.tagName, '%' + body.contentSubstring + '%')
-    .all<{ account_id: string; account_name: string; rest_unique: number; same_friend_dup: number; person_dup: number }>();
+    .all<{
+      account_id: string;
+      account_name: string;
+      rest_unique: number;
+      same_friend_dup: number;
+      person_dup: number;
+    }>();
 
   return c.json({
     success: true,
@@ -444,8 +456,7 @@ profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
 
   // 1. 各アカウントで「auto_replies の keyword と一致する incoming text」の件数
   //    = 「ユーザーが trigger した回数」
-  const sinceDate = new Date(Date.now() - days * 24 * 60 * 60_000)
-    .toISOString().slice(0, -1) + '+09:00';
+  const sinceDate = new Date(Date.now() - days * 24 * 60 * 60_000).toISOString().slice(0, -1) + '+09:00';
 
   const incomingByAccount = await db
     .prepare(`
@@ -482,9 +493,7 @@ profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
     .all<{ account_id: string | null; source: string; outgoing_count: number }>();
 
   // 3. アカウント名 lookup
-  const accRes = await db
-    .prepare(`SELECT id, name FROM line_accounts`)
-    .all<{ id: string; name: string }>();
+  const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
   const accNameById = new Map(accRes.results?.map((a) => [a.id, a.name]) ?? []);
 
   return c.json({
@@ -494,13 +503,13 @@ profileRefresh.get('/api/admin/auto-reply-stats', async (c) => {
       days,
       incomingByAccount: (incomingByAccount.results ?? []).map((r) => ({
         accountId: r.account_id,
-        accountName: r.account_id ? accNameById.get(r.account_id) ?? null : '(null)',
+        accountName: r.account_id ? (accNameById.get(r.account_id) ?? null) : '(null)',
         keyword: r.keyword,
         incomingCount: r.incoming_count,
       })),
       outgoingByAccount: (outgoingByAccount.results ?? []).map((r) => ({
         accountId: r.account_id,
-        accountName: r.account_id ? accNameById.get(r.account_id) ?? null : '(null/legacy)',
+        accountName: r.account_id ? (accNameById.get(r.account_id) ?? null) : '(null/legacy)',
         source: r.source,
         outgoingCount: r.outgoing_count,
       })),
@@ -542,7 +551,7 @@ profileRefresh.get('/api/admin/recent-messages', async (c) => {
         messageType: row.message_type,
         source: row.source,
         accountId: accId,
-        accountName: accId ? accNameById.get(accId) ?? null : '(null)',
+        accountName: accId ? (accNameById.get(accId) ?? null) : '(null)',
         friendName: row.display_name,
         friendId: row.friend_id,
         preview: row.preview,
@@ -558,7 +567,9 @@ profileRefresh.get('/api/admin/recent-messages', async (c) => {
 profileRefresh.get('/api/admin/automations-summary', async (c) => {
   const db = c.env.DB;
   const res = await db
-    .prepare(`SELECT id, name, event_type, line_account_id, is_active, conditions, SUBSTR(actions, 1, 80) AS actions_preview FROM automations ORDER BY line_account_id, event_type`)
+    .prepare(
+      `SELECT id, name, event_type, line_account_id, is_active, conditions, SUBSTR(actions, 1, 80) AS actions_preview FROM automations ORDER BY line_account_id, event_type`,
+    )
     .all();
   const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
   const accNameById = new Map(accRes.results?.map((a) => [a.id, a.name]) ?? []);
@@ -568,13 +579,15 @@ profileRefresh.get('/api/admin/automations-summary', async (c) => {
       const row = r as Record<string, unknown>;
       const accId = row.line_account_id as string | null;
       let conds: Record<string, unknown> = {};
-      try { conds = JSON.parse(row.conditions as string); } catch {}
+      try {
+        conds = JSON.parse(row.conditions as string);
+      } catch {}
       return {
         id: row.id,
         name: row.name,
         eventType: row.event_type,
         accountId: accId,
-        accountName: accId ? accNameById.get(accId) ?? null : '(全アカ)',
+        accountName: accId ? (accNameById.get(accId) ?? null) : '(全アカ)',
         isActive: Boolean(row.is_active),
         keyword: conds.keyword ?? conds.keyword_exact ?? null,
         actionsPreview: row.actions_preview,
@@ -587,7 +600,9 @@ profileRefresh.get('/api/admin/friend-debug/:id', async (c) => {
   const id = c.req.param('id');
   const db = c.env.DB;
   const friend = await db
-    .prepare(`SELECT id, display_name, provider_line_user_id AS line_user_id, line_account_id, is_following, user_id FROM friends WHERE id = ?`)
+    .prepare(
+      `SELECT id, display_name, provider_line_user_id AS line_user_id, line_account_id, is_following, user_id FROM friends WHERE id = ?`,
+    )
     .bind(id)
     .first();
   const accRes = await db.prepare(`SELECT id, name FROM line_accounts`).all<{ id: string; name: string }>();
@@ -597,7 +612,7 @@ profileRefresh.get('/api/admin/friend-debug/:id', async (c) => {
     success: true,
     data: {
       friend,
-      accountName: accId ? accNameById.get(accId) ?? null : null,
+      accountName: accId ? (accNameById.get(accId) ?? null) : null,
     },
   });
 });

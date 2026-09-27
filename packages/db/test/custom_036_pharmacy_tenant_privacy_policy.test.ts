@@ -22,12 +22,17 @@ function d1From(sqlite: Database.Database, beforeBatch?: () => void): D1Database
   const statement = (sql: string, values: unknown[] = []): RunnableStatement => ({
     bind: (...next: unknown[]) => statement(sql, next),
     first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    all: async <T>() => ({
-      success: true,
-      results: sqlite.prepare(sql).all(...values) as T[],
-      meta: {},
-    }) as D1Result<T>,
-    raw: async <T>() => sqlite.prepare(sql).raw().all(...values) as T[],
+    all: async <T>() =>
+      ({
+        success: true,
+        results: sqlite.prepare(sql).all(...values) as T[],
+        meta: {},
+      }) as D1Result<T>,
+    raw: async <T>() =>
+      sqlite
+        .prepare(sql)
+        .raw()
+        .all(...values) as T[],
     run: async () => statement(sql, values).runSync(),
     runSync: () => {
       const info = sqlite.prepare(sql).run(...values);
@@ -38,9 +43,7 @@ function d1From(sqlite: Database.Database, beforeBatch?: () => void): D1Database
     prepare: (sql: string) => statement(sql),
     batch: async <T>(statements: D1PreparedStatement[]) => {
       beforeBatch?.();
-      return sqlite.transaction(() =>
-        statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>),
-      )();
+      return sqlite.transaction(() => statements.map((item) => (item as RunnableStatement).runSync() as D1Result<T>))();
     },
   } as unknown as D1Database;
 }
@@ -49,7 +52,13 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
   db.prepare(`INSERT INTO line_accounts
     (id, channel_id, name, channel_access_token, channel_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-    `account-${suffix}`, `channel-${suffix}`, suffix, `token-${suffix}`, `secret-${suffix}`, NOW, NOW,
+    `account-${suffix}`,
+    `channel-${suffix}`,
+    suffix,
+    `token-${suffix}`,
+    `secret-${suffix}`,
+    NOW,
+    NOW,
   );
   db.prepare(`INSERT INTO tenants
     (id, tenant_code, display_name, status, created_at, updated_at)
@@ -60,13 +69,16 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
   db.prepare(`INSERT INTO friends
     (id, line_user_id, provider_line_user_id, line_account_id, is_following, created_at, updated_at)
     VALUES (?, ?, ?, ?, 1, ?, ?)`).run(
-    `friend-${suffix}`, `legacy-u-${suffix}`, `U-${suffix}`, `account-${suffix}`, NOW, NOW,
+    `friend-${suffix}`,
+    `legacy-u-${suffix}`,
+    `U-${suffix}`,
+    `account-${suffix}`,
+    NOW,
+    NOW,
   );
   db.prepare(`INSERT INTO staff_members
     (id, name, role, api_key, is_active, created_at, updated_at)
-    VALUES (?, ?, 'admin', ?, 1, ?, ?)`).run(
-    `staff-${suffix}`, `Staff ${suffix}`, `key-${suffix}`, NOW, NOW,
-  );
+    VALUES (?, ?, 'admin', ?, 1, ?, ?)`).run(`staff-${suffix}`, `Staff ${suffix}`, `key-${suffix}`, NOW, NOW);
   db.prepare(`INSERT INTO tenant_staff_memberships
     (tenant_id, staff_id, role, is_active, created_at, updated_at)
     VALUES (?, ?, 'admin', 1, ?, ?)`).run(`tenant-${suffix}`, `staff-${suffix}`, NOW, NOW);
@@ -77,7 +89,11 @@ function seedAccount(db: Database.Database, suffix: 'a' | 'b'): void {
     (id, line_account_id, owner_friend_id, relationship, name, name_kana, birth_date,
      created_at, updated_at)
     VALUES (?, ?, ?, 'self', '患者', 'カンジャ', '1990-01-01', ?, ?)`).run(
-    `patient-${suffix}`, `account-${suffix}`, `friend-${suffix}`, NOW, NOW,
+    `patient-${suffix}`,
+    `account-${suffix}`,
+    `friend-${suffix}`,
+    NOW,
+    NOW,
   );
 }
 
@@ -115,7 +131,9 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
 
   it('stores one tenant-owned notice per LINE account', async () => {
     await saveTenantPrivacyPolicy(d1, {
-      lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY,
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
     });
     await expect(getTenantPrivacyPolicy(d1, 'account-a')).resolves.toMatchObject({
       purpose_text: POLICY.purposeText,
@@ -141,14 +159,15 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
       content_hash: PLATFORM_DEFAULT_POLICY_HASH,
       source: 'platform_default',
     });
-    await expect(policyContentHash(PLATFORM_DEFAULT_POLICY_FIELDS))
-      .resolves.toBe(PLATFORM_DEFAULT_POLICY_HASH);
+    await expect(policyContentHash(PLATFORM_DEFAULT_POLICY_FIELDS)).resolves.toBe(PLATFORM_DEFAULT_POLICY_HASH);
     await expect(getEffectiveTenantPrivacyPolicy(d1, 'missing-account')).resolves.toBeNull();
   });
 
   it('persists an exact adoption of the platform default without changing its version', async () => {
     await saveTenantPrivacyPolicy(d1, {
-      lineAccountId: 'account-a', staffId: 'staff-a', ...PLATFORM_DEFAULT_POLICY_FIELDS,
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...PLATFORM_DEFAULT_POLICY_FIELDS,
     });
     await expect(getTenantPrivacyPolicy(d1, 'account-a')).resolves.toMatchObject({
       policy_version: PLATFORM_DEFAULT_POLICY_VERSION,
@@ -157,14 +176,25 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
   });
 
   it('bumps the version only when the policy text actually changes', async () => {
-    await saveTenantPrivacyPolicy(d1, { lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY });
+    await saveTenantPrivacyPolicy(d1, {
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
+    });
     const first = await getTenantPrivacyPolicy(d1, 'account-a');
-    await saveTenantPrivacyPolicy(d1, { lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY });
+    await saveTenantPrivacyPolicy(d1, {
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
+    });
     const unchanged = await getTenantPrivacyPolicy(d1, 'account-a');
     expect(unchanged).toMatchObject({ policy_version: 2, content_hash: first?.content_hash });
 
     await saveTenantPrivacyPolicy(d1, {
-      lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY, purposeText: '利用目的を改定しました。',
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
+      purposeText: '利用目的を改定しました。',
     });
     const changed = await getTenantPrivacyPolicy(d1, 'account-a');
     expect(changed?.policy_version).toBe(3);
@@ -172,27 +202,45 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
   });
 
   it('rejects a staff editor from another tenant', async () => {
-    await expect(saveTenantPrivacyPolicy(d1, {
-      lineAccountId: 'account-a', staffId: 'staff-b', ...POLICY,
-    })).rejects.toThrow();
+    await expect(
+      saveTenantPrivacyPolicy(d1, {
+        lineAccountId: 'account-a',
+        staffId: 'staff-b',
+        ...POLICY,
+      }),
+    ).rejects.toThrow();
   });
 
   it('captures the policy in effect on the intake consent record', async () => {
-    await saveTenantPrivacyPolicy(d1, { lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY });
+    await saveTenantPrivacyPolicy(d1, {
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
+    });
     const policy = await getTenantPrivacyPolicy(d1, 'account-a');
     const owner = { lineAccountId: 'account-a', friendId: 'friend-a' };
 
-    await createPatientIntakeResponse(d1, owner, 'patient-a', {
-      idempotencyKey: 'idem-key-0001',
-      answers: ANSWERS,
-      representativeConsent: true,
-      privacyConsent: true,
-      privacyPolicyVersion: policy!.policy_version,
-      privacyPolicyHash: policy!.content_hash,
-    }, { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) });
+    await createPatientIntakeResponse(
+      d1,
+      owner,
+      'patient-a',
+      {
+        idempotencyKey: 'idem-key-0001',
+        answers: ANSWERS,
+        representativeConsent: true,
+        privacyConsent: true,
+        privacyPolicyVersion: policy!.policy_version,
+        privacyPolicyHash: policy!.content_hash,
+      },
+      { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
+    );
 
-    expect(db.prepare(`SELECT privacy_policy_version, privacy_policy_hash
-      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`).get()).toEqual({
+    expect(
+      db
+        .prepare(`SELECT privacy_policy_version, privacy_policy_hash
+      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`)
+        .get(),
+    ).toEqual({
       privacy_policy_version: policy?.policy_version,
       privacy_policy_hash: policy?.content_hash,
     });
@@ -200,77 +248,122 @@ describe('custom_036 pharmacy tenant privacy policy', () => {
 
   it('accepts intake consent against the stable platform default', async () => {
     const policy = await getEffectiveTenantPrivacyPolicy(d1, 'account-b');
-    await expect(createPatientIntakeResponse(
-      d1, { lineAccountId: 'account-b', friendId: 'friend-b' }, 'patient-b', {
-        idempotencyKey: 'idem-key-0002',
-        answers: ANSWERS,
-        representativeConsent: true,
-        privacyConsent: true,
-        privacyPolicyVersion: policy!.policy_version,
-        privacyPolicyHash: policy!.content_hash,
-      }, { tenantId: 'tenant-b', rootSecret: 's'.repeat(32) },
-    )).resolves.toBeTruthy();
+    await expect(
+      createPatientIntakeResponse(
+        d1,
+        { lineAccountId: 'account-b', friendId: 'friend-b' },
+        'patient-b',
+        {
+          idempotencyKey: 'idem-key-0002',
+          answers: ANSWERS,
+          representativeConsent: true,
+          privacyConsent: true,
+          privacyPolicyVersion: policy!.policy_version,
+          privacyPolicyHash: policy!.content_hash,
+        },
+        { tenantId: 'tenant-b', rootSecret: 's'.repeat(32) },
+      ),
+    ).resolves.toBeTruthy();
 
-    expect(db.prepare(`SELECT COUNT(*) AS count
-      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-b'`).get()).toEqual({
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-b'`)
+        .get(),
+    ).toEqual({
       count: 1,
     });
   });
 
   it('fails closed when the policy disappears before the atomic intake write', async () => {
-    await saveTenantPrivacyPolicy(d1, { lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY });
+    await saveTenantPrivacyPolicy(d1, {
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
+    });
     const displayed = await getTenantPrivacyPolicy(d1, 'account-a');
     d1 = d1From(db, () => {
       db.prepare('DELETE FROM pharmacy_tenant_privacy_policy WHERE line_account_id = ?').run('account-a');
     });
 
-    await expect(createPatientIntakeResponse(
-      d1, { lineAccountId: 'account-a', friendId: 'friend-a' }, 'patient-a', {
-        idempotencyKey: 'idem-key-race',
-        answers: ANSWERS,
-        representativeConsent: true,
-        privacyConsent: true,
-        privacyPolicyVersion: displayed!.policy_version,
-        privacyPolicyHash: displayed!.content_hash,
-      }, { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
-    )).rejects.toThrow('privacy policy changed');
+    await expect(
+      createPatientIntakeResponse(
+        d1,
+        { lineAccountId: 'account-a', friendId: 'friend-a' },
+        'patient-a',
+        {
+          idempotencyKey: 'idem-key-race',
+          answers: ANSWERS,
+          representativeConsent: true,
+          privacyConsent: true,
+          privacyPolicyVersion: displayed!.policy_version,
+          privacyPolicyHash: displayed!.content_hash,
+        },
+        { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
+      ),
+    ).rejects.toThrow('privacy policy changed');
 
-    expect(db.prepare(`SELECT COUNT(*) AS count
-      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`).get()).toEqual({
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`)
+        .get(),
+    ).toEqual({
       count: 0,
     });
-    expect(db.prepare(`SELECT COUNT(*) AS count
-      FROM pharmacy_patient_intake_envelopes WHERE line_account_id = 'account-a'`).get()).toEqual({
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_patient_intake_envelopes WHERE line_account_id = 'account-a'`)
+        .get(),
+    ).toEqual({
       count: 0,
     });
   });
 
   it('rejects consent when the displayed policy changes before the atomic write', async () => {
-    await saveTenantPrivacyPolicy(d1, { lineAccountId: 'account-a', staffId: 'staff-a', ...POLICY });
+    await saveTenantPrivacyPolicy(d1, {
+      lineAccountId: 'account-a',
+      staffId: 'staff-a',
+      ...POLICY,
+    });
     const displayed = await getTenantPrivacyPolicy(d1, 'account-a');
     d1 = d1From(db, () => {
       db.prepare(`UPDATE pharmacy_tenant_privacy_policy
-        SET policy_version = 2, content_hash = ? WHERE line_account_id = ?`)
-        .run('b'.repeat(64), 'account-a');
+        SET policy_version = 2, content_hash = ? WHERE line_account_id = ?`).run('b'.repeat(64), 'account-a');
     });
 
-    await expect(createPatientIntakeResponse(
-      d1, { lineAccountId: 'account-a', friendId: 'friend-a' }, 'patient-a', {
-        idempotencyKey: 'idem-key-stale',
-        answers: ANSWERS,
-        representativeConsent: true,
-        privacyConsent: true,
-        privacyPolicyVersion: displayed!.policy_version,
-        privacyPolicyHash: displayed!.content_hash,
-      }, { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
-    )).rejects.toThrow('privacy policy changed');
+    await expect(
+      createPatientIntakeResponse(
+        d1,
+        { lineAccountId: 'account-a', friendId: 'friend-a' },
+        'patient-a',
+        {
+          idempotencyKey: 'idem-key-stale',
+          answers: ANSWERS,
+          representativeConsent: true,
+          privacyConsent: true,
+          privacyPolicyVersion: displayed!.policy_version,
+          privacyPolicyHash: displayed!.content_hash,
+        },
+        { tenantId: 'tenant-a', rootSecret: 's'.repeat(32) },
+      ),
+    ).rejects.toThrow('privacy policy changed');
 
-    expect(db.prepare(`SELECT COUNT(*) AS count
-      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`).get()).toEqual({
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_patient_intake_responses WHERE line_account_id = 'account-a'`)
+        .get(),
+    ).toEqual({
       count: 0,
     });
-    expect(db.prepare(`SELECT COUNT(*) AS count
-      FROM pharmacy_patient_intake_envelopes WHERE line_account_id = 'account-a'`).get()).toEqual({
+    expect(
+      db
+        .prepare(`SELECT COUNT(*) AS count
+      FROM pharmacy_patient_intake_envelopes WHERE line_account_id = 'account-a'`)
+        .get(),
+    ).toEqual({
       count: 0,
     });
   });

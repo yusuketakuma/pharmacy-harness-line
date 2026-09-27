@@ -1,26 +1,26 @@
-'use client'
+'use client';
 
-import ImageUploader from './image-uploader'
+import ImageUploader from './image-uploader';
 
 export interface OgValue {
-  ogTitle: string | null
-  ogDescription: string | null
-  ogImageUrl: string | null
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImageUrl: string | null;
 }
 
 export interface OgEditorProps {
-  value: OgValue
-  onChange: (v: OgValue) => void
+  value: OgValue;
+  onChange: (v: OgValue) => void;
   /** auto-generate プレースホルダ表示用。空欄なら自動値が使われる旨を示す。 */
-  autoTitle?: string
-  autoDescription?: string
-  autoImageUrl?: string
+  autoTitle?: string;
+  autoDescription?: string;
+  autoImageUrl?: string;
   /** account 用 — title slot を非表示にする。account には個別 og:title は不要。 */
-  hideTitle?: boolean
+  hideTitle?: boolean;
 }
 
-const TITLE_MAX = 80
-const DESC_MAX = 200
+const TITLE_MAX = 80;
+const DESC_MAX = 200;
 
 export default function OgEditor({
   value,
@@ -30,24 +30,18 @@ export default function OgEditor({
   autoImageUrl,
   hideTitle = false,
 }: OgEditorProps) {
-  const set = <K extends keyof OgValue>(k: K, v: OgValue[K]) =>
-    onChange({ ...value, [k]: v })
+  const set = <K extends keyof OgValue>(k: K, v: OgValue[K]) => onChange({ ...value, [k]: v });
 
   return (
     <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">
-      <div className="text-sm font-medium text-gray-900">
-        リンクプレビュー（OGP）
-      </div>
+      <div className="text-sm font-medium text-gray-900">リンクプレビュー（OGP）</div>
       <div className="text-xs text-gray-500">
-        LINE / X / Facebook 等にリンクを貼ったときに表示されるカードの内容。
-        空欄なら自動で生成されます。
+        LINE / X / Facebook 等にリンクを貼ったときに表示されるカードの内容。 空欄なら自動で生成されます。
       </div>
 
       {!hideTitle && (
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            タイトル
-          </label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">タイトル</label>
           <input
             type="text"
             value={value.ogTitle ?? ''}
@@ -63,15 +57,11 @@ export default function OgEditor({
       )}
 
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          説明文
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">説明文</label>
         <textarea
           value={value.ogDescription ?? ''}
           maxLength={DESC_MAX}
-          placeholder={
-            autoDescription ? `自動: ${autoDescription}` : '（自動生成）'
-          }
+          placeholder={autoDescription ? `自動: ${autoDescription}` : '（自動生成）'}
           rows={3}
           onChange={(e) => set('ogDescription', e.target.value || null)}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -82,22 +72,14 @@ export default function OgEditor({
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          画像
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">画像</label>
         <ImageUploader
           mode="url"
           value={value.ogImageUrl ? { mode: 'url', url: value.ogImageUrl } : null}
-          onChange={(v) =>
-            set('ogImageUrl', v?.mode === 'url' ? v.url : null)
-          }
+          onChange={(v) => set('ogImageUrl', v?.mode === 'url' ? v.url : null)}
         />
-        {!value.ogImageUrl && autoImageUrl && (
-          <div className="text-xs text-gray-400 mt-1">
-            自動: {autoImageUrl}
-          </div>
-        )}
+        {!value.ogImageUrl && autoImageUrl && <div className="text-xs text-gray-400 mt-1">自動: {autoImageUrl}</div>}
       </div>
     </div>
-  )
+  );
 }

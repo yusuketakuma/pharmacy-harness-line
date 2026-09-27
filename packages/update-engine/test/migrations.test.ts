@@ -28,12 +28,8 @@ function createSqliteExecutor(db: Database.Database) {
 
 describe('splitSqlStatements', () => {
   it('rejects destructive table rebuilds', () => {
-    expect(() => splitSqlStatements('DROP TABLE friends;')).toThrow(
-      'destructive schema changes',
-    );
-    expect(() => splitSqlStatements('ALTER TABLE old RENAME TO current;')).toThrow(
-      'destructive schema changes',
-    );
+    expect(() => splitSqlStatements('DROP TABLE friends;')).toThrow('destructive schema changes');
+    expect(() => splitSqlStatements('ALTER TABLE old RENAME TO current;')).toThrow('destructive schema changes');
   });
   it('splits statements while preserving semicolons inside strings and comments', () => {
     const sql = `
@@ -55,18 +51,22 @@ describe('splitSqlStatements', () => {
   });
 
   it('keeps a simple trigger body atomic while splitting following statements', () => {
-    expect(splitSqlStatements(
-      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END; CREATE INDEX i ON b(x);',
-    )).toEqual([
+    expect(
+      splitSqlStatements(
+        'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END; CREATE INDEX i ON b(x);',
+      ),
+    ).toEqual([
       'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = 1; INSERT INTO c VALUES (NEW.id); END',
       'CREATE INDEX i ON b(x)',
     ]);
   });
 
   it('fails closed for trigger grammar that needs a full SQL parser', () => {
-    expect(() => splitSqlStatements(
-      'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = CASE WHEN x = 1 THEN 2 ELSE 3 END; END;',
-    )).toThrow(/CASE-bearing CREATE TRIGGER/);
+    expect(() =>
+      splitSqlStatements(
+        'CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET x = CASE WHEN x = 1 THEN 2 ELSE 3 END; END;',
+      ),
+    ).toThrow(/CASE-bearing CREATE TRIGGER/);
   });
 });
 
@@ -102,9 +102,7 @@ describe('applyD1Migrations', () => {
       creds,
       databaseId: 'db',
       names: ['041_demo.sql'],
-      migrations: new Map([
-        ['041_demo.sql', Buffer.from('CREATE TABLE one (id TEXT); CREATE TABLE two (id TEXT);')],
-      ]),
+      migrations: new Map([['041_demo.sql', Buffer.from('CREATE TABLE one (id TEXT); CREATE TABLE two (id TEXT);')]]),
       execute: execute as any,
     });
 
@@ -127,8 +125,8 @@ describe('applyD1Migrations', () => {
     `);
     const name = '041_replace_trigger.sql';
     const source = Buffer.from(
-      'DROP TRIGGER IF EXISTS guard;\n'
-      + 'CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON events BEGIN SELECT 2; END;',
+      'DROP TRIGGER IF EXISTS guard;\n' +
+        'CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON events BEGIN SELECT 2; END;',
     );
     const calls: string[] = [];
     const sqliteExecute = createSqliteExecutor(db);
@@ -155,12 +153,13 @@ describe('applyD1Migrations', () => {
     const atomicSql = calls.find((sql) => sql.includes('DROP TRIGGER'));
     expect(atomicSql).toContain('CREATE TRIGGER guard');
     expect(atomicSql).toContain('INSERT INTO _line_harness_migrations');
-    expect((db.prepare(
-      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'guard'",
-    ).get() as { sql: string }).sql).toContain('SELECT 2');
-    expect(db.prepare(
-      'SELECT checksum FROM _line_harness_migrations WHERE name = ?',
-    ).get(name)).toEqual({ checksum: migrationChecksum(source) });
+    expect(
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'guard'").get() as { sql: string })
+        .sql,
+    ).toContain('SELECT 2');
+    expect(db.prepare('SELECT checksum FROM _line_harness_migrations WHERE name = ?').get(name)).toEqual({
+      checksum: migrationChecksum(source),
+    });
   });
 
   it('preserves quoted comment markers in trusted trigger execution and checksum', async () => {
@@ -175,8 +174,8 @@ describe('applyD1Migrations', () => {
     `);
     const name = '042_quoted_trigger.sql';
     const source = Buffer.from(
-      "CREATE TRIGGER IF NOT EXISTS \"guard--name\" AFTER INSERT ON entries BEGIN "
-      + "SELECT RAISE(ABORT, 'blocked /* marker */ -- marker'); END;",
+      'CREATE TRIGGER IF NOT EXISTS "guard--name" AFTER INSERT ON entries BEGIN ' +
+        "SELECT RAISE(ABORT, 'blocked /* marker */ -- marker'); END;",
     );
     const [result] = await applyD1Migrations({
       creds,
@@ -188,15 +187,16 @@ describe('applyD1Migrations', () => {
     });
 
     expect(result).toMatchObject({ executedStatements: 1, skippedStatements: 0 });
-    const triggerSql = (db.prepare(
-      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'guard--name'",
-    ).get() as { sql: string }).sql;
-    expect(triggerSql).toContain("blocked /* marker */ -- marker");
-    expect(() => db.prepare('INSERT INTO entries VALUES (?)').run('value'))
-      .toThrow('blocked /* marker */ -- marker');
-    expect(db.prepare(
-      'SELECT checksum FROM _line_harness_migrations WHERE name = ?',
-    ).get(name)).toEqual({ checksum: migrationChecksum(source) });
+    const triggerSql = (
+      db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'guard--name'").get() as {
+        sql: string;
+      }
+    ).sql;
+    expect(triggerSql).toContain('blocked /* marker */ -- marker');
+    expect(() => db.prepare('INSERT INTO entries VALUES (?)').run('value')).toThrow('blocked /* marker */ -- marker');
+    expect(db.prepare('SELECT checksum FROM _line_harness_migrations WHERE name = ?').get(name)).toEqual({
+      checksum: migrationChecksum(source),
+    });
   });
 
   it('recognizes an exact legacy trigger definition with quoted comment markers', async () => {
@@ -209,8 +209,8 @@ describe('applyD1Migrations', () => {
     `);
     const name = '043_legacy_quoted_trigger.sql';
     const source = Buffer.from(
-      "CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON entries BEGIN "
-      + "SELECT RAISE(ABORT, 'blocked /* marker */ -- marker'); END;",
+      'CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON entries BEGIN ' +
+        "SELECT RAISE(ABORT, 'blocked /* marker */ -- marker'); END;",
     );
 
     const [result] = await applyD1Migrations({
@@ -222,9 +222,9 @@ describe('applyD1Migrations', () => {
     });
 
     expect(result).toMatchObject({ executedStatements: 0, skippedStatements: 1 });
-    expect(db.prepare(
-      'SELECT checksum FROM _line_harness_migrations WHERE name = ?',
-    ).get(name)).toEqual({ checksum: migrationChecksum(source) });
+    expect(db.prepare('SELECT checksum FROM _line_harness_migrations WHERE name = ?').get(name)).toEqual({
+      checksum: migrationChecksum(source),
+    });
   });
 
   it('does not leave an active unbound grant when a legacy writer races the drain', async () => {
@@ -243,8 +243,7 @@ describe('applyD1Migrations', () => {
 
     let writerAttempted = false;
     const execute = async (opts: { sql: string; params?: any[] }) => {
-      if (opts.sql.startsWith('CREATE TABLE') &&
-          opts.sql.includes('__line_harness_legacy_baseline_in_progress__')) {
+      if (opts.sql.startsWith('CREATE TABLE') && opts.sql.includes('__line_harness_legacy_baseline_in_progress__')) {
         db.exec(opts.sql);
         return { success: true, result: [{ results: [] }] };
       }
@@ -278,9 +277,7 @@ describe('applyD1Migrations', () => {
       return { success: true, result: [{ results: [] }] };
     };
     const name = '007_custom_064_legacy_access_grant_drain.sql';
-    const source = readFileSync(
-      new URL(`../../db/migrations/${name}`, import.meta.url),
-    );
+    const source = readFileSync(new URL(`../../db/migrations/${name}`, import.meta.url));
 
     await applyD1Migrations({
       creds,
@@ -291,14 +288,16 @@ describe('applyD1Migrations', () => {
     });
 
     expect(writerAttempted).toBe(true);
-    expect(db.prepare(
-      `SELECT name FROM _line_harness_migrations WHERE name = ?`,
-    ).get(name)).toEqual({ name });
-    expect(db.prepare(
-      `SELECT COUNT(*) AS count
+    expect(db.prepare(`SELECT name FROM _line_harness_migrations WHERE name = ?`).get(name)).toEqual({ name });
+    expect(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count
          FROM platform_admin_access_grants
         WHERE session_token_hash IS NULL AND revoked_at IS NULL`,
-    ).get()).toEqual({ count: 0 });
+        )
+        .get(),
+    ).toEqual({ count: 0 });
   });
 
   it('retries a legacy migration interrupted after its first committed trigger', async () => {
@@ -315,15 +314,11 @@ describe('applyD1Migrations', () => {
 
     let interrupted = false;
     const execute = async (opts: { sql: string; params?: any[] }) => {
-      if (opts.sql.startsWith('CREATE TABLE') &&
-          opts.sql.includes('__line_harness_legacy_baseline_in_progress__')) {
+      if (opts.sql.startsWith('CREATE TABLE') && opts.sql.includes('__line_harness_legacy_baseline_in_progress__')) {
         db.exec(opts.sql);
         return { success: true, result: [{ results: [] }] };
       }
-      if (
-        opts.sql.includes('CREATE TRIGGER') &&
-        opts.sql.includes('INSERT INTO _line_harness_migrations')
-      ) {
+      if (opts.sql.includes('CREATE TRIGGER') && opts.sql.includes('INSERT INTO _line_harness_migrations')) {
         db.transaction(() => db.exec(opts.sql))();
         return { success: true, result: [{ results: [] }] };
       }
@@ -340,27 +335,29 @@ describe('applyD1Migrations', () => {
       return { success: true, result: [{ results: [] }] };
     };
     const name = '007_custom_064_legacy_access_grant_drain.sql';
-    const source = readFileSync(
-      new URL(`../../db/migrations/${name}`, import.meta.url),
-    );
+    const source = readFileSync(new URL(`../../db/migrations/${name}`, import.meta.url));
 
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: [name],
-      migrations: new Map([[name, source]]),
-      execute: execute as any,
-    })).rejects.toThrow(/simulated interrupt/);
-    expect(db.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_line_harness_migrations'`,
-    ).get()).toEqual({ name: '_line_harness_migrations' });
-    expect(db.prepare(
-      `SELECT name FROM _line_harness_migrations WHERE name = ?`,
-    ).get(name)).toBeUndefined();
-    expect(db.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'table'
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: [name],
+        migrations: new Map([[name, source]]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/simulated interrupt/);
+    expect(
+      db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_line_harness_migrations'`).get(),
+    ).toEqual({ name: '_line_harness_migrations' });
+    expect(db.prepare(`SELECT name FROM _line_harness_migrations WHERE name = ?`).get(name)).toBeUndefined();
+    expect(
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table'
         AND name = '__line_harness_legacy_baseline_in_progress__'`,
-    ).get()).toEqual({ name: '__line_harness_legacy_baseline_in_progress__' });
+        )
+        .get(),
+    ).toEqual({ name: '__line_harness_legacy_baseline_in_progress__' });
 
     const retry = await applyD1Migrations({
       creds,
@@ -369,31 +366,47 @@ describe('applyD1Migrations', () => {
       migrations: new Map([[name, source]]),
       execute: execute as any,
     });
-    expect(retry).toEqual([{
-      name,
-      alreadyApplied: false,
-      executedStatements: 3,
-      skippedStatements: 1,
-    }]);
+    expect(retry).toEqual([
+      {
+        name,
+        alreadyApplied: false,
+        executedStatements: 3,
+        skippedStatements: 1,
+      },
+    ]);
 
-    expect(db.prepare(
-      `SELECT name FROM _line_harness_migrations WHERE name = ?`,
-    ).get(name)).toEqual({ name });
-    expect(db.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'table'
+    expect(db.prepare(`SELECT name FROM _line_harness_migrations WHERE name = ?`).get(name)).toEqual({ name });
+    expect(
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table'
         AND name = '__line_harness_legacy_baseline_in_progress__'`,
-    ).get()).toBeUndefined();
-    expect(db.prepare(
-      `SELECT COUNT(*) AS count
+        )
+        .get(),
+    ).toBeUndefined();
+    expect(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count
          FROM platform_admin_access_grants
         WHERE session_token_hash IS NULL AND revoked_at IS NULL`,
-    ).get()).toEqual({ count: 0 });
-    expect(db.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'platform_admin_access_grant_session_required'`,
-    ).get()).toEqual({ name: 'platform_admin_access_grant_session_required' });
-    expect(db.prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'platform_admin_access_grant_session_immutable'`,
-    ).get()).toEqual({ name: 'platform_admin_access_grant_session_immutable' });
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'platform_admin_access_grant_session_required'`,
+        )
+        .get(),
+    ).toEqual({ name: 'platform_admin_access_grant_session_required' });
+    expect(
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'platform_admin_access_grant_session_immutable'`,
+        )
+        .get(),
+    ).toEqual({ name: 'platform_admin_access_grant_session_immutable' });
   });
 
   it('fails closed before migration when an existing database has no checksum ledger', async () => {
@@ -420,7 +433,11 @@ describe('applyD1Migrations', () => {
       if (opts.sql.includes('SELECT name, checksum')) {
         return {
           success: true,
-          result: [{ results: [{ name: '070_update_history_release_evidence.sql', checksum: 'sha256:old' }] }],
+          result: [
+            {
+              results: [{ name: '070_update_history_release_evidence.sql', checksum: 'sha256:old' }],
+            },
+          ],
         };
       }
       return { success: true, result: [{ results: [] }] };
@@ -493,9 +510,7 @@ describe('applyD1Migrations', () => {
         migrations: new Map([
           [
             '046_partial.sql',
-            Buffer.from(
-              'ALTER TABLE demo ADD COLUMN existing TEXT; ALTER TABLE demo ADD COLUMN missing TEXT;',
-            ),
+            Buffer.from('ALTER TABLE demo ADD COLUMN existing TEXT; ALTER TABLE demo ADD COLUMN missing TEXT;'),
           ],
         ]),
         execute: execute as any,
@@ -565,20 +580,25 @@ describe('applyD1Migrations', () => {
 
   it('skips a legacy trigger whose live definition already matches', async () => {
     const trigger =
-      "CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends "
-      + "WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;";
+      'CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends ' +
+      "WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;";
     const writes: string[] = [];
     const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
       if (opts.sql.includes("type='trigger'")) {
         return {
           success: true,
-          result: [{
-            results: [{
-              // SQLite stores the definition without IF NOT EXISTS and reflows whitespace.
-              sql: "CREATE TRIGGER friends_account_immutable\n  BEFORE UPDATE OF line_account_id ON friends\n"
-                + "  WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END",
-            }],
-          }],
+          result: [
+            {
+              results: [
+                {
+                  // SQLite stores the definition without IF NOT EXISTS and reflows whitespace.
+                  sql:
+                    'CREATE TRIGGER friends_account_immutable\n  BEFORE UPDATE OF line_account_id ON friends\n' +
+                    "  WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END",
+                },
+              ],
+            },
+          ],
         };
       }
       if (opts.sql.includes('sqlite_master')) return { success: true, result: [{ results: [] }] };
@@ -603,11 +623,11 @@ describe('applyD1Migrations', () => {
 
   it('fails closed when a legacy trigger of the same name has a different body', async () => {
     const trigger =
-      "CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends "
-      + "WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;";
+      'CREATE TRIGGER IF NOT EXISTS friends_account_immutable BEFORE UPDATE OF line_account_id ON friends ' +
+      "WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'FRIEND_ACCOUNT_IMMUTABLE'); END;";
     const liveSql =
-      'CREATE TRIGGER friends_account_immutable BEFORE UPDATE OF line_account_id ON friends '
-      + 'WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT 1; END';
+      'CREATE TRIGGER friends_account_immutable BEFORE UPDATE OF line_account_id ON friends ' +
+      'WHEN OLD.line_account_id IS NOT NULL BEGIN SELECT 1; END';
     const writes: string[] = [];
     const execute = vi.fn(async (opts: { sql: string; params?: any[] }) => {
       if (opts.sql.includes("type='trigger'")) {
@@ -646,9 +666,15 @@ describe('applyD1Migrations', () => {
         return opts.sql.includes('COLLATE NOCASE')
           ? {
               success: true,
-              result: [{ results: [{
-                sql: 'CREATE TRIGGER Session_Guard AFTER INSERT ON sessions BEGIN SELECT 2; END',
-              }] }],
+              result: [
+                {
+                  results: [
+                    {
+                      sql: 'CREATE TRIGGER Session_Guard AFTER INSERT ON sessions BEGIN SELECT 2; END',
+                    },
+                  ],
+                },
+              ],
             }
           : { success: true, result: [{ results: [] }] };
       }
@@ -658,13 +684,15 @@ describe('applyD1Migrations', () => {
       return { success: true, result: [{ results: [] }] };
     });
 
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['guard.sql'],
-      migrations: new Map([['guard.sql', Buffer.from(pending)]]),
-      execute: execute as any,
-    })).rejects.toThrow(/different definition/);
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['guard.sql'],
+        migrations: new Map([['guard.sql', Buffer.from(pending)]]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/different definition/);
   });
 
   it('fails closed on a preexisting trigger in the trusted-ledger path', async () => {
@@ -682,14 +710,16 @@ describe('applyD1Migrations', () => {
       return { success: true, result: [{ results: [] }] };
     });
 
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['guard.sql'],
-      migrations: new Map([['guard.sql', Buffer.from(trigger)]]),
-      requireChecksumLedger: true,
-      execute: execute as any,
-    })).rejects.toThrow(/preexisting trigger.*without ledger/i);
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['guard.sql'],
+        migrations: new Map([['guard.sql', Buffer.from(trigger)]]),
+        requireChecksumLedger: true,
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/preexisting trigger.*without ledger/i);
   });
 
   it('uses strict CREATE TRIGGER in the trusted atomic batch', async () => {
@@ -709,10 +739,9 @@ describe('applyD1Migrations', () => {
       creds,
       databaseId: 'db',
       names: ['guard.sql'],
-      migrations: new Map([[
-        'guard.sql',
-        Buffer.from('CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON sessions BEGIN SELECT 1; END;'),
-      ]]),
+      migrations: new Map([
+        ['guard.sql', Buffer.from('CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON sessions BEGIN SELECT 1; END;')],
+      ]),
       requireChecksumLedger: true,
       execute: execute as any,
     });
@@ -762,11 +791,11 @@ describe('applyD1Migrations', () => {
       if (opts.sql.includes('SELECT checksum')) {
         return {
           success: true,
-          result: [{
-            results: opts.params?.[0] === '040_historical.sql'
-              ? [{ checksum: migrationChecksum(historical) }]
-              : [],
-          }],
+          result: [
+            {
+              results: opts.params?.[0] === '040_historical.sql' ? [{ checksum: migrationChecksum(historical) }] : [],
+            },
+          ],
         };
       }
       writes.push(opts.sql);
@@ -828,29 +857,31 @@ describe('applyD1Migrations', () => {
       if (opts.sql.includes('SELECT checksum')) {
         return {
           success: true,
-          result: [{
-            results: opts.params?.[0] === '042_applied.sql'
-              ? [{ checksum: 'sha256:different' }]
-              : [],
-          }],
+          result: [
+            {
+              results: opts.params?.[0] === '042_applied.sql' ? [{ checksum: 'sha256:different' }] : [],
+            },
+          ],
         };
       }
       writes.push(opts.sql);
       return { success: true, result: [] };
     });
 
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['041_pending.sql', '042_applied.sql'],
-      migrations: new Map([
-        ['041_pending.sql', Buffer.from('CREATE TABLE pending (id TEXT);')],
-        ['042_applied.sql', Buffer.from('CREATE TABLE applied (id TEXT);')],
-      ]),
-      requireChecksumLedger: true,
-      onMigrationStart,
-      execute: execute as any,
-    })).rejects.toThrow(/changed after it was applied/);
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_pending.sql', '042_applied.sql'],
+        migrations: new Map([
+          ['041_pending.sql', Buffer.from('CREATE TABLE pending (id TEXT);')],
+          ['042_applied.sql', Buffer.from('CREATE TABLE applied (id TEXT);')],
+        ]),
+        requireChecksumLedger: true,
+        onMigrationStart,
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/changed after it was applied/);
     expect(writes).toEqual([]);
     expect(onMigrationStart).not.toHaveBeenCalled();
   });
@@ -868,17 +899,19 @@ describe('applyD1Migrations', () => {
       return { success: true, result: [] };
     });
 
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['041_valid.sql', '042_destructive.sql'],
-      migrations: new Map([
-        ['041_valid.sql', Buffer.from('CREATE TABLE valid (id TEXT);')],
-        ['042_destructive.sql', Buffer.from('DROP TABLE users;')],
-      ]),
-      requireChecksumLedger: true,
-      execute: execute as any,
-    })).rejects.toThrow(/destructive schema changes/);
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_valid.sql', '042_destructive.sql'],
+        migrations: new Map([
+          ['041_valid.sql', Buffer.from('CREATE TABLE valid (id TEXT);')],
+          ['042_destructive.sql', Buffer.from('DROP TABLE users;')],
+        ]),
+        requireChecksumLedger: true,
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/destructive schema changes/);
     expect(writes).toEqual([]);
   });
 
@@ -894,39 +927,47 @@ describe('applyD1Migrations', () => {
       if (opts.sql.includes("type='trigger'")) {
         return {
           success: true,
-          result: [{ results: [{
-            sql: 'CREATE TRIGGER guard AFTER INSERT ON sessions BEGIN SELECT 2; END',
-          }] }],
+          result: [
+            {
+              results: [
+                {
+                  sql: 'CREATE TRIGGER guard AFTER INSERT ON sessions BEGIN SELECT 2; END',
+                },
+              ],
+            },
+          ],
         };
       }
       writes.push(opts.sql);
       return { success: true, result: [{ results: [] }] };
     });
 
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['041_valid.sql', '042_trigger.sql'],
-      migrations: new Map([
-        ['041_valid.sql', Buffer.from('CREATE TABLE valid (id TEXT);')],
-        ['042_trigger.sql', Buffer.from(
-          'CREATE TRIGGER guard AFTER INSERT ON sessions BEGIN SELECT 1; END;',
-        )],
-      ]),
-      execute: execute as any,
-    })).rejects.toThrow(/different definition/);
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_valid.sql', '042_trigger.sql'],
+        migrations: new Map([
+          ['041_valid.sql', Buffer.from('CREATE TABLE valid (id TEXT);')],
+          ['042_trigger.sql', Buffer.from('CREATE TRIGGER guard AFTER INSERT ON sessions BEGIN SELECT 1; END;')],
+        ]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/different definition/);
     expect(writes).toEqual([]);
   });
 
   it('rejects duplicate migration names before D1 access', async () => {
     const execute = vi.fn();
-    await expect(applyD1Migrations({
-      creds,
-      databaseId: 'db',
-      names: ['041_demo.sql', '041_demo.sql'],
-      migrations: new Map([['041_demo.sql', Buffer.from('CREATE TABLE demo (id TEXT);')]]),
-      execute: execute as any,
-    })).rejects.toThrow(/duplicate names/);
+    await expect(
+      applyD1Migrations({
+        creds,
+        databaseId: 'db',
+        names: ['041_demo.sql', '041_demo.sql'],
+        migrations: new Map([['041_demo.sql', Buffer.from('CREATE TABLE demo (id TEXT);')]]),
+        execute: execute as any,
+      }),
+    ).rejects.toThrow(/duplicate names/);
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -949,9 +990,7 @@ describe('applyD1Migrations', () => {
         creds,
         databaseId: 'db',
         names: ['041_demo.sql'],
-        migrations: new Map([
-          ['041_demo.sql', Buffer.from('ALTER TABLE old_name RENAME TO changed_name;')],
-        ]),
+        migrations: new Map([['041_demo.sql', Buffer.from('ALTER TABLE old_name RENAME TO changed_name;')]]),
         execute: execute as any,
       }),
     ).rejects.toThrow(/changed after it was applied/);

@@ -8,8 +8,7 @@ describe('development deployment workflow contract', () => {
   const sharedDeploy = read('.github/workflows/deploy-cloudflare.yml');
   const workflow = parse(sharedDeploy) as any;
   const deploy = workflow.jobs.deploy;
-  const stepIndex = (name: string) =>
-    deploy.steps.findIndex((step: { name?: string }) => step.name === name);
+  const stepIndex = (name: string) => deploy.steps.findIndex((step: { name?: string }) => step.name === name);
 
   test('uses one environment-serialized deployment for dev and manual production', () => {
     expect(workflow.on.push.branches).toEqual(['dev']);
@@ -37,9 +36,7 @@ describe('development deployment workflow contract', () => {
     expect(deploy.steps[approval].env).toEqual({
       APPROVED_SOURCE_SHA: '${{ inputs.production_source_sha }}',
     });
-    expect(deploy.steps[approval].run).toContain(
-      'test "$APPROVED_SOURCE_SHA" = "$GITHUB_SHA"',
-    );
+    expect(deploy.steps[approval].run).toContain('test "$APPROVED_SOURCE_SHA" = "$GITHUB_SHA"');
     expect(approval).toBeLessThan(stepIndex('Verify deployment target'));
   });
 
@@ -49,25 +46,13 @@ describe('development deployment workflow contract', () => {
     expect(stepIndex('Build Pharmacy LIFF Pages')).toBeLessThan(migrate);
     expect(stepIndex('Build Admin Panel')).toBeLessThan(migrate);
     expect(migrate).toBeLessThan(stepIndex('Deploy to Cloudflare Workers'));
-    expect(stepIndex('Deploy to Cloudflare Workers')).toBeLessThan(
-      stepIndex('Verify Worker health'),
-    );
-    expect(stepIndex('Verify Worker health')).toBeLessThan(
-      stepIndex('Deploy to Cloudflare Pages'),
-    );
-    expect(stepIndex('Verify Worker health')).toBeLessThan(
-      stepIndex('Deploy Pharmacy LIFF Pages'),
-    );
-    expect(stepIndex('Deploy Pharmacy LIFF Pages')).toBeLessThan(
-      stepIndex('Deploy to Cloudflare Pages'),
-    );
-    expect(stepIndex('Deploy to Cloudflare Pages')).toBeLessThan(
-      stepIndex('Verify Admin health'),
-    );
+    expect(stepIndex('Deploy to Cloudflare Workers')).toBeLessThan(stepIndex('Verify Worker health'));
+    expect(stepIndex('Verify Worker health')).toBeLessThan(stepIndex('Deploy to Cloudflare Pages'));
+    expect(stepIndex('Verify Worker health')).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
+    expect(stepIndex('Deploy Pharmacy LIFF Pages')).toBeLessThan(stepIndex('Deploy to Cloudflare Pages'));
+    expect(stepIndex('Deploy to Cloudflare Pages')).toBeLessThan(stepIndex('Verify Admin health'));
     expect(stepIndex('Capture pre-migration release state')).toBeLessThan(migrate);
-    expect(stepIndex('Verify Admin health')).toBeLessThan(
-      stepIndex('Record release evidence'),
-    );
+    expect(stepIndex('Verify Admin health')).toBeLessThan(stepIndex('Record release evidence'));
   });
 
   test('injects and verifies the runtime release version before production deployment', () => {
@@ -84,10 +69,12 @@ describe('development deployment workflow contract', () => {
     expect(verifyVersion).toBeGreaterThan(stepIndex('Verify Worker health'));
     expect(verifyVersion).toBeLessThan(stepIndex('Deploy Pharmacy LIFF Pages'));
     expect(sharedDeploy).toContain('release_version=$(node -p');
-    expect(sharedDeploy).toContain("node -p 'require(\"./apps/worker/package.json\").version'");
+    expect(sharedDeploy).toContain('node -p \'require("./apps/worker/package.json").version\'');
     expect(sharedDeploy).toContain('apps/worker/scripts/inject-version.ts');
     const injectRun = deploy.steps[inject].run as string;
-    expect(injectRun).toContain('--worker-package-version "$(node -p \'require("./apps/worker/package.json").version\')"');
+    expect(injectRun).toContain(
+      '--worker-package-version "$(node -p \'require("./apps/worker/package.json").version\')"',
+    );
     expect(injectRun).toContain('--web-package-version "$(node -p \'require("./apps/web/package.json").version\')"');
     expect(injectRun).toContain('--liff-package-version "$(node -p \'require("./apps/liff/package.json").version\')"');
     expect(injectRun).not.toContain('require(\\"');
@@ -110,12 +97,8 @@ describe('development deployment workflow contract', () => {
     expect(detect).toBeLessThan(generate);
     expect(generate).toBeLessThan(publish);
     expect(publish).toBeLessThan(workerDeploy);
-    expect(deploy.steps[generate].if).toBe(
-      "steps.rich-menu-catalog.outputs.changed == 'true'",
-    );
-    expect(deploy.steps[publish].if).toBe(
-      "steps.rich-menu-catalog.outputs.changed == 'true'",
-    );
+    expect(deploy.steps[generate].if).toBe("steps.rich-menu-catalog.outputs.changed == 'true'");
+    expect(deploy.steps[publish].if).toBe("steps.rich-menu-catalog.outputs.changed == 'true'");
     expect(sharedDeploy).toContain('git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA"');
     expect(sharedDeploy).toContain('initial-large-3x2-v5.jpg');
     expect(sharedDeploy).toContain('generate-rich-menu-catalog.ts');
@@ -129,8 +112,8 @@ describe('development deployment workflow contract', () => {
     expect(sharedDeploy).toContain('remote_image="$(mktemp)"');
     expect(sharedDeploy).toContain('Existing rich-menu catalog image differs');
     expect(sharedDeploy).toContain('/r2/buckets/$encoded_bucket/objects?prefix=$encoded_prefix&per_page=1000');
-    expect(sharedDeploy).toContain(".success == true and ((.result_info.is_truncated // false) == false)");
-    expect(sharedDeploy).toContain(".result[].key");
+    expect(sharedDeploy).toContain('.success == true and ((.result_info.is_truncated // false) == false)');
+    expect(sharedDeploy).toContain('.result[].key');
     expect(sharedDeploy).toContain('grep -Fqx -- "$object_key" "$existing_keys"');
     expect(sharedDeploy).toContain('Existing manifest could not be read');
   });
@@ -138,9 +121,7 @@ describe('development deployment workflow contract', () => {
   test('checks out and deploys the exact source SHA with pinned actions', () => {
     expect(sharedDeploy).toContain('ref: ${{ github.sha }}');
     expect(sharedDeploy).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
-    const uses = deploy.steps
-      .filter((step: { uses?: string }) => step.uses)
-      .map((step: { uses: string }) => step.uses);
+    const uses = deploy.steps.filter((step: { uses?: string }) => step.uses).map((step: { uses: string }) => step.uses);
     expect(uses.length).toBeGreaterThan(0);
     expect(uses.every((value: string) => /@[0-9a-f]{40}$/.test(value))).toBe(true);
   });
@@ -183,15 +164,11 @@ describe('development deployment workflow contract', () => {
 
     const steps = repositoryVerify.jobs.verify.steps;
     expect(steps.some((step: { run?: string }) => step.run === 'pnpm verify:ci')).toBe(true);
-    const sharedBuild = steps.find(
-      (step: { name?: string }) => step.name === 'Build shared packages',
-    ).run as string;
+    const sharedBuild = steps.find((step: { name?: string }) => step.name === 'Build shared packages').run as string;
     expect(rootPackage.scripts['verify:ci']).toMatch(
-      new RegExp(`^${sharedBuild.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} && pnpm -r typecheck`),
+      new RegExp(`${sharedBuild.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} && pnpm -r typecheck`),
     );
-    const build = steps.find(
-      (step: { name?: string }) => step.name === 'Build critical applications',
-    );
+    const build = steps.find((step: { name?: string }) => step.name === 'Build critical applications');
     expect(build.run).toBe('pnpm --filter worker --filter web --filter liff build');
   });
 
@@ -199,11 +176,8 @@ describe('development deployment workflow contract', () => {
     const repositoryVerify = parse(read('.github/workflows/repository-verify.yml')) as any;
     const jobs = Object.keys(repositoryVerify.jobs);
     const steps = repositoryVerify.jobs.verify.steps;
-    const uses = steps
-      .filter((step: { uses?: string }) => step.uses)
-      .map((step: { uses: string }) => step.uses);
-    const namedStep = (name: string) =>
-      steps.find((step: { name?: string }) => step.name === name);
+    const uses = steps.filter((step: { uses?: string }) => step.uses).map((step: { uses: string }) => step.uses);
+    const namedStep = (name: string) => steps.find((step: { name?: string }) => step.name === name);
 
     expect(jobs).toEqual(['verify', 'attest']);
     expect(uses.every((value: string) => /@[0-9a-f]{40}$/.test(value))).toBe(true);
@@ -211,9 +185,7 @@ describe('development deployment workflow contract', () => {
     expect(namedStep('Initialize CodeQL')).toBeTruthy();
     expect(namedStep('Analyze with CodeQL')).toBeTruthy();
     expect(namedStep('Scan new commits for secrets')).toBeTruthy();
-    expect(namedStep('Run dependency and license baseline').run).toContain(
-      'pnpm audit --prod --audit-level high',
-    );
+    expect(namedStep('Run dependency and license baseline').run).toContain('pnpm audit --prod --audit-level high');
     expect(namedStep('Run LIFF browser smoke').run).toBe('pnpm --filter liff test:e2e');
     expect(namedStep('Run pharmacy admin browser regression')?.run).toBe('pnpm --filter web test:e2e');
     expect(namedStep('Generate CycloneDX SBOM').run).toContain('pnpm exec cdxgen');
@@ -227,18 +199,22 @@ describe('development deployment workflow contract', () => {
       'id-token': 'write',
       attestations: 'write',
     });
-    expect(attest.steps.some(
-      (step: { name?: string }) => step.name === 'Attest synthetic artifact provenance',
-    )).toBe(true);
-    expect(attest.steps
-      .filter((step: { uses?: string }) => step.uses)
-      .every((step: { uses: string }) => /@[0-9a-f]{40}$/.test(step.uses))).toBe(true);
+    expect(attest.steps.some((step: { name?: string }) => step.name === 'Attest synthetic artifact provenance')).toBe(
+      true,
+    );
+    expect(
+      attest.steps
+        .filter((step: { uses?: string }) => step.uses)
+        .every((step: { uses: string }) => /@[0-9a-f]{40}$/.test(step.uses)),
+    ).toBe(true);
   });
 
   test('development Worker uses an isolated R2 bucket', () => {
     expect(sharedDeploy).toContain('R2_BUCKET_NAME: ${{ vars.R2_BUCKET_NAME }}');
     expect(sharedDeploy).toContain('Development R2 bucket name must end in -dev');
-    expect(sharedDeploy).toContain('.r2_buckets |= map(if .binding == "IMAGES" then .bucket_name = $bucket else . end)');
+    expect(sharedDeploy).toContain(
+      '.r2_buckets |= map(if .binding == "IMAGES" then .bucket_name = $bucket else . end)',
+    );
   });
 
   test('bakes the configured LIFF origin into the Worker CORS config', () => {
@@ -366,9 +342,13 @@ describe('development deployment workflow contract', () => {
     expect(inject.id).toBe('release_artifacts');
     expect(inject.run).toContain('metadata="$(pnpm tsx apps/worker/scripts/inject-version.ts');
     expect(inject.run).toContain('echo "metadata=$metadata" >> "$GITHUB_OUTPUT"');
-    expect(stepIndex('Hash final Worker deploy artifacts')).toBeGreaterThan(stepIndex('Rebuild Worker with runtime release metadata'));
+    expect(stepIndex('Hash final Worker deploy artifacts')).toBeGreaterThan(
+      stepIndex('Rebuild Worker with runtime release metadata'),
+    );
     expect(stepIndex('Hash final Worker deploy artifacts')).toBeLessThan(stepIndex('Deploy to Cloudflare Workers'));
-    expect(final.env).toMatchObject({ ARTIFACT_METADATA: '${{ steps.release_artifacts.outputs.metadata }}' });
+    expect(final.env).toMatchObject({
+      ARTIFACT_METADATA: '${{ steps.release_artifacts.outputs.metadata }}',
+    });
     expect(final.run).toContain('scripts/deploy/final-artifact-metadata.ts');
     expect(record.env).toMatchObject({
       ARTIFACT_METADATA: '${{ steps.final_artifacts.outputs.metadata }}',

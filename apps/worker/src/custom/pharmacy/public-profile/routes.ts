@@ -23,26 +23,30 @@ pharmacyPublicProfileRoutes.use('/api/liff/pharmacy/public-profile', async (c, n
 
 pharmacyPublicProfileRoutes.get('/api/liff/pharmacy/public-profile', async (c) => {
   const profile = await getPharmacyPublicProfile(c.env.DB, c.get('publicProfileLineAccountId'));
-  return profile ? c.json({ profile: {
-    display_name: profile.display_name,
-    phone: profile.phone,
-    fax_number: profile.fax_number,
-    postal_code: profile.postal_code,
-    address: profile.address,
-    business_hours: profile.business_hours,
-    closure_notice: profile.closure_notice,
-    access_note: profile.access_note,
-    parking_note: profile.parking_note,
-    google_maps_url: profile.google_maps_url,
-    prescription_reception_hours: profile.prescription_reception_hours,
-    after_hours_note: profile.after_hours_note,
-    services_note: profile.services_note,
-    accessibility_note: profile.accessibility_note,
-    supported_languages: profile.supported_languages,
-    payment_methods: profile.payment_methods,
-    website_url: profile.website_url,
-    updated_at: profile.updated_at,
-  } }) : c.json({ error: 'Pharmacy account not found' }, 404);
+  return profile
+    ? c.json({
+        profile: {
+          display_name: profile.display_name,
+          phone: profile.phone,
+          fax_number: profile.fax_number,
+          postal_code: profile.postal_code,
+          address: profile.address,
+          business_hours: profile.business_hours,
+          closure_notice: profile.closure_notice,
+          access_note: profile.access_note,
+          parking_note: profile.parking_note,
+          google_maps_url: profile.google_maps_url,
+          prescription_reception_hours: profile.prescription_reception_hours,
+          after_hours_note: profile.after_hours_note,
+          services_note: profile.services_note,
+          accessibility_note: profile.accessibility_note,
+          supported_languages: profile.supported_languages,
+          payment_methods: profile.payment_methods,
+          website_url: profile.website_url,
+          updated_at: profile.updated_at,
+        },
+      })
+    : c.json({ error: 'Pharmacy account not found' }, 404);
 });
 
 pharmacyPublicProfileRoutes.get('/api/custom/pharmacy/public-profile', async (c) => {

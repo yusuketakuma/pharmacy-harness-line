@@ -1,6 +1,6 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { getClient, getHarnessApiConfig, getHarnessApiHeaders } from "../client.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { getClient, getHarnessApiConfig, getHarnessApiHeaders } from '../client.js';
 
 interface AccountInfo {
   id: string;
@@ -16,10 +16,10 @@ interface AccountStat {
   friendsFromLine: number | null;
   lineFollowersDate: string;
   lineFollowersStatus: string | null;
-  dbCountStatus: "ready" | "error";
-  lineCountStatus: "ready" | "unready" | "error";
+  dbCountStatus: 'ready' | 'error';
+  lineCountStatus: 'ready' | 'unready' | 'error';
   syncDifference: number | null;
-  syncRiskLevel: "ok" | "warning" | "unknown";
+  syncRiskLevel: 'ok' | 'warning' | 'unknown';
   riskLevel?: string;
   targetedReaches?: number | null;
   blocks?: number | null;
@@ -33,14 +33,14 @@ interface ApiEnvelope<T> {
 }
 
 function yyyymmddInJst(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).formatToParts(date);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("year")}${get("month")}${get("day")}`;
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}${get('month')}${get('day')}`;
 }
 
 function previousJstDate(): string {
@@ -49,10 +49,7 @@ function previousJstDate(): string {
   return yyyymmddInJst(d);
 }
 
-async function fetchHarnessJson<T>(
-  apiUrl: string,
-  path: string,
-): Promise<ApiEnvelope<T>> {
+async function fetchHarnessJson<T>(apiUrl: string, path: string): Promise<ApiEnvelope<T>> {
   try {
     const res = await fetch(`${apiUrl}${path}`, {
       headers: getHarnessApiHeaders(),
@@ -67,7 +64,7 @@ async function fetchHarnessJson<T>(
     if (!json?.success) {
       return {
         success: false,
-        error: json?.error ?? "API returned success=false",
+        error: json?.error ?? 'API returned success=false',
       };
     }
     return json;
@@ -81,13 +78,10 @@ async function fetchHarnessJson<T>(
 
 export function registerAccountSummary(server: McpServer): void {
   server.tool(
-    "account_summary",
-    "Get a high-level summary of the LINE account: friend count per account (DB + LINE API stats), active scenarios, recent broadcasts, tags, and forms. Use this to understand the current state before making changes.",
+    'account_summary',
+    'Get a high-level summary of the LINE account: friend count per account (DB + LINE API stats), active scenarios, recent broadcasts, tags, and forms. Use this to understand the current state before making changes.',
     {
-      accountId: z
-        .string()
-        .optional()
-        .describe("LINE account ID (uses default if omitted)"),
+      accountId: z.string().optional().describe('LINE account ID (uses default if omitted)'),
     },
     async ({ accountId }) => {
       try {
@@ -96,13 +90,8 @@ export function registerAccountSummary(server: McpServer): void {
         const lineFollowersDate = previousJstDate();
 
         // Fetch all LINE accounts
-        const accountsData = await fetchHarnessJson<AccountInfo[]>(
-          apiUrl,
-          "/api/line-accounts",
-        );
-        const accounts: AccountInfo[] = accountsData.success
-          ? accountsData.data ?? []
-          : [];
+        const accountsData = await fetchHarnessJson<AccountInfo[]>(apiUrl, '/api/line-accounts');
+        const accounts: AccountInfo[] = accountsData.success ? (accountsData.data ?? []) : [];
 
         // Get per-account friend counts
         const accountStats: AccountStat[] = [];
@@ -118,27 +107,21 @@ export function registerAccountSummary(server: McpServer): void {
             followers: number | null;
             targetedReaches: number | null;
             blocks: number | null;
-          }>(
-            apiUrl,
-            `/api/line-accounts/${encodeURIComponent(acc.id)}/follower-insight?date=${lineFollowersDate}`,
-          );
-          const friendsInDb = countData.success ? countData.data?.count ?? null : null;
-          const friendsFromLine = lineData.success && lineData.data?.status === "ready"
-            ? lineData.data.followers
-            : null;
+          }>(apiUrl, `/api/line-accounts/${encodeURIComponent(acc.id)}/follower-insight?date=${lineFollowersDate}`);
+          const friendsInDb = countData.success ? (countData.data?.count ?? null) : null;
+          const friendsFromLine =
+            lineData.success && lineData.data?.status === 'ready' ? lineData.data.followers : null;
           const warnings: string[] = [];
           if (!countData.success) {
-            warnings.push(`DB friend count unavailable: ${countData.error ?? "unknown error"}`);
+            warnings.push(`DB friend count unavailable: ${countData.error ?? 'unknown error'}`);
           }
           if (!lineData.success) {
-            warnings.push(`LINE follower insight unavailable: ${lineData.error ?? "unknown error"}`);
-          } else if (lineData.data?.status !== "ready") {
+            warnings.push(`LINE follower insight unavailable: ${lineData.error ?? 'unknown error'}`);
+          } else if (lineData.data?.status !== 'ready') {
             warnings.push(`LINE follower insight is not ready for ${lineFollowersDate}`);
           }
           const syncDifference =
-            friendsInDb !== null && friendsFromLine !== null
-              ? friendsInDb - friendsFromLine
-              : null;
+            friendsInDb !== null && friendsFromLine !== null ? friendsInDb - friendsFromLine : null;
           if (syncDifference !== null && syncDifference !== 0) {
             warnings.push(
               `DB friends (${friendsInDb}) differ from LINE followers (${friendsFromLine}) by ${syncDifference}. Check webhook sync and channel tokens.`,
@@ -151,21 +134,13 @@ export function registerAccountSummary(server: McpServer): void {
             friendsInDb,
             friendsFromLine,
             lineFollowersDate,
-            lineFollowersStatus: lineData.success ? lineData.data?.status ?? null : null,
-            dbCountStatus: countData.success ? "ready" : "error",
-            lineCountStatus: !lineData.success
-              ? "error"
-              : lineData.data?.status === "ready"
-                ? "ready"
-                : "unready",
+            lineFollowersStatus: lineData.success ? (lineData.data?.status ?? null) : null,
+            dbCountStatus: countData.success ? 'ready' : 'error',
+            lineCountStatus: !lineData.success ? 'error' : lineData.data?.status === 'ready' ? 'ready' : 'unready',
             syncDifference,
-            syncRiskLevel: syncDifference === null
-              ? "unknown"
-              : syncDifference === 0
-                ? "ok"
-                : "warning",
-            targetedReaches: lineData.success ? lineData.data?.targetedReaches ?? null : null,
-            blocks: lineData.success ? lineData.data?.blocks ?? null : null,
+            syncRiskLevel: syncDifference === null ? 'unknown' : syncDifference === 0 ? 'ok' : 'warning',
+            targetedReaches: lineData.success ? (lineData.data?.targetedReaches ?? null) : null,
+            blocks: lineData.success ? (lineData.data?.blocks ?? null) : null,
             warnings,
           });
         }
@@ -180,62 +155,48 @@ export function registerAccountSummary(server: McpServer): void {
             if (healthData.success) {
               acc.riskLevel = healthData.data?.riskLevel;
             } else {
-              acc.warnings.push(`Health risk level unavailable: ${healthData.error ?? "unknown error"}`);
+              acc.warnings.push(`Health risk level unavailable: ${healthData.error ?? 'unknown error'}`);
             }
           } catch (err) {
-            acc.warnings.push(
-              `Health risk level unavailable: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            acc.warnings.push(`Health risk level unavailable: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
 
-        const [totalFriends, scenarios, broadcasts, tags, forms] =
-          await Promise.all([
-            client.friends.count(),
-            client.scenarios.list({ accountId }),
-            client.broadcasts.list({ accountId }),
-            client.tags.list(),
-            client.forms.list(),
-          ]);
+        const [totalFriends, scenarios, broadcasts, tags, forms] = await Promise.all([
+          client.friends.count(),
+          client.scenarios.list({ accountId }),
+          client.broadcasts.list({ accountId }),
+          client.tags.list(),
+          client.forms.list(),
+        ]);
 
-        const activeScenarios = scenarios.filter(
-          (s: { isActive: boolean }) => s.isActive,
-        );
+        const activeScenarios = scenarios.filter((s: { isActive: boolean }) => s.isActive);
         const recentBroadcasts = broadcasts.slice(0, 5);
 
         const summary = {
           friends: {
             totalDbRecords: totalFriends,
-            note: "totalDbRecords is the DB count. perAccount[].friendsFromLine is the LINE official follower insight for the previous JST date. If these differ, webhook sync or channel token health may be broken.",
+            note: 'totalDbRecords is the DB count. perAccount[].friendsFromLine is the LINE official follower insight for the previous JST date. If these differ, webhook sync or channel token health may be broken.',
             warningCount: accountStats.reduce((sum, acc) => sum + acc.warnings.length, 0),
             perAccount: accountStats,
           },
           scenarios: {
             total: scenarios.length,
             active: activeScenarios.length,
-            activeList: activeScenarios.map(
-              (s: { id: string; name: string; triggerType: string }) => ({
-                id: s.id,
-                name: s.name,
-                triggerType: s.triggerType,
-              }),
-            ),
+            activeList: activeScenarios.map((s: { id: string; name: string; triggerType: string }) => ({
+              id: s.id,
+              name: s.name,
+              triggerType: s.triggerType,
+            })),
           },
           broadcasts: {
             total: broadcasts.length,
-            recent: recentBroadcasts.map(
-              (b: {
-                id: string;
-                title: string;
-                status: string;
-                sentAt: string | null;
-              }) => ({
-                id: b.id,
-                title: b.title,
-                status: b.status,
-                sentAt: b.sentAt,
-              }),
-            ),
+            recent: recentBroadcasts.map((b: { id: string; title: string; status: string; sentAt: string | null }) => ({
+              id: b.id,
+              title: b.title,
+              status: b.status,
+              sentAt: b.sentAt,
+            })),
           },
           tags: {
             total: tags.length,
@@ -246,20 +207,18 @@ export function registerAccountSummary(server: McpServer): void {
           },
           forms: {
             total: forms.length,
-            list: forms.map(
-              (f: { id: string; name: string; submitCount: number }) => ({
-                id: f.id,
-                name: f.name,
-                submitCount: f.submitCount,
-              }),
-            ),
+            list: forms.map((f: { id: string; name: string; submitCount: number }) => ({
+              id: f.id,
+              name: f.name,
+              submitCount: f.submitCount,
+            })),
           },
         };
 
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify(summary, null, 2),
             },
           ],
@@ -268,12 +227,8 @@ export function registerAccountSummary(server: McpServer): void {
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: false, error: String(error) },
-                null,
-                2,
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: false, error: String(error) }, null, 2),
             },
           ],
           isError: true,

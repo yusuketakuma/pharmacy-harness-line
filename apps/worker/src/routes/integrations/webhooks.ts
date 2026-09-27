@@ -40,13 +40,9 @@ function safeEqualHex(a: string, b: string): boolean {
 
 async function computeHmacSha256Hex(secret: string, body: string): Promise<string> {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -117,7 +113,12 @@ webhooks.post('/api/webhooks/incoming', async (c) => {
 webhooks.put('/api/webhooks/incoming/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const body = await c.req.json<{ name?: string; sourceType?: string; secret?: string; isActive?: boolean }>();
+    const body = await c.req.json<{
+      name?: string;
+      sourceType?: string;
+      secret?: string;
+      isActive?: boolean;
+    }>();
     if (body.isActive !== undefined && typeof body.isActive !== 'boolean') {
       return c.json({ success: false, error: 'isActive must be a boolean' }, 400);
     }
@@ -291,10 +292,7 @@ webhooks.put('/api/webhooks/outgoing/:id', async (c) => {
       }
       const urlError = validateHttpsUrl(effectiveUrl);
       if (urlError) {
-        return c.json(
-          { success: false, error: `Cannot activate webhook: ${urlError}` },
-          400,
-        );
+        return c.json({ success: false, error: `Cannot activate webhook: ${urlError}` }, 400);
       }
     }
     await updateOutgoingWebhook(c.env.DB, id, body, c.get('tenantId') ?? null);
@@ -367,9 +365,17 @@ webhooks.post('/api/webhooks/incoming/:id/receive', async (c) => {
       return c.json({ success: false, error: 'Invalid Idempotency-Key' }, 400);
     }
     const eventKey = rawEventKey ? `${wh.id}:${rawEventKey}` : undefined;
-    await fireEvent(c.env.DB, eventType, {
-      eventData: { webhookId: wh.id, source: wh.source_type, payload },
-    }, undefined, null, wh.tenant_id, eventKey);
+    await fireEvent(
+      c.env.DB,
+      eventType,
+      {
+        eventData: { webhookId: wh.id, source: wh.source_type, payload },
+      },
+      undefined,
+      null,
+      wh.tenant_id,
+      eventKey,
+    );
 
     return c.json({ success: true, data: { received: true, source: wh.source_type } });
   } catch (err) {

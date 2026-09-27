@@ -1,0 +1,510 @@
+diff --git a/apps/worker/src/routes/crm/chats.ts b/apps/worker/src/routes/crm/chats.ts
+index ff5e295..07b2679 100644
+--- a/apps/worker/src/routes/crm/chats.ts
++++ b/apps/worker/src/routes/crm/chats.ts
+@@ -100,14 +100,14 @@ async function resolveOrCreateChat(db: D1Database, id: string): Promise<ChatLike
+   // 最新行を選ぶ (unanswered-inbox / conversations の latest_chat CTE と同じ基準)。
+   // 最古行を選ぶと、旧重複データがある DB で読み手と別の行に status を書いてしまう。
+   const byFriend = await db
+-    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY created_at DESC LIMIT 1`)
++    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
+     .bind(friend.id)
+     .first<ChatLike>();
+   if (byFriend) return byFriend;
+ 
+   const lastMsg = await db
+     .prepare(
+-      `SELECT MAX(created_at) AS last FROM messages_log WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')`,
++      `SELECT created_at AS last, MAX(julianday(created_at)) AS latest_at FROM messages_log WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')`,
+     )
+     .bind(friend.id)
+     .first<{ last: string | null }>();
+@@ -125,7 +125,7 @@ async function resolveOrCreateChat(db: D1Database, id: string): Promise<ChatLike
+     .bind(newId, friend.id, lastMessageAt, now, now, friend.id)
+     .run();
+   return (await db
+-    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY created_at DESC LIMIT 1`)
++    .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
+     .bind(friend.id)
+     .first<ChatLike>())!;
+ }
+@@ -310,59 +310,60 @@ chats.get('/api/chats', async (c) => {
+     // incoming を常に優先すると、プロキシ経由の manual/external 送信が messages_log に
+     // 正しく保存されていても、一覧には何日も前の incoming とその日時が残って見える。
+     // また page の並び順は最新 any なのにレスポンスの lastMessageAt だけ過去の incoming に
+-    // なるため、フロントが作るページング cursor と SQL のソートキーも食い違っていた。
++    // なるため、lastMessageAt は page のソートキーと同じ値を返す。
+     // 未対応モードだけは取得後に unansweredMap の incoming で明示的に上書きする。
+     // text 以外 (flex/image/sticker 等) は content を NULL にして payload size を抑える
+     // (フロントは type で 📋 Flex / 📷 画像 等のラベルを出すので content は不要)。
++    // UTC/JST が混在するため MAX は julianday で瞬間を比較する。
+     // any_agg の bare column (content 等) は「単一 MAX() を含む集約は max 行の
+     // 値を返す」という SQLite の documented 挙動で argmax として使っている。
+     // 集約は page 確定後の friend に絞って実行する (全 friend 分の content を
+     // materialize しない)。last_any は並び順決定専用のスリムな全走査 1 回のみ。
+     const sql = `
+       WITH last_any AS MATERIALIZED (
+-        SELECT friend_id, MAX(created_at) AS last_message_at
++        SELECT friend_id, created_at AS last_message_at, MAX(julianday(created_at)) AS latest_at
+         FROM messages_log
+         WHERE (delivery_type IS NULL OR delivery_type != 'test')
+           AND ${accountFilterSql}
+         GROUP BY friend_id
+       ),
+       deduped AS MATERIALIZED (
+-        SELECT friend_id, MAX(last_message_at) AS last_message_at FROM (
++        SELECT friend_id, last_message_at, MAX(julianday(last_message_at)) AS latest_at FROM (
+           SELECT friend_id, last_message_at FROM last_any
+           UNION ALL
+           SELECT friend_id, last_message_at FROM chats WHERE ${accountFilterSql}
+         ) GROUP BY friend_id
+       ),
+       page AS MATERIALIZED (
+-        SELECT d.friend_id, d.last_message_at
++        SELECT d.friend_id, d.last_message_at, d.latest_at
+         FROM deduped d
+         INNER JOIN friends f ON f.id = d.friend_id
+         INNER JOIN tenant_line_accounts AS tenant_mapping
+                 ON tenant_mapping.line_account_id = f.line_account_id
+         ${pageNeedsChats ? `LEFT JOIN chats c ON c.id = (
+-          SELECT id FROM chats WHERE friend_id = f.id ORDER BY created_at DESC LIMIT 1
++          SELECT id FROM chats WHERE friend_id = f.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1
+         )` : ''}
+         WHERE tenant_mapping.tenant_id = ?
+         ${pharmacyTenant
+           ? `AND ${await pharmacyStaffAccountPredicate(c.env.DB, 'f.line_account_id', 'tenant_mapping')}`
+           : ''}
+         ${conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : ''}
+-        ${useCursor ? 'AND (d.last_message_at < ? OR (d.last_message_at = ? AND d.friend_id < ?))' : ''}
+-        ORDER BY d.last_message_at DESC, d.friend_id DESC
++        ${useCursor ? 'AND (d.latest_at < julianday(?) OR (d.latest_at = julianday(?) AND d.friend_id < ?))' : ''}
++        ORDER BY d.latest_at DESC, d.friend_id DESC
+         LIMIT ?
+       ),
+       any_agg AS (
+         SELECT friend_id,
+           CASE WHEN message_type = 'text' THEN SUBSTR(content, 1, 200) ELSE NULL END AS content,
+           direction, message_type,
+-          MAX(created_at) AS created_at
++          MAX(julianday(created_at)) AS latest_at
+         FROM messages_log
+         WHERE (delivery_type IS NULL OR delivery_type != 'test')
+           AND friend_id IN (SELECT friend_id FROM page)
+         GROUP BY friend_id
+       ),
+       recent_msg AS (
+-        SELECT friend_id, content, direction, message_type, created_at AS preview_at
++        SELECT friend_id, content, direction, message_type
+         FROM any_agg
+       )
+       SELECT
+@@ -375,7 +376,7 @@ chats.get('/api/chats', async (c) => {
+         c.operator_id,
+         COALESCE(c.status, 'resolved') AS status,
+         c.notes,
+-        COALESCE(rm.preview_at, d.last_message_at) AS last_message_at,
++        d.last_message_at AS last_message_at,
+         rm.content AS last_message_content,
+         rm.direction AS last_message_direction,
+         rm.message_type AS last_message_type,
+@@ -384,10 +385,10 @@ chats.get('/api/chats', async (c) => {
+       FROM page d
+       INNER JOIN friends f ON f.id = d.friend_id
+       LEFT JOIN chats c ON c.id = (
+-        SELECT id FROM chats WHERE friend_id = f.id ORDER BY created_at DESC LIMIT 1
++        SELECT id FROM chats WHERE friend_id = f.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1
+       )
+       LEFT JOIN recent_msg rm ON rm.friend_id = f.id
+-      ORDER BY d.last_message_at DESC, d.friend_id DESC
++      ORDER BY d.latest_at DESC, d.friend_id DESC
+     `;
+ 
+     // placeholder 順 = SQL 出現順: last_any(account) → deduped 内 chats(account) →
+@@ -436,7 +437,7 @@ chats.get('/api/chats', async (c) => {
+         .sort((a, b) => {
+           const aAt = typeof a.lastMessageAt === 'string' ? a.lastMessageAt : '';
+           const bAt = typeof b.lastMessageAt === 'string' ? b.lastMessageAt : '';
+-          return bAt.localeCompare(aAt);
++          return Date.parse(bAt) - Date.parse(aAt);
+         });
+     }
+ 
+@@ -467,7 +468,7 @@ chats.get('/api/chats/:id', async (c) => {
+       friendId = friendRow.id;
+       // 同じ friend に紐づく chats 行があれば採用（lazy-create 後の再読みで status/notes を拾うため）
+       const existing = await c.env.DB
+-        .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY created_at DESC LIMIT 1`)
++        .prepare(`SELECT * FROM chats WHERE friend_id = ? ORDER BY julianday(created_at) DESC, id DESC LIMIT 1`)
+         .bind(friendRow.id)
+         .first<{ id: string; friend_id: string; operator_id: string | null; status: string; notes: string | null; last_message_at: string | null; created_at: string; updated_at: string }>();
+       if (existing) {
+@@ -497,7 +498,7 @@ chats.get('/api/chats/:id', async (c) => {
+         `SELECT id, friend_id, direction, message_type, content, created_at
+          FROM messages_log
+          WHERE friend_id = ? AND (delivery_type IS NULL OR delivery_type != 'test')
+-         ORDER BY created_at DESC LIMIT 1000`,
++         ORDER BY julianday(created_at) DESC, id DESC LIMIT 1000`,
+       )
+       .bind(resolvedFriendId)
+       .all();
+diff --git a/apps/worker/src/routes/crm/conversations.ts b/apps/worker/src/routes/crm/conversations.ts
+index 6996c9b..2be7f88 100644
+--- a/apps/worker/src/routes/crm/conversations.ts
++++ b/apps/worker/src/routes/crm/conversations.ts
+@@ -50,7 +50,7 @@ conversations.get('/api/conversations', async (c) => {
+     // 共有し、片方だけ編集されて total と items が食い違うのを防ぐ。
+     const latestChatCte = `
+       latest_chat AS (
+-        SELECT friend_id, status, MAX(created_at) AS created_at
++        SELECT friend_id, status, MAX(julianday(created_at)) AS latest_at
+         FROM chats
+         GROUP BY friend_id
+       )`;
+@@ -60,14 +60,14 @@ conversations.get('/api/conversations', async (c) => {
+       -- conversations queue (要対応の自発メッセージ) は postback (rich menu tap) を除外する。
+       -- postback は button 押下で「人間の返信を要する自発メッセージ」ではないため。
+       WITH last_incoming AS (
+-        SELECT friend_id, MAX(created_at) AS at
++        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd
+         FROM messages_log
+         WHERE direction = 'incoming'
+           AND (source IS NULL OR source != 'postback')
+         GROUP BY friend_id
+       ),
+       last_human AS (
+-        SELECT friend_id, MAX(created_at) AS at
++        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd
+         FROM messages_log
+         WHERE direction = 'outgoing' AND source = 'manual'
+         GROUP BY friend_id
+@@ -78,7 +78,7 @@ conversations.get('/api/conversations', async (c) => {
+           SELECT ml.friend_id, ml.content, ml.message_type,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY ml.friend_id
+-                   ORDER BY ml.created_at DESC, ml.id DESC
++                   ORDER BY julianday(ml.created_at) DESC, ml.id DESC
+                  ) AS row_number
+           FROM messages_log ml
+           WHERE ml.direction = 'incoming'
+@@ -108,12 +108,12 @@ conversations.get('/api/conversations', async (c) => {
+       WHERE f.is_following = 1
+         AND tenant_mapping.tenant_id = ?
+         ${whereAssignedAccount}
+-        AND (lh.at IS NULL OR lh.at < li.at)
++        AND (lh.at_jd IS NULL OR lh.at_jd < li.at_jd)
+         ${whereNotResolved}
+         AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) >= ?
+         ${whereMaxHours}
+         ${whereAccount}
+-      ORDER BY li.at ASC
++      ORDER BY li.at_jd ASC
+       LIMIT ? OFFSET ?
+     `;
+ 
+@@ -129,13 +129,13 @@ conversations.get('/api/conversations', async (c) => {
+     // total count
+     const countSql = `
+       WITH last_incoming AS (
+-        SELECT friend_id, MAX(created_at) AS at FROM messages_log
++        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd FROM messages_log
+         WHERE direction = 'incoming'
+           AND (source IS NULL OR source != 'postback')
+         GROUP BY friend_id
+       ),
+       last_human AS (
+-        SELECT friend_id, MAX(created_at) AS at FROM messages_log
++        SELECT friend_id, created_at AS at, MAX(julianday(created_at)) AS at_jd FROM messages_log
+         WHERE direction = 'outgoing' AND source = 'manual' GROUP BY friend_id
+       ),
+       ${latestChatCte}
+@@ -148,7 +148,7 @@ conversations.get('/api/conversations', async (c) => {
+       WHERE f.is_following = 1
+         AND tenant_mapping.tenant_id = ?
+         ${whereAssignedAccount}
+-        AND (lh.at IS NULL OR lh.at < li.at)
++        AND (lh.at_jd IS NULL OR lh.at_jd < li.at_jd)
+         ${whereNotResolved}
+         AND ((strftime('%s', 'now') - strftime('%s', li.at)) / 3600.0) >= ?
+         ${whereMaxHours}
+@@ -253,17 +253,17 @@ conversations.get('/api/conversations/:friendId', async (c) => {
+       .all<{ name: string }>();
+     const tags = tagRows.results.map((r) => r.name);
+ 
+-    // Normalize the `before` cursor via julianday() so sub-second precision
++    // Compare both sorting and the `before` cursor via julianday() so sub-second precision
+     // is preserved and cursors in any ISO 8601 timezone form (Z, +09:00) sort
+     // correctly against stored `+09:00` timestamps. strftime('%s', ...) would
+     // truncate to whole seconds and drop messages that share a second.
+     const msgSql = before
+       ? `SELECT id, direction, message_type, content, delivery_type, source, broadcast_id, scenario_step_id, created_at
+          FROM messages_log WHERE friend_id = ? AND julianday(created_at) < julianday(?)
+-         ORDER BY created_at DESC LIMIT ?`
++         ORDER BY julianday(created_at) DESC, id DESC LIMIT ?`
+       : `SELECT id, direction, message_type, content, delivery_type, source, broadcast_id, scenario_step_id, created_at
+          FROM messages_log WHERE friend_id = ?
+-         ORDER BY created_at DESC LIMIT ?`;
++         ORDER BY julianday(created_at) DESC, id DESC LIMIT ?`;
+     const bindings: (string | number)[] = before ? [friendId, before, limit] : [friendId, limit];
+     const msgResult = await c.env.DB.prepare(msgSql)
+       .bind(...bindings)
+diff --git a/apps/worker/src/services/unanswered-inbox.ts b/apps/worker/src/services/unanswered-inbox.ts
+index f9d4eaa..f104aaa 100644
+--- a/apps/worker/src/services/unanswered-inbox.ts
++++ b/apps/worker/src/services/unanswered-inbox.ts
+@@ -89,22 +89,34 @@ const CANDIDATES_SQL = `
+             ON mapping.line_account_id = friend.line_account_id
+     WHERE mapping.tenant_id = ?
+   ),
+-  agg AS (
+-    SELECT
+-      friend_id,
+-      MAX(CASE WHEN direction='incoming' AND (source IS NULL OR source != 'postback') THEN created_at END) AS last_incoming,
+-      MAX(CASE WHEN direction='outgoing' AND source='manual' THEN created_at END) AS last_manual,
+-      MAX(CASE WHEN direction='outgoing' AND source IN
+-          ('auto_reply','automation','automation_backfill','scenario','broadcast')
+-        THEN created_at END) AS last_machine
++  latest_by_kind AS (
++    -- Select one raw timestamp per kind using its instant, without rewriting
++    -- response timestamps or sorting/materializing message content.
++    SELECT friend_id,
++      CASE
++        WHEN direction='incoming' AND (source IS NULL OR source != 'postback') THEN 'incoming'
++        WHEN direction='outgoing' AND source='manual' THEN 'manual'
++        WHEN direction='outgoing' AND source IN
++          ('auto_reply','automation','automation_backfill','scenario','broadcast') THEN 'machine'
++      END AS kind,
++      created_at,
++      MAX(julianday(created_at)) AS latest_at
+     FROM messages_log
+     WHERE friend_id IN (SELECT id FROM tenant_friends)
++    GROUP BY friend_id, kind
++  ),
++  agg AS (
++    SELECT friend_id,
++      MAX(CASE WHEN kind='incoming' THEN created_at END) AS last_incoming,
++      MAX(CASE WHEN kind='manual' THEN created_at END) AS last_manual,
++      MAX(CASE WHEN kind='machine' THEN created_at END) AS last_machine
++    FROM latest_by_kind
+     GROUP BY friend_id
+   ),
+   latest_chat AS (
+     -- friend ごとの最新 chats 行の status (bare-column + 単一 MAX の argmax)。
+     -- 相関サブクエリだと候補 friend 数ぶん個別 seek になるため一括 GROUP BY で取る。
+-    SELECT friend_id, status, MAX(created_at) AS created_at
++    SELECT friend_id, status, MAX(julianday(created_at)) AS latest_at
+     FROM chats
+     WHERE friend_id IN (SELECT id FROM tenant_friends)
+     GROUP BY friend_id
+@@ -126,9 +138,9 @@ const CANDIDATES_SQL = `
+   WHERE f.is_following = 1
+     AND (la.id IS NULL OR la.is_active = 1)
+     AND agg.last_incoming IS NOT NULL
+-    AND (agg.last_manual IS NULL OR agg.last_manual < agg.last_incoming)
++    AND (agg.last_manual IS NULL OR julianday(agg.last_manual) < julianday(agg.last_incoming))
+     AND COALESCE(lc.status, 'unread') != 'resolved'
+-  ORDER BY agg.last_incoming ASC
++  ORDER BY julianday(agg.last_incoming) ASC
+ `;
+ 
+ // 候補 friend の "last_manual 以降の全 incoming" (postback 除く)。
+@@ -146,7 +158,7 @@ const RECENT_INCOMINGS_SQL = `
+     WHERE mapping.tenant_id = ?
+   ),
+   last_manual AS (
+-    SELECT friend_id, MAX(created_at) AS lm
++    SELECT friend_id, MAX(julianday(created_at)) AS lm
+     FROM messages_log
+     WHERE direction='outgoing' AND source='manual'
+       AND friend_id IN (SELECT id FROM tenant_friends)
+@@ -158,8 +170,8 @@ const RECENT_INCOMINGS_SQL = `
+   WHERE ml.direction='incoming'
+     AND ml.friend_id IN (SELECT id FROM tenant_friends)
+     AND (ml.source IS NULL OR ml.source != 'postback')
+-    AND (lm.lm IS NULL OR ml.created_at > lm.lm)
+-  ORDER BY ml.friend_id, ml.created_at DESC
++    AND (lm.lm IS NULL OR julianday(ml.created_at) > lm.lm)
++  ORDER BY ml.friend_id, julianday(ml.created_at) DESC, ml.id DESC
+ `;
+ 
+ // 候補 friend の "last_manual 以降の auto_reply outgoing (reply 限定)"。
+@@ -175,7 +187,7 @@ const RECENT_AUTO_REPLY_OUTGOINGS_SQL = `
+     WHERE mapping.tenant_id = ?
+   ),
+   last_manual AS (
+-    SELECT friend_id, MAX(created_at) AS lm
++    SELECT friend_id, MAX(julianday(created_at)) AS lm
+     FROM messages_log
+     WHERE direction='outgoing' AND source='manual'
+       AND friend_id IN (SELECT id FROM tenant_friends)
+@@ -188,8 +200,8 @@ const RECENT_AUTO_REPLY_OUTGOINGS_SQL = `
+     AND ml.friend_id IN (SELECT id FROM tenant_friends)
+     AND ml.source='auto_reply'
+     AND ml.delivery_type='reply'
+-    AND (lm.lm IS NULL OR ml.created_at > lm.lm)
+-  ORDER BY ml.friend_id, ml.created_at ASC
++    AND (lm.lm IS NULL OR julianday(ml.created_at) > lm.lm)
++  ORDER BY ml.friend_id, julianday(ml.created_at) ASC, ml.id ASC
+ `;
+ 
+ 
+@@ -354,7 +366,7 @@ async function getAllUnansweredRows(db: D1Database, tenantId: string, staffId?:
+ 
+   // 新しい順 (= 直近 incoming が先頭)。実運用では「最近来た会話を上から潰す」
+   // 流れの方が手が動く (2026-05-12 野田さん運用フィードバック)。
+-  rows.sort((a, b) => b.lastIncomingAt.localeCompare(a.lastIncomingAt));
++  rows.sort((a, b) => Date.parse(b.lastIncomingAt) - Date.parse(a.lastIncomingAt));
+   return rows;
+ }
+ 
+@@ -417,7 +429,7 @@ export async function countUnanswered(db: D1Database, tenantId: string, staffId?
+     } else {
+       byAccountMap.set(key, { accountName: r.accountName, count: 1 });
+     }
+-    if (oldest === null || r.lastIncomingAt < oldest) oldest = r.lastIncomingAt;
++    if (oldest === null || Date.parse(r.lastIncomingAt) < Date.parse(oldest)) oldest = r.lastIncomingAt;
+   }
+ 
+   const byAccount = [...byAccountMap.entries()]
+diff --git a/apps/worker/src/routes/crm/chat-time.test.ts b/apps/worker/src/routes/crm/chat-time.test.ts
+new file mode 100644
+index 0000000..949804a
+--- /dev/null
++++ b/apps/worker/src/routes/crm/chat-time.test.ts
+@@ -0,0 +1,137 @@
++import { readFileSync } from 'node:fs';
++import { join } from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { Hono } from 'hono';
++import type { Env } from '../../index.js';
++import { Sqlite, d1FromSqlite, DB_PACKAGE_ROOT, type TestSqliteDatabase } from '../../custom/pharmacy/test-sqlite.js';
++import { countUnanswered, computeUnansweredInbox } from '../../services/unanswered-inbox.js';
++import { conversations } from './conversations.js';
++import { chats } from './chats.js';
++
++let sqlite: TestSqliteDatabase;
++let db: D1Database;
++let app: Hono<Env>;
++function friend(id = 'friend-a') {
++  sqlite.prepare(`INSERT INTO friends(id,line_user_id,provider_line_user_id,display_name,line_account_id,is_following)
++    VALUES(?,?,?,?,'account-a',1)`).run(id, id, id, id);
++}
++function message(id: string, at: string, direction = 'incoming', friendId = 'friend-a', source = direction === 'incoming' ? 'user' : 'manual', deliveryType: string | null = null) {
++  sqlite.prepare(`INSERT INTO messages_log(id,friend_id,line_account_id,direction,message_type,content,source,delivery_type,created_at)
++    VALUES(?,?,'account-a',?,'text',?,?,?,?)`).run(id, friendId, direction, id, source, deliveryType, at);
++}
++async function get(path: string) {
++  const response = await app.request(path, {}, { DB: db } as Env['Bindings']);
++  expect(response.status).toBe(200);
++  return response.json() as Promise<{data: any}>;
++}
++beforeEach(() => {
++  sqlite = new Sqlite(':memory:');
++  sqlite.pragma('foreign_keys = ON');
++  sqlite.exec(readFileSync(join(DB_PACKAGE_ROOT, 'bootstrap.sql'), 'utf8'));
++  sqlite.exec(`INSERT INTO tenants(id,tenant_code,display_name) VALUES('tenant-a','tenant-a','Synthetic');
++    INSERT INTO line_accounts(id,channel_id,name,channel_access_token,channel_secret) VALUES('account-a','channel-a','Synthetic','synthetic-token','synthetic-secret');
++    INSERT INTO tenant_line_accounts(tenant_id,line_account_id) VALUES('tenant-a','account-a');
++    INSERT INTO staff_members(id,name,role,api_key,is_active) VALUES('staff-a','Synthetic','admin','synthetic-key',1);
++    INSERT INTO tenant_staff_memberships(tenant_id,staff_id,role,is_active) VALUES('tenant-a','staff-a','admin',1);
++    INSERT INTO pharmacy_staff_accounts(line_account_id,staff_id,is_active,created_at,updated_at) VALUES('account-a','staff-a',1,'2023-01-01T00:00:00Z','2023-01-01T00:00:00Z');`);
++  db = d1FromSqlite(sqlite);
++  app = new Hono<Env>();
++  app.use('*', async (c, next) => {
++    c.set('tenantId', 'tenant-a');
++    c.set('staff', { id: 'staff-a', name: 'Synthetic', role: 'admin' });
++    await next();
++  });
++  app.route('/', conversations);
++  app.route('/', chats);
++  friend();
++});
++afterEach(() => { sqlite.close(); vi.restoreAllMocks(); });
++
++describe('chat timestamps compare instants while preserving stored strings', () => {
++  it.each([
++    ['2023-01-01T09:00:00.000+09:00', '2023-01-01T00:01:00.000Z'],
++    ['2023-01-01T00:00:00.000Z', '2023-01-01T09:01:00.000+09:00'],
++    ['2023-01-01T00:00:00.000Z', '2023-01-01T00:01:00.000Z'],
++    ['2023-01-01T09:00:00.000+09:00', '2023-01-01T09:01:00.000+09:00'],
++    ['2023-01-02T00:00:00.100+09:00', '2023-01-01T15:00:00.200Z'],
++  ])('orders history and removes answered work for %s → %s', async (incoming, outgoing) => {
++    message('incoming', incoming);
++    message('outgoing', outgoing, 'outgoing');
++    const first = (await get('/api/conversations/friend-a?limit=1')).data.messages;
++    expect(first.map((m: any) => m.id)).toEqual(['outgoing']);
++    expect(first[0].createdAt).toBe(outgoing);
++    const second = (await get('/api/conversations/friend-a?limit=1&before=' + encodeURIComponent(first[0].createdAt))).data.messages;
++    expect(second.map((m: any) => m.id)).toEqual(['incoming']);
++    const detail = (await get('/api/conversations/friend-a')).data.messages;
++    expect(detail.map((m: any) => m.id)).toEqual(['incoming', 'outgoing']);
++    const chat = (await get('/api/chats/friend-a')).data;
++    expect(chat.messages.map((m: any) => m.id)).toEqual(['incoming', 'outgoing']);
++    const list = (await get('/api/chats')).data;
++    expect(list[0]).toMatchObject({ lastMessageDirection: 'outgoing', lastMessageContent: 'outgoing', lastMessageAt: outgoing });
++    expect((await get('/api/conversations?minHoursSince=0')).data).toEqual({total: 0, items: []});
++    expect((await countUnanswered(db, 'tenant-a')).total).toBe(0);
++  });
++
++  it('uses one clock for list cursors, even when chat metadata is newer than its preview', async () => {
++    friend('friend-b'); friend('friend-c');
++    message('a', '2023-01-01T09:00:00.000+09:00');
++    message('b', '2023-01-01T00:00:30.000Z', 'incoming', 'friend-b');
++    message('c', '2023-01-01T09:00:30.000+09:00', 'incoming', 'friend-c');
++    sqlite.prepare(`INSERT INTO chats(id,friend_id,last_message_at,status) VALUES('chat-a','friend-a','2023-01-01T00:01:00.000Z','unread')`).run();
++    const ids: string[] = [];
++    let cursor = '';
++    for (let page = 0; page < 3; page++) {
++      const list = (await get('/api/chats?limit=1' + cursor)).data;
++      expect(list).toHaveLength(1);
++      ids.push(list[0].id);
++      cursor = '&beforeAt=' + encodeURIComponent(new Date(list[0].lastMessageAt).toISOString()) + '&beforeId=' + list[0].id;
++    }
++    expect(ids).toEqual(['friend-a', 'friend-c', 'friend-b']);
++    expect((await get('/api/chats?limit=1' + cursor)).data).toEqual([]);
++  });
++
++  it('keeps raw argmax timestamps for multiple incoming/manual formats and sorts inbox by instant', async () => {
++    friend('friend-b');
++    message('older', '2023-01-01T09:00:00.000+09:00');
++    message('newer', '2023-01-01T00:02:00.000Z');
++    message('manual-old', '2022-12-31T23:59:00.000Z', 'outgoing');
++    message('manual-new', '2023-01-01T09:01:00.000+09:00', 'outgoing');
++    message('b', '2023-01-01T09:01:30.000+09:00', 'incoming', 'friend-b');
++    const queue = (await get('/api/conversations?minHoursSince=0')).data;
++    expect(queue.total).toBe(2);
++    expect(queue.items.map((x: any) => x.friendId)).toEqual(['friend-b', 'friend-a']);
++    expect(queue.items[1]).toMatchObject({lastIncomingAt: '2023-01-01T00:02:00.000Z', lastIncomingPreview: 'newer'});
++    const inbox = await computeUnansweredInbox(db, 'tenant-a');
++    expect(inbox.rows.map(x => x.friendId)).toEqual(['friend-a', 'friend-b']);
++    expect(inbox.rows[0]).toMatchObject({lastIncomingAt:'2023-01-01T00:02:00.000Z',lastManualAt:'2023-01-01T09:01:00.000+09:00',lastIncomingContent:'newer'});
++    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2023-01-01T00:03:40.000Z'));
++    expect((await countUnanswered(db, 'tenant-a')).oldestWaitMinutes).toBe(2);
++    expect((await computeUnansweredInbox(db, 'tenant-a', {minWaitMinutes:2})).rows.map(x => x.friendId)).toEqual(['friend-b']);
++    message('manual-latest', '2023-01-01T00:02:01.000Z', 'outgoing');
++    expect((await computeUnansweredInbox(db, 'tenant-a')).rows.map(x => x.friendId)).toEqual(['friend-b']);
++    expect((await get('/api/conversations?minHoursSince=0')).data.total).toBe(1);
++  });
++
++  it('preserves strict timestamp-only before for equal instants and excludes test sends from chats', async () => {
++    message('a', '2023-01-01T09:00:00.100+09:00');
++    message('b', '2023-01-01T00:00:00.100Z');
++    message('test', '2023-01-02T00:00:00Z', 'outgoing', 'friend-a', 'broadcast', 'test');
++    const detail = (await get('/api/conversations/friend-a?before=2023-01-01T00:00:00.100Z')).data.messages;
++    expect(detail).toEqual([]);
++    const list = (await get('/api/chats')).data;
++    expect(['a', 'b']).toContain(list[0].lastMessageContent);
++    const chat = (await get('/api/chats/friend-a')).data;
++    expect(chat.messages.map((m: any) => m.id)).toEqual(['a', 'b']);
++  });
++
++  it('consumes mixed-offset auto-reply evidence once and keeps a later unanswered incoming', async () => {
++    message('older', '2023-01-01T09:00:00.000+09:00');
++    message('middle', '2023-01-01T00:00:01.000Z');
++    message('reply', '2023-01-01T09:00:02.000+09:00', 'outgoing', 'friend-a', 'auto_reply', 'reply');
++    const inbox = await computeUnansweredInbox(db, 'tenant-a');
++    expect(inbox.rows).toHaveLength(1);
++    expect(inbox.rows[0].lastIncomingContent).toBe('older');
++    message('later', '2023-01-01T00:00:06.000Z');
++    expect((await computeUnansweredInbox(db, 'tenant-a')).rows[0].lastIncomingContent).toBe('later');
++  });
++});

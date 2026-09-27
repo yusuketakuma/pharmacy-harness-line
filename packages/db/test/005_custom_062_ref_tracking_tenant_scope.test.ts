@@ -8,14 +8,19 @@ import { createEntryRoute, getEntryRouteFunnel } from '../src/entry-routes.js';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function d1From(sqlite: Database.Database): D1Database {
-  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement => ({
-    bind: (...next: unknown[]) => statement(sql, next),
-    first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
-    run: async () => {
-      const info = sqlite.prepare(sql).run(...values);
-      return { success: true, meta: { changes: info.changes }, results: [] } as unknown as D1Result;
-    },
-  }) as unknown as D1PreparedStatement;
+  const statement = (sql: string, values: unknown[] = []): D1PreparedStatement =>
+    ({
+      bind: (...next: unknown[]) => statement(sql, next),
+      first: async <T>() => (sqlite.prepare(sql).get(...values) as T | undefined) ?? null,
+      run: async () => {
+        const info = sqlite.prepare(sql).run(...values);
+        return {
+          success: true,
+          meta: { changes: info.changes },
+          results: [],
+        } as unknown as D1Result;
+      },
+    }) as unknown as D1PreparedStatement;
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 }
 
@@ -49,15 +54,17 @@ describe('005 custom_062 ref tracking tenant scope', () => {
       ('tracking-b', 'shared-ref', 'friend-b')`);
 
     const route = await createEntryRoute(db, {
-      refCode: 'shared-ref', name: 'Tenant A route', tenantId: 'tenant-a',
+      refCode: 'shared-ref',
+      name: 'Tenant A route',
+      tenantId: 'tenant-a',
     });
 
-    expect(sqlite.prepare(
-      `SELECT entry_route_id FROM ref_tracking WHERE id = 'tracking-a'`,
-    ).get()).toEqual({ entry_route_id: route.id });
-    expect(sqlite.prepare(
-      `SELECT entry_route_id FROM ref_tracking WHERE id = 'tracking-b'`,
-    ).get()).toEqual({ entry_route_id: null });
+    expect(sqlite.prepare(`SELECT entry_route_id FROM ref_tracking WHERE id = 'tracking-a'`).get()).toEqual({
+      entry_route_id: route.id,
+    });
+    expect(sqlite.prepare(`SELECT entry_route_id FROM ref_tracking WHERE id = 'tracking-b'`).get()).toEqual({
+      entry_route_id: null,
+    });
     await expect(getEntryRouteFunnel(db, route.id)).resolves.toEqual({
       click_count: 1,
       friend_add_count: 1,
@@ -68,13 +75,19 @@ describe('005 custom_062 ref tracking tenant scope', () => {
 
   it('rejects a direct cross-tenant route attribution', async () => {
     const route = await createEntryRoute(db, {
-      refCode: 'tenant-a-ref', name: 'Tenant A route', tenantId: 'tenant-a',
+      refCode: 'tenant-a-ref',
+      name: 'Tenant A route',
+      tenantId: 'tenant-a',
     });
 
-    expect(() => sqlite.prepare(
-      `INSERT INTO ref_tracking (id, ref_code, friend_id, entry_route_id)
+    expect(() =>
+      sqlite
+        .prepare(
+          `INSERT INTO ref_tracking (id, ref_code, friend_id, entry_route_id)
        VALUES ('cross-tenant', 'tenant-a-ref', 'friend-b', ?)`,
-    ).run(route.id)).toThrow(/REF_TRACKING_ENTRY_ROUTE_TENANT_SCOPE_MISMATCH/);
+        )
+        .run(route.id),
+    ).toThrow(/REF_TRACKING_ENTRY_ROUTE_TENANT_SCOPE_MISMATCH/);
   });
 
   it('preserves tracking for the isolated legacy-global scope', async () => {

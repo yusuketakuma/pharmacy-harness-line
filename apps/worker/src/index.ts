@@ -100,6 +100,7 @@ import { instagramEngagement } from './routes/marketing/instagram-engagement.js'
 import adminVersion from './routes/admin/admin-version.js';
 import { mediaInquiries } from './routes/admin/media-inquiries.js';
 import { loginUnconfiguredPage } from './lib/login-unconfigured.js';
+import { appErrorHandler } from './lib/app-error-handler.js';
 import { prescriptionRoutes } from './custom/pharmacy/prescriptions/routes.js'; // custom:pharmacy-prescriptions
 import { patientTimelineRoutes } from './custom/pharmacy/patient-timeline/routes.js'; // custom:pharmacy-patient-timeline
 import { pharmacyIntakeRoutes } from './custom/pharmacy/intake/routes.js'; // custom:pharmacy-intake
@@ -135,10 +136,7 @@ import { deliverContinuityReminder } from './custom/pharmacy/continuity/notifica
 import { pharmacyGrowthLoopRoutes } from './custom/pharmacy/growth-loop/routes.js'; // custom:pharmacy-growth-loop
 import { processDuePrescriptionValidityReminders } from './custom/pharmacy/growth-loop/validity.js'; // custom:pharmacy-growth-loop
 import { pharmacyAccountGuard } from './custom/pharmacy/account.js'; // custom:pharmacy-tenant-boundary
-import {
-  hasPharmacyModeAccount,
-  isPharmacyModeAccount,
-} from './custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
+import { hasPharmacyModeAccount, isPharmacyModeAccount } from './custom/pharmacy/growth-loop/access.js'; // custom:pharmacy-allowlist
 import { shouldRunGenericCron } from './custom/pharmacy/cron-access.js'; // custom:pharmacy-tenant-boundary
 import {
   PHARMACY_DISABLED_GENERIC_API_PREFIXES,
@@ -148,11 +146,7 @@ import {
 } from './custom/pharmacy/growth-loop/generic-feature-guard.js'; // custom:pharmacy-allowlist
 import { isLinkPreviewBot } from './lib/og-bot.js';
 import { buildOgHtml } from './lib/og-html.js';
-import {
-  resolveOgForEvent,
-  resolveOgForForm,
-  resolveOgForAccount,
-} from './lib/og-resolver.js';
+import { resolveOgForEvent, resolveOgForForm, resolveOgForAccount } from './lib/og-resolver.js';
 
 export type Env = {
   Bindings: {
@@ -176,13 +170,13 @@ export type Env = {
     LINE_LOGIN_CHANNEL_SECRET: string;
     WORKER_URL: string;
     // Admin auth topology (see middleware/admin-auth-config.ts):
-    ADMIN_ORIGIN?: string;          // Comma-separated admin web origin allowlist for credentialed CORS
-    LIFF_ORIGIN?: string;           // Comma-separated LIFF origin allowlist for credentialed CORS
+    ADMIN_ORIGIN?: string; // Comma-separated admin web origin allowlist for credentialed CORS
+    LIFF_ORIGIN?: string; // Comma-separated LIFF origin allowlist for credentialed CORS
     ADMIN_COOKIE_SAMESITE?: string; // Optional override: 'Strict' | 'Lax' | 'None'
     ADMIN_ALLOW_CROSS_SITE?: string; // 'true' opts into SameSite=None cross-site cookies
-    X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
-    IG_HARNESS_URL?: string;  // Optional: IG Harness API URL for cross-platform linking
-    IG_HARNESS_LINK_SECRET?: string;  // Shared secret for IG Harness link-line webhook
+    X_HARNESS_URL?: string; // Optional: X Harness API URL for account linking
+    IG_HARNESS_URL?: string; // Optional: IG Harness API URL for cross-platform linking
+    IG_HARNESS_LINK_SECRET?: string; // Shared secret for IG Harness link-line webhook
     WORKER_PUBLIC_URL?: string;
     ADMIN_PUBLIC_URL?: string;
     LIFF_PUBLIC_URL?: string;
@@ -220,29 +214,38 @@ const app = new Hono<Env>();
 // Public form endpoint used by the-harness.com. Keep this allowlist separate
 // from credentialed admin CORS so the media origin gains access to this route
 // only, never to the admin API surface.
-app.use('/api/public/media-inquiries', cors({
-  origin: (origin) => [
-    'https://the-harness.com',
-    'https://www.the-harness.com',
-    'http://localhost:4321',
-    'http://127.0.0.1:4321',
-  ].includes(origin) ? origin : '',
-  allowMethods: ['POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type'],
-  maxAge: 600,
-}));
+app.use(
+  '/api/public/media-inquiries',
+  cors({
+    origin: (origin) =>
+      [
+        'https://the-harness.com',
+        'https://www.the-harness.com',
+        'http://localhost:4321',
+        'http://127.0.0.1:4321',
+      ].includes(origin)
+        ? origin
+        : '',
+    allowMethods: ['POST', 'OPTIONS'],
+    allowHeaders: ['Content-Type'],
+    maxAge: 600,
+  }),
+);
 
 // CORS — credentialed auth cannot use a wildcard origin. Reflect only
 // same-origin requests and origins on the ADMIN_ORIGIN/LIFF_ORIGIN allowlists;
 // everything else gets no Access-Control-Allow-Origin header (browser blocks
 // it). Bearer SDK/MCP callers send no Origin header and are unaffected.
-app.use('*', cors({
-  origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
-  credentials: true,
-  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: CORS_ALLOW_HEADERS,
-  maxAge: 600,
-}));
+app.use(
+  '*',
+  cors({
+    origin: (origin, c) => resolveCorsOrigin(c.env, origin, c.req.url),
+    credentials: true,
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: CORS_ALLOW_HEADERS,
+    maxAge: 600,
+  }),
+);
 
 // Rate limiting — runs before auth to block abuse early
 app.use('*', rateLimitMiddleware);
@@ -636,7 +639,8 @@ app.get('/r/:ref/help', async (c) => {
     displayUrl = `${reqUrl.origin}/r/${encodeURIComponent(ref)}${qs ? '?' + qs : ''}`;
   }
   // Escape URL for safe embedding in HTML attributes and a visible <code>-style block.
-  const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const urlForHtml = escapeHtml(displayUrl);
 
   const ua = (c.req.header('user-agent') || '').toLowerCase();
@@ -646,13 +650,15 @@ app.get('/r/:ref/help', async (c) => {
 
   // Long-press recovery is iOS-only. On Android the intent:// URL on the
   // main page already handles the equivalent recovery without help-page UI.
-  const longPressBlock = isIOS ? `<div class="method">
+  const longPressBlock = isIOS
+    ? `<div class="method">
 <div class="method-num">1</div>
 <div class="method-body">
 <div class="method-title">長押しで開く（最も簡単）</div>
 <div class="method-desc">前のページに戻り、緑の「LINEで開く」ボタンを<strong>長押し</strong>。表示されたメニューから「<strong>LINEで開く</strong>」を選択してください。</div>
 </div>
-</div>` : '';
+</div>`
+    : '';
   const copyMethodNum = isIOS ? '2' : '1';
 
   return c.html(`<!DOCTYPE html>
@@ -884,10 +890,7 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
 
   const lookupAccountByLiff = async (liffId: string | null): Promise<any> => {
     if (!liffId) return null;
-    return db
-      .prepare(`SELECT ${accountOgColumns} FROM line_accounts WHERE liff_id = ?`)
-      .bind(liffId)
-      .first<any>();
+    return db.prepare(`SELECT ${accountOgColumns} FROM line_accounts WHERE liff_id = ?`).bind(liffId).first<any>();
   };
   const lookupAccountById = async (id: string | null): Promise<any> => {
     if (!id) return null;
@@ -902,9 +905,7 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
 
   // Pharmacy tenants do not expose generic CRM preview data. This guard is
   // needed here because bot previews are resolved outside the /api allowlist.
-  const pharmacyMode = eventId || pageFromQuery === 'form'
-    ? await hasPharmacyModeAccount(db)
-    : false;
+  const pharmacyMode = eventId || pageFromQuery === 'form' ? await hasPharmacyModeAccount(db) : false;
 
   if (eventId && !pharmacyMode) {
     // liffId クエリでアカウントが特定できる場合は /api/liff/events/:id と
@@ -942,9 +943,7 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
       // させて漏洩を防ぐ。
       account = null;
       event = await db
-        .prepare(
-          `SELECT * FROM events WHERE id = ? AND deleted_at IS NULL AND is_published = 1`,
-        )
+        .prepare(`SELECT * FROM events WHERE id = ? AND deleted_at IS NULL AND is_published = 1`)
         .bind(eventId)
         .first<any>();
       if (event && event.target_type === 'single' && event.line_account_id) {
@@ -987,9 +986,7 @@ async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
 }
 
 // 404 fallback — API paths return JSON 404, everything else serves from static assets (LIFF/admin)
-export async function notFoundHandler(
-  c: import('hono').Context<Env>,
-): Promise<Response> {
+export async function notFoundHandler(c: import('hono').Context<Env>): Promise<Response> {
   const url = new URL(c.req.url);
   const path = url.pathname;
   if (path.startsWith('/api/') || path === '/webhook' || path === '/docs' || path === '/openapi.json') {
@@ -1021,20 +1018,15 @@ export async function notFoundHandler(
   // それ以外 (存在しない .js/.png への参照など) は 404 のまま透過する。
   const accept = c.req.header('accept') ?? '';
   if (c.req.method === 'GET' && accept.includes('text/html')) {
-    return c.env.ASSETS.fetch(
-      new Request(new URL('/', c.req.url).toString(), { headers: c.req.raw.headers }),
-    );
+    return c.env.ASSETS.fetch(new Request(new URL('/', c.req.url).toString(), { headers: c.req.raw.headers }));
   }
   return assetRes;
 }
 app.notFound(notFoundHandler);
+app.onError(appErrorHandler);
 
 // Scheduled handler for cron triggers — runs for all active LINE accounts
-async function scheduled(
-  event: ScheduledEvent,
-  env: Env['Bindings'],
-  ctx: ExecutionContext,
-): Promise<void> {
+async function scheduled(event: ScheduledEvent, env: Env['Bindings'], ctx: ExecutionContext): Promise<void> {
   // Get all active accounts from DB
   const dbAccounts = await getActiveTenantLineAccounts(env.DB);
   // ponytail: mixed generic/pharmacy cron is fail-closed; split jobs by tenant
@@ -1065,10 +1057,7 @@ async function scheduled(
   // 含まない高速処理なので、先に await しても他ジョブを starve させない。
   if (runGenericCron) {
     const { recoverStalledBroadcasts, recoverStuckDeliveries } = await import('@line-crm/db');
-    await Promise.allSettled([
-      recoverStalledBroadcasts(env.DB),
-      recoverStuckDeliveries(env.DB),
-    ]);
+    await Promise.allSettled([recoverStalledBroadcasts(env.DB), recoverStuckDeliveries(env.DB)]);
   }
 
   // Booking / event-booking リマインドは時刻厳守 + 軽量 (数件/tick、上限100件) なので、
@@ -1089,87 +1078,81 @@ async function scheduled(
   if (runGenericCron) {
     try {
       const result = await processDueReminders(env.DB, {
-      now: new Date(),
-      sender: sendBookingNotification,
-      reminderHoursBefore: DEFAULT_ACCOUNT_SETTINGS.reminder_hours_before,
-    });
-    if (result.sent + result.failed > 0) {
-      console.log(`[booking-reminders] sent=${result.sent} failed=${result.failed}`);
-    }
+        now: new Date(),
+        sender: sendBookingNotification,
+        reminderHoursBefore: DEFAULT_ACCOUNT_SETTINGS.reminder_hours_before,
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(`[booking-reminders] sent=${result.sent} failed=${result.failed}`);
+      }
     } catch (e) {
       console.error('booking-reminders error:', e);
     }
 
     try {
       const result = await processDueEventReminders(env.DB, {
-      now: new Date(),
-      sender: sendEventBookingNotification,
-    });
-    if (result.sent + result.failed > 0) {
-      console.log(`[event-booking-reminders] sent=${result.sent} failed=${result.failed}`);
-    }
+        now: new Date(),
+        sender: sendEventBookingNotification,
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(`[event-booking-reminders] sent=${result.sent} failed=${result.failed}`);
+      }
     } catch (e) {
       console.error('event-booking-reminders error:', e);
     }
+  }
 
-  // 外部Google Calendarで確定したMeet個別相談。前日・1時間前のLINE通知を
-  // D1で管理し、送信は必ずLINE Harness Proxyを通す。
-    try {
-      const result = await processDueMeetConsultationReminders(env.DB, {
+  // Meet reminders also serve pharmacy accounts through the approved sender.
+  // Keep them outside the generic-only gate, after credential refresh.
+  try {
+    const result = await processDueMeetConsultationReminders(env.DB, {
       now: new Date(),
-      proxyBaseUrl:
-        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
       proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
       lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
     });
     if (result.sent + result.failed > 0) {
       console.log(`[meet-consultation-reminders] sent=${result.sent} failed=${result.failed}`);
     }
-    } catch (e) {
-      console.error('meet-consultation-reminders error:', e);
-    }
+  } catch (e) {
+    console.error('meet-consultation-reminders error:', e);
+  }
 
-  // ウェビナー予約リマインド (セッション選択メニュー)。時刻厳守・軽量なので
-  // booking 系リマインドと同じく重いジョブより先に実行する。
+  if (runGenericCron) {
+    // ウェビナー予約リマインド (セッション選択メニュー)。時刻厳守・軽量なので
+    // booking 系リマインドと同じく重いジョブより先に実行する。
     try {
       const { processWebinarReminders } = await import('./services/webinar-reminders.js');
-    const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(env.LIFF_URL ?? '');
-    const result = await processWebinarReminders(
-      env.DB,
-      {
-        proxyBaseUrl:
-          env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(env.LIFF_URL ?? '');
+      const result = await processWebinarReminders(env.DB, {
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
         defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
         defaultLiffId: liffMatch?.[1] ?? null,
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-        canProcessAccount: async (accountId) =>
-          !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
-      },
-    );
-    if (result.sent + result.failed > 0) {
-      console.log(`[webinar-reminders] sent=${result.sent} failed=${result.failed}`);
-    }
+        canProcessAccount: async (accountId) => !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(`[webinar-reminders] sent=${result.sent} failed=${result.failed}`);
+      }
     } catch (e) {
       console.error('webinar-reminders error:', e);
     }
 
-  // 予約画面の未予約、予約後の未視聴、フォーム途中離脱、回答後の相談未予約を
-  // 段階別に自動追客する。対象は followup config で有効化したウェビナーだけ。
+    // 予約画面の未予約、予約後の未視聴、フォーム途中離脱、回答後の相談未予約を
+    // 段階別に自動追客する。対象は followup config で有効化したウェビナーだけ。
     try {
       const { processWebinarFollowups } = await import('./services/webinar-followups.js');
-    const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(env.LIFF_URL ?? '');
-    const result = await processWebinarFollowups(env.DB, {
-      proxyBaseUrl:
-        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
-      defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
-      defaultLiffId: liffMatch?.[1] ?? null,
-      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-      canProcessAccount: async (accountId) =>
-        !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
-    });
-    if (result.sent + result.failed > 0) {
-      console.log(`[webinar-followups] sent=${result.sent} failed=${result.failed}`);
-    }
+      const liffMatch = /liff\.line\.me\/([^/?]+)/.exec(env.LIFF_URL ?? '');
+      const result = await processWebinarFollowups(env.DB, {
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        defaultAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
+        defaultLiffId: liffMatch?.[1] ?? null,
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        canProcessAccount: async (accountId) => !(await isPharmacyModeAccount(env.DB, accountId ?? defaultAccountId)),
+      });
+      if (result.sent + result.failed > 0) {
+        console.log(`[webinar-followups] sent=${result.sent} failed=${result.failed}`);
+      }
     } catch (e) {
       console.error('webinar-followups error:', e);
     }
@@ -1191,152 +1174,179 @@ async function scheduled(
     );
   }
 
-  if (event.cron === '* * * * *') {
-    jobs.push(reconcileAttemptedBroadcastTestPushes({
-      db: env.DB,
-      now: new Date(event.scheduledTime),
-      resolveSender: async ({ tenantId, lineAccountId }) => {
-        if (!env.LINE_CREDENTIAL_KEY_V1) return null;
-        const token = await readLineCredential(env.DB, env.LINE_CREDENTIAL_KEY_V1, {
-          tenantId,
-          lineAccountId,
-          kind: 'channel_access_token',
-        });
-        if (!token) return null;
-        const client = new LineClient(token);
-        return async (request, retryKey) => {
-          await client.pushMessage(request.to, request.messages, retryKey);
-        };
-      },
-    }).then((result) => {
-      if (result.accepted + result.pending + result.retired > 0) {
-        console.log(
-          `[outbound-line] test_accepted=${result.accepted} test_pending=${result.pending} test_retired=${result.retired}`,
-        );
-      }
-    }).catch(() => {
-      console.error('outbound-line test reconciliation error');
-    }));
-    jobs.push(reconcileAcceptedScenarioReplies(env.DB).then((reconciled) => {
-      if (reconciled > 0) console.log(`[outbound-line] scenario_reconciled=${reconciled}`);
-    }).catch((e) => {
-      console.error('outbound-line scenario reconciliation error:', e);
-    }));
-    jobs.push(reconcileUnsentScenarioReplies(env.DB).then((reconciled) => {
-      if (reconciled > 0) console.log(`[outbound-line] scenario_unsent_reconciled=${reconciled}`);
-    }).catch((e) => {
-      console.error('outbound-line unsent scenario reconciliation error:', e);
-    }));
-    jobs.push(retireExpiredOutboundLineDeliveries(
-      env.DB,
-      new Date(event.scheduledTime),
-    ).then((retired) => {
-      if (retired > 0) console.log(`[outbound-line] reconciliation_required=${retired}`);
-    }).catch((e) => {
-      console.error('outbound-line reconciliation sweep error:', e);
-    }));
+  if (event.cron === '*/5 * * * *') {
+    jobs.push(
+      reconcileAttemptedBroadcastTestPushes({
+        db: env.DB,
+        now: new Date(event.scheduledTime),
+        resolveSender: async ({ tenantId, lineAccountId }) => {
+          if (!env.LINE_CREDENTIAL_KEY_V1) return null;
+          const token = await readLineCredential(env.DB, env.LINE_CREDENTIAL_KEY_V1, {
+            tenantId,
+            lineAccountId,
+            kind: 'channel_access_token',
+          });
+          if (!token) return null;
+          const client = new LineClient(token);
+          return async (request, retryKey) => {
+            await client.pushMessage(request.to, request.messages, retryKey);
+          };
+        },
+      })
+        .then((result) => {
+          if (result.accepted + result.pending + result.retired > 0) {
+            console.log(
+              `[outbound-line] test_accepted=${result.accepted} test_pending=${result.pending} test_retired=${result.retired}`,
+            );
+          }
+        })
+        .catch(() => {
+          console.error('outbound-line test reconciliation error');
+        }),
+    );
+    jobs.push(
+      reconcileAcceptedScenarioReplies(env.DB)
+        .then((reconciled) => {
+          if (reconciled > 0) console.log(`[outbound-line] scenario_reconciled=${reconciled}`);
+        })
+        .catch((e) => {
+          console.error('outbound-line scenario reconciliation error:', e);
+        }),
+    );
+    jobs.push(
+      reconcileUnsentScenarioReplies(env.DB)
+        .then((reconciled) => {
+          if (reconciled > 0) console.log(`[outbound-line] scenario_unsent_reconciled=${reconciled}`);
+        })
+        .catch((e) => {
+          console.error('outbound-line unsent scenario reconciliation error:', e);
+        }),
+    );
+    jobs.push(
+      retireExpiredOutboundLineDeliveries(env.DB, new Date(event.scheduledTime))
+        .then((retired) => {
+          if (retired > 0) console.log(`[outbound-line] reconciliation_required=${retired}`);
+        })
+        .catch((e) => {
+          console.error('outbound-line reconciliation sweep error:', e);
+        }),
+    );
 
     // H-3 recovery: webhook events durably stored but never finished (isolate
     // evicted, CPU limit, transient failure). Runs for every tenant including
     // pharmacy accounts — it only replays each account's own inbound events.
-    jobs.push(sweepWebhookInbox({
-      db: env.DB,
-      credentialRootSecret: env.LINE_CREDENTIAL_KEY_V1,
-      workerUrl: env.WORKER_URL || env.WORKER_PUBLIC_URL,
-      liffUrl: env.LIFF_URL,
-      r2: env.IMAGES,
-      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-      now: new Date(event.scheduledTime),
-    }).then((result) => {
-      if (result.claimed + result.deadLettered > 0) {
-        console.log(
-          `[webhook-inbox] claimed=${result.claimed} completed=${result.completed} failed=${result.failed} dead_lettered=${result.deadLettered}`,
-        );
-      }
-    }).catch((e) => {
-      console.error('webhook-inbox sweep error:', e);
-    }));
+    jobs.push(
+      sweepWebhookInbox({
+        db: env.DB,
+        credentialRootSecret: env.LINE_CREDENTIAL_KEY_V1,
+        workerUrl: env.WORKER_URL || env.WORKER_PUBLIC_URL,
+        liffUrl: env.LIFF_URL,
+        r2: env.IMAGES,
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        now: new Date(event.scheduledTime),
+      })
+        .then((result) => {
+          if (result.claimed + result.deadLettered > 0) {
+            console.log(
+              `[webhook-inbox] claimed=${result.claimed} completed=${result.completed} failed=${result.failed} dead_lettered=${result.deadLettered}`,
+            );
+          }
+        })
+        .catch((e) => {
+          console.error('webhook-inbox sweep error:', e);
+        }),
+    );
 
-    jobs.push(processDueMedicationFollowUps(env.DB, { // custom:pharmacy-medication-followup
-      proxyBaseUrl:
-        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
-      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
-      now: new Date(event.scheduledTime),
-    }).then((result) => {
-      if (result.sent + result.failed > 0) {
-        console.log(
-          `[pharmacy-medication-followup] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
-        );
-      }
-    }).catch(() => {
-      console.error('[pharmacy-medication-followup] processor failed');
-    }));
+    jobs.push(
+      processDueMedicationFollowUps(env.DB, {
+        // custom:pharmacy-medication-followup
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+        now: new Date(event.scheduledTime),
+      })
+        .then((result) => {
+          if (result.sent + result.failed > 0) {
+            console.log(
+              `[pharmacy-medication-followup] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+            );
+          }
+        })
+        .catch(() => {
+          console.error('[pharmacy-medication-followup] processor failed');
+        }),
+    );
 
-    jobs.push(processEmergencyIntakeStatusNotifications(env.DB, { // custom:pharmacy-emergency-contraception
-      proxyBaseUrl:
-        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
-      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
-      now: new Date(event.scheduledTime),
-    }).then((result) => {
-      if (result.sent + result.failed > 0) {
-        console.log(
-          `[pharmacy-emergency-status] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
-        );
-      }
-    }).catch(() => {
-      console.error('[pharmacy-emergency-status] processor failed');
-    }));
+    jobs.push(
+      processEmergencyIntakeStatusNotifications(env.DB, {
+        // custom:pharmacy-emergency-contraception
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+        now: new Date(event.scheduledTime),
+      })
+        .then((result) => {
+          if (result.sent + result.failed > 0) {
+            console.log(
+              `[pharmacy-emergency-status] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
+            );
+          }
+        })
+        .catch(() => {
+          console.error('[pharmacy-emergency-status] processor failed');
+        }),
+    );
 
-    jobs.push(processExpiredMynaHandoffNotifications(env.DB, { // custom:pharmacy-myna
-      proxyBaseUrl:
-        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
-      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
-      now: new Date(event.scheduledTime),
-    }).then((result) => {
-      if (result.sent + result.failed > 0) {
-        console.log(
-          `[pharmacy-myna-expiry] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`,
-        );
-      }
-    }).catch(() => {
-      console.error('[pharmacy-myna-expiry] processor failed');
-    }));
+    jobs.push(
+      processExpiredMynaHandoffNotifications(env.DB, {
+        // custom:pharmacy-myna
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+        now: new Date(event.scheduledTime),
+      })
+        .then((result) => {
+          if (result.sent + result.failed > 0) {
+            console.log(`[pharmacy-myna-expiry] sent=${result.sent} failed=${result.failed} skipped=${result.skipped}`);
+          }
+        })
+        .catch(() => {
+          console.error('[pharmacy-myna-expiry] processor failed');
+        }),
+    );
 
-    jobs.push(processEmergencyAppointmentReminders(env.DB, { // custom:pharmacy-emergency-contraception
-      proxyBaseUrl:
-        env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
-      proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
-      lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
-      now: new Date(event.scheduledTime),
-    }).then((result) => {
-      if (result.generated + result.sent + result.failed + result.suppressed > 0) {
-        console.log(
-          `[pharmacy-emergency-reminder] generated=${result.generated} sent=${result.sent} failed=${result.failed} skipped=${result.skipped} suppressed=${result.suppressed}`,
-        );
-      }
-    }).catch(() => {
-      console.error('[pharmacy-emergency-reminder] processor failed');
-    }));
+    jobs.push(
+      processEmergencyAppointmentReminders(env.DB, {
+        // custom:pharmacy-emergency-contraception
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+        proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
+        lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
+        now: new Date(event.scheduledTime),
+      })
+        .then((result) => {
+          if (result.generated + result.sent + result.failed + result.suppressed > 0) {
+            console.log(
+              `[pharmacy-emergency-reminder] generated=${result.generated} sent=${result.sent} failed=${result.failed} skipped=${result.skipped} suppressed=${result.suppressed}`,
+            );
+          }
+        })
+        .catch(() => {
+          console.error('[pharmacy-emergency-reminder] processor failed');
+        }),
+    );
   }
 
-  // Mileage is an eventually-consistent projection. Reuse the existing
-  // minute cron invocation, but drain only every five minutes and at most 100
-  // actions per batch so it adds no extra Cron Trigger and keeps D1 load flat.
-  if (
-    runGenericCron
-    && event.cron === '* * * * *'
-    && new Date(event.scheduledTime).getUTCMinutes() % 5 === 0
-  ) {
+  // Mileage is an eventually-consistent projection. Drained on the 5-minute
+  // tick with at most 100 actions per batch so it adds no extra Cron Trigger
+  // and keeps D1 load flat.
+  if (runGenericCron && event.cron === '*/5 * * * *') {
     jobs.push(
       processPendingMileageEvents(env.DB, {
         limit: 100,
         canProcessFriend: async (friendId) => {
-          const friend = await env.DB.prepare(
-            `SELECT line_account_id FROM friends WHERE id = ?`,
-          ).bind(friendId).first<{ line_account_id: string | null }>();
+          const friend = await env.DB.prepare(`SELECT line_account_id FROM friends WHERE id = ?`)
+            .bind(friendId)
+            .first<{ line_account_id: string | null }>();
           return !(await isPharmacyModeAccount(env.DB, friend?.line_account_id));
         },
       }).then((result) => {
@@ -1351,17 +1361,18 @@ async function scheduled(
 
   await Promise.allSettled(jobs);
 
-  // Fetch broadcast insights (runs daily, self-throttled)
-  if (runGenericCron) {
-    try {
-      await processInsightFetch(env.DB, lineClients, defaultLineClient);
-    } catch (e) {
-      console.error('Insight fetch error:', e);
-    }
-  }
-
   // Booking expirer — runs only on the 6h cron tick.
   if (event.cron === '0 */6 * * *') {
+    // Fetch broadcast insights (daily, self-throttled). Checked on the 6h tick
+    // so the 5-minute tick does not spend a query on a once-a-day job.
+    if (runGenericCron) {
+      try {
+        await processInsightFetch(env.DB, lineClients, defaultLineClient);
+      } catch (e) {
+        console.error('Insight fetch error:', e);
+      }
+    }
+
     // M-7: settled webhook receipts are only kept long enough to absorb LINE
     // redelivery. Unfinished rows are never purged.
     try {
@@ -1374,7 +1385,8 @@ async function scheduled(
     }
 
     try {
-      const result = await cleanupPrescriptionImages(env.DB, env.IMAGES, { // custom:pharmacy-prescriptions
+      const result = await cleanupPrescriptionImages(env.DB, env.IMAGES, {
+        // custom:pharmacy-prescriptions
         now: new Date(event.scheduledTime),
       });
       if (result.deleted + result.failed > 0) {
@@ -1390,7 +1402,8 @@ async function scheduled(
       // NEXT-2: per-account promise (pharmacy_emergency_settings.retention_days)
       // shown to the patient at consent time. Distinct account and boundary from
       // the uniform 3-year rule above — see RETENTION_MATRIX.md.
-      const result = await purgeEmergencyIntakesPastRetention(env.DB, { // custom:pharmacy-emergency-contraception
+      const result = await purgeEmergencyIntakesPastRetention(env.DB, {
+        // custom:pharmacy-emergency-contraception
         now: new Date(event.scheduledTime),
       });
       if (result.purged + result.failed + result.skippedFormat + result.skippedLegalHold > 0) {
@@ -1403,9 +1416,9 @@ async function scheduled(
     }
 
     try {
-      const result = await retryFailedPrescriptionNotifications(env.DB, { // custom:pharmacy-prescriptions
-        proxyBaseUrl:
-          env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+      const result = await retryFailedPrescriptionNotifications(env.DB, {
+        // custom:pharmacy-prescriptions
+        proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
         proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
         lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
       });
@@ -1422,17 +1435,19 @@ async function scheduled(
       const reminders = await claimDueNextIntakeExpectations(env.DB, new Date(event.scheduledTime)); // custom:pharmacy-continuity
       const reminderResult = { sent: 0, failed: 0, skipped: 0 };
       for (const reminder of reminders) {
-        const status = await deliverContinuityReminder(reminder, { // custom:pharmacy-continuity
+        const status = await deliverContinuityReminder(reminder, {
+          // custom:pharmacy-continuity
           db: env.DB,
-          proxyBaseUrl:
-            env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
+          proxyBaseUrl: env.WORKER_PUBLIC_URL ?? 'https://your-worker.your-subdomain.workers.dev',
           proxyDispatch: (request) => Promise.resolve(lineProxy.fetch(request, env, ctx)),
           lineCredentialKey: env.LINE_CREDENTIAL_KEY_V1,
         });
         reminderResult[status]++;
       }
       if (reminders.length > 0) {
-        console.log(`[pharmacy-continuity] claimed=${reminders.length} sent=${reminderResult.sent} failed=${reminderResult.failed} skipped=${reminderResult.skipped}`);
+        console.log(
+          `[pharmacy-continuity] claimed=${reminders.length} sent=${reminderResult.sent} failed=${reminderResult.failed} skipped=${reminderResult.skipped}`,
+        );
       }
     } catch (e) {
       console.error('pharmacy-continuity error:', e);
@@ -1452,39 +1467,35 @@ async function scheduled(
       console.error('pharmacy-validity error:', e);
     }
 
-    if (runGenericCron) try {
-      const result = await enqueueFollowingMileageMilestones(env.DB, {
-        limitPerMilestone: 1000,
-      });
-      if (result.eventsCreated + result.queued > 0) {
-        console.log(
-          `[following-mileage] events=${result.eventsCreated} queued=${result.queued}`,
-        );
+    if (runGenericCron)
+      try {
+        const result = await enqueueFollowingMileageMilestones(env.DB, {
+          limitPerMilestone: 1000,
+        });
+        if (result.eventsCreated + result.queued > 0) {
+          console.log(`[following-mileage] events=${result.eventsCreated} queued=${result.queued}`);
+        }
+      } catch (e) {
+        console.error('following-mileage error:', e);
       }
-    } catch (e) {
-      console.error('following-mileage error:', e);
-    }
 
-    if (runGenericCron) try {
-      const result = await runExpirer(env.DB, {
-        now: new Date(),
-        sender: sendBookingNotification,
-      });
-      console.log(
-        `[booking-expirer] expired=${result.expired} idempotency_purged=${result.idempotencyPurged}`,
-      );
-    } catch (e) {
-      console.error('booking-expirer error:', e);
-    }
+    if (runGenericCron)
+      try {
+        const result = await runExpirer(env.DB, {
+          now: new Date(),
+          sender: sendBookingNotification,
+        });
+        console.log(`[booking-expirer] expired=${result.expired} idempotency_purged=${result.idempotencyPurged}`);
+      } catch (e) {
+        console.error('booking-expirer error:', e);
+      }
   }
 
   // Event-booking expirer — 6h cron tick.
   if (runGenericCron && event.cron === '0 */6 * * *') {
     try {
       const result = await runEventBookingExpirer(env.DB, { now: new Date() });
-      console.log(
-        `[event-booking-expirer] expired=${result.expired} idempotency_purged=${result.idempotencyPurged}`,
-      );
+      console.log(`[event-booking-expirer] expired=${result.expired} idempotency_purged=${result.idempotencyPurged}`);
     } catch (e) {
       console.error('event-booking-expirer error:', e);
     }

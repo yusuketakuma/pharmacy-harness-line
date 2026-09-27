@@ -112,8 +112,9 @@ export async function deliverPrescriptionNotification(
   options: PrescriptionNotificationOptions,
   statusEventId: string | null = null,
 ): Promise<{ status: PrescriptionNotificationStatus }> {
-  const recipient = await db.prepare(
-    `SELECT e.id AS status_event_id, e.reason_code, e.revision, s.status,
+  const recipient = await db
+    .prepare(
+      `SELECT e.id AS status_event_id, e.reason_code, e.revision, s.status,
             s.line_account_id, s.friend_id, patient.patient_id,
             s.intake_method,
             f.provider_line_user_id AS line_user_id, mapping.tenant_id AS tenant_id, la.liff_id,
@@ -154,34 +155,43 @@ export async function deliverPrescriptionNotification(
         )
       ORDER BY e.created_at DESC, e.id DESC
       LIMIT 1`,
-  ).bind(statusEventId, statusEventId, submissionId, lineAccountId).first<NotificationRecipient>();
+    )
+    .bind(statusEventId, statusEventId, submissionId, lineAccountId)
+    .first<NotificationRecipient>();
 
-  const accessToken = recipient && options.lineCredentialKey
-    ? await readLineCredential(db, options.lineCredentialKey, {
-      tenantId: recipient.tenant_id,
-      lineAccountId: recipient.line_account_id,
-      kind: 'channel_access_token',
-    }).catch(() => null)
-    : null;
+  const accessToken =
+    recipient && options.lineCredentialKey
+      ? await readLineCredential(db, options.lineCredentialKey, {
+          tenantId: recipient.tenant_id,
+          lineAccountId: recipient.line_account_id,
+          kind: 'channel_access_token',
+        }).catch(() => null)
+      : null;
   if (!recipient?.line_user_id || !accessToken) {
     if (statusEventId) {
-      const statusEvent = await db.prepare(
-        `SELECT e.to_status, s.status
+      const statusEvent = await db
+        .prepare(
+          `SELECT e.to_status, s.status
            FROM pharmacy_prescription_events e
            INNER JOIN pharmacy_prescription_submissions s ON s.id = e.submission_id
           WHERE e.id = ? AND e.submission_id = ? AND s.line_account_id = ?
             AND e.event_type = 'status_changed'`,
-      ).bind(statusEventId, submissionId, lineAccountId).first<{ to_status: string; status: string }>();
+        )
+        .bind(statusEventId, submissionId, lineAccountId)
+        .first<{ to_status: string; status: string }>();
       if (statusEvent && statusEvent.to_status !== statusEvent.status) return { status: 'superseded' };
-      const sent = await db.prepare(
-        `SELECT 1
+      const sent = await db
+        .prepare(
+          `SELECT 1
            FROM pharmacy_prescription_events sent
            INNER JOIN pharmacy_prescription_submissions s ON s.id = sent.submission_id
           WHERE sent.submission_id = ? AND sent.actor_id = ?
             AND sent.event_type = 'notification_sent'
             AND s.line_account_id = ?
           LIMIT 1`,
-      ).bind(submissionId, statusEventId, lineAccountId).first<{ 1: number }>();
+        )
+        .bind(submissionId, statusEventId, lineAccountId)
+        .first<{ 1: number }>();
       if (sent) return { status: 'already_sent' };
     }
     return { status: 'skipped' };
@@ -192,11 +202,11 @@ export async function deliverPrescriptionNotification(
     const retryKey = recipient.status_event_id;
     const betaMembershipId = recipient.patient_id
       ? await getPharmacyBetaNotificationBinding(db, {
-        lineAccountId: recipient.line_account_id,
-        retryKey,
-        participantFriendId: recipient.friend_id,
-        subjectPatientId: recipient.patient_id,
-      })
+          lineAccountId: recipient.line_account_id,
+          retryKey,
+          participantFriendId: recipient.friend_id,
+          subjectPatientId: recipient.patient_id,
+        })
       : null;
     const outcome = await sendPharmacyAutomatedPush({
       db,
@@ -212,11 +222,15 @@ export async function deliverPrescriptionNotification(
       category: 'transactional_care',
       vars: {
         status,
-        reasonCode: recipient.reason_code as 'blurred' | 'cropped' | 'glare' | 'unreadable' | 'missing_page' | undefined,
+        reasonCode: recipient.reason_code as
+          | 'blurred'
+          | 'cropped'
+          | 'glare'
+          | 'unreadable'
+          | 'missing_page'
+          | undefined,
         ...(status === 'received' || status === 'ready' ? { intakeMethod: recipient.intake_method } : {}),
-        ...(status === 'needs_resubmission' && recipient.liff_id
-          ? { liffId: recipient.liff_id, submissionId }
-          : {}),
+        ...(status === 'needs_resubmission' && recipient.liff_id ? { liffId: recipient.liff_id, submissionId } : {}),
       },
       retryKey,
     });
@@ -243,8 +257,9 @@ async function recordNotificationEvent(
   eventType: 'notification_sent' | 'notification_failed',
 ): Promise<void> {
   const now = new Date().toISOString();
-  await db.prepare(
-    `INSERT INTO pharmacy_prescription_events
+  await db
+    .prepare(
+      `INSERT INTO pharmacy_prescription_events
        (id, submission_id, actor_type, actor_id, event_type,
         to_status, reason_code, revision, created_at)
      SELECT ?, s.id, 'system', ?, ?, ?, ?, ?, ?
@@ -256,11 +271,21 @@ async function recordNotificationEvent(
              AND existing.event_type = ?
              AND existing.actor_id = ?
         )`,
-  ).bind(
-    crypto.randomUUID(), recipient.status_event_id, eventType, recipient.status,
-    recipient.reason_code, recipient.revision, now, submissionId,
-    lineAccountId, eventType, recipient.status_event_id,
-  ).run();
+    )
+    .bind(
+      crypto.randomUUID(),
+      recipient.status_event_id,
+      eventType,
+      recipient.status,
+      recipient.reason_code,
+      recipient.revision,
+      now,
+      submissionId,
+      lineAccountId,
+      eventType,
+      recipient.status_event_id,
+    )
+    .run();
 }
 
 export async function retryFailedPrescriptionNotifications(
@@ -270,8 +295,9 @@ export async function retryFailedPrescriptionNotifications(
 ): Promise<{ sent: number; failed: number; skipped: number }> {
   const boundedLimit = Math.min(100, Math.max(1, Math.floor(limit)));
   const staleAttemptAt = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const due = await db.prepare(
-    `SELECT s.line_account_id, changed.submission_id, changed.id AS status_event_id
+  const due = await db
+    .prepare(
+      `SELECT s.line_account_id, changed.submission_id, changed.id AS status_event_id
        FROM pharmacy_prescription_events changed
        INNER JOIN pharmacy_prescription_submissions s ON s.id = changed.submission_id
        INNER JOIN pharmacy_account_capabilities pc
@@ -303,7 +329,9 @@ export async function retryFailedPrescriptionNotifications(
         )
       ORDER BY changed.created_at, changed.submission_id
       LIMIT ?`,
-  ).bind(staleAttemptAt, boundedLimit).all<RetryablePrescriptionNotification>();
+    )
+    .bind(staleAttemptAt, boundedLimit)
+    .all<RetryablePrescriptionNotification>();
 
   let retryable = due.results ?? [];
   const retryCheckAt = new Date().toISOString();
@@ -313,8 +341,9 @@ export async function retryFailedPrescriptionNotifications(
       // so no notification ledger row exists yet. The immutable binding is the
       // retry source once that same membership resumes. Missing binding schema
       // is ignored here for old Workers; the normal retry query still runs.
-      const bound = await db.prepare(
-        `SELECT s.line_account_id, changed.submission_id, changed.id AS status_event_id
+      const bound = await db
+        .prepare(
+          `SELECT s.line_account_id, changed.submission_id, changed.id AS status_event_id
            FROM pharmacy_prescription_events changed
            INNER JOIN pharmacy_prescription_submissions s
              ON s.id = changed.submission_id
@@ -343,13 +372,14 @@ export async function retryFailedPrescriptionNotifications(
             )
           ORDER BY changed.created_at, changed.submission_id
           LIMIT ?`,
-      ).bind(retryCheckAt, retryCheckAt, boundedLimit)
+        )
+        .bind(retryCheckAt, retryCheckAt, boundedLimit)
         .all<RetryablePrescriptionNotification>();
       const seen = new Set(retryable.map((row) => row.status_event_id));
-      retryable = [
-        ...retryable,
-        ...(bound.results ?? []).filter((row) => !seen.has(row.status_event_id)),
-      ].slice(0, boundedLimit);
+      retryable = [...retryable, ...(bound.results ?? []).filter((row) => !seen.has(row.status_event_id))].slice(
+        0,
+        boundedLimit,
+      );
     } catch {
       // The additive binding table may not exist yet, or a transient read may
       // fail. In either case leave existing retry discovery intact.
@@ -359,7 +389,11 @@ export async function retryFailedPrescriptionNotifications(
   const result = { sent: 0, failed: 0, skipped: 0 };
   for (const row of retryable) {
     const delivery = await deliverPrescriptionNotification(
-      db, row.line_account_id, row.submission_id, options, row.status_event_id,
+      db,
+      row.line_account_id,
+      row.submission_id,
+      options,
+      row.status_event_id,
     );
     if (delivery.status === 'sent' || delivery.status === 'already_sent') result.sent++;
     else if (delivery.status === 'failed') result.failed++;

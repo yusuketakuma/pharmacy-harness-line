@@ -14,13 +14,9 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 export const INVALID_LINE_CREDENTIAL_ERROR = 'Invalid LINE credential';
 export const LINE_CREDENTIAL_KEY_VERSION = 1 as const;
-export const LINE_CREDENTIAL_KINDS = [
-  'channel_access_token',
-  'channel_secret',
-  'login_channel_secret',
-] as const;
+export const LINE_CREDENTIAL_KINDS = ['channel_access_token', 'channel_secret', 'login_channel_secret'] as const;
 
-export type LineCredentialKind = typeof LINE_CREDENTIAL_KINDS[number];
+export type LineCredentialKind = (typeof LINE_CREDENTIAL_KINDS)[number];
 
 export interface EncryptedLineCredential {
   keyVersion: number;
@@ -62,8 +58,7 @@ function fromBase64Url(value: unknown, expectedLength?: number, maxLength?: numb
 }
 
 function isLineCredentialKind(value: unknown): value is LineCredentialKind {
-  return typeof value === 'string' &&
-    (LINE_CREDENTIAL_KINDS as readonly string[]).includes(value);
+  return typeof value === 'string' && (LINE_CREDENTIAL_KINDS as readonly string[]).includes(value);
 }
 
 function validateRootSecret(value: unknown): asserts value is string {
@@ -71,8 +66,14 @@ function validateRootSecret(value: unknown): asserts value is string {
 }
 
 function validateId(value: unknown): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 128 ||
-      value.trim() !== value || /[\u0000-\u001F\u007F]/u.test(value)) invalid();
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 128 ||
+    value.trim() !== value ||
+    /[\u0000-\u001F\u007F]/u.test(value)
+  )
+    invalid();
 }
 
 function validateContext(
@@ -89,20 +90,21 @@ function validateContext(
 }
 
 function validateCredential(kind: LineCredentialKind, credential: unknown): asserts credential is string {
-  if (typeof credential !== 'string' || credential.length < 32 || credential.length > MAX_CREDENTIAL_BYTES ||
-      credential.trim() !== credential || /[\u0000-\u001F\u007F]/u.test(credential) ||
-      encoder.encode(credential).length > MAX_CREDENTIAL_BYTES) invalid();
+  if (
+    typeof credential !== 'string' ||
+    credential.length < 32 ||
+    credential.length > MAX_CREDENTIAL_BYTES ||
+    credential.trim() !== credential ||
+    /[\u0000-\u001F\u007F]/u.test(credential) ||
+    encoder.encode(credential).length > MAX_CREDENTIAL_BYTES
+  )
+    invalid();
   if (kind === 'channel_secret' || kind === 'login_channel_secret') {
     if (credential.length > 128) invalid();
   }
 }
 
-function aad(
-  tenantId: string,
-  lineAccountId: string,
-  kind: LineCredentialKind,
-  keyVersion: number,
-): Uint8Array {
+function aad(tenantId: string, lineAccountId: string, kind: LineCredentialKind, keyVersion: number): Uint8Array {
   return encoder.encode(JSON.stringify({ tenantId, lineAccountId, kind, keyVersion }));
 }
 
@@ -112,34 +114,28 @@ function encryptionKey(rootSecret: string, keyVersion: number): Promise<CryptoKe
 
 export { sameText };
 
-export async function computeLineAccessTokenLookupDigest(
-  rootSecret: string,
-  credential: string,
-): Promise<string> {
+export async function computeLineAccessTokenLookupDigest(rootSecret: string, credential: string): Promise<string> {
   try {
     validateRootSecret(rootSecret);
     validateCredential('channel_access_token', credential);
-    return toHex(await hmacSha256(
-      rootSecret,
-      `${ROOT_SECRET_LABEL}:lookup:channel_access_token:${credential}`,
-    ));
+    return toHex(await hmacSha256(rootSecret, `${ROOT_SECRET_LABEL}:lookup:channel_access_token:${credential}`));
   } catch {
     invalid();
   }
 }
 
-export async function encryptLineCredential(
-  input: EncryptLineCredentialInput,
-): Promise<EncryptedLineCredential> {
+export async function encryptLineCredential(input: EncryptLineCredentialInput): Promise<EncryptedLineCredential> {
   try {
     const keyVersion = input.keyVersion ?? LINE_CREDENTIAL_KEY_VERSION;
     validateContext(input.rootSecret, input.tenantId, input.lineAccountId, input.kind, keyVersion);
     validateCredential(input.kind, input.credential);
     const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
     const encrypted = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: asBuffer(nonce), additionalData: asBuffer(aad(
-        input.tenantId, input.lineAccountId, input.kind, keyVersion,
-      )) },
+      {
+        name: 'AES-GCM',
+        iv: asBuffer(nonce),
+        additionalData: asBuffer(aad(input.tenantId, input.lineAccountId, input.kind, keyVersion)),
+      },
       await encryptionKey(input.rootSecret, keyVersion),
       asBuffer(encoder.encode(input.credential)),
     );
@@ -147,47 +143,44 @@ export async function encryptLineCredential(
       keyVersion,
       nonce: toBase64Url(nonce),
       ciphertext: toBase64Url(new Uint8Array(encrypted)),
-      lookupDigest: input.kind === 'channel_access_token'
-        ? await computeLineAccessTokenLookupDigest(input.rootSecret, input.credential)
-        : null,
+      lookupDigest:
+        input.kind === 'channel_access_token'
+          ? await computeLineAccessTokenLookupDigest(input.rootSecret, input.credential)
+          : null,
     };
   } catch {
     invalid();
   }
 }
 
-export async function decryptLineCredential(
-  input: DecryptLineCredentialInput,
-): Promise<string> {
+export async function decryptLineCredential(input: DecryptLineCredentialInput): Promise<string> {
   try {
-    validateContext(
-      input.rootSecret, input.tenantId, input.lineAccountId, input.kind, input.keyVersion,
-    );
+    validateContext(input.rootSecret, input.tenantId, input.lineAccountId, input.kind, input.keyVersion);
     const nonce = fromBase64Url(input.nonce, NONCE_BYTES);
     const ciphertext = fromBase64Url(input.ciphertext, undefined, MAX_CREDENTIAL_BYTES + AUTH_TAG_BYTES);
     if (ciphertext.length < AUTH_TAG_BYTES) {
       invalid();
     }
     if (input.kind === 'channel_access_token') {
-      if (typeof input.lookupDigest !== 'string' ||
-          !ACCESS_TOKEN_DIGEST_PATTERN.test(input.lookupDigest)) invalid();
+      if (typeof input.lookupDigest !== 'string' || !ACCESS_TOKEN_DIGEST_PATTERN.test(input.lookupDigest)) invalid();
     } else if (input.lookupDigest !== null) {
       invalid();
     }
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: asBuffer(nonce), additionalData: asBuffer(aad(
-        input.tenantId, input.lineAccountId, input.kind, input.keyVersion,
-      )) },
+      {
+        name: 'AES-GCM',
+        iv: asBuffer(nonce),
+        additionalData: asBuffer(aad(input.tenantId, input.lineAccountId, input.kind, input.keyVersion)),
+      },
       await encryptionKey(input.rootSecret, input.keyVersion),
       asBuffer(ciphertext),
     );
     const credential = decoder.decode(plaintext);
     validateCredential(input.kind, credential);
-    if (input.kind === 'channel_access_token' &&
-        !sameText(
-          await computeLineAccessTokenLookupDigest(input.rootSecret, credential),
-          input.lookupDigest as string,
-        )) {
+    if (
+      input.kind === 'channel_access_token' &&
+      !sameText(await computeLineAccessTokenLookupDigest(input.rootSecret, credential), input.lookupDigest as string)
+    ) {
       invalid();
     }
     return credential;

@@ -1,0 +1,10 @@
+[
+  {
+    "mode": "emergency",
+    "exitCode": 1
+  },
+  {
+    "mode": "prescription",
+    "exitCode": 1
+  }
+]
